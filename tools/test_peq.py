@@ -362,7 +362,21 @@ def editor_check(lib, tmp):
     assert not ui.shim_pending() and ui.shim_removed() == removed + 1
     ui.shim_open()
     assert title() == 'PEQ: HD650'
-    print('PEQ editor: bypass, apply, load, failed saves, preset name and close passed.')
+    # Edits mark a loaded preset's name once; the applied name is kept on disk, so it survives reboot.
+    click('1 ON'); click('Raise gain'); click('Raise gain'); ui.shim_return()
+    assert title() == 'PEQ: HD650 (modified)'
+    click('Apply changes'); click('PEQ: OFF'); click('PEQ: ON')
+    assert (data/'peq-active-name').read_text() == 'HD650 (modified)'
+    ui.shim_close(); ui.shim_open()
+    assert title() == 'PEQ: HD650 (modified)'
+    # Deleting asks first, removes only the saved copy and leaves the active EQ alone.
+    before = active.read_bytes()
+    click('Presets'); click('Delete a preset'); click('HD650.peq'); click('Cancel')
+    assert (saved/'HD650.peq').exists()
+    click('HD650.peq'); click('Delete HD650.peq? Confirm')
+    assert not (saved/'HD650.peq').exists() and active.read_bytes() == before
+    assert title() == 'Deleted HD650.peq; active EQ unchanged' and not ui.shim_click(b'HD650.peq', 0)
+    print('PEQ editor: bypass, apply, load, failed saves, preset name, delete and close passed.')
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:

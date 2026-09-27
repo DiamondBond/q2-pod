@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '4.2'  # the only place a release bumps the version
+VERSION = '4.3'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'compact': f'V{VERSION}c'}

@@ -14,18 +14,18 @@ int peq_stock_eq(int mode) {
     return result;
 }
 
-enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM };
+enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE,
        FREQ_DOWN, FREQ_UP, GAIN_DOWN, GAIN_UP, Q_DOWN, Q_UP, STEP,
-       YES, CANCEL };
+       YES, CANCEL, DELETE };
 static struct {
     void *page, *view;
     unsigned timer;
     int screen, band, step, count, previous, rendered, dirty;
     peq_preset draft, candidate;
     char (*names)[256];
-    /* name: preset in the editor; active_name: last applied. Both last until reboot. */
-    char destination[600], status[160], name[64], active_name[64];
+    /* Preset in the editor; the applied one's name is kept in PEQ_ACTIVE_NAME. */
+    char destination[600], status[160], name[64];
 } ui __attribute__((section(".scratch")));
 
 static const int steps[] = {1, 10, 100, 1000};
@@ -60,8 +60,20 @@ static void list_files(const char *folder, const char *extension) {
     }
     closedir(dir);
     qsort(ui.names, ui.count, 256, compare_names);
-    if (!ui.count) snprintf(ui.status, sizeof(ui.status), "No presets found");
+    if (!ui.count && !ui.status[0]) snprintf(ui.status, sizeof(ui.status), "No presets found");
 }
+
+/* Edits to a named preset make the name read "HD650 (modified)". */
+static void mark_modified(void) {
+    static const char mark[] = " (modified)";
+    unsigned n = strlen(ui.name), m = sizeof(mark) - 1;
+    if (!n || (n >= m && !strcmp(ui.name + n - m, mark))) return;
+    if (n > sizeof(ui.name) - sizeof(mark)) n = sizeof(ui.name) - sizeof(mark);
+    memcpy(ui.name + n, mark, sizeof(mark));
+}
+
+/* File name in ui.destination: sizeof skips PEQ_SAVED and its "/". */
+static const char *deleting(void) { return ui.destination + sizeof(PEQ_SAVED); }
 
 static void save_candidate(int replace) {
     mkdir(PEQ_SAVED, 0700);
@@ -81,6 +93,7 @@ static int action(void *ctx, void *event) {
         ui.screen = ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
+    else if (id == DELETE) ui.screen = DELETES;
     else if (id == SAVE) ui.screen = SAVES;
     else if (id == BYPASS) {
         /* Takes effect at once and keeps unapplied band edits out of the active preset. */
@@ -106,12 +119,18 @@ static int action(void *ctx, void *event) {
         if (peq_save(PEQ_ACTIVE, &ui.draft, 1) == 1) {
             peq_stock_eq(1);
             ui.dirty = 0;
-            memcpy(ui.active_name, ui.name, sizeof(ui.name));
+            /* Display only: a failed write drops the name rather than show a wrong one. */
+            void *f = fopen(PEQ_ACTIVE_NAME, "wb");
+            unsigned n = strlen(ui.name);
+            if (!f || (fwrite(ui.name, 1, n, f) != n) | fclose(f)) unlink(PEQ_ACTIVE_NAME);
             snprintf(ui.status, sizeof(ui.status), "Applied");
         } else snprintf(ui.status, sizeof(ui.status), "Apply failed; active EQ unchanged");
     } else if (id == YES) {
         ui.screen = ui.previous;
-        save_candidate(1);
+        if (ui.screen != DELETES) save_candidate(1);
+        /* Saved presets are copies; the active EQ and the editor draft are untouched. */
+        else if (unlink(ui.destination)) snprintf(ui.status, sizeof(ui.status), "Delete failed; preset kept");
+        else snprintf(ui.status, sizeof(ui.status), "Deleted %.100s; active EQ unchanged", deleting());
     } else if (id == CANCEL) ui.screen = ui.previous;
     else if (id >= 0 && id < 256) {
         if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
@@ -130,6 +149,10 @@ static int action(void *ctx, void *event) {
                 snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%.*s.peq", (int)n, ui.names[id]);
                 save_candidate(0);
             }
+        } else if (id < ui.count && ui.screen == DELETES) {
+            snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%s", ui.names[id]);
+            ui.previous = DELETES;
+            ui.screen = CONFIRM;
         } else if (id < ui.count && ui.screen == PRESETS) {
             char path[600];
             snprintf(path, sizeof(path), PEQ_SAVED "/%s", ui.names[id]);
@@ -145,7 +168,7 @@ static int action(void *ctx, void *event) {
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
-    if (id >= ENABLE && id < STEP) ui.dirty = 1; /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
+    if (id >= ENABLE && id < STEP) { ui.dirty = 1; mark_modified(); } /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
     if (!ui.timer) ui.timer = timer_add(render, 0, 1);
     return 0;
 }
@@ -200,6 +223,9 @@ static int render(const void *unused) {
         row(view, n++, "Raise gain 0.5 dB", GAIN_UP);
         snprintf(text, sizeof(text), "Q %.2f: lower 0.05", b->q); row(view, n++, text, Q_DOWN);
         row(view, n++, "Raise Q 0.05", Q_UP);
+    } else if (ui.screen == CONFIRM && ui.previous == DELETES) {
+        snprintf(text, sizeof(text), "Delete %.100s? Confirm", deleting()); row(view, n++, text, YES);
+        row(view, n++, "Cancel", CANCEL);
     } else if (ui.screen == CONFIRM) {
         row(view, n++, "Replace existing preset? Confirm", YES);
         row(view, n++, "Cancel replacement", CANCEL);
@@ -211,6 +237,7 @@ static int render(const void *unused) {
         if (ui.screen == PRESETS) {
             row(view, n++, "Import from SD /EQ", IMPORT);
             row(view, n++, "Save editor preset", SAVE);
+            row(view, n++, "Delete a preset", DELETE);
         }
         list_files(ui.screen == IMPORTS ? PEQ_IMPORT : PEQ_SAVED, ui.screen == IMPORTS ? ".txt" : ".peq");
         for (int i = 0; i < ui.count; ++i) row(view, n++, ui.names[i], i);
@@ -259,7 +286,9 @@ int peq_page_init(void *page, void *context) {
     ui.screen = HOME;
     ui.status[0] = 0;
     ui.dirty = 0;
-    memcpy(ui.name, ui.active_name, sizeof(ui.name));
+    ui.name[0] = 0;
+    void *f = fopen(PEQ_ACTIVE_NAME, "rb");
+    if (f) { ui.name[fread(ui.name, 1, sizeof(ui.name) - 1, f)] = 0; fclose(f); }
     peq_load_active(&ui.draft);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);

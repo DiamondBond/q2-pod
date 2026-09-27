@@ -1,5 +1,7 @@
 # Changelog
 
+- **V4.3R / V4.3C**: Saved PEQ presets can be deleted from **Presets → Delete a preset**, after a confirmation; the active EQ is unchanged. The title now keeps the applied preset's name across reboots, and marks it "(modified)" once you edit a loaded preset's bands.
+
 - **V4.2R / V4.2C**: PEQ editor messages (Applied, Loaded, errors) now appear in the title bar instead of cutting the list down to two rows while they show. The title names the preset you loaded ("PEQ: HD650") and keeps the applied preset's name when you reopen the editor, until the next reboot.
 
 - **V4.1R / V4.1C**: Artist pages now show their albums straight away; V3.8 highlighted the Album tab but opened an empty page until you switched tabs. PEQ editor lists no longer show a white strip below the last row.

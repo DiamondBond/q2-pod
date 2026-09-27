@@ -17,6 +17,7 @@
 #define PEQ_FILE_LIMIT 16384
 #define PEQ_LINE_LIMIT 512
 #define PEQ_ACTIVE PEQ_ROOT "/mnt/data/peq-active"
+#define PEQ_ACTIVE_NAME PEQ_ROOT "/mnt/data/peq-active-name" /* display only */
 #define PEQ_SAVED PEQ_ROOT "/mnt/data/peq-presets"
 #define PEQ_IMPORT PEQ_ROOT "/mnt/mmc/EQ"
 
