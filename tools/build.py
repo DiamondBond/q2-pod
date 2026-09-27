@@ -179,7 +179,7 @@ def compile_payload(out, compact=False):
     return symbols(out/'patch.elf')
 
 def append_payload(image, payload, base, memsz, flags, label):
-    """Map payload at base through the image's final PT_NULL header; returns its file offset."""
+    """Map payload at base through the image's final PT_NULL header."""
     nulls = [(o,p) for o,p in segments(image) if p[0] == 0]
     check(len(nulls) == 1 and nulls[0][0] == segments(image)[-1][0], f'{label}: no final PT_NULL slot')
     check(all(p[2]+p[5] < base for _,p in segments(image) if p[0] == 1), f'{label}: payload mapping overlaps')
@@ -187,7 +187,6 @@ def append_payload(image, payload, base, memsz, flags, label):
     image.extend(bytes(off-len(image)))
     image.extend(payload)
     struct.pack_into('<8I',image,nulls[0][0],1,off,base,base,len(payload),memsz,flags,65536)
-    return off
 
 def build(zip_path, out, logo, compact=False, dev=False):
     variant = 'compact' if compact else 'normal'
@@ -254,7 +253,6 @@ def build(zip_path, out, logo, compact=False, dev=False):
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
     patched = bytearray(raw_demo)
-    hooks = {}
     for name, (address, replacement) in HOOKS.items():
         check(syms[name] == address, f'{name}: callback address mismatch')
         off = fileoff(patched, address)
@@ -265,15 +263,13 @@ def build(zip_path, out, logo, compact=False, dev=False):
         gp = ((prolog[0] & 65535) << 16) + (low if low < 32768 else low - 65536) + address
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
         patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
-        hooks[name] = dict(address=hex(address), replacement=replacement, original=raw_demo[off:off+12].hex())
     from peq import patch_demo, patch_player
-    hooks.update(patch_demo(patched, ps))
+    patch_demo(patched, ps)
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
     audio = patch_player(raw_player, out/'peq')
     from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, patch_asset, patch_code, patch_word
-    artist_code = []
     for address, old, new in ARTIST_ALBUMS:
-        patch_word(patched, fileoff, artist_code, address, old, new, 'artist detail opens on Albums')
+        patch_word(patched, fileoff, [], address, old, new, 'artist detail opens on Albums')
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
         off = fileoff(raw_demo, syms[name])
@@ -289,7 +285,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     check(len(version) + 1 == len(b'V1.32\0'),
           'VERSION must stay 5 characters; a longer literal shifts every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
-    appendoff = append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 7, 'demo')
+    append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 7, 'demo')
     (out/'demo').write_bytes(patched)
     # Pseudo-file round trip preserves every original inode's metadata and hardlinks.
     pseudo = out/'root.pseudo'
@@ -348,9 +344,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     manifest = dict(input_zip_sha256=ZIP_SHA, stock_demo_sha256=DEMO_SHA, source_sha256=source,
         demo_sha256=sha(patched), patch_sha256=sha(payload), update_sha256=sha((out/'update.tar').read_bytes()),
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
-        patch_address=hex(BASE),
-        patch_file_offset=hex(appendoff), patch_bytes=len(payload), ring_step_pixels=RING_STEP,
-        version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, artist_code=artist_code, changed_assets=changed_assets, hooks=hooks, logo_sha256=sha(logo_data),
+        patch_bytes=len(payload), ring_step_pixels=RING_STEP,
+        version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']})
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

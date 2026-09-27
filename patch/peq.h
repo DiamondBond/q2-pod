@@ -18,7 +18,6 @@
 #define PEQ_ACTIVE "/mnt/data/peq-active"
 #define PEQ_SAVED "/mnt/data/peq-presets"
 #define PEQ_IMPORT "/mnt/mmc/EQ"
-#define PEQ_FINITE(x) __builtin_isfinite(x)
 
 /* Versioned disk representation: fixed-width fields, no pointers or implicit padding. */
 typedef struct { int enabled, type; double frequency, gain, q; } peq_band;

@@ -1,7 +1,7 @@
 #include "peq.h"
 
 static int between(double x, double lo, double hi) {
-    return PEQ_FINITE(x) && x >= lo && x <= hi;
+    return __builtin_isfinite(x) && x >= lo && x <= hi;
 }
 
 void peq_default(peq_preset *p) {
@@ -55,7 +55,7 @@ static int number(const char *s, double *out) {
     if (*s) return 0;
     while (exponent--) v *= esign < 0 ? 0.1 : 10;
     *out = sign * v;
-    return PEQ_FINITE(*out);
+    return __builtin_isfinite(*out);
 }
 
 int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error) {
@@ -274,7 +274,7 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames) {
         for (int ch = 0; ch < d->channels; ++ch, ++audio) {
             if (!d->ramp && d->current.bypass) continue; /* bit-exact steady bypass */
             double x = *audio;
-            if (!PEQ_FINITE(x)) x = 0;
+            if (!__builtin_isfinite(x)) x = 0;
             double y = sample(&d->current, x, ch);
             if (d->ramp) {
                 double wet = sample(&d->next, x, ch);

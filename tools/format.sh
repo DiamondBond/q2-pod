@@ -4,8 +4,5 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-command -v clang-format >/dev/null 2>&1 || { echo "format.sh: clang-format is not installed" >&2; exit 1; }
-command -v prettier >/dev/null 2>&1 || { echo "format.sh: prettier is not installed" >&2; exit 1; }
-
 clang-format -i patch/ringnav.c
 prettier --write "*.md" "docs/*.md"

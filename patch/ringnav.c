@@ -378,12 +378,6 @@ static int edge_wraps(const menu_t *m, int id, int dir, unsigned now) {
            now - st.edge_time >= EDGE_PAUSE_MS;
 }
 
-static void edge_arm(int id, int dir, unsigned now) {
-    st.edge_id = id;
-    st.edge_dir = dir;
-    st.edge_time = now;
-}
-
 /* FNV-1a of the first two non-empty text properties in a small row subtree: the item's own name
  * and an optional subtitle, in pre-order. Each stays 0 while its text has not been seen. No stock
  * list row carries a stable id: emitter tags and pointer props are unused by the app rows (only
@@ -1268,7 +1262,9 @@ int ringnav(void *ctx, void *event) {
                 return STOP;
             }
             if (!edge_wraps(&g_menu, id, dir, now)) {
-                edge_arm(id, dir, now);
+                st.edge_id = id;
+                st.edge_dir = dir;
+                st.edge_time = now;
                 fx_arm(w, dir);
                 stop_scroll(&g_menu);
                 widget_invalidate_force(w, (void *)0);

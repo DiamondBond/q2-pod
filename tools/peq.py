@@ -81,13 +81,10 @@ def compile_common(out, binary, player=False):
     return [*objects, obj]
 
 def patch_demo(data, ps):
-    records = {}
     for name, (address, target, original) in DEMO_HOOKS.items():
         off = fileoff(data, address)
         check(data[off:off+12].hex() == original, f'{name}: PEQ prologue mismatch')
         data[off:off+8] = struct.pack('<II', 0x08000000 | (ps[target] >> 2), 0)
-        records[name] = dict(address=hex(address), replacement=target, original=original)
-    return records
 
 def patch_player(raw, out):
     check(sha(raw) == PLAYER_SHA, 'Unsupported hciplayer binary')
@@ -110,8 +107,6 @@ def patch_player(raw, out):
     data = bytearray(raw)
     off = fileoff(raw, 0x893e0c)
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
-    append = append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 5, 'player')
+    append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 5, 'player')
     (out/'hciplayer').write_bytes(data)
-    return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload),
-                descriptor_address='0x893e0c', original='24014500', replacement=hex(ps['peq_open']),
-                payload_bytes=len(payload), address=hex(PLAYER_BASE), file_offset=hex(append))
+    return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload))
