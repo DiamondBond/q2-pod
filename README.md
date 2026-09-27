@@ -1,8 +1,15 @@
-# Shanling Q2 Scroll Wheel Navigation
+# q2-ringnav: Wheel Navigation & Ten-Band Parametric EQ
 
-A firmware mod that lets the Shanling Q2's scroll wheel move through menus and the centre button select. Touch works as before, and outside supported menus the wheel still controls volume.
+A firmware mod for the **Shanling Q2** that adds two everyday upgrades:
+
+- **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
+- **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, frequency, gain, Q and preamp, or import **AutoEQ / Equalizer APO** presets from your microSD card.
+
+Both features are included in the normal and compact variants. Touch works as before, and outside supported menus the wheel still controls volume.
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
+
+[Wheel controls](#controls) · [PEQ editor and preset import](#parametric-eq)
 
 ## Install
 
@@ -13,6 +20,41 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 3. After the restart, **About** shows the version: ending in `R` for normal, `C` for compact.
 
 **Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
+
+## Parametric EQ
+
+Open **Audio settings → Equalizer** for the ten-band PEQ editor. Select a band with the wheel and centre button or touch to change its type, frequency, gain and Q. **Return** steps back through the editor.
+
+Editor overview after loading the example preset below (scroll for all ten bands):
+
+```text
+Apply changes
+PEQ: OFF
+Preamp -3.0 dB
+Presets
+1 ON PK 1000Hz -2.0dB Q1.00
+… bands 2–10
+```
+
+Each band supports **Peaking**, **Low shelf** or **High shelf** filters and can be enabled separately. The preamp comes from the preset's `Preamp:` line and is shown read-only; use a negative preamp when boosting to avoid clipping.
+
+**PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it. The PEQ is off after a restart until you switch it on again; band edits and loaded presets take effect when you choose **Apply changes**.
+
+### Import a preset
+
+1. Put your AutoEQ / Equalizer APO `.txt` preset in an `EQ` folder at the root of the microSD card, for example `/EQ/My headphones.txt`.
+2. Open **Audio settings → Equalizer → Presets → Import from SD /EQ** and select the file. This saves a copy on the player.
+3. Press **Return** to go back to **Presets**, then select the saved preset to load it into the editor.
+4. Choose **Apply changes**, then switch **PEQ: OFF** to **PEQ: ON** if needed.
+
+For a simple import example, save this as `/EQ/Example.txt`:
+
+```text
+Preamp: -3.0 dB
+Filter 1: ON PK Fc 1000 Hz Gain -2.0 dB Q 1.00
+```
+
+Save your edits with **Presets → Save editor preset**. Remove saved presets with **Presets → Delete a preset**, which asks for confirmation first.
 
 ## Variants
 
@@ -41,12 +83,6 @@ Other pages, dialogs and your saved settings are unchanged.
 Play/Pause and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
 
 If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
-
-## Parametric EQ
-
-**Audio settings → Equalizer** is replaced by a ten-band parametric EQ: peaking and shelf bands with frequency, gain and Q, plus preamp. **PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it. The PEQ is off after a restart until you switch it on again; band edits and loaded presets take effect when you choose **Apply changes**.
-
-To import AutoEQ / Equalizer APO presets, put the `.txt` files in an `EQ` folder at the root of the microSD card, then choose **Presets → Import from SD /EQ**. An imported preset is saved on the player; load it from **Presets**, then Apply. Remove saved presets with **Presets → Delete a preset**, which asks for confirmation first. The preamp comes from the preset's `Preamp:` line and is shown read-only in the editor; use a negative preamp when boosting to avoid clipping.
 
 ## Documentation
 
