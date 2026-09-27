@@ -1274,7 +1274,8 @@ int ringnav(void *ctx, void *event) {
                 widget_invalidate_force(w, (void *)0);
                 return STOP;
             }
-            /* A detent after a pause at the bumped end: carry over to the other end of this list. */
+            /* A detent after a pause at the bumped end: carry over to the other end of this list.
+             */
             st.bump_dir = 0;
             next = dir > 0 ? 0 : g_menu.rows - 1;
         }
