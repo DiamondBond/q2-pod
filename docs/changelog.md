@@ -1,5 +1,7 @@
 # Changelog
 
+- **V4.4R / V4.4C**: After a restart the PEQ editor now shows **PEQ: OFF**, matching the status-bar EQ icon and what you hear; the PEQ stays off after a reboot until you switch it back on, and your applied bands are kept.
+
 - **V4.3R / V4.3C**: Saved PEQ presets can be deleted from **Presets → Delete a preset**, after a confirmation; the active EQ is unchanged.
 
 - **V4.2R / V4.2C**: PEQ editor messages (Applied, Loaded, errors) now appear in the title bar instead of cutting the list down to two rows while they show. The title names the preset you loaded ("PEQ: HD650") and keeps the applied preset's name when you reopen the editor, until the next reboot.

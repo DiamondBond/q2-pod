@@ -272,6 +272,9 @@ int peq_page_init(void *page, void *context) {
     ui.status[0] = 0;
     ui.dirty = 0;
     peq_load_active(&ui.draft);
+    /* Boot only instantiates the filter when the stock config's EQ flag is set, and the PEQ
+     * never writes it, so after a reboot the PEQ is off until switched on again. */
+    ui.draft.bypass = !g_equalizer_flag;
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
     render(0);

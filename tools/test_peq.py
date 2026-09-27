@@ -329,7 +329,9 @@ def editor_check(lib, tmp):
     title = lambda: ui.shim_title().decode()
 
     assert lib.peq_save(bytes(active), C.byref(preset(enabled=1)), 1) == 1
+    # After a reboot the stock flag is clear and no filter runs: the saved ON reads OFF.
     assert ui.shim_open() == 0 and title() == 'PEQ'
+    click('PEQ: OFF')
     full = ui.shim_list_height()
     # Bypass switches at once but keeps unapplied band edits out of the active preset.
     click('1 ON'); click('Raise gain'); click('Raise gain'); ui.shim_return()
