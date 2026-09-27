@@ -14,6 +14,8 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 
 **Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
 
+**Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
+
 ## Variants
 
 **Normal** (`Q2.Firmware.V*.zip`) keeps the stock layout and controls.
