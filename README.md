@@ -14,8 +14,6 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 
 **Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
 
-**Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
-
 ## Variants
 
 **Normal** (`Q2.Firmware.V*.zip`) keeps the stock layout and controls.
@@ -34,6 +32,7 @@ Other pages, dialogs and your saved settings are unchanged.
 - **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick.
 - **List ends:** in the local folder and music lists, a turn past the end nudges the outline and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
 - **Centre button:** opens the highlighted item. Double-press to turn the screen off.
+- **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
 - **Touch:** works as normal and hides the outline until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
 - **Artists:** an artist opens on Albums, with All Songs one tap away. The tabs are translated instead of the stock Chinese labels.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
