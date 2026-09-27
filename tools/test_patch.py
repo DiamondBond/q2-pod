@@ -19,6 +19,8 @@ assert variant in VERSIONS and manifest['version'] == (
 assert (manifest.get('changed_assets') != {}) == (variant == 'compact')
 assert (manifest.get('compact_code') != []) == (variant == 'compact')
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
+FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
+LCD_COLORS=(0x9abcdef0,0x12345678)
 syms=symbols(B/'stock-demo')
 syms.update(PRIVATE_FUNCTIONS)
 VG_MOCKS=[n for n in syms if n.startswith(('vgcanvas_','vg_gradient_'))]
@@ -67,44 +69,63 @@ class Machine:
         self.slides={}; self.slide_fail=False; self.slide_on_fail=False; self.slide_callbacks={}
         self.canvas=0x1000200; self.lcd=0x1000300; self.now=1000
         self.word(self.canvas+O['CANVAS_LCD'],self.lcd)
-        self.word(self.lcd+O['LCD_FILL_COLOR'],0x9abcdef0)
-        self.word(self.lcd+O['LCD_STROKE_COLOR'],0x12345678)
+        for off,v in zip(('LCD_FILL_COLOR','LCD_STROKE_COLOR'),LCD_COLORS): self.word(self.lcd+O[off],v)
         self.clip=(0,0,240,240)
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done',
                      'widget_animator_scroll_set_params','slide_menu_set_value'):
             self.handlers.pop(syms[name],None)
-        for name in ('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
-                     'widget_set_focused','widget_layout_children','event_init','value_set_int'):
-            self.handlers[syms[name]]=name
+        self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
+                  'widget_set_focused','widget_layout_children','event_init','value_set_int')
         if patched:
             for name in ('paint','dispatch'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
-        self.handlers[syms['reset_poweroptions_timer']]='reset_poweroptions_timer'
-        for n in ('screen_action','enable_fb','usleep@GLIBC_2.0','airplayGetFlag','playpause_quick_click'):
-            self.handlers[syms[n]]=n
+        self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0',
+                  'airplayGetFlag','playpause_quick_click')
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
         self.handlers[syms['memset@GLIBC_2.0']]='memset'
-        self.handlers[syms['canvas_set_global_alpha']]='canvas_set_global_alpha'
-        for n in ('sqrtf@GLIBC_2.0','sinf@GLIBC_2.0','acosf@GLIBC_2.0'):
-            self.handlers[syms[n]]='float:'+n
-        for n in VG_MOCKS: self.handlers[syms[n]]='vg:'+n
+        self.mock('canvas_set_global_alpha')
+        self.mock('sqrtf@GLIBC_2.0','sinf@GLIBC_2.0','acosf@GLIBC_2.0',prefix='float:')
+        self.mock(*VG_MOCKS,prefix='vg:')
         self.u.hook_add(UC_HOOK_CODE,self.hook)
         for name in GLOBALS: self.byte(syms[name],0)
         for name,size in CONTEXT_DATA.items(): self.u.mem_write(syms[name],bytes(size))
         self.word(syms['g_class_type'],0xf001)
         self.byte(syms['g_backlight_status'],1)
-    def probe_canvas(self, lcd_type=1):
+    def probe_canvas(self, lcd_type=1, vg=0, rect=(10,10,100,40), color=None):
         """Real stock canvas code runs; mock only the services it reaches."""
         for n in ('canvas_fill_rounded_rect','canvas_stroke_rounded_rect','canvas_set_fill_color'):
             del self.handlers[syms[n]]
-        self.handlers[syms['lcd_get_vgcanvas']]='lcd_get_vgcanvas'
-        for n in ('tk_calloc','tk_free'): self.handlers[syms[n]]='alloc:'+n
+        self.mock('lcd_get_vgcanvas'); self.mock('tk_calloc','tk_free',prefix='alloc:')
         for off,val in ((0x10,0),(0x14,0),(0x18,239),(0x1c,239)): self.word(self.canvas+off,val)
         self.word(self.lcd+0xd0,lcd_type)
-        self.rounded_fail=False
+        self.rounded_fail=False; self.fake_vg=vg
         self.rect=self.alloc(16); self.color=self.alloc(4)
+        for i,val in enumerate(rect): self.word(self.rect+4*i,val)
+        self.word(self.color,FILL if color is None else color)
+    def lcd_colors(self): return tuple(self.get(self.lcd+O[off]) for off in ('LCD_FILL_COLOR','LCD_STROKE_COLOR'))
+    def mock(self,*names,prefix=''):
+        for n in names: self.handlers[syms[n]]=prefix+n
+    def folder(self,path,w=None):
+        """Set the browsed folder; with a surface, also scroll it home and repaint."""
+        self.u.mem_write(syms['g_folder_path'],path.encode()+b'\0')
+        if w: self.word(w+O['SCROLL_Y'],0); self.paint(w)
+    def label(self,es,specs):
+        """Give each entry None, a text, or a (text, subtitle label) pair."""
+        for e,spec in zip(es,specs):
+            if spec is None: continue
+            text,*sub=spec if isinstance(spec,tuple) else (spec,)
+            self.nodes[e]['text']=text
+            if sub: self.nodes[e]['children']=[self.node('label',text=sub[0])]
+    def panes(self,height=None):
+        """Two four-entry scroll panes on album_page; returns (a, b, a entries, b entries)."""
+        a=self.node(); b=self.node(); es=[]
+        for s in (a,b):
+            if height: self.word(s+O['W_H'],height)
+            es.append([self.entry(s,i*48) for i in range(4)]); self.nodes[s]['children']=es[-1]
+        self.top=self.node('window','album_page',[a,b])
+        return a,b,*es
     def byte(self,a,v): self.u.mem_write(a,bytes([v]))
     def word(self,a,v): self.u.mem_write(a,struct.pack('<I',v&0xffffffff))
     def get(self,a): return struct.unpack('<I',self.u.mem_read(a,4))[0]
@@ -136,7 +157,7 @@ class Machine:
     def selected(self,w): return self.nodes[w].get('_ringnav_index',-1)
     def paint(self,w,gap=1000): return self.call(address=HOOKS['widget_on_paint_border'][0],args=(w,self.canvas,0,0),gap=gap)
     def touch(self): return self.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'])
-    def click(self,w): return self.call(address=HOOKS['widget_dispatch'][0],args=(w,self.event,0,0),event_type=O['EVT_CLICK'])
+    def click(self,w,gap=1000): return self.call(address=HOOKS['widget_dispatch'][0],args=(w,self.event,0,0),event_type=O['EVT_CLICK'],gap=gap)
     def hook(self,u,address,size,_):
         if address==syms['widget_animator_scroll_set_params']:
             assert u.reg_read(UC_MIPS_REG_A0) not in self.slides, 'retarget must pause first'
@@ -409,8 +430,8 @@ class Machine:
         """Reindex a recycled row pool the way the stock table rebind does."""
         for j,r in enumerate(rows):
             self.word(r+O['ROW_INDEX'],offset//48+j); self.word(r+O['W_Y'],(offset//48+j)*48)
-    def table_page(self,n=4,name='allmusic_page'):
-        """A table_client page of n recycled rows; returns (surface, row widgets, entries)."""
+    def table_page(self,n=4,name='allmusic_page',rebind=False):
+        """A table_client page of n recycled rows, optionally rebound; returns (surface, rows, entries)."""
         w=self.page(name,'table_client')
         self.word(w+O['ROW_HEIGHT'],48); self.word(w+O['TABLE_ROWS'],20); self.word(w+O['W_H'],96)
         rs=[self.node('table_row') for _ in range(n)]
@@ -418,14 +439,14 @@ class Machine:
         for r,e in zip(rs,es):
             self.nodes[r]['children']=[e]; self.word(r+O['W_PARENT'],w)
         self.bind(rs)
+        if rebind: self.rebind=lambda a,offset: self.bind(rs,offset)
         return w,rs,es
     def list_surface(self,virtual,n=20,rebind=True):
         """A plain list of n 48px rows or a four-row virtual table; optionally rebound."""
         if not virtual:
             w,es=self.page_list(n,extent=n*48)
             return w,None
-        w,rs,es=self.table_page()
-        if rebind: self.rebind=lambda a,offset: self.bind(rs,offset)
+        w,rs,es=self.table_page(rebind=rebind)
         return w,rs
     def moved(self): return [x for x in self.calls if x[0] in ('scroll_view_set_offset','table_client_set_yoffset','scroll_view_scroll_delta_to','table_client_scroll_to','slide_menu_scroll_to_next','slide_menu_scroll_to_prev','widget_animator_scroll_set_params')]
     def dispatched(self): return [x for x in self.calls if x[0]=='stock_dispatch']
@@ -449,9 +470,8 @@ for populated in (False,True):
         animator=m.alloc(0x80); m.word(animator+0x64,endpoint)
         m.word(w+O['VIEW_ANIMATOR'],animator)
         del m.handlers[syms['scroll_view_set_offset']]
-        for name in ('widget_animator_scroll_create','widget_animator_on',
-                     'widget_animator_start','widget_dispatch_simple_event'):
-            m.handlers[syms[name]]=name
+        m.mock('widget_animator_scroll_create','widget_animator_on',
+               'widget_animator_start','widget_dispatch_simple_event')
         assert m.call(key)==11
         active=m.get(w+O['VIEW_ANIMATOR'])
         expected=want if populated else top+(48 if endpoint==0 else -48)
@@ -473,8 +493,9 @@ for t,off in [('scroll_view',O['SCROLL_Y']),('table_client',O['TABLE_TOP'])]:
 
 for name in ['playing_page','volume_dialog','saverscreen_page','usbmode_page','unknown_page','equalizer_page']:
     m=Machine(); m.page(name); assert m.call()==0 and not m.moved(); passed()
-for flag,value in [('g_backlight_status',0),('g_lockscreen_pageflag',1),('g_testmode_flag',1),
-                   ('g_guideflag',1),('g_poweroff_state',2),('g_usblink_status',2),('bt__recv_pageflag',1)]:
+GATES=[('g_backlight_status',0),('g_lockscreen_pageflag',1),('g_testmode_flag',1),
+       ('g_guideflag',1),('g_poweroff_state',2),('g_usblink_status',2),('bt__recv_pageflag',1)]
+for flag,value in GATES:
     m=Machine(); m.page(); m.byte(syms[flag],value); assert m.call()==0 and not m.moved(); passed()
 for field in ['animating','pressed']:
     m=Machine(); m.page(); setattr(m,field,1); assert m.call()==11 and not m.moved(); passed()
@@ -500,10 +521,7 @@ for setter,field in (('scroll_view_set_xslidable','VIEW_HORIZONTAL'),
     assert m.call()==11 and m.moved()[0][1]==vert
     passed()
 # Two navigable panes: only the pane that already holds the selection is used.
-m=Machine(); a=m.node(); b=m.node(); m.word(a+O['W_H'],96); m.word(b+O['W_H'],96)
-for s in (a,b):
-    es=[m.entry(s,i*48) for i in range(4)]; m.nodes[s]['children']=es
-m.top=m.node('window','album_page',[a,b])
+m=Machine(); a,b,_,_=m.panes(96)
 m.nodes[a]['_ringnav_index']=0
 assert m.call()==11 and m.call()==11
 assert m.moved()[-1][1]==a
@@ -523,15 +541,15 @@ assert m.paint(w)==0 and m.selected(w)==0
 assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
 fill,shade,white=m.rounded
 assert fill['rect']==(1,1,238,46) and fill['bg']==0 and fill['clip']==(0,0,240,96)
-assert fill['color']==((O['FILL_ALPHA']<<24)|O['FILL_RGB']) and fill['radius']==O['RADIUS'] and fill['width'] is None
+assert fill['color']==FILL and fill['radius']==O['RADIUS'] and fill['width'] is None
 assert shade['rect']==(1,1,238,46) and shade['bg']==0
-assert shade['color']==((O['SHADE_ALPHA']<<24)|O['FILL_RGB'])
+assert shade['color']==SHADE
 assert shade['radius']==O['RADIUS'] and shade['width']==1 and shade['clip']==(0,0,240,96)
-assert white['rect']==(2,2,236,44) and white['bg']==0 and white['color']==((O['OUTLINE_ALPHA']<<24)|O['OUTLINE_RGB'])
+assert white['rect']==(2,2,236,44) and white['bg']==0 and white['color']==OUTLINE
 assert white['radius']==O['RADIUS']-1 and white['width']==1
 assert not m.strokes and m.global_alpha==0
 assert m.clip==(0,0,240,240)
-assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0 and m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678
+assert m.lcd_colors()==LCD_COLORS
 assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries)
 assert [c[0] for c in m.calls if c[0].startswith('canvas_')][-6:]==[
     'canvas_fill_rounded_rect','canvas_stroke_rounded_rect','canvas_stroke_rounded_rect',
@@ -592,10 +610,9 @@ def native_row_layout(m, button):
     # Run the real stock layout dispatcher and horizontal layouter. Mock only toolkit
     # collection/geometry services, not the width arithmetic or native child positioning.
     m.handlers.pop(syms['widget_layout_children'],None)
-    for name in ('widget_vtable_on_layout_children', 'widget_layout_self',
-                 'widget_layout_floating_children', 'widget_get_children_for_layout',
-                 'darray_init', 'darray_deinit', 'widget_move_resize_ex'):
-        m.handlers[syms[name]]=name
+    m.mock('widget_vtable_on_layout_children', 'widget_layout_self',
+           'widget_layout_floating_children', 'widget_get_children_for_layout',
+           'darray_init', 'darray_deinit', 'widget_move_resize_ex')
     for node, props in m.nodes.items():
         children=props['children']
         if children:
@@ -658,11 +675,10 @@ def check_title_bounds(m, button):
 for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
     for grid in ((0, 1) if address == 0x4a4ae8 else (0,)):
         m = Machine(); w = m.page('folder_page', 'table_client')
-        for name in ('table_row_create', 'button_create', 'image_create', 'view_create',
-                     'hscroll_label_create', 'gif_image_create', 'widget_use_style',
-                     'widget_set_name', 'widget_set_children_layout', 'image_set_draw_type',
-                     'image_base_set_image', 'set_hscroll_label_attribute'):
-            m.handlers[syms[name]] = name
+        m.mock('table_row_create', 'button_create', 'image_create', 'view_create',
+               'hscroll_label_create', 'gif_image_create', 'widget_use_style',
+               'widget_set_name', 'widget_set_children_layout', 'image_set_draw_type',
+               'image_base_set_image', 'set_hscroll_label_attribute')
         m.word(syms['album_modetype'], grid)
         assert m.call(address=address, args=(w, w, 4, 0)) == 0
         rows = m.nodes[w]['children']
@@ -691,8 +707,7 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
                 title=next(c for c in m.nodes[button]['children'] if m.nodes[c]['name']=='scrlabel_name')
                 width=m.get(title+O['W_W'])
                 m.row_record=m.alloc(0x80); m.word(m.row_record+0x34,8)
-                for name in ('deque_at','tk_snprintf','widget_set_text_utf8','file_is_playing'):
-                    m.handlers[syms[name]]=name
+                m.mock('deque_at','tk_snprintf','widget_set_text_utf8','file_is_playing')
                 for navbar in (0,1,0):
                     m.byte(syms['g_navbar_status'],navbar)
                     label='再利用された長いフォルダー名 '*5
@@ -713,15 +728,14 @@ for address in (0x4a62c0,0x4adcbc,0x4b2864):
         m.row_record=m.alloc(0x80)
         for off in (8,12,16,24): m.word(m.row_record+off,m.string('日本語 Title'))
         m.word(m.row_record+0x48,1)
-        for name in ('button_create','list_item_create','image_create','view_create','hscroll_label_create',
-                     'gif_image_create','widget_use_style','widget_set_name','widget_set_text_utf8',
-                     'widget_set_visible','widget_on','widget_destroy_children','image_set_draw_type',
-                     'image_base_set_image','set_hscroll_label_attribute','hscroll_label_set_only_focus',
-                     'hscroll_label_set_ellipses','hscroll_label_set_speed','gif_image_play','deque_at',
-                     'deque_size','tk_snprintf','batch_get_selectitem','file_is_playing','getFormatString',
-                     'getMusicByPlayList','get_albumcover_listsize','mclGetPlayStatus','list_get_img_pic',
-                     'strcmp@GLIBC_2.0','toolsTrimLeft','toolsTrimRight'):
-            m.handlers[syms[name]]=name
+        m.mock('button_create','list_item_create','image_create','view_create','hscroll_label_create',
+               'gif_image_create','widget_use_style','widget_set_name','widget_set_text_utf8',
+               'widget_set_visible','widget_on','widget_destroy_children','image_set_draw_type',
+               'image_base_set_image','set_hscroll_label_attribute','hscroll_label_set_only_focus',
+               'hscroll_label_set_ellipses','hscroll_label_set_speed','gif_image_play','deque_at',
+               'deque_size','tk_snprintf','batch_get_selectitem','file_is_playing','getFormatString',
+               'getMusicByPlayList','get_albumcover_listsize','mclGetPlayStatus','list_get_img_pic',
+               'strcmp@GLIBC_2.0','toolsTrimLeft','toolsTrimRight')
         m.handlers[0x4aad10]='row_toolbar'
         assert m.call(address=address,args=(w,0,0,0))==0
         buttons=[n for n,v in m.nodes.items() if v['type']=='button']
@@ -732,9 +746,8 @@ passed()
 # Long Return executes the stock gates and release filter in both variants.
 def long_machine():
     m = Machine()
-    for name in ('netdisk_folder_clear', 'navigator_back_to_home', 'awake_screen',
-                 'getFormatString', 'navigator_to_with_context', 'navigator_window_is_exist'):
-        m.handlers[syms[name]] = name
+    m.mock('netdisk_folder_clear', 'navigator_back_to_home', 'awake_screen',
+           'getFormatString', 'navigator_to_with_context', 'navigator_window_is_exist')
     return m
 
 def long_return(m):
@@ -765,9 +778,7 @@ for page in ('home_page', 'folder_page', 'playing_page', 'sysset_page'):
 passed()
 
 # The stock long-key gates stay effective. Compact adds the shared navigation restrictions.
-for flag, value in [('g_poweroff_state', 2), ('g_lockscreen_pageflag', 1), ('g_testmode_flag', 1),
-                    ('g_backlight_status', 0), ('g_guideflag', 1), ('g_usblink_status', 2),
-                    ('bt__recv_pageflag', 1)]:
+for flag, value in GATES:
     m = long_machine(); m.page('folder_page'); m.byte(syms[flag], value)
     long_return(m)
     # Stock itself blocks power-off, guide and test mode; compact adds the shared restrictions
@@ -816,8 +827,7 @@ for index in range(4):
 passed()
 
 # Recycle a small row pool: selection belongs to the logical index, never the widget.
-m=Machine(); w,rows,entries=m.table_page()
-m.rebind=lambda a,offset: m.bind(rows,offset); m.bind(rows)
+m=Machine(); w,rows,entries=m.table_page(rebind=True)
 m.paint(w); assert m.selected(w)==0
 assert m.call()==11 and m.selected(w)==1
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['TABLE_TOP'])==60
@@ -837,10 +847,13 @@ m.word(w+O['TABLE_ROWS'],1); m.word(w+O['TABLE_TOP'],0); m.bind(rows); m.paint(w
 assert m.selected(w)==0; passed()
 
 # A recreated page recalls the last selected row and reveals it without a sacrificial press.
-m=Machine(); w,es=m.page_list(10,extent=1000)
-m.paint(w)
-for _ in range(5): assert m.call()==11
-assert m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==204
+def walk(n,steps,texts=(),extent=1000,**kw):
+    """Paint a fresh labelled list of n entries, then wheel down steps rows."""
+    m=Machine(); w,es=m.page_list(n,extent=extent,**kw); m.label(es,texts); m.paint(w)
+    for _ in range(steps): assert m.call()==11
+    assert m.selected(w)==steps
+    return m,w,es
+m,w,es=walk(10,5); assert m.get(w+O['SCROLL_Y'])==204
 w2,es2=m.page_list(10,extent=1000)
 assert m.paint(w2)==0 and m.selected(w2)==5 and m.get(w2+O['SCROLL_Y'])==204
 assert m.rounded[0]['rect']==(1,37,238,46) and m.rounded[0]['kind']=='fill'
@@ -866,72 +879,27 @@ w2,es2=m.page_list(10,extent=1000)
 assert m.paint(w2)==0 and m.selected(w2)==5 and m.get(w2+O['SCROLL_Y'])==204; passed()
 
 # Position memory follows row text across a recreation, not just the index.
-m=Machine(); w,es=m.page_list(6,extent=1000)
-for i,e in enumerate(es): m.nodes[e]['text']='track %d'%i
-m.paint(w)
-for _ in range(4): assert m.call()==11
-assert m.selected(w)==4
-w2,es2=m.page_list(6,extent=1000)
-order=[4,0,1,2,3,5]
-for i,e in enumerate(es2): m.nodes[e]['text']='track %d'%order[i]
+m,w,es=walk(6,4,[f'track {i}' for i in range(6)])
+w2,es2=m.page_list(6,extent=1000); m.label(es2,[f'track {i}' for i in (4,0,1,2,3,5)])
 assert m.paint(w2)==0 and m.selected(w2)==0
 assert m.confirm()==11 and m.dispatched()[0][1]==es2[0]; passed()
-# Rows without text fall back to the remembered index.
-m=Machine(); w,es=m.page_list(6,extent=1000)
-m.paint(w)
-for _ in range(3): assert m.call()==11
-assert m.selected(w)==3
-w2,es2=m.page_list(6,extent=1000)
-assert m.paint(w2)==0 and m.selected(w2)==3; passed()
-
-# Duplicate row text restores the occurrence the user left, not the first duplicate.
-m=Machine(); w,es=m.page_list(6,extent=1000)
-for e in es: m.nodes[e]['text']='Intro'
-m.paint(w)
-for _ in range(4): assert m.call()==11
-assert m.selected(w)==4
-w2,es2=m.page_list(6,extent=1000)
-for e in es2: m.nodes[e]['text']='Intro'
-assert m.paint(w2)==0 and m.selected(w2)==4; passed()
-# After a re-sort, equal-text rows resolve to the occurrence nearest the old position.
-m=Machine(); w,es=m.page_list(6,extent=1000)
-m.nodes[es[4]]['text']='dup'
-m.paint(w)
-for _ in range(4): assert m.call()==11
-assert m.selected(w)==4
-w2,es2=m.page_list(6,extent=1000)
-m.nodes[es2[1]]['text']='dup'; m.nodes[es2[5]]['text']='dup'
-assert m.paint(w2)==0 and m.selected(w2)==5; passed()
-# Equal distance keeps the earlier duplicate.
-m=Machine(); w,es=m.page_list(6,extent=1000)
-m.nodes[es[3]]['text']='dup'
-m.paint(w)
-for _ in range(3): assert m.call()==11
-assert m.selected(w)==3
-w2,es2=m.page_list(6,extent=1000)
-m.nodes[es2[2]]['text']='dup'; m.nodes[es2[4]]['text']='dup'
-assert m.paint(w2)==0 and m.selected(w2)==2; passed()
-# Two rows share a title; the second text decides before proximity does.
-m=Machine(); w,es=m.page_list(4,extent=1000)
-for e in es: m.nodes[e]['text']='Intro'
-m.nodes[es[0]]['children']=[m.node('label',text='Artist A')]
-m.nodes[es[1]]['children']=[m.node('label',text='Artist B')]
-m.paint(w)
-assert m.call()==11 and m.selected(w)==1
-w2,es2=m.page_list(4,extent=1000)
-for e in es2: m.nodes[e]['text']='Intro'
-m.nodes[es2[2]]['children']=[m.node('label',text='Artist A')]
-m.nodes[es2[3]]['children']=[m.node('label',text='Artist B')]
-assert m.paint(w2)==0 and m.selected(w2)==3; passed()
-# A subtitle missing from the recreated rows never blocks the primary match.
-m=Machine(); w,es=m.page_list(4,extent=1000)
-for e in es: m.nodes[e]['text']='Intro'
-m.nodes[es[1]]['children']=[m.node('label',text='Artist B')]
-m.paint(w)
-assert m.call()==11 and m.selected(w)==1
-w2,es2=m.page_list(4,extent=1000)
-m.nodes[es2[0]]['text']='Intro'; m.nodes[es2[3]]['text']='Intro'
-assert m.paint(w2)==0 and m.selected(w2)==0; passed()
+# The same recall with (rows, detents, texts before, texts after recreation, recalled row).
+for n,steps,before,after,want in (
+        (6,3,[],[],3),  # rows without text fall back to the remembered index
+        # Duplicate row text restores the occurrence the user left, not the first duplicate.
+        (6,4,['Intro']*6,['Intro']*6,4),
+        # After a re-sort, equal-text rows resolve to the occurrence nearest the old position.
+        (6,4,[None]*4+['dup'],[None,'dup',None,None,None,'dup'],5),
+        (6,3,[None]*3+['dup'],[None,None,'dup',None,'dup'],2),  # equal distance keeps the earlier
+        # Two rows share a title; the second text decides before proximity does.
+        (4,1,[('Intro','Artist A'),('Intro','Artist B'),'Intro','Intro'],
+             ['Intro','Intro',('Intro','Artist A'),('Intro','Artist B')],3),
+        # A subtitle missing from the recreated rows never blocks the primary match.
+        (4,1,['Intro',('Intro','Artist B'),'Intro','Intro'],['Intro',None,None,'Intro'],0)):
+    m,w,es=walk(n,steps,before)
+    w2,es2=m.page_list(n,extent=1000); m.label(es2,after)
+    assert m.paint(w2)==0 and m.selected(w2)==want
+    passed()
 
 # Run the actual stock label text accessor, including value_wstr and the label vtable.
 # U+0100 and U+0200 share a low zero byte; titles/subtitles must use complete code points.
@@ -948,7 +916,7 @@ for i,e in enumerate(es):
 # The narrow accessor really returns NULL, even though widget_get_text sees the label.
 del m.handlers[syms['widget_get_prop_str']]
 assert m.call(address=syms['widget_get_prop_str'],args=(es[0],m.string('text'),0,0))==0
-m.handlers[syms['widget_get_prop_str']]='widget_get_prop_str'
+m.mock('widget_get_prop_str')
 m.paint(w); m.call(); assert m.selected(w)==1
 w2,es2=m.page_list(4,extent=1000)
 for i,e in enumerate(es2):
@@ -959,32 +927,29 @@ assert m.paint(w2)==0 and m.selected(w2)==3
 assert m.confirm()==11 and m.dispatched()[0][1]==es2[3]; passed()
 
 # Folder memory belongs to the full path, even when every visible row title is identical.
-m=Machine(); m.u.mem_write(syms['g_folder_path'],b'/sd/Folder A\0')
-w,es=m.page_list(8,name='folder_page')
-for e in es: m.nodes[e]['text']='Intro'
+m=Machine(); m.folder('/sd/Folder A')
+w,es=m.page_list(8,name='folder_page'); m.label(es,['Intro']*8)
 m.paint(w)
 for _ in range(5): m.call()
-w2,es2=m.page_list(8,name='folder_page')
-for e in es2: m.nodes[e]['text']='Intro'
+w2,es2=m.page_list(8,name='folder_page'); m.label(es2,['Intro']*8)
 m.paint(w2); assert m.selected(w2)==5  # same path still recalls
-m.u.mem_write(syms['g_folder_path'],b'/sd/Folder B\0')
-w3,es3=m.page_list(8,name='folder_page')
-for e in es3: m.nodes[e]['text']='Intro'
+m.folder('/sd/Folder B')
+w3,es3=m.page_list(8,name='folder_page'); m.label(es3,['Intro']*8)
 m.paint(w3); assert m.selected(w3)==0
 # A surviving surface rebound to another folder also resets, even at the same row count.
 for _ in range(3): m.call()
-m.u.mem_write(syms['g_folder_path'],b'/sd/Folder C\0')
+m.folder('/sd/Folder C')
 m.word(w3+O['SCROLL_Y'],0); m.paint(w3); assert m.selected(w3)==0; passed()
 # Nested folder returns restore each level on recreated or rebound surfaces.
 for reuse in (False,True):
     m=Machine(); w,es=m.page_list(10,name='folder_page')
     for path,wanted in (('/sd',6),('/sd/child',4),('/sd/child/grandchild',2)):
-        m.u.mem_write(syms['g_folder_path'],path.encode()+b'\0')
+        m.folder(path)
         if not reuse: w,es=m.page_list(10,name='folder_page')
         m.word(w+O['SCROLL_Y'],0); m.paint(w); assert m.selected(w)==0
         for _ in range(wanted): m.call()
     for path,wanted in (('/sd/child',4),('/sd',6),('/sd/child/grandchild',2)):
-        m.u.mem_write(syms['g_folder_path'],path.encode()+b'\0')
+        m.folder(path)
         if not reuse: w,es=m.page_list(10,name='folder_page')
         m.word(w+O['SCROLL_Y'],0); m.paint(w)
         assert m.selected(w)==wanted and m.get(w+O['SCROLL_Y'])==(wanted-1)*48+12
@@ -994,19 +959,14 @@ for reuse in (False,True):
 for promote in (False,True):
     m=Machine(); w,es=m.page_list(4,name='folder_page')
     for i in range(64):
-        m.u.mem_write(syms['g_folder_path'],f'/sd/{i}'.encode()+b'\0')
-        m.word(w+O['SCROLL_Y'],0); m.paint(w); m.call(); m.call()
-    m.u.mem_write(syms['g_folder_path'],b'/sd/0\0')
-    m.word(w+O['SCROLL_Y'],0); m.paint(w); assert m.selected(w)==2
+        m.folder(f'/sd/{i}',w); m.call(); m.call()
+    m.folder('/sd/0',w); assert m.selected(w)==2
     if promote: m.call()  # update and protect the oldest entry
-    m.u.mem_write(syms['g_folder_path'],b'/sd/64\0')
-    m.word(w+O['SCROLL_Y'],0); m.paint(w); m.call()
+    m.folder('/sd/64',w); m.call()
     for i,wanted in ((0,3),(2,2)) if promote else ((1,2),(63,2)):
-        m.u.mem_write(syms['g_folder_path'],f'/sd/{i}'.encode()+b'\0')
-        m.word(w+O['SCROLL_Y'],0); m.paint(w); assert m.selected(w)==wanted
+        m.folder(f'/sd/{i}',w); assert m.selected(w)==wanted
     evicted=1 if promote else 0
-    m.u.mem_write(syms['g_folder_path'],f'/sd/{evicted}'.encode()+b'\0')
-    m.word(w+O['SCROLL_Y'],0); m.paint(w); assert m.selected(w)==0
+    m.folder(f'/sd/{evicted}',w); assert m.selected(w)==0
     passed()
 
 # A full history must not add work to steady painting or turns in the current scope.
@@ -1014,8 +974,7 @@ costs=[]
 for occupancy in (1,64):
     m=Machine(); w,es=m.page_list(20,height=192,extent=960,name='folder_page')
     for i in range(occupancy):
-        m.u.mem_write(syms['g_folder_path'],f'/sd/{i:02}'.encode()+b'\0')
-        m.word(w+O['SCROLL_Y'],0); m.paint(w); m.call()
+        m.folder(f'/sd/{i:02}',w); m.call()
     instructions=[0]
     def count_payload(*args): instructions[0]+=1
     hook=m.u.hook_add(UC_HOOK_CODE,count_payload,begin=0xb00000,end=0xb0efff)
@@ -1027,16 +986,13 @@ passed()
 
 # Returning after another scope still applies text matching and stale-index rejection.
 for shortened in (False,True):
-    m=Machine(); m.u.mem_write(syms['g_folder_path'],b'/sd/parent\0')
-    w,es=m.page_list(8,name='folder_page')
-    for i,e in enumerate(es): m.nodes[e]['text']=f'track {i}'
-    m.paint(w)
+    m=Machine(); m.folder('/sd/parent')
+    w,es=m.page_list(8,name='folder_page'); m.label(es,[f'track {i}' for i in range(8)]); m.paint(w)
     for _ in range(6): m.call()
-    m.u.mem_write(syms['g_folder_path'],b'/sd/child\0')
+    m.folder('/sd/child')
     w,es=m.page_list(8,name='folder_page'); m.paint(w); m.call()
-    m.u.mem_write(syms['g_folder_path'],b'/sd/parent\0')
-    w,es=m.page_list(3 if shortened else 8,name='folder_page')
-    for i,e in enumerate(es): m.nodes[e]['text']=f'track {i}'
+    m.folder('/sd/parent')
+    w,es=m.page_list(3 if shortened else 8,name='folder_page'); m.label(es,[f'track {i}' for i in range(8)])
     if not shortened: m.nodes[es[3]]['text']='track 6'; m.nodes[es[6]]['text']='other'
     m.paint(w); assert m.selected(w)==(0 if shortened else 3)
     passed()
@@ -1097,29 +1053,18 @@ for name in ('searchbox_dialog','tidal_searchbox_dialog'):
     assert m.call()==0 and not m.moved(); passed()
 
 # An interrupted recall glide keeps the remembered row instead of adopting a visible one.
-m=Machine(); w,es=m.page_list(10,extent=1000)
-m.paint(w)
-for _ in range(5): assert m.call()==11
-w2,es2=m.page_list(10,extent=1000)
-m.glide=False
+m,w,es=walk(10,5); w2,es2=m.page_list(10,extent=1000); m.glide=False
 assert m.touch()==0
 m.paint(w2); assert m.selected(w2)==5
 w3,es3=m.page_list(10,extent=1000)
 assert m.paint(w3)==0 and m.selected(w3)==5; passed()
 # A wheel detent after recreation interrupts recall and sets the offset immediately.
-m=Machine(); w,es=m.page_list(10,extent=1000)
-m.paint(w)
-for _ in range(5): assert m.call()==11
-w2,es2=m.page_list(10,extent=1000)
-m.glide=False
+m,w,es=walk(10,5); w2,es2=m.page_list(10,extent=1000); m.glide=False
 assert m.call()==11 and m.selected(w2)==6
 assert m.moved()[-1][0]=='scroll_view_set_offset' and m.moved()[-1][3]==252; passed()
 
 # A live list whose row count changes resets the selection without re-reading the table.
-m=Machine(); w,es=m.page_list(10,extent=1000)
-m.paint(w)
-for _ in range(5): assert m.call()==11
-assert m.selected(w)==5
+m,w,es=walk(10,5)
 m.nodes[w]['children']=es[:6]; m.word(w+O['VIEW_CONTENT_H'],6*48); m.word(w+O['SCROLL_Y'],0)
 m.paint(w); assert m.selected(w)==0; passed()
 
@@ -1150,8 +1095,7 @@ for wanted in (2,12):
 # A wheel during recall advances the logical target; an explicit tap instead replaces it.
 m=Machine(); w,rs,es=m.table_page(n=20); m.paint(w)
 for _ in range(12): m.call()
-w2,rs2,es2=m.table_page(); m.glide=False
-m.rebind=lambda a,offset: m.bind(rs2,offset)
+w2,rs2,es2=m.table_page(rebind=True); m.glide=False
 m.touch(); m.call(); assert m.selected(w2)==13
 m.click(es2[0]); assert m.get(w2+O['TABLE_ANIMATOR'])==0
 m.paint(w2)
@@ -1161,8 +1105,7 @@ m.confirm(); assert m.dispatched()[0][1]==es2[0]; passed()
 # A synchronous restore rebind must discard the pre-scroll pool before centre dispatch.
 m=Machine(); w,rs,es=m.table_page(n=20); m.paint(w)
 for _ in range(12): m.call()
-w2,rs2,es2=m.table_page()
-m.rebind=lambda a,offset: m.bind(rs2,offset)
+w2,rs2,es2=m.table_page(rebind=True)
 m.paint(w2); assert m.selected(w2)==12
 m.confirm(); assert m.dispatched()[0][1]==es2[1]; passed()
 
@@ -1209,12 +1152,12 @@ for action in ('touch','next','prev'):
 for change in ('top','surface','scope','selection','count','text','hidden','disabled',
                'animating','pressed','screen_off','locked','long','boot','reused_top','reused_surface'):
     m=Machine(); w,es=m.page_list(3,name='folder_page')
-    m.u.mem_write(syms['g_folder_path'],b'/first\0')
+    m.folder('/first')
     m.nodes[es[0]]['text']='First'
     m.release()
     if change=='top': m.page_list(3,name='display_page')
     elif change=='surface': m.nodes[m.top]['children']=[m.node()]
-    elif change=='scope': m.u.mem_write(syms['g_folder_path'],b'/other\0')
+    elif change=='scope': m.folder('/other')
     elif change=='selection': m.nodes[w]['_ringnav_index']=1
     elif change=='count': m.nodes[w]['children']=es[:2]
     elif change=='text': m.nodes[es[0]]['text']='Rebound'
@@ -1326,7 +1269,7 @@ for action in ('touch','center','click','leave','animating','pressed','unusable'
     m=Machine(); w=m.page('home_page','slide_menu'); home=m.top; m.call(gap=0)
     if action=='touch': m.call(address=HOOKS['on_wm_tsdown_before_fun'][0],gap=20)
     elif action=='center': m.release(20)
-    elif action=='click': m.call(address=HOOKS['widget_dispatch'][0],args=(m.nodes[w]['children'][0],m.event,0,0),event_type=O['EVT_CLICK'],gap=20)
+    elif action=='click': m.click(m.nodes[w]['children'][0],gap=20)
     elif action=='leave': m.page('playing_page'); m.call(gap=20); m.top=home
     elif action=='unusable':
         m.byte(syms['g_backlight_status'],0); m.call(gap=20); m.byte(syms['g_backlight_status'],1)
@@ -1379,12 +1322,10 @@ m.call(O['KEY_PLAY'],address=syms['on_wm_keyup_fun'],gap=0)
 assert any(c[0]=='playpause_quick_click' for c in m.calls) and not m.clicks; passed()
 # A root-window paint observes leaving navigation even when the new page has no pane.
 m=Machine(); w,es=m.page_list(3); m.release(); old=m.top
-m.top=m.node('window','playing_page'); m.call(address=HOOKS['widget_on_paint_border'][0],
-    args=(m.top,m.canvas,0,0),gap=100)
+m.top=m.node('window','playing_page'); m.paint(m.top,gap=100)
 m.top=old; m.advance(300); assert not m.clicks and not m.timers; passed()
 m=Machine(); w=m.page('home_page','slide_menu'); home=m.top; m.call(gap=0)
-m.top=m.node('window','playing_page'); m.call(address=HOOKS['widget_on_paint_border'][0],
-    args=(m.top,m.canvas,0,0),gap=20)
+m.top=m.node('window','playing_page'); m.paint(m.top,gap=20)
 m.top=home; assert m.call(gap=1)==11 and m.moved(); passed()
 # Local query and home selection changes invalidate pending confirmation too.
 m=Machine(); w,rs,es=m.table_page(); m.release()
@@ -1402,9 +1343,8 @@ for table in (False,True):
         m=Machine()
         if table:
             # A dynamic page keeps hard ends, so this stays an acceleration check.
-            w,rs,es=m.table_page(n=min(count,4),name='playerqueue_page')
+            w,rs,es=m.table_page(n=min(count,4),name='playerqueue_page',rebind=True)
             m.word(w+O['TABLE_ROWS'],count)
-            m.rebind=lambda a,offset: m.bind(rs,offset)
         else: w,es=m.page_list(count,extent=count*48)
         m.paint(w)
         if count==17:
@@ -1488,12 +1428,10 @@ for change in ('window','pane','scope','context','count','gesture','screen','uns
         m.nodes[m.top]['name']='allmusic_page'
     elif change=='touch':
         m.call(address=HOOKS['on_wm_tsdown_before_fun'][0],gap=10)
-    elif change=='click':
-        m.call(address=HOOKS['widget_dispatch'][0],args=(m.node('button'),m.event,0,0),
-               event_type=O['EVT_CLICK'],gap=10)
+    elif change=='click': m.click(m.node('button'),gap=10)
     elif change=='missing': m.call(args=(0,0,0,0),gap=10)
     else: m.call(O['KEY_CENTER'],gap=10)
-    m.call(address=HOOKS['widget_on_paint_border'][0],args=(w,m.canvas,0,0),gap=0)
+    m.paint(w,gap=0)
     before=m.selected(w)
     assert m.call(gap=50)==11 and m.selected(w)==before+1,change
     passed()
@@ -1519,14 +1457,14 @@ m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w,0); m.word(e+O['W_H'],20); m.nodes[w]['children']=[e]
 for name in ('canvas_get_clip_rect','canvas_set_clip_rect','canvas_set_stroke_color','canvas_stroke_rect'):
     del m.handlers[syms[name]]
-m.handlers[syms['lcd_stroke_rect']]='lcd_stroke_rect'
+m.mock('lcd_stroke_rect')
 m.word(m.lcd+0x3c,1); m.word(m.lcd+0xb0,240); m.word(m.lcd+0xb4,240)
 m.word(m.canvas+O['CANVAS_X'],7); m.word(m.canvas+O['CANVAS_Y'],20)
 for off,val in [(0x10,10),(0x14,30),(0x18,229),(0x1c,199)]: m.word(m.canvas+off,val)
 m.paint(w)
 assert not m.rounded and [s[:4] for s in m.strokes]==[(8,21,238,18),(9,22,236,16)]
-assert m.strokes[0][4:]==((10,30,220,86),((O['SHADE_ALPHA']<<24)|O['FILL_RGB']))
-assert m.strokes[1][4:]==((10,30,220,86),((O['OUTLINE_ALPHA']<<24)|O['OUTLINE_RGB']))
+assert m.strokes[0][4:]==((10,30,220,86),SHADE)
+assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
 assert [m.get(m.canvas+off) for off in (0x10,0x14,0x18,0x1c)]==[10,30,229,199]
 assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
 # Wheel selection is immediate even when restoration animations would still be running.
@@ -1553,8 +1491,7 @@ for virtual in (False,True):
     for height,margin in ((96,12),(60,6),(49,0),(48,0),(40,0)):
         m=Machine()
         if virtual:
-            w,rs,es=m.table_page(n=10); m.word(w+O['TABLE_ROWS'],10)
-            off=O['TABLE_TOP']; m.rebind=lambda a,offset: m.bind(rs,offset)
+            w,rs,es=m.table_page(n=10,rebind=True); m.word(w+O['TABLE_ROWS'],10); off=O['TABLE_TOP']
         else:
             w,es=m.page_list(10,extent=480); off=O['SCROLL_Y']
         m.word(w+O['W_H'],height); m.paint(w)
@@ -1589,7 +1526,7 @@ for ww,hh in [(240,20),(20,48),(6,6),(21,21)]:
         assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke'] and not m.strokes,(ww,hh,m.rounded,m.strokes)
     else:
         assert not m.rounded and [s[:4] for s in m.strokes]==[(1,1,ww-2,hh-2),(2,2,ww-4,hh-4)]
-        assert [s[5] for s in m.strokes]==[((O['SHADE_ALPHA']<<24)|O['FILL_RGB']),((O['OUTLINE_ALPHA']<<24)|O['OUTLINE_RGB'])]
+        assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
     assert m.global_alpha==0 and m.clip==(0,0,240,240)
     assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
@@ -1599,7 +1536,7 @@ assert m.paint(w)==0 and not m.rounded and not m.strokes and m.clip==(0,0,240,24
 m=Machine(); w=m.page()
 assert m.paint(w)==0 and m.selected(w)==-1
 assert not m.rounded and not m.strokes and m.global_alpha==0 and m.clip==(0,0,240,240)
-assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0 and m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
+assert m.lcd_colors()==LCD_COLORS; passed()
 
 # Every saved value is unusual: the rounded path restores fill, stroke and clip exactly and
 # never touches the canvas or LCD global-alpha bytes.
@@ -1613,11 +1550,8 @@ assert m.global_alpha==0 and m.clip==(0,0,240,240); passed()
 
 # Taps choose their pane even with no initial owner or with both panes previously selected.
 for seeded in ((),(0,),(0,1)):
-    m=Machine(); a=m.node(); b=m.node()
-    ae=[m.entry(a,i*48) for i in range(4)]; be=[m.entry(b,i*48) for i in range(4)]
-    m.nodes[a]['children']=ae; m.nodes[b]['children']=be
+    m=Machine(); a,b,ae,be=m.panes()
     nested=m.entry(be[1]); m.nodes[be[1]]['children']=[nested]
-    m.top=m.node('window','album_page',[a,b])
     for i in seeded: m.nodes[(a,b)[i]]['_ringnav_index']=0
     m.touch(); m.click(nested)
     assert m.selected(a)==-1 and m.selected(b)==1
@@ -1630,11 +1564,7 @@ for seeded in ((),(0,),(0,1)):
     passed()
 
 # An inactive pane is never painted, so the outline cannot appear on two panes at once.
-m=Machine(); a=m.node(); b=m.node()
-for s in (a,b):
-    es=[m.entry(s,i*48) for i in range(4)]; m.nodes[s]['children']=es
-m.word(a+O['W_H'],96); m.word(b+O['W_H'],96)
-m.top=m.node('window','album_page',[a,b]); m.nodes[a]['_ringnav_index']=0
+m=Machine(); a,b,_,_=m.panes(96); m.nodes[a]['_ringnav_index']=0
 m.paint(b); assert not m.rounded and not m.strokes
 m.paint(a); assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']; passed()
 
@@ -1642,41 +1572,35 @@ m.paint(a); assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']; p
 m=Machine(); w,es=m.page_list(3,extent=1000); m.rounded_fail=True
 m.paint(w)
 assert [r['kind'] for r in m.rounded]==['fill','stroke'] and [s[:4] for s in m.strokes]==[(1,1,238,46),(2,2,236,44)]
-assert m.rounded[1]['color']==((O['SHADE_ALPHA']<<24)|O['FILL_RGB'])
-assert [s[5] for s in m.strokes]==[((O['SHADE_ALPHA']<<24)|O['FILL_RGB']),((O['OUTLINE_ALPHA']<<24)|O['OUTLINE_RGB'])]
-assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0 and m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678
+assert m.rounded[1]['color']==SHADE
+assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
+assert m.lcd_colors()==LCD_COLORS
 assert m.global_alpha==0 and m.clip==(0,0,240,240); passed()
 
 # The real stock rounded wrappers run with canvas services mocked. This firmware declines with
 # RET_FAIL when the canvas has no vgcanvas, and changes no fill/stroke color or alpha byte.
-m=Machine(); m.probe_canvas(); m.fake_vg=0
-for off,val in enumerate((1,1,238,46)): m.word(m.rect+4*off,val)
-m.word(m.color,((O['FILL_ALPHA']<<24)|O['FILL_RGB']))
+m=Machine(); m.probe_canvas(rect=(1,1,238,46))
 assert m.call(address=syms['canvas_fill_rounded_rect'],args=(m.canvas,m.rect,0,m.color),stack=(O['RADIUS'],))==2
 assert m.call(address=syms['canvas_stroke_rounded_rect'],args=(m.canvas,m.rect,0,m.color),stack=(O['RADIUS'],1))==2
-assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0 and m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678
+assert m.lcd_colors()==LCD_COLORS
 assert m.global_alpha==0 and not m.vg_calls; passed()
 
 # With a vgcanvas present the same wrappers take the AGGE-facing path the Q2 firmware links:
 # the color pointer and the radius/border-width stack slots reach the backend, canvas colors and
 # the canvas alpha byte stay put. (The fill call then enters stock FP64 dither math that Unicorn's
 # MIPS32 FR=0 FPU cannot execute; its vgcanvas calls up to that point are still asserted.)
-m=Machine(); m.probe_canvas(); m.fake_vg=0x1000400
-for off,val in enumerate((10,10,100,40)): m.word(m.rect+4*off,val)
-m.word(m.color,0xffffffff)
+m=Machine(); m.probe_canvas(vg=0x1000400,color=0xffffffff)
 assert m.call(address=syms['canvas_stroke_rounded_rect'],args=(m.canvas,m.rect,0,m.color),stack=(O['RADIUS'],2))==0
 names=[c[0] for c in m.vg_calls]
 assert 'vgcanvas_set_stroke_color' in names and 'vgcanvas_set_line_width' in names
 assert [c[2]&0xffffffff for c in m.vg_calls if c[0]=='vgcanvas_set_stroke_color']==[0xffffffff]
 assert [struct.unpack('<f',struct.pack('<I',c[2]&0xffffffff))[0] for c in m.vg_calls if c[0]=='vgcanvas_set_line_width']==[2.0]
-assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0 and m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678
+assert m.lcd_colors()==LCD_COLORS
 assert m.global_alpha==0 and m.u.mem_read(m.canvas+0x0e,1)[0]==0; passed()
-m=Machine(); m.probe_canvas(); m.fake_vg=0x1000400
-m.word(m.color,((O['FILL_ALPHA']<<24)|O['FILL_RGB']))
-for off,val in enumerate((10,10,100,40)): m.word(m.rect+4*off,val)
+m=Machine(); m.probe_canvas(vg=0x1000400)
 try: m.call(address=syms['canvas_fill_rounded_rect'],args=(m.canvas,m.rect,0,m.color),stack=(O['RADIUS'],))
 except UcError: pass
-assert [c[2] for c in m.vg_calls if c[0]=='vgcanvas_set_fill_color']==[((O['FILL_ALPHA']<<24)|O['FILL_RGB'])]
+assert [c[2] for c in m.vg_calls if c[0]=='vgcanvas_set_fill_color']==[FILL]
 assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0 and m.global_alpha==0
 assert not m.allocs; passed()
 
@@ -1684,9 +1608,7 @@ assert not m.allocs; passed()
 # non-color LCD type it fills the rounded rect through LCD sinks, frees every allocation, and
 # declines radius <= 2 exactly as the stock code does.
 m=Machine(); m.probe_canvas(lcd_type=0)
-for n in ('lcd_fill_rect','lcd_draw_hline','lcd_draw_vline'): m.handlers[syms[n]]='sink:'+n
-for off,val in enumerate((10,10,100,40)): m.word(m.rect+4*off,val)
-m.word(m.color,((O['FILL_ALPHA']<<24)|O['FILL_RGB']))
+m.mock('lcd_fill_rect','lcd_draw_hline','lcd_draw_vline',prefix='sink:')
 assert m.call(address=syms['canvas_fill_rounded_rect'],args=(m.canvas,m.rect,0,m.color),stack=(O['RADIUS'],))==0
 ops=[c for c in m.calls if c[0].startswith('sink:')]
 assert ops and all(10<=signed(c[2])<=109 and 10<=signed(c[3])<=49 for c in ops)
@@ -1716,8 +1638,7 @@ for pointer_down in (False,True):
         else: w,es=m.page_list(20)
         m.paint(w)
         for _ in range(12): m.call()
-        if virtual:
-            w,rs,es=m.table_page(); m.rebind=lambda a,offset:m.bind(rs,offset)
+        if virtual: w,rs,es=m.table_page(rebind=True)
         else: w,es=m.page_list(20)
         off=O['TABLE_TOP'] if virtual else O['SCROLL_Y']
         if pointer_down:
@@ -1760,9 +1681,8 @@ for active in (-1,0,1,2):
 # If the white rounded stroke fails, draw the square fallback as well.
 m=Machine(); w,es=m.page_list(3); m.rounded_fail=O['RADIUS']-1
 m.paint(w)
-assert [s[5] for s in m.strokes]==[((O['SHADE_ALPHA']<<24)|O['FILL_RGB']),((O['OUTLINE_ALPHA']<<24)|O['OUTLINE_RGB'])]
-assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x9abcdef0
-assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
+assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
+assert m.lcd_colors()==LCD_COLORS; passed()
 
 # An overdue confirmation can change power state before the next release is processed.
 for flag in ('g_backlight_status','g_power_longkey','g_ingore_bootkey_flag'):
@@ -1782,8 +1702,7 @@ m.advance(300); assert not m.clicks and not m.timers; passed()
 for target_kind in ('same', 'nested', 'outside'):
     m=Machine(); w,es=m.page_list(3); m.release()
     target=es[0] if target_kind=='same' else m.entry(es[0]) if target_kind=='nested' else m.node('button')
-    m.call(address=HOOKS['widget_dispatch'][0],args=(target,m.event,0,0),
-           event_type=O['EVT_CLICK'],gap=100)
+    m.click(target,gap=100)
     m.advance(300)
     assert m.clicks==[target] and not m.timers,target_kind
     passed()
@@ -1796,8 +1715,7 @@ for home in (False,True):
         m.word(w+O['SLIDE_INDEX'],0)
     m.call(gap=0)
     if not home: m.call(gap=50)
-    m.call(address=HOOKS['widget_dispatch'][0],args=(es[0 if home else 2],m.event,0,0),
-           event_type=O['EVT_CLICK'],gap=50)
+    m.click(es[0 if home else 2],gap=50)
     assert m.call(gap=50)==11
     if home: assert slide(m,w)[3]==200
     else: assert m.selected(w)==3
@@ -1895,10 +1813,7 @@ m.confirm(); assert m.clicks==[es[1]] and m.clicks[0] not in old
 passed()
 
 # Ring lists bump at both ends and wrap to the other end on the next same-direction detent.
-m=Machine(); w,es=m.page_list(6,height=96,extent=288,name='playlist_page')
-m.paint(w)
-for _ in range(5): assert m.call()==11
-assert m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
+m,w,es=walk(6,5,height=96,extent=288,name='playlist_page'); assert m.get(w+O['SCROLL_Y'])==192
 assert m.call(gap=100)==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
 m.paint(w,gap=0)
 assert m.rounded[0]['rect']==(1,43,238,46)   # bumped up against the end
@@ -1912,7 +1827,7 @@ passed()
 
 # A pause longer than the arm window bumps again instead of wrapping.
 m=Machine(); w,es=m.page_list(6,height=96,extent=288,name='folder_page')
-m.u.mem_write(syms['g_folder_path'],b'/sd/albums\0')
+m.folder('/sd/albums')
 m.paint(w)
 for _ in range(5): assert m.call()==11
 assert m.call(gap=100)==11 and m.selected(w)==5
@@ -1922,9 +1837,8 @@ assert m.call(gap=50)==11 and m.selected(w)==0
 passed()
 
 # Virtual music tables carry over too; the wrap lands on the first logical row.
-m=Machine(); w,rs,es=m.table_page(n=4)
+m=Machine(); w,rs,es=m.table_page(n=4,rebind=True)
 m.word(w+O['W_H'],96); m.word(w+O['TABLE_ROWS'],20)
-m.rebind=lambda a,offset: m.bind(rs,offset)
 m.paint(w)
 for _ in range(19): assert m.call()==11
 assert m.selected(w)==19 and m.get(w+O['TABLE_TOP'])==864
@@ -1935,9 +1849,7 @@ passed()
 
 # Settings menus, dynamic pages and the album grid keep hard ends; one-row lists never wrap.
 for name in ('sysset_page','playerqueue_page','album_page'):
-    m=Machine(); w,es=m.page_list(6,height=96,extent=288,name=name)
-    m.paint(w)
-    for _ in range(5): assert m.call()==11
+    m,w,es=walk(6,5,height=96,extent=288,name=name)
     assert m.call(gap=100)==11 and m.selected(w)==5
     m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
     assert m.call(gap=100)==11 and m.selected(w)==5
@@ -1956,9 +1868,8 @@ for kind in ('scroll_view','table_client'):
     parent=m.node('list_view' if kind=='scroll_view' else 'table_view',children=[w,bar])
     m.word(w+O['W_PARENT'],parent); m.nodes[m.top]['children']=[parent]
     m.handlers.pop(syms['scroll_bar_scroll_to'])
-    for name in ('scroll_bar_cast','scroll_bar_is_mobile','widget_set_opacity','widget_set_sensitive',
-                 'widget_set_visible_only','widget_animator_prop_create','widget_animator_prop_set_params'):
-        m.handlers[syms[name]]=name
+    m.mock('scroll_bar_cast','scroll_bar_is_mobile','widget_set_opacity','widget_set_sensitive',
+           'widget_set_visible_only','widget_animator_prop_create','widget_animator_prop_set_params')
     m.paint(w); m.call(gap=0)
     assert m.nodes[bar]['visible'] and m.u.mem_read(bar+0x34,1)==b'\xff'
     animator=m.get(bar+0x98)
@@ -1993,12 +1904,12 @@ m.call(gap=100); assert m.selected(w)==0
 passed()
 for cancel in ('touch','activate','recycle','destroy','scope'):
     m=Machine(); w,es=m.page_list(2,height=96,extent=96,name='folder_page')
-    m.u.mem_write(syms['g_folder_path'],b'/sd/a\0'); m.paint(w); m.call(); m.call(gap=0)
+    m.folder('/sd/a'); m.paint(w); m.call(); m.call(gap=0)
     if cancel=='touch': m.touch()
     elif cancel=='activate': m.click(es[-1])
     elif cancel=='recycle': m.nodes[w].pop('_ringnav_fx')
     elif cancel=='destroy': m.top=0; m.nodes.clear()
-    else: m.u.mem_write(syms['g_folder_path'],b'/sd/b\0'); m.paint(w,gap=0)
+    else: m.folder('/sd/b'); m.paint(w,gap=0)
     m.advance(O['BUMP_MS'])
     assert not any(c[0]=='widget_invalidate_force' and c[1]==w for c in m.calls)
     passed()
@@ -2012,12 +1923,11 @@ class NavigationMachine(Machine):
         self.word(self.wm+0x94,0x9a0490)
         for name in ('navigator_switch_to_with_context','navigator_back_to_home','navigator_to_with_context'):
             self.handlers.pop(syms[name],None)
-        for name in ('widget_child','window_open_and_close','widget_restack','widget_get_window',
-                     'widget_is_keyboard','widget_is_dialog','widget_is_window','widget_is_normal_window',
-                     'widget_remove_child','widget_destroy','window_manager_dispatch_window_event',
-                     'widget_foreach','widget_on','playing_timer_start','access@GLIBC_2.0',
-                     'remove@GLIBC_2.0','idle_add','netdisk_folder_clear','awake_screen'):
-            self.handlers[syms[name]]='nav:'+name
+        self.mock('widget_child','window_open_and_close','widget_restack','widget_get_window',
+                  'widget_is_keyboard','widget_is_dialog','widget_is_window','widget_is_normal_window',
+                  'widget_remove_child','widget_destroy','window_manager_dispatch_window_event',
+                  'widget_foreach','widget_on','playing_timer_start','access@GLIBC_2.0',
+                  'remove@GLIBC_2.0','idle_add','netdisk_folder_clear','awake_screen',prefix='nav:')
         self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
         for address in (0x52b6f4,0x68541c,0x6885c0,0x6861d4): self.handlers[address]='nav:'+hex(address)
     def sync_order(self):
@@ -2052,7 +1962,7 @@ if variant=='compact':
             home=m.node('window','home_page',stage=3)
             playing=m.node('window','playing_page',stage=3) if existing else 0
             m.order=[home]+([playing] if playing else [])+[browse]; m.sync_order()
-            m.u.mem_write(syms['g_folder_path'],b'/sd/music\0'); m.paint(w)
+            m.folder('/sd/music'); m.paint(w)
             for _ in range(6):m.call()
             selected,offset=m.selected(w),m.get(w+O['SCROLL_Y'])
             for visit in range(3):
@@ -2184,9 +2094,8 @@ if variant=='compact':
 class PullDispatchMachine(PullMachine):
     def __init__(self):
         super().__init__()
-        for n in ('widget_ref','widget_unref','widget_on_pointer_move_children','widget_on_pointer_up_children',
-                  'widget_on_event_before_children','widget_vtable_on_pointer_move','widget_vtable_on_pointer_up','emitter_dispatch'):
-            self.handlers[syms[n]]='input:'+n
+        self.mock('widget_ref','widget_unref','widget_on_pointer_move_children','widget_on_pointer_up_children',
+                  'widget_on_event_before_children','widget_vtable_on_pointer_move','widget_vtable_on_pointer_up','emitter_dispatch',prefix='input:')
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('input:'):return super().hook(u,address,size,unused)
@@ -2230,8 +2139,7 @@ if variant=='compact':
             super().__init__()
             self.handlers.pop(syms['stock_search'],None)
             self.handlers.pop(syms['navigator_to'],None)
-            self.handlers[syms['dialog_search_dialog_init']]='nav:dialog_search_dialog_init'
-            self.handlers[syms['widget_on']]='widget_on'
+            self.mock('dialog_search_dialog_init',prefix='nav:'); self.mock('widget_on')
     m=SearchNavigationMachine();w,es=m.page_list(6,height=240,name='localmusic_page');page=m.top
     m.order=[page];m.sync_order()
     m.start_pull(page,w);m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=120)
