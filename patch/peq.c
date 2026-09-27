@@ -32,13 +32,13 @@ static int error_at(peq_error *e, unsigned line, const char *reason) {
     return 0;
 }
 
-/* Decimal only; no locale, hex floats, expressions, NaN or infinity. */
+/* Decimal only (comma accepted as the mark, like APO); no hex floats, expressions, NaN or infinity. */
 static int number(const char *s, double *out) {
     double v = 0, scale = 1;
     int sign = 1, digits = 0, exponent = 0, esign = 1;
     if (*s == '+' || *s == '-') { if (*s == '-') sign = -1; ++s; }
     while (*s >= '0' && *s <= '9') { v = v * 10 + *s++ - '0'; ++digits; }
-    if (*s == '.') {
+    if (*s == '.' || *s == ',') {
         ++s;
         while (*s >= '0' && *s <= '9') { scale *= 0.1; v += (*s++ - '0') * scale; ++digits; }
     }
@@ -114,6 +114,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
             ++k;
         }
         if (n <= k || strcmp(t[k++], ":")) return error_at(error, line, "expected Filter [number]:");
+        if (n - k == 2 && !strcmp(t[k+1], "None")) continue; /* REW/APO empty slot */
         if (n - k != 8 && n - k != 10) return error_at(error, line, "unsupported filter form");
         if (p.count == PEQ_BANDS) return error_at(error, line, "more than ten bands");
         peq_band b = {0, 0, 0, 0, 0.7071067811865476};
@@ -124,6 +125,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
         else if (!strcmp(t[k], "LS") || !strcmp(t[k], "LSC")) b.type = 1;
         else if (!strcmp(t[k], "HS") || !strcmp(t[k], "HSC")) b.type = 2;
         else return error_at(error, line, "unsupported filter type");
+        int corner = !t[k][2]; /* APO: LS/HS take a corner frequency, LSC/HSC the centre */
         ++k;
         if (strcmp(t[k], "Fc") || strcmp(t[k+2], "Hz") || strcmp(t[k+3], "Gain") ||
             strcmp(t[k+5], "dB")) return error_at(error, line, "expected Fc <Hz> Hz Gain <dB> dB");
@@ -134,6 +136,18 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
             if (strcmp(t[k], "Q") || !number(t[k+1], &b.q))
                 return error_at(error, line, "expected Q <number>");
         } else if (!b.type) return error_at(error, line, "peaking filter requires Q");
+        if (b.type && valid_band(&b)) {
+            /* Match Equalizer APO: no Q means slope 0.9 at Fc; LS/HS with Q shift the corner to the centre. */
+            double a = pow(10, b.gain / 40), ab = a + 1 / a;
+            if (k >= n) b.q = 1 / __builtin_sqrt(ab * (1 / 0.9 - 1) + 2);
+            else if (corner) {
+                double f = pow(10, __builtin_fabs(b.gain) / 80 * ((1 / (b.q * b.q) - 2) / ab + 1));
+                b.frequency = b.type == 1 ? b.frequency * f : b.frequency / f;
+                /* The shift can leave 20..20000 Hz; clamp instead of rejecting the whole file. */
+                if (b.frequency > 20000) b.frequency = 20000;
+                if (b.frequency < 20) b.frequency = 20;
+            }
+        }
         if (!valid_band(&b)) return error_at(error, line, "range: 20..20000 Hz, -24..24 dB, Q 0.1..10");
         p.bands[p.count++] = b;
     }
@@ -198,8 +212,7 @@ int peq_compile(const peq_preset *p, int rate, peq_engine *out) {
         e.c[i].b0 = 1;
         if (i >= p->count || !p->bands[i].enabled || !p->bands[i].gain) continue;
         const peq_band *b = &p->bands[i];
-        /* Keep the preset intact when a low-rate track cannot represent a band. */
-        if (b->frequency >= rate * 0.5) { e.bypass = 1; continue; }
+        if (b->frequency >= rate * 0.5) continue; /* not representable at this rate; skip only this band */
         double a = pow(10, b->gain / 40), w = 6.283185307179586 * b->frequency / rate;
         double c = cos(w), alpha = sin(w) / (2 * b->q), r = 2 * __builtin_sqrt(a) * alpha;
         double b0, b1, b2, a0, a1, a2;
@@ -237,15 +250,15 @@ int peq_update(peq_dsp *d, const peq_preset *p) {
 
 static double sample(peq_engine *e, double x, int ch) {
     if (e->bypass) return x;
-    x *= e->gain;
     for (int i = 0; i < PEQ_BANDS; ++i) {
         const peq_coeff *c = &e->c[i];
-        double *z = e->z[ch][i], y = c->b0 * x + z[0];
+        /* Flush |y| < ~2e-34 to zero: decaying tails would otherwise reach denormals, which MIPS FPUs trap on. */
+        double *z = e->z[ch][i], y = c->b0 * x + z[0] + 1e-18 - 1e-18;
         z[0] = c->b1 * x - c->a1 * y + z[1];
         z[1] = c->b2 * x - c->a2 * y;
         x = y;
     }
-    return x;
+    return x * e->gain; /* after the cascade, so filter memory is independent of preamp */
 }
 
 void peq_process(peq_dsp *d, float *audio, unsigned frames) {
@@ -255,6 +268,8 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames) {
             d->next = d->pending;
             d->waiting = 0;
             d->ramp = d->ramp_length;
+            /* Carry filter memory over so unchanged bands and preamp-only edits crossfade without a transient. */
+            if (!d->current.bypass) memcpy(d->next.z, d->current.z, sizeof(d->next.z));
         }
         for (int ch = 0; ch < d->channels; ++ch, ++audio) {
             if (!d->ramp && d->current.bypass) continue; /* bit-exact steady bypass */

@@ -66,7 +66,19 @@ def parser_check(lib, tmp):
     assert [b.type for b in p.bands[:6]] == [0, 0, 1, 1, 2, 2]
     assert [b.enabled for b in p.bands[:6]] == [0, 1, 0, 1, 0, 1]
     assert [b.frequency for b in p.bands[:6]] == [100, 200, 300, 400, 500, 600]
-    assert abs(p.bands[2].q - 1 / math.sqrt(2)) < 1e-15
+    a = 10 ** (-6 / 40)  # APO: shelf without Q is slope 0.9 at Fc
+    assert abs(p.bands[2].q - 1 / math.sqrt((a + 1/a) * (1/0.9 - 1) + 2)) < 1e-15
+    # APO: LS/HS with Q give a corner frequency (S=1 at Q 0.7071 -> shift 10^(gain/80)); LSC/HSC the centre.
+    shelves = parse(lib, 'Filter: ON LS Fc 100 Hz Gain 12 dB Q 0.7071067811865476\n'
+                         'Filter: ON HS Fc 8000 Hz Gain -12 dB Q 0.7071067811865476\n'
+                         'Filter: ON LSC Fc 100 Hz Gain 12 dB Q 0.7\n'
+                         'Filter 11: OFF None\nFilter: ON PK Fc 1000,5 Hz Gain -3,5 dB Q 1,41\n')
+    assert abs(shelves.bands[0].frequency - 100 * 10**(12/80)) < 1e-9
+    assert abs(shelves.bands[1].frequency - 8000 / 10**(12/80)) < 1e-9
+    assert shelves.bands[2].frequency == 100 and shelves.count == 4
+    assert (shelves.bands[3].frequency, shelves.bands[3].gain, shelves.bands[3].q) == (1000.5, -3.5, 1.41)
+    edges = parse(lib, 'Filter: ON LS Fc 19000 Hz Gain 12 dB Q 0.7\nFilter: ON HS Fc 21 Hz Gain -12 dB Q 0.7\n')
+    assert (edges.bands[0].frequency, edges.bands[1].frequency) == (20000, 20)
     single = 'Filter: ON PK Fc 1e3 Hz Gain +6.0 dB Q .7\n'
     assert parse(lib, single).preamp == 0
     assert parse(lib, 'Preamp: 24 dB\nPreamp: 24 dB\nPreamp: -48 dB').preamp == 0
@@ -168,7 +180,8 @@ def dsp_check(lib):
                 for c in e.c:
                     assert abs(c.a2) < 1 and 1+c.a1+c.a2 > 0 and 1-c.a1+c.a2 > 0
     p.bands[9] = Band(1, 0, 16000, 6, 1)
-    e = Engine(); assert lib.peq_compile(C.byref(p), 8000, C.byref(e)) and e.bypass
+    e = Engine(); assert lib.peq_compile(C.byref(p), 8000, C.byref(e)) and not e.bypass
+    assert (e.c[9].b0, e.c[9].a1) == (1, 0)  # only the unrepresentable band is skipped
     p = parse(lib, '\n'.join(f'Filter: ON PK Fc {100+i*1000} Hz Gain 6 dB Q 1' for i in range(10)))
     d = DSP(); lib.peq_reset(C.byref(d), 48000, 2, C.byref(p))
     clipped = process(lib, d, [1., -1.] * 20000, 2)
@@ -195,6 +208,20 @@ def dsp_check(lib):
     assert not a.ramp and not a.waiting and abs(a.current.gain-10**(-24/20)) < 1e-12
     lib.peq_reset(C.byref(a), 96000, 1, C.byref(p))
     assert process(lib, a, [0.] * 1000) == [0.] * 1000
+    # Decaying tails settle at a ~-590 dB normal-float residue, never in the denormal range.
+    tail = process(lib, a, [0.5] + [0.] * 96000)
+    state = [abs(a.current.z[0][i][j]) for i in range(10) for j in range(2)]
+    assert all(z < 1e-28 and (z == 0 or z > 1e-300) for z in state) and abs(tail[-1]) < 1e-28
+    # A preamp-only change carries filter memory: the crossfade is a pure gain ramp.
+    lib.peq_reset(C.byref(a), 48000, 1, C.byref(p))
+    tone = [0.1*math.sin(2*math.pi*100*i/48000) for i in range(20000)]
+    before = process(lib, a, tone[:10000])
+    p.preamp = -30; assert lib.peq_update(C.byref(a), C.byref(p))
+    after = process(lib, a, tone[10000:])
+    b = DSP(); p.preamp = -24; lib.peq_reset(C.byref(b), 48000, 1, C.byref(p))
+    reference = process(lib, b, tone)[10000:]
+    fade = [1 - (1 - 10**(-6/20)) * min(i + 1, 960) / 960 for i in range(10000)]
+    assert max(abs(x - r*f) for x, r, f in zip(after, reference, fade)) < 1e-6
     print('PEQ DSP: C PCM response, ten bands, shelves, rates, bypass, clipping, channels and updates passed.')
 
 if __name__ == '__main__':
