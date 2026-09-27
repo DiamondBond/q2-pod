@@ -8,6 +8,7 @@ import hashlib
 import json
 import pathlib
 import struct
+from build import check as require
 
 AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/compact.json').read_text())
 # The app window is the 375x320 screen minus the 30px status bar, so a 290px list holds four
@@ -18,11 +19,6 @@ PITCH = 72
 BODY = PITCH - 4
 ART = 52
 ART_INSET = (BODY - ART) // 2
-
-
-def require(ok, message):
-    if not ok:
-        raise ValueError(message)
 
 
 def decode(data):
@@ -106,13 +102,6 @@ def patch_word(data, fileoff, changes, address, old, new, purpose):
     require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
     struct.pack_into('<I', data, off, new)
     changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
-
-
-def patch_artist_albums(data, fileoff):
-    changes = []
-    for address, old, new in ARTIST_ALBUMS:
-        patch_word(data, fileoff, changes, address, old, new, 'artist detail opens on Albums')
-    return changes
 
 
 def patch_asset(path, data, compact):

@@ -772,7 +772,7 @@ static int confirm_center(const void *info) {
     if (valid) {
         void *target = g_menu.at[index_of(&g_menu, st.center_id)];
         char click[0x30];
-        stock_dispatch(target, pointer_event_init(click, EVT_CLICK, target, 0, 0));
+        stock_dispatch_trampoline(target, pointer_event_init(click, EVT_CLICK, target, 0, 0));
     }
     return 0;
 }
@@ -923,7 +923,7 @@ int ringnav_paint(void *w, void *canvas) {
 #if COMPACT
     if (st.pull_page && !pull_live()) pull_cancel();
 #endif
-    int result = stock_paint(w, canvas);
+    int result = stock_paint_trampoline(w, canvas);
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
@@ -1001,7 +1001,7 @@ static void hide_outline(void) {
 
 int ringnav_touch(void *ctx, void *event) {
     hide_outline();
-    int result = stock_touch(ctx, event);
+    int result = stock_touch_trampoline(ctx, event);
     /* A tap is a fresh interaction: it cancels a pending screen-toggle pair and any spin. */
     cancel_center();
     drop_spin();
@@ -1063,7 +1063,7 @@ int ringnav_dispatch(void *target, void *event) {
             }
         }
     }
-    return stock_dispatch(target, event);
+    return stock_dispatch_trampoline(target, event);
 }
 
 #if COMPACT
@@ -1153,7 +1153,7 @@ int ringnav(void *ctx, void *event) {
         drop_spin();
         return 0;
     }
-    int result = stock_keyup(ctx, event);
+    int result = stock_keyup_trampoline(ctx, event);
     if (result) {
         cancel_center();
         if (I(event, EVENT_KEY) == KEY_PREV || I(event, EVENT_KEY) == KEY_NEXT) st.wheel_run = 0;

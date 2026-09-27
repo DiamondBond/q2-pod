@@ -32,10 +32,6 @@ static const int steps[] = {1, 10, 100, 1000};
 static int action(void *ctx, void *event);
 static int render(const void *unused);
 
-static void refresh(void) {
-    if (!ui.timer) ui.timer = timer_add(render, 0, 1);
-}
-
 static void row(void *view, int index, const char *text, int id) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
@@ -148,7 +144,7 @@ static int action(void *ctx, void *event) {
         }
     }
     if (id >= ENABLE && id < STEP) ui.dirty = 1; /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
-    refresh();
+    if (!ui.timer) ui.timer = timer_add(render, 0, 1);
     return 0;
 }
 

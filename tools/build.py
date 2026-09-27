@@ -235,8 +235,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     syms.update(PRIVATE_FUNCTIONS)
     header = [f'#define RING_STEP {RING_STEP}']
     for name in ('keyup', 'touch', 'paint', 'dispatch'):
-        header += [f'extern int stock_{name}_trampoline(void *, void *);',
-                   f'#define stock_{name} stock_{name}_trampoline']
+        header.append(f'extern int stock_{name}_trampoline(void *, void *);')
     for name,(ret,args) in FUNCTIONS.items():
         header.append(f'#define {name} (({ret} (*)({args}))0x{syms[name]:x}u)')
     symbol_table = run('readelf', '-Ws', demo)
@@ -255,7 +254,6 @@ def build(zip_path, out, logo, compact=False, dev=False):
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
     patched = bytearray(raw_demo)
-    hookoff = fileoff(patched, HOOK)
     hooks = {}
     for name, (address, replacement) in HOOKS.items():
         check(syms[name] == address, f'{name}: callback address mismatch')
@@ -272,8 +270,10 @@ def build(zip_path, out, logo, compact=False, dev=False):
     hooks.update(patch_demo(patched, ps))
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
     audio = patch_player(raw_player, out/'peq')
-    from compact import AUDIT, ARTIST_PAGE, patch_artist_albums, patch_asset, patch_code
-    artist_code = patch_artist_albums(patched, fileoff)
+    from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, patch_asset, patch_code, patch_word
+    artist_code = []
+    for address, old, new in ARTIST_ALBUMS:
+        patch_word(patched, fileoff, artist_code, address, old, new, 'artist detail opens on Albums')
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
         off = fileoff(raw_demo, syms[name])
@@ -348,7 +348,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     manifest = dict(input_zip_sha256=ZIP_SHA, stock_demo_sha256=DEMO_SHA, source_sha256=source,
         demo_sha256=sha(patched), patch_sha256=sha(payload), update_sha256=sha((out/'update.tar').read_bytes()),
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
-        hook_address=hex(HOOK), hook_file_offset=hex(hookoff), patch_address=hex(BASE),
+        patch_address=hex(BASE),
         patch_file_offset=hex(appendoff), patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, artist_code=artist_code, changed_assets=changed_assets, hooks=hooks, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
