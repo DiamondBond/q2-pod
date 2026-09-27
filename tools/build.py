@@ -179,6 +179,17 @@ def compile_payload(out, compact=False):
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
 
+def append_payload(image, payload, base, memsz, flags, label):
+    """Map payload at base through the image's final PT_NULL header; returns its file offset."""
+    nulls = [(o,p) for o,p in segments(image) if p[0] == 0]
+    check(len(nulls) == 1 and nulls[0][0] == segments(image)[-1][0], f'{label}: no final PT_NULL slot')
+    check(all(p[2]+p[5] < base for _,p in segments(image) if p[0] == 1), f'{label}: payload mapping overlaps')
+    off = (len(image)+65535)&~65535
+    image.extend(bytes(off-len(image)))
+    image.extend(payload)
+    struct.pack_into('<8I',image,nulls[0][0],1,off,base,base,len(payload),memsz,flags,65536)
+    return off
+
 def build(zip_path, out, logo, compact=False, dev=False):
     variant = 'compact' if compact else 'normal'
     version = (DEV_VERSIONS if dev else VERSIONS)[variant]
@@ -279,16 +290,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     check(len(version) + 1 == len(b'V1.32\0'),
           'VERSION must stay 5 characters; a longer literal shifts every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
-    nulls = [(o,p) for o,p in segments(patched) if p[0] == 0]
-    check(len(nulls) == 1 and nulls[0][0] == segments(patched)[-1][0], 'No final PT_NULL slot')
-    check(all(p[2]+p[5] < BASE for _,p in segments(patched) if p[0] == 1), 'Patch mapping overlaps')
-    appendoff = (len(patched)+65535)&~65535
-    patched.extend(bytes(appendoff-len(patched)))
-    patched.extend(payload)
-    struct.pack_into('<8I',patched,nulls[0][0],1,appendoff,BASE,BASE,len(payload),
-                     ps['__scratch_end']-BASE,7,65536)
+    appendoff = append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 7, 'demo')
     (out/'demo').write_bytes(patched)
-    (out/'patch.dis').write_text(run('llvm-objdump','-d',out/'patch.elf'))
     # Pseudo-file round trip preserves every original inode's metadata and hardlinks.
     pseudo = out/'root.pseudo'
     run('unsquashfs','-pf',pseudo,sq)

@@ -1,8 +1,7 @@
 """Checked Q2 V1.32 PEQ hooks and target ABI imports; no vendor code is distributed."""
-import pathlib
 import re
 import struct
-from build import ROOT, FLAGS, FUNCTIONS, check, fileoff, run, segments, sha, symbols
+from build import ROOT, FLAGS, FUNCTIONS, append_payload, check, fileoff, run, sha, symbols
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
@@ -19,7 +18,7 @@ LIBC = {
     'calloc': ('void *', 'unsigned, unsigned'),
     'free': ('void', 'void *'),
     'pow': ('double', 'double, double'), 'cos': ('double', 'double'),
-    'sin': ('double', 'double'), 'sqrt': ('double', 'double'),
+    'sin': ('double', 'double'),
     'fopen': ('void *', 'const char *, const char *'),
     'fread': ('unsigned', 'void *, unsigned, unsigned, void *'),
     'fwrite': ('unsigned', 'const void *, unsigned, unsigned, void *'),
@@ -51,8 +50,7 @@ def compile_common(out, binary, player=False):
     asm = ['.set noreorder', '.text']
     for name, (ret, args) in LIBC.items():
         # Unused I/O is removed by --gc-sections in the player payload.
-        alias = {'fopen': 'fopen64', 'readdir': 'readdir64', 'pow': '__pow_finite',
-                 'sqrt': '__sqrt_finite'}.get(name, name) if player else name
+        alias = {'fopen': 'fopen64', 'readdir': 'readdir64', 'pow': '__pow_finite'}.get(name, name) if player else name
         if alias not in got:
             header.append(f'extern {ret} {name}({args});')
             continue
@@ -112,14 +110,7 @@ def patch_player(raw, out):
     data = bytearray(raw)
     off = fileoff(raw, 0x893e0c)
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
-    nulls = [(o,p) for o,p in segments(data) if p[0] == 0]
-    check(len(nulls) == 1 and nulls[0][0] == segments(data)[-1][0], 'No player PT_NULL slot')
-    check(all(p[2]+p[5] < PLAYER_BASE for _,p in segments(data) if p[0] == 1), 'Player mapping overlap')
-    append = (len(data)+65535)&~65535
-    data.extend(bytes(append-len(data)))
-    data.extend(payload)
-    struct.pack_into('<8I', data, nulls[0][0], 1, append, PLAYER_BASE, PLAYER_BASE,
-                     len(payload), max(len(payload), ps['__end']-PLAYER_BASE), 5, 65536)
+    append = append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 5, 'player')
     (out/'hciplayer').write_bytes(data)
     return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload),
                 descriptor_address='0x893e0c', original='24014500', replacement=hex(ps['peq_open']),

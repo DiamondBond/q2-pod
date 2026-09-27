@@ -77,7 +77,8 @@ def package(stock, out, logo):
     for variant, asset in ASSETS.items():
         for suffix in ('', '-repeat'):
             build(stock, out/(variant+suffix), logo, compact=variant == 'compact')
-            validate(out/(variant+suffix), variant)
+        # The byte comparisons below prove the repeat build; validate the first only.
+        validate(out/variant, variant)
         a, b = out/variant, out/(variant+'-repeat')
         check((a/'update.tar').read_bytes() == (b/'update.tar').read_bytes(), f'{variant}: non-reproducible update')
         data = archive_bytes(a)
