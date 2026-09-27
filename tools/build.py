@@ -155,7 +155,7 @@ PRIVATE_FUNCTIONS = {
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
-           'g_power_longkey', 'g_ingore_bootkey_flag']
+           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag']
 # Audited stock browsing state (not playback state); sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4}

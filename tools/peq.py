@@ -1,7 +1,7 @@
 """Checked Q2 V1.32 PEQ hooks and target ABI imports; no vendor code is distributed."""
 import re
 import struct
-from build import ROOT, FLAGS, FUNCTIONS, append_payload, check, fileoff, run, sha, symbols
+from build import ROOT, FLAGS, FUNCTIONS, GLOBALS, append_payload, check, fileoff, run, sha, symbols
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
@@ -67,6 +67,8 @@ def compile_common(out, binary, player=False):
         for name, (ret, args) in (FUNCTIONS | UI).items():
             if name in syms and syms[name]:
                 header.append(f'#define {name} (({ret} (*)({args}))0x{syms[name]:x}u)')
+        # build.py has already checked each is a one-byte global.
+        header += [f'#define {name} (*(volatile unsigned char *)0x{syms[name]:x}u)' for name in GLOBALS]
     (out/'peq_platform.h').write_text('\n'.join(header)+'\n')
     (out/'peq_imports.S').write_text('\n'.join(asm)+'\n')
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections']

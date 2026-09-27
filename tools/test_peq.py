@@ -30,11 +30,14 @@ class DSP(C.Structure):
     _fields_ = [('current', Engine), ('next', Engine), ('pending', Engine),
                 *[(k, C.c_int) for k in ('rate', 'channels', 'ramp', 'ramp_length', 'waiting')]]
 
+def compile_host(tmp, name, *sources):
+    path = tmp/name
+    subprocess.run(['cc', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root"', '-O2', '-Wall', '-Wextra', '-Werror',
+                    '-shared', '-fPIC', *map(str, sources), '-lm', '-o', str(path)], check=True)
+    return C.CDLL(str(path))
+
 def library(tmp):
-    path = tmp/'peq.so'
-    subprocess.run(['cc', '-DPEQ_HOST', '-O2', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC',
-                    str(ROOT/'patch/peq.c'), '-lm', '-o', str(path)], check=True)
-    lib = C.CDLL(str(path))
+    lib = compile_host(tmp, 'peq.so', ROOT/'patch/peq.c')
     signatures = {
         'peq_default': [C.POINTER(Preset)], 'peq_valid': [C.POINTER(Preset)],
         'peq_parse': [C.c_char_p, C.c_uint, C.POINTER(Preset), C.POINTER(Error)],
@@ -224,8 +227,146 @@ def dsp_check(lib):
     assert max(abs(x - r*f) for x, r, f in zip(after, reference, fade)) < 1e-6
     print('PEQ DSP: C PCM response, ten bands, shelves, rates, bypass, clipping, channels and updates passed.')
 
+# Host stand-ins for the stock services peq_platform.h maps on the device.
+SHIM_H = r"""
+#include <dirent.h>
+#include <sys/stat.h>
+typedef int (*handler)(void *, void *);
+extern volatile unsigned char g_equalizer_flag;
+void *list_item_create(void *, int, int, int, int);
+void *label_create(void *, int, int, int, int);
+void *list_view_create(void *, int, int, int, int);
+void *scroll_view_create(void *, int, int, int, int);
+int widget_use_style(void *, const char *);
+int widget_set_text_utf8(void *, const char *);
+unsigned widget_on(void *, unsigned, handler, void *);
+int widget_get_prop_int(void *, const char *, int);
+int widget_set_prop_int(void *, const char *, int);
+int widget_destroy_children(void *);
+int widget_resize(void *, int, int);
+int scroll_view_set_offset(void *, int, int);
+int widget_invalidate_force(void *, void *);
+unsigned timer_add(int (*)(const void *), void *, unsigned);
+int timer_remove(unsigned);
+int navigator_back(void);
+"""
+SHIM = r"""
+static struct { int parent, h; char text[160]; handler click, destroy, keyup; void *ctx; } w[4096];
+static int count = 1, timers, removed, backs;
+static int (*timer_fn)(const void *);
+volatile unsigned char g_equalizer_flag;
+int stock_eq_trampoline(int mode) { return mode; }
+static void *make(void *parent, int h) {
+    ++count; w[count].parent = (int)(long)parent; w[count].h = h;
+    w[count].text[0] = 0; w[count].click = 0; return (void *)(long)count;
+}
+void *list_item_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
+void *label_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
+void *list_view_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
+void *scroll_view_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
+int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
+int widget_set_text_utf8(void *x, const char *s) { snprintf(w[(long)x].text, 160, "%s", s); return 0; }
+unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
+    long i = (long)x;
+    if (type == 0x10c) { w[i].click = f; w[i].ctx = ctx; }
+    else if (type == 0x0c) w[i].destroy = f;
+    else w[i].keyup = f;
+    return 1;
+}
+int widget_get_prop_int(void *x, const char *k, int d) { return (long)x == 1 && !strcmp(k, "h") ? 290 : d; }
+int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void)v; return 0; }
+int widget_destroy_children(void *x) { (void)x; count = 1; return 0; }
+int widget_resize(void *x, int ww, int h) { (void)ww; w[(long)x].h = h; return 0; }
+int scroll_view_set_offset(void *x, int a, int b) { (void)x; (void)a; (void)b; return 0; }
+int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
+unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return ++timers; }
+int timer_remove(unsigned id) { (void)id; timer_fn = 0; ++removed; return 0; }
+int navigator_back(void) { return ++backs; }
+
+int peq_page_init(void *page, void *context);
+int shim_open(void) { count = 1; w[1].destroy = w[1].keyup = 0; return peq_page_init((void *)1, 0); }
+int shim_pending(void) { return timer_fn != 0; }
+int shim_removed(void) { return removed; }
+unsigned char shim_flag(void) { return g_equalizer_flag; }
+void shim_run(void) { int (*f)(const void *) = timer_fn; timer_fn = 0; if (f) f(0); }
+/* Click the row whose label starts with text; optionally let the deferred render run. */
+int shim_click(const char *text, int run) {
+    for (int i = 2; i <= count; ++i)
+        if (!strncmp(w[i].text, text, strlen(text)) && w[w[i].parent].click) {
+            int p = w[i].parent;
+            w[p].click(w[p].ctx, 0);
+            if (run) shim_run();
+            return 1;
+        }
+    return 0;
+}
+void shim_return(void) { int event[8] = {0}; event[6] = 170; w[1].keyup(0, event); shim_run(); }
+void shim_close(void) { w[1].destroy(0, 0); }
+const char *shim_title(void) {
+    for (int i = 2; i <= count; ++i) if (w[i].parent == 1 && w[i].h == 48) return w[i].text;
+    return "";
+}
+int shim_list_height(void) { return w[2].h; } /* the list view is the page's first child */
+"""
+
+def editor_check(lib, tmp):
+    """The editor's promises, driven through its real click and render paths."""
+    (tmp/'shim.h').write_text(SHIM_H)
+    (tmp/'shim.c').write_text('#include "peq.h"\n' + SHIM)
+    ui = compile_host(tmp, 'peq_ui.so', ROOT/'patch/peq_ui.c', ROOT/'patch/peq.c', tmp/'shim.c',
+                      '-I', ROOT/'patch', '-include', tmp/'shim.h')
+    ui.shim_title.restype = C.c_char_p
+    data, saved = tmp/'root/mnt/data', tmp/'root/mnt/data/peq-presets'
+    saved.mkdir(parents=True); (tmp/'root/mnt/mmc/EQ').mkdir(parents=True)
+    active = data/'peq-active'
+    def preset(**band):
+        p = Preset(); lib.peq_default(C.byref(p)); p.bypass = 0
+        for k, v in band.items(): setattr(p.bands[0], k, v)
+        return p
+    def read():
+        p = Preset(); assert lib.peq_load(bytes(active), C.byref(p)); return p
+    def click(text): assert ui.shim_click(text.encode(), 1), (text, ui.shim_title())
+    title = lambda: ui.shim_title().decode()
+
+    assert lib.peq_save(bytes(active), C.byref(preset(enabled=1)), 1) == 1
+    assert ui.shim_open() == 0 and title() == 'PEQ'
+    full = ui.shim_list_height()
+    # Bypass switches at once but keeps unapplied band edits out of the active preset.
+    click('1 ON'); click('Raise gain'); click('Raise gain'); ui.shim_return()
+    click('PEQ: ON')
+    assert read().bypass == 1 and read().bands[0].gain == 0 and ui.shim_flag() == 0
+    click('Apply changes')
+    assert read().bands[0].gain == 1 and read().bypass == 1 and title() == 'Applied'
+    # A message takes the title bar; the list keeps every row.
+    assert ui.shim_list_height() == full == 240
+    # Loading into the editor does not activate it, and the title names it.
+    assert lib.peq_save(bytes(saved/'HD650.peq'), C.byref(preset(enabled=1, gain=-3.0)), 1) == 1
+    before = active.read_bytes()
+    click('Presets'); click('HD650.peq')
+    assert active.read_bytes() == before and title() == 'Loaded HD650; choose Apply to activate'
+    click('PEQ: OFF'); click('PEQ: ON')  # any action clears the message
+    assert title() == 'PEQ: HD650' and read().bands[0].gain == 1  # still the applied preset
+    # A failed apply or switch leaves the active preset untouched.
+    before = active.read_bytes()
+    (data/'peq-active.tmp').mkdir()
+    click('Apply changes')
+    assert title() == 'Apply failed; active EQ unchanged' and active.read_bytes() == before
+    click('PEQ: OFF')
+    assert title() == 'Switch failed; PEQ unchanged' and active.read_bytes() == before
+    (data/'peq-active.tmp').rmdir()
+    click('Apply changes'); assert read().bands[0].gain == -3
+    # Closing cancels the pending render; reopening shows the applied preset's name.
+    assert ui.shim_click(b'Presets', 0) and ui.shim_pending()
+    removed = ui.shim_removed()
+    ui.shim_close()
+    assert not ui.shim_pending() and ui.shim_removed() == removed + 1
+    ui.shim_open()
+    assert title() == 'PEQ: HD650'
+    print('PEQ editor: bypass, apply, load, failed saves, preset name and close passed.')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
         tmp = pathlib.Path(directory); lib = library(tmp)
         parser_check(lib, tmp)
         dsp_check(lib)
+        editor_check(lib, tmp)

@@ -9,15 +9,16 @@
 #include <unistd.h>
 #else
 #include "peq_platform.h"
+#define PEQ_ROOT "" /* host tests pass a scratch directory */
 #endif
 
 #define PEQ_BANDS 10
 #define PEQ_CHANNELS 8
 #define PEQ_FILE_LIMIT 16384
 #define PEQ_LINE_LIMIT 512
-#define PEQ_ACTIVE "/mnt/data/peq-active"
-#define PEQ_SAVED "/mnt/data/peq-presets"
-#define PEQ_IMPORT "/mnt/mmc/EQ"
+#define PEQ_ACTIVE PEQ_ROOT "/mnt/data/peq-active"
+#define PEQ_SAVED PEQ_ROOT "/mnt/data/peq-presets"
+#define PEQ_IMPORT PEQ_ROOT "/mnt/mmc/EQ"
 
 /* Versioned disk representation: fixed-width fields, no pointers or implicit padding. */
 typedef struct { int enabled, type; double frequency, gain, q; } peq_band;

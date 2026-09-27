@@ -6,12 +6,11 @@ extern int stock_eq_trampoline(int mode);
  * Afterwards the flag only drives the status-bar EQ icon (systembar_showface @0x52f8b0). */
 int peq_stock_eq(int mode) {
     (void)mode;
-    volatile unsigned char *flag = (volatile unsigned char *)0xa38b09; /* g_equalizer_flag in pinned demo */
-    *flag = 1;
+    g_equalizer_flag = 1;
     int result = stock_eq_trampoline(1);
     peq_preset active;
     peq_load_active(&active);
-    *flag = !active.bypass;
+    g_equalizer_flag = !active.bypass;
     return result;
 }
 
@@ -25,7 +24,8 @@ static struct {
     int screen, band, step, count, previous, rendered, dirty;
     peq_preset draft, candidate;
     char (*names)[256];
-    char destination[600], status[160];
+    /* name: preset in the editor; active_name: last applied. Both last until reboot. */
+    char destination[600], status[160], name[64], active_name[64];
 } ui __attribute__((section(".scratch")));
 
 static const int steps[] = {1, 10, 100, 1000};
@@ -106,6 +106,7 @@ static int action(void *ctx, void *event) {
         if (peq_save(PEQ_ACTIVE, &ui.draft, 1) == 1) {
             peq_stock_eq(1);
             ui.dirty = 0;
+            memcpy(ui.active_name, ui.name, sizeof(ui.name));
             snprintf(ui.status, sizeof(ui.status), "Applied");
         } else snprintf(ui.status, sizeof(ui.status), "Apply failed; active EQ unchanged");
     } else if (id == YES) {
@@ -139,7 +140,8 @@ static int action(void *ctx, void *event) {
                 ui.draft = p;
                 ui.dirty = 1;
                 ui.screen = HOME;
-                snprintf(ui.status, sizeof(ui.status), "Loaded; choose Apply to activate");
+                snprintf(ui.name, sizeof(ui.name), "%.*s", (int)strlen(ui.names[id]) - 4, ui.names[id]);
+                snprintf(ui.status, sizeof(ui.status), "Loaded %s; choose Apply to activate", ui.name);
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
@@ -159,8 +161,8 @@ static int render(const void *unused) {
     }
     ui.rendered = ui.screen;
     int height = widget_get_prop_int(ui.page, "h", 320);
-    /* Whole rows only, so the last row is never clipped; the status line shows only with a message. */
-    int rows = (height - 48 - (ui.status[0] ? 54 : 0)) / 48 * 48;
+    /* Whole rows only, so the last row is never clipped. */
+    int rows = (height - 48) / 48 * 48;
     widget_destroy_children(ui.page);
     void *list = list_view_create(ui.page, 0, 48, 375, rows);
     widget_set_prop_int(list, "item_height", 48);
@@ -219,16 +221,14 @@ static int render(const void *unused) {
         widget_resize(view, 375, n * 48);
     }
     scroll_view_set_offset(view, 0, offset);
+    /* A message takes the title bar until the next action, so it never shrinks the list. */
     void *title = label_create(ui.page, 8, 0, 359, 48);
     widget_use_style(title, "s_label_white20c");
-    snprintf(text, sizeof(text), ui.screen == BAND ? "PEQ Band %d" : "PEQ", ui.band + 1);
+    widget_set_prop_int(title, "line_wrap", 1);
+    if (ui.status[0]) snprintf(text, sizeof(text), "%s", ui.status);
+    else if (ui.screen == BAND) snprintf(text, sizeof(text), "PEQ Band %d", ui.band + 1);
+    else snprintf(text, sizeof(text), ui.name[0] ? "PEQ: %s" : "PEQ", ui.name);
     widget_set_text_utf8(title, text);
-    if (ui.status[0]) {
-        void *status = label_create(ui.page, 8, height - 54, 359, 54);
-        widget_use_style(status, "s_label_white20c");
-        widget_set_prop_int(status, "line_wrap", 1);
-        widget_set_text_utf8(status, ui.status);
-    }
     widget_invalidate_force(ui.page, 0);
     return 7; /* RET_REMOVE */
 }
@@ -259,6 +259,7 @@ int peq_page_init(void *page, void *context) {
     ui.screen = HOME;
     ui.status[0] = 0;
     ui.dirty = 0;
+    memcpy(ui.name, ui.active_name, sizeof(ui.name));
     peq_load_active(&ui.draft);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
