@@ -1,5 +1,7 @@
 # Changelog
 
+- **V3.8R / V3.8C**: Artist pages open on Albums; All Songs stays one tap away. The artist page tabs are now translated: stock firmware showed Chinese 单曲/专辑 there in every language.
+
 - **V3.7R / V3.7C**: The stock equalizer is replaced by a ten-band parametric EQ with peaking and shelf bands, preamp, an immediate on/off switch that also drives the status-bar EQ icon, saved presets and AutoEQ / Equalizer APO `.txt` import from `/EQ` on the microSD card. Return steps back through the editor's screens. At the ends of the local folder and music lists the wheel now hard-stops while you keep turning; pause briefly, then turn again to wrap around.
 
 - **V3.6R / V3.6C**: Compact Local Songs opens search with a pull-down. Start inside the list while it is at the top; the overlay reads "Pull to search" after an 8-pixel downward drag and "Release to search" at 48 pixels. Releasing opens the stock search dialog, and moving back below the threshold cancels. The gesture clears on wheel or button input, navigation, screen-off or interruption and never activates a row. Empty lists work; Folder view and other lists are unchanged, and the normal build keeps its stock search toolbar.

@@ -29,7 +29,7 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols
-    from compact import AUDIT, BOTTOM, PITCH, decode, patch_asset, patch_code
+    from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, decode, patch_asset, patch_code
     manifest = json.loads((directory/'manifest.json').read_text())
     compact = manifest['variant'] == 'compact'
     stock = (directory/'stock-demo').read_bytes()
@@ -44,7 +44,7 @@ def validate_assets(directory):
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
     changed = manifest['changed_assets']
-    assert set(changed) == ({'release/assets/default/raw/ui/'+p for p in AUDIT['assets']} if compact else set())
+    assert set(changed) == ({'release/assets/default/raw/ui/'+p for p in AUDIT['assets']} if compact else {'release/assets/default/raw/ui/'+ARTIST_PAGE})
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
@@ -56,11 +56,11 @@ def validate_assets(directory):
             assert new == original, rel
             continue
         short = rel.split('/raw/ui/')[1]
-        assert new == patch_asset(short, original), short
+        assert new == patch_asset(short, original, compact), short
         assert changed[rel] == dict(original_sha256=sha(original), sha256=sha(new))
         root = decode(new)
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
-        assert nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
+        assert not compact or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         def walk(n):
             yield n
             for child in n[3]: yield from walk(child)
@@ -74,7 +74,7 @@ def validate_assets(directory):
             assert surface[1][1:] == [0, 375, BOTTOM], 'Lists must fill the client area'
             assert 4*PITCH <= BOTTOM, 'Four complete rows must fit'
         # Corrupt inputs must be rejected, never silently patched.
-        try: patch_asset(short, original[:-1]+b'x')
+        try: patch_asset(short, original[:-1]+b'x', compact)
         except ValueError: pass
         else: raise AssertionError('Accepted a changed asset')
     if compact:

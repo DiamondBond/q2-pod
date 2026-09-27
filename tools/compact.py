@@ -3,6 +3,7 @@
 No global widget hook: excluded pages and shared UI styles stay byte-identical.
 The audit records full original instructions and asset hashes, not search/replace patterns.
 """
+import functools
 import hashlib
 import json
 import pathlib
@@ -68,10 +69,55 @@ def encode(root):
     return bytes.fromhex('12122211') + node(root)
 
 
-def patch_asset(path, data):
+# Both variants. Stock artist detail tabs carry literal Chinese `text` in every language; the
+# stock string table already has these keys. The Albums tab starts active (see ARTIST_ALBUMS).
+ARTIST_PAGE = 'localmusic/artistinfo_page.bin'
+ARTIST_TABS = {'btn_track': ('单曲', 'local_allsongs'), 'btn_album': ('专辑', 'album')}
+# Stock init builds the Songs view (0x4adcbc); call the stock Albums tab click handler (0x4ac7ec)
+# instead, which sets the tab state, queries the artist's albums and builds them. Songs stays a tap away.
+ARTIST_ALBUMS = [(0x4aebd0, 0x2739dcbc, 0x2739c7ec), (0x4aebd4, 0x0411fc39, 0x0411f705)]
+
+
+def artist_tabs(root):
+    found = []
+
+    def walk(n):
+        name = n[2].get('name')
+        if name in ARTIST_TABS:
+            text, key = ARTIST_TABS[name]
+            require(n[0] == 'tab_button' and n[2].get('text') == text, f'{name}: unexpected tab')
+            n[2] = {('tr_text' if k == 'text' else k): (key if k == 'text' else v) for k, v in n[2].items()}
+            if name == 'btn_album':
+                n[2]['value'] = 'true'
+            found.append(name)
+        for child in n[3]:
+            walk(child)
+    walk(root)
+    require(sorted(found) == sorted(ARTIST_TABS), 'Unexpected artist tabs')
+
+
+def patch_word(data, fileoff, changes, address, old, new, purpose):
+    off = fileoff(data, address)
+    require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
+    struct.pack_into('<I', data, off, new)
+    changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
+
+
+def patch_artist_albums(data, fileoff):
+    changes = []
+    for address, old, new in ARTIST_ALBUMS:
+        patch_word(data, fileoff, changes, address, old, new, 'artist detail opens on Albums')
+    return changes
+
+
+def patch_asset(path, data, compact):
     require(hashlib.sha256(data).hexdigest() == AUDIT['assets'][path], f'{path}: unaudited UI asset')
     root = decode(data)
     require(encode(root) == data, f'{path}: UI round trip differs')
+    if path == ARTIST_PAGE:
+        artist_tabs(root)
+    if not compact:
+        return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
     require(len(nav) == 1 and nav[0][1] == [0, 0, 375, 50], f'{path}: unexpected toolbar')
     # Keep the widget (and callback lookups) alive. Children may be recreated by stock.
@@ -109,7 +155,7 @@ def patch_asset(path, data):
                 g[1] -= 1
             elif g[1] in (9, 10) and kind == 'image':
                 g[1] = ART_INSET
-        if path == 'localmusic/artistinfo_page.bin':
+        if path == ARTIST_PAGE:
             if kind == 'pages':
                 require(props.get('self_layout') == 'default(x=0,y=40,w=100%,h=170)', 'Unexpected tabs layout')
                 props['self_layout'] = f'default(x=0,y=40,w=100%,h={BOTTOM - 40})'
@@ -124,12 +170,7 @@ def patch_asset(path, data):
 
 def patch_code(data, fileoff, symbols):
     changes = []
-
-    def word(address, old, new, purpose):
-        off = fileoff(data, address)
-        require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected compact instruction')
-        struct.pack_into('<I', data, off, new)
-        changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
+    word = functools.partial(patch_word, data, fileoff, changes)
 
     for group in AUDIT['immediates']:
         value = {'pitch': PITCH, 'body': BODY, 'art': ART, 'art_inset': ART_INSET,

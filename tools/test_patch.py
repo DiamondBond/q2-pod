@@ -16,7 +16,6 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
 variant = manifest.get('variant')
 expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
-assert (manifest.get('changed_assets') != {}) == (variant == 'compact')
 assert (manifest.get('compact_code') != []) == (variant == 'compact')
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
@@ -2155,6 +2154,23 @@ if variant=='compact':
     m.order.remove(m.top);m.sync_order()
     assert m.top==page
     assert m.get(w+O['SCROLL_Y'])==0 and len(m.nodes[w]['children'])==6
+    passed()
+
+# Artist detail opens on Albums: the real init reaches the stock Albums tab handler, which
+# selects tab 1 and queries albums before building; stock builds Songs instead.
+for patched in (True, False):
+    m=Machine(patched)
+    for address,name in ((0x4adcbc,'songs_view'),(0x4ac084,'albums_view'),(0x4ad4c8,'timer_idex'),(0x4ed0c4,'query_run')):
+        m.handlers[address]=name
+    m.mock('load_artistinfo_list','load_localartist_list','widget_get_window','widget_foreach','strcpy@GLIBC_2.0')
+    arg=m.alloc(8); m.word(arg+4,m.alloc(0x40))
+    assert m.call(address=syms['localmusic_artistinfo_page_init'],args=(m.node('window','artistinfo_page'),arg,0,0))==0
+    names=[c[0] for c in m.calls if c[0] in ('songs_view','albums_view','load_localartist_list','query_run')]
+    tab=m.get(m.get(0xa26cc0-0x5810)+0x7678)
+    if patched:
+        assert names==['query_run','load_localartist_list','query_run','albums_view'] and tab==1, names
+        assert [c[1] for c in m.calls if c[0]=='load_localartist_list']==[1]
+    else: assert names==['query_run','songs_view'] and tab==0, names
     passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

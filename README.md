@@ -33,6 +33,7 @@ Other pages, dialogs and your saved settings are unchanged.
 - **List ends:** in the local folder and music lists, a turn past the end nudges the outline and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
 - **Centre button:** opens the highlighted item. Double-press to turn the screen off.
 - **Touch:** works as normal and hides the outline until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
+- **Artists:** an artist opens on Albums, with All Songs one tap away. The tabs are translated instead of the stock Chinese labels.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
 - **Pull to search (compact):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
 

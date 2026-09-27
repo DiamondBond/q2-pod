@@ -47,12 +47,12 @@ static void row(void *view, int index, const char *text, int id) {
 
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
 
-static int list_files(const char *folder, const char *extension) {
+static void list_files(const char *folder, const char *extension) {
     ui.count = 0;
     if (!ui.names) ui.names = calloc(256, 256);
-    if (!ui.names) { snprintf(ui.status, sizeof(ui.status), "Out of memory"); return 0; }
+    if (!ui.names) { snprintf(ui.status, sizeof(ui.status), "Out of memory"); return; }
     void *dir = opendir(folder);
-    if (!dir) { snprintf(ui.status, sizeof(ui.status), "Folder missing or unavailable"); return 0; }
+    if (!dir) { snprintf(ui.status, sizeof(ui.status), "Folder missing or unavailable"); return; }
     struct dirent *entry;
     while ((entry = readdir(dir))) {
         const char *name = entry->d_name;
@@ -65,7 +65,6 @@ static int list_files(const char *folder, const char *extension) {
     closedir(dir);
     qsort(ui.names, ui.count, 256, compare_names);
     if (!ui.count) snprintf(ui.status, sizeof(ui.status), "No presets found");
-    return ui.count;
 }
 
 static void save_candidate(int replace) {

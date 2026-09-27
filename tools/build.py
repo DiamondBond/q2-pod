@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '3.7'  # the only place a release bumps the version
+VERSION = '3.8'  # the only place a release bumps the version
 _major, _minor = VERSION.split('.')
 DEV_VERSION = f'{_major}.{int(_minor) + 1}'  # --dev: one minor version above the release
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
@@ -262,7 +262,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     hooks.update(patch_demo(patched, ps))
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
     audio = patch_player(raw_player, out/'peq')
-    from compact import AUDIT, patch_asset, patch_code
+    from compact import AUDIT, ARTIST_PAGE, patch_artist_albums, patch_asset, patch_code
+    artist_code = patch_artist_albums(patched, fileoff)
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
         off = fileoff(raw_demo, syms[name])
@@ -311,10 +312,10 @@ def build(zip_path, out, logo, compact=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     changed_assets = {}
-    for rel in (AUDIT['assets'] if compact else []):
+    for rel in (AUDIT['assets'] if compact else [ARTIST_PAGE]):
         path = 'release/assets/default/raw/ui/' + rel
         original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
-        data = patch_asset(rel, original)
+        data = patch_asset(rel, original, compact)
         target = out/'ui'/rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -347,7 +348,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         hook_address=hex(HOOK), hook_file_offset=hex(hookoff), patch_address=hex(BASE),
         patch_file_offset=hex(appendoff), patch_bytes=len(payload), ring_step_pixels=RING_STEP,
-        version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, changed_assets=changed_assets, hooks=hooks, logo_sha256=sha(logo_data),
+        version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, artist_code=artist_code, changed_assets=changed_assets, hooks=hooks, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']})
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
