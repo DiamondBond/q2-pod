@@ -218,6 +218,10 @@ static int render(const void *unused) {
         for (int i = 0; i < ui.count; ++i) row(view, n++, ui.names[i], i);
     }
     widget_set_prop_int(view, "virtual_h", n * 48);
+    if (n * 48 < rows) { /* short lists: shrink so the list's white background never shows below the rows */
+        widget_resize(list, 375, n * 48);
+        widget_resize(view, 375, n * 48);
+    }
     scroll_view_set_offset(view, 0, offset);
     void *title = label_create(ui.page, 8, 0, 359, 48);
     widget_use_style(title, "s_label_white20c");
