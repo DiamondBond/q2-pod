@@ -7,13 +7,11 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '3.6'  # the only place a release bumps the version
+VERSION = '3.7'  # the only place a release bumps the version
 _major, _minor = VERSION.split('.')
 DEV_VERSION = f'{_major}.{int(_minor) + 1}'  # --dev: one minor version above the release
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
 DEV_VERSIONS = {'normal': f'V{DEV_VERSION}R', 'compact': f'V{DEV_VERSION}C'}
-PEQ_VERSION = f'{_major}.{int(_minor) + 2}'  # --peq: experimental, above --dev
-PEQ_VERSIONS = {'normal': f'V{PEQ_VERSION}R', 'compact': f'V{PEQ_VERSION}C'}
 BASE = 0xb00000
 SCRATCH = 0xb0f000
 RING_STEP = 48
@@ -168,24 +166,22 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
          '-Os','-Wall','-Wextra','-Werror']
 
-def compile_payload(out, compact=False, peq=False):
+def compile_payload(out, compact=False):
     """Compile and link the payload."""
-    run('clang',*FLAGS,f'-DCOMPACT={int(compact)}',f'-DPEQ={int(peq)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
-    run('clang',*FLAGS,f'-DPEQ={int(peq)}','-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
-    extra = []
-    if peq:
-        from peq import compile_common
-        extra = compile_common(out, out/'stock-demo')
+    run('clang',*FLAGS,f'-DCOMPACT={int(compact)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
+    run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
+    from peq import compile_common
+    extra = compile_common(out, out/'stock-demo')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for name in ['ringnav_touch', 'ringnav_paint', 'ringnav_dispatch',
-          *(['peq_page_init', 'peq_stock_eq'] if peq else [])]],
+          'peq_page_init', 'peq_stock_eq']],
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
 
-def build(zip_path, out, logo, compact=False, dev=False, peq=False):
+def build(zip_path, out, logo, compact=False, dev=False):
     variant = 'compact' if compact else 'normal'
-    version = (PEQ_VERSIONS if peq else DEV_VERSIONS if dev else VERSIONS)[variant]
+    version = (DEV_VERSIONS if dev else VERSIONS)[variant]
     out.mkdir(parents=True, exist_ok=True)
     check(not (out/'update.tar').exists(), 'Output already exists; use a fresh --out directory')
     source = source_sha256()
@@ -243,7 +239,7 @@ def build(zip_path, out, logo, compact=False, dev=False, peq=False):
                         symbol_table, re.M), f'{name}: context data size mismatch')
         header.append(f'#define {name} ((const unsigned char *)0x{syms[name]:x}u)')
     (out/'stock.h').write_text('\n'.join(header)+'\n')
-    ps = compile_payload(out, compact, peq)
+    ps = compile_payload(out, compact)
     payload = (out/'patch.bin').read_bytes()
     check(len(payload) < SCRATCH-BASE, 'Payload overlaps its scratch page')
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
@@ -262,12 +258,10 @@ def build(zip_path, out, logo, compact=False, dev=False, peq=False):
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
         patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
         hooks[name] = dict(address=hex(address), replacement=replacement, original=raw_demo[off:off+12].hex())
-    audio = None
-    if peq:
-        from peq import patch_demo, patch_player
-        hooks.update(patch_demo(patched, ps))
-        raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
-        audio = patch_player(raw_player, out/'peq')
+    from peq import patch_demo, patch_player
+    hooks.update(patch_demo(patched, ps))
+    raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
+    audio = patch_player(raw_player, out/'peq')
     from compact import AUDIT, patch_asset, patch_code
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
@@ -309,7 +303,7 @@ def build(zip_path, out, logo, compact=False, dev=False, peq=False):
         check(line is not None, f'Missing {path.decode()} pseudo inode')
         return p[:line.start()]+path+b' F '+b' '.join(line.groups())+b' cat '+shlex.quote(str(src)).encode()+p[line.end():]
     p = swap_inode(p, b'release/bin/demo', out/'demo')
-    if peq: p = swap_inode(p, b'usr/bin/hciplayer', out/'peq/hciplayer')
+    p = swap_inode(p, b'usr/bin/hciplayer', out/'peq/hciplayer')
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.
@@ -368,9 +362,8 @@ if __name__ == '__main__':
     ap.add_argument('--compact', action='store_true', help='compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
                     help=f'development build: temporary higher version tag (V{DEV_VERSION}R/C); never a release input')
-    ap.add_argument('--peq', action='store_true', help=f'experimental ten-band PEQ editor and player (V{PEQ_VERSION}R/C)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev,a.peq)
+        build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

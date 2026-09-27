@@ -40,6 +40,7 @@ int peq_valid(const peq_preset *p);
 int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error);
 int peq_import_file(const char *path, peq_preset *out, peq_error *error);
 int peq_load(const char *path, peq_preset *out);
+void peq_load_active(peq_preset *p);
 int peq_save(const char *path, const peq_preset *p, int replace);
 int peq_compile(const peq_preset *p, int rate, peq_engine *out);
 void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p);

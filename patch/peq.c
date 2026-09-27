@@ -5,11 +5,11 @@ static int between(double x, double lo, double hi) {
 }
 
 void peq_default(peq_preset *p) {
-    static const double frequencies[10] = {31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+    static const double frequencies[PEQ_BANDS] = {31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
     memset(p, 0, sizeof(*p));
-    p->count = 10;
+    p->count = PEQ_BANDS;
     p->bypass = 1;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < PEQ_BANDS; ++i) {
         p->bands[i].frequency = frequencies[i];
         p->bands[i].q = 0.7071067811865476;
     }
@@ -21,7 +21,7 @@ static int valid_band(const peq_band *b) {
 }
 
 int peq_valid(const peq_preset *p) {
-    if (!p || p->count < 0 || p->count > 10 || (p->bypass != 0 && p->bypass != 1) ||
+    if (!p || p->count < 0 || p->count > PEQ_BANDS || (p->bypass != 0 && p->bypass != 1) ||
         !between(p->preamp, -60, 24)) return 0;
     for (int i = 0; i < p->count; ++i) if (!valid_band(&p->bands[i])) return 0;
     return 1;
@@ -115,7 +115,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
         }
         if (n <= k || strcmp(t[k++], ":")) return error_at(error, line, "expected Filter [number]:");
         if (n - k != 8 && n - k != 10) return error_at(error, line, "unsupported filter form");
-        if (p.count == 10) return error_at(error, line, "more than ten bands");
+        if (p.count == PEQ_BANDS) return error_at(error, line, "more than ten bands");
         peq_band b = {0, 0, 0, 0, 0.7071067811865476};
         if (!strcmp(t[k], "ON")) b.enabled = 1;
         else if (strcmp(t[k], "OFF")) return error_at(error, line, "expected ON or OFF");
@@ -167,6 +167,11 @@ int peq_load(const char *path, peq_preset *out) {
     return 1;
 }
 
+void peq_load_active(peq_preset *p) {
+    peq_default(p);
+    peq_load(PEQ_ACTIVE, p);
+}
+
 int peq_save(const char *path, const peq_preset *p, int replace) {
     char tmp[600];
     if (!peq_valid(p) || strlen(path) > 580) return 0;
@@ -189,7 +194,7 @@ int peq_compile(const peq_preset *p, int rate, peq_engine *out) {
     if (!peq_valid(p) || rate < 8000 || rate > 384000) return 0;
     e.gain = pow(10, p->preamp / 20);
     e.bypass = p->bypass;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < PEQ_BANDS; ++i) {
         e.c[i].b0 = 1;
         if (i >= p->count || !p->bands[i].enabled || !p->bands[i].gain) continue;
         const peq_band *b = &p->bands[i];
@@ -233,7 +238,7 @@ int peq_update(peq_dsp *d, const peq_preset *p) {
 static double sample(peq_engine *e, double x, int ch) {
     if (e->bypass) return x;
     x *= e->gain;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < PEQ_BANDS; ++i) {
         const peq_coeff *c = &e->c[i];
         double *z = e->z[ch][i], y = c->b0 * x + z[0];
         z[0] = c->b1 * x - c->a1 * y + z[1];

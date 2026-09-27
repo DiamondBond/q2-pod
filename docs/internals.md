@@ -37,7 +37,7 @@ Selected and restored rows use a `SCROLL_MARGIN` of 12 pixels above and below, r
 
 ## List ends
 
-The local file and music lists carry over at their ends; `patch/contexts.inc` marks those audited row lists with `ring`, while grids such as `album_page`, settings menus, dynamic pages and the home carousel keep hard ends. The first detent past an end nudges only the drawing of the outline by `BUMP_PX` for `BUMP_MS`, without moving the viewport. The next same-direction detent within `EDGE_ARM_MS` selects the opposite end of the same list and reveals it immediately; the existing boundary rule already reset the spin run, so the wrap lands at one row per detent. The arm is cleared by a move off the boundary row, a reversal, a pause longer than the window, touch, a native click or a centre press.
+The local file and music lists carry over at their ends; `patch/contexts.inc` marks those audited row lists with `ring`, while grids such as `album_page`, settings menus, dynamic pages and the home carousel keep hard ends. The first detent past an end nudges only the drawing of the outline by `BUMP_PX` for `BUMP_MS`, without moving the viewport. Further detents hard-stop there, bumping again, while the wheel keeps turning: each one re-arms. Only the first same-direction detent at least `EDGE_PAUSE_MS` (300 ms) after the last stopped one selects the opposite end of the same list and reveals it immediately. The existing boundary rule already reset the spin run, so the wrap lands at one row per detent. The arm is cleared by a move off the boundary row, a reversal, touch, a native click or a centre press.
 
 ## Scrollbar
 
@@ -75,6 +75,6 @@ Compact pull-to-search starts from the existing touch hook only on a real pointe
 
 `patch/compact.json` records the added private prologue and native event ABI instructions alongside the compact sites and assets. The builder checks them against the pinned stock executable and checks the byte sizes of all referenced global flags/values.
 
-## Experimental PEQ (`--peq`)
+## Parametric EQ
 
-`--peq` adds two demo hooks: `playset_equalizer_page_init` (`0x4b642c`) builds the ten-band editor from `patch/peq_ui.c`, and `set_equalizer_value` (`0x4f9230`) keeps the stock equalizer filter instantiated. In `/usr/bin/hciplayer` (modified MPlayer 1.3.0, pinned by `PLAYER_SHA` in `tools/peq.py`) the equalizer descriptor's open pointer at `0x893e0c` is redirected to `patch/peq_player.c`, loaded through the player's unused `PT_NULL` header at `0xe10000`. The player reads the active preset from `/mnt/data/peq-active` on the playback loop, never in the PCM callback; `patch/peq.c` holds the shared parser, storage and biquad DSP.
+The PEQ adds two demo hooks: `playset_equalizer_page_init` (`0x4b642c`) builds the ten-band editor from `patch/peq_ui.c`, and `set_equalizer_value` (`0x4f9230`) keeps the stock equalizer filter instantiated, then sets `g_equalizer_flag` to the PEQ on/off state so the status-bar EQ icon (`systembar_showface`) follows it. The editor handles Return (key 170) itself, since it replaces the page init that registered `on_common_keyup`. In `/usr/bin/hciplayer` (modified MPlayer 1.3.0, pinned by `PLAYER_SHA` in `tools/peq.py`) the equalizer descriptor's open pointer at `0x893e0c` is redirected to `patch/peq_player.c`, loaded through the player's unused `PT_NULL` header at `0xe10000`. The player reads the active preset from `/mnt/data/peq-active` on the playback loop, never in the PCM callback; `patch/peq.c` holds the shared parser, storage and biquad DSP.

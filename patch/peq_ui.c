@@ -2,11 +2,17 @@
 #include "offsets.inc"
 
 extern int stock_eq_trampoline(int mode);
-/* All calls, including restored playback, instantiate the replacement even in bypass. */
+/* All calls, including restored playback, instantiate the replacement even in bypass.
+ * Afterwards the flag only drives the status-bar EQ icon (systembar_showface @0x52f8b0). */
 int peq_stock_eq(int mode) {
     (void)mode;
-    *(volatile unsigned char *)0xa38b09 = 1; /* g_equalizer_flag in pinned demo */
-    return stock_eq_trampoline(1);
+    volatile unsigned char *flag = (volatile unsigned char *)0xa38b09; /* g_equalizer_flag in pinned demo */
+    *flag = 1;
+    int result = stock_eq_trampoline(1);
+    peq_preset active;
+    peq_load_active(&active);
+    *flag = !active.bypass;
+    return result;
 }
 
 enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM };
@@ -53,12 +59,7 @@ static int list_files(const char *folder, const char *extension) {
         unsigned n = strlen(name), e = strlen(extension);
         if (entry->d_type != 8 && entry->d_type != 0) continue;
         if (n <= e || n >= 256 || strcmp(name + n - e, extension)) continue;
-        if (ui.count == 256) {
-            ui.count = 0;
-            snprintf(ui.status, sizeof(ui.status), "Too many files (maximum 256)");
-            closedir(dir);
-            return 0;
-        }
+        if (ui.count == 256) break; /* show the first 256 */
         memcpy(ui.names[ui.count++], name, n + 1);
     }
     closedir(dir);
@@ -85,7 +86,16 @@ static int action(void *ctx, void *event) {
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
     else if (id == SAVE) ui.screen = SAVES;
-    else if (id == BYPASS) ui.draft.bypass = !ui.draft.bypass;
+    else if (id == BYPASS) {
+        /* Takes effect at once and keeps unapplied band edits out of the active preset. */
+        peq_preset active;
+        peq_load_active(&active);
+        active.bypass = !ui.draft.bypass;
+        if (peq_save(PEQ_ACTIVE, &active, 1) == 1) {
+            ui.draft.bypass = active.bypass;
+            peq_stock_eq(1);
+        } else snprintf(ui.status, sizeof(ui.status), "Switch failed; PEQ unchanged");
+    }
     else if (id == PRE_DOWN) { ui.draft.preamp -= 0.5; if (ui.draft.preamp < -60) ui.draft.preamp = -60; }
     else if (id == PRE_UP) { ui.draft.preamp += 0.5; if (ui.draft.preamp > 24) ui.draft.preamp = 24; }
     else if (id == ENABLE) b->enabled = !b->enabled;
@@ -108,7 +118,7 @@ static int action(void *ctx, void *event) {
         save_candidate(1);
     } else if (id == CANCEL) ui.screen = ui.previous;
     else if (id >= 0 && id < 256) {
-        if (ui.screen == HOME && id < 10) { ui.band = id; ui.screen = BAND; }
+        if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
         else if (ui.screen == SAVES && id < 10) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/Manual %02d.peq", id + 1);
             ui.candidate = ui.draft;
@@ -164,11 +174,11 @@ static int render(const void *unused) {
     row(view, n++, "Back", BACK);
     if (ui.screen == HOME) {
         row(view, n++, "Apply changes", APPLY);
-        row(view, n++, ui.draft.bypass ? "Bypass: ON (tap to change)" : "Bypass: OFF (tap to change)", BYPASS);
-        snprintf(text, sizeof(text), "Preamp %.1f dB: -0.5", ui.draft.preamp); row(view, n++, text, PRE_DOWN);
-        snprintf(text, sizeof(text), "Preamp %.1f dB: +0.5", ui.draft.preamp); row(view, n++, text, PRE_UP);
+        row(view, n++, ui.draft.bypass ? "PEQ: OFF (tap to turn on)" : "PEQ: ON (tap to turn off)", BYPASS);
+        snprintf(text, sizeof(text), "Preamp %.1f dB: lower 0.5", ui.draft.preamp); row(view, n++, text, PRE_DOWN);
+        row(view, n++, "Raise preamp 0.5 dB", PRE_UP);
         row(view, n++, "Presets", MENU);
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < PEQ_BANDS; ++i) {
             peq_band *b = &ui.draft.bands[i];
             snprintf(text, sizeof(text), "%d %s %s %.0fHz %+.1fdB Q%.2f", i+1,
                      b->enabled ? "ON" : "OFF", b->type == 0 ? "PK" : b->type == 1 ? "LS" : "HS",
@@ -182,12 +192,12 @@ static int render(const void *unused) {
         row(view, n++, b->enabled ? "Band: ON" : "Band: OFF", ENABLE);
         row(view, n++, b->type == 0 ? "Type: Peaking" : b->type == 1 ? "Type: Low shelf" : "Type: High shelf", TYPE);
         snprintf(text, sizeof(text), "Frequency step: %d Hz", steps[ui.step]); row(view, n++, text, STEP);
-        snprintf(text, sizeof(text), "Frequency %.0f Hz: -", b->frequency); row(view, n++, text, FREQ_DOWN);
-        snprintf(text, sizeof(text), "Frequency %.0f Hz: +", b->frequency); row(view, n++, text, FREQ_UP);
-        snprintf(text, sizeof(text), "Gain %.1f dB: -0.5", b->gain); row(view, n++, text, GAIN_DOWN);
-        snprintf(text, sizeof(text), "Gain %.1f dB: +0.5", b->gain); row(view, n++, text, GAIN_UP);
-        snprintf(text, sizeof(text), "Q %.2f: -0.05", b->q); row(view, n++, text, Q_DOWN);
-        snprintf(text, sizeof(text), "Q %.2f: +0.05", b->q); row(view, n++, text, Q_UP);
+        snprintf(text, sizeof(text), "Frequency %.0f Hz: lower", b->frequency); row(view, n++, text, FREQ_DOWN);
+        row(view, n++, "Raise frequency", FREQ_UP);
+        snprintf(text, sizeof(text), "Gain %.1f dB: lower 0.5", b->gain); row(view, n++, text, GAIN_DOWN);
+        row(view, n++, "Raise gain 0.5 dB", GAIN_UP);
+        snprintf(text, sizeof(text), "Q %.2f: lower 0.05", b->q); row(view, n++, text, Q_DOWN);
+        row(view, n++, "Raise Q 0.05", Q_UP);
     } else if (ui.screen == CONFIRM) {
         row(view, n++, "Replace existing preset? Confirm", YES);
         row(view, n++, "Cancel replacement", CANCEL);
@@ -207,7 +217,7 @@ static int render(const void *unused) {
     scroll_view_set_offset(view, 0, offset);
     void *title = label_create(ui.page, 8, 0, 359, 48);
     widget_use_style(title, "s_label_white20c");
-    snprintf(text, sizeof(text), ui.screen == BAND ? "PEQ Band %d" : "10-band PEQ", ui.band + 1);
+    snprintf(text, sizeof(text), ui.screen == BAND ? "PEQ Band %d" : "PEQ", ui.band + 1);
     widget_set_text_utf8(title, text);
     void *status = label_create(ui.page, 8, height - 54, 359, 54);
     widget_use_style(status, "s_label_white20c");
@@ -215,6 +225,13 @@ static int render(const void *unused) {
     widget_set_text_utf8(status, ui.status[0] ? ui.status : "Edit, then Apply. Lower preamp for boosts.");
     widget_invalidate_force(ui.page, 0);
     return 7; /* RET_REMOVE */
+}
+
+/* Replaces the stock page's on_common_keyup: Return steps back one screen. */
+static int keyup(void *ctx, void *event) {
+    if (*(int *)((char *)event + EVENT_KEY) != KEY_RETURN) return 0;
+    action((void *)(long)BACK, ctx);
+    return 11; /* RET_STOP */
 }
 
 static int closed(void *ctx, void *event) {
@@ -235,9 +252,9 @@ int peq_page_init(void *page, void *context) {
     ui.view = 0;
     ui.screen = HOME;
     ui.status[0] = 0;
-    peq_default(&ui.draft);
-    peq_load(PEQ_ACTIVE, &ui.draft);
+    peq_load_active(&ui.draft);
     widget_on(page, EVT_DESTROY, closed, 0);
+    widget_on(page, EVT_KEY_UP, keyup, 0);
     render(0);
     return 0;
 }

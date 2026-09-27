@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
 from unicorn.mips_const import *
-from build import segments, symbols, HOOK, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS, PEQ_VERSIONS
+from build import segments, symbols, HOOK, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -14,8 +14,7 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
     if sha((B/name).read_bytes()) != manifest.get(key):
         raise SystemExit(f'{B/name} does not match manifest.json; rebuild into a fresh directory')
 variant = manifest.get('variant')
-expected_versions = (PEQ_VERSIONS if manifest.get('peq') else
-                     DEV_VERSIONS if manifest.get('dev') else VERSIONS)
+expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
 assert (manifest.get('changed_assets') != {}) == (variant == 'compact')
 assert (manifest.get('compact_code') != []) == (variant == 'compact')
@@ -492,7 +491,7 @@ for t,off in [('scroll_view',O['SCROLL_Y']),('table_client',O['TABLE_TOP'])]:
     assert m.call()==11 and m.get(w+off)==0
     passed()
 
-for name in ['playing_page','volume_dialog','saverscreen_page','usbmode_page','unknown_page',*([] if manifest.get('peq') else ['equalizer_page'])]:
+for name in ['playing_page','volume_dialog','saverscreen_page','usbmode_page','unknown_page']:
     m=Machine(); m.page(name); assert m.call()==0 and not m.moved(); passed()
 GATES=[('g_backlight_status',0),('g_lockscreen_pageflag',1),('g_testmode_flag',1),
        ('g_guideflag',1),('g_poweroff_state',2),('g_usblink_status',2),('bt__recv_pageflag',1)]
@@ -1813,28 +1812,32 @@ assert m.get(w+O['TABLE_ANIMATOR'])==0
 m.confirm(); assert m.clicks==[es[1]] and m.clicks[0] not in old
 passed()
 
-# Ring lists bump at both ends and wrap to the other end on the next same-direction detent.
+# Ring lists bump at both ends and hard-stop while the wheel keeps turning; the first
+# same-direction detent after a pause wraps to the other end.
 m,w,es=walk(6,5,height=96,extent=288,name='playlist_page'); assert m.get(w+O['SCROLL_Y'])==192
 assert m.call(gap=100)==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
 m.paint(w,gap=0)
 assert m.rounded[0]['rect']==(1,43,238,46)   # bumped up against the end
-assert m.call(gap=100)==11 and m.selected(w)==0 and m.get(w+O['SCROLL_Y'])==0
+for _ in range(3): assert m.call(gap=100)==11 and m.selected(w)==5   # still spinning: hard stop
+assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0 and m.get(w+O['SCROLL_Y'])==0
 m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,1,238,46)
 assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==0
 m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,7,238,46)   # bumped down at the top
-assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
+assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==0
+assert m.call(O['KEY_PREV'],gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
 m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
 passed()
 
-# A pause longer than the arm window bumps again instead of wrapping.
+# The pause is measured from the last stopped detent, to the millisecond.
 m=Machine(); w,es=m.page_list(6,height=96,extent=288,name='folder_page')
 m.folder('/sd/albums')
 m.paint(w)
 for _ in range(5): assert m.call()==11
 assert m.call(gap=100)==11 and m.selected(w)==5
-assert m.call(gap=O['EDGE_ARM_MS']+10)==11 and m.selected(w)==5
+assert m.call(gap=O['EDGE_PAUSE_MS']-1)==11 and m.selected(w)==5
 m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,43,238,46)
-assert m.call(gap=50)==11 and m.selected(w)==0
+assert m.call(gap=O['EDGE_PAUSE_MS']-1)==11 and m.selected(w)==5   # re-armed, not wrapped
+assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0
 passed()
 
 # Virtual music tables carry over too; the wrap lands on the first logical row.
@@ -1844,7 +1847,7 @@ m.paint(w)
 for _ in range(19): assert m.call()==11
 assert m.selected(w)==19 and m.get(w+O['TABLE_TOP'])==864
 assert m.call(gap=100)==11 and m.selected(w)==19
-assert m.call(gap=100)==11 and m.selected(w)==0 and m.get(w+O['TABLE_TOP'])==0
+assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0 and m.get(w+O['TABLE_TOP'])==0
 assert any(c[0]=='table_client_set_yoffset' for c in m.calls)
 passed()
 
@@ -1894,14 +1897,14 @@ for count,bar_present in ((2,True),(20,False)):
     assert not any(c[0]=='scroll_bar_scroll_to' for c in m.calls)
     passed()
 
-# Bump repaints at precisely 120 ms, independently of the 800 ms second-detent arm.
+# Bump repaints at precisely 120 ms, independently of the pause-to-wrap arm.
 m=Machine(); w,es=m.page_list(2,height=96,extent=96,name='playlist_page')
 m.paint(w); m.call(); m.call(gap=0)
 assert m.timers and min(t[0] for t in m.timers.values())==m.now+O['BUMP_MS']
 m.advance(O['BUMP_MS']-1); assert not m.calls
 m.advance(1); assert any(c[0]=='widget_invalidate_force' and c[1]==w for c in m.calls)
 m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
-m.call(gap=100); assert m.selected(w)==0
+m.call(gap=O['EDGE_PAUSE_MS']); assert m.selected(w)==0
 passed()
 for cancel in ('touch','activate','recycle','destroy','scope'):
     m=Machine(); w,es=m.page_list(2,height=96,extent=96,name='folder_page')

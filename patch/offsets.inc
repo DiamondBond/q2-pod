@@ -65,17 +65,18 @@
 #define SHADE_ALPHA 0xb3
 #define OUTLINE_RGB 0xffffff
 #define OUTLINE_ALPHA 0xb3
-/* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). The first detent
- * past an end nudges the outline and arms; the next same-direction detent within EDGE_ARM_MS
- * moves to the other end of the same list. */
+/* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
+ * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
+ * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */
 #define BUMP_PX 6
 #define BUMP_MS 120
-#define EDGE_ARM_MS 800
+#define EDGE_PAUSE_MS 300 /* well above WHEEL_RUN_MS, so a spin never counts as a pause */
 #define BAR_VALUE 0x7c /* scroll_bar native value, maintained by list/table setters */
 #define KEY_CENTER 218
 #define KEY_PREV 172
 #define KEY_NEXT 173
 #define KEY_PLAY 171
+#define KEY_RETURN 170 /* on_common_keyup @0x4e8124 */
 #define BOOT_KEY_GUARD 0xa37c8a /* raw flag address, no symbol in the audited binary */
 #define RETURN_RELEASE_LATCH 0xa37c8b /* stock long Return arms it; the key-up filter consumes it */
 

@@ -21,10 +21,9 @@ static int control(af_instance *af, int command, void *arg) {
     player_state *s = af->setup;
     if (command == 0x10000100) {
         af_data *in = arg;
-        if (!in || in->nch < 1 || in->nch > 8) return -2;
+        if (!in || in->nch < 1 || in->nch > PEQ_CHANNELS) return -2;
         if (in->rate < 8000 || in->rate > 384000 || (in->format & ~63)) return 2;
-        peq_default(&s->preset);
-        peq_load(PEQ_ACTIVE, &s->preset);
+        peq_load_active(&s->preset);
         peq_reset(&s->dsp, in->rate, in->nch, &s->preset);
         *af->data = *in;
         af->data->format = 0x1d;
@@ -34,9 +33,9 @@ static int control(af_instance *af, int command, void *arg) {
     }
     if (command == 0x40001d00 || command == 0x40001d01) {
         struct { float *gain; int channel; } *ext = arg;
-        if (!ext || !ext->gain || ext->channel < 0 || ext->channel >= 8) return -2;
+        if (!ext || !ext->gain || ext->channel < 0 || ext->channel >= PEQ_CHANNELS) return -2;
         if (command & 1) {
-            memset(ext->gain, 0, 10 * sizeof(float));
+            memset(ext->gain, 0, PEQ_BANDS * sizeof(float));
         } else if (!ext->channel) {
             peq_preset p;
             /* Control executes on the playback loop, outside the PCM callback. */

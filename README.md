@@ -30,7 +30,7 @@ Other pages, dialogs and your saved settings are unchanged.
 ## Controls
 
 - **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick.
-- **List ends:** in the local folder and music lists, one turn past the end nudges the outline and the next one wraps around.
+- **List ends:** in the local folder and music lists, a turn past the end nudges the outline and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
 - **Centre button:** opens the highlighted item. Double-press to turn the screen off.
 - **Touch:** works as normal and hides the outline until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
@@ -39,6 +39,12 @@ Other pages, dialogs and your saved settings are unchanged.
 Play/Pause and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
 
 If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
+
+## Parametric EQ
+
+**Audio settings → Equalizer** is replaced by a ten-band parametric EQ: peaking and shelf bands with frequency, gain and Q, plus preamp. **PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it; band and preamp edits take effect when you choose **Apply changes**.
+
+To import AutoEQ / Equalizer APO presets, put the `.txt` files in an `EQ` folder at the root of the microSD card, then choose **Presets → Import from SD /EQ**. An imported preset is saved on the player; load it from **Presets**, then Apply. Lower the preamp when boosting to avoid clipping.
 
 ## Documentation
 

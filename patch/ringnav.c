@@ -370,11 +370,12 @@ static void fx_arm(void *w, int dir) {
     prop(w, FX, st.fx_token);
 }
 
-/* A boundary detent arms only while the selection stays on that row; leaving it, reversing or
- * waiting longer than EDGE_ARM_MS makes the next boundary detent bump again instead of wrapping. */
-static int edge_live(const menu_t *m, int id, int dir, unsigned now) {
+/* A boundary detent arms only while the selection stays on that row; leaving it or reversing
+ * makes the next boundary detent bump again. Every stopped detent re-arms, so a continuing spin
+ * hard-stops at the end; only a detent after a pause of EDGE_PAUSE_MS carries over. */
+static int edge_wraps(const menu_t *m, int id, int dir, unsigned now) {
     return id >= 0 && fx_live(m->w) && st.edge_id == id && st.edge_dir == dir &&
-           (int)(now - st.edge_time) <= EDGE_ARM_MS;
+           now - st.edge_time >= EDGE_PAUSE_MS;
 }
 
 static void edge_arm(int id, int dir, unsigned now) {
@@ -1033,8 +1034,7 @@ static int selects(menu_t *m, void *target) {
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
 #if COMPACT
-    if (st.pull_page &&
-        (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
+    if (st.pull_page && (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
         pull_cancel();
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
         for (void *w = target; w; w = P(w, W_PARENT))
@@ -1267,14 +1267,14 @@ int ringnav(void *ctx, void *event) {
                 widget_invalidate_force(w, (void *)0); /* a wheel wake still clears touch hiding */
                 return STOP;
             }
-            if (!edge_live(&g_menu, id, dir, now)) {
+            if (!edge_wraps(&g_menu, id, dir, now)) {
                 edge_arm(id, dir, now);
                 fx_arm(w, dir);
                 stop_scroll(&g_menu);
                 widget_invalidate_force(w, (void *)0);
                 return STOP;
             }
-            /* Second detent at the same end: carry over to the other end of this list. */
+            /* A detent after a pause at the bumped end: carry over to the other end of this list. */
             st.bump_dir = 0;
             next = dir > 0 ? 0 : g_menu.rows - 1;
         }

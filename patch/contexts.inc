@@ -25,9 +25,7 @@
 { "playmode_page", CTX_FIXED, 0 },
 { "playset_page", CTX_FIXED, 0 },
 { "preseteq_page", CTX_FIXED, 0 },
-#if PEQ /* replacement list editor; the stock slider page stays excluded */
-{ "equalizer_page", CTX_DYNAMIC, 0 },
-#endif
+{ "equalizer_page", CTX_DYNAMIC, 0 }, /* PEQ list editor */
 { "replaygain_page", CTX_FIXED, 0 },
 { "usbvol_page", CTX_FIXED, 0 },
 { "specfolder_page", CTX_DYNAMIC, 0 },
