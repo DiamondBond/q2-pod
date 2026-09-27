@@ -371,9 +371,170 @@ def editor_check(lib, tmp):
     assert title() == 'Deleted HD650.peq; active EQ unchanged' and not ui.shim_click(b'HD650.peq', 0)
     print('PEQ editor: bypass, apply, load, failed saves, delete and close passed.')
 
+# Drives patch/peq_player.c the way hciplayer's af chain does. Built 32-bit like the device,
+# so the file's ABI asserts hold; checked against the shared DSP driven directly.
+PLAYER = r"""
+#include <assert.h>
+#include "peq.h"
+typedef struct { void *audio; int len, rate, nch, format, bps; } af_data;
+typedef struct af_instance {
+    const void *info;
+    int (*control)(struct af_instance *, int, void *);
+    void (*uninit)(struct af_instance *);
+    af_data *(*play)(struct af_instance *, af_data *);
+    void *setup;
+    af_data *data;
+    struct af_instance *next, *prev;
+    double delay, mul;
+} af_instance;
+typedef struct { peq_dsp dsp; peq_preset preset; } player_state;
+int peq_open(af_instance *af);
+
+static int left = -1; /* calloc calls before one fails; -1: never */
+void *test_calloc(size_t n, size_t size) {
+    if (!left--) return 0;
+    void *p = malloc(n * size);
+    return p ? memset(p, 0, n * size) : p;
+}
+
+static peq_preset active(double preamp, double gain) {
+    peq_preset p;
+    peq_default(&p);
+    p.bypass = 0; p.preamp = preamp; p.count = 1;
+    p.bands[0] = (peq_band){1, 0, 1000, gain, 1};
+    assert(peq_save(PEQ_ACTIVE, &p, 1) == 1);
+    return p;
+}
+
+static int negotiate(af_instance *af, af_data *in) { return af->control(af, 0x10000100, in); }
+
+/* One block through the filter equals the same block through the reference DSP, and is filtered. */
+static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
+    float a[1024], b[1024], in[1024];
+    unsigned frames = 1024 / nch;
+    for (int i = 0; i < 1024; ++i) a[i] = b[i] = in[i] = 0.5f * sinf(i * 0.05f);
+    af_data d = {a, (int)(frames * nch * 4), rate, nch, 0x1d, 4};
+    assert(af->play(af, &d) == &d);
+    peq_process(ref, b, frames);
+    assert(!memcmp(a, b, sizeof(a)) && memcmp(a, in, sizeof(a)));
+}
+
+int main(void) {
+    af_instance af;
+    /* A failed open is cleaned up by af_create calling uninit on the partial state. */
+    for (int n = 0; n < 2; ++n) {
+        memset(&af, 0, sizeof(af));
+        left = n;
+        assert(peq_open(&af) == -2);
+        af.uninit(&af);
+        assert(!af.data && !af.setup);
+    }
+    left = -1;
+    memset(&af, 0, sizeof(af));
+    assert(peq_open(&af) == 1 && af.mul == 1 && !af.delay && af.data && af.setup);
+    player_state *s = af.setup;
+
+    /* Format negotiation: bad channel counts fail, unsupported rates and formats decline,
+       other formats are asked to convert to float, and float is accepted. */
+    af_data in = {0, 0, 48000, 0, 0x1d, 4};
+    assert(negotiate(&af, 0) == -2);
+    assert(negotiate(&af, &in) == -2);
+    in.nch = PEQ_CHANNELS + 1; assert(negotiate(&af, &in) == -2);
+    in.nch = 2; in.rate = 7999; assert(negotiate(&af, &in) == 2);
+    in.rate = 384001; assert(negotiate(&af, &in) == 2);
+    in.rate = 48000; in.format = 64; assert(negotiate(&af, &in) == 2);
+    peq_preset first = active(-6, 6);
+    in.format = 0x11; in.bps = 2;
+    assert(negotiate(&af, &in) == 0 && in.format == 0x1d && in.bps == 4);
+    assert(in.rate == 48000 && in.nch == 2);
+    assert(negotiate(&af, &in) == 1);
+    assert(af.data->format == 0x1d && af.data->bps == 4);
+    assert(af.data->rate == 48000 && af.data->nch == 2);
+    assert(s->dsp.rate == 48000 && s->dsp.channels == 2);
+    assert(!memcmp(&s->preset, &first, sizeof(first)));
+    peq_dsp ref;
+    peq_reset(&ref, 48000, 2, &first);
+    same(&af, &ref, 48000, 2);
+
+    /* Buffers not in the negotiated format pass through untouched and leave the state alone. */
+    float a[64] = {0.25f}, keep[64];
+    memcpy(keep, a, sizeof(a));
+    af_data bad[] = {
+        {a, 256, 44100, 2, 0x1d, 4}, {a, 256, 48000, 1, 0x1d, 4}, {a, 256, 48000, 2, 0x11, 4},
+        {a, 256, 48000, 2, 0x1d, 2}, {a, 252, 48000, 2, 0x1d, 4}, {a, 0, 48000, 2, 0x1d, 4},
+    };
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i)
+        assert(af.play(&af, &bad[i]) == &bad[i] && !memcmp(a, keep, sizeof(a)));
+    assert(af.play(&af, 0) == 0);
+    same(&af, &ref, 48000, 2);
+
+    /* Live updates arrive through the stock gain query on the playback loop, channel 0 only. */
+    float gains[PEQ_BANDS];
+    struct { float *gain; int channel; } ext = {gains, 1};
+    peq_preset second = active(-3, -4);
+    assert(af.control(&af, 0x40001d00, &ext) == 1 && !memcmp(&s->preset, &first, sizeof(first)));
+    same(&af, &ref, 48000, 2);
+    ext.channel = 0;
+    assert(af.control(&af, 0x40001d00, &ext) == 1 && !memcmp(&s->preset, &second, sizeof(second)));
+    assert(peq_update(&ref, &second));
+    for (int i = 0; i < 4; ++i) same(&af, &ref, 48000, 2); /* through the crossfade */
+    /* An unchanged or unreadable active file keeps the current filter. */
+    assert(af.control(&af, 0x40001d00, &ext) == 1);
+    FILE *f = fopen(PEQ_ACTIVE, "wb");
+    assert(f && fputs("junk", f) >= 0 && !fclose(f));
+    assert(af.control(&af, 0x40001d00, &ext) == 1 && !memcmp(&s->preset, &second, sizeof(second)));
+    same(&af, &ref, 48000, 2);
+    /* The stock graphic gains read back as flat; malformed queries fail. */
+    for (int i = 0; i < PEQ_BANDS; ++i) gains[i] = 1;
+    assert(af.control(&af, 0x40001d01, &ext) == 1);
+    for (int i = 0; i < PEQ_BANDS; ++i) assert(gains[i] == 0);
+    assert(af.control(&af, 0x40001d00, 0) == -2);
+    ext.channel = PEQ_CHANNELS; assert(af.control(&af, 0x40001d00, &ext) == -2);
+    ext.channel = -1; assert(af.control(&af, 0x40001d00, &ext) == -2);
+    ext.channel = 0; ext.gain = 0; assert(af.control(&af, 0x40001d00, &ext) == -2);
+    assert(af.control(&af, 0x20000300, 0) == 1 && af.control(&af, 0x12345, 0) == -1);
+
+    /* A new track renegotiates: new rate and channels, the active preset reread, fresh state. */
+    peq_preset third = active(0, 3);
+    in = (af_data){0, 0, 96000, 1, 0x1d, 4};
+    assert(negotiate(&af, &in) == 1 && s->dsp.rate == 96000 && s->dsp.channels == 1);
+    assert(!memcmp(&s->preset, &third, sizeof(third)));
+    peq_reset(&ref, 96000, 1, &third);
+    same(&af, &ref, 96000, 1);
+    memcpy(a, keep, sizeof(a));
+    af_data old = {a, 256, 48000, 2, 0x1d, 4};
+    assert(af.play(&af, &old) == &old && !memcmp(a, keep, sizeof(a)));
+    /* Without an active file a track starts on the defaults. */
+    assert(!unlink(PEQ_ACTIVE));
+    in.rate = 44100;
+    assert(negotiate(&af, &in) == 1);
+    peq_preset defaults;
+    peq_default(&defaults);
+    assert(!memcmp(&s->preset, &defaults, sizeof(defaults)));
+
+    af.uninit(&af);
+    assert(!af.data && !af.setup);
+    return 0;
+}
+"""
+
+def player_check(tmp):
+    """hciplayer's filter: negotiation, track changes, live updates and cleanup."""
+    root = tmp/'player'
+    (root/'mnt/data').mkdir(parents=True)
+    (tmp/'player_test.c').write_text(PLAYER)
+    binary = tmp/'player_test'
+    sources = [ROOT/'patch/peq_player.c', ROOT/'patch/peq.c', tmp/'player_test.c']
+    subprocess.run(['cc', '-m32', '-DPEQ_HOST', f'-DPEQ_ROOT="{root}"', '-Dcalloc=test_calloc',
+                    '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'),
+                    *map(str, sources), '-lm', '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True)
+    print('PEQ player: negotiation, pass-through, live updates, track changes and cleanup passed.')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
         tmp = pathlib.Path(directory); lib = library(tmp)
         parser_check(lib, tmp)
         dsp_check(lib)
         editor_check(lib, tmp)
+        player_check(tmp)
