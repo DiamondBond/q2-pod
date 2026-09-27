@@ -1,5 +1,7 @@
 # Changelog
 
+- **V4.1R / V4.1C**: Artist pages now show their albums straight away; V3.8 highlighted the Album tab but opened an empty page until you switched tabs. PEQ editor lists no longer show a white strip below the last row.
+
 - **V4.0R / V4.0C**: PEQ audio and import fixes. Band and preamp changes no longer click: filters keep their state across updates and the preamp is applied after them as a smooth ramp. Near-silent audio no longer drives the filters into slow denormal math. On low sample-rate files, a band above the file's frequency range is skipped instead of switching the whole EQ off. Imports match Equalizer APO more closely: LS/HS with a Q use APO's corner frequency, shelves without a Q use APO's default slope, comma decimals such as `-3,5` are accepted, empty `None` filter slots are skipped, and a shelf whose APO corner shift leaves 20–20000 Hz is clamped to the range instead of failing the import.
 
 - **V3.9R / V3.9C**: The PEQ editor rows use white text instead of grey. The preamp is shown on one read-only row; set it in the preset (`Preamp:` in AutoEQ / Equalizer APO files) instead of the removed lower/raise controls. The editor drops its Back rows (Return steps back), shows only whole rows, shows the status line only when there is a message, and reads "Nothing to apply" until there are edits or a loaded preset to apply.

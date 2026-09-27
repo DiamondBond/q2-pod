@@ -70,7 +70,7 @@ def encode(root):
 
 
 # Both variants. Stock artist detail tabs carry literal Chinese `text` in every language; the
-# stock string table already has these keys. The Albums tab starts active (see ARTIST_ALBUMS).
+# stock string table already has these keys. The Albums tab and page start active (see ARTIST_ALBUMS).
 ARTIST_PAGE = 'localmusic/artistinfo_page.bin'
 ARTIST_TABS = {'btn_track': ('单曲', 'local_allsongs'), 'btn_album': ('专辑', 'album')}
 # Stock init builds the Songs view (0x4adcbc); call the stock Albums tab click handler (0x4ac7ec)
@@ -90,10 +90,15 @@ def artist_tabs(root):
             if name == 'btn_album':
                 n[2]['value'] = 'true'
             found.append(name)
+        # tab_button loads before its pages sibling and can't sync it, so show the Albums view too.
+        if n[0] == 'pages':
+            require('value' not in n[2], 'Unexpected artist pages')
+            n[2]['value'] = '1'
+            found.append('pages')
         for child in n[3]:
             walk(child)
     walk(root)
-    require(sorted(found) == sorted(ARTIST_TABS), 'Unexpected artist tabs')
+    require(sorted(found) == sorted([*ARTIST_TABS, 'pages']), 'Unexpected artist tabs')
 
 
 def patch_word(data, fileoff, changes, address, old, new, purpose):

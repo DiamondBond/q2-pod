@@ -50,6 +50,9 @@ def validate_assets(directory):
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if '/raw/ui/' in l and l.endswith('.bin') or l.endswith('/config.ini')]
+    def walk(n):
+        yield n
+        for child in n[3]: yield from walk(child)
     for rel in paths:
         original, new = read('stock.squashfs', rel), read('rootfs.squashfs', rel)
         if rel not in changed:
@@ -59,11 +62,10 @@ def validate_assets(directory):
         assert new == patch_asset(short, original, compact), short
         assert changed[rel] == dict(original_sha256=sha(original), sha256=sha(new))
         root = decode(new)
+        if short == ARTIST_PAGE:
+            assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
         assert not compact or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
-        def walk(n):
-            yield n
-            for child in n[3]: yield from walk(child)
         old_nodes, new_nodes = list(walk(decode(original))), list(walk(root))
         assert len(old_nodes) == len(new_nodes)
         for old, node in zip(old_nodes, new_nodes):
