@@ -1,22 +1,54 @@
-# Coverflow: Home card with its own album index
+# Coverflow: Home card over the stock library (PictureFlow model)
 
 ## Context
-Add a Coverflow card after Local Music on the Home carousel, in both variants. It browses tagged albums on SD and USB from its own index at `/mnt/data/coverflow.db`, and the stock Local Songs DB is left alone. The user chose the **stock `slide_menu`** renderer: neighbours are scaled and faded, with no tilt or reflection. That choice reuses the Home carousel's wheel, swipe, centre and animation handling, and the ringnav code and tests that already cover it. Tilt and reflection can be added later as a paint hook.
+Add a Coverflow card after Local Music on the Home carousel, in both variants. It browses the albums in the **stock Local Music library**, reading it the way Rockbox PictureFlow reads its tagcache database. Coverflow never reads tags itself, so there is no scanner and no `coverflow.db`.
 
-## Status: deferred (V4.5 audit gate was NO-GO)
-The §0 audit (2026-09-28) found that the threading model below is unsafe as written. V4.5 shipped without Coverflow.
+The only thing Coverflow owns is a thumbnail cache. Like PictureFlow's `.pfraw` cache, it is built once on a modal progress screen, and afterwards browsing only loads cached files.
 
-**Blocker: TagLib.** Stock calls `toolsGetMusicInfo` from the UI thread without holding any mutex, for example on every track change via `player_get_id3info`. libtag_c's `strdup`'d strings live in one global, unlocked `std::list`, and `taglib_tag_free_strings()` frees all of it. A scan pthread reading tags concurrently with the UI thread would therefore corrupt the heap. Holding `parse_cover_mutex` does not prevent this.
+The renderer is the **stock `slide_menu`**: neighbours are scaled and faded, with no tilt or reflection. That reuses the Home carousel's wheel, swipe, centre and animation handling, along with the ringnav code and tests that already cover it. Tilt and reflection can come later as a paint hook.
 
-**Blocker: embedded art.** `toolsGetAlbumCover` writes `/tmp/.tmp_picture`. `player_parsecover_thd` calls it under `g_playcover_mutex` @0xa39c18 only, not `parse_cover_mutex`.
+## Status: planned for V4.6
+The first design, with its own tag scanner and `coverflow.db`, failed the V4.5 audit gate (2026-09-28):
+- **TagLib:** stock calls `toolsGetMusicInfo` on the UI thread with no mutex, for example on every track change. libtag_c keeps its strings in one global, unlocked list, so a scan thread reading tags would corrupt the heap.
+- **Embedded art:** `toolsGetAlbumCover` writes the shared `/tmp/.tmp_picture`, and `player_parsecover_thd` calls it under `g_playcover_mutex` only.
 
-Amendments that would make it GO:
-- **Tags on the UI thread only.** The pthread only walks directories and writes SQL. `toolsGetMusicInfo` runs in small `timer_add`/`idle_add` batches on the UI thread. The remaining exposure is to stock worker threads (`batch_add_file`, `importPlayList`, and the stock scan), which already race the UI thread in stock.
-- **Embedded art under both mutexes.** Take `parse_cover_mutex` then `g_playcover_mutex`, one short call at a time. Stock never nests the two, and 0x524f20 takes `parse_cover_mutex` on the UI thread.
-- **Folder art.** `toolsThumbSpecCover` (`cover.jpg`/`folder.jpg`) is fine from the pthread under `parse_cover_mutex` alone, because it doesn't use `/tmp/.tmp_picture`.
-- Alternatively, drop embedded art and use only folder art plus the placeholder.
+The redesign avoids both problems:
+- **No tag reads:** album and track data come from the stock library queries.
+- **Embedded art:** extracted under **both** `parse_cover_mutex` and `g_playcover_mutex`, in that order, one short call at a time. Stock never nests the two.
 
-**Card icon (decided):** reuse the Local Music card's own 190×190 image, so the only visible difference is the label "Coverflow". `album_covermode.png` is only 50×50 and would look tiny next to the 190×190 `menu_*` icons. No new assets are needed.
+### How PictureFlow does it (the model)
+Source: Rockbox `apps/plugins/pictureflow/pictureflow.c`.
+- **Albums** come from Rockbox's tagcache database (`tagcache_search(tag_album / tag_albumartist)`), never from its own tag scan. `check_database()` waits with a "tagcache busy" splash until the DB is initialized and ready.
+- **First launch** runs in the foreground with a progress bar and a cancel prompt:
+  - `create_album_index()` writes `pictureflow_album.idx`.
+  - `create_albumart_cache()` handles one album per step: first track → `search_albumart_files()` (folder image or embedded) → resize → `<mfnv(album,artist)>.pfraw`.
+  - Albums without art share `emptyslide.pfraw`.
+- **Later launches** load the index. A background thread only loads `.pfraw` files near `center_index` into a 64-slide LRU cache and never reads tags.
+- **New music** isn't detected automatically. The cache rebuilds only on a `CACHE_VERSION` change or the user's "Rebuild cache".
+- **Tracks** come from a per-album DB query, sorted by disc and track.
+
+### How we map it onto the Q2
+
+| PictureFlow | Coverflow on the Q2 |
+|---|---|
+| tagcache database | the stock Local Music library (§0 finds the query) |
+| `check_database()` | if the library is empty or not built, show "Update Local Music first" |
+| `.pfraw` cache | `/mnt/data/coverflow-art/<fnv(album_artist,album)>.jpg` at 160×160; an empty file marks "no art" (the placeholder) |
+| modal first build | a modal progress screen with Cancel; the art pthread touches only files, the two mutexes and volatile counters |
+| manual rebuild only | on open, build only the albums with no cache file, then a **Refresh library** card that clears the cache and rebuilds |
+
+**Card icon.** Try a generated icon first, and fall back to reuse.
+
+1. **Export the stock carousel icons.** They're in `release/assets/default/raw/images/xx/`, one pair per card: `menu_music.png` / `menu_musicdown.png`, `menu_folder`, `menu_playing`, `menu_stream`, `menu_playset`, `menu_sysset`. Each is a 190×190 RGBA PNG, and the `…down` variant is the pressed/selected state.
+2. **Generate the new icons with Codex.** Feed the exported icons to the `codex` CLI (installed, 0.157.0) on the user's subscription. Use a top model at high reasoning, e.g. `codex exec -m <best gpt model> -c model_reasoning_effort="xhigh" -i menu_music.png -i menu_musicdown.png -i … "<prompt>"`, and ask it to use its image-generation tool or skill.
+   - Output: a new `menu_coverflow.png` + `menu_coverflowdown.png` pair.
+   - Motif: a fanned stack of album covers.
+   - Match the Shanling set exactly: 190×190 RGBA with a transparent background, the same line weight, palette, glyph size, padding and normal/down styling.
+   - If image generation isn't available through Codex, say so and use the fallback.
+3. **Check the result.** Verify dimensions, mode and transparency with Python (PIL or `file`). Put the result next to the stock pair and look at it with the Read tool before accepting it.
+4. **Add it to the build.** The build adds both PNGs to the rootfs `images/xx/`, and the `btn_coverflow` clone references `menu_coverflow`. Keep the rootfs no larger than stock by running `test_build.py`. Commit the PNGs under `assets/`.
+
+**Fallback:** reuse the Local Music card's own image, so the only visible difference is the label "Coverflow". `album_covermode.png` is only 50×50 and would look tiny next to the 190×190 `menu_*` icons.
 
 ## Stock facts (audited 2026-09-28, V1.32 pinned)
 - **Home:**
@@ -28,7 +60,7 @@ Amendments that would make it GO:
     - `label_*` names get `widget_set_tr_text`.
     - Unknown names are ignored, and nothing assumes exactly 6 cards.
   - **The click lives on the `img_*` image, not `btn_*`**, so bind `widget_lookup(win, "img_coverflow", 1)`. `label_coverflow` gets no translation, so literal text is fine.
-- **Tags:**
+- **Tags** (why we don't read them):
   - `toolsGetMusicInfo(int want_props, MusicInfo *out, const char *path)` @0x5c5f40, prologue `46001c3c800d9c2721e09903`, 1632 bytes.
   - Always returns 1, even if `taglib_file_new` fails, so the caller must zero `out` first (stock memsets 0x698 bytes).
   - Forces `want_props` to 0 for `.mp3/.wma/.aac/.dff/.dsf/.iso`, and takes no lock.
@@ -83,7 +115,7 @@ Amendments that would make it GO:
     - Memory-play reloads the last track's *parent folder* (`toolsLoadDirectory`). Album order is lost, but nothing crashes.
     - Caveat: `mclSetPlayM3uFlag(g_m3u_path[0] != 0)`. If the user last left Folder view inside an m3u, auto-advance changes.
     - classType 0 makes memory-play a silent no-op. Values 0xf001–0xf00b are stock-DB queries and must not be used.
-- **SQLite:** the demo imports `sqlite3_open/exec/close/free` (GOT UND). `exec` with a callback is enough.
+- **SQLite:** the demo imports `sqlite3_open/exec/close/free` (GOT UND). These are only needed if §0 chooses a direct read-only query of the stock DB.
 - **libc imports:**
   - Present: `pthread_create/join`, `pthread_mutex_lock/unlock`, `rename`, `unlink`, `access`, `mkdir`, `opendir/closedir`, `readdir` (32-bit; **no `readdir64`**), `strdup`, `strcasecmp`, `strrchr`.
   - **No `statvfs`:** use `statfs`. The MIPS o32 field order is `f_type, f_bsize, f_frsize, f_blocks, f_bfree, f_files, f_ffree, f_bavail`.
@@ -92,86 +124,109 @@ Amendments that would make it GO:
   - Use `widget_factory_create_widget(widget_factory(), "slide_menu", parent, x, y, w, h)`. Both functions are exported (0x666f04, 0x666c68).
   - A bare `widget_create` with `g_slide_menu_vtable` (0x99cce0) skips the defaults that static `slide_menu_create` (0x5f383c) sets.
   - `slide_menu_set_value` @0x5f5228 and `slide_menu_scroll_to_next`/`_prev` @0x5f371c/0x5f3514 are exported.
-- **Scanner rules:**
-  - 0x5c38c8 is the stock **per-directory lister** (static, 2940 bytes, prologue `46001c3cf8339c2721e09903`), not an extension helper. It shares scanner globals, so don't call it.
-    - It uses `lstat` when `d_type == 0`, so symlinks are never treated as directories.
-    - It skips `._*` files.
-  - **Extension list:** 0x778d70 (273 bytes), matched by `strstr` on the last 4–5 characters. Case variants are enumerated explicitly: `.mp3 .wav .wma .ape .flac .aiff .aif .m4a .aac .dff .dsf .ogg .dts .iso .mp2 .ac3 .opus .tak`, each in three casings. 0x767160 is the same list without ISO, used only by `parse_category_list_response`. Copy 0x778d70 without the ISO entries.
-  - **Skipped directory names:** `.`, `..`, `lost+found`, `System Volume Information`, `RECYCLER`, `$RECYCLE.BIN`, `.LOST.DIR`, `.fseventsd`, `.Spotlight-V100`, `.Trashes`. Also the exact paths `/mnt/mmc/Android/data` and `/mnt/usb/Android/data`.
-- **Stock scan:** it runs only inside the modal update dialog, with thread handle 0xa271d8, and walks only `/mnt/mmc`.
-- **Payload:** 33.7 KB in a 60 KB window below scratch at 0xb0f000.
+- **Library queries** (from the V4.5 Queue Menu audit):
+  - Album rows live in `*p_deque_showlist` @0xa3849c as stSongInfo records: +0 id (-1/-2 mean unknown), +0x14 album, +0x18 album artist.
+  - An album's tracks come from `getMusicByAlbum(rec[0]==-1 ? NULL : rec+0x14)` @0x4ff7d8. Artist→album uses `getMusicByAlbumAndAlbumSonger` @0x4ffc84 or `getMusicByAlbumAndSonger` @0x4ff9b8.
+  - These run SQLite plus `algo_sort_if` (stock order) and fill the staging deque `tools_pdeq_directory` @0xa269bc, so snapshot and restore it with `deque_init_copy`/`deque_assign`.
+  - They're UI-thread only.
+- **Payload:** V4.5 adds the Queue Menu, so re-measure the space left in the 60 KB window below `SCRATCH` before starting.
 
 ## Implementation
 
-### 0. Audit gate (before binding; findings go in `docs/internals.md`)
-Disassemble and pin (prologue bytes and size, like DEMO_HOOKS/PRIVATE_FUNCTIONS) each of the following:
-- the `toolsGetMusicInfo` output struct and its thread use
-- the helper at 0x5c38c8 (extension check)
-- the `stSongInfo` fields that 0x5b3b1c copies
-- `toolsThumbSpecCover` and `toolsGetAlbumCover`
+### 0. Audit gate (findings go in `docs/internals.md`)
+Pin every address used, with prologue bytes and size, in the style of `DEMO_HOOKS`/`PRIVATE_FUNCTIONS`.
 
-Also:
-- List every stock TagLib caller and its thread. Our TagLib/art calls hold `parse_cover_mutex`. If a stock caller outside that mutex can run concurrently, report it and stop rather than guess.
-- Confirm that classType 1 with an arbitrary path list survives queue refresh and memory-play. If it doesn't, use the class value that does.
+**How stock builds the Albums list** (class 0xf003):
+- Find the function that fills `p_deque_showlist` with album rows.
+- Or find the stock DB path and schema, for a direct read-only `sqlite3_exec`.
+- Pick whichever needs no private state, and check it's safe while a Local Music page is open underneath (Coverflow is opened from Home, so normally none is).
+
+**Reading the library:**
+- How stock detects an empty or unbuilt library, and what "library being rebuilt" looks like (the update dialog is modal, but check anyway). Coverflow refuses in both cases, as `check_database()` does.
+- Whether `getMusicByAlbum*` returns stock-ordered tracks for an album row taken from that list, including the unknown-album (-1) and unknown-artist (-2) rows.
+
+**Play class:**
+- Prefer the stock album-detail classType (e.g. 0xff10), so memory-play resumes the album.
+- Confirm it survives queue refresh and memory-play with the deque we pass.
+- Fall back to folder play `{dq, idx, 1, 2}` (see Play above).
+
+**Art:**
+- Re-check that no stock path calls `toolsGetAlbumCover` or `toolsThumbSpecCover` outside the two mutexes.
+- If one does, drop embedded art (folder art plus placeholder only) rather than guess.
 
 ### 1. `patch/coverflow.c` (new; the only new source file)
-**Scan thread** (pthread; it never touches AWTK):
-- Recursively walk `/mnt/mmc` and `/mnt/usb` (skipped if absent) using stock extension/skip rules. Recurse only into `DT_DIR` (symlinks are `DT_LNK`, so they're skipped), with bounded depth and path length.
-- Per file (tag reads on the UI thread in timer batches; see Status): `toolsGetMusicInfo` → `INSERT` into `tracks(path, title, artist, album_artist, album, disc, track, folder)` in `coverflow.db.tmp`, inside one transaction. SQL strings use a small quote helper (`'` → `''`).
-- Grouping is one SQL statement: `albums` = `GROUP BY coalesce(nullif(album_artist,''), artist), coalesce(nullif(album,''), folder)`. A missing album uses the folder as its identity and folder name as its display name. Ordering is done in SQL: albums by artist then title (NOCASE); tracks by disc, track, then filename.
-- Artwork per album: try `cover.jpg`, then `folder.jpg` (`toolsThumbSpecCover`), then the first track's embedded art (`toolsGetAlbumCover` under `parse_cover_mutex` then `g_playcover_mutex`). Output is `/mnt/data/coverflow-art/<fnv(source path+size+mtime)>.jpg` at 160×160, and an existing file is reused. Skip thumbnails when `/mnt/data` free space is below a named `ART_MIN_FREE_MB` (`statfs`; `statvfs` isn't imported). A failed thumbnail stores an empty art path, so the album still shows with a placeholder.
-- Finish: set `PRAGMA user_version=1`, commit, close, then `rename(tmp, coverflow.db)`. On cancel or error, `unlink(tmp)`; the old DB is untouched.
-- Progress (files and albums counted) and the cancel flag are volatile ints in `.scratch`.
+**Album list** (UI thread, on open):
+- Query the stock library (§0) into a `malloc`'d array of `{album, album_artist, first_track_path, id}`.
+- Sort as stock's Albums list does.
+- Keep the source record fields, so the tracks query can be re-run.
+
+**Art build** (pthread, modal):
+- Build on first open, then only for albums that have no cache file.
+- Before starting, the UI thread copies each album's first-track path and folder into the job array, so the thread never touches stock deques.
+- Per album:
+  - `cover.jpg`, then `folder.jpg`, through `toolsThumbSpecCover` under `parse_cover_mutex`.
+  - Otherwise embedded art through `toolsGetAlbumCover`, under `parse_cover_mutex` then `g_playcover_mutex`.
+  - Write to `…/<fnv>.jpg.tmp`, then `rename`. On failure, write an empty `<fnv>.jpg` marker.
+- Skip the build when `/mnt/data` free space is below a named `ART_MIN_FREE_MB` (`statfs`).
+- Progress (albums done) and the cancel flag are volatile ints in `.scratch`.
+- Cancel stops after the current album. Finished thumbnails stay, so the next open resumes.
 
 **Page** (UI thread):
 - The card click creates a runtime window with `window_create`, named `coverflow_page`.
-- Opening with no valid DB (missing, or `user_version` ≠ 1) starts a scan. The page then shows "Scanning… N files" and a Cancel row, with a 250 ms `timer_add` poll.
-- Covers screen:
-  - A `slide_menu`, built with `widget_factory_create_widget(widget_factory(), "slide_menu", …)`, holding one child per album. Each child is an image (stock `default_bigcover` placeholder) plus album/artist labels.
-  - The last card is **Refresh library**.
-  - On value change, set real art only for index ±3 and clear the rest, so only nearby covers stay decoded.
+- If the library is empty, show "Update Local Music first".
+- If albums need art, show "Preparing artwork… N/M" and a Cancel row, with a 250 ms `timer_add` poll.
+- **Covers screen:**
+  - A `slide_menu`, built with `widget_factory_create_widget(widget_factory(), "slide_menu", …)`, holding one child per album.
+  - Each child is an image (stock `default_bigcover` placeholder) plus album/artist labels.
+  - The last card is **Refresh library**, which deletes the cache files and rebuilds.
+  - On value change, set real art only for index ±3 and clear the rest, like PictureFlow's slide cache.
   - `ponytail:` one child per album; if large libraries lag on hardware, virtualize to a recycled window of children.
-- Tracks screen: a scroll_view row list reusing the `peq_ui.c` `row()` pattern. Clicking a track checks `access(path)`; if it's missing it shows "Storage unavailable". Otherwise it builds the deque from the album's rows and hands off to `playing_page` as stock folder play does (`{dq, idx, 1, 2}`).
-- Return (`EVT_KEY_UP` 170, like the PEQ `keyup`):
-  - tracks → covers, restoring `slide_menu` value to the saved album index
+- **Tracks screen:**
+  - `getMusicByAlbum*` on the UI thread, with a snapshot/restore of `tools_pdeq_directory`.
+  - Rows use the `peq_ui.c` `row()` pattern.
+  - A click checks `access(path)`. If the file is missing, show "Storage unavailable". Otherwise hand the deque to `playing_page` with the §0 class.
+- **Return** (`KEY_RETURN` 170, like the PEQ `keyup`):
+  - tracks → covers, restoring `slide_menu` to the saved album index
   - covers → `navigator_back_to_home`
-  - scanning → cancel
-- On `EVT_DESTROY`: cancel and `pthread_join` (bounded by one file's work), remove the timer, free album arrays, and clear the page pointers.
+  - preparing → cancel, then covers, showing whatever is cached
+- **On `EVT_DESTROY`:** cancel and `pthread_join` (bounded by one album's art), remove the timer, free the arrays, and clear the page pointers.
 
 ### 2. Home card and hook
-- Edit `home_page.bin` in `tools/compact.py` for **both** variants. Normal currently patches only `ARTIST_PAGE`, so the builder loop needs `home_page` added. Clone `btn_localmusic` → `btn_coverflow` / `img_coverflow` / `label_coverflow` at index 2. Keep the Local Music card's own image and change only the label text to the literal "Coverflow". No new image files are added.
+- Edit `home_page.bin` in `tools/compact.py` for **both** variants. Normal currently patches only `ARTIST_PAGE`, so the builder loop needs `home_page` added.
+- Clone `btn_localmusic` → `btn_coverflow` / `img_coverflow` / `label_coverflow` at index 2. Use the generated `menu_coverflow` icon pair (see Card icon); if generation failed, keep the Local Music image. The label text is the literal "Coverflow".
 - Add a `home_page_init` entry to `DEMO_HOOKS` in `tools/peq.py` (checked prologue), plus a trampoline in `patch/trampoline.S`. Our init calls the stock one, then `widget_lookup(win, "img_coverflow", 1)` + `widget_on(EVT_CLICK, coverflow_open)`. The click must go on the image, as stock does.
-- `patch/contexts.inc`: add `{ "coverflow_page", CTX_DYNAMIC, 0 }`. In `tools/build.py`, exempt a `PAYLOAD_WINDOWS = {'coverflow_page'}` set from the rootfs window-name check.
+- In `patch/contexts.inc`, add `{ "coverflow_page", CTX_DYNAMIC, 0 }`. In `tools/build.py`, exempt a `PAYLOAD_WINDOWS = {'coverflow_page'}` set from the rootfs window-name check.
 - Also in `tools/build.py`:
-  - add the new libc/UI imports (`pthread_create/join`, `pthread_mutex_lock/unlock`, `rename`, `statfs`, `__lxstat`, `sqlite3_*`, window/image/deque, `navigator_to_with_context`), using the existing `FUNCTIONS`/`LIBC`/`PRIVATE_FUNCTIONS` tables
-  - compile/link `coverflow.c` via `compile_common` and add it to `--undefined`
-  - add `patch/coverflow.c` to `source_sha256`
-- Keep the payload-overlap, scratch-page and rootfs-size checks unchanged. If the payload crosses 0xb0f000, move `SCRATCH` in both `build.py` and `link.ld` together.
+  - Add imports through the existing `FUNCTIONS`/`LIBC`/`PRIVATE_FUNCTIONS` tables: `pthread_create/join`, `pthread_mutex_lock/unlock`, `rename`, `unlink`, `statfs`, `__lxstat`, the art functions, `getMusicByAlbum*`, window/image/deque functions, and `navigator_to_with_context`. Reuse anything the Queue Menu already imports.
+  - Compile and link `coverflow.c` via `compile_common`, and add it to `--undefined`.
+  - Add `patch/coverflow.c` to `source_sha256`.
+- Keep the payload-overlap, scratch-page and rootfs-size checks unchanged. If the payload crosses `SCRATCH`, move it in both `build.py` and `link.ld` together.
 
 ### 3. ringnav routing
 - Nothing new is expected. `coverflow_page` is allowlisted, and a non-home `slide_menu` already takes the wheel via `slide_menu_scroll_to_next/prev` and the centre via a synchronous click on the selected child. Tracks are an ordinary scroll_view list.
-- Only if a test shows a gap: add the minimal case in `patch/ringnav.c`.
+- The Queue Menu's hold-Play should stay stock (unsupported) on `coverflow_page` unless supporting it is trivial.
+- Only if a test shows a gap, add the minimal case in `patch/ringnav.c`.
 
 ## Validation
-- **`tools/test_coverflow.py`** (new, host cc + host libsqlite3 as a test-only library, following the `tools/test_peq.py` pattern). It stubs `toolsGetMusicInfo` from sidecar tag files and stubs the art functions. Cases:
-  - nested folders
-  - the same album title under different artists
-  - a missing album tag grouping by folder
-  - disc/track/filename ordering
-  - cover.jpg over folder.jpg over embedded art, and missing art showing a placeholder
-  - a malformed file skipped while the scan continues
-  - cancel mid-scan leaving the old DB byte-identical and no tmp file
-  - missing `/mnt/usb` and `/mnt/mmc`
-  - a symlinked directory not followed
-  - skip dirs
+- **Card icon:** if it's generated, both PNGs are 190×190 RGBA with transparent corners, look right next to the stock `menu_*` pair, and the rootfs is still no larger than stock.
+- **`tools/test_coverflow.py`** (new; host cc, following the `tools/test_peq.py` pattern). It stubs the library query and the art functions, and records mutex order. Cases:
+  - cover.jpg beats folder.jpg, which beats embedded art
+  - missing art writes the empty marker, so the placeholder shows and the album isn't retried
+  - embedded art takes both mutexes in order, and folder art takes only the parse mutex
+  - on a later open, only uncached albums are built
+  - cancel mid-build keeps finished thumbnails and leaves no `.tmp`
+  - Refresh clears and rebuilds
+  - low free space skips the build
+  - an empty library shows the message
 - **`tools/test_patch.py`** (MIPS):
-  - Home has 7 cards and index 2 opens `coverflow_page`
-  - the existing carousel fast/slow/reversal checks still pass with 7 cards
-  - wheel and centre on the coverflow `slide_menu`, including the centre double-press still turning the screen off
-  - the track click hands `playing_page` a deque with the right index
-  - Return tracks→covers restores the album; Return on covers goes Home
-  - destroy removes the timer and joins the thread
-- Build normal and compact, then run `test_peq.py`, `test_build.py 'Q2 Firmware V1.32.zip'` (reproducible packages, size) and `test_patch.py` on both outputs.
+  - Home has 7 cards, and index 2 opens `coverflow_page`.
+  - The existing carousel fast/slow/reversal checks still pass with 7 cards.
+  - The wheel and centre work on the Coverflow `slide_menu`, and a centre double-press still turns the screen off.
+  - A track click hands `playing_page` a deque with the right index and class.
+  - The tracks query restores `tools_pdeq_directory`.
+  - Return from tracks → covers restores the album, and Return on covers goes Home.
+  - Destroy removes the timer and joins the thread.
+- Build normal and compact. Then run `test_peq.py`, `test_coverflow.py`, `test_build.py 'Q2 Firmware V1.32.zip'` (reproducible packages, size) and `test_patch.py` on both outputs.
 - Docs: add a README Coverflow section, an internals section with the audit results, and a building-doc line for the new test.
 
 ## Final step (user request)
