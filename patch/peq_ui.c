@@ -18,11 +18,11 @@ int peq_stock_eq(int mode) {
 enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE,
        FREQ_DOWN, FREQ_UP, GAIN_DOWN, GAIN_UP, Q_DOWN, Q_UP, STEP,
-       PRE_DOWN, PRE_UP, YES, CANCEL };
+       YES, CANCEL };
 static struct {
     void *page, *view;
     unsigned timer;
-    int screen, band, step, count, previous, rendered;
+    int screen, band, step, count, previous, rendered, dirty;
     peq_preset draft, candidate;
     char (*names)[256];
     char destination[600], status[160];
@@ -40,7 +40,7 @@ static void row(void *view, int index, const char *text, int id) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
     void *label = label_create(item, 12, 0, 350, 48);
-    widget_use_style(label, "s_label_white20");
+    widget_use_style(label, "s_label_white20c");
     widget_set_text_utf8(label, text);
     widget_on(item, EVT_CLICK, action, (void *)(long)id);
 }
@@ -77,6 +77,7 @@ static void save_candidate(int replace) {
 static int action(void *ctx, void *event) {
     (void)event;
     int id = (int)(long)ctx;
+    if (id < 0) return 0; /* display-only rows */
     peq_band *b = &ui.draft.bands[ui.band];
     ui.status[0] = 0;
     if (id == BACK) {
@@ -95,8 +96,6 @@ static int action(void *ctx, void *event) {
             peq_stock_eq(1);
         } else snprintf(ui.status, sizeof(ui.status), "Switch failed; PEQ unchanged");
     }
-    else if (id == PRE_DOWN) { ui.draft.preamp -= 0.5; if (ui.draft.preamp < -60) ui.draft.preamp = -60; }
-    else if (id == PRE_UP) { ui.draft.preamp += 0.5; if (ui.draft.preamp > 24) ui.draft.preamp = 24; }
     else if (id == ENABLE) b->enabled = !b->enabled;
     else if (id == TYPE) b->type = (b->type + 1) % 3;
     else if (id == STEP) ui.step = (ui.step + 1) % 4;
@@ -110,6 +109,7 @@ static int action(void *ctx, void *event) {
     } else if (id == APPLY) {
         if (peq_save(PEQ_ACTIVE, &ui.draft, 1) == 1) {
             peq_stock_eq(1);
+            ui.dirty = 0;
             snprintf(ui.status, sizeof(ui.status), "Applied");
         } else snprintf(ui.status, sizeof(ui.status), "Apply failed; active EQ unchanged");
     } else if (id == YES) {
@@ -139,12 +139,15 @@ static int action(void *ctx, void *event) {
             peq_preset p;
             if (peq_load(path, &p)) {
                 /* Loading into the editor is deliberate; Apply is the activation step. */
+                p.bypass = ui.draft.bypass; /* ON/OFF is live state, not part of the edit */
                 ui.draft = p;
+                ui.dirty = 1;
                 ui.screen = HOME;
                 snprintf(ui.status, sizeof(ui.status), "Loaded; choose Apply to activate");
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
+    if (id >= ENABLE && id < STEP) ui.dirty = 1; /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
     refresh();
     return 0;
 }
@@ -160,22 +163,24 @@ static int render(const void *unused) {
     }
     ui.rendered = ui.screen;
     int height = widget_get_prop_int(ui.page, "h", 320);
+    /* Whole rows only, so the last row is never clipped; the status line shows only with a message. */
+    int rows = (height - 48 - (ui.status[0] ? 54 : 0)) / 48 * 48;
     widget_destroy_children(ui.page);
-    void *list = list_view_create(ui.page, 0, 48, 375, height - 102);
+    void *list = list_view_create(ui.page, 0, 48, 375, rows);
     widget_set_prop_int(list, "item_height", 48);
-    void *view = scroll_view_create(list, 0, 0, 375, height - 102);
+    void *view = scroll_view_create(list, 0, 0, 375, rows);
     ui.view = view;
     widget_set_prop_int(view, "yslidable", 1);
     widget_set_prop_int(view, "xslidable", 0);
     widget_set_prop_int(view, "_ringnav_index", selection);
     char text[160];
     int n = 0;
-    row(view, n++, "Back", BACK);
+    /* No Back row: Return steps back on every screen (keyup). */
     if (ui.screen == HOME) {
-        row(view, n++, "Apply changes", APPLY);
-        row(view, n++, ui.draft.bypass ? "PEQ: OFF (tap to turn on)" : "PEQ: ON (tap to turn off)", BYPASS);
-        snprintf(text, sizeof(text), "Preamp %.1f dB: lower 0.5", ui.draft.preamp); row(view, n++, text, PRE_DOWN);
-        row(view, n++, "Raise preamp 0.5 dB", PRE_UP);
+        row(view, n++, ui.dirty ? "Apply changes" : "Nothing to apply", ui.dirty ? APPLY : -1);
+        row(view, n++, ui.draft.bypass ? "PEQ: OFF" : "PEQ: ON", BYPASS);
+        /* Display only: the preamp comes from the loaded preset; -1 matches no action. */
+        snprintf(text, sizeof(text), "Preamp %.1f dB", ui.draft.preamp); row(view, n++, text, -1);
         row(view, n++, "Presets", MENU);
         for (int i = 0; i < PEQ_BANDS; ++i) {
             peq_band *b = &ui.draft.bands[i];
@@ -218,10 +223,12 @@ static int render(const void *unused) {
     widget_use_style(title, "s_label_white20c");
     snprintf(text, sizeof(text), ui.screen == BAND ? "PEQ Band %d" : "PEQ", ui.band + 1);
     widget_set_text_utf8(title, text);
-    void *status = label_create(ui.page, 8, height - 54, 359, 54);
-    widget_use_style(status, "s_label_white20c");
-    widget_set_prop_int(status, "line_wrap", 1);
-    widget_set_text_utf8(status, ui.status[0] ? ui.status : "Edit, then Apply. Lower preamp for boosts.");
+    if (ui.status[0]) {
+        void *status = label_create(ui.page, 8, height - 54, 359, 54);
+        widget_use_style(status, "s_label_white20c");
+        widget_set_prop_int(status, "line_wrap", 1);
+        widget_set_text_utf8(status, ui.status);
+    }
     widget_invalidate_force(ui.page, 0);
     return 7; /* RET_REMOVE */
 }
@@ -251,6 +258,7 @@ int peq_page_init(void *page, void *context) {
     ui.view = 0;
     ui.screen = HOME;
     ui.status[0] = 0;
+    ui.dirty = 0;
     peq_load_active(&ui.draft);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);

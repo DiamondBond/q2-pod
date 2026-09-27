@@ -7,11 +7,10 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '3.8'  # the only place a release bumps the version
-_major, _minor = VERSION.split('.')
-DEV_VERSION = f'{_major}.{int(_minor) + 1}'  # --dev: one minor version above the release
+VERSION = '3.9'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
-DEV_VERSIONS = {'normal': f'V{DEV_VERSION}R', 'compact': f'V{DEV_VERSION}C'}
+# --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
+DEV_VERSIONS = {'normal': f'V{VERSION}r', 'compact': f'V{VERSION}c'}
 BASE = 0xb00000
 SCRATCH = 0xb0f000
 RING_STEP = 48
@@ -365,7 +364,7 @@ if __name__ == '__main__':
                     help='320x375 JPEG boot splash (default: assets/logo.jpg)')
     ap.add_argument('--compact', action='store_true', help='compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
-                    help=f'development build: temporary higher version tag (V{DEV_VERSION}R/C); never a release input')
+                    help=f'development build: lowercase version tag (V{VERSION}r/c); never a release input')
     a=ap.parse_args()
     try:
         build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev)

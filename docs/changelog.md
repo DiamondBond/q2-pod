@@ -1,5 +1,7 @@
 # Changelog
 
+- **V3.9R / V3.9C**: The PEQ editor rows use white text instead of grey. The preamp is shown on one read-only row; set it in the preset (`Preamp:` in AutoEQ / Equalizer APO files) instead of the removed lower/raise controls. The editor drops its Back rows (Return steps back), shows only whole rows, shows the status line only when there is a message, and reads "Nothing to apply" until there are edits or a loaded preset to apply.
+
 - **V3.8R / V3.8C**: Artist pages open on Albums; All Songs stays one tap away. The artist page tabs are now translated: stock firmware showed Chinese 单曲/专辑 there in every language.
 
 - **V3.7R / V3.7C**: The stock equalizer is replaced by a ten-band parametric EQ with peaking and shelf bands, preamp, an immediate on/off switch that also drives the status-bar EQ icon, saved presets and AutoEQ / Equalizer APO `.txt` import from `/EQ` on the microSD card. Return steps back through the editor's screens. At the ends of the local folder and music lists the wheel now hard-stops while you keep turning; pause briefly, then turn again to wrap around.

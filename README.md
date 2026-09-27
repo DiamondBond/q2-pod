@@ -43,9 +43,9 @@ If a menu behaves strangely, please [open an issue](https://github.com/DiamondBo
 
 ## Parametric EQ
 
-**Audio settings → Equalizer** is replaced by a ten-band parametric EQ: peaking and shelf bands with frequency, gain and Q, plus preamp. **PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it; band and preamp edits take effect when you choose **Apply changes**.
+**Audio settings → Equalizer** is replaced by a ten-band parametric EQ: peaking and shelf bands with frequency, gain and Q, plus preamp. **PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it; band edits and loaded presets take effect when you choose **Apply changes**.
 
-To import AutoEQ / Equalizer APO presets, put the `.txt` files in an `EQ` folder at the root of the microSD card, then choose **Presets → Import from SD /EQ**. An imported preset is saved on the player; load it from **Presets**, then Apply. Lower the preamp when boosting to avoid clipping.
+To import AutoEQ / Equalizer APO presets, put the `.txt` files in an `EQ` folder at the root of the microSD card, then choose **Presets → Import from SD /EQ**. An imported preset is saved on the player; load it from **Presets**, then Apply. The preamp comes from the preset's `Preamp:` line and is shown read-only in the editor; use a negative preamp when boosting to avoid clipping.
 
 ## Documentation
 

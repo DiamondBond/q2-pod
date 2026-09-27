@@ -22,7 +22,7 @@ python3 tools/test_patch.py /tmp/q2-build  # after: pip install -r requirements.
 
 Both variants replace the stock equalizer page with a ten-band PEQ editor (bands, shelves, preamp, on/off, presets, `/EQ` import) and patch `hciplayer`'s equalizer filter with the matching DSP.
 
-`--dev` tags a build one minor version above the release (`DEV_VERSION` in `tools/build.py`) so a test unit is distinguishable from the released build it replaces. It applies to that build only: the release procedure never passes `--dev`, and the manifest records `dev: true`.
+`--dev` tags a build with the release version in lowercase (`V<version>r`/`V<version>c`), so a test unit is distinguishable from the release and the updater, which only refuses an identical version, installs the release over it. It applies to that build only: the release procedure never passes `--dev`, and the manifest records `dev: true`.
 
 The suite executes the actual patched MIPS payload and stock key/touch filters. UI services are mocked; carousel checks execute native animator parameter writes and stock completion, with a deterministic animation scheduler, and audit the stock creation path. Separate scenarios execute the stock canvas clip/color/rectangle code and the stock rounded fill/stroke entry points down to mocked LCD and vgcanvas sinks. Case coverage lives in `tools/test_patch.py`; the device checklist is in [compact.md](compact.md).
 
