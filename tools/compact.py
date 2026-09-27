@@ -3,6 +3,7 @@
 No global widget hook: excluded pages and shared UI styles stay byte-identical.
 The audit records full original instructions and asset hashes, not search/replace patterns.
 """
+import copy
 import functools
 import hashlib
 import json
@@ -97,6 +98,27 @@ def artist_tabs(root):
     require(sorted(found) == sorted([*ARTIST_TABS, 'pages']), 'Unexpected artist tabs')
 
 
+# Both variants. Coverflow's Home card: a clone of Local Music at index 2, with its image (patch/coverflow.c
+# binds it). Stock translates label_* by name and ignores this one, so its text is literal.
+HOME_PAGE = 'home_page.bin'
+
+
+def home_card(root):
+    menu = [n for n in root[3] if n[0] == 'slide_menu']
+    require(len(menu) == 1, 'Unexpected home carousel')
+    cards = [n[2].get('name') for n in menu[0][3]]
+    require(cards[:2] == ['btn_playing', 'btn_localmusic'], 'Unexpected home cards')
+    card = copy.deepcopy(menu[0][3][1])
+    card[2]['name'] = 'btn_coverflow'
+    image, label = card[3]
+    require(image[2].get('name') == 'img_localmusic' and label[2].get('name') == 'label_localmusic',
+            'Unexpected Local Music card')
+    image[2]['name'] = 'img_coverflow'
+    label[2]['name'] = 'label_coverflow'
+    label[2]['text'] = 'Coverflow'
+    menu[0][3].insert(2, card)
+
+
 def patch_word(data, fileoff, changes, address, old, new, purpose):
     off = fileoff(data, address)
     require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
@@ -110,6 +132,9 @@ def patch_asset(path, data, compact):
     require(encode(root) == data, f'{path}: UI round trip differs')
     if path == ARTIST_PAGE:
         artist_tabs(root)
+    if path == HOME_PAGE:
+        home_card(root)
+        return encode(root)
     if not compact:
         return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']

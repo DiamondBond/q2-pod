@@ -35,7 +35,7 @@ def source_sha256():
     for rel in ['assets/logo.jpg', 'patch/contexts.inc', 'patch/link.ld', 'patch/offsets.inc',
                 'patch/ringnav.c', 'patch/trampoline.S', 'patch/compact.json',
                 'tools/compact.py', 'tools/release.py', 'tools/build.py', 'tools/peq.py',
-                'patch/peq.h', 'patch/peq.c', 'patch/peq_ui.c', 'patch/peq_player.c']:
+                'patch/peq.h', 'patch/peq.c', 'patch/peq_ui.c', 'patch/peq_player.c', 'patch/coverflow.c']:
         h.update(rel.encode() + b'\0')
         h.update((ROOT/rel).read_bytes())
     return h.hexdigest()
@@ -165,6 +165,17 @@ FUNCTIONS = {
  'toolsLoadDirectory': ('int', 'const char *'),
  'mclLoadPlayList': ('int', 'void *, int, int'),
  'mcl_shuffle_pick': ('int', 'int'),
+ 'getAllAlbum': ('int', 'void'),
+ 'toolsThumbSpecCover': ('int', 'const char *, const char *, int, int'),
+ 'toolsGetAlbumCover': ('int', 'const char *, const char *, int, int'),
+ 'window_create': ('void *', 'void *, int, int, int, int'),
+ 'widget_factory': ('void *', 'void'),
+ 'widget_factory_create_widget': ('void *', 'void *, const char *, void *, int, int, int, int'),
+ 'image_create': ('void *', 'void *, int, int, int, int'),
+ 'image_set_draw_type': ('int', 'void *, int'),
+ 'image_base_set_image': ('int', 'void *, const char *'),
+ 'widget_load_image': ('int', 'void *, const char *, void *'),
+ 'widget_unload_image': ('int', 'void *, void *'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -176,10 +187,13 @@ PRIVATE_FUNCTIONS = {
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status']
-# Audited stock browsing state and deque pointers; sizes are checked against the ELF.
+# Audited stock browsing state, deque pointers and art locks; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
-                'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4}
+                'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
+                'parse_cover_mutex': 24, 'g_playcover_mutex': 24}
+# Windows the payload creates at runtime (window_create), so no rootfs asset names them.
+PAYLOAD_WINDOWS = {'coverflow_page'}
 
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
@@ -194,7 +208,7 @@ def compile_payload(out, compact=False):
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for name in ['ringnav_touch', 'ringnav_paint', 'ringnav_dispatch',
-          'ringnav_keylong', 'ringnav_shuffle', 'peq_page_init', 'peq_stock_eq']],
+          'ringnav_keylong', 'ringnav_shuffle', 'peq_page_init', 'peq_stock_eq', 'coverflow_home']],
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -249,7 +263,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         windows.add(name or rel.split('/')[-1])
     check(windows, 'No UI assets in the stock rootfs')
     for name in contexts:
-        check(name in windows, f'Context {name} is not a window name in the stock rootfs')
+        check(name in windows | PAYLOAD_WINDOWS, f'Context {name} is not a window name in the stock rootfs')
     demo = out/'stock-demo'; demo.write_bytes(raw_demo)
     syms = symbols(demo)
     syms.update(PRIVATE_FUNCTIONS)
@@ -288,7 +302,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     patch_demo(patched, ps)
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
     audio = patch_player(raw_player, out/'peq')
-    from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, patch_asset, patch_code, patch_word
+    from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, patch_asset, patch_code, patch_word
     for address, old, new in ARTIST_ALBUMS:
         patch_word(patched, fileoff, [], address, old, new, 'artist detail opens on Albums')
     patch_word(patched, fileoff, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
@@ -333,7 +347,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     changed_assets = {}
-    for rel in (AUDIT['assets'] if compact else [ARTIST_PAGE]):
+    for rel in (AUDIT['assets'] if compact else [ARTIST_PAGE, HOME_PAGE]):
         path = 'release/assets/default/raw/ui/' + rel
         original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
         data = patch_asset(rel, original, compact)

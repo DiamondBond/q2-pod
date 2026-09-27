@@ -8,6 +8,7 @@ PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
 DEMO_HOOKS = {
     'playset_equalizer_page_init': (0x4b642c, 'peq_page_init', '57001c3c94089c2721e09903'),
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq', '53001c3c90da9c2721e09903'),
+    'home_page_init': (0x523c84, 'coverflow_home', '50001c3c3c309c2721e09903'),
 }
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
@@ -36,6 +37,11 @@ LIBC = {
     'deque_at': ('void *', 'const void *, unsigned'), '_deque_push_back': ('void', 'void *, ...'),
     'deque_assign': ('void', 'void *, const void *'), 'deque_clear': ('void', 'void *'),
     'deque_destroy': ('void', 'void *'), 'send': ('int', 'int, const void *, unsigned, int'),
+    # Coverflow's art thread (coverflow.c)
+    'pthread_create': ('int', 'unsigned long *, const void *, void *(*)(void *), void *'),
+    'pthread_join': ('int', 'unsigned long, void **'), 'pthread_mutex_lock': ('int', 'void *'),
+    'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
+    'strdup': ('char *', 'const char *'),
 }
 UI = {
     'list_view_create': ('void *', 'void *, int, int, int, int'),
@@ -78,7 +84,7 @@ def compile_common(out, binary, player=False):
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections']
     if player: flags += ['-mnan=2008']
     objects = []
-    for name in ['peq.c', 'peq_player.c' if player else 'peq_ui.c']:
+    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c']:
         obj = out/(name+'.o')
         run('clang', *flags, '-I', out, '-c', ROOT/'patch'/name, '-o', obj)
         objects.append(obj)

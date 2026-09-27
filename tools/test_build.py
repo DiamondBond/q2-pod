@@ -29,7 +29,7 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols
-    from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, decode, patch_asset, patch_code
+    from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, decode, patch_asset, patch_code
     manifest = json.loads((directory/'manifest.json').read_text())
     compact = manifest['variant'] == 'compact'
     stock = (directory/'stock-demo').read_bytes()
@@ -44,7 +44,7 @@ def validate_assets(directory):
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
     changed = manifest['changed_assets']
-    assert set(changed) == ({'release/assets/default/raw/ui/'+p for p in AUDIT['assets']} if compact else {'release/assets/default/raw/ui/'+ARTIST_PAGE})
+    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if compact else [ARTIST_PAGE, HOME_PAGE])}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
@@ -62,6 +62,10 @@ def validate_assets(directory):
         assert new == patch_asset(short, original, compact), short
         assert changed[rel] == dict(original_sha256=sha(original), sha256=sha(new))
         root = decode(new)
+        if short == HOME_PAGE:  # both variants: only the Coverflow card is added
+            cards = [n[2]['name'] for n in root[3][0][3]]
+            assert cards[:3] == ['btn_playing', 'btn_localmusic', 'btn_coverflow'] and len(cards) == 7, cards
+            continue
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')

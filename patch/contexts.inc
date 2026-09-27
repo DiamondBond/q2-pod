@@ -9,6 +9,7 @@
 { "sortselect_dialog", CTX_DYNAMIC, 0 },
 { "folder_page", CTX_FOLDER, 1 },
 { "home_page", CTX_DYNAMIC, 0 },
+{ "coverflow_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/coverflow.c) */
 { "album_page", CTX_LOCAL, 0 },
 { "albuminfo_page", CTX_LOCAL, 1 },
 { "allmusic_page", CTX_LOCAL, 1 },

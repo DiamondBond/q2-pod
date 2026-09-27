@@ -2348,4 +2348,112 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
     assert m.hold()==0 and len(m.stack)==1 and m.release()==toggles
     passed()
 
+# Coverflow (COVERFLOW.md): the Home card, the runtime coverflow_page over a stock slide_menu, the
+# tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
+from compact import HOME_PAGE, decode
+cards=[c[2]['name'] for c in decode((B/'ui'/HOME_PAGE).read_bytes())[3][0][3]]
+assert len(cards)==7 and cards[2]=='btn_coverflow', cards
+home_hook=[v for k,v in __import__('peq').DEMO_HOOKS.items() if k=='home_page_init'][0]
+assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
+passed()
+class CoverflowMachine(QueueMachine):
+    FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub
+    def __init__(self,albums=3,cached=True):
+        super().__init__(rows=4)
+        self.cached=cached; self.missing=False; self.joins=[]; self.threads=[]; self.plays=[]; self.homes=0; self.freed=0
+        for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
+                  'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
+                  'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
+                  'pthread_join@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
+        self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
+        self.handlers[home_hook[0]+12]='stock_home'
+        self.albums=[self.song('T0') for _ in range(albums)]
+        for i,r in enumerate(self.albums): self.word(r+O['REC_ALBUM'],self.string(f'Album {i}'))
+        self.found=[self.song('T1'),self.song('T2')]
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('c:'): return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address, name
+        name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; sp=u.reg_read(UC_MIPS_REG_SP); ret=0
+        self.calls.append((name,a,b,c))
+        if name in ('window_create','widget_factory_create_widget','list_view_create','scroll_view_create'):
+            kind,parent,h={'window_create':('window',0,0),'widget_factory_create_widget':(self.text(b),c,self.get(sp+24))}.get(
+                name,(name.removesuffix('_create'),a,self.get(sp+16)))
+            ret=self.node(kind)
+            if kind=='window': self.top=ret; self.stack.append(ret)
+            else: self.nodes[parent]['children'].append(ret); self.word(ret+O['W_PARENT'],parent); self.word(ret+O['W_H'],h)
+            if kind=='slide_menu': self.word(ret+O['SLIDE_INDEX'],0); self.word(ret+0x5c,self.alloc())
+        elif name=='image_base_set_image': self.nodes[a]['image']=self.text(b)
+        elif name=='getAllAlbum':
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.albums]; ret=len(self.albums)
+        elif name=='navigator_back_to_home': self.homes+=1
+        elif name=='navigator_to_with_context': self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
+        elif name=='access': path=self.text(a); ret=0 if (self.cached if 'coverflow-art' in path else not self.missing) else -1
+        elif name=='calloc': ret=self.alloc(a*b+4)
+        elif name=='strdup': ret=self.string(self.text(a))
+        elif name=='free': self.freed+=a!=0
+        elif name=='statfs': self.word(b+4,4096); self.word(b+28,1<<20)
+        elif name=='pthread_create': self.word(a,77); self.threads.append((c,d))
+        elif name=='pthread_join': self.joins.append(a)
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def open(self):
+        """Home with the card at index 2: centre confirms its image, whose click opens Coverflow."""
+        slide=self.node('slide_menu'); self.word(slide+O['SLIDE_INDEX'],2); self.word(slide+0x5c,self.alloc())
+        self.img=self.node('image','img_coverflow'); card=self.node('button',children=[self.img])
+        self.nodes[slide]['children']=[self.entry(slide),self.entry(slide),card,*[self.entry(slide) for _ in range(4)]]
+        self.home=self.top=self.node('window','home_page',[slide]); self.stack=[self.top]
+        assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
+        assert self.confirm()==11 and self.clicks==[self.img]
+        f,ctx=self.handler(self.img,O['EVT_CLICK']); assert self.call(address=f,args=(ctx,self.event,0,0),gap=0)==0
+        self.page=self.top; self.slide=self.find('slide_menu')
+        return self.page
+    def find(self,kind,w=None):
+        w=w or self.page
+        if self.nodes[w]['type']==kind: return w
+        return next((f for c in self.nodes[w]['children'] if (f:=self.find(kind,c))),0)
+    def texts(self,kind='label'): return [self.nodes[w].get('text') for w in self.nodes if self.nodes[w]['type']==kind and self.alive(w)]
+    def alive(self,w):
+        """Still attached below the page (the destroy_children mock only unlinks)."""
+        while w!=self.page:
+            parent=self.get(w+O['W_PARENT'])
+            if not parent or w not in self.nodes[parent]['children']: return False
+            w=parent
+        return True
+    def key(self,k=O['KEY_RETURN']):
+        f,ctx=self.handler(self.page,O['EVT_KEY_UP']); ev=self.alloc(0x40); self.word(ev,O['EVT_KEY_UP']); self.word(ev+O['EVENT_KEY'],k)
+        ret=self.call(address=f,args=(ctx,ev,0,0),gap=0); self.advance(0); return ret
+
+# The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
+# plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.
+m=CoverflowMachine(); page=m.open()
+assert m.nodes[page]['name']=='coverflow_page' and m.slide and not m.threads
+covers=m.nodes[m.slide]['children']; assert len(covers)==4
+assert [m.nodes[c]['image'][:31] for c in covers]==['file:///mnt/data/coverflow-art/']*3+['default_album_big']
+assert 'Album 0' in m.texts(); passed()
+m.press(3); assert m.hold()==0 and m.top==page; passed()  # Play/Pause hold stays stock here
+assert m.call()==11 and [c for c in m.calls if c[0]=='slide_menu_scroll_to_next'][0][1]==m.slide
+assert m.call(O['KEY_PREV'])==11 and any(c[0]=='slide_menu_scroll_to_prev' for c in m.calls)
+m.clicks=[]; m.word(m.slide+O['SLIDE_INDEX'],1); assert m.confirm()==11 and m.clicks==[covers[1]]; passed()
+m.clicks=[]; assert Machine.release(m)==11 and Machine.release(m,100)==0 and m.screens==[0] and not m.clicks; passed()
+# The cover's click queries its tracks (staging restored) and lists them; a track hands playing_page
+# our deque with its index as folder play (class 1, mode 2); a missing file refuses.
+m.byte(syms['g_backlight_status'],1); f,ctx=m.handler(covers[1],O['EVT_CLICK'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.advance(0)
+assert m.query[:2]==('getMusicByAlbum','Album 1') and m.names(m.get(syms['tools_pdeq_directory']))==['staged']
+rows=[w for w in m.nodes if m.nodes[w]['type']=='list_item' and m.alive(w)]; assert len(rows)==2
+assert not m.nodes[m.get(m.slide+O['W_PARENT'])]['visible']
+f,ctx=m.handler(rows[1],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+assert len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][2:]==(1,1,2)
+dq=m.plays[-1][1]&0xffffffff; assert m.names(dq)==['T1','T2']; passed()
+m.missing=True; m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert len(m.plays)==1 and 'Storage unavailable' in m.texts(); passed()
+# Return: tracks -> covers on the same album, covers -> Home.
+assert m.key()==11 and m.nodes[m.get(m.slide+O['W_PARENT'])]['visible'] and m.get(m.slide+O['SLIDE_INDEX'])==1 and not m.homes
+assert m.key(O['KEY_NEXT'])==0 and m.key()==11 and m.homes==1; passed()
+# Albums without art start the thread behind a progress screen; destroy joins it and drops the poll.
+m=CoverflowMachine(cached=False); page=m.open()
+assert len(m.threads)==1 and m.timers and any((t or '').startswith('Preparing artwork') for t in m.texts()) and 'Cancel' in m.texts()
+f,ctx=m.handler(page,O['EVT_DESTROY']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+assert m.joins==[77] and not m.timers and m.freed==4; passed()  # three job paths and the job array
+
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

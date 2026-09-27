@@ -121,3 +121,11 @@
  * allmusic reload and scroll to the top on return. */
 #define SORTSELECT_KEYUP 0x49f3e0
 #define SORTSELECT_CLOSE 0x49f3c0
+
+/* Coverflow (COVERFLOW.md, docs/internals.md). slide_menu dispatches EVT_VALUE_CHANGED after its
+ * index moves (0x5f320c). The stock scan thread handle (dialog_updatemusic_dialog_init) and its
+ * done flag (wait_scan sets it) have no symbols: a scan runs while the handle is set and the
+ * flag is clear. */
+#define EVT_VALUE_CHANGED 0x0e
+#define SCAN_THREAD 0xa271d8
+#define SCAN_DONE 0xa271d4

@@ -15,3 +15,4 @@ resume paint, 0x6596ac
 resume dispatch, 0x65e0f8
 resume keylong, 0x4e8748
 resume eq, 0x4f923c
+resume home, 0x523c90

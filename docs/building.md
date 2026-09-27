@@ -15,6 +15,7 @@ python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-build
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-compact --compact
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-dev --compact --dev  # compact test build
 python3 tools/test_peq.py  # PEQ parser/storage, DSP, editor and player checks (host cc; player needs -m32 libs)
+python3 tools/test_coverflow.py  # Coverflow art cache: order, locks, markers, cancel, Refresh (host cc -m32, pthreads)
 python3 tools/test_build.py  # JPEG header checks; no emulator required
 python3 tools/test_build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reproducibility checks
 python3 tools/test_patch.py /tmp/q2-build  # after: pip install -r requirements.txt

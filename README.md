@@ -9,7 +9,7 @@ Both features are included in the normal and compact variants. Touch works as be
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
 
-[Wheel controls](#controls) · [PEQ editor and preset import](#parametric-eq)
+[Wheel controls](#controls) · [PEQ editor and preset import](#parametric-eq) · [Coverflow](#coverflow)
 
 ## Install
 
@@ -55,6 +55,16 @@ Filter 1: ON PK Fc 1000 Hz Gain -2.0 dB Q 1.00
 ```
 
 Save your edits with **Presets → Save editor preset**. Remove saved presets with **Presets → Delete a preset**, which asks for confirmation first.
+
+## Coverflow
+
+**Coverflow** sits after Local Music on Home and flips through your library's albums by cover art. It reads the albums Local Music already knows, so run **Update Local Music** first; until then, and while an update is running, it says so.
+
+- **First open:** it prepares artwork once, showing progress; **Cancel** or Return keeps what's done and finishes on the next open. It uses `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track; albums without art show a placeholder.
+- **Browsing:** turn the wheel or swipe to move between covers. Centre or tap opens the album's tracks; choose one to play the album from there. Return goes back to the covers, then Home.
+- **New music:** after adding albums, the next open prepares only the new ones. **Refresh library**, the last card, rebuilds all artwork.
+
+The artwork cache lives in `/mnt/data/coverflow-art`; it is skipped while less than 16 MB is free there. Play/Pause hold (Play next / Add to queue) stays in the Local Music lists.
 
 ## Variants
 
