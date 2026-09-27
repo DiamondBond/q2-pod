@@ -1,95 +1,49 @@
 # Shanling Q2 Scroll Wheel Navigation
 
-Firmware mod for the Shanling Q2 that lets you use the scroll wheel to navigate supported menus and press the centre button to select items.
+A firmware mod that lets the Shanling Q2's scroll wheel move through menus and the centre button select. Touch works as before, and outside supported menus the wheel still controls volume.
 
-The touchscreen still works normally. Outside supported menus, the wheel continues to control volume.
-
-**Build variants: V3.6R (normal), V3.6C (compact)**
-
-[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest)
+[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
 
 ## Install
 
-Make sure the Q2 is charged before updating, and do not remove the microSD card during the update.
+Charge the Q2 first, and leave the microSD card in until the update finishes.
 
-1. Download the firmware ZIP from the latest release.
-2. Unzip it and copy `update.tar` to the root of the microSD card.
-3. On the Q2, open **System settings → System Update → TF card update**.
-4. Confirm the update and wait for the player to restart.
-5. Open **About** and confirm it shows `V3.6R` for normal or `V3.6C` for compact.
+1. Unzip the release ZIP and copy `update.tar` to the root of the microSD card.
+2. On the Q2, open **System settings → System Update → TF card update** and confirm.
+3. After the restart, **About** shows the version: ending in `R` for normal, `C` for compact.
 
-To restore stock firmware through the UI, flash the [Shanling Q2 official firmware](https://en.shanling.com/download/150) using **System settings → System Update → TF card update**.
-
-If the UI is not working, use [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link):
-
-1. Copy the complete `recovery-update` folder to the root of the microSD card.
-2. Hold the previous-song button, then power on the Q2 with the centre button.
-3. The player will automatically check for a firmware update.
+**Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
 
 ## Variants
 
-### Normal: `Q2.Firmware.V3.6.zip`
+**Normal** (`Q2.Firmware.V*.zip`) keeps the stock layout and controls.
 
-Keeps the stock UI and existing controls, including long Return → Home.
+**Compact** (`Q2.Firmware.V*-compact.zip`) makes Folder and Local Songs browsing denser:
 
-### Compact: `Q2.Firmware.V3.6-compact.zip`
+- No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
+- Titles use the full row width, leaving room only for the artwork and controls that are showing.
+- Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
+- Pull down at the top of Local Songs to search.
 
-Uses a denser layout for Folder and Local Songs browsing:
-
-- Hides the primary toolbar.
-- Uses 72-pixel rows.
-- Keeps stock artwork at its natural size with an 8-pixel inset.
-- Ordinary lists fit four complete rows with stock fonts.
-- Titles fill the available row width, reserving space for visible artwork and controls.
-
-Separate action bars, Play All/sort controls, tabs, editing controls and album grids remain unchanged and may show fewer entries. Settings, online services, Now Playing, Home and dialogs also keep their stock layouts.
-
-The folder artwork setting and saved preferences are preserved.
-
-In compact mode, holding Return opens **Now Playing** without restarting playback, including when audio is already playing. Releasing the hold leaves you there, and the next short Return goes back to the page you came from with its position preserved. Holding Return while already on Now Playing uses the stock Home shortcut. Short Return otherwise keeps the stock Back action and nested-folder navigation. Other long presses are unchanged. The proposed short Return shortcut on Home is not included.
+Other pages, dialogs and your saved settings are unchanged.
 
 ## Controls
 
-- **Pull to search (compact):** In Local Songs, start inside the list while it is at the top and pull down. Release when “Release to search” appears at 48 pixels to open the stock search dialog. Move back below that distance to cancel. This works in empty lists; closing search returns to the same browsing context. Folder view has no stock search, so it does not respond to the pull. Pulling from the top 31 screen pixels still opens the stock quick-settings panel. Normal keeps its search toolbar.
-- **Turn the wheel:** Move through supported menu items. Vertical lists move one row per accepted tick.
-- **Long-list acceleration:** Lists with more than 16 rows accelerate during continuous same-direction scrolling. Every 100 ms of continuous ticks, with no more than 140 ms between them, adds one row to the step, up to eight rows per tick. Pausing, reversing or reaching an end resets it to one row.
-- **Home screen:** Each accepted wheel tick moves one icon. Isolated ticks use a 200 ms slide; consecutive same-direction ticks within 200 ms use 120 ms slides. Reversing immediately changes direction from the current visual position.
-- **Centre button:** Short-press to open the highlighted item after a 200 ms confirmation delay.
-- **Screen off:** Double-press the centre button within 200 ms. Touch or wheel input cancels a pending single-press action.
-- **Touch:** Taps and swipes work normally. Tapping always opens the row touched, even while a list is rebuilding or settling. Tapping another visible pane moves wheel control there.
-- **Swipe takeover:** Turning the wheel during a swipe stops scrolling and gives control back to the wheel.
-- **Selection position:** Wheel navigation and restored selections keep a small margin from the screen edge where possible.
-- **Position memory:** Returning to a recently visited folder, album, query or settings menu restores its selection and scroll position. Up to 64 browsing positions are remembered until power-off.
-- **List ends:** On the local folder and music lists, turning past the first or last item nudges the selection outline against the end. One more turn in the same direction wraps to the other end of the same list. Settings menus, grids and dynamic pages keep their normal ends.
-- **Scrollbar:** While the wheel moves through a list that has one, the player's own scrollbar appears and fades on its usual timer. Lists without a native scrollbar are unchanged.
-- **Search results:** The local and online search result lists navigate with the wheel and the centre button. The on-screen keyboard dialogs keep the wheel on volume control.
-- **Re-sorted lists:** Recreated non-virtual lists in the same remembered context try to restore the selected row by its text.
-- **Selection outline:** Touching the screen hides the custom outline until the next accepted wheel or centre input. After a swipe settles, the row nearest the middle becomes selected for wheel or centre use.
-- **Unsupported menus:** The wheel returns to normal volume control.
-- **Unchanged controls:** Play/Pause and long-press power behave as stock.
+- **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick.
+- **List ends:** in the local folder and music lists, one turn past the end nudges the outline and the next one wraps around.
+- **Centre button:** opens the highlighted item. Double-press to turn the screen off.
+- **Touch:** works as normal and hides the outline until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
+- **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
+- **Pull to search (compact):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
 
-During wheel or centre-button navigation, the selected item gets a rounded translucent-white outline over a subtle dark fill and separator, helping it remain visible over bright artwork.
+Play/Pause and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
 
-The Home screen keeps its normal selected-card appearance without the extra outline.
-
-If you find a menu that behaves strangely, please open an issue and include the screen you were on and what you did.
-
-## Changelog
-
-- **V3.6R / V3.6C**: Compact Local Songs opens search with a pull-down. Start inside the list while it is at the top; the overlay reads "Pull to search" after an 8-pixel downward drag and "Release to search" at 48 pixels. Releasing opens the stock search dialog, and moving back below the threshold cancels. The gesture clears on wheel or button input, navigation, screen-off or interruption and never activates a row. Empty lists work; Folder view and other lists are unchanged, and the normal build keeps its stock search toolbar.
-
-- **V3.5R / V3.5C**: In compact mode, ordinary list-row titles now use the full row width on every native relayout, reserving space only for visible artwork and trailing controls. Widths follow scrolling, row reuse and artwork/control visibility changes; short titles stay at their left position and overflowing titles still scroll or ellipsize. Other layouts and the normal build are unchanged.
-
-- **V3.4R / V3.4C**: The local folder and music lists carry over at their ends: the first turn past an end nudges the selection outline against the end, and the next turn in the same direction wraps to the other end of the same list. Wheel navigation now wakes the player's own scrollbar, which fades on its normal timer, instead of drawing a separate position bar. The local and online search result lists navigate with the wheel and the centre button. Compact Return now opens Now Playing on hold and stays there after release; the next short Return goes back to where you were, and holding Return while already on Now Playing uses the stock Home shortcut. This replaces the V3.3 single-press latch behavior.
-
-- **V3.3R / V3.3C**: Compact returns from Now Playing with a single Return press again; the stock hold-release latch is cleared on that page instead of swallowing the release and forcing a second press.
-
-Full release history: [docs/changelog.md](docs/changelog.md)
+If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
 
 ## Documentation
 
-- [Firmware internals](docs/internals.md): stock hooks, selection, position memory, wheel/centre timing and drawing.
-- [Build and validation](docs/building.md): building both variants, the MIPS test suite and on-device acceptance checks.
-- [Release procedure](docs/releasing.md): packaging, verifying and publishing both ZIPs.
-- [Compact mode](docs/compact.md): compact layout audit and device checklist.
-- [Custom boot logo](docs/boot-logo.md): replacing the power-on splash.
+- [Internals](docs/internals.md): hooks, selection, position memory, timing and drawing.
+- [Building](docs/building.md): building both variants, the MIPS test suite and on-device checks.
+- [Releasing](docs/releasing.md): packaging, verifying and publishing.
+- [Compact mode](docs/compact.md): layout audit and device checklist.
+- [Boot logo](docs/boot-logo.md): replacing the power-on splash.

@@ -76,12 +76,13 @@ typedef struct {
 /* Single shared view: no entry point keeps a menu live across a nested load(). */
 static menu_t g_menu __attribute__((section(".scratch")));
 
-/* Audited top windows, each tagged with its content-identity class. The index is remembered
+/* Audited top windows, each tagged with its content-identity class and whether its row list is
+ * one of the audited local row lists that carry over at the ends. The index is remembered
  * instead of the name pointer: AWTK owns and frees the window's name string. */
 enum { CTX_DYNAMIC, CTX_FIXED, CTX_FOLDER, CTX_LOCAL };
 typedef struct {
     const char *name;
-    unsigned char kind;
+    unsigned char kind, ring;
 } context_t;
 static const context_t contexts[] = {
 #include "contexts.inc"
@@ -97,13 +98,7 @@ static int context_id(const char *name) {
 /* The audited local row lists built from the compact assets: the file and music views. Grids
  * (album_page), settings menus, dynamic pages and the home carousel keep hard ends. */
 static int ring_list(const menu_t *m) {
-    static const char *const lists[] = { "folder_page",    "localmusic_page", "allmusic_page",
-                                         "albuminfo_page", "artistinfo_page", "localclass_page",
-                                         "playlist_page" };
-    if (!m->w || m->ctx < 0 || m->rows < 2) return 0;
-    for (unsigned i = 0; i < sizeof(lists) / sizeof(*lists); ++i)
-        if (!tk_strcmp(contexts[m->ctx].name, lists[i])) return 1;
-    return 0;
+    return m->w && m->ctx >= 0 && contexts[m->ctx].ring && m->rows >= 2;
 }
 
 /* The view kinds load() actually navigates: a vertical scroll view, a table client or a slide

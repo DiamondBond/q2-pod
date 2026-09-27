@@ -11,17 +11,23 @@ import sys
 import tarfile
 import tempfile
 import zipfile
-from build import ROOT, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
+from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
-TAG = '3.6R'
-ASSETS = {'normal': 'Q2.Firmware.V3.6.zip', 'compact': 'Q2.Firmware.V3.6-compact.zip'}
-NOTES = '''- Compact: pull down inside Local Songs while the list is at the top to open the stock search dialog. The overlay reads "Pull to search" after 8 pixels and "Release to search" at 48 pixels; release to search, or move back below the threshold to cancel. Empty lists work, Folder view and other lists are unchanged, and the normal build keeps its stock search toolbar.
-'''
+TAG = f'{VERSION}R'
+ASSETS = {'normal': f'Q2.Firmware.V{VERSION}.zip', 'compact': f'Q2.Firmware.V{VERSION}-compact.zip'}
+
+
+def notes():
+    """This version's entry from docs/changelog.md, so a release edits only VERSION and the changelog."""
+    prefix = f'- **V{VERSION}R'
+    entry = next((e for e in (ROOT/'docs/changelog.md').read_text().split('\n\n') if e.startswith(prefix)), None)
+    check(entry, f'docs/changelog.md has no {prefix} entry')
+    return entry.strip()
 
 
 def release_body(out, record):
     """Changelog bullets plus the SHA-256 block used by previous releases."""
-    lines = [NOTES.rstrip(), '', 'SHA-256:']
+    lines = [notes(), '', 'SHA-256:']
     for variant, asset in ASSETS.items():
         lines.append(f'- {asset}: `{record["assets"][asset]}`')
         manifest = json.loads((out/variant/'manifest.json').read_text())

@@ -1,6 +1,6 @@
 # Compact audit and device checks
 
-V3.6R and V3.6C share one navigation payload. `--compact` enables compact-only
+Normal and compact share one navigation payload. `--compact` enables compact-only
 payload helpers and build-time edits in `tools/compact.py`; normal receives no
 compact executable sites or UI assets. `patch/compact.json` records the original
 asset hashes and full MIPS instructions. The builder also pins the complete stock

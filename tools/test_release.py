@@ -36,6 +36,7 @@ with tempfile.TemporaryDirectory() as tmp:
     record = dict(tag=release.TAG, revision='revision', source_sha256=release.source_sha256(), assets=assets)
     (out/'release.json').write_text(json.dumps(record))
     (out/'release-notes.md').write_text(release.release_body(out, record))
+    assert (out/'release-notes.md').read_text().startswith(f'- **V{release.VERSION}R')
     (out/'SHA256SUMS').write_text(''.join(f'{v}  {k}\n' for k, v in assets.items()))
     for failure in ('upload', 'download', 'corrupt', None):
         calls = []
