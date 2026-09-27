@@ -12,6 +12,8 @@ _major, _minor = VERSION.split('.')
 DEV_VERSION = f'{_major}.{int(_minor) + 1}'  # --dev: one minor version above the release
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
 DEV_VERSIONS = {'normal': f'V{DEV_VERSION}R', 'compact': f'V{DEV_VERSION}C'}
+PEQ_VERSION = f'{_major}.{int(_minor) + 2}'  # --peq: experimental, above --dev
+PEQ_VERSIONS = {'normal': f'V{PEQ_VERSION}R', 'compact': f'V{PEQ_VERSION}C'}
 BASE = 0xb00000
 SCRATCH = 0xb0f000
 RING_STEP = 48
@@ -32,7 +34,8 @@ def source_sha256():
     h = hashlib.sha256()
     for rel in ['assets/logo.jpg', 'patch/contexts.inc', 'patch/link.ld', 'patch/offsets.inc',
                 'patch/ringnav.c', 'patch/trampoline.S', 'patch/compact.json',
-                'tools/compact.py', 'tools/release.py', 'tools/build.py']:
+                'tools/compact.py', 'tools/release.py', 'tools/build.py', 'tools/peq.py',
+                'patch/peq.h', 'patch/peq.c', 'patch/peq_ui.c', 'patch/peq_player.c']:
         h.update(rel.encode() + b'\0')
         h.update((ROOT/rel).read_bytes())
     return h.hexdigest()
@@ -165,18 +168,24 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
          '-Os','-Wall','-Wextra','-Werror']
 
-def compile_payload(out, compact=False):
+def compile_payload(out, compact=False, peq=False):
     """Compile and link the payload."""
-    run('clang',*FLAGS,f'-DCOMPACT={int(compact)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
-    run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
-    run('ld.lld','-m','elf32ltsmip','-T',ROOT/'patch/link.ld','-e','ringnav',
-        out/'ringnav.o',out/'trampoline.o','-o',out/'patch.elf')
+    run('clang',*FLAGS,f'-DCOMPACT={int(compact)}',f'-DPEQ={int(peq)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
+    run('clang',*FLAGS,f'-DPEQ={int(peq)}','-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
+    extra = []
+    if peq:
+        from peq import compile_common
+        extra = compile_common(out, out/'stock-demo')
+    run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
+        *[f'--undefined={name}' for name in ['ringnav_touch', 'ringnav_paint', 'ringnav_dispatch',
+          *(['peq_page_init', 'peq_stock_eq'] if peq else [])]],
+        out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
 
-def build(zip_path, out, logo, compact=False, dev=False):
+def build(zip_path, out, logo, compact=False, dev=False, peq=False):
     variant = 'compact' if compact else 'normal'
-    version = (DEV_VERSIONS if dev else VERSIONS)[variant]
+    version = (PEQ_VERSIONS if peq else DEV_VERSIONS if dev else VERSIONS)[variant]
     out.mkdir(parents=True, exist_ok=True)
     check(not (out/'update.tar').exists(), 'Output already exists; use a fresh --out directory')
     source = source_sha256()
@@ -234,7 +243,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
                         symbol_table, re.M), f'{name}: context data size mismatch')
         header.append(f'#define {name} ((const unsigned char *)0x{syms[name]:x}u)')
     (out/'stock.h').write_text('\n'.join(header)+'\n')
-    ps = compile_payload(out, compact)
+    ps = compile_payload(out, compact, peq)
     payload = (out/'patch.bin').read_bytes()
     check(len(payload) < SCRATCH-BASE, 'Payload overlaps its scratch page')
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
@@ -253,6 +262,12 @@ def build(zip_path, out, logo, compact=False, dev=False):
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
         patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
         hooks[name] = dict(address=hex(address), replacement=replacement, original=raw_demo[off:off+12].hex())
+    audio = None
+    if peq:
+        from peq import patch_demo, patch_player
+        hooks.update(patch_demo(patched, ps))
+        raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
+        audio = patch_player(raw_player, out/'peq')
     from compact import AUDIT, patch_asset, patch_code
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
@@ -294,6 +309,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         check(line is not None, f'Missing {path.decode()} pseudo inode')
         return p[:line.start()]+path+b' F '+b' '.join(line.groups())+b' cat '+shlex.quote(str(src)).encode()+p[line.end():]
     p = swap_inode(p, b'release/bin/demo', out/'demo')
+    if peq: p = swap_inode(p, b'usr/bin/hciplayer', out/'peq/hciplayer')
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.
@@ -337,7 +353,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         hook_address=hex(HOOK), hook_file_offset=hex(hookoff), patch_address=hex(BASE),
         patch_file_offset=hex(appendoff), patch_bytes=len(payload), ring_step_pixels=RING_STEP,
-        version=version, variant=variant, dev=dev, compact_code=code_changes, changed_assets=changed_assets, hooks=hooks, logo_sha256=sha(logo_data),
+        version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, changed_assets=changed_assets, hooks=hooks, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']})
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
@@ -352,8 +368,9 @@ if __name__ == '__main__':
     ap.add_argument('--compact', action='store_true', help='compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
                     help=f'development build: temporary higher version tag (V{DEV_VERSION}R/C); never a release input')
+    ap.add_argument('--peq', action='store_true', help=f'experimental ten-band PEQ editor and player (V{PEQ_VERSION}R/C)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev)
+        build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev,a.peq)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

@@ -1,0 +1,49 @@
+#ifndef Q2_PEQ_H
+#define Q2_PEQ_H
+
+#ifdef PEQ_HOST
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <unistd.h>
+#else
+#include "peq_platform.h"
+#endif
+
+#define PEQ_BANDS 10
+#define PEQ_CHANNELS 8
+#define PEQ_FILE_LIMIT 16384
+#define PEQ_LINE_LIMIT 512
+#define PEQ_ACTIVE "/mnt/data/peq-active"
+#define PEQ_SAVED "/mnt/data/peq-presets"
+#define PEQ_IMPORT "/mnt/mmc/EQ"
+#define PEQ_FINITE(x) __builtin_isfinite(x)
+
+/* Versioned disk representation: fixed-width fields, no pointers or implicit padding. */
+typedef struct { int enabled, type; double frequency, gain, q; } peq_band;
+typedef struct { int count, bypass; double preamp; peq_band bands[PEQ_BANDS]; } peq_preset;
+typedef struct { unsigned line; const char *reason; } peq_error;
+typedef struct { double b0, b1, b2, a1, a2; } peq_coeff;
+typedef struct {
+    peq_coeff c[PEQ_BANDS];
+    double z[PEQ_CHANNELS][PEQ_BANDS][2], gain;
+    int bypass;
+} peq_engine;
+typedef struct {
+    peq_engine current, next, pending;
+    int rate, channels, ramp, ramp_length, waiting;
+} peq_dsp;
+
+void peq_default(peq_preset *p);
+int peq_valid(const peq_preset *p);
+int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error);
+int peq_import_file(const char *path, peq_preset *out, peq_error *error);
+int peq_load(const char *path, peq_preset *out);
+int peq_save(const char *path, const peq_preset *p, int replace);
+int peq_compile(const peq_preset *p, int rate, peq_engine *out);
+void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p);
+int peq_update(peq_dsp *d, const peq_preset *p);
+void peq_process(peq_dsp *d, float *audio, unsigned frames);
+
+#endif

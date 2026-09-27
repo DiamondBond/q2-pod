@@ -14,10 +14,14 @@ SHA-256 of the stock Shanling Q2 V1.32 firmware ZIP.
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-build
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-compact --compact
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-dev --compact --dev  # compact test build
+python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-peq --peq  # experimental ten-band PEQ
+python3 tools/test_peq.py  # PEQ parser/storage and DSP response checks (host cc)
 python3 tools/test_build.py  # JPEG header checks; no emulator required
 python3 tools/test_build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reproducibility checks
 python3 tools/test_patch.py /tmp/q2-build  # after: pip install -r requirements.txt
 ```
+
+`--peq` replaces the stock equalizer page with a ten-band PEQ editor (bands, shelves, preamp, bypass, presets, `/EQ` import) and patches `hciplayer`'s equalizer filter with the matching DSP. It is tagged two minor versions above the release (`PEQ_VERSION` in `tools/build.py`) and is never a release input.
 
 `--dev` tags a build one minor version above the release (`DEV_VERSION` in `tools/build.py`) so a test unit is distinguishable from the released build it replaces. It applies to that build only: the release procedure never passes `--dev`, and the manifest records `dev: true`.
 

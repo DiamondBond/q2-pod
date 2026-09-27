@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
 from unicorn.mips_const import *
-from build import segments, symbols, HOOK, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
+from build import segments, symbols, HOOK, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS, PEQ_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -14,8 +14,9 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
     if sha((B/name).read_bytes()) != manifest.get(key):
         raise SystemExit(f'{B/name} does not match manifest.json; rebuild into a fresh directory')
 variant = manifest.get('variant')
-assert variant in VERSIONS and manifest['version'] == (
-    DEV_VERSIONS if manifest.get('dev') else VERSIONS)[variant], 'Wrong variant/version'
+expected_versions = (PEQ_VERSIONS if manifest.get('peq') else
+                     DEV_VERSIONS if manifest.get('dev') else VERSIONS)
+assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
 assert (manifest.get('changed_assets') != {}) == (variant == 'compact')
 assert (manifest.get('compact_code') != []) == (variant == 'compact')
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
@@ -491,7 +492,7 @@ for t,off in [('scroll_view',O['SCROLL_Y']),('table_client',O['TABLE_TOP'])]:
     assert m.call()==11 and m.get(w+off)==0
     passed()
 
-for name in ['playing_page','volume_dialog','saverscreen_page','usbmode_page','unknown_page','equalizer_page']:
+for name in ['playing_page','volume_dialog','saverscreen_page','usbmode_page','unknown_page',*([] if manifest.get('peq') else ['equalizer_page'])]:
     m=Machine(); m.page(name); assert m.call()==0 and not m.moved(); passed()
 GATES=[('g_backlight_status',0),('g_lockscreen_pageflag',1),('g_testmode_flag',1),
        ('g_guideflag',1),('g_poweroff_state',2),('g_usblink_status',2),('bt__recv_pageflag',1)]

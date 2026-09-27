@@ -13,3 +13,6 @@ resume keyup, 0x4e85d4
 resume touch, 0x4e8bdc
 resume paint, 0x6596ac
 resume dispatch, 0x65e0f8
+#if PEQ
+resume eq, 0x4f923c
+#endif
