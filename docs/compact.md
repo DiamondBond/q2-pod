@@ -60,11 +60,10 @@ other long-key destination changes.
 
 ## Device checklist
 
-Acceleration, compact row layout and readability have been hardware-tested and
-confirmed by the user. Their parameters remain unchanged. The pull-to-search interaction
-requires the device checks below.
+Acceleration, compact row layout, readability and pull to search have been
+hardware-tested and confirmed by the user. Their parameters remain unchanged.
 
-Run this over both builds when validating a release.
+The checks below are the regression guide for both builds.
 
 - **pull to search**: Compact Local Songs only: start at the list top, pull
   47/48/49 pixels and release. Check both prompts, backing below the threshold,
