@@ -8,7 +8,7 @@ The only thing Coverflow owns is a thumbnail cache. Like PictureFlow's `.pfraw` 
 The renderer is the **stock `slide_menu`**: neighbours are scaled and faded, with no tilt or reflection. That reuses the Home carousel's wheel, swipe, centre and animation handling, along with the ringnav code and tests that already cover it. Tilt and reflection can come later as a paint hook.
 
 ## Status: planned for V4.6
-Implemented (uncommitted) on top of V4.5: `patch/coverflow.c`, the Home card in both variants, `tools/test_coverflow.py` and the Coverflow cases in `tools/test_patch.py`; the §0 audit is in [docs/internals.md](docs/internals.md#coverflow). The card reuses the Local Music image (fallback): a new RGBA icon pair does not fit the rootfs budget.
+Implemented in V4.6: `patch/coverflow.c`, the Home card in both variants, `tools/test_coverflow.py` and the Coverflow cases in `tools/test_patch.py`; the §0 audit is in [docs/internals.md](docs/internals.md#coverflow). The card icon is the round-5 PIL pair (`assets/menu_coverflow*.png`, scored 7/10). It is quantised to 32 colours to fit the rootfs budget, which leaves about 100 bytes in compact.
 
 The first design, with its own tag scanner and `coverflow.db`, failed the V4.5 audit gate (2026-09-28):
 - **TagLib:** stock calls `toolsGetMusicInfo` on the UI thread with no mutex, for example on every track change. libtag_c keeps its strings in one global, unlocked list, so a scan thread reading tags would corrupt the heap.

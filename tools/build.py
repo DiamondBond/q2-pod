@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '4.5'  # the only place a release bumps the version
+VERSION = '4.6'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'compact': f'V{VERSION}c'}
@@ -32,7 +32,7 @@ def sha(b): return hashlib.sha256(b).hexdigest()
 def source_sha256():
     """Hash every build input, so a test run cannot silently use a stale output directory."""
     h = hashlib.sha256()
-    for rel in ['assets/logo.jpg', 'patch/contexts.inc', 'patch/link.ld', 'patch/offsets.inc',
+    for rel in ['assets/logo.jpg', 'assets/menu_coverflow.png', 'assets/menu_coverflowdown.png', 'patch/contexts.inc', 'patch/link.ld', 'patch/offsets.inc',
                 'patch/ringnav.c', 'patch/trampoline.S', 'patch/compact.json',
                 'tools/compact.py', 'tools/release.py', 'tools/build.py', 'tools/peq.py',
                 'patch/peq.h', 'patch/peq.c', 'patch/peq_ui.c', 'patch/peq_player.c', 'patch/coverflow.c']:
@@ -194,6 +194,7 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page'}
+ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
@@ -346,6 +347,17 @@ def build(zip_path, out, logo, compact=False, dev=False):
     logo = out/'logo.jpg'
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
+    # The Coverflow card's icons are the only new inodes; they copy menu_music's metadata.
+    added = []
+    for name in ICONS:
+        stock = re.search(rb'^release/assets/default/raw/images/xx/'+name.replace('coverflow','music').encode()+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
+        check(stock is not None, f'Missing stock icon for {name}')
+        path = b'release/assets/default/raw/images/xx/'+name.encode()
+        (out/name).write_bytes((ROOT/'assets'/name).read_bytes())  # package the hashed bytes, as the logo
+        entry = path+b' F '+b' '.join(stock.groups())+b' cat '+shlex.quote(str(out/name)).encode()+b'\n'
+        at = p.index(b'# START OF DATA')  # definitions precede the embedded data
+        p = p[:at]+entry+p[at:]
+        added.append([path, b'R', *stock.groups()])
     changed_assets = {}
     for rel in (AUDIT['assets'] if compact else [ARTIST_PAGE, HOME_PAGE]):
         path = 'release/assets/default/raw/ui/' + rel
@@ -366,7 +378,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     def inodes(image):
         text = subprocess.check_output(['unsquashfs','-pf','-',str(image)]).split(b'\n# START OF DATA')[0]
         return sorted(l.split()[:6] for l in text.splitlines() if l and not l.startswith(b'#'))
-    check(inodes(newsq) == inodes(sq), 'Repacked rootfs metadata differs from stock')
+    check(inodes(newsq) == sorted(inodes(sq)+added), 'Repacked rootfs metadata differs from stock')
     blobs['recovery-update/rootfs.squashfs'] = newsq.read_bytes()
     # Stock image proves this size fits; do not enlarge beyond its padded size.
     check(len(blobs['recovery-update/rootfs.squashfs']) <= sq.stat().st_size, 'Repacked rootfs exceeds stock size')

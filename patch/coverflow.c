@@ -13,13 +13,12 @@
 #define ART_MIN_FREE_MB 16 /* no build below this much free space on /mnt/data */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
-#define STOP 11
 #define I(p, o) (*(int *)((char *)(p) + (o)))
 #define P(p, o) (*(void **)((char *)(p) + (o)))
 
 extern int stock_home_trampoline(void *win, void *ctx);
 
-enum { MESSAGE, PREPARING, COVERS, TRACKS };
+enum { PREPARING, COVERS, TRACKS };
 typedef struct {
     char *track; /* the album's first track, copied so the thread never reads stock deques */
     unsigned key;
@@ -31,13 +30,10 @@ static struct {
     unsigned long thread;
     unsigned timer;
     int screen, album, running;
-    volatile int done, total, cancel, finished;
+    volatile int done, total, cancel;
 } cf __attribute__((section(".scratch")));
 
-static int changed(void *ctx, void *event);
 static int pick(void *ctx, void *event);
-static int play(void *ctx, void *event);
-static int cancel_row(void *ctx, void *event);
 
 static unsigned fnv(unsigned h, const unsigned char *s) {
     while (s && *s) h = (h ^ *s++) * 16777619u;
@@ -92,6 +88,7 @@ static void build_art(const job_t *j) {
     }
     if (ok && !rename(tmp, dst)) return;
     unlink(tmp);
+    if (access(j->track, 0)) return;
     void *f = fopen(dst, "w");
     if (f) fclose(f);
 }
@@ -102,7 +99,6 @@ static void *worker(void *unused) {
         build_art(&cf.jobs[cf.done]);
         ++cf.done;
     }
-    cf.finished = 1;
     return 0;
 }
 
@@ -119,6 +115,13 @@ static void stop(void) {
     free(cf.jobs);
     cf.jobs = 0;
     cf.total = cf.done = 0;
+}
+
+static void drop(void) {
+    stop();
+    if (cf.albums) deque_destroy(cf.albums);
+    if (cf.tracks) deque_destroy(cf.tracks);
+    cf.albums = cf.tracks = 0;
 }
 
 /* A stock library query (getAllAlbum, as load_localclass_list 0xf003 runs it, or the album's
@@ -177,31 +180,6 @@ static void *text(void *parent, int y, int h, const char *style) {
     return label;
 }
 
-/* One image per album plus a last Refresh card. ponytail: one child per album; if large
- * libraries lag on hardware, virtualize to a recycled window of children. */
-static void covers(void) {
-    cf.screen = COVERS;
-    widget_set_visible(cf.body, 0, 0);
-    if (!cf.covers) {
-        void *f = widget_factory();
-        cf.covers = widget_factory_create_widget(f, "view", cf.page, 0, 0, 375, 290);
-        cf.slide = widget_factory_create_widget(f, "slide_menu", cf.covers, 0, 24, 375, ART_SIZE);
-        for (unsigned i = 0, n = deque_size(cf.albums); i <= n; ++i) {
-            void *img = image_create(cf.slide, 0, 0, 0, 0);
-            image_set_draw_type(img, 4); /* scale_auto, as the stock cover rows */
-            image_base_set_image(img, PLACEHOLDER);
-            widget_set_prop_int(img, "clickable", 1);
-            widget_on(img, EVT_CLICK, pick, (void *)(long)i);
-        }
-        cf.name = text(cf.covers, ART_SIZE + 38, 36, "s_label_white28c");
-        cf.artist = text(cf.covers, ART_SIZE + 74, 28, "s_label_white20c");
-        widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
-        changed(0, 0);
-    }
-    widget_set_visible(cf.covers, 1, 0);
-    widget_invalidate_force(cf.page, 0);
-}
-
 /* Stock pattern (album rows): load the file, set it, drop the load's reference. A failed load,
  * such as the empty "no art" marker, shows the placeholder. */
 static void cover(void *img, unsigned i, int near) {
@@ -230,14 +208,50 @@ static int changed(void *ctx, void *event) {
     return 0;
 }
 
+/* One image per album plus a last Refresh card. ponytail: one child per album; if large
+ * libraries lag on hardware, virtualize to a recycled window of children. */
+static void covers(void) {
+    cf.screen = COVERS;
+    widget_set_visible(cf.body, 0, 0);
+    if (!cf.covers) {
+        void *f = widget_factory();
+        cf.covers = widget_factory_create_widget(f, "view", cf.page, 0, 0, 375, 290);
+        cf.slide = widget_factory_create_widget(f, "slide_menu", cf.covers, 0, 24, 375, ART_SIZE);
+        for (unsigned i = 0, n = deque_size(cf.albums); i <= n; ++i) {
+            void *img = image_create(cf.slide, 0, 0, 0, 0);
+            image_set_draw_type(img, 4); /* scale_auto, as the stock cover rows */
+            image_base_set_image(img, PLACEHOLDER);
+            widget_set_prop_int(img, "clickable", 1);
+            widget_on(img, EVT_CLICK, pick, (void *)(long)i);
+        }
+        cf.name = text(cf.covers, ART_SIZE + 38, 36, "s_label_white28c");
+        cf.artist = text(cf.covers, ART_SIZE + 74, 28, "s_label_white20c");
+        widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
+        changed(0, 0);
+    }
+    widget_set_visible(cf.covers, 1, 0);
+    widget_invalidate_force(cf.page, 0);
+}
+
+static int to_covers(const void *unused) {
+    (void)unused;
+    cf.timer = 0;
+    stop();
+    covers();
+    return 0;
+}
+
+static int cancel_row(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    later(to_covers, 0);
+    return 0;
+}
+
 static int poll(const void *unused) {
     (void)unused;
     cf.timer = 0;
-    if (cf.finished) {
-        stop();
-        covers();
-        return 0;
-    }
+    if (cf.done == cf.total) return to_covers(0); /* stop() joins the thread's last steps */
     char progress[64];
     tk_snprintf(progress, sizeof(progress), "Preparing artwork\xe2\x80\xa6 %d/%d", cf.done,
                 cf.total);
@@ -250,10 +264,7 @@ static int poll(const void *unused) {
  * first-launch build; later opens resume). check_database(): refuse an empty, unbuilt or
  * scanning library. */
 static void load(void) {
-    stop();
-    if (cf.albums) deque_destroy(cf.albums);
-    if (cf.tracks) deque_destroy(cf.tracks);
-    cf.albums = cf.tracks = 0;
+    drop();
     widget_destroy_children(cf.page);
     cf.covers = 0;
     cf.album = 0;
@@ -261,7 +272,7 @@ static void load(void) {
     int n = 0;
     if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) cf.albums = query(0, &n);
     if (n <= 0) {
-        cf.screen = MESSAGE;
+        cf.screen = COVERS; /* Return goes Home */
         list("Update Local Music first", 0);
         return;
     }
@@ -276,7 +287,7 @@ static void load(void) {
             cf.jobs[cf.total++].key = key;
     }
     mkdir(ART_DIR, 0755);
-    cf.done = cf.cancel = cf.finished = 0;
+    cf.done = cf.cancel = 0;
     /* statfs, MIPS o32 layout: f_bsize is word 1, f_bavail word 7. */
     if (cf.total && !statfs(PEQ_ROOT "/mnt/data", fs) &&
         (unsigned long long)fs[7] * fs[1] >= (unsigned long long)ART_MIN_FREE_MB << 20 &&
@@ -285,17 +296,25 @@ static void load(void) {
         cf.screen = PREPARING;
         row(list("", 1), 0, "Cancel", cancel_row);
         poll(0);
-    } else {
-        stop();
-        covers();
-    }
+    } else
+        to_covers(0);
 }
 
-static int to_covers(const void *unused) {
-    (void)unused;
-    cf.timer = 0;
-    stop();
-    covers();
+/* Folder play (startPlayFolderSong): classType 1 over our deque. playing_page's mclLoadPlayList
+ * copies it synchronously, and memory-play later reloads the last track's folder. */
+static int play(void *ctx, void *event) {
+    (void)event;
+    int i = (int)(long)ctx;
+    void *t = deque_at(cf.tracks, (unsigned)i);
+    if (!t || access(P(t, REC_PATH), 0)) {
+        widget_set_text_utf8(cf.title, "Storage unavailable");
+        return 0;
+    }
+    struct {
+        void *dq;
+        int idx, cls, mode;
+    } context = { cf.tracks, i, 1, 2 };
+    navigator_to_with_context("playing_page", &context);
     return 0;
 }
 
@@ -341,31 +360,6 @@ static int pick(void *ctx, void *event) {
     return 0;
 }
 
-static int cancel_row(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    later(to_covers, 0);
-    return 0;
-}
-
-/* Folder play (startPlayFolderSong): classType 1 over our deque. playing_page's mclLoadPlayList
- * copies it synchronously, and memory-play later reloads the last track's folder. */
-static int play(void *ctx, void *event) {
-    (void)event;
-    int i = (int)(long)ctx;
-    void *t = deque_at(cf.tracks, (unsigned)i);
-    if (!t || access(P(t, REC_PATH), 0)) {
-        widget_set_text_utf8(cf.title, "Storage unavailable");
-        return 0;
-    }
-    struct {
-        void *dq;
-        int idx, cls, mode;
-    } context = { cf.tracks, i, 1, 2 };
-    navigator_to_with_context("playing_page", &context);
-    return 0;
-}
-
 /* Return: tracks -> covers (the slide_menu kept its album), preparing -> cancel and covers,
  * covers or the message -> Home. */
 static int keyup(void *ctx, void *event) {
@@ -375,16 +369,13 @@ static int keyup(void *ctx, void *event) {
         later(to_covers, 0);
     else
         navigator_back_to_home();
-    return STOP;
+    return 11; /* RET_STOP */
 }
 
 static int closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    stop();
-    if (cf.albums) deque_destroy(cf.albums);
-    if (cf.tracks) deque_destroy(cf.tracks);
-    cf.albums = cf.tracks = 0;
+    drop();
     cf.page = cf.body = cf.covers = cf.slide = 0;
     return 0;
 }

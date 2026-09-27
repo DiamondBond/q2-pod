@@ -98,8 +98,8 @@ def artist_tabs(root):
     require(sorted(found) == sorted([*ARTIST_TABS, 'pages']), 'Unexpected artist tabs')
 
 
-# Both variants. Coverflow's Home card: a clone of Local Music at index 2, with its image (patch/coverflow.c
-# binds it). Stock translates label_* by name and ignores this one, so its text is literal.
+# Both variants. Coverflow's Home card: a clone of Local Music at index 2 with its own icon; its image
+# (patch/coverflow.c binds it) is the click target. Stock translates label_* by name and ignores this one, so its text is literal.
 HOME_PAGE = 'home_page.bin'
 
 
@@ -116,6 +116,8 @@ def home_card(root):
     image[2]['name'] = 'img_coverflow'
     label[2]['name'] = 'label_coverflow'
     label[2]['text'] = 'Coverflow'
+    for key, value in image[2].items():  # assets/menu_coverflow*.png, added to the rootfs by build.py
+        if key.endswith(':bg_image'): image[2][key] = value.replace('menu_music', 'menu_coverflow')
     menu[0][3].insert(2, card)
 
 

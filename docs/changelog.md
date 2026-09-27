@@ -1,5 +1,7 @@
 # Changelog
 
+- **V4.6R / V4.6C**: New **Coverflow** card on Home, after Local Music: flip through your Local Music albums by cover with the wheel, open one to see its tracks, and play from there. The first open prepares the artwork once (from `cover.jpg`, `folder.jpg` or the embedded picture) with progress and Cancel; later opens only add new albums, and the last card, **Refresh library**, rebuilds it. The queue menu no longer shows a message after a successful add; it still shows **Queue unchanged** when it can't add.
+
 - **V4.5R / V4.5C**: Hold **Play/Pause** on a highlighted song, album or folder in the local lists to open **Play next** / **Add to queue**. Tracks are added without pausing, restarting or seeking what is playing; a paused player stays paused, and with shuffle on, Play next is still the next track. Return closes the menu and the release after the hold never toggles playback.
 
 - **V4.4R / V4.4C**: After a restart the PEQ editor now shows **PEQ: OFF**, matching the status-bar EQ icon and what you hear; the PEQ stays off after a reboot until you switch it back on, and your applied bands are kept.
