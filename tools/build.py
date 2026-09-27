@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '4.4'  # the only place a release bumps the version
+VERSION = '4.5'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'compact': f'V{VERSION}c'}
@@ -20,7 +20,10 @@ HOOKS = {
     'on_wm_tsdown_before_fun': (0x4e8bd0, 'ringnav_touch'),
     'widget_on_paint_border': (0x6596a0, 'ringnav_paint'),
     'widget_dispatch': (0x65e0ec, 'ringnav_dispatch'),
+    'on_wm_keylong_fun': (0x4e873c, 'ringnav_keylong'),
 }
+# mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
+SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
 
 def run(*args):
     return subprocess.check_output([str(a) for a in args], text=True)
@@ -146,19 +149,37 @@ FUNCTIONS = {
  'scroll_view_set_offset': ('int', 'void *, int, int'),
  'table_client_scroll_to': ('int', 'void *, int'),
  'scroll_view_scroll_delta_to': ('int', 'void *, int, int, int'),
+ 'widget_destroy_children': ('int', 'void *'),
+ 'list_item_create': ('void *', 'void *, int, int, int, int'),
+ 'hscroll_label_create': ('void *', 'void *, int, int, int, int'),
+ 'widget_off_by_func': ('int', 'void *, unsigned, void *, void *'),
+ 'window_close': ('int', 'void *'),
+ 'navigator_to': ('int', 'const char *'),
+ 'navigator_to_with_context': ('int', 'const char *, const void *'),
+ 'window_manager_get_input_device_status': ('char *', 'void *'),
+ 'airplayGetFlag': ('int', 'void'),
+ 'tk_snprintf': ('int', 'char *, unsigned, const char *, ...'),
+ 'getMusicByAlbum': ('int', 'const char *'),
+ 'getMusicByAlbumAndSonger': ('int', 'const char *, const char *, int'),
+ 'getMusicByAlbumAndAlbumSonger': ('int', 'const char *, const char *, int'),
+ 'toolsLoadDirectory': ('int', 'const char *'),
+ 'mclLoadPlayList': ('int', 'void *, int, int'),
+ 'mcl_shuffle_pick': ('int', 'int'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
     "stock_search": 0x5241c4,
     "slide_menu_item_width": 0x5f3040,
     "slide_menu_on_scroll_done": 0x5f3654,
+    "mcl_shuffle_pick": 0x5a8120,
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
-           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag']
-# Audited stock browsing state (not playback state); sizes are checked against the ELF.
+           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status']
+# Audited stock browsing state and deque pointers; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
-                'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4}
+                'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
+                'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4}
 
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
@@ -167,13 +188,13 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
 
 def compile_payload(out, compact=False):
     """Compile and link the payload."""
+    from peq import compile_common
+    extra = compile_common(out, out/'stock-demo')  # also writes the libc/libcstl imports ringnav.c uses
     run('clang',*FLAGS,f'-DCOMPACT={int(compact)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
-    from peq import compile_common
-    extra = compile_common(out, out/'stock-demo')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for name in ['ringnav_touch', 'ringnav_paint', 'ringnav_dispatch',
-          'peq_page_init', 'peq_stock_eq']],
+          'ringnav_keylong', 'ringnav_shuffle', 'peq_page_init', 'peq_stock_eq']],
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -233,7 +254,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
     syms = symbols(demo)
     syms.update(PRIVATE_FUNCTIONS)
     header = [f'#define RING_STEP {RING_STEP}']
-    for name in ('keyup', 'touch', 'paint', 'dispatch'):
+    for name in ('keyup', 'touch', 'paint', 'dispatch', 'keylong'):
         header.append(f'extern int stock_{name}_trampoline(void *, void *);')
     for name,(ret,args) in FUNCTIONS.items():
         header.append(f'#define {name} (({ret} (*)({args}))0x{syms[name]:x}u)')
@@ -270,6 +291,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, patch_asset, patch_code, patch_word
     for address, old, new in ARTIST_ALBUMS:
         patch_word(patched, fileoff, [], address, old, new, 'artist detail opens on Albums')
+    patch_word(patched, fileoff, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
+               'shuffle honours Play next')
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
         off = fileoff(raw_demo, syms[name])

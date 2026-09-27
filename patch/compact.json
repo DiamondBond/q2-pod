@@ -154,7 +154,8 @@
     ]
   },
   "private_prologues": {
-    "stock_search": "50001c3cfc2a9c2721e09903"
+    "stock_search": "50001c3cfc2a9c2721e09903",
+    "mcl_shuffle_pick": "48001c3ca0eb9c2721e09903"
   },
   "event_abi_words": {
     "0x523e6c": "12010524",

@@ -1,6 +1,6 @@
 .set noreorder
 .text
-/* All four audited stock PIC prologues resolve the same GOT base. */
+/* All audited stock PIC prologues resolve the same GOT base. */
 .macro resume name, address
 .globl stock_\name\()_trampoline
 stock_\name\()_trampoline:
@@ -13,4 +13,5 @@ resume keyup, 0x4e85d4
 resume touch, 0x4e8bdc
 resume paint, 0x6596ac
 resume dispatch, 0x65e0f8
+resume keylong, 0x4e8748
 resume eq, 0x4f923c

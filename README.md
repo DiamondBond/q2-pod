@@ -74,6 +74,7 @@ Other pages, dialogs and your saved settings are unchanged.
 - **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick.
 - **List ends:** in the local folder and music lists, a turn past the end nudges the outline and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
 - **Centre button:** opens the highlighted item. Double-press to turn the screen off.
+- **Hold Play/Pause:** on a highlighted song, album or folder in the local lists, opens **Play next** / **Add to queue**. It adds without interrupting what is playing; with shuffle on, Play next is still the next track. Return closes it.
 - **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
 - **Touch:** works as normal and hides the outline until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
 - **Artists:** an artist opens on Albums, with All Songs one tap away. The tabs are translated instead of the stock Chinese labels.

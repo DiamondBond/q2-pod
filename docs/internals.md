@@ -6,7 +6,7 @@ How the scroll-wheel payload hooks the stock Shanling Q2 firmware. For the user-
 
 ## Hooks
 
-Four checked MIPS prologues redirect into a payload at `0xb00000`, using the final unused `PT_NULL` program header. Trampolines restore the stock GOT base and resume each original function after its PIC setup: Writable input and position state is mapped at `0xb0f000`.
+Five checked MIPS prologues redirect into a payload at `0xb00000`, using the final unused `PT_NULL` program header. Trampolines restore the stock GOT base and resume each original function after its PIC setup: Writable input and position state is mapped at `0xb0f000`.
 
 | Stock callback            | Address    | Purpose                                                       |
 | ------------------------- | ---------- | ------------------------------------------------------------- |
@@ -14,6 +14,7 @@ Four checked MIPS prologues redirect into a payload at `0xb00000`, using the fin
 | `on_wm_tsdown_before_fun` | `0x4e8bd0` | Preserve stock touch processing and interrupt wheel glide     |
 | `widget_on_paint_border`  | `0x6596a0` | Draw the selected entry outline after native children         |
 | `widget_dispatch`         | `0x65e0ec` | Observe a native click before its app callback changes the UI |
+| `on_wm_keylong_fun`       | `0x4e873c` | Play/Pause hold opens the queue menu; other keys stay stock   |
 
 Stock V1.32 turns the encoder knob into key releases 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop. The payload only sees those releases at `on_wm_keyup_before_fun`.
 
@@ -46,6 +47,18 @@ Wheel motion also wakes the native scrollbar of the controlled surface. `native_
 ## Centre button
 
 A centre release arms a stock UI timer for `DOUBLE_CLICK_MS` (200 ms). A second release before expiry on the same live selection cancels confirmation and passes through the stock downstream key-up handler to turn the screen off. A single release dispatches exactly one synchronous click at expiry. Touch, wheel input and invalid navigation state cancel pending confirmation. The timer resolves the target from the live menu and requires the original window, surface, content scope, logical selection, row count and row-text identity to match. Widget-owned tokens also reject reused window/surface addresses, and an ordinary list requires the armed row widget's own token; virtual tables resolve recycled pool widgets by logical index. An overdue confirmation runs before the power and lock gates that follow it. No delayed row pointer is retained; pending state clears before dispatch. Timer allocation failure consumes the press without activating anything.
+
+## Queue menu
+
+Holding Play/Pause (key 171) fires the stock long press, 1000 ms, once per press: `input_device_status` (`wm+0x98`, via `window_manager_get_input_device_status` at `0x66e734`) dispatches `0x111` to the window manager, where stock `on_wm_keylong_fun` has no action for 171. `ringnav_keylong` takes it only with the navigation gates, AirPlay off (`airplayGetFlag() != 2`), no batch-select mode (`g_navbar_status`) and the row a centre press would open, on a `CTX_LOCAL`/`CTX_FOLDER` page except `artistinfo_page`. The page's row count must equal `deque_size(*p_deque_showlist)`: these lists bind row _i_ to showlist record _i_ (Local Songs `table_row_of` → `deque_at` at `0x4a8838`), and a grid or extra clickable row fails the check. Everything else tail-calls the stock body.
+
+The release still reaches `playpause_quick_click` (`on_wm_keyup_fun` `0x4e8b7c`), which has no long-press check. The hold stores the key record's u64 press time (record `+8`; 16 records of `0x18` from `+0x30`); the key-up hook swallows a Play/Pause release carrying that time and clears the latch on every Play/Pause release. AWTK drops the release when it aborts pressed keys on a window change; a later press has a new time, so a stale latch cannot eat it.
+
+The target is the showlist index plus hashes of the record strings (`+8` name, `+0xc` path, `+0x10`, `+0x14` album, `+0x18` artist) and of the browsing state (`g_folder_path`, `g_class_type`, `g_local_classinfo_save`, `g_artist_type`); the dialog open and the action both re-check it. A type-8 record is one song. In `g_class_type` `0xf003` a row is an album: `getMusicByAlbum(id == -1 ? NULL : album)`, as `load_album_detaillist` → `load_localclass_list(0xff10)` does. In `0xff01` (an artist's albums) it is `getMusicByAlbumAndAlbumSonger` when `g_artist_type == 1`, otherwise `getMusicByAlbumAndSonger`, with `(album, classinfo[0xa] ? NULL : artist, id == -2)` (`0xff11`). Artist, composer and genre lists and their album lists stay stock. A folder row (type 4) calls `toolsLoadDirectory(g_folder_path + "/" + name)` like `folder_enter`. Queries fill `tools_pdeq_directory`; its type-8 records join in order and the staging deque is restored.
+
+The menu is the stock `dialog/sortselect_dialog`: its init is synchronous and clears `to_modal`, so `navigator_to` returns with it on top, and it is already a navigation context. The payload replaces its five sort rows with two, titles it with the item, and swaps its key-up (`0x49f3e0`) and back arrow (`0x49f3c0`) handlers, both of which set `g_sort_changeflag`, which makes Local Songs reload and scroll to the top on return. The open is deferred out of the long-press dispatch and the action out of the row click; the result is a stock `dialog/msginfo_dialog` toast (`{1, 2000, text}`).
+
+The queue is `*mcl_pdeqplaylist` (`0xa269a4`) with static state at `0xa3bdb0` (shuffle pool, a deque of unplayed indices), `0xa3be90` (shuffle previous index), `0xa3be94`/`0xa3be98` (gapless preloaded index/flag), `0xa3bea0` (queue class), `0xa3bea4` (position), `0xa3bea8` (mode) and `0xa3beb4` (player socket). Only a local queue (class 1 or `0xfxxx`) grows. An empty queue is loaded by `mclLoadPlayList(tracks, 0, class)`, which does not start playback. Otherwise Add appends with `_deque_push_back` and Play next rebuilds the deque with the tracks at position+1 (`deque_clear` + `deque_assign`, as stock loads it). Pool entries and the previous index at or after the insert shift, and the new indices join the pool. Gapless preloads only pos+1 (modes 0 and 3), so a set preload flag is closed exactly when the tracks land there, with the `mclSetPlayMode` sequence (`{mcl-closegapless\null}` to the socket, flag -1). In shuffle the checked call at `0x5addf0` in `mclNextSong` (`bal 0x5a8120`, delay slot `a0 = 1`) becomes `jal ringnav_shuffle`: it runs the stock pick, then makes the first Play next track the position once, if the queue still holds it there. Repeat-one repeats the current track by design.
 
 ## Home carousel
 

@@ -30,12 +30,16 @@ LIBC = {
     'opendir': ('void *', 'const char *'), 'closedir': ('int', 'void *'),
     'readdir': ('struct dirent *', 'void *'),
     'qsort': ('void', 'void *, unsigned, unsigned, int (*)(const void *, const void *)'),
+    # libcstl and socket imports for the Play/Pause queue menu in ringnav.c
+    '_create_deque': ('void *', 'const char *'), 'deque_init': ('void', 'void *'),
+    'deque_init_copy': ('void', 'void *, const void *'), 'deque_size': ('unsigned', 'const void *'),
+    'deque_at': ('void *', 'const void *, unsigned'), '_deque_push_back': ('void', 'void *, ...'),
+    'deque_assign': ('void', 'void *, const void *'), 'deque_clear': ('void', 'void *'),
+    'deque_destroy': ('void', 'void *'), 'send': ('int', 'int, const void *, unsigned, int'),
 }
 UI = {
-    'widget_destroy_children': ('int', 'void *'),
     'list_view_create': ('void *', 'void *, int, int, int, int'),
     'scroll_view_create': ('void *', 'void *, int, int, int, int'),
-    'list_item_create': ('void *', 'void *, int, int, int, int'),
     'navigator_back': ('int', 'void'),
 }
 

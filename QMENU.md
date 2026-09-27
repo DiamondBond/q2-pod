@@ -1,12 +1,7 @@
 # Play/Pause Hold Queue Menu
 
-Status: planned. Applies to both normal and compact builds.
-
-The interaction design is settled. The remaining uncertainty is the stock queue
-API: queue-related functions have been identified, but we have not established
-which can insert or append tracks without interrupting playback. The next step
-is a focused audit of those operations before implementing the two-option menu.
-Keep the implementation limited to this feature and reuse the verified stock paths.
+Status: implemented in both normal and compact builds. The audited stock paths it
+relies on are in [docs/internals.md](docs/internals.md#queue-menu).
 
 ## Goal
 
@@ -16,23 +11,22 @@ controls while the current music keeps playing.
 
 ## Interaction
 
-| Input | Behavior |
-| --- | --- |
-| Short Play/Pause press | Normal play/pause, exactly once. |
-| Hold Play/Pause on a supported item | Open the two-option queue menu once. |
-| Release after opening the menu | Consume the release; do not toggle playback. |
-| Wheel while the menu is open | Move between the two options. |
-| Centre | Confirm the highlighted option once. |
-| Return | Dismiss without changing the queue. |
-| Touch an option | Perform the same action as centre confirmation. |
+| Input                               | Behavior                                        |
+| ----------------------------------- | ----------------------------------------------- |
+| Short Play/Pause press              | Normal play/pause, exactly once.                |
+| Hold Play/Pause on a supported item | Open the two-option queue menu once.            |
+| Release after opening the menu      | Consume the release; do not toggle playback.    |
+| Wheel while the menu is open        | Move between the two options.                   |
+| Centre                              | Confirm the highlighted option once.            |
+| Return                              | Dismiss without changing the queue.             |
+| Touch an option                     | Perform the same action as centre confirmation. |
 
 Use the native long-press timing, matching the existing button-shortcut pattern.
 Keep existing Return shortcuts and centre-button power behavior. Outside supported
 local music items, preserve stock button handling and lock rules.
 
 The menu should identify the selected item in its title. After success, close it,
-restore the browsing position and show a brief confirmation such as
-"Added next" or "Added to queue". A failed operation must report the failure and
+restore the browsing position; success shows no message. A failed operation must report the failure and
 leave playback and the existing queue intact.
 
 ## Queue behavior

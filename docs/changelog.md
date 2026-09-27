@@ -1,5 +1,7 @@
 # Changelog
 
+- **V4.5R / V4.5C**: Hold **Play/Pause** on a highlighted song, album or folder in the local lists to open **Play next** / **Add to queue**. Tracks are added without pausing, restarting or seeking what is playing; a paused player stays paused, and with shuffle on, Play next is still the next track. Return closes the menu and the release after the hold never toggles playback.
+
 - **V4.4R / V4.4C**: After a restart the PEQ editor now shows **PEQ: OFF**, matching the status-bar EQ icon and what you hear; the PEQ stays off after a reboot until you switch it back on, and your applied bands are kept.
 
 - **V4.3R / V4.3C**: Saved PEQ presets can be deleted from **Presets → Delete a preset**, after a confirmation; the active EQ is unchanged.

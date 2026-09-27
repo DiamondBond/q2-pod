@@ -809,6 +809,7 @@ if variant == 'compact':
     assert m.call(170, gap=0) == 11
 passed()
 # Other long-key paths remain byte-for-byte stock; exercise the inert keys and power gate.
+# Home is not a local list, so a Play/Pause hold there stays stock too (queue menu below).
 for key in (171, 172, 173, 222, 223, 218):
     m = long_machine(); m.page('home_page')
     if key == 218: m.byte(syms['g_poweroff_state'], 2)
@@ -1924,7 +1925,8 @@ class NavigationMachine(Machine):
         super().__init__()
         self.order=[]; self.block_open=False
         self.word(self.wm+0x94,0x9a0490)
-        for name in ('navigator_switch_to_with_context','navigator_back_to_home','navigator_to_with_context'):
+        for name in ('navigator_switch_to_with_context','navigator_back_to_home','navigator_to_with_context',
+                     'navigator_to','window_close'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_child','window_open_and_close','widget_restack','widget_get_window',
                   'widget_is_keyboard','widget_is_dialog','widget_is_window','widget_is_normal_window',
@@ -2171,6 +2173,179 @@ for patched in (True, False):
         assert names==['query_run','load_localartist_list','query_run','albums_view'] and tab==1, names
         assert [c[1] for c in m.calls if c[0]=='load_localartist_list']==[1]
     else: assert names==['query_run','songs_view'] and tab==0, names
+    passed()
+
+# Play/Pause hold queue menu. libcstl deques are Python lists of element addresses; the stock
+# mclLoadPlayList, mclNextSong and key filters run for real.
+from build import SHUFFLE_CALL, fileoff
+class QueueMachine(Machine):
+    def __init__(self,page='allmusic_page',rows=20,queue=3,pos=0,mode=0,cls=0xf001):
+        super().__init__()
+        self.deqs={}; self.toasts=[]; self.sent=[]; self.picks=[]; self.airplay=0
+        for n in ('_create_deque','deque_init','deque_init_copy','deque_size','deque_at','_deque_push_back',
+                  'deque_assign','deque_clear','deque_destroy','send@GLIBC_2.0','window_manager_get_input_device_status',
+                  'navigator_to','navigator_to_with_context','window_close','widget_on','widget_destroy_children',
+                  'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
+                  'mcl_shuffle_pick','airplayGetFlag'): self.handlers[syms[n]]='q:'+n
+        self.handlers.pop(syms['mclLoadPlayList'])
+        self.mock('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek')
+        self.status=self.alloc(0x200); self.word(syms['g_class_type'],cls)
+        self.surface,_,_=self.table_page(4,page,rebind=True); self.word(self.surface+O['TABLE_ROWS'],rows)
+        self.word(syms['p_deque_showlist'],self.deque([self.song(f'Row {i}') for i in range(rows)]))
+        self.word(syms['mcl_pdeqplaylist'],self.deque([self.song(c) for c in 'ABC'[:queue]]))
+        self.word(syms['tools_pdeq_directory'],self.deque([self.song('staged')]))
+        self.word(O['MCL_POOL'],self.deque(list(range(queue)),'int'))
+        for k,v in (('MCL_POS',pos),('MCL_MODE',mode),('MCL_TYPE',cls),('MCL_LASTPOS',-1),('MCL_PRELOAD',0),('MCL_FD',-1)): self.word(O[k],v)
+        self.found=[self.song('T1'),self.song('dir',4),self.song('T2')]; self.stack=[self.top]
+        self.folder('/mnt/sd/Music'); self.paint(self.surface)
+    def song(self,name,kind=8):
+        r=self.alloc(0x60)
+        for off,v in (('REC_ID',1),('REC_NAME',self.string(name)),('REC_PATH',self.string('/p/'+name)),
+                      ('REC_ALBUM',self.string('Album')),('REC_ARTIST',self.string('Artist')),('REC_TYPE',kind)): self.word(r+O[off],v)
+        return r
+    def deque(self,items,kind='stSongInfo'):
+        h=self.alloc(0x20); self.deqs[h]=[kind,[self.copy(kind,e) for e in items]]; return h
+    def copy(self,kind,e):
+        a=self.alloc(0x60); self.u.mem_write(a,struct.pack('<I',e&0xffffffff) if kind=='int' else bytes(self.u.mem_read(e,0x60)))
+        return a
+    def items(self,h): return self.deqs[h][1]
+    def row(self,i): return self.items(self.get(syms['p_deque_showlist']))[i]
+    def names(self,h=None): return [self.text(self.get(e+O['REC_NAME'])) for e in self.items(h or self.get(syms['mcl_pdeqplaylist']))]
+    def pool(self): return [signed(self.get(e)) for e in self.items(self.get(O['MCL_POOL']))]
+    def mcl(self,k): return signed(self.get(O[k]))
+    def dialog(self):
+        self.view=self.node('scroll_view','scroll_view',[self.node('list_item') for _ in range(5)])
+        self.title=self.node('hscroll_label','scrlabel_title'); self.back=self.node('image','img_return')
+        return self.node('dialog','sortselect_dialog',[self.node('view','view_navbar',[self.title,self.back]),
+                                                       self.node('list_view','list_view',[self.view])])
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('q:'): return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address, name
+        name=name[2:]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        self.calls.append((name,a,b,c))
+        if name=='_create_deque': ret=self.alloc(0x20); self.deqs[ret]=[self.text(a),[]]
+        elif name in ('deque_init','deque_clear'): self.deqs[a][1]=[]
+        elif name in ('deque_init_copy','deque_assign'): self.deqs[a][1]=[self.copy(self.deqs[a][0],e) for e in self.items(b)]
+        elif name=='deque_size': ret=len(self.items(a))
+        elif name=='deque_at': ret=self.items(a)[b]
+        elif name=='_deque_push_back': self.items(a).append(self.copy(self.deqs[a][0],b))
+        elif name=='deque_destroy': del self.deqs[a]
+        elif name=='send@GLIBC_2.0': self.sent.append((a,bytes(u.mem_read(b,c)),c,d)); ret=c
+        elif name=='window_manager_get_input_device_status': ret=self.status
+        elif name=='airplayGetFlag': ret=self.airplay
+        elif name=='navigator_to':
+            assert self.text(a)=='dialog/sortselect_dialog'; self.top=self.dialog(); self.stack.append(self.top)
+        elif name=='navigator_to_with_context': self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
+        elif name=='window_close': self.stack.remove(a); self.top=self.stack[-1]
+        elif name=='widget_destroy_children': self.nodes[a]['children']=[]
+        elif name=='widget_on':
+            self.nodes[a].setdefault('handlers',[]).append((b,c,d)); ret=1
+            if b==O['EVT_CLICK']:
+                em=self.alloc(4); it=self.alloc(0x28); self.word(a+O['W_EMITTER'],em); self.word(em,it); self.word(it+O['EMIT_TYPE'],b)
+        elif name=='mcl_shuffle_pick': self.picks.append(a); self.word(O['MCL_POS'],len(self.names())-1); ret=1
+        else:  # the album/folder queries fill the staging deque
+            self.query=(name,self.text(a),self.text(b) if 'And' in name else None,c)
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=3
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def press(self,t):
+        self.word(self.status+O['INPUT_KEYS'],O['KEY_PLAY']); self.word(self.status+O['INPUT_KEYS']+O['INPUT_KEY_TIME'],t)
+    def hold(self):
+        ret=self.call(O['KEY_PLAY'],address=syms['on_wm_keylong_fun'],event_type=O['EVT_KEY_LONG'],gap=0)
+        self.advance(0,clear=False)
+        return ret
+    def release(self):
+        """Hook, then the real stock key-up; AWTK clears the key record afterwards."""
+        if self.call(O['KEY_PLAY'],gap=0)==0: self.call(O['KEY_PLAY'],address=syms['on_wm_keyup_fun'],gap=0,clear=False)
+        self.u.mem_write(self.status+O['INPUT_KEYS'],bytes(O['INPUT_KEY_SIZE']))
+        return sum(c[0]=='playpause_quick_click' for c in self.calls)
+    def handler(self,w,kind): return next((f,ctx) for t,f,ctx in self.nodes[w]['handlers'] if t==kind)
+    def pick(self,row):
+        f,ctx=self.handler(self.nodes[self.view]['children'][row],O['EVT_CLICK'])
+        assert self.call(address=f,args=(ctx,self.event,0,0),gap=0)==0
+    def run(self,row,steps=0):
+        """Wheel down steps rows, hold, pick a menu row and let the deferred action run."""
+        for _ in range(steps): self.call()
+        n=len(self.toasts); self.t=getattr(self,"t",7000)+1; self.press(self.t); assert self.hold()==11 and self.release()==0
+        self.pick(row); self.advance(0)
+        return self.toasts[-1][3] if len(self.toasts)>n else None
+    def playback(self): return [c for c in self.calls if c[0] in ('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek','playpause_quick_click')]
+
+# Short press toggles once; a hold opens one menu titled by its row, its release is swallowed and
+# the next short press toggles again. A repeated long event of the same press opens nothing.
+m=QueueMachine(); page=m.top
+m.press(5000); assert m.release()==1
+m.press(6000); assert m.hold()==11 and m.nodes[m.top]['name']=='sortselect_dialog'
+assert {c[1:] for c in m.calls if c[0]=='widget_off_by_func'}=={(m.top,O['EVT_KEY_UP'],O['SORTSELECT_KEYUP']),(m.back,O['EVT_CLICK'],O['SORTSELECT_CLOSE'])}
+assert m.nodes[m.title]['text']=='Row 0' and [m.nodes[m.nodes[i]['children'][0]]['text'] for i in m.nodes[m.view]['children']]==['Play next','Add to queue']
+assert m.hold()==0 and not any(c[0]=='navigator_to' for c in m.calls) and len(m.stack)==2
+assert m.release()==0
+m.press(6500); assert m.release()==1; passed()
+# Return (the replaced dialog key-up) dismisses without the stock sort flag; other keys pass.
+f,ctx=m.handler(m.top,O['EVT_KEY_UP']); ev=m.alloc(0x40); m.word(ev,O['EVT_KEY_UP']); m.word(ev+O['EVENT_KEY'],O['KEY_NEXT'])
+assert m.call(address=f,args=(ctx,ev,0,0),gap=0)==0 and m.top!=page
+m.word(ev+O['EVENT_KEY'],O['KEY_RETURN']); assert m.call(address=f,args=(ctx,ev,0,0),gap=0)==11
+assert m.top==page and not m.toasts and m.names()==['A','B','C'] and m.u.mem_read(syms['g_sort_changeflag'],1)==b'\0'
+passed()
+# A dropped release (AWTK aborts keys when windows change) leaves a latch that must not eat a later
+# press: the press time differs.
+m=QueueMachine(); m.press(1); assert m.hold()==11
+m.u.mem_write(m.status+O['INPUT_KEYS'],bytes(O['INPUT_KEY_SIZE'])); m.press(2); assert m.release()==1; passed()
+# The hold cancels a pending centre click. Wheel and centre then act on the menu only and the list
+# keeps its selection. Touch and centre arrive as the same click and run once.
+m=QueueMachine(); m.call(); m.call(); assert m.selected(m.surface)==2
+m.call(O['KEY_CENTER']); m.press(100); m.hold(); m.release(); m.advance(300); assert not m.dispatched()
+m.paint(m.view); assert m.call()==11 and m.selected(m.view)==1 and m.selected(m.surface)==2
+assert m.confirm()==11 and m.dispatched()[0][1]==m.nodes[m.view]['children'][1]
+m.pick(1); m.pick(1); m.advance(0)
+assert m.names()==['A','B','C','Row 2'] and not m.toasts
+assert m.top==page and m.selected(m.surface)==2 and not m.playback(); passed()
+# Play next lands after the playing track, on the logical row of a recycled table. Later tracks,
+# the shuffle pool and the previous index shift; duplicates stay; playback is never touched.
+m=QueueMachine(); m.word(O['MCL_LASTPOS'],2)
+assert m.run(0,steps=4) is None and m.names()==['A','Row 4','B','C']
+assert m.pool()==[0,2,3,1] and m.mcl('MCL_LASTPOS')==3 and m.mcl('MCL_POS')==0
+m.run(0); assert m.names()==['A','Row 4','Row 4','B','C'] and not m.playback(); passed()
+# Albums and an artist's albums use the stock detail queries; a folder row loads like folder_enter.
+# Only songs join, in order, and the staging deque is restored.
+for cls,artist_type,page,query in ((0xf003,0,'album_page',('getMusicByAlbum','Album',None)),
+        (0xff01,1,'album_page',('getMusicByAlbumAndAlbumSonger','Album','Artist')),
+        (0xff01,0,'localclass_page',('getMusicByAlbumAndSonger','Album','Artist')),
+        (0xf001,0,'folder_page',('toolsLoadDirectory','/mnt/sd/Music/Row 0',None))):
+    m=QueueMachine(page=page,cls=cls,pos=2); m.word(syms['g_artist_type'],artist_type)
+    if page=='folder_page': m.word(m.row(0)+O['REC_TYPE'],4)
+    assert m.run(1) is None and m.names()==['A','B','C','T1','T2'] and m.query[:3]==query, m.query
+    assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==[0,1,2,3,4]
+    passed()
+# An empty queue is filled by the stock loader without starting playback.
+m=QueueMachine(queue=0); assert m.run(0) is None and m.names()==['Row 0'] and m.mcl('MCL_POS')==0
+assert m.mcl('MCL_TYPE')==0xf001 and m.pool()==[0] and not m.playback(); passed()
+# Gapless: a preload of pos+1 is closed exactly when the new tracks land there.
+for row,pos,closed in ((0,0,True),(1,0,False),(1,2,True)):
+    m=QueueMachine(pos=pos); m.word(O['MCL_PRELOAD'],1); m.word(O['MCL_FD'],9); m.run(row)
+    assert (m.sent==[(9,b'{mcl-closegapless\\null}',23,0)] and m.mcl('MCL_PRELOAD')==-1) if closed else (not m.sent and m.mcl('MCL_PRELOAD')==1)
+    passed()
+# Shuffle: the patched mclNextSong call runs the stock pick, then plays the Play next track once.
+demo=(B/'demo').read_bytes()
+assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_shuffle']>>2
+m=QueueMachine(mode=2); m.run(0,steps=5); assert m.names()==['A','Row 5','B','C']
+for want in (1,3):
+    m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
+    assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
+passed()
+# Refusals leave the queue alone: a stream queue, or a row whose record changed under the menu.
+m=QueueMachine(); m.word(O['MCL_TYPE'],2); assert m.run(0)=='Queue unchanged' and m.names()==['A','B','C']
+m=QueueMachine(); m.press(1); m.hold(); m.release(); m.word(m.row(0)+O['REC_NAME'],m.string('other'))
+m.pick(0); m.advance(0); assert m.toasts[-1][3]=='Queue unchanged' and m.names()==['A','B','C']; passed()
+# Unsupported pages and states keep the stock long key: no menu, and the release is stock.
+for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lambda m:m.byte(syms['g_backlight_status'],0),1),
+        (lambda m:m.byte(syms['g_navbar_status'],1),1),(lambda m:m.word(syms['g_class_type'],0xf004),1),
+        (lambda m:m.word(m.surface+O['TABLE_ROWS'],7),1),(lambda m:m.word(m.row(0)+O['REC_TYPE'],4),1),
+        (lambda m:setattr(m,'airplay',2),0),(lambda m:m.nodes[m.top].__setitem__('name','artistinfo_page'),1),
+        (lambda m:setattr(m,'top',m.node('window','home_page',[m.node()])),1)):
+    m=QueueMachine(); setup(m); m.press(3)
+    assert m.hold()==0 and len(m.stack)==1 and m.release()==toggles
     passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

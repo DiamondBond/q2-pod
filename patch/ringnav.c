@@ -1,5 +1,6 @@
 /* Logical menu selection is independent of native touch focus. Stock code owns gestures. */
 #include "offsets.inc"
+#include "peq_platform.h" /* libc/libcstl imports: deque_*, send */
 #include "stock.h"
 #define STOP 11
 #define GLIDE_MS 300
@@ -62,6 +63,12 @@ typedef struct {
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
 #endif
+    /* Queue menu: the hold's AWTK press time marks its release; the target is a showlist row
+     * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
+    unsigned long long qm_press;
+    unsigned qm_timer, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
+    int qm_kind, qm_action;
+    void *qm_dialog;
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
 
@@ -1139,6 +1146,286 @@ int compact_now_playing(void) {
 }
 #endif
 
+/* Play/Pause hold queue menu (QMENU.md). Stock long press fires once per press, so a hold on a
+ * local song, album or folder row opens the stock sortselect dialog rebuilt as a two-row menu. */
+enum { QM_SONG = 1, QM_ALBUM, QM_FOLDER };
+#define MCL(a) (*(volatile int *)(a))
+
+static char *play_key(void) {
+    char *s = window_manager_get_input_device_status(window_manager());
+    for (int i = 0; s && i < INPUT_KEY_COUNT; ++i)
+        if (I(s, INPUT_KEYS + i * INPUT_KEY_SIZE) == KEY_PLAY)
+            return s + INPUT_KEYS + i * INPUT_KEY_SIZE;
+    return (char *)0;
+}
+
+/* Any Play/Pause release ends the latch; only the held press itself is swallowed. */
+static int hold_released(void) {
+    char *k = play_key();
+    int held = k && st.qm_press && *(unsigned long long *)(k + INPUT_KEY_TIME) == st.qm_press;
+    st.qm_press = 0;
+    return held;
+}
+
+static unsigned rec_hash(void *r) {
+    unsigned h = 2166136261u;
+    for (int o = REC_NAME; o <= REC_ARTIST; o += 4) {
+        const unsigned char *s = P(r, o);
+        unsigned n = 0;
+        while (s && s[n]) ++n;
+        h = hash_bytes(h, s, n) * 16777619u;
+    }
+    return h;
+}
+
+/* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
+static unsigned browse_hash(void) {
+    unsigned h = hash_bytes(2166136261u, g_folder_path, 1024);
+    h = hash_bytes(h, g_class_type, 4);
+    h = hash_bytes(h, g_local_classinfo_save, 912);
+    return hash_bytes(h, g_artist_type, 4);
+}
+
+static void *qm_record(void) {
+    void *list = P(p_deque_showlist, 0);
+    if (!list || deque_size(list) != st.qm_rows || st.qm_idx >= st.qm_rows ||
+        browse_hash() != st.qm_browse)
+        return (void *)0;
+    void *r = deque_at(list, st.qm_idx);
+    return r && rec_hash(r) == st.qm_hash ? r : (void *)0;
+}
+
+static void qm_close(void) {
+    void *dialog = st.qm_dialog;
+    st.qm_dialog = (void *)0;
+    if (dialog) window_close(dialog);
+}
+
+/* Return and the title bar arrow dismiss without the stock sort-change flag. */
+static int qm_back(void *dialog, void *event) {
+    (void)dialog;
+    if (I(event, EVENT_TYPE) == EVT_KEY_UP && I(event, EVENT_KEY) != KEY_RETURN) return 0;
+    qm_close();
+    return STOP;
+}
+
+static int qm_gone(void *dialog, void *event) {
+    (void)event;
+    if (st.qm_dialog == dialog) st.qm_dialog = (void *)0;
+    return 0;
+}
+
+/* An album or folder row: the tracks stock would play, in its order. The staging deque is
+ * restored so the queries leave no trace. */
+static void qm_tracks(void *r, void *add) {
+    void *save = _create_deque("stSongInfo");
+    deque_init_copy(save, P(tools_pdeq_directory, 0));
+    if (st.qm_kind == QM_FOLDER) {
+        char path[1024];
+        tk_snprintf(path, sizeof(path), "%s/%s", (const char *)g_folder_path,
+                    (const char *)P(r, REC_NAME));
+        toolsLoadDirectory(path);
+    } else if (I(g_class_type, 0) == CLASS_ALBUMS)
+        getMusicByAlbum(I(r, REC_ID) == -1 ? (const char *)0 : P(r, REC_ALBUM));
+    else /* load_album_detaillist 0xff01 -> load_localclass_list 0xff11 */
+        (I(g_artist_type, 0) == 1 ? getMusicByAlbumAndAlbumSonger : getMusicByAlbumAndSonger)(
+            P(r, REC_ALBUM), g_local_classinfo_save[0xa] ? (const char *)0 : P(r, REC_ARTIST),
+            I(r, REC_ID) == -2);
+    void *dir = P(tools_pdeq_directory, 0);
+    for (unsigned i = 0; i < deque_size(dir); ++i) {
+        void *t = deque_at(dir, i);
+        if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
+    }
+    deque_clear(dir);
+    deque_assign(dir, save);
+    deque_destroy(save);
+}
+
+/* Insert at pos+1 or append, then keep the shuffle pool, previous index and gapless preload
+ * consistent with the shifted indices. Playback state itself is never touched. */
+static void qm_insert(void *queue, void *add, unsigned size, int next) {
+    unsigned n = deque_size(add), pos = (unsigned)MCL(MCL_POS);
+    unsigned at = next && pos < size ? pos + 1 : size;
+    if (at == size)
+        for (unsigned i = 0; i < n; ++i) _deque_push_back(queue, deque_at(add, i));
+    else {
+        void *all = _create_deque("stSongInfo");
+        deque_init(all);
+        for (unsigned i = 0; i < size + n; ++i)
+            _deque_push_back(all, i < at       ? deque_at(queue, i)
+                                  : i < at + n ? deque_at(add, i - at)
+                                               : deque_at(queue, i - n));
+        deque_clear(queue);
+        deque_assign(queue, all);
+        deque_destroy(all);
+    }
+    void *pool = P(MCL_POOL, 0);
+    for (unsigned i = 0; i < deque_size(pool); ++i) {
+        int *index = deque_at(pool, i);
+        if ((unsigned)*index >= at) *index += (int)n;
+    }
+    for (unsigned i = 0; i < n; ++i) _deque_push_back(pool, (int)(at + i));
+    if (MCL(MCL_LASTPOS) != -1 && (unsigned)MCL(MCL_LASTPOS) >= at) MCL(MCL_LASTPOS) += (int)n;
+    /* A preload always targets pos+1 (or the wrap); only an insert there makes it stale.
+     * Same close as mclSetPlayMode @0x5ab29c. */
+    if (MCL(MCL_PRELOAD) == 1 && at == pos + 1) {
+        if (MCL(MCL_FD) != -1) send(MCL(MCL_FD), "{mcl-closegapless\\null}", 23, 0);
+        MCL(MCL_PRELOAD) = -1;
+    }
+    /* Shuffle picks at random: the first inserted track is forced once (ringnav_shuffle). */
+    if (next) {
+        st.qm_forced = MCL(MCL_MODE) == 2 ? at + 1 : 0;
+        st.qm_forced_hash = rec_hash(deque_at(queue, at));
+    }
+}
+
+static int qm_apply(int next) {
+    void *r = qm_record(), *queue = P(mcl_pdeqplaylist, 0);
+    if (!r || !queue || airplayGetFlag() == 2) return 0;
+    unsigned size = deque_size(queue), type = (unsigned)MCL(MCL_TYPE);
+    /* Only a local (folder or library) queue grows; streams keep theirs. */
+    if (size && type != 1 && (type & 0xf000) != 0xf000) return 0;
+    void *add = _create_deque("stSongInfo");
+    deque_init(add);
+    if (st.qm_kind == QM_SONG)
+        _deque_push_back(add, r);
+    else
+        qm_tracks(r, add);
+    unsigned n = deque_size(add);
+    if (n && !size) /* loads without starting playback */
+        mclLoadPlayList(add, 0, st.qm_kind == QM_FOLDER ? 1 : I(g_class_type, 0));
+    else if (n)
+        qm_insert(queue, add, size, next);
+    deque_destroy(add);
+    return n != 0;
+}
+
+static void toast(const char *text) {
+    struct {
+        int kind, ms;
+        char text[0x400];
+    } info = { 1, 2000, { 0 } };
+    for (unsigned i = 0; text[i]; ++i) info.text[i] = text[i];
+    navigator_to_with_context("dialog/msginfo_dialog", &info);
+}
+
+/* Deferred so the dialog is never closed under its own click dispatch. */
+static int qm_run(const void *unused) {
+    (void)unused;
+    st.qm_timer = 0;
+    if (!st.qm_dialog) return 0;
+    qm_close();
+    int next = st.qm_action == 1;
+    if (!qm_apply(next)) toast("Queue unchanged");
+    return 0;
+}
+
+/* Touch and centre both arrive as the row's click; the first one wins. */
+static int qm_pick(void *action, void *event) {
+    (void)event;
+    if (st.qm_dialog && !st.qm_timer) {
+        st.qm_action = (int)(long)action;
+        st.qm_timer = timer_add(qm_run, (void *)0, 0);
+    }
+    return 0;
+}
+
+/* Deferred out of the long-press dispatch. The sortselect init is synchronous and non-modal
+ * (it clears to_modal), so the dialog is the top window once navigator_to returns. */
+static int qm_open(const void *unused) {
+    (void)unused;
+    st.qm_timer = 0;
+    void *wm = window_manager(), *page = window_manager_get_top_window(wm);
+    void *r = usable() && !window_manager_is_animating(wm) ? qm_record() : (void *)0;
+    if (!r) return 0;
+    navigator_to("dialog/sortselect_dialog");
+    void *dialog = window_manager_get_top_window(wm);
+    if (dialog == page) return 0;
+    if (tk_strcmp(widget_get_prop_str(dialog, "name", ""), "sortselect_dialog")) {
+        window_close(dialog);
+        return 0;
+    }
+    void *back = widget_lookup(dialog, "img_return", 1),
+         *view = widget_lookup(dialog, "scroll_view", 1);
+    widget_off_by_func(dialog, EVT_KEY_UP, (void *)SORTSELECT_KEYUP, dialog);
+    widget_off_by_func(back, EVT_CLICK, (void *)SORTSELECT_CLOSE, dialog);
+    widget_on(dialog, EVT_KEY_UP, qm_back, dialog);
+    widget_on(back, EVT_CLICK, qm_back, dialog);
+    widget_on(dialog, EVT_DESTROY, qm_gone, dialog);
+    const char *title = P(r, st.qm_kind == QM_ALBUM ? REC_ALBUM : REC_NAME);
+    widget_set_text_utf8(widget_lookup(dialog, "scrlabel_title", 1), title ? title : "");
+    widget_destroy_children(view);
+    static const char *const rows[] = { "Play next", "Add to queue" };
+    for (int i = 0; i < 2; ++i) { /* stock sortselect row geometry and styles */
+        void *item = list_item_create(view, 0, i * 78, 375, 78);
+        widget_use_style(item, "s_listitem_black");
+        void *label = hscroll_label_create(item, 30, 0, 266, 70);
+        widget_use_style(label, "s_scrlabel_white24l");
+        widget_set_text_utf8(label, rows[i]);
+        widget_on(item, EVT_CLICK, qm_pick, (void *)(long)(i + 1));
+    }
+    widget_set_prop_int(view, "virtual_h", 2 * 78);
+    st.qm_dialog = dialog;
+    return 0;
+}
+
+/* The hold: the same gates and row as a centre press, on an audited local list whose rows are
+ * p_deque_showlist in order (row count checked). Everything else stays stock. */
+static int qm_hold(void) {
+    void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+    if (st.qm_dialog || st.qm_timer || !usable() || !allowed_top(top) ||
+        window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm) ||
+        airplayGetFlag() == 2 || g_navbar_status)
+        return 0;
+    const char *name = widget_get_prop_str(top, "name", "");
+    int kind = contexts[context_id(name)].kind;
+    void *w = surface_under(top, (void *)0, (void *)0, 0);
+    if (kind < CTX_FOLDER || !tk_strcmp(name, "artistinfo_page") || !w || !load(&g_menu, w, 1) ||
+        g_menu.ctx < 0 || g_menu.kind == 3)
+        return 0;
+    int cur = reconcile(&g_menu, !moving(&g_menu));
+    void *list = P(p_deque_showlist, 0);
+    if (cur < 0 || !list || deque_size(list) != (unsigned)g_menu.rows) return 0;
+    void *r = deque_at(list, g_menu.id[cur]);
+    unsigned cls = (unsigned)I(g_class_type, 0);
+    char *key = play_key();
+    if (!r || !key) return 0;
+    st.qm_kind = I(r, REC_TYPE) == 8 ? QM_SONG : 0;
+    if (kind == CTX_FOLDER) {
+        if (I(r, REC_TYPE) == 4) st.qm_kind = QM_FOLDER;
+    } else if (cls == CLASS_ALBUMS || cls == CLASS_ARTIST_ALBUMS)
+        st.qm_kind = QM_ALBUM;
+    else if ((cls >= 0xf004 && cls <= 0xf006) || cls == 0xff02 || cls == 0xff03)
+        st.qm_kind = 0; /* artist/composer/genre lists and their album lists: stock */
+    if (!st.qm_kind || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
+    st.qm_idx = (unsigned)g_menu.id[cur];
+    st.qm_rows = (unsigned)g_menu.rows;
+    st.qm_hash = rec_hash(r);
+    st.qm_browse = browse_hash();
+    st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
+    cancel_center();
+    drop_spin();
+    return 1;
+}
+
+/* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. */
+int ringnav_keylong(void *ctx, void *event) {
+    if (event && I(event, EVENT_KEY) == KEY_PLAY && qm_hold()) return STOP;
+    return stock_keylong_trampoline(ctx, event);
+}
+
+/* Replaces mclNextSong's shuffle pick call: stock picks and bookkeeps, then a pending Play next
+ * becomes the next track if it is still at its index. */
+int ringnav_shuffle(int forward) {
+    int result = mcl_shuffle_pick(forward);
+    void *queue = P(mcl_pdeqplaylist, 0);
+    unsigned at = st.qm_forced - 1;
+    st.qm_forced = 0;
+    if (queue && at < deque_size(queue) && rec_hash(deque_at(queue, at)) == st.qm_forced_hash)
+        MCL(MCL_POS) = (int)at;
+    return result;
+}
+
 int ringnav(void *ctx, void *event) {
     pull_cancel();
     /* The stock filter dereferences the event before returning. */
@@ -1148,6 +1435,7 @@ int ringnav(void *ctx, void *event) {
         return 0;
     }
     int result = stock_keyup_trampoline(ctx, event);
+    if (I(event, EVENT_KEY) == KEY_PLAY && hold_released()) return STOP;
     if (result) {
         cancel_center();
         if (I(event, EVENT_KEY) == KEY_PREV || I(event, EVENT_KEY) == KEY_NEXT) st.wheel_run = 0;

@@ -91,3 +91,33 @@
 #define ANIM_X_TO 0x60
 #define SLIDE_EASING 8          /* stock scroll_to easing */
 #define EVT_ANIM_END 0x125
+
+/* Play/Pause hold queue menu (QMENU.md, docs/internals.md). AWTK input_device_status lives at
+ * wm+0x98 (window_manager_get_input_device_status @0x66e734): 16 key records of 0x18 bytes from
+ * +0x30, each {key, long fired, u64 press time @8, aborted @0x10}. */
+#define EVT_KEY_LONG 0x111
+#define INPUT_KEYS 0x30
+#define INPUT_KEY_SIZE 0x18
+#define INPUT_KEY_COUNT 16
+#define INPUT_KEY_TIME 0x08
+/* stSongInfo rows of p_deque_showlist and the mcl queue. */
+#define REC_ID 0x00             /* -1/-2: unknown album/artist */
+#define REC_NAME 0x08
+#define REC_PATH 0x0c
+#define REC_ALBUM 0x14
+#define REC_ARTIST 0x18
+#define REC_TYPE 0x34           /* 8 song, 4 directory */
+#define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
+#define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
+/* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */
+#define MCL_POOL 0xa3bdb0       /* deque_t * of int: unplayed shuffle indices */
+#define MCL_LASTPOS 0xa3be90    /* shuffle "previous" index, -1 none */
+#define MCL_PRELOAD 0xa3be98    /* 1 preloaded, 0 none, -1 closed for this track */
+#define MCL_TYPE 0xa3bea0       /* queue classType: 1 folder, 0xfxxx local */
+#define MCL_POS 0xa3bea4
+#define MCL_MODE 0xa3bea8       /* 0 order, 1 repeat one, 2 shuffle, 3 repeat all */
+#define MCL_FD 0xa3beb4         /* player socket, -1 none */
+/* Stock sortselect_dialog callbacks the menu replaces: both set g_sort_changeflag, which makes
+ * allmusic reload and scroll to the top on return. */
+#define SORTSELECT_KEYUP 0x49f3e0
+#define SORTSELECT_CLOSE 0x49f3c0
