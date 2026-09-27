@@ -24,8 +24,7 @@ static struct {
     int screen, band, step, count, previous, rendered, dirty;
     peq_preset draft, candidate;
     char (*names)[256];
-    /* Preset in the editor; the applied one's name is kept in PEQ_ACTIVE_NAME. */
-    char destination[600], status[160], name[64];
+    char destination[600], status[160];
 } ui __attribute__((section(".scratch")));
 
 static const int steps[] = {1, 10, 100, 1000};
@@ -61,15 +60,6 @@ static void list_files(const char *folder, const char *extension) {
     closedir(dir);
     qsort(ui.names, ui.count, 256, compare_names);
     if (!ui.count && !ui.status[0]) snprintf(ui.status, sizeof(ui.status), "No presets found");
-}
-
-/* Edits to a named preset make the name read "HD650 (modified)". */
-static void mark_modified(void) {
-    static const char mark[] = " (modified)";
-    unsigned n = strlen(ui.name), m = sizeof(mark) - 1;
-    if (!n || (n >= m && !strcmp(ui.name + n - m, mark))) return;
-    if (n > sizeof(ui.name) - sizeof(mark)) n = sizeof(ui.name) - sizeof(mark);
-    memcpy(ui.name + n, mark, sizeof(mark));
 }
 
 /* File name in ui.destination: sizeof skips PEQ_SAVED and its "/". */
@@ -119,10 +109,6 @@ static int action(void *ctx, void *event) {
         if (peq_save(PEQ_ACTIVE, &ui.draft, 1) == 1) {
             peq_stock_eq(1);
             ui.dirty = 0;
-            /* Display only: a failed write drops the name rather than show a wrong one. */
-            void *f = fopen(PEQ_ACTIVE_NAME, "wb");
-            unsigned n = strlen(ui.name);
-            if (!f || (fwrite(ui.name, 1, n, f) != n) | fclose(f)) unlink(PEQ_ACTIVE_NAME);
             snprintf(ui.status, sizeof(ui.status), "Applied");
         } else snprintf(ui.status, sizeof(ui.status), "Apply failed; active EQ unchanged");
     } else if (id == YES) {
@@ -163,12 +149,11 @@ static int action(void *ctx, void *event) {
                 ui.draft = p;
                 ui.dirty = 1;
                 ui.screen = HOME;
-                snprintf(ui.name, sizeof(ui.name), "%.*s", (int)strlen(ui.names[id]) - 4, ui.names[id]);
-                snprintf(ui.status, sizeof(ui.status), "Loaded %s; choose Apply to activate", ui.name);
+                snprintf(ui.status, sizeof(ui.status), "Preset loaded; choose Apply to activate");
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
-    if (id >= ENABLE && id < STEP) { ui.dirty = 1; mark_modified(); } /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
+    if (id >= ENABLE && id < STEP) ui.dirty = 1; /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
     if (!ui.timer) ui.timer = timer_add(render, 0, 1);
     return 0;
 }
@@ -254,7 +239,7 @@ static int render(const void *unused) {
     widget_set_prop_int(title, "line_wrap", 1);
     if (ui.status[0]) snprintf(text, sizeof(text), "%s", ui.status);
     else if (ui.screen == BAND) snprintf(text, sizeof(text), "PEQ Band %d", ui.band + 1);
-    else snprintf(text, sizeof(text), ui.name[0] ? "PEQ: %s" : "PEQ", ui.name);
+    else snprintf(text, sizeof(text), "PEQ");
     widget_set_text_utf8(title, text);
     widget_invalidate_force(ui.page, 0);
     return 7; /* RET_REMOVE */
@@ -286,9 +271,6 @@ int peq_page_init(void *page, void *context) {
     ui.screen = HOME;
     ui.status[0] = 0;
     ui.dirty = 0;
-    ui.name[0] = 0;
-    void *f = fopen(PEQ_ACTIVE_NAME, "rb");
-    if (f) { ui.name[fread(ui.name, 1, sizeof(ui.name) - 1, f)] = 0; fclose(f); }
     peq_load_active(&ui.draft);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
