@@ -31,6 +31,22 @@
 #define VIEW_ANIMATOR 0xe8
 #define EVENT_TYPE 0x00
 #define EVENT_KEY 0x18
+#define EVENT_TARGET 0x10
+#define EVENT_X 0x18           /* pointer_event_init @0x640298 */
+#define EVENT_Y 0x1c
+#define EVT_POINTER_DOWN 0x100 /* wm registers on_wm_tsdown_before_fun for this type @0x523ef0 */
+#define EVT_POINTER_MOVE_BEFORE 0x102 /* wm move-before forwards this type to the down hook @0x523ed4 */
+#define EVT_POINTER_UP_BEFORE 0x104
+#define EVT_POINTER_ABORT 0x107
+#define EVT_DESTROY 0x0c
+#define EVT_KEY_DOWN_BEFORE 0x112 /* wm keydown-before dispatch @0x523e6c */
+#define EVT_KEY_UP 0x114          /* wm keyup dispatch @0x523eb8 */
+#define EVT_KEY_UP_BEFORE 0x115   /* wm keyup-before dispatch @0x523e80 */
+#define EVT_WINDOW_BACKGROUND 0x12a
+#define EVT_WINDOW_CLOSE 0x12c
+#define PULL_SEARCH_PX 48       /* device tuning: release distance from the initial touch */
+#define PULL_CLAIM_PX 8
+#define QUICK_EDGE_PX 31        /* stock on_wm_tsmove_fun @0x4e8d10 */
 #define EVT_CLICK 0x10c
 #define CANVAS_X 0x00
 #define CANVAS_Y 0x04

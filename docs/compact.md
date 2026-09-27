@@ -1,6 +1,6 @@
 # Compact audit and device checks
 
-V3.5R and V3.5C share one navigation payload. `--compact` enables compact-only
+V3.6R and V3.6C share one navigation payload. `--compact` enables compact-only
 payload helpers and build-time edits in `tools/compact.py`; normal receives no
 compact executable sites or UI assets. `patch/compact.json` records the original
 asset hashes and full MIPS instructions. The builder also pins the complete stock
@@ -9,7 +9,7 @@ ZIP and executable, rejects mismatches, and records every changed asset/site.
 AWTK binary UI files contain a four-byte magic, recursive widgets with a 32-byte
 type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only nine named
-local assets are accepted. The primary `view_navbar` stays allocated but invisible
+local browsing assets are accepted. The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
 moved into its space. The global status bar is outside these assets.
 
@@ -60,7 +60,20 @@ other long-key destination changes.
 
 ## Device checklist
 
+Acceleration, compact row layout and readability have been hardware-tested and
+confirmed by the user. Their parameters remain unchanged. The pull-to-search interaction
+requires the device checks below.
+
 Run this over both builds when validating a release.
+
+- **pull to search**: Compact Local Songs only: start at the list top, pull
+  47/48/49 pixels and release. Check both prompts, backing below the threshold,
+  horizontal swipes, ordinary taps, mid-list starts and empty lists. No row should
+  open after a claimed pull. Close search and confirm the same category/tab context.
+  Folder view must not respond. Interrupt a pull with wheel, buttons, navigation or
+  screen-off; the prompt must disappear without opening search. A pull starting at
+  screen y=30 belongs to quick settings; y=31 inside the list may start search.
+  Wheel end wrapping stays unchanged. Normal keeps its stock search toolbar.
 
 - **readability**: Browse Folder and Local Songs, artists, genres, albums, album
   tracks, artist tracks/albums and playlists. Check all four complete ordinary

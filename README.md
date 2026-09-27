@@ -4,7 +4,7 @@ Firmware mod for the Shanling Q2 that lets you use the scroll wheel to navigate 
 
 The touchscreen still works normally. Outside supported menus, the wheel continues to control volume.
 
-**Build variants: V3.5R (normal), V3.5C (compact)**
+**Build variants: V3.6R (normal), V3.6C (compact)**
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest)
 
@@ -16,7 +16,7 @@ Make sure the Q2 is charged before updating, and do not remove the microSD card 
 2. Unzip it and copy `update.tar` to the root of the microSD card.
 3. On the Q2, open **System settings → System Update → TF card update**.
 4. Confirm the update and wait for the player to restart.
-5. Open **About** and confirm it shows `V3.5R` for normal or `V3.5C` for compact.
+5. Open **About** and confirm it shows `V3.6R` for normal or `V3.6C` for compact.
 
 To restore stock firmware through the UI, flash the [Shanling Q2 official firmware](https://en.shanling.com/download/150) using **System settings → System Update → TF card update**.
 
@@ -28,11 +28,11 @@ If the UI is not working, use [Shanling's recovery package](https://drive.google
 
 ## Variants
 
-### Normal: `Q2.Firmware.V3.5.zip`
+### Normal: `Q2.Firmware.V3.6.zip`
 
 Keeps the stock UI and existing controls, including long Return → Home.
 
-### Compact: `Q2.Firmware.V3.5-compact.zip`
+### Compact: `Q2.Firmware.V3.6-compact.zip`
 
 Uses a denser layout for Folder and Local Songs browsing:
 
@@ -50,6 +50,7 @@ In compact mode, holding Return opens **Now Playing** without restarting playbac
 
 ## Controls
 
+- **Pull to search (compact):** In Local Songs, start inside the list while it is at the top and pull down. Release when “Release to search” appears at 48 pixels to open the stock search dialog. Move back below that distance to cancel. This works in empty lists; closing search returns to the same browsing context. Folder view has no stock search, so it does not respond to the pull. Pulling from the top 31 screen pixels still opens the stock quick-settings panel. Normal keeps its search toolbar.
 - **Turn the wheel:** Move through supported menu items. Vertical lists move one row per accepted tick.
 - **Long-list acceleration:** Lists with more than 16 rows accelerate during continuous same-direction scrolling. Every 100 ms of continuous ticks, with no more than 140 ms between them, adds one row to the step, up to eight rows per tick. Pausing, reversing or reaching an end resets it to one row.
 - **Home screen:** Each accepted wheel tick moves one icon. Isolated ticks use a 200 ms slide; consecutive same-direction ticks within 200 ms use 120 ms slides. Reversing immediately changes direction from the current visual position.
@@ -74,6 +75,8 @@ The Home screen keeps its normal selected-card appearance without the extra outl
 If you find a menu that behaves strangely, please open an issue and include the screen you were on and what you did.
 
 ## Changelog
+
+- **V3.6R / V3.6C**: Compact Local Songs opens search with a pull-down. Start inside the list while it is at the top; the overlay reads "Pull to search" after an 8-pixel downward drag and "Release to search" at 48 pixels. Releasing opens the stock search dialog, and moving back below the threshold cancels. The gesture clears on wheel or button input, navigation, screen-off or interruption and never activates a row. Empty lists work; Folder view and other lists are unchanged, and the normal build keeps its stock search toolbar.
 
 - **V3.5R / V3.5C**: In compact mode, ordinary list-row titles now use the full row width on every native relayout, reserving space only for visible artwork and trailing controls. Widths follow scrolling, row reuse and artwork/control visibility changes; short titles stay at their left position and overflowing titles still scroll or ellipsize. Other layouts and the normal build are unchanged.
 

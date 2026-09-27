@@ -13,9 +13,9 @@ import tempfile
 import zipfile
 from build import ROOT, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
-TAG = '3.5R'
-ASSETS = {'normal': 'Q2.Firmware.V3.5.zip', 'compact': 'Q2.Firmware.V3.5-compact.zip'}
-NOTES = '''- Compact: ordinary row titles now use the full row width on every native relayout, reserving space only for visible artwork and trailing controls. Widths follow scrolling, row reuse and artwork/control visibility changes; short titles stay at their left position and overflowing titles still scroll or ellipsize.
+TAG = '3.6R'
+ASSETS = {'normal': 'Q2.Firmware.V3.6.zip', 'compact': 'Q2.Firmware.V3.6-compact.zip'}
+NOTES = '''- Compact: pull down inside Local Songs while the list is at the top to open the stock search dialog. The overlay reads "Pull to search" after 8 pixels and "Release to search" at 48 pixels; release to search, or move back below the threshold to cancel. Empty lists work, Folder view and other lists are unchanged, and the normal build keeps its stock search toolbar.
 '''
 
 

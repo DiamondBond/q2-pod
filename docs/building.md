@@ -19,8 +19,8 @@ python3 tools/test_build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reprod
 python3 tools/test_patch.py /tmp/q2-build  # after: pip install -r requirements.txt
 ```
 
-`--dev` tags a build with the temporary higher version `V3.6R`/`V3.6C` so a test unit is
-distinguishable from the released `V3.5R`/`V3.5C` it replaces. It applies to that build only:
+`--dev` tags a build with the temporary higher version `V3.7R`/`V3.7C` so a test unit is
+distinguishable from the released `V3.6R`/`V3.6C` it replaces. It applies to that build only:
 the release procedure never passes `--dev`, and the manifest records `dev: true`.
 
 The suite executes the actual patched MIPS payload and stock key/touch filters. UI services are mocked; carousel checks execute native animator parameter writes and stock completion, with a deterministic animation scheduler, and audit the stock creation path. Separate scenarios execute the stock canvas clip/color/rectangle code and the stock rounded fill/stroke entry points down to mocked LCD and vgcanvas sinks.
@@ -40,3 +40,10 @@ A MIPS instruction-count regression check verifies that filling the position tab
 Two fresh builds must produce identical `update.tar` files. Packaging verifies MD5 entries, unchanged kernel and rootfs metadata, and a rootfs no larger than stock.
 
 For on-device acceptance, browse a long list and confirm immediate response, a smooth pull up to eight rows per tick and precise reversal. Confirm that wheel turns make the player's own scrollbar appear and fade on the lists that have one, and that no other list changes. Tap and swipe across panes and pages and confirm no outline lingers or returns until wheel/centre input; also try the bump and carry-over at a list end, and hold Return both from browsing and on Now Playing in the compact build. Tune `WHEEL_RUN_MS`, `WHEEL_RAMP_MS` and `WHEEL_MAX_STEP` if needed. Check the selected-row margin in ordinary and music lists, including their ends and tall rows; spin the home wheel and confirm rapid turns visibly advance through multiple icons, reverse midway through both slow and fast slides, and check that no unwanted movement remains after the final slide settles. Tap a row as soon as a list appears, and again while a long list is still settling, and confirm the touched row opens. Also browse parent → child → grandchild folders, return to each selected folder, and check quick turns on short menus. In the compact build, confirm ordinary row titles use the space up to visible artwork and trailing controls without overlap. Also revisit albums/queries and confirm their selections remain separate. Emulator checks do not replace this hardware check.
+
+For the pull-to-search build, run the same MIPS suite and asset
+checks for both variants, then build each twice and compare `update.tar`. The
+additional cases exercise native before-children pointer dispatch, abort delivery,
+threshold and cancellation boundaries, empty lists, the Folder-view exclusion, and
+stock search navigation and return. Use the device checklist in
+[compact.md](compact.md) before releasing this interaction.

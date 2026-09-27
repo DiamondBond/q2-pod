@@ -7,8 +7,8 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSIONS = {'normal': 'V3.5R', 'compact': 'V3.5C'}
-DEV_VERSIONS = {'normal': 'V3.6R', 'compact': 'V3.6C'}
+VERSIONS = {'normal': 'V3.6R', 'compact': 'V3.6C'}
+DEV_VERSIONS = {'normal': 'V3.7R', 'compact': 'V3.7C'}
 BASE = 0xb00000
 SCRATCH = 0xb0f000
 RING_STEP = 48
@@ -83,6 +83,17 @@ def fileoff(b, a):
     raise ValueError(f'Unmapped address {a:x}')
 
 FUNCTIONS = {
+ 'widget_on': ('unsigned', 'void *, unsigned, int (*)(void *, void *), void *'),
+ 'widget_set_visible': ('int', 'void *, int, int'),
+ 'widget_set_enable': ('int', 'void *, int'),
+ 'widget_set_text_utf8': ('int', 'void *, const char *'),
+ 'widget_use_style': ('int', 'void *, const char *'),
+ 'widget_set_name': ('int', 'void *, const char *'),
+ 'widget_set_sensitive': ('int', 'void *, int'),
+ 'widget_to_local': ('int', 'void *, void *'),
+ 'widget_dispatch_event_to_target_recursive': ('int', 'void *, void *'),
+ 'label_create': ('void *', 'void *, int, int, int, int'),
+ 'stock_search': ('int', 'void *, void *'),
  'widget_set_children_layout': ('int', 'void *, const char *'),
  'widget_resize': ('int', 'void *, int, int'),
  'widget_lookup': ('void *', 'void *, const char *, int'),
@@ -135,6 +146,7 @@ FUNCTIONS = {
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
+    "stock_search": 0x5241c4,
     "slide_menu_item_width": 0x5f3040,
     "slide_menu_on_scroll_done": 0x5f3654,
 }
@@ -209,9 +221,11 @@ def build(zip_path, out, logo, compact=False, dev=False):
                    f'#define stock_{name} stock_{name}_trampoline']
     for name,(ret,args) in FUNCTIONS.items():
         header.append(f'#define {name} (({ret} (*)({args}))0x{syms[name]:x}u)')
-    for name in GLOBALS:
-        header.append(f'#define {name} (*(volatile unsigned char *)0x{syms[name]:x}u)')
     symbol_table = run('readelf', '-Ws', demo)
+    for name in GLOBALS:
+        check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
+                        symbol_table, re.M), f'{name}: byte global size mismatch')
+        header.append(f'#define {name} (*(volatile unsigned char *)0x{syms[name]:x}u)')
     for name, size in CONTEXT_DATA.items():
         check(re.search(rf'\b{size}\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: context data size mismatch')
@@ -236,9 +250,16 @@ def build(zip_path, out, logo, compact=False, dev=False):
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
         patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
         hooks[name] = dict(address=hex(address), replacement=replacement, original=raw_demo[off:off+12].hex())
+    from compact import AUDIT, patch_asset, patch_code
+    # Pin added private entry points as well as every replaced instruction.
+    for name, original in AUDIT['private_prologues'].items():
+        off = fileoff(raw_demo, syms[name])
+        check(raw_demo[off:off+12].hex() == original, f'{name}: unexpected stock entry')
+    for address, original in AUDIT['event_abi_words'].items():
+        off = fileoff(raw_demo, int(address, 16))
+        check(raw_demo[off:off+4].hex() == original, f'{address}: unexpected event ABI instruction')
     code_changes = []
     if compact:
-        from compact import patch_code
         code_changes = patch_code(patched, fileoff, ps)
     # Single shared version literal: About display and updater equality check.
     check(patched.count(b'V1.32\0') == 1, 'Version literal is not unique')
@@ -277,17 +298,15 @@ def build(zip_path, out, logo, compact=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     changed_assets = {}
-    if compact:
-        from compact import AUDIT, patch_asset
-        for rel in AUDIT['assets']:
-            path = 'release/assets/default/raw/ui/' + rel
-            original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
-            data = patch_asset(rel, original)
-            target = out/'ui'/rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            p = swap_inode(p, path.encode(), target)
-            changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
+    for rel in (AUDIT['assets'] if compact else []):
+        path = 'release/assets/default/raw/ui/' + rel
+        original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
+        data = patch_asset(rel, original)
+        target = out/'ui'/rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        p = swap_inode(p, path.encode(), target)
+        changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
     pseudo.write_bytes(p)
     (out/'empty').mkdir()
     newsq = out/'rootfs.squashfs'
@@ -329,7 +348,7 @@ if __name__ == '__main__':
                     help='320x375 JPEG boot splash (default: assets/logo.jpg)')
     ap.add_argument('--compact', action='store_true', help='compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
-                    help='development build: temporary higher version tag (V3.6R/V3.6C); never a release input')
+                    help='development build: temporary higher version tag (V3.7R/V3.7C); never a release input')
     a=ap.parse_args()
     try:
         build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev)

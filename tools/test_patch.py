@@ -135,7 +135,7 @@ class Machine:
         return a
     def selected(self,w): return self.nodes[w].get('_ringnav_index',-1)
     def paint(self,w,gap=1000): return self.call(address=HOOKS['widget_on_paint_border'][0],args=(w,self.canvas,0,0),gap=gap)
-    def touch(self): return self.call(address=HOOKS['on_wm_tsdown_before_fun'][0])
+    def touch(self): return self.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'])
     def click(self,w): return self.call(address=HOOKS['widget_dispatch'][0],args=(w,self.event,0,0),event_type=O['EVT_CLICK'])
     def hook(self,u,address,size,_):
         if address==syms['widget_animator_scroll_set_params']:
@@ -151,7 +151,7 @@ class Machine:
         if name=='memcpy': self.u.mem_write(a,bytes(self.u.mem_read(b,c))); ret=a
         elif name=='memset': self.u.mem_write(a,bytes([b&255])*c); ret=a
         elif name in ('table_row_create', 'list_item_create', 'button_create', 'image_create', 'view_create',
-                       'hscroll_label_create', 'gif_image_create'):
+                       'hscroll_label_create', 'gif_image_create', 'label_create'):
             kind = {'gif_image_create': 'gif'}.get(name, name.removesuffix('_create'))
             ret = self.node(kind)
             for off, value in zip((O['W_X'], O['W_Y'], O['W_W'], O['W_H']),
@@ -160,6 +160,14 @@ class Machine:
             self.word(ret+O['W_PARENT'], a)
             self.nodes[a]['children'].append(ret)
         elif name=='widget_set_name': n['name']=self.text(b); ret=0
+        elif name=='widget_set_enable': n['enable']=b; ret=0
+        elif name=='widget_on': n.setdefault('handlers',[]).append((b,c,d)); ret=len(n['handlers'])
+        elif name=='widget_to_local':
+            x,y=signed(self.get(b)),signed(self.get(b+4))
+            while a:
+                x-=signed(self.get(a+O['W_X'])); y-=signed(self.get(a+O['W_Y']))
+                a=self.get(a+O['W_PARENT'])
+            self.word(b,x); self.word(b+4,y); ret=0
         elif name=='widget_set_text_utf8': n['text']=self.text(b); ret=0
         elif name=='widget_use_style': n['style']=self.text(b); ret=0
         elif name.startswith('hscroll_label_set_') or name=='set_hscroll_label_attribute':
@@ -2063,6 +2071,178 @@ if variant=='compact':
     m.block_open=True; long_return(m); assert m.top==browse
     assert m.call(170,gap=0)==11
     m.block_open=False; m.animating=1; long_return(m); assert m.top==browse
+    passed()
+
+# Pull-to-search observes the page's native before-children callbacks and stock dispatch.
+class PullMachine(Machine):
+    def child(self,page,name):
+        def walk(w):
+            if self.nodes[w]['name']==name:return w
+            for child in self.nodes[w]['children']:
+                found=walk(child)
+                if found:return found
+            return 0
+        return walk(page)
+    def emit(self,w,typ,x=100,y=90):
+        self.word(self.event+O['EVENT_TARGET'],w)
+        self.word(self.event+O['EVENT_Y'],y)
+        ret=0
+        for t,callback,ctx in list(self.nodes[w].get('handlers',[])):
+            if t==typ:
+                ret=self.call(key=x,address=callback,args=(ctx,self.event,0,0),event_type=typ,gap=0,clear=False)
+                if ret==11:break
+        return ret
+    def start_pull(self,page,w,x=100,y=60):
+        self.top=page; self.word(w+O['W_PARENT'],page);self.word(page+O['W_Y'],30)
+        self.word(self.event+O['EVENT_Y'],y)
+        return self.call(key=x,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=0)
+    def prompt(self,page):
+        w=self.child(page,'_pull_prompt')
+        return self.nodes[w] if w else {'visible':0}
+    def searches(self):return [c for c in self.calls if c[0]=='stock_search']
+
+# Stock constructors/dispatch establish these event numbers and fields, independently of mocks.
+m=Machine()
+for n in ('pointer_event_init','event_init'):m.handlers.pop(syms[n],None)
+p=m.alloc(48);m.call(address=syms['pointer_event_init'],args=(p,O['EVT_POINTER_DOWN'],m.wm,37),stack=(91,))
+assert m.get(p+O['EVENT_TARGET'])==m.wm and m.get(p+O['EVENT_X'])==37 and m.get(p+O['EVENT_Y'])==91
+assert m.get(p+4)==48;passed()
+
+# The stock wm registration fixes the type that reaches the hooked down callback. The
+# move-before thunk forwards 0x102; 0xff belongs to the separate stock on_wm_tsdown_fun.
+def wm_event_type(address):
+    return struct.unpack('<I',m.u.mem_read(address,4))[0]&0xffff
+assert wm_event_type(0x523ef0)==O['EVT_POINTER_DOWN']==0x100
+assert wm_event_type(0x523ed4)==O['EVT_POINTER_MOVE_BEFORE']==0x102
+assert wm_event_type(0x523f28)==0xff
+assert wm_event_type(0x523e6c)==O['EVT_KEY_DOWN_BEFORE']==0x112
+assert wm_event_type(0x523eb8)==O['EVT_KEY_UP']==0x114
+assert wm_event_type(0x523e80)==O['EVT_KEY_UP_BEFORE']==0x115
+passed()
+
+for page_name in ('folder_page','localmusic_page','allmusic_page'):
+    for empty in (False,True):
+        for distance in (0,7,8,47,48,49):
+            m=PullMachine()
+            if page_name=='folder_page':
+                w,rows,es=m.table_page(name=page_name)
+                if empty:m.word(w+O['TABLE_ROWS'],0);m.nodes[w]['children']=[]
+            else:w,es=m.page_list(0 if empty else 5,name=page_name)
+            page=m.top;m.start_pull(page,w)
+            m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=60+distance)
+            enabled=variant=='compact' and page_name=='localmusic_page'
+            assert bool(m.prompt(page)['visible'])==(enabled and distance>=8)
+            if enabled and distance>=8:
+                assert m.prompt(page)['text']==('Release to search' if distance>=48 else 'Pull to search')
+                assert m.click(es[0])==11 if es else True
+            # click() normally uses a one-second gap; gesture state still belongs to the page.
+            m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=60+distance)
+            assert len(m.searches())==(1 if enabled and distance>=48 else 0)
+            m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=120)
+            assert len(m.searches())==(1 if enabled and distance>=48 else 0)
+            assert not m.prompt(page)['visible']
+            passed()
+
+if variant=='compact':
+    # Local Songs' virtual table keeps its rows and top offset across a search.
+    m=PullMachine();w,rows,es=m.table_page(name='localmusic_page');page=m.top
+    m.start_pull(page,w);count=m.get(w+O['TABLE_ROWS'])
+    m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=120);m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=120)
+    assert len(m.searches())==1 and m.get(w+O['TABLE_ROWS'])==count and m.get(w+O['TABLE_TOP'])==0
+    # Stock search opens a dialog on this page; resuming it needs no index translation.
+    m.start_pull(page,w);m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=60)
+    assert m.click(es[0])==0
+    passed()
+    for cancel in ('below','horizontal','upward','midlist','outside','edge0','edge30','edge31',
+                   'wheel','button','screen','navigate','background','close','destroy','surface','abort','move_hook'):
+        m=PullMachine();w,es=m.page_list(8,height=240,name='localmusic_page');page=m.top
+        y=30 if cancel=='edge30' else 0 if cancel=='edge0' else 31 if cancel=='edge31' else 60
+        if cancel=='midlist':m.word(w+O['SCROLL_Y'],20)
+        m.start_pull(page,w,x=250 if cancel=='outside' else 100,y=y)
+        if cancel=='horizontal':m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],x=170,y=y+20)
+        elif cancel=='upward':m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=y-10)
+        m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=y+60)
+        if cancel=='below':m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=y+47)
+        elif cancel in ('wheel','button'):m.call(O['KEY_NEXT'] if cancel=='wheel' else O['KEY_PLAY'],gap=0)
+        elif cancel=='screen':m.byte(syms['g_backlight_status'],0);m.paint(w,gap=0)
+        elif cancel=='navigate':m.page('home_page');m.paint(m.top,gap=0)
+        elif cancel in ('background','close','destroy','surface','abort'):
+            typ=O[{'background':'EVT_WINDOW_BACKGROUND','close':'EVT_WINDOW_CLOSE','destroy':'EVT_DESTROY',
+                   'surface':'EVT_DESTROY','abort':'EVT_POINTER_ABORT'}[cancel]]
+            m.emit(w if cancel=='surface' else page,typ)
+        elif cancel=='move_hook':
+            # The native wm move-before (0x102) tail-calls the down-before hook (0x100).
+            # The move type must not restart the pull.
+            m.word(m.event+O['EVENT_Y'],y+60)
+            m.call(key=100,address=syms['on_wm_tsmove_before_fun'],event_type=O['EVT_POINTER_MOVE_BEFORE'],gap=0,clear=False)
+        m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=y+(47 if cancel=='below' else 60))
+        assert len(m.searches())==(1 if cancel in ('edge31','move_hook') else 0),cancel
+        assert not m.prompt(page)['visible'],cancel
+        passed()
+
+# Native before-children dispatch invokes the page callback before it can activate a row.
+class PullDispatchMachine(PullMachine):
+    def __init__(self):
+        super().__init__()
+        for n in ('widget_ref','widget_unref','widget_on_pointer_move_children','widget_on_pointer_up_children',
+                  'widget_on_event_before_children','widget_vtable_on_pointer_move','widget_vtable_on_pointer_up','emitter_dispatch'):
+            self.handlers[syms[n]]='input:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('input:'):return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address
+        a,b=[u.reg_read(r) for r in REGS[:2]];self.calls.append((name,a,b,0))
+        if name=='input:emitter_dispatch':
+            matches=[(cb,ctx) for typ,cb,ctx in self.nodes[a].get('handlers',[]) if typ==self.get(b)]
+            assert len(matches)<=1
+            if matches:
+                cb,ctx=matches[0];u.reg_write(UC_MIPS_REG_A0,ctx)
+                u.reg_write(UC_MIPS_REG_T9,cb);u.reg_write(UC_MIPS_REG_PC,cb);return
+        u.reg_write(UC_MIPS_REG_V0,0);u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+
+if variant=='compact':
+    for distance in (7,48):
+        m=PullDispatchMachine();w,es=m.page_list(5,height=240,name='localmusic_page');page=m.top
+        m.start_pull(page,w)
+        m.word(page+0x74,1);m.word(page+O['W_EMITTER'],page)
+        m.word(m.event+O['EVENT_Y'],60+distance)
+        for fn,typ in (('widget_on_pointer_move',0x101),('widget_on_pointer_up',0x103)):
+            m.calls=[]
+            ret=m.call(key=100,address=syms[fn],args=(page,m.event,0,0),event_type=typ,gap=0,clear=False)
+            child_calls=[c for c in m.calls if c[0]=='input:'+fn+'_children']
+            assert (ret==11 and not child_calls) if distance>=8 else bool(child_calls)
+        assert len(m.searches())==(distance>=48)
+        passed()
+    # Native abort delivery follows the pressed target chain; it is not an EVT_CLICK.
+    m=PullMachine();w,es=m.page_list(3,height=240,name='localmusic_page');page=m.top
+    m.start_pull(page,w);m.handlers.pop(syms['widget_dispatch_event_to_target_recursive'])
+    m.word(page+0x4c,w);m.word(w+0x4c,es[0])
+    m.calls=[];m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=120)
+    assert [c[1] for c in m.dispatched()]==[w,es[0]] and not m.clicks
+    m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=100);assert not m.searches()
+    assert m.click(es[0])==11
+    passed()
+
+    # Use the stock search callback, navigator and Back path. Only resource initialization
+    # and window storage are mocked, as in the Now Playing navigation cases above.
+    class SearchNavigationMachine(PullMachine,NavigationMachine):
+        def __init__(self):
+            super().__init__()
+            self.handlers.pop(syms['stock_search'],None)
+            self.handlers.pop(syms['navigator_to'],None)
+            self.handlers[syms['dialog_search_dialog_init']]='nav:dialog_search_dialog_init'
+            self.handlers[syms['widget_on']]='widget_on'
+    m=SearchNavigationMachine();w,es=m.page_list(6,height=240,name='localmusic_page');page=m.top
+    m.order=[page];m.sync_order()
+    m.start_pull(page,w);m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=120)
+    m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=120)
+    assert m.nodes[m.top]['name']=='dialog/search_dialog' and m.order[0]==page
+    # The stock dialog owns its Back handling and its callbacks are outside this harness;
+    # model the window manager popping it. The Local Songs page must still be the same
+    # instance with its offset and rows untouched.
+    m.order.remove(m.top);m.sync_order()
+    assert m.top==page
+    assert m.get(w+O['SCROLL_Y'])==0 and len(m.nodes[w]['children'])==6
     passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

@@ -57,6 +57,11 @@ typedef struct {
     void *fx_surface;
     int fx_token, bump_dir, edge_dir, edge_id;
     unsigned fx_timer, edge_time;
+#if COMPACT
+    void *pull_page, *pull_surface;
+    int pull_x, pull_y, pull_claimed;
+    unsigned pull_scope;
+#endif
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
 
@@ -795,6 +800,123 @@ static void native_scrollbar(menu_t *m) {
     }
 }
 
+#if COMPACT
+#define PULL_BOUND "_pull_bound"
+#define PULL_SUPPRESS "_pull_suppress"
+#define PULL_PROMPT "_pull_prompt"
+
+static void pull_cancel(void) {
+    void *page = st.pull_page;
+    st.pull_page = st.pull_surface = (void *)0;
+    st.pull_claimed = 0;
+    /* Stock widget_set_visible rejects a NULL widget; an absent prompt needs no local guard. */
+    if (page) widget_set_visible(widget_lookup(page, PULL_PROMPT, 1), 0, 0);
+}
+
+static int pull_live(void) {
+    unsigned scope;
+    if (!st.pull_page) return 0;
+    void *wm = window_manager();
+    if (!usable() || window_manager_is_animating(wm) ||
+        window_manager_get_top_window(wm) != st.pull_page)
+        return 0;
+    context_now(&scope);
+    return scope == st.pull_scope;
+}
+
+static int pull_event(void *page, void *event) {
+    if (page != st.pull_page) return 0;
+    unsigned type = I(event, EVENT_TYPE);
+    if (type == EVT_DESTROY || type == EVT_WINDOW_BACKGROUND || type == EVT_WINDOW_CLOSE ||
+        type == EVT_POINTER_ABORT || !pull_live()) {
+        pull_cancel();
+        return 0;
+    }
+    int dx = I(event, EVENT_X) - st.pull_x;
+    int dy = I(event, EVENT_Y) - st.pull_y;
+    if (dx < 0) dx = -dx;
+    int release = type == EVT_POINTER_UP_BEFORE;
+    if (!st.pull_claimed) {
+        if (release || (dx >= PULL_CLAIM_PX && dx >= dy) || dy <= -PULL_CLAIM_PX) {
+            pull_cancel();
+            return 0;
+        }
+        if (dy < PULL_CLAIM_PX) return 0;
+        st.pull_claimed = 1;
+        prop(st.pull_surface, PULL_SUPPRESS, 1);
+        /* Abort the native pressed targets before swallowing move/up; native widgets clear
+         * their pressed state and grabs. A canceled search must not turn into a row click. */
+        unsigned abort_event[12];
+        pointer_event_init(abort_event, EVT_POINTER_ABORT, page, st.pull_x, st.pull_y);
+        widget_dispatch_event_to_target_recursive(page, abort_event);
+        if (load_rows(&g_menu, st.pull_surface)) stop_scroll(&g_menu);
+    }
+    int ready = dy >= PULL_SEARCH_PX && dy > dx;
+    if (release) {
+        pull_cancel(); /* clear before stock search can navigate or destroy anything */
+        if (ready) stock_search(page, event);
+        return STOP;
+    }
+    void *prompt = widget_lookup(page, PULL_PROMPT, 1);
+    if (!prompt) {
+        prompt = label_create(page, 0, 0, I(page, W_W), 44);
+        if (prompt) {
+            widget_set_name(prompt, PULL_PROMPT);
+            widget_use_style(prompt, "s_label_white18c");
+            widget_set_enable(prompt, 0);
+            widget_set_sensitive(prompt, 0);
+            prop(prompt, "floating", 1);
+            prop(prompt, "style:disable:bg_color", (int)0xff000000u);
+            prop(prompt, "style:disable:text_color", (int)0xffffffffu);
+        }
+    }
+    if (prompt) {
+        widget_set_text_utf8(prompt, ready ? "Release to search" : "Pull to search");
+        widget_set_visible(prompt, dy > 0, 0);
+    }
+    return STOP;
+}
+
+static void pull_begin(void *event) {
+    pull_cancel();
+    if (!event || I(event, EVENT_Y) < QUICK_EDGE_PX) return;
+    void *page = window_manager_get_top_window(window_manager());
+    if (!page) return;
+    const char *name = widget_get_prop_str(page, "name", "");
+    if (tk_strcmp(name, "localmusic_page")) return;
+    void *w = surface((void *)0, (void *)0);
+    if (!w) return;
+    prop(w, PULL_SUPPRESS, 0);
+    int xy[2] = { I(event, EVENT_X), I(event, EVENT_Y) };
+    widget_to_local(w, xy);
+    if (xy[0] < 0 || xy[1] < 0 || xy[0] >= I(w, W_W) || xy[1] >= I(w, W_H) ||
+        I(w, kind(w) == 2 ? TABLE_TOP : SCROLL_Y) > 0)
+        return;
+    if (!widget_get_prop_int(page, PULL_BOUND, 0)) {
+        if (!widget_on(page, EVT_DESTROY, pull_event, page) ||
+            !widget_on(page, EVT_WINDOW_BACKGROUND, pull_event, page) ||
+            !widget_on(page, EVT_WINDOW_CLOSE, pull_event, page) ||
+            !widget_on(page, EVT_POINTER_ABORT, pull_event, page) ||
+            !widget_on(page, EVT_POINTER_MOVE_BEFORE, pull_event, page) ||
+            !widget_on(page, EVT_POINTER_UP_BEFORE, pull_event, page))
+            return;
+        prop(page, PULL_BOUND, 1);
+    }
+    if (!widget_get_prop_int(w, PULL_BOUND, 0)) {
+        if (!widget_on(w, EVT_DESTROY, pull_event, page)) return;
+        prop(w, PULL_BOUND, 1);
+    }
+    st.pull_page = page;
+    st.pull_surface = w;
+    st.pull_x = I(event, EVENT_X);
+    st.pull_y = I(event, EVENT_Y);
+    context_now(&st.pull_scope);
+}
+#else
+#define pull_cancel() ((void)0)
+#define pull_begin(event) ((void)0)
+#endif
+
 /* Stock paints children first and calls this with the surface's canvas origin restored.
  * The selected row gets one neutral white outline seated on a dark shade line: the shade is the
  * stock dark surface at an alpha high enough to hold the white over bright album art, and being
@@ -802,6 +924,9 @@ static void native_scrollbar(menu_t *m) {
  * row readable over artwork without borrowing the red "playing" language or the native focus
  * flag. Small rows and degenerate geometry keep the square fallback. */
 int ringnav_paint(void *w, void *canvas) {
+#if COMPACT
+    if (st.pull_page && !pull_live()) pull_cancel();
+#endif
     int result = stock_paint(w, canvas);
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
@@ -885,6 +1010,9 @@ int ringnav_touch(void *ctx, void *event) {
     cancel_center();
     drop_spin();
     fx_cancel();
+    /* Stock move-before forwards to this down-before entry too. Only a real down starts
+     * a new pull; the page's native before-children callbacks observe subsequent motion. */
+    if (!event || I(event, EVENT_TYPE) == EVT_POINTER_DOWN) pull_begin(event);
     void *w = surface((void *)0, (void *)0);
     /* Pointer-down must not recall/rebind the row that native touch is about to hit. */
     if (!result && w && load_rows(&g_menu, w)) {
@@ -909,6 +1037,16 @@ static int selects(menu_t *m, void *target) {
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
+#if COMPACT
+    if (st.pull_page &&
+        (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
+        pull_cancel();
+    if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
+        for (void *w = target; w; w = P(w, W_PARENT))
+            if (widget_get_prop_int(w, PULL_SUPPRESS, 0)) return STOP;
+        pull_cancel();
+    }
+#endif
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
         hide_outline();
         cancel_center(); /* A native activation supersedes confirmation, even without touch. */
@@ -988,6 +1126,7 @@ int compact_set_row_layout(void *row, const char *params) {
 
 /* Called only by stock long Return, after its power/lock gates and release guard. */
 int compact_now_playing(void) {
+    pull_cancel();
     cancel_center();
     drop_spin();
     void *wm = window_manager();
@@ -1012,6 +1151,7 @@ int compact_now_playing(void) {
 #endif
 
 int ringnav(void *ctx, void *event) {
+    pull_cancel();
     /* The stock filter dereferences the event before returning. */
     if (!event) {
         cancel_center();
