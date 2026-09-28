@@ -59,6 +59,8 @@ int tk_strcmp(const char *, const char *);
 unsigned timer_add(int (*)(const void *), void *, unsigned);
 int timer_remove(unsigned);
 int navigator_back_to_home(void), navigator_to_with_context(const char *, const void *);
+void *window_manager(void);
+int window_manager_get_pointer_pressed(void *);
 """
 
 TEST = r"""
@@ -110,8 +112,8 @@ int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     if (!x) return 0;
-    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY || type == EVT_POINTER_UP_BEFORE) {
-        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : type == EVT_DESTROY ? 8191 : 8189); /* page handlers */
+    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY) {
+        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : 8191); /* page handlers */
         h->click = f; h->ctx = ctx;
     }
     return 1;
@@ -139,10 +141,13 @@ int slide_menu_scroll_to(void *x, int to) {
     return 0;
 }
 int widget_ungrab(void *p, void *c) { assert(W(c)->parent == W(p) - w); ++ungrabs; return 0; }
+static int pressed;
+void *window_manager(void) { return &pressed; }
+int window_manager_get_pointer_pressed(void *wm) { return *(int *)wm; }
 int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0; }
 
-static int (*timer_fn)(const void *);
-unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return 1; }
+static int (*timer_fn)(const void *), (*last_fn)(const void *);
+unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = last_fn = f; return 1; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; return 0; }
 static void run(void) { while (timer_fn) { int (*f)(const void *) = timer_fn; timer_fn = 0; usleep(1000); f(0); } }
 
@@ -331,20 +336,22 @@ int main(void) {
     open_page();
     assert(size("C") == 9 && !strcmp(made[calls - 1], "cover.jpg"));
 
-    /* A drag stock never saw released snaps to the nearest cover and drops its grab; a snap
-       already running, or a settled menu, is left alone. */
+    /* Covers at rest between albums snap to the nearest one and drop the stale grab; a finger
+       still down, a snap already running, or a settled menu is left alone. The check repeats. */
     s = slide();
     char *raw = s->raw;
+    int (*settle)(const void *) = last_fn;
     *(void **)(raw + W_PARENT) = &w[s->parent];
     *(int *)(raw + SLIDE_INDEX) = 2; *(int *)(raw + SLIDE_OFFSET) = -250; raw[SLIDE_DRAG] = raw[SLIDE_DRAG + 1] = 1;
-    w[8189].click(0, 0); run();
+    pressed = 1; assert(settle(0) == 8 && !anims);
+    pressed = 0; assert(settle(0) == 8);
     assert(anims == 1 && anim_from == -250 && anim_to == -320 && ungrabs == 1 && !raw[SLIDE_DRAG] && !raw[SLIDE_DRAG + 1]);
+    settle(0); assert(anims == 1); /* the snap is running */
     *(int *)(raw + SLIDE_OFFSET) = anim_to; slide_menu_on_scroll_done(s, 0); /* the animator's end */
     assert(*(int *)(raw + SLIDE_INDEX) == 4);
-    *(int *)(raw + SLIDE_OFFSET) = 70; w[8189].click(0, 0); run();
+    *(int *)(raw + SLIDE_OFFSET) = 70; settle(0);
     assert(anims == 2 && anim_to == 0);
-    *(void **)(raw + SLIDE_ANIMATOR) = &anim_from; w[8189].click(0, 0); run();
-    *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; w[8189].click(0, 0); run();
+    *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; settle(0);
     assert(anims == 2 && ungrabs == 1);
 
     /* Refresh (the last card) clears the cache and rebuilds every album. */

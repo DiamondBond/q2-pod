@@ -262,7 +262,7 @@ class Machine:
             ret=0 if self.timer_fail else self.next_timer
             if ret:
                 self.next_timer+=1
-                self.timers[ret]=(self.now+c,a,b)
+                self.timers[ret]=(self.now+c,a,b,c)
         elif name=='timer_remove': self.timers.pop(a,None); ret=0
         elif name=='screen_action': self.screens.append(a); ret=1
         elif name in ('tk_strcmp','strcmp@GLIBC_2.0'): ret=0 if a and b and self.text(a)==self.text(b) else -1
@@ -380,17 +380,19 @@ class Machine:
         assert [self.u.reg_read(r) for r in SAVED]==[0x12340000+i for i in range(len(SAVED))]
         return signed(self.u.reg_read(UC_MIPS_REG_V0))
     def advance(self,ms,clear=True):
-        """Run due one-shot UI timers deterministically, including the exact deadline."""
+        """Run due UI timers deterministically, including the exact deadline; RET_REPEAT re-arms."""
         if clear: self.calls=[]
         end=self.now+ms
         while self.timers:
-            tid,(due,callback,ctx)=min(self.timers.items(),key=lambda item:item[1][0])
+            tid,(due,callback,ctx,period)=min(self.timers.items(),key=lambda item:item[1][0])
             if due>end: break
             self.now=due
             del self.timers[tid]
             info=self.alloc(0x58)
             self.word(info+0x20,ctx); self.word(info+0x28,tid)
-            assert self.call(address=callback,args=(info,0,0,0),gap=0,clear=False)==0
+            ret=self.call(address=callback,args=(info,0,0,0),gap=0,clear=False)
+            assert ret in (0,8) and (ret==0 or period>0)
+            if ret==8 and tid not in self.timers: self.timers[tid]=(due+period,callback,ctx,period)
         self.now=end
         for a,(start,duration,w,origin,goal) in list(self.slides.items()):
             elapsed=min(end-start,duration)
