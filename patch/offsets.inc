@@ -89,6 +89,11 @@
 #define LETTER_ALPHA 0xd9
 #define LETTER_PX 60
 #define LETTER_MS 400
+/* iPod Now Playing scrub: SCRUB_STEP seconds per detent times the list ramp, the seek SEEK_MS after
+ * the last detent, and the wheel back on volume after SCRUB_MS without input. */
+#define SCRUB_STEP 5
+#define SEEK_MS 150
+#define SCRUB_MS 3000
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */

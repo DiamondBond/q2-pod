@@ -197,6 +197,9 @@ FUNCTIONS = {
  'scroll_view_create': ('void *', 'void *, int, int, int, int'),
  'navigator_back': ('int', 'void'),
  'write_int_config': ('int', 'int, const char *, const char *'),
+ 'playing_timer_start': ('int', 'void *'),
+ 'playing_timer_clear': ('int', 'void *'),
+ 'player_seek_time': ('int', 'int'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {

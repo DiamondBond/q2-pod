@@ -196,6 +196,14 @@ The bar is plain colour: a `#1C1C1C` track (`BAR_BOTTOM`) and a Graphite `#6E6E6
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/compact.py`; see [internals.md](internals.md#now-playing-ipod).
 
+**Scrub.** The centre button starts scrubbing, as on an iPod classic, and the bar fill turns white
+while it lasts. Each wheel tick moves 5 seconds, times the same ramp as a long list (up to 40
+seconds a tick while spinning), within the track. Both times and the bar follow the target, and the
+track jumps there 150 ms after the last tick. Centre again, Return, a touch or 3 seconds without a
+tick give the wheel back to the volume; Return then stays on the page. A double press still turns
+the screen off. Values are `SCRUB_*` and `SEEK_MS` in `patch/offsets.inc`; see
+[internals.md](internals.md#scrub-ipod).
+
 ## Device checklist
 
 Every check below has been hardware-tested on both builds and confirmed by the

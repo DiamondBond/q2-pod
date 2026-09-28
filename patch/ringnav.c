@@ -73,9 +73,13 @@ typedef struct {
     unsigned title_hash; /* of the status bar title last set, 0 before the first */
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
-    void *np_win, *np_pos, *np_album, *np_slider, *np_remain;
+    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
     int np_left;
+    /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press; scrub_to is the
+     * target second. */
+    unsigned np_press, np_press_at, scrub_timer, seek_timer, scrub_track;
+    int scrub, scrub_to;
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -1000,6 +1004,12 @@ static void paint_chevrons(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
+/* Restart a one-shot UI timer; a failed add leaves it 0. */
+static void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms) {
+    if (*timer) timer_remove(*timer);
+    *timer = timer_add(fn, (void *)0, ms);
+}
+
 static int letter_expire(const void *info) {
     (void)info;
     st.letter_timer = 0;
@@ -1174,8 +1184,18 @@ static void title_sync(void *bar, void *top) {
         widget_set_text(label, text);
 }
 
+/* Seconds in stock's toolsTimeItoa formats, after a sign. */
+static void clock_text(void *label, const char *sign, int t) {
+    char s[16];
+    if (t >= 3600)
+        tk_snprintf(s, sizeof s, "%s%02d:%02d:%02d", sign, t / 3600, t / 60 % 60, t % 60);
+    else
+        tk_snprintf(s, sizeof s, "%s%02d:%02d", sign, t / 60, t % 60);
+    widget_set_text_utf8(label, s);
+}
+
 /* Now Playing's "3 of 12", album and remaining time (slider max less value, stock's seconds, so a
- * drag previews it). Labels are written only when their source changes. */
+ * drag or scrub previews it). Labels are written only when their source changes. */
 static void np_sync(void *top) {
     if (!top || top != st.np_win) return;
     unsigned at, n;
@@ -1194,11 +1214,116 @@ static void np_sync(void *top) {
     if (left < 0) left = 0;
     if (left == st.np_left) return;
     st.np_left = left;
-    if (left >= 3600) /* stock's toolsTimeItoa formats */
-        tk_snprintf(s, sizeof s, "-%02d:%02d:%02d", left / 3600, left / 60 % 60, left % 60);
-    else
-        tk_snprintf(s, sizeof s, "-%02d:%02d", left / 60, left % 60);
-    widget_set_text_utf8(st.np_remain, s);
+    clock_text(st.np_remain, "-", left);
+}
+
+/* Scrub (docs/internals.md#scrub-ipod) follows stock's own key seek (0x52c754): the page's 250 ms
+ * timer stops, the slider and label_playtime show the target, player_seek_time commits it in
+ * track seconds (it adds a CUE track's start), and the timer restarts. */
+/* The playing track: its queue position and path. */
+static unsigned np_track(void) {
+    unsigned at, n;
+    void *r = queue_now(&at, &n);
+    return r ? fnv(hash_bytes(FNV_SEED, (const unsigned char *)&at, sizeof at), P(r, REC_PATH)) : 0;
+}
+
+/* A track change since the scrub began ends it without seeking. */
+static void scrub_end(void);
+static int np_seek(const void *info) {
+    (void)info;
+    st.seek_timer = 0;
+    if (np_track() != st.scrub_track)
+        scrub_end();
+    else /* ponytail: blocks the UI up to 2 s, as stock's key seek; commit only on exit if sticky */
+        player_seek_time(st.scrub_to);
+    return 0;
+}
+
+/* A white bar fill marks the scrub; ACCENT_HI is the asset's own fill (NP_FILL, compact.py). */
+static void np_fill(unsigned color) {
+    widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
+    widget_invalidate_force(st.np_slider, (void *)0);
+}
+
+/* Commits a pending seek; the page's timer and fill come back unless the page is gone. */
+static void scrub_end(void) {
+    if (!st.scrub) return;
+    st.scrub = 0;
+    if (st.scrub_timer) timer_remove(st.scrub_timer);
+    st.scrub_timer = 0;
+    if (st.seek_timer) {
+        timer_remove(st.seek_timer);
+        np_seek((void *)0);
+    }
+    if (!st.np_win) return;
+    np_fill(RGBA(ACCENT_HI));
+    playing_timer_start(st.np_win);
+}
+
+static int scrub_expire(const void *info) {
+    (void)info;
+    st.scrub_timer = 0;
+    scrub_end();
+    return 0;
+}
+
+static void np_cancel(void) {
+    if (st.np_press) timer_remove(st.np_press);
+    st.np_press = 0;
+    scrub_end();
+}
+
+static int np_toggle(const void *info) {
+    (void)info;
+    st.np_press = 0;
+    void *wm = window_manager();
+    if (st.scrub)
+        scrub_end();
+    else if (st.np_slider && usable() && window_manager_get_top_window(wm) == st.np_win &&
+             !window_manager_is_animating(wm)) {
+        st.scrub = 1;
+        st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
+        st.scrub_track = np_track();
+        playing_timer_clear(st.np_win);
+        np_fill(0xffffffff);
+        rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
+    }
+    return 0;
+}
+
+/* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press toggles
+ * DOUBLE_CLICK_MS later, so a second one still reaches stock's screen off. The wheel moves the
+ * target SCRUB_STEP seconds times the list ramp, within the track, and seeks SEEK_MS after the
+ * last detent; neither the volume nor its dialog sees it. */
+static int np_key(void *top, unsigned key) {
+    unsigned now = (unsigned)time_now_ms();
+    if (key == KEY_CENTER) {
+        if (st.np_press) {
+            timer_remove(st.np_press);
+            st.np_press = 0;
+            if (now - st.np_press_at < DOUBLE_CLICK_MS) {
+                scrub_end();
+                return 0;
+            }
+            np_toggle((void *)0); /* overdue: that press was a single one */
+        }
+        st.np_press_at = now;
+        st.np_press = timer_add(np_toggle, (void *)0, DOUBLE_CLICK_MS);
+        return STOP;
+    }
+    int dir = key == KEY_NEXT ? 1 : -1;
+    g_menu.w = st.np_slider; /* a long list for the ramp: the step grows while the wheel spins */
+    g_menu.rows = SHORT_LIST_MAX + 1;
+    g_menu.scope = 0;
+    g_menu.ctx = -1;
+    int step = SCRUB_STEP * wheel_step(&g_menu, top, dir, now);
+    st.scrub_to = clamp_step(st.scrub_to, widget_get_prop_int(st.np_slider, "max", 0), dir * step);
+    widget_set_prop_int(st.np_slider, "value", st.scrub_to);
+    clock_text(st.np_elapsed, "", st.scrub_to);
+    np_sync(top);
+    rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
+    rearm(&st.seek_timer, np_seek, SEEK_MS);
+    return STOP;
 }
 
 static int np_gone(void *win, void *event) {
@@ -1206,6 +1331,10 @@ static int np_gone(void *win, void *event) {
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
+        st.np_slider = st.np_elapsed = (void *)0;
+        if (st.seek_timer) timer_remove(st.seek_timer); /* the page is going: no seek */
+        st.seek_timer = 0;
+        np_cancel();
     }
     return 0;
 }
@@ -1219,6 +1348,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_album = widget_lookup(win, "label_ipod_album", 1);
     st.np_slider = widget_lookup(win, "slider_play", 1);
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
+    st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_hash = 0;
     st.np_left = -1;
     widget_on(win, EVT_DESTROY, np_gone, win);
@@ -1252,6 +1382,8 @@ int ringnav_paint_bg(void *w, void *canvas) {
     }
     return result;
 }
+#else
+#define np_cancel() ((void)0)
 #endif
 
 static void hide_outline(void) {
@@ -1261,6 +1393,7 @@ static void hide_outline(void) {
 }
 
 int ringnav_touch(void *ctx, void *event) {
+    np_cancel(); /* before the slider sees the touch, so a drag seeks the stock way */
     hide_outline();
     int result = stock_touch_trampoline(ctx, event);
     /* A tap is a fresh interaction: it cancels a pending screen-toggle pair and any spin. */
@@ -1703,6 +1836,12 @@ int ringnav(void *ctx, void *event) {
         return result;
     }
     unsigned key = (unsigned)I(event, EVENT_KEY);
+#if IPOD
+    if (key == KEY_RETURN && st.scrub) { /* ends the scrub without leaving the page */
+        np_cancel();
+        if (window_manager_get_top_window(window_manager()) == st.np_win) return STOP;
+    }
+#endif
     if (key != KEY_CENTER && key != KEY_PREV && key != KEY_NEXT) return result;
     if (key == KEY_CENTER) {
         drop_spin();
@@ -1727,6 +1866,12 @@ int ringnav(void *ctx, void *event) {
         return result;
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+#if IPOD
+    if (top != st.np_win || window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm))
+        np_cancel();
+    else if (key == KEY_CENTER || st.scrub)
+        return np_key(top, key);
+#endif
     if (!allowed_top(top)) {
         cancel_center();
         drop_spin();
@@ -1791,10 +1936,7 @@ int ringnav(void *ctx, void *event) {
     }
     int step = wheel_step(&g_menu, top, dir, now);
 #if IPOD
-    if (step > 1) {
-        if (st.letter_timer) timer_remove(st.letter_timer);
-        st.letter_timer = timer_add(letter_expire, (void *)0, LETTER_MS);
-    }
+    if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
 #endif
     native_scrollbar(&g_menu);
     if (g_menu.kind == 3) {
