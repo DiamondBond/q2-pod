@@ -43,11 +43,6 @@ LIBC = {
     'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
     'strdup': ('char *', 'const char *'),
 }
-UI = {
-    'list_view_create': ('void *', 'void *, int, int, int, int'),
-    'scroll_view_create': ('void *', 'void *, int, int, int, int'),
-    'navigator_back': ('int', 'void'),
-}
 
 def compile_common(out, binary, player=False):
     got = {}
@@ -74,7 +69,7 @@ def compile_common(out, binary, player=False):
             asm += [f'.globl {name}', f'.set {name}, peq_lib_{name}']
     if not player:
         syms = symbols(binary) | PRIVATE_FUNCTIONS
-        for name, (ret, args) in (FUNCTIONS | UI).items():
+        for name, (ret, args) in FUNCTIONS.items():
             if name in syms and syms[name]:
                 header.append(f'#define {name} (({ret} (*)({args}))0x{syms[name]:x}u)')
         # build.py has already checked each is a one-byte global.

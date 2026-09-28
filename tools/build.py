@@ -175,6 +175,9 @@ FUNCTIONS = {
  'image_base_set_image': ('int', 'void *, const char *'),
  'widget_load_image': ('int', 'void *, const char *, void *'),
  'widget_unload_image': ('int', 'void *, void *'),
+ 'list_view_create': ('void *', 'void *, int, int, int, int'),
+ 'scroll_view_create': ('void *', 'void *, int, int, int, int'),
+ 'navigator_back': ('int', 'void'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {

@@ -402,6 +402,13 @@ static unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n) {
     return h;
 }
 
+/* The library browsing state both position memory and the queue menu key on. */
+static unsigned local_hash(unsigned h) {
+    h = hash_bytes(h, g_class_type, 4);
+    h = hash_bytes(h, g_local_classinfo_save, 912);
+    return hash_bytes(h, g_artist_type, 4);
+}
+
 static void row_hash_text(const unsigned *s, unsigned *h) {
     unsigned n = 0;
     while (s[n]) ++n;
@@ -451,10 +458,7 @@ static int context_now(unsigned *scope) {
         if (!n || n == 1024) return -1;
         *scope = hash_bytes(2166136261u, g_folder_path, n);
     } else if (contexts[ctx].kind == CTX_LOCAL) {
-        unsigned h = hash_bytes(2166136261u, g_class_type, 4);
-        h = hash_bytes(h, g_local_classinfo_save, 912);
-        h = hash_bytes(h, g_artist_type, 4);
-        *scope = hash_bytes(h, album_modetype, 4);
+        *scope = hash_bytes(local_hash(2166136261u), album_modetype, 4);
     } else if (contexts[ctx].kind == CTX_FIXED) {
         *scope = 1;
     } else if (!tk_strcmp(name, "coverflow_page")) {
@@ -505,13 +509,7 @@ static void select(menu_t *m, int id) {
         if (ctx >= 0) {
             int p = position(m);
             if (p < 0) p = POS_MEM - 1;
-            for (; p > 0; --p) {
-                st.pos[p].ctx = st.pos[p - 1].ctx;
-                st.pos[p].id = st.pos[p - 1].id;
-                st.pos[p].scope = st.pos[p - 1].scope;
-                st.pos[p].hash = st.pos[p - 1].hash;
-                st.pos[p].hash2 = st.pos[p - 1].hash2;
-            }
+            for (; p > 0; --p) st.pos[p] = st.pos[p - 1];
             st.pos[0] = (position_t){ ctx, id + 1, m->scope, hash, hash2 };
         }
     }
@@ -1182,10 +1180,7 @@ static unsigned rec_hash(void *r) {
 
 /* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
 static unsigned browse_hash(void) {
-    unsigned h = hash_bytes(2166136261u, g_folder_path, 1024);
-    h = hash_bytes(h, g_class_type, 4);
-    h = hash_bytes(h, g_local_classinfo_save, 912);
-    return hash_bytes(h, g_artist_type, 4);
+    return local_hash(hash_bytes(2166136261u, g_folder_path, 1024));
 }
 
 static void *qm_record(void) {
