@@ -1314,8 +1314,7 @@ static int qm_run(const void *unused) {
     st.qm_timer = 0;
     if (!st.qm_dialog) return 0;
     qm_close();
-    int next = st.qm_action == 1;
-    if (!qm_apply(next)) toast("Queue unchanged");
+    if (!qm_apply(st.qm_action == 1)) toast("Queue unchanged");
     return 0;
 }
 

@@ -36,7 +36,6 @@ void *window_create(void *, int, int, int, int);
 void *widget_factory(void);
 void *widget_factory_create_widget(void *, const char *, void *, int, int, int, int);
 void *image_create(void *, int, int, int, int);
-void *label_create(void *, int, int, int, int);
 void *hscroll_label_create(void *, int, int, int, int);
 void set_hscroll_label_attribute(void *);
 int slide_menu_set_value(void *, int), slide_menu_item_width(void *), slide_menu_on_scroll_done(void *, void *);
@@ -90,7 +89,7 @@ void *window_create(void *p, int x, int y, int ww, int h) { (void)p; (void)x; (v
 void *widget_factory(void) { return (void *)1; }
 void *widget_factory_create_widget(void *f, const char *t, void *p, int x, int y, int ww, int h) { (void)f; (void)x; (void)y; (void)ww; (void)h; return make(p, t); }
 #define CREATE(name, type) void *name(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; (void)h; return make(p, type); }
-CREATE(image_create, "image") CREATE(label_create, "label") CREATE(list_view_create, "list_view")
+CREATE(image_create, "image") CREATE(list_view_create, "list_view")
 CREATE(hscroll_label_create, "hscroll_label")
 CREATE(scroll_view_create, "scroll_view") CREATE(list_item_create, "list_item")
 int image_set_draw_type(void *x, int t) { (void)x; (void)t; return 0; }

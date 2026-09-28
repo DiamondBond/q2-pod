@@ -118,7 +118,7 @@ static int action(void *ctx, void *event) {
         else if (unlink(ui.destination)) snprintf(ui.status, sizeof(ui.status), "Delete failed; preset kept");
         else snprintf(ui.status, sizeof(ui.status), "Deleted %.100s; active EQ unchanged", deleting());
     } else if (id == CANCEL) ui.screen = ui.previous;
-    else if (id >= 0 && id < 256) {
+    else if (id < 256) {
         if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
         else if (ui.screen == SAVES && id < 10) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/Manual %02d.peq", id + 1);
@@ -247,7 +247,7 @@ static int render(const void *unused) {
 
 /* Replaces the stock page's on_common_keyup: Return steps back one screen. */
 static int keyup(void *ctx, void *event) {
-    if (*(int *)((char *)event + EVENT_KEY) != KEY_RETURN) return 0;
+    if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
     action((void *)(long)BACK, ctx);
     return 11; /* RET_STOP */
 }
