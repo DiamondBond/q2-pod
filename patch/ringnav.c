@@ -1481,7 +1481,6 @@ int ringnav(void *ctx, void *event) {
         drop_spin();
         return result;
     }
-    if (!carousel_page(top)) st.home_surface = (void *)0;
     if (window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm)) {
         cancel_center();
         drop_spin();
