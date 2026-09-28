@@ -1116,8 +1116,7 @@ int compact_set_row_layout(void *row, const char *params) {
     void *layout = P(row, W_CHILDREN_LAYOUT);
     if (layout) {
         if (!vtable[0]) {
-            for (unsigned i = 0; i < 8; ++i)
-                vtable[i] = ((const unsigned *)DEFAULT_LAYOUT_VTABLE)[i];
+            memcpy(vtable, (const void *)DEFAULT_LAYOUT_VTABLE, sizeof(vtable));
             vtable[2] = (unsigned)compact_row_layout;
         }
         P(layout, CHILDREN_LAYOUT_VTABLE) = vtable;
