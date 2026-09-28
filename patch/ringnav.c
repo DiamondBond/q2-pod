@@ -2,8 +2,12 @@
 #include "offsets.inc"
 #include "peq_platform.h" /* libc/libcstl imports: deque_*, send */
 #include "stock.h"
+extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
+    stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
+    stock_keylong_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
+extern unsigned fnv(unsigned h, const unsigned char *s);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -24,8 +28,6 @@ extern unsigned coverflow_scope(void *page);
 #define FILL_COLOR ((FILL_ALPHA << 24) | FILL_RGB)
 #define SHADE_COLOR ((SHADE_ALPHA << 24) | FILL_RGB)
 #define OUTLINE_COLOR ((OUTLINE_ALPHA << 24) | OUTLINE_RGB)
-#define I(p, o) (*(int *)((char *)(p) + (o)))
-#define P(p, o) (*(void **)((char *)(p) + (o)))
 #define B(p, o) (*(unsigned char *)((char *)(p) + (o)))
 
 typedef struct {
@@ -1174,12 +1176,7 @@ static int hold_released(void) {
 
 static unsigned rec_hash(void *r) {
     unsigned h = 2166136261u;
-    for (int o = REC_NAME; o <= REC_ARTIST; o += 4) {
-        const unsigned char *s = P(r, o);
-        unsigned n = 0;
-        while (s && s[n]) ++n;
-        h = hash_bytes(h, s, n) * 16777619u;
-    }
+    for (int o = REC_NAME; o <= REC_ARTIST; o += 4) h = fnv(h, P(r, o));
     return h;
 }
 

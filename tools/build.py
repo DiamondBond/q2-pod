@@ -32,12 +32,10 @@ def sha(b): return hashlib.sha256(b).hexdigest()
 def source_sha256():
     """Hash every build input, so a test run cannot silently use a stale output directory."""
     h = hashlib.sha256()
-    for rel in ['assets/logo.jpg', 'assets/menu_coverflow.png', 'assets/menu_coverflowdown.png', 'patch/contexts.inc', 'patch/link.ld', 'patch/offsets.inc',
-                'patch/ringnav.c', 'patch/trampoline.S', 'patch/compact.json',
-                'tools/compact.py', 'tools/release.py', 'tools/build.py', 'tools/peq.py',
-                'patch/peq.h', 'patch/peq.c', 'patch/peq_ui.c', 'patch/peq_player.c', 'patch/coverflow.c']:
-        h.update(rel.encode() + b'\0')
-        h.update((ROOT/rel).read_bytes())
+    tools = [ROOT/'tools'/f for f in ('build.py', 'compact.py', 'peq.py', 'release.py')]
+    for path in sorted([*ROOT.glob('assets/*'), *ROOT.glob('patch/*'), *tools]):
+        h.update(str(path.relative_to(ROOT)).encode() + b'\0')
+        h.update(path.read_bytes())
     return h.hexdigest()
 
 def check(condition, message):
@@ -270,15 +268,10 @@ def build(zip_path, out, logo, compact=False, dev=False):
     syms = symbols(demo)
     syms.update(PRIVATE_FUNCTIONS)
     header = [f'#define RING_STEP {RING_STEP}']
-    for name in ('keyup', 'touch', 'paint', 'dispatch', 'keylong'):
-        header.append(f'extern int stock_{name}_trampoline(void *, void *);')
-    for name,(ret,args) in FUNCTIONS.items():
-        header.append(f'#define {name} (({ret} (*)({args}))0x{syms[name]:x}u)')
     symbol_table = run('readelf', '-Ws', demo)
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: byte global size mismatch')
-        header.append(f'#define {name} (*(volatile unsigned char *)0x{syms[name]:x}u)')
     for name, size in CONTEXT_DATA.items():
         check(re.search(rf'\b{size}\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: context data size mismatch')
@@ -306,8 +299,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     audio = patch_player(raw_player, out/'peq')
     from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, patch_asset, patch_code, patch_word
     for address, old, new in ARTIST_ALBUMS:
-        patch_word(patched, fileoff, [], address, old, new, 'artist detail opens on Albums')
-    patch_word(patched, fileoff, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
+        patch_word(patched, [], address, old, new, 'artist detail opens on Albums')
+    patch_word(patched, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
     # Pin added private entry points as well as every replaced instruction.
     for name, original in AUDIT['private_prologues'].items():
@@ -318,7 +311,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         check(raw_demo[off:off+4].hex() == original, f'{address}: unexpected event ABI instruction')
     code_changes = []
     if compact:
-        code_changes = patch_code(patched, fileoff, ps)
+        code_changes = patch_code(patched, ps)
     # Single shared version literal: About display and updater equality check.
     check(patched.count(b'V1.32\0') == 1, 'Version literal is not unique')
     check(len(version) + 1 == len(b'V1.32\0'),

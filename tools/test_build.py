@@ -88,7 +88,7 @@ def validate_assets(directory):
         for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', AUDIT['row_layout_calls']['sites'][0][0]]:
             damaged = bytearray(stock)
             damaged[fileoff(stock, int(address, 16))] ^= 1
-            try: patch_code(damaged, fileoff, payload_symbols)
+            try: patch_code(damaged, payload_symbols)
             except ValueError: pass
             else: raise AssertionError(f'Accepted a changed instruction at {address}')
     print(f'{manifest["variant"]}: asset geometry, exclusion parity and mismatch rejection passed.')

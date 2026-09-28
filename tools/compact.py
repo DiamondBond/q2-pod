@@ -9,7 +9,7 @@ import hashlib
 import json
 import pathlib
 import struct
-from build import check as require
+from build import check as require, fileoff
 
 AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/compact.json').read_text())
 # The app window is the 375x320 screen minus the 30px status bar, so a 290px list holds four
@@ -121,7 +121,7 @@ def home_card(root):
     menu[0][3].insert(2, card)
 
 
-def patch_word(data, fileoff, changes, address, old, new, purpose):
+def patch_word(data, changes, address, old, new, purpose):
     off = fileoff(data, address)
     require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
     struct.pack_into('<I', data, off, new)
@@ -189,9 +189,9 @@ def patch_asset(path, data, compact):
     return encode(root)
 
 
-def patch_code(data, fileoff, symbols):
+def patch_code(data, symbols):
     changes = []
-    word = functools.partial(patch_word, data, fileoff, changes)
+    word = functools.partial(patch_word, data, changes)
 
     for group in AUDIT['immediates']:
         value = {'pitch': PITCH, 'body': BODY, 'art': ART, 'art_inset': ART_INSET,

@@ -1,6 +1,8 @@
 /* Stock V1.32 layout and ABI constants shared by patch/ringnav.c and tools/test_patch.py.
  * The test harness parses this file, so a field change cannot leave the mocks behind.
  * Fields marked "same slot" are class-specific views of one offset. */
+#define I(p, o) (*(int *)((char *)(p) + (o)))
+#define P(p, o) (*(void **)((char *)(p) + (o)))
 #define W_X 0x00
 #define W_Y 0x04
 #define W_W 0x08

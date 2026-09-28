@@ -14,8 +14,6 @@
 #define ART_MIN_FREE_MB 16 /* no build below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
-#define I(p, o) (*(int *)((char *)(p) + (o)))
-#define P(p, o) (*(void **)((char *)(p) + (o)))
 
 extern int stock_home_trampoline(void *win, void *ctx);
 
@@ -42,7 +40,7 @@ void *coverflow_tracks(void *page) {
     return page == cf.page && cf.screen == TRACKS ? cf.tracks : 0;
 }
 
-static unsigned fnv(unsigned h, const unsigned char *s) {
+unsigned fnv(unsigned h, const unsigned char *s) {
     while (s && *s) h = (h ^ *s++) * 16777619u;
     return h * 16777619u; /* a separator, so "ab"+"c" and "a"+"bc" differ */
 }
