@@ -30,7 +30,7 @@ def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF
     from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY, PLAYING_PAGE, UI_ASSETS,
-                         STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, walk, patch_asset, patch_code, patch_style)
+                         STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, walk, patch_asset, patch_code, patch_style, style_props)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -69,9 +69,32 @@ def validate_assets(directory):
     icons = {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS}
     carousel = {'squashfs-root/'+rel for rel in CAROUSEL}
     assert (carousel & names == (set() if ipod else carousel)) and (icons & names == (set() if ipod else icons))
+    # Colours the firmware will paint (inline style props, else the theme entry for the widget's style):
+    # no screen may gain a light background or border, or dark text, that stock did not already paint.
+    def palette(path):
+        return {(w, s, p): v.hex() for w, s, state, p, _, v in style_props(read(path, 'release/assets/default/raw/styles/default.bin'))
+                if state == 'normal' and p in ('bg_color', 'border_color', 'text_color')}
+    themes = palette('stock.squashfs'), palette('rootfs.squashfs')
+    def painted(root, theme):
+        out = set()
+        for kind, _, props, _ in walk(root):
+            style = props.get('style', 'default')
+            for p in ('bg_color', 'border_color', 'text_color'):
+                v = props.get('style:normal:'+p, '').lstrip('#').lower() or theme.get((kind, style, p))
+                if v: out.add((kind, props.get('name', ''), p, v if len(v) == 8 else v+'ff'))
+        return out
+    def luma(v): return sum(k*int(v[i:i+2], 16) for k, i in ((0.2126, 0), (0.7152, 2), (0.0722, 4))) / 255
+    def jarring(c):
+        kind, _, p, v = c
+        if int(v[6:], 16) <= 0x40: return False
+        return luma(v) < 0.25 if p == 'text_color' else luma(v) > 0.35 and kind != 'image'
     for rel in paths:
         if rel in STOCK_EQ: continue
         original, new = read('stock.squashfs', rel), read('rootfs.squashfs', rel)
+        if '/raw/ui/' in rel and new[:4] == bytes.fromhex('12122211'):
+            added = {c for c in painted(decode(new), themes[1]) - painted(decode(original), themes[0])
+                     if c[2] != 'text_color' or c[0] in ('label', 'hscroll_label', 'button', 'edit', 'tab_button')}
+            assert not [c for c in added if jarring(c)], (rel, [c for c in added if jarring(c)])
         if rel not in changed:
             assert new == original, rel
             continue

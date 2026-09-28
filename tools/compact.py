@@ -163,6 +163,11 @@ def home_card(root):
 HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'stream', 'playset', 'sysset']
 
 
+# Stock list pages paint their list_view black inline; the theme default is a light rounded card.
+LIST_BLACK = {f'style:{state}:{prop}': color for state in ('normal', 'disable', 'focused')
+              for prop, color in (('bg_color', '#000000'), ('border_color', '#00000000'))}
+
+
 def ipod_home(root):
     require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in HOME_ROWS if r != 'coverflow'],
@@ -180,7 +185,7 @@ def ipod_home(root):
             {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)'}, rows]
     root[3] = [
         ['list_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
-         {'name': 'list_view_home', 'item_height': str(HOME_ROW)}, [view]],
+         {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_BLACK}, [view]],
         ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'scale_auto'}, []]]
 
 
