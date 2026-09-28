@@ -2358,8 +2358,8 @@ assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|s
 passed()
 class CoverflowMachine(QueueMachine):
     FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub
-    def __init__(self,albums=3,cached=True):
-        super().__init__(rows=4)
+    def __init__(self,albums=3,cached=True,**queue):
+        super().__init__(rows=4,**queue)
         self.cached=cached; self.missing=False; self.joins=[]; self.threads=[]; self.plays=[]; self.homes=0; self.freed=0
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
@@ -2387,7 +2387,9 @@ class CoverflowMachine(QueueMachine):
         elif name=='getAllAlbum':
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.albums]; ret=len(self.albums)
         elif name=='navigator_back_to_home': self.homes+=1
-        elif name=='navigator_to_with_context': self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
+        elif name=='navigator_to_with_context':
+            if self.text(a)=='playing_page': self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
+            else: self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
@@ -2404,7 +2406,7 @@ class CoverflowMachine(QueueMachine):
         self.nodes[slide]['children']=[self.entry(slide),self.entry(slide),card,*[self.entry(slide) for _ in range(4)]]
         self.home=self.top=self.node('window','home_page',[slide]); self.stack=[self.top]
         assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
-        assert self.confirm()==11 and self.clicks==[self.img]
+        self.clicks=[]; assert self.confirm()==11 and self.clicks==[self.img]
         f,ctx=self.handler(self.img,O['EVT_CLICK']); assert self.call(address=f,args=(ctx,self.event,0,0),gap=0)==0
         self.page=self.top; self.slide=self.find('slide_menu')
         return self.page
@@ -2412,7 +2414,15 @@ class CoverflowMachine(QueueMachine):
         w=w or self.page
         if self.nodes[w]['type']==kind: return w
         return next((f for c in self.nodes[w]['children'] if (f:=self.find(kind,c))),0)
-    def texts(self,kind='label'): return [self.nodes[w].get('text') for w in self.nodes if self.nodes[w]['type']==kind and self.alive(w)]
+    def texts(self,kind='hscroll_label'): return [self.nodes[w].get('text') for w in self.nodes if self.nodes[w]['type']==kind and self.alive(w)]
+    def tracks(self,album=0):
+        f,ctx=self.handler(self.nodes[self.slide]['children'][album],O['EVT_CLICK'])
+        self.call(address=f,args=(ctx,self.event,0,0),gap=0); self.advance(0)
+        view=self.find('scroll_view'); self.paint(view)
+        return view
+    def close(self):
+        f,ctx=self.handler(self.page,O['EVT_DESTROY'])
+        self.call(address=f,args=(ctx,self.event,0,0),gap=0)
     def alive(self,w):
         """Still attached below the page (the destroy_children mock only unlinks)."""
         while w!=self.page:
@@ -2456,5 +2466,52 @@ m=CoverflowMachine(cached=False); page=m.open()
 assert len(m.threads)==1 and m.timers and any((t or '').startswith('Preparing artwork') for t in m.texts()) and 'Cancel' in m.texts()
 f,ctx=m.handler(page,O['EVT_DESTROY']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert m.joins==[77] and not m.timers and m.freed==4; passed()  # three job paths and the job array
+
+# Coverflow's own song deque feeds the shared queue menu, independently of stock browsing state.
+for action,want in ((0,['A','T2','B','C']),(1,['A','B','C','T2'])):
+    m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open(); view=m.tracks()
+    m.call(); assert m.selected(view)==1
+    m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='T2' and m.release()==0
+    assert m.hold()==0  # a repeated hold while the dialog is open cannot open another
+    m.pick(action); m.pick(action); m.advance(0)
+    assert m.names()==want and m.top==m.page and m.selected(view)==1 and not m.playback() and not m.plays
+    assert m.names(m.get(syms['p_deque_showlist']))==['Row 0','Row 1','Row 2','Row 3']
+    m.press(200); assert m.release()==1; passed()
+m=CoverflowMachine(queue=0,cls=O['CLASS_ALBUMS']); m.open(); m.tracks()
+assert m.run(1) is None and m.names()==['T1'] and m.mcl('MCL_TYPE')==1 and not m.playback(); passed()
+m=CoverflowMachine(mode=2); m.open(); m.tracks(); m.run(0)
+m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
+assert m.names()==['A','T1','B','C'] and m.mcl('MCL_POS')==1; passed()
+# Return cancels without losing the highlighted song. Changed or closed sources refuse.
+m=CoverflowMachine(); m.open(); view=m.tracks(); m.call(); m.press(100); m.hold(); m.release()
+f,ctx=m.handler(m.top,O['EVT_KEY_UP']); ev=m.alloc(0x40); m.word(ev,O['EVT_KEY_UP']); m.word(ev+O['EVENT_KEY'],O['KEY_RETURN'])
+assert m.call(address=f,args=(ctx,ev,0,0),gap=0)==11 and m.top==m.page
+assert m.names()==['A','B','C'] and m.selected(view)==1 and not m.playback(); passed()
+for invalidate in ('changed','closed','covers'):
+    m=CoverflowMachine(); m.open(); m.tracks(); m.press(100); m.hold(); m.release()
+    if invalidate=='changed':
+        tracks=next(d for d in m.deqs if m.names(d)==['T1','T2'] and m.deqs[d][0]=='stSongInfo')
+        m.word(m.items(tracks)[0]+O['REC_NAME'],m.string('changed'))
+    elif invalidate=='closed': m.close()
+    else: m.key()  # simulate the underlying page returning to covers before the action
+    m.pick(0); m.advance(0)
+    assert m.toasts[-1][3]=='Queue unchanged' and m.names()==['A','B','C'] and not m.playback(); passed()
+# Album identity survives closing/reopening and library reordering; song positions are per album.
+m=CoverflowMachine(); m.open()
+m.call(address=syms['slide_menu_set_value'],args=(m.slide,2,0,0),gap=0)
+f,ctx=m.handler(m.slide,O['EVT_VALUE_CHANGED']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+m.close(); m.albums.reverse(); m.open()
+assert m.get(m.slide+O['SLIDE_INDEX'])==0 and 'Album 2' in m.texts(); passed()
+view=m.tracks(0); m.call(); assert m.selected(view)==1
+m.key(); other=m.tracks(1); assert m.selected(other)==0
+m.key(); view=m.tracks(0); assert m.selected(view)==1
+m.close(); m.open(); view=m.tracks(0); assert m.selected(view)==1; passed()
+# Long metadata and track titles use the looping stock scrolling label, with the complete text.
+m=CoverflowMachine(); long='A very long title or artist name ' * 8
+m.word(m.albums[0]+O['REC_ALBUM'],m.string(long)); m.word(m.albums[0]+O['REC_ARTIST'],m.string(long))
+m.word(m.found[0]+O['REC_NAME'],m.string(long)); m.open(); assert m.texts().count(long)==2
+m.tracks(); assert m.texts().count(long)==4  # covers stay alive, hidden behind the tracks
+labels=[n for w,n in m.nodes.items() if m.alive(w) and n.get('text')==long]
+assert all(n['type']=='hscroll_label' and n['loop']==1 and n['set_hscroll_label_attribute'] for n in labels); passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

@@ -30,11 +30,17 @@ static struct {
     job_t *jobs;
     unsigned long thread;
     unsigned timer;
+    unsigned saved_album;
     int screen, album, running;
     volatile int done, total, cancel;
 } cf __attribute__((section(".scratch")));
 
 static int pick(void *ctx, void *event);
+
+/* The queue menu resolves the live track list again after its dialog closes. */
+void *coverflow_tracks(void *page) {
+    return page == cf.page && cf.screen == TRACKS ? cf.tracks : 0;
+}
 
 static unsigned fnv(unsigned h, const unsigned char *s) {
     while (s && *s) h = (h ^ *s++) * 16777619u;
@@ -43,6 +49,11 @@ static unsigned fnv(unsigned h, const unsigned char *s) {
 
 static unsigned album_key(void *r) {
     return fnv(fnv(2166136261u, P(r, REC_ARTIST)), P(r, REC_ALBUM));
+}
+
+/* Track selection uses ringnav's existing position memory, keyed by this album. */
+unsigned coverflow_scope(void *page) {
+    return coverflow_tracks(page) ? album_key(deque_at(cf.albums, (unsigned)cf.album)) : 0;
 }
 
 /* ART_DIR/<key>.jpg<suffix>, formatted by hand so the UI thread needs no libc for it. */
@@ -146,6 +157,14 @@ static void later(int (*step)(const void *), unsigned ms) {
     cf.timer = timer_add(step, 0, ms);
 }
 
+static void *text(void *parent, int x, int y, int w, int h) {
+    void *label = hscroll_label_create(parent, x, y, w, h);
+    widget_use_style(label, "s_scrlabel_white20c");
+    set_hscroll_label_attribute(label);
+    widget_set_prop_int(label, "loop", 1);
+    return label;
+}
+
 /* The peq_ui.c page: a title bar over whole 48px rows, shrunk so the list's white background
  * never shows below a short list. */
 static void *list(const char *title, int n) {
@@ -153,8 +172,7 @@ static void *list(const char *title, int n) {
     if (n * 48 < rows) rows = n * 48;
     widget_destroy_children(cf.body);
     widget_set_visible(cf.body, 1, 0);
-    cf.title = label_create(cf.body, 8, 0, 359, 48);
-    widget_use_style(cf.title, "s_label_white20c");
+    cf.title = text(cf.body, 8, 0, 359, 48);
     widget_set_text_utf8(cf.title, title);
     void *lv = list_view_create(cf.body, 0, 48, 375, rows);
     widget_set_prop_int(lv, "item_height", 48);
@@ -166,19 +184,12 @@ static void *list(const char *title, int n) {
     return view;
 }
 
-static void row(void *view, int index, const char *text, int (*click)(void *, void *)) {
+static void row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
-    void *label = label_create(item, 12, 0, 350, 48);
-    widget_use_style(label, "s_label_white20c");
-    widget_set_text_utf8(label, text ? text : "");
+    void *label = text(item, 12, 0, 350, 48);
+    widget_set_text_utf8(label, caption ? caption : "");
     widget_on(item, EVT_CLICK, click, (void *)(long)index);
-}
-
-static void *text(void *parent, int y, int h, const char *style) {
-    void *label = label_create(parent, 0, y, 375, h);
-    widget_use_style(label, style);
-    return label;
 }
 
 /* Stock pattern (album rows): load the file, set it, drop the load's reference. A failed load,
@@ -204,6 +215,7 @@ static int changed(void *ctx, void *event) {
         cover(widget_get_child(cf.slide, i), i, d <= ART_NEAR || n - d <= ART_NEAR);
     }
     void *r = c + 1 < n ? deque_at(cf.albums, c) : (void *)0;
+    if (r) cf.saved_album = album_key(r);
     widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM) : "Refresh library");
     widget_set_text_utf8(cf.artist, r && P(r, REC_ARTIST) ? P(r, REC_ARTIST) : "");
     return 0;
@@ -225,8 +237,10 @@ static void covers(void) {
             widget_set_prop_int(img, "clickable", 1);
             widget_on(img, EVT_CLICK, pick, (void *)(long)i);
         }
-        cf.name = text(cf.covers, ART_SIZE + 38, 36, "s_label_white28c");
-        cf.artist = text(cf.covers, ART_SIZE + 74, 28, "s_label_white20c");
+        cf.name = text(cf.covers, 0, ART_SIZE + 38, 375, 36);
+        widget_set_prop_int(cf.name, "style:normal:font_size", 28);
+        cf.artist = text(cf.covers, 0, ART_SIZE + 74, 375, 28);
+        slide_menu_set_value(cf.slide, cf.album);
         widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
         changed(0, 0);
     }
@@ -280,10 +294,11 @@ static void load(void) {
     unsigned count = deque_size(cf.albums), fs[32] = { 0 };
     char path[512];
     cf.jobs = calloc(count, sizeof(job_t));
-    for (unsigned i = 0; cf.jobs && i < count; ++i) {
+    for (unsigned i = 0; i < count; ++i) {
         void *r = deque_at(cf.albums, i);
         unsigned key = album_key(r);
-        if (P(r, REC_PATH) && access(art_path(path, key, ""), 0) &&
+        if (key == cf.saved_album) cf.album = (int)i;
+        if (cf.jobs && P(r, REC_PATH) && access(art_path(path, key, ""), 0) &&
             (cf.jobs[cf.total].track = strdup(P(r, REC_PATH))))
             cf.jobs[cf.total++].key = key;
     }

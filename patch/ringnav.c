@@ -2,6 +2,8 @@
 #include "offsets.inc"
 #include "peq_platform.h" /* libc/libcstl imports: deque_*, send */
 #include "stock.h"
+extern void *coverflow_tracks(void *page);
+extern unsigned coverflow_scope(void *page);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -63,7 +65,7 @@ typedef struct {
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
 #endif
-    /* Queue menu: the hold's AWTK press time marks its release; the target is a showlist row
+    /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
     unsigned long long qm_press;
     unsigned qm_timer, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
@@ -453,6 +455,9 @@ static int context_now(unsigned *scope) {
         *scope = hash_bytes(h, album_modetype, 4);
     } else if (contexts[ctx].kind == CTX_FIXED) {
         *scope = 1;
+    } else if (!tk_strcmp(name, "coverflow_page")) {
+        *scope = coverflow_scope(top);
+        if (!*scope) return -1;
     } else {
         if (!tk_strcmp(name, "search_dialog") || !tk_strcmp(name, "tidal_search_dialog")) {
             void *edit = widget_lookup(top, "search_edit", 1);
@@ -1148,7 +1153,7 @@ int compact_now_playing(void) {
 
 /* Play/Pause hold queue menu (QMENU.md). Stock long press fires once per press, so a hold on a
  * local song, album or folder row opens the stock sortselect dialog rebuilt as a two-row menu. */
-enum { QM_SONG = 1, QM_ALBUM, QM_FOLDER };
+enum { QM_SONG = 1, QM_ALBUM, QM_FOLDER, QM_COVERFLOW };
 #define MCL(a) (*(volatile int *)(a))
 
 static char *play_key(void) {
@@ -1187,9 +1192,11 @@ static unsigned browse_hash(void) {
 }
 
 static void *qm_record(void) {
-    void *list = P(p_deque_showlist, 0);
+    void *list = st.qm_kind == QM_COVERFLOW
+                     ? coverflow_tracks(window_manager_get_top_window(window_manager()))
+                     : P(p_deque_showlist, 0);
     if (!list || deque_size(list) != st.qm_rows || st.qm_idx >= st.qm_rows ||
-        browse_hash() != st.qm_browse)
+        (st.qm_kind != QM_COVERFLOW && browse_hash() != st.qm_browse))
         return (void *)0;
     void *r = deque_at(list, st.qm_idx);
     return r && rec_hash(r) == st.qm_hash ? r : (void *)0;
@@ -1287,13 +1294,13 @@ static int qm_apply(int next) {
     if (size && type != 1 && (type & 0xf000) != 0xf000) return 0;
     void *add = _create_deque("stSongInfo");
     deque_init(add);
-    if (st.qm_kind == QM_SONG)
+    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW)
         _deque_push_back(add, r);
     else
         qm_tracks(r, add);
     unsigned n = deque_size(add);
     if (n && !size) /* loads without starting playback */
-        mclLoadPlayList(add, 0, st.qm_kind == QM_FOLDER ? 1 : I(g_class_type, 0));
+        mclLoadPlayList(add, 0, st.qm_kind >= QM_FOLDER ? 1 : I(g_class_type, 0));
     else if (n)
         qm_insert(queue, add, size, next);
     deque_destroy(add);
@@ -1369,8 +1376,8 @@ static int qm_open(const void *unused) {
     return 0;
 }
 
-/* The hold: the same gates and row as a centre press, on an audited local list whose rows are
- * p_deque_showlist in order (row count checked). Everything else stays stock. */
+/* The hold: the same gates and row as a centre press, over the stock showlist or Coverflow's
+ * own tracks (row count checked). Everything else stays stock. */
 static int qm_hold(void) {
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     if (st.qm_dialog || st.qm_timer || !usable() || !allowed_top(top) ||
@@ -1379,19 +1386,23 @@ static int qm_hold(void) {
         return 0;
     const char *name = widget_get_prop_str(top, "name", "");
     int kind = contexts[context_id(name)].kind;
+    void *list = coverflow_tracks(top);
+    int coverflow = list != 0;
     void *w = surface_under(top, (void *)0, (void *)0, 0);
-    if (kind < CTX_FOLDER || !tk_strcmp(name, "artistinfo_page") || !w || !load(&g_menu, w, 1) ||
-        g_menu.ctx < 0 || g_menu.kind == 3)
+    if ((!coverflow && kind < CTX_FOLDER) || !tk_strcmp(name, "artistinfo_page") || !w ||
+        !load(&g_menu, w, 1) || g_menu.ctx < 0 || g_menu.kind == 3)
         return 0;
     int cur = reconcile(&g_menu, !moving(&g_menu));
-    void *list = P(p_deque_showlist, 0);
+    if (!coverflow) list = P(p_deque_showlist, 0);
     if (cur < 0 || !list || deque_size(list) != (unsigned)g_menu.rows) return 0;
     void *r = deque_at(list, g_menu.id[cur]);
     unsigned cls = (unsigned)I(g_class_type, 0);
     char *key = play_key();
     if (!r || !key) return 0;
     st.qm_kind = I(r, REC_TYPE) == 8 ? QM_SONG : 0;
-    if (kind == CTX_FOLDER) {
+    if (coverflow) {
+        if (st.qm_kind) st.qm_kind = QM_COVERFLOW;
+    } else if (kind == CTX_FOLDER) {
         if (I(r, REC_TYPE) == 4) st.qm_kind = QM_FOLDER;
     } else if (cls == CLASS_ALBUMS || cls == CLASS_ARTIST_ALBUMS)
         st.qm_kind = QM_ALBUM;

@@ -37,6 +37,9 @@ void *widget_factory(void);
 void *widget_factory_create_widget(void *, const char *, void *, int, int, int, int);
 void *image_create(void *, int, int, int, int);
 void *label_create(void *, int, int, int, int);
+void *hscroll_label_create(void *, int, int, int, int);
+void set_hscroll_label_attribute(void *);
+int slide_menu_set_value(void *, int);
 void *list_view_create(void *, int, int, int, int);
 void *scroll_view_create(void *, int, int, int, int);
 void *list_item_create(void *, int, int, int, int);
@@ -85,6 +88,7 @@ void *widget_factory(void) { return (void *)1; }
 void *widget_factory_create_widget(void *f, const char *t, void *p, int x, int y, int ww, int h) { (void)f; (void)x; (void)y; (void)ww; (void)h; return make(p, t); }
 #define CREATE(name, type) void *name(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; (void)h; return make(p, type); }
 CREATE(image_create, "image") CREATE(label_create, "label") CREATE(list_view_create, "list_view")
+CREATE(hscroll_label_create, "hscroll_label")
 CREATE(scroll_view_create, "scroll_view") CREATE(list_item_create, "list_item")
 int image_set_draw_type(void *x, int t) { (void)x; (void)t; return 0; }
 int image_base_set_image(void *x, const char *s) { snprintf(W(x)->image, 600, "%s", s); return 0; }
@@ -94,6 +98,8 @@ int widget_load_image(void *x, const char *url, void *b) {
     return strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
 }
 int widget_unload_image(void *x, void *b) { (void)x; (void)b; return 0; }
+void set_hscroll_label_attribute(void *x) { assert(!strcmp(W(x)->type, "hscroll_label")); }
+int slide_menu_set_value(void *x, int value) { *(int *)(W(x)->raw + SLIDE_INDEX) = value; return 0; }
 int widget_set_name(void *x, const char *s) { snprintf(W(x)->type, 32, "%s", s); return 0; }
 int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
 int widget_set_text_utf8(void *x, const char *s) { snprintf(W(x)->text, 160, "%s", s); return 0; }
@@ -212,7 +218,7 @@ static widget *slide(void) {
     return 0;
 }
 static const char *title(void) {
-    for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "label") && w[w[i].parent].parent == page - w) return w[i].text;
+    for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "hscroll_label") && w[w[i].parent].parent == page - w) return w[i].text;
     return "";
 }
 static long size(const char *album_name) {

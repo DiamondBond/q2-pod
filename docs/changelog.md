@@ -1,5 +1,6 @@
 # Changelog
 
+- **Unreleased**: Coverflow tracks accept the Play/Pause hold queue menu (Play next / Add to queue), Coverflow remembers the last album and each album's highlighted track, and long album, artist and track names scroll. The payload is now built with `-Oz` so compact keeps room in the rootfs.
 - **V4.7R / V4.7C**: Coverflow caches artwork in `.coverflow` on the microSD card and checks free space there, so low internal storage no longer prevents artwork preparation.
 
 - **V4.6R / V4.6C**: New **Coverflow** card on Home, after Local Music: flip through your Local Music albums by cover with the wheel, open one to see its tracks, and play from there. The first open prepares the artwork once (from `cover.jpg`, `folder.jpg` or the embedded picture) with progress and Cancel; later opens only add new albums, and the last card, **Refresh library**, rebuilds it. The queue menu no longer shows a message after a successful add; it still shows **Queue unchanged** when it can't add.

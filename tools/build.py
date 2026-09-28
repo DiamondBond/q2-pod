@@ -152,6 +152,7 @@ FUNCTIONS = {
  'widget_destroy_children': ('int', 'void *'),
  'list_item_create': ('void *', 'void *, int, int, int, int'),
  'hscroll_label_create': ('void *', 'void *, int, int, int, int'),
+ 'set_hscroll_label_attribute': ('void', 'void *'),
  'widget_off_by_func': ('int', 'void *, unsigned, void *, void *'),
  'window_close': ('int', 'void *'),
  'navigator_to': ('int', 'const char *'),
@@ -199,7 +200,7 @@ ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
-         '-Os','-Wall','-Wextra','-Werror']
+         '-Oz','-Wall','-Wextra','-Werror']
 
 def compile_payload(out, compact=False):
     """Compile and link the payload."""
