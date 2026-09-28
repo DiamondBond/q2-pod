@@ -1,5 +1,6 @@
 # Changelog
 
+- **V4.9R / V4.9C**: Coverflow covers always snap into place when you let go of a swipe, instead of sometimes stopping between two albums.
 - **V4.8R / V4.8C**: Coverflow tracks accept the Play/Pause hold queue menu (Play next / Add to queue), Coverflow remembers the last album and each album's highlighted track, and long album, artist and track names scroll. The payload is now built with `-Oz` so compact keeps room in the rootfs.
 - **V4.7R / V4.7C**: Coverflow caches artwork in `.coverflow` on the microSD card and checks free space there, so low internal storage no longer prevents artwork preparation.
 

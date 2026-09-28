@@ -72,7 +72,7 @@ class Machine:
         self.clip=(0,0,240,240)
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
-        for name in ('slide_menu_item_width','slide_menu_on_scroll_done',
+        for name in ('slide_menu_item_width','slide_menu_on_scroll_done','slide_menu_scroll_to',
                      'widget_animator_scroll_set_params','slide_menu_set_value'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',

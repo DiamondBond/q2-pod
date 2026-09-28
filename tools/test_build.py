@@ -36,11 +36,11 @@ def validate_assets(directory):
     demo = (directory/'demo').read_bytes()
     # All original executable bytes outside the reviewed hooks, version and compact sites
     # must remain stock; the payload and ELF mapping are independently hashed by the runner.
-    for group in [*AUDIT['immediates'], AUDIT['row_layout_calls'],
-                  {'sites': [('0x522410', '0x0320f809')]}]:
-        for address, _ in group['sites']:
-            off = fileoff(stock, int(address, 16))
-            if not compact:
+    if not compact:
+        for group in [*AUDIT['immediates'], AUDIT['row_layout_calls'],
+                      {'sites': [('0x522410', '0x0320f809')]}]:
+            for address, _ in group['sites']:
+                off = fileoff(stock, int(address, 16))
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
     changed = manifest['changed_assets']
