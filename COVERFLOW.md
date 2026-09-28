@@ -35,7 +35,7 @@ Source: Rockbox `apps/plugins/pictureflow/pictureflow.c`.
 |---|---|
 | tagcache database | the stock Local Music library (§0 finds the query) |
 | `check_database()` | if the library is empty or not built, show "Update Local Music first" |
-| `.pfraw` cache | `/mnt/data/coverflow-art/<fnv(album_artist,album)>.jpg` at 160×160; an empty file marks "no art" (the placeholder) |
+| `.pfraw` cache | `/mnt/mmc/.coverflow/<fnv(album_artist,album)>.jpg` at 160×160 (V4.6 used `/mnt/data/coverflow-art`); an empty file marks "no art" (the placeholder) |
 | modal first build | a modal progress screen with Cancel; the art pthread touches only files, the two mutexes and volatile counters |
 | manual rebuild only | on open, build only the albums with no cache file, then a **Refresh library** card that clears the cache and rebuilds |
 
@@ -169,7 +169,7 @@ Pin every address used, with prologue bytes and size, in the style of `DEMO_HOOK
   - `cover.jpg`, then `folder.jpg`, through `toolsThumbSpecCover` under `parse_cover_mutex`.
   - Otherwise embedded art through `toolsGetAlbumCover`, under `parse_cover_mutex` then `g_playcover_mutex`.
   - Write to `…/<fnv>.jpg.tmp`, then `rename`. On failure, write an empty `<fnv>.jpg` marker.
-- Skip the build when `/mnt/data` free space is below a named `ART_MIN_FREE_MB` (`statfs`).
+- Skip the build when the card's free space is below a named `ART_MIN_FREE_MB` (`statfs`).
 - Progress (albums done) and the cancel flag are volatile ints in `.scratch`.
 - Cancel stops after the current album. Finished thumbnails stay, so the next open resumes.
 

@@ -64,7 +64,7 @@ Save your edits with **Presets → Save editor preset**. Remove saved presets wi
 - **Browsing:** turn the wheel or swipe to move between covers. Centre or tap opens the album's tracks; choose one to play the album from there. Return goes back to the covers, then Home.
 - **New music:** after adding albums, the next open prepares only the new ones. **Refresh library**, the last card, rebuilds all artwork.
 
-The artwork cache lives in `/mnt/data/coverflow-art`; it is skipped while less than 16 MB is free there. Play/Pause hold (Play next / Add to queue) stays in the Local Music lists.
+The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per album; an empty file means the album has no art Coverflow can read), and it is skipped while less than 16 MB is free on the card. Play/Pause hold (Play next / Add to queue) stays in the Local Music lists.
 
 ## Variants
 

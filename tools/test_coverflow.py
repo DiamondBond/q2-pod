@@ -189,7 +189,7 @@ int toolsGetAlbumCover(const char *src, const char *dst, int ww, int h) {
 }
 static unsigned free_blocks = 1 << 20;
 int shim_statfs(const char *p, void *out) {
-    assert(!strcmp(p, PEQ_ROOT "/mnt/data"));
+    assert(!strcmp(p, PEQ_ROOT "/mnt/mmc"));
     unsigned *s = out;
     s[1] = 4096; s[7] = free_blocks; /* MIPS o32 statfs: f_bsize, f_bavail */
     return 0;
@@ -224,7 +224,7 @@ static long size(const char *album_name) {
         h *= 16777619u;
         for (const unsigned char *s = (const unsigned char *)names[i]; *s; ++s) h = (h ^ *s) * 16777619u;
         h *= 16777619u;
-        snprintf(path, sizeof(path), PEQ_ROOT "/mnt/data/coverflow-art/%08x.jpg", h);
+        snprintf(path, sizeof(path), PEQ_ROOT "/mnt/mmc/.coverflow/%08x.jpg", h);
         struct stat s;
         return stat(path, &s) ? -1 : s.st_size;
     }
@@ -232,7 +232,7 @@ static long size(const char *album_name) {
 }
 static int tmp_files(void) {
     int n = 0;
-    DIR *d = opendir(PEQ_ROOT "/mnt/data/coverflow-art");
+    DIR *d = opendir(PEQ_ROOT "/mnt/mmc/.coverflow");
     for (struct dirent *e; d && (e = readdir(d));) n += strstr(e->d_name, ".tmp") != 0;
     if (d) closedir(d);
     return n;
@@ -244,7 +244,7 @@ int main(void) {
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
     deque staging = {0};
     shim_dir = &staging;
-    mkdir(PEQ_ROOT, 0755); mkdir(PEQ_ROOT "/mnt", 0755); mkdir(PEQ_ROOT "/mnt/data", 0755); mkdir(PEQ_ROOT "/music", 0755);
+    mkdir(PEQ_ROOT, 0755); mkdir(PEQ_ROOT "/mnt", 0755); mkdir(PEQ_ROOT "/mnt/data", 0755); mkdir(PEQ_ROOT "/mnt/mmc", 0755); mkdir(PEQ_ROOT "/music", 0755);
 
     /* An empty library, or one being scanned, shows the message and builds nothing. */
     open_page();
@@ -317,12 +317,20 @@ int main(void) {
     assert(calls == before + albums - 2 && size("None") == 0 && size("Embedded") == 0 && size("Cover") == 9);
     close_page();
 
-    /* Low free space on /mnt/data skips the build: placeholders, no thread. */
+    /* Low free space on the card skips the build: placeholders, no thread. */
     album("Tight", "cover.jpg");
     free_blocks = 4000; /* under 16 MB of 4 KB blocks */
     before = calls;
     open_page();
     assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, "default_album_big"));
+    close_page();
+
+    /* V4.6 kept the cache on /mnt/data; the next open clears it, stale empty markers included. */
+    struct stat st;
+    mkdir(PEQ_ROOT "/mnt/data/coverflow-art", 0755);
+    fclose(fopen(PEQ_ROOT "/mnt/data/coverflow-art/0badf00d.jpg", "w"));
+    open_page();
+    assert(stat(PEQ_ROOT "/mnt/data/coverflow-art/0badf00d.jpg", &st));
     close_page();
     return 0;
 }

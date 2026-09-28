@@ -8,9 +8,12 @@
 #include "stock.h"
 #endif
 
-#define ART_DIR PEQ_ROOT "/mnt/data/coverflow-art"
+/* On the card, beside stock's own cover cache (/mnt/mmc/.sldp): /mnt/data is small. */
+#define ART_ROOT PEQ_ROOT "/mnt/mmc"
+#define ART_DIR ART_ROOT "/.coverflow"
+#define OLD_ART_DIR PEQ_ROOT "/mnt/data/coverflow-art" /* V4.6; cleared on open */
 #define ART_SIZE 160
-#define ART_MIN_FREE_MB 16 /* no build below this much free space on /mnt/data */
+#define ART_MIN_FREE_MB 16 /* no build below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
 #define I(p, o) (*(int *)((char *)(p) + (o)))
@@ -260,6 +263,16 @@ static int poll(const void *unused) {
     return 0;
 }
 
+static void clear(const char *name) {
+    void *dir = opendir(name);
+    for (struct dirent *e; dir && (e = readdir(dir));) {
+        char path[600];
+        snprintf(path, sizeof(path), "%s/%s", name, e->d_name);
+        unlink(path); /* "." and ".." fail harmlessly */
+    }
+    if (dir) closedir(dir);
+}
+
 /* On open and Refresh: the albums, then art for the ones with no cache file (PictureFlow's
  * first-launch build; later opens resume). check_database(): refuse an empty, unbuilt or
  * scanning library. */
@@ -286,10 +299,11 @@ static void load(void) {
             (cf.jobs[cf.total].track = strdup(P(r, REC_PATH))))
             cf.jobs[cf.total++].key = key;
     }
+    clear(OLD_ART_DIR); /* V4.6 kept the cache on /mnt/data; give that space back */
     mkdir(ART_DIR, 0755);
     cf.done = cf.cancel = 0;
     /* statfs, MIPS o32 layout: f_bsize is word 1, f_bavail word 7. */
-    if (cf.total && !statfs(PEQ_ROOT "/mnt/data", fs) &&
+    if (cf.total && !statfs(ART_ROOT, fs) &&
         (unsigned long long)fs[7] * fs[1] >= (unsigned long long)ART_MIN_FREE_MB << 20 &&
         !pthread_create(&cf.thread, 0, worker, 0)) {
         cf.running = 1;
@@ -336,13 +350,7 @@ static int to_tracks(const void *unused) {
 static int refresh(const void *unused) {
     (void)unused;
     cf.timer = 0;
-    void *dir = opendir(ART_DIR);
-    for (struct dirent *e; dir && (e = readdir(dir));) {
-        char path[600];
-        snprintf(path, sizeof(path), ART_DIR "/%s", e->d_name);
-        unlink(path); /* "." and ".." fail harmlessly */
-    }
-    if (dir) closedir(dir);
+    clear(ART_DIR);
     load();
     return 0;
 }
