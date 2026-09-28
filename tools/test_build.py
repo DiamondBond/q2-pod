@@ -39,7 +39,7 @@ def validate_assets(directory):
     # must remain stock; the payload and ELF mapping are independently hashed by the runner.
     if not ipod:
         for group in [*AUDIT['immediates'], AUDIT['row_layout_calls'],
-                      {'sites': [('0x522410', '0x0320f809')]}]:
+                      {'sites': [('0x522410', '0x0320f809'), ('0x523de0', '0x0320f809')]}]:
             for address, _ in group['sites']:
                 off = fileoff(stock, int(address, 16))
                 assert demo[off:off+4] == stock[off:off+4]
@@ -160,7 +160,7 @@ def validate_assets(directory):
         else: raise AssertionError('Accepted a changed asset')
     if ipod:
         payload_symbols = symbols(directory/'patch.elf')
-        for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', AUDIT['row_layout_calls']['sites'][0][0]]:
+        for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', '0x523de0', AUDIT['row_layout_calls']['sites'][0][0]]:
             damaged = bytearray(stock)
             damaged[fileoff(stock, int(address, 16))] ^= 1
             try: patch_code(damaged, payload_symbols)

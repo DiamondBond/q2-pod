@@ -1,6 +1,7 @@
 /* Audited top windows: the name is the navigation allowlist, the class decides whether and how
  * position memory restores, RING marks a row list that carries over at the ends, and DRILL (iPod)
- * one whose rows open another list but draw no stock chevron (list_into).
+ * one whose rows open another list but draw no stock chevron (list_into). BUTTONS (iPod) marks a
+ * dialog with no list: its own buttons are the rows.
  * The builder rejects any name that is not a window name in the stock rootfs. CTX_DYNAMIC pages
  * never import another page's row; CTX_FIXED menus restore by window name alone; CTX_FOLDER and
  * CTX_LOCAL add a content fingerprint. */
@@ -63,3 +64,11 @@
 { "tidal_viewall_page", CTX_DYNAMIC, 0 },
 { "search_dialog", CTX_DYNAMIC, 0 },
 { "tidal_search_dialog", CTX_DYNAMIC, 0 },
+#if IPOD /* confirm and choice dialogs; text-entry and toast dialogs leave the wheel on volume */
+/* A BUTTONS dialog must not contain a list: the dialog is the surface, so a list inside never is. */
+{ "confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
+{ "tidal_confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
+{ "autoshutdown_dialog", CTX_DYNAMIC, BUTTONS },
+{ "tidal_quality_select_dialog", CTX_DYNAMIC, BUTTONS },
+{ "tidal_sortmode_dialog", CTX_DYNAMIC, BUTTONS },
+#endif

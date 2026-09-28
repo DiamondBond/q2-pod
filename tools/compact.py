@@ -427,4 +427,7 @@ def patch_code(data, symbols):
     # Only the final long-Return call changes. All stock gates and its release guard precede it.
     word(0x4e8924, 0x04110fdf, 0x0c000000 | (symbols['compact_now_playing'] >> 2),
          'long Return destination after stock input gates')
+    # home_page_init's memory-play resume opens Now Playing; outside car mode it runs the page's player_start alone.
+    word(0x523de0, 0x0320f809, 0x0c000000 | (symbols['ringnav_boot'] >> 2),
+         'boot resume restores the queue paused and stays on Home')
     return changes

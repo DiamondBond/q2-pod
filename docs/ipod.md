@@ -213,6 +213,39 @@ tick give the wheel back to the volume; Return then stays on the page. A double 
 the screen off. Values are `SCRUB_*` and `SEEK_MS` in `patch/offsets.inc`; see
 [internals.md](internals.md#scrub-ipod).
 
+**Lyrics.** Stock already highlights the current line and scrolls to keep it in view.
+
+## Pop-ups
+
+The confirm and choice dialogs in `patch/contexts.inc` (flag `BUTTONS`) have no list: their buttons
+sit directly in the dialog. For those, the dialog itself is the navigation surface, a kind that
+never scrolls, and its clickable descendants are the rows in UI order. The wheel moves between
+them with hard ends, Centre clicks the selected one after the usual double-press window, and the
+bar is drawn in the dialog's background: the button's own rectangle for a button narrower than half
+the dialog (the confirm pair), the full width otherwise. A new dialog starts on its first button,
+Cancel on the confirm pair.
+
+| Dialog | Buttons |
+|---|---|
+| `confirminfo_dialog`, `tidal_confirminfo_dialog` | `img_cancel`, `img_enter` (80x80, side by side) |
+| `autoshutdown_dialog` | `btn_cancel` |
+| `tidal_quality_select_dialog` | four quality rows, `btn_ok` |
+| `tidal_sortmode_dialog` | three sort rows, `btn_cancel` |
+
+`sortselect_dialog` and the search result dialogs already navigate their lists. Left out, so the
+wheel stays on the volume: the text-entry dialogs (`addplaylist`, `editwifi`, `kbwifiadd`,
+`kbwifipass`, `renameplaylist`, `searchbox`, `tidal_searchbox` and Baidu's `edit_dialog`), the Update
+Local Music progress (`updatemusic_dialog`, whose only button cancels a scan that can run for
+minutes), the pull-down quick settings (`statusbar_dialog`), and the dialogs without buttons
+(`volume_dialog`, `msginfo_dialog`, `checkfw_dialog`, `showsn_dialog`, `dialog_wifibt_test`).
+
+## Boot
+
+An iPod classic starts on its menu. With Memory playback on, iPod restores the last queue, track
+and position as stock does, but paused and without opening Now Playing: Home stays on screen, and
+Now Playing or Play/Pause carries on. Car mode keeps stock and boots into Now Playing, playing.
+See [internals.md](internals.md#boot-resume-ipod).
+
 ## Display settings
 
 `systemset_display_page_init` (`0x4c1d04`) destroys the children of `scroll_view_display` and

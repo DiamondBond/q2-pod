@@ -87,6 +87,8 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - Now Playing in the iPod style: "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
 - Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
 - Pull down at the top of Local Songs to search.
+- Pop-ups that ask you to choose work with the wheel: delete and other OK/Cancel prompts, the auto shut-down warning, and Tidal's quality and sort choices. Turn to move between the buttons and press the centre button to pick one. Pop-ups where you type keep the wheel on the volume.
+- It starts on Home. With **Memory playback** on, your last queue comes back paused where you left it; open Now Playing or press Play/Pause to carry on.
 
 Other pages, Tidal and dialogs keep their stock layout, and your saved settings are unchanged.
 

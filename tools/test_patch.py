@@ -67,7 +67,7 @@ class Machine:
         self.rounded_fail=False
         self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
         self.rebind=None; self.on_click=None; self.glide=True
-        self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]
+        self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
         self.slides={}; self.slide_fail=False; self.slide_on_fail=False; self.slide_callbacks={}
         self.canvas=0x1000200; self.lcd=0x1000300; self.now=1000
@@ -296,6 +296,7 @@ class Machine:
                 self.timers[ret]=(self.now+c,a,b,c)
         elif name=='timer_remove': self.timers.pop(a,None); ret=0
         elif name=='screen_action': self.screens.append(a); ret=1
+        elif name=='player_start': self.started.append((a,b,c,d)); ret=1
         elif name in ('tk_strcmp','strcmp@GLIBC_2.0'): ret=0 if a and b and self.text(a)==self.text(b) else -1
         elif name=='stock_dispatch':
             if self.get(b)==O['EVT_CLICK']:
@@ -1153,6 +1154,26 @@ for name in ('search_dialog','tidal_search_dialog'):
 for name in ('searchbox_dialog','tidal_searchbox_dialog'):
     m=Machine(); m.top=m.node('window',name,[m.node('view')])
     assert m.call()==0 and not m.moved(); passed()
+
+# iPod: a confirm dialog's buttons are its rows (contexts.inc BUTTONS). The wheel moves between the
+# side-by-side buttons without scrolling anything, the bar is the button's own tile, the ends are
+# hard and Centre clicks the selected button. Normal leaves the dialog stock: the wheel is volume.
+m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm)
+m.word(d+O['W_W'],375); m.word(d+O['W_H'],320); m.clip=(0,0,375,320); m.top=d
+buttons=[m.entry(d,220) for _ in range(2)]; m.nodes[d]['children']=buttons
+for b,x in zip(buttons,(56,240)): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
+if variant=='ipod':
+    m.paint(d); assert m.selected(d)==0 and m.sel()==(56,220,80,80)
+    assert m.call()==11 and m.selected(d)==1 and not m.moved()
+    m.paint(d); assert m.sel()==(240,220,80,80) and m.clip==(0,0,375,320)
+    assert m.call()==11 and m.selected(d)==1 and not m.moved()
+    assert m.call(O['KEY_PREV'])==11 and m.selected(d)==0
+    assert m.confirm()==11 and m.dispatched()[0][1]==buttons[0]; passed()
+    # A wide button (autoshutdown's Cancel) gets the full-width bar.
+    m.nodes[d]['name']='autoshutdown_dialog'; m.nodes[d]['children']=[buttons[0]]; m.word(buttons[0]+O['W_W'],287)
+    m.paint(d); assert m.sel()==(0,220,375,80); passed()
+else:
+    assert m.call()==0 and m.call(O['KEY_CENTER'])==0 and not m.moved(); passed()
 
 # An interrupted recall glide keeps the remembered row instead of adopting a visible one.
 m,w,es=walk(10,5); w2,es2=m.page_list(10,extent=1000); m.glide=False
@@ -2444,6 +2465,24 @@ for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
 passed()
+# iPod boots to Home: home_page_init's memory-play resume, run from its stock context build, starts
+# the restored queue paused (mode 3) through player_start as playing_page_init would, and opens no
+# page; a 0xff class starts nothing, as the page's init. Car mode (mode 2) opens Now Playing as stock.
+if variant=='ipod':
+    boot=symbols(B/'patch.elf')['ringnav_boot']
+    assert struct.unpack_from('<I',demo,fileoff(demo,0x523de0))[0]==0x0c000000|boot>>2
+    for car,cls,want in ((0,1,[(0x5550,4,1,3)]),(0,0xff,[]),(1,0xf003,[])):
+        m=Machine(); m.word(syms['g_memory_info'],cls); m.byte(syms['g_carmode'],car)
+        m.u.reg_write(UC_MIPS_REG_GP,0xa26cc0); m.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
+        m.u.reg_write(UC_MIPS_REG_S0,0x5550); m.u.reg_write(UC_MIPS_REG_S1,4)
+        m.u.emu_start(0x523dac,0x523de8,count=1000)
+        nav=[c for c in m.calls if c[0]=='navigator_to_with_context']
+        assert m.started==want
+        if car:
+            assert len(nav)==1 and m.text(nav[0][1])=='playing_page' and nav[0][2]==0x7000f018
+            assert [m.get(0x7000f018+4*i) for i in range(4)]==[0x5550,4,0xf003,2]
+        else: assert not nav
+        passed()
 # Refusals leave the queue alone: a stream queue, or a row whose record changed under the menu.
 m=QueueMachine(); m.word(O['MCL_TYPE'],2); assert m.run(0)=='Queue unchanged' and m.names()==['A','B','C']
 m=QueueMachine(); m.press(1); m.hold(); m.release(); m.word(m.row(0)+O['REC_NAME'],m.string('other'))

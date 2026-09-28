@@ -111,7 +111,7 @@ static menu_t g_menu __attribute__((section(".scratch")));
  * one of the audited local row lists that carry over at the ends. The index is remembered
  * instead of the name pointer: AWTK owns and frees the window's name string. */
 enum { CTX_DYNAMIC, CTX_FIXED, CTX_FOLDER, CTX_LOCAL };
-enum { RING = 1, DRILL = 2 };
+enum { RING = 1, DRILL = 2, BUTTONS = 4 };
 typedef struct {
     const char *name;
     unsigned char kind, flags;
@@ -133,13 +133,19 @@ static int ring_list(const menu_t *m) {
     return m->w && m->ctx >= 0 && (contexts[m->ctx].flags & RING) && m->rows >= 2;
 }
 
-/* The view kinds load() actually navigates: a vertical scroll view, a table client or a slide
- * menu. A horizontal or page-snapping scroll view is not a candidate, so it cannot make a page
- * look like it has two panes. */
+/* The view kinds load() actually navigates: a vertical scroll view, a table client, a slide
+ * menu or (iPod) a BUTTONS dialog, which does not scroll. A horizontal or page-snapping scroll
+ * view is not a candidate, so it cannot make a page look like it has two panes. */
 static int kind(void *w) {
     const char *t = widget_get_type(w);
     if (!tk_strcmp(t, "slide_menu")) return 3;
     if (!tk_strcmp(t, "table_client")) return 2;
+#if IPOD
+    if (!tk_strcmp(t, "dialog")) {
+        int ctx = context_id(widget_get_prop_str(w, "name", (void *)0));
+        return ctx >= 0 && (contexts[ctx].flags & BUTTONS) ? 4 : 0;
+    }
+#endif
     return !tk_strcmp(t, "scroll_view") && B(w, VIEW_VERTICAL) && !B(w, VIEW_HORIZONTAL) &&
                    !B(w, VIEW_SNAP)
                ? 1
@@ -549,8 +555,8 @@ static int load_rows(menu_t *m, void *w) {
     m->rows = m->kind == 2 ? I(w, TABLE_ROWS) : 0;
     if (m->kind == 2 && (m->row <= 0 || m->rows < 0 || m->rows > 0x7fffffff / m->row)) return 0;
     unsigned n = widget_count_children(w);
-    if (m->kind == 1) {
-        if (I(w, VIEW_CONTENT_H) < 0) return 0;
+    if (m->kind == 1 && I(w, VIEW_CONTENT_H) < 0) return 0;
+    if (m->kind == 1 || m->kind == 4) {
         entries_t s = { m->at, 0, MAX_ENTRIES, 4096 };
         for (unsigned i = 0; i < n; ++i) collect(widget_get_child(w, i), &s, 1);
         m->n = s.n;
@@ -630,11 +636,14 @@ static int load(menu_t *m, void *w, int recall) {
 
 /* Live viewport offset. reveal glides are relative, so every delta is computed against the
  * position the widget is actually at, never an intended one. */
-static int view_top(menu_t *m) { return m->kind == 2 ? I(m->w, TABLE_TOP) : I(m->w, SCROLL_Y); }
+static int view_top(menu_t *m) {
+    return m->kind == 2 ? I(m->w, TABLE_TOP) : m->kind == 1 ? I(m->w, SCROLL_Y) : 0;
+}
 
 /* Largest viewport top that still shows content; the clamp bound for every glide. */
 static int max_top(menu_t *m) {
-    return (m->kind == 2 ? m->rows * m->row : I(m->w, VIEW_CONTENT_H)) - m->height;
+    if (m->kind == 2) return m->rows * m->row - m->height;
+    return m->kind == 1 ? I(m->w, VIEW_CONTENT_H) - m->height : 0;
 }
 
 static rect_t bounds(menu_t *m, int i) {
@@ -679,7 +688,7 @@ static void wheel_offset(menu_t *m, int top) {
     if (m->kind == 2) {
         table_client_set_yoffset(m->w, top);
         load_rows(m, m->w);
-    } else
+    } else if (m->kind == 1)
         scroll_view_set_offset(m->w, I(m->w, SCROLL_X), top);
 }
 
@@ -1417,17 +1426,15 @@ int ringnav_playing(void *win, void *ctx) {
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
- * The selection work for the surface happens here, once per frame, instead of in the border hook.
- * Top-level widgets are the status bar, which gets its gradient, and the windows. Painting the top
- * window or the bar (at least each second, systembar_showface) keeps the bar's title, Home's art
- * and Now Playing's labels current. */
+ * The selection work for the surface happens here, once per frame, instead of in the border hook;
+ * a BUTTONS dialog is itself top-level. Other top-level widgets are the status bar, which gets its
+ * gradient, and the windows. Painting the top window or the bar (at least each second,
+ * systembar_showface) keeps the bar's title, Home's art and Now Playing's labels current. */
 int ringnav_paint_bg(void *w, void *canvas) {
     int result = stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
-    if (!w || P(w, W_PARENT) != wm) {
-        paint_selection(w, canvas);
-        return result;
-    }
+    paint_selection(w, canvas);
+    if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD) && I(w, W_H) > 1) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
         rect_t r = { 0, 0, I(w, W_W), I(w, W_H) };
@@ -1695,6 +1702,16 @@ int compact_now_playing(void) {
         }
     }
     return 0;
+}
+
+/* Replaces home_page_init's boot resume, navigator_to_with_context("playing_page", ctx) with ctx
+ * {queue, index, class, mode}. Car mode (mode 2, plays) keeps that call; otherwise this is the
+ * paused start playing_page_init would make, without the page. */
+void ringnav_boot(const char *page, const int *ctx) {
+    if (ctx[3] == 2)
+        navigator_to_with_context(page, ctx);
+    else if (ctx[2] != 0xff)
+        player_start((void *)ctx[0], ctx[1], ctx[2], ctx[3]);
 }
 #endif
 
