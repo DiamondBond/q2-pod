@@ -189,7 +189,7 @@ int toolsGetAlbumCover(const char *src, const char *dst, int ww, int h) {
 }
 static unsigned free_blocks = 1 << 20;
 int shim_statfs(const char *p, void *out) {
-    assert(!strcmp(p, PEQ_ROOT "/mnt/mmc"));
+    assert(!strcmp(p, PEQ_ROOT "/mnt/mmc/.coverflow"));
     unsigned *s = out;
     s[1] = 4096; s[7] = free_blocks; /* MIPS o32 statfs: f_bsize, f_bavail */
     return 0;

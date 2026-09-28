@@ -9,9 +9,7 @@
 #endif
 
 /* On the card, beside stock's own cover cache (/mnt/mmc/.sldp): /mnt/data is small. */
-#define ART_ROOT PEQ_ROOT "/mnt/mmc"
-#define ART_DIR ART_ROOT "/.coverflow"
-#define OLD_ART_DIR PEQ_ROOT "/mnt/data/coverflow-art" /* V4.6; cleared on open */
+#define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
 #define ART_SIZE 160
 #define ART_MIN_FREE_MB 16 /* no build below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
@@ -299,11 +297,11 @@ static void load(void) {
             (cf.jobs[cf.total].track = strdup(P(r, REC_PATH))))
             cf.jobs[cf.total++].key = key;
     }
-    clear(OLD_ART_DIR); /* V4.6 kept the cache on /mnt/data; give that space back */
+    clear(PEQ_ROOT "/mnt/data/coverflow-art"); /* V4.6 cache; give that space back */
     mkdir(ART_DIR, 0755);
     cf.done = cf.cancel = 0;
     /* statfs, MIPS o32 layout: f_bsize is word 1, f_bavail word 7. */
-    if (cf.total && !statfs(ART_ROOT, fs) &&
+    if (cf.total && !statfs(ART_DIR, fs) &&
         (unsigned long long)fs[7] * fs[1] >= (unsigned long long)ART_MIN_FREE_MB << 20 &&
         !pthread_create(&cf.thread, 0, worker, 0)) {
         cf.running = 1;
