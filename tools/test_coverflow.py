@@ -112,8 +112,8 @@ int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     if (!x) return 0;
-    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY) {
-        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : 8191); /* page handlers */
+    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY || type == EVT_POINTER_UP_BEFORE) {
+        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : type == EVT_DESTROY ? 8191 : 8189); /* page handlers */
         h->click = f; h->ctx = ctx;
     }
     return 1;
@@ -353,6 +353,15 @@ int main(void) {
     assert(anims == 2 && anim_to == 0);
     *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; settle(0);
     assert(anims == 2 && ungrabs == 1);
+
+    /* A release finishes the drag where the finger left it, before stock's velocity throw sees
+       it; a tap passes through to stock. */
+    int (*release)(void *, void *) = w[8189].click;
+    *(int *)(raw + SLIDE_OFFSET) = 100; raw[SLIDE_DRAG] = raw[SLIDE_DRAG + 1] = 1;
+    assert(release(0, 0) == 11 && anims == 3 && anim_to == 160 && ungrabs == 2 && !raw[SLIDE_DRAG]);
+    *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; raw[SLIDE_DRAG + 1] = 1;
+    assert(release(0, 0) == 0 && anims == 3 && ungrabs == 2);
+    raw[SLIDE_DRAG + 1] = 0;
 
     /* Refresh (the last card) clears the cache and rebuilds every album. */
     int before = calls;

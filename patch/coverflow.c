@@ -215,18 +215,15 @@ static int changed(void *ctx, void *event) {
     return 0;
 }
 
-/* Stock snaps only on a pointer-up it handles while pressed, and some releases never reach it,
- * leaving the covers between two albums. So while Covers shows, a repeating check finishes any
- * drag at rest (no finger down, no snap running) as stock scroll_to (0x5f3400) would: 150 ms to
- * the nearest cover, then stock completion commits the index. The stale drag flags and grab that
- * pointer-up would have cleared go first. */
-static int settle(const void *unused) {
-    (void)unused;
+/* Finish a drag on the nearest cover as stock scroll_to (0x5f3400) would: 150 ms, then stock
+ * completion commits the index. The stale drag flags and grab that pointer-up would have cleared
+ * go first. Returns whether there was a drag to finish. */
+static int snap(void) {
     void *s = cf.slide;
-    int live = s && cf.screen == COVERS && !P(s, SLIDE_ANIMATOR) ? I(s, SLIDE_OFFSET) : 0;
-    int stride = live ? slide_menu_item_width(s) + I(s, SLIDE_SPACER) : 0;
-    if (stride <= 0 || window_manager_get_pointer_pressed(window_manager())) return 8; /* RET_REPEAT */
+    if (!s || cf.screen != COVERS || P(s, SLIDE_ANIMATOR)) return 0;
     unsigned char *drag = (unsigned char *)s + SLIDE_DRAG;
+    int live = I(s, SLIDE_OFFSET), stride = slide_menu_item_width(s) + I(s, SLIDE_SPACER);
+    if ((!live && !drag[0]) || stride <= 0) return 0;
     if (drag[1]) widget_ungrab(P(s, W_PARENT), s);
     drag[0] = drag[1] = 0;
     int goal = (live + (live < 0 ? -stride : stride) / 2) / stride * stride;
@@ -234,7 +231,24 @@ static int settle(const void *unused) {
         slide_menu_on_scroll_done(s, 0);
     else
         slide_menu_scroll_to(s, goal);
-    return 8;
+    return 1;
+}
+
+/* Stock's pointer-up (0x5f3c80) throws a drag on by its velocity: a whole cover past the finger
+ * for a swipe under 200 ms, else velocity % cover width. So drags finish here first, on the page
+ * before the slide_menu sees the release, where the finger left them; taps still reach stock. */
+static int released(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    return snap() ? 11 : 0; /* RET_STOP */
+}
+
+/* Some releases never reach the page or the slide_menu, leaving the covers between two albums,
+ * so while Covers shows a repeating check also finishes any drag at rest. */
+static int settle(const void *unused) {
+    (void)unused;
+    if (!window_manager_get_pointer_pressed(window_manager())) snap();
+    return 8; /* RET_REPEAT */
 }
 
 /* One image per album plus a last Refresh card. ponytail: one child per album; if large
@@ -424,6 +438,7 @@ static int coverflow_open(void *ctx, void *event) {
     widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
+    widget_on(page, EVT_POINTER_UP_BEFORE, released, 0);
     load();
     return 0;
 }
