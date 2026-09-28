@@ -8,6 +8,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
+extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -401,11 +402,6 @@ static int edge_wraps(const menu_t *m, int id, int dir, unsigned now) {
 typedef struct {
     unsigned one, two;
 } row_id_t;
-
-static unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n) {
-    for (unsigned i = 0; i < n; ++i) h = (h ^ s[i]) * 16777619u;
-    return h;
-}
 
 /* The library browsing state both position memory and the queue menu key on. */
 static unsigned local_hash(unsigned h) {

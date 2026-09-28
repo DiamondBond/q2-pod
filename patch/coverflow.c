@@ -40,8 +40,14 @@ void *coverflow_tracks(void *page) {
     return page == cf.page && cf.screen == TRACKS ? cf.tracks : 0;
 }
 
+/* FNV-1a, shared with ringnav.c */
+unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n) {
+    for (unsigned i = 0; i < n; ++i) h = (h ^ s[i]) * 16777619u;
+    return h;
+}
+
 unsigned fnv(unsigned h, const unsigned char *s) {
-    while (s && *s) h = (h ^ *s++) * 16777619u;
+    while (s && *s) h = hash_bytes(h, s++, 1);
     return h * 16777619u; /* a separator, so "ab"+"c" and "a"+"bc" differ */
 }
 

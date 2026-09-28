@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 for name in assets:
                     (target/name).write_bytes((out/name).read_bytes() if failure != 'corrupt' else b'bad')
             return ''
-        with patch('release.validate'), patch('release.run', side_effect=gh):
+        with patch('release.run', side_effect=gh):
             try:
                 release.upload(out, 'owner/repo', True)
             except (ValueError, subprocess.CalledProcessError):
@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert any('--draft=false' in c for c in calls) == (failure is None)
     # A missing variant must fail before contacting GitHub.
     (out/release.ASSETS['compact']).unlink()
-    with patch('release.validate'), patch('release.run') as gh:
+    with patch('release.run') as gh:
         try: release.upload(out, 'owner/repo')
         except OSError: pass
         else: raise AssertionError('Accepted a missing variant')

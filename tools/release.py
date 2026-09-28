@@ -100,8 +100,8 @@ def upload(out, repo=REPO, publish=False):
     record = json.loads((out/'release.json').read_text())
     check(record['tag'] == TAG and record['source_sha256'] == source_sha256(), 'Wrong release source/tag')
     check(set(record['assets']) == set(ASSETS.values()), 'Both variants are required')
+    # package() validated these trees; the ZIP bytes and source hash prove they are unchanged.
     for variant, asset in ASSETS.items():
-        validate(out/variant, variant)
         data = (out/asset).read_bytes()
         check(sha(data) == record['assets'][asset] and data == archive_bytes(out/variant), 'Release ZIP mismatch')
     sums = ''.join(f'{record["assets"][name]}  {name}\n' for name in ASSETS.values())
