@@ -322,7 +322,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     audio = patch_player(raw_player, out/'peq')
     bluealsa = patch_bluealsa(subprocess.check_output(['unsquashfs', '-cat', str(sq), BLUEALSA]))
     (out/'bluealsa').write_bytes(bluealsa)
-    from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, patch_asset, patch_code, patch_word
+    from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, patch_asset, patch_code, patch_style, patch_word
     for address, old, new in ARTIST_ALBUMS:
         patch_word(patched, [], address, old, new, 'artist detail opens on Albums')
     patch_word(patched, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
@@ -385,11 +385,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         removed.append(line.group().split()[:6])
         p = p[:line.start()]+p[line.end():]
     changed_assets = {}
-    for rel in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE]):
-        path = 'release/assets/default/raw/ui/' + rel
+    assets = ['ui/'+rel for rel in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE])]
+    if ipod:
+        assets += ['styles/'+rel for rel in AUDIT['styles']]
+    for rel in assets:
+        path = 'release/assets/default/raw/' + rel
         original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
-        data = patch_asset(rel, original, ipod)
-        target = out/'ui'/rel
+        kind, name = rel.split('/', 1)
+        data = patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else patch_asset(name, original, ipod)
+        target = out/rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         p = swap_inode(p, path.encode(), target)

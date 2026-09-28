@@ -174,5 +174,20 @@
     "0x640328": "1c0002ae",
     "0x65e138": "1000428e",
     "0x4e8d10": "1f008228"
+  },
+  "styles": {
+    "default.bin": {
+      "sha256": "3605aa963897e5686c9ca9fd89431992fe22ab326dbced846361f57a4d004f67",
+      "edits": [
+        ["button", "s_btn_listitem", "bg_color", "2b2b2bff", "00000000", 4],
+        ["button", "s_btn_listitem", "round_radius", "0e000000", "00000000", 5],
+        ["list_item", "s_listitem_black", "bg_color", "000000ff", "00000000", 5],
+        ["table_row", "s_tablerow_black", "bg_color", "000000ff", "00000000", 28],
+        ["table_row", "s_tablerow_black", "selected_bg_color", "000000ff", "00000000", 28],
+        ["hscroll_label", "s_scrlabel_red16l", "text_color", "ff1448ff", "ffffffff", 3],
+        ["hscroll_label", "s_scrlabel_red20l", "text_color", "ff1448ff", "ffffffff", 3],
+        ["hscroll_label", "s_scrlabel_red24l", "text_color", "ff1448ff", "ffffffff", 3]
+      ]
+    }
   }
 }

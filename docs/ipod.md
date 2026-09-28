@@ -20,9 +20,20 @@ bottom. Row bodies are `PITCH - 4` pixels, and the stock 52-pixel artwork is
 drawn at natural size (`ART = 52`) with `ART_INSET = 8` on all four sides: the
 artwork never rescales, so glyphs and covers stay as sharp as stock, and the row
 layout's eight-pixel left margin seats the artwork exactly. ART_INSET also
-positions the playing overlay. Font/style definitions are untouched. Full-height
+positions the playing overlay. Font definitions are untouched. Full-height
 text/icon containers are shortened with their button. Titles and metadata keep
 their stock centring, one pixel higher for the two-pixel-shorter body.
+
+Theme edits change values in place in the shared `styles/default.bin`, so they
+reach every page using these styles. The file holds a magic `0xFAFBFCFD`, a
+100-byte index entry (data offset, state, style, widget type) per style state,
+and typed properties. `compact.json` pins its hash and lists each edit with its
+old value and the number of states holding it; a count mismatch fails the build.
+List buttons (`s_btn_listitem`) lose their grey fill and 14-pixel corners, keeping
+the pressed colour for touch feedback. Black list items and table rows become
+transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
+leaving the stock playing glyph to mark the current song; only list rows use them.
+The album page's inline black grid buttons become transparent as well.
 
 Native local row-pool constructors are at 0x523038 (folder), 0x4aa2cc (songs),
 0x4b0efc (local categories) and 0x4a4ae8 (album list/grid). The album grid branch

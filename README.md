@@ -75,10 +75,11 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 
 - No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
+- Flat list rows on every page, without the grey cards. The playing song keeps its icon but its title stays white.
 - Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
 - Pull down at the top of Local Songs to search.
 
-Other pages, dialogs and your saved settings are unchanged.
+Other pages and dialogs keep their stock layout, and your saved settings are unchanged.
 
 Both variants fix choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 

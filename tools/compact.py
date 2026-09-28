@@ -1,6 +1,6 @@
 """Build-time edits for the SHA-pinned local browsing assets and native call sites.
 
-No global widget hook: excluded pages and shared UI styles stay byte-identical.
+No global widget hook: excluded pages stay byte-identical; iPod's list style edits are audited in place.
 The audit records full original instructions and asset hashes, not search/replace patterns.
 """
 import copy
@@ -121,6 +121,35 @@ def home_card(root):
     menu[0][3].insert(2, card)
 
 
+def style_props(data):
+    """Yield (widget, style, state, prop, value offset, value) for each property of an AWTK style file."""
+    magic, _, count = struct.unpack_from('<3I', data)
+    require(magic == 0xfafbfcfd, 'Unexpected AWTK style magic')
+    for i in range(count):
+        at, *names = struct.unpack_from('<I32s32s32s', data, 12 + 100*i)
+        state, style, widget = (n.split(b'\0')[0].decode() for n in names)
+        props, at = struct.unpack_from('<I', data, at)[0], at + 4
+        for _ in range(props):
+            _, key_len, size = struct.unpack_from('<BBH', data, at)
+            prop, at = data[at+4:at+3+key_len].decode(), at + 4 + key_len
+            yield widget, style, state, prop, at, data[at:at+size]
+            at += size
+
+
+def patch_style(data, audit):
+    """Replace each edit's old value, same size, in the n states of widget/style that hold it."""
+    require(hashlib.sha256(data).hexdigest() == audit['sha256'], 'Unaudited style file')
+    out, props = bytearray(data), list(style_props(data))
+    for widget, style, prop, old, new, n in audit['edits']:
+        old, new = bytes.fromhex(old), bytes.fromhex(new)
+        require(len(old) == len(new), f'{style}.{prop}: edit changes size')
+        sites = [at for w, s, _, p, at, value in props if (w, s, p, value) == (widget, style, prop, old)]
+        require(len(sites) == n, f'{style}.{prop}: expected {n} states with {old.hex()}, found {len(sites)}')
+        for at in sites:
+            out[at:at+len(new)] = new
+    return bytes(out)
+
+
 def patch_word(data, changes, address, old, new, purpose):
     off = fileoff(data, address)
     require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
@@ -162,6 +191,10 @@ def patch_asset(path, data, ipod):
 
     def rows(n, in_row=False):
         kind, g, props, children = n
+        if path == 'localmusic/album_page.bin' and props.get('name') == 'button1':  # inline black grid buttons
+            for key, value in props.items():
+                if key.endswith(':bg_color') and value == '#000000':
+                    props[key] = '#00000000'
         in_row = in_row or kind in ('list_item', 'table_row') and g[3] in (0, 78)
         for prop in ('row_height', 'default_item_height'):
             if props.get(prop) == '78':

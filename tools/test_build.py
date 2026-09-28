@@ -29,7 +29,7 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1
-    from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, decode, patch_asset, patch_code
+    from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, decode, patch_asset, patch_code, patch_style
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -44,7 +44,8 @@ def validate_assets(directory):
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
     changed = manifest['changed_assets']
-    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE])}
+    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
+        'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
     # bluealsa differs from stock only in the AAC 44.1 kHz bit.
@@ -53,7 +54,7 @@ def validate_assets(directory):
     assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
-             if '/raw/ui/' in l and l.endswith('.bin') or l.endswith('/config.ini')]
+             if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
     def walk(n):
         yield n
         for child in n[3]: yield from walk(child)
@@ -65,9 +66,19 @@ def validate_assets(directory):
         if rel not in changed:
             assert new == original, rel
             continue
+        assert changed[rel] == dict(original_sha256=sha(original), sha256=sha(new))
+        if '/raw/styles/' in rel:
+            audit = AUDIT['styles'][rel.split('/raw/styles/')[1]]
+            assert new == patch_style(original, audit) and len(new) == len(original)
+            wrong = [*audit['edits'][0][:3], 'ffffffff', *audit['edits'][0][4:]]
+            try:
+                patch_style(original, dict(audit, edits=[wrong]))
+                raise AssertionError('Accepted a wrong old style value')
+            except ValueError:
+                pass
+            continue
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
-        assert changed[rel] == dict(original_sha256=sha(original), sha256=sha(new))
         root = decode(new)
         if short == HOME_PAGE:  # both variants: only the Coverflow card is added
             cards = [n[2]['name'] for n in root[3][0][3]]
@@ -77,6 +88,8 @@ def validate_assets(directory):
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
         assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
+        assert not ipod or not [v for n in walk(root) if n[0] in ('button', 'list_item', 'table_row')
+                                for k, v in n[2].items() if k.endswith(':bg_color') and v == '#000000'], 'Opaque inline row background'
         old_nodes, new_nodes = list(walk(decode(original))), list(walk(root))
         assert len(old_nodes) == len(new_nodes)
         for old, node in zip(old_nodes, new_nodes):
