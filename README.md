@@ -76,6 +76,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
 - Flat list rows on every page, without the grey cards. The playing song keeps its icon but its title stays white.
+- A full-width graphite selection bar replaces the outline.
 - Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
 - Pull down at the top of Local Songs to search.
 
@@ -86,7 +87,7 @@ Both variants fix choppy AAC audio when a headset such as AirPods connects to th
 ## Controls
 
 - **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick.
-- **List ends:** in the local folder and music lists, a turn past the end nudges the outline and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
+- **List ends:** in the local folder and music lists, a turn past the end nudges the selection and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
 - **Centre button:** opens the highlighted item. Double-press to turn the screen off.
 - **Hold Play/Pause:** on a highlighted song, album or folder in the local lists, opens **Play next** / **Add to queue**. It adds without interrupting what is playing; with shuffle on, Play next is still the next track. Return closes it.
 - **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.

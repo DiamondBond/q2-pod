@@ -30,8 +30,9 @@ reach every page using these styles. The file holds a magic `0xFAFBFCFD`, a
 and typed properties. `compact.json` pins its hash and lists each edit with its
 old value and the number of states holding it; a count mismatch fails the build.
 List buttons (`s_btn_listitem`) lose their grey fill and 14-pixel corners, keeping
-the pressed colour for touch feedback. Black list items and table rows become
-transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
+the pressed colour for touch feedback. Black list items, table rows and the black
+album grid buttons (`s_btn_listblack`, used only by the album and all-music grids)
+become transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
 leaving the stock playing glyph to mark the current song; only list rows use them.
 The album page's inline black grid buttons become transparent as well.
 

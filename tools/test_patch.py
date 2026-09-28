@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
 from unicorn.mips_const import *
-from build import segments, symbols, BASE, SCRATCH, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
+from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -59,7 +59,7 @@ class Machine:
         self.u.mem_map(0x70000000,0x10000)
         self.next=0x1001000; self.nodes={}; self.calls=[]; self.animating=0; self.pressed=0
         self.top=0; self.wm=0x1000000; self.event=0x1000100
-        self.strokes=[]; self.rounded=[]; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
+        self.strokes=[]; self.rounded=[]; self.bands=[]; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
         self.allocs={}
         self.rebind=None; self.on_click=None; self.glide=True
@@ -78,7 +78,7 @@ class Machine:
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
                   'widget_set_focused','widget_layout_children','event_init','value_set_int')
         if patched:
-            for name in ('paint','dispatch'):
+            for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click')
@@ -154,7 +154,19 @@ class Machine:
         self.word(a+O['W_PARENT'],parent); self.word(a+O['W_Y'],y); self.word(a+O['W_H'],48)
         return a
     def selected(self,w): return self.nodes[w].get('_ringnav_index',-1)
-    def paint(self,w,gap=1000): return self.call(address=HOOKS['widget_on_paint_border'][0],args=(w,self.canvas,0,0),gap=gap)
+    def paint(self,w,gap=1000):
+        """Stock order: background, then (children and) border; iPod hooks both."""
+        if variant=='ipod':
+            self.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,self.canvas,0,0),gap=gap); gap=0
+        return self.call(address=HOOKS['widget_on_paint_border'][0],args=(w,self.canvas,0,0),gap=gap,clear=variant!='ipod')
+    def drawn(self): return self.rounded or self.strokes or self.bands
+    def sel(self):
+        """The selected row's rectangle, from the outline (inset 1) or the bar's bands."""
+        if variant=='ipod':
+            ys=[b[1] for b in self.bands]
+            return (self.bands[0][0],min(ys),self.bands[0][2],max(ys)-min(ys)+1)
+        x,y,w,h=self.rounded[0]['rect'] if self.rounded else self.strokes[0][:4]
+        return (x-1,y-1,w+2,h+2)
     def touch(self): return self.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'])
     def click(self,w,gap=1000): return self.call(address=HOOKS['widget_dispatch'][0],args=(w,self.event,0,0),event_type=O['EVT_CLICK'],gap=gap)
     def hook(self,u,address,size,_):
@@ -330,6 +342,9 @@ class Machine:
             else:
                 self.word(self.lcd+(O['LCD_FILL_COLOR'] if kind=='fill' else O['LCD_STROKE_COLOR']),self.get(d))
                 ret=0
+        elif name=='canvas_fill_rect':
+            self.bands.append((signed(b),signed(c),signed(d),signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),
+                               self.get(self.lcd+O['LCD_FILL_COLOR']),self.clip)); ret=0
         elif name in ('canvas_stroke_rect','lcd_stroke_rect'):
             h=self.get(u.reg_read(UC_MIPS_REG_SP)+16)
             clip=self.clip if name=='canvas_stroke_rect' else (self.get(self.canvas+0x10),self.get(self.canvas+0x14),self.get(self.canvas+0x18)-self.get(self.canvas+0x10)+1,self.get(self.canvas+0x1c)-self.get(self.canvas+0x14)+1)
@@ -365,7 +380,7 @@ class Machine:
         # Independent input steps occur after the stock key debounce timer expires.
         if gap: self.advance(gap,clear=False)
         if not debounce: self.byte(0xa37c89,0)  # stock key filter latch
-        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.vg_calls=[]
+        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.bands=[]; self.vg_calls=[]
         self.word(self.event+O['EVENT_KEY'],key)
         self.word(self.event+O['EVENT_TYPE'],event_type)
         self.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
@@ -538,23 +553,46 @@ assert m.get(w+O['SCROLL_Y'])==148 and m.get(w+O['VIEW_ANIMATOR'])==0; passed()
 # Painting establishes selection without a sacrificial button press or native focus.
 m=Machine(); w,entries=m.page_list(5,extent=1000)
 assert m.paint(w)==0 and m.selected(w)==0
-# Default outline: translucent fill, one dark shade stroke, one white stroke, all clipped.
-assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
-fill,shade,white=m.rounded
-assert fill['rect']==(1,1,238,46) and fill['bg']==0 and fill['clip']==(0,0,240,96)
-assert fill['color']==FILL and fill['radius']==O['RADIUS'] and fill['width'] is None
-assert shade['rect']==(1,1,238,46) and shade['bg']==0
-assert shade['color']==SHADE
-assert shade['radius']==O['RADIUS'] and shade['width']==1 and shade['clip']==(0,0,240,96)
-assert white['rect']==(2,2,236,44) and white['bg']==0 and white['color']==OUTLINE
-assert white['radius']==O['RADIUS']-1 and white['width']==1
-assert not m.strokes and m.global_alpha==0
-assert m.clip==(0,0,240,240)
-assert m.lcd_colors()==LCD_COLORS
-assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries)
-assert [c[0] for c in m.calls if c[0].startswith('canvas_')][-6:]==[
-    'canvas_fill_rounded_rect','canvas_stroke_rounded_rect','canvas_stroke_rounded_rect',
-    'canvas_set_fill_color','canvas_set_stroke_color','canvas_set_clip_rect']; passed()
+if variant=='normal':
+    # Default outline: translucent fill, one dark shade stroke, one white stroke, all clipped.
+    assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
+    fill,shade,white=m.rounded
+    assert fill['rect']==(1,1,238,46) and fill['bg']==0 and fill['clip']==(0,0,240,96)
+    assert fill['color']==FILL and fill['radius']==O['RADIUS'] and fill['width'] is None
+    assert shade['rect']==(1,1,238,46) and shade['bg']==0
+    assert shade['color']==SHADE
+    assert shade['radius']==O['RADIUS'] and shade['width']==1 and shade['clip']==(0,0,240,96)
+    assert white['rect']==(2,2,236,44) and white['bg']==0 and white['color']==OUTLINE
+    assert white['radius']==O['RADIUS']-1 and white['width']==1
+    assert not m.strokes and m.global_alpha==0
+    assert m.clip==(0,0,240,240)
+    assert m.lcd_colors()==LCD_COLORS
+    assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries)
+    assert [c[0] for c in m.calls if c[0].startswith('canvas_')][-6:]==[
+        'canvas_fill_rounded_rect','canvas_stroke_rounded_rect','canvas_stroke_rounded_rect',
+        'canvas_set_fill_color','canvas_set_stroke_color','canvas_set_clip_rect']; passed()
+else:
+    # The bar is painted behind the rows: every band precedes the border hook, which draws nothing.
+    names=[c[0] for c in m.calls]
+    bg,border=names.index('stock_paint_bg'),names.index('stock_paint')
+    assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rect')
+    assert not m.rounded and not m.strokes and m.global_alpha==0
+    def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
+    # Full surface width, one band per row pixel from Graphite top to bottom, then the highlight.
+    assert [b[:4] for b in m.bands]==[(0,y,240,1) for y in range(48)]+[(0,0,240,1)]
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(O[k]) for k in ('ACCENT_TOP','ACCENT_BOTTOM','ACCENT_HI')]
+    assert all(b[5]==(0,0,240,96) for b in m.bands)
+    assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
+    assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
+    # A grid tile (under half the surface width) gets the bar in its own rect.
+    g=Machine(); gw=g.page(); tiles=[g.entry(gw,0) for _ in range(3)]; g.nodes[gw]['children']=tiles
+    for i,t in enumerate(tiles): g.word(t+O['W_X'],80*i); g.word(t+O['W_W'],80)
+    g.paint(gw); g.call(); g.paint(gw)
+    assert g.selected(gw)==1 and g.sel()==(80,0,80,48); passed()
+    # Touch mode draws nothing; the wheel brings the bar back.
+    c=Machine(); cw,_=c.page_list(5,extent=1000); c.paint(cw)
+    c.touch(); c.paint(cw); assert not c.drawn() and c.clip==(0,0,240,240)
+    c.call(); c.paint(cw); assert c.selected(cw)==1 and c.sel()==(0,36,240,48); passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60
@@ -858,7 +896,7 @@ def walk(n,steps,texts=(),extent=1000,**kw):
 m,w,es=walk(10,5); assert m.get(w+O['SCROLL_Y'])==204
 w2,es2=m.page_list(10,extent=1000)
 assert m.paint(w2)==0 and m.selected(w2)==5 and m.get(w2+O['SCROLL_Y'])==204
-assert m.rounded[0]['rect']==(1,37,238,46) and m.rounded[0]['kind']=='fill'
+assert m.sel()==(0,36,240,48)
 assert m.confirm()==11 and m.dispatched()[0][1]==es2[5]; passed()
 
 # Memory is per audited context: visiting another page leaves it alone.
@@ -1114,7 +1152,7 @@ m.confirm(); assert m.dispatched()[0][1]==es2[1]; passed()
 # Home keeps its native carousel presentation and value (including touch changes).
 m=Machine(); w=m.page('home_page','slide_menu'); m.word(w+O['SLIDE_INDEX'],1)
 child=[m.entry(w),m.entry(w)]; m.nodes[w]['children']=child
-assert m.paint(w)==0 and not m.strokes and not m.rounded
+assert m.paint(w)==0 and not m.drawn()
 assert any(c[0]=='stock_paint' for c in m.calls)
 assert m.confirm()==11 and m.dispatched()[0][1]==child[1]
 m.word(w+O['SLIDE_INDEX'],0)
@@ -1453,22 +1491,28 @@ assert m.call(O['KEY_NEXT'])==11 and m.selected(w)==1
 m.click(deep); assert m.selected(w)==0
 m.click(m.node('button')); assert m.selected(w)==0; passed()
 # Real canvas ABI, translation and clip code execute; only the LCD rectangle sink is mocked.
-# A 20px row keeps the square fallback (radius 9 needs more height), so the stock square code
-# runs with the real clip intersection and color restore.
+# A 20px row at canvas origin (7,20) under a (10,30)-(229,199) clip.
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w,0); m.word(e+O['W_H'],20); m.nodes[w]['children']=[e]
-for name in ('canvas_get_clip_rect','canvas_set_clip_rect','canvas_set_stroke_color','canvas_stroke_rect'):
+sink='lcd_stroke_rect' if variant=='normal' else 'lcd_fill_rect'
+for name in ('canvas_get_clip_rect','canvas_set_clip_rect',
+             *(('canvas_set_stroke_color','canvas_stroke_rect') if variant=='normal' else ('canvas_fill_rect',))):
     del m.handlers[syms[name]]
-m.mock('lcd_stroke_rect')
+m.mock(sink)
 m.word(m.lcd+0x3c,1); m.word(m.lcd+0xb0,240); m.word(m.lcd+0xb4,240)
 m.word(m.canvas+O['CANVAS_X'],7); m.word(m.canvas+O['CANVAS_Y'],20)
 for off,val in [(0x10,10),(0x14,30),(0x18,229),(0x1c,199)]: m.word(m.canvas+off,val)
 m.paint(w)
-assert not m.rounded and [s[:4] for s in m.strokes]==[(8,21,238,18),(9,22,236,16)]
-assert m.strokes[0][4:]==((10,30,220,86),SHADE)
-assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
+if variant=='normal':
+    # The square fallback (radius 9 needs more height) runs the stock square code.
+    assert not m.rounded and [s[:4] for s in m.strokes]==[(8,21,238,18),(9,22,236,16)]
+    assert m.strokes[0][4:]==((10,30,220,86),SHADE)
+    assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
+else:
+    # The bands reach the LCD only for the row pixels inside the clip.
+    assert [(c[2],c[3]) for c in m.calls if c[0]==sink]==[(10,y) for y in range(30,40)]
 assert [m.get(m.canvas+off) for off in (0x10,0x14,0x18,0x1c)]==[10,30,229,199]
-assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
+assert m.lcd_colors()==LCD_COLORS; passed()
 # Wheel selection is immediate even when restoration animations would still be running.
 m=Machine(); w,es=m.page_list(6)
 m.paint(w); m.glide=False
@@ -1486,8 +1530,8 @@ assert m.touch()==0 and not m.dispatched(); passed()
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w); m.word(e+O['W_H'],140); m.nodes[w]['children']=[e]
 m.paint(w)
-assert m.selected(w)==0 and [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
-assert m.rounded[0]['rect']==(1,1,238,138) and all(r['clip']==(0,0,240,96) for r in m.rounded); passed()
+assert m.selected(w)==0 and m.sel()==(0,0,240,140)
+assert {r['clip'] for r in m.rounded}|{b[5] for b in m.bands}=={(0,0,240,96)}; passed()
 # Both list kinds leave breathing room, shrink it in tight viewports, and clamp at either end.
 for virtual in (False,True):
     for height,margin in ((96,12),(60,6),(49,0),(48,0),(40,0)):
@@ -1520,7 +1564,7 @@ m.paint(w); assert m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==48; passed()
 
 # Small rows keep the square shade-plus-white outline; the rounded path starts only when both
 # outer dimensions exceed 2*RADIUS. Tiny rows are skipped outright, never with negative sizes.
-for ww,hh in [(240,20),(20,48),(6,6),(21,21)]:
+for ww,hh in [(240,20),(20,48),(6,6),(21,21)] if variant=='normal' else ():
     m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
     e=m.entry(w,0); m.word(e+O['W_W'],ww); m.word(e+O['W_H'],hh); m.nodes[w]['children']=[e]
     assert m.paint(w)==0
@@ -1533,11 +1577,11 @@ for ww,hh in [(240,20),(20,48),(6,6),(21,21)]:
     assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w,0); m.word(e+O['W_W'],4); m.word(e+O['W_H'],4); m.nodes[w]['children']=[e]
-assert m.paint(w)==0 and not m.rounded and not m.strokes and m.clip==(0,0,240,240); passed()
+assert m.paint(w)==0 and not m.drawn() and m.clip==(0,0,240,240); passed()
 # A page with no entries paints nothing and leaves every saved property alone.
 m=Machine(); w=m.page()
 assert m.paint(w)==0 and m.selected(w)==-1
-assert not m.rounded and not m.strokes and m.global_alpha==0 and m.clip==(0,0,240,240)
+assert not m.drawn() and m.global_alpha==0 and m.clip==(0,0,240,240)
 assert m.lcd_colors()==LCD_COLORS; passed()
 
 # Every saved value is unusual: the rounded path restores fill, stroke and clip exactly and
@@ -1557,8 +1601,8 @@ for seeded in ((),(0,),(0,1)):
     for i in seeded: m.nodes[(a,b)[i]]['_ringnav_index']=0
     m.touch(); m.click(nested)
     assert m.selected(a)==-1 and m.selected(b)==1
-    m.paint(a); assert not m.rounded and not m.strokes
-    m.paint(b); assert not m.rounded and not m.strokes
+    m.paint(a); assert not m.drawn()
+    m.paint(b); assert not m.drawn()
     m.confirm(); assert m.dispatched()[0][1]==be[1]
     m.call(); assert m.selected(b)==2
     m.touch(); m.click(ae[0]); m.confirm()
@@ -1567,17 +1611,18 @@ for seeded in ((),(0,),(0,1)):
 
 # An inactive pane is never painted, so the outline cannot appear on two panes at once.
 m=Machine(); a,b,_,_=m.panes(96); m.nodes[a]['_ringnav_index']=0
-m.paint(b); assert not m.rounded and not m.strokes
-m.paint(a); assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']; passed()
+m.paint(b); assert not m.drawn()
+m.paint(a); assert m.sel()==(0,0,240,48); passed()
 
 # A canvas backend that declines the rounded stroke keeps the outline via the square fallback.
-m=Machine(); w,es=m.page_list(3,extent=1000); m.rounded_fail=True
-m.paint(w)
-assert [r['kind'] for r in m.rounded]==['fill','stroke'] and [s[:4] for s in m.strokes]==[(1,1,238,46),(2,2,236,44)]
-assert m.rounded[1]['color']==SHADE
-assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
-assert m.lcd_colors()==LCD_COLORS
-assert m.global_alpha==0 and m.clip==(0,0,240,240); passed()
+if variant=='normal':
+    m=Machine(); w,es=m.page_list(3,extent=1000); m.rounded_fail=True
+    m.paint(w)
+    assert [r['kind'] for r in m.rounded]==['fill','stroke'] and [s[:4] for s in m.strokes]==[(1,1,238,46),(2,2,236,44)]
+    assert m.rounded[1]['color']==SHADE
+    assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
+    assert m.lcd_colors()==LCD_COLORS
+    assert m.global_alpha==0 and m.clip==(0,0,240,240); passed()
 
 # The real stock rounded wrappers run with canvas services mocked. This firmware declines with
 # RET_FAIL when the canvas has no vgcanvas, and changes no fill/stroke color or alpha byte.
@@ -1681,10 +1726,11 @@ for active in (-1,0,1,2):
     passed()
 
 # If the white rounded stroke fails, draw the square fallback as well.
-m=Machine(); w,es=m.page_list(3); m.rounded_fail=O['RADIUS']-1
-m.paint(w)
-assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
-assert m.lcd_colors()==LCD_COLORS; passed()
+if variant=='normal':
+    m=Machine(); w,es=m.page_list(3); m.rounded_fail=O['RADIUS']-1
+    m.paint(w)
+    assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
+    assert m.lcd_colors()==LCD_COLORS; passed()
 
 # An overdue confirmation can change power state before the next release is processed.
 for flag in ('g_backlight_status','g_power_longkey','g_ingore_bootkey_flag'):
@@ -1756,7 +1802,7 @@ for virtual in (False,True):
     for click_only in (False,True):
         m=Machine()
         w,rs=m.list_surface(virtual)
-        m.paint(w); assert m.rounded
+        m.paint(w); assert m.drawn()
         if click_only: m.click(m.node('button'))
         else: m.touch()
         assert any(c[0]=='widget_invalidate_force' and c[1]==m.top for c in m.calls)
@@ -1765,18 +1811,18 @@ for virtual in (False,True):
         m.word(w+off,110)
         if virtual: m.bind(rs,110)
         m.word(w+anim,0x1234)
-        m.paint(w); assert not m.rounded and not m.strokes
+        m.paint(w); assert not m.drawn()
         m.word(w+anim,0); m.paint(w)
-        assert m.selected(w)==3 and not m.rounded and not m.strokes
+        assert m.selected(w)==3 and not m.drawn()
         old=m.top; m.page('playing_page'); m.touch(); m.call()
-        m.top=old; m.paint(w); assert not m.rounded and not m.strokes
+        m.top=old; m.paint(w); assert not m.drawn()
         # Returning to a recreated list preserves remembered selection, still without drawing.
         w,rs=m.list_surface(virtual)
-        m.paint(w); assert m.selected(w)==3 and not m.rounded and not m.strokes
-        m.confirm(); m.paint(w); assert m.rounded  # centre-generated click stays visible
+        m.paint(w); assert m.selected(w)==3 and not m.drawn()
+        m.confirm(); m.paint(w); assert m.drawn()  # centre-generated click stays visible
         m.touch(); m.pressed=1; m.call(); m.paint(w)
-        assert not m.rounded and not m.strokes  # rejected wheel does not restore drawing
-        m.pressed=0; m.call(); m.paint(w); assert m.rounded
+        assert not m.drawn()  # rejected wheel does not restore drawing
+        m.pressed=0; m.call(); m.paint(w); assert m.drawn()
         passed()
 # Boundary wheel turns restore drawing and cancel momentum even without selection movement.
 for virtual in (False,True):
@@ -1786,13 +1832,13 @@ for virtual in (False,True):
     anim=O['TABLE_ANIMATOR'] if virtual else O['VIEW_ANIMATOR']
     m.word(w+anim,0x1234)
     assert m.call(O['KEY_PREV'])==11 and m.selected(w)==0 and m.get(w+anim)==0
-    m.paint(w); assert m.rounded
+    m.paint(w); assert m.drawn()
     passed()
 # Touch on a page without a supported pane also hides the next page's outline.
 m=Machine(); m.page('playing_page'); m.touch(); w,es=m.page_list(3)
-m.paint(w); assert not m.rounded and not m.strokes
-m.call(O['KEY_PLAY']); m.paint(w); assert not m.rounded and not m.strokes
-m.call(); m.paint(w); assert m.rounded; passed()
+m.paint(w); assert not m.drawn()
+m.call(O['KEY_PLAY']); m.paint(w); assert not m.drawn()
+m.call(); m.paint(w); assert m.drawn(); passed()
 
 # Immediate table rebinding replaces widgets, not just their indices. Centre resolves new rows.
 m=Machine(); w,rs,es=m.table_page(); m.glide=False
@@ -1819,15 +1865,15 @@ passed()
 m,w,es=walk(6,5,height=96,extent=288,name='playlist_page'); assert m.get(w+O['SCROLL_Y'])==192
 assert m.call(gap=100)==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
 m.paint(w,gap=0)
-assert m.rounded[0]['rect']==(1,43,238,46)   # bumped up against the end
+assert m.sel()==(0,42,240,48)   # bumped up against the end
 for _ in range(3): assert m.call(gap=100)==11 and m.selected(w)==5   # still spinning: hard stop
 assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0 and m.get(w+O['SCROLL_Y'])==0
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,1,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,0,240,48)
 assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==0
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,7,238,46)   # bumped down at the top
+m.paint(w,gap=0); assert m.sel()==(0,6,240,48)   # bumped down at the top
 assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==0
 assert m.call(O['KEY_PREV'],gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
 passed()
 
 # The pause is measured from the last stopped detent, to the millisecond.
@@ -1837,7 +1883,7 @@ m.paint(w)
 for _ in range(5): assert m.call()==11
 assert m.call(gap=100)==11 and m.selected(w)==5
 assert m.call(gap=O['EDGE_PAUSE_MS']-1)==11 and m.selected(w)==5
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,43,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,42,240,48)
 assert m.call(gap=O['EDGE_PAUSE_MS']-1)==11 and m.selected(w)==5   # re-armed, not wrapped
 assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0
 passed()
@@ -1857,13 +1903,13 @@ passed()
 for name in ('sysset_page','playerqueue_page','album_page'):
     m,w,es=walk(6,5,height=96,extent=288,name=name)
     assert m.call(gap=100)==11 and m.selected(w)==5
-    m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
+    m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
     assert m.call(gap=100)==11 and m.selected(w)==5
     passed()
 m=Machine(); w,es=m.page_list(1,height=96,extent=96,name='playlist_page')
 m.paint(w)
 for _ in range(3): assert m.call(gap=100)==11 and m.selected(w)==0
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,1,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,0,240,48)
 passed()
 
 # Native scrollbar lifecycle, including a fully transparent/invisible mobile bar.
@@ -1905,7 +1951,7 @@ m.paint(w); m.call(); m.call(gap=0)
 assert m.timers and min(t[0] for t in m.timers.values())==m.now+O['BUMP_MS']
 m.advance(O['BUMP_MS']-1); assert not m.calls
 m.advance(1); assert any(c[0]=='widget_invalidate_force' and c[1]==w for c in m.calls)
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
 m.call(gap=O['EDGE_PAUSE_MS']); assert m.selected(w)==0
 passed()
 for cancel in ('touch','activate','recycle','destroy','scope'):

@@ -4,7 +4,7 @@
 #include "stock.h"
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
-    stock_keylong_trampoline(void *, void *);
+    stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
@@ -920,39 +920,54 @@ static void pull_begin(void *event) {
 #define pull_begin(event) ((void)0)
 #endif
 
-/* Stock paints children first and calls this with the surface's canvas origin restored.
- * The selected row gets one neutral white outline seated on a dark shade line: the shade is the
- * stock dark surface at an alpha high enough to hold the white over bright album art, and being
- * the same color as the dark rows it vanishes on the stock theme. The translucent fill keeps the
- * row readable over artwork without borrowing the red "playing" language or the native focus
- * flag. Small rows and degenerate geometry keep the square fallback. */
-int ringnav_paint(void *w, void *canvas) {
 #if IPOD
-    if (st.pull_page && !pull_live()) pull_cancel();
-#endif
-    int result = stock_paint_trampoline(w, canvas);
-    /* Even a page with no navigable pane must end pending input when it is painted. */
-    if (st.center_timer || st.home_surface) {
-        void *wm = window_manager(), *top = window_manager_get_top_window(wm);
-        if (!usable() || window_manager_is_animating(wm) || top != st.center_top) cancel_center();
-        if (!carousel_page(top)) st.home_surface = (void *)0;
+/* 0xRRGGBB to an opaque color_t, whose bytes are r, g, b, a. */
+#define RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
+
+/* The 0xRRGGBB j/n of the way from one color to another, per channel. */
+static unsigned mix(unsigned from, unsigned to, int j, int n) {
+    unsigned c = 0;
+    for (int s = 0; s < 24; s += 8)
+        c |= (unsigned)(((int)(from >> s & 255) * (n - j) + (int)(to >> s & 255) * j) / n) << s;
+    return c;
+}
+
+/* A vertical accent gradient in one-pixel bands, then a one-pixel top highlight. Plain fills
+ * keep this off the stock gradient_t ABI, which is not audited. */
+static void accent_fill(void *canvas, rect_t r) {
+    for (int j = 0; j < r.h; ++j) {
+        canvas_set_fill_color(canvas, RGBA(mix(ACCENT_TOP, ACCENT_BOTTOM, j, r.h - 1)));
+        canvas_fill_rect(canvas, r.x, r.y + j, r.w, 1);
     }
-    if (!w || !canvas || !kind(w) || surface((void *)0, (void *)0) != w) return result;
+    canvas_set_fill_color(canvas, RGBA(ACCENT_HI));
+    canvas_fill_rect(canvas, r.x, r.y, r.w, 1);
+}
+#endif
+
+/* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
+ * in normal, a full-width accent bar behind them in iPod.
+ * The outline is one neutral white line seated on a dark shade line: the shade is the stock dark
+ * surface at an alpha high enough to hold the white over bright album art, and being the same
+ * color as the dark rows it vanishes on the stock theme. The translucent fill keeps the row
+ * readable over artwork without borrowing the red "playing" language or the native focus flag.
+ * Small rows and degenerate geometry keep the square fallback. */
+static void paint_selection(void *w, void *canvas) {
+    if (!w || !canvas || !kind(w) || surface((void *)0, (void *)0) != w) return;
     if (!load(&g_menu, w, !window_manager_get_pointer_pressed(window_manager()))) {
         cancel_center();
-        return result;
+        return;
     }
     if (st.center_timer &&
         !pending_matches(window_manager_get_top_window(window_manager()), &g_menu))
         cancel_center();
-    if (g_menu.kind == 3) return result; /* Home shows its selected card. */
+    if (g_menu.kind == 3) return; /* Home shows its selected card. */
     int i = reconcile(&g_menu,
                       !moving(&g_menu) && !window_manager_get_pointer_pressed(window_manager()));
-    if (i < 0 || st.touch_mode) return result;
+    if (i < 0 || st.touch_mode) return;
     rect_t r = bounds(&g_menu, i), old, clip;
-    /* A boundary detent nudges the outline against the end until it springs back. */
+    /* A boundary detent nudges the selection against the end until it springs back. */
     if (fx_live(w) && st.bump_dir) r.y -= st.bump_dir * BUMP_PX;
-    if (r.w < 5 || r.h < 5 || !P(canvas, CANVAS_LCD)) return result;
+    if (r.w < 5 || r.h < 5 || !P(canvas, CANVAS_LCD)) return;
     canvas_get_clip_rect(canvas, &old);
     int x = I(canvas, CANVAS_X), y = I(canvas, CANVAS_Y);
     clip.x = old.x > x ? old.x : x;
@@ -961,11 +976,19 @@ int ringnav_paint(void *w, void *canvas) {
     int bottom = old.y + old.h < y + g_menu.height ? old.y + old.h : y + g_menu.height;
     clip.w = right - clip.x;
     clip.h = bottom - clip.y;
-    if (clip.w <= 0 || clip.h <= 0) return result;
+    if (clip.w <= 0 || clip.h <= 0) return;
     void *lcd = P(canvas, CANVAS_LCD);
     unsigned fill_color = (unsigned)I(lcd, LCD_FILL_COLOR);
     unsigned stroke_color = (unsigned)I(lcd, LCD_STROKE_COLOR);
     canvas_set_clip_rect(canvas, &clip);
+#if IPOD
+    /* A list row gets the full surface width; a grid tile keeps its own rect. */
+    if (2 * r.w >= I(g_menu.w, W_W)) {
+        r.x = 0;
+        r.w = I(g_menu.w, W_W);
+    }
+    accent_fill(canvas, r);
+#else
     rect_t outer = { r.x + 1, r.y + 1, r.w - 2, r.h - 2 };
     rect_t inner = { outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2 };
     int drawn = 0;
@@ -991,13 +1014,41 @@ int ringnav_paint(void *w, void *canvas) {
         canvas_set_stroke_color(canvas, OUTLINE_COLOR);
         canvas_stroke_rect(canvas, inner.x, inner.y, inner.w, inner.h);
     }
+#endif
     /* Save/restore explicitly: this firmware's canvas_save/restore cover neither clip nor
      * either color, and the global alpha is deliberately never touched. */
     canvas_set_fill_color(canvas, fill_color);
     canvas_set_stroke_color(canvas, stroke_color);
     canvas_set_clip_rect(canvas, &old);
+}
+
+/* Stock paints children first and calls this with the surface's canvas origin restored. */
+int ringnav_paint(void *w, void *canvas) {
+#if IPOD
+    if (st.pull_page && !pull_live()) pull_cancel();
+#endif
+    int result = stock_paint_trampoline(w, canvas);
+    /* Even a page with no navigable pane must end pending input when it is painted. */
+    if (st.center_timer || st.home_surface) {
+        void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+        if (!usable() || window_manager_is_animating(wm) || top != st.center_top) cancel_center();
+        if (!carousel_page(top)) st.home_surface = (void *)0;
+    }
+#if !IPOD
+    paint_selection(w, canvas);
+#endif
     return result;
 }
+
+#if IPOD
+/* Stock paints a widget's background before its children, so the bar sits behind the rows.
+ * The selection work for the surface happens here, once per frame, instead of in the border hook. */
+int ringnav_paint_bg(void *w, void *canvas) {
+    int result = stock_paint_bg_trampoline(w, canvas);
+    paint_selection(w, canvas);
+    return result;
+}
+#endif
 
 static void hide_outline(void) {
     st.touch_mode = 1;

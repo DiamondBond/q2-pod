@@ -24,6 +24,8 @@ HOOKS = {
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq'),
     'home_page_init': (0x523c84, 'coverflow_home'),
 }
+# Hooked in iPod builds only, so normal keeps these entry points stock.
+IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg')}
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
@@ -141,6 +143,7 @@ FUNCTIONS = {
  'canvas_set_fill_color': ('int', 'void *, unsigned'),
  'canvas_set_stroke_color': ('int', 'void *, unsigned'),
  'canvas_stroke_rect': ('int', 'void *, int, int, int, int'),
+ 'canvas_fill_rect': ('int', 'void *, int, int, int, int'),
  'canvas_fill_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned'),
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
  'pointer_event_init': ('void *', 'void *, int, void *, int, int'),
@@ -219,6 +222,8 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
          '-Oz','-Wall','-Wextra','-Werror']
 
+def hooks(ipod): return HOOKS | IPOD_HOOKS if ipod else HOOKS
+
 def compile_payload(out, ipod=False):
     """Compile and link the payload."""
     from peq import compile_common
@@ -226,7 +231,7 @@ def compile_payload(out, ipod=False):
     run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
-        *[f'--undefined={name}' for _, name in HOOKS.values()],
+        *[f'--undefined={name}' for _, name in hooks(ipod).values()],
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -307,7 +312,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
     patched = bytearray(raw_demo)
-    for name, (address, replacement) in HOOKS.items():
+    for name, (address, replacement) in hooks(ipod).items():
         check(syms[name] == address, f'{name}: callback address mismatch')
         off = fileoff(patched, address)
         prolog = struct.unpack_from('<III', patched, off)

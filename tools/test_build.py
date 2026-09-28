@@ -28,7 +28,7 @@ print('JPEG header regression checks passed.')
 
 def validate_assets(directory):
     import json, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS
     from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, decode, patch_asset, patch_code, patch_style
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
@@ -43,6 +43,12 @@ def validate_assets(directory):
                 off = fileoff(stock, int(address, 16))
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
+    # iPod alone jumps from widget_on_paint_background to its payload.
+    for address, name in IPOD_HOOKS.values():
+        off = fileoff(stock, address)
+        want = stock[off:off+8]
+        if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)
+        assert demo[off:off+8] == want
     changed = manifest['changed_assets']
     assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
         'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])}
