@@ -94,9 +94,10 @@ static menu_t g_menu __attribute__((section(".scratch")));
  * one of the audited local row lists that carry over at the ends. The index is remembered
  * instead of the name pointer: AWTK owns and frees the window's name string. */
 enum { CTX_DYNAMIC, CTX_FIXED, CTX_FOLDER, CTX_LOCAL };
+enum { RING = 1, DRILL = 2 };
 typedef struct {
     const char *name;
-    unsigned char kind, ring;
+    unsigned char kind, flags;
 } context_t;
 static const context_t contexts[] = {
 #include "contexts.inc"
@@ -112,7 +113,7 @@ static int context_id(const char *name) {
 /* The audited local row lists built from the compact assets: the file and music views. Grids
  * (album_page), settings menus, dynamic pages and the home carousel keep hard ends. */
 static int ring_list(const menu_t *m) {
-    return m->w && m->ctx >= 0 && contexts[m->ctx].ring && m->rows >= 2;
+    return m->w && m->ctx >= 0 && (contexts[m->ctx].flags & RING) && m->rows >= 2;
 }
 
 /* The view kinds load() actually navigates: a vertical scroll view, a table client or a slide
@@ -946,6 +947,51 @@ static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsi
 }
 #endif
 
+/* Narrow the canvas clip to the surface's viewport, keeping the old clip; false when none shows. */
+static int clip_surface(void *canvas, menu_t *m, rect_t *old) {
+    rect_t clip;
+    canvas_get_clip_rect(canvas, old);
+    int x = I(canvas, CANVAS_X), y = I(canvas, CANVAS_Y);
+    clip.x = old->x > x ? old->x : x;
+    clip.y = old->y > y ? old->y : y;
+    int right = old->x + old->w < x + I(m->w, W_W) ? old->x + old->w : x + I(m->w, W_W);
+    int bottom = old->y + old->h < y + m->height ? old->y + old->h : y + m->height;
+    clip.w = right - clip.x;
+    clip.h = bottom - clip.y;
+    if (clip.w <= 0 || clip.h <= 0) return 0;
+    canvas_set_clip_rect(canvas, &clip);
+    return 1;
+}
+
+#if IPOD
+/* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
+ * painted during a transition keeps its own rows. */
+static int drill(void *w) {
+    void *wm = window_manager();
+    while (w && P(w, W_PARENT) != wm) w = P(w, W_PARENT);
+    int ctx = w ? context_id(widget_get_prop_str(w, "name", (void *)0)) : -1;
+    return ctx >= 0 && (contexts[ctx].flags & DRILL);
+}
+
+/* The iPod `>` of each drill row, where stock rows place img_into, as stock hides its own
+ * list_into: not in multi-select, and not on grid tiles. The image manager caches the bitmap. */
+static void paint_chevrons(void *w, void *canvas) {
+    unsigned bitmap[64]; /* bitmap_t */
+    rect_t old;
+    if (g_navbar_status || !kind(w) || !P(canvas, CANVAS_LCD) || !drill(w) ||
+        !load_rows(&g_menu, w) || widget_load_image(w, "list_into", bitmap) ||
+        !clip_surface(canvas, &g_menu, &old))
+        return;
+    for (int i = 0; i < g_menu.n; ++i) {
+        rect_t r = bounds(&g_menu, i);
+        if (2 * r.w >= I(w, W_W))
+            canvas_draw_icon(canvas, bitmap, r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2,
+                             r.y + r.h / 2); /* bitmap_t width @0 */
+    }
+    canvas_set_clip_rect(canvas, &old);
+}
+#endif
+
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
  * in normal, a full-width accent bar behind them in iPod.
  * The outline is one neutral white line seated on a dark shade line: the shade is the stock dark
@@ -966,23 +1012,14 @@ static void paint_selection(void *w, void *canvas) {
     int i = reconcile(&g_menu,
                       !moving(&g_menu) && !window_manager_get_pointer_pressed(window_manager()));
     if (i < 0 || st.touch_mode) return;
-    rect_t r = bounds(&g_menu, i), old, clip;
+    rect_t r = bounds(&g_menu, i), old;
     /* A boundary detent nudges the selection against the end until it springs back. */
     if (fx_live(w) && st.bump_dir) r.y -= st.bump_dir * BUMP_PX;
     if (r.w < 5 || r.h < 5 || !P(canvas, CANVAS_LCD)) return;
-    canvas_get_clip_rect(canvas, &old);
-    int x = I(canvas, CANVAS_X), y = I(canvas, CANVAS_Y);
-    clip.x = old.x > x ? old.x : x;
-    clip.y = old.y > y ? old.y : y;
-    int right = old.x + old.w < x + I(g_menu.w, W_W) ? old.x + old.w : x + I(g_menu.w, W_W);
-    int bottom = old.y + old.h < y + g_menu.height ? old.y + old.h : y + g_menu.height;
-    clip.w = right - clip.x;
-    clip.h = bottom - clip.y;
-    if (clip.w <= 0 || clip.h <= 0) return;
     void *lcd = P(canvas, CANVAS_LCD);
     unsigned fill_color = (unsigned)I(lcd, LCD_FILL_COLOR);
     unsigned stroke_color = (unsigned)I(lcd, LCD_STROKE_COLOR);
-    canvas_set_clip_rect(canvas, &clip);
+    if (!clip_surface(canvas, &g_menu, &old)) return;
 #if IPOD
     /* A list row gets the full surface width; a grid tile keeps its own rect. */
     if (2 * r.w >= I(g_menu.w, W_W)) {
@@ -1036,7 +1073,9 @@ int ringnav_paint(void *w, void *canvas) {
         if (!usable() || window_manager_is_animating(wm) || top != st.center_top) cancel_center();
         if (!carousel_page(top)) st.home_surface = (void *)0;
     }
-#if !IPOD
+#if IPOD
+    paint_chevrons(w, canvas);
+#else
     paint_selection(w, canvas);
 #endif
     return result;
@@ -1203,6 +1242,8 @@ static int compact_row_layout(void *layout, void *row) {
     }
     if (text && widget_get_visible(text)) {
         int width = I(row, W_W) - 2 * B(layout, DEFAULT_LAYOUT_X_MARGIN);
+        if (drill(row)) /* as if a stock img_into were the last child */
+            width -= CHEVRON_W - B(layout, DEFAULT_LAYOUT_X_MARGIN) + B(layout, DEFAULT_LAYOUT_SPACING);
         for (unsigned i = 0; i < count; ++i) {
             void *child = widget_get_child(row, i);
             if (child != text && widget_get_visible(child))

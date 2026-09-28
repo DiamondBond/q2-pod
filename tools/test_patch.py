@@ -59,7 +59,7 @@ class Machine:
         self.u.mem_map(0x70000000,0x10000)
         self.next=0x1001000; self.nodes={}; self.calls=[]; self.animating=0; self.pressed=0
         self.top=0; self.wm=0x1000000; self.event=0x1000100
-        self.strokes=[]; self.rounded=[]; self.bands=[]; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
+        self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
         self.allocs={}
         self.rebind=None; self.on_click=None; self.glide=True
@@ -348,6 +348,8 @@ class Machine:
             else:
                 self.word(self.lcd+(O['LCD_FILL_COLOR'] if kind=='fill' else O['LCD_STROKE_COLOR']),self.get(d))
                 ret=0
+        elif name=='widget_load_image': self.word(c,50); self.word(c+4,50); ret=0  # list_into is 50x50
+        elif name=='canvas_draw_icon': self.icons.append((signed(c),signed(d),self.clip)); ret=0
         elif name=='canvas_fill_rect':
             self.bands.append((signed(b),signed(c),signed(d),signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),
                                self.get(self.lcd+O['LCD_FILL_COLOR']),self.clip)); ret=0
@@ -386,7 +388,7 @@ class Machine:
         # Independent input steps occur after the stock key debounce timer expires.
         if gap: self.advance(gap,clear=False)
         if not debounce: self.byte(0xa37c89,0)  # stock key filter latch
-        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.bands=[]; self.vg_calls=[]
+        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.vg_calls=[]
         self.word(self.event+O['EVENT_KEY'],key)
         self.word(self.event+O['EVENT_TYPE'],event_type)
         self.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
@@ -694,7 +696,7 @@ def native_row_layout(m, button):
             m.word(array,len(children)); m.word(array+8,values); m.word(node+0x5c,array)
     assert m.call(address=syms['widget_layout_children'],args=(button,0,0,0))==0
 
-def check_title_bounds(m, button):
+def check_title_bounds(m, button, drill=False):
     children=m.nodes[button]['children']
     text=next(c for c in children if m.nodes[c]['type']=='hscroll_label' or any(
         m.nodes[t]['type']=='hscroll_label' for t in m.nodes[c]['children']))
@@ -725,7 +727,9 @@ def check_title_bounds(m, button):
                     before=children[:children.index(text)]
                     after=children[children.index(text)+1:]
                     left=margin+sum(widths[c]+gap for c in before if m.nodes[c]['visible'])
-                    right=m.get(button+O['W_W'])-margin-sum(widths[c]+gap for c in after if m.nodes[c]['visible'])
+                    # A drill row lays out as if a stock img_into (CHEVRON_W with the margin) came last.
+                    edge=O['CHEVRON_W']+gap if drill and variant=='ipod' else margin
+                    right=m.get(button+O['W_W'])-edge-sum(widths[c]+gap for c in after if m.nodes[c]['visible'])
                     assert m.get(text+O['W_X'])==left
                     if variant=='ipod':
                         assert left+m.get(text+O['W_W'])==right
@@ -736,7 +740,7 @@ def check_title_bounds(m, button):
                             if m.nodes[c]['visible']:
                                 assert m.get(c+O['W_X'])==cursor
                                 cursor+=widths[c]+gap
-                        assert cursor-gap==m.get(button+O['W_W'])-margin
+                        assert cursor-gap==m.get(button+O['W_W'])-edge
                     else:
                         assert m.get(text+O['W_W'])==widths[text] and m.get(title+O['W_W'])==title_width
                     assert (m.get(title+O['W_Y']),m.get(title+O['W_H']))==title_yh
@@ -773,6 +777,10 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
         if not grid:
             for row in rows[:2]:  # independently recreated rows as well as repeated reuse
                 check_title_bounds(m,m.nodes[row]['children'][0])
+            into=[n for n,v in m.nodes.items() if v.get('name')=='img_into']
+            if into and variant=='ipod':  # the payload's chevron column is stock's, after layout
+                button=m.nodes[rows[0]]['children'][0]
+                assert m.get(into[0]+O['W_X'])==m.get(button+O['W_W'])-O['CHEVRON_W'] and m.get(into[0]+O['W_W'])==50
             if address==0x523038:
                 # Execute the real folder text/style rebind after layout: its stock 140/190px
                 # reset must no longer undo the computed width while a row pool is recycled.
@@ -793,10 +801,12 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
 passed()
 
 # The three non-pooled constructors: album tracks, artist tracks and playlists.
-# These use distinct title/container names and must receive the same native layout behavior.
-for address in (0x4a62c0,0x4adcbc,0x4b2864):
+# These use distinct title/container names and must receive the same native layout behavior;
+# only a drill window (playlist_page) reserves the chevron's space.
+for address,page in ((0x4a62c0,'artistinfo_page'),(0x4adcbc,'artistinfo_page'),(0x4b2864,'artistinfo_page'),(0x4b2864,'playlist_page')):
     for reopen in range(2):
-        m=Machine(); w=m.page('artistinfo_page','scroll_view')
+        m=Machine(); w=m.page(page,'scroll_view')
+        m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
         m.nodes[w]['name']='scroll_view_track'
         m.row_record=m.alloc(0x80)
         for off in (8,12,16,24): m.word(m.row_record+off,m.string('日本語 Title'))
@@ -813,7 +823,7 @@ for address in (0x4a62c0,0x4adcbc,0x4b2864):
         assert m.call(address=address,args=(w,0,0,0))==0
         buttons=[n for n,v in m.nodes.items() if v['type']=='button']
         assert len(buttons)==1
-        check_title_bounds(m,buttons[0])
+        check_title_bounds(m,buttons[0],drill=page=='playlist_page')
 passed()
 
 # Long Return executes the stock gates and release filter in both variants.
@@ -2468,6 +2478,34 @@ if variant=='ipod':
     for gap in (1000,50,1000): assert m.call(O['KEY_PREV'],gap=gap)==11 and m.selected(view)==0
     m.call(); m.call()
     assert not m.slides and m.confirm()==11 and m.dispatched()[0][1]==imgs[2]; passed()
+
+    # Chevrons: the stock list_into, where stock rows put img_into, on each visible row of a
+    # drill window (contexts.inc), clipped to the surface. Stock draws its own on folder, category,
+    # album-list and Local Music rows, so those windows, song lists and grids get none from here.
+    def window(m,name,w):
+        m.top=m.node('window',name,[w]); m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
+    def loaded(m): return [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
+    m=Machine(); view,imgs=home_list(m); window(m,'home_page',view); m.clip=(0,0,375,320)
+    em=m.alloc(4); it=m.alloc(0x28); m.word(imgs[2]+O['W_EMITTER'],em); m.word(em,it); m.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+    m.paint(view)
+    half=O['CHEVRON_W']-25  # centre of the 50px image, as stock img_into
+    assert m.icons==[(HOME_LIST_W-half,i*HOME_ROW+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW)) for i in range(7)]
+    assert loaded(m)==['list_into'] and m.clip==(0,0,375,320); passed()
+    # Drawn in touch mode too; none while stock multi-select hides its own.
+    m.touch(); m.paint(view); assert len(m.icons)==7 and not m.bands; passed()
+    m.byte(syms['g_navbar_status'],1); m.paint(view); assert not m.icons and not loaded(m); passed()
+    # Playlists: every row follows the scroll, clipped to the viewport; the half-width
+    # Import/Export tiles get none.
+    m=Machine(); w,es=m.page_list(10,height=96,extent=480,name='playlist_page'); window(m,'playlist_page',w)
+    tile=m.entry(w,0); m.word(tile+O['W_W'],100); m.nodes[w]['children'].insert(0,tile)
+    for top in (0,24):
+        m.word(w+O['SCROLL_Y'],top); m.paint(w)
+        assert m.icons==[(240-half,48*i+24-top,(0,0,240,96)) for i in range(10)]; passed()
+    # Leaf lists, grids and windows whose rows stock already marks draw none.
+    for name in ('allmusic_page','albuminfo_page','artistinfo_page','album_page','folder_page',
+                 'localclass_page','localmusic_page','sysset_page'):
+        m=Machine(); w,_=m.page_list(5,extent=240,name=name); window(m,name,w); m.paint(w)
+        assert not m.icons and not loaded(m), name; passed()
 
 class CoverflowMachine(QueueMachine):
     FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub

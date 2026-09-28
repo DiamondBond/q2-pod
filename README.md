@@ -78,6 +78,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
 - Flat list rows on every page, without the grey cards. The playing song keeps its icon but its title stays white.
 - A full-width graphite selection bar replaces the outline.
+- A `>` marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Music categories, artists, genres and albums).
 - A graphite status bar shows the play state, the page title in the middle, then the EQ, Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
 - Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
 - Pull down at the top of Local Songs to search.

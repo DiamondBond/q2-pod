@@ -8,8 +8,9 @@ import functools
 import hashlib
 import json
 import pathlib
+import re
 import struct
-from build import check as require, fileoff
+from build import ROOT, check as require, fileoff
 
 AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/compact.json').read_text())
 # The app window is the 375x320 screen minus the 30px status bar, so a 290px list holds four
@@ -27,12 +28,12 @@ ART_INSET = (BODY - ART) // 2
 # 151px wide.
 MARGIN = 8
 TITLE_MIN = 150
-# iPod Home: seven 41px rows fill the 290px client area. The list takes the left half, where every
-# English label fits at 20px after the stock list rows' 20px text inset, and the playing track's
-# art a square on the right, inset by MARGIN and centred vertically.
+# iPod Home: seven 41px rows fill the 290px client area; labels start at MARGIN and fit the longest
+# English one ("Playback Setting", 149px at 20px). The art is a square on the right, centred.
+CHEVRON_W = int(re.search(r'#define CHEVRON_W (\d+)', (ROOT/'patch/offsets.inc').read_text())[1])
 HOME_ROW = 41
-HOME_LIST_W = 187
-HOME_TEXT_X = 20
+HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
+HOME_LIST_W = MARGIN + 149 + HOME_LABEL_END
 HOME_ART = 375 - HOME_LIST_W - 2 * MARGIN
 HOME_ART_RECT = [HOME_LIST_W + MARGIN, (BOTTOM - HOME_ART) // 2, HOME_ART, HOME_ART]
 
@@ -150,12 +151,12 @@ def ipod_home(root):
             'Unexpected home cards')
     rows = []
     for i, name in enumerate(HOME_ROWS):
-        # Translations longer than English's longest ("Playback Setting", 149px) end in an ellipsis.
+        # Translations longer than English's longest end in an ellipsis before the chevron.
         label = {'name': 'label_' + name, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
         if name == 'coverflow':
             label['text'] = 'Coverflow'
         rows.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + name}, [
-            ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - MARGIN, HOME_ROW], label, []],
+            ['hscroll_label', [MARGIN, 0, HOME_LIST_W - MARGIN - HOME_LABEL_END, HOME_ROW], label, []],
             ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + name, 'clickable': 'true'}, []]]])
     view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
             {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)'}, rows]

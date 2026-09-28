@@ -76,6 +76,9 @@
 #define BAR_TOP 0x3a3a3a
 #define BAR_BOTTOM 0x1c1c1c
 #define BAR_HI 0x4a4a4a
+/* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
+ * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
+#define CHEVRON_W 58
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */

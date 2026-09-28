@@ -29,7 +29,7 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS
-    from compact import (AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY,
+    from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY,
                          STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, patch_asset, patch_code, patch_style)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
@@ -101,6 +101,8 @@ def validate_assets(directory):
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
                 assert label[2]['name'] == 'label_'+name and image[2] == {'name': 'img_'+name, 'clickable': 'true'}
+                # Whole English labels ("Playback Setting", 149px), ending before the chevron's glyph.
+                assert label[1][0] + label[1][2] == image[1][2] - HOME_LABEL_END and label[1][2] >= 149
             assert 7*HOME_ROW <= BOTTOM and b'menu_' not in new and b'slide_menu' not in new
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right

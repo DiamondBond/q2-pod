@@ -146,6 +146,7 @@ FUNCTIONS = {
  'canvas_set_stroke_color': ('int', 'void *, unsigned'),
  'canvas_stroke_rect': ('int', 'void *, int, int, int, int'),
  'canvas_fill_rect': ('int', 'void *, int, int, int, int'),
+ 'canvas_draw_icon': ('int', 'void *, void *, int, int'),
  'canvas_fill_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned'),
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
  'pointer_event_init': ('void *', 'void *, int, void *, int, int'),

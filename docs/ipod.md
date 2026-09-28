@@ -52,15 +52,17 @@ opens `home_page` once and it is never recreated, so the list keeps its own sele
 iPod's `home_page.bin` is a `list_view` (41-pixel `item_height`) holding a `scroll_view` of
 seven 41-pixel rows (`btn_*` views), in stock order with Coverflow third: Now Playing, Local
 Songs, Coverflow, Folder, Streaming, Playback Setting, System Setting. Each row holds a
-white 20-pixel `label_*` (an ellipsis when too long) inset 20 pixels as stock list text,
+white 20-pixel `label_*` (an ellipsis when too long) inset 8 pixels,
 under a full-row transparent `img_*` that takes the tap and is the wheel's click target, so
 the stock visitor binds and translates the rows as it did the cards. Coverflow's label is
 literal. The wheel moves through the rows with hard ends, and the selection bar spans the
 list. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
 the executable were checked; the inputs are SHA-pinned), so iPod removes them.
 
-The list is 187 pixels wide and `img_homeart`, a 172-pixel square on the right, sits 8
-pixels from the edge and centred in the 290-pixel client area. Sizes are `HOME_*`
+The list is 205 pixels wide. Labels start 8 pixels in and end 10 pixels before the chevron's
+glyph, 149 pixels wide, so the longest English label ("Playback Setting") fits. `img_homeart`, a
+154-pixel square on the right, sits 8 pixels from the edge and centred in the 290-pixel client
+area. Sizes are `HOME_*`
 constants in `tools/compact.py`.
 
 The art follows the player. `player_get_id3info` hands the playing record's path
@@ -142,6 +144,15 @@ the switch has landed. The hold's release therefore leaves the unit on Now
 Playing and the first short Return reaches the stock Back path, with position
 memory restoring the browsing page and its selection. No short-Return callback or
 other long-key destination changes.
+
+## Chevrons
+
+Stock draws `list_into` on Local Music's categories, the `localclass_page` rows (artists, genres,
+composers), the album list and folder rows that are not songs, hidden in multi-select. iPod adds
+it, aligned with those (see [internals.md](internals.md#drawing)), only on the `DRILL` windows in
+`patch/contexts.inc`: Home and the playlist list, whose rows open their tracks. Tiles narrower
+than half the list (playlist Import/Export) get none. The artist page's Albums tab drills but has
+no stock chevron or payload row layouter, so it has none.
 
 ## Device checklist
 

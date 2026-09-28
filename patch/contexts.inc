@@ -1,5 +1,6 @@
 /* Audited top windows: the name is the navigation allowlist, the class decides whether and how
- * position memory restores, and the ring flag marks a row list that carries over at the ends.
+ * position memory restores, RING marks a row list that carries over at the ends, and DRILL (iPod)
+ * one whose rows open another list but draw no stock chevron (list_into).
  * The builder rejects any name that is not a window name in the stock rootfs. CTX_DYNAMIC pages
  * never import another page's row; CTX_FIXED menus restore by window name alone; CTX_FOLDER and
  * CTX_LOCAL add a content fingerprint. */
@@ -7,16 +8,16 @@
 { "netdiskdownload_page", CTX_DYNAMIC, 0 },
 { "netdiskfolder_page", CTX_DYNAMIC, 0 },
 { "sortselect_dialog", CTX_DYNAMIC, 0 },
-{ "folder_page", CTX_FOLDER, 1 },
-{ "home_page", CTX_DYNAMIC, 0 },
+{ "folder_page", CTX_FOLDER, RING },
+{ "home_page", CTX_DYNAMIC, DRILL },
 { "coverflow_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/coverflow.c) */
 { "album_page", CTX_LOCAL, 0 },
-{ "albuminfo_page", CTX_LOCAL, 1 },
-{ "allmusic_page", CTX_LOCAL, 1 },
-{ "artistinfo_page", CTX_LOCAL, 1 },
-{ "localclass_page", CTX_LOCAL, 1 },
-{ "playlist_page", CTX_LOCAL, 1 },
-{ "localmusic_page", CTX_FIXED, 1 },
+{ "albuminfo_page", CTX_LOCAL, RING },
+{ "allmusic_page", CTX_LOCAL, RING },
+{ "artistinfo_page", CTX_LOCAL, RING },
+{ "localclass_page", CTX_LOCAL, RING },
+{ "playlist_page", CTX_LOCAL, RING | DRILL },
+{ "localmusic_page", CTX_FIXED, RING },
 { "playerjumpinfo_page", CTX_DYNAMIC, 0 },
 { "playermore_page", CTX_DYNAMIC, 0 },
 { "playerqueue_page", CTX_DYNAMIC, 0 },
