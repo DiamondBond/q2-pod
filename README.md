@@ -73,11 +73,14 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 
 **iPod** (`Q2.Firmware.V*-ipod.zip`) makes browsing denser and cleaner:
 
-- Home is an iPod-style menu instead of the carousel: Now Playing, Music, Coverflow, Folders, Streaming, Playback and Settings in one list, with the playing track's cover beside it.
+- Home is an iPod-style menu instead of the carousel: Now Playing, Music, Coverflow, Folders, Streaming, Playback and Settings in one list, with the playing track's cover beside it (or the list alone, see **Home** below).
 - No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
 - Flat list rows on every page, without the grey cards. The playing song keeps its icon but its title stays white.
-- A full-width graphite selection bar replaces the outline.
+- A full-width selection bar replaces the outline, in the accent colour.
+- **Settings > Display** gains two rows. Centre or tap cycles each, and the choice is kept across restarts:
+  - **Accent:** Graphite (default), Crimson, Tidal or Champagne. It colours the selection bar, the Now Playing progress bar and everything the stock theme draws in Shanling red, such as switches, ticks and the display icons. Crimson keeps the stock red. The change shows at once.
+  - **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
 - Spinning fast through a long list shows the selected title's first letter in large type over the list, as on an iPod.
 - A `>` marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Music categories, artists, genres and albums).
 - A graphite status bar shows the play state, the page title in the middle, then the EQ, Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.

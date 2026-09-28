@@ -18,6 +18,10 @@ expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
+# iPod accent presets: {gradient top, bottom, light tone, red tone} per Accent setting value.
+ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',(ROOT/'patch/offsets.inc').read_text())]
+def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
+CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
 LCD_COLORS=(0x9abcdef0,0x12345678)
 syms=symbols(B/'stock-demo')
@@ -61,7 +65,7 @@ class Machine:
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
-        self.allocs={}
+        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]
         self.screens=[]
@@ -236,7 +240,16 @@ class Machine:
             values=self.alloc(4*len(children)+4)
             for i,child in enumerate(children): self.word(values+4*i,child)
             self.word(b,len(children)); self.word(b+8,values); ret=0
-        elif name=='widget_move_resize_ex':
+        elif name=='toolsReadConfig':
+            key=self.text(c); self.config_reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
+            value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
+            self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
+        elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
+        elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
+        elif name=='bitmap_get_line_length': ret=self.get(a+8)
+        elif name=='bitmap_lock_buffer_for_write': ret=self.get(a+0x14)  # a test bitmap keeps its pixels' address there
+        elif name=='image_manager': ret=0x1000500
+        elif name in ('widget_move_resize_ex','widget_move_resize'):
             for off,value in zip(('W_X','W_Y','W_W','W_H'),(b,c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))):
                 self.word(a+O[off],value)
             ret=0
@@ -591,10 +604,9 @@ else:
     bg,border=names.index('stock_paint_bg'),names.index('stock_paint')
     assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rect')
     assert not m.rounded and not m.strokes and m.global_alpha==0
-    def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
     # Full surface width, one band per row pixel from Graphite top to bottom, then the highlight.
     assert [b[:4] for b in m.bands]==[(0,y,240,1) for y in range(48)]+[(0,0,240,1)]
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(O[k]) for k in ('ACCENT_TOP','ACCENT_BOTTOM','ACCENT_HI')]
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[0][:3]]
     assert all(b[5]==(0,0,240,96) for b in m.bands)
     assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
     assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
@@ -2704,7 +2716,7 @@ if variant=='ipod':
     # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, shown on the slider and both labels, and seeks once SEEK_MS after the
     # last detent through player_seek_time (track seconds). Stock's page timer stops meanwhile.
-    FILL_HI=signed(0xff000000|O['ACCENT_HI']); FG='style:normal:fg_color'
+    FILL_HI=signed(color_t(ACCENTS[0][2])); FG='style:normal:fg_color'
     def scrub_page(value=100,mx=225):
         m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
         m.slider=m.node('slider','slider_play',max=mx,value=value)
@@ -2868,5 +2880,180 @@ for offset,want in ((-90,2),(-70,1),(90,0),(70,1),(0,1)):
 # A tap at rest reaches stock, so the cover's click still opens it.
 m=CoverflowMachine(); page=m.open(); f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.slides; passed()
+
+if variant=='ipod':
+    # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
+    # blend of the preset's red tone, alpha kept; greys, other hues and every Crimson color stay.
+    ps=symbols(B/'patch.elf'); RED=(0xff,0x14,0x48)
+    # WCAG contrast of each preset: white text on the bar's top, the progress fill on its track, and
+    # white on the red tone (Graphite's silver is chosen for its lit look instead; Crimson is stock).
+    def lum(c):
+        v=[(c>>s&255)/255 for s in (16,8,0)]; v=[x/12.92 if x<=0.04045 else ((x+0.055)/1.055)**2.4 for x in v]
+        return 0.2126*v[0]+0.7152*v[1]+0.0722*v[2]
+    def ratio(a,b): return (max(lum(a),lum(b))+0.05)/(min(lum(a),lum(b))+0.05)
+    for i,(top,bottom,light,tone) in enumerate(ACCENTS):
+        assert ratio(0xffffff,top)>=4.5 and ratio(0xffffff,bottom)>=4.5 and ratio(light,O['BAR_BOTTOM'])>=3,i
+        assert i in (0,O['CRIMSON']) or ratio(0xffffff,tone)>=3,i
+    passed()
+    def mapped(c,preset,tone=3): return Machine().call(address=ps['accent_map'],args=(c,preset,tone,0),gap=0)&0xffffffff
+    def rgba(r,g,b,a=255): return r|g<<8|b<<16|a<<24
+    def blend(t,k,to,a=255): return rgba(*(round(t*x+k) for x in to),a)
+    def close(x,y): return x>>24==y>>24 and all(abs((x>>s&255)-(y>>s&255))<=2 for s in (0,8,16))
+    for (preset,accent),column in ((p,c) for p in enumerate(ACCENTS) for c in (2,3)):  # light and red tones
+        hi=(accent[column]>>16,accent[column]>>8&255,accent[column]&255)
+        same=preset==O['CRIMSON']
+        for c in (rgba(0,0,0),rgba(255,255,255),rgba(0x80,0x80,0x80),rgba(0x2b,0x2b,0x2b,0x40),  # greys
+                  rgba(0xff,0x9f,0x0a),rgba(0x16,0x9a,0xa6),rgba(0xff,0,0xff),rgba(0x0a,0x84,0xff),  # other hues
+                  *(color_t(c) for a in ACCENTS for c in a if a is not ACCENTS[1])):  # accents never map again
+            assert mapped(c,preset,column)==c,(preset,hex(c))
+        table=[(rgba(*RED),blend(1,0,hi)),                         # pure red
+               (rgba(*RED,0x40),blend(1,0,hi,0x40)),               # translucent #FF144840: alpha kept
+               (rgba(0x7f,0x0a,0x24),blend(0.5,0,hi)),             # red on black, half coverage
+               (rgba(*(round((x+255)/2) for x in RED)),blend(0.5,127.5,hi)),  # anti-aliased onto white
+               (rgba(0x3d,0x19,0x20),blend(0.153,21.6,hi))]        # the pressed tint
+        for c,want in table:
+            got=mapped(c,preset,column)
+            assert (got==c) if same else close(got,want),(preset,hex(c),hex(got),hex(want))
+            if not same: assert mapped(got,preset,column)==got
+        passed()
+
+    # Settings: IPOD/ACCENT and IPOD/HOME come from the stock config.ini once, a missing or bad value
+    # is the default; the style color hook returns stock values under Crimson and maps under others.
+    red=color_t(0xff1448); grey=color_t(0x808080)
+    tramp={n:int(manifest['patch_symbols'][f'stock_{n}_trampoline'],16) for n in ('color','image','display')}
+    def style_color(m,stock,name='text_color'):
+        m.handlers[tramp['color']]='stock_color'; out=m.alloc(4); m.stock_color=stock
+        return m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,0x1234,m.string(name),0),gap=0)&0xffffffff,m.get(out),out
+    orig_hook=Machine.hook; GET=0x1000600  # a style vtable's get_gradient
+    def hook(self,u,address,size,x):
+        if self.handlers.get(address)=='stock_color':
+            a=u.reg_read(UC_MIPS_REG_A0); self.word(a,self.stock_color); self.calls.append(('stock_color',a))
+            u.reg_write(UC_MIPS_REG_V0,a); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if address==GET and getattr(self,'get_gradient',None): return self.get_gradient(u)
+        return orig_hook(self,u,address,size,x)
+    Machine.hook=hook
+    for config,preset in (({},0),({'ACCENT':'1'},1),({'ACCENT':'2'},2),({'ACCENT':'3','HOME':'1'},3),({'ACCENT':'7'},0),({'ACCENT':'12'},0)):
+        m=Machine(); m.config=config
+        ret,got,out=style_color(m,red)
+        assert ret==out and got==(red if preset==O['CRIMSON'] else color_t(ACCENTS[preset][3])),(config,hex(got))
+        # Text takes the red tone, every other color property the light tone (Graphite: silver text,
+        # #6E6E6E fills under white text).
+        for name in ('highlight_text_color','bg_color','fg_color','border_color','selected_fg_color'):
+            want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
+            assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
+        assert style_color(m,grey)[1]==grey
+        assert len(m.config_reads)==2  # both keys, once, on first use
+        passed()
+    m=Machine(); style_color(m,red)
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD','ACCENT','0'),('/mnt/data/config.ini','IPOD','HOME','0')]; passed()
+
+    # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
+    def gradient(config,stops,same_out=True,vt_get=True,style=True):
+        m=Machine(); m.config=config
+        out=m.alloc(0x4c); other=m.alloc(0x4c); vt=m.alloc(0x20); st=m.alloc(8)
+        m.word(st,vt); m.word(vt+0x18,GET if vt_get else 0)
+        def get(u):
+            assert u.reg_read(UC_MIPS_REG_T9)==GET and u.reg_read(UC_MIPS_REG_A0)==st and u.reg_read(UC_MIPS_REG_A2)==out
+            g=out if same_out else other
+            m.word(g+8,len(stops))
+            for i,c in enumerate(stops): m.word(g+0xc+8*i,c); m.word(g+0x10+8*i,i)
+            u.reg_write(UC_MIPS_REG_V0,g); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        m.get_gradient=get
+        ret=m.call(address=ps['ringnav_style_gradient'],args=(st if style else 0,0,out,0),gap=0)&0xffffffff
+        g=out if same_out else other
+        return ret,[m.get(g+0xc+8*i) for i in range(len(stops))],out,other
+    ret,cols,out,_=gradient({},[red,grey,color_t(0x7f0a24)])
+    assert ret==out and cols==[color_t(ACCENTS[0][2]),grey,mapped(color_t(0x7f0a24),0,2)]; passed()
+    assert gradient({'ACCENT':'1'},[red,grey])[1]==[red,grey]; passed()
+    ret,cols,_,other=gradient({},[red],same_out=False); assert ret==other and cols==[red]; passed()
+    assert gradient({},[red],vt_get=False)[0]==0 and gradient({},[red],style=False)[0]==0; passed()
+    # Through stock style_get_color, which asks style_get_gradient first for every color: its call
+    # is left unmapped, so the color hook still gives text the red tone and fills the light tone.
+    for name,column in (('text_color',3),('bg_color',2)):
+        m=Machine(); vt=m.alloc(0x20); st=m.alloc(8); m.word(st,vt); m.word(vt+0x14,0x1000700); m.word(vt+0x18,GET)
+        def get(u):
+            g=u.reg_read(UC_MIPS_REG_A2); m.word(g+8,1); m.word(g+0xc,red)
+            u.reg_write(UC_MIPS_REG_V0,g); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        m.get_gradient=get; out=m.alloc(4)
+        m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,st,m.string(name),0),gap=0)
+        assert m.get(out)==color_t(ACCENTS[0][column]),(name,hex(m.get(out))); passed()
+
+    # Images: decoded 32-bit bitmaps are mapped in place before stock caches them; file:// covers,
+    # Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
+    def image(config,name,fmt=3):
+        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
+        bm=m.alloc(0x60); data=m.alloc(64)
+        m.word(bm,2); m.word(bm+4,2); m.word(bm+8,12); m.u.mem_write(bm+0xe,struct.pack('<H',fmt)); m.word(bm+0x14,data)
+        px=[bytes([0x48,0x14,0xff,0x80]),bytes([0x80,0x80,0x80,0xff])]  # BGRA: translucent red, grey
+        for y in range(2): m.u.mem_write(data+12*y,px[0]+px[1]+b'\xee'*4)  # 4 bytes of row padding
+        ret=m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
+        assert ret==0 and [c[1:] for c in m.calls if c[0]=='stock_image'][0][2]==bm
+        return [bytes(m.u.mem_read(data+12*y,12)) for y in range(2)]
+    hi=ACCENTS[0][3]; want=bytes([hi&255,hi>>8&255,hi>>16,0x80])+bytes([0x80,0x80,0x80,0xff])+b'\xee'*4
+    assert image({},'switch_on')==[want,want]; passed()
+    stock=bytes([0x48,0x14,0xff,0x80,0x80,0x80,0x80,0xff])+b'\xee'*4
+    for config,name,fmt in (({'ACCENT':'1'},'switch_on',3),({},'file:///tmp/coverpic.jpg',3),({},'switch_on',5)):
+        assert image(config,name,fmt)==[stock,stock],(config,name,fmt); passed()
+
+    # Display settings: after the stock rows, Accent and Home rows in the native row widgets and
+    # styles; Centre or tap cycles and saves each; a new accent drops the image cache and repaints.
+    def display(config):
+        CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
+        view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
+        for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
+        m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
+        assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+        assert m.calls[0][:3]==('stock_display',m.top,5)
+        rows=m.nodes[view]['children'][3:]
+        return m,view,rows
+    m,view,rows=display({})
+    assert len(rows)==2 and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
+    for b,l in zip(buttons,labels):
+        assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
+        assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
+    def texts(): return [m.nodes[l]['text'] for l in labels]
+    assert texts()==['Accent: Graphite','Home: Split']; passed()
+    def click(i):
+        m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        return [c[1:] for c in m.calls if c[0]=='write_int_config']
+    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(0,'Graphite')):
+        writes=click(0)
+        assert len(writes)==1 and writes[0][0]==value and m.text(writes[0][1])=='IPOD' and m.text(writes[0][2])=='ACCENT'
+        assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
+        assert texts()[0]=='Accent: '+name; passed()
+    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
+    assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
+    click(1); assert texts()[1]=='Home: Split'; passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][0]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full']; passed()
+    # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
+    m,view,rows=display({})
+    m.paint(view)
+    for _ in range(3): m.call()
+    assert m.selected(view)==3 and m.confirm()==11 and m.dispatched()[0][1]==m.nodes[rows[0]]['children'][0]; passed()
+
+    # The payload's own accent drawing follows the preset, live: the bar, Now Playing's fill and
+    # the fill a scrub restores.
+    m,view,rows=display({'ACCENT':'2'}); m.paint(view)
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[2][:3]]; passed()
+    f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[3][:3]]; passed()
+    CONFIG.clear(); m=scrub_page()
+    assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[0][2])); passed()
+    CONFIG.update(ACCENT='3'); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+    m.slider=m.node('slider','slider_play',max=225,value=100)
+    m.win=m.top=m.node('window','playing_page',[m.slider,m.node('label','label_playtime')]); m.word(m.win+O['W_PARENT'],m.wm)
+    m.call(address=playing,args=(m.win,7,0,0),gap=0)
+    assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); centre(m)
+    assert m.nodes[m.slider][FG]==-1; centre(m,50); assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); passed()
+
+    # Home: Full widens the list and its rows' tap targets to the screen and hides the art at init
+    # and when the setting changes; Split restores the asset's width.
+    CONFIG.clear(); CONFIG.update(HOME='1'); m=CoverflowMachine(); m.open()
+    rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
+    assert rowsw==[375]*8 and m.nodes[m.art]['visible']==0; passed()
+    CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==240 and m.nodes[m.art].get('visible',1); passed()
+    Machine.hook=orig_hook; CONFIG.clear()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

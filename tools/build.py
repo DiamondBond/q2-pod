@@ -26,7 +26,14 @@ HOOKS = {
 }
 # Hooked in iPod builds only, so normal keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
-              'playing_page_init': (0x52ca88, 'ringnav_playing')}
+              'playing_page_init': (0x52ca88, 'ringnav_playing'),
+              'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
+              'style_get_color': (0x649f6c, 'ringnav_style_color'),
+              'image_manager_add': (0x6445d4, 'ringnav_image_add')}
+# iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
+# vtable, then tail-calls get_gradient (+0x18); its first two words (beqz a0; nop) become the jump
+# and the payload does the whole of it. The third word is pinned too, so the layout is the audited one.
+IPOD_LEAF = ('style_get_gradient', 0x649f3c, 'ringnav_style_gradient', (0x10800009, 0, 0x8c820000))
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
@@ -197,6 +204,16 @@ FUNCTIONS = {
  'scroll_view_create': ('void *', 'void *, int, int, int, int'),
  'navigator_back': ('int', 'void'),
  'write_int_config': ('int', 'int, const char *, const char *'),
+ 'toolsReadConfig': ('int', 'const char *, const char *, const char *, char *, const char *'),
+ 'button_create': ('void *', 'void *, int, int, int, int'),
+ 'widget_move_resize': ('int', 'void *, int, int, int, int'),
+ 'tk_str_start_with': ('int', 'const char *, const char *'),
+ 'tk_str_end_with': ('int', 'const char *, const char *'),
+ 'image_manager': ('void *', 'void'),
+ 'image_manager_unload_all': ('int', 'void *'),
+ 'bitmap_get_line_length': ('unsigned', 'void *'),
+ 'bitmap_lock_buffer_for_write': ('unsigned char *', 'void *'),
+ 'bitmap_unlock_buffer': ('int', 'void *'),
  'playing_timer_start': ('int', 'void *'),
  'playing_timer_clear': ('int', 'void *'),
  'player_seek_time': ('int', 'int'),
@@ -245,7 +262,7 @@ def compile_payload(out, ipod=False):
     run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
-        *[f'--undefined={name}' for _, name in hooks(ipod).values()],
+        *[f'--undefined={name}' for _, name in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -335,6 +352,13 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         low = prolog[1] & 65535
         gp = ((prolog[0] & 65535) << 16) + (low if low < 32768 else low - 65536) + address
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
+        patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
+    if ipod:
+        name, address, replacement, words = IPOD_LEAF
+        off = fileoff(patched, address)
+        check(syms[name] == address and struct.unpack_from('<III', patched, off) == words, f'{name}: unexpected code')
+        # style_get_color's own lookup (bal at 0x649fe8, returning to STYLE_COLOR_GRADIENT_RET) stays unmapped.
+        check(struct.unpack_from('<I', patched, fileoff(patched, 0x649fe8))[0] == 0x0411ffd4, 'style_get_color: unexpected gradient call')
         patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
     from peq import patch_player
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])

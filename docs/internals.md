@@ -17,6 +17,10 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `on_wm_keylong_fun`          | `0x4e873c` | Play/Pause hold opens the queue menu; other keys stay stock   |
 | `widget_on_paint_background` | `0x65c77c` | iPod only: selection bar, status bar gradient and title       |
 | `playing_page_init`          | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining  |
+| `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent and Home rows                     |
+| `style_get_color`            | `0x649f6c` | iPod only: maps the returned color to the accent              |
+| `style_get_gradient`         | `0x649f3c` | iPod only: leaf, no PIC prologue; maps the gradient's stops   |
+| `image_manager_add`          | `0x6445d4` | iPod only: maps a decoded image before it is cached           |
 
 Stock V1.32 turns the encoder knob into key releases 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop. The payload only sees those releases at `on_wm_keyup_before_fun`.
 
@@ -117,11 +121,54 @@ A session-wide touch-mode flag suppresses only custom drawing, independently of 
 
 The canvas hook intersects the existing clip with the viewport and restores the clip, the LCD fill color and the LCD stroke color; this firmware's `canvas_save/restore` do not save those properties. The outline is one translucent fill (`0x402b2b2b`, a per-color alpha) plus two concentric one-pixel `canvas_stroke_rounded_rect` calls, a dark separator at radius 9 and the 70%-opaque white line at radius 8, with `bg_r = NULL`. The separator is the stock dark surface at `0xb32b2b2b`, so it disappears on the dark theme and only shows over bright artwork. It never calls `canvas_set_global_alpha`, so the shared alpha is untouched. A rounded call that reports failure (either stroke) or a row too small for the corner radius, keeps the square separator-plus-white outline instead.
 
-iPod draws a selection bar instead of the outline. `widget_paint` (`0x65f28c`) calls `widget_on_paint_background`, then the widget's own paint, its children and `widget_on_paint_border`, so the background hook paints the bar behind the rows. The border hook then draws nothing, and the selection is loaded and settled once per frame, in the background hook. The bar spans the full surface width at the selected row's height and position, including the end bump; an entry narrower than half the surface, a grid tile, gets the bar in its own rectangle. It is a vertical gradient drawn as one-pixel `canvas_fill_rect` (`0x634ad0`) bands, which avoids the stock `gradient_t` ABI, followed by a one-pixel top highlight. The colors are Graphite, `ACCENT_TOP`/`ACCENT_BOTTOM`/`ACCENT_HI` in `patch/offsets.inc` (`#5A5A5A` to `#363636`, highlight `#6E6E6E`). The bar uses the same clip, color restore and touch-mode rules as the outline. Rows only show it where they are transparent: after the iPod style edits, list rows, table rows, grid tiles (`s_btn_listblack`) and the settings rows (`s_btn_listitem`) are.
+iPod draws a selection bar instead of the outline. `widget_paint` (`0x65f28c`) calls `widget_on_paint_background`, then the widget's own paint, its children and `widget_on_paint_border`, so the background hook paints the bar behind the rows. The border hook then draws nothing, and the selection is loaded and settled once per frame, in the background hook. The bar spans the full surface width at the selected row's height and position, including the end bump; an entry narrower than half the surface, a grid tile, gets the bar in its own rectangle. It is a vertical gradient drawn as one-pixel `canvas_fill_rect` (`0x634ad0`) bands, which avoids the stock `gradient_t` ABI, followed by a one-pixel top highlight. The colors are the current accent's gradient and light tone, `ACCENTS` in `patch/offsets.inc` (Graphite by default: `#5A5A5A` to `#363636`, highlight `#6E6E6E`; see [Accent](#accent)). The bar uses the same clip, color restore and touch-mode rules as the outline. Rows only show it where they are transparent: after the iPod style edits, list rows, table rows, grid tiles (`s_btn_listblack`) and the settings rows (`s_btn_listitem`) are.
 
 The iPod border hook draws the chevrons. Windows flagged `DRILL` in `patch/contexts.inc` get the stock `list_into` image on every row, over the bar as well: `widget_load_image` (`0x65c1ec`, served from the image manager's cache) once per paint, then `canvas_draw_icon` (`0x638c9c`: canvas, bitmap, centre x, centre y, relative to the canvas origin like the fills) per row, placed as stock rows place their `img_into`: left edge `CHEVRON_W` (58) from the row's right edge, inside the same viewport clip, which hides rows outside it. A playlist button spans the same 20 to 355 pixels as a category or album button, so the glyphs cover the same screen columns (317 to 327); Local Music's own images sit 5 pixels further right at a fixed x. On a drill window the row layouter lays out as if that image were the last child, so the title and a playlist's "more" button end before it. The widget's own window, found through its parents, decides, so a window painted during a transition keeps its own rows. Rows narrower than half the surface (tiles) get none, and none are drawn while `g_navbar_status` is set, as stock hides its own chevrons in multi-select.
 
 The iPod border hook also draws the fast-scroll letter over the list. A wheel detent whose ramp step is above one (so the list has more than `SHORT_LIST_MAX` rows) restarts a one-shot `LETTER_MS` (400 ms) timer; while it runs and the spin run is still above one row, the surface draws the selected row's first non-space character. The text is the row's first non-empty `widget_get_text`, taken from the same `row_id` walk as the position-memory hashes, and a virtual table finds its logical row in the recycled pool; an offscreen or textless row draws nothing. The box is `LETTER_BOX` (80) square, `canvas_fill_rounded_rect` at radius `LETTER_RADIUS` (12) in the stock dark surface at `LETTER_ALPHA` (85%), or a square fill without a vgcanvas. The glyph is `LETTER_PX` (60) in the system default font (`canvas_set_font` `0x633e6c` with a null name), white (`canvas_set_text_color` `0x633d9c`), centred by `canvas_draw_text_in_rect` (`0x639524`) with the canvas alignment fields (`+0x34` horizontal, `+0x30` vertical) set to centre and middle. The clip, fill and text colors and alignment are restored afterwards; the font is not, since stock sets it before drawing its own text. The expiry repaints the live surface, which then draws nothing.
+
+## Accent
+
+iPod's accent ([ipod.md](ipod.md#display-settings)) replaces Shanling red wherever it is drawn:
+the theme's style colors, inline `style:*` colors (a mutable style answers through the same
+vtable), decoded images, and the payload's own selection bar and progress fill, which read
+`ACCENTS` directly. `accent_map` (`patch/ringnav.c`) is a pure function on one `color_t` (bytes
+r, g, b, a). Stock uses `#FF1448`, `#7F0A24`, the pressed tint `#3D1920` and `#FF144840`, all
+stock red blended with a neutral: each channel is `t * red + k`. Least squares against red with
+the mean removed gives `t` (in 1/4096), then `k`. A color within `RED_TOLERANCE` (8) of that
+blend, with `t` between 1/16 and 17/16 and `k` not below the tolerance, becomes `t * tone + k`
+for one of the preset's tones (`ACCENTS`): the red tone for text colors (a property name ending
+`text_color`, `tk_str_end_with`) and image pixels, the light tone for every other color property
+and gradient stop; alpha is kept, and anything else, greys and other hues included,
+is returned as it was. Anti-aliased edges onto black, white or a transparent background are such
+blends, so they follow. No preset's colors are red blends, so mapping twice changes nothing.
+Crimson returns every color unchanged, so its theme is stock.
+
+- `style_get_color(color_t *ret, style, name, default)` returns its color through the hidden
+  first argument. The hook runs stock through a trampoline and maps `*ret`, comparing the
+  property name only when the color maps. Stock first asks `style_get_gradient` for every color
+  (`bal` at `0x649fe8`; `style_data_get_gradient` turns a plain color into a one-stop gradient),
+  so the gradient hook leaves the call that returns to `0x649ff0` unmapped, and the color hook
+  alone picks the tone. The builder pins that `bal`.
+- `style_get_gradient(style, name, gradient_t *out)` (`0x649f3c`) is a 12-instruction leaf with
+  no GOT setup: null checks on the style and its vtable, then a tail call to the vtable's
+  `get_gradient` (+0x18). The builder pins its first three words (`0x10800009, 0, 0x8c820000`)
+  and replaces the first two with the jump; the payload repeats the checks, calls `get_gradient`
+  through `$t9`, and maps the stops only when it filled the caller's `out`: `gradient_t` is 0x4c
+  bytes (`gradient_init`), with the stop count at +8 and up to 8 `{color, offset}` stops from
+  +0xc (`gradient_add_stop`, `gradient_get_first_color`). Widget backgrounds come this way.
+- `image_manager_add(manager, name, bitmap_t *)` copies a freshly decoded bitmap into the cache.
+  The hook maps its pixels first, unless the name starts `file://` (album covers) or the format
+  is not one of the 32-bit ones: `bitmap_t` has w at 0, h at 4, the format as a u16 at 0xe
+  (1 RGBA, 2 ABGR, 3 BGRA, 4 ARGB in memory order, 4 bytes each by `bitmap_get_bpp_of_format`),
+  its row stride from `bitmap_get_line_length`, and the pixels from
+  `bitmap_lock_buffer_for_write`/`bitmap_unlock_buffer`. Premultiplied pixels are red blended
+  with black, so they map the same way.
+
+Changing the accent saves it, sets the progress fill, calls `image_manager_unload_all(image_manager())`
+(`0x645024`) and `widget_invalidate_force` on the window manager. Widgets ask for their style
+colors, gradients and images on every paint, so the next frame decodes the images again through
+the hook and shows every recoloured part; nothing needs a restart.
 
 ## Status bar (iPod)
 
@@ -141,7 +188,7 @@ The hook runs the stock init, then caches `label_ipod_pos`, `label_ipod_album`, 
 
 **Stock audit.** `playing_page` is not a navigation context, so a centre release (218, the power key) passed through to `on_wm_keyup_fun`, whose `screen_action` (`0x4f77d4`) turns the screen off, and a wheel release to the same handler, which changes the volume and opens `dialog/volume_dialog`. The page's own key-up handler (`0x52c248`) only knows Return and keys 222/223. Those drive stock's key seek: a long press sets `0xa3a6c0` (`0x529df0`), key-down (`0x52c754`) calls `playing_timer_clear` (`0x52c634`), sets the mode byte `0xa3a6c1` to 1, steps `slider_play` 5 seconds within `[0, max]` and writes `label_playtime`, and key-up calls `player_seek_time` (`0x51454c`) with the slider value, then `playing_timer_start` (`0x52c114`). A touch drag takes the slider's handlers from the page's `widget_foreach` visitor (`0x52ae6c`): value-changing (`0xf`, `0x52c950`) writes the label and, in mode 0, clears the timer and sets mode 2; value-changed (`0xe`, `0x52c5fc`) seeks the same way only in mode 2 (`0x52c364`). `player_seek_time` takes track seconds: it adds the current record's CUE start (`+0x48`), pauses DLNA, calls `mclSetSeek` (`0x5ab1ac`), then polls `player_playtime` every 10 ms, up to 2 s, until it reaches the target. `player_seek_start` (`0x5143a8`) is DLNA's and not used. `slider_set_value` emits will-change (`0xd`) and changed (`0xe`), never changing, so a set value in mode 0 neither seeks nor writes the label.
 
-**Scrub.** On the top `playing_page`, with no window animation or pressed pointer, the key-up hook takes the centre button. A release arms a `DOUBLE_CLICK_MS` timer, and a second release before it ends cancels it and passes through to the stock screen off, ending any scrub. The timer toggles scrub. Starting calls `playing_timer_clear`, reads the slider value as the target and sets the slider's `style:normal:fg_color` to white. While scrubbing, a wheel release moves the target by `SCRUB_STEP` (5) seconds times the list ramp's step (`wheel_step` on the slider as a long list, so 5 to 40 seconds), clamped to `[0, max]`. It sets the slider value, writes `label_playtime` in stock's format and syncs the remaining label, then rearms a `SEEK_MS` (150 ms) seek and a `SCRUB_MS` (3 s) end, and swallows the release. The seek is `player_seek_time(target)`, the stock key path's commit, so CUE tracks stay track-relative. Ending commits a pending seek at once, restores the `ACCENT_HI` fill and calls `playing_timer_start`. It ends on centre, the timeout, Return (swallowed on the page), a touch (before the slider sees it, so a drag seeks the stock way), another top window, or the page's `EVT_DESTROY`, which drops a pending seek. A seek or end after the playing track changed (queue position and path, recorded at the start) only ends the scrub, without seeking. The mode byte stays 0 throughout. Outside scrub the wheel stays on the volume.
+**Scrub.** On the top `playing_page`, with no window animation or pressed pointer, the key-up hook takes the centre button. A release arms a `DOUBLE_CLICK_MS` timer, and a second release before it ends cancels it and passes through to the stock screen off, ending any scrub. The timer toggles scrub. Starting calls `playing_timer_clear`, reads the slider value as the target and sets the slider's `style:normal:fg_color` to white. While scrubbing, a wheel release moves the target by `SCRUB_STEP` (5) seconds times the list ramp's step (`wheel_step` on the slider as a long list, so 5 to 40 seconds), clamped to `[0, max]`. It sets the slider value, writes `label_playtime` in stock's format and syncs the remaining label, then rearms a `SEEK_MS` (150 ms) seek and a `SCRUB_MS` (3 s) end, and swallows the release. The seek is `player_seek_time(target)`, the stock key path's commit, so CUE tracks stay track-relative. Ending commits a pending seek at once, restores the accent's light-tone fill and calls `playing_timer_start`. It ends on centre, the timeout, Return (swallowed on the page), a touch (before the slider sees it, so a drag seeks the stock way), another top window, or the page's `EVT_DESTROY`, which drops a pending seek. A seek or end after the playing track changed (queue position and path, recorded at the start) only ends the scrub, without seeking. The mode byte stays 0 throughout. Outside scrub the wheel stays on the volume.
 
 ## Pull-to-search (iPod)
 

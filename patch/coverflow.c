@@ -458,9 +458,11 @@ static int coverflow_open(void *ctx, void *event) {
 #if IPOD
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
-    void *win, *art;
+    void *win, *art, *list;
     unsigned key;
+    int split_w; /* the list's width in the asset */
 } home __attribute__((section(".scratch")));
+extern int ipod_home_full(void);
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
  * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
@@ -483,7 +485,7 @@ void *queue_now(unsigned *pos, unsigned *n) {
  * the status bar paints (at least once a second) and reloads only when the track or the cover it
  * can use changes. */
 void coverflow_home_art(void *top) {
-    if (!home.art || top != home.win) return;
+    if (!home.art || top != home.win || !widget_get_visible(home.art)) return;
     unsigned pos, n;
     void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
@@ -501,6 +503,25 @@ void coverflow_home_art(void *top) {
     if (!shown) image_base_set_image(home.art, PLACEHOLDER);
     widget_invalidate_force(home.art, 0);
 }
+
+/* A widget and its descendants other than labels take the width; labels keep theirs. */
+static void home_width(void *w, int width) {
+    widget_move_resize(w, I(w, W_X), I(w, W_Y), width, I(w, W_H));
+    for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
+        void *child = widget_get_child(w, i);
+        if (tk_strcmp(widget_get_type(child), "hscroll_label")) home_width(child, width);
+    }
+}
+
+/* The Home setting: Split keeps the asset's list and art; Full widens the list and its rows' tap
+ * targets to the window and hides the art. */
+void coverflow_home_layout(void) {
+    if (!home.list) return;
+    int full = ipod_home_full();
+    home_width(home.list, full ? 375 : home.split_w);
+    widget_set_visible(home.art, !full, 0);
+    home.key = ~0u; /* Split shows the current art again */
+}
 #endif
 
 /* home_page_init: stock binds the name-matched img_* cards, then the Coverflow card binds here,
@@ -511,7 +532,10 @@ int coverflow_home(void *win, void *ctx) {
 #if IPOD
     home.win = win;
     home.art = widget_lookup(win, "img_homeart", 1);
-    home.key = ~0u;
+    void *list = widget_lookup(win, "list_view_home", 1);
+    if (list != home.list || !home.split_w) home.split_w = list ? I(list, W_W) : 0; /* the asset's width */
+    home.list = list;
+    coverflow_home_layout();
 #endif
     return result;
 }

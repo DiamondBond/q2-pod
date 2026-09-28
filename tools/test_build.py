@@ -28,7 +28,7 @@ print('JPEG header regression checks passed.')
 
 def validate_assets(directory):
     import json, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF
     from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY, PLAYING_PAGE,
                          STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, walk, patch_asset, patch_code, patch_style)
     manifest = json.loads((directory/'manifest.json').read_text())
@@ -44,8 +44,9 @@ def validate_assets(directory):
                 off = fileoff(stock, int(address, 16))
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
-    # iPod alone jumps from widget_on_paint_background to its payload.
-    for address, name in IPOD_HOOKS.values():
+    # iPod alone jumps from these entry points to its payload (build.py pins the leaf's words);
+    # normal keeps all of them stock.
+    for address, name in [*IPOD_HOOKS.values(), IPOD_LEAF[1:3]]:
         off = fileoff(stock, address)
         want = stock[off:off+8]
         if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)

@@ -60,6 +60,8 @@ int widget_destroy_children(void *), widget_invalidate_force(void *, void *);
 unsigned widget_count_children(void *);
 void *widget_get_child(void *, unsigned);
 void *widget_lookup(void *, const char *, int);
+int widget_move_resize(void *, int, int, int, int), widget_get_visible(void *);
+const char *widget_get_type(void *);
 int tk_strcmp(const char *, const char *);
 unsigned timer_add(int (*)(const void *), void *, unsigned);
 int timer_remove(unsigned);
@@ -130,11 +132,21 @@ int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
 int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
 unsigned widget_count_children(void *x) { return W(x)->nkids; }
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
-static void *home_art; /* iPod Home's art; none in the carousel tests */
+static void *home_art, *home_list; /* iPod Home's art and list; none in the carousel tests */
 void *widget_lookup(void *x, const char *n, int r) {
     (void)r;
-    return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art : 0;
+    return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
+           !strcmp(n, "list_view_home") ? home_list : 0;
 }
+static int home_full;
+int ipod_home_full(void) { return home_full; }
+int widget_move_resize(void *x, int left, int top, int ww, int h) {
+    int *r = (int *)W(x)->raw; /* W_X, W_Y, W_W, W_H */
+    r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
+    return 0;
+}
+const char *widget_get_type(void *x) { return W(x)->type; }
+int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
 int navigator_to_with_context(const char *n, const void *c) { (void)n; (void)c; return 0; }
@@ -434,6 +446,27 @@ int main(void) {
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
     coverflow_home_art(win);
     assert(!strcmp(art, player) && loads == unloads);
+    /* Home layout: Full widens the list, its rows and their tap targets to the screen, never the
+       labels, and hides the art; Split puts the asset's width back and shows the art again. */
+    extern void coverflow_home_layout(void);
+    home_list = make(0, "list_view");
+    widget *sv = make(home_list, "scroll_view"), *row = make(sv, "view"), *label = make(row, "hscroll_label"),
+           *tap = make(row, "image"), *all[] = { home_list, sv, row, tap };
+    for (int i = 0; i < 4; ++i) *(int *)(all[i]->raw + W_W) = 205;
+    *(int *)(label->raw + W_W) = 149;
+    home_full = 1;
+    coverflow_home(win, 0);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 375);
+    assert(*(int *)(label->raw + W_W) == 149 && !W(home_art)->visible);
+    before = loads;
+    coverflow_home_art(win); /* hidden: nothing loads */
+    assert(loads == before);
+    home_full = 0;
+    coverflow_home_layout();
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 205);
+    assert(*(int *)(label->raw + W_W) == 149 && W(home_art)->visible);
+    coverflow_home_art(win);
+    assert(loads == before + 1 && !strcmp(art, player));
 #endif
     return 0;
 }
@@ -453,7 +486,7 @@ def main():
                             str(tmp/'test.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
-          ' iPod Home art sources passed.')
+          ' iPod Home art sources and Split/Full layout passed.')
 
 
 if __name__ == '__main__':

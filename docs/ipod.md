@@ -65,6 +65,14 @@ glyph, 149 pixels wide, so the longest English label ("Playback Setting") fits. 
 area. Sizes are `HOME_*`
 constants in `tools/compact.py`.
 
+The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
+as built. Full resizes `list_view_home` and, below it, every widget but the labels (the scroll
+view, the rows and their tap images) to 375 pixels with `widget_move_resize` (`0x65ea44`, which
+also marks the children for relayout), and hides the art, so the chevrons sit at the screen edge
+and the whole row takes a tap. Split puts back the list's asset width, recorded at init. Home is
+opened once and never recreated, so the layout is applied at init and again when the setting
+changes. The art is not loaded while it is hidden.
+
 The art follows the player. `player_get_id3info` hands the playing record's path
 (`REC_PATH`) to `player_set_coverinfo`, and `player_parsecover_thd` (`0x512ca4`) then
 writes that track's cover, sets `g_playcover_type` (`0xa3a332`) and copies the path to
@@ -191,8 +199,9 @@ spinner moves with it. The on-screen Return icon moves off-screen, as on the pag
 hidden; the hardware Return does the same. Favourite, More and the play mode icon keep their stock
 images and handlers in the top row.
 
-The bar is plain colour: a `#1C1C1C` track (`BAR_BOTTOM`) and a Graphite `#6E6E6E` fill
-(`ACCENT_HI`), 3.4:1, with no thumb. Tap or drag anywhere on it to seek, as stock. The elapsed time
+The bar is plain colour: a `#1C1C1C` track (`BAR_BOTTOM`) and a fill in the accent's light
+tone (Graphite `#6E6E6E`, 3.3:1; see [Display settings](#display-settings)), with no thumb.
+The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or drag anywhere on it to seek, as stock. The elapsed time
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/compact.py`; see [internals.md](internals.md#now-playing-ipod).
 
@@ -203,6 +212,46 @@ track jumps there 150 ms after the last tick. Centre again, Return, a touch or 3
 tick give the wheel back to the volume; Return then stays on the page. A double press still turns
 the screen off. Values are `SCRUB_*` and `SEEK_MS` in `patch/offsets.inc`; see
 [internals.md](internals.md#scrub-ipod).
+
+## Display settings
+
+`systemset_display_page_init` (`0x4c1d04`) destroys the children of `scroll_view_display` and
+builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_listitem_black`
+(the list view lays it out 78 pixels high), holding a `button_create(item, 20, 0, 335, 70)` in
+`s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
+`s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
+show no value; each opens a sub-page. iPod runs the stock init, then adds two rows the same way:
+"Accent: Graphite" and "Home: Split", the value in the label (260 pixels wide, to where the
+chevron ends), with no icon and no chevron, since Centre or a tap changes them in place. The
+page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
+
+A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
+`sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). Both values are read once,
+on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
+calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
+calls it: `(path, section, key, out, default)`. It reads the file line by line
+(`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
+missing key copies the default and returns -1. The default must not be null (stock reads its
+first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
+one valid digit, is Graphite and Split.
+
+| Accent | Selection bar | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it) |
+|---|---|---|---|---|
+| Graphite (0, default) | `#5A5A5A` to `#363636` | 6.9:1 / 12.1:1 | `#6E6E6E` (3.3:1) | `#D8D8D8` (1.4:1) |
+| Crimson (1) | `#E8123F` to `#A60025` | 4.6:1 / 7.9:1 | `#EB2F56` (4.1:1) | stock `#FF1448` (3.9:1) |
+| Tidal (2) | `#13838D` to `#095158` | 4.5:1 / 9.0:1 | `#30929B` (4.6:1) | `#30929B` (3.7:1) |
+| Champagne (3) | `#8C732C` to `#5D4A18` | 4.6:1 / 8.5:1 | `#9A8446` (4.7:1) | `#9A8446` (3.6:1) |
+
+The light tone is the top lightened 12% toward white, as Graphite's `#6E6E6E` is: the bar's
+one-pixel highlight and the progress fill. Tidal and Champagne tops are darkened in hue (and
+their bottoms by the same factor) so white text holds 4.5:1 at the top; their light tone also
+serves as the red tone. One rule picks the tone for stock red: red text (`text_color`,
+`highlight_text_color`) and red pixels in images take the red tone, and every other red color
+(fills, borders, slider and progress fills, gradient stops) takes the light tone. Graphite's red
+tone is silver `#D8D8D8`, so lit switches, ticks and red text stand out (14.7:1 on black), while
+stock's red buttons with white text become white on `#6E6E6E` (5.1:1) and the download bar a
+`#6E6E6E` fill on its `#D8D8D8` track. The presets are `ACCENTS` in `patch/offsets.inc`; see [internals.md](internals.md#accent) for the recolouring.
 
 ## Device checklist
 

@@ -5,12 +5,15 @@
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
-    stock_playing_trampoline(void *, void *);
+    stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
+    stock_color_trampoline(void *, void *, const char *, unsigned),
+    stock_image_trampoline(void *, const char *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
 extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
+extern void coverflow_home_layout(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
 #define STOP 11
 #define GLIDE_MS 300
@@ -80,6 +83,9 @@ typedef struct {
      * target second. */
     unsigned np_press, np_press_at, scrub_timer, seek_timer, scrub_track;
     int scrub, scrub_to;
+    /* The Display settings, read from config.ini on first use, and the display page's value labels. */
+    int settings_read, accent, home_full;
+    void *setting_label[2];
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -948,6 +954,58 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
+/* The Accent and Home settings (docs/ipod.md#display-settings), IPOD/ACCENT and IPOD/HOME in the stock
+ * config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
+static const unsigned accents[][4] = { ACCENTS };
+#define ACCENT_N (int)(sizeof accents / sizeof *accents)
+static int config_digit(const char *key, int n) {
+    char s[256] = "";
+    toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "0");
+    return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
+}
+static void settings(void) {
+    if (st.settings_read) return;
+    st.accent = config_digit("ACCENT", ACCENT_N);
+    st.home_full = config_digit("HOME", 2);
+    st.settings_read = 1;
+}
+static int accent(void) {
+    settings();
+    return st.accent;
+}
+int ipod_home_full(void) {
+    settings();
+    return st.home_full;
+}
+
+/* A color_t (bytes r, g, b, a) that is stock red blended with a neutral, t * red + k * white per
+ * channel within RED_TOLERANCE, becomes the same blend of one of the preset's tones (TONE_RED for
+ * text and images, TONE_LIGHT for every other color): flat reds,
+ * pressed tints and anti-aliased edges follow the accent, alpha is kept, and greys and other hues
+ * are unchanged. t comes from least squares against red with the mean removed, in 1/4096. Crimson
+ * is the identity. */
+enum { TONE_LIGHT = 2, TONE_RED = 3 }; /* columns of ACCENTS */
+unsigned accent_map(unsigned c, int preset, int tone) {
+    static const int red[3] = { STOCK_RED >> 16, STOCK_RED >> 8 & 255, STOCK_RED & 255 };
+    const int sum = red[0] + red[1] + red[2];
+    int ch[3] = { c & 255, c >> 8 & 255, c >> 16 & 255 }, s = ch[0] + ch[1] + ch[2], d = 0, dd = 0;
+    if (preset == CRIMSON) return c;
+    for (int i = 0; i < 3; ++i) {
+        d += (3 * ch[i] - s) * (3 * red[i] - sum);
+        dd += (3 * red[i] - sum) * (3 * red[i] - sum);
+    }
+    int t = d * 4096 / dd, k = (s * 4096 - t * sum) / (3 * 4096);
+    if (t < 256 || t > 4096 + 256 || k < -RED_TOLERANCE) return c;
+    unsigned out = c & 0xff000000u;
+    for (int i = 0; i < 3; ++i) {
+        int miss = ch[i] - (t * red[i] / 4096 + k);
+        if (miss > RED_TOLERANCE || miss < -RED_TOLERANCE) return c;
+        int v = t * (int)(accents[preset][tone] >> (16 - 8 * i) & 255) / 4096 + k;
+        out |= (unsigned)(v < 0 ? 0 : v > 255 ? 255 : v) << 8 * i;
+    }
+    return out;
+}
+
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; r.h is at least 2.
  * Plain fills keep this off the stock gradient_t ABI, which is not audited. */
 static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi) {
@@ -1089,7 +1147,8 @@ static void paint_selection(void *w, void *canvas) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
     }
-    gradient(canvas, r, ACCENT_TOP, ACCENT_BOTTOM, ACCENT_HI);
+    const unsigned *a = accents[accent()];
+    gradient(canvas, r, a[0], a[1], a[2]);
 #else
     rect_t outer = { r.x + 1, r.y + 1, r.w - 2, r.h - 2 };
     rect_t inner = { outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2 };
@@ -1239,7 +1298,7 @@ static int np_seek(const void *info) {
     return 0;
 }
 
-/* A white bar fill marks the scrub; ACCENT_HI is the asset's own fill (NP_FILL, compact.py). */
+/* The accent's light tone fills the progress bar; a white fill marks the scrub. */
 static void np_fill(unsigned color) {
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
     widget_invalidate_force(st.np_slider, (void *)0);
@@ -1256,7 +1315,7 @@ static void scrub_end(void) {
         np_seek((void *)0);
     }
     if (!st.np_win) return;
-    np_fill(RGBA(ACCENT_HI));
+    np_fill(RGBA(accents[accent()][2]));
     playing_timer_start(st.np_win);
 }
 
@@ -1351,6 +1410,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_hash = 0;
     st.np_left = -1;
+    np_fill(RGBA(accents[accent()][2]));
     widget_on(win, EVT_DESTROY, np_gone, win);
     np_sync(win);
     return result;
@@ -1379,6 +1439,104 @@ int ringnav_paint_bg(void *w, void *canvas) {
         title_sync(bar, top);
         coverflow_home_art(top);
         np_sync(top);
+    }
+    return result;
+}
+
+/* Live accent (docs/internals.md#accent). Colors are mapped as style_get_color returns them: text
+ * (text_color, highlight_text_color) to the red tone, fills and borders to the light tone. The name
+ * is only compared for a color that maps. */
+unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, unsigned fallback) {
+    stock_color_trampoline(color, style, name, fallback);
+    int a = accent();
+    if (a == CRIMSON) return color;
+    unsigned c = accent_map(*color, a, TONE_LIGHT);
+    if (c != *color && name && tk_str_end_with(name, "text_color")) c = accent_map(*color, a, TONE_RED);
+    *color = c;
+    return color;
+}
+
+/* Backgrounds come as gradients: the whole stock leaf (null style or vtable: none), then the stops
+ * of the caller's gradient_t (nr @8, 8-byte {color, offset} stops @0xc, at most 8). style_get_color
+ * asks here first for every color, text included, so its own call stays unmapped and the color
+ * hook picks the tone. */
+void *ringnav_style_gradient(void *style, const char *name, void *out) {
+    void *vt = style ? P(style, 0) : (void *)0;
+    void *(*get)(void *, const char *, void *) = vt ? (void *(*)(void *, const char *, void *))P(vt, 0x18) : (void *)0;
+    void *g = get ? get(style, name, out) : (void *)0;
+    int own = __builtin_return_address(0) == (void *)STYLE_COLOR_GRADIENT_RET;
+    for (int i = 0; !own && g && g == out && i < I(g, 8) && i < 8; ++i)
+        I(g, 0xc + 8 * i) = (int)accent_map((unsigned)I(g, 0xc + 8 * i), accent(), TONE_LIGHT);
+    return g;
+}
+
+/* Decoded images are mapped once, before the image manager caches them; covers (file://) never.
+ * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
+int ringnav_image_add(void *manager, const char *name, void *bitmap) {
+    static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
+    unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4, preset = accent();
+    unsigned char *data = (void *)0;
+    if (preset != CRIMSON && format < 4 && name && !tk_str_start_with(name, "file://"))
+        data = bitmap_lock_buffer_for_write(bitmap);
+    if (data) {
+        const unsigned char *o = at[format];
+        unsigned stride = bitmap_get_line_length(bitmap);
+        for (int y = 0; y < I(bitmap, 4); ++y)
+            for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end; p += 4) {
+                unsigned c = accent_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, (int)preset, TONE_RED);
+                p[o[0]] = c;
+                p[o[1]] = c >> 8;
+                p[o[2]] = c >> 16;
+            }
+        bitmap_unlock_buffer(bitmap);
+    }
+    return stock_image_trampoline(manager, name, bitmap);
+}
+
+static void setting_text(int i) {
+    static const char *const names[2][4] = {
+        { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal", "Accent: Champagne" },
+        { "Home: Split", "Home: Full" } };
+    settings();
+    widget_set_text_utf8(st.setting_label[i], names[i][i ? st.home_full : st.accent]);
+}
+
+/* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on
+ * the next paint, and the theme's colors and images once every cached image is dropped and the
+ * screen repaints; Home takes its new layout at once, as it is never recreated. */
+static int setting_click(void *ctx, void *event) {
+    (void)event;
+    int i = (int)(long)ctx, *value = i ? &st.home_full : &st.accent; /* read by ringnav_display */
+    *value = (*value + 1) % (i ? 2 : ACCENT_N);
+    write_int_config(*value, "IPOD", i ? "HOME" : "ACCENT");
+    if (i)
+        coverflow_home_layout();
+    else {
+        np_fill(RGBA(accents[st.accent][2]));
+        image_manager_unload_all(image_manager());
+        widget_invalidate_force(window_manager(), (void *)0);
+    }
+    setting_text(i);
+    return 0;
+}
+
+/* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
+ * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
+ * Accent and Home rows follow with the same widgets and styles, the value in the label, no icon and
+ * no chevron, since they change in place. */
+int ringnav_display(void *win, void *ctx) {
+    int result = stock_display_trampoline(win, ctx);
+    void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
+    for (int i = 0; view && i < 2; ++i) {
+        void *item = list_item_create(view, 0, 0, 0, 0);
+        widget_use_style(item, "s_listitem_black");
+        void *button = button_create(item, 20, 0, 335, 70);
+        widget_use_style(button, "s_btn_listitem");
+        widget_on(button, EVT_CLICK, setting_click, (void *)(long)i);
+        st.setting_label[i] = hscroll_label_create(button, 72, 0, 260, 70);
+        widget_use_style(st.setting_label[i], "s_scrlabel_white24l");
+        set_hscroll_label_attribute(st.setting_label[i]);
+        setting_text(i);
     }
     return result;
 }

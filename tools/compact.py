@@ -47,7 +47,10 @@ NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the
 NP_BAR = [MARGIN, 251, 375 - 2 * MARGIN, 8]
 NP_TEXT_X = MARGIN + NP_ART + 12
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
-NP_TRACK, NP_FILL = ('#' + re.search(rf'#define {k} 0x(\w+)', INC)[1] for k in ('BAR_BOTTOM', 'ACCENT_HI'))  # 3.4:1
+# The track is the status bar's bottom; the fill is Graphite's light tone until ringnav_playing sets the
+# accent's (3.3:1 or more on the track for every preset).
+NP_TRACK = '#' + re.search(r'#define BAR_BOTTOM 0x(\w+)', INC)[1]
+NP_FILL = '#' + re.search(r'#define ACCENTS \{ 0x\w+, 0x\w+, 0x(\w+), 0x\w+ \}', INC)[1]
 
 
 def decode(data):
