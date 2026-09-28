@@ -54,14 +54,9 @@ unsigned coverflow_scope(void *page) {
     return coverflow_tracks(page) ? album_key(deque_at(cf.albums, (unsigned)cf.album)) : 0;
 }
 
-/* ART_DIR/<key>.jpg<suffix>, formatted by hand so the UI thread needs no libc for it (the MIPS
- * suite runs cover() with only the stock toolkit mocked). */
+/* ART_DIR/<key>.jpg<suffix>; out holds at least 512 bytes. */
 static char *art_path(char *out, unsigned key, const char *suffix) {
-    char *p = out;
-    for (const char *s = ART_DIR "/"; *s;) *p++ = *s++;
-    for (int i = 28; i >= 0; i -= 4) *p++ = "0123456789abcdef"[key >> i & 15];
-    for (const char *s = ".jpg"; *s;) *p++ = *s++;
-    while ((*p++ = *suffix++)) {}
+    tk_snprintf(out, 512, ART_DIR "/%08x.jpg%s", key, suffix);
     return out;
 }
 

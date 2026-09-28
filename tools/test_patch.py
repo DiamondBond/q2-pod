@@ -197,8 +197,8 @@ class Machine:
         elif name=='deque_size': ret=1
         elif name=='tk_snprintf':
             fmt=self.text(c); values=[d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in (16,20,24)]
-            params=[self.text(value) if kind=='s' else signed(value)
-                    for kind,value in zip(re.findall(r'%([sd])',fmt),values)]
+            params=[self.text(value) if kind=='s' else value if kind=='x' else signed(value)
+                    for kind,value in zip(re.findall(r'%\d*([sdx])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='widget_set_children_layout':
             n['children_layout']=self.text(b)

@@ -213,8 +213,7 @@ def compile_payload(out, compact=False):
     run('clang',*FLAGS,f'-DCOMPACT={int(compact)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
-        *[f'--undefined={name}' for name in ['ringnav_touch', 'ringnav_paint', 'ringnav_dispatch',
-          'ringnav_keylong', 'ringnav_shuffle', 'peq_page_init', 'peq_stock_eq', 'coverflow_home']],
+        *[f'--undefined={name}' for name in ['peq_page_init', 'peq_stock_eq', 'coverflow_home']],
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
