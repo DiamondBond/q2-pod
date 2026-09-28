@@ -218,7 +218,7 @@ def dsp_check(lib):
     # A preamp-only change carries filter memory: the crossfade is a pure gain ramp.
     lib.peq_reset(C.byref(a), 48000, 1, C.byref(p))
     tone = [0.1*math.sin(2*math.pi*100*i/48000) for i in range(20000)]
-    before = process(lib, a, tone[:10000])
+    process(lib, a, tone[:10000])
     p.preamp = -30; assert lib.peq_update(C.byref(a), C.byref(p))
     after = process(lib, a, tone[10000:])
     b = DSP(); p.preamp = -24; lib.peq_reset(C.byref(b), 48000, 1, C.byref(p))
