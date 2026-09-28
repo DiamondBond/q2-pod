@@ -92,7 +92,7 @@ Other pages, dialogs and your saved settings are unchanged.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
 - **Pull to search (compact):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
 
-Play/Pause and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
+A short Play/Pause press and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
 
 If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
 
