@@ -30,12 +30,24 @@ MARGIN = 8
 TITLE_MIN = 150
 # iPod Home: seven 41px rows fill the 290px client area; labels start at MARGIN and fit the longest
 # English one ("Playback Setting", 149px at 20px). The art is a square on the right, centred.
-CHEVRON_W = int(re.search(r'#define CHEVRON_W (\d+)', (ROOT/'patch/offsets.inc').read_text())[1])
+INC = (ROOT/'patch/offsets.inc').read_text()
+CHEVRON_W = int(re.search(r'#define CHEVRON_W (\d+)', INC)[1])
 HOME_ROW = 41
 HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
 HOME_LIST_W = MARGIN + 149 + HOME_LABEL_END
 HOME_ART = 375 - HOME_LIST_W - 2 * MARGIN
 HOME_ART_RECT = [HOME_LIST_W + MARGIN, (BOTTOM - HOME_ART) // 2, HOME_ART, HOME_ART]
+# iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
+# with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
+# 251; their x follows NP_BAR through the np_bar_* immediates in compact.json.
+NP_TOP = 40
+NP_ICON = 50                     # the stock 50px control icons, centred in the top row
+NP_ART = 170
+NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
+NP_BAR = [MARGIN, 251, 375 - 2 * MARGIN, 8]
+NP_TEXT_X = MARGIN + NP_ART + 12
+NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
+NP_TRACK, NP_FILL = ('#' + re.search(rf'#define {k} 0x(\w+)', INC)[1] for k in ('BAR_BOTTOM', 'ACCENT_HI'))  # 3.4:1
 
 
 def decode(data):
@@ -73,6 +85,12 @@ def decode(data):
     return root
 
 
+def walk(n):
+    yield n
+    for child in n[3]:
+        yield from walk(child)
+
+
 def encode(root):
     def node(n):
         kind, geometry, props, children = n
@@ -93,8 +111,7 @@ ARTIST_ALBUMS = [(0x4aebd0, 0x2739dcbc, 0x2739c7ec), (0x4aebd4, 0x0411fc39, 0x04
 
 def artist_tabs(root):
     found = []
-
-    def walk(n):
+    for n in walk(root):
         name = n[2].get('name')
         if name in ARTIST_TABS:
             text, key = ARTIST_TABS[name]
@@ -108,9 +125,6 @@ def artist_tabs(root):
             require('value' not in n[2], 'Unexpected artist pages')
             n[2]['value'] = '1'
             found.append('pages')
-        for child in n[3]:
-            walk(child)
-    walk(root)
     require(sorted(found) == sorted([*ARTIST_TABS, 'pages']), 'Unexpected artist tabs')
 
 
@@ -227,6 +241,83 @@ def status_bar(root):
         'name': 'label_title', 'style': 's_scrlabel_white20c', 'only_focus': 'true', 'ellipses': 'true'}, []])
 
 
+# iPod only. Stock finds every Now Playing widget by name, recursively, so they can move: title, artist
+# and a new album label join the art on the slide_view's first page, so a swipe still swaps all of it for
+# the lyrics or info page. Those keep their stock 225px column (stock creates 225px lyric lines),
+# centred. The payload fills the label_ipod_* labels (ringnav_playing); label_playlen, the total, hides.
+PLAYING_PAGE = 'playing_page.bin'
+
+
+def playing_page(root):
+    named = {n[2].get('name'): n for n in walk(root)}
+    require([n[2].get('name') for n in root[3]] == [
+        'view_buttons', 'scrlabel_title', 'scrlabel_artist', 'label_playtime', 'label_playlen',
+        'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait'], 'Unexpected Now Playing page')
+    buttons, title, artist = root[3][:3]
+    buttons[1] = [0, 0, 375, NP_TOP]
+    named['img_return'][1][0] = -200  # the hardware Return, as on the pages whose navbars are hidden
+    for i, name in enumerate(['img_fav', 'img_more', 'img_playmode']):
+        n = named[name]
+        n[1] = [375 - (3 - i) * NP_ICON, 0, NP_ICON, NP_TOP]
+        n[2] = {k: v for k, v in n[2].items() if not k.endswith(('_offset', 'text_align_h'))}
+        if 'image' in n[2]:
+            n[2]['draw_type'] = 'center'
+    buttons[3].append(['label', [MARGIN, 0, 375 - 3 * NP_ICON - MARGIN, NP_TOP], {
+        'name': 'label_ipod_pos', 'style:normal:font_size': '16', 'style:normal:text_color': NP_GREY,
+        'style:normal:text_align_h': 'left'}, []])
+
+    art_y = (NP_SLIDE_H - NP_ART) // 2
+    text_w = 375 - MARGIN - NP_TEXT_X
+    top = art_y + NP_ART // 2 - (24 + 4 + 20 + 4 + 20) // 2  # the three lines centre on the art
+    title[1] = [NP_TEXT_X, top, text_w, 24]
+    title[2]['style'] = 's_scrlabel_white20l'
+    artist[1] = [NP_TEXT_X, top + 28, text_w, 20]
+    for key in artist[2]:
+        if key.endswith(':text_color'): artist[2][key] = NP_GREY
+        if key.endswith(':text_align_h'): artist[2][key] = 'left'
+    album = copy.deepcopy(artist)
+    album[1] = [NP_TEXT_X, top + 52, text_w, 20]
+    album[2].update(name='label_ipod_album', text='')
+    named['img_cover'][1] = [MARGIN, art_y, NP_ART, NP_ART]
+    named['img_playstate'][1] = [MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
+    named['view_album'][3] += [title, artist, album]
+    column = (375 - 225) // 2
+    named['label_lyricmsg'][1][0] += column
+    named['view_lrc'][2]['self_layout'] = f'default(x={column},y=0,w=225,h=178)'
+    for n in named['view_info'][3]:
+        n[1][0] += column
+    named['slide_view_view'][1] = [0, NP_TOP, 375, NP_SLIDE_H + 12]
+    named['slide_view'][1] = [0, 0, 375, NP_SLIDE_H]
+    dots = named['slide_indicator1']
+    dots[1][1] = NP_SLIDE_H + 2
+    dots[2]['self_layout'] = f'default(x=0,y={NP_SLIDE_H + 2},w=100%,h=10)'
+    named['image_wait'][1] = [MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
+
+    # Colour fills (stock slider paint uses bg/fg_color when there is no image). The style has no
+    # theme entry, so no thumb icon either: stock then fills exactly to the value, and slide_with_bar
+    # keeps tap and drag seeking.
+    slider = named['slider_play']
+    x, y, w, h = NP_BAR
+    slider[1] = [x, y - 11, w, h + 22]
+    props = {k: v for k, v in slider[2].items() if not k.endswith((':bg_image', ':fg_image', ':icon', ':y_offset'))}
+    for key in props:
+        if key.endswith(':bg_color'): props[key] = NP_TRACK
+        if key.endswith(':fg_color'): props[key] = NP_FILL
+    props.update(style='s_ipod_progress', bar_size=str(h))
+    slider[2] = props
+    for name in ('img_repeata', 'img_repeatb'):
+        named[name][1][0] = x
+    times = y + h + 3
+    total = named['label_playlen']
+    remain = copy.deepcopy(total)
+    remain[1] = [375 - MARGIN - 80, times, 80, 16]
+    remain[2].update(name='label_ipod_remain', text='')
+    total[2]['visible'] = 'false'
+    named['label_playtime'][1] = [MARGIN, times, 80, 16]
+    root[3][1:3] = []
+    root[3].insert(3, remain)
+
+
 # iPod only. Settings and Streaming keep the stock row height; only their navbar goes, as on the
 # local pages. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
 NAVBAR_ONLY = set(AUDIT['navbar_only'])
@@ -252,6 +343,9 @@ def patch_asset(path, data, ipod):
         return encode(root)
     if path == STATUS_BAR:
         status_bar(root)
+        return encode(root)
+    if path == PLAYING_PAGE:
+        playing_page(root)
         return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
     require(len(nav) == 1 and nav[0][1] in ([0, 0, 375, 50], [0, 0, 370, 50]), f'{path}: unexpected toolbar')  # 370: stream_page
@@ -318,7 +412,7 @@ def patch_code(data, symbols):
 
     for group in AUDIT['immediates']:
         value = {'pitch': PITCH, 'body': BODY, 'art': ART, 'art_inset': ART_INSET,
-                 'scroll': BOTTOM - 50}.get(group['value'], group['value'])
+                 'scroll': BOTTOM - 50, 'np_bar_x': NP_BAR[0], 'np_bar_w': NP_BAR[2]}.get(group['value'], group['value'])
         for address, instruction in group['sites']:
             old = int(instruction, 16)
             word(int(address, 16), old, (old & 0xffff0000) | value, group['purpose'])

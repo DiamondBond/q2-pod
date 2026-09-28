@@ -469,6 +469,14 @@ static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpi
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg" };
 
+/* The queue's playing record, or 0; *pos and *n get its index and the queue length. */
+void *queue_now(unsigned *pos, unsigned *n) {
+    void *queue = P(mcl_pdeqplaylist, 0);
+    *pos = *(volatile unsigned *)MCL_POS;
+    *n = queue ? deque_size(queue) : 0;
+    return *pos < *n ? deque_at(queue, *pos) : (void *)0;
+}
+
 /* The player's cover, else the Coverflow cache of the track's album, else the placeholder. The
  * player's files belong to the track whose path it copies to g_lastcover_url after writing them,
  * so right after a track change they count only once that is this track. Runs whenever Home or
@@ -476,9 +484,8 @@ static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpi
  * can use changes. */
 void coverflow_home_art(void *top) {
     if (!home.art || top != home.win) return;
-    void *queue = P(mcl_pdeqplaylist, 0);
-    unsigned pos = *(volatile unsigned *)MCL_POS;
-    void *r = queue && pos < deque_size(queue) ? deque_at(queue, pos) : (void *)0;
+    unsigned pos, n;
+    void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
     unsigned char type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
     unsigned key = hash_bytes(fnv(FNV_SEED, (const unsigned char *)path), &type, 1);

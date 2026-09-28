@@ -4,12 +4,14 @@
 #include "stock.h"
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
-    stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *);
+    stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
+    stock_playing_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
 extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
+extern void *queue_now(unsigned *pos, unsigned *n);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -70,6 +72,10 @@ typedef struct {
     unsigned pull_scope;
     unsigned title_hash; /* of the status bar title last set, 0 before the first */
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
+    /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
+    void *np_win, *np_pos, *np_album, *np_slider, *np_remain;
+    unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
+    int np_left;
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -1168,11 +1174,63 @@ static void title_sync(void *bar, void *top) {
         widget_set_text(label, text);
 }
 
+/* Now Playing's "3 of 12", album and remaining time (slider max less value, stock's seconds, so a
+ * drag previews it). Labels are written only when their source changes. */
+static void np_sync(void *top) {
+    if (!top || top != st.np_win) return;
+    unsigned at, n;
+    void *r = queue_now(&at, &n);
+    const char *album = r ? P(r, REC_ALBUM) : (void *)0;
+    char s[24] = "";
+    unsigned pos[2] = { at, n };
+    unsigned h = hash_bytes(fnv(FNV_SEED, (const unsigned char *)album), (const unsigned char *)pos, sizeof pos);
+    if (h != st.np_hash) {
+        st.np_hash = h;
+        if (r) tk_snprintf(s, sizeof s, "%d of %d", at + 1, n);
+        widget_set_text_utf8(st.np_pos, s);
+        widget_set_text_utf8(st.np_album, album ? album : "");
+    }
+    int left = widget_get_prop_int(st.np_slider, "max", 0) - widget_get_prop_int(st.np_slider, "value", 0);
+    if (left < 0) left = 0;
+    if (left == st.np_left) return;
+    st.np_left = left;
+    if (left >= 3600) /* stock's toolsTimeItoa formats */
+        tk_snprintf(s, sizeof s, "-%02d:%02d:%02d", left / 3600, left / 60 % 60, left % 60);
+    else
+        tk_snprintf(s, sizeof s, "-%02d:%02d", left / 60, left % 60);
+    widget_set_text_utf8(st.np_remain, s);
+}
+
+static int np_gone(void *win, void *event) {
+    (void)event;
+    if (win == st.np_win) {
+        st.np_win = (void *)0;
+        st.np_hash = 0;
+    }
+    return 0;
+}
+
+/* playing_page_init: stock builds the page and starts its 250 ms timer, then the iPod labels bind. */
+int ringnav_playing(void *win, void *ctx) {
+    int result = stock_playing_trampoline(win, ctx);
+    if (!win) return result;
+    st.np_win = win;
+    st.np_pos = widget_lookup(win, "label_ipod_pos", 1);
+    st.np_album = widget_lookup(win, "label_ipod_album", 1);
+    st.np_slider = widget_lookup(win, "slider_play", 1);
+    st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
+    st.np_hash = 0;
+    st.np_left = -1;
+    widget_on(win, EVT_DESTROY, np_gone, win);
+    np_sync(win);
+    return result;
+}
+
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
  * The selection work for the surface happens here, once per frame, instead of in the border hook.
  * Top-level widgets are the status bar, which gets its gradient, and the windows. Painting the top
- * window or the bar (at least each second, systembar_showface) keeps the bar's title and Home's
- * art current. */
+ * window or the bar (at least each second, systembar_showface) keeps the bar's title, Home's art
+ * and Now Playing's labels current. */
 int ringnav_paint_bg(void *w, void *canvas) {
     int result = stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
@@ -1190,6 +1248,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     if (bar && (w == bar || w == top)) {
         title_sync(bar, top);
         coverflow_home_art(top);
+        np_sync(top);
     }
     return result;
 }

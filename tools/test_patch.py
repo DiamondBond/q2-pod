@@ -2666,6 +2666,41 @@ if variant=='ipod':
     m.nodes[m.art]['image']='unchanged'; assert art_after(m.home)=='unchanged'  # same track and cover
     m.byte(syms['g_playcover_type'],3); assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
 
+    # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
+    # value, in seconds) fill in; later paints rewrite a label only when its source changed.
+    playing=IPOD_HOOKS['playing_page_init'][0]
+    assert struct.unpack_from('<I',demo,fileoff(demo,playing))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_playing']>>2
+    m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+    for i,r in enumerate(m.items(m.get(syms['mcl_pdeqplaylist']))): m.word(r+O['REC_ALBUM'],m.string(f'Album {i}'))
+    bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
+    pos,album,remain=(m.node('label',n) for n in ('label_ipod_pos','label_ipod_album','label_ipod_remain'))
+    slider=m.node('slider','slider_play',max=225,value=100)
+    win=m.node('window','playing_page',[m.node('view','view_buttons',[pos]),album,slider,remain])
+    for w in (bar,win): m.word(w+O['W_PARENT'],m.wm)
+    m.top=win
+    def shown(): return [m.nodes[w].get('text') for w in (pos,album,remain)]
+    def written(): return [m.nodes[c[1]]['name'] for c in m.calls if c[0]=='widget_set_text_utf8']
+    def repaint(w=win): m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0)); return written()
+    assert m.call(address=playing,args=(win,7,0,0),gap=0)==0 and m.calls[0][:3]==('stock_playing',win,7)
+    assert shown()==['2 of 3','Album 1','-02:05']; passed()
+    assert repaint()==[] and repaint(bar)==[]; passed()
+    m.nodes[slider]['value']=101; assert repaint()==['label_ipod_remain'] and shown()[2]=='-02:04'; passed()
+    m.word(O['MCL_POS'],2); assert repaint(bar)==['label_ipod_pos','label_ipod_album'] and shown()[:2]==['3 of 3','Album 2']; passed()
+    # A rebuilt queue can reuse the same string address with new text; the text itself is hashed.
+    m.u.mem_write(m.get(m.items(m.get(syms['mcl_pdeqplaylist']))[2]+O['REC_ALBUM']),b'Other\0')
+    assert 'label_ipod_album' in repaint() and shown()[1]=='Other'; passed()
+    for mx,v,want in ((3725,0,'-01:02:05'),(3600,0,'-01:00:00'),(3599,0,'-59:59'),(90,90,'-00:00'),(90,95,'-00:00')):
+        m.nodes[slider].update(max=mx,value=v); repaint(); assert shown()[2]==want,(mx,v)
+    passed()
+    queue=m.deqs[m.get(syms['mcl_pdeqplaylist'])][1]
+    del queue[1:]; m.word(O['MCL_POS'],0); repaint(); assert shown()[:2]==['1 of 1','Album 0']
+    queue.clear(); repaint(); assert shown()[:2]==['','']; passed()
+    # Another top window, or the page once destroyed, leaves the labels alone.
+    queue.append(m.copy('stSongInfo',m.song('X'))); m.top=m.node('window','home_page'); m.word(m.top+O['W_PARENT'],m.wm)
+    assert repaint(m.top)==[] and repaint(bar)==[]; m.top=win
+    f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert repaint()==[] and shown()[0]==''; passed()
+
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
 # plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.
 m=CoverflowMachine(); page=m.open()

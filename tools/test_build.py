@@ -29,8 +29,8 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS
-    from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY,
-                         STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, patch_asset, patch_code, patch_style)
+    from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY, PLAYING_PAGE,
+                         STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, walk, patch_asset, patch_code, patch_style)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -62,9 +62,6 @@ def validate_assets(directory):
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
-    def walk(n):
-        yield n
-        for child in n[3]: yield from walk(child)
     names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
     assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
     # iPod drops the carousel images and adds no Coverflow icons; normal keeps both.
@@ -113,6 +110,28 @@ def validate_assets(directory):
             assert title[1] == [112, 0, 151, 30]  # centred on the 375px screen, clear of the right icons
             assert all(v[2]['children_layout'].endswith(f'xm={MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
+            continue
+        if short == PLAYING_PAGE:  # iPod only: see the sketch in docs/ipod.md
+            named = {n[2].get('name'): n for n in walk(root)}
+            assert {n[2].get('name') for n in walk(decode(original))} < set(named)  # stock names kept
+            assert [n[2].get('name') for n in root[3]] == ['view_buttons', 'label_playtime', 'label_playlen', 'label_ipod_remain',
+                                                           'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait']
+            assert named['label_ipod_pos'][1] == [8, 0, 217, 40] and named['img_return'][1][0] < 0
+            assert [named[n][1] for n in ('img_fav', 'img_more', 'img_playmode')] == [[225, 0, 50, 40], [275, 0, 50, 40], [325, 0, 50, 40]]
+            album = named['view_album'][3]
+            assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album']
+            assert [n[1] for n in album] == [[8, 8, 170, 170], [33, 33, 120, 120], [190, 57, 177, 24], [190, 85, 177, 20], [190, 109, 177, 20]]
+            assert named['slide_view'][1] == [0, 0, 375, 186] and named['view_lrc'][2]['self_layout'].startswith('default(x=75,')
+            slider = named['slider_play']
+            assert slider[1] == [8, 240, 359, 30] and slider[2]['bar_size'] == '8' and slider[2]['slide_with_bar'] == 'true'
+            assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
+            assert {v for k, v in slider[2].items() if k.endswith('_color')} == {'#1c1c1c', '#6e6e6e'}
+            # No theme style of that name, so no thumb icon: stock fills exactly to the value.
+            assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')
+            assert [named[n][1] for n in ('label_playtime', 'label_ipod_remain')] == [[8, 262, 80, 16], [287, 262, 80, 16]]
+            assert named['label_playlen'][2]['visible'] == 'false'
+            # Stock places the A-B markers at y 250 and x = 50 + t * 290 / length; iPod's bar is x 8, 359 wide.
+            assert [int.from_bytes(demo[fileoff(demo, a):fileoff(demo, a)+4], 'little') for a in (0x52a318, 0x52a330)] == [0x24020167, 0x24420008]
             continue
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'

@@ -81,6 +81,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - Spinning fast through a long list shows the selected title's first letter in large type over the list, as on an iPod.
 - A `>` marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Music categories, artists, genres and albums).
 - A graphite status bar shows the play state, the page title in the middle, then the EQ, Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
+- Now Playing in the iPod style: "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
 - Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
 - Pull down at the top of Local Songs to search.
 

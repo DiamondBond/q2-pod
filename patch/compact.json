@@ -11,6 +11,7 @@
     "localmusic/playlistsmore_page.bin": "60948d54736bbe913305b960ee3b8c88dd135f4327e7a8c37e526740cec66d9f",
     "home_page.bin": "c0e056388681952b31b7e4b3e13fc65f143807a5c6ff6c45060dbbe5ae9e5241",
     "system_bar.bin": "37a66b86847eae4f26ce748cb7d0b621d49e9e173e0526342058e3901389d9b1",
+    "playing_page.bin": "f39a5d333ae68028b6af1448f363deb28a3a417d3c085e4151322e022a9b2e4c",
     "audiosetting_page.bin": "fa8581c656da81d0b32430fea7963f46bd53e582acddbe8346fa74a42df25555",
     "stream_page.bin": "29225655cf5fcbf4a59b224f62f28583c80bf0da992cde7615a85e9a90a33f5a",
     "systemset/about_page.bin": "b4c8d2a0c386ec0887ff388cfe0ce7e62330326444cb1ff1352b043ee741c373",
@@ -214,6 +215,20 @@
       "purpose": "all songs recreated scrollbar spans the relocated list",
       "sites": [
         ["0x4a8cd8", "0x240200be"]
+      ]
+    },
+    {
+      "value": "np_bar_w",
+      "purpose": "Now Playing A-B markers span the iPod progress bar (x = start + t * width / length)",
+      "sites": [
+        ["0x52a318", "0x24020122"]
+      ]
+    },
+    {
+      "value": "np_bar_x",
+      "purpose": "Now Playing A-B markers start at the iPod progress bar's left end",
+      "sites": [
+        ["0x52a330", "0x24420032"]
       ]
     }
   ],

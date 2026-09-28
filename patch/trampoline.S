@@ -17,3 +17,4 @@ resume keylong, 0x4e8748
 resume eq, 0x4f923c
 resume home, 0x523c90
 resume paint_bg, 0x65c788
+resume playing, 0x52ca94

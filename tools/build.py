@@ -25,7 +25,8 @@ HOOKS = {
     'home_page_init': (0x523c84, 'coverflow_home'),
 }
 # Hooked in iPod builds only, so normal keeps these entry points stock.
-IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg')}
+IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
+              'playing_page_init': (0x52ca88, 'ringnav_playing')}
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'

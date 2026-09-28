@@ -10,7 +10,7 @@ AWTK binary UI files contain a four-byte magic, recursive widgets with a 32-byte
 type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only the assets
 pinned in `compact.json` are accepted: nine local browsing pages, the settings
-and streaming pages, Home and the status bar. The primary `view_navbar` stays allocated but invisible
+and streaming pages, Home, the status bar and Now Playing. The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
 moved into its space.
 
@@ -164,6 +164,38 @@ capitals; leading spaces are skipped and any other character shows as it is. Hom
 other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`); see
 [internals.md](internals.md#drawing).
 
+## Now Playing
+
+`playing_page.bin` follows Rockbox's iVideo Now Playing in the 375x290 client area, below the
+status bar's "Now Playing" title:
+
+```
+  0 +---------------------------------------------------------+
+    | 3 of 12 (8,0 217x40)          fav 225  more 275  mode 325|  icons 50x40
+ 40 +---------------------------------------------------------+
+    |  +-----------+                                          |  slide_view 0,40 375x186
+    |  |    art    |   Title   (190,97 177x24, white 20)      |
+    |  | 8,48      |   Artist  (190,125 177x20, grey 16)      |
+    |  | 170x170   |   Album   (190,149 177x20, grey 16)      |
+    |  +-----------+                                          |
+228 |                     . o .   (page dots)                 |
+251 |  [=========================-------------------------]  |  bar 8,251 359x8
+262 |  01:23 (8 80x16)                  -02:34 (287 80x16)    |
+290 +---------------------------------------------------------+
+```
+
+The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
+with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
+each lyric line 225 pixels wide. The big play/pause icon stays centred on the art and the loading
+spinner moves with it. The on-screen Return icon moves off-screen, as on the pages whose navbars are
+hidden; the hardware Return does the same. Favourite, More and the play mode icon keep their stock
+images and handlers in the top row.
+
+The bar is plain colour: a `#1C1C1C` track (`BAR_BOTTOM`) and a Graphite `#6E6E6E` fill
+(`ACCENT_HI`), 3.4:1, with no thumb. Tap or drag anywhere on it to seek, as stock. The elapsed time
+is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
+`tools/compact.py`; see [internals.md](internals.md#now-playing-ipod).
+
 ## Device checklist
 
 Every check below has been hardware-tested on both builds and confirmed by the
@@ -212,7 +244,7 @@ user. Their parameters remain unchanged; the list stays as the regression guide.
 - **retained_controls**: Use tabs, Play All, sorting, playlist import/export,
   rename/delete and all separately retained action/editing controls. Verify
   remembered selection after sorting and folder/album/query returns.
-- **excluded_screens**: Verify Now Playing, settings, online services, dialogs
+- **excluded_screens**: Verify settings, online services, dialogs
   and scanning/editing screens retain stock layouts and work.
 
 Emulator tests validate native constructors, stock input gates and the shared
