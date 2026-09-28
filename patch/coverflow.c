@@ -176,6 +176,9 @@ static void *list(const char *title, int n) {
     widget_set_text_utf8(cf.title, title);
     void *lv = list_view_create(cf.body, 0, 48, 375, rows);
     widget_set_prop_int(lv, "item_height", 48);
+    /* The theme's default list_view is a light card; stock pages paint theirs black inline. */
+    widget_set_prop_int(lv, "style:normal:bg_color", (int)0xff000000u);
+    widget_set_prop_int(lv, "style:normal:border_color", 0);
     void *view = scroll_view_create(lv, 0, 0, 375, rows);
     widget_set_prop_int(view, "yslidable", 1);
     widget_set_prop_int(view, "xslidable", 0);

@@ -92,9 +92,13 @@ def validate_assets(directory):
         if rel in STOCK_EQ: continue
         original, new = read('stock.squashfs', rel), read('rootfs.squashfs', rel)
         if '/raw/ui/' in rel and new[:4] == bytes.fromhex('12122211'):
-            added = {c for c in painted(decode(new), themes[1]) - painted(decode(original), themes[0])
-                     if c[2] != 'text_color' or c[0] in ('label', 'hscroll_label', 'button', 'edit', 'tab_button')}
-            assert not [c for c in added if jarring(c)], (rel, [c for c in added if jarring(c)])
+            now = painted(decode(new), themes[1])
+            bad = [c for c in now - painted(decode(original), themes[0]) if jarring(c)
+                   and (c[2] != 'text_color' or c[0] in ('label', 'hscroll_label', 'button', 'edit', 'tab_button'))]
+            # iPod rows are transparent, so a light list container stock hid behind them would show.
+            bad += [c for c in now if ipod and c[2] == 'bg_color' and jarring(c)
+                    and c[0] in ('list_view', 'list_item', 'scroll_view', 'table_view', 'table_client', 'view')]
+            assert not bad, (rel, bad)
         if rel not in changed:
             assert new == original, rel
             continue

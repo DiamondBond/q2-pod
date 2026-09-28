@@ -80,7 +80,7 @@ TEST = r"""
 int coverflow_home(void *, void *);
 
 /* Widgets: raw memory first, so the payload's field reads (SLIDE_INDEX) land in it. */
-typedef struct { char raw[0x100]; int parent, visible, kids[512], nkids; char type[32], text[160], image[600];
+typedef struct { char raw[0x100]; int parent, visible, kids[512], nkids, bg; char type[32], text[160], image[600];
                  handler click; void *ctx; } widget;
 static widget w[8192];
 static int nw;
@@ -118,7 +118,7 @@ int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
 int widget_set_text_utf8(void *x, const char *s) { snprintf(W(x)->text, 160, "%s", s); return 0; }
 int widget_set_visible(void *x, int v, int r) { (void)r; W(x)->visible = v; return 0; }
 int widget_get_prop_int(void *x, const char *k, int d) { (void)x; (void)k; return d; }
-int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void)v; return 0; }
+int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:normal:bg_color")) W(x)->bg = v; return 0; }
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     if (!x) return 0;
@@ -305,6 +305,11 @@ int main(void) {
     /* An empty library, or one being scanned, shows the message and builds nothing. */
     open_page();
     assert(!strcmp(title(), "Update Local Music first") && !slide() && queries == 1);
+    /* Every list (message, progress, tracks) comes from list(): iPod rows are transparent, so its
+       list_view paints black itself rather than the theme's light card. */
+    int lists = 0;
+    for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "list_view")) { assert((unsigned)w[i].bg == 0xff000000u); ++lists; }
+    assert(lists == 1);
     key(KEY_RETURN); close_page();
     album("Cover", "cover.jpg");
     *(volatile int *)SCAN_THREAD = 1;
