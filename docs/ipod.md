@@ -81,18 +81,21 @@ opens `home_page` once and it is never recreated, so the list keeps its own sele
 iPod's `home_page.bin` is a `list_view` (41-pixel `item_height`) holding a `scroll_view` of
 seven 41-pixel rows (`btn_*` views), in stock order with Coverflow third: Now Playing, Local
 Songs, Coverflow, Folder, Streaming, Playback Setting, System Setting. Each row holds a
-white 20-pixel `label_*` (an ellipsis when too long) inset 8 pixels,
+white 20-pixel `label_*` (an ellipsis when too long) inset 39 pixels (see
+[Rounded corners](#rounded-corners)),
 under a full-row transparent `img_*` that takes the tap and is the wheel's click target, so
 the stock visitor binds and translates the rows as it did the cards. Coverflow's label is
 literal. The wheel moves through the rows with hard ends, and the selection bar spans the
-list. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
+list. The scroll view sets `yslidable`: a `list_view`'s layout (`0x5ea3a4`) turns it on only
+for a list with a mobile scroll bar, which Home has none of, and the payload navigates vertical
+scroll views only (V5.4I showed no bar or chevrons on Home). The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
 the executable were checked; the inputs are SHA-pinned), so iPod removes them.
 
-The list is 205 pixels wide. Labels start 8 pixels in and end 10 pixels before the chevron's
-glyph, 149 pixels wide, so the longest English label ("Playback Setting") fits. `img_homeart`, a
-154-pixel square on the right, sits 8 pixels from the edge and centred in the 290-pixel client
-area. Sizes are `HOME_*`
-constants in `tools/compact.py`.
+The list is 236 pixels wide. Labels start 39 pixels in, where the last row's text clears the
+bottom-left corner, and end 10 pixels before the chevron's glyph, 149 pixels wide, so the longest
+English label ("Playback Setting") fits. `img_homeart`, a 123-pixel square on the right, sits
+8 pixels from the edge and centred in the 290-pixel client area. Sizes are `HOME_*` constants in
+`tools/compact.py`.
 
 The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
 as built. Full resizes `list_view_home` and, below it, every widget but the labels (the scroll
@@ -126,14 +129,15 @@ timer) finds each status bar widget with a recursive `widget_lookup` from the ba
 so parents and order are free to change. Every tick it re-shows the volume,
 EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
 never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
-alone in `view_left` and puts EQ, Bluetooth/codec, Wi-Fi and the battery icon in
-`view_right`. The volume icon and number, SyncLink and the battery percentage
-move to `x = -200`, where they draw off-screen. A new `label_title`
-(`s_scrlabel_white20c`, an ellipsis when too long) is centred on the screen,
-clear of the right icon group. Both groups use the list rows' 8-pixel edge margin
-instead of stock's 50; stock pages already place controls 3 pixels from the edge.
-The margin and the minimum title width, checked at build, are constants in
-`tools/compact.py`. The payload paints the bar's graphite gradient and keeps
+and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
+battery icon in `view_right`. The volume icon and number, SyncLink and the battery
+percentage move to `x = -200`, where they draw off-screen. Both groups sit 52 pixels
+from the edges (`STATUS_MARGIN`), where the 16-pixel icons clear the top corners
+([Rounded corners](#rounded-corners)); V5.4I's 8 pixels put the play state and the
+battery under the glass, so no icon showed. A new `label_title`
+(`s_scrlabel_white20c`, an ellipsis when too long) is centred on the screen, 113
+pixels wide at x 131, clear of either group with every icon shown (left 92 pixels,
+right 131). The build fails if it would be under `TITLE_MIN` (110). The payload paints the bar's graphite gradient and keeps
 `label_title` in step with the top window: the hidden navbar's title, `Q2` on
 Home, "Now Playing" on `playing_page` (see
 [internals.md](internals.md#status-bar-ipod)).
@@ -150,6 +154,23 @@ navbar's bottom edge), `fwdownload_page` (no navbar), the PEQ page (it replaces
 all children) and every Tidal page, whose navbars hold the search and sort
 buttons. A page with a visible navbar keeps its own title and the status bar
 shows none.
+
+## Rounded corners
+
+The panel's glass rounds its corners and hides what is drawn under them. `CORNER_R` in
+`tools/compact.py` (80 pixels) is the calibration knob: the radius, fitted to V5.4I photos and
+to stock's 50-pixel status bar margins. `corner_inset(y)` gives the width hidden at each end of
+screen row `y`, and `corner_x` adds `CORNER_SLACK` (4). The status bar groups, the Home labels
+and Now Playing's top and bottom rows take their insets from it; settings notes moved under the
+hidden navbar end their text clear of the top-right corner. With the defaults: status bar 52
+pixels, Home text 39, "3 of 12" 14, Now Playing icons ending at 353, the bar 21 and the times 41
+pixels from the edges.
+
+`tools/test_build.py` fails an iPod build when any fixed text or icon in a changed asset reaches
+under the glass (screen coordinates: the bar at y 0 to 30, windows at 30 to 320): a label's
+font-high band, an image drawn centred at its size, a slider's bar, else the widget. Backgrounds,
+tap targets and list rows, which scroll, are not checked. Raising `CORNER_R` until the title drops
+under `TITLE_MIN` fails the build.
 
 ## Hold Return
 
@@ -193,7 +214,7 @@ status bar's "Now Playing" title:
 
 ```
   0 +---------------------------------------------------------+
-    | 3 of 12 (8,0 217x40)          fav 225  more 275  mode 325|  icons 50x40
+    | 3 of 12 (14,0 189x40)         fav 203  more 253  mode 303|  icons 50x40
  40 +---------------------------------------------------------+
     |  +-----------+                                          |  slide_view 0,40 375x186
     |  |    art    |   Title   (190,97 177x24, white 20)      |
@@ -201,8 +222,8 @@ status bar's "Now Playing" title:
     |  | 170x170   |   Album   (190,149 177x20, grey 16)      |
     |  +-----------+                                          |
 228 |                     . o .   (page dots)                 |
-251 |  [=========================-------------------------]  |  bar 8,251 359x8
-262 |  01:23 (8 80x16)                  -02:34 (287 80x16)    |
+251 |  [=========================-------------------------]  |  bar 21,251 333x8
+262 |     01:23 (41 80x16)            -02:34 (254 80x16)      |
 290 +---------------------------------------------------------+
 ```
 
@@ -226,6 +247,9 @@ track jumps there 150 ms after the last tick. Centre again, Return, a touch or 3
 tick give the wheel back to the volume; Return then stays on the page. A double press still turns
 the screen off. Values are `SCRUB_*` and `SEEK_MS` in `patch/offsets.inc`; see
 [internals.md](internals.md#scrub-ipod).
+
+The top row's text and icons, the bar's ends and the times keep clear of the corners
+([Rounded corners](#rounded-corners)).
 
 **Lyrics.** Stock already highlights the current line and scrolls to keep it in view.
 
@@ -353,8 +377,8 @@ Normal also apply to it.
   the list at the selected row, follows the end bump, and fills only its own
   rectangle on album grid tiles. A touch hides it until the next wheel or centre
   input. Pressed rows still show touch feedback.
-- **status_bar**: Check the play state on the left; EQ, Bluetooth/codec, Wi-Fi
-  and battery on the right, each following its state. The centred title matches
+- **status_bar**: Check the play state and EQ on the left; Bluetooth/codec, Wi-Fi
+  and battery on the right, each following its state and none cut by the corners. The centred title matches
   every local, settings and streaming page, `Q2` on Home and "Now Playing" on Now
   Playing; a dialog keeps the page title. Tidal pages show their own title and
   none in the bar. Volume turns still open the stock volume pop-up.

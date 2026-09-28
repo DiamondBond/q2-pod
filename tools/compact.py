@@ -7,6 +7,7 @@ import copy
 import functools
 import hashlib
 import json
+import math
 import pathlib
 import re
 import struct
@@ -22,30 +23,57 @@ PITCH = 72
 BODY = PITCH - 4
 ART = 52
 ART_INSET = (BODY - ART) // 2
-# iPod status bar (system_bar.bin, 375x30). Stock pads both icon groups 50px from the edges, but
-# stock pages already put controls 3px from them (Now Playing's back arrow), so iPod uses the list
-# rows' 8px. The title is centred on the screen: it spans between the right group's extent (EQ 20,
-# BT/codec 43, Wi-Fi 16, battery 10, 5px apart: 112px) and the same distance from the left edge,
-# 151px wide.
 MARGIN = 8
-TITLE_MIN = 150
-# iPod Home: seven 41px rows fill the 290px client area; labels start at MARGIN and fit the longest
-# English one ("Playback Setting", 149px at 20px). The art is a square on the right, centred.
+# The 375x320 panel's glass has rounded corners that hide whatever is drawn in them. CORNER_R is
+# the device calibration knob: the corner radius in pixels, fitted to device photos (V5.4I cut
+# "20 of 29" at x 8, y 42 and the "Sy" of the last Home row, which needs about 80) and to stock's
+# 50px status bar margins, which clear it. Text and icons near a corner keep CORNER_SLACK more.
+CORNER_R = 80
+CORNER_SLACK = 4
+
+
+def corner_inset(y):
+    """The width the glass hides at each end of screen row y."""
+    d = min(max(CORNER_R - y, y - (320 - CORNER_R), 0), CORNER_R)
+    return math.ceil(CORNER_R - math.sqrt(CORNER_R**2 - d*d))
+
+
+def corner_x(y, h):
+    """The side inset, slack included, for content spanning screen rows y to y + h."""
+    return max(corner_inset(y), corner_inset(y + h)) + CORNER_SLACK
+
+
+# iPod status bar (system_bar.bin, 375x30). Its 16px icons sit at y 7 to 23, so both groups keep
+# clear of the top corners. The play state and EQ are on the left, as in stock; Bluetooth/codec,
+# Wi-Fi and the battery on the right. The title is centred on the screen, between the wider
+# group's extent with every icon shown and the same distance from the other edge.
+STATUS_MARGIN = corner_x(7, 16)
+TITLE_MIN = 110
+# iPod Home: seven 41px rows fill the 290px client area. The labels fit the longest English one
+# ("Playback Setting", 149px at 20px) and all start where the last row's clears the bottom-left
+# corner. The art is a square on the right, centred.
 INC = (ROOT/'patch/offsets.inc').read_text()
 CHEVRON_W = int(re.search(r'#define CHEVRON_W (\d+)', INC)[1])
 HOME_ROW = 41
+HOME_TEXT_X = max(MARGIN, corner_x(30 + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
 HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
-HOME_LIST_W = MARGIN + 149 + HOME_LABEL_END
+HOME_LIST_W = HOME_TEXT_X + 149 + HOME_LABEL_END
 HOME_ART = 375 - HOME_LIST_W - 2 * MARGIN
 HOME_ART_RECT = [HOME_LIST_W + MARGIN, (BOTTOM - HOME_ART) // 2, HOME_ART, HOME_ART]
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
-# 251; their x follows NP_BAR through the np_bar_* immediates in compact.json.
+# 251; their x follows NP_BAR through the np_bar_* immediates in compact.json. The window starts
+# at screen y 30; the top and bottom rows take their insets from the corners.
 NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
+NP_POS_X = max(MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16))  # "3 of 12", 16px text
+NP_ICONS_END = 375 - corner_x(30, NP_TOP)  # the 50px icon images fill the row's height
 NP_ART = 170
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
-NP_BAR = [MARGIN, 251, 375 - 2 * MARGIN, 8]
+NP_BAR_X = max(MARGIN, corner_x(30 + 251, 8))
+NP_BAR = [NP_BAR_X, 251, 375 - 2 * NP_BAR_X, 8]
+NP_TIMES_Y = NP_BAR[1] + NP_BAR[3] + 3  # 14px text in a 16px label under the bar
+NP_TIME_X = max(MARGIN, corner_x(30 + NP_TIMES_Y + 1, 14))
 NP_TEXT_X = MARGIN + NP_ART + 12
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
 # The track is the status bar's bottom; the fill is Graphite's light tone until ringnav_playing sets the
@@ -179,10 +207,13 @@ def ipod_home(root):
         if name == 'coverflow':
             label['text'] = 'Coverflow'
         rows.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + name}, [
-            ['hscroll_label', [MARGIN, 0, HOME_LIST_W - MARGIN - HOME_LABEL_END, HOME_ROW], label, []],
+            ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - HOME_LABEL_END, HOME_ROW], label, []],
             ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + name, 'clickable': 'true'}, []]]])
+    # The list_view's layout (0x5ea3a4) makes its scroll view vertical only for a mobile scroll bar,
+    # which Home has none of, and scroll_view_create leaves it off; the payload navigates only
+    # vertical scroll views.
     view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
-            {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)'}, rows]
+            {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)', 'yslidable': 'true'}, rows]
     root[3] = [
         ['list_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
          {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_BLACK}, [view]],
@@ -223,7 +254,7 @@ def patch_style(data, audit):
 # images, but never their geometry. So widgets iPod hides move off-screen instead of going invisible.
 # The volume number stays hidden: stock already opens dialog/volume_dialog on every wheel change.
 STATUS_BAR = 'system_bar.bin'
-STATUS_LEFT, STATUS_RIGHT = ['img_state'], ['label_eq', 'img_bt', 'img_wifi', 'img_battery']
+STATUS_LEFT, STATUS_RIGHT = ['img_state', 'label_eq'], ['img_bt', 'img_wifi', 'img_battery']
 STATUS_HIDDEN = ['img_vol', 'label_vol', 'img_synclink', 'label_battery']
 
 
@@ -237,10 +268,10 @@ def status_bar(root):
     for view in (left, right):
         layout = view[2]['children_layout']
         require('xm=50,s=5)' in layout, 'Unexpected status bar layout')
-        view[2]['children_layout'] = layout.replace('xm=50', f'xm={MARGIN}')
-    extent = MARGIN + sum(n[1][2] for n in right[3]) + 5 * (len(right[3]) - 1)
+        view[2]['children_layout'] = layout.replace('xm=50', f'xm={STATUS_MARGIN}')
+    extent = max(STATUS_MARGIN + sum(n[1][2] for n in v[3]) + 5 * (len(v[3]) - 1) for v in (left, right))
     width = 375 - 2 * extent
-    require(width >= TITLE_MIN and right[1][0] + right[1][2] == 375, 'Status bar title too narrow')
+    require(width >= TITLE_MIN and right[1][0] + right[1][2] == 375, f'Status bar title {width}px, too narrow')
     for name in STATUS_HIDDEN:
         g = widgets[name][1]
         g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen
@@ -267,11 +298,11 @@ def playing_page(root):
     named['img_return'][1][0] = -200  # the hardware Return, as on the pages whose navbars are hidden
     for i, name in enumerate(['img_fav', 'img_more', 'img_playmode']):
         n = named[name]
-        n[1] = [375 - (3 - i) * NP_ICON, 0, NP_ICON, NP_TOP]
+        n[1] = [NP_ICONS_END - (3 - i) * NP_ICON, 0, NP_ICON, NP_TOP]
         n[2] = {k: v for k, v in n[2].items() if not k.endswith(('_offset', 'text_align_h'))}
         if 'image' in n[2]:
             n[2]['draw_type'] = 'center'
-    buttons[3].append(['label', [MARGIN, 0, 375 - 3 * NP_ICON - MARGIN, NP_TOP], {
+    buttons[3].append(['label', [NP_POS_X, 0, NP_ICONS_END - 3 * NP_ICON - NP_POS_X, NP_TOP], {
         'name': 'label_ipod_pos', 'style:normal:font_size': '16', 'style:normal:text_color': NP_GREY,
         'style:normal:text_align_h': 'left'}, []])
 
@@ -316,13 +347,12 @@ def playing_page(root):
     slider[2] = props
     for name in ('img_repeata', 'img_repeatb'):
         named[name][1][0] = x
-    times = y + h + 3
     total = named['label_playlen']
     remain = copy.deepcopy(total)
-    remain[1] = [375 - MARGIN - 80, times, 80, 16]
+    remain[1] = [375 - NP_TIME_X - 80, NP_TIMES_Y, 80, 16]
     remain[2].update(name='label_ipod_remain', text='')
     total[2]['visible'] = 'false'
-    named['label_playtime'][1] = [MARGIN, times, 80, 16]
+    named['label_playtime'][1] = [NP_TIME_X, NP_TIMES_Y, 80, 16]
     root[3][1:3] = []
     root[3].insert(3, remain)
 
@@ -370,9 +400,11 @@ def patch_asset(path, data, ipod):
             g[1] = 10 + ((g[1] - 60) // 78) * PITCH
         elif props.get('name') == 'view':  # allmusic's stock empty-state panel
             g[1] -= 50
-        elif path in NAVBAR_ONLY:  # settings panels and notes keep their size
+        elif path in NAVBAR_ONLY:  # settings panels and notes keep their size; text ends clear of a top corner
             require(g[1] >= 50, f'{path}: unexpected content under the toolbar')
             g[1] -= 50
+            if kind in ('label', 'hscroll_label') and corner_inset(30 + g[1]):
+                g[2] = min(g[2], 375 - g[0] - corner_x(30 + g[1], 0))
     if path in NAVBAR_ONLY:
         return encode(root)
 

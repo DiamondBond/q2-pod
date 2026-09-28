@@ -75,7 +75,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - **Home** is a list instead of the carousel: Now Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting and System Setting. It sits beside the playing track's cover, or spans the screen (see **Home** below).
 - **Lists** have no primary toolbar and use 72-pixel rows, four full entries per screen. Rows are flat, without the grey cards, and titles use the full row width up to the artwork and controls that are showing. The playing song keeps its icon, but its title stays white.
 - **Selection bar:** a full-width bar in the accent colour marks the selected row.
-- **Status bar:** play state on the left, the page title in the middle, then the EQ, Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
+- **Status bar:** play state and EQ on the left, the page title in the middle, then the Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
 - **`>`** marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Local Music categories, artists, genres and albums).
 - **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type over the list.
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before. The centre button scrubs (see [Controls](#controls)).

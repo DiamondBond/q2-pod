@@ -248,6 +248,8 @@ class Machine:
             value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
+        elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=int(t[0]) if t else 0
+        elif name=='strstr@GLIBC_2.0': i=self.text(a).find(self.text(b)); ret=a+i if i>=0 else 0
         elif name=='bitmap_get_line_length': ret=self.get(a+8)
         elif name=='bitmap_lock_buffer_for_write': ret=self.get(a+0x14)  # a test bitmap keeps its pixels' address there
         elif name=='image_manager': ret=0x1000500
@@ -2509,25 +2511,42 @@ assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
 assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
 passed()
-def home_list(m,width=HOME_LIST_W):
-    """iPod Home's rows as compact.py builds them: a label under a full-row image, the click target.
-    Stock binds every image but Coverflow's, which the payload binds."""
-    view=m.node(); m.word(view+O['W_W'],width); m.word(view+O['W_H'],7*HOME_ROW); m.word(view+O['VIEW_CONTENT_H'],7*HOME_ROW)
-    imgs=[]
-    for i,name in enumerate(HOME_ROWS):
-        row=m.node('view','btn_'+name); img=m.entry(row) if name!='coverflow' else m.node('image')
-        m.nodes[img].update(type='image',name='img_'+name); m.word(img+O['W_PARENT'],row)
-        m.nodes[row]['children']=[m.node('label','label_'+name),img]; m.word(row+O['W_PARENT'],view)
-        for w,y in ((row,i*HOME_ROW),(img,0)): m.word(w+O['W_Y'],y); m.word(w+O['W_W'],width); m.word(w+O['W_H'],HOME_ROW)
-        m.nodes[view]['children'].append(row); imgs.append(img)
-    return view,imgs
+def asset_tree(m,path):
+    """A built UI asset as mock widgets, the window's parent the window manager, with what the payload
+    reads: type, name, visible, enable, geometry and, for a scroll view, its content height and the
+    slidable flags as AWTK sets them. scroll_view_create (0x5f146c) leaves both off, the asset's
+    xslidable/yslidable props set them (0x5f1d34), and a list_view's layout (0x5ea3a4) clears x and
+    sets y only when the list holds a mobile scroll bar."""
+    def build(n,parent,parent_kind='',siblings=()):
+        kind,g,props,children=n
+        a=m.node(kind,props.get('name',''),visible=int(props.get('visible')!='false'))
+        m.nodes[a].update(enable=int(props.get('enable')!='false'),asset=props)
+        for off,v in zip(('W_X','W_Y','W_W','W_H'),[0,0,375,290] if kind=='window' else g): m.word(a+O[off],v)
+        m.word(a+O['W_PARENT'],parent)
+        if kind=='scroll_view':
+            m.byte(a+O['VIEW_HORIZONTAL'],props.get('xslidable')=='true' and parent_kind!='list_view')
+            m.byte(a+O['VIEW_VERTICAL'],props.get('yslidable')=='true' or parent_kind=='list_view' and 'scroll_bar_m' in siblings)
+            m.word(a+O['VIEW_CONTENT_H'],max((c[1][1]+c[1][3] for c in children),default=0))
+        m.nodes[a]['children']=[build(c,a,kind,[c[0] for c in children]) for c in children]
+        return a
+    return build(decode((B/'ui'/path).read_bytes()),m.wm)
+def named(m,w,name):
+    if m.nodes[w]['name']==name: return w
+    return next((f for c in m.nodes[w]['children'] if (f:=named(m,c,name))),0)
+def click_target(m,w):
+    em=m.alloc(4); it=m.alloc(0x28); m.word(w+O['W_EMITTER'],em); m.word(em,it); m.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+def home_list(m):
+    """iPod Home as built (ui/home_page.bin) on top: its scroll view and the rows' tap images. Stock
+    binds every image but Coverflow's, which the payload binds."""
+    m.top=asset_tree(m,HOME_PAGE)
+    imgs=[named(m,m.top,'img_'+r) for r in HOME_ROWS]
+    for img in imgs[:2]+imgs[3:]: click_target(m,img)
+    return named(m,m.top,'scroll_view_home'),imgs
 
 if variant=='ipod':
     # Home is an ordinary list: the wheel walks the seven rows one by one, stops hard at both ends
     # (no carry-over, even after a pause), the bar spans the list's width and centre clicks the image.
-    m=Machine(); view,imgs=home_list(m); m.nodes[imgs[2]]['children']=[]
-    em=m.alloc(4); it=m.alloc(0x28); m.word(imgs[2]+O['W_EMITTER'],em); m.word(em,it); m.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
-    m.top=m.node('window','home_page',[m.node('list_view','list_view_home',[view]),m.node('image','img_homeart')])
+    m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2])
     m.paint(view)
     assert m.selected(view)==0
     for i in range(1,7): assert m.call()==11 and m.selected(view)==i and m.get(view+O['SCROLL_Y'])==0
@@ -2544,8 +2563,7 @@ if variant=='ipod':
     def window(m,name,w):
         m.top=m.node('window',name,[w]); m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
     def loaded(m): return [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
-    m=Machine(); view,imgs=home_list(m); window(m,'home_page',view); m.clip=(0,0,375,320)
-    em=m.alloc(4); it=m.alloc(0x28); m.word(imgs[2]+O['W_EMITTER'],em); m.word(em,it); m.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+    m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
     m.paint(view)
     half=O['CHEVRON_W']-25  # centre of the 50px image, as stock img_into
     assert m.icons==[(HOME_LIST_W-half,i*HOME_ROW+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW)) for i in range(7)]
@@ -2565,6 +2583,26 @@ if variant=='ipod':
                  'localclass_page','localmusic_page','sysset_page'):
         m=Machine(); w,_=m.page_list(5,extent=240,name=name); window(m,name,w); m.paint(w)
         assert not m.icons and not loaded(m), name; passed()
+
+if variant=='ipod':
+    # The status bar as built (ui/system_bar.bin), laid out by the stock row layouter
+    # (children_layouter_default, 0x628838) with every icon shown: the icons, 16px high and drawn
+    # centred in their 30px cells, and the title clear the glass's rounded top corners.
+    from compact import STATUS_BAR, corner_inset
+    m=Machine(); m.mock('strtol@GLIBC_2.0','strstr@GLIBC_2.0'); m.mock('tk_calloc','tk_free',prefix='alloc:')
+    bar=asset_tree(m,STATUS_BAR); m.word(bar+O['W_W'],375)
+    views=[named(m,bar,n) for n in ('view_left','view_right')]
+    for v in views:
+        layout=m.call(address=syms['children_layouter_default_create'],args=(0,0,0,0),gap=0)
+        for param in re.fullmatch(r'default\((.*)\)',m.nodes[v]['asset']['children_layout'])[1].split(','):
+            assert m.call(address=syms['children_layouter_set_param_str'],args=(layout,*map(m.string,param.split('=')),0),gap=0)==0
+        m.word(v+O['W_CHILDREN_LAYOUT'],layout); native_row_layout(m,v)
+    cells=[(signed(m.get(v+O['W_X']))+signed(m.get(c+O['W_X'])),m.get(c+O['W_W']),m.get(c+O['W_H'])) for v in views for c in m.nodes[v]['children']]
+    inset=corner_inset((30-16)//2)
+    assert all(h==30 and inset<=x and x+w<=375-inset for x,w,h in cells), (inset,cells)
+    title=named(m,bar,'label_title'); x,w=m.get(title+O['W_X']),m.get(title+O['W_W'])
+    left,right=(cells[len(m.nodes[views[0]]['children'])-1],cells[len(m.nodes[views[0]]['children'])])
+    assert left[0]+left[1]<=x and x+w<=right[0] and x+w/2==375/2, (left,right,x,w); passed()
 
 # Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
 # the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
@@ -2664,9 +2702,8 @@ class CoverflowMachine(QueueMachine):
     def open(self):
         """Home with the card at index 2: centre confirms its image, whose click opens Coverflow."""
         if variant=='ipod':
-            view,self.imgs=home_list(self); self.img=self.imgs[2]
-            self.art=self.node('image','img_homeart'); self.list=self.node('list_view','list_view_home',[view])
-            self.home=self.top=self.node('window','home_page',[self.list,self.art]); self.stack=[self.top]
+            view,self.imgs=home_list(self); self.img=self.imgs[2]; self.home=self.top; self.stack=[self.top]
+            self.art=named(self,self.top,'img_homeart'); self.list=named(self,self.top,'list_view_home')
             assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
             self.paint(view); self.nodes[view]['_ringnav_index']=2
         else:
@@ -2696,7 +2733,7 @@ class CoverflowMachine(QueueMachine):
         """Still attached below the page (the destroy_children mock only unlinks)."""
         while w!=self.page:
             parent=self.get(w+O['W_PARENT'])
-            if not parent or w not in self.nodes[parent]['children']: return False
+            if parent not in self.nodes or w not in self.nodes[parent]['children']: return False
             w=parent
         return True
     def key(self,k=O['KEY_RETURN']):
@@ -2714,7 +2751,7 @@ if variant=='ipod':
         m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
         return m.nodes[m.art].get('image')
     m.byte(syms['g_playcover_type'],1)
-    assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==240
+    assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==HOME_LIST_W
     m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_after(bar)=='file:///tmp/coverpic.jpg'
     m.nodes[m.art]['image']='unchanged'; assert art_after(m.home)=='unchanged'  # same track and cover
     m.byte(syms['g_playcover_type'],3); assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
@@ -3095,7 +3132,7 @@ if variant=='ipod':
     CONFIG.clear(); CONFIG.update(HOME='1'); m=CoverflowMachine(); m.open()
     rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
     assert rowsw==[375]*8 and m.nodes[m.art]['visible']==0; passed()
-    CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==240 and m.nodes[m.art].get('visible',1); passed()
+    CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
     Machine.hook=orig_hook; CONFIG.clear()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')
