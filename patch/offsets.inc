@@ -86,6 +86,7 @@
  * start @0x665ab0, time_elapse @0x6660d4, scroll_set_params @0x682124. */
 #define SLIDE_SPACER 0x84
 #define SLIDE_OFFSET 0x94
+#define SLIDE_DRAG 0x98          /* u8 dragged, u8 pressed: pointer-up snaps only while pressed */
 #define SLIDE_ANIMATOR 0xc8
 #define ANIM_ELAPSED 0x10
 #define ANIM_START_TIME 0x18

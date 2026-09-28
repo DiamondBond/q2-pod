@@ -219,6 +219,34 @@ static int changed(void *ctx, void *event) {
     return 0;
 }
 
+/* A release the slide_menu never handled leaves its drag between covers. Once stock has seen the
+ * pointer-up, finish any such drag as its own scroll_to (0x5f3400) would: 150 ms to the nearest
+ * cover, then stock completion commits the index. A snap already running, a closed page or a
+ * duplicate timer is left alone. */
+static int settle(const void *unused) {
+    (void)unused;
+    void *s = cf.slide;
+    if (!s || cf.screen != COVERS || P(s, SLIDE_ANIMATOR)) return 0;
+    int live = I(s, SLIDE_OFFSET), stride = slide_menu_item_width(s) + I(s, SLIDE_SPACER);
+    unsigned char *drag = (unsigned char *)s + SLIDE_DRAG;
+    if (drag[1]) widget_ungrab(P(s, W_PARENT), s); /* the grab its pointer-up would drop */
+    drag[0] = drag[1] = 0;
+    if (!live || stride <= 0) return 0;
+    int goal = (live + (live < 0 ? -stride : stride) / 2) / stride * stride;
+    if (goal == live) /* stock scroll_to returns without an animator here */
+        slide_menu_on_scroll_done(s, 0);
+    else
+        slide_menu_scroll_to(s, goal);
+    return 0;
+}
+
+static int released(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    if (cf.screen == COVERS) timer_add(settle, 0, 0);
+    return 0;
+}
+
 /* One image per album plus a last Refresh card. ponytail: one child per album; if large
  * libraries lag on hardware, virtualize to a recycled window of children. */
 static void covers(void) {
@@ -405,6 +433,7 @@ static int coverflow_open(void *ctx, void *event) {
     widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
+    widget_on(page, EVT_POINTER_UP_BEFORE, released, 0);
     load();
     return 0;
 }

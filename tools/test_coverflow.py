@@ -39,7 +39,8 @@ void *image_create(void *, int, int, int, int);
 void *label_create(void *, int, int, int, int);
 void *hscroll_label_create(void *, int, int, int, int);
 void set_hscroll_label_attribute(void *);
-int slide_menu_set_value(void *, int);
+int slide_menu_set_value(void *, int), slide_menu_item_width(void *), slide_menu_on_scroll_done(void *, void *);
+int slide_menu_scroll_to(void *, int), widget_ungrab(void *, void *);
 void *list_view_create(void *, int, int, int, int);
 void *scroll_view_create(void *, int, int, int, int);
 void *list_item_create(void *, int, int, int, int);
@@ -109,8 +110,8 @@ int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     if (!x) return 0;
-    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY) {
-        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : 8191); /* page handlers */
+    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY || type == EVT_POINTER_UP_BEFORE) {
+        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : type == EVT_DESTROY ? 8191 : 8189); /* page handlers */
         h->click = f; h->ctx = ctx;
     }
     return 1;
@@ -123,6 +124,21 @@ void *widget_lookup(void *x, const char *n, int r) { (void)r; return x && !strcm
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
 int navigator_to_with_context(const char *n, const void *c) { (void)n; (void)c; return 0; }
+/* slide_menu: 160 px covers, no spacer; scroll_to records its goal and holds the animator slot. */
+static int anim_from, anim_to, anims, ungrabs;
+int slide_menu_item_width(void *x) { (void)x; return 160; }
+int slide_menu_on_scroll_done(void *x, void *e) {
+    (void)e; char *r = W(x)->raw;
+    *(int *)(r + SLIDE_INDEX) -= *(int *)(r + SLIDE_OFFSET) / 160;
+    *(int *)(r + SLIDE_OFFSET) = 0; *(void **)(r + SLIDE_ANIMATOR) = 0;
+    return 0;
+}
+int slide_menu_scroll_to(void *x, int to) {
+    ++anims; anim_from = *(int *)(W(x)->raw + SLIDE_OFFSET); anim_to = to;
+    *(void **)(W(x)->raw + SLIDE_ANIMATOR) = &anim_from;
+    return 0;
+}
+int widget_ungrab(void *p, void *c) { assert(W(c)->parent == W(p) - w); ++ungrabs; return 0; }
 int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0; }
 
 static int (*timer_fn)(const void *);
@@ -314,6 +330,22 @@ int main(void) {
     block_at = -1;
     open_page();
     assert(size("C") == 9 && !strcmp(made[calls - 1], "cover.jpg"));
+
+    /* A drag stock never saw released snaps to the nearest cover and drops its grab; a snap
+       already running, or a settled menu, is left alone. */
+    s = slide();
+    char *raw = s->raw;
+    *(void **)(raw + W_PARENT) = &w[s->parent];
+    *(int *)(raw + SLIDE_INDEX) = 2; *(int *)(raw + SLIDE_OFFSET) = -250; raw[SLIDE_DRAG] = raw[SLIDE_DRAG + 1] = 1;
+    w[8189].click(0, 0); run();
+    assert(anims == 1 && anim_from == -250 && anim_to == -320 && ungrabs == 1 && !raw[SLIDE_DRAG] && !raw[SLIDE_DRAG + 1]);
+    *(int *)(raw + SLIDE_OFFSET) = anim_to; slide_menu_on_scroll_done(s, 0); /* the animator's end */
+    assert(*(int *)(raw + SLIDE_INDEX) == 4);
+    *(int *)(raw + SLIDE_OFFSET) = 70; w[8189].click(0, 0); run();
+    assert(anims == 2 && anim_to == 0);
+    *(void **)(raw + SLIDE_ANIMATOR) = &anim_from; w[8189].click(0, 0); run();
+    *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; w[8189].click(0, 0); run();
+    assert(anims == 2 && ungrabs == 1);
 
     /* Refresh (the last card) clears the cache and rebuilds every album. */
     int before = calls;
