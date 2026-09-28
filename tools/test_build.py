@@ -29,7 +29,8 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS
-    from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, decode, patch_asset, patch_code, patch_style
+    from compact import (AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, MARGIN, NAVBAR_ONLY, STATUS_BAR, STATUS_HIDDEN,
+                         STATUS_LEFT, STATUS_RIGHT, decode, patch_asset, patch_code, patch_style)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -90,9 +91,23 @@ def validate_assets(directory):
             cards = [n[2]['name'] for n in root[3][0][3]]
             assert cards[:3] == ['btn_playing', 'btn_localmusic', 'btn_coverflow'] and len(cards) == 7, cards
             continue
+        if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
+            left, right, *rest = root[3]
+            assert [n[2]['name'] for n in left[3]] == STATUS_LEFT and [n[2]['name'] for n in right[3]] == STATUS_RIGHT
+            title = rest.pop()
+            assert title[0] == 'hscroll_label' and title[2]['name'] == 'label_title'
+            assert title[1] == [112, 0, 151, 30]  # centred on the 375px screen, clear of the right icons
+            assert all(v[2]['children_layout'].endswith(f'xm={MARGIN},s=5)') for v in (left, right))
+            assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
+            continue
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
+        if short in NAVBAR_ONLY:  # content moves up 50; lists reach the bottom with stock rows
+            for old, node in zip(decode(original)[3], root[3]):
+                if node is nav: continue
+                assert node[1][1] == old[1][1] - 50 and node[2] == old[2], short
+                assert node[1][3] == (BOTTOM if node[0] == 'list_view' else old[1][3]), short
         assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         assert not ipod or not [v for n in walk(root) if n[0] in ('button', 'list_item', 'table_row')
                                 for k, v in n[2].items() if k.endswith(':bg_color') and v == '#000000'], 'Opaque inline row background'

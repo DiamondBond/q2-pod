@@ -2,7 +2,7 @@
 
 How the scroll-wheel payload hooks the stock Shanling Q2 firmware. For the user-facing behavior it produces, see the [README](../README.md); build and release steps are in [building.md](building.md) and [releasing.md](releasing.md).
 
-`release/bin/demo`, `usr/bin/hciplayer` (the PEQ filter), `usr/bin/bluealsa` (one AAC capability byte), the boot logo, `home_page.bin` (the Coverflow card) and the artist page inside `rootfs.squashfs` change, and the stock EQ preset page and the images only the stock EQ pages show (`STOCK_EQ` in `tools/build.py`) are removed. iPod additionally changes the other audited local UI assets in `patch/compact.json`. The kernel is byte-identical, and the builder checks every other inode's name, type, mtime, mode, uid and gid against stock.
+`release/bin/demo`, `usr/bin/hciplayer` (the PEQ filter), `usr/bin/bluealsa` (one AAC capability byte), the boot logo, `home_page.bin` (the Coverflow card) and the artist page inside `rootfs.squashfs` change, and the stock EQ preset page and the images only the stock EQ pages show (`STOCK_EQ` in `tools/build.py`) are removed. iPod additionally changes the other audited UI assets in `patch/compact.json`: local browsing, settings and streaming pages and the status bar. The kernel is byte-identical, and the builder checks every other inode's name, type, mtime, mode, uid and gid against stock.
 
 ## Hooks
 
@@ -15,7 +15,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `widget_on_paint_border`     | `0x6596a0` | Draw the selected entry outline after native children         |
 | `widget_dispatch`            | `0x65e0ec` | Observe a native click before its app callback changes the UI |
 | `on_wm_keylong_fun`          | `0x4e873c` | Play/Pause hold opens the queue menu; other keys stay stock   |
-| `widget_on_paint_background` | `0x65c77c` | iPod only: draw the selection bar before native children      |
+| `widget_on_paint_background` | `0x65c77c` | iPod only: selection bar, status bar gradient and title       |
 
 Stock V1.32 turns the encoder knob into key releases 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop. The payload only sees those releases at `on_wm_keyup_before_fun`.
 
@@ -117,6 +117,12 @@ A session-wide touch-mode flag suppresses only custom drawing, independently of 
 The canvas hook intersects the existing clip with the viewport and restores the clip, the LCD fill color and the LCD stroke color; this firmware's `canvas_save/restore` do not save those properties. The outline is one translucent fill (`0x402b2b2b`, a per-color alpha) plus two concentric one-pixel `canvas_stroke_rounded_rect` calls, a dark separator at radius 9 and the 70%-opaque white line at radius 8, with `bg_r = NULL`. The separator is the stock dark surface at `0xb32b2b2b`, so it disappears on the dark theme and only shows over bright artwork. It never calls `canvas_set_global_alpha`, so the shared alpha is untouched. A rounded call that reports failure (either stroke) or a row too small for the corner radius, keeps the square separator-plus-white outline instead.
 
 iPod draws a selection bar instead of the outline. `widget_paint` (`0x65f28c`) calls `widget_on_paint_background`, then the widget's own paint, its children and `widget_on_paint_border`, so the background hook paints the bar behind the rows. The border hook then draws nothing, and the selection is loaded and settled once per frame, in the background hook. The bar spans the full surface width at the selected row's height and position, including the end bump; an entry narrower than half the surface, a grid tile, gets the bar in its own rectangle. It is a vertical gradient drawn as one-pixel `canvas_fill_rect` (`0x634ad0`) bands, which avoids the stock `gradient_t` ABI, followed by a one-pixel top highlight. The colors are Graphite, `ACCENT_TOP`/`ACCENT_BOTTOM`/`ACCENT_HI` in `patch/offsets.inc` (`#5A5A5A` to `#363636`, highlight `#6E6E6E`). The bar uses the same clip, color restore and touch-mode rules as the outline. Rows only show it where they are transparent: after the iPod style edits, list rows, table rows, grid tiles (`s_btn_listblack`) and the settings rows (`s_btn_listitem`) are.
+
+## Status bar (iPod)
+
+The background hook also handles top-level widgets, whose parent is the window manager. The status bar widget, which `system_bar_init` stores in the `system_bar` global (`0xa3a6d0`, a size-checked `CONTEXT_DATA` entry), gets the same band gradient as the selection in darker colors, `BAR_TOP`/`BAR_BOTTOM`/`BAR_HI` (`#3A3A3A` to `#1C1C1C`, highlight `#4A4A4A`), with the LCD fill color restored.
+
+Painting the top window, of type `window` so a dialog keeps the page title below it, updates `label_title` in the bar. The title is the text of the first child with text under the window's `view_navbar` while that navbar is hidden: the native settings title or a local page's `scrlabel_title`, which native code keeps current. A visible navbar shows its own title, so the bar shows none. Home, which has no navbar and no stock title string, shows `Q2`, and `playing_page` the stock `small_playing` string ("Now Playing"), both through `widget_set_tr_text` (`0x6613e0`); a key missing from the string table shows as itself. Other text goes through `widget_set_text` (`0x6611f8`, UTF-32). The sync also runs when the bar itself paints, at least once a second through `systembar_showface`, so a native rename shows within a second even if the window does not repaint. Each sync looks up `view_navbar` among the window's direct children and hashes the title; the label is written only when the hash changes. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
 
 ## Pull-to-search (iPod)
 

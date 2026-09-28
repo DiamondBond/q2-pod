@@ -67,6 +67,7 @@ typedef struct {
     void *pull_page, *pull_surface;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
+    unsigned title_hash; /* of the status bar title last set, 0 before the first */
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -932,14 +933,14 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* A vertical accent gradient in one-pixel bands, then a one-pixel top highlight. Plain fills
- * keep this off the stock gradient_t ABI, which is not audited. */
-static void accent_fill(void *canvas, rect_t r) {
+/* A vertical gradient in one-pixel bands, then a one-pixel top highlight; r.h is at least 2.
+ * Plain fills keep this off the stock gradient_t ABI, which is not audited. */
+static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi) {
     for (int j = 0; j < r.h; ++j) {
-        canvas_set_fill_color(canvas, RGBA(mix(ACCENT_TOP, ACCENT_BOTTOM, j, r.h - 1)));
+        canvas_set_fill_color(canvas, RGBA(mix(top, bottom, j, r.h - 1)));
         canvas_fill_rect(canvas, r.x, r.y + j, r.w, 1);
     }
-    canvas_set_fill_color(canvas, RGBA(ACCENT_HI));
+    canvas_set_fill_color(canvas, RGBA(hi));
     canvas_fill_rect(canvas, r.x, r.y, r.w, 1);
 }
 #endif
@@ -987,7 +988,7 @@ static void paint_selection(void *w, void *canvas) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
     }
-    accent_fill(canvas, r);
+    gradient(canvas, r, ACCENT_TOP, ACCENT_BOTTOM, ACCENT_HI);
 #else
     rect_t outer = { r.x + 1, r.y + 1, r.w - 2, r.h - 2 };
     rect_t inner = { outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2 };
@@ -1041,11 +1042,63 @@ int ringnav_paint(void *w, void *canvas) {
 }
 
 #if IPOD
+/* One title per page. A page whose stock navbar the iPod assets hide shows that navbar's title in
+ * the status bar: its first child with text, which native code keeps current (settings create it
+ * at init, folders rename it). Home and Now Playing have no navbar and get a fixed title. A page
+ * that keeps its navbar visible (Tidal, the queue) shows its own title, so the bar shows none.
+ * A dialog on top keeps the title of the page under it. The label is written only on a change. */
+static void title_sync(void *bar, void *top) {
+    if (!top || tk_strcmp(widget_get_type(top), "window")) return;
+    void *nav = widget_lookup(top, "view_navbar", 0);
+    static const unsigned none = 0;
+    const unsigned *text = &none;
+    const char *key = (void *)0;
+    if (nav) {
+        unsigned n = widget_get_visible(nav) ? 0 : widget_count_children(nav);
+        for (unsigned i = 0; i < n && !*text; ++i) {
+            const unsigned *s = widget_get_text(widget_get_child(nav, i));
+            if (s) text = s;
+        }
+    } else {
+        const char *name = widget_get_prop_str(top, "name", (void *)0);
+        if (name && !tk_strcmp(name, "home_page"))
+            key = "Q2"; /* no stock string names Home; a missing key shows as itself */
+        else if (name && !tk_strcmp(name, "playing_page"))
+            key = "small_playing";
+    }
+    unsigned h;
+    if (*text)
+        row_hash_text(text, &h);
+    else
+        h = fnv(FNV_SEED, (const unsigned char *)key); /* a null key is the blank title */
+    void *label = h == st.title_hash ? (void *)0 : widget_lookup(bar, "label_title", 1);
+    if (!label) return;
+    st.title_hash = h;
+    if (key)
+        widget_set_tr_text(label, key);
+    else
+        widget_set_text(label, text);
+}
+
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
- * The selection work for the surface happens here, once per frame, instead of in the border hook. */
+ * The selection work for the surface happens here, once per frame, instead of in the border hook.
+ * Top-level widgets are the status bar, which gets its gradient, and the windows. Painting the top
+ * window or the bar (at least each second, systembar_showface) keeps the bar's title current. */
 int ringnav_paint_bg(void *w, void *canvas) {
     int result = stock_paint_bg_trampoline(w, canvas);
-    paint_selection(w, canvas);
+    void *wm = window_manager(), *bar = *(void *const *)system_bar;
+    if (!w || P(w, W_PARENT) != wm) {
+        paint_selection(w, canvas);
+        return result;
+    }
+    if (w == bar && P(canvas, CANVAS_LCD) && I(w, W_H) > 1) {
+        unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+        rect_t r = { 0, 0, I(w, W_W), I(w, W_H) };
+        gradient(canvas, r, BAR_TOP, BAR_BOTTOM, BAR_HI);
+        canvas_set_fill_color(canvas, fill);
+    }
+    void *top = window_manager_get_top_window(wm);
+    if (bar && (w == bar || w == top)) title_sync(bar, top);
     return result;
 }
 #endif

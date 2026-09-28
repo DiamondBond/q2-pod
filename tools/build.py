@@ -121,6 +121,8 @@ FUNCTIONS = {
  'widget_get_prop_int': ('int', 'void *, const char *, int'),
  'widget_get_prop_str': ('const char *', 'void *, const char *, const char *'),
  'widget_get_text': ('const unsigned *', 'void *'),
+ 'widget_set_text': ('int', 'void *, const unsigned *'),
+ 'widget_set_tr_text': ('int', 'void *, const char *'),
  'widget_get_type': ('const char *', 'void *'),
  'widget_count_children': ('unsigned', 'void *'),
  'widget_get_child': ('void *', 'void *, unsigned'),
@@ -202,11 +204,12 @@ PRIVATE_FUNCTIONS = {
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status']
-# Audited stock browsing state, deque pointers and art locks; sizes are checked against the ELF.
+# Audited stock browsing state, deque pointers, art locks and the status bar widget
+# (system_bar_init stores it); sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
-                'parse_cover_mutex': 24, 'g_playcover_mutex': 24}
+                'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']

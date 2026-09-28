@@ -8,10 +8,11 @@ ZIP and executable, rejects mismatches, and records every changed asset/site.
 
 AWTK binary UI files contain a four-byte magic, recursive widgets with a 32-byte
 type and four signed geometry fields, NUL-separated properties and child/end
-markers. Decode/encode must round-trip exactly before editing. Only nine named
-local browsing assets are accepted. The primary `view_navbar` stays allocated but invisible
+markers. Decode/encode must round-trip exactly before editing. Only the assets
+pinned in `compact.json` are accepted: nine local browsing pages, the settings
+and streaming pages and the status bar. The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
-moved into its space. The global status bar is outside these assets.
+moved into its space.
 
 `PITCH = 72` is shared by all build-time row geometry edits, native row-height
 resets and artwork offset divisors. Four rows fit the 290-pixel client area below
@@ -35,6 +36,35 @@ album grid buttons (`s_btn_listblack`, used only by the album and all-music grid
 become transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
 leaving the stock playing glyph to mark the current song; only list rows use them.
 The album page's inline black grid buttons become transparent as well.
+
+## Status bar and titles
+
+`systembar_showface` (`0x52f610`, run by `system_bar_init` and then a 1 s widget
+timer) finds each status bar widget with a recursive `widget_lookup` from the bar,
+so parents and order are free to change. Every tick it re-shows the volume,
+EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
+never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
+alone in `view_left` and puts EQ, Bluetooth/codec, Wi-Fi and the battery icon in
+`view_right`. The volume icon and number, SyncLink and the battery percentage
+move to `x = -200`, where they draw off-screen. A new `label_title`
+(`s_scrlabel_white20c`, an ellipsis when too long) is centred on the screen,
+clear of the right icon group. Both groups use the list rows' 8-pixel edge margin
+instead of stock's 50; stock pages already place controls 3 pixels from the edge.
+The margin and the minimum title width, checked at build, are constants in
+`tools/compact.py`.
+
+The navbar is hidden, as on the local pages, on the settings pages
+(`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
+`navbar_only` in `compact.json`. Their native
+inits destroy the navbar's children and create an unnamed title `hscroll_label`,
+back, Home and Now Playing buttons; none has a control the keys lack. Lists move
+up 50 pixels and reach `BOTTOM`, keeping the stock 78-pixel settings rows; other
+panels move up and keep their size. The settings inits never move or resize
+these widgets. Left out: `wifitransport_page` (its image starts above the
+navbar's bottom edge), `fwdownload_page` (no navbar), the PEQ page (it replaces
+all children) and every Tidal page, whose navbars hold the search and sort
+buttons. A page with a visible navbar keeps its own title and the status bar
+shows none.
 
 Native local row-pool constructors are at 0x523038 (folder), 0x4aa2cc (songs),
 0x4b0efc (local categories) and 0x4a4ae8 (album list/grid). The album grid branch

@@ -72,6 +72,10 @@
 #define ACCENT_TOP 0x5a5a5a
 #define ACCENT_BOTTOM 0x363636
 #define ACCENT_HI 0x6e6e6e
+/* iPod status bar: the same kind of gradient, darker than the selection so it reads as chrome. */
+#define BAR_TOP 0x3a3a3a
+#define BAR_BOTTOM 0x1c1c1c
+#define BAR_HI 0x4a4a4a
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */

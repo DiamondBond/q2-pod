@@ -135,6 +135,10 @@ class Machine:
     def wide_string(self,s):
         data=(s+'\0').encode('utf-32-le')
         a=self.alloc(len(data)); self.u.mem_write(a,data); return a
+    def wide_text(self,a):
+        out=''
+        while (c:=self.get(a)): out+=chr(c); a+=4
+        return out
     def text(self,a):
         if not a: return ''
         out=bytearray()
@@ -201,6 +205,8 @@ class Machine:
                 a=self.get(a+O['W_PARENT'])
             self.word(b,x); self.word(b+4,y); ret=0
         elif name=='widget_set_text_utf8': n['text']=self.text(b); ret=0
+        elif name=='widget_set_text': n['text']=self.wide_text(b); ret=0
+        elif name=='widget_set_tr_text': n['tr_text']=n['text']=self.text(b); ret=0
         elif name=='widget_use_style': n['style']=self.text(b); ret=0
         elif name.startswith('hscroll_label_set_') or name=='set_hscroll_label_attribute':
             n[name]=b if name!='set_hscroll_label_attribute' else True; ret=0
@@ -593,6 +599,34 @@ else:
     c=Machine(); cw,_=c.page_list(5,extent=1000); c.paint(cw)
     c.touch(); c.paint(cw); assert not c.drawn() and c.clip==(0,0,240,240)
     c.call(); c.paint(cw); assert c.selected(cw)==1 and c.sel()==(0,36,240,48); passed()
+    # Status bar: the darker gradient on the bar widget alone, LCD fill restored.
+    s=Machine(); title=s.node('hscroll_label','label_title')
+    def top_level(t,name,children=()):
+        w=s.node(t,name,children); s.word(w+O['W_PARENT'],s.wm); return w
+    bar=top_level('system_bar','system_bar',[title]); s.word(bar+O['W_W'],375); s.word(bar+O['W_H'],30)
+    s.word(syms['system_bar'],bar)
+    def bg(w): return s.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,s.canvas,0,0))
+    assert bg(bar)==0 and [b[:4] for b in s.bands]==[(0,y,375,1) for y in range(30)]+[(0,0,375,1)]
+    assert [s.bands[i][4] for i in (0,29,30)]==[color_t(O[k]) for k in ('BAR_TOP','BAR_BOTTOM','BAR_HI')]
+    assert s.lcd_colors()==LCD_COLORS; passed()
+    # The top window's hidden navbar title goes to the bar; later paints only rehash it.
+    heading=s.node('hscroll_label',text='System Setting')
+    nav=s.node('view','view_navbar',[s.node('image','img_return'),heading],visible=0)
+    page=top_level('window','sysset_page',[nav]); s.top=page
+    bg(page); assert s.nodes[title]['text']=='System Setting' and not s.bands; passed()
+    bg(page); assert not [c for c in s.calls if c[0]=='widget_set_text']; passed()
+    s.nodes[heading]['text']='Folder'; bg(page); assert s.nodes[title]['text']=='Folder'; passed()
+    # The bar's own repaint (stock refreshes it each second) catches a rename too.
+    s.nodes[heading]['text']='Music'; bg(bar); assert s.nodes[title]['text']=='Music'; passed()
+    # A dialog on top, or a window under it, leaves the title alone.
+    dialog=top_level('dialog','sortselect_dialog'); s.top=dialog
+    for x in (dialog,page): bg(x); assert not [c for c in s.calls if c[0]=='widget_set_text']
+    passed()
+    # A visible navbar keeps its own title, so the bar shows none; Home and Now Playing are fixed.
+    s.top=top_level('window','tidal_main_page',[s.node('view','view_navbar',[s.node('hscroll_label',text='TIDAL')])])
+    bg(s.top); assert s.nodes[title]['text']==''; passed()
+    for name,key in (('home_page','Q2'),('playing_page','small_playing')):
+        s.top=top_level('window',name); bg(s.top); assert s.nodes[title]['tr_text']==key; passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60

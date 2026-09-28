@@ -71,16 +71,17 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 
 **Normal** (`Q2.Firmware.V*.zip`) keeps the stock layout and controls.
 
-**iPod** (`Q2.Firmware.V*-ipod.zip`) makes Folder and Local Songs browsing denser:
+**iPod** (`Q2.Firmware.V*-ipod.zip`) makes browsing denser and cleaner:
 
 - No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
 - Flat list rows on every page, without the grey cards. The playing song keeps its icon but its title stays white.
 - A full-width graphite selection bar replaces the outline.
+- A graphite status bar shows the play state, the page title in the middle, then the EQ, Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
 - Hold Return to open **Now Playing** without interrupting playback; the next short Return goes back to where you were. Holding Return on Now Playing goes Home, as stock.
 - Pull down at the top of Local Songs to search.
 
-Other pages and dialogs keep their stock layout, and your saved settings are unchanged.
+Other pages, Tidal and dialogs keep their stock layout, and your saved settings are unchanged.
 
 Both variants fix choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 

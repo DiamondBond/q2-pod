@@ -1,4 +1,4 @@
-"""Build-time edits for the SHA-pinned local browsing assets and native call sites.
+"""Build-time edits for the SHA-pinned UI assets (local browsing, settings, status bar) and native call sites.
 
 No global widget hook: excluded pages stay byte-identical; iPod's list style edits are audited in place.
 The audit records full original instructions and asset hashes, not search/replace patterns.
@@ -20,6 +20,13 @@ PITCH = 72
 BODY = PITCH - 4
 ART = 52
 ART_INSET = (BODY - ART) // 2
+# iPod status bar (system_bar.bin, 375x30). Stock pads both icon groups 50px from the edges, but
+# stock pages already put controls 3px from them (Now Playing's back arrow), so iPod uses the list
+# rows' 8px. The title is centred on the screen: it spans between the right group's extent (EQ 20,
+# BT/codec 43, Wi-Fi 16, battery 10, 5px apart: 112px) and the same distance from the left edge,
+# 151px wide.
+MARGIN = 8
+TITLE_MIN = 150
 
 
 def decode(data):
@@ -150,6 +157,43 @@ def patch_style(data, audit):
     return bytes(out)
 
 
+# iPod only. systembar_showface (0x52f610) finds every widget by name, recursively from the bar,
+# and each second re-shows the volume, EQ, BT, synclink and Wi-Fi widgets and resets their text and
+# images, but never their geometry. So widgets iPod hides move off-screen instead of going invisible.
+# The volume number stays hidden: stock already opens dialog/volume_dialog on every wheel change.
+STATUS_BAR = 'system_bar.bin'
+STATUS_LEFT, STATUS_RIGHT = ['img_state'], ['label_eq', 'img_bt', 'img_wifi', 'img_battery']
+STATUS_HIDDEN = ['img_vol', 'label_vol', 'img_synclink', 'label_battery']
+
+
+def status_bar(root):
+    left, right = root[3]
+    require([left[2].get('name'), right[2].get('name')] == ['view_left', 'view_right'], 'Unexpected status bar')
+    widgets = {n[2]['name']: n for n in left[3] + right[3]}
+    require(sorted(widgets) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')
+    left[3] = [widgets[n] for n in STATUS_LEFT]
+    right[3] = [widgets[n] for n in STATUS_RIGHT]
+    for view in (left, right):
+        layout = view[2]['children_layout']
+        require('xm=50,s=5)' in layout, 'Unexpected status bar layout')
+        view[2]['children_layout'] = layout.replace('xm=50', f'xm={MARGIN}')
+    extent = MARGIN + sum(n[1][2] for n in right[3]) + 5 * (len(right[3]) - 1)
+    width = 375 - 2 * extent
+    require(width >= TITLE_MIN and right[1][0] + right[1][2] == 375, 'Status bar title too narrow')
+    for name in STATUS_HIDDEN:
+        g = widgets[name][1]
+        g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen
+        root[3].append(widgets[name])
+    # The payload copies each page's title here (ringnav_paint_bg); a long one ends in an ellipsis.
+    root[3].append(['hscroll_label', [extent, 0, width, 30], {
+        'name': 'label_title', 'style': 's_scrlabel_white20c', 'only_focus': 'true', 'ellipses': 'true'}, []])
+
+
+# iPod only. Settings and Streaming keep the stock row height; only their navbar goes, as on the
+# local pages. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
+NAVBAR_ONLY = set(AUDIT['navbar_only'])
+
+
 def patch_word(data, changes, address, old, new, purpose):
     off = fileoff(data, address)
     require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
@@ -168,8 +212,11 @@ def patch_asset(path, data, ipod):
         return encode(root)
     if not ipod:
         return encode(root)
+    if path == STATUS_BAR:
+        status_bar(root)
+        return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
-    require(len(nav) == 1 and nav[0][1] == [0, 0, 375, 50], f'{path}: unexpected toolbar')
+    require(len(nav) == 1 and nav[0][1] in ([0, 0, 375, 50], [0, 0, 370, 50]), f'{path}: unexpected toolbar')  # 370: stream_page
     # Keep the widget (and callback lookups) alive. Children may be recreated by stock.
     nav[0][2]['visible'] = 'false'
     nav[0][2]['enable'] = 'false'
@@ -188,6 +235,11 @@ def patch_asset(path, data, ipod):
             g[1] = 10 + ((g[1] - 60) // 78) * PITCH
         elif props.get('name') == 'view':  # allmusic's stock empty-state panel
             g[1] -= 50
+        elif path in NAVBAR_ONLY:  # settings panels and notes keep their size
+            require(g[1] >= 50, f'{path}: unexpected content under the toolbar')
+            g[1] -= 50
+    if path in NAVBAR_ONLY:
+        return encode(root)
 
     def rows(n, in_row=False):
         kind, g, props, children = n
