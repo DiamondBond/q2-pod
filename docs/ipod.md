@@ -154,6 +154,16 @@ it, aligned with those (see [internals.md](internals.md#drawing)), only on the `
 than half the list (playlist Import/Export) get none. The artist page's Albums tab drills but has
 no stock chevron or payload row layouter, so it has none.
 
+## Fast-scroll letter
+
+Spinning quickly through a list of more than 16 rows shows the first character of the selected
+row's title in a large white letter, centred over the list on a rounded dark square. It appears
+once the wheel moves more than one row per detent and disappears 400 ms after the last fast
+detent, or at once on a slow detent, a touch or the end of the list. Latin letters show in
+capitals; leading spaces are skipped and any other character shows as it is. Home, settings and
+other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`); see
+[internals.md](internals.md#drawing).
+
 ## Device checklist
 
 Every check below has been hardware-tested on both builds and confirmed by the

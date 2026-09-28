@@ -59,7 +59,7 @@ class Machine:
         self.u.mem_map(0x70000000,0x10000)
         self.next=0x1001000; self.nodes={}; self.calls=[]; self.animating=0; self.pressed=0
         self.top=0; self.wm=0x1000000; self.event=0x1000100
-        self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
+        self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
         self.allocs={}
         self.rebind=None; self.on_click=None; self.glide=True
@@ -350,6 +350,12 @@ class Machine:
                 ret=0
         elif name=='widget_load_image': self.word(c,50); self.word(c+4,50); ret=0  # list_into is 50x50
         elif name=='canvas_draw_icon': self.icons.append((signed(c),signed(d),self.clip)); ret=0
+        elif name=='canvas_set_font': self.font=(self.text(b) if b else 'default',c); ret=0
+        elif name=='canvas_set_text_color': self.word(self.lcd+O['LCD_TEXT_COLOR'],b); ret=0
+        elif name=='canvas_draw_text_in_rect':
+            self.letters.append(dict(text=''.join(chr(self.get(b+4*j)) for j in range(c)),
+                rect=tuple(signed(self.get(d+4*j)) for j in range(4)),color=self.get(self.lcd+O['LCD_TEXT_COLOR']),font=self.font,
+                align=(self.get(a+O['CANVAS_ALIGN_H']),self.get(a+O['CANVAS_ALIGN_V'])),clip=self.clip)); ret=0
         elif name=='canvas_fill_rect':
             self.bands.append((signed(b),signed(c),signed(d),signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),
                                self.get(self.lcd+O['LCD_FILL_COLOR']),self.clip)); ret=0
@@ -388,7 +394,7 @@ class Machine:
         # Independent input steps occur after the stock key debounce timer expires.
         if gap: self.advance(gap,clear=False)
         if not debounce: self.byte(0xa37c89,0)  # stock key filter latch
-        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.vg_calls=[]
+        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.vg_calls=[]
         self.word(self.event+O['EVENT_KEY'],key)
         self.word(self.event+O['EVENT_TYPE'],event_type)
         self.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
@@ -2506,6 +2512,58 @@ if variant=='ipod':
                  'localclass_page','localmusic_page','sysset_page'):
         m=Machine(); w,_=m.page_list(5,extent=240,name=name); window(m,name,w); m.paint(w)
         assert not m.icons and not loaded(m), name; passed()
+
+# Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
+# the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
+# the list on a translucent dark rounded square, LETTER_MS after the last detent a timer repaints it
+# away, and every canvas text/fill/clip state it touched is restored. Normal draws none.
+def canvas_state(m):
+    return (m.lcd_colors(),m.get(m.lcd+O['LCD_TEXT_COLOR']),m.get(m.canvas+O['CANVAS_ALIGN_V']),
+            m.get(m.canvas+O['CANVAS_ALIGN_H']),m.clip)
+def letter_machine(virtual,n=40):
+    m=Machine(); m.word(m.canvas+O['CANVAS_ALIGN_V'],2)
+    m.word(m.canvas+O['CANVAS_ALIGN_H'],3); m.word(m.lcd+O['LCD_TEXT_COLOR'],0x11223344)
+    if virtual:
+        w,rs,es=m.table_page(rebind=True); m.word(w+O['TABLE_ROWS'],n)
+    else:
+        w,es=m.page_list(n,extent=n*48,name='allmusic_page'); rs=es
+    for e in es: m.nodes[e]['text']='row'
+    m.paint(w,gap=0); return m,w,rs,es
+def selected_entry(m,w,rs,es):
+    return next(e for r,e in zip(rs,es) if (m.get(r+O['ROW_INDEX']) if r!=e else es.index(e))==m.selected(w))
+box=(120-O['LETTER_BOX']//2,48-O['LETTER_BOX']//2,O['LETTER_BOX'],O['LETTER_BOX'])
+for virtual in (False,True):
+    m,w,rs,es=letter_machine(virtual); before=canvas_state(m)
+    assert m.call(gap=100)==11; m.paint(w,gap=0); assert not m.letters   # step 1
+    assert m.call(gap=100)==11 and m.selected(w)==3; m.paint(w,gap=0)     # step 2
+    if variant!='ipod':
+        assert not m.letters and not m.timers and not any(c[0]=='canvas_set_font' for c in m.calls); passed(); continue
+    assert m.letters==[dict(text='R',rect=box,color=0xffffffff,font=('default',O['LETTER_PX']),align=(1,1),
+                            clip=(0,0,240,96))]
+    fills=[r for r in m.rounded if r['kind']=='fill']
+    assert fills==[dict(kind='fill',rect=box,bg=0,color=O['LETTER_ALPHA']<<24|O['FILL_RGB'],
+                        radius=O['LETTER_RADIUS'],width=None,clip=(0,0,240,96))]
+    assert canvas_state(m)==before; passed()
+    for text,glyph in (('zeta','Z'),('  apple','A'),('Émile','Émile'[0]),('東京','東'),('9 lives','9')):
+        m.nodes[selected_entry(m,w,rs,es)]['text']=text; m.paint(w,gap=0)
+        assert [l['text'] for l in m.letters]==[glyph],text; passed()
+    m.nodes[selected_entry(m,w,rs,es)]['text']='   '; m.paint(w,gap=0)
+    assert not m.letters and canvas_state(m)==before; passed()
+    m.nodes[selected_entry(m,w,rs,es)]['text']='row'
+    # A further fast detent re-arms; the letter clears LETTER_MS after the last one.
+    assert m.call(gap=100)==11; m.advance(O['LETTER_MS']-1); m.paint(w,gap=0); assert m.letters
+    m.advance(1); assert any(c[:2]==('widget_invalidate_force',w) for c in m.calls)
+    m.paint(w,gap=0); assert not m.letters and canvas_state(m)==before; passed()
+if variant=='ipod':
+    # Never at one row per detent, nor on a list of at most SHORT_LIST_MAX (16) rows.
+    for n,gap in ((40,141),(16,100)):
+        m,w,rs,es=letter_machine(False,n)
+        for _ in range(6): m.call(gap=gap)
+        m.paint(w,gap=0); assert not m.letters and not m.timers; passed()
+    # Touch drops the spin, and with it the letter.
+    m,w,rs,es=letter_machine(False)
+    for _ in range(3): m.call(gap=100)
+    m.touch(); m.paint(w,gap=0); assert not m.letters; passed()
 
 class CoverflowMachine(QueueMachine):
     FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub

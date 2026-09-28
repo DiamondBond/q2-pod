@@ -56,6 +56,9 @@
 #define CANVAS_LCD 0x38
 #define LCD_FILL_COLOR 0xbc
 #define LCD_STROKE_COLOR 0xc0
+#define LCD_TEXT_COLOR 0xb8     /* lcd_set_text_color @0x6474c4 */
+#define CANVAS_ALIGN_V 0x30     /* canvas_set_text_align @0x63419c; middle = 1 */
+#define CANVAS_ALIGN_H 0x34     /* center = 1 */
 /* Selection outline tuning. RADIUS > 2 or the stock rounded path squares off; tests read these.
  * The shade uses the same stock dark surface as the fill at an alpha that keeps the outline
  * above 3:1 on pure white art (0x99 is the floor); on dark rows it matches the stock background
@@ -79,6 +82,13 @@
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58
+/* iPod fast-scroll letter: the selected row's first character in white, LETTER_PX high, on a
+ * LETTER_BOX square of the stock dark surface at LETTER_ALPHA, centred over the list. */
+#define LETTER_BOX 80
+#define LETTER_RADIUS 12
+#define LETTER_ALPHA 0xd9
+#define LETTER_PX 60
+#define LETTER_MS 400
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */

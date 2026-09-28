@@ -69,6 +69,7 @@ typedef struct {
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
     unsigned title_hash; /* of the status bar title last set, 0 before the first */
+    unsigned letter_timer; /* the fast-scroll letter shows while this runs */
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -404,6 +405,7 @@ static int edge_wraps(const menu_t *m, int id, int dir, unsigned now) {
  * ROW_INDEX, which a re-sort rewrites), so these hashes are the identity available to restore. */
 typedef struct {
     unsigned one, two;
+    const unsigned *title; /* the first text itself, for the iPod fast-scroll letter */
 } row_id_t;
 
 /* The library browsing state both position memory and the queue menu key on. */
@@ -425,9 +427,10 @@ static void row_id_walk(void *w, int depth, int *budget, row_id_t *id) {
     if (!w || depth == 4 || id->two || --*budget < 0) return;
     const unsigned *s = widget_get_text(w);
     if (s && *s) {
-        if (!id->one)
+        if (!id->one) {
             row_hash_text(s, &id->one);
-        else {
+            id->title = s;
+        } else {
             row_hash_text(s, &id->two);
             return;
         }
@@ -437,7 +440,7 @@ static void row_id_walk(void *w, int depth, int *budget, row_id_t *id) {
 }
 
 static row_id_t row_id(void *w) {
-    row_id_t id = { 0, 0 };
+    row_id_t id = { 0, 0, (void *)0 };
     int budget = 32;
     row_id_walk(w, 0, &budget, &id);
     return id;
@@ -990,6 +993,50 @@ static void paint_chevrons(void *w, void *canvas) {
     }
     canvas_set_clip_rect(canvas, &old);
 }
+
+static int letter_expire(const void *info) {
+    (void)info;
+    st.letter_timer = 0;
+    void *w = surface((void *)0, (void *)0);
+    if (w && w == st.wheel_surface) widget_invalidate_force(w, (void *)0);
+    return 0;
+}
+
+/* iPod fast scroll: while the wheel ramp moves more than one row per detent, the selected row's
+ * first character sits in a dark translucent square over the list until LETTER_MS after the last
+ * detent. A virtual table resolves the logical row in its recycled pool; an offscreen or textless
+ * row shows nothing. Stock sets the font before its own text, so only the text color and
+ * alignment are restored, with the fill color and clip. */
+static void paint_letter(void *w, void *canvas) {
+    rect_t old;
+    if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= WHEEL_RAMP_MS ||
+        st.touch_mode || !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w))
+        return;
+    int i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
+    const unsigned *s = i < 0 ? (void *)0 : row_id(g_menu.at[i]).title;
+    while (s && *s == ' ') ++s;
+    if (!s || !*s || !clip_surface(canvas, &g_menu, &old)) return;
+    unsigned c = *s >= 'a' && *s <= 'z' ? *s - 32 : *s;
+    void *lcd = P(canvas, CANVAS_LCD);
+    unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR), text = (unsigned)I(lcd, LCD_TEXT_COLOR);
+    int align_v = I(canvas, CANVAS_ALIGN_V), align_h = I(canvas, CANVAS_ALIGN_H);
+    rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (g_menu.height - LETTER_BOX) / 2, LETTER_BOX,
+                   LETTER_BOX };
+    unsigned color = (LETTER_ALPHA << 24) | FILL_RGB;
+    if (canvas_fill_rounded_rect(canvas, &box, (void *)0, &color, LETTER_RADIUS)) {
+        canvas_set_fill_color(canvas, color); /* no vgcanvas: a square box */
+        canvas_fill_rect(canvas, box.x, box.y, box.w, box.h);
+    }
+    canvas_set_font(canvas, (void *)0, LETTER_PX); /* the system default font */
+    canvas_set_text_color(canvas, 0xffffffff);
+    I(canvas, CANVAS_ALIGN_V) = I(canvas, CANVAS_ALIGN_H) = 1;
+    canvas_draw_text_in_rect(canvas, &c, 1, &box);
+    I(canvas, CANVAS_ALIGN_V) = align_v;
+    I(canvas, CANVAS_ALIGN_H) = align_h;
+    canvas_set_text_color(canvas, text);
+    canvas_set_fill_color(canvas, fill);
+    canvas_set_clip_rect(canvas, &old);
+}
 #endif
 
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
@@ -1075,6 +1122,7 @@ int ringnav_paint(void *w, void *canvas) {
     }
 #if IPOD
     paint_chevrons(w, canvas);
+    paint_letter(w, canvas);
 #else
     paint_selection(w, canvas);
 #endif
@@ -1683,6 +1731,12 @@ int ringnav(void *ctx, void *event) {
         return STOP;
     }
     int step = wheel_step(&g_menu, top, dir, now);
+#if IPOD
+    if (step > 1) {
+        if (st.letter_timer) timer_remove(st.letter_timer);
+        st.letter_timer = timer_add(letter_expire, (void *)0, LETTER_MS);
+    }
+#endif
     native_scrollbar(&g_menu);
     if (g_menu.kind == 3) {
         if (dir > 0)
