@@ -77,14 +77,14 @@ class Machine:
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done','slide_menu_scroll_to',
-                     'widget_animator_scroll_set_params','slide_menu_set_value'):
+                     'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
                   'widget_set_focused','widget_layout_children','event_init','value_set_int')
         if patched:
             for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
-        self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0',
+        self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click')
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
         self.handlers[syms['memset@GLIBC_2.0']]='memset'
@@ -222,6 +222,9 @@ class Machine:
             params=[self.text(value) if kind=='s' else value if kind=='x' else signed(value)
                     for kind,value in zip(re.findall(r'%\d*([sdx])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
+        elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
+            fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
+            result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
         elif name=='widget_set_children_layout':
             n['children_layout']=self.text(b)
             layout=self.alloc(32)
@@ -244,7 +247,6 @@ class Machine:
             key=self.text(c); self.config_reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
             value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
-        elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
         elif name=='bitmap_get_line_length': ret=self.get(a+8)
         elif name=='bitmap_lock_buffer_for_write': ret=self.get(a+0x14)  # a test bitmap keeps its pixels' address there
@@ -3017,8 +3019,8 @@ if variant=='ipod':
         m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,st,m.string(name),0),gap=0)
         assert m.get(out)==color_t(ACCENTS[0][column]),(name,hex(m.get(out))); passed()
 
-    # Images: decoded 32-bit bitmaps are mapped in place before stock caches them; file:// covers,
-    # Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
+    # Images: decoded 32-bit theme bitmaps are mapped in place before stock caches them; covers by
+    # path or URL, Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
     def image(config,name,fmt=3):
         m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
         bm=m.alloc(0x60); data=m.alloc(64)
@@ -3031,7 +3033,8 @@ if variant=='ipod':
     hi=ACCENTS[0][3]; want=bytes([hi&255,hi>>8&255,hi>>16,0x80])+bytes([0x80,0x80,0x80,0xff])+b'\xee'*4
     assert image({},'switch_on')==[want,want]; passed()
     stock=bytes([0x48,0x14,0xff,0x80,0x80,0x80,0x80,0xff])+b'\xee'*4
-    for config,name,fmt in (({'ACCENT':'1'},'switch_on',3),({},'file:///tmp/coverpic.jpg',3),({},'switch_on',5)):
+    for config,name,fmt in (({'ACCENT':'1'},'switch_on',3),({},'file:///tmp/coverpic.jpg',3),({},'/mnt/mmc/a/cover.jpg',3),
+                            ({},'https://resources.tidal.com/images/a/320x320.jpg',3),({},'switch_on',5)):
         assert image(config,name,fmt)==[stock,stock],(config,name,fmt); passed()
 
     # Display settings: after the stock rows, Accent and Home rows in the native row widgets and

@@ -16,6 +16,7 @@
 #define PLACEHOLDER "default_album_big"
 
 extern int stock_home_trampoline(void *win, void *ctx);
+extern void stop_timer(unsigned *timer), rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
 
 enum { PREPARING, COVERS, TRACKS };
 typedef struct {
@@ -121,8 +122,7 @@ static void stop(void) {
         pthread_join(cf.thread, 0);
         cf.running = 0;
     }
-    if (cf.timer) timer_remove(cf.timer);
-    cf.timer = 0;
+    stop_timer(&cf.timer);
     for (int i = 0; i < cf.total; ++i) free(cf.jobs[i].track);
     free(cf.jobs);
     cf.jobs = 0;
@@ -136,15 +136,13 @@ static void drop(void) {
     cf.albums = cf.tracks = 0;
 }
 
-/* A stock library query (getAllAlbum, as load_localclass_list 0xf003 runs it, or the album's
- * getMusicByAlbum, as its row opens it) copied out of the staging deque, which is restored so
- * the query leaves no trace. Stock order, including the trailing "Unknown Album" (id -1) row. */
-static void *query(void *album, int *count) {
+/* A stock library query's rows (*count its result) copied out of the staging deque, which is
+ * restored so the query leaves no trace; shared with ringnav.c's queue menu. */
+void *staged(int (*query)(void *), void *arg, int *count) {
     void *dir = P(tools_pdeq_directory, 0), *save = _create_deque("stSongInfo"),
          *out = _create_deque("stSongInfo");
     deque_init_copy(save, dir);
-    *count = album ? getMusicByAlbum(I(album, REC_ID) == -1 ? (const char *)0 : P(album, REC_ALBUM))
-                   : getAllAlbum();
+    *count = query(arg);
     deque_init_copy(out, dir);
     deque_clear(dir);
     deque_assign(dir, save);
@@ -152,9 +150,11 @@ static void *query(void *album, int *count) {
     return out;
 }
 
-static void later(int (*step)(const void *), unsigned ms) {
-    if (cf.timer) timer_remove(cf.timer);
-    cf.timer = timer_add(step, 0, ms);
+/* getAllAlbum, as load_localclass_list 0xf003 runs it, or the album's getMusicByAlbum, as its row
+ * opens it. Stock order, including the trailing "Unknown Album" (id -1) row. */
+static int albums(void *album) {
+    return album ? getMusicByAlbum(I(album, REC_ID) == -1 ? (const char *)0 : P(album, REC_ALBUM))
+                 : getAllAlbum();
 }
 
 static void *text(void *parent, int x, int y, int w, int h) {
@@ -288,7 +288,7 @@ static void covers(void) {
     }
     widget_set_visible(cf.covers, 1, 0);
     widget_invalidate_force(cf.page, 0);
-    later(settle, 100);
+    rearm(&cf.timer, settle, 100);
 }
 
 static int to_covers(const void *unused) {
@@ -302,7 +302,7 @@ static int to_covers(const void *unused) {
 static int cancel_row(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    later(to_covers, 0);
+    rearm(&cf.timer, to_covers, 0);
     return 0;
 }
 
@@ -328,7 +328,8 @@ static void load(void) {
     cf.album = 0;
     cf.body = widget_factory_create_widget(widget_factory(), "view", cf.page, 0, 0, 375, 290);
     int n = 0;
-    if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) cf.albums = query(0, &n);
+    if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE)
+        cf.albums = staged(albums, 0, &n);
     if (n <= 0) {
         cf.screen = COVERS; /* Return goes Home */
         list("Update Local Music first", 0);
@@ -383,7 +384,7 @@ static int to_tracks(const void *unused) {
     int n;
     void *r = deque_at(cf.albums, (unsigned)cf.album);
     if (cf.tracks) deque_destroy(cf.tracks);
-    cf.tracks = query(r, &n);
+    cf.tracks = staged(albums, r, &n);
     n = (int)deque_size(cf.tracks);
     cf.screen = TRACKS;
     widget_set_visible(cf.covers, 0, 0);
@@ -411,10 +412,10 @@ static int pick(void *ctx, void *event) {
     (void)event;
     int i = (int)(long)ctx;
     if (i == (int)deque_size(cf.albums))
-        later(refresh, 0);
+        rearm(&cf.timer, refresh, 0);
     else {
         cf.album = i;
-        later(to_tracks, 0);
+        rearm(&cf.timer, to_tracks, 0);
     }
     return 0;
 }
@@ -425,7 +426,7 @@ static int keyup(void *ctx, void *event) {
     (void)ctx;
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
     if (cf.screen == TRACKS || cf.screen == PREPARING)
-        later(to_covers, 0);
+        rearm(&cf.timer, to_covers, 0);
     else
         navigator_back_to_home();
     return 11; /* RET_STOP */
@@ -533,8 +534,8 @@ int coverflow_home(void *win, void *ctx) {
     home.win = win;
     home.art = widget_lookup(win, "img_homeart", 1);
     void *list = widget_lookup(win, "list_view_home", 1);
-    if (list != home.list || !home.split_w) home.split_w = list ? I(list, W_W) : 0; /* the asset's width */
-    home.list = list;
+    home.list = list; /* a new Home window's own, so still the asset's width */
+    home.split_w = list ? I(list, W_W) : 0;
     coverflow_home_layout();
 #endif
     return result;

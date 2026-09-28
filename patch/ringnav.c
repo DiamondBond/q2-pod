@@ -15,6 +15,7 @@ extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
+extern void *staged(int (*query)(void *), void *arg, int *count);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -188,14 +189,10 @@ static int clamp_step(int offset, int maximum, int delta) {
 /* One-row steps until a sustained run of accepted same-direction ticks ramps the step up one
  * row per WHEEL_RAMP_MS of spin, capped at WHEEL_MAX_STEP. A pause longer than WHEEL_RUN_MS,
  * a reversal or a change of menu resets the run, so stopping and reversing stay precise. */
-static int wheel_step(menu_t *m, void *top, int dir, unsigned now) {
-    if (m->rows <= SHORT_LIST_MAX) {
-        st.wheel_run = 0;
-        return 1;
-    }
+static int ramp(void *top, void *surface, unsigned scope, int ctx, int dir, unsigned now) {
     if (st.wheel_run && now - st.last_wheel <= WHEEL_RUN_MS && st.wheel_dir == dir &&
-        st.wheel_top == top && st.wheel_surface == m->w && st.wheel_scope == m->scope &&
-        st.wheel_ctx == m->ctx)
+        st.wheel_top == top && st.wheel_surface == surface && st.wheel_scope == scope &&
+        st.wheel_ctx == ctx)
         st.wheel_run = (unsigned)clamp_step(st.wheel_run, (WHEEL_MAX_STEP - 1) * WHEEL_RAMP_MS + 1,
                                             now - st.last_wheel);
     else
@@ -203,9 +200,9 @@ static int wheel_step(menu_t *m, void *top, int dir, unsigned now) {
     st.last_wheel = now;
     st.wheel_dir = dir;
     st.wheel_top = top;
-    st.wheel_surface = m->w;
-    st.wheel_scope = m->scope;
-    st.wheel_ctx = m->ctx;
+    st.wheel_surface = surface;
+    st.wheel_scope = scope;
+    st.wheel_ctx = ctx;
     return 1 + (int)(st.wheel_run - 1) / WHEEL_RAMP_MS;
 }
 
@@ -248,6 +245,17 @@ static void collect(void *w, entries_t *s, int depth) {
 #define COUNT "_ringnav_count"
 #define SCOPE "_ringnav_scope"
 #define FX "_ringnav_fx"
+
+/* UI timers, shared with coverflow.c; a failed add leaves the timer 0. */
+void stop_timer(unsigned *timer) {
+    if (*timer) timer_remove(*timer);
+    *timer = 0;
+}
+
+void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms) {
+    stop_timer(timer);
+    *timer = timer_add(fn, (void *)0, ms);
+}
 
 static void cancel_center(void) {
     unsigned timer = st.center_timer;
@@ -385,8 +393,7 @@ static void prop(void *w, const char *name, int value) {
 
 /* The bump timer repaints at 120 ms; the second-detent arm survives independently. */
 static void fx_cancel(void) {
-    if (st.fx_timer) timer_remove(st.fx_timer);
-    st.fx_timer = 0;
+    stop_timer(&st.fx_timer);
     st.fx_surface = (void *)0;
     st.bump_dir = 0;
 }
@@ -405,8 +412,7 @@ static int fx_expire(const void *info) {
 }
 
 static void fx_arm(void *w, int dir) {
-    if (st.fx_timer) timer_remove(st.fx_timer);
-    st.fx_timer = timer_add(fx_expire, (void *)0, BUMP_MS);
+    rearm(&st.fx_timer, fx_expire, BUMP_MS);
     st.fx_token = st.fx_token == 0x7fffffff ? 1 : st.fx_token + 1;
     st.fx_surface = w;
     st.bump_dir = st.fx_timer ? dir : 0;
@@ -967,23 +973,24 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
  * config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
 static const unsigned accents[][4] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
+static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
+                                            "Accent: Champagne" };
+_Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 static int config_digit(const char *key, int n) {
     char s[256] = "";
     toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "0");
     return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
 }
-static void settings(void) {
-    if (st.settings_read) return;
-    st.accent = config_digit("ACCENT", ACCENT_N);
-    st.home_full = config_digit("HOME", 2);
-    st.settings_read = 1;
-}
 static int accent(void) {
-    settings();
+    if (!st.settings_read) {
+        st.accent = config_digit("ACCENT", ACCENT_N);
+        st.home_full = config_digit("HOME", 2);
+        st.settings_read = 1;
+    }
     return st.accent;
 }
 int ipod_home_full(void) {
-    settings();
+    accent();
     return st.home_full;
 }
 
@@ -1069,12 +1076,6 @@ static void paint_chevrons(void *w, void *canvas) {
                              r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);
-}
-
-/* Restart a one-shot UI timer; a failed add leaves it 0. */
-static void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms) {
-    if (*timer) timer_remove(*timer);
-    *timer = timer_add(fn, (void *)0, ms);
 }
 
 static int letter_expire(const void *info) {
@@ -1252,13 +1253,10 @@ static void title_sync(void *bar, void *top) {
         widget_set_text(label, text);
 }
 
-/* Seconds in stock's toolsTimeItoa formats, after a sign. */
-static void clock_text(void *label, const char *sign, int t) {
-    char s[16];
-    if (t >= 3600)
-        tk_snprintf(s, sizeof s, "%s%02d:%02d:%02d", sign, t / 3600, t / 60 % 60, t % 60);
-    else
-        tk_snprintf(s, sizeof s, "%s%02d:%02d", sign, t / 60, t % 60);
+/* Seconds as stock writes label_playtime, after a minus when negative is 1. */
+static void clock_text(void *label, int negative, int t) {
+    char s[16] = "-";
+    toolsTimeItoa(s + negative, t);
     widget_set_text_utf8(label, s);
 }
 
@@ -1282,7 +1280,7 @@ static void np_sync(void *top) {
     if (left < 0) left = 0;
     if (left == st.np_left) return;
     st.np_left = left;
-    clock_text(st.np_remain, "-", left);
+    clock_text(st.np_remain, 1, left);
 }
 
 /* Scrub (docs/internals.md#scrub-ipod) follows stock's own key seek (0x52c754): the page's 250 ms
@@ -1308,7 +1306,9 @@ static int np_seek(const void *info) {
 }
 
 /* The accent's light tone fills the progress bar; a white fill marks the scrub. */
-static void np_fill(unsigned color) {
+static void np_fill(int scrub) {
+    if (!st.np_slider) return;
+    unsigned color = scrub ? 0xffffffff : RGBA(accents[accent()][TONE_LIGHT]);
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
     widget_invalidate_force(st.np_slider, (void *)0);
 }
@@ -1317,14 +1317,13 @@ static void np_fill(unsigned color) {
 static void scrub_end(void) {
     if (!st.scrub) return;
     st.scrub = 0;
-    if (st.scrub_timer) timer_remove(st.scrub_timer);
-    st.scrub_timer = 0;
+    stop_timer(&st.scrub_timer);
     if (st.seek_timer) {
-        timer_remove(st.seek_timer);
+        stop_timer(&st.seek_timer);
         np_seek((void *)0);
     }
     if (!st.np_win) return;
-    np_fill(RGBA(accents[accent()][2]));
+    np_fill(0);
     playing_timer_start(st.np_win);
 }
 
@@ -1336,8 +1335,7 @@ static int scrub_expire(const void *info) {
 }
 
 static void np_cancel(void) {
-    if (st.np_press) timer_remove(st.np_press);
-    st.np_press = 0;
+    stop_timer(&st.np_press);
     scrub_end();
 }
 
@@ -1353,7 +1351,7 @@ static int np_toggle(const void *info) {
         st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
         st.scrub_track = np_track();
         playing_timer_clear(st.np_win);
-        np_fill(0xffffffff);
+        np_fill(1);
         rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
     }
     return 0;
@@ -1367,8 +1365,7 @@ static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
         if (st.np_press) {
-            timer_remove(st.np_press);
-            st.np_press = 0;
+            stop_timer(&st.np_press);
             if (now - st.np_press_at < DOUBLE_CLICK_MS) {
                 scrub_end();
                 return 0;
@@ -1380,14 +1377,11 @@ static int np_key(void *top, unsigned key) {
         return STOP;
     }
     int dir = key == KEY_NEXT ? 1 : -1;
-    g_menu.w = st.np_slider; /* a long list for the ramp: the step grows while the wheel spins */
-    g_menu.rows = SHORT_LIST_MAX + 1;
-    g_menu.scope = 0;
-    g_menu.ctx = -1;
-    int step = SCRUB_STEP * wheel_step(&g_menu, top, dir, now);
+    /* the step grows while the wheel spins, as in a long list */
+    int step = SCRUB_STEP * ramp(top, st.np_slider, 0, -1, dir, now);
     st.scrub_to = clamp_step(st.scrub_to, widget_get_prop_int(st.np_slider, "max", 0), dir * step);
     widget_set_prop_int(st.np_slider, "value", st.scrub_to);
-    clock_text(st.np_elapsed, "", st.scrub_to);
+    clock_text(st.np_elapsed, 0, st.scrub_to);
     np_sync(top);
     rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
     rearm(&st.seek_timer, np_seek, SEEK_MS);
@@ -1400,8 +1394,7 @@ static int np_gone(void *win, void *event) {
         st.np_win = (void *)0;
         st.np_hash = 0;
         st.np_slider = st.np_elapsed = (void *)0;
-        if (st.seek_timer) timer_remove(st.seek_timer); /* the page is going: no seek */
-        st.seek_timer = 0;
+        stop_timer(&st.seek_timer); /* the page is going: no seek */
         np_cancel();
     }
     return 0;
@@ -1419,7 +1412,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_hash = 0;
     st.np_left = -1;
-    np_fill(RGBA(accents[accent()][2]));
+    np_fill(0);
     widget_on(win, EVT_DESTROY, np_gone, win);
     np_sync(win);
     return result;
@@ -1477,13 +1470,16 @@ void *ringnav_style_gradient(void *style, const char *name, void *out) {
     return g;
 }
 
-/* Decoded images are mapped once, before the image manager caches them; covers (file://) never.
+/* Decoded theme images are mapped once, before the image manager caches them. Only a plain asset
+ * name is the theme's: covers by path or URL (a '/' or ':') never are.
  * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
     unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4, preset = accent();
     unsigned char *data = (void *)0;
-    if (preset != CRIMSON && format < 4 && name && !tk_str_start_with(name, "file://"))
+    const char *s = name;
+    while (s && *s && *s != '/' && *s != ':') ++s;
+    if (preset != CRIMSON && format < 4 && s && !*s)
         data = bitmap_lock_buffer_for_write(bitmap);
     if (data) {
         const unsigned char *o = at[format];
@@ -1501,11 +1497,9 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    static const char *const names[2][4] = {
-        { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal", "Accent: Champagne" },
-        { "Home: Split", "Home: Full" } };
-    settings();
-    widget_set_text_utf8(st.setting_label[i], names[i][i ? st.home_full : st.accent]);
+    const char *name = accent_names[accent()];
+    if (i) name = st.home_full ? "Home: Full" : "Home: Split";
+    widget_set_text_utf8(st.setting_label[i], name);
 }
 
 /* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on
@@ -1519,7 +1513,7 @@ static int setting_click(void *ctx, void *event) {
     if (i)
         coverflow_home_layout();
     else {
-        np_fill(RGBA(accents[st.accent][2]));
+        np_fill(0);
         image_manager_unload_all(image_manager());
         widget_invalidate_force(window_manager(), (void *)0);
     }
@@ -1779,30 +1773,31 @@ static int qm_gone(void *dialog, void *event) {
     return 0;
 }
 
-/* An album or folder row: the tracks stock would play, in its order. The staging deque is
- * restored so the queries leave no trace. */
-static void qm_tracks(void *r, void *add) {
-    void *save = _create_deque("stSongInfo");
-    deque_init_copy(save, P(tools_pdeq_directory, 0));
+/* An album or folder row: the query stock would run for it. */
+static int qm_query(void *r) {
     if (st.qm_kind == QM_FOLDER) {
         char path[1024];
         tk_snprintf(path, sizeof(path), "%s/%s", (const char *)g_folder_path,
                     (const char *)P(r, REC_NAME));
-        toolsLoadDirectory(path);
-    } else if (I(g_class_type, 0) == CLASS_ALBUMS)
-        getMusicByAlbum(I(r, REC_ID) == -1 ? (const char *)0 : P(r, REC_ALBUM));
-    else /* load_album_detaillist 0xff01 -> load_localclass_list 0xff11 */
-        (I(g_artist_type, 0) == 1 ? getMusicByAlbumAndAlbumSonger : getMusicByAlbumAndSonger)(
-            P(r, REC_ALBUM), g_local_classinfo_save[0xa] ? (const char *)0 : P(r, REC_ARTIST),
-            I(r, REC_ID) == -2);
-    void *dir = P(tools_pdeq_directory, 0);
-    for (unsigned i = 0; i < deque_size(dir); ++i) {
-        void *t = deque_at(dir, i);
+        return toolsLoadDirectory(path);
+    }
+    if (I(g_class_type, 0) == CLASS_ALBUMS)
+        return getMusicByAlbum(I(r, REC_ID) == -1 ? (const char *)0 : P(r, REC_ALBUM));
+    /* load_album_detaillist 0xff01 -> load_localclass_list 0xff11 */
+    return (I(g_artist_type, 0) == 1 ? getMusicByAlbumAndAlbumSonger : getMusicByAlbumAndSonger)(
+        P(r, REC_ALBUM), g_local_classinfo_save[0xa] ? (const char *)0 : P(r, REC_ARTIST),
+        I(r, REC_ID) == -2);
+}
+
+/* The tracks stock would play for that row, in its order. */
+static void qm_tracks(void *r, void *add) {
+    int n;
+    void *rows = staged(qm_query, r, &n);
+    for (unsigned i = 0; i < deque_size(rows); ++i) {
+        void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
     }
-    deque_clear(dir);
-    deque_assign(dir, save);
-    deque_destroy(save);
+    deque_destroy(rows);
 }
 
 /* Insert at pos+1 or append, then keep the shuffle pool, previous index and gapless preload
@@ -2109,7 +2104,11 @@ int ringnav(void *ctx, void *event) {
         widget_invalidate_force(w, (void *)0);
         return STOP;
     }
-    int step = wheel_step(&g_menu, top, dir, now);
+    int step = 1;
+    if (g_menu.rows <= SHORT_LIST_MAX)
+        st.wheel_run = 0;
+    else
+        step = ramp(top, g_menu.w, g_menu.scope, g_menu.ctx, dir, now);
 #if IPOD
     if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
 #endif

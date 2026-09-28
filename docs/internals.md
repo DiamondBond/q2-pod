@@ -2,25 +2,32 @@
 
 How the scroll-wheel payload hooks the stock Shanling Q2 firmware. For the user-facing behavior it produces, see the [README](../README.md); build and release steps are in [building.md](building.md) and [releasing.md](releasing.md).
 
-`release/bin/demo`, `usr/bin/hciplayer` (the PEQ filter), `usr/bin/bluealsa` (one AAC capability byte), the boot logo, `home_page.bin` (the Coverflow card; the iPod Home list) and the artist page inside `rootfs.squashfs` change, and the stock EQ preset page and the images only the stock EQ pages show (`STOCK_EQ` in `tools/build.py`) are removed. iPod additionally changes the other audited UI assets in `patch/compact.json`: local browsing, settings and streaming pages, the status bar and Now Playing. It also removes the 14 carousel images (`CAROUSEL`) and does not add the Coverflow card icons. The kernel is byte-identical, and the builder checks every other inode's name, type, mtime, mode, uid and gid against stock.
+`release/bin/demo`, `usr/bin/hciplayer` (the PEQ filter), `usr/bin/bluealsa` (one AAC capability byte), the boot logo, `home_page.bin` (the Coverflow card; the iPod Home list) and the artist page inside `rootfs.squashfs` change, and the stock EQ preset page and the images only the stock EQ pages show (`STOCK_EQ` in `tools/build.py`) are removed. iPod additionally changes the other audited assets in `patch/compact.json`: local browsing, settings and streaming pages, the status bar, Now Playing and the theme (`styles/default.bin`). It also removes the 14 carousel images (`CAROUSEL`) and does not add the Coverflow card icons. The kernel is byte-identical, and the builder checks every other inode's name, type, mtime, mode, uid and gid against stock.
 
 ## Hooks
 
 Checked MIPS prologues redirect into a payload at `0xb00000`, using the final unused `PT_NULL` program header. Trampolines restore the stock GOT base and resume each original function after its PIC setup. Writable input and position state is mapped at `0xb20000`, a `NOLOAD` section: the segment's memory size covers it, the file does not.
 
-| Stock callback               | Address    | Purpose                                                       |
-| ---------------------------- | ---------- | ------------------------------------------------------------- |
-| `on_wm_keyup_before_fun`     | `0x4e85c8` | Stock lock filter first, then wheel/centre navigation         |
-| `on_wm_tsdown_before_fun`    | `0x4e8bd0` | Preserve stock touch processing and interrupt wheel glide     |
-| `widget_on_paint_border`     | `0x6596a0` | Outline (normal); chevrons and letter (iPod) after children   |
-| `widget_dispatch`            | `0x65e0ec` | Observe a native click before its app callback changes the UI |
-| `on_wm_keylong_fun`          | `0x4e873c` | Play/Pause hold opens the queue menu; other keys stay stock   |
-| `widget_on_paint_background` | `0x65c77c` | iPod only: selection bar, status bar gradient and title       |
-| `playing_page_init`          | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining  |
-| `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent and Home rows                     |
-| `style_get_color`            | `0x649f6c` | iPod only: maps the returned color to the accent              |
-| `style_get_gradient`         | `0x649f3c` | iPod only: leaf, no PIC prologue; maps the gradient's stops   |
-| `image_manager_add`          | `0x6445d4` | iPod only: maps a decoded image before it is cached           |
+`HOOKS` in `tools/build.py` are hooked in both variants; `IPOD_HOOKS` and the `IPOD_LEAF` only in iPod, so normal keeps those entry points stock.
+
+| Stock callback                | Address    | Purpose                                                                          |
+| ----------------------------- | ---------- | -------------------------------------------------------------------------------- |
+| `on_wm_keyup_before_fun`      | `0x4e85c8` | Stock lock filter first, then wheel/centre navigation (and iPod scrub)           |
+| `on_wm_tsdown_before_fun`     | `0x4e8bd0` | Preserve stock touch processing, interrupt wheel glide (and iPod pull-to-search) |
+| `widget_on_paint_border`      | `0x6596a0` | Outline (normal); chevrons and letter (iPod) after children                      |
+| `widget_dispatch`             | `0x65e0ec` | Observe a native click before its app callback changes the UI                    |
+| `on_wm_keylong_fun`           | `0x4e873c` | Play/Pause hold opens the queue menu; other keys stay stock                      |
+| `playset_equalizer_page_init` | `0x4b642c` | The PEQ editor ([Parametric EQ](#parametric-eq))                                 |
+| `set_equalizer_value`         | `0x4f9230` | Keeps the stock filter and ties the EQ icon to PEQ on/off                        |
+| `home_page_init`              | `0x523c84` | Binds the Coverflow card (iPod: row), then iPod Home art and layout              |
+| `widget_on_paint_background`  | `0x65c77c` | iPod only: selection bar, status bar gradient and title                          |
+| `playing_page_init`           | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                     |
+| `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent and Home rows                                         |
+| `style_get_color`             | `0x649f6c` | iPod only: maps the returned color to the accent                                 |
+| `style_get_gradient`          | `0x649f3c` | iPod only (`IPOD_LEAF`): no PIC prologue; maps the gradient's stops              |
+| `image_manager_add`           | `0x6445d4` | iPod only: maps a decoded image before it is cached                              |
+
+Single checked instruction words are patched as well. Both variants: `mclNextSong`'s shuffle pick (`0x5addf0`, [Queue menu](#queue-menu)). iPod, from `tools/compact.py`: the row pitch, artwork and Now Playing bar immediates and the row-layouter calls listed in `patch/compact.json`, the folder rebind's resize call (`0x522410`, removed), the long-Return Home call (`0x4e8924`, [ipod.md](ipod.md#hold-return)) and the boot resume call (`0x523de0`, [Boot resume](#boot-resume-ipod)). The manifest's `compact_code` lists every changed word.
 
 Stock V1.32 turns the encoder knob into key releases 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop. The payload only sees those releases at `on_wm_keyup_before_fun`.
 
@@ -28,11 +35,11 @@ Stock V1.32 turns the encoder knob into key releases 172/173: `encoderknob_threa
 
 Navigation requires a supported top-window name from `patch/contexts.inc`, screen-on and no lock/test/guide/power-off/USB-link/Bluetooth-receive screen, and a navigable pane: a vertical `scroll_view`, a `table_client`, a `slide_menu` or, in iPod, a dialog flagged `BUTTONS`, whose buttons are its rows and which never scrolls ([ipod.md](ipod.md#pop-ups)). Horizontal and page-snapping scroll views are not candidates, so they cannot make a page look like it has two panes. When two panes are visible and neither owns the selection, the first wheel turn chooses the first pane in UI order. Later turns follow the selected pane, and tapping a row switches ownership. If both panes already hold a selection, the wheel event is left alone. Only active `pages` children are searched. The bounded walk collects at most 512 targets in a non-virtual list; virtual music tables navigate by total logical row count instead.
 
-A native click chooses its pane from the actual target before walking up to the nearest collected ancestor. A successful selection clears the other pane’s selection and invalidates both panes, so the outline, wheel and centre follow the row that owns the tap. Hidden, disabled and inactive-page panes remain excluded.
+A native click chooses its pane from the actual target before walking up to the nearest collected ancestor. A successful selection clears the other pane’s selection and invalidates both panes, so the drawn selection, wheel and centre follow the row that owns the tap. Hidden, disabled and inactive-page panes remain excluded.
 
 ## Selection
 
-Selection is stored in widget-owned integer properties on the navigation surface, independently of AWTK's focused flag. The outline and centre action resolve that same logical selection against the current entries. Centre dispatches a synchronous native `EVT_CLICK`, so a queued click cannot hit a row rebound between selection and delivery. It never dereferences the target after delivery.
+Selection is stored in widget-owned integer properties on the navigation surface, independently of AWTK's focused flag. The drawn selection (outline or bar) and centre action resolve that same logical selection against the current entries. Centre dispatches a synchronous native `EVT_CLICK`, so a queued click cannot hit a row rebound between selection and delivery. It never dereferences the target after delivery.
 
 ## Wheel movement
 
@@ -44,11 +51,11 @@ Selected and restored rows use a `SCROLL_MARGIN` of 12 pixels above and below, r
 
 ## List ends
 
-The local file and music lists carry over at their ends; `patch/contexts.inc` marks those audited row lists with `ring`, while grids such as `album_page`, settings menus, dynamic pages and the home carousel keep hard ends. The first detent past an end nudges only the drawing of the outline by `BUMP_PX` for `BUMP_MS`, without moving the viewport. Further detents hard-stop there, bumping again, while the wheel keeps turning: each one re-arms. Only the first same-direction detent at least `EDGE_PAUSE_MS` (300 ms) after the last stopped one selects the opposite end of the same list and reveals it immediately. The existing boundary rule already reset the spin run, so the wrap lands at one row per detent. The arm is cleared by a move off the boundary row, a reversal, touch, a native click or a centre press.
+The local file and music lists carry over at their ends; `patch/contexts.inc` marks those audited row lists with `ring`, while grids such as `album_page`, settings menus, dynamic pages, the normal Home carousel and the iPod Home list keep hard ends. The first detent past an end nudges only the drawn selection by `BUMP_PX` for `BUMP_MS`, without moving the viewport. Further detents hard-stop there, bumping again, while the wheel keeps turning: each one re-arms. Only the first same-direction detent at least `EDGE_PAUSE_MS` (300 ms) after the last stopped one selects the opposite end of the same list and reveals it immediately. The existing boundary rule already reset the spin run, so the wrap lands at one row per detent. The arm is cleared by a move off the boundary row, a reversal, touch, a native click or a centre press.
 
 ## Scrollbar
 
-Wheel motion also wakes the native scrollbar of the controlled surface. `native_scrollbar()` finds the surface's `scroll_bar_m` sibling under its `list_view` or `table_view` parent and calls the stock `scroll_bar_scroll_to` with the bar's current value; the stock bar keeps ownership of the thumb value and runs its own show, wait and fade lifecycle. An initially transparent bar is still woken, and a surface without a native bar is unchanged. The payload retains no bar pointer and no fade timer, so page destruction and widget recycling need no extra handling. The end bump's `fx_token` widget property and its `fx_expire` timer remain separate from scrollbar visibility: the token rejects a recycled surface, and the timer repaints the outline at the `BUMP_MS` (120 ms) deadline.
+Wheel motion also wakes the native scrollbar of the controlled surface. `native_scrollbar()` finds the surface's `scroll_bar_m` sibling under its `list_view` or `table_view` parent and calls the stock `scroll_bar_scroll_to` with the bar's current value; the stock bar keeps ownership of the thumb value and runs its own show, wait and fade lifecycle. An initially transparent bar is still woken, and a surface without a native bar is unchanged. The payload retains no bar pointer and no fade timer, so page destruction and widget recycling need no extra handling. The end bump's `fx_token` widget property and its `fx_expire` timer remain separate from scrollbar visibility: the token rejects a recycled surface, and the timer repaints the selection at the `BUMP_MS` (120 ms) deadline.
 
 ## Centre button
 
@@ -158,8 +165,9 @@ Crimson returns every color unchanged, so its theme is stock.
   bytes (`gradient_init`), with the stop count at +8 and up to 8 `{color, offset}` stops from
   +0xc (`gradient_add_stop`, `gradient_get_first_color`). Widget backgrounds come this way.
 - `image_manager_add(manager, name, bitmap_t *)` copies a freshly decoded bitmap into the cache.
-  The hook maps its pixels first, unless the name starts `file://` (album covers) or the format
-  is not one of the 32-bit ones: `bitmap_t` has w at 0, h at 4, the format as a u16 at 0xe
+  The hook maps its pixels first, only for plain theme image names (no `/` or `:`, so covers by
+  path, `file://` or online URL are never touched), and only when the format
+  is one of the 32-bit ones: `bitmap_t` has w at 0, h at 4, the format as a u16 at 0xe
   (1 RGBA, 2 ABGR, 3 BGRA, 4 ARGB in memory order, 4 bytes each by `bitmap_get_bpp_of_format`),
   its row stride from `bitmap_get_line_length`, and the pixels from
   `bitmap_lock_buffer_for_write`/`bitmap_unlock_buffer`. Premultiplied pixels are red blended
@@ -182,7 +190,7 @@ Painting the top window, of type `window` so a dialog keeps the page title below
 
 The hook runs the stock init, then caches `label_ipod_pos`, `label_ipod_album`, `label_ipod_remain` and the slider, and syncs them. Painting the top window or the status bar syncs them again, as for the title. The position is `MCL_POS + 1` of `deque_size(*mcl_pdeqplaylist)` ("3 of 12"), empty without a current record. The album is that record's `REC_ALBUM` (the record comes from `queue_now`, which Home's art shares). The remaining time is the slider's max less its value, in stock's format with a leading minus, so it matches the elapsed label and follows a touch drag. Each label is written only when its source changes (position, queue length, album string pointer, or those seconds); `EVT_DESTROY` drops the cache. Stock's total label stays hidden.
 
-`set_repeatpoint`'s marker placement (`0x52a268`) puts the 3x10 A-B markers at x = 50 + t * 290 / length, y 250. iPod's bar is 8 pixels at y 251, so it keeps y and patches the two immediates in `compact.json` to its x and width. The stock slider paint fills `bg_color` and `fg_color` (`canvas_fill_rect` below a 4-pixel radius) before any image, so the image-less slider draws plain bars. Its dragger is skipped when the `icon` style lookup is empty and `border_color` is transparent, and the fill then ends exactly at the value; the slider's style name has no theme entry, so no theme icon applies. `slide_with_bar` still seeks on a tap or drag anywhere on the bar.
+`set_repeatpoint`'s marker placement (`0x52a268`) puts the 3x10 A-B markers at x = 50 + t \* 290 / length, y 250. iPod's bar is 8 pixels at y 251, so it keeps y and patches the two immediates in `compact.json` to its x and width. The stock slider paint fills `bg_color` and `fg_color` (`canvas_fill_rect` below a 4-pixel radius) before any image, so the image-less slider draws plain bars. Its dragger is skipped when the `icon` style lookup is empty and `border_color` is transparent, and the fill then ends exactly at the value; the slider's style name has no theme entry, so no theme icon applies. `slide_with_bar` still seeks on a tap or drag anywhere on the bar.
 
 ## Boot resume (iPod)
 
@@ -194,7 +202,7 @@ iPod makes that `jalr` a checked `jal ringnav_boot`; the delay slot still stores
 
 **Stock audit.** `playing_page` is not a navigation context, so a centre release (218, the power key) passed through to `on_wm_keyup_fun`, whose `screen_action` (`0x4f77d4`) turns the screen off, and a wheel release to the same handler, which changes the volume and opens `dialog/volume_dialog`. The page's own key-up handler (`0x52c248`) only knows Return and keys 222/223. Those drive stock's key seek: a long press sets `0xa3a6c0` (`0x529df0`), key-down (`0x52c754`) calls `playing_timer_clear` (`0x52c634`), sets the mode byte `0xa3a6c1` to 1, steps `slider_play` 5 seconds within `[0, max]` and writes `label_playtime`, and key-up calls `player_seek_time` (`0x51454c`) with the slider value, then `playing_timer_start` (`0x52c114`). A touch drag takes the slider's handlers from the page's `widget_foreach` visitor (`0x52ae6c`): value-changing (`0xf`, `0x52c950`) writes the label and, in mode 0, clears the timer and sets mode 2; value-changed (`0xe`, `0x52c5fc`) seeks the same way only in mode 2 (`0x52c364`). `player_seek_time` takes track seconds: it adds the current record's CUE start (`+0x48`), pauses DLNA, calls `mclSetSeek` (`0x5ab1ac`), then polls `player_playtime` every 10 ms, up to 2 s, until it reaches the target. `player_seek_start` (`0x5143a8`) is DLNA's and not used. `slider_set_value` emits will-change (`0xd`) and changed (`0xe`), never changing, so a set value in mode 0 neither seeks nor writes the label.
 
-**Scrub.** On the top `playing_page`, with no window animation or pressed pointer, the key-up hook takes the centre button. A release arms a `DOUBLE_CLICK_MS` timer, and a second release before it ends cancels it and passes through to the stock screen off, ending any scrub. The timer toggles scrub. Starting calls `playing_timer_clear`, reads the slider value as the target and sets the slider's `style:normal:fg_color` to white. While scrubbing, a wheel release moves the target by `SCRUB_STEP` (5) seconds times the list ramp's step (`wheel_step` on the slider as a long list, so 5 to 40 seconds), clamped to `[0, max]`. It sets the slider value, writes `label_playtime` in stock's format and syncs the remaining label, then rearms a `SEEK_MS` (150 ms) seek and a `SCRUB_MS` (3 s) end, and swallows the release. The seek is `player_seek_time(target)`, the stock key path's commit, so CUE tracks stay track-relative. Ending commits a pending seek at once, restores the accent's light-tone fill and calls `playing_timer_start`. It ends on centre, the timeout, Return (swallowed on the page), a touch (before the slider sees it, so a drag seeks the stock way), another top window, or the page's `EVT_DESTROY`, which drops a pending seek. A seek or end after the playing track changed (queue position and path, recorded at the start) only ends the scrub, without seeking. The mode byte stays 0 throughout. Outside scrub the wheel stays on the volume.
+**Scrub.** On the top `playing_page`, with no window animation or pressed pointer, the key-up hook takes the centre button. A release arms a `DOUBLE_CLICK_MS` timer, and a second release before it ends cancels it and passes through to the stock screen off, ending any scrub. The timer toggles scrub. Starting calls `playing_timer_clear`, reads the slider value as the target and sets the slider's `style:normal:fg_color` to white. While scrubbing, a wheel release moves the target by `SCRUB_STEP` (5) seconds times the list ramp's step (`ramp` keyed on the slider, so 5 to 40 seconds), clamped to `[0, max]`. It sets the slider value, writes `label_playtime` in stock's format and syncs the remaining label, then rearms a `SEEK_MS` (150 ms) seek and a `SCRUB_MS` (3 s) end, and swallows the release. The seek is `player_seek_time(target)`, the stock key path's commit, so CUE tracks stay track-relative. Ending commits a pending seek at once, restores the accent's light-tone fill and calls `playing_timer_start`. It ends on centre, the timeout, Return (swallowed on the page), a touch (before the slider sees it, so a drag seeks the stock way), another top window, or the page's `EVT_DESTROY`, which drops a pending seek. A seek or end after the playing track changed (queue position and path, recorded at the start) only ends the scrub, without seeking. The mode byte stays 0 throughout. Outside scrub the wheel stays on the volume.
 
 ## Pull-to-search (iPod)
 

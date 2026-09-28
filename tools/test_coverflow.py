@@ -173,6 +173,8 @@ int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0
 static int (*timer_fn)(const void *), (*last_fn)(const void *);
 unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = last_fn = f; return 1; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; return 0; }
+void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; } /* ringnav.c's */
+void rearm(unsigned *t, int (*f)(const void *), unsigned ms) { stop_timer(t); *t = timer_add(f, 0, ms); }
 static void run(void) { while (timer_fn) { int (*f)(const void *) = timer_fn; timer_fn = 0; usleep(1000); f(0); } }
 
 /* libcstl: a deque of record pointers; the query stubs fill the staging deque. */

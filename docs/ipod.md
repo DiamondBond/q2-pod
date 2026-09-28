@@ -1,4 +1,4 @@
-# iPod audit and device checks
+# iPod variant
 
 Normal and iPod share one navigation payload. `--ipod` enables the compact layout
 payload helpers and build-time edits in `tools/compact.py`; normal receives no
@@ -10,9 +10,12 @@ AWTK binary UI files contain a four-byte magic, recursive widgets with a 32-byte
 type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only the assets
 pinned in `compact.json` are accepted: nine local browsing pages, the settings
-and streaming pages, Home, the status bar and Now Playing. The primary `view_navbar` stays allocated but invisible
+and streaming pages, Home, the status bar, Now Playing and the theme
+(`styles/default.bin`). The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
 moved into its space.
+
+## Rows
 
 `PITCH = 72` is shared by all build-time row geometry edits, native row-height
 resets and artwork offset divisors. Four rows fit the 290-pixel client area below
@@ -25,6 +28,28 @@ positions the playing overlay. Font definitions are untouched. Full-height
 text/icon containers are shortened with their button. Titles and metadata keep
 their stock centring, one pixel higher for the two-pixel-shorter body.
 
+Native local row-pool constructors are at 0x523038 (folder), 0x4aa2cc (songs),
+0x4b0efc (local categories) and 0x4a4ae8 (album list/grid). The album grid branch
+is unchanged. Album detail, artist track and playlist constructors have their own
+explicit sites in the audit. Folder reset at 0x5217d4, return offset division at
+0x521a84 and scrolling cover division at 0x5228f8 all use the same compact pitch.
+The category cover callback originally divides by 120 despite using 78-pixel
+rows; iPod corrects its audited divisor at 0x4b0608 to 72. Rebinding and delayed
+cover callbacks keep the same widget geometry and saved cover preferences.
+
+Seven audited row-constructor calls install a per-instance children layouter for
+folder, song, album-list, category, album-track, artist-track and playlist rows.
+Before the stock horizontal layout runs, it gives the title (and its containing
+view, where present) the row width minus the existing side margins, visible sibling
+widths and gaps. Hidden artwork and controls reserve no space. The stock layouter
+still positions the children, preserving the title's left edge, artwork, row height
+and padding. Its clone/destruction and parameter functions remain native; neither
+the shared widget implementation nor album grids are hooked. The folder rebind's
+140/190-pixel resize call is disabled so recycled titles retain their computed
+width. Title styles and scrolling/ellipsis settings are untouched.
+
+## Flat rows and selection bar
+
 Theme edits change values in place in the shared `styles/default.bin`, so they
 reach every page using these styles. The file holds a magic `0xFAFBFCFD`, a
 100-byte index entry (data offset, state, style, widget type) per style state,
@@ -36,6 +61,10 @@ album grid buttons (`s_btn_listblack`, used only by the album and all-music grid
 become transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
 leaving the stock playing glyph to mark the current song; only list rows use them.
 The album page's inline black grid buttons become transparent as well.
+
+With the rows transparent, the payload draws the selection bar behind them: a full-width
+gradient in the accent colour, or the tile's own rectangle in a grid (see
+[internals.md](internals.md#drawing)). A touch hides it until the next wheel or centre input.
 
 ## Home
 
@@ -104,11 +133,14 @@ move to `x = -200`, where they draw off-screen. A new `label_title`
 clear of the right icon group. Both groups use the list rows' 8-pixel edge margin
 instead of stock's 50; stock pages already place controls 3 pixels from the edge.
 The margin and the minimum title width, checked at build, are constants in
-`tools/compact.py`.
+`tools/compact.py`. The payload paints the bar's graphite gradient and keeps
+`label_title` in step with the top window: the hidden navbar's title, `Q2` on
+Home, "Now Playing" on `playing_page` (see
+[internals.md](internals.md#status-bar-ipod)).
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
-`navbar_only` in `compact.json`. Their native
+`navbar_only` in `compact.json` with their pinned hashes. Their native
 inits destroy the navbar's children and create an unnamed title `hscroll_label`,
 back, Home and Now Playing buttons; none has a control the keys lack. Lists move
 up 50 pixels and reach `BOTTOM`, keeping the stock 78-pixel settings rows; other
@@ -119,25 +151,7 @@ all children) and every Tidal page, whose navbars hold the search and sort
 buttons. A page with a visible navbar keeps its own title and the status bar
 shows none.
 
-Native local row-pool constructors are at 0x523038 (folder), 0x4aa2cc (songs),
-0x4b0efc (local categories) and 0x4a4ae8 (album list/grid). The album grid branch
-is unchanged. Album detail, artist track and playlist constructors have their own
-explicit sites in the audit. Folder reset at 0x5217d4, return offset division at
-0x521a84 and scrolling cover division at 0x5228f8 all use the same compact pitch.
-The category cover callback originally divides by 120 despite using 78-pixel
-rows; iPod corrects its audited divisor at 0x4b0608 to 72. Rebinding and delayed
-cover callbacks keep the same widget geometry and saved cover preferences.
-
-Seven audited row-constructor calls install a per-instance children layouter for
-folder, song, album-list, category, album-track, artist-track and playlist rows.
-Before the stock horizontal layout runs, it gives the title (and its containing
-view, where present) the row width minus the existing side margins, visible sibling
-widths and gaps. Hidden artwork and controls reserve no space. The stock layouter
-still positions the children, preserving the title's left edge, artwork, row height
-and padding. Its clone/destruction and parameter functions remain native; neither
-the shared widget implementation nor album grids are hooked. The folder rebind's
-140/190-pixel resize call is disabled so recycled titles retain their computed
-width. Title styles and scrolling/ellipsis settings are untouched.
+## Hold Return
 
 The stock long-key function at 0x4e873c retains all instructions except the final
 Home call at 0x4e8924. Stock power, lock, test and key-lock gates and its release
@@ -225,12 +239,12 @@ bar is drawn in the dialog's background: the button's own rectangle for a button
 the dialog (the confirm pair), the full width otherwise. A new dialog starts on its first button,
 Cancel on the confirm pair.
 
-| Dialog | Buttons |
-|---|---|
+| Dialog                                           | Buttons                                         |
+| ------------------------------------------------ | ----------------------------------------------- |
 | `confirminfo_dialog`, `tidal_confirminfo_dialog` | `img_cancel`, `img_enter` (80x80, side by side) |
-| `autoshutdown_dialog` | `btn_cancel` |
-| `tidal_quality_select_dialog` | four quality rows, `btn_ok` |
-| `tidal_sortmode_dialog` | three sort rows, `btn_cancel` |
+| `autoshutdown_dialog`                            | `btn_cancel`                                    |
+| `tidal_quality_select_dialog`                    | four quality rows, `btn_ok`                     |
+| `tidal_sortmode_dialog`                          | three sort rows, `btn_cancel`                   |
 
 `sortselect_dialog` and the search result dialogs already navigate their lists. Left out, so the
 wheel stays on the volume: the text-entry dialogs (`addplaylist`, `editwifi`, `kbwifiadd`,
@@ -269,12 +283,12 @@ missing key copies the default and returns -1. The default must not be null (sto
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
 one valid digit, is Graphite and Split.
 
-| Accent | Selection bar | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it) |
-|---|---|---|---|---|
-| Graphite (0, default) | `#5A5A5A` to `#363636` | 6.9:1 / 12.1:1 | `#6E6E6E` (3.3:1) | `#D8D8D8` (1.4:1) |
-| Crimson (1) | `#E8123F` to `#A60025` | 4.6:1 / 7.9:1 | `#EB2F56` (4.1:1) | stock `#FF1448` (3.9:1) |
-| Tidal (2) | `#13838D` to `#095158` | 4.5:1 / 9.0:1 | `#30929B` (4.6:1) | `#30929B` (3.7:1) |
-| Champagne (3) | `#8C732C` to `#5D4A18` | 4.6:1 / 8.5:1 | `#9A8446` (4.7:1) | `#9A8446` (3.6:1) |
+| Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
+| --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
+| Graphite (0, default) | `#5A5A5A` to `#363636` | 6.9:1 / 12.1:1        | `#6E6E6E` (3.3:1)         | `#D8D8D8` (1.4:1)       |
+| Crimson (1)           | `#E8123F` to `#A60025` | 4.6:1 / 7.9:1         | `#EB2F56` (4.1:1)         | stock `#FF1448` (3.9:1) |
+| Tidal (2)             | `#13838D` to `#095158` | 4.5:1 / 9.0:1         | `#30929B` (4.6:1)         | `#30929B` (3.7:1)       |
+| Champagne (3)         | `#8C732C` to `#5D4A18` | 4.6:1 / 8.5:1         | `#9A8446` (4.7:1)         | `#9A8446` (3.6:1)       |
 
 The light tone is the top lightened 12% toward white, as Graphite's `#6E6E6E` is: the bar's
 one-pixel highlight and the progress fill. Tidal and Champagne tops are darkened in hue (and
@@ -288,8 +302,8 @@ stock's red buttons with white text become white on `#6E6E6E` (5.1:1) and the do
 
 ## Device checklist
 
-Every check below has been hardware-tested on both builds and confirmed by the
-user. Their parameters remain unchanged; the list stays as the regression guide.
+The regression guide for device tests of the iPod build. Entries that name
+Normal also apply to it.
 
 - **pull to search**: iPod Local Songs only: start at the list top, pull
   47/48/49 pixels and release. Check both prompts, backing below the threshold,
@@ -303,7 +317,7 @@ user. Their parameters remain unchanged; the list stays as the regression guide.
 - **readability**: Browse Folder and Local Songs, artists, genres, albums, album
   tracks, artist tracks/albums and playlists. Check all four complete ordinary
   rows, long filenames, two-line metadata, non-Latin text and the selection
-  outline. Titles should use the formerly empty right-hand space up to the row's
+  bar. Titles should use the formerly empty right-hand space up to the row's
   padding or visible trailing control, without overlap. Repeat after scrolling,
   page reopening and artwork/control visibility changes; short titles should stay
   at the same left position and overflowing titles should still scroll/ellipsize.
@@ -334,8 +348,57 @@ user. Their parameters remain unchanged; the list stays as the regression guide.
 - **retained_controls**: Use tabs, Play All, sorting, playlist import/export,
   rename/delete and all separately retained action/editing controls. Verify
   remembered selection after sorting and folder/album/query returns.
-- **excluded_screens**: Verify settings, online services, dialogs
-  and scanning/editing screens retain stock layouts and work.
+- **flat_rows**: Browse lists, grids and settings. Rows show no grey card or
+  black fill; the playing song keeps its glyph with a white title. The bar spans
+  the list at the selected row, follows the end bump, and fills only its own
+  rectangle on album grid tiles. A touch hides it until the next wheel or centre
+  input. Pressed rows still show touch feedback.
+- **status_bar**: Check the play state on the left; EQ, Bluetooth/codec, Wi-Fi
+  and battery on the right, each following its state. The centred title matches
+  every local, settings and streaming page, `Q2` on Home and "Now Playing" on Now
+  Playing; a dialog keeps the page title. Tidal pages show their own title and
+  none in the bar. Volume turns still open the stock volume pop-up.
+- **home**: Wheel through all seven rows (hard ends) and open each with centre
+  and tap; Coverflow is third. Switch the language and confirm the labels follow.
+  In Split, the art follows the playing track across track changes: embedded art,
+  a folder image, no art (Coverflow thumbnail, then the default), Tidal and a
+  stopped player. Switch to Full: the list spans the screen, the chevrons sit at
+  the edge, the whole row takes a tap and no art shows; switch back to Split.
+- **chevrons**: `>` shows on every Home row and playlist row, lined up with the
+  stock chevrons of categories, artists and albums. None on song lists, grid
+  tiles, playlist Import/Export or in multi-select.
+- **fast_scroll_letter**: Spin through a list of more than 16 rows: the letter
+  shows once the step passes one row, matches the selected title (capitals for
+  Latin, other scripts as they are, leading spaces skipped) and clears 400 ms
+  after the last fast detent, on a slow detent, a touch or the list end. Short
+  lists, Home and settings never show it. Repeat in a virtual song list.
+- **now_playing**: Check "n of m" against the queue, the album line, and the
+  remaining time against the elapsed time and a touch drag. Repeat across track
+  changes, a CUE track, an empty queue and a stopped player. Tap and drag the bar
+  to seek; set A-B and confirm the markers sit on the bar. Swipe to lyrics and
+  info and back; favourite, More and play mode work.
+- **scrub**: On Now Playing, centre starts the scrub (white fill). Wheel ticks
+  move 5 s, more while spinning, clamped to the track; the track jumps 150 ms
+  after the last tick. Centre, Return (staying on the page), a touch and 3 s idle
+  each end it and return the wheel to volume. A double press still turns the
+  screen off. A track change mid-scrub does not seek the new track. Outside the
+  scrub the wheel changes volume.
+- **accent**: In System settings → Display, cycle all four accents with the
+  wheel, centre and tap. Each colours the bar, the progress fill, switches,
+  ticks, red text and display icons at once; Crimson looks stock; album covers
+  keep their colours. Restart and confirm the choice and the Home layout stay.
+- **popups**: Delete something: the confirm pop-up starts on Cancel, the wheel
+  moves between the two buttons and centre picks one. Repeat with the auto
+  shut-down warning and Tidal's quality and sort pop-ups. Text-entry pop-ups and
+  Update Local Music keep the wheel on the volume.
+- **boot**: With Memory playback on, restart: Home shows, the last queue, track
+  and position come back paused, and Now Playing or Play/Pause carries on. Car
+  mode starts playing on Now Playing. With Memory playback off, nothing resumes.
+  A missing restored track still shows its toast on Home.
+- **aac**: Normal and iPod: let AirPods or another AAC headset connect by
+  itself (taken out of the case) and play; the audio is not choppy.
+- **excluded_screens**: Verify Tidal and other online pages, text-entry and
+  progress dialogs, and scanning/editing screens keep stock layouts and work.
 
 Emulator tests validate native constructors, stock input gates and the shared
 navigation behavior with mocked toolkit services. They do not establish visual

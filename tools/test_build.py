@@ -29,7 +29,7 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF
-    from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY, PLAYING_PAGE,
+    from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY, PLAYING_PAGE, UI_ASSETS,
                          STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, walk, patch_asset, patch_code, patch_style)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
@@ -52,7 +52,7 @@ def validate_assets(directory):
         if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)
         assert demo[off:off+8] == want
     changed = manifest['changed_assets']
-    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
+    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
         'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])

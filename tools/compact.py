@@ -13,6 +13,7 @@ import struct
 from build import ROOT, check as require, fileoff
 
 AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/compact.json').read_text())
+UI_ASSETS = AUDIT['assets'] | AUDIT['navbar_only']
 # The app window is the 375x320 screen minus the 30px status bar, so a 290px list holds four
 # 72px rows. The stock 52px artwork is drawn 1:1 (no rescaling) with an 8px inset inside the
 # 68px row body. Rows keep the row layout's eight-pixel left margin for the artwork.
@@ -323,7 +324,7 @@ def playing_page(root):
 
 # iPod only. Settings and Streaming keep the stock row height; only their navbar goes, as on the
 # local pages. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
-NAVBAR_ONLY = set(AUDIT['navbar_only'])
+NAVBAR_ONLY = AUDIT['navbar_only']
 
 
 def patch_word(data, changes, address, old, new, purpose):
@@ -334,21 +335,15 @@ def patch_word(data, changes, address, old, new, purpose):
 
 
 def patch_asset(path, data, ipod):
-    require(hashlib.sha256(data).hexdigest() == AUDIT['assets'][path], f'{path}: unaudited UI asset')
+    require(hashlib.sha256(data).hexdigest() == UI_ASSETS[path], f'{path}: unaudited UI asset')
     root = decode(data)
     require(encode(root) == data, f'{path}: UI round trip differs')
     if path == ARTIST_PAGE:
         artist_tabs(root)
-    if path == HOME_PAGE:
-        (ipod_home if ipod else home_card)(root)
-        return encode(root)
-    if not ipod:
-        return encode(root)
-    if path == STATUS_BAR:
-        status_bar(root)
-        return encode(root)
-    if path == PLAYING_PAGE:
-        playing_page(root)
+    whole = {HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page} if ipod else {HOME_PAGE: home_card}
+    if path in whole:
+        whole[path](root)
+    if path in whole or not ipod:
         return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
     require(len(nav) == 1 and nav[0][1] in ([0, 0, 375, 50], [0, 0, 370, 50]), f'{path}: unexpected toolbar')  # 370: stream_page
