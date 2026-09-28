@@ -2364,7 +2364,7 @@ class CoverflowMachine(QueueMachine):
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
-                  'pthread_join@GLIBC_2.0','opendir@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
+                  'pthread_join@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
         self.albums=[self.song('T0') for _ in range(albums)]

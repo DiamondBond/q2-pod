@@ -244,7 +244,7 @@ int main(void) {
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
     deque staging = {0};
     shim_dir = &staging;
-    mkdir(PEQ_ROOT, 0755); mkdir(PEQ_ROOT "/mnt", 0755); mkdir(PEQ_ROOT "/mnt/data", 0755); mkdir(PEQ_ROOT "/mnt/mmc", 0755); mkdir(PEQ_ROOT "/music", 0755);
+    mkdir(PEQ_ROOT, 0755); mkdir(PEQ_ROOT "/mnt", 0755); mkdir(PEQ_ROOT "/mnt/mmc", 0755); mkdir(PEQ_ROOT "/music", 0755);
 
     /* An empty library, or one being scanned, shows the message and builds nothing. */
     open_page();
@@ -323,18 +323,6 @@ int main(void) {
     before = calls;
     open_page();
     assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, "default_album_big"));
-    close_page();
-
-    /* V4.6 kept the cache on /mnt/data; the next open clears it, stale empty markers included. */
-    struct stat st;
-    mkdir(PEQ_ROOT "/mnt/data/coverflow-art", 0755);
-    fclose(fopen(PEQ_ROOT "/mnt/data/coverflow-art/0badf00d.jpg", "w"));
-    FILE *old = fopen(PEQ_ROOT "/mnt/data/coverflow-art/12345678.jpg", "w");
-    fputs("old art", old); fclose(old);
-    open_page();
-    assert(stat(PEQ_ROOT "/mnt/data/coverflow-art/0badf00d.jpg", &st));
-    assert(stat(PEQ_ROOT "/mnt/data/coverflow-art/12345678.jpg", &st));
-    assert(calls == before && size("Cover") == 9 && size("None") == 0);
     close_page();
     return 0;
 }

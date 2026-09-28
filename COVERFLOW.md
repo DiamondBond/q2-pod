@@ -35,7 +35,7 @@ Source: Rockbox `apps/plugins/pictureflow/pictureflow.c`.
 |---|---|
 | tagcache database | the stock Local Music library (§0 finds the query) |
 | `check_database()` | if the library is empty or not built, show "Update Local Music first" |
-| `.pfraw` cache | `/mnt/mmc/.coverflow/<fnv(album_artist,album)>.jpg` at 160×160 (V4.6 used `/mnt/data/coverflow-art`); an empty file marks "no art" (the placeholder) |
+| `.pfraw` cache | `/mnt/mmc/.coverflow/<fnv(album_artist,album)>.jpg` at 160×160; an empty file marks "no art" (the placeholder) |
 | modal first build | a modal progress screen with Cancel; the art pthread touches only files, the two mutexes and volatile counters |
 | manual rebuild only | on open, build only the albums with no cache file, then a **Refresh library** card that clears the cache and rebuilds |
 
