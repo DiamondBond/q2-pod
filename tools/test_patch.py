@@ -2364,7 +2364,7 @@ class CoverflowMachine(QueueMachine):
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
-                  'pthread_join@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
+                  'pthread_join@GLIBC_2.0','opendir@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
         self.albums=[self.song('T0') for _ in range(albums)]
@@ -2388,7 +2388,7 @@ class CoverflowMachine(QueueMachine):
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.albums]; ret=len(self.albums)
         elif name=='navigator_back_to_home': self.homes+=1
         elif name=='navigator_to_with_context': self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
-        elif name=='access': path=self.text(a); ret=0 if (self.cached if 'coverflow-art' in path else not self.missing) else -1
+        elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
         elif name=='free': self.freed+=a!=0
@@ -2429,7 +2429,8 @@ class CoverflowMachine(QueueMachine):
 m=CoverflowMachine(); page=m.open()
 assert m.nodes[page]['name']=='coverflow_page' and m.slide and not m.threads
 covers=m.nodes[m.slide]['children']; assert len(covers)==4
-assert [m.nodes[c]['image'][:31] for c in covers]==['file:///mnt/data/coverflow-art/']*3+['default_album_big']
+assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
+assert m.nodes[covers[-1]]['image']=='default_album_big'
 assert 'Album 0' in m.texts(); passed()
 m.press(3); assert m.hold()==0 and m.top==page; passed()  # Play/Pause hold stays stock here
 assert m.call()==11 and [c for c in m.calls if c[0]=='slide_menu_scroll_to_next'][0][1]==m.slide

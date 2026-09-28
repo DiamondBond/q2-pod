@@ -329,8 +329,12 @@ int main(void) {
     struct stat st;
     mkdir(PEQ_ROOT "/mnt/data/coverflow-art", 0755);
     fclose(fopen(PEQ_ROOT "/mnt/data/coverflow-art/0badf00d.jpg", "w"));
+    FILE *old = fopen(PEQ_ROOT "/mnt/data/coverflow-art/12345678.jpg", "w");
+    fputs("old art", old); fclose(old);
     open_page();
     assert(stat(PEQ_ROOT "/mnt/data/coverflow-art/0badf00d.jpg", &st));
+    assert(stat(PEQ_ROOT "/mnt/data/coverflow-art/12345678.jpg", &st));
+    assert(calls == before && size("Cover") == 9 && size("None") == 0);
     close_page();
     return 0;
 }
