@@ -1,11 +1,12 @@
-# q2-ringnav: Wheel Navigation & Ten-Band Parametric EQ
+# q2-ringnav: Wheel Navigation, 10-Band PEQ & Coverflow
 
-A firmware mod for the **Shanling Q2** that adds two everyday upgrades:
+A firmware mod for the **Shanling Q2** that adds three everyday upgrades:
 
 - **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
 - **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, frequency, gain, Q and preamp, or import **AutoEQ / Equalizer APO** presets from your microSD card.
+- **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 
-Both features are included in the normal and compact variants. Touch works as before, and outside supported menus the wheel still controls volume.
+All three are included in the normal and compact variants. Touch works as before, and outside supported menus the wheel still controls volume.
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
 
