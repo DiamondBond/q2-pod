@@ -203,13 +203,13 @@ PRIVATE_FUNCTIONS = {
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
-           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status']
-# Audited stock browsing state, deque pointers, art locks and the status bar widget
-# (system_bar_init stores it); sizes are checked against the ELF.
+           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type']
+# Audited stock browsing state, deque pointers, art locks, the status bar widget
+# (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
-                'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4}
+                'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
@@ -219,6 +219,9 @@ STOCK_EQ = ['release/assets/default/raw/ui/playset/preseteq_page.bin'] + [
     f'release/assets/default/raw/images/xx/{n}.png' for n in
     ['eq_bg', 'eq_off', 'eq_sidebg', 'eqbox'] + [f'eq_{p}{s}' for p in
     ('blues', 'classical', 'custon', 'dance', 'jazz', 'metal', 'pop', 'rock', 'scene') for s in ('', '_select')]]
+# iPod: the Home carousel's card and arrow images; only the stock home_page.bin names them.
+CAROUSEL = [f'release/assets/default/raw/images/xx/menu_{n}.png' for n in
+    [*(c + s for c in ('playing', 'music', 'folder', 'stream', 'playset', 'sysset') for s in ('', 'down')), 'left', 'right']]
 
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
@@ -230,7 +233,7 @@ def hooks(ipod): return HOOKS | IPOD_HOOKS if ipod else HOOKS
 def compile_payload(out, ipod=False):
     """Compile and link the payload."""
     from peq import compile_common
-    extra = compile_common(out, out/'stock-demo')  # also writes the libc/libcstl imports ringnav.c uses
+    extra = compile_common(out, out/'stock-demo', ipod=ipod)  # also writes the libc/libcstl imports ringnav.c uses
     run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
@@ -375,9 +378,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo = out/'logo.jpg'
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
-    # The Coverflow card's icons are the only new inodes; they copy menu_music's metadata.
+    # Normal's Coverflow card icons are the only new inodes; they copy menu_music's metadata.
     added = []
-    for name in ICONS:
+    for name in [] if ipod else ICONS:
         stock = re.search(rb'^release/assets/default/raw/images/xx/'+name.replace('coverflow','music').encode()+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
         check(stock is not None, f'Missing stock icon for {name}')
         path = b'release/assets/default/raw/images/xx/'+name.encode()
@@ -387,9 +390,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         p = p[:at]+entry+p[at:]
         added.append([path, b'R', *stock.groups()])
     removed = []
-    for path in STOCK_EQ:
+    for path in STOCK_EQ + (CAROUSEL if ipod else []):
         line = re.search(rb'^'+re.escape(path.encode())+rb' R .+\n', p, re.M)
-        check(line is not None, f'Missing stock EQ inode {path}')
+        check(line is not None, f'Missing stock inode {path}')
         removed.append(line.group().split()[:6])
         p = p[:line.start()]+p[line.end():]
     changed_assets = {}

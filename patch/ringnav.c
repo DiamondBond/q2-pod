@@ -9,6 +9,7 @@ extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
 extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
+extern void coverflow_home_art(void *top);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -1083,7 +1084,8 @@ static void title_sync(void *bar, void *top) {
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
  * The selection work for the surface happens here, once per frame, instead of in the border hook.
  * Top-level widgets are the status bar, which gets its gradient, and the windows. Painting the top
- * window or the bar (at least each second, systembar_showface) keeps the bar's title current. */
+ * window or the bar (at least each second, systembar_showface) keeps the bar's title and Home's
+ * art current. */
 int ringnav_paint_bg(void *w, void *canvas) {
     int result = stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
@@ -1098,7 +1100,10 @@ int ringnav_paint_bg(void *w, void *canvas) {
         canvas_set_fill_color(canvas, fill);
     }
     void *top = window_manager_get_top_window(wm);
-    if (bar && (w == bar || w == top)) title_sync(bar, top);
+    if (bar && (w == bar || w == top)) {
+        title_sync(bar, top);
+        coverflow_home_art(top);
+    }
     return result;
 }
 #endif

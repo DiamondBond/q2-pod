@@ -192,18 +192,24 @@ static void row(void *view, int index, const char *caption, int (*click)(void *,
     widget_on(item, EVT_CLICK, click, (void *)(long)index);
 }
 
-/* Stock pattern (album rows): load the file, set it, drop the load's reference. A failed load,
- * such as the empty "no art" marker, shows the placeholder. */
+/* Stock pattern (album rows, Now Playing): load the file, set it, drop the load's reference, so the
+ * next paint decodes the file again rather than a stale cached copy. Returns 0 when the load fails,
+ * as for the empty "no art" marker. */
+static int show(void *img, const char *url) {
+    unsigned bitmap[64]; /* bitmap_t */
+    if (widget_load_image(img, url, bitmap)) return 0;
+    image_base_set_image(img, url);
+    widget_unload_image(img, bitmap);
+    return 1;
+}
+
 static void cover(void *img, unsigned i, int near) {
     char url[600] = "file://";
     near = near && i < deque_size(cf.albums);
     if (near) art_path(url + 7, album_key(deque_at(cf.albums, i)), "");
-    const char *image = near ? url : PLACEHOLDER;
-    if (!tk_strcmp(widget_get_prop_str(img, "image", ""), image)) return;
-    unsigned bitmap[64]; /* bitmap_t */
-    int loaded = near && !widget_load_image(img, url, bitmap);
-    image_base_set_image(img, loaded ? url : PLACEHOLDER);
-    if (loaded) widget_unload_image(img, bitmap);
+    if (tk_strcmp(widget_get_prop_str(img, "image", ""), near ? url : PLACEHOLDER) &&
+        (!near || !show(img, url)))
+        image_base_set_image(img, PLACEHOLDER);
 }
 
 static int changed(void *ctx, void *event) {
@@ -449,10 +455,56 @@ static int coverflow_open(void *ctx, void *event) {
     return 0;
 }
 
+#if IPOD
+/* iPod Home (docs/ipod.md): the playing track's art beside the list. */
+static struct {
+    void *win, *art;
+    unsigned key;
+} home __attribute__((section(".scratch")));
+
+/* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
+ * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
+ * Tidal's (5) is keyed by its online URL, never a queue path, so Home leaves it out. */
+static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpic.jpg",
+                                             "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
+                                             "file://" PEQ_ROOT "/tmp/externpic.jpg" };
+
+/* The player's cover, else the Coverflow cache of the track's album, else the placeholder. The
+ * player's files belong to the track whose path it copies to g_lastcover_url after writing them,
+ * so right after a track change they count only once that is this track. Runs whenever Home or
+ * the status bar paints (at least once a second) and reloads only when the track or the cover it
+ * can use changes. */
+void coverflow_home_art(void *top) {
+    if (!home.art || top != home.win) return;
+    void *queue = P(mcl_pdeqplaylist, 0);
+    unsigned pos = *(volatile unsigned *)MCL_POS;
+    void *r = queue && pos < deque_size(queue) ? deque_at(queue, pos) : (void *)0;
+    const char *path = r ? P(r, REC_PATH) : (void *)0;
+    unsigned char type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
+    unsigned key = hash_bytes(fnv(FNV_SEED, (const unsigned char *)path), &type, 1);
+    if (key == home.key) return;
+    home.key = key;
+    const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
+    int shown = cover && show(home.art, cover);
+    if (!shown && r) {
+        char url[600] = "file://";
+        art_path(url + 7, album_key(r), "");
+        shown = show(home.art, url);
+    }
+    if (!shown) image_base_set_image(home.art, PLACEHOLDER);
+    widget_invalidate_force(home.art, 0);
+}
+#endif
+
 /* home_page_init: stock binds the name-matched img_* cards, then the Coverflow card binds here,
  * on its image as stock does, whatever stock returned. */
 int coverflow_home(void *win, void *ctx) {
     int result = stock_home_trampoline(win, ctx);
     widget_on(widget_lookup(win, "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
+#if IPOD
+    home.win = win;
+    home.art = widget_lookup(win, "img_homeart", 1);
+    home.key = ~0u;
+#endif
     return result;
 }

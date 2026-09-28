@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging and reproducibility too."""
-from build import ROOT, STOCK_EQ, jpeg_size
+from build import CAROUSEL, ICONS, ROOT, STOCK_EQ, jpeg_size
 
 logo = (ROOT/'assets/logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -29,8 +29,8 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import json, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS
-    from compact import (AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, MARGIN, NAVBAR_ONLY, STATUS_BAR, STATUS_HIDDEN,
-                         STATUS_LEFT, STATUS_RIGHT, decode, patch_asset, patch_code, patch_style)
+    from compact import (AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, MARGIN, NAVBAR_ONLY,
+                         STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_RIGHT, decode, patch_asset, patch_code, patch_style)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -67,6 +67,10 @@ def validate_assets(directory):
         for child in n[3]: yield from walk(child)
     names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
     assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
+    # iPod drops the carousel images and adds no Coverflow icons; normal keeps both.
+    icons = {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS}
+    carousel = {'squashfs-root/'+rel for rel in CAROUSEL}
+    assert (carousel & names == (set() if ipod else carousel)) and (icons & names == (set() if ipod else icons))
     for rel in paths:
         if rel in STOCK_EQ: continue
         original, new = read('stock.squashfs', rel), read('rootfs.squashfs', rel)
@@ -87,9 +91,17 @@ def validate_assets(directory):
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
         root = decode(new)
-        if short == HOME_PAGE:  # both variants: only the Coverflow card is added
+        if short == HOME_PAGE and not ipod:  # only the Coverflow card is added
             cards = [n[2]['name'] for n in root[3][0][3]]
             assert cards[:3] == ['btn_playing', 'btn_localmusic', 'btn_coverflow'] and len(cards) == 7, cards
+            continue
+        if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
+            (lv, _, _, [sv]), art = root[3]
+            assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
+            assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
+            for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
+                assert label[2]['name'] == 'label_'+name and image[2] == {'name': 'img_'+name, 'clickable': 'true'}
+            assert 7*HOME_ROW <= BOTTOM and b'menu_' not in new and b'slide_menu' not in new
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
             left, right, *rest = root[3]

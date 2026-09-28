@@ -39,7 +39,7 @@ LIBC = {
     'strdup': ('char *', 'const char *'),
 }
 
-def compile_common(out, binary, player=False):
+def compile_common(out, binary, player=False, ipod=False):
     got = {}
     for line in run('readelf', '-AW', binary).splitlines():
         words = line.split()
@@ -71,7 +71,7 @@ def compile_common(out, binary, player=False):
         header += [f'#define {name} (*(volatile unsigned char *)0x{syms[name]:x}u)' for name in GLOBALS]
     (out/'peq_platform.h').write_text('\n'.join(header)+'\n')
     (out/'peq_imports.S').write_text('\n'.join(asm)+'\n')
-    flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections']
+    flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
     if player: flags += ['-mnan=2008']
     objects = []
     for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c']:

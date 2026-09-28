@@ -10,7 +10,7 @@ AWTK binary UI files contain a four-byte magic, recursive widgets with a 32-byte
 type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only the assets
 pinned in `compact.json` are accepted: nine local browsing pages, the settings
-and streaming pages and the status bar. The primary `view_navbar` stays allocated but invisible
+and streaming pages, Home and the status bar. The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
 moved into its space.
 
@@ -36,6 +36,49 @@ album grid buttons (`s_btn_listblack`, used only by the album and all-music grid
 become transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
 leaving the stock playing glyph to mark the current song; only list rows use them.
 The album page's inline black grid buttons become transparent as well.
+
+## Home
+
+`home_page_init` (`0x523c84`) looks up no widget and reads no `slide_menu` state. After the
+guide and memory-play checks it runs `widget_foreach(win, 0x5239b4, win)`, whose visitor
+matches each widget's name (`+0x10`): `img_playing`, `img_localmusic`, `img_folder`,
+`img_stream`, `img_playset`, `img_sysset`, `img_left` and `img_right` get their stock click
+handlers, and `label_*` gets `widget_set_tr_text` with its `small_*` key. Missing names are
+skipped. Only the `img_left`/`img_right` handlers (`0x52391c`, `0x523968`) look up
+`slide_menu`, and nothing else in the executable names it or any card. `application_init`
+opens `home_page` once and it is never recreated, so the list keeps its own selection
+(`CTX_DYNAMIC` is enough) and needs no hidden `slide_menu` or arrow stubs.
+
+iPod's `home_page.bin` is a `list_view` (41-pixel `item_height`) holding a `scroll_view` of
+seven 41-pixel rows (`btn_*` views), in stock order with Coverflow third: Now Playing, Local
+Songs, Coverflow, Folder, Streaming, Playback Setting, System Setting. Each row holds a
+white 20-pixel `label_*` (an ellipsis when too long) inset 20 pixels as stock list text,
+under a full-row transparent `img_*` that takes the tap and is the wheel's click target, so
+the stock visitor binds and translates the rows as it did the cards. Coverflow's label is
+literal. The wheel moves through the rows with hard ends, and the selection bar spans the
+list. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
+the executable were checked; the inputs are SHA-pinned), so iPod removes them.
+
+The list is 187 pixels wide and `img_homeart`, a 172-pixel square on the right, sits 8
+pixels from the edge and centred in the 290-pixel client area. Sizes are `HOME_*`
+constants in `tools/compact.py`.
+
+The art follows the player. `player_get_id3info` hands the playing record's path
+(`REC_PATH`) to `player_set_coverinfo`, and `player_parsecover_thd` (`0x512ca4`) then
+writes that track's cover, sets `g_playcover_type` (`0xa3a332`) and copies the path to
+`g_lastcover_url` (`0xa39c30`). Types: 1 embedded (`/tmp/coverpic.jpg`, 320x320), 2
+folder image and 4 downloaded (`/tmp/externpic.jpg`), 3 none, 0 while it parses and
+after `player_stop`. Tidal (5, `/tmp/album_tidal.jpg`) is keyed by its online URL and
+left out. Now Playing reads the same files by type and clears `g_playcover_finishflag`,
+so Home leaves the flag alone. Home uses the player's file only while
+`g_lastcover_url` is the path of the queue's current track (`*mcl_pdeqplaylist` at
+`MCL_POS`), so a track change never shows the previous cover; otherwise it shows that
+track's Coverflow thumbnail, then `default_album_big`. Each load uses Coverflow's
+sequence (`widget_load_image`, `image_base_set_image`, `widget_unload_image`), so the
+same file name decodes again after a track change. The check runs when Home or the
+status bar paints (the bar at least once a second) and reloads only when the track's
+path or the usable cover type changes. The play queue is only changed on the UI
+thread, where this check runs.
 
 ## Status bar and titles
 
@@ -148,8 +191,8 @@ user. Their parameters remain unchanged; the list stays as the regression guide.
 - **retained_controls**: Use tabs, Play All, sorting, playlist import/export,
   rename/delete and all separately retained action/editing controls. Verify
   remembered selection after sorting and folder/album/query returns.
-- **excluded_screens**: Verify home carousel, Now Playing, settings, online
-  services, dialogs and scanning/editing screens retain stock layouts and work.
+- **excluded_screens**: Verify Now Playing, settings, online services, dialogs
+  and scanning/editing screens retain stock layouts and work.
 
 Emulator tests validate native constructors, stock input gates and the shared
 navigation behavior with mocked toolkit services. They do not establish visual

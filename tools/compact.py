@@ -27,6 +27,14 @@ ART_INSET = (BODY - ART) // 2
 # 151px wide.
 MARGIN = 8
 TITLE_MIN = 150
+# iPod Home: seven 41px rows fill the 290px client area. The list takes the left half, where every
+# English label fits at 20px after the stock list rows' 20px text inset, and the playing track's
+# art a square on the right, inset by MARGIN and centred vertically.
+HOME_ROW = 41
+HOME_LIST_W = 187
+HOME_TEXT_X = 20
+HOME_ART = 375 - HOME_LIST_W - 2 * MARGIN
+HOME_ART_RECT = [HOME_LIST_W + MARGIN, (BOTTOM - HOME_ART) // 2, HOME_ART, HOME_ART]
 
 
 def decode(data):
@@ -128,6 +136,35 @@ def home_card(root):
     menu[0][3].insert(2, card)
 
 
+# iPod only. Home becomes a list of the stock cards' names, in stock order with Coverflow third.
+# home_page_init (0x523c84) looks up no widget: its widget_foreach visitor (0x5239b4) binds img_*
+# clicks and translates label_* by name, and only img_left/img_right, gone here, reach the
+# slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
+# tap and is the row's click target for the wheel.
+HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'stream', 'playset', 'sysset']
+
+
+def ipod_home(root):
+    require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
+    require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in HOME_ROWS if r != 'coverflow'],
+            'Unexpected home cards')
+    rows = []
+    for i, name in enumerate(HOME_ROWS):
+        # Translations longer than English's longest ("Playback Setting", 149px) end in an ellipsis.
+        label = {'name': 'label_' + name, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
+        if name == 'coverflow':
+            label['text'] = 'Coverflow'
+        rows.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + name}, [
+            ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - MARGIN, HOME_ROW], label, []],
+            ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + name, 'clickable': 'true'}, []]]])
+    view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
+            {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)'}, rows]
+    root[3] = [
+        ['list_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
+         {'name': 'list_view_home', 'item_height': str(HOME_ROW)}, [view]],
+        ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'scale_auto'}, []]]
+
+
 def style_props(data):
     """Yield (widget, style, state, prop, value offset, value) for each property of an AWTK style file."""
     magic, _, count = struct.unpack_from('<3I', data)
@@ -208,7 +245,7 @@ def patch_asset(path, data, ipod):
     if path == ARTIST_PAGE:
         artist_tabs(root)
     if path == HOME_PAGE:
-        home_card(root)
+        (ipod_home if ipod else home_card)(root)
         return encode(root)
     if not ipod:
         return encode(root)

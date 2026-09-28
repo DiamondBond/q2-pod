@@ -59,7 +59,7 @@ Save your edits with **Presets → Save editor preset**. Remove saved presets wi
 
 ## Coverflow
 
-**Coverflow** sits after Local Music on Home and flips through your library's albums by cover art. It reads the albums Local Music already knows, so run **Update Local Music** first; until then, and while an update is running, it says so.
+**Coverflow** sits after Local Music on Home (the third row in iPod) and flips through your library's albums by cover art. It reads the albums Local Music already knows, so run **Update Local Music** first; until then, and while an update is running, it says so.
 
 - **First open:** it prepares artwork once, showing progress; **Cancel** or Return keeps what's done and finishes on the next open. It uses `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track; albums without art show a placeholder.
 - **Browsing:** turn the wheel or swipe to move between covers. Centre or tap opens the album's tracks; choose one to play the album from there. Return goes back to the covers, then Home. Coverflow remembers the last album and each album's highlighted track until power-off, and long names scroll.
@@ -73,6 +73,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 
 **iPod** (`Q2.Firmware.V*-ipod.zip`) makes browsing denser and cleaner:
 
+- Home is an iPod-style menu instead of the carousel: Now Playing, Music, Coverflow, Folders, Streaming, Playback and Settings in one list, with the playing track's cover beside it.
 - No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
 - Flat list rows on every page, without the grey cards. The playing song keeps its icon but its title stays white.

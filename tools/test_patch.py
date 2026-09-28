@@ -2432,12 +2432,43 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
-from compact import HOME_PAGE, decode
-cards=[c[2]['name'] for c in decode((B/'ui'/HOME_PAGE).read_bytes())[3][0][3]]
+from compact import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
+cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
+if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
+cards=[c[2]['name'] for c in cards[3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
 assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
 passed()
+def home_list(m,width=HOME_LIST_W):
+    """iPod Home's rows as compact.py builds them: a label under a full-row image, the click target.
+    Stock binds every image but Coverflow's, which the payload binds."""
+    view=m.node(); m.word(view+O['W_W'],width); m.word(view+O['W_H'],7*HOME_ROW); m.word(view+O['VIEW_CONTENT_H'],7*HOME_ROW)
+    imgs=[]
+    for i,name in enumerate(HOME_ROWS):
+        row=m.node('view','btn_'+name); img=m.entry(row) if name!='coverflow' else m.node('image')
+        m.nodes[img].update(type='image',name='img_'+name); m.word(img+O['W_PARENT'],row)
+        m.nodes[row]['children']=[m.node('label','label_'+name),img]; m.word(row+O['W_PARENT'],view)
+        for w,y in ((row,i*HOME_ROW),(img,0)): m.word(w+O['W_Y'],y); m.word(w+O['W_W'],width); m.word(w+O['W_H'],HOME_ROW)
+        m.nodes[view]['children'].append(row); imgs.append(img)
+    return view,imgs
+
+if variant=='ipod':
+    # Home is an ordinary list: the wheel walks the seven rows one by one, stops hard at both ends
+    # (no carry-over, even after a pause), the bar spans the list's width and centre clicks the image.
+    m=Machine(); view,imgs=home_list(m); m.nodes[imgs[2]]['children']=[]
+    em=m.alloc(4); it=m.alloc(0x28); m.word(imgs[2]+O['W_EMITTER'],em); m.word(em,it); m.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+    m.top=m.node('window','home_page',[m.node('list_view','list_view_home',[view]),m.node('image','img_homeart')])
+    m.paint(view)
+    assert m.selected(view)==0
+    for i in range(1,7): assert m.call()==11 and m.selected(view)==i and m.get(view+O['SCROLL_Y'])==0
+    for gap in (1000,50,1000): assert m.call(gap=gap)==11 and m.selected(view)==6
+    m.paint(view); assert m.sel()==(0,6*HOME_ROW,HOME_LIST_W,HOME_ROW)
+    for i in range(5,-1,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
+    for gap in (1000,50,1000): assert m.call(O['KEY_PREV'],gap=gap)==11 and m.selected(view)==0
+    m.call(); m.call()
+    assert not m.slides and m.confirm()==11 and m.dispatched()[0][1]==imgs[2]; passed()
+
 class CoverflowMachine(QueueMachine):
     FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub
     def __init__(self,albums=3,cached=True,**queue):
@@ -2483,11 +2514,18 @@ class CoverflowMachine(QueueMachine):
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
     def open(self):
         """Home with the card at index 2: centre confirms its image, whose click opens Coverflow."""
-        slide=self.node('slide_menu'); self.word(slide+O['SLIDE_INDEX'],2); self.word(slide+0x5c,self.alloc())
-        self.img=self.node('image','img_coverflow'); card=self.node('button',children=[self.img])
-        self.nodes[slide]['children']=[self.entry(slide),self.entry(slide),card,*[self.entry(slide) for _ in range(4)]]
-        self.home=self.top=self.node('window','home_page',[slide]); self.stack=[self.top]
-        assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
+        if variant=='ipod':
+            view,self.imgs=home_list(self); self.img=self.imgs[2]
+            self.art=self.node('image','img_homeart'); self.list=self.node('list_view','list_view_home',[view])
+            self.home=self.top=self.node('window','home_page',[self.list,self.art]); self.stack=[self.top]
+            assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
+            self.paint(view); self.nodes[view]['_ringnav_index']=2
+        else:
+            slide=self.node('slide_menu'); self.word(slide+O['SLIDE_INDEX'],2); self.word(slide+0x5c,self.alloc())
+            self.img=self.node('image','img_coverflow'); card=self.node('button',children=[self.img])
+            self.nodes[slide]['children']=[self.entry(slide),self.entry(slide),card,*[self.entry(slide) for _ in range(4)]]
+            self.home=self.top=self.node('window','home_page',[slide]); self.stack=[self.top]
+            assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
         self.clicks=[]; assert self.confirm()==11 and self.clicks==[self.img]
         f,ctx=self.handler(self.img,O['EVT_CLICK']); assert self.call(address=f,args=(ctx,self.event,0,0),gap=0)==0
         self.page=self.top; self.slide=self.find('slide_menu')
@@ -2515,6 +2553,22 @@ class CoverflowMachine(QueueMachine):
     def key(self,k=O['KEY_RETURN']):
         f,ctx=self.handler(self.page,O['EVT_KEY_UP']); ev=self.alloc(0x40); self.word(ev,O['EVT_KEY_UP']); self.word(ev+O['EVENT_KEY'],k)
         ret=self.call(address=f,args=(ctx,ev,0,0),gap=0); self.advance(0); return ret
+
+if variant=='ipod':
+    # The art follows the playing track through the paint hook, when Home or the status bar paints:
+    # the Coverflow thumbnail of the queue's current album until the player has parsed this track
+    # (g_lastcover_url holds its path), then the player's embedded cover. The list keeps its width.
+    m=CoverflowMachine(); m.open(); m.top=m.home
+    bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
+    for w in (bar,m.home): m.word(w+O['W_PARENT'],m.wm)
+    def art_after(w):
+        m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
+        return m.nodes[m.art].get('image')
+    m.byte(syms['g_playcover_type'],1)
+    assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==240
+    m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_after(bar)=='file:///tmp/coverpic.jpg'
+    m.nodes[m.art]['image']='unchanged'; assert art_after(m.home)=='unchanged'  # same track and cover
+    m.byte(syms['g_playcover_type'],3); assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
 # plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.
