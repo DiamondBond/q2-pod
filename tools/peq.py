@@ -5,11 +5,6 @@ from build import ROOT, FLAGS, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_pay
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
-DEMO_HOOKS = {
-    'playset_equalizer_page_init': (0x4b642c, 'peq_page_init', '57001c3c94089c2721e09903'),
-    'set_equalizer_value': (0x4f9230, 'peq_stock_eq', '53001c3c90da9c2721e09903'),
-    'home_page_init': (0x523c84, 'coverflow_home', '50001c3c3c309c2721e09903'),
-}
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
@@ -86,12 +81,6 @@ def compile_common(out, binary, player=False):
     obj = out/'peq_imports.o'
     run('clang', *flags, '-c', out/'peq_imports.S', '-o', obj)
     return [*objects, obj]
-
-def patch_demo(data, ps):
-    for name, (address, target, original) in DEMO_HOOKS.items():
-        off = fileoff(data, address)
-        check(data[off:off+12].hex() == original, f'{name}: PEQ prologue mismatch')
-        data[off:off+8] = struct.pack('<II', 0x08000000 | (ps[target] >> 2), 0)
 
 def patch_player(raw, out):
     check(sha(raw) == PLAYER_SHA, 'Unsupported hciplayer binary')

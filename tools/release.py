@@ -14,6 +14,7 @@ import zipfile
 from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
 TAG = f'{VERSION}R'
+REPO = 'DiamondBond/q2-ringnav'
 ASSETS = {'normal': f'Q2.Firmware.V{VERSION}.zip', 'compact': f'Q2.Firmware.V{VERSION}-compact.zip'}
 
 
@@ -69,7 +70,7 @@ def archive_bytes(directory):
     return stream.getvalue()
 
 
-def package(stock, out, logo):
+def package(stock, out):
     check(not out.exists(), 'Release output must be a fresh directory')
     out.mkdir(parents=True)
     source = source_sha256()
@@ -77,7 +78,7 @@ def package(stock, out, logo):
     checksums = {}
     for variant, asset in ASSETS.items():
         for suffix in ('', '-repeat'):
-            build(stock, out/(variant+suffix), logo, compact=variant == 'compact')
+            build(stock, out/(variant+suffix), ROOT/'assets/logo.jpg', compact=variant == 'compact')
         # The byte comparisons below prove the repeat build; validate the first only.
         validate(out/variant, variant)
         a, b = out/variant, out/(variant+'-repeat')
@@ -95,7 +96,7 @@ def package(stock, out, logo):
     print(f'Both variants validated and reproducible: {out}')
 
 
-def upload(out, repo, publish=False):
+def upload(out, repo=REPO, publish=False):
     record = json.loads((out/'release.json').read_text())
     check(record['tag'] == TAG and record['source_sha256'] == source_sha256(), 'Wrong release source/tag')
     check(set(record['assets']) == set(ASSETS.values()), 'Both variants are required')
@@ -133,10 +134,8 @@ if __name__ == '__main__':
     p = commands.add_parser('package')
     p.add_argument('zip', type=pathlib.Path)
     p.add_argument('--out', type=pathlib.Path, required=True)
-    p.add_argument('--logo', type=pathlib.Path, default=ROOT/'assets/logo.jpg')
     p = commands.add_parser('upload')
     p.add_argument('out', type=pathlib.Path)
-    p.add_argument('--repo', default='DiamondBond/q2-ringnav')
     p.add_argument('--publish', action='store_true')
     a = ap.parse_args()
     try:
@@ -144,8 +143,8 @@ if __name__ == '__main__':
         check(importlib.util.find_spec('unicorn') is not None,
               'Release validation needs the requirements.txt environment: pip install -r requirements.txt')
         if a.command == 'package':
-            package(a.zip, a.out.resolve(), a.logo)
+            package(a.zip, a.out.resolve())
         else:
-            upload(a.out.resolve(), a.repo, a.publish)
+            upload(a.out.resolve(), publish=a.publish)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

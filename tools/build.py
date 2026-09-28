@@ -14,13 +14,15 @@ DEV_VERSIONS = {'normal': f'V{VERSION}r', 'compact': f'V{VERSION}c'}
 BASE = 0xb00000
 SCRATCH = 0xb0f000
 RING_STEP = 48
-HOOK = 0x4e85c8
 HOOKS = {
-    'on_wm_keyup_before_fun': (HOOK, 'ringnav'),
+    'on_wm_keyup_before_fun': (0x4e85c8, 'ringnav'),
     'on_wm_tsdown_before_fun': (0x4e8bd0, 'ringnav_touch'),
     'widget_on_paint_border': (0x6596a0, 'ringnav_paint'),
     'widget_dispatch': (0x65e0ec, 'ringnav_dispatch'),
     'on_wm_keylong_fun': (0x4e873c, 'ringnav_keylong'),
+    'playset_equalizer_page_init': (0x4b642c, 'peq_page_init'),
+    'set_equalizer_value': (0x4f9230, 'peq_stock_eq'),
+    'home_page_init': (0x523c84, 'coverflow_home'),
 }
 # mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
@@ -220,7 +222,7 @@ def compile_payload(out, compact=False):
     run('clang',*FLAGS,f'-DCOMPACT={int(compact)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
-        *[f'--undefined={name}' for name in ['peq_page_init', 'peq_stock_eq', 'coverflow_home']],
+        *[f'--undefined={name}' for _, name in HOOKS.values()],
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -305,8 +307,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         gp = ((prolog[0] & 65535) << 16) + (low if low < 32768 else low - 65536) + address
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
         patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[replacement] >> 2), 0)
-    from peq import patch_demo, patch_player
-    patch_demo(patched, ps)
+    from peq import patch_player
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
     audio = patch_player(raw_player, out/'peq')
     from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, patch_asset, patch_code, patch_word

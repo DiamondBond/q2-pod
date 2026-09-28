@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
 from unicorn.mips_const import *
-from build import segments, symbols, HOOK, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
+from build import segments, symbols, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -361,7 +361,7 @@ class Machine:
             u.reg_write(r,0xdeadbeef)
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff)
         u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
-    def call(self,key=O['KEY_NEXT'],address=HOOK,args=None,event_type=0x114,gap=1000,stack=(),clear=True,debounce=False):
+    def call(self,key=O['KEY_NEXT'],address=HOOKS['on_wm_keyup_before_fun'][0],args=None,event_type=0x114,gap=1000,stack=(),clear=True,debounce=False):
         # Independent input steps occur after the stock key debounce timer expires.
         if gap: self.advance(gap,clear=False)
         if not debounce: self.byte(0xa37c89,0)  # stock key filter latch
@@ -2355,7 +2355,7 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
 from compact import HOME_PAGE, decode
 cards=[c[2]['name'] for c in decode((B/'ui'/HOME_PAGE).read_bytes())[3][0][3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
-home_hook=[v for k,v in __import__('peq').DEMO_HOOKS.items() if k=='home_page_init'][0]
+home_hook=HOOKS['home_page_init']
 assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
 passed()
 class CoverflowMachine(QueueMachine):

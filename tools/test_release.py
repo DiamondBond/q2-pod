@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory() as tmp:
         (directory/'manifest.json').write_text('{}')
     with patch('release.build', side_effect=fail_compact), patch('release.validate'), patch('release.run', return_value='revision'):
         try:
-            release.package(pathlib.Path('stock.zip'), out, pathlib.Path('logo.jpg'))
+            release.package(pathlib.Path('stock.zip'), out)
         except ValueError as e:
             assert 'compact build failure' in str(e)
         else:

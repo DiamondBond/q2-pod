@@ -243,9 +243,7 @@ static int carousel_page(void *top) {
     return !tk_strcmp(name, "home_page") || !tk_strcmp(name, "coverflow_page");
 }
 
-static int is_home(void *top, void *w) {
-    return w && kind(w) == 3 && carousel_page(top);
-}
+static int is_home(void *top, void *w) { return w && kind(w) == 3 && carousel_page(top); }
 
 /* The animator's destination is the intended icon, even before stock commits its index.
  * Keep this widget-owned: touch and page recreation cannot leave a dangling animator here. */
