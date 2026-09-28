@@ -2521,5 +2521,22 @@ m.word(m.found[0]+O['REC_NAME'],m.string(long)); m.open(); assert m.texts().coun
 m.tracks(); assert m.texts().count(long)==4  # covers stay alive, hidden behind the tracks
 labels=[n for w,n in m.nodes.items() if m.alive(w) and n.get('text')==long]
 assert all(n['type']=='hscroll_label' and n['loop']==1 and n['set_hscroll_label_attribute'] for n in labels); passed()
+# Drags finish on the nearest cover through stock item width, scroll_to and completion (160px
+# covers): on release before stock's velocity throw, or by the repeating check once no finger is down.
+for offset,want in ((-90,2),(-70,1),(90,0),(70,1),(0,1)):
+    for via in ('release','settle'):
+        m=CoverflowMachine(); page=m.open(); s=m.slide; m.word(s+O['SLIDE_INDEX'],1)
+        m.word(s+O['SLIDE_OFFSET'],offset); m.byte(s+O['SLIDE_DRAG'],1); m.byte(s+O['SLIDE_DRAG']+1,1)
+        if via=='release':
+            f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==11
+        else:
+            m.pressed=1; m.advance(100); assert m.get(s+O['SLIDE_DRAG'])&0xffff==0x101 and not m.slides
+            m.pressed=0; m.advance(100)
+        m.advance(150)
+        assert m.get(s+O['SLIDE_INDEX'])==want and m.get(s+O['SLIDE_OFFSET'])==0 and not m.slides, (offset,via)
+        assert m.get(s+O['SLIDE_DRAG'])&0xffff==0 and not m.get(s+O['SLIDE_ANIMATOR']); passed()
+# A tap at rest reaches stock, so the cover's click still opens it.
+m=CoverflowMachine(); page=m.open(); f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.slides; passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

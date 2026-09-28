@@ -40,6 +40,28 @@ static void row(void *view, int index, const char *text, int id) {
     widget_on(item, EVT_CLICK, action, (void *)(long)id);
 }
 
+/* Preamp that keeps the combined response at or below 0 dB, as AutoEQ sets it: minus the peak
+ * of |H| on a log grid from 20 Hz to 20 kHz at 48 kHz. ponytail: 1024 points (0.7% apart); a very
+ * narrow boost between two can read a little low, refine around the best point if that matters. */
+static double headroom(const peq_preset *p) {
+    peq_engine e;
+    if (!peq_compile(p, 48000, &e)) return p->preamp; /* preamp only sets e.gain, unused here */
+    double peak = 1;
+    for (int k = 0; k < 1024; ++k) {
+        double w = 6.283185307179586 * 20 * pow(1000, k / 1023.0) / 48000, m = 1;
+        double c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
+        for (int i = 0; i < PEQ_BANDS; ++i) {
+            const peq_coeff *q = &e.c[i];
+            double nr = q->b0 + q->b1 * c1 + q->b2 * c2, ni = q->b1 * s1 + q->b2 * s2;
+            double dr = 1 + q->a1 * c1 + q->a2 * c2, di = q->a1 * s1 + q->a2 * s2;
+            m *= (nr * nr + ni * ni) / (dr * dr + di * di);
+        }
+        if (m > peak) peak = m;
+    }
+    double gain = -10 * log(peak) / 2.302585092994046; /* power ratio to dB */
+    return peak == 1 ? 0 : gain < -60 ? -60 : gain; /* no boost: +0, not -0.0 on screen */
+}
+
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
 
 static void list_files(const char *folder, const char *extension) {
@@ -92,6 +114,8 @@ static int action(void *ctx, void *event) {
         active.bypass = !ui.draft.bypass;
         if (peq_save(PEQ_ACTIVE, &active, 1) == 1) {
             ui.draft.bypass = active.bypass;
+            /* The stock switch's config key: boot instantiates the filter only when it is set. */
+            write_int_config(!active.bypass, "PLAYSET", "EQFLAG");
             peq_stock_eq(1);
         } else snprintf(ui.status, sizeof(ui.status), "Switch failed; PEQ unchanged");
     }
@@ -153,7 +177,10 @@ static int action(void *ctx, void *event) {
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
-    if (id >= ENABLE && id < STEP) ui.dirty = 1; /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
+    if (id >= ENABLE && id < STEP) { /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
+        ui.dirty = 1;
+        ui.draft.preamp = headroom(&ui.draft);
+    }
     if (!ui.timer) ui.timer = timer_add(render, 0, 1);
     return 0;
 }
@@ -272,8 +299,8 @@ int peq_page_init(void *page, void *context) {
     ui.status[0] = 0;
     ui.dirty = 0;
     peq_load_active(&ui.draft);
-    /* Boot only instantiates the filter when the stock config's EQ flag is set, and the PEQ
-     * never writes it, so after a reboot the PEQ is off until switched on again. */
+    /* Boot instantiates the filter only when the switch left PLAYSET/EQFLAG set; the flag
+     * then follows the active preset's bypass (peq_stock_eq). */
     ui.draft.bypass = !g_equalizer_flag;
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);

@@ -180,6 +180,7 @@ FUNCTIONS = {
  'list_view_create': ('void *', 'void *, int, int, int, int'),
  'scroll_view_create': ('void *', 'void *, int, int, int, int'),
  'navigator_back': ('int', 'void'),
+ 'write_int_config': ('int', 'int, const char *, const char *'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -200,6 +201,12 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
+# The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
+# editor clears that page's widgets on init and never binds the preset button, so none can load.
+STOCK_EQ = ['release/assets/default/raw/ui/playset/preseteq_page.bin'] + [
+    f'release/assets/default/raw/images/xx/{n}.png' for n in
+    ['eq_bg', 'eq_off', 'eq_sidebg', 'eqbox'] + [f'eq_{p}{s}' for p in
+    ('blues', 'classical', 'custon', 'dance', 'jazz', 'metal', 'pop', 'rock', 'scene') for s in ('', '_select')]]
 
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
@@ -357,6 +364,12 @@ def build(zip_path, out, logo, compact=False, dev=False):
         at = p.index(b'# START OF DATA')  # definitions precede the embedded data
         p = p[:at]+entry+p[at:]
         added.append([path, b'R', *stock.groups()])
+    removed = []
+    for path in STOCK_EQ:
+        line = re.search(rb'^'+re.escape(path.encode())+rb' R .+\n', p, re.M)
+        check(line is not None, f'Missing stock EQ inode {path}')
+        removed.append(line.group().split()[:6])
+        p = p[:line.start()]+p[line.end():]
     changed_assets = {}
     for rel in (AUDIT['assets'] if compact else [ARTIST_PAGE, HOME_PAGE]):
         path = 'release/assets/default/raw/ui/' + rel
@@ -377,7 +390,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     def inodes(image):
         text = subprocess.check_output(['unsquashfs','-pf','-',str(image)]).split(b'\n# START OF DATA')[0]
         return sorted(l.split()[:6] for l in text.splitlines() if l and not l.startswith(b'#'))
-    check(inodes(newsq) == sorted(inodes(sq)+added), 'Repacked rootfs metadata differs from stock')
+    check(inodes(newsq) == sorted([i for i in inodes(sq) if i not in removed]+added),
+          'Repacked rootfs metadata differs from stock')
     blobs['recovery-update/rootfs.squashfs'] = newsq.read_bytes()
     # Stock image proves this size fits; do not enlarge beyond its padded size.
     check(len(blobs['recovery-update/rootfs.squashfs']) <= sq.stat().st_size, 'Repacked rootfs exceeds stock size')

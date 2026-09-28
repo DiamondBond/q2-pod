@@ -37,9 +37,9 @@ Presets
 … bands 2–10
 ```
 
-Each band supports **Peaking**, **Low shelf** or **High shelf** filters and can be enabled separately. The preamp comes from the preset's `Preamp:` line and is shown read-only; use a negative preamp when boosting to avoid clipping.
+Each band supports **Peaking**, **Low shelf** or **High shelf** filters and can be enabled separately. The preamp comes from the preset's `Preamp:` line and is shown read-only. Editing a band on the player resets it to just enough cut to keep the combined response at or below 0 dB, so boosts don't clip.
 
-**PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it. The PEQ is off after a restart until you switch it on again; band edits and loaded presets take effect when you choose **Apply changes**.
+**PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it. It stays on or off across restarts; band edits and loaded presets take effect when you choose **Apply changes**.
 
 ### Import a preset
 

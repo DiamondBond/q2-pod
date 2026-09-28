@@ -19,7 +19,7 @@ LIBC = {
     'calloc': ('void *', 'unsigned, unsigned'),
     'free': ('void', 'void *'),
     'pow': ('double', 'double, double'), 'cos': ('double', 'double'),
-    'sin': ('double', 'double'),
+    'sin': ('double', 'double'), 'log': ('double', 'double'),
     'fopen': ('void *', 'const char *, const char *'),
     'fread': ('unsigned', 'void *, unsigned, unsigned, void *'),
     'fwrite': ('unsigned', 'const void *, unsigned, unsigned, void *'),

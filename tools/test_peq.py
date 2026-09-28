@@ -249,6 +249,7 @@ int widget_invalidate_force(void *, void *);
 unsigned timer_add(int (*)(const void *), void *, unsigned);
 int timer_remove(unsigned);
 int navigator_back(void);
+int write_int_config(int, const char *, const char *);
 """
 SHIM = r"""
 static struct { int parent, h; char text[160]; handler click, destroy, keyup; void *ctx; } w[4096];
@@ -282,6 +283,9 @@ int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
 unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return ++timers; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; ++removed; return 0; }
 int navigator_back(void) { return ++backs; }
+static int eqflag = -1;
+int write_int_config(int v, const char *s, const char *k) { if (!strcmp(s, "PLAYSET") && !strcmp(k, "EQFLAG")) eqflag = v; return 0; }
+int shim_eqflag(void) { return eqflag; }
 
 int peq_page_init(void *page, void *context);
 int shim_open(void) { count = 1; w[1].destroy = w[1].keyup = 0; return peq_page_init((void *)1, 0); }
@@ -329,9 +333,12 @@ def editor_check(lib, tmp):
     title = lambda: ui.shim_title().decode()
 
     assert lib.peq_save(bytes(active), C.byref(preset(enabled=1)), 1) == 1
-    # After a reboot the stock flag is clear and no filter runs: the saved ON reads OFF.
+    # With the stock flag clear no filter runs, so the saved ON reads OFF.
     assert ui.shim_open() == 0 and title() == 'PEQ'
-    click('PEQ: OFF')
+    # The switch writes the stock config key, so boot restores it; the flag follows the preset.
+    click('PEQ: OFF'); assert ui.shim_eqflag() == 1 and ui.shim_flag() == 1
+    click('PEQ: ON'); assert ui.shim_eqflag() == 0 and ui.shim_flag() == 0
+    ui.shim_close(); assert ui.shim_open() == 0; click('PEQ: OFF')
     full = ui.shim_list_height()
     # Bypass switches at once but keeps unapplied band edits out of the active preset.
     click('1 ON'); click('Raise gain'); click('Raise gain'); ui.shim_return()
@@ -339,6 +346,8 @@ def editor_check(lib, tmp):
     assert read().bypass == 1 and read().bands[0].gain == 0 and ui.shim_flag() == 0
     click('Apply changes')
     assert read().bands[0].gain == 1 and read().bypass == 1 and title() == 'Applied'
+    # A band edit sets the preamp to minus the combined response's peak: here the one +1 dB band.
+    assert abs(read().preamp + 1) < 0.01, read().preamp
     # A message takes the title bar; the list keeps every row.
     assert ui.shim_list_height() == full == 240
     # Loading into the editor does not activate it.
@@ -371,7 +380,14 @@ def editor_check(lib, tmp):
     click('HD650.peq'); click('Delete HD650.peq? Confirm')
     assert not (saved/'HD650.peq').exists() and active.read_bytes() == before
     assert title() == 'Deleted HD650.peq; active EQ unchanged' and not ui.shim_click(b'HD650.peq', 0)
-    print('PEQ editor: bypass, apply, load, failed saves, delete and close passed.')
+    # Overlapping boosts add up (+6.5 and +6 dB at 1 kHz); cuts alone leave 0 dB.
+    p = preset(enabled=1, gain=6.0); p.count = 2; p.bands[1] = p.bands[0]; p.preamp = -1
+    assert lib.peq_save(bytes(active), C.byref(p), 1) == 1
+    ui.shim_close(); ui.shim_open(); click('1 ON'); click('Raise gain'); ui.shim_return(); click('Apply changes')
+    assert abs(read().preamp + 12.5) < 0.05, read().preamp
+    click('1 ON'); click('Band: ON'); ui.shim_return(); click('2 ON'); click('Band: ON'); ui.shim_return(); click('Apply changes')
+    assert math.copysign(1, read().preamp) == 1 and read().preamp == 0, read().preamp  # +0: shown as 0.0
+    print('PEQ editor: bypass, apply, auto preamp, load, failed saves, delete and close passed.')
 
 # Drives patch/peq_player.c the way hciplayer's af chain does. Built 32-bit like the device,
 # so the file's ABI asserts hold; checked against the shared DSP driven directly.

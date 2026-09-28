@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging and reproducibility too."""
-from build import ROOT, jpeg_size
+from build import ROOT, STOCK_EQ, jpeg_size
 
 logo = (ROOT/'assets/logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -53,7 +53,10 @@ def validate_assets(directory):
     def walk(n):
         yield n
         for child in n[3]: yield from walk(child)
+    names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
+    assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
     for rel in paths:
+        if rel in STOCK_EQ: continue
         original, new = read('stock.squashfs', rel), read('rootfs.squashfs', rel)
         if rel not in changed:
             assert new == original, rel
