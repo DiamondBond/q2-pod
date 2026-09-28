@@ -235,9 +235,16 @@ static void drop_spin(void) {
     st.home_surface = (void *)0;
 }
 
+/* Home and Coverflow step their slide_menu with one retargeted animator (home_step): stock
+ * scroll_to (0x5f3400) starts a new animator per call and orphans the running one, so fast
+ * ticks leave several fighting over the offset and committing the index twice. */
+static int carousel_page(void *top) {
+    const char *name = top ? widget_get_prop_str(top, "name", "") : "";
+    return !tk_strcmp(name, "home_page") || !tk_strcmp(name, "coverflow_page");
+}
+
 static int is_home(void *top, void *w) {
-    return top && w && kind(w) == 3 &&
-           !tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page");
+    return w && kind(w) == 3 && carousel_page(top);
 }
 
 /* The animator's destination is the intended icon, even before stock commits its index.
@@ -934,8 +941,7 @@ int ringnav_paint(void *w, void *canvas) {
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
         if (!usable() || window_manager_is_animating(wm) || top != st.center_top) cancel_center();
-        if (!top || tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page"))
-            st.home_surface = (void *)0;
+        if (!carousel_page(top)) st.home_surface = (void *)0;
     }
     if (!w || !canvas || !kind(w) || surface((void *)0, (void *)0) != w) return result;
     if (!load(&g_menu, w, !window_manager_get_pointer_pressed(window_manager()))) {
@@ -1475,7 +1481,7 @@ int ringnav(void *ctx, void *event) {
         drop_spin();
         return result;
     }
-    if (tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page")) st.home_surface = (void *)0;
+    if (!carousel_page(top)) st.home_surface = (void *)0;
     if (window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm)) {
         cancel_center();
         drop_spin();

@@ -2445,8 +2445,14 @@ assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c i
 assert m.nodes[covers[-1]]['image']=='default_album_big'
 assert 'Album 0' in m.texts(); passed()
 m.press(3); assert m.hold()==0 and m.top==page; passed()  # Play/Pause hold stays stock here
-assert m.call()==11 and [c for c in m.calls if c[0]=='slide_menu_scroll_to_next'][0][1]==m.slide
-assert m.call(O['KEY_PREV'])==11 and any(c[0]=='slide_menu_scroll_to_prev' for c in m.calls)
+# Covers step like Home: fast ticks retarget one animator, never stock next/previous, whose
+# scroll_to orphans the running animator.
+assert m.call(gap=0)==11; a,_,to,dur=slide(m,m.slide); assert to<0 and dur==200
+assert m.call(gap=20)==11 and slide(m,m.slide)[0]==a and slide(m,m.slide)[2:]==(2*to,120)
+m.advance(300); assert m.get(m.slide+O['SLIDE_INDEX'])==2 and not m.slides and not m.get(m.slide+O['SLIDE_OFFSET'])
+assert m.call(O['KEY_PREV'],gap=20)==11 and slide(m,m.slide)[2]==-to; m.advance(300)
+assert m.get(m.slide+O['SLIDE_INDEX'])==1 and not m.slides
+assert not any(c[0].startswith('slide_menu_scroll_to_') for c in m.calls)
 m.clicks=[]; m.word(m.slide+O['SLIDE_INDEX'],1); assert m.confirm()==11 and m.clicks==[covers[1]]; passed()
 m.clicks=[]; assert Machine.release(m)==11 and Machine.release(m,100)==0 and m.screens==[0] and not m.clicks; passed()
 # The cover's click queries its tracks (staging restored) and lists them; a track hands playing_page
