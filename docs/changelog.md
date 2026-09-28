@@ -1,5 +1,6 @@
 # Changelog
 
+- **V5.1R / V5.1C**: Coverflow no longer keeps scrolling after you lift your finger: a swipe now settles on the album nearest to where you let go, instead of being thrown one or two albums further.
 - **V5.0R / V5.0C**: Coverflow covers now reliably snap to the nearest album whenever they come to rest between two, including swipes the previous fix missed.
 - **V4.9R / V4.9C**: Coverflow covers always snap into place when you let go of a swipe, instead of sometimes stopping between two albums.
 - **V4.8R / V4.8C**: Coverflow tracks accept the Play/Pause hold queue menu (Play next / Add to queue), Coverflow remembers the last album and each album's highlighted track, and long album, artist and track names scroll. The payload is now built with `-Oz` so compact keeps room in the rootfs.
