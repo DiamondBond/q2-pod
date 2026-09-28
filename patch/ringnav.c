@@ -418,7 +418,7 @@ static void row_hash_text(const unsigned *s, unsigned *h) {
     unsigned n = 0;
     while (s[n]) ++n;
     /* Stock wchar_t is UTF-32; hash all four bytes, zero bytes inside a character included. */
-    *h = hash_bytes(2166136261u, (const unsigned char *)s, 4 * n);
+    *h = hash_bytes(FNV_SEED, (const unsigned char *)s, 4 * n);
     if (!*h) *h = 1; /* zero denotes missing text */
 }
 
@@ -461,9 +461,9 @@ static int context_now(unsigned *scope) {
         unsigned n = 0;
         while (n < 1024 && g_folder_path[n]) ++n;
         if (!n || n == 1024) return -1;
-        *scope = hash_bytes(2166136261u, g_folder_path, n);
+        *scope = hash_bytes(FNV_SEED, g_folder_path, n);
     } else if (contexts[ctx].kind == CTX_LOCAL) {
-        *scope = hash_bytes(local_hash(2166136261u), album_modetype, 4);
+        *scope = hash_bytes(local_hash(FNV_SEED), album_modetype, 4);
     } else if (contexts[ctx].kind == CTX_FIXED) {
         *scope = 1;
     } else if (!tk_strcmp(name, "coverflow_page")) {
@@ -1177,14 +1177,14 @@ static int hold_released(void) {
 }
 
 static unsigned rec_hash(void *r) {
-    unsigned h = 2166136261u;
+    unsigned h = FNV_SEED;
     for (int o = REC_NAME; o <= REC_ARTIST; o += 4) h = fnv(h, P(r, o));
     return h;
 }
 
 /* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
 static unsigned browse_hash(void) {
-    return local_hash(hash_bytes(2166136261u, g_folder_path, 1024));
+    return local_hash(hash_bytes(FNV_SEED, g_folder_path, 1024));
 }
 
 static void *qm_record(void) {

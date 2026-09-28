@@ -69,9 +69,9 @@ def jpeg_size(b):
             return w, h
         i += size
     raise ValueError('No JPEG size marker')
-def symbols(p):
+def symbols(p, table=None):
     out = {}
-    for line in run('readelf', '-Ws', p).splitlines():
+    for line in (table or run('readelf', '-Ws', p)).splitlines():
         s = line.split()
         if len(s) >= 8 and s[0].endswith(':'):
             try: out[s[7]] = int(s[1], 16)
@@ -279,10 +279,10 @@ def build(zip_path, out, logo, compact=False, dev=False):
     for name in contexts:
         check(name in windows | PAYLOAD_WINDOWS, f'Context {name} is not a window name in the stock rootfs')
     demo = out/'stock-demo'; demo.write_bytes(raw_demo)
-    syms = symbols(demo)
+    symbol_table = run('readelf', '-Ws', demo)
+    syms = symbols(demo, symbol_table)
     syms.update(PRIVATE_FUNCTIONS)
     header = [f'#define RING_STEP {RING_STEP}']
-    symbol_table = run('readelf', '-Ws', demo)
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: byte global size mismatch')

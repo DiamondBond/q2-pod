@@ -262,7 +262,7 @@ static double sample(peq_engine *e, double x, int ch) {
 }
 
 void peq_process(peq_dsp *d, float *audio, unsigned frames) {
-    if (!audio || d->channels < 1 || d->channels > 8) return;
+    if (!audio || d->channels < 1 || d->channels > PEQ_CHANNELS) return;
     for (unsigned i = 0; i < frames; ++i) {
         if (!d->ramp && d->waiting) {
             d->next = d->pending;

@@ -3,6 +3,7 @@
  * Fields marked "same slot" are class-specific views of one offset. */
 #define I(p, o) (*(int *)((char *)(p) + (o)))
 #define P(p, o) (*(void **)((char *)(p) + (o)))
+#define FNV_SEED 2166136261u /* FNV-1a offset basis */
 #define W_X 0x00
 #define W_Y 0x04
 #define W_W 0x08

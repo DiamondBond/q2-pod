@@ -46,7 +46,7 @@ unsigned fnv(unsigned h, const unsigned char *s) {
 }
 
 static unsigned album_key(void *r) {
-    return fnv(fnv(2166136261u, P(r, REC_ARTIST)), P(r, REC_ALBUM));
+    return fnv(fnv(FNV_SEED, P(r, REC_ARTIST)), P(r, REC_ALBUM));
 }
 
 /* Track selection uses ringnav's existing position memory, keyed by this album. */
