@@ -1,5 +1,6 @@
 # Changelog
 
+- **V5.2R / V5.2C**: **PEQ: ON/OFF** now stays as you left it after a restart. Editing a band sets the preamp to just enough cut to keep boosts from clipping. Fast wheel spins on Coverflow no longer keep scrolling after the wheel stops or come to rest between two albums. The unused stock EQ preset images are removed, freeing rootfs space.
 - **V5.1R / V5.1C**: Coverflow no longer keeps scrolling after you lift your finger: a swipe now settles on the album nearest to where you let go, instead of being thrown one or two albums further.
 - **V5.0R / V5.0C**: Coverflow covers now reliably snap to the nearest album whenever they come to rest between two, including swipes the previous fix missed.
 - **V4.9R / V4.9C**: Coverflow covers always snap into place when you let go of a swipe, instead of sometimes stopping between two albums.
