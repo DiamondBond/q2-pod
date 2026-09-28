@@ -9,17 +9,17 @@ import release
 
 with tempfile.TemporaryDirectory() as tmp:
     out = pathlib.Path(tmp)/'package'
-    def fail_compact(stock, directory, logo, compact=False):
-        if compact:
-            raise ValueError('simulated compact build failure')
+    def fail_ipod(stock, directory, logo, ipod=False):
+        if ipod:
+            raise ValueError('simulated ipod build failure')
         directory.mkdir()
         (directory/'update.tar').write_bytes(b'normal')
         (directory/'manifest.json').write_text('{}')
-    with patch('release.build', side_effect=fail_compact), patch('release.validate'), patch('release.run', return_value='revision'):
+    with patch('release.build', side_effect=fail_ipod), patch('release.validate'), patch('release.run', return_value='revision'):
         try:
             release.package(pathlib.Path('stock.zip'), out)
         except ValueError as e:
-            assert 'compact build failure' in str(e)
+            assert 'ipod build failure' in str(e)
         else:
             raise AssertionError('Accepted a failed variant')
     assert not (out/'release.json').exists()
@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 assert failure is None
         assert any('--draft=false' in c for c in calls) == (failure is None)
     # A missing variant must fail before contacting GitHub.
-    (out/release.ASSETS['compact']).unlink()
+    (out/release.ASSETS['ipod']).unlink()
     with patch('release.run') as gh:
         try: release.upload(out, 'owner/repo')
         except OSError: pass

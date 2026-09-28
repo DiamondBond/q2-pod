@@ -1,6 +1,6 @@
 # Standard release procedure
 
-To prepare a release, bump `VERSION` in `tools/build.py` and add a `- **V<version>R / V<version>C**` entry to the top of `docs/changelog.md`; packaging uses that entry as the release notes and fails without it. Keep the proprietary stock ZIP local. Use the Python environment with `requirements.txt`
+To prepare a release, bump `VERSION` in `tools/build.py` and add a `- **V<version>R / V<version>I**` entry to the top of `docs/changelog.md`; packaging uses that entry as the release notes and fails without it. Keep the proprietary stock ZIP local. Use the Python environment with `requirements.txt`
 installed for these commands:
 
 ```sh
@@ -18,5 +18,5 @@ ZIPs, manifests, SHA256SUMS, release notes and source revision/hash. Normal is t
 direct builds; a single direct build is never a release input. Upload revalidates both variants
 and refuses stale, missing or changed artifacts and published releases. An upload/download
 failure leaves the release unpublished; rerun upload to repair the draft. Packaging uses no
-GitHub credentials or network. The [compact checklist](compact.md) is a device test guide,
+GitHub credentials or network. The [iPod checklist](ipod.md) is a device test guide,
 not a release gate.

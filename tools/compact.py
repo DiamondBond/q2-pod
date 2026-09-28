@@ -128,7 +128,7 @@ def patch_word(data, changes, address, old, new, purpose):
     changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
 
 
-def patch_asset(path, data, compact):
+def patch_asset(path, data, ipod):
     require(hashlib.sha256(data).hexdigest() == AUDIT['assets'][path], f'{path}: unaudited UI asset')
     root = decode(data)
     require(encode(root) == data, f'{path}: UI round trip differs')
@@ -137,7 +137,7 @@ def patch_asset(path, data, compact):
     if path == HOME_PAGE:
         home_card(root)
         return encode(root)
-    if not compact:
+    if not ipod:
         return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
     require(len(nav) == 1 and nav[0][1] == [0, 0, 375, 50], f'{path}: unexpected toolbar')

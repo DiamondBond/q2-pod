@@ -28,15 +28,15 @@ print('JPEG header regression checks passed.')
 
 def validate_assets(directory):
     import json, subprocess
-    from build import sha, run, fileoff, symbols
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1
     from compact import AUDIT, BOTTOM, PITCH, ARTIST_PAGE, HOME_PAGE, decode, patch_asset, patch_code
     manifest = json.loads((directory/'manifest.json').read_text())
-    compact = manifest['variant'] == 'compact'
+    ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
     demo = (directory/'demo').read_bytes()
     # All original executable bytes outside the reviewed hooks, version and compact sites
     # must remain stock; the payload and ELF mapping are independently hashed by the runner.
-    if not compact:
+    if not ipod:
         for group in [*AUDIT['immediates'], AUDIT['row_layout_calls'],
                       {'sites': [('0x522410', '0x0320f809')]}]:
             for address, _ in group['sites']:
@@ -44,9 +44,13 @@ def validate_assets(directory):
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
     changed = manifest['changed_assets']
-    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if compact else [ARTIST_PAGE, HOME_PAGE])}
+    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE])}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
+    # bluealsa differs from stock only in the AAC 44.1 kHz bit.
+    old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
+    assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]
+    assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if '/raw/ui/' in l and l.endswith('.bin') or l.endswith('/config.ini')]
@@ -62,7 +66,7 @@ def validate_assets(directory):
             assert new == original, rel
             continue
         short = rel.split('/raw/ui/')[1]
-        assert new == patch_asset(short, original, compact), short
+        assert new == patch_asset(short, original, ipod), short
         assert changed[rel] == dict(original_sha256=sha(original), sha256=sha(new))
         root = decode(new)
         if short == HOME_PAGE:  # both variants: only the Coverflow card is added
@@ -72,7 +76,7 @@ def validate_assets(directory):
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
-        assert not compact or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
+        assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         old_nodes, new_nodes = list(walk(decode(original))), list(walk(root))
         assert len(old_nodes) == len(new_nodes)
         for old, node in zip(old_nodes, new_nodes):
@@ -83,10 +87,10 @@ def validate_assets(directory):
             assert surface[1][1:] == [0, 375, BOTTOM], 'Lists must fill the client area'
             assert 4*PITCH <= BOTTOM, 'Four complete rows must fit'
         # Corrupt inputs must be rejected, never silently patched.
-        try: patch_asset(short, original[:-1]+b'x', compact)
+        try: patch_asset(short, original[:-1]+b'x', ipod)
         except ValueError: pass
         else: raise AssertionError('Accepted a changed asset')
-    if compact:
+    if ipod:
         payload_symbols = symbols(directory/'patch.elf')
         for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', AUDIT['row_layout_calls']['sites'][0][0]]:
             damaged = bytearray(stock)
@@ -106,7 +110,7 @@ if __name__ == '__main__':
     args=ap.parse_args()
     if args.build: validate_assets(args.build)
     if args.zip:
-        for compact in (False, True):
+        for ipod in (False, True):
           with tempfile.TemporaryDirectory(prefix='q2-package-') as tmp:
               root=pathlib.Path(tmp)
               custom=root/"custom ' logo.jpg"
@@ -116,8 +120,8 @@ if __name__ == '__main__':
                   return run(*command)
               a=root/"build ' a"; b=root/'build b'
               with patch('build.run',side_effect=change_source):
-                  build(args.zip,a,custom,compact)
-              build(args.zip,b,ROOT/'assets/logo.jpg',compact)
+                  build(args.zip,a,custom,ipod)
+              build(args.zip,b,ROOT/'assets/logo.jpg',ipod)
               validate_assets(a)
               assert (a/'update.tar').read_bytes()==(b/'update.tar').read_bytes()
               manifest=json.loads((a/'manifest.json').read_text())

@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
 from unicorn.mips_const import *
-from build import segments, symbols, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
+from build import segments, symbols, BASE, SCRATCH, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -16,7 +16,7 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
 variant = manifest.get('variant')
 expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
-assert (manifest.get('compact_code') != []) == (variant == 'compact')
+assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
 LCD_COLORS=(0x9abcdef0,0x12345678)
@@ -53,7 +53,7 @@ class Machine:
             self.u.mem_map(start,end-start)
             self.u.mem_write(v,data[o:o+f])
             # Payload text is execute-only; its top page holds the scratch cell.
-            if v==0xb00000: self.u.mem_protect(start,0xb0f000-start,5)
+            if v==BASE: self.u.mem_protect(start,SCRATCH-start,5)
         for v,w in FP64_FIX: self.u.mem_write(v,struct.pack('<I',w))
         self.u.mem_map(0x1000000,0x200000)
         self.u.mem_map(0x70000000,0x10000)
@@ -594,7 +594,7 @@ m.on_click=destroy
 assert m.confirm()==11 and len(m.dispatched())==1; passed()
 
 # Execute native row-pool constructors, including the untouched album grid branch.
-# The 52px artwork keeps the stock nine-pixel inset in normal; compact keeps that same 52px
+# The 52px artwork keeps the stock nine-pixel inset in normal; iPod keeps that same 52px
 # artwork at natural size (no rescaling) and gives it an even eight-pixel inset on all four
 # sides of the 68px row body. The playing overlay follows.
 ARTWORK = {
@@ -630,7 +630,7 @@ def check_title_bounds(m, button):
     layout=m.get(button+O['W_CHILDREN_LAYOUT'])
     vtable=m.get(layout+O['CHILDREN_LAYOUT_VTABLE'])
     stock_vtable=O['DEFAULT_LAYOUT_VTABLE']
-    assert (vtable!=stock_vtable)==(variant=='compact')
+    assert (vtable!=stock_vtable)==(variant=='ipod')
     # Clone, destroy, parameter and serialization functions remain native.
     for i in (0,1,3,4,5,6,7): assert m.get(vtable+4*i)==m.get(stock_vtable+4*i)
     margin=m.u.mem_read(layout+O['DEFAULT_LAYOUT_X_MARGIN'],1)[0]
@@ -655,7 +655,7 @@ def check_title_bounds(m, button):
                     left=margin+sum(widths[c]+gap for c in before if m.nodes[c]['visible'])
                     right=m.get(button+O['W_W'])-margin-sum(widths[c]+gap for c in after if m.nodes[c]['visible'])
                     assert m.get(text+O['W_X'])==left
-                    if variant=='compact':
+                    if variant=='ipod':
                         assert left+m.get(text+O['W_W'])==right
                         if title!=text:
                             assert m.get(title+O['W_X'])+m.get(title+O['W_W'])==m.get(text+O['W_W'])
@@ -685,16 +685,16 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
         rows = m.nodes[w]['children']
         assert len(rows) == 4
         for row in rows:
-            assert m.get(row+O['W_H']) == (210 if grid else 72 if variant == 'compact' else 78)
+            assert m.get(row+O['W_H']) == (210 if grid else 72 if variant == 'ipod' else 78)
             for button in m.nodes[row]['children']:
-                assert m.get(button+O['W_H']) == (160 if grid else 68 if variant == 'compact' else 70)
+                assert m.get(button+O['W_H']) == (160 if grid else 68 if variant == 'ipod' else 70)
         if not grid:
             for name, stock, compact_geometry in ARTWORK[address]:
                 arts = [n for n, v in m.nodes.items() if v.get('name') == name]
                 assert arts, name
                 for art in arts:
                     geometry = tuple(signed(m.get(art+O[off])) for off in ('W_X', 'W_Y', 'W_W', 'W_H'))
-                    assert geometry == (compact_geometry if variant == 'compact' else stock), (name, geometry)
+                    assert geometry == (compact_geometry if variant == 'ipod' else stock), (name, geometry)
         # Preparing an existing pool does not recreate or resize its rows.
         before = len(m.nodes)
         assert m.call(address=address, args=(w, w, 4, 0)) == 0 and len(m.nodes) == before
@@ -715,7 +715,7 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
                     m.word(m.row_record+8,m.string(label))
                     assert m.call(address=0x522304,args=(button,7,0,0))==0
                     assert m.nodes[title]['text']==label
-                    assert m.get(title+O['W_W'])==(width if variant=='compact' else 140 if navbar else 190)
+                    assert m.get(title+O['W_W'])==(width if variant=='ipod' else 140 if navbar else 190)
         else:
             assert all(m.get(n+O['W_CHILDREN_LAYOUT'])==0 for row in rows for n in m.nodes[row]['children'])
 passed()
@@ -763,8 +763,8 @@ for page in ('home_page', 'folder_page', 'playing_page', 'sysset_page'):
     assert long_return(m) == 0
     dest = destinations(m)
     assert len(dest) == 1
-    assert dest[0][0] == ('navigator_switch_to_with_context' if variant == 'compact' and page != 'playing_page' else 'navigator_back_to_home')
-    if variant == 'compact' and page != 'playing_page':
+    assert dest[0][0] == ('navigator_switch_to_with_context' if variant == 'ipod' and page != 'playing_page' else 'navigator_back_to_home')
+    if variant == 'ipod' and page != 'playing_page':
         assert m.text(dest[0][1]) == 'playing_page'
         assert [m.get(dest[0][2] + 4*i) for i in range(4)] == [0, 0, 255, 2]
     # Here the navigator is only recorded, so the switch never lands and the latch is left
@@ -778,13 +778,13 @@ for page in ('home_page', 'folder_page', 'playing_page', 'sysset_page'):
     assert m.call(170, gap=0) == held
 passed()
 
-# The stock long-key gates stay effective. Compact adds the shared navigation restrictions.
+# The stock long-key gates stay effective. iPod adds the shared navigation restrictions.
 for flag, value in GATES:
     m = long_machine(); m.page('folder_page'); m.byte(syms[flag], value)
     long_return(m)
-    # Stock itself blocks power-off, guide and test mode; compact adds the shared restrictions
+    # Stock itself blocks power-off, guide and test mode; iPod adds the shared restrictions
     # checked by usable(), so every listed flag blocks there. Stock ignores the rest on Return.
-    blocked = True if variant == 'compact' else flag in ('g_poweroff_state', 'g_guideflag', 'g_testmode_flag')
+    blocked = True if variant == 'ipod' else flag in ('g_poweroff_state', 'g_guideflag', 'g_testmode_flag')
     assert bool(destinations(m)) == (not blocked), flag
 for light in (0, 1):
     for lock in (0, 1):
@@ -794,10 +794,10 @@ for light in (0, 1):
             m.byte(syms['g_keylock_flag'], lock); m.byte(syms['g_keylock_mode'], mode)
             long_return(m)
             blocked = not light and lock and mode in (2, 3)
-            if variant == 'compact': blocked = not light
+            if variant == 'ipod': blocked = not light
             assert bool(destinations(m)) == (not blocked)
 passed()
-if variant == 'compact':
+if variant == 'ipod':
     m = long_machine(); m.page_list()
     assert m.call(O['KEY_CENTER']) == 11 and m.timers
     long_return(m)
@@ -979,7 +979,7 @@ for occupancy in (1,64):
         m.folder(f'/sd/{i:02}',w); m.call()
     instructions=[0]
     def count_payload(*args): instructions[0]+=1
-    hook=m.u.hook_add(UC_HOOK_CODE,count_payload,begin=0xb00000,end=0xb0efff)
+    hook=m.u.hook_add(UC_HOOK_CODE,count_payload,begin=BASE,end=SCRATCH-1)
     m.paint(w); paint_cost=instructions[0]; instructions[0]=0
     m.call(); costs.append((paint_cost,instructions[0]))
     m.u.hook_del(hook)
@@ -1962,7 +1962,7 @@ class NavigationMachine(Machine):
         elif name=='access@GLIBC_2.0':ret=-1
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 
-if variant=='compact':
+if variant=='ipod':
     for existing in (False,True):
         for empty in (False,True):
             m=NavigationMachine(); w,es=m.page_list(20,name='folder_page'); browse=m.top
@@ -2047,7 +2047,7 @@ for page_name in ('folder_page','localmusic_page','allmusic_page'):
             else:w,es=m.page_list(0 if empty else 5,name=page_name)
             page=m.top;m.start_pull(page,w)
             m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=60+distance)
-            enabled=variant=='compact' and page_name=='localmusic_page'
+            enabled=variant=='ipod' and page_name=='localmusic_page'
             assert bool(m.prompt(page)['visible'])==(enabled and distance>=8)
             if enabled and distance>=8:
                 assert m.prompt(page)['text']==('Release to search' if distance>=48 else 'Pull to search')
@@ -2060,7 +2060,7 @@ for page_name in ('folder_page','localmusic_page','allmusic_page'):
             assert not m.prompt(page)['visible']
             passed()
 
-if variant=='compact':
+if variant=='ipod':
     # Local Songs' virtual table keeps its rows and top offset across a search.
     m=PullMachine();w,rows,es=m.table_page(name='localmusic_page');page=m.top
     m.start_pull(page,w);count=m.get(w+O['TABLE_ROWS'])
@@ -2116,7 +2116,7 @@ class PullDispatchMachine(PullMachine):
                 u.reg_write(UC_MIPS_REG_T9,cb);u.reg_write(UC_MIPS_REG_PC,cb);return
         u.reg_write(UC_MIPS_REG_V0,0);u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 
-if variant=='compact':
+if variant=='ipod':
     for distance in (7,48):
         m=PullDispatchMachine();w,es=m.page_list(5,height=240,name='localmusic_page');page=m.top
         m.start_pull(page,w)

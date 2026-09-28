@@ -6,7 +6,7 @@ A firmware mod for the **Shanling Q2** that adds three everyday upgrades:
 - **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, frequency, gain, Q and preamp, or import **AutoEQ / Equalizer APO** presets from your microSD card.
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 
-All three are included in the normal and compact variants. Touch works as before, and outside supported menus the wheel still controls volume.
+All three are included in the normal and iPod variants. Touch works as before, and outside supported menus the wheel still controls volume.
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
 
@@ -18,7 +18,7 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 
 1. Unzip the release ZIP and copy `update.tar` to the root of the microSD card.
 2. On the Q2, open **System settings → System Update → TF card update** and confirm.
-3. After the restart, **About** shows the version: ending in `R` for normal, `C` for compact.
+3. After the restart, **About** shows the version: ending in `R` for normal, `I` for iPod.
 
 **Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
 
@@ -71,7 +71,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 
 **Normal** (`Q2.Firmware.V*.zip`) keeps the stock layout and controls.
 
-**Compact** (`Q2.Firmware.V*-compact.zip`) makes Folder and Local Songs browsing denser:
+**iPod** (`Q2.Firmware.V*-ipod.zip`) makes Folder and Local Songs browsing denser:
 
 - No primary toolbar, and 72-pixel rows that fit four full entries with stock fonts and artwork.
 - Titles use the full row width, leaving room only for the artwork and controls that are showing.
@@ -79,6 +79,8 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - Pull down at the top of Local Songs to search.
 
 Other pages, dialogs and your saved settings are unchanged.
+
+Both variants fix choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 
 ## Controls
 
@@ -90,7 +92,7 @@ Other pages, dialogs and your saved settings are unchanged.
 - **Touch:** works as normal and hides the outline until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
 - **Artists:** an artist opens on Albums, with All Songs one tap away. The tabs are translated instead of the stock Chinese labels.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
-- **Pull to search (compact):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
+- **Pull to search (iPod):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
 
 A short Play/Pause press and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
 
@@ -101,7 +103,7 @@ If a menu behaves strangely, please [open an issue](https://github.com/DiamondBo
 - [Internals](docs/internals.md): hooks, selection, position memory, timing and drawing.
 - [Building](docs/building.md): building both variants, the MIPS test suite and on-device checks.
 - [Releasing](docs/releasing.md): packaging, verifying and publishing.
-- [Compact mode](docs/compact.md): layout audit and device checklist.
+- [iPod variant](docs/ipod.md): layout audit and device checklist.
 - [Boot logo](docs/boot-logo.md): replacing the power-on splash.
 
 ## License

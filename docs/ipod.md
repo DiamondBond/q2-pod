@@ -1,6 +1,6 @@
-# Compact audit and device checks
+# iPod audit and device checks
 
-Normal and compact share one navigation payload. `--compact` enables compact-only
+Normal and iPod share one navigation payload. `--ipod` enables the compact layout
 payload helpers and build-time edits in `tools/compact.py`; normal receives no
 compact executable sites or UI assets. `patch/compact.json` records the original
 asset hashes and full MIPS instructions. The builder also pins the complete stock
@@ -30,7 +30,7 @@ is unchanged. Album detail, artist track and playlist constructors have their ow
 explicit sites in the audit. Folder reset at 0x5217d4, return offset division at
 0x521a84 and scrolling cover division at 0x5228f8 all use the same compact pitch.
 The category cover callback originally divides by 120 despite using 78-pixel
-rows; compact corrects its audited divisor at 0x4b0608 to 72. Rebinding and delayed
+rows; iPod corrects its audited divisor at 0x4b0608 to 72. Rebinding and delayed
 cover callbacks keep the same widget geometry and saved cover preferences.
 
 Seven audited row-constructor calls install a per-instance children layouter for
@@ -46,7 +46,7 @@ width. Title styles and scrolling/ellipsis settings are untouched.
 
 The stock long-key function at 0x4e873c retains all instructions except the final
 Home call at 0x4e8924. Stock power, lock, test and key-lock gates and its release
-latch execute first. Compact cancels centre confirmation and spin state, checks
+latch execute first. iPod cancels centre confirmation and spin state, checks
 the shared screen/navigation restrictions, and then either calls the stock Home
 destination when Now Playing is already the top window, or calls the stock switch
 function with `playing_page` and `{0, 0, 0xff, 2}`. The `0xff` context skips
@@ -63,7 +63,7 @@ other long-key destination changes.
 Every check below has been hardware-tested on both builds and confirmed by the
 user. Their parameters remain unchanged; the list stays as the regression guide.
 
-- **pull to search**: Compact Local Songs only: start at the list top, pull
+- **pull to search**: iPod Local Songs only: start at the list top, pull
   47/48/49 pixels and release. Check both prompts, backing below the threshold,
   horizontal swipes, ordinary taps, mid-list starts and empty lists. No row should
   open after a claimed pull. Close search and confirm the same category/tab context.
@@ -80,7 +80,7 @@ user. Their parameters remain unchanged; the list stays as the regression guide.
   page reopening and artwork/control visibility changes; short titles should stay
   at the same left position and overflowing titles should still scroll/ellipsize.
   Touch and centre must activate the same item at every row and edge.
-- **toolbar**: Compact hides the entire primary toolbar (including Home,
+- **toolbar**: iPod hides the entire primary toolbar (including Home,
   search/multi-select and Now Playing icons), keeps the status bar, and reclaims
   its space after page recreation and nested folder returns. Normal stays stock.
 - **artwork**: Toggle folder icons/covers off/on, restart to verify saved settings,
@@ -89,7 +89,7 @@ user. Their parameters remain unchanged; the list stays as the regression guide.
   and correct artwork indexing after child/grandchild returns. Test both saved
   album display modes.
 - **return**: Short Return traverses folders and other pages as stock. Hold Return
-  from browsing and release: compact opens Now Playing without restarting audio
+  from browsing and release: iPod opens Now Playing without restarting audio
   and stays there; the next short Return goes back to the same page, selection and
   scroll position. Hold Return while already on Now Playing: the stock Home
   shortcut runs. Normal opens Home as before. Repeat holds and visits, try already

@@ -8,11 +8,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
 VERSION = '5.2'  # the only place a release bumps the version
-VERSIONS = {'normal': f'V{VERSION}R', 'compact': f'V{VERSION}C'}
+VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
-DEV_VERSIONS = {'normal': f'V{VERSION}r', 'compact': f'V{VERSION}c'}
+DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
 BASE = 0xb00000
-SCRATCH = 0xb0f000
+SCRATCH = 0xb20000
 RING_STEP = 48
 HOOKS = {
     'on_wm_keyup_before_fun': (0x4e85c8, 'ringnav'),
@@ -24,6 +24,10 @@ HOOKS = {
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq'),
     'home_page_init': (0x523c84, 'coverflow_home'),
 }
+# The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
+BLUEALSA = 'usr/bin/bluealsa'
+BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
+AAC_44K1 = 0x317b8
 # mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
 
@@ -215,11 +219,11 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
          '-Oz','-Wall','-Wextra','-Werror']
 
-def compile_payload(out, compact=False):
+def compile_payload(out, ipod=False):
     """Compile and link the payload."""
     from peq import compile_common
     extra = compile_common(out, out/'stock-demo')  # also writes the libc/libcstl imports ringnav.c uses
-    run('clang',*FLAGS,f'-DCOMPACT={int(compact)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
+    run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name in HOOKS.values()],
@@ -237,8 +241,14 @@ def append_payload(image, payload, base, memsz, flags, label):
     image.extend(payload)
     struct.pack_into('<8I',image,nulls[0][0],1,off,base,base,len(payload),memsz,flags,65536)
 
-def build(zip_path, out, logo, compact=False, dev=False):
-    variant = 'compact' if compact else 'normal'
+def patch_bluealsa(raw):
+    """Offer AAC at 48 kHz only. A headset that opens the stream itself (AirPods out of the case)
+    picks 44.1 kHz, and bluealsa, still fed 48 kHz, drops about 8% of the AAC frames."""
+    check(sha(raw) == BLUEALSA_SHA, 'Unsupported bluealsa binary')
+    return raw[:AAC_44K1] + b'\0' + raw[AAC_44K1+1:]
+
+def build(zip_path, out, logo, ipod=False, dev=False):
+    variant = 'ipod' if ipod else 'normal'
     version = (DEV_VERSIONS if dev else VERSIONS)[variant]
     out.mkdir(parents=True, exist_ok=True)
     check(not (out/'update.tar').exists(), 'Output already exists; use a fresh --out directory')
@@ -291,7 +301,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
                         symbol_table, re.M), f'{name}: context data size mismatch')
         header.append(f'#define {name} ((const unsigned char *)0x{syms[name]:x}u)')
     (out/'stock.h').write_text('\n'.join(header)+'\n')
-    ps = compile_payload(out, compact)
+    ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()
     check(len(payload) < SCRATCH-BASE, 'Payload overlaps its scratch page')
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
@@ -310,6 +320,8 @@ def build(zip_path, out, logo, compact=False, dev=False):
     from peq import patch_player
     raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
     audio = patch_player(raw_player, out/'peq')
+    bluealsa = patch_bluealsa(subprocess.check_output(['unsquashfs', '-cat', str(sq), BLUEALSA]))
+    (out/'bluealsa').write_bytes(bluealsa)
     from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, patch_asset, patch_code, patch_word
     for address, old, new in ARTIST_ALBUMS:
         patch_word(patched, [], address, old, new, 'artist detail opens on Albums')
@@ -323,7 +335,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         off = fileoff(raw_demo, int(address, 16))
         check(raw_demo[off:off+4].hex() == original, f'{address}: unexpected event ABI instruction')
     code_changes = []
-    if compact:
+    if ipod:
         code_changes = patch_code(patched, ps)
     # Single shared version literal: About display and updater equality check.
     check(patched.count(b'V1.32\0') == 1, 'Version literal is not unique')
@@ -348,6 +360,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         return p[:line.start()]+path+b' F '+b' '.join(line.groups())+b' cat '+shlex.quote(str(src)).encode()+p[line.end():]
     p = swap_inode(p, b'release/bin/demo', out/'demo')
     p = swap_inode(p, b'usr/bin/hciplayer', out/'peq/hciplayer')
+    p = swap_inode(p, BLUEALSA.encode(), out/'bluealsa')
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.
@@ -372,10 +385,10 @@ def build(zip_path, out, logo, compact=False, dev=False):
         removed.append(line.group().split()[:6])
         p = p[:line.start()]+p[line.end():]
     changed_assets = {}
-    for rel in (AUDIT['assets'] if compact else [ARTIST_PAGE, HOME_PAGE]):
+    for rel in (AUDIT['assets'] if ipod else [ARTIST_PAGE, HOME_PAGE]):
         path = 'release/assets/default/raw/ui/' + rel
         original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
-        data = patch_asset(rel, original, compact)
+        data = patch_asset(rel, original, ipod)
         target = out/'ui'/rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -408,7 +421,7 @@ def build(zip_path, out, logo, compact=False, dev=False):
         demo_sha256=sha(patched), patch_sha256=sha(payload), update_sha256=sha((out/'update.tar').read_bytes()),
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
-        version=version, variant=variant, dev=dev, peq=audio, compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        version=version, variant=variant, dev=dev, peq=audio, bluealsa_sha256=sha(bluealsa), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']})
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
@@ -420,11 +433,11 @@ if __name__ == '__main__':
     ap.add_argument('--out',type=pathlib.Path,default=ROOT/'build')
     ap.add_argument('--logo',type=pathlib.Path,default=ROOT/'assets/logo.jpg',
                     help='320x375 JPEG boot splash (default: assets/logo.jpg)')
-    ap.add_argument('--compact', action='store_true', help='compact local browsing and long Return to Now Playing')
+    ap.add_argument('--ipod', action='store_true', help='iPod variant: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
-                    help=f'development build: lowercase version tag (V{VERSION}r/c); never a release input')
+                    help=f'development build: lowercase version tag (V{VERSION}r/i); never a release input')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.compact,a.dev)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

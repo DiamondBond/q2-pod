@@ -63,7 +63,7 @@ typedef struct {
     void *fx_surface;
     int fx_token, bump_dir, edge_dir, edge_id;
     unsigned fx_timer, edge_time;
-#if COMPACT
+#if IPOD
     void *pull_page, *pull_surface;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
@@ -803,7 +803,7 @@ static void native_scrollbar(menu_t *m) {
     }
 }
 
-#if COMPACT
+#if IPOD
 #define PULL_BOUND "_pull_bound"
 #define PULL_SUPPRESS "_pull_suppress"
 #define PULL_PROMPT "_pull_prompt"
@@ -927,7 +927,7 @@ static void pull_begin(void *event) {
  * row readable over artwork without borrowing the red "playing" language or the native focus
  * flag. Small rows and degenerate geometry keep the square fallback. */
 int ringnav_paint(void *w, void *canvas) {
-#if COMPACT
+#if IPOD
     if (st.pull_page && !pull_live()) pull_cancel();
 #endif
     int result = stock_paint_trampoline(w, canvas);
@@ -1039,7 +1039,7 @@ static int selects(menu_t *m, void *target) {
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
-#if COMPACT
+#if IPOD
     if (st.pull_page && (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
         pull_cancel();
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
@@ -1072,7 +1072,7 @@ int ringnav_dispatch(void *target, void *event) {
     return stock_dispatch_trampoline(target, event);
 }
 
-#if COMPACT
+#if IPOD
 
 /* Only audited ordinary row constructors install this per-instance layouter. Stock still
  * positions every child, skips hidden controls, and owns clone/destruction and text overflow. */
