@@ -66,7 +66,7 @@ The home carousel uses `HOME_SLIDE_MS` (200 ms) for isolated ticks and `HOME_FAS
 
 ## Coverflow
 
-Coverflow (`patch/coverflow.c`, [COVERFLOW.md](../COVERFLOW.md)) follows Rockbox PictureFlow: albums and tracks come from the stock library queries, never from tags, and the payload owns only a thumbnail cache. Audit (V1.32, 2026-09-28); every entry point is exported, and the builder pins the executable by SHA-256:
+Coverflow (`patch/coverflow.c`) follows Rockbox PictureFlow: albums and tracks come from the stock library queries, never from tags, and the payload owns only a thumbnail cache. Audit (V1.32, 2026-09-28); every entry point is exported, and the builder pins the executable by SHA-256:
 
 | Stock entry                                       | Address                 | Size      | Prologue                                                |
 | ------------------------------------------------- | ----------------------- | --------- | ------------------------------------------------------- |

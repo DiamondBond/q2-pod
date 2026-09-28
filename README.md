@@ -103,3 +103,7 @@ If a menu behaves strangely, please [open an issue](https://github.com/DiamondBo
 - [Releasing](docs/releasing.md): packaging, verifying and publishing.
 - [Compact mode](docs/compact.md): layout audit and device checklist.
 - [Boot logo](docs/boot-logo.md): replacing the power-on splash.
+
+## License
+
+The code and documentation in this repository are [MIT](LICENSE). The license does not cover Shanling's Q2 firmware: the release images are built from it and it remains Shanling's property. This project is not affiliated with Shanling.

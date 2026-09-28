@@ -94,7 +94,7 @@
 #define SLIDE_EASING 8          /* stock scroll_to easing */
 #define EVT_ANIM_END 0x125
 
-/* Play/Pause hold queue menu (QMENU.md, docs/internals.md). AWTK input_device_status lives at
+/* Play/Pause hold queue menu (docs/internals.md). AWTK input_device_status lives at
  * wm+0x98 (window_manager_get_input_device_status @0x66e734): 16 key records of 0x18 bytes from
  * +0x30, each {key, long fired, u64 press time @8, aborted @0x10}. */
 #define EVT_KEY_LONG 0x111
@@ -124,7 +124,7 @@
 #define SORTSELECT_KEYUP 0x49f3e0
 #define SORTSELECT_CLOSE 0x49f3c0
 
-/* Coverflow (COVERFLOW.md, docs/internals.md). slide_menu dispatches EVT_VALUE_CHANGED after its
+/* Coverflow (docs/internals.md). slide_menu dispatches EVT_VALUE_CHANGED after its
  * index moves (0x5f320c). The stock scan thread handle (dialog_updatemusic_dialog_init) and its
  * done flag (wait_scan sets it) have no symbols: a scan runs while the handle is set and the
  * flag is clear. */

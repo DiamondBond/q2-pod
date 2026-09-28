@@ -1151,8 +1151,9 @@ int compact_now_playing(void) {
 }
 #endif
 
-/* Play/Pause hold queue menu (QMENU.md). Stock long press fires once per press, so a hold on a
- * local song, album or folder row opens the stock sortselect dialog rebuilt as a two-row menu. */
+/* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
+ * on a local song, album or folder row opens the stock sortselect dialog rebuilt as a two-row
+ * menu. */
 enum { QM_SONG = 1, QM_ALBUM, QM_FOLDER, QM_COVERFLOW };
 #define MCL(a) (*(volatile int *)(a))
 

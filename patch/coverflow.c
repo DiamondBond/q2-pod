@@ -1,4 +1,4 @@
-/* Coverflow (COVERFLOW.md): the stock Local Music albums on a stock slide_menu, the way
+/* Coverflow (docs/internals.md): the stock Local Music albums on a stock slide_menu, the way
  * PictureFlow reads Rockbox's database. No tag reads: albums and tracks come from the stock library
  * queries, and the only thing Coverflow owns is a thumbnail cache, built on a modal screen by one
  * pthread that touches only files, the two stock art locks and the volatile counters below. */

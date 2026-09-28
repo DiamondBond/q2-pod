@@ -2348,8 +2348,8 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
     assert m.hold()==0 and len(m.stack)==1 and m.release()==toggles
     passed()
 
-# Coverflow (COVERFLOW.md): the Home card, the runtime coverflow_page over a stock slide_menu, the
-# tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
+# Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
+# the tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
 from compact import HOME_PAGE, decode
 cards=[c[2]['name'] for c in decode((B/'ui'/HOME_PAGE).read_bytes())[3][0][3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
