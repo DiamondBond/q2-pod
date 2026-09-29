@@ -349,7 +349,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
                         symbol_table, re.M), f'{name}: context data size mismatch')
         header.append(f'#define {name} ((const unsigned char *)0x{syms[name]:x}u)')
     # iPod's image hook leaves the settings icons' category colours alone (ringnav.c settings_icon).
-    names = ''.join(n.removesuffix('.png') + '\\0' for n in AUDIT['settings_icons'])
+    names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)

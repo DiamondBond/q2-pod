@@ -1496,7 +1496,7 @@ static int settings_icon(const char *name) {
  * silver), so an active disc stands apart from the grey inactive ones and its glyph stays legible.
  * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
-    static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
+    static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4,
              preset = accent();
     unsigned char *data = (void *)0;

@@ -339,15 +339,19 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) 
         put(px, shade(tex[row * ART_SIZE], (unsigned)bright), cov);
         ++y, v += step, px += pitch;
     }
+    /* The reflection starts where the body ends, sharing the row the body only partly covers. */
     int reflect = h * CF_REFLECT / ART_SIZE, stop = (bottom + reflect + 255) >> 8;
     int fade = (256 << 16) / reflect; /* fading per 1/256 px, 16.16 */
     unsigned dim = (unsigned)bright * CF_REFLECT_TOP >> 8;
     if (stop > CF_VIEW_H) stop = CF_VIEW_H;
-    y = end, v = (((y << 8) + 128 - bottom) >> 4) * step >> 4, px = d + y * pitch;
-    for (int dist = (y << 8) + 128 - bottom; y < stop && dist < reflect; ++y, v += step, px += pitch, dist += 256) {
+    for (y = bottom >> 8, px = d + y * pitch; y < stop; ++y, px += pitch) {
+        int from = y << 8 > bottom ? y << 8 : bottom, dist = ((from + ((y + 1) << 8)) >> 1) - bottom;
+        if (dist >= reflect) break;
         if (y < 0 || (y >= solid_top && y < solid_bottom)) continue;
-        int row = ART_SIZE - 1 - (v >> 16 >= ART_SIZE ? ART_SIZE - 1 : v >> 16);
-        put(px, shade(tex[row * ART_SIZE], dim), 256u - (unsigned)(dist * fade >> 16));
+        int mirrored = dist * step >> 8 >> 16; /* texel rows up from the bottom edge */
+        int row = ART_SIZE - 1 - (mirrored >= ART_SIZE ? ART_SIZE - 1 : mirrored);
+        unsigned cov = (unsigned)(((y + 1) << 8) - from) * (256u - (unsigned)(dist * fade >> 16)) >> 8;
+        put(px, shade(tex[row * ART_SIZE], dim), cov);
     }
     /* The rows this body covers whole are opaque now: join them to the known span, or keep the
      * longer of the two. */
@@ -428,11 +432,11 @@ static struct {
 } fx __attribute__((section(".scratch")));
 
 /* A decoded image copied into a texture: its centred square, nearest sampled to ART_SIZE, over
- * black. Only 32-bit formats (bitmap_t format @0xe: 1 RGBA, 2 ABGR, 3 BGRA, 4 ARGB in memory
- * order); stock decodes covers to RGBA8888 with straight alpha. The image manager's copy is only
+ * black. Only 32-bit formats (BITMAP_RGBA_AT); stock decodes covers to RGBA8888 with straight
+ * alpha. The image manager's copy is only
  * read, and a cover's load is dropped again at once, as stock does. */
 static int decode(const char *url, unsigned *out, int unload) {
-    static const unsigned char at[4][4] = { { 0, 1, 2, 3 }, { 3, 2, 1, 0 }, { 2, 1, 0, 3 }, { 1, 2, 3, 0 } };
+    static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned bitmap[64]; /* bitmap_t */
     if (widget_load_image(cf.page, url, bitmap)) return 0;
     unsigned w = bitmap[0], h = bitmap[1], format = ((unsigned short *)bitmap)[7] - 1u;
@@ -440,13 +444,13 @@ static int decode(const char *url, unsigned *out, int unload) {
         format < 4 && w && h && w <= 4096 && h <= 4096 ? bitmap_lock_buffer_for_read(bitmap) : 0;
     if (data) {
         const unsigned char *o = at[format];
-        unsigned stride = bitmap_get_line_length(bitmap), side = w < h ? w : h, column[ART_SIZE];
+        unsigned stride = bitmap_get_line_length(bitmap), side = w < h ? w : h, xoff[ART_SIZE];
         const unsigned char *base = data + (h - side) / 2 * stride + (w - side) / 2 * 4;
-        for (unsigned x = 0; x < ART_SIZE; ++x) column[x] = x * side / ART_SIZE * 4;
+        for (unsigned x = 0; x < ART_SIZE; ++x) xoff[x] = x * side / ART_SIZE * 4;
         for (unsigned y = 0; y < ART_SIZE; ++y) {
             const unsigned char *line = base + y * side / ART_SIZE * stride;
             for (unsigned x = 0; x < ART_SIZE; ++x) {
-                const unsigned char *px = line + column[x];
+                const unsigned char *px = line + xoff[x];
                 unsigned a = px[o[3]], r = px[o[0]], g = px[o[1]], b = px[o[2]];
                 if (a < 255) r = r * a / 255, g = g * a / 255, b = b * a / 255; /* over black */
                 *out++ = 0xff000000u | r | g << 8 | b << 16;
@@ -620,10 +624,11 @@ static int snap(void) {
 /* Stock's pointer-up (0x5f3c80) throws a drag on by its velocity: a whole cover past the finger
  * for a swipe under 200 ms, else velocity % cover width. So drags finish here first, on the page
  * before the slide_menu sees the release, where the finger left them. Taps on the drawn covers
- * are hit-tested here too (tap); in the flat fallback they still reach stock. */
+ * are hit-tested first (tap), so one on covers resting between albums still picks the cover under
+ * the finger; in the flat fallback taps still reach stock. */
 static int released(void *ctx, void *event) {
     (void)ctx;
-    return snap() || tap(event) ? 11 : 0; /* RET_STOP */
+    return tap(event) || snap() ? 11 : 0; /* RET_STOP; a tap even while the covers rest off-grid */
 }
 
 /* Some releases never reach the page or the slide_menu, leaving the covers between two albums,
@@ -705,7 +710,7 @@ static int poll(const void *unused) {
 static void load(void) {
     drop();
     widget_destroy_children(cf.page);
-    cf.covers = 0;
+    cf.covers = cf.slide = cf.name = cf.artist = 0; /* destroyed with the page's children */
     cf.album = 0;
     cf.body = widget_factory_create_widget(widget_factory(), "view", cf.page, 0, 0, 375, 290);
     int n = 0;

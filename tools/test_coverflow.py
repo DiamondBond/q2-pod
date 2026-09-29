@@ -147,7 +147,7 @@ int widget_load_image(void *x, const char *url, void *b) {
     loads += !failed;
     if (!failed) {
         unsigned *bm = b, seed = 0;
-        for (const char *c = url; *c; ++c) seed = seed * 31 + (unsigned char)*c;
+        for (const char *c = strrchr(url, '/'); *c; ++c) seed = seed * 31 + (unsigned char)*c; /* the key, not the scratch path */
         unsigned char *px = pixels[next_pixels++ % 16];
         pattern(px, seed % 1000);
         bm[0] = art_w, bm[1] = art_h, bm[2] = art_w * 4;
@@ -470,6 +470,22 @@ static void renderer(void) {
         rows += v > 0, prev = v;
     }
     assert(rows >= CF_REFLECT - 1 && rows <= CF_REFLECT);
+    /* No seam where a body ends mid-row: down any column from a cover's middle, brightness never
+       dips between the body, the row they share and the reflection. */
+    const unsigned *alone[7] = { 0, 0, 0, flat[3], 0, 0, 0 };
+    for (int frac = -ONE / 2; frac < ONE / 2; frac += ONE / 16 + 77) {
+        render(frac, alone);
+        for (int x = 0; x < CF_VIEW_W; ++x) {
+            if (coverflow_hit(frac, x, CF_TOP + 80) != 0) continue;
+            int body = 256, dipped = 0;
+            for (int y = CF_TOP + 80; y < CF_VIEW_H; ++y) {
+                int v = ch(px(x, y), 0);
+                dipped |= v < body && v < ch(px(x, y + 1 < CF_VIEW_H ? y + 1 : y), 0) - 2;
+                body = v;
+            }
+            assert(!dipped);
+        }
+    }
     /* Symmetry: a mirror-image ring renders the mirror image, at rest and mid-turn either way. */
     for (int j = 0; j < 7; ++j) mirror[j] = flat[j < 3 ? j : 6 - j];
     render(0, mirror);
@@ -590,6 +606,12 @@ static void depth(void) {
     int (*waiting)(const void *) = timer_fn;
     assert(TAP(CF_CX, CF_TOP + 170) == 11 && TAP(5, 5) == 11 && anims == a0 + 1 && timer_fn == waiting); /* reflection, background */
     assert(TAP(CF_CX - 91, CF_TOP + 80) == 11 && anim_to == CF_STRIDE);
+    *(void **)(raw + SLIDE_ANIMATOR) = 0;
+    /* Covers resting between albums (a release that never reached the page): a tap still picks
+       the cover under the finger rather than only snapping. */
+    *(int *)(raw + SLIDE_OFFSET) = 30;
+    assert(TAP(CF_VIEW_W - 20, CF_TOP + 80) == 11 && anim_to == -2 * CF_STRIDE);
+    *(int *)(raw + SLIDE_OFFSET) = 0;
     *(void **)(raw + SLIDE_ANIMATOR) = 0;
     raw[SLIDE_DRAG + 1] = 0;
     assert(release(0, e) == 0); /* a release that did not press the covers passes on */
