@@ -216,14 +216,36 @@
 #define EVT_VALUE_CHANGED 0x0e
 #define SCAN_THREAD 0xa271d8
 #define SCAN_DONE 0xa271d4
-/* iPod Coverflow text: every label keeps CF_EDGE from the sides, where the lowest track
- * row's text clears the bottom corners; album names and artists scroll within that. Under the
- * cover, the album name is CF_NAME_PX white CF_GAP below the art and the artist CF_ARTIST_PX in
- * CF_GREY (stock secondary text) right under it. */
+/* Coverflow text: iPod keeps every label CF_EDGE from the sides, where the lowest track row's text
+ * clears the bottom corners; both builds keep the captions there. Album names and artists scroll
+ * within that. Under the covers (CF_TEXT_Y), the album name is CF_NAME_PX white and the artist
+ * CF_ARTIST_PX in CF_GREY (stock secondary text) right under it. */
 #define CF_EDGE 36
-#define CF_GAP 12
 #define CF_NAME_PX 24
 #define CF_NAME_H 32
 #define CF_ARTIST_PX 20
 #define CF_ARTIST_H 28
 #define CF_GREY 0xffaaaaaa /* color_t #AAAAAA */
+/* Coverflow depth (docs/internals.md#coverflow-depth): the covers are drawn in software into one
+ * CF_VIEW_W x CF_VIEW_H frame, the top of the client area. The selected cover is ART_SIZE (160)
+ * square with its top CF_TOP from the frame's; side covers turn CF_ANGLE (60) degrees inward (the
+ * sine table in coverflow.c), sit CF_X1 px from the centre, then CF_XS apart, CF_Z1 px and then
+ * CF_ZS more behind it, seen from CF_EYE px. Brightness (of 256) is 256 at the centre, CF_BRIGHT1
+ * one cover out and CF_BRIGHT2 two out, reaching 0 three out. Each cover's reflection is
+ * CF_REFLECT px high at native size, from CF_REFLECT_TOP (of 256) of its brightness down to black.
+ * A drag moves one album every CF_STRIDE px. Starting values, to be tuned together on the Q2. */
+#define CF_VIEW_W 375
+#define CF_VIEW_H 210
+#define CF_CX 187 /* the centre line lies between screen columns 186 and 187 */
+#define CF_TOP 13
+#define CF_EYE 300
+#define CF_X1 112
+#define CF_XS 48
+#define CF_Z1 90
+#define CF_ZS 20
+#define CF_BRIGHT1 192
+#define CF_BRIGHT2 128
+#define CF_REFLECT 24
+#define CF_REFLECT_TOP 64
+#define CF_STRIDE 110
+#define CF_TEXT_Y 212 /* the album caption's top, under the frame; the artist follows */

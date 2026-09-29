@@ -3,7 +3,7 @@
 Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 """
 import json, math, pathlib, re, struct, sys
-from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
+from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
 from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
@@ -93,7 +93,7 @@ class Machine:
         self.mock('canvas_set_global_alpha')
         self.mock('sqrtf@GLIBC_2.0','sinf@GLIBC_2.0','acosf@GLIBC_2.0',prefix='float:')
         self.mock(*VG_MOCKS,prefix='vg:')
-        self.u.hook_add(UC_HOOK_CODE,self.hook)
+        self.code_hook=self.u.hook_add(UC_HOOK_CODE,self.hook)
         for name in GLOBALS: self.byte(syms[name],0)
         for name,size in CONTEXT_DATA.items(): self.u.mem_write(syms[name],bytes(size))
         self.word(syms['g_class_type'],0xf001)
@@ -420,7 +420,16 @@ class Machine:
             u.reg_write(r,0xdeadbeef)
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff)
         u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
-    def call(self,key=O['KEY_NEXT'],address=HOOKS['on_wm_keyup_before_fun'][0],args=None,event_type=0x114,gap=1000,stack=(),clear=True,debounce=False):
+    def fast(self):
+        """Hook stock code and the payload's trampolines only, so the payload's own loops (the
+        Coverflow renderer) run at native emulator speed."""
+        self.u.hook_del(self.code_hook)
+        self.u.hook_add(UC_HOOK_CODE,self.hook,begin=0,end=BASE-1)
+        self.u.hook_add(UC_HOOK_CODE,self.hook,begin=SCRATCH,end=0xffffffff)
+        for a in list(self.handlers):
+            if BASE<=a<SCRATCH: self.u.hook_add(UC_HOOK_CODE,self.hook,begin=a,end=a)
+    budget=100000  # instructions per call
+    def call(self,key=O['KEY_NEXT'],address=HOOKS['on_wm_keyup_before_fun'][0],args=None,event_type=0x114,gap=1000,stack=(),clear=True,debounce=False,count=None):
         # Independent input steps occur after the stock key debounce timer expires.
         if gap: self.advance(gap,clear=False)
         if not debounce: self.byte(0xa37c89,0)  # stock key filter latch
@@ -433,7 +442,7 @@ class Machine:
         for i,v in enumerate(stack): self.word(0x7000f010+4*i,v)
         for r,v in zip(REGS,args or (self.wm,self.event,0,0)): self.u.reg_write(r,v&0xffffffff)
         for i,r in enumerate(SAVED): self.u.reg_write(r,0x12340000+i)
-        self.u.emu_start(address,0x1000000,count=100000)
+        self.u.emu_start(address,0x1000000,count=count or self.budget)
         assert self.u.reg_read(UC_MIPS_REG_PC)==0x1000000, 'Instruction limit reached'
         assert self.u.reg_read(UC_MIPS_REG_SP)==0x7000f000
         assert [self.u.reg_read(r) for r in SAVED]==[0x12340000+i for i in range(len(SAVED))]
@@ -2710,6 +2719,8 @@ class CoverflowMachine(QueueMachine):
             ret=self.node(kind)
             if kind=='window': self.top=ret; self.stack.append(ret)
             else: self.nodes[parent]['children'].append(ret); self.word(ret+O['W_PARENT'],parent); self.word(ret+O['W_H'],h)
+            if name=='widget_factory_create_widget':  # x in a3; y, w on the stack
+                for off,v in (('W_X',d),('W_Y',self.get(sp+16)),('W_W',self.get(sp+20))): self.word(ret+O[off],v)
             if kind=='slide_menu': self.word(ret+O['SLIDE_INDEX'],0); self.word(ret+0x5c,self.alloc())
         elif name=='image_base_set_image': self.nodes[a]['image']=self.text(b)
         elif name=='getAllAlbum':
@@ -3040,22 +3051,24 @@ for offset,want in ((-90,2),(-70,1),(90,0),(70,1),(0,1)):
 # A tap at rest reaches stock, so the cover's click still opens it.
 m=CoverflowMachine(); page=m.open(); f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.slides; passed()
-# Text geometry. iPod: album over artist under the native-size cover, the album larger and white, the
-# artist grey, and every label (covers, the Refresh card, the track list's title and rows, whose last
-# visible row is lowest) CF_EDGE from the sides, clear of the rounded glass. Normal keeps its layout.
+# Text geometry. Both builds: album over artist under the covers' frame (CF_TEXT_Y), the album larger
+# and white, the artist grey, CF_EDGE from the sides and clear of the rounded glass. iPod keeps every
+# other label (the track list's title and rows, whose last visible row is lowest) CF_EDGE in too;
+# normal keeps its track list layout.
+from compact import corner_inset
 def cf_geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
+def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
+    return max(corner_inset(30+top),corner_inset(30+top+px))<=x and x+w<=375-max(corner_inset(30+top),corner_inset(30+top+px))
 m=CoverflowMachine(); page=m.open(); labels=[w for w in m.nodes[m.get(m.slide+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label']
 name,artist=labels
+E=O['CF_EDGE']; y=O['CF_TEXT_Y']
+assert y>=O['CF_VIEW_H'] and y+O['CF_NAME_H']+O['CF_ARTIST_H']<=290
+assert [cf_geometry(m,w) for w in labels]==[(E,y,375-2*E,O['CF_NAME_H']),(E,y+O['CF_NAME_H'],375-2*E,O['CF_ARTIST_H'])]
+assert m.nodes[name]['style:normal:font_size']==O['CF_NAME_PX']==24 and m.nodes[artist]['style:normal:font_size']==O['CF_ARTIST_PX']==20
+assert m.nodes[artist]['style:normal:text_color']==signed(O['CF_GREY']) and 'style:normal:text_color' not in m.nodes[name]
+for w,px in ((name,O['CF_NAME_PX']),(artist,O['CF_ARTIST_PX'])):
+    x,top,wd,h=cf_geometry(m,w); assert clear(x,top+(h-px)//2,wd,px)
 if variant=='ipod':
-    from compact import corner_inset
-    E=O['CF_EDGE']; y=24+160+O['CF_GAP']
-    assert [cf_geometry(m,w) for w in labels]==[(E,y,375-2*E,O['CF_NAME_H']),(E,y+O['CF_NAME_H'],375-2*E,O['CF_ARTIST_H'])]
-    assert m.nodes[name]['style:normal:font_size']==O['CF_NAME_PX']>m.nodes[artist]['style:normal:font_size']==O['CF_ARTIST_PX']
-    assert m.nodes[artist]['style:normal:text_color']==signed(O['CF_GREY']) and 'style:normal:text_color' not in m.nodes[name]
-    def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
-        return max(corner_inset(30+top),corner_inset(30+top+px))<=x and x+w<=375-max(corner_inset(30+top),corner_inset(30+top+px))
-    for w,px in ((name,O['CF_NAME_PX']),(artist,O['CF_ARTIST_PX'])):
-        x,top,wd,h=cf_geometry(m,w); assert clear(x,top+(h-px)//2,wd,px)
     view=m.tracks(); lv=m.get(view+O['W_PARENT']); title=next(w for w in m.nodes[m.get(lv+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label')
     assert cf_geometry(m,title)[::2]==(E,375-2*E) and clear(E,14,375-2*E,20)
     rows=(290-48)//48
@@ -3063,10 +3076,144 @@ if variant=='ipod':
         label=m.nodes[item]['children'][0]; assert cf_geometry(m,label)[::2]==(E,375-2*E)
     assert clear(E,48+(rows-1)*48+14,375-2*E,20)  # the lowest visible row
 else:
-    assert [cf_geometry(m,w) for w in labels]==[(0,198,375,36),(0,234,375,28)] and m.nodes[name]['style:normal:font_size']==28
-    assert 'style:normal:font_size' not in m.nodes[artist] and 'style:normal:text_color' not in m.nodes[artist]
     view=m.tracks(); assert {cf_geometry(m,m.nodes[i]['children'][0])[::2] for i in m.nodes[view]['children']}=={(12,350)}
 passed()
+
+# Coverflow depth (docs/internals.md#coverflow-depth): the payload's renderer, run as MIPS, draws
+# byte for byte what the host build of the same source draws (tools/test_coverflow.py checks that
+# one's geometry); on the page it spans the frame, draws through the stock canvas and hit-tests taps.
+BIG=0x2000000
+def cover_pixels(seed):
+    return b''.join(struct.pack('<I',0xff000000|((i*2654435761+seed*40503)>>7)&0xffffff) for i in range(160*160))
+class DepthMachine(CoverflowMachine):
+    budget=50_000_000  # decoding and rendering run in the payload, at native emulator speed (fast)
+    def __init__(self,**kw):
+        super().__init__(**kw)
+        self.u.mem_map(BIG,0x800000); self.big=BIG
+        self.frames=[]; self.destroyed=[]; self.draws=[]; self.loads=[]; self.unloads=0; self.pixels={}
+        self.fast()
+    def big_alloc(self,n):
+        a=self.big; self.big+=(n+15)&~15; assert self.big<=BIG+0x800000; return a
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        a,b,c,d=[u.reg_read(r) for r in REGS]; sp=u.reg_read(UC_MIPS_REG_SP)
+        if name=='c:calloc@GLIBC_2.0' and a*b>0x10000: ret=self.big_alloc(a*b)
+        elif name=='bitmap_create_ex':
+            ret=self.big_alloc(0x48); data=self.big_alloc(b*c)
+            self.word(ret,a); self.word(ret+4,b); self.word(ret+8,c); self.u.mem_write(ret+0xc,struct.pack('<HH',0,d)); self.word(ret+0x14,data)
+            self.frames.append(ret)
+        elif name=='bitmap_destroy': self.destroyed.append(a); ret=0
+        elif name=='bitmap_lock_buffer_for_read': ret=self.get(a+0x14)
+        elif name=='widget_load_image':
+            url=self.text(b); self.loads.append(url) if a==self.top else None  # Coverflow's, not iPod Home's
+            if url not in self.pixels:
+                self.pixels[url]=self.big_alloc(160*160*4); self.u.mem_write(self.pixels[url],cover_pixels(len(self.pixels)))
+            self.word(c,160); self.word(c+4,160); self.word(c+8,640); self.u.mem_write(c+0xc,struct.pack('<HH',2,1)); self.word(c+0x14,self.pixels[url]); ret=0
+        elif name=='widget_unload_image': self.unloads+=a==self.top; ret=0
+        elif name=='slide_menu_set_spacer': self.word(a+O['SLIDE_SPACER'],b); ret=0
+        elif name=='canvas_draw_image':
+            src,dst=[tuple(signed(self.get(r+4*i)) for i in range(4)) for r in (c,d)]
+            line=self.get(b+8); data=self.get(b+0x14)
+            frame=b''.join(bytes(self.u.mem_read(data+y*line,4*O['CF_VIEW_W'])) for y in range(O['CF_VIEW_H']))
+            self.draws.append((a,b,src,dst,struct.unpack_from('<H',bytes(self.u.mem_read(b+0xc,2)))[0],frame)); ret=0
+        else: return super().hook(u,address,size,unused)
+        self.calls.append((name,a,b,c))
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+
+def host_render(textures,cases):
+    """The same renderer source built for the host: frames for (frac, mask of drawn slots) cases."""
+    import subprocess, tempfile
+    from test_coverflow import SHIM_H
+    main=r"""#include <stdio.h>
+void coverflow_render(unsigned *, int, int, const unsigned *const[7]);
+static unsigned tex[7][160 * 160], frame[%d * %d];
+int main(void) {
+    const unsigned *ring[7];
+    if (fread(tex, 4, 7 * 160 * 160, stdin) != 7 * 160 * 160) return 1;
+    int frac, mask;
+    while (scanf("%%d %%d", &frac, &mask) == 2) {
+        for (int j = 0; j < 7; ++j) ring[j] = mask >> j & 1 ? tex[j] : 0;
+        coverflow_render(frame, %d, frac, ring);
+        fwrite(frame, 4, sizeof(frame) / 4, stdout);
+        fflush(stdout);
+    }
+    return 0;
+}""" % (O['CF_VIEW_H'],O['CF_VIEW_W'],O['CF_VIEW_W'])
+    with tempfile.TemporaryDirectory(prefix='q2-render-') as d:
+        d=pathlib.Path(d); (d/'shim.h').write_text(SHIM_H); (d/'main.c').write_text(main)
+        subprocess.run(['cc','-m32','-O1','-DPEQ_HOST','-DPEQ_ROOT=""',f'-DIPOD={int(variant=="ipod")}','-D_GNU_SOURCE',
+                        '-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-I',str(ROOT/'patch'),'-include',str(d/'shim.h'),
+                        str(ROOT/'patch/coverflow.c'),str(d/'main.c'),'-o',str(d/'render')],check=True)
+        feed=b''.join(textures)+''.join(f'{f} {m}\n' for f,m in cases).encode()
+        out=subprocess.run([str(d/'render')],input=feed,capture_output=True,check=True).stdout
+    size=4*O['CF_VIEW_W']*O['CF_VIEW_H']
+    return [out[i*size:(i+1)*size] for i in range(len(cases))]
+
+ps=symbols(B/'patch.elf')
+textures=[cover_pixels(100+j) for j in range(7)]
+cases=[(0,127),(16384,127),(-16384,127),(32767,127),(-32768,127),(5000,0b0111110),(0,0)]
+want=host_render(textures,cases)
+m=DepthMachine(); tex=m.big_alloc(7*160*160*4); m.u.mem_write(tex,b''.join(textures))
+ring=m.big_alloc(28); frame=m.big_alloc(4*O['CF_VIEW_W']*O['CF_VIEW_H'])
+for (frac,mask),host in zip(cases,want):
+    for j in range(7): m.word(ring+4*j,tex+j*160*160*4 if mask>>j&1 else 0)
+    m.call(address=ps['coverflow_render'],args=(frame,O['CF_VIEW_W'],frac,ring),gap=0,count=50_000_000)
+    assert bytes(m.u.mem_read(frame,len(host)))==host,(frac,mask)
+    passed()
+
+# On the page: the slide_menu spans the frame at CF_STRIDE per album, its children stay empty, and a
+# paint of it draws the frame 1:1 at its origin, marked opaque; the covers around the position are
+# decoded once, each load dropped at once. What is drawn is what the renderer draws for that ring.
+m=DepthMachine(); page=m.open(); s=m.slide
+assert len(m.frames)==1 and cf_geometry(m,s)==(0,0,O['CF_VIEW_W'],O['CF_VIEW_H'])
+stride=signed(m.get(s+O['SLIDE_SPACER']))+O['CF_VIEW_H']; assert stride==O['CF_STRIDE']
+assert all('image' not in m.nodes[c] for c in m.nodes[s]['children'])
+def paint(m):
+    return m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slide,m.canvas,0,0),gap=0,clear=False,count=50_000_000)
+instructions=[0]
+def count_block(u,address,size,unused): instructions[0]+=size//4
+counter=m.u.hook_add(UC_HOOK_BLOCK,count_block,begin=BASE,end=SCRATCH-1)
+paint(m); rest_cost=instructions[0]
+assert len(m.draws)==1 and m.draws[0][1]==m.frames[0] and m.draws[0][2]==m.draws[0][3]==(0,0,O['CF_VIEW_W'],O['CF_VIEW_H'])
+assert m.draws[0][4]&1  # BITMAP_FLAG_OPAQUE
+# The placeholder first (fx_open), then the ring from -3 round album 0 of three and the Refresh card:
+# albums 1, 2, Refresh (the placeholder, no load), 0, then 1 and 2 again from their slots.
+assert len(m.loads)==4 and m.loads[0]=='default_album_big' and all(u.startswith('file://') for u in m.loads[1:]) and m.unloads==3
+tex_of={u:bytes(m.u.mem_read(m.pixels[u],160*160*4)) for u in m.pixels}
+ring_tex=[tex_of[m.loads[1]],tex_of[m.loads[2]],tex_of['default_album_big'],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of[m.loads[2]],tex_of['default_album_big']]
+assert host_render(ring_tex,[(0,127)])[0]==m.draws[0][5]; passed()
+# A repaint in place draws again without rendering; a quarter turn renders from the live offset.
+instructions[0]=0; paint(m); assert len(m.draws)==2 and instructions[0]<rest_cost//20
+m.word(s+O['SLIDE_OFFSET'],-O['CF_STRIDE']//4); instructions[0]=0; paint(m); turn_cost=instructions[0]
+assert m.draws[-1][5]!=m.draws[0][5] and len(m.loads)==4 and turn_cost>rest_cost//2; passed()
+m.u.hook_del(counter)
+m.word(s+O['SLIDE_OFFSET'],0); paint(m)
+# Taps: the centre cover opens its tracks; a side one scrolls to the centre; a miss ends the press.
+f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
+pointer=m.alloc(0x40)  # its own event: call() writes the key code at 0x18, which is EVENT_X here
+def tap(x,y):
+    m.word(pointer,O['EVT_POINTER_UP_BEFORE']); m.word(pointer+O['EVENT_X'],x); m.word(pointer+O['EVENT_Y'],y)
+    m.byte(s+O['SLIDE_DRAG']+1,1)
+    return m.call(address=f,args=(ctx,pointer,0,0),gap=0)
+assert tap(5,5)==11  # the background: only the press ends
+assert not m.get(s+O['SLIDE_ANIMATOR']) and m.u.mem_read(s+O['SLIDE_DRAG']+1,1)==b'\0'
+assert tap(O['CF_VIEW_W']-20,O['CF_TOP']+80)==11
+a=m.get(s+O['SLIDE_ANIMATOR']); assert a and signed(m.get(a+O['ANIM_X_TO']))==-2*O['CF_STRIDE']
+m.advance(200); assert m.get(s+O['SLIDE_INDEX'])==2 and not m.get(s+O['SLIDE_ANIMATOR'])
+assert tap(O['CF_CX'],O['CF_TOP']+80)==11; m.advance(0)
+assert m.query[:2]==('getMusicByAlbum','Album 2') and not m.nodes[m.get(s+O['W_PARENT'])]['visible']; passed()
+# Closing releases the frame and the textures; allocation failure keeps the flat covers.
+m.close(); assert m.destroyed==m.frames; passed()
+class Starved(DepthMachine):
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address,'')=='bitmap_create_ex':
+            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        return super().hook(u,address,size,unused)
+m=Starved(); m.open(); s=m.slide
+assert cf_geometry(m,s)==(0,24,375,160) and all(m.nodes[c].get('image') for c in m.nodes[s]['children'])
+paint(m); assert not m.draws; passed()
+print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (decoding the covers in reach, then the frame), {turn_cost} for a frame a quarter turn on (payload only; stock drawing mocked)')
 
 if variant=='ipod':
     # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same

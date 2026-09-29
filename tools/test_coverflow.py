@@ -70,6 +70,15 @@ int timer_remove(unsigned);
 int navigator_back_to_home(void), navigator_to_with_context(const char *, const void *);
 void *window_manager(void);
 int window_manager_get_pointer_pressed(void *);
+void *bitmap_create_ex(unsigned, unsigned, unsigned, unsigned);
+int bitmap_destroy(void *), bitmap_unlock_buffer(void *);
+const unsigned char *bitmap_lock_buffer_for_read(void *);
+unsigned char *bitmap_lock_buffer_for_write(void *);
+unsigned bitmap_get_line_length(void *);
+int canvas_draw_image(void *, void *, const void *, const void *);
+int slide_menu_set_spacer(void *, int), widget_to_local(void *, void *);
+void *shim_calloc(size_t, size_t);
+#define calloc shim_calloc
 """
 
 TEST = r"""
@@ -77,6 +86,7 @@ TEST = r"""
 #include <sys/mman.h>
 #include "peq.h"
 #include "offsets.inc"
+#include <stdint.h>
 #undef pthread_mutex_lock /* the stubs below record, then take the real lock */
 #undef pthread_mutex_unlock
 int coverflow_home(void *, void *);
@@ -92,13 +102,18 @@ static void *make(void *parent, const char *type) {
     memset(x, 0, sizeof(*x));
     x->visible = 1;
     snprintf(x->type, sizeof(x->type), "%s", type);
-    if (parent) { x->parent = (int)(W(parent) - w); W(parent)->kids[W(parent)->nkids++] = nw; }
+    if (parent) { x->parent = (int)(W(parent) - w); W(parent)->kids[W(parent)->nkids++] = nw; *(void **)(x->raw + W_PARENT) = parent; }
+    return x;
+}
+static void *placed(void *x, int left, int top, int ww, int h) {
+    int *r = (int *)W(x)->raw; /* W_X, W_Y, W_W, W_H */
+    r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
     return x;
 }
 void *window_create(void *p, int x, int y, int ww, int h) { (void)p; (void)x; (void)y; (void)ww; (void)h; return make(0, "window"); }
 void *widget_factory(void) { return (void *)1; }
-void *widget_factory_create_widget(void *f, const char *t, void *p, int x, int y, int ww, int h) { (void)f; (void)x; (void)y; (void)ww; (void)h; return make(p, t); }
-#define CREATE(name, type) void *name(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; (void)h; return make(p, type); }
+void *widget_factory_create_widget(void *f, const char *t, void *p, int x, int y, int ww, int h) { (void)f; return placed(make(p, t), x, y, ww, h); }
+#define CREATE(name, type) void *name(void *p, int x, int y, int ww, int h) { return placed(make(p, type), x, y, ww, h); }
 CREATE(image_create, "image") CREATE(list_view_create, "list_view")
 CREATE(hscroll_label_create, "hscroll_label")
 CREATE(scroll_view_create, "scroll_view") CREATE(list_item_create, "list_item")
@@ -108,13 +123,40 @@ int image_base_set_image(void *x, const char *s) { snprintf(W(x)->image, 600, "%
    decodes to art_w x art_h (bitmap_t w @0, h @4). */
 static int loads, unloads;
 static unsigned art_w = 160, art_h = 160;
+/* Decoded art (bitmap_t w @0, h @4, line length @8, format @0xe, and here the pixels @0x14):
+   RGBA8888, a pattern whose colour comes from the file's path, so every album looks different. */
+static unsigned char pixels[16][160 * 160 * 4];
+static int next_pixels, reads;
+static void pattern(unsigned char *px, unsigned seed) {
+    static const unsigned char hue[8][3] = { { 214, 68, 58 }, { 58, 140, 214 }, { 236, 180, 50 }, { 90, 176, 96 },
+                                             { 150, 90, 200 }, { 230, 120, 170 }, { 60, 190, 190 }, { 200, 200, 200 } };
+    const unsigned char *c = hue[seed % 8];
+    for (int y = 0; y < 160; ++y)
+        for (int x = 0; x < 160; ++x) {
+            int dx = x - 80, dy = y - 80, ring = dx * dx + dy * dy, k = 120 + (x + y) * 135 / 318;
+            if (ring < 30 * 30 && ring > 22 * 22) k = 40; /* a ring, off-centre text-like bars */
+            if (y > 118 && y < 128 && x > 20 && x < 20 + (int)(seed * 37 % 100)) k = 255;
+            if (x < 4 || y < 4 || x > 155 || y > 155) k = 255 - k / 2;
+            for (int i = 0; i < 3; ++i) px[4 * (y * 160 + x) + i] = c[i] * k / 255;
+            px[4 * (y * 160 + x) + 3] = 255;
+        }
+}
 int widget_load_image(void *x, const char *url, void *b) {
     (void)x; struct stat s;
     int failed = strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
     loads += !failed;
-    if (!failed) ((unsigned *)b)[0] = art_w, ((unsigned *)b)[1] = art_h;
+    if (!failed) {
+        unsigned *bm = b, seed = 0;
+        for (const char *c = url; *c; ++c) seed = seed * 31 + (unsigned char)*c;
+        unsigned char *px = pixels[next_pixels++ % 16];
+        pattern(px, seed % 1000);
+        bm[0] = art_w, bm[1] = art_h, bm[2] = art_w * 4;
+        ((unsigned short *)b)[7] = 1; /* RGBA8888 */
+        *(unsigned char **)((char *)b + 0x14) = px;
+    }
     return failed;
 }
+const unsigned char *bitmap_lock_buffer_for_read(void *b) { ++reads; return *(unsigned char **)((char *)b + 0x14); }
 int widget_unload_image(void *x, void *b) { (void)x; (void)b; ++unloads; return 0; }
 void set_hscroll_label_attribute(void *x) { assert(!strcmp(W(x)->type, "hscroll_label")); }
 int slide_menu_set_value(void *x, int value) { *(int *)(W(x)->raw + SLIDE_INDEX) = value; return 0; }
@@ -160,12 +202,15 @@ int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
 int navigator_to_with_context(const char *n, const void *c) { (void)n; (void)c; return 0; }
-/* slide_menu: 160 px covers, no spacer; scroll_to records its goal and holds the animator slot. */
+/* slide_menu: square items as high as the menu, plus the spacer; scroll_to records its goal and holds
+   the animator slot. */
 static int anim_from, anim_to, anims, ungrabs;
-int slide_menu_item_width(void *x) { (void)x; return 160; }
+int slide_menu_item_width(void *x) { return *(int *)(W(x)->raw + W_H); }
+int slide_menu_set_spacer(void *x, int v) { *(int *)(W(x)->raw + SLIDE_SPACER) = v; return 0; }
 int slide_menu_on_scroll_done(void *x, void *e) {
     (void)e; char *r = W(x)->raw;
-    *(int *)(r + SLIDE_INDEX) -= *(int *)(r + SLIDE_OFFSET) / 160;
+    int stride = slide_menu_item_width(x) + *(int *)(r + SLIDE_SPACER), n = (int)W(x)->nkids;
+    *(int *)(r + SLIDE_INDEX) = ((*(int *)(r + SLIDE_INDEX) - *(int *)(r + SLIDE_OFFSET) / stride) % n + n) % n;
     *(int *)(r + SLIDE_OFFSET) = 0; *(void **)(r + SLIDE_ANIMATOR) = 0;
     return 0;
 }
@@ -175,6 +220,37 @@ int slide_menu_scroll_to(void *x, int to) {
     return 0;
 }
 int widget_ungrab(void *p, void *c) { assert(W(c)->parent == W(p) - w); ++ungrabs; return 0; }
+/* A point from the screen into the widget: less each ancestor's x, y. */
+int widget_to_local(void *x, void *pt) {
+    for (int *p = pt; x; x = *(void **)(W(x)->raw + W_PARENT)) p[0] -= *(int *)W(x)->raw, p[1] -= *(int *)(W(x)->raw + 4);
+    return 0;
+}
+/* The frame bitmap (bitmap_t as above) and the canvas: canvas_draw_image keeps what it drew. */
+static int frames, frame_fail, tex_fail, locks, draws, drawn[4];
+static unsigned shown[CF_VIEW_H * CF_VIEW_W];
+#undef calloc /* the payload's calloc is this shim; the tests' own is libc's */
+void *calloc(size_t, size_t);
+void *shim_calloc(size_t n, size_t size) { return tex_fail && size == 160 * 160 * 4 ? 0 : calloc(n, size); }
+void *bitmap_create_ex(unsigned ww, unsigned h, unsigned line, unsigned format) {
+    if (frame_fail) return 0;
+    unsigned *b = calloc(1, 0x48);
+    b[0] = ww, b[1] = h, b[2] = line, ((unsigned short *)b)[7] = format;
+    *(unsigned char **)((char *)b + 0x14) = calloc(h, line);
+    ++frames;
+    return b;
+}
+int bitmap_destroy(void *b) { free(*(void **)((char *)b + 0x14)); free(b); --frames; return 0; }
+unsigned char *bitmap_lock_buffer_for_write(void *b) { ++locks; return *(unsigned char **)((char *)b + 0x14); }
+int bitmap_unlock_buffer(void *b) { (void)b; return 0; }
+unsigned bitmap_get_line_length(void *b) { return ((unsigned *)b)[2]; }
+int canvas_draw_image(void *c, void *b, const void *src, const void *dst) {
+    (void)c; ++draws;
+    const int *r = dst, *q = src;
+    assert(!memcmp(r, q, 16) && ((unsigned short *)b)[6] & 1); /* 1:1, and marked opaque */
+    memcpy(drawn, r, sizeof drawn);
+    for (int y = 0; y < CF_VIEW_H; ++y) memcpy(shown + y * CF_VIEW_W, *(unsigned char **)((char *)b + 0x14) + y * ((unsigned *)b)[2], CF_VIEW_W * 4);
+    return 0;
+}
 static int pressed;
 void *window_manager(void) { return &pressed; }
 int window_manager_get_pointer_pressed(void *wm) { return *(int *)wm; }
@@ -304,12 +380,270 @@ static int tmp_files(void) {
     return n;
 }
 
+
+/* ---- Depth: the renderer on its own, then on the page. ---- */
+void coverflow_render(unsigned *, int, int, const unsigned *const[7]);
+int coverflow_hit(int, int, int);
+void coverflow_paint(void *, void *);
+#define ONE 65536
+#define PITCH (CF_VIEW_W + 5) /* guard columns, and guard rows below, to catch clipping errors */
+static unsigned frame[(CF_VIEW_H + 3) * PITCH], flat[7][160 * 160], art[160 * 160];
+static const unsigned colours[7] = { 0xff0000ffu, 0xff00ff00u, 0xffff0000u, 0xff00ffffu, 0xffffff00u, 0xffff00ffu, 0xff0080ffu };
+static void render(int frac, const unsigned *const ring[7]) {
+    for (unsigned i = 0; i < sizeof(frame) / 4; ++i) frame[i] = 0x12345678u;
+    coverflow_render(frame, PITCH, frac, ring);
+    for (int y = 0; y < CF_VIEW_H + 3; ++y)
+        for (int x = 0; x < PITCH; ++x)
+            assert((y < CF_VIEW_H && x < CF_VIEW_W) == (frame[y * PITCH + x] != 0x12345678u)); /* all of it, and only it */
+}
+static unsigned px(int x, int y) { return frame[y * PITCH + x]; }
+static int ch(unsigned p, int i) { return (int)(p >> 8 * i & 255); }
+/* The slot whose flat colour p is a shade of (by channel proportions), or -1. */
+static int slot_of(unsigned p) {
+    int m = ch(p, 0) > ch(p, 1) ? ch(p, 0) : ch(p, 1);
+    m = m > ch(p, 2) ? m : ch(p, 2);
+    for (int j = 0; m >= 24 && j < 7; ++j) {
+        int ok = 1;
+        for (int i = 0; i < 3; ++i) { int want = ch(colours[j], i) * m / 255; ok &= abs(ch(p, i) - want) <= 3 + m / 40; }
+        if (ok) return j;
+    }
+    return -1;
+}
+static int differ(const unsigned *a, const unsigned *b, int tolerance) {
+    int n = 0;
+    for (int y = 0; y < CF_VIEW_H; ++y)
+        for (int x = 0; x < CF_VIEW_W; ++x)
+            for (int i = 0; i < 3; ++i) if (abs(ch(a[y * PITCH + x], i) - ch(b[y * PITCH + x], i)) > tolerance) { ++n; break; }
+    return n;
+}
+static void capture(const char *name) {
+    const char *dir = getenv("CF_CAPTURES");
+    if (!dir) return;
+    char path[600];
+    snprintf(path, sizeof(path), "%s/%s.rgba", dir, name);
+    FILE *f = fopen(path, "wb");
+    fwrite(shown, 4, CF_VIEW_H * CF_VIEW_W, f);
+    fclose(f);
+}
+
+static void renderer(void) {
+    const unsigned *ring[7], *mirror[7];
+    for (int j = 0; j < 7; ++j) {
+        for (int i = 0; i < 160 * 160; ++i) flat[j][i] = colours[j];
+        ring[j] = flat[j];
+    }
+    for (int i = 0; i < 160 * 160; ++i) art[i] = 0xff000000u | (unsigned)(i * 2654435761u >> 8 & 0xffffff);
+    /* At rest the selected cover is the texture itself, 160 px square at CF_TOP, centred, full
+       brightness; the neighbours at CF_BRIGHT1, then CF_BRIGHT2; the third out is not drawn. */
+    const unsigned *rest[7] = { flat[0], flat[1], flat[2], art, flat[4], flat[5], flat[6] };
+    render(0, rest);
+    for (int y = 0; y < 160; ++y)
+        for (int x = 0; x < 160; ++x) assert(px(CF_CX - 80 + x, CF_TOP + y) == art[y * 160 + x]);
+    assert(px(CF_CX - 81, CF_TOP + 80) != art[80 * 160] && px(CF_CX, CF_TOP - 1) == 0xff000000u);
+    /* Each neighbour's visible run on the horizon, sampled in its middle: its colour at its
+       brightness, two a side, each run a real slice of cover. */
+    for (int j = -2; j <= 2; ++j) {
+        if (!j) continue;
+        int first = -1, last = -1;
+        for (int x = 0; x < CF_VIEW_W; ++x)
+            if (coverflow_hit(0, x, CF_TOP + 80) == j) last = x, first = first < 0 ? x : first;
+        assert(last - first >= (abs(j) == 1 ? 40 : 18));
+        unsigned p = px((first + last) / 2, CF_TOP + 80), want = colours[j + 3];
+        int b = abs(j) == 1 ? CF_BRIGHT1 : CF_BRIGHT2;
+        for (int i = 0; i < 3; ++i) assert(abs(ch(p, i) - ch(want, i) * b / 256) <= 1);
+    }
+    static unsigned without[(CF_VIEW_H + 3) * PITCH];
+    memcpy(without, frame, sizeof(frame));
+    const unsigned *inner[7] = { 0, flat[1], flat[2], art, flat[4], flat[5], 0 };
+    render(0, inner);
+    assert(!memcmp(without, frame, sizeof(frame))); /* the third out is not drawn at rest */
+    /* Everything, reflections included, fits the frame with room to spare. */
+    for (int x = 0; x < CF_VIEW_W; ++x) assert(!(px(x, 0) & 0xffffff) && !(px(x, CF_VIEW_H - 1) & 0xffffff));
+    /* The reflection: CF_REFLECT rows under the cover, from CF_REFLECT_TOP of its brightness down
+       to black, never brighter going down; nothing after it. */
+    render(0, ring);
+    int prev = 256, rows = 0;
+    for (int y = CF_TOP + 160; y < CF_VIEW_H; ++y) {
+        int v = ch(px(CF_CX, y), 0); /* slot 3 is 0xff00ffff: red and green */
+        assert(v <= prev);
+        if (y == CF_TOP + 160) assert(abs(v - 255 * CF_REFLECT_TOP / 256) <= 3);
+        rows += v > 0, prev = v;
+    }
+    assert(rows >= CF_REFLECT - 1 && rows <= CF_REFLECT);
+    /* Symmetry: a mirror-image ring renders the mirror image, at rest and mid-turn either way. */
+    for (int j = 0; j < 7; ++j) mirror[j] = flat[j < 3 ? j : 6 - j];
+    render(0, mirror);
+    for (int y = 0; y < CF_VIEW_H; ++y)
+        for (int x = 0; x < 2 * CF_CX; ++x) assert(px(x, y) == px(2 * CF_CX - 1 - x, y));
+    static unsigned left[(CF_VIEW_H + 3) * PITCH];
+    const unsigned *swapped[7];
+    for (int j = 0; j < 7; ++j) swapped[j] = ring[6 - j];
+    for (int frac = ONE / 8; frac < ONE / 2; frac += ONE / 8) {
+        render(-frac, swapped);
+        memcpy(left, frame, sizeof(frame));
+        render(frac, ring);
+        for (int y = 0; y < CF_VIEW_H; ++y)
+            for (int x = 0; x < 2 * CF_CX; ++x) assert(px(x, y) == left[y * PITCH + 2 * CF_CX - 1 - x]);
+    }
+    /* Depth order and hit testing agree with what is drawn: wherever the frontmost projected cover
+       is some slot (clear of its edges), the pixel is that slot's colour; nothing is hit where no
+       cover is drawn, reflections included. Side covers overlap: one slot hides part of another. */
+    for (int frac = -ONE / 2; frac < ONE / 2; frac += ONE / 16) {
+        render(frac, ring);
+        int hits = 0, covered[7] = { 0 };
+        for (int y = 1; y < CF_VIEW_H - 1; ++y)
+            for (int x = 1; x < CF_VIEW_W - 1; ++x) {
+                int j = coverflow_hit(frac, x, y);
+                if (j == 99) continue;
+                if (j != coverflow_hit(frac, x - 1, y) || j != coverflow_hit(frac, x + 1, y) ||
+                    j != coverflow_hit(frac, x, y - 1) || j != coverflow_hit(frac, x, y + 1)) continue;
+                if ((px(x, y) & 0xffffff) && ch(px(x, y), 0) < 24 && ch(px(x, y), 1) < 24 && ch(px(x, y), 2) < 24) continue; /* fading in */
+                assert(slot_of(px(x, y)) == j + 3);
+                ++hits, ++covered[j + 3];
+            }
+        assert(hits > 160 * 150);
+    }
+    assert(coverflow_hit(0, CF_CX, CF_TOP + 80) == 0 && coverflow_hit(0, CF_CX, CF_TOP + 170) == 99);
+    assert(coverflow_hit(0, 0, 0) == 99 && coverflow_hit(0, CF_VIEW_W - 1, 0) == 99);
+    assert(coverflow_hit(0, CF_CX + 90, CF_TOP + 80) == 1 && coverflow_hit(0, CF_CX - 91, CF_TOP + 80) == -1);
+    assert(coverflow_hit(0, CF_VIEW_W - 20, CF_TOP + 80) == 2 && coverflow_hit(0, 19, CF_TOP + 80) == -2);
+    /* Continuity: covers move, turn and fade from one continuous position, so a small step changes
+       only a little, including where the centre changes hands (frac -1/2 after c, +1/2 before). */
+    static unsigned a[(CF_VIEW_H + 3) * PITCH];
+    const unsigned *next[7];
+    for (int j = 0; j < 7; ++j) next[j] = ring[(j + 1) % 7];
+    render(ONE / 2 - 1, ring);
+    memcpy(a, frame, sizeof(frame));
+    render(-ONE / 2, next);
+    assert(differ(a, frame, 6) < 200);
+    int worst = 0;
+    for (int f = -ONE / 2; f + ONE / 256 < ONE / 2; f += ONE / 256) {
+        render(f, ring);
+        memcpy(a, frame, sizeof(frame));
+        render(f + ONE / 256, ring);
+        int d = differ(a, frame, 24);
+        worst = d > worst ? d : worst;
+    }
+    assert(worst < CF_VIEW_W * CF_VIEW_H / 50);
+}
+
+static void depth(void) {
+    renderer();
+    /* On the page: the slide_menu spans the frame, one album per CF_STRIDE px, with empty children
+       under the drawn covers; the captions sit under the frame in both builds. */
+    frame_fail = 0;
+    open_page();
+    widget *s = slide();
+    char *raw = s->raw;
+    int *geo = (int *)raw;
+    assert(frames == 1 && geo[0] == 0 && geo[1] == 0 && geo[2] == CF_VIEW_W && geo[3] == CF_VIEW_H);
+    assert(slide_menu_item_width(s) + *(int *)(raw + SLIDE_SPACER) == CF_STRIDE);
+    for (int i = 0; i < s->nkids; ++i) assert(!w[s->kids[i]].image[0]);
+    widget *covers_view = &w[s->parent];
+    int labels = 0;
+    for (int i = 0; i < covers_view->nkids; ++i) {
+        widget *l = &w[covers_view->kids[i]];
+        if (strcmp(l->type, "hscroll_label")) continue;
+        int *g = (int *)l->raw;
+        assert(g[0] == CF_EDGE && g[2] == 375 - 2 * CF_EDGE && g[1] == CF_TEXT_Y + labels * CF_NAME_H && g[1] >= CF_VIEW_H);
+        ++labels;
+    }
+    assert(labels == 2);
+    /* Paint: the seven covers around the position decoded (each load released at once; albums 2
+       and 3, Embedded and None, have only the empty marker and show the placeholder), one render,
+       drawn 1:1 at the slide_menu's origin. A repaint in place only draws again. */
+    int canvas[16] = { 0 };
+    *(void **)(raw + W_PARENT) = covers_view;
+    *(int *)(raw + SLIDE_INDEX) = 3; *(int *)(raw + SLIDE_OFFSET) = 0;
+    loads = unloads = 0;
+    coverflow_paint(s, canvas);
+    assert(draws == 1 && locks == 1 && drawn[0] == 0 && drawn[1] == 0 && drawn[2] == CF_VIEW_W && drawn[3] == CF_VIEW_H);
+    assert(loads == 5 && unloads == 5 && reads == 5);
+    coverflow_paint(s, canvas);
+    coverflow_paint(covers_view, canvas); /* other widgets: nothing */
+    assert(draws == 2 && locks == 1 && loads == 5);
+    capture("rest");
+    /* Turning a quarter, a half and three quarters towards the next album draws from the live
+       offset without loading; crossing into the next album loads just the one entering reach. */
+    static const char *turns[] = { "quarter", "half", "three-quarter" };
+    for (int q = 1; q < 4; ++q) {
+        *(int *)(raw + SLIDE_OFFSET) = -CF_STRIDE * q / 4;
+        coverflow_paint(s, canvas);
+        assert(locks == 1 + q && loads == 5 + (q >= 2)); /* past half, album 7 comes into reach */
+        capture(turns[q - 1]);
+    }
+    *(int *)(raw + SLIDE_OFFSET) = 0; *(int *)(raw + SLIDE_INDEX) = 4;
+    coverflow_paint(s, canvas);
+    assert(loads == 6 && unloads == 6);
+    /* Taps: the frontmost projected cover. A side cover scrolls to the centre through stock
+       scroll_to; the centre one opens its tracks; a miss or a tap while moving only ends the press.
+       The window sits at y 30 under the status bar. */
+    int (*release)(void *, void *) = w[8189].click;
+    int e[16] = { 0 };
+    *(int *)((char *)page->raw + 4) = 30;
+    #define TAP(x, y) (e[EVENT_X / 4] = (x), e[EVENT_Y / 4] = 30 + (y), raw[SLIDE_DRAG + 1] = 1, release(0, e))
+    int a0 = anims, u0 = ungrabs;
+    assert(TAP(CF_VIEW_W - 20, CF_TOP + 80) == 11 && anims == a0 + 1 && anim_to == -2 * CF_STRIDE && ungrabs == u0 + 1 && !raw[SLIDE_DRAG + 1]);
+    assert(TAP(CF_CX, CF_TOP + 80) == 11 && anims == a0 + 1); /* moving: ignored */
+    *(int *)(raw + SLIDE_OFFSET) = anim_to; slide_menu_on_scroll_done(s, 0);
+    assert(*(int *)(raw + SLIDE_INDEX) == 6);
+    int (*waiting)(const void *) = timer_fn;
+    assert(TAP(CF_CX, CF_TOP + 170) == 11 && TAP(5, 5) == 11 && anims == a0 + 1 && timer_fn == waiting); /* reflection, background */
+    assert(TAP(CF_CX - 91, CF_TOP + 80) == 11 && anim_to == CF_STRIDE);
+    *(void **)(raw + SLIDE_ANIMATOR) = 0;
+    raw[SLIDE_DRAG + 1] = 0;
+    assert(release(0, e) == 0); /* a release that did not press the covers passes on */
+    assert(TAP(CF_CX, CF_TOP + 80) == 11 && timer_fn != waiting);
+    run();
+    assert(!strcmp(title(), names[6]) && !covers_view->visible);
+    key(KEY_RETURN); /* back to the same album, still drawn */
+    assert(covers_view->visible && *(int *)(raw + SLIDE_INDEX) == 6);
+    coverflow_paint(s, canvas);
+    /* Refresh and close release the frame and every texture. */
+    close_page();
+    assert(frames == 0 && loads == unloads);
+    /* Small libraries: two albums and the Refresh card wrap round the ring, each album decoded
+       once however often it repeats; missing art shows the placeholder. */
+    int keep = albums;
+    albums = 2;
+    open_page();
+    s = slide(); raw = s->raw;
+    *(void **)(raw + W_PARENT) = &w[s->parent];
+    loads = unloads = 0;
+    coverflow_paint(s, canvas);
+    assert(s->nkids == 3 && loads <= 2 && loads == unloads);
+    render(0, (const unsigned *const[7]){ 0 }); /* nothing to draw: all black */
+    for (int i = 0; i < CF_VIEW_W; ++i) assert(px(i, CF_TOP + 80) == 0xff000000u);
+    close_page();
+    albums = 1;
+    open_page(); s = slide(); *(void **)(s->raw + W_PARENT) = &w[s->parent];
+    coverflow_paint(s, canvas);
+    assert(s->nkids == 2);
+    capture("one-album");
+    close_page();
+    albums = keep;
+    /* Allocation failure: the flat covers, as before. */
+    tex_fail = 1;
+    open_page(); s = slide();
+    int flat_images = 0;
+    for (int i = 0; i < s->nkids; ++i) flat_images += !strncmp(w[s->kids[i]].image, "file://", 7);
+    assert(frames == 0 && ((int *)s->raw)[1] == 24 && ((int *)s->raw)[3] == 160 && flat_images > 0);
+    for (int i = 0; i < s->nkids; ++i) assert(w[s->kids[i]].image[0]); /* art or the placeholder, as before */
+    int before = draws;
+    coverflow_paint(s, canvas);
+    assert(draws == before);
+    close_page();
+    assert(loads == unloads);
+    tex_fail = 0;
+}
+
 int main(void) {
     /* The stock scan flags are raw addresses in the device ABI; map them here. */
     assert(mmap((void *)(SCAN_THREAD & ~4095), 4096, PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
     deque staging = {0};
     shim_dir = &staging;
+    frame_fail = 1; /* the flat fallback first: stock images on the slide_menu */
     mkdir(PEQ_ROOT, 0755); mkdir(PEQ_ROOT "/mnt", 0755); mkdir(PEQ_ROOT "/mnt/mmc", 0755); mkdir(PEQ_ROOT "/music", 0755);
 
     /* An empty library, or one being scanned, shows the message and builds nothing. */
@@ -423,6 +757,7 @@ int main(void) {
     assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, "default_album_big"));
     close_page();
     assert(loads == unloads);
+    depth();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
@@ -516,7 +851,23 @@ int main(void) {
 """
 
 
+def png(raw, path, w, h):
+    """RGBA8888 rows (the frame's byte order) as an RGB PNG, with the standard library only."""
+    import struct, zlib
+    rows = b''.join(b'\0' + bytes(b for i in range(y * w * 4, (y + 1) * w * 4, 4) for b in raw[i:i + 3])
+                    for y in range(h))
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+    path.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
+                     chunk(b'IDAT', zlib.compress(rows, 9)) + chunk(b'IEND', b''))
+
+
 def main():
+    import argparse, os
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--captures', type=pathlib.Path,
+                    help='write the renderer\'s frames (rest, quarter, half, three-quarter turns, one album) as PNGs here')
+    a = ap.parse_args()
     with tempfile.TemporaryDirectory(prefix='q2-coverflow-check-') as directory:
         tmp = pathlib.Path(directory)
         (tmp/'shim.h').write_text(SHIM_H)
@@ -527,8 +878,21 @@ def main():
                             '-D_GNU_SOURCE', '-O1', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
                             '-I', str(ROOT/'patch'), '-include', str(tmp/'shim.h'), str(ROOT/'patch/coverflow.c'),
                             str(tmp/'test.c'), '-o', str(binary)], check=True)
-            subprocess.run([str(binary)], check=True)
+            env = dict(os.environ)
+            if a.captures and not ipod:  # the renderer is the same in both builds
+                (tmp/'frames').mkdir()
+                env['CF_CAPTURES'] = str(tmp/'frames')
+            subprocess.run([str(binary)], check=True, env=env)
+        if a.captures:
+            a.captures.mkdir(parents=True, exist_ok=True)
+            inc = (ROOT/'patch/offsets.inc').read_text()
+            import re
+            w, h = (int(re.search(rf'#define {k} (\d+)', inc)[1]) for k in ('CF_VIEW_W', 'CF_VIEW_H'))
+            for raw in sorted((tmp/'frames').glob('*.rgba')):
+                png(raw.read_bytes(), a.captures/(raw.stem + '.png'), w, h)
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
+          ' depth renderer (exact centre, clipping, symmetry, depth order, hit testing, reflection, continuity),'
+          ' its texture window, taps, small libraries and flat fallback passed;'
           ' iPod Home art sources, fit, clip and Split/Full layout passed.')
 
 

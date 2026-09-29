@@ -210,6 +210,17 @@
       ["0x4b2944", "0x0320f809"]
     ]
   },
+  "coverflow_prologues": {
+    "bitmap_create_ex": "3f001c3cfc729c2721e09903",
+    "bitmap_destroy": "3f001c3c4c779c2721e09903",
+    "bitmap_lock_buffer_for_read": "3f001c3cc06c9c2721e09903",
+    "bitmap_lock_buffer_for_write": "3f001c3c486c9c2721e09903",
+    "bitmap_unlock_buffer": "3f001c3cd06b9c2721e09903",
+    "bitmap_get_line_length": "3f001c3c04729c2721e09903",
+    "canvas_draw_image": "3f001c3c6c1a9c2721e09903",
+    "slide_menu_set_spacer": "43001c3ce0189c2721e09903",
+    "widget_to_local": "3d001c3c0cc39c2721e09903"
+  },
   "private_prologues": {
     "stock_search": "50001c3cfc2a9c2721e09903",
     "mcl_shuffle_pick": "48001c3ca0eb9c2721e09903"

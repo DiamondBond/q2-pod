@@ -15,6 +15,7 @@ extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
+extern void coverflow_paint(void *w, void *canvas);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 #define STOP 11
@@ -1215,6 +1216,7 @@ int ringnav_paint(void *w, void *canvas) {
     if (st.pull_page && !pull_live()) pull_cancel();
 #endif
     int result = stock_paint_trampoline(w, canvas);
+    coverflow_paint(w, canvas);
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);

@@ -256,12 +256,14 @@ accent's red tone (`DROPDOWN_SUN`).
 
 ## Coverflow
 
-iPod keeps the cover at its native 160 pixels. The album name sits 12 pixels under it in 24-pixel
-white, the artist under that in 20-pixel grey (`#AAAAAA`, stock secondary text), and both, like
-the track list's title and rows and the progress and empty messages, keep 36 pixels (`CF_EDGE`)
-from each side, where the lowest visible track row's text clears the bottom corners. Long names
-still scroll within that. The Refresh card uses the album line. The status bar shows "Coverflow".
-Values are `CF_*` in `patch/offsets.inc`; normal keeps its layout.
+The covers are drawn with depth in both builds ([internals](internals.md#coverflow-depth)): the
+selected cover at its native 160 pixels, two angled neighbours a side and a faint reflection, all
+in the top 210 pixels of the page. The album name sits under them (`CF_TEXT_Y`) in 24-pixel white,
+the artist under that in 20-pixel grey (`#AAAAAA`, stock secondary text), and both, like the
+track list's title and rows and the progress and empty messages, keep 36 pixels (`CF_EDGE`) from
+each side, where the lowest visible track row's text clears the bottom corners. Long names still
+scroll within that. The Refresh card uses the album line. The status bar shows "Coverflow".
+Values are `CF_*` in `patch/offsets.inc`; normal keeps its track list layout.
 
 ## Rounded corners
 
@@ -582,11 +584,16 @@ Normal also apply to it.
   track is slim, a tap or drag anywhere along it changes the brightness, and the dim and
   bright suns mark its ends. Repeat in another language. Under all four accents, turn
   Wi-Fi, Bluetooth, Buttons lock, gain, output and USB modes on and off: an active control
-  is a dark disc with a clearly white symbol, visibly apart from the grey off disc, and a
-  disabled gain option keeps its grey symbol.
+  is a disc in the accent's colour (silver with a dark symbol in Graphite, a white symbol
+  in the others), clearly apart from the grey off disc, and a disabled gain option keeps
+  its grey symbol.
+- **settings_icons**: Under every accent, System Setting's Network Service and Language,
+  Wireless Setting's Wi-Fi, Network Service's DLNA and Display's backlight keep their stock
+  red and pink category colours, like the purple and orange icons.
 - **coverflow**: Album names are larger and white, artists grey, both clear of the
   corners; long names scroll. Check the Refresh card, "Preparing artwork" with Cancel,
-  an empty library, and the track list's last visible row.
+  an empty library, and the track list's last visible row. Then the depth checks in
+  [internals](internals.md#device-checks), with music playing.
 - **six_screens**: Compare Home (both layouts), Settings, Quick settings, Now Playing,
   Coverflow and a confirm pop-up on the device, with each of the four accents: nothing
   in the bottom rows is cut by the glass, and button glyphs and labels read clearly.
