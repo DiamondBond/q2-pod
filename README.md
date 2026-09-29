@@ -51,15 +51,6 @@ Each band supports **Peaking**, **Low shelf** or **High shelf** filters and can 
 3. Press **Return** to go back to **Presets**, then select the saved preset to load it into the editor.
 4. Choose **Apply changes**, then switch **PEQ: OFF** to **PEQ: ON** if needed.
 
-For a simple import example, save this as `/EQ/Example.txt`:
-
-```text
-Preamp: -3.0 dB
-Filter 1: ON PK Fc 1000 Hz Gain -2.0 dB Q 1.00
-```
-
-Save your edits with **Presets → Save editor preset**. Remove saved presets with **Presets → Delete a preset**, which asks for confirmation first.
-
 ## Coverflow
 
 **Coverflow** sits after Local Music on Home (the third row in iPod) and flips through your library's albums by cover art. It reads the albums Local Music already knows, so run **Update Local Music** first; until then, and while an update is running, it says so.
