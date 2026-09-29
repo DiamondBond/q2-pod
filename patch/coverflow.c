@@ -330,14 +330,16 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) 
             v += skip * step, px += skip * pitch, y = solid_bottom;
             continue;
         }
-        int row = v < 0 ? 0 : v >> 16 >= ART_SIZE ? ART_SIZE - 1 : v >> 16;
-        unsigned cov = 256;
-        if (y == first || y == final) {
-            int from = y << 8 > top ? y << 8 : top, to = (y + 1) << 8 < bottom ? (y + 1) << 8 : bottom;
-            cov = (unsigned)(to - from);
+        int run = y < solid_top && solid_top < last ? solid_top : last; /* up to the opaque span */
+        for (; y < run; ++y, v += step, px += pitch) {
+            int row = v < 0 ? 0 : v >> 16 >= ART_SIZE ? ART_SIZE - 1 : v >> 16;
+            unsigned cov = 256;
+            if (y == first || y == final) {
+                int from = y << 8 > top ? y << 8 : top, to = (y + 1) << 8 < bottom ? (y + 1) << 8 : bottom;
+                cov = (unsigned)(to - from);
+            }
+            put(px, shade(tex[row * ART_SIZE], (unsigned)bright), cov);
         }
-        put(px, shade(tex[row * ART_SIZE], (unsigned)bright), cov);
-        ++y, v += step, px += pitch;
     }
     /* The reflection starts where the body ends, sharing the row the body only partly covers. */
     int reflect = h * CF_REFLECT / ART_SIZE, stop = (bottom + reflect + 255) >> 8;
@@ -401,8 +403,12 @@ void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ri
             int j = slot(frac, k, i);
             draw_cover(&f, (j - CF_REACH) * CF_ONE - frac, ring[j]);
         }
-    for (int y = 0; y < CF_VIEW_H; ++y) /* over black */
-        for (unsigned *p = d + y * pitch, *end = p + CF_VIEW_W; p < end; ++p) *p |= 0xff000000u;
+    for (int y = 0; y < CF_VIEW_H; ++y) { /* over black; a count-down loop, which -Oz keeps tight */
+        unsigned *p = d + y * pitch;
+        int x = CF_VIEW_W;
+        do *p++ |= 0xff000000u;
+        while (--x);
+    }
 }
 
 /* The ring offset of the frontmost cover (not its reflection) at frame pixel x, y, as drawn at

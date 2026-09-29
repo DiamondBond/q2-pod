@@ -252,8 +252,11 @@ static double sample(peq_engine *e, double x, int ch) {
     if (e->bypass) return x;
     for (int i = 0; i < PEQ_BANDS; ++i) {
         const peq_coeff *c = &e->c[i];
+        double *z = e->z[ch][i];
+        /* A band left out with settled memory passes x through: most presets leave several. */
+        if (c->b0 == 1 && !c->b1 && !c->b2 && !c->a1 && !c->a2 && !z[0] && !z[1]) continue;
         /* Flush |y| < ~2e-34 to zero: decaying tails would otherwise reach denormals, which MIPS FPUs trap on. */
-        double *z = e->z[ch][i], y = c->b0 * x + z[0] + 1e-18 - 1e-18;
+        double y = c->b0 * x + z[0] + 1e-18 - 1e-18;
         z[0] = c->b1 * x - c->a1 * y + z[1];
         z[1] = c->b2 * x - c->a2 * y;
         x = y;

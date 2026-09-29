@@ -225,6 +225,14 @@ def dsp_check(lib):
     reference = process(lib, b, tone)[10000:]
     fade = [1 - (1 - 10**(-6/20)) * min(i + 1, 960) / 960 for i in range(10000)]
     assert max(abs(x - r*f) for x, r, f in zip(after, reference, fade)) < 1e-6
+    # A band switched off mid-play drains its carried memory before it is skipped, then passes x through.
+    p = parse(lib, 'Filter: ON PK Fc 100 Hz Gain 6 dB Q 1')
+    lib.peq_reset(C.byref(a), 48000, 1, C.byref(p))
+    process(lib, a, tone[:10000])
+    p.bands[0].gain = 0; assert lib.peq_update(C.byref(a), C.byref(p))
+    process(lib, a, tone[:2000])
+    assert all(a.current.z[0][i][j] == 0 for i in range(10) for j in range(2))
+    assert process(lib, a, tone) == list((C.c_float * len(tone))(*tone))
     print('PEQ DSP: C PCM response, ten bands, shelves, rates, bypass, clipping, channels and updates passed.')
 
 # Host stand-ins for the stock services peq_platform.h maps on the device.
