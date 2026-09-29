@@ -2797,8 +2797,9 @@ if variant=='ipod':
     assert repaint()==[] and shown()[0]==''; passed()
 
     # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP
-    # seconds times the ramp, shown on the slider and both labels, and seeks once SEEK_MS after the
-    # last detent through player_seek_time (track seconds). Stock's page timer stops meanwhile.
+    # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,
+    # and committed once through player_seek_time (track seconds) when the scrub ends. Stock's page
+    # timer stops meanwhile.
     FILL_HI=signed(color_t(ACCENTS[0][2])); FG='style:normal:fg_color'
     def scrub_page(value=100,mx=225):
         m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
@@ -2809,57 +2810,79 @@ if variant=='ipod':
         assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0
         return m
     def did(m,name): return [c[1] for c in m.calls if c[0]==name]
+    def keep(m):
+        m.seeks=getattr(m,'seeks',[])+did(m,'player_seek_time'); m.starts=getattr(m,'starts',[])+did(m,'playing_timer_start')
+    def step(m,*a,**k):  # one input or timer step, keeping every seek and timer restart it makes
+        r=(m.advance if k.pop('wait',False) else m.call)(*a,**k); keep(m); return r
     def centre(m,gap=1000):
         assert m.call(O['KEY_CENTER'],gap=gap)==11 and not did(m,'playing_timer_clear')
-        m.advance(200,clear=False)
+        m.advance(200,clear=False); keep(m)
+    def ended(m,seeks,label=''):  # the scrub is over: fill, stock timer and the wheel's volume are back
+        assert m.seeks==seeks and m.starts==[m.win], (label,m.seeks,m.starts)
+        assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0 and not did(m,'player_seek_time'), label
     m=scrub_page(); centre(m)
     assert did(m,'playing_timer_clear')==[m.win] and m.nodes[m.slider][FG]==-1 and not m.screens; passed()
-    assert m.call()==11 and m.nodes[m.slider]['value']==105 and m.nodes[m.elapsed]['text']=='01:45'
-    assert m.nodes[m.remain]['text']=='-02:00' and not did(m,'player_seek_time')
-    m.advance(O['SEEK_MS']-1); assert not did(m,'player_seek_time')
-    m.advance(1); assert did(m,'player_seek_time')==[105]; passed()
-    # A spin ramps the step as in a long list and seeks once, after it stops.
-    for _ in range(12): assert m.call(gap=20)==11
-    assert m.nodes[m.slider]['value']-105>12*O['SCRUB_STEP'] and not did(m,'player_seek_time')
-    m.advance(O['SEEK_MS']); assert did(m,'player_seek_time')==[m.nodes[m.slider]['value']]; passed()
+    # Ticks a second apart, far past the old 150 ms seek, each preview at once and none seeks.
+    assert step(m)==11 and m.nodes[m.slider]['value']==105 and m.nodes[m.elapsed]['text']=='01:45'
+    assert m.nodes[m.remain]['text']=='-02:00'
+    assert step(m,gap=1500)==11 and m.nodes[m.slider]['value']==110 and m.nodes[m.elapsed]['text']=='01:50'
+    assert m.nodes[m.remain]['text']=='-01:55'
+    step(m,O['SCRUB_MS']-100,wait=True); assert m.seeks==[] and m.nodes[m.slider]['value']==110; passed()
+    # A spin ramps the step as in a long list and still only previews.
+    for _ in range(12): assert step(m,gap=20)==11
+    assert m.nodes[m.slider]['value']-110>12*O['SCRUB_STEP'] and m.seeks==[]; passed()
+    # The target stops at both ends while the wheel keeps turning; it reverses at once.
     for key,end in ((O['KEY_NEXT'],225),(O['KEY_PREV'],0)):
-        for _ in range(40): m.call(key,gap=20)
-        assert m.nodes[m.slider]['value']==end; m.advance(O['SEEK_MS']); assert did(m,'player_seek_time')==[end]
-    passed()
-    # SCRUB_MS without input ends it: the fill and stock's timer come back, and the wheel is volume.
-    m.advance(O['SCRUB_MS']-O['SEEK_MS']-1); assert not did(m,'playing_timer_start')
-    m.advance(1); assert did(m,'playing_timer_start')==[m.win] and m.nodes[m.slider][FG]==FILL_HI
-    assert m.call()==0 and m.nodes[m.slider]['value']==0 and not m.timers; passed()
-    # Centre again, Return (swallowed) and touch each end it, committing a pending seek at once.
+        for _ in range(40): step(m,key,gap=20)
+        assert m.nodes[m.slider]['value']==end and m.seeks==[]
+    assert step(m,gap=300)==11 and m.nodes[m.slider]['value']==5 and m.seeks==[]; passed()
+    # Centre commits the target once; nothing seeks afterwards.
+    centre(m,50); step(m,O['SCRUB_MS'],wait=True); ended(m,[5]); passed()
+    # SCRUB_MS without input commits once and gives the wheel back to the volume, not a tick sooner.
+    m=scrub_page(); centre(m); step(m)
+    step(m,O['SCRUB_MS']-1,wait=True); assert m.seeks==[] and not m.starts
+    step(m,1,wait=True); ended(m,[105]); assert m.nodes[m.slider]['value']==105; passed()
+    # Reversal: the target is where the wheel left it, committed once.
+    m=scrub_page(); centre(m); step(m); step(m); step(m,O['KEY_PREV'])
+    assert m.nodes[m.slider]['value']==105; centre(m,50); ended(m,[105]); passed()
+    # No movement, including turning against an end, seeks nothing on any exit.
+    for end in ('centre','timeout','bound'):
+        m=scrub_page(value=225 if end=='bound' else 100); centre(m)
+        if end=='bound': assert step(m)==11 and m.nodes[m.slider]['value']==225
+        if end=='timeout': step(m,O['SCRUB_MS'],wait=True)
+        else: centre(m,50)
+        ended(m,[],end); passed()
+    # Centre again, Return (swallowed) and touch each end it, committing the target once.
     for end in ('centre','return','touch'):
-        m=scrub_page(); centre(m); m.call()
+        m=scrub_page(); centre(m); step(m)
         if end=='centre': centre(m,50)
-        elif end=='return': assert m.call(O['KEY_RETURN'],gap=50)==11
-        else: m.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
-        assert did(m,'player_seek_time')==[105] and did(m,'playing_timer_start')==[m.win]
-        assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0, end
-        passed()
-    # A double press still turns the screen off and leaves no toggle behind, scrubbing or not.
+        elif end=='return': assert step(m,O['KEY_RETURN'],gap=50)==11
+        else: step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
+        step(m,O['SCRUB_MS'],wait=True); ended(m,[105],end); passed()
+    # A double press still turns the screen off and leaves no toggle behind; scrubbing, it commits once.
     for scrubbing in (False,True):
         m=scrub_page()
-        if scrubbing: centre(m); m.call(); m.calls=[]
+        if scrubbing: centre(m); step(m); m.calls=[]
         assert Machine.release(m)==11 and Machine.release(m,100)==0 and m.screens==[0]
-        m.advance(1000,clear=False)
-        assert did(m,'player_seek_time')==([105] if scrubbing else []) and not did(m,'playing_timer_clear')
+        keep(m); step(m,1000+O['SCRUB_MS'],wait=True)
+        assert m.seeks==([105] if scrubbing else []) and not did(m,'playing_timer_clear')
         assert not m.timers and m.call()==0; passed()
-    # Another window on top ends it; the page's destruction drops the pending seek and keeps the timer off.
-    m=scrub_page(); centre(m); m.call()
-    m.top=m.node('window','home_page'); m.call(); assert did(m,'playing_timer_start')==[m.win]; passed()
-    m=scrub_page(); centre(m); m.call()
-    f,ctx=m.handler(m.win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    assert not did(m,'player_seek_time') and not did(m,'playing_timer_start') and not m.timers; passed()
-    # A track change since the scrub began ends it without seeking, from the timer or from an exit.
-    for end in ('timer','return'):
-        m=scrub_page(); centre(m); m.call(); m.word(O['MCL_POS'],2)
-        if end=='timer': m.advance(O['SEEK_MS'])
-        else: assert m.call(O['KEY_RETURN'],gap=50)==11
-        assert not did(m,'player_seek_time') and did(m,'playing_timer_start')==[m.win]
-        assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0, end; passed()
+    # Another window on top ends it with the one commit; the page's destruction drops the target and
+    # keeps the timer off.
+    m=scrub_page(); centre(m); step(m)
+    m.top=m.node('window','home_page'); step(m); assert m.seeks==[105] and m.starts==[m.win]
+    step(m,O['SCRUB_MS'],wait=True); assert m.seeks==[105] and m.starts==[m.win] and not m.timers; passed()
+    m=scrub_page(); centre(m); step(m)
+    f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
+    assert m.seeks==[] and not m.starts and not m.timers; passed()
+    # A track change since the scrub began drops the target: the next tick (without moving it), the
+    # timeout or an exit each end the scrub without seeking.
+    for end in ('tick','timeout','return'):
+        m=scrub_page(); centre(m); step(m); m.word(O['MCL_POS'],2)
+        if end=='tick': assert step(m)==11 and m.nodes[m.slider]['value']==105
+        elif end=='timeout': step(m,O['SCRUB_MS'],wait=True)
+        else: assert step(m,O['KEY_RETURN'],gap=50)==11
+        ended(m,[],end); passed()
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
 # plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.

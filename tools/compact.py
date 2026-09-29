@@ -46,9 +46,11 @@ def corner_x(y, h):
 # iPod status bar (system_bar.bin, 375x30). Its 16px icons sit at y 7 to 23, so both groups keep
 # clear of the top corners. The play state and EQ are on the left, as in stock; Bluetooth/codec,
 # Wi-Fi and the battery on the right. The title is centred on the screen, between the wider
-# group's extent with every icon shown and the same distance from the other edge.
-STATUS_MARGIN = corner_x(7, 16)
-TITLE_MIN = 110
+# group's extent with every icon shown and the same distance from the other edge. STATUS_PAD keeps
+# the icons that much further in than the corners need, so they don't look cramped against the glass.
+STATUS_PAD = 2
+STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
+TITLE_MIN = 105
 # iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. The
 # labels fit the longest English one ("Playback Setting", 149px at 20px) and all start where the last
 # row's clears the bottom-left corner. The art is a square on the right, centred on the list. In Full
@@ -438,6 +440,39 @@ def confirm_dialog(root):
 # rows out to match. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
 NAVBAR_ONLY = AUDIT['navbar_only']
 SET_ROW, SET_TOP, SET_ROWS, SET_STOCK_ROW = (inc(n) for n in ('SET_ROW', 'SET_TOP', 'SET_ROWS', 'SET_STOCK_ROW'))
+
+# iPod only. The settings rows' stock 52px artwork (SET_STOCK_ICON), pinned by hash in compact.json,
+# is pre-sized to SET_ICON at build time so the rows draw it 1:1 instead of scaling it on the device.
+# ImageMagick's Lanczos resize weights colour by alpha, so edges keep their colour and transparency;
+# -strip and the excluded date chunks keep the bytes reproducible. Only native settings code names
+# these images, so no other screen sees the smaller size.
+SETTINGS_ICONS = AUDIT['settings_icons']
+SET_ICON, SET_STOCK_ICON = inc('SET_ICON'), inc('SET_STOCK_ICON')
+
+
+def png_header(data):
+    """(width, height, bit depth, colour type) from a PNG's IHDR."""
+    require(data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR', 'Not a PNG')
+    return struct.unpack('>IIBB', data[16:26])
+
+
+def imagemagick(*args, data):
+    import shutil, subprocess
+    tool = shutil.which('magick') or shutil.which('convert')
+    require(tool is not None, 'ImageMagick (magick or convert) is required for the iPod settings icons')
+    return subprocess.run([tool, *args], input=data, stdout=subprocess.PIPE, check=True).stdout
+
+
+def settings_icon(name, data):
+    require(hashlib.sha256(data).hexdigest() == SETTINGS_ICONS.get(name), f'{name}: unaudited settings icon')
+    require(png_header(data) == (SET_STOCK_ICON, SET_STOCK_ICON, 8, 6), f'{name}: unexpected stock icon format')
+    out = imagemagick('png:-', '-alpha', 'on', '-filter', 'Lanczos', '-resize', f'{SET_ICON}x{SET_ICON}!',
+                      '-strip', '-define', 'png:exclude-chunks=date,time', '-define', 'png:color-type=6',
+                      '-define', 'png:bit-depth=8', 'png:-', data=data)
+    require(png_header(out) == (SET_ICON, SET_ICON, 8, 6), f'{name}: filtered icon is not {SET_ICON}px RGBA')
+    opaque = [imagemagick('png:-', '-format', '%[opaque]', 'info:', data=d) for d in (data, out)]
+    require(opaque[0] == opaque[1], f'{name}: filtering changed the transparency')
+    return out
 
 
 def patch_word(data, changes, address, old, new, purpose):

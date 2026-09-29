@@ -100,7 +100,7 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
 - **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
 - **Hold Return (iPod):** opens Now Playing without interrupting playback; the next short Return goes back to where you were. On Now Playing it goes Home, as stock.
-- **Scrub (iPod):** on Now Playing, press the centre button, turn the wheel to skip 5 seconds per tick (more while spinning), and the track jumps there as you stop. Press centre or Return, touch the screen, or wait 3 seconds to get the volume back.
+- **Scrub (iPod):** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick (more while spinning); the bar and both times follow at once. Press centre or Return to jump there, or touch the screen or wait 3 seconds, which also jumps there; each gives the volume back. Leaving without turning the wheel doesn't seek.
 - **Pop-ups (iPod):** OK/Cancel prompts have dark buttons with clear check and cross marks in every accent. Delete and other OK/Cancel prompts, the auto shut-down warning, and Tidal's quality and sort choices work with the wheel: turn to move between the buttons, press the centre button to pick one. Pop-ups where you type keep the wheel on the volume.
 - **Pull to search (iPod):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
 
