@@ -2,7 +2,7 @@
 
 Rebuilt firmware uses `assets/logo.jpg` as the boot splash by default. Pass another 320x375 JPEG with `--logo` to use your own; see [boot-logo.md](boot-logo.md).
 
-Requires clang/lld/llvm-objcopy, squashfs-tools 4.6 or later (tested 4.6.1 and 4.7.5), ImageMagick 6 or 7 for the iPod variant's settings icons (`convert` or `magick`; tested 6.9.12), the test harness dependencies in `requirements.txt`, and the original ZIP:
+Requires clang/lld/llvm-objcopy, squashfs-tools 4.6 or later (tested 4.6.1 and 4.7.5), ImageMagick 6 or 7 for the iPod UI's settings icons (`convert` or `magick`; tested 6.9.12), the test harness dependencies in `requirements.txt`, and the original ZIP:
 
 ```text
 154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00

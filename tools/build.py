@@ -499,7 +499,7 @@ if __name__ == '__main__':
     ap.add_argument('--out',type=pathlib.Path,default=ROOT/'build')
     ap.add_argument('--logo',type=pathlib.Path,default=ROOT/'assets/logo.jpg',
                     help='320x375 JPEG boot splash (default: assets/logo.jpg)')
-    ap.add_argument('--ipod', action='store_true', help='iPod variant: compact local browsing and long Return to Now Playing')
+    ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
                     help=f'development build: lowercase version tag (V{VERSION}r/i); never a release input')
     a=ap.parse_args()

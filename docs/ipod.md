@@ -1,4 +1,4 @@
-# iPod variant
+# iPod UI
 
 Normal and iPod share one navigation payload. `--ipod` enables the compact layout
 payload helpers and build-time edits in `tools/compact.py`; normal receives no

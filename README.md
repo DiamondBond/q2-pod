@@ -9,11 +9,11 @@ A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the st
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
-**iPod** restyles browsing after an iPod classic; see [iPod variant](#ipod-variant).
+**iPod** restyles browsing after an iPod classic; see [iPod UI](#ipod-ui).
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
 
-[Wheel controls](#controls) · [PEQ editor and preset import](#parametric-eq) · [Coverflow](#coverflow) · [iPod variant](#ipod-variant)
+[Wheel controls](#controls) · [PEQ editor and preset import](#parametric-eq) · [Coverflow](#coverflow) · [iPod UI](#ipod-ui)
 
 ## Install
 
@@ -70,7 +70,7 @@ Save your edits with **Presets → Save editor preset**. Remove saved presets wi
 
 The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per album; an empty file means the album has no art Coverflow can read), and it is skipped while less than 16 MB is free on the card. Holding Play/Pause on a track opens the same Play next / Add to queue menu as the Local Music lists.
 
-## iPod variant
+## iPod UI
 
 - **Home** is a list instead of the carousel: Now Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting and System Setting. It sits beside the playing track's cover, which fills the right side of the screen, or spans the screen (see **Home** below).
 - **Lists** have no primary toolbar and use 72-pixel rows, four full entries per screen. Settings lists use 68-pixel rows with 40-pixel icons, also four full entries, clear of the screen's rounded corners. Rows are flat, without the grey cards, and titles use the full row width up to the artwork and controls that are showing. The playing song keeps its icon, but its title stays white.
@@ -113,7 +113,7 @@ If a menu behaves strangely, please [open an issue](https://github.com/DiamondBo
 - [Internals](docs/internals.md): hooks, selection, position memory, timing and drawing.
 - [Building](docs/building.md): building both variants, the MIPS test suite and on-device checks.
 - [Releasing](docs/releasing.md): packaging, verifying and publishing.
-- [iPod variant](docs/ipod.md): layout audit, each iPod feature and the device checklist.
+- [iPod UI](docs/ipod.md): layout audit, each iPod feature and the device checklist.
 - [Boot logo](docs/boot-logo.md): replacing the power-on splash.
 
 ## License
