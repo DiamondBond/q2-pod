@@ -389,7 +389,7 @@ QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H, QS_ROW_GAP, QS_LABEL_W = 20, 60, 6, 4
 QS_PITCH = QS_ICON + QS_LABEL_GAP + QS_LABEL_H + QS_ROW_GAP
 QS_SUN, QS_BAR, QS_TOUCH = 26, 6, 48
 QS_EDGE = 30                     # the suns line up with the first and last icon columns
-QS_TRACK = f"#{inc('BAR_TOP'):06X}"
+QS_TRACK = '#3A3A3A'  # a grey that reads on the black dialog
 QS_GRID = {'wifiswitch': 'wifi', 'btswitch': 'bt', 'lock': 'lock', 'gain': 'gain',
            'usbmode': 'usbmode', 'po': 'outputway', 'playset': 'playset', 'sysset': 'sysset'}
 

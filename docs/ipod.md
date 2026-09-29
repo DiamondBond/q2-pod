@@ -444,13 +444,13 @@ one valid digit, is Graphite and Split.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
-| Graphite (0, default) | `#5A5A5A` to `#363636` | 6.9:1 / 12.1:1        | `#6E6E6E` (3.3:1)         | `#D8D8D8` (1.4:1)       |
+| Graphite (0, default) | `#4A4A4A` to `#363636` | 8.9:1 / 12.1:1        | `#6E6E6E` (3.3:1)         | `#D8D8D8` (1.4:1)       |
 | Crimson (1)           | `#E8123F` to `#A60025` | 4.6:1 / 7.9:1         | `#EB2F56` (4.1:1)         | stock `#FF1448` (3.9:1) |
 | Tidal (2)             | `#13838D` to `#095158` | 4.5:1 / 9.0:1         | `#30929B` (4.6:1)         | `#30929B` (3.7:1)       |
 | Champagne (3)         | `#8C732C` to `#5D4A18` | 4.6:1 / 8.5:1         | `#9A8446` (4.7:1)         | `#9A8446` (3.6:1)       |
 
-The light tone is the top lightened 12% toward white, as Graphite's `#6E6E6E` is: the bar's
-one-pixel highlight and the progress fill. Tidal and Champagne tops are darkened in hue (and
+The light tone is the top lightened 12% toward white (Graphite keeps `#6E6E6E` over its softer
+top): the bar's one-pixel highlight and the progress fill. Tidal and Champagne tops are darkened in hue (and
 their bottoms by the same factor) so white text holds 4.5:1 at the top; their light tone also
 serves as the red tone. One rule picks the tone for stock red: red text (`text_color`,
 `highlight_text_color`) and red pixels in images take the red tone, and every other red color
