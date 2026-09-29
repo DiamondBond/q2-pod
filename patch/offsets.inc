@@ -83,6 +83,12 @@
                 { 0x13838d, 0x095158, 0x30929b, 0x30929b }, /* Tidal */ \
                 { 0x8c732c, 0x5d4a18, 0x9a8446, 0x9a8446 }  /* Champagne */
 #define CRIMSON 1
+/* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
+ * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
+ * OK disc becomes CONFIRM_SURFACE, Cancel's lighter tint a mid grey, and the near-white glyphs stay
+ * near white (14.2:1 and 5.6:1). The wheel's focus is the accent tile behind the disc, framed white. */
+#define CONFIRM_SURFACE 0x2b2b2b
+#define CONFIRM_IMAGE "confirm_"
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
@@ -90,9 +96,43 @@
 #define BAR_TOP 0x3a3a3a
 #define BAR_BOTTOM 0x1c1c1c
 #define BAR_HI 0x4a4a4a
+/* iPod status bar title: centred, reaching the wider visible icon group (as the asset does with every
+ * icon shown) and never nearer the screen edge than TITLE_EDGE, where its 20px text clears the top
+ * corners (test_build.py). */
+#define TITLE_EDGE 57
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58
+/* iPod Home in Full: the rows end here, so the chevron's glyph (x 20 to 31 of list_into) ends as far
+ * from the right edge as the labels start from the left (HOME_TEXT_X in tools/compact.py). */
+#define HOME_FULL_ROW 369
+/* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
+ * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
+ * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a
+ * 50px trailing image (chevron, tick or switch); items made SET_STOCK_ROW high are normalised to
+ * SET_ROW. The icon shrinks to SET_ICON at SET_ICON_X, the text starts SET_GAP after it (or at
+ * SET_TEXT_X without one) and trailing images end SET_EDGE from the right edge; test_build.py
+ * and test_patch.py check them against the rounded glass in the first and last visible rows. */
+#define SET_ROW 68
+#define SET_TOP 8
+#define SET_ROWS 4
+#define SET_ICON 40
+#define SET_ICON_X 28
+#define SET_GAP 12
+#define SET_TEXT_X 20
+#define SET_EDGE 24
+#define SET_STOCK_ROW 78
+#define SET_STOCK_BODY 70
+#define SET_STOCK_X 20
+#define SET_STOCK_W 335
+#define SET_STOCK_ICON 52
+#define SET_STOCK_TRAIL 276   /* the usual trailing image x in the stock button */
+#define SET_RIGHT_SIDE 150    /* stock children starting here keep to the right edge */
+#define LIST_ITEM_HEIGHT 0x78          /* list_view item_height (same slot as ROW_HEIGHT) */
+#define LIST_DEFAULT_ITEM_HEIGHT 0x7c  /* list_view default_item_height */
+#define LIST_VIEW_LAYOUT 0x5e9eb4      /* children_layouter_list_view's layout */
+#define LIST_VIEW_LAYOUT_SLOT 0x926930 /* its vtable slot (vtable 0x926928 + 8) */
+#define IMAGE_DRAW_SCALE_DOWN 5        /* "scale_down" in the stock draw type table @0x9272c0 */
 /* iPod fast-scroll letter: the selected row's first character in white, LETTER_PX high, on a
  * LETTER_BOX square of the stock dark surface at LETTER_ALPHA, centred over the list. */
 #define LETTER_BOX 80
@@ -170,3 +210,15 @@
 #define EVT_VALUE_CHANGED 0x0e
 #define SCAN_THREAD 0xa271d8
 #define SCAN_DONE 0xa271d4
+/* iPod Coverflow text: every label keeps CF_EDGE from the sides, where the lowest track
+ * row's text clears the bottom corners; album names and artists scroll within that. Under the
+ * cover, the album name is CF_NAME_PX white CF_GAP below the art and the artist CF_ARTIST_PX in
+ * CF_GREY (stock secondary text), CF_LINE_GAP under it. */
+#define CF_EDGE 36
+#define CF_GAP 12
+#define CF_NAME_PX 24
+#define CF_NAME_H 32
+#define CF_ARTIST_PX 20
+#define CF_ARTIST_H 28
+#define CF_LINE_GAP 0
+#define CF_GREY 0xffaaaaaa /* color_t #AAAAAA */

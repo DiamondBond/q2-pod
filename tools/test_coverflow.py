@@ -453,8 +453,9 @@ int main(void) {
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
     coverflow_home_art(win);
     assert(!strcmp(art, player) && loads == unloads);
-    /* Home layout: Full widens the list, its rows and their tap targets to the screen, never the
-       labels, and hides the art; Split puts the asset's width back and shows the art again. */
+    /* Home layout: Full widens the list to the screen and its rows and their tap targets to
+       HOME_FULL_ROW, never the labels, and hides the art; Split puts the asset's width back and
+       shows the art again. */
     extern void coverflow_home_layout(void);
     home_list = make(0, "list_view");
     widget *sv = make(home_list, "scroll_view"), *row = make(sv, "view"), *label = make(row, "hscroll_label"),
@@ -463,7 +464,7 @@ int main(void) {
     *(int *)(label->raw + W_W) = 149;
     home_full = 1;
     coverflow_home(win, 0);
-    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 375);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
     assert(*(int *)(label->raw + W_W) == 149 && !W(home_art)->visible);
     before = loads;
     coverflow_home_art(win); /* hidden: nothing loads */

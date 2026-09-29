@@ -73,10 +73,11 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 ## iPod variant
 
 - **Home** is a list instead of the carousel: Now Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting and System Setting. It sits beside the playing track's cover, or spans the screen (see **Home** below).
-- **Lists** have no primary toolbar and use 72-pixel rows, four full entries per screen. Rows are flat, without the grey cards, and titles use the full row width up to the artwork and controls that are showing. The playing song keeps its icon, but its title stays white.
+- **Lists** have no primary toolbar and use 72-pixel rows, four full entries per screen. Settings lists use 68-pixel rows with 40-pixel icons, also four full entries, clear of the screen's rounded corners. Rows are flat, without the grey cards, and titles use the full row width up to the artwork and controls that are showing. The playing song keeps its icon, but its title stays white.
 - **Selection bar:** a full-width bar in the accent colour marks the selected row.
-- **Status bar:** play state and EQ on the left, the page title in the middle, then the Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
+- **Status bar:** play state and EQ on the left, the page title in the middle, then the Bluetooth and Wi-Fi icons and the battery. The title uses all the room the icons showing leave it. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
 - **`>`** marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Local Music categories, artists, genres and albums).
+- **Quick settings** (pull down from the top edge): the eight controls keep their grid with evenly spaced two-line labels, and brightness is a slim bar you can tap or drag anywhere along.
 - **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type over the list.
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before. The centre button scrubs (see [Controls](#controls)).
 - **Starts on Home.** With **Memory playback** on, your last queue comes back paused where you left it; open Now Playing or press Play/Pause to carry on. Car mode still starts playing on Now Playing.
@@ -100,7 +101,7 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 - **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
 - **Hold Return (iPod):** opens Now Playing without interrupting playback; the next short Return goes back to where you were. On Now Playing it goes Home, as stock.
 - **Scrub (iPod):** on Now Playing, press the centre button, turn the wheel to skip 5 seconds per tick (more while spinning), and the track jumps there as you stop. Press centre or Return, touch the screen, or wait 3 seconds to get the volume back.
-- **Pop-ups (iPod):** delete and other OK/Cancel prompts, the auto shut-down warning, and Tidal's quality and sort choices work with the wheel: turn to move between the buttons, press the centre button to pick one. Pop-ups where you type keep the wheel on the volume.
+- **Pop-ups (iPod):** OK/Cancel prompts have dark buttons with clear check and cross marks in every accent. Delete and other OK/Cancel prompts, the auto shut-down warning, and Tidal's quality and sort choices work with the wheel: turn to move between the buttons, press the centre button to pick one. Pop-ups where you type keep the wheel on the volume.
 - **Pull to search (iPod):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
 
 A short Play/Pause press and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).

@@ -49,32 +49,45 @@ def corner_x(y, h):
 # group's extent with every icon shown and the same distance from the other edge.
 STATUS_MARGIN = corner_x(7, 16)
 TITLE_MIN = 110
-# iPod Home: seven 41px rows fill the 290px client area. The labels fit the longest English one
-# ("Playback Setting", 149px at 20px) and all start where the last row's clears the bottom-left
-# corner. The art is a square on the right, centred.
+# iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. The
+# labels fit the longest English one ("Playback Setting", 149px at 20px) and all start where the last
+# row's clears the bottom-left corner. The art is a square on the right, centred on the list. In Full
+# the rows end at HOME_FULL_ROW (patch/offsets.inc), so the chevron's glyph mirrors the text margin.
 INC = (ROOT/'patch/offsets.inc').read_text()
-CHEVRON_W = int(re.search(r'#define CHEVRON_W (\d+)', INC)[1])
-HOME_ROW = 41
-HOME_TEXT_X = max(MARGIN, corner_x(30 + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
+
+
+def inc(name):
+    """An integer #define from patch/offsets.inc, which the payload compiles with."""
+    return int(re.search(rf'#define {name} (0x[0-9a-fA-F]+|\d+)\b', INC)[1], 0)
+
+
+CHEVRON_W = inc('CHEVRON_W')
+HOME_TOP = 8
+HOME_ROW = 39
+HOME_TEXT_X = max(MARGIN, corner_x(30 + HOME_TOP + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
 HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
 HOME_LIST_W = HOME_TEXT_X + 149 + HOME_LABEL_END
 HOME_ART = 375 - HOME_LIST_W - 2 * MARGIN
-HOME_ART_RECT = [HOME_LIST_W + MARGIN, (BOTTOM - HOME_ART) // 2, HOME_ART, HOME_ART]
+HOME_ART_RECT = [HOME_LIST_W + MARGIN, HOME_TOP + (7 * HOME_ROW - HOME_ART) // 2, HOME_ART, HOME_ART]
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
 # 251; their x follows NP_BAR through the np_bar_* immediates in compact.json. The window starts
 # at screen y 30; the top and bottom rows take their insets from the corners.
+# The art and the metadata keep NP_MARGIN from the sides, 12px apart; the art is as large as that
+# leaves while the text column keeps NP_TEXT_W, and "3 of 12" starts in line with the art.
 NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
-NP_POS_X = max(MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16))  # "3 of 12", 16px text
+NP_MARGIN = 16
+NP_POS_X = max(NP_MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16))  # "3 of 12", 16px text
 NP_ICONS_END = 375 - corner_x(30, NP_TOP)  # the 50px icon images fill the row's height
-NP_ART = 170
+NP_TEXT_W = 177
+NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
 NP_BAR_X = max(MARGIN, corner_x(30 + 251, 8))
 NP_BAR = [NP_BAR_X, 251, 375 - 2 * NP_BAR_X, 8]
-NP_TIMES_Y = NP_BAR[1] + NP_BAR[3] + 3  # 14px text in a 16px label under the bar
+NP_TIMES_Y = NP_BAR[1] + NP_BAR[3] + 6  # 14px text in a 16px label, clear of the 10px A-B markers
 NP_TIME_X = max(MARGIN, corner_x(30 + NP_TIMES_Y + 1, 14))
-NP_TEXT_X = MARGIN + NP_ART + 12
+NP_TEXT_X = NP_MARGIN + NP_ART + 12
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
 # The track is the status bar's bottom; the fill is Graphite's light tone until ringnav_playing sets the
 # accent's (3.3:1 or more on the track for every preset).
@@ -215,7 +228,7 @@ def ipod_home(root):
     view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
             {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)', 'yslidable': 'true'}, rows]
     root[3] = [
-        ['list_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
+        ['list_view', [0, HOME_TOP, HOME_LIST_W, HOME_ROW * len(rows)],
          {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_BLACK}, [view]],
         ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'scale_auto'}, []]]
 
@@ -288,6 +301,18 @@ def status_bar(root):
 PLAYING_PAGE = 'playing_page.bin'
 
 
+def plain_slider(props, track, fill, bar):
+    """A slider's props drawn in plain colour (stock slider paint uses bg/fg_color without images). The
+    style has no theme entry, so no thumb icon either: stock then fills exactly to the value, and
+    slide_with_bar keeps tap and drag."""
+    props = {k: v for k, v in props.items() if not k.endswith((':bg_image', ':fg_image', ':icon', ':y_offset'))}
+    for key in props:
+        if key.endswith(':bg_color'): props[key] = track
+        if key.endswith(':fg_color'): props[key] = fill
+    props.update(style='s_ipod_progress', bar_size=str(bar))
+    return props
+
+
 def playing_page(root):
     named = {n[2].get('name'): n for n in walk(root)}
     require([n[2].get('name') for n in root[3]] == [
@@ -307,7 +332,7 @@ def playing_page(root):
         'style:normal:text_align_h': 'left'}, []])
 
     art_y = (NP_SLIDE_H - NP_ART) // 2
-    text_w = 375 - MARGIN - NP_TEXT_X
+    text_w = 375 - NP_MARGIN - NP_TEXT_X
     top = art_y + NP_ART // 2 - (24 + 4 + 20 + 4 + 20) // 2  # the three lines centre on the art
     title[1] = [NP_TEXT_X, top, text_w, 24]
     title[2]['style'] = 's_scrlabel_white20l'
@@ -318,8 +343,8 @@ def playing_page(root):
     album = copy.deepcopy(artist)
     album[1] = [NP_TEXT_X, top + 52, text_w, 20]
     album[2].update(name='label_ipod_album', text='')
-    named['img_cover'][1] = [MARGIN, art_y, NP_ART, NP_ART]
-    named['img_playstate'][1] = [MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
+    named['img_cover'][1] = [NP_MARGIN, art_y, NP_ART, NP_ART]
+    named['img_playstate'][1] = [NP_MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
     named['view_album'][3] += [title, artist, album]
     column = (375 - 225) // 2
     named['label_lyricmsg'][1][0] += column
@@ -331,20 +356,12 @@ def playing_page(root):
     dots = named['slide_indicator1']
     dots[1][1] = NP_SLIDE_H + 2
     dots[2]['self_layout'] = f'default(x=0,y={NP_SLIDE_H + 2},w=100%,h=10)'
-    named['image_wait'][1] = [MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
+    named['image_wait'][1] = [NP_MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
 
-    # Colour fills (stock slider paint uses bg/fg_color when there is no image). The style has no
-    # theme entry, so no thumb icon either: stock then fills exactly to the value, and slide_with_bar
-    # keeps tap and drag seeking.
     slider = named['slider_play']
     x, y, w, h = NP_BAR
     slider[1] = [x, y - 11, w, h + 22]
-    props = {k: v for k, v in slider[2].items() if not k.endswith((':bg_image', ':fg_image', ':icon', ':y_offset'))}
-    for key in props:
-        if key.endswith(':bg_color'): props[key] = NP_TRACK
-        if key.endswith(':fg_color'): props[key] = NP_FILL
-    props.update(style='s_ipod_progress', bar_size=str(h))
-    slider[2] = props
+    slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
     for name in ('img_repeata', 'img_repeatb'):
         named[name][1][0] = x
     total = named['label_playlen']
@@ -357,9 +374,70 @@ def playing_page(root):
     root[3].insert(3, remain)
 
 
-# iPod only. Settings and Streaming keep the stock row height; only their navbar goes, as on the
-# local pages. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
+# iPod only. Quick settings (the pull-down statusbar_dialog, which covers the whole screen): the eight
+# stock 60px controls stay in their four columns, two rows from QS_TOP. Each label gets the same
+# two-line QS_LABEL_H area in the stock 16px style, top-aligned so single- and two-line labels start
+# on one line, QS_LABEL_GAP under its icon and QS_ROW_GAP above the next row. Brightness becomes a
+# slim QS_BAR track in a QS_TOUCH-high slider (tap or drag anywhere on it, as stock) between the
+# stock dim and bright suns, which keep their images. dialog_statusbar_dialog_init (0x4a0d88)
+# finds these widgets by name and never moves or resizes them.
+QUICK_SETTINGS = 'dialog/statusbar_dialog.bin'
+QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H, QS_ROW_GAP, QS_LABEL_W = 20, 60, 6, 40, 12, 80
+QS_PITCH = QS_ICON + QS_LABEL_GAP + QS_LABEL_H + QS_ROW_GAP
+QS_SUN, QS_BAR, QS_TOUCH = 26, 6, 48
+QS_EDGE = 30                     # the suns line up with the first and last icon columns
+QS_TRACK = f"#{inc('BAR_TOP'):06X}"
+QS_GRID = {'wifiswitch': 'wifi', 'btswitch': 'bt', 'lock': 'lock', 'gain': 'gain',
+           'usbmode': 'usbmode', 'po': 'outputway', 'playset': 'playset', 'sysset': 'sysset'}
+
+
+def quick_settings(root):
+    menu, light = root[3]
+    require([menu[2].get('name'), light[2].get('name')] == ['view_menu', 'view_backlight'], 'Unexpected quick settings')
+    named = {n[2]['name']: n for n in menu[3]}
+    require(sorted(named) == sorted([f'img_{k}' for k in QS_GRID] + [f'label_{v}' for v in QS_GRID.values()]),
+            'Unexpected quick settings controls')
+    for i, (icon, label) in enumerate(QS_GRID.items()):
+        image, text = named['img_' + icon], named['label_' + label]
+        x, y, w, h = image[1]
+        require((w, h) == (QS_ICON, QS_ICON) and y == (0, 112)[i // 4] and text[2].get('style') == 's_label_white18c',
+                f'{icon}: unexpected quick settings control')
+        image[1][1] = (i // 4) * QS_PITCH
+        text[1] = [x + (QS_ICON - QS_LABEL_W) // 2, image[1][1] + QS_ICON + QS_LABEL_GAP, QS_LABEL_W, QS_LABEL_H]
+        text[2].update({'style': 's_label_white16c', 'style:normal:text_align_v': 'top'})
+    menu[1] = [0, QS_TOP, 375, 2 * QS_PITCH - QS_ROW_GAP]
+    slider, dim, bright = light[3]
+    require([n[2]['name'] for n in light[3]] == ['slider_backlight', 'image0', 'image1'] and
+            (dim[1][2], bright[1][2]) == (QS_SUN, QS_SUN), 'Unexpected brightness row')
+    light[1] = [0, menu[1][1] + menu[1][3] + QS_ROW_GAP, 375, QS_TOUCH]
+    dim[1] = [QS_EDGE, (QS_TOUCH - QS_SUN) // 2, QS_SUN, QS_SUN]
+    bright[1] = [375 - QS_EDGE - QS_SUN, (QS_TOUCH - QS_SUN) // 2, QS_SUN, QS_SUN]
+    track = [QS_EDGE + QS_SUN + 12, 0, 375 - 2 * (QS_EDGE + QS_SUN + 12), QS_TOUCH]
+    require(slider[2].get('slide_with_bar') == 'true', 'Unexpected brightness slider')
+    props = plain_slider(slider[2], QS_TRACK, '#FFFFFF', QS_BAR)
+    props.update(self_layout='default(x={},y=0,w={},h={})'.format(*track[::2], QS_TOUCH), dragger_size=str(QS_TOUCH))
+    slider[1], slider[2] = track, props
+
+
+# iPod only. The confirm pair (img_cancel, img_enter; 80px tiles around 60px discs) sits symmetrically,
+# each centred in its half of the screen. The discs themselves are recoloured dark with legible
+# glyphs for every accent by ringnav_image_add (patch/ringnav.c).
+CONFIRM = 'dialog/confirminfo_dialog.bin'
+CONFIRM_TILE = 80
+
+
+def confirm_dialog(root):
+    require([n[2].get('name') for n in root[3]] == ['img_cancel', 'img_enter'] and
+            all(n[1][2:] == [CONFIRM_TILE, CONFIRM_TILE] for n in root[3]), 'Unexpected confirm dialog')
+    x = (375 // 2 - CONFIRM_TILE) // 2
+    root[3][0][1][0], root[3][1][1][0] = x, 375 - x - CONFIRM_TILE
+
+
+# iPod only. Settings and Streaming lose their navbar, as on the local pages, and their lists hold
+# SET_ROWS complete SET_ROW rows from SET_TOP; ipod_list_layout (patch/ringnav.c) lays the native
+# rows out to match. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
 NAVBAR_ONLY = AUDIT['navbar_only']
+SET_ROW, SET_TOP, SET_ROWS, SET_STOCK_ROW = (inc(n) for n in ('SET_ROW', 'SET_TOP', 'SET_ROWS', 'SET_STOCK_ROW'))
 
 
 def patch_word(data, changes, address, old, new, purpose):
@@ -375,7 +453,8 @@ def patch_asset(path, data, ipod):
     require(encode(root) == data, f'{path}: UI round trip differs')
     if path == ARTIST_PAGE:
         artist_tabs(root)
-    whole = {HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page} if ipod else {HOME_PAGE: home_card}
+    whole = ({HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page, QUICK_SETTINGS: quick_settings,
+              CONFIRM: confirm_dialog} if ipod else {HOME_PAGE: home_card})
     if path in whole:
         whole[path](root)
     if path in whole or not ipod:
@@ -389,7 +468,12 @@ def patch_asset(path, data, ipod):
         if n is nav[0]:
             continue
         kind, g, props, _ = n
-        if kind in ('list_view', 'table_view', 'tab_control'):
+        if kind == 'list_view' and path in NAVBAR_ONLY:  # settings rows: see ipod_list_layout
+            require(g[1] == 50 and props.get('default_item_height') == str(SET_STOCK_ROW) and
+                    'item_height' not in props, f'{path}: unexpected settings list')
+            props['default_item_height'] = str(SET_ROW)
+            g[1], g[3] = SET_TOP, SET_ROWS * SET_ROW
+        elif kind in ('list_view', 'table_view', 'tab_control'):
             require(g[1] in (50, 100), f'{path}: unexpected list position')
             g[1] -= 50
             g[3] = BOTTOM - g[1]
@@ -459,6 +543,9 @@ def patch_code(data, symbols):
     # Only the final long-Return call changes. All stock gates and its release guard precede it.
     word(0x4e8924, 0x04110fdf, 0x0c000000 | (symbols['compact_now_playing'] >> 2),
          'long Return destination after stock input gates')
+    # iPod settings rows: the list_view layouter's layout slot (data, vtable 0x926928 + 8).
+    word(inc('LIST_VIEW_LAYOUT_SLOT'), inc('LIST_VIEW_LAYOUT'), symbols['ipod_list_layout'],
+         'settings lists stack SET_ROW rows and map their children')
     # home_page_init's memory-play resume opens Now Playing; outside car mode it runs the page's player_start alone.
     word(0x523de0, 0x0320f809, 0x0c000000 | (symbols['ringnav_boot'] >> 2),
          'boot resume restores the queue paused and stays on Home')

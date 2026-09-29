@@ -11,6 +11,17 @@
 /* On the card, beside stock's own cover cache (/mnt/mmc/.sldp). */
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
 #define ART_SIZE 160
+#if IPOD /* iPod insets its text from the rounded glass (offsets.inc CF_*); normal keeps its layout */
+#define CF_X CF_EDGE
+#define CF_W (375 - 2 * CF_EDGE)
+#define CF_ROW_X CF_X /* one text column throughout */
+#define CF_ROW_W CF_W
+#else
+#define CF_X 8
+#define CF_W 359
+#define CF_ROW_X 12
+#define CF_ROW_W 350
+#endif
 #define ART_MIN_FREE_MB 16 /* no build below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
@@ -172,7 +183,7 @@ static void *list(const char *title, int n) {
     if (n * 48 < rows) rows = n * 48;
     widget_destroy_children(cf.body);
     widget_set_visible(cf.body, 1, 0);
-    cf.title = text(cf.body, 8, 0, 359, 48);
+    cf.title = text(cf.body, CF_X, 0, CF_W, 48);
     widget_set_text_utf8(cf.title, title);
     void *lv = list_view_create(cf.body, 0, 48, 375, rows);
     widget_set_prop_int(lv, "item_height", 48);
@@ -190,7 +201,7 @@ static void *list(const char *title, int n) {
 static void row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
-    void *label = text(item, 12, 0, 350, 48);
+    void *label = text(item, CF_ROW_X, 0, CF_ROW_W, 48);
     widget_set_text_utf8(label, caption ? caption : "");
     widget_on(item, EVT_CLICK, click, (void *)(long)index);
 }
@@ -282,9 +293,18 @@ static void covers(void) {
             widget_set_prop_int(img, "clickable", 1);
             widget_on(img, EVT_CLICK, pick, (void *)(long)i);
         }
+#if IPOD /* album over artist: white and larger, then grey (docs/ipod.md#coverflow) */
+        int y = 24 + ART_SIZE + CF_GAP;
+        cf.name = text(cf.covers, CF_X, y, CF_W, CF_NAME_H);
+        widget_set_prop_int(cf.name, "style:normal:font_size", CF_NAME_PX);
+        cf.artist = text(cf.covers, CF_X, y + CF_NAME_H + CF_LINE_GAP, CF_W, CF_ARTIST_H);
+        widget_set_prop_int(cf.artist, "style:normal:font_size", CF_ARTIST_PX);
+        widget_set_prop_int(cf.artist, "style:normal:text_color", (int)CF_GREY);
+#else
         cf.name = text(cf.covers, 0, ART_SIZE + 38, 375, 36);
         widget_set_prop_int(cf.name, "style:normal:font_size", 28);
         cf.artist = text(cf.covers, 0, ART_SIZE + 74, 375, 28);
+#endif
         slide_menu_set_value(cf.slide, cf.album);
         widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
         changed(0, 0);
@@ -508,21 +528,23 @@ void coverflow_home_art(void *top) {
     widget_invalidate_force(home.art, 0);
 }
 
-/* A widget and its descendants other than labels take the width; labels keep theirs. */
-static void home_width(void *w, int width) {
-    widget_move_resize(w, I(w, W_X), I(w, W_Y), width, I(w, W_H));
+/* A widget and its descendants other than labels take the width, the list and its scroll view
+ * `outer` and the rows and their tap images `inner`; labels keep theirs. */
+static void home_width(void *w, int outer, int inner, int depth) {
+    widget_move_resize(w, I(w, W_X), I(w, W_Y), depth < 2 ? outer : inner, I(w, W_H));
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
         void *child = widget_get_child(w, i);
-        if (tk_strcmp(widget_get_type(child), "hscroll_label")) home_width(child, width);
+        if (tk_strcmp(widget_get_type(child), "hscroll_label")) home_width(child, outer, inner, depth + 1);
     }
 }
 
-/* The Home setting: Split keeps the asset's list and art; Full widens the list and its rows' tap
- * targets to the window and hides the art. */
+/* The Home setting: Split keeps the asset's list and art; Full widens the list, so the selection
+ * bar spans the window, and its rows and tap targets to HOME_FULL_ROW, so the chevrons mirror the
+ * labels' margin clear of the corners, and hides the art. */
 void coverflow_home_layout(void) {
     if (!home.list) return;
     int full = ipod_home_full();
-    home_width(home.list, full ? 375 : home.split_w);
+    home_width(home.list, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
     widget_set_visible(home.art, !full, 0);
     home.key = ~0u; /* Split shows the current art again */
 }

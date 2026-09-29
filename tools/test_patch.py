@@ -650,8 +650,32 @@ else:
     # A visible navbar keeps its own title, so the bar shows none; Home and Now Playing are fixed.
     s.top=top_level('window','tidal_main_page',[s.node('view','view_navbar',[s.node('hscroll_label',text='TIDAL')])])
     bg(s.top); assert s.nodes[title]['text']==''; passed()
-    for name,key in (('home_page','Q2'),('playing_page','small_playing')):
+    for name,key in (('home_page','Q2'),('playing_page','small_playing'),('coverflow_page','Coverflow')):
         s.top=top_level('window',name); bg(s.top); assert s.nodes[title]['tr_text']==key; passed()
+    # The title spans the bar between the icons that show (the iPod system_bar.bin groups: 52px
+    # margins, 5px spacing), centred, and never nearer the edge than TITLE_EDGE.
+    def group(name,x,w,icons):
+        v=s.node('view',name,[s.node('image',n) for n,_ in icons]); s.word(v+O['W_X'],x); s.word(v+O['W_W'],w)
+        for c,(_,iw) in zip(s.nodes[v]['children'],icons): s.word(c+O['W_W'],iw)
+        lay=s.alloc(32); s.byte(lay+O['DEFAULT_LAYOUT_X_MARGIN'],52); s.byte(lay+O['DEFAULT_LAYOUT_SPACING'],5)
+        s.word(v+O['W_CHILDREN_LAYOUT'],lay); return v
+    left=group('view_left',0,145,[('img_state',15),('label_eq',20)])
+    right=group('view_right',175,200,[('img_bt',43),('img_wifi',16),('img_battery',10)])
+    s.nodes[bar]['children']=[left,right,title]
+    icons={s.nodes[c]['name']:c for v in (left,right) for c in s.nodes[v]['children']}
+    # Every combination of shown icons: the photographed pause and battery alone give 241px.
+    width={'img_state':15,'label_eq':20,'img_bt':43,'img_wifi':16,'img_battery':10}
+    def extent(names): return 52+sum(width[n] for n in names)+5*(len(names)-1) if names else 0
+    for mask in range(32):
+        shown={n for i,n in enumerate(width) if mask>>i&1}
+        for n,c in icons.items(): s.nodes[c]['visible']=int(n in shown)
+        edge=max(O['TITLE_EDGE'],extent([n for n in ('img_state','label_eq') if n in shown]),
+                 extent([n for n in ('img_bt','img_wifi','img_battery') if n in shown]))
+        bg(bar); assert (s.get(title+O['W_X']),s.get(title+O['W_W']))==(edge,375-2*edge),(shown,edge)
+        s.calls=[]; bg(bar); assert not [c for c in s.calls if c[0]=='widget_move_resize']  # only on a change
+    shown={'img_state','img_battery'}
+    for n,c in icons.items(): s.nodes[c]['visible']=int(n in shown)
+    bg(bar); assert s.get(title+O['W_W'])==241; passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60
@@ -1165,17 +1189,22 @@ for name in ('searchbox_dialog','tidal_searchbox_dialog'):
 m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm)
 m.word(d+O['W_W'],375); m.word(d+O['W_H'],320); m.clip=(0,0,375,320); m.top=d
 buttons=[m.entry(d,220) for _ in range(2)]; m.nodes[d]['children']=buttons
-for b,x in zip(buttons,(56,240)): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
+pair=(53,242) if variant=='ipod' else (56,240)  # iPod's confirminfo_dialog.bin centres each in its half
+for b,x in zip(buttons,pair): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
 if variant=='ipod':
-    m.paint(d); assert m.selected(d)==0 and m.sel()==(56,220,80,80)
+    m.paint(d); assert m.selected(d)==0 and m.sel()==(53,220,80,80)
+    # The focused tile is framed in constant white (no accent lookup), over the bar; stroke color restored.
+    assert [s[:4] for s in m.strokes]==[(53,220,80,80),(54,221,78,78)] and {s[5] for s in m.strokes}=={0xffffffff}
+    assert m.lcd_colors()==LCD_COLORS
     assert m.call()==11 and m.selected(d)==1 and not m.moved()
-    m.paint(d); assert m.sel()==(240,220,80,80) and m.clip==(0,0,375,320)
+    m.paint(d); assert m.sel()==(242,220,80,80) and m.clip==(0,0,375,320)
+    assert [s[:4] for s in m.strokes]==[(242,220,80,80),(243,221,78,78)]
     assert m.call()==11 and m.selected(d)==1 and not m.moved()
     assert m.call(O['KEY_PREV'])==11 and m.selected(d)==0
     assert m.confirm()==11 and m.dispatched()[0][1]==buttons[0]; passed()
     # A wide button (autoshutdown's Cancel) gets the full-width bar.
     m.nodes[d]['name']='autoshutdown_dialog'; m.nodes[d]['children']=[buttons[0]]; m.word(buttons[0]+O['W_W'],287)
-    m.paint(d); assert m.sel()==(0,220,375,80); passed()
+    m.paint(d); assert m.sel()==(0,220,375,80) and not m.strokes; passed()
 else:
     assert m.call()==0 and m.call(O['KEY_CENTER'])==0 and not m.moved(); passed()
 
@@ -2958,6 +2987,33 @@ for offset,want in ((-90,2),(-70,1),(90,0),(70,1),(0,1)):
 # A tap at rest reaches stock, so the cover's click still opens it.
 m=CoverflowMachine(); page=m.open(); f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.slides; passed()
+# Text geometry. iPod: album over artist under the native-size cover, the album larger and white, the
+# artist grey, and every label (covers, the Refresh card, the track list's title and rows, whose last
+# visible row is lowest) CF_EDGE from the sides, clear of the rounded glass. Normal keeps its layout.
+def cf_geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
+m=CoverflowMachine(); page=m.open(); labels=[w for w in m.nodes[m.get(m.slide+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label']
+name,artist=labels
+if variant=='ipod':
+    from compact import corner_inset
+    E=O['CF_EDGE']; y=24+160+O['CF_GAP']
+    assert [cf_geometry(m,w) for w in labels]==[(E,y,375-2*E,O['CF_NAME_H']),(E,y+O['CF_NAME_H'],375-2*E,O['CF_ARTIST_H'])]
+    assert m.nodes[name]['style:normal:font_size']==O['CF_NAME_PX']>m.nodes[artist]['style:normal:font_size']==O['CF_ARTIST_PX']
+    assert m.nodes[artist]['style:normal:text_color']==signed(O['CF_GREY']) and 'style:normal:text_color' not in m.nodes[name]
+    def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
+        return max(corner_inset(30+top),corner_inset(30+top+px))<=x and x+w<=375-max(corner_inset(30+top),corner_inset(30+top+px))
+    for w,px in ((name,O['CF_NAME_PX']),(artist,O['CF_ARTIST_PX'])):
+        x,top,wd,h=cf_geometry(m,w); assert clear(x,top+(h-px)//2,wd,px)
+    view=m.tracks(); lv=m.get(view+O['W_PARENT']); title=next(w for w in m.nodes[m.get(lv+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label')
+    assert cf_geometry(m,title)[::2]==(E,375-2*E) and clear(E,14,375-2*E,20)
+    rows=(290-48)//48
+    for item in m.nodes[view]['children']:
+        label=m.nodes[item]['children'][0]; assert cf_geometry(m,label)[::2]==(E,375-2*E)
+    assert clear(E,48+(rows-1)*48+14,375-2*E,20)  # the lowest visible row
+else:
+    assert [cf_geometry(m,w) for w in labels]==[(0,198,375,36),(0,234,375,28)] and m.nodes[name]['style:normal:font_size']==28
+    assert 'style:normal:font_size' not in m.nodes[artist] and 'style:normal:text_color' not in m.nodes[artist]
+    view=m.tracks(); assert {cf_geometry(m,m.nodes[i]['children'][0])[::2] for i in m.nodes[view]['children']}=={(12,350)}
+passed()
 
 if variant=='ipod':
     # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
@@ -3074,6 +3130,28 @@ if variant=='ipod':
                             ({},'https://resources.tidal.com/images/a/320x320.jpg',3),({},'switch_on',5)):
         assert image(config,name,fmt)==[stock,stock],(config,name,fmt); passed()
 
+    # The confirm pop-up's red discs take the dark CONFIRM_SURFACE under every accent, Crimson too:
+    # the stock OK disc (#FF1448, white glyph) and Cancel's tint (#FF4871 with a #FFE4EA glyph) keep
+    # their glyphs at 4.5:1 or more; the pressed images darken; other images keep the accent's tone.
+    def pixels(config,name,colors):
+        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
+        bm=m.alloc(0x60); data=m.alloc(4*len(colors))
+        m.word(bm,len(colors)); m.word(bm+4,1); m.word(bm+8,4*len(colors)); m.u.mem_write(bm+0xe,struct.pack('<H',3)); m.word(bm+0x14,data)
+        m.u.mem_write(data,b''.join(bytes([c&255,c>>8&255,c>>16,255]) for c in colors))  # BGRA
+        m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
+        raw=bytes(m.u.mem_read(data,4*len(colors)))
+        return [raw[4*i+2]<<16|raw[4*i+1]<<8|raw[4*i] for i in range(len(colors))]
+    S=O['CONFIRM_SURFACE']
+    for preset in range(len(ACCENTS)):
+        config={'ACCENT':str(preset)}
+        disc,glyph=pixels(config,'confirm_ok',[0xff1448,0xffffff])
+        assert disc==S and glyph==0xffffff and ratio(glyph,disc)>=4.5,(preset,hex(disc))
+        disc,glyph=pixels(config,'confirm_cancel',[0xff4871,0xffe4ea])
+        assert ratio(glyph,disc)>=4.5 and ratio(disc,0)<ratio(glyph,0),(preset,hex(disc),hex(glyph))
+        assert pixels(config,'confirm_okdown',[0x7f0a24])[0]<S  # pressed: darker than the disc
+        assert pixels(config,'switch_on',[0xff1448])==[0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3]]
+        passed()
+
     # Display settings: after the stock rows, Accent and Home rows in the native row widgets and
     # styles; Centre or tap cycles and saves each; a new accent drops the image cache and repaints.
     def display(config):
@@ -3112,6 +3190,114 @@ if variant=='ipod':
     for _ in range(3): m.call()
     assert m.selected(view)==3 and m.confirm()==11 and m.dispatched()[0][1]==m.nodes[rows[0]]['children'][0]; passed()
 
+    # Settings rows (docs/ipod.md#settings). The real stock builders create their rows; the build
+    # points the list_view layouter's vtable slot at ipod_list_layout, which normalises stock 78px
+    # items, runs the stock layout (stacking modelled here: item_height, else the item's own height,
+    # else default_item_height, as 0x5ea5c4 onward) and maps each row's children.
+    from compact import corner_inset
+    class SettingsMachine(Machine):
+        def hook(self,u,address,size,x):
+            name=self.handlers.get(address,'')
+            if name=='stock_list_layout':
+                assert u.reg_read(UC_MIPS_REG_T9)==address
+                view=u.reg_read(UC_MIPS_REG_A1); lst=self.get(view+O['W_PARENT']); y=0
+                ih,dh=(self.get(lst+O[k]) for k in ('LIST_ITEM_HEIGHT','LIST_DEFAULT_ITEM_HEIGHT'))
+                for c in self.nodes[view]['children']:
+                    if not self.get(c+O['W_W']): self.word(c+O['W_W'],self.get(view+O['W_W']))
+                    h=ih or self.get(c+O['W_H']) or dh
+                    self.word(c+O['W_Y'],y); self.word(c+O['W_H'],h); y+=h
+                self.word(view+O['VIEW_CONTENT_H'],y); self.layouts+=1
+                u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            if name=='widget_on' and u.reg_read(UC_MIPS_REG_A1)==O['EVT_CLICK']:  # a clickable row
+                a=u.reg_read(UC_MIPS_REG_A0); em=self.alloc(4); it=self.alloc(0x28)
+                self.word(a+O['W_EMITTER'],em); self.word(em,it); self.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+            if name=='image_set_draw_type': self.nodes[u.reg_read(UC_MIPS_REG_A0)]['draw_type']=u.reg_read(UC_MIPS_REG_A1)
+            return super().hook(u,address,size,x)
+    SET={k:O['SET_'+k] for k in ('ROW','TOP','ROWS','ICON','ICON_X','GAP','TEXT_X','EDGE','STOCK_ROW')}
+    def geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
+    def settings(builder,default=SET['ROW']):
+        m=SettingsMachine(); m.layouts=0
+        m.mock('list_item_create','button_create','image_create','hscroll_label_create','label_create','widget_use_style',
+               'widget_set_name','image_set_draw_type','image_base_set_image','set_hscroll_label_attribute','widget_on',
+               'widget_set_tr_text','widget_set_text_utf8','widget_set_visible','widget_move_resize')
+        m.handlers[syms['widget_destroy_children']]='widget_destroy_children'
+        for n in syms:  # string helpers the builders format their names with
+            if n.endswith('@GLIBC_2.0') and syms[n] not in m.handlers: m.handlers[syms[n]]=n
+        m.handlers[O['LIST_VIEW_LAYOUT']]='stock_list_layout'
+        view=m.node('scroll_view'); lst=m.node('list_view','list_view',[view]); m.top=m.node('window','sysset_page',[lst])
+        m.word(view+O['W_PARENT'],lst); m.word(lst+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
+        m.word(lst+O['LIST_ITEM_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
+        m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
+        if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
+            m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
+            assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+        else:
+            m.call(address=builder,args=(m.top,0,0,0),gap=0)  # learn the name it looks up
+            m.nodes[view]['name']=m.text(next(c for c in m.calls if c[0]=='widget_lookup')[2])
+            assert m.call(address=builder,args=(m.top,0,0,0),gap=0)==0
+        return m,view
+    def lay(m,view): return m.call(address=m.get(O['LIST_VIEW_LAYOUT_SLOT']),args=(0x1234,view,0,0),gap=0)
+    def tree(m,view):
+        return [(geometry(m,i),[(geometry(m,b),[geometry(m,c) for c in m.nodes[b]['children']]) for b in m.nodes[i]['children']])
+                for i in m.nodes[view]['children']]
+    # Rows at the top and bottom of the four visible slots: text bands, icons and the trailing
+    # bitmaps' ink (switch_off/on span 0..50 x 13..38 of their 50px square; list_into and ticks fit
+    # inside) stay clear of the rounded glass, and nothing overlaps.
+    def check_row(m,item,slot,text_x=SET['TEXT_X']):
+        top=30+SET['TOP']+slot*SET['ROW']
+        for b in m.nodes[item]['children']:
+            bx,by,bw,bh=geometry(m,b)
+            assert (bx,by,bw,bh)==(0,0,375,geometry(m,item)[3])
+            icon=label=trail=None
+            for c in m.nodes[b]['children']:
+                x,y,w,h=geometry(m,c); kind=m.nodes[c]['type']
+                if kind=='image' and w==SET['ICON']:
+                    icon=(x,y,w,h); box=(x,top+y,w,h)
+                    assert (x,h)==(SET['ICON_X'],SET['ICON']) and y*2+h==bh and m.nodes[c]['draw_type']==O['IMAGE_DRAW_SCALE_DOWN']
+                elif kind=='image':
+                    assert w==50 and x+w==375-SET['EDGE'], (x,w); trail=x; box=(x,top+y+(h-50)//2+13,50,25)
+                else:
+                    label=(x,w); size=20 if h<30 else 24
+                    box=(x,top+y+(h-size)//2,w,size)
+                x,y,w,h=box; inset=max(corner_inset(y),corner_inset(y+h))
+                assert inset<=x and x+w<=375-inset, (m.nodes[c]['type'],box,inset)
+            if icon and label: assert label[0]==icon[0]+icon[2]+SET['GAP']
+            elif label: assert label[0]==text_x
+            if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
+            if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
+    for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
+        m,view=settings(builder); items=m.nodes[view]['children']
+        before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
+        assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
+        assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
+        # Display's Accent and Home rows have no icon; their text keeps the icon rows' column.
+        text_x=SET['ICON_X']+SET['ICON']+SET['GAP'] if builder=='display' else SET['TEXT_X']
+        for item in items: check_row(m,item,0,text_x); check_row(m,item,SET['ROWS']-1,text_x)
+        after=tree(m,view); assert after!=before
+        assert lay(m,view)==0 and tree(m,view)==after, builder  # a later layout changes nothing
+        passed()
+    # A list whose default_item_height is not SET_ROW (local pages, Home) keeps its rows as built.
+    m,view=settings(0x4cbcc4,default=72); before=tree(m,view); lay(m,view); after=tree(m,view)
+    assert [r[1] for r in after]==[r[1] for r in before] and all(r[0][3]==72 for r in after); passed()
+    # A 78px item some other builder made (no stock settings button) keeps its height and children.
+    m,view=settings(0x4cbcc4); odd=m.node('list_item'); other=m.node('button')
+    m.nodes[odd]['children']=[other]; m.word(odd+O['W_H'],78); m.word(odd+O['W_W'],0)
+    for k,v in (('W_X',8),('W_Y',0),('W_W',359),('W_H',70)): m.word(other+O[k],v)
+    m.nodes[view]['children'].append(odd); lay(m,view)
+    assert geometry(m,odd)[3]==78 and geometry(m,other)==(8,0,359,70); passed()
+    # The wheel walks the laid-out rows with hard ends, the bar spans the whole 68px row, the list
+    # scrolls to keep the row in view, and Centre and a tap reach the same button.
+    m,view=settings(0x4cbcc4); lay(m,view); items=m.nodes[view]['children']
+    buttons=[m.nodes[i]['children'][0] for i in items]
+    m.paint(view); assert m.selected(view)==0
+    for k in range(1,len(items)+2):
+        m.call(); m.paint(view); i=min(k,len(items)-1); assert m.selected(view)==i
+        y=geometry(m,items[i])[1]-signed(m.get(view+O['SCROLL_Y']))
+        assert 0<=y and y+SET['ROW']<=SET['ROWS']*SET['ROW'], (k,y)
+        assert len(m.bands)==SET['ROW']+1 and {b[2] for b in m.bands}=={375}
+    assert m.confirm()==11 and m.dispatched()[0][1]==buttons[-1]; passed()
+    m.click(buttons[2]); assert m.selected(view)==2; passed()
+
     # The payload's own accent drawing follows the preset, live: the bar, Now Playing's fill and
     # the fill a scrub restores.
     m,view,rows=display({'ACCENT':'2'}); m.paint(view)
@@ -3131,7 +3317,7 @@ if variant=='ipod':
     # and when the setting changes; Split restores the asset's width.
     CONFIG.clear(); CONFIG.update(HOME='1'); m=CoverflowMachine(); m.open()
     rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
-    assert rowsw==[375]*8 and m.nodes[m.art]['visible']==0; passed()
+    assert rowsw==[375]+[O['HOME_FULL_ROW']]*7 and m.nodes[m.art]['visible']==0; passed()
     CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
     Machine.hook=orig_hook; CONFIG.clear()
 

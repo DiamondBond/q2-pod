@@ -25,9 +25,9 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent and Home rows                                         |
 | `style_get_color`             | `0x649f6c` | iPod only: maps the returned color to the accent                                 |
 | `style_get_gradient`          | `0x649f3c` | iPod only (`IPOD_LEAF`): no PIC prologue; maps the gradient's stops              |
-| `image_manager_add`           | `0x6445d4` | iPod only: maps a decoded image before it is cached                              |
+| `image_manager_add`           | `0x6445d4` | iPod only: maps a decoded image before it is cached (confirm discs dark)         |
 
-Single checked instruction words are patched as well. Both variants: `mclNextSong`'s shuffle pick (`0x5addf0`, [Queue menu](#queue-menu)). iPod, from `tools/compact.py`: the row pitch, artwork and Now Playing bar immediates and the row-layouter calls listed in `patch/compact.json`, the folder rebind's resize call (`0x522410`, removed), the long-Return Home call (`0x4e8924`, [ipod.md](ipod.md#hold-return)) and the boot resume call (`0x523de0`, [Boot resume](#boot-resume-ipod)). The manifest's `compact_code` lists every changed word.
+Single checked instruction words are patched as well. Both variants: `mclNextSong`'s shuffle pick (`0x5addf0`, [Queue menu](#queue-menu)). iPod, from `tools/compact.py`: the row pitch, artwork and Now Playing bar immediates and the row-layouter calls listed in `patch/compact.json`, the folder rebind's resize call (`0x522410`, removed), the long-Return Home call (`0x4e8924`, [ipod.md](ipod.md#hold-return)), the boot resume call (`0x523de0`, [Boot resume](#boot-resume-ipod)) and one data word, the `list_view` children layouter's layout slot (`0x926930`, stock `0x5e9eb4`), which becomes `ipod_list_layout` for the settings rows ([ipod.md](ipod.md#settings)). The manifest's `compact_code` lists every changed word.
 
 Stock V1.32 turns the encoder knob into key releases 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop. The payload only sees those releases at `on_wm_keyup_before_fun`.
 
@@ -173,6 +173,12 @@ Crimson returns every color unchanged, so its theme is stock.
   `bitmap_lock_buffer_for_write`/`bitmap_unlock_buffer`. Premultiplied pixels are red blended
   with black, so they map the same way.
 
+The confirm pop-up's discs (`confirm_ok`, `confirm_cancel` and their pressed images, names
+starting `CONFIRM_IMAGE`) go through the same mapping with `CONFIRM_SURFACE` (`#2B2B2B`) as the
+tone under every preset, Crimson included, so they are dark with near-white glyphs whatever the
+accent ([ipod.md](ipod.md#pop-ups)). `red_map` is the mapping with an explicit tone;
+`accent_map` is it with the preset's tone, and the identity for Crimson.
+
 Changing the accent saves it, sets the progress fill, calls `image_manager_unload_all(image_manager())`
 (`0x645024`) and `widget_invalidate_force` on the window manager. Widgets ask for their style
 colors, gradients and images on every paint, so the next frame decodes the images again through
@@ -182,7 +188,9 @@ the hook and shows every recoloured part; nothing needs a restart.
 
 The background hook also handles top-level widgets, whose parent is the window manager. The status bar widget, which `system_bar_init` stores in the `system_bar` global (`0xa3a6d0`, a size-checked `CONTEXT_DATA` entry), gets the same band gradient as the selection in darker colors, `BAR_TOP`/`BAR_BOTTOM`/`BAR_HI` (`#3A3A3A` to `#1C1C1C`, highlight `#4A4A4A`), with the LCD fill color restored.
 
-Painting the top window, of type `window` so a dialog keeps the page title below it, updates `label_title` in the bar. The title is the text of the first child with text under the window's `view_navbar` while that navbar is hidden: the native settings title or a local page's `scrlabel_title`, which native code keeps current. A visible navbar shows its own title, so the bar shows none. Home, which has no navbar and no stock title string, shows `Q2`, and `playing_page` the stock `small_playing` string ("Now Playing"), both through `widget_set_tr_text` (`0x6613e0`); a key missing from the string table shows as itself. Other text goes through `widget_set_text` (`0x6611f8`, UTF-32). The sync also runs when the bar itself paints, at least once a second through `systembar_showface`, so a native rename shows within a second even if the window does not repaint. Each sync looks up `view_navbar` among the window's direct children and hashes the title; the label is written only when the hash changes. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
+Each paint of the bar also fits `label_title` to the icons showing (`title_fit`): each group's extent is its children layouter's margin (`DEFAULT_LAYOUT_X_MARGIN`) plus its visible children's widths and spacing (`DEFAULT_LAYOUT_SPACING`) from the group's outer edge, so it does not wait for the groups' relayout. The title spans between the wider extent on both sides, never nearer the edge than `TITLE_EDGE`, and is moved with `widget_move_resize` only when that changes. `systembar_showface` shows and hides Bluetooth, Wi-Fi and EQ and repaints the bar each second, so the title follows within a second.
+
+Painting the top window, of type `window` so a dialog keeps the page title below it, updates `label_title` in the bar. The title is the text of the first child with text under the window's `view_navbar` while that navbar is hidden: the native settings title or a local page's `scrlabel_title`, which native code keeps current. A visible navbar shows its own title, so the bar shows none. Home, which has no navbar and no stock title string, shows `Q2`, `coverflow_page` `Coverflow` (as its Home row), and `playing_page` the stock `small_playing` string ("Now Playing"), all three through `widget_set_tr_text` (`0x6613e0`); a key missing from the string table shows as itself. Other text goes through `widget_set_text` (`0x6611f8`, UTF-32). The sync also runs when the bar itself paints, at least once a second through `systembar_showface`, so a native rename shows within a second even if the window does not repaint. Each sync looks up `view_navbar` among the window's direct children and hashes the title; the label is written only when the hash changes. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
 
 ## Now Playing (iPod)
 

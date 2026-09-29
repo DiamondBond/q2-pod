@@ -29,9 +29,10 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF
-    from compact import (AUDIT, BOTTOM, HOME_LABEL_END, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, UI_ASSETS,
-                         NP_BAR, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, TITLE_MIN, corner_inset,
-                         decode, walk, patch_asset, patch_code, patch_style, style_props)
+    from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H,
+                         QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
+                         NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, TITLE_MIN, corner_inset, corner_x,
+                         decode, inc, walk, patch_asset, patch_code, patch_style, style_props)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -161,20 +162,53 @@ def validate_assets(directory):
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
         root = decode(new)
-        if ipod: corners(short, root, 0, 0, (0, 30)) if short == STATUS_BAR else corners(short, root, 0, 30, (30, 320))
+        if ipod:  # screen coordinates: the bar, full-screen dialogs (quick settings slides down from -320), windows
+            origin, window = {STATUS_BAR: (0, (0, 30)), QUICK_SETTINGS: (320, (0, 320)), CONFIRM: (0, (0, 320))}.get(short, (30, (30, 320)))
+            corners(short, root, 0, origin, window)
+        if short == QUICK_SETTINGS:  # iPod only: the stock 4x2 grid, even label areas, a slim brightness track
+            menu, light = root[3]
+            icons = [n for n in menu[3] if n[0] == 'image']; labels = [n for n in menu[3] if n[0] == 'label']
+            assert len(icons) == len(labels) == 8 and menu[1][1] >= QS_TOP
+            assert sorted({n[1][0] for n in icons}) == sorted({n[1][0] for n in decode(original)[3][0][3] if n[0] == 'image'})
+            for icon, label in zip(icons, labels):
+                x, y, w, h = icon[1]
+                # The same 16px two-line area, top-aligned, centred under its icon and clear of the next row.
+                assert label[1] == [x + (w - QS_LABEL_W) // 2, y + h + QS_LABEL_GAP, QS_LABEL_W, QS_LABEL_H]
+                assert label[2]['style'] == 's_label_white16c' and label[2]['style:normal:text_align_v'] == 'top'
+                assert 2 * (16 + 2) <= QS_LABEL_H and label[2]['line_wrap'] == label[2]['word_wrap'] == 'true'
+            assert {n[1][1] for n in icons} == {0, QS_PITCH} and QS_LABEL_H + QS_LABEL_GAP + QS_ROW_GAP + QS_ICON == QS_PITCH
+            slider, dim, bright = light[3]
+            assert light[1][1] == menu[1][1] + menu[1][3] + QS_ROW_GAP and light[1][1] + light[1][3] <= 320 - 16
+            assert slider[2]['bar_size'] == str(QS_BAR) and slider[1][3] == QS_TOUCH >= 44 and slider[2]['slide_with_bar'] == 'true'
+            assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
+            assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')
+            assert dim[1][0] == QS_EDGE and bright[1][0] + bright[1][2] == 375 - QS_EDGE and dim[2]['image'] == 'drop_lighleft'
+            assert dim[1][0] + QS_SUN < slider[1][0] and slider[1][0] + slider[1][2] < bright[1][0]
+            continue
+        if short == CONFIRM:  # iPod only: the stock pair, symmetric about the centre
+            cancel, enter = root[3]
+            assert cancel[1][0] == 375 - enter[1][0] - enter[1][2] and cancel[1][1:] == enter[1][1:] == decode(original)[3][0][1][1:]
+            continue
         if short == HOME_PAGE and not ipod:  # only the Coverflow card is added
             cards = [n[2]['name'] for n in root[3][0][3]]
             assert cards[:3] == ['btn_playing', 'btn_localmusic', 'btn_coverflow'] and len(cards) == 7, cards
             continue
         if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
-            (lv, _, _, [sv]), art = root[3]
+            (lv, lg, _, [sv]), art = root[3]
             assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
                 assert label[2]['name'] == 'label_'+name and image[2] == {'name': 'img_'+name, 'clickable': 'true'}
                 # Whole English labels ("Playback Setting", 149px), ending before the chevron's glyph.
                 assert label[1][0] + label[1][2] == image[1][2] - HOME_LABEL_END and label[1][2] >= 149
-            assert 7*HOME_ROW <= BOTTOM and b'menu_' not in new and b'slide_menu' not in new
+            assert lg == [0, HOME_TOP, HOME_LIST_W, 7*HOME_ROW] and HOME_TOP + 7*HOME_ROW <= BOTTOM - HOME_TOP
+            assert b'menu_' not in new and b'slide_menu' not in new
+            # Full (coverflow_home_layout): rows end at HOME_FULL_ROW, so the chevron's glyph (x 20 to 31,
+            # y 16 to 34 of list_into, centred on the row) mirrors the labels' margin and, on the last
+            # row, clears the bottom-right corner as the label clears the bottom-left.
+            glyph_end = inc('HOME_FULL_ROW') - CHEVRON_W + 31
+            glyph_y = 30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
+            assert 375 - glyph_end == HOME_TEXT_X >= corner_x(glyph_y, 34 - 16)
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
             left, right, *rest = root[3]
@@ -183,6 +217,8 @@ def validate_assets(directory):
             assert title[0] == 'hscroll_label' and title[2]['name'] == 'label_title'
             x, _, w, _ = title[1]
             assert x + w/2 == 375/2 and w >= TITLE_MIN  # centred on the screen, clear of both groups (corners below)
+            # ringnav's title_fit widens it as icons hide, never nearer the edge than TITLE_EDGE.
+            assert inc('TITLE_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('TITLE_EDGE')
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
             continue
@@ -197,7 +233,12 @@ def validate_assets(directory):
             assert [g[1:] for g in icons] == [[0, 50, 40]]*3 and [b[0] - a[0] for a, b in zip(icons, icons[1:])] == [50, 50]
             album = named['view_album'][3]
             assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album']
-            assert [n[1] for n in album] == [[8, 8, 170, 170], [33, 33, 120, 120], [190, 57, 177, 24], [190, 85, 177, 20], [190, 109, 177, 20]]
+            # 16px outer margins, 12px from the art to the text, the text column 177px wide.
+            assert [n[1] for n in album] == [[16, 16, 154, 154], [33, 33, 120, 120], [182, 57, 177, 24], [182, 85, 177, 20], [182, 109, 177, 20]]
+            assert pos[0] == album[0][1][0] == 16 and 375 - 16 == album[2][1][0] + album[2][1][2]
+            # Distinct bands: top row, art, page dots, bar (A-B markers y 250 to 260), then the times.
+            dots = named['slide_indicator1'][1]
+            assert NP_TOP + 16 + 154 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
             assert named['slide_view'][1] == [0, 0, 375, 186] and named['view_lrc'][2]['self_layout'].startswith('default(x=75,')
             slider = named['slider_play']
             assert slider[1] == [NP_BAR[0], 240, NP_BAR[2], 30] and slider[2]['bar_size'] == '8' and slider[2]['slide_with_bar'] == 'true'
@@ -206,7 +247,7 @@ def validate_assets(directory):
             # No theme style of that name, so no thumb icon: stock fills exactly to the value.
             assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')
             played, remain = (named[n][1] for n in ('label_playtime', 'label_ipod_remain'))
-            assert played[1:] == remain[1:] == [262, 80, 16] and played[0] == 375 - remain[0] - 80
+            assert played[1:] == remain[1:] == [265, 80, 16] and played[0] == 375 - remain[0] - 80 and 250 + 10 < 265
             assert named['label_playlen'][2]['visible'] == 'false'
             # Stock places the A-B markers at y 250 and x = 50 + t * 290 / length; iPod's follow its bar.
             assert [int.from_bytes(demo[fileoff(demo, a):fileoff(demo, a)+4], 'little') for a in (0x52a318, 0x52a330)] == [
@@ -215,11 +256,14 @@ def validate_assets(directory):
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
-        if short in NAVBAR_ONLY:  # content moves up 50; lists reach the bottom with stock rows
+        if short in NAVBAR_ONLY:  # content moves up 50; lists hold four whole SET_ROW rows from SET_TOP
             for old, node in zip(decode(original)[3], root[3]):
                 if node is nav: continue
-                assert node[1][1] == old[1][1] - 50 and node[2] == old[2], short
-                assert node[1][3] == (BOTTOM if node[0] == 'list_view' else old[1][3]), short
+                if node[0] == 'list_view':
+                    assert node[1] == [0, SET_TOP, 375, SET_ROWS * SET_ROW] and SET_TOP + SET_ROWS * SET_ROW <= BOTTOM, short
+                    assert node[2] == {**old[2], 'default_item_height': str(SET_ROW)} and node[3] == old[3], short
+                    continue
+                assert node[1][1] == old[1][1] - 50 and node[1][3] == old[1][3] and node[2] == old[2], short
         assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         assert not ipod or not [v for n in walk(root) if n[0] in ('button', 'list_item', 'table_row')
                                 for k, v in n[2].items() if k.endswith(':bg_color') and v == '#000000'], 'Opaque inline row background'
@@ -238,7 +282,8 @@ def validate_assets(directory):
         else: raise AssertionError('Accepted a changed asset')
     if ipod:
         payload_symbols = symbols(directory/'patch.elf')
-        for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', '0x523de0', AUDIT['row_layout_calls']['sites'][0][0]]:
+        for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', '0x523de0', AUDIT['row_layout_calls']['sites'][0][0],
+                        hex(inc('LIST_VIEW_LAYOUT_SLOT'))]:
             damaged = bytearray(stock)
             damaged[fileoff(stock, int(address, 16))] ^= 1
             try: patch_code(damaged, payload_symbols)

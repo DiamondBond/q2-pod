@@ -1001,11 +1001,10 @@ int ipod_home_full(void) {
  * are unchanged. t comes from least squares against red with the mean removed, in 1/4096. Crimson
  * is the identity. */
 enum { TONE_LIGHT = 2, TONE_RED = 3 }; /* columns of ACCENTS */
-unsigned accent_map(unsigned c, int preset, int tone) {
+static unsigned red_map(unsigned c, unsigned tone) {
     static const int red[3] = { STOCK_RED >> 16, STOCK_RED >> 8 & 255, STOCK_RED & 255 };
     const int sum = red[0] + red[1] + red[2];
     int ch[3] = { c & 255, c >> 8 & 255, c >> 16 & 255 }, s = ch[0] + ch[1] + ch[2], d = 0, dd = 0;
-    if (preset == CRIMSON) return c;
     for (int i = 0; i < 3; ++i) {
         d += (3 * ch[i] - s) * (3 * red[i] - sum);
         dd += (3 * red[i] - sum) * (3 * red[i] - sum);
@@ -1016,10 +1015,13 @@ unsigned accent_map(unsigned c, int preset, int tone) {
     for (int i = 0; i < 3; ++i) {
         int miss = ch[i] - (t * red[i] / 4096 + k);
         if (miss > RED_TOLERANCE || miss < -RED_TOLERANCE) return c;
-        int v = t * (int)(accents[preset][tone] >> (16 - 8 * i) & 255) / 4096 + k;
+        int v = t * (int)(tone >> (16 - 8 * i) & 255) / 4096 + k;
         out |= (unsigned)(v < 0 ? 0 : v > 255 ? 255 : v) << 8 * i;
     }
     return out;
+}
+unsigned accent_map(unsigned c, int preset, int tone) {
+    return preset == CRIMSON ? c : red_map(c, accents[preset][tone]);
 }
 
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; r.h is at least 2.
@@ -1159,6 +1161,11 @@ static void paint_selection(void *w, void *canvas) {
     }
     const unsigned *a = accents[accent()];
     gradient(canvas, r, a[0], a[1], a[2]);
+    if (g_menu.kind == 4 && r.w < I(g_menu.w, W_W)) { /* a pop-up button's tile: framed white on any accent */
+        canvas_set_stroke_color(canvas, 0xffffffff);
+        canvas_stroke_rect(canvas, r.x, r.y, r.w, r.h);
+        canvas_stroke_rect(canvas, r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    }
 #else
     rect_t outer = { r.x + 1, r.y + 1, r.w - 2, r.h - 2 };
     rect_t inner = { outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2 };
@@ -1238,6 +1245,8 @@ static void title_sync(void *bar, void *top) {
             key = "Q2"; /* no stock string names Home; a missing key shows as itself */
         else if (name && !tk_strcmp(name, "playing_page"))
             key = "small_playing";
+        else if (name && !tk_strcmp(name, "coverflow_page"))
+            key = "Coverflow"; /* as Home's row: no stock string */
     }
     unsigned h;
     if (*text)
@@ -1251,6 +1260,31 @@ static void title_sync(void *bar, void *top) {
         widget_set_tr_text(label, key);
     else
         widget_set_text(label, text);
+}
+
+/* The title spans the bar between the icon groups as they show now: each group is its layouter's
+ * margin plus its visible icons and their spacing (a hidden icon takes no space), so the title
+ * widens when Bluetooth, Wi-Fi or EQ go and narrows when they come back, centred on the wider
+ * group's extent, never nearer the edge than TITLE_EDGE. Resized only on a change. */
+static void title_fit(void *bar) {
+    static const char *const groups[2] = { "view_left", "view_right" };
+    int edge = TITLE_EDGE, bar_w = I(bar, W_W);
+    for (int g = 0; g < 2; ++g) {
+        void *view = widget_lookup(bar, groups[g], 0), *layout = view ? P(view, W_CHILDREN_LAYOUT) : (void *)0;
+        if (!layout) continue;
+        int in = B(layout, DEFAULT_LAYOUT_X_MARGIN), shown = 0;
+        for (unsigned i = 0; i < widget_count_children(view); ++i) {
+            void *c = widget_get_child(view, i);
+            if (!widget_get_visible(c)) continue;
+            in += I(c, W_W) + (shown++ ? B(layout, DEFAULT_LAYOUT_SPACING) : 0);
+        }
+        in += g ? bar_w - I(view, W_X) - I(view, W_W) : I(view, W_X);
+        if (shown && in > edge) edge = in;
+    }
+    void *label = widget_lookup(bar, "label_title", 1);
+    int w = bar_w - 2 * edge;
+    if (label && w > 0 && (I(label, W_X) != edge || I(label, W_W) != w))
+        widget_move_resize(label, edge, I(label, W_Y), w, I(label, W_H));
 }
 
 /* Seconds as stock writes label_playtime, after a minus when negative is 1. */
@@ -1434,6 +1468,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
         gradient(canvas, r, BAR_TOP, BAR_BOTTOM, BAR_HI);
         canvas_set_fill_color(canvas, fill);
     }
+    if (w == bar) title_fit(bar); /* systembar_showface repaints it as icons come and go */
     void *top = window_manager_get_top_window(wm);
     if (bar && (w == bar || w == top)) {
         title_sync(bar, top);
@@ -1471,22 +1506,26 @@ void *ringnav_style_gradient(void *style, const char *name, void *out) {
 }
 
 /* Decoded theme images are mapped once, before the image manager caches them. Only a plain asset
- * name is the theme's: covers by path or URL (a '/' or ':') never are.
+ * name is the theme's: covers by path or URL (a '/' or ':') never are. The confirm pop-up's discs
+ * (CONFIRM_IMAGE*) take the dark CONFIRM_SURFACE under every accent, Crimson included, so their
+ * white glyphs stay legible; everything else red takes the accent's red tone.
  * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
     unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4, preset = accent();
     unsigned char *data = (void *)0;
-    const char *s = name;
+    const char *s = name, *prefix = CONFIRM_IMAGE;
+    while (s && *prefix && *s == *prefix) ++s, ++prefix;
+    unsigned tone = *prefix ? accents[preset][TONE_RED] : CONFIRM_SURFACE;
     while (s && *s && *s != '/' && *s != ':') ++s;
-    if (preset != CRIMSON && format < 4 && s && !*s)
+    if ((preset != CRIMSON || !*prefix) && format < 4 && s && !*s)
         data = bitmap_lock_buffer_for_write(bitmap);
     if (data) {
         const unsigned char *o = at[format];
         unsigned stride = bitmap_get_line_length(bitmap);
         for (int y = 0; y < I(bitmap, 4); ++y)
             for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end; p += 4) {
-                unsigned c = accent_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, (int)preset, TONE_RED);
+                unsigned c = red_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, tone);
                 p[o[0]] = c;
                 p[o[1]] = c >> 8;
                 p[o[2]] = c >> 16;
@@ -1670,6 +1709,82 @@ int compact_set_row_layout(void *row, const char *params) {
         }
         P(layout, CHILDREN_LAYOUT_VTABLE) = vtable;
     }
+    return ret;
+}
+
+/* Settings rows (docs/ipod.md#settings). One stock child in row coordinates: full-height children
+ * fill the row and shorter ones keep their centre; the icon shrinks to SET_ICON; text starts at
+ * the corner-safe column; children from SET_RIGHT_SIDE, and wide ones' right edges, move with the
+ * trailing image by `shift`, never past the text margin. */
+static void set_child(void *c, int row_w, int row_h, int shift) {
+    int x = I(c, W_X), y = I(c, W_Y), w = I(c, W_W), h = I(c, W_H), right = x + w;
+    if (h >= SET_STOCK_BODY) {
+        y = 0;
+        h = row_h;
+    } else
+        y -= (SET_STOCK_BODY - row_h) / 2;
+    if (w == SET_STOCK_ICON && !tk_strcmp(widget_get_type(c), "image")) {
+        image_set_draw_type(c, IMAGE_DRAW_SCALE_DOWN); /* the stock 52px bitmap, scaled to fit */
+        widget_move_resize(c, SET_ICON_X, (row_h - SET_ICON) / 2, SET_ICON, SET_ICON);
+        return;
+    }
+    int left = x >= SET_RIGHT_SIDE ? SET_STOCK_X + x + shift
+               : x > SET_STOCK_ICON / 2 + 10 /* after a stock icon at x 10 */
+                   ? SET_ICON_X + SET_ICON + SET_GAP + x - (SET_STOCK_ICON + 20)
+                   : SET_TEXT_X + x - 10;
+    right = right >= SET_RIGHT_SIDE ? SET_STOCK_X + right + shift : right + left - x;
+    if (right > row_w - SET_TEXT_X) right = row_w - SET_TEXT_X;
+    widget_move_resize(c, left, y, right > left ? right - left : 0, h);
+}
+
+/* The row's stock settings button (SET_STOCK_X, SET_STOCK_W), or none: a row already mapped, or one
+ * another builder made, which keeps its own height and geometry. */
+static void *set_button(void *item) {
+    if (tk_strcmp(widget_get_type(item), "list_item")) return (void *)0;
+    for (unsigned i = 0; i < widget_count_children(item); ++i) {
+        void *b = widget_get_child(item, i);
+        if (I(b, W_X) == SET_STOCK_X && I(b, W_W) == SET_STOCK_W && !tk_strcmp(widget_get_type(b), "button"))
+            return b;
+    }
+    return (void *)0;
+}
+
+/* The stock button spans the row; its children follow. Once mapped it no longer matches, so a later
+ * layout leaves it alone; the builders give its children no self_layout, so nothing lays them out
+ * again. */
+static void set_row(void *item) {
+    int row_w = I(item, W_W), row_h = I(item, W_H);
+    void *b = set_button(item);
+    if (b) {
+        int trail = SET_STOCK_TRAIL; /* the rightmost trailing image sets the right column */
+        unsigned n = widget_count_children(b);
+        for (unsigned j = 0; j < n; ++j) {
+            void *c = widget_get_child(b, j);
+            if (I(c, W_W) == 50 && I(c, W_X) >= SET_RIGHT_SIDE && I(c, W_X) > trail &&
+                !tk_strcmp(widget_get_type(c), "image"))
+                trail = I(c, W_X);
+        }
+        widget_move_resize(b, 0, 0, row_w, row_h);
+        for (unsigned j = 0; j < n; ++j)
+            set_child(widget_get_child(b, j), row_w, row_h, row_w - SET_EDGE - 50 - SET_STOCK_X - trail);
+    }
+}
+
+/* The list_view layouter's vtable slot. A list whose asset default_item_height is SET_ROW (only
+ * the iPod settings pages) gets settings rows: items stock made SET_STOCK_ROW high take SET_ROW
+ * before the stock layout stacks them and sizes the scroll view, then each row is mapped. Settings
+ * code never moves, resizes or scrolls its rows afterwards (docs/ipod.md#settings). */
+int ipod_list_layout(void *layout, void *view) {
+    void *list = view ? P(view, W_PARENT) : (void *)0;
+    int rows = list && !tk_strcmp(widget_get_type(list), "list_view") && !I(list, LIST_ITEM_HEIGHT) &&
+               I(list, LIST_DEFAULT_ITEM_HEIGHT) == SET_ROW;
+    unsigned n = rows ? widget_count_children(view) : 0;
+    for (unsigned i = 0; i < n; ++i) {
+        void *item = widget_get_child(view, i);
+        if (I(item, W_H) == SET_STOCK_ROW && set_button(item)) I(item, W_H) = SET_ROW;
+    }
+    int ret = ((int (*)(void *, void *))LIST_VIEW_LAYOUT)(layout, view);
+    for (unsigned i = 0; i < n; ++i) set_row(widget_get_child(view, i));
     return ret;
 }
 
