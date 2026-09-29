@@ -19,8 +19,8 @@ assert variant in VERSIONS and manifest['version'] == expected_versions[variant]
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 INC=(ROOT/'patch/offsets.inc').read_text()
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',INC,re.M)}
-# iPod accent presets: {gradient top, bottom, light tone, red tone} per Accent setting value.
-ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
+# iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
+ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
 CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
@@ -625,9 +625,9 @@ else:
     bg,border=names.index('stock_paint_bg'),names.index('stock_paint')
     assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rect')
     assert not m.rounded and not m.strokes and m.global_alpha==0
-    # Full surface width, one band per row pixel from Graphite top to bottom, then the highlight.
+    # Full surface width, one band per row pixel of Graphite's solid fill, then its highlight.
     assert [b[:4] for b in m.bands]==[(0,y,240,1) for y in range(48)]+[(0,0,240,1)]
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[0][:3]]
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[0][i]) for i in (0,1,4)]
     assert all(b[5]==(0,0,240,96) for b in m.bands)
     assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
     assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
@@ -640,15 +640,14 @@ else:
     c=Machine(); cw,_=c.page_list(5,extent=1000); c.paint(cw)
     c.touch(); c.paint(cw); assert not c.drawn() and c.clip==(0,0,240,240)
     c.call(); c.paint(cw); assert c.selected(cw)==1 and c.sel()==(0,36,240,48); passed()
-    # Status bar: the darker gradient on the bar widget alone, LCD fill restored.
+    # Status bar: a solid darker fill on the bar widget alone, no highlight, LCD fill restored.
     s=Machine(); title=s.node('hscroll_label','label_clock')
     def top_level(t,name,children=()):
         w=s.node(t,name,children); s.word(w+O['W_PARENT'],s.wm); return w
     bar=top_level('system_bar','system_bar',[title]); s.word(bar+O['W_W'],375); s.word(bar+O['W_H'],30)
     s.word(syms['system_bar'],bar)
     def bg(w): return s.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,s.canvas,0,0))
-    assert bg(bar)==0 and [b[:4] for b in s.bands]==[(0,y,375,1) for y in range(30)]+[(0,0,375,1)]
-    assert [s.bands[i][4] for i in (0,29,30)]==[color_t(O[k]) for k in ('BAR_TOP','BAR_BOTTOM','BAR_HI')]
+    assert bg(bar)==0 and [b[:5] for b in s.bands]==[(0,0,375,30,color_t(O['BAR_COLOR']))]
     assert s.lcd_colors()==LCD_COLORS; passed()
     # The clock: local time as 12-hour h:mm AM/PM, written only when the minute shown changes, on
     # the bar's own repaint (stock repaints it each second) or the top window's, whatever the page.
@@ -3220,8 +3219,8 @@ if variant=='ipod':
         v=[(c>>s&255)/255 for s in (16,8,0)]; v=[x/12.92 if x<=0.04045 else ((x+0.055)/1.055)**2.4 for x in v]
         return 0.2126*v[0]+0.7152*v[1]+0.0722*v[2]
     def ratio(a,b): return (max(lum(a),lum(b))+0.05)/(min(lum(a),lum(b))+0.05)
-    for i,(top,bottom,light,tone) in enumerate(ACCENTS):
-        assert ratio(0xffffff,top)>=4.5 and ratio(0xffffff,bottom)>=4.5 and ratio(light,O['BAR_BOTTOM'])>=3,i
+    for i,(top,bottom,light,tone,_) in enumerate(ACCENTS):
+        assert ratio(0xffffff,top)>=4.5 and ratio(0xffffff,bottom)>=4.5 and ratio(light,O['TRACK_COLOR'])>=3,i
         assert i in (0,O['CRIMSON']) or ratio(0xffffff,tone)>=3,i
     passed()
     def mapped(c,preset,tone=3): return Machine().call(address=ps['accent_map'],args=(c,preset,tone,0),gap=0)&0xffffffff
@@ -3539,9 +3538,9 @@ if variant=='ipod':
     # The payload's own accent drawing follows the preset, live: the bar, Now Playing's fill and
     # the fill a scrub restores.
     m,view,rows=display({'ACCENT':'2'}); m.paint(view)
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[2][:3]]; passed()
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[2][i]) for i in (0,1,4)]; passed()
     f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[3][:3]]; passed()
+    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[3][i]) for i in (0,1,4)]; passed()
     CONFIG.clear(); m=scrub_page()
     assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[0][2])); passed()
     CONFIG.update(ACCENT='3'); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'

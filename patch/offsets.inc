@@ -72,17 +72,17 @@
 #define OUTLINE_RGB 0xffffff
 #define OUTLINE_ALPHA 0xb3
 /* iPod accents, in the order of the Accent setting (IPOD/ACCENT in config.ini; 0 is the default):
- * { selection gradient top, bottom, light tone, red tone }, 0xRRGGBB. White text holds 4.5:1 on
- * every top. The light tone, the top lightened 12% toward white (Graphite keeps #6E6E6E over its
- * softer top), is the bar's one-pixel highlight and the Now Playing progress fill (3:1 or more on
- * BAR_BOTTOM). The red tone is what stock red #FF1448 becomes (switches, ticks, red text and
+ * { selection gradient top, bottom, light tone, red tone, highlight }, 0xRRGGBB. White text holds
+ * 4.5:1 on every top. The light tone, the top lightened 12% toward white (Graphite keeps #6E6E6E),
+ * is the Now Playing progress fill (3:1 or more on TRACK_COLOR). The highlight is the bar's one-pixel
+ * top edge: the light tone, except Graphite's restrained #555555 over its solid bar. The red tone is what stock red #FF1448 becomes (switches, ticks, red text and
  * buttons): Graphite's is silver, so a lit switch reads against the grey off state; the others
  * reuse the light tone, 3:1 or more under white.
  * Crimson keeps every stock color. */
-#define ACCENTS { 0x4a4a4a, 0x363636, 0x6e6e6e, 0xd8d8d8 }, /* Graphite */ \
-                { 0xe8123f, 0xa60025, 0xeb2f56, 0xff1448 }, /* Crimson */ \
-                { 0x13838d, 0x095158, 0x30929b, 0x30929b }, /* Tidal */ \
-                { 0x8c732c, 0x5d4a18, 0x9a8446, 0x9a8446 }  /* Champagne */
+#define ACCENTS { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }, /* Graphite */ \
+                { 0xe8123f, 0xa60025, 0xeb2f56, 0xff1448, 0xeb2f56 }, /* Crimson */ \
+                { 0x13838d, 0x095158, 0x30929b, 0x30929b, 0x30929b }, /* Tidal */ \
+                { 0x8c732c, 0x5d4a18, 0x9a8446, 0x9a8446, 0x9a8446 }  /* Champagne */
 #define CRIMSON 1
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
  * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
@@ -105,10 +105,10 @@
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
-/* iPod status bar: the same kind of gradient, darker than the selection so it reads as chrome. */
-#define BAR_TOP 0x2b2b2b
-#define BAR_BOTTOM 0x1c1c1c
-#define BAR_HI 0x3a3a3a
+/* iPod status bar: a solid fill, darker than the selection so it reads as chrome, without a
+ * highlight. TRACK_COLOR is the Now Playing progress track. */
+#define BAR_COLOR 0x242424
+#define TRACK_COLOR 0x1c1c1c
 /* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
  * the top corners (test_build.py). */
 #define CLOCK_EDGE 57

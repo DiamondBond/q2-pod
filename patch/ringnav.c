@@ -975,7 +975,7 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
 /* The Accent and Home settings (docs/ipod.md#display-settings), IPOD/ACCENT and IPOD/HOME in the
  * stock config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the
  * default. */
-static const unsigned accents[][4] = { ACCENTS };
+static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
                                             "Accent: Champagne" };
@@ -1033,7 +1033,8 @@ unsigned accent_map(unsigned c, int preset, int tone) {
     return preset == CRIMSON ? c : red_map(c, accents[preset][tone], 0xffffff);
 }
 
-/* A vertical gradient in one-pixel bands, then a one-pixel top highlight; r.h is at least 2.
+/* A vertical gradient in one-pixel bands, then a one-pixel top highlight; equal ends give a solid
+ * fill. r.h is at least 2.
  * Plain fills keep this off the stock gradient_t ABI, which is not audited. */
 static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi) {
     for (int j = 0; j < r.h; ++j) {
@@ -1169,7 +1170,7 @@ static void paint_selection(void *w, void *canvas) {
         r.w = I(g_menu.w, W_W);
     }
     const unsigned *a = accents[accent()];
-    gradient(canvas, r, a[0], a[1], a[2]);
+    gradient(canvas, r, a[0], a[1], a[4]);
     if (g_menu.kind == 4 &&
         r.w < I(g_menu.w, W_W)) { /* a pop-up button's tile: framed white on any accent */
         canvas_set_stroke_color(canvas, 0xffffffff);
@@ -1418,7 +1419,7 @@ int ringnav_playing(void *win, void *ctx) {
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
  * The selection work for the surface happens here, once per frame, instead of in the border hook;
  * a BUTTONS dialog is itself top-level. Home's art is clipped to its panel until the border hook.
- * Other top-level widgets are the status bar, which gets its gradient, and the windows. Painting
+ * Other top-level widgets are the status bar, which gets its solid fill, and the windows. Painting
  * the top window or the bar (at least each second, systembar_showface) keeps the bar's clock,
  * Home's art and Now Playing's labels current. */
 int ringnav_paint_bg(void *w, void *canvas) {
@@ -1427,10 +1428,10 @@ int ringnav_paint_bg(void *w, void *canvas) {
     paint_selection(w, canvas);
     coverflow_home_clip(w, canvas, 1);
     if (!w || P(w, W_PARENT) != wm) return result;
-    if (w == bar && P(canvas, CANVAS_LCD) && I(w, W_H) > 1) {
+    if (w == bar && P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-        rect_t r = { 0, 0, I(w, W_W), I(w, W_H) };
-        gradient(canvas, r, BAR_TOP, BAR_BOTTOM, BAR_HI);
+        canvas_set_fill_color(canvas, RGBA(BAR_COLOR));
+        canvas_fill_rect(canvas, 0, 0, I(w, W_W), I(w, W_H));
         canvas_set_fill_color(canvas, fill);
     }
     void *top = window_manager_get_top_window(wm);

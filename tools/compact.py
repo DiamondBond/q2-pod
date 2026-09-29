@@ -92,10 +92,10 @@ NP_TIMES_Y = NP_BAR[1] + NP_BAR[3] + 6  # 14px text in a 16px label, clear of th
 NP_TIME_X = max(MARGIN, corner_x(30 + NP_TIMES_Y + 1, 14))
 NP_TEXT_X = NP_MARGIN + NP_ART + 12
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
-# The track is the status bar's bottom; the fill is Graphite's light tone until ringnav_playing sets the
+# The track is TRACK_COLOR; the fill is Graphite's light tone until ringnav_playing sets the
 # accent's (3.3:1 or more on the track for every preset).
-NP_TRACK = '#' + re.search(r'#define BAR_BOTTOM 0x(\w+)', INC)[1]
-NP_FILL = '#' + re.search(r'#define ACCENTS \{ 0x\w+, 0x\w+, 0x(\w+), 0x\w+ \}', INC)[1]
+NP_TRACK = '#' + re.search(r'#define TRACK_COLOR 0x(\w+)', INC)[1]
+NP_FILL = '#' + re.search(r'#define ACCENTS \{ 0x\w+, 0x\w+, 0x(\w+),', INC)[1]
 
 
 def decode(data):
