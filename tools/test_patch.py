@@ -17,9 +17,10 @@ variant = manifest.get('variant')
 expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
-O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
+INC=(ROOT/'patch/offsets.inc').read_text()
+O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',INC,re.M)}
 # iPod accent presets: {gradient top, bottom, light tone, red tone} per Accent setting value.
-ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',(ROOT/'patch/offsets.inc').read_text())]
+ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
 CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))

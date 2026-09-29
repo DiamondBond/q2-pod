@@ -907,9 +907,8 @@ def main():
             subprocess.run([str(binary)], check=True, env=env)
         if a.captures:
             a.captures.mkdir(parents=True, exist_ok=True)
-            inc = (ROOT/'patch/offsets.inc').read_text()
-            import re
-            w, h = (int(re.search(rf'#define {k} (\d+)', inc)[1]) for k in ('CF_VIEW_W', 'CF_VIEW_H'))
+            from compact import inc
+            w, h = inc('CF_VIEW_W'), inc('CF_VIEW_H')
             for raw in sorted((tmp/'frames').glob('*.rgba')):
                 png(raw.read_bytes(), a.captures/(raw.stem + '.png'), w, h)
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
