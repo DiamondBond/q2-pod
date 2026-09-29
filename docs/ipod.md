@@ -142,11 +142,7 @@ battery under the glass, so no icon showed. A new `label_title`
 (`s_scrlabel_white20c`, an ellipsis only when the title is too long) is centred on the screen.
 The asset holds its narrowest case, 113 pixels wide at x 131, clear of either group with every
 icon shown (left 92 pixels, right 131); the build fails if that would be under `TITLE_MIN` (110).
-The payload sizes it against the icons actually showing, each time the bar paints: it spans
-between the wider visible group's extent on both sides, never nearer the edge than `TITLE_EDGE`
-(57, where its text clears the top corners). With only the play state and battery showing, as
-with Bluetooth, Wi-Fi and EQ off, it is 241 pixels wide, so "System Setting" is no longer cut
-short. The payload paints the bar's graphite gradient and keeps `label_title` in step with the
+The payload paints the bar's graphite gradient and keeps `label_title` in step with the
 top window: the hidden navbar's title, `Q2` on Home, "Now Playing" on `playing_page` and
 "Coverflow" on Coverflow (see [internals.md](internals.md#status-bar-ipod)).
 

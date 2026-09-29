@@ -96,9 +96,8 @@
 #define BAR_TOP 0x3a3a3a
 #define BAR_BOTTOM 0x1c1c1c
 #define BAR_HI 0x4a4a4a
-/* iPod status bar title: centred, reaching the wider visible icon group (as the asset does with every
- * icon shown) and never nearer the screen edge than TITLE_EDGE, where its 20px text clears the top
- * corners (test_build.py). */
+/* iPod status bar title: never nearer the screen edge than TITLE_EDGE, where its 20px text clears
+ * the top corners (test_build.py). */
 #define TITLE_EDGE 57
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
@@ -128,7 +127,6 @@
 #define SET_STOCK_ICON 52
 #define SET_STOCK_TRAIL 276   /* the usual trailing image x in the stock button */
 #define SET_RIGHT_SIDE 150    /* stock children starting here keep to the right edge */
-#define LIST_ITEM_HEIGHT 0x78          /* list_view item_height (same slot as ROW_HEIGHT) */
 #define LIST_DEFAULT_ITEM_HEIGHT 0x7c  /* list_view default_item_height */
 #define LIST_VIEW_LAYOUT 0x5e9eb4      /* children_layouter_list_view's layout */
 #define LIST_VIEW_LAYOUT_SLOT 0x926930 /* its vtable slot (vtable 0x926928 + 8) */
@@ -213,12 +211,11 @@
 /* iPod Coverflow text: every label keeps CF_EDGE from the sides, where the lowest track
  * row's text clears the bottom corners; album names and artists scroll within that. Under the
  * cover, the album name is CF_NAME_PX white CF_GAP below the art and the artist CF_ARTIST_PX in
- * CF_GREY (stock secondary text), CF_LINE_GAP under it. */
+ * CF_GREY (stock secondary text) right under it. */
 #define CF_EDGE 36
 #define CF_GAP 12
 #define CF_NAME_PX 24
 #define CF_NAME_H 32
 #define CF_ARTIST_PX 20
 #define CF_ARTIST_H 28
-#define CF_LINE_GAP 0
 #define CF_GREY 0xffaaaaaa /* color_t #AAAAAA */

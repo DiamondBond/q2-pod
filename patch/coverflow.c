@@ -297,7 +297,7 @@ static void covers(void) {
         int y = 24 + ART_SIZE + CF_GAP;
         cf.name = text(cf.covers, CF_X, y, CF_W, CF_NAME_H);
         widget_set_prop_int(cf.name, "style:normal:font_size", CF_NAME_PX);
-        cf.artist = text(cf.covers, CF_X, y + CF_NAME_H + CF_LINE_GAP, CF_W, CF_ARTIST_H);
+        cf.artist = text(cf.covers, CF_X, y + CF_NAME_H, CF_W, CF_ARTIST_H);
         widget_set_prop_int(cf.artist, "style:normal:font_size", CF_ARTIST_PX);
         widget_set_prop_int(cf.artist, "style:normal:text_color", (int)CF_GREY);
 #else

@@ -1262,31 +1262,6 @@ static void title_sync(void *bar, void *top) {
         widget_set_text(label, text);
 }
 
-/* The title spans the bar between the icon groups as they show now: each group is its layouter's
- * margin plus its visible icons and their spacing (a hidden icon takes no space), so the title
- * widens when Bluetooth, Wi-Fi or EQ go and narrows when they come back, centred on the wider
- * group's extent, never nearer the edge than TITLE_EDGE. Resized only on a change. */
-static void title_fit(void *bar) {
-    static const char *const groups[2] = { "view_left", "view_right" };
-    int edge = TITLE_EDGE, bar_w = I(bar, W_W);
-    for (int g = 0; g < 2; ++g) {
-        void *view = widget_lookup(bar, groups[g], 0), *layout = view ? P(view, W_CHILDREN_LAYOUT) : (void *)0;
-        if (!layout) continue;
-        int in = B(layout, DEFAULT_LAYOUT_X_MARGIN), shown = 0;
-        for (unsigned i = 0; i < widget_count_children(view); ++i) {
-            void *c = widget_get_child(view, i);
-            if (!widget_get_visible(c)) continue;
-            in += I(c, W_W) + (shown++ ? B(layout, DEFAULT_LAYOUT_SPACING) : 0);
-        }
-        in += g ? bar_w - I(view, W_X) - I(view, W_W) : I(view, W_X);
-        if (shown && in > edge) edge = in;
-    }
-    void *label = widget_lookup(bar, "label_title", 1);
-    int w = bar_w - 2 * edge;
-    if (label && w > 0 && (I(label, W_X) != edge || I(label, W_W) != w))
-        widget_move_resize(label, edge, I(label, W_Y), w, I(label, W_H));
-}
-
 /* Seconds as stock writes label_playtime, after a minus when negative is 1. */
 static void clock_text(void *label, int negative, int t) {
     char s[16] = "-";
@@ -1468,7 +1443,6 @@ int ringnav_paint_bg(void *w, void *canvas) {
         gradient(canvas, r, BAR_TOP, BAR_BOTTOM, BAR_HI);
         canvas_set_fill_color(canvas, fill);
     }
-    if (w == bar) title_fit(bar); /* systembar_showface repaints it as icons come and go */
     void *top = window_manager_get_top_window(wm);
     if (bar && (w == bar || w == top)) {
         title_sync(bar, top);
@@ -1776,7 +1750,7 @@ static void set_row(void *item) {
  * code never moves, resizes or scrolls its rows afterwards (docs/ipod.md#settings). */
 int ipod_list_layout(void *layout, void *view) {
     void *list = view ? P(view, W_PARENT) : (void *)0;
-    int rows = list && !tk_strcmp(widget_get_type(list), "list_view") && !I(list, LIST_ITEM_HEIGHT) &&
+    int rows = list && !tk_strcmp(widget_get_type(list), "list_view") && !I(list, ROW_HEIGHT) &&
                I(list, LIST_DEFAULT_ITEM_HEIGHT) == SET_ROW;
     unsigned n = rows ? widget_count_children(view) : 0;
     for (unsigned i = 0; i < n; ++i) {

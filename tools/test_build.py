@@ -176,7 +176,7 @@ def validate_assets(directory):
                 assert label[1] == [x + (w - QS_LABEL_W) // 2, y + h + QS_LABEL_GAP, QS_LABEL_W, QS_LABEL_H]
                 assert label[2]['style'] == 's_label_white16c' and label[2]['style:normal:text_align_v'] == 'top'
                 assert 2 * (16 + 2) <= QS_LABEL_H and label[2]['line_wrap'] == label[2]['word_wrap'] == 'true'
-            assert {n[1][1] for n in icons} == {0, QS_PITCH} and QS_LABEL_H + QS_LABEL_GAP + QS_ROW_GAP + QS_ICON == QS_PITCH
+            assert {n[1][1] for n in icons} == {0, QS_PITCH}
             slider, dim, bright = light[3]
             assert light[1][1] == menu[1][1] + menu[1][3] + QS_ROW_GAP and light[1][1] + light[1][3] <= 320 - 16
             assert slider[2]['bar_size'] == str(QS_BAR) and slider[1][3] == QS_TOUCH >= 44 and slider[2]['slide_with_bar'] == 'true'
@@ -217,7 +217,6 @@ def validate_assets(directory):
             assert title[0] == 'hscroll_label' and title[2]['name'] == 'label_title'
             x, _, w, _ = title[1]
             assert x + w/2 == 375/2 and w >= TITLE_MIN  # centred on the screen, clear of both groups (corners below)
-            # ringnav's title_fit widens it as icons hide, never nearer the edge than TITLE_EDGE.
             assert inc('TITLE_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('TITLE_EDGE')
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)

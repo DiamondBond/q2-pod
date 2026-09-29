@@ -652,30 +652,6 @@ else:
     bg(s.top); assert s.nodes[title]['text']==''; passed()
     for name,key in (('home_page','Q2'),('playing_page','small_playing'),('coverflow_page','Coverflow')):
         s.top=top_level('window',name); bg(s.top); assert s.nodes[title]['tr_text']==key; passed()
-    # The title spans the bar between the icons that show (the iPod system_bar.bin groups: 52px
-    # margins, 5px spacing), centred, and never nearer the edge than TITLE_EDGE.
-    def group(name,x,w,icons):
-        v=s.node('view',name,[s.node('image',n) for n,_ in icons]); s.word(v+O['W_X'],x); s.word(v+O['W_W'],w)
-        for c,(_,iw) in zip(s.nodes[v]['children'],icons): s.word(c+O['W_W'],iw)
-        lay=s.alloc(32); s.byte(lay+O['DEFAULT_LAYOUT_X_MARGIN'],52); s.byte(lay+O['DEFAULT_LAYOUT_SPACING'],5)
-        s.word(v+O['W_CHILDREN_LAYOUT'],lay); return v
-    left=group('view_left',0,145,[('img_state',15),('label_eq',20)])
-    right=group('view_right',175,200,[('img_bt',43),('img_wifi',16),('img_battery',10)])
-    s.nodes[bar]['children']=[left,right,title]
-    icons={s.nodes[c]['name']:c for v in (left,right) for c in s.nodes[v]['children']}
-    # Every combination of shown icons: the photographed pause and battery alone give 241px.
-    width={'img_state':15,'label_eq':20,'img_bt':43,'img_wifi':16,'img_battery':10}
-    def extent(names): return 52+sum(width[n] for n in names)+5*(len(names)-1) if names else 0
-    for mask in range(32):
-        shown={n for i,n in enumerate(width) if mask>>i&1}
-        for n,c in icons.items(): s.nodes[c]['visible']=int(n in shown)
-        edge=max(O['TITLE_EDGE'],extent([n for n in ('img_state','label_eq') if n in shown]),
-                 extent([n for n in ('img_bt','img_wifi','img_battery') if n in shown]))
-        bg(bar); assert (s.get(title+O['W_X']),s.get(title+O['W_W']))==(edge,375-2*edge),(shown,edge)
-        s.calls=[]; bg(bar); assert not [c for c in s.calls if c[0]=='widget_move_resize']  # only on a change
-    shown={'img_state','img_battery'}
-    for n,c in icons.items(): s.nodes[c]['visible']=int(n in shown)
-    bg(bar); assert s.get(title+O['W_W'])==241; passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60
@@ -3201,7 +3177,7 @@ if variant=='ipod':
             if name=='stock_list_layout':
                 assert u.reg_read(UC_MIPS_REG_T9)==address
                 view=u.reg_read(UC_MIPS_REG_A1); lst=self.get(view+O['W_PARENT']); y=0
-                ih,dh=(self.get(lst+O[k]) for k in ('LIST_ITEM_HEIGHT','LIST_DEFAULT_ITEM_HEIGHT'))
+                ih,dh=(self.get(lst+O[k]) for k in ('ROW_HEIGHT','LIST_DEFAULT_ITEM_HEIGHT'))
                 for c in self.nodes[view]['children']:
                     if not self.get(c+O['W_W']): self.word(c+O['W_W'],self.get(view+O['W_W']))
                     h=ih or self.get(c+O['W_H']) or dh
@@ -3226,7 +3202,7 @@ if variant=='ipod':
         m.handlers[O['LIST_VIEW_LAYOUT']]='stock_list_layout'
         view=m.node('scroll_view'); lst=m.node('list_view','list_view',[view]); m.top=m.node('window','sysset_page',[lst])
         m.word(view+O['W_PARENT'],lst); m.word(lst+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
-        m.word(lst+O['LIST_ITEM_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
+        m.word(lst+O['ROW_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
         m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
         if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
             m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
