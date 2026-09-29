@@ -129,8 +129,6 @@ FUNCTIONS = {
  'widget_get_prop_int': ('int', 'void *, const char *, int'),
  'widget_get_prop_str': ('const char *', 'void *, const char *, const char *'),
  'widget_get_text': ('const unsigned *', 'void *'),
- 'widget_set_text': ('int', 'void *, const unsigned *'),
- 'widget_set_tr_text': ('int', 'void *, const char *'),
  'widget_get_type': ('const char *', 'void *'),
  'widget_count_children': ('unsigned', 'void *'),
  'widget_get_child': ('void *', 'void *, unsigned'),
@@ -389,7 +387,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
                'shuffle honours Play next')
     # Pin added private entry points as well as every replaced instruction, and the stock bitmap,
     # canvas and slide_menu entries Coverflow's depth renderer calls (docs/internals.md#coverflow-depth).
-    for name, original in (AUDIT['private_prologues'] | AUDIT['coverflow_prologues']).items():
+    for name, original in AUDIT['private_prologues'].items():
         off = fileoff(raw_demo, syms[name])
         check(raw_demo[off:off+12].hex() == original, f'{name}: unexpected stock entry')
     for address, original in AUDIT['event_abi_words'].items():

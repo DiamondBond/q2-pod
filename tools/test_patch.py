@@ -142,10 +142,6 @@ class Machine:
     def wide_string(self,s):
         data=(s+'\0').encode('utf-32-le')
         a=self.alloc(len(data)); self.u.mem_write(a,data); return a
-    def wide_text(self,a):
-        out=''
-        while (c:=self.get(a)): out+=chr(c); a+=4
-        return out
     def text(self,a):
         if not a: return ''
         out=bytearray()
@@ -212,8 +208,6 @@ class Machine:
                 a=self.get(a+O['W_PARENT'])
             self.word(b,x); self.word(b+4,y); ret=0
         elif name=='widget_set_text_utf8': n['text']=self.text(b); ret=0
-        elif name=='widget_set_text': n['text']=self.wide_text(b); ret=0
-        elif name=='widget_set_tr_text': n['tr_text']=n['text']=self.text(b); ret=0
         elif name=='widget_use_style': n['style']=self.text(b); ret=0
         elif name.startswith('hscroll_label_set_') or name=='set_hscroll_label_attribute':
             n[name]=b if name!='set_hscroll_label_attribute' else True; ret=0
@@ -682,7 +676,7 @@ else:
            ('sysset_page','home_page','playing_page','coverflow_page','tidal_main_page')]+[top_level('dialog','sortselect_dialog')]
     for pg in pages:
         s.top=pg; bg(pg)
-        assert clock()=='7:30 AM' and not writes() and not [c for c in s.calls if c[0] in ('widget_set_text','widget_set_tr_text')]
+        assert clock()=='7:30 AM' and not writes()
     passed()
     s.clock=(19,31); s.top=pages[-1]; bg(pages[-1]); assert clock()=='7:31 PM' and len(writes())==1; passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
@@ -3463,7 +3457,7 @@ if variant=='ipod':
         m=SettingsMachine(); m.layouts=0
         m.mock('list_item_create','button_create','image_create','hscroll_label_create','label_create','widget_use_style',
                'widget_set_name','image_set_draw_type','image_base_set_image','set_hscroll_label_attribute','widget_on',
-               'widget_set_tr_text','widget_set_text_utf8','widget_set_visible','widget_move_resize')
+               'widget_set_text_utf8','widget_set_visible','widget_move_resize')
         m.handlers[syms['widget_destroy_children']]='widget_destroy_children'
         for n in syms:  # string helpers the builders format their names with
             if n.endswith('@GLIBC_2.0') and syms[n] not in m.handlers: m.handlers[syms[n]]=n
