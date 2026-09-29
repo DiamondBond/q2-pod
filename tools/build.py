@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproducibly patch only the audited Q2 V1.32 ZIP. Requires LLVM and squashfs-tools.
+"""Reproducibly patch only the audited Q2 V1.32 ZIP. Requires LLVM and squashfs-tools, and ImageMagick for --ipod.
 
 --logo swaps the boot splash JPEG (320x375); it defaults to assets/logo.jpg.
 """
@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '5.6'  # the only place a release bumps the version
+VERSION = '5.7'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
@@ -310,6 +310,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # Every allowlisted context must be a window name. The runtime name is the root "name"
     # property of the UI asset, not the asset path, so check the stock rootfs assets directly:
     # a prefix-trimmed typo cannot silently disable a screen this way.
+    from compact import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, INC, SETTINGS_ICONS, UI_ASSETS, patch_asset,
+                         imagemagick, patch_code, patch_style, patch_word, settings_icon)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows = set()
@@ -322,6 +324,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         i = data.find(b'name\x00')
         name = data[i+5:data.find(b'\x00', i+5)].decode('utf-8', 'replace') if i >= 0 else ''
         windows.add(name or rel.split('/')[-1])
+        # iPod pre-sizes the settings icons, so no UI asset may name one (only native settings code does).
+        for icon in SETTINGS_ICONS:
+            check(icon.removesuffix('.png').encode() + b'\0' not in data, f'{rel}: names settings icon {icon}')
     check(windows, 'No UI assets in the stock rootfs')
     for name in contexts:
         check(name in windows | PAYLOAD_WINDOWS, f'Context {name} is not a window name in the stock rootfs')
@@ -343,7 +348,6 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(len(payload) < SCRATCH-BASE, 'Payload overlaps its scratch page')
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
-    from compact import AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, INC, UI_ASSETS, patch_asset, patch_code, patch_style, patch_word
     patched = bytearray(raw_demo)
     def jump(off, name): patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[name] >> 2), 0)
     for name, (address, replacement) in hooks(ipod).items():
@@ -445,6 +449,16 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         target.write_bytes(data)
         p = swap_inode(p, path.encode(), target)
         changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
+    # iPod: settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata.
+    for name in SETTINGS_ICONS if ipod else []:
+        path = 'release/assets/default/raw/images/xx/' + name
+        original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
+        data = settings_icon(name, original)
+        target = out/'images'/name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        p = swap_inode(p, path.encode(), target)
+        changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
     pseudo.write_bytes(p)
     (out/'empty').mkdir()
     newsq = out/'rootfs.squashfs'
@@ -474,7 +488,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         version=version, variant=variant, dev=dev, peq=audio, bluealsa_sha256=sha(bluealsa), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
-        tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']})
+        tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
+              ({'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]} if ipod else {}))
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print(json.dumps({k:manifest[k] for k in ['update_sha256','patch_bytes','version']},indent=2))
 

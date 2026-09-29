@@ -56,7 +56,8 @@ def validate_assets(directory):
     from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
-                         decode, inc, walk, patch_asset, patch_code, patch_style, style_props)
+                         SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
+                         patch_asset, patch_code, patch_style, style_props)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -78,10 +79,30 @@ def validate_assets(directory):
         if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)
         assert demo[off:off+8] == want
     changed = manifest['changed_assets']
+    xx = 'release/assets/default/raw/images/xx/'
     assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
-        'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])}
+        'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
+        xx+n for n in (SETTINGS_ICONS if ipod else [])}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
+    # iPod settings icons: the audited 52px artwork, packaged as SET_ICON RGBA with the same transparency
+    # and, on a plain background, the same average colour; normal keeps them stock.
+    def mean(png, bg):
+        cmd = ['png:-', '-background', bg, '-flatten', '-format', '%[fx:mean.r],%[fx:mean.g],%[fx:mean.b]', 'info:']
+        return [float(v) for v in imagemagick(*cmd, data=png).split(b',')]
+    for name, digest in SETTINGS_ICONS.items():
+        old, new = read('stock.squashfs', xx+name), read('rootfs.squashfs', xx+name)
+        assert sha(old) == digest and png_header(old) == (SET_STOCK_ICON, SET_STOCK_ICON, 8, 6), name
+        if not ipod:
+            assert new == old, name
+            continue
+        assert changed[xx+name] == dict(original_sha256=digest, sha256=sha(new)) and new == settings_icon(name, old), name
+        assert png_header(new) == (SET_ICON, SET_ICON, 8, 6), name
+        try: settings_icon(name, old[:-1] + b'x')
+        except ValueError: pass
+        else: raise AssertionError(f'{name}: accepted a changed icon')
+        for bg in ('#000000', '#6e6e6e'):  # the list, and the Graphite selection bar
+            assert max(abs(a - b) for a, b in zip(mean(old, bg), mean(new, bg))) < 0.02, (name, bg)
     # bluealsa differs from stock only in the AAC 44.1 kHz bit.
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]

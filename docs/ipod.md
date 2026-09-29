@@ -147,17 +147,18 @@ EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
 never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
 and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
 battery icon in `view_right`. The volume icon and number, SyncLink and the battery
-percentage move to `x = -200`, where they draw off-screen. Both groups sit 52 pixels
-from the edges (`STATUS_MARGIN`), where the 16-pixel icons clear the top corners
-([Rounded corners](#rounded-corners)); V5.4I's 8 pixels put the play state and the
-battery under the glass, so no icon showed. A new `label_clock` (`s_scrlabel_white20c`) is
-centred on the screen. The asset holds its narrowest case, 113 pixels wide at x 131, clear of
-either group with every icon shown (left 92 pixels, right 131); the build fails if that would be
-under `CLOCK_MIN` (110). The payload paints the bar's graphite gradient and shows the device's
-local time in `label_clock` as a 12-hour clock without seconds or a leading zero (`6:14 PM`), or
-`--:--` if the time cannot be read, on every page and under every dialog (see
-[internals.md](internals.md#status-bar-ipod)). The widest text, `12:59 PM`, is 86 pixels in the
-stock font at 20 pixels; `tools/test_build.py` measures every time against the label.
+percentage move to `x = -200`, where they draw off-screen. Both groups sit 54 pixels
+from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
+([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass;
+V5.4I's 8 pixels put the play state and the battery under the glass, so no icon showed. A new
+`label_clock` (`s_scrlabel_white20c`) is centred on the screen. It has the width left in the
+narrowest case, 109 pixels at x 133, clear of either group with every icon shown (left 94
+pixels, right 133); the build fails if that would be under `CLOCK_MIN` (105). The payload paints
+the bar's graphite gradient and shows the device's local time in `label_clock` as a 12-hour
+clock without seconds or a leading zero (`6:14 PM`), or `--:--` if the time cannot be read, on
+every page and under every dialog (see [internals.md](internals.md#status-bar-ipod)). The widest
+text, `12:59 PM`, is 86 pixels in the stock font at 20 pixels; `tools/test_build.py` measures
+every time against the label.
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
@@ -197,8 +198,9 @@ owns the geometry:
   stacks the rows and sizes the scroll view, so scrolling, the scroll bar and the payload's
   selection all see 68-pixel rows.
 - After it, each stock button (x 20, 335 wide) spans its row, 375 by 68, so the selection bar and
-  the tap target are the whole row. Its icon shrinks to 40 pixels (`SET_ICON`, drawn
-  `scale_down`, value 5 in the stock draw type table at `0x9272c0`), centred on the row at x 28
+  the tap target are the whole row. Its icon box shrinks to 40 pixels (`SET_ICON`, drawn
+  `scale_down`, value 5 in the stock draw type table at `0x9272c0`, which draws a bitmap that
+  already fits 1:1; see [Settings icons](#settings-icons)), centred on the row at x 28
   (`SET_ICON_X`). Text starts 12 pixels (`SET_GAP`) after the icon, at x 80, or at x 20
   (`SET_TEXT_X`) without one; the Display page's Accent and Home rows keep the icon rows' column.
   Trailing images end 24 pixels (`SET_EDGE`) from the right, at x 351; value labels and the text's
@@ -209,6 +211,24 @@ owns the geometry:
 With these values the text, icons and trailing images of the first and the last visible row clear
 the rounded glass (`tools/test_patch.py` runs the Language, Bluetooth quality, System Settings and
 Wi-Fi builders and the Display rows, then checks both positions).
+
+### Settings icons
+
+Scaling the 52-pixel artwork down on the device left jagged edges, so the build pre-sizes it
+instead. `settings_icons` in `compact.json` pins the 39 settings icons by hash: `system_*`,
+`playset_*`, `display_*`, `wifiset_*`, `netservice_*`, `usb_chargeswitch` and `bt_adjvol`, 52-pixel
+RGBA PNGs that only native settings code names (top level and nested pages such as Display,
+Wi-Fi, Bluetooth and Network services); no UI asset or other screen uses them. For each one the
+iPod build runs ImageMagick (`magick`, else `convert`) with an alpha-weighted Lanczos resize to
+40x40, strips metadata and date chunks so the bytes are reproducible, and replaces the file in
+place, keeping its inode metadata. The build fails if an input's hash or format differs, or if an
+output is not 40-pixel 8-bit RGBA with the same transparency; the manifest records both hashes
+and the ImageMagick version under `changed_assets` and `tools`. `tools/test_build.py` checks the
+packaged bytes, the sizes, and that each icon's average colour on black and on the Graphite
+selection grey matches the stock icon's. Other 52-pixel images that land in settings rows, such as
+Streaming's Tidal logo (`list_tidal`, which the folder root may also use), keep their stock bytes
+and still scale down. Normal keeps every icon stock. The recolouring of accent-red artwork
+(`ringnav_image_add`) works on the decoded bitmap, so it applies at either size.
 
 ## Quick settings
 
@@ -250,7 +270,7 @@ to stock's 50-pixel status bar margins. `corner_inset(y)` gives the width hidden
 screen row `y`, and `corner_x` adds `CORNER_SLACK` (4). The status bar groups, the Home labels
 and Now Playing's top and bottom rows take their insets from it; settings notes moved under the
 hidden navbar end their text clear of the top-right corner. With the defaults: status bar 52
-pixels, the clock at least 57, Home text and Full's chevrons 33, "3 of 12" 16, Now Playing icons
+pixels plus `STATUS_PAD` (2), the clock at least 57, Home text and Full's chevrons 33, "3 of 12" 16, Now Playing icons
 ending at 353, the bar 21 and the times 46 pixels from the edges. The runtime layouts' values
 (`SET_*`, `CF_*`, `CLOCK_EDGE`, `HOME_FULL_ROW` in `patch/offsets.inc`) are checked against the
 same calibration by the tests.
@@ -340,11 +360,13 @@ is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` co
 
 **Scrub.** The centre button starts scrubbing, as on an iPod classic, and the bar fill turns white
 while it lasts. Each wheel tick moves 5 seconds, times the same ramp as a long list (up to 40
-seconds a tick while spinning), within the track. Both times and the bar follow the target, and the
-track jumps there 150 ms after the last tick. Centre again, Return, a touch or 3 seconds without a
-tick give the wheel back to the volume; Return then stays on the page. A double press still turns
-the screen off. Values are `SCRUB_*` and `SEEK_MS` in `patch/offsets.inc`; see
-[internals.md](internals.md#scrub-ipod).
+seconds a tick while spinning), within the track. Both times and the bar follow the target at once;
+the track jumps there once, when the scrub ends. Centre again or Return ends it, as do a touch and
+3 seconds without a tick, and each gives the wheel back to the volume; Return then stays on the
+page. Ending without having moved the target does not seek. A double press still turns the screen
+off. The jump is stock's key seek, which can pause the player briefly, but only once, when the
+scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
+`patch/offsets.inc`; see [internals.md](internals.md#scrub-ipod).
 
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
@@ -488,13 +510,14 @@ Normal also apply to it.
   rectangle on album grid tiles. A touch hides it until the next wheel or centre
   input. Pressed rows still show touch feedback.
 - **status_bar**: Check the play state and EQ on the left; Bluetooth/codec, Wi-Fi
-  and battery on the right, each following its state and none cut by the corners. The centred
-  clock shows the device's local time as `6:14 PM` (no seconds, no leading zero, `12:00 AM` at
-  midnight, `12:00 PM` at noon) on every page and under dialogs, and turns over within a second
-  of the minute changing. Set the time in System settings and confirm it follows. Let the screen
-  turn off for a few minutes and wake it: the clock is current. Volume turns still open the stock
+  and battery on the right, each following its state, none cut by the corners and each
+  group a little in from the glass rather than touching it. The centred clock shows the
+  device's local time as `6:14 PM` (no seconds, no leading zero, `12:00 AM` at midnight,
+  `12:00 PM` at noon) on every page and under dialogs, and turns over within a second of the
+  minute changing. Set the time in System settings and confirm it follows. Let the screen turn
+  off for a few minutes and wake it: the clock is current. Volume turns still open the stock
   volume pop-up. Switch Bluetooth, Wi-Fi and PEQ on and off in turn (connect a codec so its label
-  shows) at 12:59: the clock stays centred and never overlaps an icon.
+  shows) at 12:59: the clock stays centred and never overlaps an icon in any combination.
 - **home**: Wheel through all seven rows (hard ends) and open each with centre
   and tap; Coverflow is third. Switch the language and confirm the labels follow.
   The first row has room under the status bar and the last row's text and chevron
@@ -525,11 +548,14 @@ Normal also apply to it.
   to seek; set A-B and confirm the markers sit on the bar. Swipe to lyrics and
   info and back; favourite, More and play mode work.
 - **scrub**: On Now Playing, centre starts the scrub (white fill). Wheel ticks
-  move 5 s, more while spinning, clamped to the track; the track jumps 150 ms
-  after the last tick. Centre, Return (staying on the page), a touch and 3 s idle
-  each end it and return the wheel to volume. A double press still turns the
-  screen off. A track change mid-scrub does not seek the new track. Outside the
-  scrub the wheel changes volume.
+  move 5 s, more while spinning, clamped to the track. Turn slowly, pausing about
+  half a second between ticks: the bar and both times follow every tick at once and
+  playback neither jumps nor stutters until the scrub ends. Centre and Return
+  (staying on the page) jump once to the target, as do a touch and 3 s idle; each
+  returns the wheel to volume. Centre twice without turning: no jump. A double press
+  still turns the screen off, jumping first if the target moved. A track change
+  mid-scrub does not seek the new track. Try a CUE track: the jump lands within that
+  track. Outside the scrub the wheel changes volume.
 - **accent**: In System settings → Display, cycle all four accents with the
   wheel, centre and tap. Each colours the bar, the progress fill, switches,
   ticks, red text and display icons at once; Crimson looks stock; album covers
@@ -544,7 +570,8 @@ Normal also apply to it.
 - **settings**: Open System Setting, Playback Setting, Audio settings, Streaming,
   Display, Language, Wi-Fi (with networks listed) and Bluetooth quality. Four complete
   rows show under an 8-pixel gap, the fourth row's icon and text are not cut by the
-  bottom-left corner, icons are 40 pixels and centred, text lines up, and chevrons,
+  bottom-left corner, icons are 40 pixels and centred with smooth edges (no jagged
+  or dark fringes, on black and on the selection bar in each accent), text lines up, and chevrons,
   ticks and switches keep clear of the right edge. Wheel to the end and back (the
   list scrolls whole rows into view, the bar spans each row), tap rows, toggle
   switches, and reopen pages: nothing jumps back to the old 78-pixel rows.

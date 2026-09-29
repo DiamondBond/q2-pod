@@ -82,9 +82,9 @@ typedef struct {
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
     int np_left;
     /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press; scrub_to is the
-     * target second. */
-    unsigned np_press, np_press_at, scrub_timer, seek_timer, scrub_track;
-    int scrub, scrub_to;
+     * target second, scrub_moved set once the wheel changed it. */
+    unsigned np_press, np_press_at, scrub_timer, scrub_track;
+    int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels. */
     int settings_read, accent, home_full;
     void *setting_label[2];
@@ -1272,25 +1272,13 @@ static void np_sync(void *top) {
 }
 
 /* Scrub (docs/internals.md#scrub-ipod) follows stock's own key seek (0x52c754): the page's 250 ms
- * timer stops, the slider and label_playtime show the target, player_seek_time commits it in
- * track seconds (it adds a CUE track's start), and the timer restarts. */
+ * timer stops, the slider and label_playtime preview the target, player_seek_time commits it once
+ * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
 /* The playing track: its queue position and path. */
 static unsigned np_track(void) {
     unsigned at, n;
     void *r = queue_now(&at, &n);
     return r ? fnv(hash_bytes(FNV_SEED, (const unsigned char *)&at, sizeof at), P(r, REC_PATH)) : 0;
-}
-
-/* A track change since the scrub began ends it without seeking. */
-static void scrub_end(void);
-static int np_seek(const void *info) {
-    (void)info;
-    st.seek_timer = 0;
-    if (np_track() != st.scrub_track)
-        scrub_end();
-    else /* ponytail: blocks the UI up to 2 s, as stock's key seek; commit only on exit if sticky */
-        player_seek_time(st.scrub_to);
-    return 0;
 }
 
 /* The accent's light tone fills the progress bar; a white fill marks the scrub. */
@@ -1301,15 +1289,15 @@ static void np_fill(int scrub) {
     widget_invalidate_force(st.np_slider, (void *)0);
 }
 
-/* Commits a pending seek; the page's timer and fill come back unless the page is gone. */
+/* Commits a target the wheel moved, unless the playing track changed since the scrub began; the
+ * page's timer and fill come back unless the page is gone. */
 static void scrub_end(void) {
     if (!st.scrub) return;
     st.scrub = 0;
     stop_timer(&st.scrub_timer);
-    if (st.seek_timer) {
-        stop_timer(&st.seek_timer);
-        np_seek((void *)0);
-    }
+    if (st.scrub_moved && np_track() == st.scrub_track)
+        player_seek_time(st.scrub_to); /* blocks the UI up to 2 s, as stock's key seek */
+    st.scrub_moved = 0;
     if (!st.np_win) return;
     np_fill(0);
     playing_timer_start(st.np_win);
@@ -1336,6 +1324,7 @@ static int np_toggle(const void *info) {
     else if (st.np_slider && usable() && window_manager_get_top_window(wm) == st.np_win &&
              !window_manager_is_animating(wm)) {
         st.scrub = 1;
+        st.scrub_moved = 0;
         st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
         st.scrub_track = np_track();
         playing_timer_clear(st.np_win);
@@ -1347,8 +1336,8 @@ static int np_toggle(const void *info) {
 
 /* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press toggles
  * DOUBLE_CLICK_MS later, so a second one still reaches stock's screen off. The wheel moves the
- * target SCRUB_STEP seconds times the list ramp, within the track, and seeks SEEK_MS after the
- * last detent; neither the volume nor its dialog sees it. */
+ * target SCRUB_STEP seconds times the list ramp, within the track, and only previews it: the
+ * seek waits for the scrub to end. Neither the volume nor its dialog sees the wheel. */
 static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
@@ -1364,15 +1353,20 @@ static int np_key(void *top, unsigned key) {
         st.np_press = timer_add(np_toggle, (void *)0, DOUBLE_CLICK_MS);
         return STOP;
     }
+    if (np_track() != st.scrub_track) { /* a new track: scrub_end drops the last one's target */
+        scrub_end();
+        return STOP;
+    }
     int dir = key == KEY_NEXT ? 1 : -1;
     /* the step grows while the wheel spins, as in a long list */
     int step = SCRUB_STEP * ramp(top, st.np_slider, 0, -1, dir, now);
-    st.scrub_to = clamp_step(st.scrub_to, widget_get_prop_int(st.np_slider, "max", 0), dir * step);
-    widget_set_prop_int(st.np_slider, "value", st.scrub_to);
-    clock_text(st.np_elapsed, 0, st.scrub_to);
+    int to = clamp_step(st.scrub_to, widget_get_prop_int(st.np_slider, "max", 0), dir * step);
+    if (to != st.scrub_to) st.scrub_moved = 1;
+    st.scrub_to = to;
+    widget_set_prop_int(st.np_slider, "value", to);
+    clock_text(st.np_elapsed, 0, to);
     np_sync(top);
     rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
-    rearm(&st.seek_timer, np_seek, SEEK_MS);
     return STOP;
 }
 
@@ -1382,7 +1376,7 @@ static int np_gone(void *win, void *event) {
         st.np_win = (void *)0;
         st.np_hash = 0;
         st.np_slider = st.np_elapsed = (void *)0;
-        stop_timer(&st.seek_timer); /* the page is going: no seek */
+        st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
     return 0;
@@ -1686,7 +1680,8 @@ static void set_child(void *c, int row_w, int row_h, int shift) {
     } else
         y -= (SET_STOCK_BODY - row_h) / 2;
     if (w == SET_STOCK_ICON && !tk_strcmp(widget_get_type(c), "image")) {
-        image_set_draw_type(c, IMAGE_DRAW_SCALE_DOWN); /* the stock 52px bitmap, scaled to fit */
+        /* the build pre-sizes the audited icons to SET_ICON, so they draw 1:1; any other one scales down */
+        image_set_draw_type(c, IMAGE_DRAW_SCALE_DOWN);
         widget_move_resize(c, SET_ICON_X, (row_h - SET_ICON) / 2, SET_ICON, SET_ICON);
         return;
     }
