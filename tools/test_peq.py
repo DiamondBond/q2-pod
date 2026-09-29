@@ -252,14 +252,14 @@ int navigator_back(void);
 int write_int_config(int, const char *, const char *);
 """
 SHIM = r"""
-static struct { int parent, h; char text[160]; handler click, destroy, keyup; void *ctx; } w[4096];
+static struct { int parent, h, bg; char text[160]; handler click, destroy, keyup; void *ctx; } w[4096];
 static int count = 1, timers, removed, backs;
 static int (*timer_fn)(const void *);
 volatile unsigned char g_equalizer_flag;
 int stock_eq_trampoline(int mode) { return mode; }
 static void *make(void *parent, int h) {
     ++count; w[count].parent = (int)(long)parent; w[count].h = h;
-    w[count].text[0] = 0; w[count].click = 0; return (void *)(long)count;
+    w[count].text[0] = 0; w[count].click = 0; w[count].bg = 0; return (void *)(long)count;
 }
 void *list_item_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
 void *label_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
@@ -275,7 +275,7 @@ unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     return 1;
 }
 int widget_get_prop_int(void *x, const char *k, int d) { return (long)x == 1 && !strcmp(k, "h") ? 290 : d; }
-int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void)v; return 0; }
+int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:normal:bg_color")) w[(long)x].bg = v; return 0; }
 int widget_destroy_children(void *x) { (void)x; count = 1; return 0; }
 int widget_resize(void *x, int ww, int h) { (void)ww; w[(long)x].h = h; return 0; }
 int scroll_view_set_offset(void *x, int a, int b) { (void)x; (void)a; (void)b; return 0; }
@@ -311,6 +311,7 @@ const char *shim_title(void) {
     return "";
 }
 int shim_list_height(void) { return w[2].h; } /* the list view is the page's first child */
+unsigned shim_list_bg(void) { return (unsigned)w[2].bg; }
 """
 
 def editor_check(lib, tmp):
@@ -340,6 +341,8 @@ def editor_check(lib, tmp):
     click('PEQ: ON'); assert ui.shim_eqflag() == 0 and ui.shim_flag() == 0
     ui.shim_close(); assert ui.shim_open() == 0; click('PEQ: OFF')
     full = ui.shim_list_height()
+    # iPod rows are transparent, so the list itself must paint black, not the theme's light card.
+    ui.shim_list_bg.restype = C.c_uint; assert ui.shim_list_bg() == 0xff000000
     # Bypass switches at once but keeps unapplied band edits out of the active preset.
     click('1 ON'); click('Raise gain'); click('Raise gain'); ui.shim_return()
     click('PEQ: ON')

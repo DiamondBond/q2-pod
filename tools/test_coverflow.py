@@ -22,6 +22,12 @@ extern void *shim_dir;
 #define pthread_mutex_unlock shim_unlock
 #define statfs shim_statfs
 #define tk_snprintf snprintf
+extern void *shim_queue;
+extern unsigned char shim_covertype;
+extern char shim_lastcover[1024];
+#define mcl_pdeqplaylist ((const unsigned char *)&shim_queue)
+#define g_lastcover_url ((const unsigned char *)shim_lastcover)
+#define g_playcover_type shim_covertype
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 int getAllAlbum(void);
 int getMusicByAlbum(const char *);
@@ -54,6 +60,8 @@ int widget_destroy_children(void *), widget_invalidate_force(void *, void *);
 unsigned widget_count_children(void *);
 void *widget_get_child(void *, unsigned);
 void *widget_lookup(void *, const char *, int);
+int widget_move_resize(void *, int, int, int, int), widget_get_visible(void *);
+const char *widget_get_type(void *);
 int tk_strcmp(const char *, const char *);
 unsigned timer_add(int (*)(const void *), void *, unsigned);
 int timer_remove(unsigned);
@@ -72,7 +80,7 @@ TEST = r"""
 int coverflow_home(void *, void *);
 
 /* Widgets: raw memory first, so the payload's field reads (SLIDE_INDEX) land in it. */
-typedef struct { char raw[0x100]; int parent, visible, kids[512], nkids; char type[32], text[160], image[600];
+typedef struct { char raw[0x100]; int parent, visible, kids[512], nkids, bg; char type[32], text[160], image[600];
                  handler click; void *ctx; } widget;
 static widget w[8192];
 static int nw;
@@ -94,12 +102,15 @@ CREATE(hscroll_label_create, "hscroll_label")
 CREATE(scroll_view_create, "scroll_view") CREATE(list_item_create, "list_item")
 int image_set_draw_type(void *x, int t) { (void)x; (void)t; return 0; }
 int image_base_set_image(void *x, const char *s) { snprintf(W(x)->image, 600, "%s", s); return 0; }
-/* A zero-length "no art" marker does not decode. */
+/* A zero-length "no art" marker does not decode. Every successful load is unloaded again. */
+static int loads, unloads;
 int widget_load_image(void *x, const char *url, void *b) {
     (void)x; (void)b; struct stat s;
-    return strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
+    int failed = strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
+    loads += !failed;
+    return failed;
 }
-int widget_unload_image(void *x, void *b) { (void)x; (void)b; return 0; }
+int widget_unload_image(void *x, void *b) { (void)x; (void)b; ++unloads; return 0; }
 void set_hscroll_label_attribute(void *x) { assert(!strcmp(W(x)->type, "hscroll_label")); }
 int slide_menu_set_value(void *x, int value) { *(int *)(W(x)->raw + SLIDE_INDEX) = value; return 0; }
 int widget_set_name(void *x, const char *s) { snprintf(W(x)->type, 32, "%s", s); return 0; }
@@ -107,7 +118,7 @@ int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
 int widget_set_text_utf8(void *x, const char *s) { snprintf(W(x)->text, 160, "%s", s); return 0; }
 int widget_set_visible(void *x, int v, int r) { (void)r; W(x)->visible = v; return 0; }
 int widget_get_prop_int(void *x, const char *k, int d) { (void)x; (void)k; return d; }
-int widget_set_prop_int(void *x, const char *k, int v) { (void)x; (void)k; (void)v; return 0; }
+int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:normal:bg_color")) W(x)->bg = v; return 0; }
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     if (!x) return 0;
@@ -121,7 +132,21 @@ int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
 int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
 unsigned widget_count_children(void *x) { return W(x)->nkids; }
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
-void *widget_lookup(void *x, const char *n, int r) { (void)r; return x && !strcmp(n, "img_coverflow") ? x : 0; }
+static void *home_art, *home_list; /* iPod Home's art and list; none in the carousel tests */
+void *widget_lookup(void *x, const char *n, int r) {
+    (void)r;
+    return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
+           !strcmp(n, "list_view_home") ? home_list : 0;
+}
+static int home_full;
+int ipod_home_full(void) { return home_full; }
+int widget_move_resize(void *x, int left, int top, int ww, int h) {
+    int *r = (int *)W(x)->raw; /* W_X, W_Y, W_W, W_H */
+    r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
+    return 0;
+}
+const char *widget_get_type(void *x) { return W(x)->type; }
+int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
 int navigator_to_with_context(const char *n, const void *c) { (void)n; (void)c; return 0; }
@@ -148,6 +173,8 @@ int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0
 static int (*timer_fn)(const void *), (*last_fn)(const void *);
 unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = last_fn = f; return 1; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; return 0; }
+void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; } /* ringnav.c's */
+void rearm(unsigned *t, int (*f)(const void *), unsigned ms) { stop_timer(t); *t = timer_add(f, 0, ms); }
 static void run(void) { while (timer_fn) { int (*f)(const void *) = timer_fn; timer_fn = 0; usleep(1000); f(0); } }
 
 /* libcstl: a deque of record pointers; the query stubs fill the staging deque. */
@@ -221,6 +248,9 @@ int shim_statfs(const char *p, void *out) {
     return 0;
 }
 
+void *shim_queue;
+unsigned char shim_covertype;
+char shim_lastcover[1024];
 static widget *page;
 static void *release(void *unused) { (void)unused; usleep(50000); blocked = 0; return 0; }
 static void open_page(void) {
@@ -275,6 +305,11 @@ int main(void) {
     /* An empty library, or one being scanned, shows the message and builds nothing. */
     open_page();
     assert(!strcmp(title(), "Update Local Music first") && !slide() && queries == 1);
+    /* Every list (message, progress, tracks) comes from list(): iPod rows are transparent, so its
+       list_view paints black itself rather than the theme's light card. */
+    int lists = 0;
+    for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "list_view")) { assert((unsigned)w[i].bg == 0xff000000u); ++lists; }
+    assert(lists == 1);
     key(KEY_RETURN); close_page();
     album("Cover", "cover.jpg");
     *(volatile int *)SCAN_THREAD = 1;
@@ -377,6 +412,70 @@ int main(void) {
     open_page();
     assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, "default_album_big"));
     close_page();
+    assert(loads == unloads);
+#if IPOD
+    /* iPod Home: the player's cover for its type, once the player has parsed the current track
+       (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
+       placeholder; reloaded only when the track or the usable cover changes, and only while Home
+       is the painted top window. */
+    extern void coverflow_home_art(void *);
+    assert(mmap((void *)(MCL_POS & ~4095), 4096, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
+    deque queue = {0};
+    shim_queue = &queue;
+    home_art = make(0, "image");
+    widget *win = make(0, "window");
+    const char *art = W(home_art)->image, *player = "file://" PEQ_ROOT "/tmp/coverpic.jpg";
+    mkdir(PEQ_ROOT "/tmp", 0755);
+    FILE *f = fopen(PEQ_ROOT "/tmp/coverpic.jpg", "w"); fputs("jpg", f); fclose(f);
+    coverflow_home(win, 0);
+    coverflow_home_art(page);
+    assert(!*art);
+    coverflow_home_art(win);
+    assert(!strcmp(art, "default_album_big"));
+    queue.n = 2; queue.at[0] = records[0]; queue.at[1] = records[3]; /* "Cover" is cached, "None" is not */
+    *(volatile int *)MCL_POS = 0;
+    shim_covertype = 1;
+    coverflow_home_art(win); /* the cover is still the previous track's */
+    assert(strstr(art, "/mnt/mmc/.coverflow/") && size("Cover") > 0);
+    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[0]);
+    coverflow_home_art(win);
+    assert(!strcmp(art, player));
+    before = loads;
+    coverflow_home_art(win);
+    assert(loads == before);
+    shim_covertype = 2; /* a folder image the player has not written: the cached thumbnail */
+    coverflow_home_art(win);
+    assert(strstr(art, "/mnt/mmc/.coverflow/"));
+    *(volatile int *)MCL_POS = 1; shim_covertype = 1; /* next track, the old cover still in place */
+    coverflow_home_art(win);
+    assert(!strcmp(art, "default_album_big"));
+    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
+    coverflow_home_art(win);
+    assert(!strcmp(art, player) && loads == unloads);
+    /* Home layout: Full widens the list to the screen and its rows and their tap targets to
+       HOME_FULL_ROW, never the labels, and hides the art; Split puts the asset's width back and
+       shows the art again. */
+    extern void coverflow_home_layout(void);
+    home_list = make(0, "list_view");
+    widget *sv = make(home_list, "scroll_view"), *row = make(sv, "view"), *label = make(row, "hscroll_label"),
+           *tap = make(row, "image"), *all[] = { home_list, sv, row, tap };
+    for (int i = 0; i < 4; ++i) *(int *)(all[i]->raw + W_W) = 205;
+    *(int *)(label->raw + W_W) = 149;
+    home_full = 1;
+    coverflow_home(win, 0);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
+    assert(*(int *)(label->raw + W_W) == 149 && !W(home_art)->visible);
+    before = loads;
+    coverflow_home_art(win); /* hidden: nothing loads */
+    assert(loads == before);
+    home_full = 0;
+    coverflow_home_layout();
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 205);
+    assert(*(int *)(label->raw + W_W) == 149 && W(home_art)->visible);
+    coverflow_home_art(win);
+    assert(loads == before + 1 && !strcmp(art, player));
+#endif
     return 0;
 }
 """
@@ -387,13 +486,15 @@ def main():
         tmp = pathlib.Path(directory)
         (tmp/'shim.h').write_text(SHIM_H)
         (tmp/'test.c').write_text(TEST)
-        binary = tmp/'coverflow_test'
-        subprocess.run(['cc', '-m32', '-pthread', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root"', '-D_GNU_SOURCE',
-                        '-O1', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function', '-I', str(ROOT/'patch'),
-                        '-include', str(tmp/'shim.h'), str(ROOT/'patch/coverflow.c'), str(tmp/'test.c'),
-                        '-o', str(binary)], check=True)
-        subprocess.run([str(binary)], check=True)
-    print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed.')
+        for ipod in (0, 1):  # a fresh card each run
+            binary = tmp/f'coverflow_test{ipod}'
+            subprocess.run(['cc', '-m32', '-pthread', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root{ipod}"', f'-DIPOD={ipod}',
+                            '-D_GNU_SOURCE', '-O1', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
+                            '-I', str(ROOT/'patch'), '-include', str(tmp/'shim.h'), str(ROOT/'patch/coverflow.c'),
+                            str(tmp/'test.c'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+    print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
+          ' iPod Home art sources and Split/Full layout passed.')
 
 
 if __name__ == '__main__':

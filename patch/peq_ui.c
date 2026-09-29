@@ -201,6 +201,9 @@ static int render(const void *unused) {
     widget_destroy_children(ui.page);
     void *list = list_view_create(ui.page, 0, 48, 375, rows);
     widget_set_prop_int(list, "item_height", 48);
+    /* The theme's default list_view is a light card; stock pages paint theirs black inline. */
+    widget_set_prop_int(list, "style:normal:bg_color", (int)0xff000000u);
+    widget_set_prop_int(list, "style:normal:border_color", 0);
     void *view = scroll_view_create(list, 0, 0, 375, rows);
     ui.view = view;
     widget_set_prop_int(view, "yslidable", 1);

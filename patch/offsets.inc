@@ -56,6 +56,9 @@
 #define CANVAS_LCD 0x38
 #define LCD_FILL_COLOR 0xbc
 #define LCD_STROKE_COLOR 0xc0
+#define LCD_TEXT_COLOR 0xb8     /* lcd_set_text_color @0x6474c4 */
+#define CANVAS_ALIGN_V 0x30     /* canvas_set_text_align @0x63419c; middle = 1 */
+#define CANVAS_ALIGN_H 0x34     /* center = 1 */
 /* Selection outline tuning. RADIUS > 2 or the stock rounded path squares off; tests read these.
  * The shade uses the same stock dark surface as the fill at an alpha that keeps the outline
  * above 3:1 on pure white art (0x99 is the floor); on dark rows it matches the stock background
@@ -68,6 +71,80 @@
 #define SHADE_ALPHA 0xb3
 #define OUTLINE_RGB 0xffffff
 #define OUTLINE_ALPHA 0xb3
+/* iPod accents, in the order of the Accent setting (IPOD/ACCENT in config.ini; 0 is the default):
+ * { selection gradient top, bottom, light tone, red tone }, 0xRRGGBB. White text holds 4.5:1 on
+ * every top. The light tone, the top lightened 12% toward white, is the bar's one-pixel highlight
+ * and the Now Playing progress fill (3:1 or more on BAR_BOTTOM). The red tone is what stock red
+ * #FF1448 becomes (switches, ticks, red text and buttons): Graphite's is silver, so a lit switch
+ * reads against the grey off state; the others reuse the light tone, 3:1 or more under white.
+ * Crimson keeps every stock color. */
+#define ACCENTS { 0x5a5a5a, 0x363636, 0x6e6e6e, 0xd8d8d8 }, /* Graphite */ \
+                { 0xe8123f, 0xa60025, 0xeb2f56, 0xff1448 }, /* Crimson */ \
+                { 0x13838d, 0x095158, 0x30929b, 0x30929b }, /* Tidal */ \
+                { 0x8c732c, 0x5d4a18, 0x9a8446, 0x9a8446 }  /* Champagne */
+#define CRIMSON 1
+/* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
+ * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
+ * OK disc becomes CONFIRM_SURFACE, Cancel's lighter tint a mid grey, and the near-white glyphs stay
+ * near white (14.2:1 and 5.6:1). The wheel's focus is the accent tile behind the disc, framed white. */
+#define CONFIRM_SURFACE 0x2b2b2b
+#define CONFIRM_IMAGE "confirm_"
+#define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
+#define STOCK_RED 0xff1448
+#define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
+/* iPod status bar: the same kind of gradient, darker than the selection so it reads as chrome. */
+#define BAR_TOP 0x3a3a3a
+#define BAR_BOTTOM 0x1c1c1c
+#define BAR_HI 0x4a4a4a
+/* iPod status bar title: centred, reaching the wider visible icon group (as the asset does with every
+ * icon shown) and never nearer the screen edge than TITLE_EDGE, where its 20px text clears the top
+ * corners (test_build.py). */
+#define TITLE_EDGE 57
+/* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
+ * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
+#define CHEVRON_W 58
+/* iPod Home in Full: the rows end here, so the chevron's glyph (x 20 to 31 of list_into) ends as far
+ * from the right edge as the labels start from the left (HOME_TEXT_X in tools/compact.py). */
+#define HOME_FULL_ROW 369
+/* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
+ * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
+ * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a
+ * 50px trailing image (chevron, tick or switch); items made SET_STOCK_ROW high are normalised to
+ * SET_ROW. The icon shrinks to SET_ICON at SET_ICON_X, the text starts SET_GAP after it (or at
+ * SET_TEXT_X without one) and trailing images end SET_EDGE from the right edge; test_build.py
+ * and test_patch.py check them against the rounded glass in the first and last visible rows. */
+#define SET_ROW 68
+#define SET_TOP 8
+#define SET_ROWS 4
+#define SET_ICON 40
+#define SET_ICON_X 28
+#define SET_GAP 12
+#define SET_TEXT_X 20
+#define SET_EDGE 24
+#define SET_STOCK_ROW 78
+#define SET_STOCK_BODY 70
+#define SET_STOCK_X 20
+#define SET_STOCK_W 335
+#define SET_STOCK_ICON 52
+#define SET_STOCK_TRAIL 276   /* the usual trailing image x in the stock button */
+#define SET_RIGHT_SIDE 150    /* stock children starting here keep to the right edge */
+#define LIST_ITEM_HEIGHT 0x78          /* list_view item_height (same slot as ROW_HEIGHT) */
+#define LIST_DEFAULT_ITEM_HEIGHT 0x7c  /* list_view default_item_height */
+#define LIST_VIEW_LAYOUT 0x5e9eb4      /* children_layouter_list_view's layout */
+#define LIST_VIEW_LAYOUT_SLOT 0x926930 /* its vtable slot (vtable 0x926928 + 8) */
+#define IMAGE_DRAW_SCALE_DOWN 5        /* "scale_down" in the stock draw type table @0x9272c0 */
+/* iPod fast-scroll letter: the selected row's first character in white, LETTER_PX high, on a
+ * LETTER_BOX square of the stock dark surface at LETTER_ALPHA, centred over the list. */
+#define LETTER_BOX 80
+#define LETTER_RADIUS 12
+#define LETTER_ALPHA 0xd9
+#define LETTER_PX 60
+#define LETTER_MS 400
+/* iPod Now Playing scrub: SCRUB_STEP seconds per detent times the list ramp, the seek SEEK_MS after
+ * the last detent, and the wheel back on volume after SCRUB_MS without input. */
+#define SCRUB_STEP 5
+#define SEEK_MS 150
+#define SCRUB_MS 3000
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */
@@ -133,3 +210,15 @@
 #define EVT_VALUE_CHANGED 0x0e
 #define SCAN_THREAD 0xa271d8
 #define SCAN_DONE 0xa271d4
+/* iPod Coverflow text: every label keeps CF_EDGE from the sides, where the lowest track
+ * row's text clears the bottom corners; album names and artists scroll within that. Under the
+ * cover, the album name is CF_NAME_PX white CF_GAP below the art and the artist CF_ARTIST_PX in
+ * CF_GREY (stock secondary text), CF_LINE_GAP under it. */
+#define CF_EDGE 36
+#define CF_GAP 12
+#define CF_NAME_PX 24
+#define CF_NAME_H 32
+#define CF_ARTIST_PX 20
+#define CF_ARTIST_H 28
+#define CF_LINE_GAP 0
+#define CF_GREY 0xffaaaaaa /* color_t #AAAAAA */

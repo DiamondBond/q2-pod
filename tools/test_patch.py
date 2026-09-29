@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE
 from unicorn.mips_const import *
-from build import segments, symbols, HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
+from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -16,8 +16,12 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
 variant = manifest.get('variant')
 expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
-assert (manifest.get('compact_code') != []) == (variant == 'compact')
+assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',(ROOT/'patch/offsets.inc').read_text(),re.M)}
+# iPod accent presets: {gradient top, bottom, light tone, red tone} per Accent setting value.
+ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',(ROOT/'patch/offsets.inc').read_text())]
+def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
+CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
 LCD_COLORS=(0x9abcdef0,0x12345678)
 syms=symbols(B/'stock-demo')
@@ -53,17 +57,17 @@ class Machine:
             self.u.mem_map(start,end-start)
             self.u.mem_write(v,data[o:o+f])
             # Payload text is execute-only; its top page holds the scratch cell.
-            if v==0xb00000: self.u.mem_protect(start,0xb0f000-start,5)
+            if v==BASE: self.u.mem_protect(start,SCRATCH-start,5)
         for v,w in FP64_FIX: self.u.mem_write(v,struct.pack('<I',w))
         self.u.mem_map(0x1000000,0x200000)
         self.u.mem_map(0x70000000,0x10000)
         self.next=0x1001000; self.nodes={}; self.calls=[]; self.animating=0; self.pressed=0
         self.top=0; self.wm=0x1000000; self.event=0x1000100
-        self.strokes=[]; self.rounded=[]; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
+        self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
-        self.allocs={}
+        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
         self.rebind=None; self.on_click=None; self.glide=True
-        self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]
+        self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
         self.slides={}; self.slide_fail=False; self.slide_on_fail=False; self.slide_callbacks={}
         self.canvas=0x1000200; self.lcd=0x1000300; self.now=1000
@@ -73,14 +77,14 @@ class Machine:
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done','slide_menu_scroll_to',
-                     'widget_animator_scroll_set_params','slide_menu_set_value'):
+                     'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
                   'widget_set_focused','widget_layout_children','event_init','value_set_int')
         if patched:
-            for name in ('paint','dispatch'):
+            for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
-        self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0',
+        self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click')
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
         self.handlers[syms['memset@GLIBC_2.0']]='memset'
@@ -135,6 +139,10 @@ class Machine:
     def wide_string(self,s):
         data=(s+'\0').encode('utf-32-le')
         a=self.alloc(len(data)); self.u.mem_write(a,data); return a
+    def wide_text(self,a):
+        out=''
+        while (c:=self.get(a)): out+=chr(c); a+=4
+        return out
     def text(self,a):
         if not a: return ''
         out=bytearray()
@@ -154,7 +162,19 @@ class Machine:
         self.word(a+O['W_PARENT'],parent); self.word(a+O['W_Y'],y); self.word(a+O['W_H'],48)
         return a
     def selected(self,w): return self.nodes[w].get('_ringnav_index',-1)
-    def paint(self,w,gap=1000): return self.call(address=HOOKS['widget_on_paint_border'][0],args=(w,self.canvas,0,0),gap=gap)
+    def paint(self,w,gap=1000):
+        """Stock order: background, then (children and) border; iPod hooks both."""
+        if variant=='ipod':
+            self.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,self.canvas,0,0),gap=gap); gap=0
+        return self.call(address=HOOKS['widget_on_paint_border'][0],args=(w,self.canvas,0,0),gap=gap,clear=variant!='ipod')
+    def drawn(self): return self.rounded or self.strokes or self.bands
+    def sel(self):
+        """The selected row's rectangle, from the outline (inset 1) or the bar's bands."""
+        if variant=='ipod':
+            ys=[b[1] for b in self.bands]
+            return (self.bands[0][0],min(ys),self.bands[0][2],max(ys)-min(ys)+1)
+        x,y,w,h=self.rounded[0]['rect'] if self.rounded else self.strokes[0][:4]
+        return (x-1,y-1,w+2,h+2)
     def touch(self): return self.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'])
     def click(self,w,gap=1000): return self.call(address=HOOKS['widget_dispatch'][0],args=(w,self.event,0,0),event_type=O['EVT_CLICK'],gap=gap)
     def hook(self,u,address,size,_):
@@ -189,6 +209,8 @@ class Machine:
                 a=self.get(a+O['W_PARENT'])
             self.word(b,x); self.word(b+4,y); ret=0
         elif name=='widget_set_text_utf8': n['text']=self.text(b); ret=0
+        elif name=='widget_set_text': n['text']=self.wide_text(b); ret=0
+        elif name=='widget_set_tr_text': n['tr_text']=n['text']=self.text(b); ret=0
         elif name=='widget_use_style': n['style']=self.text(b); ret=0
         elif name.startswith('hscroll_label_set_') or name=='set_hscroll_label_attribute':
             n[name]=b if name!='set_hscroll_label_attribute' else True; ret=0
@@ -200,6 +222,9 @@ class Machine:
             params=[self.text(value) if kind=='s' else value if kind=='x' else signed(value)
                     for kind,value in zip(re.findall(r'%\d*([sdx])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
+        elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
+            fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
+            result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
         elif name=='widget_set_children_layout':
             n['children_layout']=self.text(b)
             layout=self.alloc(32)
@@ -218,7 +243,17 @@ class Machine:
             values=self.alloc(4*len(children)+4)
             for i,child in enumerate(children): self.word(values+4*i,child)
             self.word(b,len(children)); self.word(b+8,values); ret=0
-        elif name=='widget_move_resize_ex':
+        elif name=='toolsReadConfig':
+            key=self.text(c); self.config_reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
+            value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
+            self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
+        elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
+        elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=int(t[0]) if t else 0
+        elif name=='strstr@GLIBC_2.0': i=self.text(a).find(self.text(b)); ret=a+i if i>=0 else 0
+        elif name=='bitmap_get_line_length': ret=self.get(a+8)
+        elif name=='bitmap_lock_buffer_for_write': ret=self.get(a+0x14)  # a test bitmap keeps its pixels' address there
+        elif name=='image_manager': ret=0x1000500
+        elif name in ('widget_move_resize_ex','widget_move_resize'):
             for off,value in zip(('W_X','W_Y','W_W','W_H'),(b,c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))):
                 self.word(a+O[off],value)
             ret=0
@@ -265,6 +300,7 @@ class Machine:
                 self.timers[ret]=(self.now+c,a,b,c)
         elif name=='timer_remove': self.timers.pop(a,None); ret=0
         elif name=='screen_action': self.screens.append(a); ret=1
+        elif name=='player_start': self.started.append((a,b,c,d)); ret=1
         elif name in ('tk_strcmp','strcmp@GLIBC_2.0'): ret=0 if a and b and self.text(a)==self.text(b) else -1
         elif name=='stock_dispatch':
             if self.get(b)==O['EVT_CLICK']:
@@ -330,6 +366,17 @@ class Machine:
             else:
                 self.word(self.lcd+(O['LCD_FILL_COLOR'] if kind=='fill' else O['LCD_STROKE_COLOR']),self.get(d))
                 ret=0
+        elif name=='widget_load_image': self.word(c,50); self.word(c+4,50); ret=0  # list_into is 50x50
+        elif name=='canvas_draw_icon': self.icons.append((signed(c),signed(d),self.clip)); ret=0
+        elif name=='canvas_set_font': self.font=(self.text(b) if b else 'default',c); ret=0
+        elif name=='canvas_set_text_color': self.word(self.lcd+O['LCD_TEXT_COLOR'],b); ret=0
+        elif name=='canvas_draw_text_in_rect':
+            self.letters.append(dict(text=''.join(chr(self.get(b+4*j)) for j in range(c)),
+                rect=tuple(signed(self.get(d+4*j)) for j in range(4)),color=self.get(self.lcd+O['LCD_TEXT_COLOR']),font=self.font,
+                align=(self.get(a+O['CANVAS_ALIGN_H']),self.get(a+O['CANVAS_ALIGN_V'])),clip=self.clip)); ret=0
+        elif name=='canvas_fill_rect':
+            self.bands.append((signed(b),signed(c),signed(d),signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),
+                               self.get(self.lcd+O['LCD_FILL_COLOR']),self.clip)); ret=0
         elif name in ('canvas_stroke_rect','lcd_stroke_rect'):
             h=self.get(u.reg_read(UC_MIPS_REG_SP)+16)
             clip=self.clip if name=='canvas_stroke_rect' else (self.get(self.canvas+0x10),self.get(self.canvas+0x14),self.get(self.canvas+0x18)-self.get(self.canvas+0x10)+1,self.get(self.canvas+0x1c)-self.get(self.canvas+0x14)+1)
@@ -365,7 +412,7 @@ class Machine:
         # Independent input steps occur after the stock key debounce timer expires.
         if gap: self.advance(gap,clear=False)
         if not debounce: self.byte(0xa37c89,0)  # stock key filter latch
-        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.vg_calls=[]
+        if clear: self.calls=[]; self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.vg_calls=[]
         self.word(self.event+O['EVENT_KEY'],key)
         self.word(self.event+O['EVENT_TYPE'],event_type)
         self.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
@@ -538,23 +585,97 @@ assert m.get(w+O['SCROLL_Y'])==148 and m.get(w+O['VIEW_ANIMATOR'])==0; passed()
 # Painting establishes selection without a sacrificial button press or native focus.
 m=Machine(); w,entries=m.page_list(5,extent=1000)
 assert m.paint(w)==0 and m.selected(w)==0
-# Default outline: translucent fill, one dark shade stroke, one white stroke, all clipped.
-assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
-fill,shade,white=m.rounded
-assert fill['rect']==(1,1,238,46) and fill['bg']==0 and fill['clip']==(0,0,240,96)
-assert fill['color']==FILL and fill['radius']==O['RADIUS'] and fill['width'] is None
-assert shade['rect']==(1,1,238,46) and shade['bg']==0
-assert shade['color']==SHADE
-assert shade['radius']==O['RADIUS'] and shade['width']==1 and shade['clip']==(0,0,240,96)
-assert white['rect']==(2,2,236,44) and white['bg']==0 and white['color']==OUTLINE
-assert white['radius']==O['RADIUS']-1 and white['width']==1
-assert not m.strokes and m.global_alpha==0
-assert m.clip==(0,0,240,240)
-assert m.lcd_colors()==LCD_COLORS
-assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries)
-assert [c[0] for c in m.calls if c[0].startswith('canvas_')][-6:]==[
-    'canvas_fill_rounded_rect','canvas_stroke_rounded_rect','canvas_stroke_rounded_rect',
-    'canvas_set_fill_color','canvas_set_stroke_color','canvas_set_clip_rect']; passed()
+if variant=='normal':
+    # Default outline: translucent fill, one dark shade stroke, one white stroke, all clipped.
+    assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
+    fill,shade,white=m.rounded
+    assert fill['rect']==(1,1,238,46) and fill['bg']==0 and fill['clip']==(0,0,240,96)
+    assert fill['color']==FILL and fill['radius']==O['RADIUS'] and fill['width'] is None
+    assert shade['rect']==(1,1,238,46) and shade['bg']==0
+    assert shade['color']==SHADE
+    assert shade['radius']==O['RADIUS'] and shade['width']==1 and shade['clip']==(0,0,240,96)
+    assert white['rect']==(2,2,236,44) and white['bg']==0 and white['color']==OUTLINE
+    assert white['radius']==O['RADIUS']-1 and white['width']==1
+    assert not m.strokes and m.global_alpha==0
+    assert m.clip==(0,0,240,240)
+    assert m.lcd_colors()==LCD_COLORS
+    assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries)
+    assert [c[0] for c in m.calls if c[0].startswith('canvas_')][-6:]==[
+        'canvas_fill_rounded_rect','canvas_stroke_rounded_rect','canvas_stroke_rounded_rect',
+        'canvas_set_fill_color','canvas_set_stroke_color','canvas_set_clip_rect']; passed()
+else:
+    # The bar is painted behind the rows: every band precedes the border hook, which draws nothing.
+    names=[c[0] for c in m.calls]
+    bg,border=names.index('stock_paint_bg'),names.index('stock_paint')
+    assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rect')
+    assert not m.rounded and not m.strokes and m.global_alpha==0
+    # Full surface width, one band per row pixel from Graphite top to bottom, then the highlight.
+    assert [b[:4] for b in m.bands]==[(0,y,240,1) for y in range(48)]+[(0,0,240,1)]
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[0][:3]]
+    assert all(b[5]==(0,0,240,96) for b in m.bands)
+    assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
+    assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
+    # A grid tile (under half the surface width) gets the bar in its own rect.
+    g=Machine(); gw=g.page(); tiles=[g.entry(gw,0) for _ in range(3)]; g.nodes[gw]['children']=tiles
+    for i,t in enumerate(tiles): g.word(t+O['W_X'],80*i); g.word(t+O['W_W'],80)
+    g.paint(gw); g.call(); g.paint(gw)
+    assert g.selected(gw)==1 and g.sel()==(80,0,80,48); passed()
+    # Touch mode draws nothing; the wheel brings the bar back.
+    c=Machine(); cw,_=c.page_list(5,extent=1000); c.paint(cw)
+    c.touch(); c.paint(cw); assert not c.drawn() and c.clip==(0,0,240,240)
+    c.call(); c.paint(cw); assert c.selected(cw)==1 and c.sel()==(0,36,240,48); passed()
+    # Status bar: the darker gradient on the bar widget alone, LCD fill restored.
+    s=Machine(); title=s.node('hscroll_label','label_title')
+    def top_level(t,name,children=()):
+        w=s.node(t,name,children); s.word(w+O['W_PARENT'],s.wm); return w
+    bar=top_level('system_bar','system_bar',[title]); s.word(bar+O['W_W'],375); s.word(bar+O['W_H'],30)
+    s.word(syms['system_bar'],bar)
+    def bg(w): return s.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,s.canvas,0,0))
+    assert bg(bar)==0 and [b[:4] for b in s.bands]==[(0,y,375,1) for y in range(30)]+[(0,0,375,1)]
+    assert [s.bands[i][4] for i in (0,29,30)]==[color_t(O[k]) for k in ('BAR_TOP','BAR_BOTTOM','BAR_HI')]
+    assert s.lcd_colors()==LCD_COLORS; passed()
+    # The top window's hidden navbar title goes to the bar; later paints only rehash it.
+    heading=s.node('hscroll_label',text='System Setting')
+    nav=s.node('view','view_navbar',[s.node('image','img_return'),heading],visible=0)
+    page=top_level('window','sysset_page',[nav]); s.top=page
+    bg(page); assert s.nodes[title]['text']=='System Setting' and not s.bands; passed()
+    bg(page); assert not [c for c in s.calls if c[0]=='widget_set_text']; passed()
+    s.nodes[heading]['text']='Folder'; bg(page); assert s.nodes[title]['text']=='Folder'; passed()
+    # The bar's own repaint (stock refreshes it each second) catches a rename too.
+    s.nodes[heading]['text']='Music'; bg(bar); assert s.nodes[title]['text']=='Music'; passed()
+    # A dialog on top, or a window under it, leaves the title alone.
+    dialog=top_level('dialog','sortselect_dialog'); s.top=dialog
+    for x in (dialog,page): bg(x); assert not [c for c in s.calls if c[0]=='widget_set_text']
+    passed()
+    # A visible navbar keeps its own title, so the bar shows none; Home and Now Playing are fixed.
+    s.top=top_level('window','tidal_main_page',[s.node('view','view_navbar',[s.node('hscroll_label',text='TIDAL')])])
+    bg(s.top); assert s.nodes[title]['text']==''; passed()
+    for name,key in (('home_page','Q2'),('playing_page','small_playing'),('coverflow_page','Coverflow')):
+        s.top=top_level('window',name); bg(s.top); assert s.nodes[title]['tr_text']==key; passed()
+    # The title spans the bar between the icons that show (the iPod system_bar.bin groups: 52px
+    # margins, 5px spacing), centred, and never nearer the edge than TITLE_EDGE.
+    def group(name,x,w,icons):
+        v=s.node('view',name,[s.node('image',n) for n,_ in icons]); s.word(v+O['W_X'],x); s.word(v+O['W_W'],w)
+        for c,(_,iw) in zip(s.nodes[v]['children'],icons): s.word(c+O['W_W'],iw)
+        lay=s.alloc(32); s.byte(lay+O['DEFAULT_LAYOUT_X_MARGIN'],52); s.byte(lay+O['DEFAULT_LAYOUT_SPACING'],5)
+        s.word(v+O['W_CHILDREN_LAYOUT'],lay); return v
+    left=group('view_left',0,145,[('img_state',15),('label_eq',20)])
+    right=group('view_right',175,200,[('img_bt',43),('img_wifi',16),('img_battery',10)])
+    s.nodes[bar]['children']=[left,right,title]
+    icons={s.nodes[c]['name']:c for v in (left,right) for c in s.nodes[v]['children']}
+    # Every combination of shown icons: the photographed pause and battery alone give 241px.
+    width={'img_state':15,'label_eq':20,'img_bt':43,'img_wifi':16,'img_battery':10}
+    def extent(names): return 52+sum(width[n] for n in names)+5*(len(names)-1) if names else 0
+    for mask in range(32):
+        shown={n for i,n in enumerate(width) if mask>>i&1}
+        for n,c in icons.items(): s.nodes[c]['visible']=int(n in shown)
+        edge=max(O['TITLE_EDGE'],extent([n for n in ('img_state','label_eq') if n in shown]),
+                 extent([n for n in ('img_bt','img_wifi','img_battery') if n in shown]))
+        bg(bar); assert (s.get(title+O['W_X']),s.get(title+O['W_W']))==(edge,375-2*edge),(shown,edge)
+        s.calls=[]; bg(bar); assert not [c for c in s.calls if c[0]=='widget_move_resize']  # only on a change
+    shown={'img_state','img_battery'}
+    for n,c in icons.items(): s.nodes[c]['visible']=int(n in shown)
+    bg(bar); assert s.get(title+O['W_W'])==241; passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60
@@ -594,7 +715,7 @@ m.on_click=destroy
 assert m.confirm()==11 and len(m.dispatched())==1; passed()
 
 # Execute native row-pool constructors, including the untouched album grid branch.
-# The 52px artwork keeps the stock nine-pixel inset in normal; compact keeps that same 52px
+# The 52px artwork keeps the stock nine-pixel inset in normal; iPod keeps that same 52px
 # artwork at natural size (no rescaling) and gives it an even eight-pixel inset on all four
 # sides of the 68px row body. The playing overlay follows.
 ARTWORK = {
@@ -622,7 +743,7 @@ def native_row_layout(m, button):
             m.word(array,len(children)); m.word(array+8,values); m.word(node+0x5c,array)
     assert m.call(address=syms['widget_layout_children'],args=(button,0,0,0))==0
 
-def check_title_bounds(m, button):
+def check_title_bounds(m, button, drill=False):
     children=m.nodes[button]['children']
     text=next(c for c in children if m.nodes[c]['type']=='hscroll_label' or any(
         m.nodes[t]['type']=='hscroll_label' for t in m.nodes[c]['children']))
@@ -630,7 +751,7 @@ def check_title_bounds(m, button):
     layout=m.get(button+O['W_CHILDREN_LAYOUT'])
     vtable=m.get(layout+O['CHILDREN_LAYOUT_VTABLE'])
     stock_vtable=O['DEFAULT_LAYOUT_VTABLE']
-    assert (vtable!=stock_vtable)==(variant=='compact')
+    assert (vtable!=stock_vtable)==(variant=='ipod')
     # Clone, destroy, parameter and serialization functions remain native.
     for i in (0,1,3,4,5,6,7): assert m.get(vtable+4*i)==m.get(stock_vtable+4*i)
     margin=m.u.mem_read(layout+O['DEFAULT_LAYOUT_X_MARGIN'],1)[0]
@@ -653,9 +774,11 @@ def check_title_bounds(m, button):
                     before=children[:children.index(text)]
                     after=children[children.index(text)+1:]
                     left=margin+sum(widths[c]+gap for c in before if m.nodes[c]['visible'])
-                    right=m.get(button+O['W_W'])-margin-sum(widths[c]+gap for c in after if m.nodes[c]['visible'])
+                    # A drill row lays out as if a stock img_into (CHEVRON_W with the margin) came last.
+                    edge=O['CHEVRON_W']+gap if drill and variant=='ipod' else margin
+                    right=m.get(button+O['W_W'])-edge-sum(widths[c]+gap for c in after if m.nodes[c]['visible'])
                     assert m.get(text+O['W_X'])==left
-                    if variant=='compact':
+                    if variant=='ipod':
                         assert left+m.get(text+O['W_W'])==right
                         if title!=text:
                             assert m.get(title+O['W_X'])+m.get(title+O['W_W'])==m.get(text+O['W_W'])
@@ -664,7 +787,7 @@ def check_title_bounds(m, button):
                             if m.nodes[c]['visible']:
                                 assert m.get(c+O['W_X'])==cursor
                                 cursor+=widths[c]+gap
-                        assert cursor-gap==m.get(button+O['W_W'])-margin
+                        assert cursor-gap==m.get(button+O['W_W'])-edge
                     else:
                         assert m.get(text+O['W_W'])==widths[text] and m.get(title+O['W_W'])==title_width
                     assert (m.get(title+O['W_Y']),m.get(title+O['W_H']))==title_yh
@@ -685,22 +808,26 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
         rows = m.nodes[w]['children']
         assert len(rows) == 4
         for row in rows:
-            assert m.get(row+O['W_H']) == (210 if grid else 72 if variant == 'compact' else 78)
+            assert m.get(row+O['W_H']) == (210 if grid else 72 if variant == 'ipod' else 78)
             for button in m.nodes[row]['children']:
-                assert m.get(button+O['W_H']) == (160 if grid else 68 if variant == 'compact' else 70)
+                assert m.get(button+O['W_H']) == (160 if grid else 68 if variant == 'ipod' else 70)
         if not grid:
             for name, stock, compact_geometry in ARTWORK[address]:
                 arts = [n for n, v in m.nodes.items() if v.get('name') == name]
                 assert arts, name
                 for art in arts:
                     geometry = tuple(signed(m.get(art+O[off])) for off in ('W_X', 'W_Y', 'W_W', 'W_H'))
-                    assert geometry == (compact_geometry if variant == 'compact' else stock), (name, geometry)
+                    assert geometry == (compact_geometry if variant == 'ipod' else stock), (name, geometry)
         # Preparing an existing pool does not recreate or resize its rows.
         before = len(m.nodes)
         assert m.call(address=address, args=(w, w, 4, 0)) == 0 and len(m.nodes) == before
         if not grid:
             for row in rows[:2]:  # independently recreated rows as well as repeated reuse
                 check_title_bounds(m,m.nodes[row]['children'][0])
+            into=[n for n,v in m.nodes.items() if v.get('name')=='img_into']
+            if into and variant=='ipod':  # the payload's chevron column is stock's, after layout
+                button=m.nodes[rows[0]]['children'][0]
+                assert m.get(into[0]+O['W_X'])==m.get(button+O['W_W'])-O['CHEVRON_W'] and m.get(into[0]+O['W_W'])==50
             if address==0x523038:
                 # Execute the real folder text/style rebind after layout: its stock 140/190px
                 # reset must no longer undo the computed width while a row pool is recycled.
@@ -715,16 +842,18 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
                     m.word(m.row_record+8,m.string(label))
                     assert m.call(address=0x522304,args=(button,7,0,0))==0
                     assert m.nodes[title]['text']==label
-                    assert m.get(title+O['W_W'])==(width if variant=='compact' else 140 if navbar else 190)
+                    assert m.get(title+O['W_W'])==(width if variant=='ipod' else 140 if navbar else 190)
         else:
             assert all(m.get(n+O['W_CHILDREN_LAYOUT'])==0 for row in rows for n in m.nodes[row]['children'])
 passed()
 
 # The three non-pooled constructors: album tracks, artist tracks and playlists.
-# These use distinct title/container names and must receive the same native layout behavior.
-for address in (0x4a62c0,0x4adcbc,0x4b2864):
+# These use distinct title/container names and must receive the same native layout behavior;
+# only a drill window (playlist_page) reserves the chevron's space.
+for address,page in ((0x4a62c0,'artistinfo_page'),(0x4adcbc,'artistinfo_page'),(0x4b2864,'artistinfo_page'),(0x4b2864,'playlist_page')):
     for reopen in range(2):
-        m=Machine(); w=m.page('artistinfo_page','scroll_view')
+        m=Machine(); w=m.page(page,'scroll_view')
+        m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
         m.nodes[w]['name']='scroll_view_track'
         m.row_record=m.alloc(0x80)
         for off in (8,12,16,24): m.word(m.row_record+off,m.string('日本語 Title'))
@@ -741,7 +870,7 @@ for address in (0x4a62c0,0x4adcbc,0x4b2864):
         assert m.call(address=address,args=(w,0,0,0))==0
         buttons=[n for n,v in m.nodes.items() if v['type']=='button']
         assert len(buttons)==1
-        check_title_bounds(m,buttons[0])
+        check_title_bounds(m,buttons[0],drill=page=='playlist_page')
 passed()
 
 # Long Return executes the stock gates and release filter in both variants.
@@ -763,8 +892,8 @@ for page in ('home_page', 'folder_page', 'playing_page', 'sysset_page'):
     assert long_return(m) == 0
     dest = destinations(m)
     assert len(dest) == 1
-    assert dest[0][0] == ('navigator_switch_to_with_context' if variant == 'compact' and page != 'playing_page' else 'navigator_back_to_home')
-    if variant == 'compact' and page != 'playing_page':
+    assert dest[0][0] == ('navigator_switch_to_with_context' if variant == 'ipod' and page != 'playing_page' else 'navigator_back_to_home')
+    if variant == 'ipod' and page != 'playing_page':
         assert m.text(dest[0][1]) == 'playing_page'
         assert [m.get(dest[0][2] + 4*i) for i in range(4)] == [0, 0, 255, 2]
     # Here the navigator is only recorded, so the switch never lands and the latch is left
@@ -778,13 +907,13 @@ for page in ('home_page', 'folder_page', 'playing_page', 'sysset_page'):
     assert m.call(170, gap=0) == held
 passed()
 
-# The stock long-key gates stay effective. Compact adds the shared navigation restrictions.
+# The stock long-key gates stay effective. iPod adds the shared navigation restrictions.
 for flag, value in GATES:
     m = long_machine(); m.page('folder_page'); m.byte(syms[flag], value)
     long_return(m)
-    # Stock itself blocks power-off, guide and test mode; compact adds the shared restrictions
+    # Stock itself blocks power-off, guide and test mode; iPod adds the shared restrictions
     # checked by usable(), so every listed flag blocks there. Stock ignores the rest on Return.
-    blocked = True if variant == 'compact' else flag in ('g_poweroff_state', 'g_guideflag', 'g_testmode_flag')
+    blocked = True if variant == 'ipod' else flag in ('g_poweroff_state', 'g_guideflag', 'g_testmode_flag')
     assert bool(destinations(m)) == (not blocked), flag
 for light in (0, 1):
     for lock in (0, 1):
@@ -794,10 +923,10 @@ for light in (0, 1):
             m.byte(syms['g_keylock_flag'], lock); m.byte(syms['g_keylock_mode'], mode)
             long_return(m)
             blocked = not light and lock and mode in (2, 3)
-            if variant == 'compact': blocked = not light
+            if variant == 'ipod': blocked = not light
             assert bool(destinations(m)) == (not blocked)
 passed()
-if variant == 'compact':
+if variant == 'ipod':
     m = long_machine(); m.page_list()
     assert m.call(O['KEY_CENTER']) == 11 and m.timers
     long_return(m)
@@ -858,7 +987,7 @@ def walk(n,steps,texts=(),extent=1000,**kw):
 m,w,es=walk(10,5); assert m.get(w+O['SCROLL_Y'])==204
 w2,es2=m.page_list(10,extent=1000)
 assert m.paint(w2)==0 and m.selected(w2)==5 and m.get(w2+O['SCROLL_Y'])==204
-assert m.rounded[0]['rect']==(1,37,238,46) and m.rounded[0]['kind']=='fill'
+assert m.sel()==(0,36,240,48)
 assert m.confirm()==11 and m.dispatched()[0][1]==es2[5]; passed()
 
 # Memory is per audited context: visiting another page leaves it alone.
@@ -979,7 +1108,7 @@ for occupancy in (1,64):
         m.folder(f'/sd/{i:02}',w); m.call()
     instructions=[0]
     def count_payload(*args): instructions[0]+=1
-    hook=m.u.hook_add(UC_HOOK_CODE,count_payload,begin=0xb00000,end=0xb0efff)
+    hook=m.u.hook_add(UC_HOOK_CODE,count_payload,begin=BASE,end=SCRATCH-1)
     m.paint(w); paint_cost=instructions[0]; instructions[0]=0
     m.call(); costs.append((paint_cost,instructions[0]))
     m.u.hook_del(hook)
@@ -1054,6 +1183,31 @@ for name in ('searchbox_dialog','tidal_searchbox_dialog'):
     m=Machine(); m.top=m.node('window',name,[m.node('view')])
     assert m.call()==0 and not m.moved(); passed()
 
+# iPod: a confirm dialog's buttons are its rows (contexts.inc BUTTONS). The wheel moves between the
+# side-by-side buttons without scrolling anything, the bar is the button's own tile, the ends are
+# hard and Centre clicks the selected button. Normal leaves the dialog stock: the wheel is volume.
+m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm)
+m.word(d+O['W_W'],375); m.word(d+O['W_H'],320); m.clip=(0,0,375,320); m.top=d
+buttons=[m.entry(d,220) for _ in range(2)]; m.nodes[d]['children']=buttons
+pair=(53,242) if variant=='ipod' else (56,240)  # iPod's confirminfo_dialog.bin centres each in its half
+for b,x in zip(buttons,pair): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
+if variant=='ipod':
+    m.paint(d); assert m.selected(d)==0 and m.sel()==(53,220,80,80)
+    # The focused tile is framed in constant white (no accent lookup), over the bar; stroke color restored.
+    assert [s[:4] for s in m.strokes]==[(53,220,80,80),(54,221,78,78)] and {s[5] for s in m.strokes}=={0xffffffff}
+    assert m.lcd_colors()==LCD_COLORS
+    assert m.call()==11 and m.selected(d)==1 and not m.moved()
+    m.paint(d); assert m.sel()==(242,220,80,80) and m.clip==(0,0,375,320)
+    assert [s[:4] for s in m.strokes]==[(242,220,80,80),(243,221,78,78)]
+    assert m.call()==11 and m.selected(d)==1 and not m.moved()
+    assert m.call(O['KEY_PREV'])==11 and m.selected(d)==0
+    assert m.confirm()==11 and m.dispatched()[0][1]==buttons[0]; passed()
+    # A wide button (autoshutdown's Cancel) gets the full-width bar.
+    m.nodes[d]['name']='autoshutdown_dialog'; m.nodes[d]['children']=[buttons[0]]; m.word(buttons[0]+O['W_W'],287)
+    m.paint(d); assert m.sel()==(0,220,375,80) and not m.strokes; passed()
+else:
+    assert m.call()==0 and m.call(O['KEY_CENTER'])==0 and not m.moved(); passed()
+
 # An interrupted recall glide keeps the remembered row instead of adopting a visible one.
 m,w,es=walk(10,5); w2,es2=m.page_list(10,extent=1000); m.glide=False
 assert m.touch()==0
@@ -1114,7 +1268,7 @@ m.confirm(); assert m.dispatched()[0][1]==es2[1]; passed()
 # Home keeps its native carousel presentation and value (including touch changes).
 m=Machine(); w=m.page('home_page','slide_menu'); m.word(w+O['SLIDE_INDEX'],1)
 child=[m.entry(w),m.entry(w)]; m.nodes[w]['children']=child
-assert m.paint(w)==0 and not m.strokes and not m.rounded
+assert m.paint(w)==0 and not m.drawn()
 assert any(c[0]=='stock_paint' for c in m.calls)
 assert m.confirm()==11 and m.dispatched()[0][1]==child[1]
 m.word(w+O['SLIDE_INDEX'],0)
@@ -1453,22 +1607,28 @@ assert m.call(O['KEY_NEXT'])==11 and m.selected(w)==1
 m.click(deep); assert m.selected(w)==0
 m.click(m.node('button')); assert m.selected(w)==0; passed()
 # Real canvas ABI, translation and clip code execute; only the LCD rectangle sink is mocked.
-# A 20px row keeps the square fallback (radius 9 needs more height), so the stock square code
-# runs with the real clip intersection and color restore.
+# A 20px row at canvas origin (7,20) under a (10,30)-(229,199) clip.
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w,0); m.word(e+O['W_H'],20); m.nodes[w]['children']=[e]
-for name in ('canvas_get_clip_rect','canvas_set_clip_rect','canvas_set_stroke_color','canvas_stroke_rect'):
+sink='lcd_stroke_rect' if variant=='normal' else 'lcd_fill_rect'
+for name in ('canvas_get_clip_rect','canvas_set_clip_rect',
+             *(('canvas_set_stroke_color','canvas_stroke_rect') if variant=='normal' else ('canvas_fill_rect',))):
     del m.handlers[syms[name]]
-m.mock('lcd_stroke_rect')
+m.mock(sink)
 m.word(m.lcd+0x3c,1); m.word(m.lcd+0xb0,240); m.word(m.lcd+0xb4,240)
 m.word(m.canvas+O['CANVAS_X'],7); m.word(m.canvas+O['CANVAS_Y'],20)
 for off,val in [(0x10,10),(0x14,30),(0x18,229),(0x1c,199)]: m.word(m.canvas+off,val)
 m.paint(w)
-assert not m.rounded and [s[:4] for s in m.strokes]==[(8,21,238,18),(9,22,236,16)]
-assert m.strokes[0][4:]==((10,30,220,86),SHADE)
-assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
+if variant=='normal':
+    # The square fallback (radius 9 needs more height) runs the stock square code.
+    assert not m.rounded and [s[:4] for s in m.strokes]==[(8,21,238,18),(9,22,236,16)]
+    assert m.strokes[0][4:]==((10,30,220,86),SHADE)
+    assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
+else:
+    # The bands reach the LCD only for the row pixels inside the clip.
+    assert [(c[2],c[3]) for c in m.calls if c[0]==sink]==[(10,y) for y in range(30,40)]
 assert [m.get(m.canvas+off) for off in (0x10,0x14,0x18,0x1c)]==[10,30,229,199]
-assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
+assert m.lcd_colors()==LCD_COLORS; passed()
 # Wheel selection is immediate even when restoration animations would still be running.
 m=Machine(); w,es=m.page_list(6)
 m.paint(w); m.glide=False
@@ -1486,8 +1646,8 @@ assert m.touch()==0 and not m.dispatched(); passed()
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w); m.word(e+O['W_H'],140); m.nodes[w]['children']=[e]
 m.paint(w)
-assert m.selected(w)==0 and [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
-assert m.rounded[0]['rect']==(1,1,238,138) and all(r['clip']==(0,0,240,96) for r in m.rounded); passed()
+assert m.selected(w)==0 and m.sel()==(0,0,240,140)
+assert {r['clip'] for r in m.rounded}|{b[5] for b in m.bands}=={(0,0,240,96)}; passed()
 # Both list kinds leave breathing room, shrink it in tight viewports, and clamp at either end.
 for virtual in (False,True):
     for height,margin in ((96,12),(60,6),(49,0),(48,0),(40,0)):
@@ -1520,7 +1680,7 @@ m.paint(w); assert m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==48; passed()
 
 # Small rows keep the square shade-plus-white outline; the rounded path starts only when both
 # outer dimensions exceed 2*RADIUS. Tiny rows are skipped outright, never with negative sizes.
-for ww,hh in [(240,20),(20,48),(6,6),(21,21)]:
+for ww,hh in [(240,20),(20,48),(6,6),(21,21)] if variant=='normal' else ():
     m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
     e=m.entry(w,0); m.word(e+O['W_W'],ww); m.word(e+O['W_H'],hh); m.nodes[w]['children']=[e]
     assert m.paint(w)==0
@@ -1533,11 +1693,11 @@ for ww,hh in [(240,20),(20,48),(6,6),(21,21)]:
     assert m.get(m.lcd+O['LCD_STROKE_COLOR'])==0x12345678; passed()
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w,0); m.word(e+O['W_W'],4); m.word(e+O['W_H'],4); m.nodes[w]['children']=[e]
-assert m.paint(w)==0 and not m.rounded and not m.strokes and m.clip==(0,0,240,240); passed()
+assert m.paint(w)==0 and not m.drawn() and m.clip==(0,0,240,240); passed()
 # A page with no entries paints nothing and leaves every saved property alone.
 m=Machine(); w=m.page()
 assert m.paint(w)==0 and m.selected(w)==-1
-assert not m.rounded and not m.strokes and m.global_alpha==0 and m.clip==(0,0,240,240)
+assert not m.drawn() and m.global_alpha==0 and m.clip==(0,0,240,240)
 assert m.lcd_colors()==LCD_COLORS; passed()
 
 # Every saved value is unusual: the rounded path restores fill, stroke and clip exactly and
@@ -1557,8 +1717,8 @@ for seeded in ((),(0,),(0,1)):
     for i in seeded: m.nodes[(a,b)[i]]['_ringnav_index']=0
     m.touch(); m.click(nested)
     assert m.selected(a)==-1 and m.selected(b)==1
-    m.paint(a); assert not m.rounded and not m.strokes
-    m.paint(b); assert not m.rounded and not m.strokes
+    m.paint(a); assert not m.drawn()
+    m.paint(b); assert not m.drawn()
     m.confirm(); assert m.dispatched()[0][1]==be[1]
     m.call(); assert m.selected(b)==2
     m.touch(); m.click(ae[0]); m.confirm()
@@ -1567,17 +1727,18 @@ for seeded in ((),(0,),(0,1)):
 
 # An inactive pane is never painted, so the outline cannot appear on two panes at once.
 m=Machine(); a,b,_,_=m.panes(96); m.nodes[a]['_ringnav_index']=0
-m.paint(b); assert not m.rounded and not m.strokes
-m.paint(a); assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']; passed()
+m.paint(b); assert not m.drawn()
+m.paint(a); assert m.sel()==(0,0,240,48); passed()
 
 # A canvas backend that declines the rounded stroke keeps the outline via the square fallback.
-m=Machine(); w,es=m.page_list(3,extent=1000); m.rounded_fail=True
-m.paint(w)
-assert [r['kind'] for r in m.rounded]==['fill','stroke'] and [s[:4] for s in m.strokes]==[(1,1,238,46),(2,2,236,44)]
-assert m.rounded[1]['color']==SHADE
-assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
-assert m.lcd_colors()==LCD_COLORS
-assert m.global_alpha==0 and m.clip==(0,0,240,240); passed()
+if variant=='normal':
+    m=Machine(); w,es=m.page_list(3,extent=1000); m.rounded_fail=True
+    m.paint(w)
+    assert [r['kind'] for r in m.rounded]==['fill','stroke'] and [s[:4] for s in m.strokes]==[(1,1,238,46),(2,2,236,44)]
+    assert m.rounded[1]['color']==SHADE
+    assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
+    assert m.lcd_colors()==LCD_COLORS
+    assert m.global_alpha==0 and m.clip==(0,0,240,240); passed()
 
 # The real stock rounded wrappers run with canvas services mocked. This firmware declines with
 # RET_FAIL when the canvas has no vgcanvas, and changes no fill/stroke color or alpha byte.
@@ -1681,10 +1842,11 @@ for active in (-1,0,1,2):
     passed()
 
 # If the white rounded stroke fails, draw the square fallback as well.
-m=Machine(); w,es=m.page_list(3); m.rounded_fail=O['RADIUS']-1
-m.paint(w)
-assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
-assert m.lcd_colors()==LCD_COLORS; passed()
+if variant=='normal':
+    m=Machine(); w,es=m.page_list(3); m.rounded_fail=O['RADIUS']-1
+    m.paint(w)
+    assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
+    assert m.lcd_colors()==LCD_COLORS; passed()
 
 # An overdue confirmation can change power state before the next release is processed.
 for flag in ('g_backlight_status','g_power_longkey','g_ingore_bootkey_flag'):
@@ -1756,7 +1918,7 @@ for virtual in (False,True):
     for click_only in (False,True):
         m=Machine()
         w,rs=m.list_surface(virtual)
-        m.paint(w); assert m.rounded
+        m.paint(w); assert m.drawn()
         if click_only: m.click(m.node('button'))
         else: m.touch()
         assert any(c[0]=='widget_invalidate_force' and c[1]==m.top for c in m.calls)
@@ -1765,18 +1927,18 @@ for virtual in (False,True):
         m.word(w+off,110)
         if virtual: m.bind(rs,110)
         m.word(w+anim,0x1234)
-        m.paint(w); assert not m.rounded and not m.strokes
+        m.paint(w); assert not m.drawn()
         m.word(w+anim,0); m.paint(w)
-        assert m.selected(w)==3 and not m.rounded and not m.strokes
+        assert m.selected(w)==3 and not m.drawn()
         old=m.top; m.page('playing_page'); m.touch(); m.call()
-        m.top=old; m.paint(w); assert not m.rounded and not m.strokes
+        m.top=old; m.paint(w); assert not m.drawn()
         # Returning to a recreated list preserves remembered selection, still without drawing.
         w,rs=m.list_surface(virtual)
-        m.paint(w); assert m.selected(w)==3 and not m.rounded and not m.strokes
-        m.confirm(); m.paint(w); assert m.rounded  # centre-generated click stays visible
+        m.paint(w); assert m.selected(w)==3 and not m.drawn()
+        m.confirm(); m.paint(w); assert m.drawn()  # centre-generated click stays visible
         m.touch(); m.pressed=1; m.call(); m.paint(w)
-        assert not m.rounded and not m.strokes  # rejected wheel does not restore drawing
-        m.pressed=0; m.call(); m.paint(w); assert m.rounded
+        assert not m.drawn()  # rejected wheel does not restore drawing
+        m.pressed=0; m.call(); m.paint(w); assert m.drawn()
         passed()
 # Boundary wheel turns restore drawing and cancel momentum even without selection movement.
 for virtual in (False,True):
@@ -1786,13 +1948,13 @@ for virtual in (False,True):
     anim=O['TABLE_ANIMATOR'] if virtual else O['VIEW_ANIMATOR']
     m.word(w+anim,0x1234)
     assert m.call(O['KEY_PREV'])==11 and m.selected(w)==0 and m.get(w+anim)==0
-    m.paint(w); assert m.rounded
+    m.paint(w); assert m.drawn()
     passed()
 # Touch on a page without a supported pane also hides the next page's outline.
 m=Machine(); m.page('playing_page'); m.touch(); w,es=m.page_list(3)
-m.paint(w); assert not m.rounded and not m.strokes
-m.call(O['KEY_PLAY']); m.paint(w); assert not m.rounded and not m.strokes
-m.call(); m.paint(w); assert m.rounded; passed()
+m.paint(w); assert not m.drawn()
+m.call(O['KEY_PLAY']); m.paint(w); assert not m.drawn()
+m.call(); m.paint(w); assert m.drawn(); passed()
 
 # Immediate table rebinding replaces widgets, not just their indices. Centre resolves new rows.
 m=Machine(); w,rs,es=m.table_page(); m.glide=False
@@ -1819,15 +1981,15 @@ passed()
 m,w,es=walk(6,5,height=96,extent=288,name='playlist_page'); assert m.get(w+O['SCROLL_Y'])==192
 assert m.call(gap=100)==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
 m.paint(w,gap=0)
-assert m.rounded[0]['rect']==(1,43,238,46)   # bumped up against the end
+assert m.sel()==(0,42,240,48)   # bumped up against the end
 for _ in range(3): assert m.call(gap=100)==11 and m.selected(w)==5   # still spinning: hard stop
 assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0 and m.get(w+O['SCROLL_Y'])==0
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,1,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,0,240,48)
 assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==0
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,7,238,46)   # bumped down at the top
+m.paint(w,gap=0); assert m.sel()==(0,6,240,48)   # bumped down at the top
 assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==0
 assert m.call(O['KEY_PREV'],gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
 passed()
 
 # The pause is measured from the last stopped detent, to the millisecond.
@@ -1837,7 +1999,7 @@ m.paint(w)
 for _ in range(5): assert m.call()==11
 assert m.call(gap=100)==11 and m.selected(w)==5
 assert m.call(gap=O['EDGE_PAUSE_MS']-1)==11 and m.selected(w)==5
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,43,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,42,240,48)
 assert m.call(gap=O['EDGE_PAUSE_MS']-1)==11 and m.selected(w)==5   # re-armed, not wrapped
 assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0
 passed()
@@ -1857,13 +2019,13 @@ passed()
 for name in ('sysset_page','playerqueue_page','album_page'):
     m,w,es=walk(6,5,height=96,extent=288,name=name)
     assert m.call(gap=100)==11 and m.selected(w)==5
-    m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
+    m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
     assert m.call(gap=100)==11 and m.selected(w)==5
     passed()
 m=Machine(); w,es=m.page_list(1,height=96,extent=96,name='playlist_page')
 m.paint(w)
 for _ in range(3): assert m.call(gap=100)==11 and m.selected(w)==0
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,1,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,0,240,48)
 passed()
 
 # Native scrollbar lifecycle, including a fully transparent/invisible mobile bar.
@@ -1905,7 +2067,7 @@ m.paint(w); m.call(); m.call(gap=0)
 assert m.timers and min(t[0] for t in m.timers.values())==m.now+O['BUMP_MS']
 m.advance(O['BUMP_MS']-1); assert not m.calls
 m.advance(1); assert any(c[0]=='widget_invalidate_force' and c[1]==w for c in m.calls)
-m.paint(w,gap=0); assert m.rounded[0]['rect']==(1,49,238,46)
+m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
 m.call(gap=O['EDGE_PAUSE_MS']); assert m.selected(w)==0
 passed()
 for cancel in ('touch','activate','recycle','destroy','scope'):
@@ -1962,7 +2124,7 @@ class NavigationMachine(Machine):
         elif name=='access@GLIBC_2.0':ret=-1
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 
-if variant=='compact':
+if variant=='ipod':
     for existing in (False,True):
         for empty in (False,True):
             m=NavigationMachine(); w,es=m.page_list(20,name='folder_page'); browse=m.top
@@ -2047,7 +2209,7 @@ for page_name in ('folder_page','localmusic_page','allmusic_page'):
             else:w,es=m.page_list(0 if empty else 5,name=page_name)
             page=m.top;m.start_pull(page,w)
             m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=60+distance)
-            enabled=variant=='compact' and page_name=='localmusic_page'
+            enabled=variant=='ipod' and page_name=='localmusic_page'
             assert bool(m.prompt(page)['visible'])==(enabled and distance>=8)
             if enabled and distance>=8:
                 assert m.prompt(page)['text']==('Release to search' if distance>=48 else 'Pull to search')
@@ -2060,7 +2222,7 @@ for page_name in ('folder_page','localmusic_page','allmusic_page'):
             assert not m.prompt(page)['visible']
             passed()
 
-if variant=='compact':
+if variant=='ipod':
     # Local Songs' virtual table keeps its rows and top offset across a search.
     m=PullMachine();w,rows,es=m.table_page(name='localmusic_page');page=m.top
     m.start_pull(page,w);count=m.get(w+O['TABLE_ROWS'])
@@ -2116,7 +2278,7 @@ class PullDispatchMachine(PullMachine):
                 u.reg_write(UC_MIPS_REG_T9,cb);u.reg_write(UC_MIPS_REG_PC,cb);return
         u.reg_write(UC_MIPS_REG_V0,0);u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 
-if variant=='compact':
+if variant=='ipod':
     for distance in (7,48):
         m=PullDispatchMachine();w,es=m.page_list(5,height=240,name='localmusic_page');page=m.top
         m.start_pull(page,w)
@@ -2336,6 +2498,24 @@ for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
 passed()
+# iPod boots to Home: home_page_init's memory-play resume, run from its stock context build, starts
+# the restored queue paused (mode 3) through player_start as playing_page_init would, and opens no
+# page; a 0xff class starts nothing, as the page's init. Car mode (mode 2) opens Now Playing as stock.
+if variant=='ipod':
+    boot=symbols(B/'patch.elf')['ringnav_boot']
+    assert struct.unpack_from('<I',demo,fileoff(demo,0x523de0))[0]==0x0c000000|boot>>2
+    for car,cls,want in ((0,1,[(0x5550,4,1,3)]),(0,0xff,[]),(1,0xf003,[])):
+        m=Machine(); m.word(syms['g_memory_info'],cls); m.byte(syms['g_carmode'],car)
+        m.u.reg_write(UC_MIPS_REG_GP,0xa26cc0); m.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
+        m.u.reg_write(UC_MIPS_REG_S0,0x5550); m.u.reg_write(UC_MIPS_REG_S1,4)
+        m.u.emu_start(0x523dac,0x523de8,count=1000)
+        nav=[c for c in m.calls if c[0]=='navigator_to_with_context']
+        assert m.started==want
+        if car:
+            assert len(nav)==1 and m.text(nav[0][1])=='playing_page' and nav[0][2]==0x7000f018
+            assert [m.get(0x7000f018+4*i) for i in range(4)]==[0x5550,4,0xf003,2]
+        else: assert not nav
+        passed()
 # Refusals leave the queue alone: a stream queue, or a row whose record changed under the menu.
 m=QueueMachine(); m.word(O['MCL_TYPE'],2); assert m.run(0)=='Queue unchanged' and m.names()==['A','B','C']
 m=QueueMachine(); m.press(1); m.hold(); m.release(); m.word(m.row(0)+O['REC_NAME'],m.string('other'))
@@ -2352,12 +2532,159 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
-from compact import HOME_PAGE, decode
-cards=[c[2]['name'] for c in decode((B/'ui'/HOME_PAGE).read_bytes())[3][0][3]]
+from compact import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
+cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
+if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
+cards=[c[2]['name'] for c in cards[3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
 assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
 passed()
+def asset_tree(m,path):
+    """A built UI asset as mock widgets, the window's parent the window manager, with what the payload
+    reads: type, name, visible, enable, geometry and, for a scroll view, its content height and the
+    slidable flags as AWTK sets them. scroll_view_create (0x5f146c) leaves both off, the asset's
+    xslidable/yslidable props set them (0x5f1d34), and a list_view's layout (0x5ea3a4) clears x and
+    sets y only when the list holds a mobile scroll bar."""
+    def build(n,parent,parent_kind='',siblings=()):
+        kind,g,props,children=n
+        a=m.node(kind,props.get('name',''),visible=int(props.get('visible')!='false'))
+        m.nodes[a].update(enable=int(props.get('enable')!='false'),asset=props)
+        for off,v in zip(('W_X','W_Y','W_W','W_H'),[0,0,375,290] if kind=='window' else g): m.word(a+O[off],v)
+        m.word(a+O['W_PARENT'],parent)
+        if kind=='scroll_view':
+            m.byte(a+O['VIEW_HORIZONTAL'],props.get('xslidable')=='true' and parent_kind!='list_view')
+            m.byte(a+O['VIEW_VERTICAL'],props.get('yslidable')=='true' or parent_kind=='list_view' and 'scroll_bar_m' in siblings)
+            m.word(a+O['VIEW_CONTENT_H'],max((c[1][1]+c[1][3] for c in children),default=0))
+        m.nodes[a]['children']=[build(c,a,kind,[c[0] for c in children]) for c in children]
+        return a
+    return build(decode((B/'ui'/path).read_bytes()),m.wm)
+def named(m,w,name):
+    if m.nodes[w]['name']==name: return w
+    return next((f for c in m.nodes[w]['children'] if (f:=named(m,c,name))),0)
+def click_target(m,w):
+    em=m.alloc(4); it=m.alloc(0x28); m.word(w+O['W_EMITTER'],em); m.word(em,it); m.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+def home_list(m):
+    """iPod Home as built (ui/home_page.bin) on top: its scroll view and the rows' tap images. Stock
+    binds every image but Coverflow's, which the payload binds."""
+    m.top=asset_tree(m,HOME_PAGE)
+    imgs=[named(m,m.top,'img_'+r) for r in HOME_ROWS]
+    for img in imgs[:2]+imgs[3:]: click_target(m,img)
+    return named(m,m.top,'scroll_view_home'),imgs
+
+if variant=='ipod':
+    # Home is an ordinary list: the wheel walks the seven rows one by one, stops hard at both ends
+    # (no carry-over, even after a pause), the bar spans the list's width and centre clicks the image.
+    m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2])
+    m.paint(view)
+    assert m.selected(view)==0
+    for i in range(1,7): assert m.call()==11 and m.selected(view)==i and m.get(view+O['SCROLL_Y'])==0
+    for gap in (1000,50,1000): assert m.call(gap=gap)==11 and m.selected(view)==6
+    m.paint(view); assert m.sel()==(0,6*HOME_ROW,HOME_LIST_W,HOME_ROW)
+    for i in range(5,-1,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
+    for gap in (1000,50,1000): assert m.call(O['KEY_PREV'],gap=gap)==11 and m.selected(view)==0
+    m.call(); m.call()
+    assert not m.slides and m.confirm()==11 and m.dispatched()[0][1]==imgs[2]; passed()
+
+    # Chevrons: the stock list_into, where stock rows put img_into, on each visible row of a
+    # drill window (contexts.inc), clipped to the surface. Stock draws its own on folder, category,
+    # album-list and Local Music rows, so those windows, song lists and grids get none from here.
+    def window(m,name,w):
+        m.top=m.node('window',name,[w]); m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
+    def loaded(m): return [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
+    m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
+    m.paint(view)
+    half=O['CHEVRON_W']-25  # centre of the 50px image, as stock img_into
+    assert m.icons==[(HOME_LIST_W-half,i*HOME_ROW+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW)) for i in range(7)]
+    assert loaded(m)==['list_into'] and m.clip==(0,0,375,320); passed()
+    # Drawn in touch mode too; none while stock multi-select hides its own.
+    m.touch(); m.paint(view); assert len(m.icons)==7 and not m.bands; passed()
+    m.byte(syms['g_navbar_status'],1); m.paint(view); assert not m.icons and not loaded(m); passed()
+    # Playlists: every row follows the scroll, clipped to the viewport; the half-width
+    # Import/Export tiles get none.
+    m=Machine(); w,es=m.page_list(10,height=96,extent=480,name='playlist_page'); window(m,'playlist_page',w)
+    tile=m.entry(w,0); m.word(tile+O['W_W'],100); m.nodes[w]['children'].insert(0,tile)
+    for top in (0,24):
+        m.word(w+O['SCROLL_Y'],top); m.paint(w)
+        assert m.icons==[(240-half,48*i+24-top,(0,0,240,96)) for i in range(10)]; passed()
+    # Leaf lists, grids and windows whose rows stock already marks draw none.
+    for name in ('allmusic_page','albuminfo_page','artistinfo_page','album_page','folder_page',
+                 'localclass_page','localmusic_page','sysset_page'):
+        m=Machine(); w,_=m.page_list(5,extent=240,name=name); window(m,name,w); m.paint(w)
+        assert not m.icons and not loaded(m), name; passed()
+
+if variant=='ipod':
+    # The status bar as built (ui/system_bar.bin), laid out by the stock row layouter
+    # (children_layouter_default, 0x628838) with every icon shown: the icons, 16px high and drawn
+    # centred in their 30px cells, and the title clear the glass's rounded top corners.
+    from compact import STATUS_BAR, corner_inset
+    m=Machine(); m.mock('strtol@GLIBC_2.0','strstr@GLIBC_2.0'); m.mock('tk_calloc','tk_free',prefix='alloc:')
+    bar=asset_tree(m,STATUS_BAR); m.word(bar+O['W_W'],375)
+    views=[named(m,bar,n) for n in ('view_left','view_right')]
+    for v in views:
+        layout=m.call(address=syms['children_layouter_default_create'],args=(0,0,0,0),gap=0)
+        for param in re.fullmatch(r'default\((.*)\)',m.nodes[v]['asset']['children_layout'])[1].split(','):
+            assert m.call(address=syms['children_layouter_set_param_str'],args=(layout,*map(m.string,param.split('=')),0),gap=0)==0
+        m.word(v+O['W_CHILDREN_LAYOUT'],layout); native_row_layout(m,v)
+    cells=[(signed(m.get(v+O['W_X']))+signed(m.get(c+O['W_X'])),m.get(c+O['W_W']),m.get(c+O['W_H'])) for v in views for c in m.nodes[v]['children']]
+    inset=corner_inset((30-16)//2)
+    assert all(h==30 and inset<=x and x+w<=375-inset for x,w,h in cells), (inset,cells)
+    title=named(m,bar,'label_title'); x,w=m.get(title+O['W_X']),m.get(title+O['W_W'])
+    left,right=(cells[len(m.nodes[views[0]]['children'])-1],cells[len(m.nodes[views[0]]['children'])])
+    assert left[0]+left[1]<=x and x+w<=right[0] and x+w/2==375/2, (left,right,x,w); passed()
+
+# Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
+# the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
+# the list on a translucent dark rounded square, LETTER_MS after the last detent a timer repaints it
+# away, and every canvas text/fill/clip state it touched is restored. Normal draws none.
+def canvas_state(m):
+    return (m.lcd_colors(),m.get(m.lcd+O['LCD_TEXT_COLOR']),m.get(m.canvas+O['CANVAS_ALIGN_V']),
+            m.get(m.canvas+O['CANVAS_ALIGN_H']),m.clip)
+def letter_machine(virtual,n=40):
+    m=Machine(); m.word(m.canvas+O['CANVAS_ALIGN_V'],2)
+    m.word(m.canvas+O['CANVAS_ALIGN_H'],3); m.word(m.lcd+O['LCD_TEXT_COLOR'],0x11223344)
+    if virtual:
+        w,rs,es=m.table_page(rebind=True); m.word(w+O['TABLE_ROWS'],n)
+    else:
+        w,es=m.page_list(n,extent=n*48,name='allmusic_page'); rs=es
+    for e in es: m.nodes[e]['text']='row'
+    m.paint(w,gap=0); return m,w,rs,es
+def selected_entry(m,w,rs,es):
+    return next(e for r,e in zip(rs,es) if (m.get(r+O['ROW_INDEX']) if r!=e else es.index(e))==m.selected(w))
+box=(120-O['LETTER_BOX']//2,48-O['LETTER_BOX']//2,O['LETTER_BOX'],O['LETTER_BOX'])
+for virtual in (False,True):
+    m,w,rs,es=letter_machine(virtual); before=canvas_state(m)
+    assert m.call(gap=100)==11; m.paint(w,gap=0); assert not m.letters   # step 1
+    assert m.call(gap=100)==11 and m.selected(w)==3; m.paint(w,gap=0)     # step 2
+    if variant!='ipod':
+        assert not m.letters and not m.timers and not any(c[0]=='canvas_set_font' for c in m.calls); passed(); continue
+    assert m.letters==[dict(text='R',rect=box,color=0xffffffff,font=('default',O['LETTER_PX']),align=(1,1),
+                            clip=(0,0,240,96))]
+    fills=[r for r in m.rounded if r['kind']=='fill']
+    assert fills==[dict(kind='fill',rect=box,bg=0,color=O['LETTER_ALPHA']<<24|O['FILL_RGB'],
+                        radius=O['LETTER_RADIUS'],width=None,clip=(0,0,240,96))]
+    assert canvas_state(m)==before; passed()
+    for text,glyph in (('zeta','Z'),('  apple','A'),('Émile','Émile'[0]),('東京','東'),('9 lives','9')):
+        m.nodes[selected_entry(m,w,rs,es)]['text']=text; m.paint(w,gap=0)
+        assert [l['text'] for l in m.letters]==[glyph],text; passed()
+    m.nodes[selected_entry(m,w,rs,es)]['text']='   '; m.paint(w,gap=0)
+    assert not m.letters and canvas_state(m)==before; passed()
+    m.nodes[selected_entry(m,w,rs,es)]['text']='row'
+    # A further fast detent re-arms; the letter clears LETTER_MS after the last one.
+    assert m.call(gap=100)==11; m.advance(O['LETTER_MS']-1); m.paint(w,gap=0); assert m.letters
+    m.advance(1); assert any(c[:2]==('widget_invalidate_force',w) for c in m.calls)
+    m.paint(w,gap=0); assert not m.letters and canvas_state(m)==before; passed()
+if variant=='ipod':
+    # Never at one row per detent, nor on a list of at most SHORT_LIST_MAX (16) rows.
+    for n,gap in ((40,141),(16,100)):
+        m,w,rs,es=letter_machine(False,n)
+        for _ in range(6): m.call(gap=gap)
+        m.paint(w,gap=0); assert not m.letters and not m.timers; passed()
+    # Touch drops the spin, and with it the letter.
+    m,w,rs,es=letter_machine(False)
+    for _ in range(3): m.call(gap=100)
+    m.touch(); m.paint(w,gap=0); assert not m.letters; passed()
+
 class CoverflowMachine(QueueMachine):
     FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub
     def __init__(self,albums=3,cached=True,**queue):
@@ -2403,11 +2730,17 @@ class CoverflowMachine(QueueMachine):
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
     def open(self):
         """Home with the card at index 2: centre confirms its image, whose click opens Coverflow."""
-        slide=self.node('slide_menu'); self.word(slide+O['SLIDE_INDEX'],2); self.word(slide+0x5c,self.alloc())
-        self.img=self.node('image','img_coverflow'); card=self.node('button',children=[self.img])
-        self.nodes[slide]['children']=[self.entry(slide),self.entry(slide),card,*[self.entry(slide) for _ in range(4)]]
-        self.home=self.top=self.node('window','home_page',[slide]); self.stack=[self.top]
-        assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
+        if variant=='ipod':
+            view,self.imgs=home_list(self); self.img=self.imgs[2]; self.home=self.top; self.stack=[self.top]
+            self.art=named(self,self.top,'img_homeart'); self.list=named(self,self.top,'list_view_home')
+            assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
+            self.paint(view); self.nodes[view]['_ringnav_index']=2
+        else:
+            slide=self.node('slide_menu'); self.word(slide+O['SLIDE_INDEX'],2); self.word(slide+0x5c,self.alloc())
+            self.img=self.node('image','img_coverflow'); card=self.node('button',children=[self.img])
+            self.nodes[slide]['children']=[self.entry(slide),self.entry(slide),card,*[self.entry(slide) for _ in range(4)]]
+            self.home=self.top=self.node('window','home_page',[slide]); self.stack=[self.top]
+            assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
         self.clicks=[]; assert self.confirm()==11 and self.clicks==[self.img]
         f,ctx=self.handler(self.img,O['EVT_CLICK']); assert self.call(address=f,args=(ctx,self.event,0,0),gap=0)==0
         self.page=self.top; self.slide=self.find('slide_menu')
@@ -2429,12 +2762,128 @@ class CoverflowMachine(QueueMachine):
         """Still attached below the page (the destroy_children mock only unlinks)."""
         while w!=self.page:
             parent=self.get(w+O['W_PARENT'])
-            if not parent or w not in self.nodes[parent]['children']: return False
+            if parent not in self.nodes or w not in self.nodes[parent]['children']: return False
             w=parent
         return True
     def key(self,k=O['KEY_RETURN']):
         f,ctx=self.handler(self.page,O['EVT_KEY_UP']); ev=self.alloc(0x40); self.word(ev,O['EVT_KEY_UP']); self.word(ev+O['EVENT_KEY'],k)
         ret=self.call(address=f,args=(ctx,ev,0,0),gap=0); self.advance(0); return ret
+
+if variant=='ipod':
+    # The art follows the playing track through the paint hook, when Home or the status bar paints:
+    # the Coverflow thumbnail of the queue's current album until the player has parsed this track
+    # (g_lastcover_url holds its path), then the player's embedded cover. The list keeps its width.
+    m=CoverflowMachine(); m.open(); m.top=m.home
+    bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
+    for w in (bar,m.home): m.word(w+O['W_PARENT'],m.wm)
+    def art_after(w):
+        m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
+        return m.nodes[m.art].get('image')
+    m.byte(syms['g_playcover_type'],1)
+    assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==HOME_LIST_W
+    m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_after(bar)=='file:///tmp/coverpic.jpg'
+    m.nodes[m.art]['image']='unchanged'; assert art_after(m.home)=='unchanged'  # same track and cover
+    m.byte(syms['g_playcover_type'],3); assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
+
+    # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
+    # value, in seconds) fill in; later paints rewrite a label only when its source changed.
+    playing=IPOD_HOOKS['playing_page_init'][0]
+    assert struct.unpack_from('<I',demo,fileoff(demo,playing))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_playing']>>2
+    m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+    for i,r in enumerate(m.items(m.get(syms['mcl_pdeqplaylist']))): m.word(r+O['REC_ALBUM'],m.string(f'Album {i}'))
+    bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
+    pos,album,remain=(m.node('label',n) for n in ('label_ipod_pos','label_ipod_album','label_ipod_remain'))
+    slider=m.node('slider','slider_play',max=225,value=100)
+    win=m.node('window','playing_page',[m.node('view','view_buttons',[pos]),album,slider,remain])
+    for w in (bar,win): m.word(w+O['W_PARENT'],m.wm)
+    m.top=win
+    def shown(): return [m.nodes[w].get('text') for w in (pos,album,remain)]
+    def written(): return [m.nodes[c[1]]['name'] for c in m.calls if c[0]=='widget_set_text_utf8']
+    def repaint(w=win): m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0)); return written()
+    assert m.call(address=playing,args=(win,7,0,0),gap=0)==0 and m.calls[0][:3]==('stock_playing',win,7)
+    assert shown()==['2 of 3','Album 1','-02:05']; passed()
+    assert repaint()==[] and repaint(bar)==[]; passed()
+    m.nodes[slider]['value']=101; assert repaint()==['label_ipod_remain'] and shown()[2]=='-02:04'; passed()
+    m.word(O['MCL_POS'],2); assert repaint(bar)==['label_ipod_pos','label_ipod_album'] and shown()[:2]==['3 of 3','Album 2']; passed()
+    # A rebuilt queue can reuse the same string address with new text; the text itself is hashed.
+    m.u.mem_write(m.get(m.items(m.get(syms['mcl_pdeqplaylist']))[2]+O['REC_ALBUM']),b'Other\0')
+    assert 'label_ipod_album' in repaint() and shown()[1]=='Other'; passed()
+    for mx,v,want in ((3725,0,'-01:02:05'),(3600,0,'-01:00:00'),(3599,0,'-59:59'),(90,90,'-00:00'),(90,95,'-00:00')):
+        m.nodes[slider].update(max=mx,value=v); repaint(); assert shown()[2]==want,(mx,v)
+    passed()
+    queue=m.deqs[m.get(syms['mcl_pdeqplaylist'])][1]
+    del queue[1:]; m.word(O['MCL_POS'],0); repaint(); assert shown()[:2]==['1 of 1','Album 0']
+    queue.clear(); repaint(); assert shown()[:2]==['','']; passed()
+    # Another top window, or the page once destroyed, leaves the labels alone.
+    queue.append(m.copy('stSongInfo',m.song('X'))); m.top=m.node('window','home_page'); m.word(m.top+O['W_PARENT'],m.wm)
+    assert repaint(m.top)==[] and repaint(bar)==[]; m.top=win
+    f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert repaint()==[] and shown()[0]==''; passed()
+
+    # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP
+    # seconds times the ramp, shown on the slider and both labels, and seeks once SEEK_MS after the
+    # last detent through player_seek_time (track seconds). Stock's page timer stops meanwhile.
+    FILL_HI=signed(color_t(ACCENTS[0][2])); FG='style:normal:fg_color'
+    def scrub_page(value=100,mx=225):
+        m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+        m.slider=m.node('slider','slider_play',max=mx,value=value)
+        m.elapsed,m.remain=m.node('label','label_playtime'),m.node('label','label_ipod_remain')
+        m.win=m.top=m.node('window','playing_page',[m.slider,m.elapsed,m.remain])
+        m.word(m.win+O['W_PARENT'],m.wm)
+        assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0
+        return m
+    def did(m,name): return [c[1] for c in m.calls if c[0]==name]
+    def centre(m,gap=1000):
+        assert m.call(O['KEY_CENTER'],gap=gap)==11 and not did(m,'playing_timer_clear')
+        m.advance(200,clear=False)
+    m=scrub_page(); centre(m)
+    assert did(m,'playing_timer_clear')==[m.win] and m.nodes[m.slider][FG]==-1 and not m.screens; passed()
+    assert m.call()==11 and m.nodes[m.slider]['value']==105 and m.nodes[m.elapsed]['text']=='01:45'
+    assert m.nodes[m.remain]['text']=='-02:00' and not did(m,'player_seek_time')
+    m.advance(O['SEEK_MS']-1); assert not did(m,'player_seek_time')
+    m.advance(1); assert did(m,'player_seek_time')==[105]; passed()
+    # A spin ramps the step as in a long list and seeks once, after it stops.
+    for _ in range(12): assert m.call(gap=20)==11
+    assert m.nodes[m.slider]['value']-105>12*O['SCRUB_STEP'] and not did(m,'player_seek_time')
+    m.advance(O['SEEK_MS']); assert did(m,'player_seek_time')==[m.nodes[m.slider]['value']]; passed()
+    for key,end in ((O['KEY_NEXT'],225),(O['KEY_PREV'],0)):
+        for _ in range(40): m.call(key,gap=20)
+        assert m.nodes[m.slider]['value']==end; m.advance(O['SEEK_MS']); assert did(m,'player_seek_time')==[end]
+    passed()
+    # SCRUB_MS without input ends it: the fill and stock's timer come back, and the wheel is volume.
+    m.advance(O['SCRUB_MS']-O['SEEK_MS']-1); assert not did(m,'playing_timer_start')
+    m.advance(1); assert did(m,'playing_timer_start')==[m.win] and m.nodes[m.slider][FG]==FILL_HI
+    assert m.call()==0 and m.nodes[m.slider]['value']==0 and not m.timers; passed()
+    # Centre again, Return (swallowed) and touch each end it, committing a pending seek at once.
+    for end in ('centre','return','touch'):
+        m=scrub_page(); centre(m); m.call()
+        if end=='centre': centre(m,50)
+        elif end=='return': assert m.call(O['KEY_RETURN'],gap=50)==11
+        else: m.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
+        assert did(m,'player_seek_time')==[105] and did(m,'playing_timer_start')==[m.win]
+        assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0, end
+        passed()
+    # A double press still turns the screen off and leaves no toggle behind, scrubbing or not.
+    for scrubbing in (False,True):
+        m=scrub_page()
+        if scrubbing: centre(m); m.call(); m.calls=[]
+        assert Machine.release(m)==11 and Machine.release(m,100)==0 and m.screens==[0]
+        m.advance(1000,clear=False)
+        assert did(m,'player_seek_time')==([105] if scrubbing else []) and not did(m,'playing_timer_clear')
+        assert not m.timers and m.call()==0; passed()
+    # Another window on top ends it; the page's destruction drops the pending seek and keeps the timer off.
+    m=scrub_page(); centre(m); m.call()
+    m.top=m.node('window','home_page'); m.call(); assert did(m,'playing_timer_start')==[m.win]; passed()
+    m=scrub_page(); centre(m); m.call()
+    f,ctx=m.handler(m.win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert not did(m,'player_seek_time') and not did(m,'playing_timer_start') and not m.timers; passed()
+    # A track change since the scrub began ends it without seeking, from the timer or from an exit.
+    for end in ('timer','return'):
+        m=scrub_page(); centre(m); m.call(); m.word(O['MCL_POS'],2)
+        if end=='timer': m.advance(O['SEEK_MS'])
+        else: assert m.call(O['KEY_RETURN'],gap=50)==11
+        assert not did(m,'player_seek_time') and did(m,'playing_timer_start')==[m.win]
+        assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0, end; passed()
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
 # plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.
@@ -2538,5 +2987,338 @@ for offset,want in ((-90,2),(-70,1),(90,0),(70,1),(0,1)):
 # A tap at rest reaches stock, so the cover's click still opens it.
 m=CoverflowMachine(); page=m.open(); f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.slides; passed()
+# Text geometry. iPod: album over artist under the native-size cover, the album larger and white, the
+# artist grey, and every label (covers, the Refresh card, the track list's title and rows, whose last
+# visible row is lowest) CF_EDGE from the sides, clear of the rounded glass. Normal keeps its layout.
+def cf_geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
+m=CoverflowMachine(); page=m.open(); labels=[w for w in m.nodes[m.get(m.slide+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label']
+name,artist=labels
+if variant=='ipod':
+    from compact import corner_inset
+    E=O['CF_EDGE']; y=24+160+O['CF_GAP']
+    assert [cf_geometry(m,w) for w in labels]==[(E,y,375-2*E,O['CF_NAME_H']),(E,y+O['CF_NAME_H'],375-2*E,O['CF_ARTIST_H'])]
+    assert m.nodes[name]['style:normal:font_size']==O['CF_NAME_PX']>m.nodes[artist]['style:normal:font_size']==O['CF_ARTIST_PX']
+    assert m.nodes[artist]['style:normal:text_color']==signed(O['CF_GREY']) and 'style:normal:text_color' not in m.nodes[name]
+    def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
+        return max(corner_inset(30+top),corner_inset(30+top+px))<=x and x+w<=375-max(corner_inset(30+top),corner_inset(30+top+px))
+    for w,px in ((name,O['CF_NAME_PX']),(artist,O['CF_ARTIST_PX'])):
+        x,top,wd,h=cf_geometry(m,w); assert clear(x,top+(h-px)//2,wd,px)
+    view=m.tracks(); lv=m.get(view+O['W_PARENT']); title=next(w for w in m.nodes[m.get(lv+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label')
+    assert cf_geometry(m,title)[::2]==(E,375-2*E) and clear(E,14,375-2*E,20)
+    rows=(290-48)//48
+    for item in m.nodes[view]['children']:
+        label=m.nodes[item]['children'][0]; assert cf_geometry(m,label)[::2]==(E,375-2*E)
+    assert clear(E,48+(rows-1)*48+14,375-2*E,20)  # the lowest visible row
+else:
+    assert [cf_geometry(m,w) for w in labels]==[(0,198,375,36),(0,234,375,28)] and m.nodes[name]['style:normal:font_size']==28
+    assert 'style:normal:font_size' not in m.nodes[artist] and 'style:normal:text_color' not in m.nodes[artist]
+    view=m.tracks(); assert {cf_geometry(m,m.nodes[i]['children'][0])[::2] for i in m.nodes[view]['children']}=={(12,350)}
+passed()
+
+if variant=='ipod':
+    # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
+    # blend of the preset's red tone, alpha kept; greys, other hues and every Crimson color stay.
+    ps=symbols(B/'patch.elf'); RED=(0xff,0x14,0x48)
+    # WCAG contrast of each preset: white text on the bar's top, the progress fill on its track, and
+    # white on the red tone (Graphite's silver is chosen for its lit look instead; Crimson is stock).
+    def lum(c):
+        v=[(c>>s&255)/255 for s in (16,8,0)]; v=[x/12.92 if x<=0.04045 else ((x+0.055)/1.055)**2.4 for x in v]
+        return 0.2126*v[0]+0.7152*v[1]+0.0722*v[2]
+    def ratio(a,b): return (max(lum(a),lum(b))+0.05)/(min(lum(a),lum(b))+0.05)
+    for i,(top,bottom,light,tone) in enumerate(ACCENTS):
+        assert ratio(0xffffff,top)>=4.5 and ratio(0xffffff,bottom)>=4.5 and ratio(light,O['BAR_BOTTOM'])>=3,i
+        assert i in (0,O['CRIMSON']) or ratio(0xffffff,tone)>=3,i
+    passed()
+    def mapped(c,preset,tone=3): return Machine().call(address=ps['accent_map'],args=(c,preset,tone,0),gap=0)&0xffffffff
+    def rgba(r,g,b,a=255): return r|g<<8|b<<16|a<<24
+    def blend(t,k,to,a=255): return rgba(*(round(t*x+k) for x in to),a)
+    def close(x,y): return x>>24==y>>24 and all(abs((x>>s&255)-(y>>s&255))<=2 for s in (0,8,16))
+    for (preset,accent),column in ((p,c) for p in enumerate(ACCENTS) for c in (2,3)):  # light and red tones
+        hi=(accent[column]>>16,accent[column]>>8&255,accent[column]&255)
+        same=preset==O['CRIMSON']
+        for c in (rgba(0,0,0),rgba(255,255,255),rgba(0x80,0x80,0x80),rgba(0x2b,0x2b,0x2b,0x40),  # greys
+                  rgba(0xff,0x9f,0x0a),rgba(0x16,0x9a,0xa6),rgba(0xff,0,0xff),rgba(0x0a,0x84,0xff),  # other hues
+                  *(color_t(c) for a in ACCENTS for c in a if a is not ACCENTS[1])):  # accents never map again
+            assert mapped(c,preset,column)==c,(preset,hex(c))
+        table=[(rgba(*RED),blend(1,0,hi)),                         # pure red
+               (rgba(*RED,0x40),blend(1,0,hi,0x40)),               # translucent #FF144840: alpha kept
+               (rgba(0x7f,0x0a,0x24),blend(0.5,0,hi)),             # red on black, half coverage
+               (rgba(*(round((x+255)/2) for x in RED)),blend(0.5,127.5,hi)),  # anti-aliased onto white
+               (rgba(0x3d,0x19,0x20),blend(0.153,21.6,hi))]        # the pressed tint
+        for c,want in table:
+            got=mapped(c,preset,column)
+            assert (got==c) if same else close(got,want),(preset,hex(c),hex(got),hex(want))
+            if not same: assert mapped(got,preset,column)==got
+        passed()
+
+    # Settings: IPOD/ACCENT and IPOD/HOME come from the stock config.ini once, a missing or bad value
+    # is the default; the style color hook returns stock values under Crimson and maps under others.
+    red=color_t(0xff1448); grey=color_t(0x808080)
+    tramp={n:int(manifest['patch_symbols'][f'stock_{n}_trampoline'],16) for n in ('color','image','display')}
+    def style_color(m,stock,name='text_color'):
+        m.handlers[tramp['color']]='stock_color'; out=m.alloc(4); m.stock_color=stock
+        return m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,0x1234,m.string(name),0),gap=0)&0xffffffff,m.get(out),out
+    orig_hook=Machine.hook; GET=0x1000600  # a style vtable's get_gradient
+    def hook(self,u,address,size,x):
+        if self.handlers.get(address)=='stock_color':
+            a=u.reg_read(UC_MIPS_REG_A0); self.word(a,self.stock_color); self.calls.append(('stock_color',a))
+            u.reg_write(UC_MIPS_REG_V0,a); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if address==GET and getattr(self,'get_gradient',None): return self.get_gradient(u)
+        return orig_hook(self,u,address,size,x)
+    Machine.hook=hook
+    for config,preset in (({},0),({'ACCENT':'1'},1),({'ACCENT':'2'},2),({'ACCENT':'3','HOME':'1'},3),({'ACCENT':'7'},0),({'ACCENT':'12'},0)):
+        m=Machine(); m.config=config
+        ret,got,out=style_color(m,red)
+        assert ret==out and got==(red if preset==O['CRIMSON'] else color_t(ACCENTS[preset][3])),(config,hex(got))
+        # Text takes the red tone, every other color property the light tone (Graphite: silver text,
+        # #6E6E6E fills under white text).
+        for name in ('highlight_text_color','bg_color','fg_color','border_color','selected_fg_color'):
+            want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
+            assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
+        assert style_color(m,grey)[1]==grey
+        assert len(m.config_reads)==2  # both keys, once, on first use
+        passed()
+    m=Machine(); style_color(m,red)
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD','ACCENT','0'),('/mnt/data/config.ini','IPOD','HOME','0')]; passed()
+
+    # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
+    def gradient(config,stops,same_out=True,vt_get=True,style=True):
+        m=Machine(); m.config=config
+        out=m.alloc(0x4c); other=m.alloc(0x4c); vt=m.alloc(0x20); st=m.alloc(8)
+        m.word(st,vt); m.word(vt+0x18,GET if vt_get else 0)
+        def get(u):
+            assert u.reg_read(UC_MIPS_REG_T9)==GET and u.reg_read(UC_MIPS_REG_A0)==st and u.reg_read(UC_MIPS_REG_A2)==out
+            g=out if same_out else other
+            m.word(g+8,len(stops))
+            for i,c in enumerate(stops): m.word(g+0xc+8*i,c); m.word(g+0x10+8*i,i)
+            u.reg_write(UC_MIPS_REG_V0,g); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        m.get_gradient=get
+        ret=m.call(address=ps['ringnav_style_gradient'],args=(st if style else 0,0,out,0),gap=0)&0xffffffff
+        g=out if same_out else other
+        return ret,[m.get(g+0xc+8*i) for i in range(len(stops))],out,other
+    ret,cols,out,_=gradient({},[red,grey,color_t(0x7f0a24)])
+    assert ret==out and cols==[color_t(ACCENTS[0][2]),grey,mapped(color_t(0x7f0a24),0,2)]; passed()
+    assert gradient({'ACCENT':'1'},[red,grey])[1]==[red,grey]; passed()
+    ret,cols,_,other=gradient({},[red],same_out=False); assert ret==other and cols==[red]; passed()
+    assert gradient({},[red],vt_get=False)[0]==0 and gradient({},[red],style=False)[0]==0; passed()
+    # Through stock style_get_color, which asks style_get_gradient first for every color: its call
+    # is left unmapped, so the color hook still gives text the red tone and fills the light tone.
+    for name,column in (('text_color',3),('bg_color',2)):
+        m=Machine(); vt=m.alloc(0x20); st=m.alloc(8); m.word(st,vt); m.word(vt+0x14,0x1000700); m.word(vt+0x18,GET)
+        def get(u):
+            g=u.reg_read(UC_MIPS_REG_A2); m.word(g+8,1); m.word(g+0xc,red)
+            u.reg_write(UC_MIPS_REG_V0,g); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        m.get_gradient=get; out=m.alloc(4)
+        m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,st,m.string(name),0),gap=0)
+        assert m.get(out)==color_t(ACCENTS[0][column]),(name,hex(m.get(out))); passed()
+
+    # Images: decoded 32-bit theme bitmaps are mapped in place before stock caches them; covers by
+    # path or URL, Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
+    def image(config,name,fmt=3):
+        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
+        bm=m.alloc(0x60); data=m.alloc(64)
+        m.word(bm,2); m.word(bm+4,2); m.word(bm+8,12); m.u.mem_write(bm+0xe,struct.pack('<H',fmt)); m.word(bm+0x14,data)
+        px=[bytes([0x48,0x14,0xff,0x80]),bytes([0x80,0x80,0x80,0xff])]  # BGRA: translucent red, grey
+        for y in range(2): m.u.mem_write(data+12*y,px[0]+px[1]+b'\xee'*4)  # 4 bytes of row padding
+        ret=m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
+        assert ret==0 and [c[1:] for c in m.calls if c[0]=='stock_image'][0][2]==bm
+        return [bytes(m.u.mem_read(data+12*y,12)) for y in range(2)]
+    hi=ACCENTS[0][3]; want=bytes([hi&255,hi>>8&255,hi>>16,0x80])+bytes([0x80,0x80,0x80,0xff])+b'\xee'*4
+    assert image({},'switch_on')==[want,want]; passed()
+    stock=bytes([0x48,0x14,0xff,0x80,0x80,0x80,0x80,0xff])+b'\xee'*4
+    for config,name,fmt in (({'ACCENT':'1'},'switch_on',3),({},'file:///tmp/coverpic.jpg',3),({},'/mnt/mmc/a/cover.jpg',3),
+                            ({},'https://resources.tidal.com/images/a/320x320.jpg',3),({},'switch_on',5)):
+        assert image(config,name,fmt)==[stock,stock],(config,name,fmt); passed()
+
+    # The confirm pop-up's red discs take the dark CONFIRM_SURFACE under every accent, Crimson too:
+    # the stock OK disc (#FF1448, white glyph) and Cancel's tint (#FF4871 with a #FFE4EA glyph) keep
+    # their glyphs at 4.5:1 or more; the pressed images darken; other images keep the accent's tone.
+    def pixels(config,name,colors):
+        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
+        bm=m.alloc(0x60); data=m.alloc(4*len(colors))
+        m.word(bm,len(colors)); m.word(bm+4,1); m.word(bm+8,4*len(colors)); m.u.mem_write(bm+0xe,struct.pack('<H',3)); m.word(bm+0x14,data)
+        m.u.mem_write(data,b''.join(bytes([c&255,c>>8&255,c>>16,255]) for c in colors))  # BGRA
+        m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
+        raw=bytes(m.u.mem_read(data,4*len(colors)))
+        return [raw[4*i+2]<<16|raw[4*i+1]<<8|raw[4*i] for i in range(len(colors))]
+    S=O['CONFIRM_SURFACE']
+    for preset in range(len(ACCENTS)):
+        config={'ACCENT':str(preset)}
+        disc,glyph=pixels(config,'confirm_ok',[0xff1448,0xffffff])
+        assert disc==S and glyph==0xffffff and ratio(glyph,disc)>=4.5,(preset,hex(disc))
+        disc,glyph=pixels(config,'confirm_cancel',[0xff4871,0xffe4ea])
+        assert ratio(glyph,disc)>=4.5 and ratio(disc,0)<ratio(glyph,0),(preset,hex(disc),hex(glyph))
+        assert pixels(config,'confirm_okdown',[0x7f0a24])[0]<S  # pressed: darker than the disc
+        assert pixels(config,'switch_on',[0xff1448])==[0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3]]
+        passed()
+
+    # Display settings: after the stock rows, Accent and Home rows in the native row widgets and
+    # styles; Centre or tap cycles and saves each; a new accent drops the image cache and repaints.
+    def display(config):
+        CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
+        view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
+        for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
+        m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
+        assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+        assert m.calls[0][:3]==('stock_display',m.top,5)
+        rows=m.nodes[view]['children'][3:]
+        return m,view,rows
+    m,view,rows=display({})
+    assert len(rows)==2 and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
+    for b,l in zip(buttons,labels):
+        assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
+        assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
+    def texts(): return [m.nodes[l]['text'] for l in labels]
+    assert texts()==['Accent: Graphite','Home: Split']; passed()
+    def click(i):
+        m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        return [c[1:] for c in m.calls if c[0]=='write_int_config']
+    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(0,'Graphite')):
+        writes=click(0)
+        assert len(writes)==1 and writes[0][0]==value and m.text(writes[0][1])=='IPOD' and m.text(writes[0][2])=='ACCENT'
+        assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
+        assert texts()[0]=='Accent: '+name; passed()
+    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
+    assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
+    click(1); assert texts()[1]=='Home: Split'; passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][0]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full']; passed()
+    # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
+    m,view,rows=display({})
+    m.paint(view)
+    for _ in range(3): m.call()
+    assert m.selected(view)==3 and m.confirm()==11 and m.dispatched()[0][1]==m.nodes[rows[0]]['children'][0]; passed()
+
+    # Settings rows (docs/ipod.md#settings). The real stock builders create their rows; the build
+    # points the list_view layouter's vtable slot at ipod_list_layout, which normalises stock 78px
+    # items, runs the stock layout (stacking modelled here: item_height, else the item's own height,
+    # else default_item_height, as 0x5ea5c4 onward) and maps each row's children.
+    from compact import corner_inset
+    class SettingsMachine(Machine):
+        def hook(self,u,address,size,x):
+            name=self.handlers.get(address,'')
+            if name=='stock_list_layout':
+                assert u.reg_read(UC_MIPS_REG_T9)==address
+                view=u.reg_read(UC_MIPS_REG_A1); lst=self.get(view+O['W_PARENT']); y=0
+                ih,dh=(self.get(lst+O[k]) for k in ('LIST_ITEM_HEIGHT','LIST_DEFAULT_ITEM_HEIGHT'))
+                for c in self.nodes[view]['children']:
+                    if not self.get(c+O['W_W']): self.word(c+O['W_W'],self.get(view+O['W_W']))
+                    h=ih or self.get(c+O['W_H']) or dh
+                    self.word(c+O['W_Y'],y); self.word(c+O['W_H'],h); y+=h
+                self.word(view+O['VIEW_CONTENT_H'],y); self.layouts+=1
+                u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            if name=='widget_on' and u.reg_read(UC_MIPS_REG_A1)==O['EVT_CLICK']:  # a clickable row
+                a=u.reg_read(UC_MIPS_REG_A0); em=self.alloc(4); it=self.alloc(0x28)
+                self.word(a+O['W_EMITTER'],em); self.word(em,it); self.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+            if name=='image_set_draw_type': self.nodes[u.reg_read(UC_MIPS_REG_A0)]['draw_type']=u.reg_read(UC_MIPS_REG_A1)
+            return super().hook(u,address,size,x)
+    SET={k:O['SET_'+k] for k in ('ROW','TOP','ROWS','ICON','ICON_X','GAP','TEXT_X','EDGE','STOCK_ROW')}
+    def geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
+    def settings(builder,default=SET['ROW']):
+        m=SettingsMachine(); m.layouts=0
+        m.mock('list_item_create','button_create','image_create','hscroll_label_create','label_create','widget_use_style',
+               'widget_set_name','image_set_draw_type','image_base_set_image','set_hscroll_label_attribute','widget_on',
+               'widget_set_tr_text','widget_set_text_utf8','widget_set_visible','widget_move_resize')
+        m.handlers[syms['widget_destroy_children']]='widget_destroy_children'
+        for n in syms:  # string helpers the builders format their names with
+            if n.endswith('@GLIBC_2.0') and syms[n] not in m.handlers: m.handlers[syms[n]]=n
+        m.handlers[O['LIST_VIEW_LAYOUT']]='stock_list_layout'
+        view=m.node('scroll_view'); lst=m.node('list_view','list_view',[view]); m.top=m.node('window','sysset_page',[lst])
+        m.word(view+O['W_PARENT'],lst); m.word(lst+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
+        m.word(lst+O['LIST_ITEM_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
+        m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
+        if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
+            m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
+            assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+        else:
+            m.call(address=builder,args=(m.top,0,0,0),gap=0)  # learn the name it looks up
+            m.nodes[view]['name']=m.text(next(c for c in m.calls if c[0]=='widget_lookup')[2])
+            assert m.call(address=builder,args=(m.top,0,0,0),gap=0)==0
+        return m,view
+    def lay(m,view): return m.call(address=m.get(O['LIST_VIEW_LAYOUT_SLOT']),args=(0x1234,view,0,0),gap=0)
+    def tree(m,view):
+        return [(geometry(m,i),[(geometry(m,b),[geometry(m,c) for c in m.nodes[b]['children']]) for b in m.nodes[i]['children']])
+                for i in m.nodes[view]['children']]
+    # Rows at the top and bottom of the four visible slots: text bands, icons and the trailing
+    # bitmaps' ink (switch_off/on span 0..50 x 13..38 of their 50px square; list_into and ticks fit
+    # inside) stay clear of the rounded glass, and nothing overlaps.
+    def check_row(m,item,slot,text_x=SET['TEXT_X']):
+        top=30+SET['TOP']+slot*SET['ROW']
+        for b in m.nodes[item]['children']:
+            bx,by,bw,bh=geometry(m,b)
+            assert (bx,by,bw,bh)==(0,0,375,geometry(m,item)[3])
+            icon=label=trail=None
+            for c in m.nodes[b]['children']:
+                x,y,w,h=geometry(m,c); kind=m.nodes[c]['type']
+                if kind=='image' and w==SET['ICON']:
+                    icon=(x,y,w,h); box=(x,top+y,w,h)
+                    assert (x,h)==(SET['ICON_X'],SET['ICON']) and y*2+h==bh and m.nodes[c]['draw_type']==O['IMAGE_DRAW_SCALE_DOWN']
+                elif kind=='image':
+                    assert w==50 and x+w==375-SET['EDGE'], (x,w); trail=x; box=(x,top+y+(h-50)//2+13,50,25)
+                else:
+                    label=(x,w); size=20 if h<30 else 24
+                    box=(x,top+y+(h-size)//2,w,size)
+                x,y,w,h=box; inset=max(corner_inset(y),corner_inset(y+h))
+                assert inset<=x and x+w<=375-inset, (m.nodes[c]['type'],box,inset)
+            if icon and label: assert label[0]==icon[0]+icon[2]+SET['GAP']
+            elif label: assert label[0]==text_x
+            if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
+            if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
+    for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
+        m,view=settings(builder); items=m.nodes[view]['children']
+        before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
+        assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
+        assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
+        # Display's Accent and Home rows have no icon; their text keeps the icon rows' column.
+        text_x=SET['ICON_X']+SET['ICON']+SET['GAP'] if builder=='display' else SET['TEXT_X']
+        for item in items: check_row(m,item,0,text_x); check_row(m,item,SET['ROWS']-1,text_x)
+        after=tree(m,view); assert after!=before
+        assert lay(m,view)==0 and tree(m,view)==after, builder  # a later layout changes nothing
+        passed()
+    # A list whose default_item_height is not SET_ROW (local pages, Home) keeps its rows as built.
+    m,view=settings(0x4cbcc4,default=72); before=tree(m,view); lay(m,view); after=tree(m,view)
+    assert [r[1] for r in after]==[r[1] for r in before] and all(r[0][3]==72 for r in after); passed()
+    # A 78px item some other builder made (no stock settings button) keeps its height and children.
+    m,view=settings(0x4cbcc4); odd=m.node('list_item'); other=m.node('button')
+    m.nodes[odd]['children']=[other]; m.word(odd+O['W_H'],78); m.word(odd+O['W_W'],0)
+    for k,v in (('W_X',8),('W_Y',0),('W_W',359),('W_H',70)): m.word(other+O[k],v)
+    m.nodes[view]['children'].append(odd); lay(m,view)
+    assert geometry(m,odd)[3]==78 and geometry(m,other)==(8,0,359,70); passed()
+    # The wheel walks the laid-out rows with hard ends, the bar spans the whole 68px row, the list
+    # scrolls to keep the row in view, and Centre and a tap reach the same button.
+    m,view=settings(0x4cbcc4); lay(m,view); items=m.nodes[view]['children']
+    buttons=[m.nodes[i]['children'][0] for i in items]
+    m.paint(view); assert m.selected(view)==0
+    for k in range(1,len(items)+2):
+        m.call(); m.paint(view); i=min(k,len(items)-1); assert m.selected(view)==i
+        y=geometry(m,items[i])[1]-signed(m.get(view+O['SCROLL_Y']))
+        assert 0<=y and y+SET['ROW']<=SET['ROWS']*SET['ROW'], (k,y)
+        assert len(m.bands)==SET['ROW']+1 and {b[2] for b in m.bands}=={375}
+    assert m.confirm()==11 and m.dispatched()[0][1]==buttons[-1]; passed()
+    m.click(buttons[2]); assert m.selected(view)==2; passed()
+
+    # The payload's own accent drawing follows the preset, live: the bar, Now Playing's fill and
+    # the fill a scrub restores.
+    m,view,rows=display({'ACCENT':'2'}); m.paint(view)
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[2][:3]]; passed()
+    f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(k) for k in ACCENTS[3][:3]]; passed()
+    CONFIG.clear(); m=scrub_page()
+    assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[0][2])); passed()
+    CONFIG.update(ACCENT='3'); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+    m.slider=m.node('slider','slider_play',max=225,value=100)
+    m.win=m.top=m.node('window','playing_page',[m.slider,m.node('label','label_playtime')]); m.word(m.win+O['W_PARENT'],m.wm)
+    m.call(address=playing,args=(m.win,7,0,0),gap=0)
+    assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); centre(m)
+    assert m.nodes[m.slider][FG]==-1; centre(m,50); assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); passed()
+
+    # Home: Full widens the list and its rows' tap targets to the screen and hides the art at init
+    # and when the setting changes; Split restores the asset's width.
+    CONFIG.clear(); CONFIG.update(HOME='1'); m=CoverflowMachine(); m.open()
+    rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
+    assert rowsw==[375]+[O['HOME_FULL_ROW']]*7 and m.nodes[m.art]['visible']==0; passed()
+    CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
+    Machine.hook=orig_hook; CONFIG.clear()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

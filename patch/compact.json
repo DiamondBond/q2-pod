@@ -9,7 +9,49 @@
     "localmusic/localclass_page.bin": "41572b285d5c6a447ae340d8827cacc02eac0359d5d4bd07cbf518e5463a10a1",
     "localmusic/playlist_page.bin": "68efc8a91545f4c79b649cf177912332c6c493ed2b258d3b759f9bf14e44b962",
     "localmusic/playlistsmore_page.bin": "60948d54736bbe913305b960ee3b8c88dd135f4327e7a8c37e526740cec66d9f",
-    "home_page.bin": "c0e056388681952b31b7e4b3e13fc65f143807a5c6ff6c45060dbbe5ae9e5241"
+    "home_page.bin": "c0e056388681952b31b7e4b3e13fc65f143807a5c6ff6c45060dbbe5ae9e5241",
+    "system_bar.bin": "37a66b86847eae4f26ce748cb7d0b621d49e9e173e0526342058e3901389d9b1",
+    "playing_page.bin": "f39a5d333ae68028b6af1448f363deb28a3a417d3c085e4151322e022a9b2e4c",
+    "dialog/statusbar_dialog.bin": "54b59c005201fe5b9efbebb5b359d45527552942fbeb7f55f2270872136dcd47",
+    "dialog/confirminfo_dialog.bin": "cceac1b202d46c7cdd11205b66ac9332fc349e07797e636b39ee471348545b73"
+  },
+  "navbar_only": {
+    "audiosetting_page.bin": "fa8581c656da81d0b32430fea7963f46bd53e582acddbe8346fa74a42df25555",
+    "stream_page.bin": "29225655cf5fcbf4a59b224f62f28583c80bf0da992cde7615a85e9a90a33f5a",
+    "systemset/about_page.bin": "b4c8d2a0c386ec0887ff388cfe0ce7e62330326444cb1ff1352b043ee741c373",
+    "systemset/autotime_page.bin": "58cc51c23b38ae5d2f450436b487eb028fdb5a8d1adf5791b98487888de47e5a",
+    "systemset/backlight_page.bin": "fe9bcb8642f41241ae10a2c6ce789540d83aa6228a0d820039340fe03a1db771",
+    "systemset/bluetooth_page.bin": "cb0769a18333872291d764298b792f9845ed5f4a207c930deca62fdcbf00ff89",
+    "systemset/btadjustvol_page.bin": "d59be953002bf620a69930661223edd3df64555e19f4643e254361658607a7a0",
+    "systemset/btquality_page.bin": "c87e76c26c0bd632ae031044ca2e7fd32a4a26ea56d9581f7fa2ab5bb5db23c7",
+    "systemset/datetime_page.bin": "f6f6291b801cab485314f6021c8a6728e90d9427f9b2212cde9e25129d2d0460",
+    "systemset/display_page.bin": "27dca07a081976aa9493098e4b27dbc879ec1b541ca8c76b753e61a22ae3772b",
+    "systemset/fwupdate_page.bin": "2bc2df74a6e6f22c31f8f94417b2261489f40b267bb4837e4aa5f5a72c1a5cf7",
+    "systemset/keylock_page.bin": "c592fa9f7e521b23b69222f317b000d555893caf39b8fe60e6f04a9cd49cb473",
+    "systemset/language_page.bin": "e5d47651b9a8755c3e2a62f35c489608e55341cebd98883a6074b138fd0ee095",
+    "systemset/lighttime_page.bin": "f43d0e586a7be9d8b71177b1a08c0952f5f7c7fe903f9369b1c43b36fef2bdd5",
+    "systemset/manualtime_page.bin": "88182131bc9396b2552314f421a999c3b812b833725ca7c11b8298506cced512",
+    "systemset/netservice_page.bin": "b71dbca2736744f41aedc19eadc99ee39c7ed397c6e7ecf6625fabfeff7209bf",
+    "systemset/powermanager_page.bin": "b5b239337d4cfaedeb411acb2656f2763bb2aabbd33f3e76859c6535865cbf78",
+    "systemset/reset_page.bin": "e75b83286fa12a31f3fb7888e0f2ce55703357a06342d0508339be910fb048f5",
+    "systemset/screensaver_about.bin": "6ebc67b6407a49ac8a7f50c207a99c46726ba873b6f3e2b05fe8c4f95233fb6e",
+    "systemset/screensaver_page.bin": "2beb2a2be18a510eb7df46ee8e71e291e37bac49fa9bbc66f01ab69837ba03d9",
+    "systemset/sleepshutdown_page.bin": "69745c2bd47bd4266c260fccdfe1caf3310b92fcfb24332dfeb0ee9d3746a947",
+    "systemset/standby_page.bin": "4b742684b54d4c3d7450f43ebe1a5c7f60aad18b95030c9c0a750f60f56fc78c",
+    "systemset/synclink_page.bin": "43548f5bb3d0bb7588c75fd18f131e5a6800d16a859879bb0a8e629a9af8ec02",
+    "systemset/sysset_page.bin": "f4dba120dcafd36769ab79260ebc866d4bccade7639db2cdbff452ff698b6b66",
+    "systemset/wifi_page.bin": "b764c8b575f9c54ca6790fc41625d1dbcf950fa4f1ef5731740677790a1ec4fd",
+    "systemset/wifiset_page.bin": "b819516450926304f6b8fc54b871d8affe2bfea0a731098640d45a6eeb1b2666",
+    "playset/balance_page.bin": "af24c18dc7ac31aa032d8afa8d4314a705c24f2c39709f3766589794bc7923ae",
+    "playset/bootvol_page.bin": "919519e00bc25a12dea0f543ff0d49c4b35e4aa12d75c94bff6086234aa2ba5d",
+    "playset/dsdoutput_page.bin": "27e3ab99a9f2a1c52fea8144b39ff890d7efd534e06c29c39e71be66763856da",
+    "playset/filter_page.bin": "95d49ff2e44ad17581ede0fd2408a8d806d2f60ad516fbf4541cd6646e703bc2",
+    "playset/maxvol_page.bin": "030fd56d839bb49220feabb523ce74f681ea0309af90e0fcc0e708011142e455",
+    "playset/memplay_page.bin": "094a08004783128baa743868e574069f25e80a24833224c36575d7fb324c16c6",
+    "playset/playmode_page.bin": "8796dda04cf87408d5bac89ac13939eef78326e56113a460d6fcbc38099c8a4f",
+    "playset/playset_page.bin": "6f81ba52f8c9154051c935a829b3fb32419edd18792af85ccc15386a9aafbef6",
+    "playset/replaygain_page.bin": "35e4bddbd4791bc8e64b8e0165d5b299a633ad15ca9bae69a945b156a5491602",
+    "playset/usbvol_page.bin": "21f4ee2dd2ca9fcd0be904f852ff7051a8015183fca2d1c0741ddf76a43a70ce"
   },
   "immediates": [
     {
@@ -140,6 +182,20 @@
       "sites": [
         ["0x4a8cd8", "0x240200be"]
       ]
+    },
+    {
+      "value": "np_bar_w",
+      "purpose": "Now Playing A-B markers span the iPod progress bar (x = start + t * width / length)",
+      "sites": [
+        ["0x52a318", "0x24020122"]
+      ]
+    },
+    {
+      "value": "np_bar_x",
+      "purpose": "Now Playing A-B markers start at the iPod progress bar's left end",
+      "sites": [
+        ["0x52a330", "0x24420032"]
+      ]
     }
   ],
   "row_layout_calls": {
@@ -174,5 +230,21 @@
     "0x640328": "1c0002ae",
     "0x65e138": "1000428e",
     "0x4e8d10": "1f008228"
+  },
+  "styles": {
+    "default.bin": {
+      "sha256": "3605aa963897e5686c9ca9fd89431992fe22ab326dbced846361f57a4d004f67",
+      "edits": [
+        ["button", "s_btn_listitem", "bg_color", "2b2b2bff", "00000000", 4],
+        ["button", "s_btn_listitem", "round_radius", "0e000000", "00000000", 5],
+        ["button", "s_btn_listblack", "bg_color", "000000ff", "00000000", 5],
+        ["list_item", "s_listitem_black", "bg_color", "000000ff", "00000000", 5],
+        ["table_row", "s_tablerow_black", "bg_color", "000000ff", "00000000", 28],
+        ["table_row", "s_tablerow_black", "selected_bg_color", "000000ff", "00000000", 28],
+        ["hscroll_label", "s_scrlabel_red16l", "text_color", "ff1448ff", "ffffffff", 3],
+        ["hscroll_label", "s_scrlabel_red20l", "text_color", "ff1448ff", "ffffffff", 3],
+        ["hscroll_label", "s_scrlabel_red24l", "text_color", "ff1448ff", "ffffffff", 3]
+      ]
+    }
   }
 }

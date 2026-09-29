@@ -15,7 +15,7 @@ from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run,
 
 TAG = f'{VERSION}R'
 REPO = 'DiamondBond/q2-ringnav'
-ASSETS = {'normal': f'Q2.Firmware.V{VERSION}.zip', 'compact': f'Q2.Firmware.V{VERSION}-compact.zip'}
+ASSETS = {'normal': f'Q2.Firmware.V{VERSION}.zip', 'ipod': f'Q2.Firmware.V{VERSION}-ipod.zip'}
 
 
 def notes():
@@ -78,7 +78,7 @@ def package(stock, out):
     checksums = {}
     for variant, asset in ASSETS.items():
         for suffix in ('', '-repeat'):
-            build(stock, out/(variant+suffix), ROOT/'assets/logo.jpg', compact=variant == 'compact')
+            build(stock, out/(variant+suffix), ROOT/'assets/logo.jpg', ipod=variant == 'ipod')
         # The byte comparisons below prove the repeat build; validate the first only.
         validate(out/variant, variant)
         a, b = out/variant, out/(variant+'-repeat')
