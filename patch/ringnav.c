@@ -85,7 +85,8 @@ typedef struct {
      * target second, scrub_moved set once the wheel changed it. */
     unsigned np_press, np_press_at, scrub_timer, scrub_track;
     int scrub, scrub_to, scrub_moved;
-    /* The Display settings, read from config.ini on first use, and the display page's value labels. */
+    /* The Display settings, read from config.ini on first use, and the display page's value labels.
+     */
     int settings_read, accent, home_full;
     void *setting_label[2];
 #endif
@@ -970,8 +971,9 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent and Home settings (docs/ipod.md#display-settings), IPOD/ACCENT and IPOD/HOME in the stock
- * config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
+/* The Accent and Home settings (docs/ipod.md#display-settings), IPOD/ACCENT and IPOD/HOME in the
+ * stock config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the
+ * default. */
 static const unsigned accents[][4] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
@@ -1162,7 +1164,8 @@ static void paint_selection(void *w, void *canvas) {
     }
     const unsigned *a = accents[accent()];
     gradient(canvas, r, a[0], a[1], a[2]);
-    if (g_menu.kind == 4 && r.w < I(g_menu.w, W_W)) { /* a pop-up button's tile: framed white on any accent */
+    if (g_menu.kind == 4 &&
+        r.w < I(g_menu.w, W_W)) { /* a pop-up button's tile: framed white on any accent */
         canvas_set_stroke_color(canvas, 0xffffffff);
         canvas_stroke_rect(canvas, r.x, r.y, r.w, r.h);
         canvas_stroke_rect(canvas, r.x + 1, r.y + 1, r.w - 2, r.h - 2);
@@ -1237,7 +1240,9 @@ static void clock_sync(void *bar) {
     if (!label) return;
     st.clock_key = key;
     char s[16] = "--:--";
-    if (ok) tk_snprintf(s, sizeof s, "%d:%02d %s", (tm[2] + 11) % 12 + 1, tm[1], tm[2] < 12 ? "AM" : "PM");
+    if (ok)
+        tk_snprintf(s, sizeof s, "%d:%02d %s", (tm[2] + 11) % 12 + 1, tm[1],
+                    tm[2] < 12 ? "AM" : "PM");
     widget_set_text_utf8(label, s);
 }
 
@@ -1257,14 +1262,16 @@ static void np_sync(void *top) {
     const char *album = r ? P(r, REC_ALBUM) : (void *)0;
     char s[24] = "";
     unsigned pos[2] = { at, n };
-    unsigned h = hash_bytes(fnv(FNV_SEED, (const unsigned char *)album), (const unsigned char *)pos, sizeof pos);
+    unsigned h = hash_bytes(fnv(FNV_SEED, (const unsigned char *)album), (const unsigned char *)pos,
+                            sizeof pos);
     if (h != st.np_hash) {
         st.np_hash = h;
         if (r) tk_snprintf(s, sizeof s, "%d of %d", at + 1, n);
         widget_set_text_utf8(st.np_pos, s);
         widget_set_text_utf8(st.np_album, album ? album : "");
     }
-    int left = widget_get_prop_int(st.np_slider, "max", 0) - widget_get_prop_int(st.np_slider, "value", 0);
+    int left =
+        widget_get_prop_int(st.np_slider, "max", 0) - widget_get_prop_int(st.np_slider, "value", 0);
     if (left < 0) left = 0;
     if (left == st.np_left) return;
     st.np_left = left;
@@ -1382,7 +1389,8 @@ static int np_gone(void *win, void *event) {
     return 0;
 }
 
-/* playing_page_init: stock builds the page and starts its 250 ms timer, then the iPod labels bind. */
+/* playing_page_init: stock builds the page and starts its 250 ms timer, then the iPod labels bind.
+ */
 int ringnav_playing(void *win, void *ctx) {
     int result = stock_playing_trampoline(win, ctx);
     if (!win) return result;
@@ -1435,7 +1443,8 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
     int a = accent();
     if (a == CRIMSON) return color;
     unsigned c = accent_map(*color, a, TONE_LIGHT);
-    if (c != *color && name && tk_str_end_with(name, "text_color")) c = accent_map(*color, a, TONE_RED);
+    if (c != *color && name && tk_str_end_with(name, "text_color"))
+        c = accent_map(*color, a, TONE_RED);
     *color = c;
     return color;
 }
@@ -1446,7 +1455,8 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
  * hook picks the tone. */
 void *ringnav_style_gradient(void *style, const char *name, void *out) {
     void *vt = style ? P(style, 0) : (void *)0;
-    void *(*get)(void *, const char *, void *) = vt ? (void *(*)(void *, const char *, void *))P(vt, 0x18) : (void *)0;
+    void *(*get)(void *, const char *, void *) =
+        vt ? (void *(*)(void *, const char *, void *))P(vt, 0x18) : (void *)0;
     void *g = get ? get(style, name, out) : (void *)0;
     int own = __builtin_return_address(0) == (void *)STYLE_COLOR_GRADIENT_RET;
     for (int i = 0; !own && g && g == out && i < I(g, 8) && i < 8; ++i)
@@ -1468,10 +1478,12 @@ static int starts(const char *name, const char *prefix) {
  * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
-    unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4, preset = accent();
+    unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4,
+             preset = accent();
     unsigned char *data = (void *)0;
     const char *s = name;
-    int dark = s && (starts(s, CONFIRM_IMAGE) || (starts(s, DROPDOWN_IMAGE) && !starts(s, DROPDOWN_SUN)));
+    int dark =
+        s && (starts(s, CONFIRM_IMAGE) || (starts(s, DROPDOWN_IMAGE) && !starts(s, DROPDOWN_SUN)));
     unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED];
     while (s && *s && *s != '/' && *s != ':') ++s;
     if ((preset != CRIMSON || dark) && format < 4 && s && !*s)
@@ -1480,7 +1492,8 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
         const unsigned char *o = at[format];
         unsigned stride = bitmap_get_line_length(bitmap);
         for (int y = 0; y < I(bitmap, 4); ++y)
-            for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end; p += 4) {
+            for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end;
+                 p += 4) {
                 unsigned c = red_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, tone);
                 p[o[0]] = c;
                 p[o[1]] = c >> 8;
@@ -1637,7 +1650,8 @@ static int compact_row_layout(void *layout, void *row) {
     if (text && widget_get_visible(text)) {
         int width = I(row, W_W) - 2 * B(layout, DEFAULT_LAYOUT_X_MARGIN);
         if (drill(row)) /* as if a stock img_into were the last child */
-            width -= CHEVRON_W - B(layout, DEFAULT_LAYOUT_X_MARGIN) + B(layout, DEFAULT_LAYOUT_SPACING);
+            width -=
+                CHEVRON_W - B(layout, DEFAULT_LAYOUT_X_MARGIN) + B(layout, DEFAULT_LAYOUT_SPACING);
         for (unsigned i = 0; i < count; ++i) {
             void *child = widget_get_child(row, i);
             if (child != text && widget_get_visible(child))
@@ -1680,7 +1694,8 @@ static void set_child(void *c, int row_w, int row_h, int shift) {
     } else
         y -= (SET_STOCK_BODY - row_h) / 2;
     if (w == SET_STOCK_ICON && !tk_strcmp(widget_get_type(c), "image")) {
-        /* the build pre-sizes the audited icons to SET_ICON, so they draw 1:1; any other one scales down */
+        /* the build pre-sizes the audited icons to SET_ICON, so they draw 1:1; any other one scales
+         * down */
         image_set_draw_type(c, IMAGE_DRAW_SCALE_DOWN);
         widget_move_resize(c, SET_ICON_X, (row_h - SET_ICON) / 2, SET_ICON, SET_ICON);
         return;
@@ -1700,7 +1715,8 @@ static void *set_button(void *item) {
     if (tk_strcmp(widget_get_type(item), "list_item")) return (void *)0;
     for (unsigned i = 0; i < widget_count_children(item); ++i) {
         void *b = widget_get_child(item, i);
-        if (I(b, W_X) == SET_STOCK_X && I(b, W_W) == SET_STOCK_W && !tk_strcmp(widget_get_type(b), "button"))
+        if (I(b, W_X) == SET_STOCK_X && I(b, W_W) == SET_STOCK_W &&
+            !tk_strcmp(widget_get_type(b), "button"))
             return b;
     }
     return (void *)0;
@@ -1723,7 +1739,8 @@ static void set_row(void *item) {
         }
         widget_move_resize(b, 0, 0, row_w, row_h);
         for (unsigned j = 0; j < n; ++j)
-            set_child(widget_get_child(b, j), row_w, row_h, row_w - SET_EDGE - 50 - SET_STOCK_X - trail);
+            set_child(widget_get_child(b, j), row_w, row_h,
+                      row_w - SET_EDGE - 50 - SET_STOCK_X - trail);
     }
 }
 
@@ -1810,9 +1827,7 @@ static unsigned rec_hash(void *r) {
 }
 
 /* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
-static unsigned browse_hash(void) {
-    return local_hash(hash_bytes(FNV_SEED, g_folder_path, 1024));
-}
+static unsigned browse_hash(void) { return local_hash(hash_bytes(FNV_SEED, g_folder_path, 1024)); }
 
 static void *qm_record(void) {
     void *list = st.qm_kind == QM_COVERFLOW
@@ -2109,7 +2124,8 @@ int ringnav(void *ctx, void *event) {
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
 #if IPOD
-    if (top != st.np_win || window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm))
+    if (top != st.np_win || window_manager_is_animating(wm) ||
+        window_manager_get_pointer_pressed(wm))
         np_cancel();
     else if (key == KEY_CENTER || st.scrub)
         return np_key(top, key);
