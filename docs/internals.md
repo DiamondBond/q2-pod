@@ -174,11 +174,16 @@ Crimson returns every color unchanged, so its theme is stock.
   with black, so they map the same way.
 
 The confirm pop-up's discs (`confirm_ok`, `confirm_cancel` and their pressed images, names
-starting `CONFIRM_IMAGE`) and the quick settings' control discs (names starting `DROPDOWN_IMAGE`,
-`drop_`, except the brightness suns, `DROPDOWN_SUN`) go through the same mapping with
-`CONFIRM_SURFACE` (`#2B2B2B`) as the tone under every preset, Crimson included, so their red
-(active) discs are dark with near-white glyphs whatever the accent ([ipod.md](ipod.md#pop-ups),
-[quick settings](ipod.md#quick-settings)); grey discs hold no red and are unchanged. `red_map` is the mapping with an explicit tone;
+starting `CONFIRM_IMAGE`) go through the same mapping with `CONFIRM_SURFACE` (`#2B2B2B`) as the
+tone under every preset, Crimson included ([ipod.md](ipod.md#pop-ups)). The quick settings'
+control discs (names starting `DROPDOWN_IMAGE`, `drop_`, except the brightness suns, `DROPDOWN_SUN`)
+take the preset's red tone; when that tone is brighter than `GLYPH_LIGHT_MAX` (Graphite's silver),
+an image that holds red also maps its neutral glyph pixels to `CONFIRM_SURFACE`, so the white glyph
+turns dark ([quick settings](ipod.md#quick-settings)). Grey discs hold no red and are unchanged.
+The settings rows' category icons (`settings_icons` in `patch/compact.json`, which the builder
+writes to `SETTINGS_ICON_NAMES` in `stock.h`) are never mapped: several use stock red as their
+category colour (Network Service, DLNA, Wi-Fi, Backlight), like the purple and orange ones.
+`red_map` is the mapping with an explicit tone;
 `accent_map` is it with the preset's tone, and the identity for Crimson.
 
 Changing the accent saves it, sets the progress fill, calls `image_manager_unload_all(image_manager())`

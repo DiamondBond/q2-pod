@@ -1001,10 +1001,12 @@ int ipod_home_full(void) {
  * channel within RED_TOLERANCE, becomes the same blend of one of the preset's tones (TONE_RED for
  * text and images, TONE_LIGHT for every other color): flat reds,
  * pressed tints and anti-aliased edges follow the accent, alpha is kept, and greys and other hues
- * are unchanged. t comes from least squares against red with the mean removed, in 1/4096. Crimson
- * is the identity. */
+ * are unchanged. t comes from least squares against red with the mean removed, in 1/4096. The white
+ * part (k) becomes that share of glyph: white keeps a blend's light part as it is. With another
+ * glyph, neutral pixels (the glyph itself) map too, so pass it only for an image that holds red.
+ * Crimson is the identity. */
 enum { TONE_LIGHT = 2, TONE_RED = 3 }; /* columns of ACCENTS */
-static unsigned red_map(unsigned c, unsigned tone) {
+static unsigned red_map(unsigned c, unsigned tone, unsigned glyph) {
     static const int red[3] = { STOCK_RED >> 16, STOCK_RED >> 8 & 255, STOCK_RED & 255 };
     const int sum = red[0] + red[1] + red[2];
     int ch[3] = { c & 255, c >> 8 & 255, c >> 16 & 255 }, s = ch[0] + ch[1] + ch[2], d = 0, dd = 0;
@@ -1012,19 +1014,22 @@ static unsigned red_map(unsigned c, unsigned tone) {
         d += (3 * ch[i] - s) * (3 * red[i] - sum);
         dd += (3 * red[i] - sum) * (3 * red[i] - sum);
     }
-    int t = d * 4096 / dd, k = (s * 4096 - t * sum) / (3 * 4096);
-    if (t < 256 || t > 4096 + 256 || k < -RED_TOLERANCE) return c;
+    int t = d * 4096 / dd;
+    if (t < 256 && glyph != 0xffffff) t = 0; /* a neutral glyph pixel takes the glyph colour too */
+    int k = (s * 4096 - t * sum) / (3 * 4096);
+    if ((t && t < 256) || t > 4096 + 256 || k < -RED_TOLERANCE) return c;
     unsigned out = c & 0xff000000u;
     for (int i = 0; i < 3; ++i) {
         int miss = ch[i] - (t * red[i] / 4096 + k);
         if (miss > RED_TOLERANCE || miss < -RED_TOLERANCE) return c;
-        int v = t * (int)(tone >> (16 - 8 * i) & 255) / 4096 + k;
+        int v = t * (int)(tone >> (16 - 8 * i) & 255) / 4096 +
+                k * (int)(glyph >> (16 - 8 * i) & 255) / 255;
         out |= (unsigned)(v < 0 ? 0 : v > 255 ? 255 : v) << 8 * i;
     }
     return out;
 }
 unsigned accent_map(unsigned c, int preset, int tone) {
-    return preset == CRIMSON ? c : red_map(c, accents[preset][tone]);
+    return preset == CRIMSON ? c : red_map(c, accents[preset][tone], 0xffffff);
 }
 
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; r.h is at least 2.
@@ -1470,11 +1475,23 @@ static int starts(const char *name, const char *prefix) {
     return !*prefix;
 }
 
+/* 1 if name is one of the settings rows' category icons (SETTINGS_ICON_NAMES in stock.h, from
+ * compact.json): their red is a category colour, like the purple and orange ones, not an accent. */
+static int settings_icon(const char *name) {
+    for (const char *n = SETTINGS_ICON_NAMES; *n;) {
+        if (!tk_strcmp(name, n)) return 1;
+        while (*n++) {}
+    }
+    return 0;
+}
+
 /* Decoded theme images are mapped once, before the image manager caches them. Only a plain asset
- * name is the theme's: covers by path or URL (a '/' or ':') never are. The confirm pop-up's discs
- * (CONFIRM_IMAGE*) and the quick settings' active controls (DROPDOWN_IMAGE*, not the brightness
- * suns) take the dark CONFIRM_SURFACE under every accent, Crimson included, so their white glyphs
- * stay legible; everything else red takes the accent's red tone.
+ * name is the theme's: covers by path or URL (a '/' or ':') never are, nor are the settings icons.
+ * The confirm pop-up's discs (CONFIRM_IMAGE*) take the dark CONFIRM_SURFACE under every accent,
+ * Crimson included, so their white glyphs stay legible. The quick settings' active controls
+ * (DROPDOWN_IMAGE*, not the brightness suns) take the accent's red tone like everything else red,
+ * but their white glyph turns CONFIRM_SURFACE on a tone brighter than GLYPH_LIGHT_MAX (Graphite's
+ * silver), so an active disc stands apart from the grey inactive ones and its glyph stays legible.
  * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
@@ -1482,19 +1499,31 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
              preset = accent();
     unsigned char *data = (void *)0;
     const char *s = name;
-    int dark =
-        s && (starts(s, CONFIRM_IMAGE) || (starts(s, DROPDOWN_IMAGE) && !starts(s, DROPDOWN_SUN)));
-    unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED];
+    int dark = s && starts(s, CONFIRM_IMAGE);
+    int control = s && starts(s, DROPDOWN_IMAGE) && !starts(s, DROPDOWN_SUN);
+    unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED], glyph = 0xffffff;
+    if (control && ((tone >> 16) * 299 + (tone >> 8 & 255) * 587 + (tone & 255) * 114) / 1000 >
+                       GLYPH_LIGHT_MAX)
+        glyph = CONFIRM_SURFACE;
     while (s && *s && *s != '/' && *s != ':') ++s;
-    if ((preset != CRIMSON || dark) && format < 4 && s && !*s)
+    if ((preset != CRIMSON || dark) && format < 4 && s && !*s && !settings_icon(name))
         data = bitmap_lock_buffer_for_write(bitmap);
     if (data) {
         const unsigned char *o = at[format];
         unsigned stride = bitmap_get_line_length(bitmap);
+        /* Only an active control holds red; an inactive one keeps its white glyph. */
+        int red = 0;
+        for (int y = 0; glyph != 0xffffff && !red && y < I(bitmap, 4); ++y)
+            for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); !red && p < end;
+                 p += 4) {
+                unsigned c = p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16;
+                red = red_map(c, tone, 0xffffff) != c;
+            }
+        if (!red) glyph = 0xffffff;
         for (int y = 0; y < I(bitmap, 4); ++y)
             for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end;
                  p += 4) {
-                unsigned c = red_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, tone);
+                unsigned c = red_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, tone, glyph);
                 p[o[0]] = c;
                 p[o[1]] = c >> 8;
                 p[o[2]] = c >> 16;

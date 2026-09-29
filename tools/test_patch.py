@@ -3206,10 +3206,11 @@ if variant=='ipod':
         passed()
 
     # Quick settings: the active controls' stock red discs (#FF1448, white glyph, pink anti-aliased
-    # glyph edges) take the same CONFIRM_SURFACE under every accent, their glyphs staying light at
-    # 4.5:1 or more with transparent pixels untouched. Inactive (#444444) and disabled discs keep
-    # their stock greys, so an active control still reads apart from an inactive one. The
-    # brightness suns, on black rather than a disc, keep the accent's red tone.
+    # glyph edges) take the accent's red tone, as everything red does; on a tone brighter than
+    # GLYPH_LIGHT_MAX (Graphite's silver) the glyph turns CONFIRM_SURFACE so it stays legible, else
+    # it stays white. Glyph and edges keep 3:1 on the disc and transparent pixels are untouched.
+    # Inactive (#444444) and disabled discs keep their stock greys, and an active disc reads clearly
+    # apart from them. The brightness suns, on black rather than a disc, keep the accent's red tone.
     def rgba(config,name,pixels_):
         m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
         bm=m.alloc(0x60); data=m.alloc(4*len(pixels_))
@@ -3221,19 +3222,28 @@ if variant=='ipod':
     ACTIVE=('drop_wifiopen','drop_btopen','drop_keylockopen','drop_highgain','drop_lo','drop_usbaudio','drop_usbdac')
     INACTIVE=('drop_wifi','drop_bt','drop_keylock','drop_lowgain','drop_po','drop_usbstorage','drop_playset','drop_sysset')
     disc=[(0xff1448,255),(0xffffff,255),(0xffc0d0,255),(0xff1448,0),(0x000000,0)]  # disc, glyph, glyph edge, transparent
+    def perceived(c): return ((c>>16)*299+(c>>8&255)*587+(c&255)*114)//1000
     for preset in range(len(ACCENTS)):
         config={'ACCENT':str(preset)}
+        tone=0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3]
+        light=preset!=O['CRIMSON'] and perceived(tone)>O['GLYPH_LIGHT_MAX']
         for name in ACTIVE:
             (d,da),(g,ga),(e,ea),*clear=rgba(config,name,disc)
-            assert d==S and da==255 and g==0xffffff and ratio(g,d)>=4.5 and ratio(e,d)>=4.5,(preset,name,hex(d),hex(e))
+            assert d==tone and da==255 and g==(S if light else 0xffffff),(preset,name,hex(d),hex(g))
+            assert ratio(g,d)>=3 and ratio(e,d)>=2,(preset,name,hex(d),hex(e))
+            assert max(ratio(d,0x444444),ratio(0x444444,d))>=1.5,(preset,name,hex(d))  # reads apart from inactive
             assert [a for _,a in clear]==[0,0],(preset,name)  # transparency kept
+        assert light==(preset==0)  # only Graphite's silver takes the dark glyph
         for name in INACTIVE+('drop_highgaindisable','drop_lowgaindisable'):
             grey=[(0x444444,255),(0xffffff,255),(0x5b5b5b,255),(0x222222,255)]
             assert rgba(config,name,grey)==grey,(preset,name)
-        assert ratio(0x444444,0)/ratio(S,0)>=1.4  # the active disc reads darker than an inactive one
         red=[(0xff1448,255)]
         for name in ('drop_lighleft','drop_lightright','eqdrop_dot','dropdown','xdrop_bt'):
-            assert rgba(config,name,red)==[(0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3],255)],(preset,name)
+            assert rgba(config,name,red)==[(tone,255)],(preset,name)
+        # The settings rows' category icons keep their stock colours, red ones included.
+        pink=[(0xcf2f53,255),(0xff1448,255),(0xffffff,255)]
+        for name in ('system_netservice','netservice_dlna','wifiset_wifi','display_backlight','system_language'):
+            assert rgba(config,name,pink)==pink,(preset,name)
         # A cover whose file name starts like an asset stays unmapped.
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()

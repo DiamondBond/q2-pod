@@ -95,6 +95,9 @@
  * black, not a disc, so they keep the accent's red tone. */
 #define DROPDOWN_IMAGE "drop_"
 #define DROPDOWN_SUN "drop_ligh"
+/* An active control's white glyph turns CONFIRM_SURFACE on an accent tone brighter than this
+ * (perceived 0-255, 0.299 R + 0.587 G + 0.114 B): Graphite's silver; the others keep white. */
+#define GLYPH_LIGHT_MAX 160
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */

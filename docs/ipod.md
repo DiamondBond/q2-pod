@@ -244,14 +244,15 @@ never moves or resizes one.
 
 The controls' stock images are 60-pixel discs: `#444444` with a white glyph when off, stock red
 (`#FF1448`) with a white glyph when on (`drop_wifiopen`, `drop_btopen`, `drop_keylockopen`,
-`drop_highgain`, `drop_lo`, `drop_usbaudio`, `drop_usbdac`), grey glyphs when disabled. The accent
-mapping turned the red into the accent's light red tone, so Graphite's silver left white glyphs
-barely readable. The image hook now gives every `drop_*` image the confirm pop-up's treatment
-([Pop-ups](#pop-ups)): stock red becomes `CONFIRM_SURFACE` (`#2B2B2B`) under every accent, Crimson
-included, and the white glyphs and their anti-aliased edges stay light (4.5:1 or more); alpha is
-untouched. Off (`#444444`) and disabled discs contain no red and keep their stock look, so an
-active control reads as the darker disc. The brightness suns (`drop_lighleft`, `drop_lightright`)
-sit on black, not a disc, and keep the accent's red tone (`DROPDOWN_SUN`).
+`drop_highgain`, `drop_lo`, `drop_usbaudio`, `drop_usbdac`), grey glyphs when disabled. An active
+disc takes the accent's red tone, as everything else red does, so it stands clearly apart from the
+grey inactive discs. On a tone brighter than `GLYPH_LIGHT_MAX` (perceived brightness 160 of 255),
+which is Graphite's silver, the white glyph and its anti-aliased edges turn `CONFIRM_SURFACE`
+(`#2B2B2B`) so the glyph stays legible; Crimson, Tidal and Champagne keep the white glyph (3:1 or
+more). Only an image that holds the red disc gets the dark glyph, so inactive discs keep their white
+glyphs; off and disabled discs contain no red and keep their stock look, and alpha is untouched.
+The brightness suns (`drop_lighleft`, `drop_lightright`) sit on black, not a disc, and keep the
+accent's red tone (`DROPDOWN_SUN`).
 
 ## Coverflow
 
