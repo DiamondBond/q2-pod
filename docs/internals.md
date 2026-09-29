@@ -174,9 +174,11 @@ Crimson returns every color unchanged, so its theme is stock.
   with black, so they map the same way.
 
 The confirm pop-up's discs (`confirm_ok`, `confirm_cancel` and their pressed images, names
-starting `CONFIRM_IMAGE`) go through the same mapping with `CONFIRM_SURFACE` (`#2B2B2B`) as the
-tone under every preset, Crimson included, so they are dark with near-white glyphs whatever the
-accent ([ipod.md](ipod.md#pop-ups)). `red_map` is the mapping with an explicit tone;
+starting `CONFIRM_IMAGE`) and the quick settings' control discs (names starting `DROPDOWN_IMAGE`,
+`drop_`, except the brightness suns, `DROPDOWN_SUN`) go through the same mapping with
+`CONFIRM_SURFACE` (`#2B2B2B`) as the tone under every preset, Crimson included, so their red
+(active) discs are dark with near-white glyphs whatever the accent ([ipod.md](ipod.md#pop-ups),
+[quick settings](ipod.md#quick-settings)); grey discs hold no red and are unchanged. `red_map` is the mapping with an explicit tone;
 `accent_map` is it with the preset's tone, and the identity for Crimson.
 
 Changing the accent saves it, sets the progress fill, calls `image_manager_unload_all(image_manager())`
@@ -188,7 +190,7 @@ the hook and shows every recoloured part; nothing needs a restart.
 
 The background hook also handles top-level widgets, whose parent is the window manager. The status bar widget, which `system_bar_init` stores in the `system_bar` global (`0xa3a6d0`, a size-checked `CONTEXT_DATA` entry), gets the same band gradient as the selection in darker colors, `BAR_TOP`/`BAR_BOTTOM`/`BAR_HI` (`#3A3A3A` to `#1C1C1C`, highlight `#4A4A4A`), with the LCD fill color restored.
 
-Painting the top window, of type `window` so a dialog keeps the page title below it, updates `label_title` in the bar. The title is the text of the first child with text under the window's `view_navbar` while that navbar is hidden: the native settings title or a local page's `scrlabel_title`, which native code keeps current. A visible navbar shows its own title, so the bar shows none. Home, which has no navbar and no stock title string, shows `Q2`, `coverflow_page` `Coverflow` (as its Home row), and `playing_page` the stock `small_playing` string ("Now Playing"), all three through `widget_set_tr_text` (`0x6613e0`); a key missing from the string table shows as itself. Other text goes through `widget_set_text` (`0x6611f8`, UTF-32). The sync also runs when the bar itself paints, at least once a second through `systembar_showface`, so a native rename shows within a second even if the window does not repaint. Each sync looks up `view_navbar` among the window's direct children and hashes the title; the label is written only when the hash changes. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
+Painting the bar or the top window also updates `label_clock` in the bar with the device's local time: `time` and `localtime` (the stock libc imports, through the payload's GOT trampolines) give the hour and minute (`struct tm` `+8`, `+4`), written through `tk_snprintf` as `%d:%02d %s`, a 12-hour clock without seconds or a leading zero (`12:05 AM`, `6:14 PM`), then `widget_set_text_utf8`. A failed `time` (`-1`) or `localtime` (null), or an out-of-range field, shows `--:--`. The minute of the day (plus one, `~0` for `--:--`) is kept in the scratch page, so the label is looked up and written only when the minute shown changes; the bar repaints at least once a second through `systembar_showface`, so the clock turns over within a second, including after the screen wakes. Every page and dialog shows it; the old page-title sync is gone. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
 
 ## Now Playing (iPod)
 

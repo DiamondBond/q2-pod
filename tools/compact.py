@@ -45,13 +45,15 @@ def corner_x(y, h):
 
 # iPod status bar (system_bar.bin, 375x30). Its 16px icons sit at y 7 to 23, so both groups keep
 # clear of the top corners. The play state and EQ are on the left, as in stock; Bluetooth/codec,
-# Wi-Fi and the battery on the right. The title is centred on the screen, between the wider
-# group's extent with every icon shown and the same distance from the other edge.
+# Wi-Fi and the battery on the right. The clock is centred on the screen, between the wider
+# group's extent with every icon shown and the same distance from the other edge; CLOCK_MIN leaves
+# room for its widest text, "12:59 PM" (86px at 20px, test_build.py).
 STATUS_MARGIN = corner_x(7, 16)
-TITLE_MIN = 110
+CLOCK_MIN = 110
 # iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. The
 # labels fit the longest English one ("Playback Setting", 149px at 20px) and all start where the last
-# row's clears the bottom-left corner. The art is a square on the right, centred on the list. In Full
+# row's clears the bottom-left corner. The art fills the right panel, edge to edge below the status
+# bar; the payload fits it to each cover and crops it evenly (coverflow_home_art). In Full
 # the rows end at HOME_FULL_ROW (patch/offsets.inc), so the chevron's glyph mirrors the text margin.
 INC = (ROOT/'patch/offsets.inc').read_text()
 
@@ -67,8 +69,7 @@ HOME_ROW = 39
 HOME_TEXT_X = max(MARGIN, corner_x(30 + HOME_TOP + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
 HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
 HOME_LIST_W = HOME_TEXT_X + 149 + HOME_LABEL_END
-HOME_ART = 375 - HOME_LIST_W - 2 * MARGIN
-HOME_ART_RECT = [HOME_LIST_W + MARGIN, HOME_TOP + (7 * HOME_ROW - HOME_ART) // 2, HOME_ART, HOME_ART]
+HOME_ART_RECT = [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290]  # the whole right panel under the status bar
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
 # 251; their x follows NP_BAR through the np_bar_* immediates in compact.json. The window starts
@@ -230,7 +231,7 @@ def ipod_home(root):
     root[3] = [
         ['list_view', [0, HOME_TOP, HOME_LIST_W, HOME_ROW * len(rows)],
          {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_BLACK}, [view]],
-        ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'scale_auto'}, []]]
+        ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'fill'}, []]]
 
 
 def style_props(data):
@@ -284,14 +285,14 @@ def status_bar(root):
         view[2]['children_layout'] = layout.replace('xm=50', f'xm={STATUS_MARGIN}')
     extent = max(STATUS_MARGIN + sum(n[1][2] for n in v[3]) + 5 * (len(v[3]) - 1) for v in (left, right))
     width = 375 - 2 * extent
-    require(width >= TITLE_MIN and right[1][0] + right[1][2] == 375, f'Status bar title {width}px, too narrow')
+    require(width >= CLOCK_MIN and right[1][0] + right[1][2] == 375, f'Status bar clock {width}px, too narrow')
     for name in STATUS_HIDDEN:
         g = widgets[name][1]
         g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen
         root[3].append(widgets[name])
-    # The payload copies each page's title here (ringnav_paint_bg); a long one ends in an ellipsis.
+    # The payload writes the local time here (ringnav_paint_bg).
     root[3].append(['hscroll_label', [extent, 0, width, 30], {
-        'name': 'label_title', 'style': 's_scrlabel_white20c', 'only_focus': 'true', 'ellipses': 'true'}, []])
+        'name': 'label_clock', 'style': 's_scrlabel_white20c', 'only_focus': 'true'}, []])
 
 
 # iPod only. Stock finds every Now Playing widget by name, recursively, so they can move: title, artist

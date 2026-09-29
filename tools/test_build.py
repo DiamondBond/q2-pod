@@ -26,12 +26,36 @@ for data in (b'', b'not a JPEG', frame, frame + bytes(8),
     raise AssertionError(f'Accepted malformed JPEG header: {data!r}')
 print('JPEG header regression checks passed.')
 
+def text_width(ttf, text, px):
+    """Advance width in pixels of text at px in a TrueType font (cmap 3/1 format 4, hmtx), as the
+    stock label draws it: no kerning pairs in the digits, colon, space or AM/PM."""
+    import struct
+    u16 = lambda at: struct.unpack_from('>H', ttf, at)[0]
+    tables = {ttf[12+16*i:16+16*i]: struct.unpack_from('>I', ttf, 20+16*i)[0] for i in range(u16(4))}
+    head, hhea, hmtx, cmap = (tables[t] for t in (b'head', b'hhea', b'hmtx', b'cmap'))
+    sub = next(cmap + struct.unpack_from('>I', ttf, cmap+8+8*i)[0] for i in range(u16(cmap+2))
+               if (u16(cmap+4+8*i), u16(cmap+6+8*i)) == (3, 1))
+    assert u16(sub) == 4
+    seg2 = u16(sub+6)
+    ends = sub + 14
+    starts = ends + seg2 + 2  # past reservedPad
+    deltas, ranges = starts + seg2, starts + 2*seg2
+    def glyph(c):
+        i = next(i for i in range(0, seg2, 2) if c <= u16(ends+i))
+        if c < u16(starts+i): return 0
+        if not u16(ranges+i): return (c + u16(deltas+i)) & 0xffff
+        g = u16(ranges+i + u16(ranges+i) + 2*(c - u16(starts+i)))
+        return (g + u16(deltas+i)) & 0xffff if g else 0
+    units = sum(u16(hmtx + 4*min(glyph(ord(ch)), u16(hhea+34) - 1)) for ch in text)
+    return units * px / u16(head+18)
+
+
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF
     from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
-                         NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, TITLE_MIN, corner_inset, corner_x,
+                         NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
                          decode, inc, walk, patch_asset, patch_code, patch_style, style_props)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
@@ -90,8 +114,8 @@ def validate_assets(directory):
         kind, _, p, v = c
         if int(v[6:], 16) <= 0x40: return False
         return luma(v) < 0.25 if p == 'text_color' else luma(v) > 0.35 and kind != 'image'
-    # iPod: text and icons must clear the glass's rounded corners (compact.CORNER_R); backgrounds and
-    # bars may reach into them. Content is a label's font-high band, an image drawn centred at its
+    # iPod: text and icons must clear the glass's rounded corners (compact.CORNER_R); backgrounds,
+    # bars and full-bleed art may reach into them. Content is a label's font-high band, an image drawn centred at its
     # size, a slider's bar, else the widget; the window clips it, and row layouts place their children.
     # List rows scroll, so only fixed widgets are checked.
     fonts = {(w, s): int.from_bytes(v, 'little') for w, s, state, p, _, v in style_props(
@@ -111,6 +135,7 @@ def validate_assets(directory):
         name = props.get('image') or props.get('style:normal:bg_image')
         if kind not in ('image', 'gif', 'image_animation') or not name: return None
         draw = props.get('draw_type') if 'image' in props else props.get('style:normal:bg_image_draw_type', 'center')
+        if draw == 'fill': return None  # full-bleed art, like a background: the glass rounds its corners
         size = image_size(name) if draw == 'center' else None
         return (x + (w - size[0]) // 2, y + (h - size[1]) // 2, *size) if size else (x, y, w, h)
     def corners(short, n, x0, y0, window, slot=None):
@@ -196,6 +221,8 @@ def validate_assets(directory):
         if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
             (lv, lg, _, [sv]), art = root[3]
             assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
+            # The art fills the right panel below the status bar; the payload fits and crops it.
+            assert art[1] == [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290] and art[2]['draw_type'] == 'fill'
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
                 assert label[2]['name'] == 'label_'+name and image[2] == {'name': 'img_'+name, 'clickable': 'true'}
@@ -214,10 +241,15 @@ def validate_assets(directory):
             left, right, *rest = root[3]
             assert [n[2]['name'] for n in left[3]] == STATUS_LEFT and [n[2]['name'] for n in right[3]] == STATUS_RIGHT
             title = rest.pop()
-            assert title[0] == 'hscroll_label' and title[2]['name'] == 'label_title'
+            assert title[0] == 'hscroll_label' and title[2]['name'] == 'label_clock'
             x, _, w, _ = title[1]
-            assert x + w/2 == 375/2 and w >= TITLE_MIN  # centred on the screen, clear of both groups (corners below)
-            assert inc('TITLE_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('TITLE_EDGE')
+            assert x + w/2 == 375/2 and w >= CLOCK_MIN  # centred on the screen, clear of both groups (corners below)
+            assert inc('CLOCK_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('CLOCK_EDGE')
+            # Every 12-hour time the payload writes ("12:59 PM" is the widest) fits the label at 20px.
+            ttf = read('rootfs.squashfs', 'release/assets/default/raw/fonts/default.ttf')
+            assert fonts[('hscroll_label', title[2]['style'])] == 20
+            widest = max(text_width(ttf, f'{h}:{m:02d} {p}', 20) for h in range(1, 13) for m in range(60) for p in ('AM', 'PM'))
+            assert widest == text_width(ttf, '12:59 PM', 20) and 80 < widest <= w, (widest, w)
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
             continue

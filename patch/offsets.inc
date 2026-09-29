@@ -89,6 +89,12 @@
  * near white (14.2:1 and 5.6:1). The wheel's focus is the accent tile behind the disc, framed white. */
 #define CONFIRM_SURFACE 0x2b2b2b
 #define CONFIRM_IMAGE "confirm_"
+/* Quick settings' active controls (drop_wifiopen, drop_btopen, drop_highgain, ...) are the same
+ * red discs with white glyphs, so they take CONFIRM_SURFACE too. Their inactive discs stay stock
+ * #444444 and disabled ones keep their grey glyphs. The brightness suns (DROPDOWN_SUN*) sit on
+ * black, not a disc, so they keep the accent's red tone. */
+#define DROPDOWN_IMAGE "drop_"
+#define DROPDOWN_SUN "drop_ligh"
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
@@ -96,9 +102,9 @@
 #define BAR_TOP 0x3a3a3a
 #define BAR_BOTTOM 0x1c1c1c
 #define BAR_HI 0x4a4a4a
-/* iPod status bar title: never nearer the screen edge than TITLE_EDGE, where its 20px text clears
+/* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
  * the top corners (test_build.py). */
-#define TITLE_EDGE 57
+#define CLOCK_EDGE 57
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58

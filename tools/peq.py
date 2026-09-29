@@ -37,6 +37,8 @@ LIBC = {
     'pthread_join': ('int', 'unsigned long, void **'), 'pthread_mutex_lock': ('int', 'void *'),
     'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
     'strdup': ('char *', 'const char *'),
+    # iPod status bar clock (ringnav.c)
+    'time': ('long', 'long *'), 'localtime': ('const int *', 'const long *'),
 }
 
 def compile_common(out, binary, player=False, ipod=False):

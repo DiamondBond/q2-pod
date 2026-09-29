@@ -61,6 +61,8 @@ unsigned widget_count_children(void *);
 void *widget_get_child(void *, unsigned);
 void *widget_lookup(void *, const char *, int);
 int widget_move_resize(void *, int, int, int, int), widget_get_visible(void *);
+int canvas_get_clip_rect(void *, void *), canvas_set_clip_rect(void *, const void *);
+int widget_set_sensitive(void *, int);
 const char *widget_get_type(void *);
 int tk_strcmp(const char *, const char *);
 unsigned timer_add(int (*)(const void *), void *, unsigned);
@@ -102,12 +104,15 @@ CREATE(hscroll_label_create, "hscroll_label")
 CREATE(scroll_view_create, "scroll_view") CREATE(list_item_create, "list_item")
 int image_set_draw_type(void *x, int t) { (void)x; (void)t; return 0; }
 int image_base_set_image(void *x, const char *s) { snprintf(W(x)->image, 600, "%s", s); return 0; }
-/* A zero-length "no art" marker does not decode. Every successful load is unloaded again. */
+/* A zero-length "no art" marker does not decode. Every successful load is unloaded again and
+   decodes to art_w x art_h (bitmap_t w @0, h @4). */
 static int loads, unloads;
+static unsigned art_w = 160, art_h = 160;
 int widget_load_image(void *x, const char *url, void *b) {
-    (void)x; (void)b; struct stat s;
+    (void)x; struct stat s;
     int failed = strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
     loads += !failed;
+    if (!failed) ((unsigned *)b)[0] = art_w, ((unsigned *)b)[1] = art_h;
     return failed;
 }
 int widget_unload_image(void *x, void *b) { (void)x; (void)b; ++unloads; return 0; }
@@ -145,6 +150,11 @@ int widget_move_resize(void *x, int left, int top, int ww, int h) {
     r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
     return 0;
 }
+static int insensitive; /* the widget last made insensitive */
+int widget_set_sensitive(void *x, int v) { if (!v) insensitive = W(x) - w; return 0; }
+static int clip_rect[4] = { 0, 0, 375, 320 }; /* the canvas clip, screen x, y, w, h */
+int canvas_get_clip_rect(void *c, void *r) { (void)c; memcpy(r, clip_rect, sizeof clip_rect); return 0; }
+int canvas_set_clip_rect(void *c, const void *r) { (void)c; memcpy(clip_rect, r, sizeof clip_rect); return 0; }
 const char *widget_get_type(void *x) { return W(x)->type; }
 int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
@@ -424,15 +434,18 @@ int main(void) {
     deque queue = {0};
     shim_queue = &queue;
     home_art = make(0, "image");
+    int *geo = (int *)W(home_art)->raw, panel[4] = { 230, 0, 145, 290 }; /* W_X, W_Y, W_W, W_H */
+    memcpy(geo, panel, sizeof panel);
     widget *win = make(0, "window");
     const char *art = W(home_art)->image, *player = "file://" PEQ_ROOT "/tmp/coverpic.jpg";
     mkdir(PEQ_ROOT "/tmp", 0755);
     FILE *f = fopen(PEQ_ROOT "/tmp/coverpic.jpg", "w"); fputs("jpg", f); fclose(f);
     coverflow_home(win, 0);
+    assert(&w[insensitive] == W(home_art)); /* taps under a fitted cover still find the list */
     coverflow_home_art(page);
     assert(!*art);
     coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_big"));
+    assert(!strcmp(art, "default_album_big") && !memcmp(geo, panel, sizeof panel)); /* no size: the panel */
     queue.n = 2; queue.at[0] = records[0]; queue.at[1] = records[3]; /* "Cover" is cached, "None" is not */
     *(volatile int *)MCL_POS = 0;
     shim_covertype = 1;
@@ -441,6 +454,28 @@ int main(void) {
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[0]);
     coverflow_home_art(win);
     assert(!strcmp(art, player));
+    /* Square, portrait and landscape covers keep their proportions, just cover the panel and are
+       centred on it; C division leaves an odd overflow's extra pixel on the right or bottom. */
+    static const unsigned covers[][6] = { { 160, 160, 158, 0, 290, 290 }, { 145, 290, 230, 0, 145, 290 },
+                                         { 300, 200, 85, 0, 435, 290 }, { 100, 400, 230, -145, 145, 580 } };
+    for (unsigned i = 0; i < 4; ++i) {
+        art_w = covers[i][0], art_h = covers[i][1];
+        *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
+        for (int k = 0; k < 4; ++k) assert(geo[k] == (int)covers[i][2 + k]);
+    }
+    art_w = art_h = 160;
+    /* The art's paint is clipped to the panel on screen (canvas origin at the art, window at y 30)
+       from the background hook to the border hook; other widgets keep the clip. */
+    extern void coverflow_home_clip(void *, void *, int);
+    int canvas[2] = { geo[0], 30 + geo[1] }, full[4] = { 0, 0, 375, 320 }, want[4] = { 230, 30, 145, 290 };
+    coverflow_home_clip(home_art, canvas, 1);
+    assert(!memcmp(clip_rect, want, sizeof want));
+    coverflow_home_clip(win, canvas, 0);
+    assert(!memcmp(clip_rect, want, sizeof want));
+    coverflow_home_clip(home_art, canvas, 0);
+    assert(!memcmp(clip_rect, full, sizeof full));
+    coverflow_home_clip(win, canvas, 1);
+    assert(!memcmp(clip_rect, full, sizeof full));
     before = loads;
     coverflow_home_art(win);
     assert(loads == before);
@@ -494,7 +529,7 @@ def main():
                             str(tmp/'test.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
-          ' iPod Home art sources and Split/Full layout passed.')
+          ' iPod Home art sources, fit, clip and Split/Full layout passed.')
 
 
 if __name__ == '__main__':

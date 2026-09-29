@@ -72,12 +72,12 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 
 ## iPod variant
 
-- **Home** is a list instead of the carousel: Now Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting and System Setting. It sits beside the playing track's cover, or spans the screen (see **Home** below).
+- **Home** is a list instead of the carousel: Now Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting and System Setting. It sits beside the playing track's cover, which fills the right side of the screen, or spans the screen (see **Home** below).
 - **Lists** have no primary toolbar and use 72-pixel rows, four full entries per screen. Settings lists use 68-pixel rows with 40-pixel icons, also four full entries, clear of the screen's rounded corners. Rows are flat, without the grey cards, and titles use the full row width up to the artwork and controls that are showing. The playing song keeps its icon, but its title stays white.
 - **Selection bar:** a full-width bar in the accent colour marks the selected row.
-- **Status bar:** play state and EQ on the left, the page title in the middle, then the Bluetooth and Wi-Fi icons and the battery. The title uses all the room the icons showing leave it. Settings and Streaming drop their toolbar too, so each page shows its title once. Volume changes still show the stock volume pop-up.
+- **Status bar:** play state and EQ on the left, the time in the middle (`6:14 PM`), then the Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar, as the local pages do. Volume changes still show the stock volume pop-up.
 - **`>`** marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Local Music categories, artists, genres and albums).
-- **Quick settings** (pull down from the top edge): the eight controls keep their grid with evenly spaced two-line labels, and brightness is a slim bar you can tap or drag anywhere along.
+- **Quick settings** (pull down from the top edge): the eight controls keep their grid with evenly spaced two-line labels, and brightness is a slim bar you can tap or drag anywhere along. Controls that are on show as dark discs with white symbols under every accent.
 - **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type over the list.
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before. The centre button scrubs (see [Controls](#controls)).
 - **Starts on Home.** With **Memory playback** on, your last queue comes back paused where you left it; open Now Playing or press Play/Pause to carry on. Car mode still starts playing on Now Playing.

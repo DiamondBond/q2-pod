@@ -208,10 +208,12 @@ static void row(void *view, int index, const char *caption, int (*click)(void *,
 
 /* Stock pattern (album rows, Now Playing): load the file, set it, drop the load's reference, so the
  * next paint decodes the file again rather than a stale cached copy. Returns 0 when the load fails,
- * as for the empty "no art" marker. */
-static int show(void *img, const char *url) {
+ * as for the empty "no art" marker. size, if given, gets the image's width and height (bitmap_t
+ * w @0, h @4). */
+static int show(void *img, const char *url, unsigned *size) {
     unsigned bitmap[64]; /* bitmap_t */
     if (widget_load_image(img, url, bitmap)) return 0;
+    if (size) size[0] = bitmap[0], size[1] = bitmap[1];
     image_base_set_image(img, url);
     widget_unload_image(img, bitmap);
     return 1;
@@ -222,7 +224,7 @@ static void cover(void *img, unsigned i, int near) {
     near = near && i < deque_size(cf.albums);
     if (near) art_path(url + 7, album_key(deque_at(cf.albums, i)), "");
     if (tk_strcmp(widget_get_prop_str(img, "image", ""), near ? url : PLACEHOLDER) &&
-        (!near || !show(img, url)))
+        (!near || !show(img, url, 0)))
         image_base_set_image(img, PLACEHOLDER);
 }
 
@@ -484,7 +486,10 @@ static int coverflow_open(void *ctx, void *event) {
 static struct {
     void *win, *art, *list;
     unsigned key;
-    int split_w; /* the list's width in the asset */
+    int split_w;  /* the list's width in the asset */
+    int panel[4]; /* the art's x, y, w, h in the asset: the right panel it fills */
+    int clip[4];  /* the canvas clip while the art paints, restored after */
+    int clipped;
 } home __attribute__((section(".scratch")));
 extern int ipod_home_full(void);
 
@@ -503,6 +508,19 @@ void *queue_now(unsigned *pos, unsigned *n) {
     return *pos < *n ? deque_at(queue, *pos) : (void *)0;
 }
 
+/* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on it, so
+ * the native fill draws it whole and the clip crops it evenly; unknown sizes fill the panel. */
+static void home_fit(unsigned w, unsigned h) {
+    int pw = home.panel[2], ph = home.panel[3], fw = pw, fh = ph;
+    if (w && h && w <= 8192 && h <= 8192) {
+        if ((unsigned)pw * h > (unsigned)ph * w)
+            fh = (int)(((unsigned)pw * h + w - 1) / w);
+        else
+            fw = (int)(((unsigned)ph * w + h - 1) / h);
+    }
+    widget_move_resize(home.art, home.panel[0] + (pw - fw) / 2, home.panel[1] + (ph - fh) / 2, fw, fh);
+}
+
 /* The player's cover, else the Coverflow cache of the track's album, else the placeholder. The
  * player's files belong to the track whose path it copies to g_lastcover_url after writing them,
  * so right after a track change they count only once that is this track. Runs whenever Home or
@@ -518,14 +536,41 @@ void coverflow_home_art(void *top) {
     if (key == home.key) return;
     home.key = key;
     const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
-    int shown = cover && show(home.art, cover);
+    unsigned size[2] = { 0, 0 };
+    int shown = cover && show(home.art, cover, size);
     if (!shown && r) {
         char url[600] = "file://";
         art_path(url + 7, album_key(r), "");
-        shown = show(home.art, url);
+        shown = show(home.art, url, size);
     }
-    if (!shown) image_base_set_image(home.art, PLACEHOLDER);
+    if (!shown && !show(home.art, PLACEHOLDER, size)) image_base_set_image(home.art, PLACEHOLDER);
+    home_fit(size[0], size[1]);
     widget_invalidate_force(home.art, 0);
+}
+
+/* The art paints only inside the panel: ringnav_paint_bg narrows the canvas clip (screen
+ * coordinates; the canvas origin is the art's) before stock draws it, and ringnav_paint puts the
+ * old clip back after. */
+void coverflow_home_clip(void *w, void *canvas, int begin) {
+    if (!w || w != home.art) return;
+    if (!begin) {
+        if (home.clipped) canvas_set_clip_rect(canvas, home.clip);
+        home.clipped = 0;
+        return;
+    }
+    int *old = home.clip, clip[4];
+    canvas_get_clip_rect(canvas, old);
+    int x = I(canvas, CANVAS_X) - I(w, W_X) + home.panel[0];
+    int y = I(canvas, CANVAS_Y) - I(w, W_Y) + home.panel[1];
+    int right = x + home.panel[2], bottom = y + home.panel[3];
+    clip[0] = old[0] > x ? old[0] : x;
+    clip[1] = old[1] > y ? old[1] : y;
+    clip[2] = (old[0] + old[2] < right ? old[0] + old[2] : right) - clip[0];
+    clip[3] = (old[1] + old[3] < bottom ? old[1] + old[3] : bottom) - clip[1];
+    if (clip[2] < 0) clip[2] = 0;
+    if (clip[3] < 0) clip[3] = 0;
+    canvas_set_clip_rect(canvas, clip);
+    home.clipped = 1;
 }
 
 /* A widget and its descendants other than labels take the width, the list and its scroll view
@@ -557,7 +602,12 @@ int coverflow_home(void *win, void *ctx) {
     widget_on(widget_lookup(win, "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
 #if IPOD
     home.win = win;
-    home.art = widget_lookup(win, "img_homeart", 1);
+    void *art = widget_lookup(win, "img_homeart", 1);
+    home.art = art;
+    home.clipped = 0;
+    for (int i = 0; art && i < 4; ++i) home.panel[i] = I(art, W_X + 4 * i); /* x, y, w, h */
+    /* A fitted cover reaches under the list; taps there must still find the rows. */
+    if (art) widget_set_sensitive(art, 0);
     void *list = widget_lookup(win, "list_view_home", 1);
     home.list = list; /* a new Home window's own, so still the asset's width */
     home.split_w = list ? I(list, W_W) : 0;

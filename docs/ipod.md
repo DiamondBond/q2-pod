@@ -95,9 +95,21 @@ the executable were checked; the inputs are SHA-pinned), so iPod removes them.
 The list is 230 pixels wide. Labels start 33 pixels in, where the last row's text clears the
 bottom-left corner, and end 10 pixels before the chevron's glyph, 149 pixels wide, so the longest
 English label ("Playback Setting") fits. Every label shares that left edge and every chevron the
-column 58 pixels from the row's end. `img_homeart`, a 129-pixel square on the right, sits 8 pixels
-from the list and from the edge, centred on the list. Sizes are `HOME_*` constants in
-`tools/compact.py`.
+column 58 pixels from the row's end. `img_homeart` fills the right panel edge to edge: x 230 to
+the screen edge and the whole window height under the status bar (145x290, `HOME_ART_RECT`). Sizes
+are `HOME_*` constants in `tools/compact.py`.
+
+The art is cropped to fill the panel, never stretched. Stock's own `fill` draw type (`8`,
+`canvas_draw_image_fill` `0x63856c`) scales proportionally but anchors its crop at the image's
+top-left, so on its own a square cover would show only its left half. Each time the art changes,
+the payload sizes `img_homeart` to the decoded image's proportions, just covering the panel and
+centred on it (a square cover becomes 290x290 at x 158), so `fill` draws the whole image; the
+background hook narrows the canvas clip to the panel before the image paints and the border hook
+restores it, so the overflow is cropped evenly from both sides. An image whose size is unknown
+(the placeholder when it does not decode) fills the panel as it is. A fitted cover reaches under
+the list, so Home makes the art insensitive (`widget_set_sensitive`) and taps there still find
+the rows. The rounded glass hides the
+panel's two right-hand corners, like any background.
 
 The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
 as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar
@@ -126,7 +138,7 @@ status bar paints (the bar at least once a second) and reloads only when the tra
 path or the usable cover type changes. The play queue is only changed on the UI
 thread, where this check runs.
 
-## Status bar and titles
+## Status bar and clock
 
 `systembar_showface` (`0x52f610`, run by `system_bar_init` and then a 1 s widget
 timer) finds each status bar widget with a recursive `widget_lookup` from the bar,
@@ -138,13 +150,14 @@ battery icon in `view_right`. The volume icon and number, SyncLink and the batte
 percentage move to `x = -200`, where they draw off-screen. Both groups sit 52 pixels
 from the edges (`STATUS_MARGIN`), where the 16-pixel icons clear the top corners
 ([Rounded corners](#rounded-corners)); V5.4I's 8 pixels put the play state and the
-battery under the glass, so no icon showed. A new `label_title`
-(`s_scrlabel_white20c`, an ellipsis only when the title is too long) is centred on the screen.
-The asset holds its narrowest case, 113 pixels wide at x 131, clear of either group with every
-icon shown (left 92 pixels, right 131); the build fails if that would be under `TITLE_MIN` (110).
-The payload paints the bar's graphite gradient and keeps `label_title` in step with the
-top window: the hidden navbar's title, `Q2` on Home, "Now Playing" on `playing_page` and
-"Coverflow" on Coverflow (see [internals.md](internals.md#status-bar-ipod)).
+battery under the glass, so no icon showed. A new `label_clock` (`s_scrlabel_white20c`) is
+centred on the screen. The asset holds its narrowest case, 113 pixels wide at x 131, clear of
+either group with every icon shown (left 92 pixels, right 131); the build fails if that would be
+under `CLOCK_MIN` (110). The payload paints the bar's graphite gradient and shows the device's
+local time in `label_clock` as a 12-hour clock without seconds or a leading zero (`6:14 PM`), or
+`--:--` if the time cannot be read, on every page and under every dialog (see
+[internals.md](internals.md#status-bar-ipod)). The widest text, `12:59 PM`, is 86 pixels in the
+stock font at 20 pixels; `tools/test_build.py` measures every time against the label.
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
@@ -156,8 +169,7 @@ their size. The settings inits never move or resize
 these widgets. Left out: `wifitransport_page` (its image starts above the
 navbar's bottom edge), `fwdownload_page` (no navbar), the PEQ page (it replaces
 all children) and every Tidal page, whose navbars hold the search and sort
-buttons. A page with a visible navbar keeps its own title and the status bar
-shows none.
+buttons. A page with a visible navbar keeps its own title.
 
 ## Settings
 
@@ -210,6 +222,17 @@ bright suns stay at its ends, in line with the first and last icon columns. Size
 `tools/compact.py`. `dialog_statusbar_dialog_init` (`0x4a0d88`) finds every widget by name and
 never moves or resizes one.
 
+The controls' stock images are 60-pixel discs: `#444444` with a white glyph when off, stock red
+(`#FF1448`) with a white glyph when on (`drop_wifiopen`, `drop_btopen`, `drop_keylockopen`,
+`drop_highgain`, `drop_lo`, `drop_usbaudio`, `drop_usbdac`), grey glyphs when disabled. The accent
+mapping turned the red into the accent's light red tone, so Graphite's silver left white glyphs
+barely readable. The image hook now gives every `drop_*` image the confirm pop-up's treatment
+([Pop-ups](#pop-ups)): stock red becomes `CONFIRM_SURFACE` (`#2B2B2B`) under every accent, Crimson
+included, and the white glyphs and their anti-aliased edges stay light (4.5:1 or more); alpha is
+untouched. Off (`#444444`) and disabled discs contain no red and keep their stock look, so an
+active control reads as the darker disc. The brightness suns (`drop_lighleft`, `drop_lightright`)
+sit on black, not a disc, and keep the accent's red tone (`DROPDOWN_SUN`).
+
 ## Coverflow
 
 iPod keeps the cover at its native 160 pixels. The album name sits 12 pixels under it in 24-pixel
@@ -227,9 +250,9 @@ to stock's 50-pixel status bar margins. `corner_inset(y)` gives the width hidden
 screen row `y`, and `corner_x` adds `CORNER_SLACK` (4). The status bar groups, the Home labels
 and Now Playing's top and bottom rows take their insets from it; settings notes moved under the
 hidden navbar end their text clear of the top-right corner. With the defaults: status bar 52
-pixels, the title at least 57, Home text and Full's chevrons 33, "3 of 12" 16, Now Playing icons
+pixels, the clock at least 57, Home text and Full's chevrons 33, "3 of 12" 16, Now Playing icons
 ending at 353, the bar 21 and the times 46 pixels from the edges. The runtime layouts' values
-(`SET_*`, `CF_*`, `TITLE_EDGE`, `HOME_FULL_ROW` in `patch/offsets.inc`) are checked against the
+(`SET_*`, `CF_*`, `CLOCK_EDGE`, `HOME_FULL_ROW` in `patch/offsets.inc`) are checked against the
 same calibration by the tests.
 
 `tools/test_build.py` fails an iPod build when any fixed text or icon in a changed asset reaches
@@ -237,9 +260,9 @@ under the glass (screen coordinates: the bar at y 0 to 30, windows at 30 to 320,
 and confirm pop-ups at 0 to 320): a label's font-high band, an image drawn centred at its size, a
 slider's bar, else the widget. Backgrounds, tap targets and list rows, which scroll, are not
 checked there; `tools/test_patch.py` checks the settings rows in the first and last visible slots,
-Coverflow's labels and lowest track row, and the status bar title against every combination of
-icons. Raising `CORNER_R` until the title drops
-under `TITLE_MIN` fails the build.
+Coverflow's labels and lowest track row, and the status bar clock against every combination of
+icons. Raising `CORNER_R` until the clock drops
+under `CLOCK_MIN` fails the build.
 
 ## Hold Return
 
@@ -279,7 +302,7 @@ other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`);
 ## Now Playing
 
 `playing_page.bin` follows Rockbox's iVideo Now Playing in the 375x290 client area, below the
-status bar's "Now Playing" title:
+status bar and its clock:
 
 ```
   0 +---------------------------------------------------------+
@@ -465,24 +488,27 @@ Normal also apply to it.
   rectangle on album grid tiles. A touch hides it until the next wheel or centre
   input. Pressed rows still show touch feedback.
 - **status_bar**: Check the play state and EQ on the left; Bluetooth/codec, Wi-Fi
-  and battery on the right, each following its state and none cut by the corners. The centred title matches
-  every local, settings and streaming page, `Q2` on Home, "Now Playing" on Now
-  Playing and "Coverflow" on Coverflow; a dialog keeps the page title. Tidal pages show their own title and
-  none in the bar. Volume turns still open the stock volume pop-up. Switch Bluetooth, Wi-Fi and
-  PEQ on and off in turn (connect a codec so its label shows): within a second the title widens
-  or narrows, stays centred, never overlaps an icon and shows "System Setting" in full with only
-  the play state and battery showing. Try a long folder name and a translated title: an ellipsis
-  only when it does not fit.
+  and battery on the right, each following its state and none cut by the corners. The centred
+  clock shows the device's local time as `6:14 PM` (no seconds, no leading zero, `12:00 AM` at
+  midnight, `12:00 PM` at noon) on every page and under dialogs, and turns over within a second
+  of the minute changing. Set the time in System settings and confirm it follows. Let the screen
+  turn off for a few minutes and wake it: the clock is current. Volume turns still open the stock
+  volume pop-up. Switch Bluetooth, Wi-Fi and PEQ on and off in turn (connect a codec so its label
+  shows) at 12:59: the clock stays centred and never overlaps an icon.
 - **home**: Wheel through all seven rows (hard ends) and open each with centre
   and tap; Coverflow is third. Switch the language and confirm the labels follow.
   The first row has room under the status bar and the last row's text and chevron
   clear the bottom corners; labels share one left edge and chevrons one column, with
   the gap before the art kept.
-  In Split, the art follows the playing track across track changes: embedded art,
-  a folder image, no art (Coverflow thumbnail, then the default), Tidal and a
-  stopped player. Switch to Full: the selection bar spans the screen, the chevrons end
+  In Split, the art fills the whole right panel under the status bar with no gap
+  or border, cropped evenly and never stretched: try a square cover, a portrait
+  folder image and a landscape one. It follows the playing track across track
+  changes: embedded art, a folder image, no art (Coverflow thumbnail, then the
+  default), Tidal and a stopped player. The list and its selection bar are not
+  covered by the art. Switch to Full: the selection bar spans the screen, the chevrons end
   as far from the right edge as the labels start from the left (the last row's is not
-  cut), the row takes a tap to its chevron and no art shows; switch back to Split.
+  cut), the row takes a tap to its chevron and no art shows; switch back to Split and
+  the current cover fills the panel again.
 - **chevrons**: `>` shows on every Home row and playlist row, lined up with the
   stock chevrons of categories, artists and albums. None on song lists, grid
   tiles, playlist Import/Export or in multi-select.
@@ -526,7 +552,10 @@ Normal also apply to it.
   label (Wi-Fi, Buttons lock, USB Storage, Output Options...) starts on the same line
   under its icon, wraps to two lines at most and clears the next row. The brightness
   track is slim, a tap or drag anywhere along it changes the brightness, and the dim and
-  bright suns mark its ends. Repeat in another language.
+  bright suns mark its ends. Repeat in another language. Under all four accents, turn
+  Wi-Fi, Bluetooth, Buttons lock, gain, output and USB modes on and off: an active control
+  is a dark disc with a clearly white symbol, visibly apart from the grey off disc, and a
+  disabled gain option keeps its grey symbol.
 - **coverflow**: Album names are larger and white, artists grey, both clear of the
   corners; long names scroll. Check the Refresh card, "Preparing artwork" with Cancel,
   an empty library, and the track list's last visible row.

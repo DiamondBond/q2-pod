@@ -14,6 +14,7 @@ extern unsigned fnv(unsigned h, const unsigned char *s);
 extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
+extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 #define STOP 11
@@ -74,7 +75,7 @@ typedef struct {
     void *pull_page, *pull_surface;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
-    unsigned title_hash; /* of the status bar title last set, 0 before the first */
+    unsigned clock_key;    /* the clock's minute of the day + 1; 0 before the first, ~0 for --:-- */
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
@@ -1215,6 +1216,7 @@ int ringnav_paint(void *w, void *canvas) {
 #if IPOD
     paint_chevrons(w, canvas);
     paint_letter(w, canvas);
+    coverflow_home_clip(w, canvas, 0);
 #else
     paint_selection(w, canvas);
 #endif
@@ -1222,44 +1224,21 @@ int ringnav_paint(void *w, void *canvas) {
 }
 
 #if IPOD
-/* One title per page. A page whose stock navbar the iPod assets hide shows that navbar's title in
- * the status bar: its first child with text, which native code keeps current (settings create it
- * at init, folders rename it). Home and Now Playing have no navbar and get a fixed title. A page
- * that keeps its navbar visible (Tidal, the queue) shows its own title, so the bar shows none.
- * A dialog on top keeps the title of the page under it. The label is written only on a change. */
-static void title_sync(void *bar, void *top) {
-    if (!top || tk_strcmp(widget_get_type(top), "window")) return;
-    void *nav = widget_lookup(top, "view_navbar", 0);
-    static const unsigned none = 0;
-    const unsigned *text = &none;
-    const char *key = (void *)0;
-    if (nav) {
-        unsigned n = widget_get_visible(nav) ? 0 : widget_count_children(nav);
-        for (unsigned i = 0; i < n && !*text; ++i) {
-            const unsigned *s = widget_get_text(widget_get_child(nav, i));
-            if (s) text = s;
-        }
-    } else {
-        const char *name = widget_get_prop_str(top, "name", (void *)0);
-        if (name && !tk_strcmp(name, "home_page"))
-            key = "Q2"; /* no stock string names Home; a missing key shows as itself */
-        else if (name && !tk_strcmp(name, "playing_page"))
-            key = "small_playing";
-        else if (name && !tk_strcmp(name, "coverflow_page"))
-            key = "Coverflow"; /* as Home's row: no stock string */
-    }
-    unsigned h;
-    if (*text)
-        row_hash_text(text, &h);
-    else
-        h = fnv(FNV_SEED, (const unsigned char *)key); /* a null key is the blank title */
-    void *label = h == st.title_hash ? (void *)0 : widget_lookup(bar, "label_title", 1);
+/* The status bar's centred label shows the device's local time as 6:14 PM: 12-hour, without
+ * seconds or a leading zero, or --:-- when the time cannot be read. The bar repaints at least once
+ * a second (systembar_showface), and the label is written only when the minute shown changes.
+ * struct tm: tm_min @4, tm_hour @8. */
+static void clock_sync(void *bar) {
+    long now = time((void *)0);
+    const int *tm = now == -1 ? (void *)0 : localtime(&now);
+    int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
+    unsigned key = ok ? (unsigned)(tm[2] * 60 + tm[1]) + 1 : ~0u; /* 0 before the first */
+    void *label = key == st.clock_key ? (void *)0 : widget_lookup(bar, "label_clock", 1);
     if (!label) return;
-    st.title_hash = h;
-    if (key)
-        widget_set_tr_text(label, key);
-    else
-        widget_set_text(label, text);
+    st.clock_key = key;
+    char s[16] = "--:--";
+    if (ok) tk_snprintf(s, sizeof s, "%d:%02d %s", (tm[2] + 11) % 12 + 1, tm[1], tm[2] < 12 ? "AM" : "PM");
+    widget_set_text_utf8(label, s);
 }
 
 /* Seconds as stock writes label_playtime, after a minus when negative is 1. */
@@ -1429,13 +1408,15 @@ int ringnav_playing(void *win, void *ctx) {
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
  * The selection work for the surface happens here, once per frame, instead of in the border hook;
- * a BUTTONS dialog is itself top-level. Other top-level widgets are the status bar, which gets its
- * gradient, and the windows. Painting the top window or the bar (at least each second,
- * systembar_showface) keeps the bar's title, Home's art and Now Playing's labels current. */
+ * a BUTTONS dialog is itself top-level. Home's art is clipped to its panel until the border hook.
+ * Other top-level widgets are the status bar, which gets its gradient, and the windows. Painting
+ * the top window or the bar (at least each second, systembar_showface) keeps the bar's clock,
+ * Home's art and Now Playing's labels current. */
 int ringnav_paint_bg(void *w, void *canvas) {
     int result = stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
     paint_selection(w, canvas);
+    coverflow_home_clip(w, canvas, 1);
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD) && I(w, W_H) > 1) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
@@ -1445,7 +1426,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     }
     void *top = window_manager_get_top_window(wm);
     if (bar && (w == bar || w == top)) {
-        title_sync(bar, top);
+        clock_sync(bar);
         coverflow_home_art(top);
         np_sync(top);
     }
@@ -1479,20 +1460,27 @@ void *ringnav_style_gradient(void *style, const char *name, void *out) {
     return g;
 }
 
+/* 1 if name starts with prefix. */
+static int starts(const char *name, const char *prefix) {
+    while (*prefix && *name == *prefix) ++name, ++prefix;
+    return !*prefix;
+}
+
 /* Decoded theme images are mapped once, before the image manager caches them. Only a plain asset
  * name is the theme's: covers by path or URL (a '/' or ':') never are. The confirm pop-up's discs
- * (CONFIRM_IMAGE*) take the dark CONFIRM_SURFACE under every accent, Crimson included, so their
- * white glyphs stay legible; everything else red takes the accent's red tone.
+ * (CONFIRM_IMAGE*) and the quick settings' active controls (DROPDOWN_IMAGE*, not the brightness
+ * suns) take the dark CONFIRM_SURFACE under every accent, Crimson included, so their white glyphs
+ * stay legible; everything else red takes the accent's red tone.
  * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][3] = { { 0, 1, 2 }, { 3, 2, 1 }, { 2, 1, 0 }, { 1, 2, 3 } };
     unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4, preset = accent();
     unsigned char *data = (void *)0;
-    const char *s = name, *prefix = CONFIRM_IMAGE;
-    while (s && *prefix && *s == *prefix) ++s, ++prefix;
-    unsigned tone = *prefix ? accents[preset][TONE_RED] : CONFIRM_SURFACE;
+    const char *s = name;
+    int dark = s && (starts(s, CONFIRM_IMAGE) || (starts(s, DROPDOWN_IMAGE) && !starts(s, DROPDOWN_SUN)));
+    unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED];
     while (s && *s && *s != '/' && *s != ':') ++s;
-    if ((preset != CRIMSON || !*prefix) && format < 4 && s && !*s)
+    if ((preset != CRIMSON || dark) && format < 4 && s && !*s)
         data = bitmap_lock_buffer_for_write(bitmap);
     if (data) {
         const unsigned char *o = at[format];

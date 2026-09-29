@@ -85,7 +85,9 @@ class Machine:
             for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
-                  'airplayGetFlag','playpause_quick_click')
+                  'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0')
+        self.image_size=(50,50)  # what widget_load_image decodes
+        self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
         self.handlers[syms['memset@GLIBC_2.0']]='memset'
         self.mock('canvas_set_global_alpha')
@@ -225,6 +227,14 @@ class Machine:
         elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
             fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
             result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
+        elif name=='time@GLIBC_2.0':
+            ret=-1 if self.clock=='time' else 86400
+            if a and ret!=-1: self.word(a,ret)
+        elif name=='localtime@GLIBC_2.0':  # struct tm: sec, min, hour, ...
+            ret=0
+            if self.clock!='localtime':
+                assert self.get(a)==86400; ret=self.alloc(44)
+                for i,v in enumerate((59,self.clock[1],self.clock[0])): self.word(ret+4*i,v)
         elif name=='widget_set_children_layout':
             n['children_layout']=self.text(b)
             layout=self.alloc(32)
@@ -366,7 +376,9 @@ class Machine:
             else:
                 self.word(self.lcd+(O['LCD_FILL_COLOR'] if kind=='fill' else O['LCD_STROKE_COLOR']),self.get(d))
                 ret=0
-        elif name=='widget_load_image': self.word(c,50); self.word(c+4,50); ret=0  # list_into is 50x50
+        elif name=='widget_load_image':  # list_into is 50x50; image_size None fails the load
+            ret=1 if self.image_size is None else 0
+            if not ret: self.word(c,self.image_size[0]); self.word(c+4,self.image_size[1])
         elif name=='canvas_draw_icon': self.icons.append((signed(c),signed(d),self.clip)); ret=0
         elif name=='canvas_set_font': self.font=(self.text(b) if b else 'default',c); ret=0
         elif name=='canvas_set_text_color': self.word(self.lcd+O['LCD_TEXT_COLOR'],b); ret=0
@@ -625,7 +637,7 @@ else:
     c.touch(); c.paint(cw); assert not c.drawn() and c.clip==(0,0,240,240)
     c.call(); c.paint(cw); assert c.selected(cw)==1 and c.sel()==(0,36,240,48); passed()
     # Status bar: the darker gradient on the bar widget alone, LCD fill restored.
-    s=Machine(); title=s.node('hscroll_label','label_title')
+    s=Machine(); title=s.node('hscroll_label','label_clock')
     def top_level(t,name,children=()):
         w=s.node(t,name,children); s.word(w+O['W_PARENT'],s.wm); return w
     bar=top_level('system_bar','system_bar',[title]); s.word(bar+O['W_W'],375); s.word(bar+O['W_H'],30)
@@ -634,24 +646,35 @@ else:
     assert bg(bar)==0 and [b[:4] for b in s.bands]==[(0,y,375,1) for y in range(30)]+[(0,0,375,1)]
     assert [s.bands[i][4] for i in (0,29,30)]==[color_t(O[k]) for k in ('BAR_TOP','BAR_BOTTOM','BAR_HI')]
     assert s.lcd_colors()==LCD_COLORS; passed()
-    # The top window's hidden navbar title goes to the bar; later paints only rehash it.
+    # The clock: local time as 12-hour h:mm AM/PM, written only when the minute shown changes, on
+    # the bar's own repaint (stock repaints it each second) or the top window's, whatever the page.
+    def clock(): return s.nodes[title].get('text')
+    def writes(): return [c for c in s.calls if c[0]=='widget_set_text_utf8']
+    assert clock()=='6:14 PM'; passed()  # written by the gradient check's paint above
+    for h,mi,want in ((0,0,'12:00 AM'),(0,5,'12:05 AM'),(9,7,'9:07 AM'),(11,59,'11:59 AM'),(12,0,'12:00 PM'),
+                      (12,59,'12:59 PM'),(13,0,'1:00 PM'),(23,59,'11:59 PM')):
+        s.clock=(h,mi); bg(bar); assert clock()==want,(h,mi,clock())
+    passed()
+    # Repaints within the minute leave the label alone; the next minute rewrites it.
+    bg(bar); assert not writes(); passed()
+    s.clock=(0,0); bg(bar); assert clock()=='12:00 AM' and len(writes())==1; passed()
+    # A failed time or localtime shows --:-- once; the clock comes back when it reads again.
+    for fail in ('time','localtime'):
+        s.clock=fail; bg(bar); assert clock()=='--:--' and len(writes())==1
+        bg(bar); assert not writes()
+        s.clock=(7,30); bg(bar); assert clock()=='7:30 AM'
+    passed()
+    # Pages, a dialog on top and pages with their own navbar all keep the clock; only a minute change
+    # writes it, from any top-level paint.
     heading=s.node('hscroll_label',text='System Setting')
     nav=s.node('view','view_navbar',[s.node('image','img_return'),heading],visible=0)
-    page=top_level('window','sysset_page',[nav]); s.top=page
-    bg(page); assert s.nodes[title]['text']=='System Setting' and not s.bands; passed()
-    bg(page); assert not [c for c in s.calls if c[0]=='widget_set_text']; passed()
-    s.nodes[heading]['text']='Folder'; bg(page); assert s.nodes[title]['text']=='Folder'; passed()
-    # The bar's own repaint (stock refreshes it each second) catches a rename too.
-    s.nodes[heading]['text']='Music'; bg(bar); assert s.nodes[title]['text']=='Music'; passed()
-    # A dialog on top, or a window under it, leaves the title alone.
-    dialog=top_level('dialog','sortselect_dialog'); s.top=dialog
-    for x in (dialog,page): bg(x); assert not [c for c in s.calls if c[0]=='widget_set_text']
+    pages=[top_level('window',n,[nav] if n=='sysset_page' else []) for n in
+           ('sysset_page','home_page','playing_page','coverflow_page','tidal_main_page')]+[top_level('dialog','sortselect_dialog')]
+    for pg in pages:
+        s.top=pg; bg(pg)
+        assert clock()=='7:30 AM' and not writes() and not [c for c in s.calls if c[0] in ('widget_set_text','widget_set_tr_text')]
     passed()
-    # A visible navbar keeps its own title, so the bar shows none; Home and Now Playing are fixed.
-    s.top=top_level('window','tidal_main_page',[s.node('view','view_navbar',[s.node('hscroll_label',text='TIDAL')])])
-    bg(s.top); assert s.nodes[title]['text']==''; passed()
-    for name,key in (('home_page','Q2'),('playing_page','small_playing'),('coverflow_page','Coverflow')):
-        s.top=top_level('window',name); bg(s.top); assert s.nodes[title]['tr_text']==key; passed()
+    s.clock=(19,31); s.top=pages[-1]; bg(pages[-1]); assert clock()=='7:31 PM' and len(writes())==1; passed()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60
@@ -2605,7 +2628,7 @@ if variant=='ipod':
     cells=[(signed(m.get(v+O['W_X']))+signed(m.get(c+O['W_X'])),m.get(c+O['W_W']),m.get(c+O['W_H'])) for v in views for c in m.nodes[v]['children']]
     inset=corner_inset((30-16)//2)
     assert all(h==30 and inset<=x and x+w<=375-inset for x,w,h in cells), (inset,cells)
-    title=named(m,bar,'label_title'); x,w=m.get(title+O['W_X']),m.get(title+O['W_W'])
+    title=named(m,bar,'label_clock'); x,w=m.get(title+O['W_X']),m.get(title+O['W_W'])
     left,right=(cells[len(m.nodes[views[0]]['children'])-1],cells[len(m.nodes[views[0]]['children'])])
     assert left[0]+left[1]<=x and x+w<=right[0] and x+w/2==375/2, (left,right,x,w); passed()
 
@@ -2760,6 +2783,37 @@ if variant=='ipod':
     m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_after(bar)=='file:///tmp/coverpic.jpg'
     m.nodes[m.art]['image']='unchanged'; assert art_after(m.home)=='unchanged'  # same track and cover
     m.byte(syms['g_playcover_type'],3); assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
+
+    # The art fills the right panel below the status bar: sized to the cover's proportions, just
+    # covering the panel and centred on it (native fill then draws it whole), and clipped to the
+    # panel from the background hook to the border hook, so it crops evenly and never stretches.
+    PW=375-HOME_LIST_W
+    assert m.nodes[m.art].get('sensitive')==0  # a fitted cover reaching under the list never takes its taps
+    def geometry(): return [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]
+    def cover(w,h):
+        m.image_size=(w,h)
+        m.u.mem_write(syms['g_lastcover_url'],b'/p/other\0')  # a new key: the art reloads
+        art_after(m.home); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); art_after(m.home)
+        return geometry()
+    # C division truncates: the extra pixel of an odd overflow is cropped on the right or bottom.
+    for (w,h),want in (((300,300),[HOME_LIST_W+int((PW-290)/2),0,290,290]),     # square: crop the sides
+                       ((500,1000),[HOME_LIST_W,0,PW,290]),                  # the panel's own 1:2
+                       ((600,400),[HOME_LIST_W+int((PW-435)/2),0,435,290]),      # landscape
+                       ((100,400),[HOME_LIST_W,int((290-580)/2),PW,580])):       # taller than the panel
+        assert cover(w,h)==want,((w,h),geometry(),want)
+        x,y,gw,gh=want; assert gw*h==w*gh or abs(gw/gh-w/h)<0.01  # proportional, never stretched
+    passed()
+    # The paint hooks clip it to the panel on screen (window at y 30) and restore the clip after.
+    m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],HOME_LIST_W); m.word(m.canvas+O['CANVAS_Y'],30-145)
+    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.art,m.canvas,0,0))
+    assert m.clip==(HOME_LIST_W,30,PW,290),m.clip
+    m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0))
+    assert m.clip==(0,0,375,320); passed()
+    # Other widgets keep the clip; the placeholder (no size) fills the panel.
+    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.list,m.canvas,0,0)); assert m.clip==(0,0,375,320)
+    m.image_size=None
+    m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0'); m.byte(syms['g_playcover_type'],3)
+    art_after(m.home); assert m.nodes[m.art]['image']=='default_album_big' and geometry()==[HOME_LIST_W,0,PW,290]; passed()
 
     # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
     # value, in seconds) fill in; later paints rewrite a label only when its source changed.
@@ -3126,6 +3180,39 @@ if variant=='ipod':
         assert ratio(glyph,disc)>=4.5 and ratio(disc,0)<ratio(glyph,0),(preset,hex(disc),hex(glyph))
         assert pixels(config,'confirm_okdown',[0x7f0a24])[0]<S  # pressed: darker than the disc
         assert pixels(config,'switch_on',[0xff1448])==[0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3]]
+        passed()
+
+    # Quick settings: the active controls' stock red discs (#FF1448, white glyph, pink anti-aliased
+    # glyph edges) take the same CONFIRM_SURFACE under every accent, their glyphs staying light at
+    # 4.5:1 or more with transparent pixels untouched. Inactive (#444444) and disabled discs keep
+    # their stock greys, so an active control still reads apart from an inactive one. The
+    # brightness suns, on black rather than a disc, keep the accent's red tone.
+    def rgba(config,name,pixels_):
+        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
+        bm=m.alloc(0x60); data=m.alloc(4*len(pixels_))
+        m.word(bm,len(pixels_)); m.word(bm+4,1); m.word(bm+8,4*len(pixels_)); m.u.mem_write(bm+0xe,struct.pack('<H',3)); m.word(bm+0x14,data)
+        m.u.mem_write(data,b''.join(bytes([c&255,c>>8&255,c>>16&255,a]) for c,a in pixels_))  # BGRA
+        m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
+        raw=bytes(m.u.mem_read(data,4*len(pixels_)))
+        return [(raw[4*i+2]<<16|raw[4*i+1]<<8|raw[4*i],raw[4*i+3]) for i in range(len(pixels_))]
+    ACTIVE=('drop_wifiopen','drop_btopen','drop_keylockopen','drop_highgain','drop_lo','drop_usbaudio','drop_usbdac')
+    INACTIVE=('drop_wifi','drop_bt','drop_keylock','drop_lowgain','drop_po','drop_usbstorage','drop_playset','drop_sysset')
+    disc=[(0xff1448,255),(0xffffff,255),(0xffc0d0,255),(0xff1448,0),(0x000000,0)]  # disc, glyph, glyph edge, transparent
+    for preset in range(len(ACCENTS)):
+        config={'ACCENT':str(preset)}
+        for name in ACTIVE:
+            (d,da),(g,ga),(e,ea),*clear=rgba(config,name,disc)
+            assert d==S and da==255 and g==0xffffff and ratio(g,d)>=4.5 and ratio(e,d)>=4.5,(preset,name,hex(d),hex(e))
+            assert [a for _,a in clear]==[0,0],(preset,name)  # transparency kept
+        for name in INACTIVE+('drop_highgaindisable','drop_lowgaindisable'):
+            grey=[(0x444444,255),(0xffffff,255),(0x5b5b5b,255),(0x222222,255)]
+            assert rgba(config,name,grey)==grey,(preset,name)
+        assert ratio(0x444444,0)/ratio(S,0)>=1.4  # the active disc reads darker than an inactive one
+        red=[(0xff1448,255)]
+        for name in ('drop_lighleft','drop_lightright','eqdrop_dot','dropdown','xdrop_bt'):
+            assert rgba(config,name,red)==[(0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3],255)],(preset,name)
+        # A cover whose file name starts like an asset stays unmapped.
+        assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
 
     # Display settings: after the stock rows, Accent and Home rows in the native row widgets and
