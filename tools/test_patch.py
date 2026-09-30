@@ -3594,7 +3594,7 @@ if variant=='ipod':
     CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
     Machine.hook=orig_hook; CONFIG.clear()
 
-# Wheel precision (docs/wheel-precision-plan.md): iPod's Wheel setting (Fine takes WHEEL_FINE ticks
+# Wheel precision (docs/internals.md, Wheel movement): iPod's Wheel setting (Fine takes WHEEL_FINE ticks
 # one way per row step, Normal one), the gentler ramp above, the list ends, and Key Tone moved from
 # the press to the row change.
 KEYDOWN=IPOD_HOOKS['on_wm_keydown_before_fun'][0]
