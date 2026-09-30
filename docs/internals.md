@@ -20,7 +20,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `playset_equalizer_page_init` | `0x4b642c` | The PEQ editor ([Parametric EQ](#parametric-eq))                                 |
 | `set_equalizer_value`         | `0x4f9230` | Keeps the stock filter and ties the EQ icon to PEQ on/off                        |
 | `home_page_init`              | `0x523c84` | Binds the Coverflow card (iPod: row), then iPod Home art and layout              |
-| `widget_on_paint_background`  | `0x65c77c` | iPod only: selection bar, status bar gradient and clock                          |
+| `widget_on_paint_background`  | `0x65c77c` | iPod only: selection bar, status bar fill and clock                              |
 | `playing_page_init`           | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                     |
 | `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent and Home rows                                         |
 | `on_wm_keydown_before_fun`    | `0x4e8424` | iPod only: Key Tone clicks on the row change, not the wheel press                |
@@ -249,7 +249,7 @@ iPod sets the hint in its assets ([ipod.md](ipod.md#transitions)). `htranslate` 
 
 The background hook also handles top-level widgets, whose parent is the window manager. The status bar widget, which `system_bar_init` stores in the `system_bar` global (`0xa3a6d0`, a size-checked `CONTEXT_DATA` entry), gets one `canvas_fill_rect` in a darker color, `BAR_COLOR` (`#242424`), without a highlight, with the LCD fill color restored.
 
-Painting the bar or the top window also updates `label_clock` in the bar with the device's local time: `time` and `localtime` (the stock libc imports, through the payload's GOT trampolines) give the hour and minute (`struct tm` `+8`, `+4`), written through `tk_snprintf` as `%d:%02d %s`, a 12-hour clock without seconds or a leading zero (`12:05 AM`, `6:14 PM`), then `widget_set_text_utf8`. A failed `time` (`-1`) or `localtime` (null), or an out-of-range field, shows `--:--`. The minute of the day (plus one, `~0` for `--:--`) is kept in the scratch page, so the label is looked up and written only when the minute shown changes; the bar repaints at least once a second through `systembar_showface`, so the clock turns over within a second, including after the screen wakes. Every page and dialog shows it; the old page-title sync is gone. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
+Painting the bar or the top window also updates `label_clock` in the bar with the device's local time: `time` and `localtime` (the stock libc imports, through the payload's GOT trampolines) give the hour and minute (`struct tm` `+8`, `+4`), written through `tk_snprintf` as `%d:%02d %s`, a 12-hour clock without seconds or a leading zero (`12:05 AM`, `6:14 PM`), then `widget_set_text_utf8`. A failed `time` (`-1`) or `localtime` (null), or an out-of-range field, shows `--:--`. The minute of the day (plus one, `~0` for `--:--`) is kept in the scratch page, so the label is looked up and written only when the minute shown changes; the bar repaints at least once a second through `systembar_showface`, so the clock turns over within a second, including after the screen wakes. Every page and dialog shows it. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
 
 ## Now Playing (iPod)
 

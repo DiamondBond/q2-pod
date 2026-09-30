@@ -94,7 +94,7 @@ the stock visitor binds and translates the rows as it did the cards. Coverflow's
 literal. The wheel moves through the rows with hard ends, and the selection bar spans the
 list. The scroll view sets `yslidable`: a `list_view`'s layout (`0x5ea3a4`) turns it on only
 for a list with a mobile scroll bar, which Home has none of, and the payload navigates vertical
-scroll views only (V5.4I showed no bar or chevrons on Home). The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
+scroll views only. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
 the executable were checked; the inputs are SHA-pinned), so iPod removes them.
 
 The list is 230 pixels wide. Labels start 33 pixels in, where the last row's text clears the
@@ -154,8 +154,7 @@ and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
 battery icon in `view_right`. The volume icon and number, SyncLink and the battery
 percentage move to `x = -200`, where they draw off-screen. Both groups sit 54 pixels
 from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
-([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass;
-V5.4I's 8 pixels put the play state and the battery under the glass, so no icon showed. A new
+([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass. A new
 `label_clock` (`s_scrlabel_white20c`) is centred on the screen. It has the width left in the
 narrowest case, 109 pixels at x 133, clear of either group with every icon shown (left 94
 pixels, right 133); the build fails if that would be under `CLOCK_MIN` (105). The payload paints
@@ -408,9 +407,9 @@ the dialog (the confirm pair), the full width otherwise. A new dialog starts on 
 Cancel on the confirm pair.
 
 The confirm pair sits symmetrically, each 80-pixel tile centred in its half of the screen (x 53
-and 242). Its stock discs are Shanling red with white glyphs, which every accent but Crimson
-turned into a light tone (Graphite's silver left the white check at 1.4:1). The shared image hook
-now gives `confirm_ok`, `confirm_cancel` and their pressed images a dark surface under every
+and 242). Its stock discs are Shanling red with white glyphs, which the red-tone mapping would
+turn light (Graphite's silver would leave the white check at 1.4:1), so the shared image hook
+gives `confirm_ok`, `confirm_cancel` and their pressed images a dark surface under every
 accent, Crimson included: the same red-blend mapping with `CONFIRM_SURFACE` (`#2B2B2B`) as the
 tone, so the OK disc is `#2B2B2B` and Cancel's lighter tint `#595959`, while the glyphs stay
 white and near white (`#E5E5E5`): 14.2:1 and 5.6:1. Every confirm prompt uses these images through
