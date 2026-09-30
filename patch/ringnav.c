@@ -93,9 +93,10 @@ typedef struct {
     int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, wheel_normal;
+    int settings_read, accent, home_full, wheel_fine;
     void *setting_label[3];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
+    int greeted;       /* the first reachable list got its boot repaint */
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -1006,7 +1007,7 @@ static int accent(void) {
     if (!st.settings_read) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
-        st.wheel_normal = config_digit("WHEEL", 2);
+        st.wheel_fine = config_digit("WHEEL", 2);
         st.settings_read = 1;
     }
     return st.accent;
@@ -1172,7 +1173,10 @@ static void paint_selection(void *w, void *canvas) {
     if (g_menu.kind == 3) return; /* Home shows its selected card. */
     int i = reconcile(&g_menu,
                       !moving(&g_menu) && !window_manager_get_pointer_pressed(window_manager()));
-    if (i < 0 || st.touch_mode) return;
+    /* Touch hides the selection until the wheel or a button, except on Home (iPod's list). */
+    void *top = window_manager_get_top_window(window_manager());
+    int home = top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page");
+    if (i < 0 || (st.touch_mode && !home)) return;
     rect_t r = bounds(&g_menu, i), old;
     /* A boundary detent nudges the selection against the end until it springs back. */
     if (fx_live(w) && st.bump_dir) r.y -= st.bump_dir * BUMP_PX;
@@ -1457,6 +1461,13 @@ int ringnav_paint_bg(void *w, void *canvas) {
         clock_sync(bar);
         coverflow_home_art(top);
         np_sync(top);
+        /* Boot may paint Home before the screen is usable, so nothing chose or drew its first
+         * row. Once, when the list is first reachable, repaint it. */
+        void *list = st.greeted ? (void *)0 : surface((void *)0, (void *)0);
+        if (list) {
+            st.greeted = 1;
+            widget_invalidate_force(list, (void *)0);
+        }
     }
     return result;
 }
@@ -1557,7 +1568,7 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 static void setting_text(int i) {
     const char *name = accent_names[accent()];
     if (i == 1) name = st.home_full ? "Home: Full" : "Home: Split";
-    if (i == 2) name = st.wheel_normal ? "Wheel: Normal" : "Wheel: Fine";
+    if (i == 2) name = st.wheel_fine ? "Wheel: Fine" : "Wheel: Normal";
     widget_set_text_utf8(st.setting_label[i], name);
 }
 
@@ -1569,7 +1580,7 @@ static int setting_click(void *ctx, void *event) {
     (void)event;
     static const char *const keys[] = { "ACCENT", "HOME", "WHEEL" };
     int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Wheel */
-    int *value = i == 2 ? &st.wheel_normal : i ? &st.home_full : &st.accent;
+    int *value = i == 2 ? &st.wheel_fine : i ? &st.home_full : &st.accent;
     *value = (*value + 1) % (i ? 2 : ACCENT_N);
     write_int_config(*value, "IPOD", keys[i]);
     drop_wheel();
@@ -2186,6 +2197,7 @@ int ringnav(void *ctx, void *event) {
         if (window_manager_get_top_window(window_manager()) == st.np_win) return STOP;
     }
 #endif
+    if (key == KEY_RETURN) st.touch_mode = 0; /* back by button: the page behind shows its row */
     if (key != KEY_CENTER && key != KEY_PREV && key != KEY_NEXT) return result;
     if (key == KEY_CENTER) {
         drop_spin();
@@ -2280,14 +2292,9 @@ int ringnav(void *ctx, void *event) {
         return STOP;
     }
     /* Every accepted tick times the run and owns the partial step, short lists included. */
-    int first = WHEEL_RAMP_MS, more = WHEEL_RAMP_MS;
-#if IPOD
-    if (g_menu.kind != 3 && g_menu.n) { /* row lists: the gentler ramp */
-        first = LIST_FIRST_MS;
-        more = LIST_RAMP_MS;
-    }
-#endif
-    int step = ramp(top, g_menu.w, g_menu.scope, g_menu.ctx, dir, now, first, more);
+    int list = IPOD && g_menu.n; /* iPod row lists: the gentler ramp */
+    int step = ramp(top, g_menu.w, g_menu.scope, g_menu.ctx, dir, now,
+                    list ? LIST_FIRST_MS : WHEEL_RAMP_MS, list ? LIST_RAMP_MS : WHEEL_RAMP_MS);
     if (g_menu.rows <= SHORT_LIST_MAX) {
         st.wheel_run = 0;
         step = 1;
@@ -2306,7 +2313,7 @@ int ringnav(void *ctx, void *event) {
          * tick there bumps and the wrap pause is timed between ticks. */
         accent(); /* reads the settings on first use */
         if (id >= 0 && clamp_step(id, g_menu.rows - 1, dir) != id &&
-            ++st.wheel_credit < (st.wheel_normal ? 1 : WHEEL_FINE)) {
+            ++st.wheel_credit < (st.wheel_fine ? WHEEL_FINE : 1)) {
             stop_scroll(&g_menu);
             widget_invalidate_force(w, (void *)0);
             return STOP;

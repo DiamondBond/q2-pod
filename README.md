@@ -73,20 +73,22 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before. The centre button scrubs (see [Controls](#controls)).
 - **Starts on Home.** **Memory playback → Location** restores your last queue and song paused where you left it; **Track** restores the song from its beginning. Open Now Playing to view it and press Play/Pause to resume. **In-Vehicle mode** (car mode) starts playing on Now Playing.
 
-**System settings → Display** gains two rows. Centre or tap cycles each, and the choice is kept across restarts:
+**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
 
 - **Accent:** Graphite (default), Crimson, Tidal or Champagne. It colours the selection bar, the Now Playing progress bar and everything the stock theme draws in Shanling red, such as switches, ticks and the display icons. Crimson keeps the stock red. The change shows at once.
 - **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
+- **Wheel:** Normal (default) or Fine. Normal moves a row on every wheel tick; Fine moves one row for every two ticks in the same direction, so single-row moves and small corrections don't overshoot. It applies to lists and the wheel-driven pop-ups, not to the volume, scrubbing or Coverflow's covers.
 
 Tidal pages keep their stock layout, and your saved settings are unchanged.
 
 ## Controls
 
-- **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick.
+- **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick. In iPod, lists step per the **Wheel** setting above and speed up more gently: two rows a step after 0.3 seconds of spinning, eight after 1.5.
+- **Key Tone (iPod):** with Key Tone on in System settings, lists click once for each row change instead of on every wheel tick, so nothing clicks at a list end or before the row moves. Buttons, the volume, scrubbing and Coverflow's covers click as before. Normal is unchanged.
 - **List ends:** in the local folder and music lists, a turn past the end nudges the selection and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
 - **Centre button:** opens the highlighted item. Double-press to turn the screen off.
 - **Hold Play/Pause:** on a highlighted song, album or folder in the local lists, opens **Play next** / **Add to queue**. It adds without interrupting what is playing; with shuffle on, Play next is still the next track. Return closes it.
-- **Touch:** works as normal and hides the selection until you use the wheel again. Turning the wheel mid-swipe stops the swipe.
+- **Touch:** works as normal and hides the selection until you use the wheel, Centre or Return again; iPod's Home always shows it. Turning the wheel mid-swipe stops the swipe.
 - **Artists:** an artist opens on Albums, with All Songs one tap away. The tabs are translated instead of the stock Chinese labels.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
 - **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.

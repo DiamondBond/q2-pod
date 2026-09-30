@@ -76,7 +76,11 @@ handlers, and `label_*` gets `widget_set_tr_text` with its `small_*` key. Missin
 skipped. Only the `img_left`/`img_right` handlers (`0x52391c`, `0x523968`) look up
 `slide_menu`, and nothing else in the executable names it or any card. `application_init`
 opens `home_page` once and it is never recreated, so the list keeps its own selection
-(`CTX_DYNAMIC` is enough) and needs no hidden `slide_menu` or arrow stubs.
+(`CTX_DYNAMIC` is enough) and needs no hidden `slide_menu` or arrow stubs. Its first paint at boot
+may come before the screen is usable and choose no row, so the status bar's first paint that finds
+the list repaints it once (`greeted`): Home starts with the bar on Now Playing. Touch mode
+([internals.md](internals.md#touch-mode)) does not hide Home's bar, so coming back shows the row last
+selected or tapped.
 
 iPod's `home_page.bin` is a `list_view` (39-pixel `item_height`, `HOME_ROW`) holding a
 `scroll_view` of seven 39-pixel rows (`btn_*` views), in stock order with Coverflow third: Now
@@ -316,8 +320,9 @@ no stock chevron or payload row layouter, so it has none.
 
 Spinning quickly through a list of more than 16 rows shows the first character of the selected
 row's title in a large white letter, centred over the list on a rounded dark square. It appears
-once the wheel moves more than one row per detent and disappears 400 ms after the last fast
-detent, or at once on a slow detent, a touch or the end of the list. Latin letters show in
+once a step moves more than one row, from 300 ms of continuous spin
+([internals.md](internals.md#wheel-movement)), and disappears 400 ms after the last such step, or
+at once on a slow tick, a touch or the end of the list. Latin letters show in
 capitals; leading spaces are skipped and any other character shows as it is. Home, settings and
 other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`); see
 [internals.md](internals.md#drawing).
@@ -362,8 +367,9 @@ is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` co
 `tools/compact.py`; see [internals.md](internals.md#now-playing-ipod).
 
 **Scrub.** The centre button starts scrubbing, as on an iPod classic, and the bar fill turns white
-while it lasts. Each wheel tick moves 5 seconds, times the same ramp as a long list (up to 40
-seconds a tick while spinning), within the track. Both times and the bar follow the target at once;
+while it lasts. Each wheel tick moves 5 seconds, times a ramp of one more step per 100 ms of spin
+(up to 40 seconds a tick; the lists' gentler ramp and the Wheel setting do not apply), within the
+track. Both times and the bar follow the target at once;
 the track jumps there once, when the scrub ends. Centre again or Return ends it, as do a touch and
 3 seconds without a tick, and each gives the wheel back to the volume; Return then stays on the
 page. Ending without having moved the target does not seek. A double press still turns the screen
@@ -448,21 +454,27 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds two rows the same way:
-"Accent: Graphite" and "Home: Split", the value in the label (260 pixels wide, to where the
-chevron ends), with no icon and no chevron, since Centre or a tap changes them in place. The
-page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
+pixels high). iPod runs the stock init, then adds three rows the same way:
+"Accent: Graphite", "Home: Split" and "Wheel: Normal", the value in the label (260 pixels wide, to
+where the chevron ends), with no icon and no chevron, since Centre or a tap changes them in place.
+The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). Both values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`
+and `WHEEL`. All three values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite and Split.
+one valid digit, is Graphite, Split and Normal.
+
+`WHEEL` stores 0 for Normal (a row per tick) and 1 for Fine (a row per `WHEEL_FINE` ticks one way,
+2; `patch/ringnav.c`); see [internals.md](internals.md#wheel-movement) for its scope and what
+clears half a step. "Normal" is this setting's value, not the Normal firmware, which has no such
+setting.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
@@ -549,8 +561,8 @@ behavior; planned features require their own regression checks.
   off for a few minutes and wake it: the clock is current. Volume turns still open the stock
   volume pop-up. Switch Bluetooth, Wi-Fi and PEQ on and off in turn (connect a codec so its label
   shows) at 12:59: the clock stays centred and never overlaps an icon in any combination.
-- **home**: Wheel through all seven rows (hard ends) and open each with centre
-  and tap; Coverflow is third. Switch the language and confirm the labels follow.
+- **home**: Wheel through all seven rows (hard ends; two ticks a row with Wheel on
+  Fine) and open each with centre and tap; Coverflow is third. Switch the language and confirm the labels follow.
   The first row has room under the status bar and the last row's text and chevron
   clear the bottom corners; labels share one left edge and chevrons one column, with
   the gap before the art kept.
@@ -567,10 +579,31 @@ behavior; planned features require their own regression checks.
   stock chevrons of categories, artists and albums. None on song lists, grid
   tiles, playlist Import/Export or in multi-select.
 - **fast_scroll_letter**: Spin through a list of more than 16 rows: the letter
-  shows once the step passes one row, matches the selected title (capitals for
-  Latin, other scripts as they are, leading spaces skipped) and clears 400 ms
-  after the last fast detent, on a slow detent, a touch or the list end. Short
-  lists, Home and settings never show it. Repeat in a virtual song list.
+  shows once the step passes one row (after about 0.3 s of steady spin), matches
+  the selected title (capitals for Latin, other scripts as they are, leading
+  spaces skipped) and clears 400 ms after the last fast step, on a slow tick, a
+  touch or the list end. Short lists, Home and settings never show it. Repeat in
+  a virtual song list and with Wheel on Fine.
+- **wheel_precision**: With Wheel on Fine (System settings → Display),
+  make twenty deliberate single-row moves in each direction on Home, pressing
+  centre after each to confirm it opens the intended row; repeat on Normal. Record
+  overshoots and whether Fine's pickup travel feels excessive. Turn very slowly
+  and reverse repeatedly: half a step must not carry across pages, buttons or a
+  touch, and stopping never moves a row later. In a long music list check the
+  deliberate start, a useful sustained speed (eight rows a step after about 1.5 s),
+  the immediate loss of speed after a pause or reversal, and the letter. Check
+  touch-to-wheel handoff, list ends and pause-to-wrap (a steady turn at an end must
+  not wrap), pop-ups, Coverflow tracks, lock/wake and the centre double press, and
+  compare the volume, scrubbing and Coverflow's covers with the previous release:
+  they move on every tick as before. Restart and confirm the setting stays. Record
+  the constants used and the results.
+- **key_tone**: With Key Tone on, in both Wheel values: one click per row change.
+  Half a step, repeated turns at an end and end bumps are silent; a wrap clicks
+  once; an accelerated step clicks once, with no burst or trailing clicks. Compare
+  the click's timing with the highlight and check that it does not slow the wheel.
+  Turn Key Tone off: silence; on again: clicks return. Buttons, the volume,
+  scrubbing, Coverflow's covers and the wheel with the screen off or locked click
+  as before, including when moving between those and a list.
 - **now_playing**: The art and "n of m" start 16 pixels in, the text column 12 pixels
   after the art ends 16 pixels from the edge, and the top row, art, page dots, bar and
   times each keep their own space. Check "n of m" against the queue, the album line, and the

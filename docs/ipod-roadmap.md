@@ -160,13 +160,13 @@ Keep the current single-centre entry to scrubbing and double-centre screen-off
 gesture. Extend single presses to reach the existing lyrics and information
 pages without requiring a swipe:
 
-| Current state | Single centre press |
-| --- | --- |
-| Artwork | Enter scrub mode, as today |
+| Current state       | Single centre press                   |
+| ------------------- | ------------------------------------- |
+| Artwork             | Enter scrub mode, as today            |
 | Scrub, target moved | Commit the seek and return to artwork |
-| Scrub, no movement | Exit without seeking and show lyrics |
-| Lyrics | Show track information |
-| Track information | Return to artwork |
+| Scrub, no movement  | Exit without seeking and show lyrics  |
+| Lyrics              | Show track information                |
+| Track information   | Return to artwork                     |
 
 The wheel controls volume outside scrub mode. Return retains its existing
 behavior. Touch swipes still work, and the next centre press follows the page

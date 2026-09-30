@@ -1,6 +1,9 @@
 # Fine wheel sensitivity, gentler acceleration and aligned Key Tone
 
-Status: implementation plan.
+Status: implemented with `WHEEL_FINE` 2, `LIST_FIRST_MS` 300, `LIST_RAMP_MS` 200,
+`WHEEL_RUN_MS` 140 and `WHEEL_MAX_STEP` 8 (`patch/ringnav.c`); both variants pass
+the automated checks below. Unlike the proposal below, Normal is the default
+(stored 0, also for a missing or invalid value) and Fine is opt-in (stored 1).
 
 Source baseline: commit `81d979f`.
 
@@ -60,10 +63,10 @@ Read [navigation internals](internals.md), [iPod UI notes](ipod.md), and
 Add `Wheel: Fine / Normal` after the existing Accent and Home rows in
 **System settings → Display**, using the existing row builder and config storage.
 
-| Setting | Incoming events per selection step | Stored `IPOD/WHEEL` value |
-| --- | --- | --- |
-| Fine (initial proposed default) | 2 in the same direction | 0 |
-| Normal | 1, as today | 1 |
+| Setting                         | Incoming events per selection step | Stored `IPOD/WHEEL` value |
+| ------------------------------- | ---------------------------------- | ------------------------- |
+| Fine (initial proposed default) | 2 in the same direction            | 0                         |
+| Normal                          | 1, as today                        | 1                         |
 
 Missing or invalid config values select Fine. Preserve the existing Accent and
 Home values. The setting changes event density; **both settings use the gentler
@@ -104,12 +107,12 @@ approach before considering a lower-level input hook.
 
 For eligible iPod lists with more than 16 logical rows, start with:
 
-| Parameter | Proposed value |
-| --- | --- |
+| Parameter                                           | Proposed value          |
+| --------------------------------------------------- | ----------------------- |
 | Maximum interval between events in a continuous run | 140 ms (existing value) |
-| Initial period at one row per emitted step | 300 ms |
-| Additional time for each subsequent speed increase | 200 ms |
-| Maximum rows per emitted step | 8 |
+| Initial period at one row per emitted step          | 300 ms                  |
+| Additional time for each subsequent speed increase  | 200 ms                  |
+| Maximum rows per emitted step                       | 8                       |
 
 With `elapsed` measured from the first event in the current continuous run:
 
@@ -161,14 +164,14 @@ Keep the current 200 ms centre confirmation/double-press behavior and its guards
 On the scoped iPod list/dialog paths, use the same sound behavior in both Fine
 and Normal sensitivity modes. With the existing Key Tone setting enabled:
 
-| Navigation outcome | Audible wheel clicks |
-| --- | --- |
-| Partial movement below the sensitivity threshold | 0 |
-| One emitted step that changes the selected row | 1 |
-| An accelerated step that changes selection by several rows | 1 total, not one per skipped row |
-| A successful pause-to-wrap | 1 |
-| Hard end or end bump without a selection change | 0 |
-| Merely revealing/restoring selection, rejected input or abandoned input | 0 |
+| Navigation outcome                                                      | Audible wheel clicks             |
+| ----------------------------------------------------------------------- | -------------------------------- |
+| Partial movement below the sensitivity threshold                        | 0                                |
+| One emitted step that changes the selected row                          | 1                                |
+| An accelerated step that changes selection by several rows              | 1 total, not one per skipped row |
+| A successful pause-to-wrap                                              | 1                                |
+| Hard end or end bump without a selection change                         | 0                                |
+| Merely revealing/restoring selection, rejected input or abandoned input | 0                                |
 
 Thus the four low-speed Fine events producing rows `0, 1, 1, 2` produce clicks
 `0, 1, 0, 1`. Stopping with half a step pending produces no later sound. With
@@ -214,16 +217,16 @@ bursts. Selection and sound should feel like one action.
 Line numbers are intentionally omitted here; find these symbols in the current
 checkout rather than assuming the baseline has not moved.
 
-| File | Relevant code and intended work |
-| --- | --- |
-| [patch/ringnav.c](../patch/ringnav.c) | `scratch_t`, `ramp()`, `drop_spin()`, `load()`, `ringnav()`: scoped movement credit, reset coverage, iPod list curve, and edge integration. Audit every direct `wheel_run = 0` assignment and every `ramp()` caller. |
-| [patch/ringnav.c](../patch/ringnav.c) | `config_digit()`, lazy settings initialization in `accent()`, `setting_text()`, `setting_click()`, `ringnav_display()`: one persisted setting and its row. Existing `if (i)` branches assume only two settings; replace those assumptions explicitly without a settings framework. |
-| [patch/ringnav.c](../patch/ringnav.c) | `paint_letter()`, `ringnav_touch()`, `ringnav_dispatch()`, centre/queue handling: overlay and reset integration. `np_key()` must retain current scrub behavior. `is_home()` identifies slide-menu carousels, not the iPod Home list. |
-| [patch/ringnav.c](../patch/ringnav.c) | Add the scoped key-down sound wrapper and minimal down/up ownership. Emit the existing buzzer only for actual wheel-driven selection changes. Audit all click and reset paths. |
-| [tools/build.py](../tools/build.py), [patch/trampoline.S](../patch/trampoline.S) | Add the key-down entry to `IPOD_HOOKS` and its stock resume trampoline (audited body starts at `0x4e8430`); import `buzzeer_switch` and size-check `g_keytone_flag` through the existing mechanisms. Retain SHA, address, PIC/GOT and manifest verification. Normal must not acquire this executable hook. |
-| [tools/test_patch.py](../tools/test_patch.py) | Extend existing short/long-list, Home, config, letter, boundary, touch, centre and scrub scenarios, plus paired key-down/key-up sound checks. Use the current MIPS harness, not a parallel simulation of the proposed algorithm. |
-| [tools/test_build.py](../tools/test_build.py) | Adjust existing build/layout expectations only if affected; verify both variants and packaging using the established checks. |
-| [README.md](../README.md), [docs/internals.md](internals.md), [docs/ipod.md](ipod.md), [docs/building.md](building.md) | Update controls, timing, setting behavior and hardware checklist after implementation. Distinguish physical input events from emitted navigation steps and distinguish firmware variants. |
+| File                                                                                                                   | Relevant code and intended work                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [patch/ringnav.c](../patch/ringnav.c)                                                                                  | `scratch_t`, `ramp()`, `drop_spin()`, `load()`, `ringnav()`: scoped movement credit, reset coverage, iPod list curve, and edge integration. Audit every direct `wheel_run = 0` assignment and every `ramp()` caller.                                                                                       |
+| [patch/ringnav.c](../patch/ringnav.c)                                                                                  | `config_digit()`, lazy settings initialization in `accent()`, `setting_text()`, `setting_click()`, `ringnav_display()`: one persisted setting and its row. Existing `if (i)` branches assume only two settings; replace those assumptions explicitly without a settings framework.                         |
+| [patch/ringnav.c](../patch/ringnav.c)                                                                                  | `paint_letter()`, `ringnav_touch()`, `ringnav_dispatch()`, centre/queue handling: overlay and reset integration. `np_key()` must retain current scrub behavior. `is_home()` identifies slide-menu carousels, not the iPod Home list.                                                                       |
+| [patch/ringnav.c](../patch/ringnav.c)                                                                                  | Add the scoped key-down sound wrapper and minimal down/up ownership. Emit the existing buzzer only for actual wheel-driven selection changes. Audit all click and reset paths.                                                                                                                             |
+| [tools/build.py](../tools/build.py), [patch/trampoline.S](../patch/trampoline.S)                                       | Add the key-down entry to `IPOD_HOOKS` and its stock resume trampoline (audited body starts at `0x4e8430`); import `buzzeer_switch` and size-check `g_keytone_flag` through the existing mechanisms. Retain SHA, address, PIC/GOT and manifest verification. Normal must not acquire this executable hook. |
+| [tools/test_patch.py](../tools/test_patch.py)                                                                          | Extend existing short/long-list, Home, config, letter, boundary, touch, centre and scrub scenarios, plus paired key-down/key-up sound checks. Use the current MIPS harness, not a parallel simulation of the proposed algorithm.                                                                           |
+| [tools/test_build.py](../tools/test_build.py)                                                                          | Adjust existing build/layout expectations only if affected; verify both variants and packaging using the established checks.                                                                                                                                                                               |
+| [README.md](../README.md), [docs/internals.md](internals.md), [docs/ipod.md](ipod.md), [docs/building.md](building.md) | Update controls, timing, setting behavior and hardware checklist after implementation. Distinguish physical input events from emitted navigation steps and distinguish firmware variants.                                                                                                                  |
 
 The iPod key-down sound hook is part of this first pass; no new asset or context
 entry should be necessary. Reuse existing widgets, configuration APIs, scrollbar
