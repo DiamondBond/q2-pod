@@ -110,9 +110,9 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
 
 - [Internals](docs/internals.md): hooks, selection, position memory, timing and drawing.
-- [Building](docs/building.md): building both variants, the MIPS test suite and on-device checks.
+- [Building](docs/building.md): building both variants and the MIPS test suite.
 - [Releasing](docs/releasing.md): packaging, verifying and publishing.
-- [iPod UI](docs/ipod.md): layout audit, each iPod feature and the device checklist.
+- [iPod UI](docs/ipod.md): layout audit and each iPod feature.
 - [Boot logo](docs/boot-logo.md): replacing the power-on splash.
 
 ## License

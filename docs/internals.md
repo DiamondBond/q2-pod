@@ -71,7 +71,7 @@ Stock clicks on the press. `on_wm_keydown_before_fun` (`0x4e8424`) calls `buzzee
 
 iPod hooks that callback (`ringnav_keydown`, stock resumed at `0x4e8430`). For a wheel press that the release will take as row navigation it saves `g_keytone_flag`, clears it, runs the whole stock body and restores the byte before returning stock's result: the power timer, the lock gates and both latches run as stock, and only the click is missing. Besides `buzzeer_switch`, the byte is read by `config_init` and by the System settings page's Key Tone row and its click handler (`0x4cc0a0`, `0x4cc2dc`), all on the UI thread, and the stock body calls nothing back into the UI, so nothing else sees it cleared. Whether a press is such a press is decided from the widget tree alone (screen usable, a `contexts.inc` window, a pane that is not a `slide_menu` and holds a clickable row); nothing is loaded, selected or restored. Every other press runs stock unchanged: the buttons, the volume, scrub, carousels and other slide menus, the pixel-scroll fallback, and the wheel while the screen is off or locked.
 
-The press leaves its key in `tone_key`. Every key-down rewrites it and every key-up clears it, so a dropped release cannot carry it into a later input. On the release, `ringnav()` calls `buzzeer_switch(1)` once when that tick's step changes the selected row, with the setting as it is then: one click for a step of any size and for a wrap, and none for half a step, a hard end, a bump, a rejected tick (a pointer down, a window animation, stock's wheel lockout after a button) or a release whose press stock already clicked. If the page stops being a list between the press and the release, that tick is silent and the next press is stock's again. The call is in the wheel path, not in `select()` or the paint hooks, which also run for restoration, touch and repaints. `buzzeer_switch` is synchronous; what it costs the wheel's response is a [device check](ipod.md#device-checklist). Normal has no key-down hook and clicks as stock.
+The press leaves its key in `tone_key`. Every key-down rewrites it and every key-up clears it, so a dropped release cannot carry it into a later input. On the release, `ringnav()` calls `buzzeer_switch(1)` once when that tick's step changes the selected row, with the setting as it is then: one click for a step of any size and for a wrap, and none for half a step, a hard end, a bump, a rejected tick (a pointer down, a window animation, stock's wheel lockout after a button) or a release whose press stock already clicked. If the page stops being a list between the press and the release, that tick is silent and the next press is stock's again. The call is in the wheel path, not in `select()` or the paint hooks, which also run for restoration, touch and repaints. Normal has no key-down hook and clicks as stock.
 
 ## Scrollbar
 
@@ -152,10 +152,6 @@ Coverflow draws its covers in software, after Rockbox PictureFlow's renderer: th
 **Taps.** The page's pointer-up-before handler, which already finishes drags, hit-tests taps on the covers (pressed, not dragged) against the projected cover bodies, frontmost first: the centre cover at rest opens its tracks through the same click handler the centre button uses; a side cover scrolls to the centre with stock `slide_menu_scroll_to` (the offset of that many strides) and completion; a tap on a reflection or the background, or while the covers move, only ends the press and the stale grab.
 
 **Checks.** `tools/test_coverflow.py` builds the renderer on the host and checks the selected cover pixel for pixel, that nothing is drawn outside the frame, mirror symmetry at rest and mid-turn, brightness one and two out, the reflection's rows and fade, that the hit test agrees with the drawn colour everywhere, that a small step changes little (including where the centre album changes hands), the texture window's loads and releases, taps, one- and two-album libraries, missing art, Refresh, return from tracks and the allocation-failure fallback; `--captures DIR` writes the renderer's frames at rest and a quarter, half and three-quarter turn as PNGs. `tools/test_patch.py` runs the MIPS payload's renderer against the host build byte for byte, and the page's paint, taps and fallback, and prints the payload's instructions per frame (about 3.5 million for a frame mid-turn under the mocks): a relative measure, not a frame time.
-
-### Device checks
-
-For regression checks, with music playing: turn the wheel slowly, spin it fast and reverse mid-spin; drag and let go; tap side covers and the centre; wrap past both ends; open an album and Return; try a library of one and of two albums, albums without art and Refresh. Confirm that the neighbours stay visible at rest, that no artwork flashes and no geometry jumps during a move, that the captions match the album that settles, that the text clears the rounded glass, and that playback never stutters.
 
 ## Position memory
 
@@ -268,7 +264,7 @@ The English stock labels are Memory playback: Off / Track / Location and
 System Setting: In-Vehicle mode. Home's Now Playing action (`on_home_playing_onclick`
 at `0x5237d0`) calls `on_backplay_click` (`0x4e805c`), which opens the player with
 class `0xff`; this skips `player_start` and preserves the paused state. Play/Pause
-resumes audio. See the [boot/resume procedure](ipod.md#boot) for device checks.
+resumes audio.
 
 ## Scrub (iPod)
 

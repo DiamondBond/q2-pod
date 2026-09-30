@@ -18,5 +18,4 @@ ZIPs, manifests, SHA256SUMS, release notes and source revision/hash. Normal is t
 direct builds; a single direct build is never a release input. Upload revalidates both variants
 and refuses stale, missing or changed artifacts and published releases. An upload/download
 failure leaves the release unpublished; rerun upload to repair the draft. Packaging uses no
-GitHub credentials or network. The [iPod checklist](ipod.md) is a device test guide,
-not a release gate.
+GitHub credentials or network.
