@@ -66,7 +66,8 @@ class Machine:
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
-        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
+        # Existing scenarios step one row per tick (Wheel: Normal); the Fine ones below drop the key.
+        self.allocs={}; self.config={'WHEEL':'1',**CONFIG}; self.config_reads=[]
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]

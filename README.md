@@ -71,7 +71,7 @@ The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per 
 - **Quick settings** (pull down from the top edge): the eight controls keep their grid with evenly spaced two-line labels, and brightness is a slim bar you can tap or drag anywhere along. Controls that are on show as dark discs with white symbols under every accent.
 - **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type over the list.
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before. The centre button scrubs (see [Controls](#controls)).
-- **Starts on Home.** With **Memory playback** on, your last queue comes back paused where you left it; open Now Playing or press Play/Pause to carry on. Car mode still starts playing on Now Playing.
+- **Starts on Home.** **Memory playback → Location** restores your last queue and song paused where you left it; **Track** restores the song from its beginning. Open Now Playing to view it and press Play/Pause to resume. **In-Vehicle mode** (car mode) starts playing on Now Playing.
 
 **System settings → Display** gains two rows. Centre or tap cycles each, and the choice is kept across restarts:
 

@@ -413,10 +413,32 @@ minutes), the pull-down quick settings (`statusbar_dialog`), and the dialogs wit
 
 ## Boot
 
-An iPod classic starts on its menu. With Memory playback on, iPod restores the last queue, track
-and position as stock does, but paused and without opening Now Playing: Home stays on screen, and
-Now Playing or Play/Pause carries on. Car mode keeps stock and boots into Now Playing, playing.
+The iPod build starts on Home. **Playback Setting → Memory playback** has three
+options: **Off**, **Track** (restore the queue and song from its beginning), and
+**Location** (also restore the saved time within the song). With Track or Location,
+the restored player is paused. Opening Now Playing shows it; press Play/Pause to
+resume audio. Opening that page alone does not resume playback.
+
+**System Setting → In-Vehicle mode** is the car-mode exception: it keeps the stock
+behavior, opening Now Playing and starting playback from the saved position.
+With both Memory playback and In-Vehicle mode off, boot does not restore playback.
 See [internals.md](internals.md#boot-resume-ipod).
+
+To check boot/resume on the device (a full shutdown/start, not screen off/on):
+
+1. Turn In-Vehicle mode off and set Memory playback to Location. Play a local
+   track from an album/queue to an obvious point, such as 01:00, then shut down
+   normally. Power on: Home should appear without audio. Open Now Playing and
+   check the same queue, song and saved position; press Play/Pause to continue.
+2. Repeat with Track. The same song should be restored paused at its beginning.
+3. Repeat with Memory playback Off and In-Vehicle mode still off. Home should
+   appear without restoring playback.
+4. Enable In-Vehicle mode and repeat. Now Playing should open and audio should
+   start automatically. Restore the preferred settings after this check.
+5. Check the missing-track error separately using a disposable local track:
+   save it with Location, shut down normally, temporarily rename that file on
+   the card, then power on with In-Vehicle mode off. The stock error toast should
+   appear on Home. Restore the filename afterwards.
 
 ## Display settings
 
@@ -464,6 +486,11 @@ stock's red buttons with white text become white on `#6E6E6E` (5.1:1) and the do
 
 The regression guide for device tests of the iPod build. Entries that name
 Normal also apply to it.
+
+**Validation status:** the iPod checklist, shared navigation checks and Coverflow
+visual/audio checks pass on hardware, including boot/resume. Numerical Coverflow
+frame-rate measurement remains pending. These results cover existing iPod
+behavior; planned features require their own regression checks.
 
 - **pull to search**: iPod Local Songs only: start at the list top, pull
   47/48/49 pixels and release. Check both prompts, backing below the threshold,
@@ -599,10 +626,11 @@ Normal also apply to it.
   Coverflow and a confirm pop-up on the device, with each of the four accents: nothing
   in the bottom rows is cut by the glass, and button glyphs and labels read clearly.
   Only the device shows readability through the rounded glass.
-- **boot**: With Memory playback on, restart: Home shows, the last queue, track
-  and position come back paused, and Now Playing or Play/Pause carries on. Car
-  mode starts playing on Now Playing. With Memory playback off, nothing resumes.
-  A missing restored track still shows its toast on Home.
+- **boot**: Follow the [boot/resume procedure](#boot). Location
+  restores the queue, song and time paused on Home; Track restores the song from
+  its beginning. Opening Now Playing does not start audio; Play/Pause resumes it.
+  In-Vehicle mode starts playback on Now Playing. With both settings off, nothing
+  resumes. A missing restored track still shows its toast on Home.
 - **aac**: Normal and iPod: let AirPods or another AAC headset connect by
   itself (taken out of the case) and play; the audio is not choppy.
 - **excluded_screens**: Verify Tidal and other online pages, text-entry and

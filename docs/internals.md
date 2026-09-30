@@ -135,7 +135,7 @@ Coverflow draws its covers in software, after Rockbox PictureFlow's renderer: th
 
 ### Device checks
 
-The remaining feasibility checks are the hardware frame time and the stock bitmap path on the real LCD. With music playing: turn the wheel slowly, spin it fast and reverse mid-spin; drag and let go; tap side covers and the centre; wrap past both ends; open an album and Return; try a library of one and of two albums, albums without art and Refresh. Confirm that the neighbours stay visible at rest, that no artwork flashes and no geometry jumps during a move, that the captions match the album that settles, that the text clears the rounded glass, and that playback never stutters. Target 30 fps while moving, and measure it on the Q2 before claiming it; tune `CF_*` together from there.
+For regression checks, with music playing: turn the wheel slowly, spin it fast and reverse mid-spin; drag and let go; tap side covers and the centre; wrap past both ends; open an album and Return; try a library of one and of two albums, albums without art and Refresh. Confirm that the neighbours stay visible at rest, that no artwork flashes and no geometry jumps during a move, that the captions match the album that settles, that the text clears the rounded glass, and that playback never stutters. Target 30 fps while moving, and measure it on the Q2 before claiming it; tune `CF_*` together from there.
 
 ## Position memory
 
@@ -236,7 +236,13 @@ The hook runs the stock init, then caches `label_ipod_pos`, `label_ipod_album`, 
 
 Stock `home_page_init` resumes when Memory playback (`g_memory_play`) or car mode (`g_carmode`) is set. `memeory_startplayer` (`0x5164e0`) reads the saved state, rebuilds the queue into a new deque, sets the saved position with `mclSetStartSeekTime` when `g_memory_play` is 2 or in car mode, and returns the track index; it neither plays nor opens a page. Home then calls `navigator_to_with_context("playing_page", ctx)` (the `jalr` at `0x523de0`) with `ctx` `{queue, index, class, mode}`, mode 2 in car mode and 3 otherwise. `playing_page_init` passes `ctx` to `player_start` unless the class is `0xff`; `player_start` loads the queue, starts the player and pauses it (`mclSetPause`) unless the mode is 2.
 
-iPod makes that `jalr` a checked `jal ringnav_boot`; the delay slot still stores the mode. In car mode `ringnav_boot` makes the stock call unchanged. Otherwise it makes the page's `player_start` call without the page, so the queue, track and position come back paused and Home stays. Home destroys its deque afterwards, as before, since `mclLoadPlayList` copies it. The page's two resets before `player_start` (key-seek mode and a countdown) are page state, set again when it opens. `hciplayer` touches `/tmp/notfile` or `/tmp/notsupport` for a missing or unsupported track; the window manager's `on_wm_timer_dialog` (`0x4ea784`) turns them into a `msginfo_dialog` toast on any page, and `playing_page_init` only deletes stale ones, so a bad restored track still shows its toast on Home.
+iPod makes that `jalr` a checked `jal ringnav_boot`; the delay slot still stores the mode. In car mode `ringnav_boot` makes the stock call unchanged. Otherwise it makes the page's `player_start` call without the page, so the queue and track come back paused and Home stays; the saved time is restored in Location mode, while Track starts at the beginning. Home destroys its deque afterwards, as before, since `mclLoadPlayList` copies it. The page's two resets before `player_start` (key-seek mode and a countdown) are page state, set again when it opens. `hciplayer` touches `/tmp/notfile` or `/tmp/notsupport` for a missing or unsupported track; the window manager's `on_wm_timer_dialog` (`0x4ea784`) turns them into a `msginfo_dialog` toast on any page, and `playing_page_init` only deletes stale ones, so a bad restored track still shows its toast on Home.
+
+The English stock labels are Memory playback: Off / Track / Location and
+System Setting: In-Vehicle mode. Home's Now Playing action (`on_home_playing_onclick`
+at `0x5237d0`) calls `on_backplay_click` (`0x4e805c`), which opens the player with
+class `0xff`; this skips `player_start` and preserves the paused state. Play/Pause
+resumes audio. See the [boot/resume procedure](ipod.md#boot) for device checks.
 
 ## Scrub (iPod)
 

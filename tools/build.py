@@ -29,7 +29,8 @@ IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
               'playing_page_init': (0x52ca88, 'ringnav_playing'),
               'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
               'style_get_color': (0x649f6c, 'ringnav_style_color'),
-              'image_manager_add': (0x6445d4, 'ringnav_image_add')}
+              'image_manager_add': (0x6445d4, 'ringnav_image_add'),
+              'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown')}
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
 # vtable, then tail-calls get_gradient (+0x18); its first two words (beqz a0; nop) become the jump
 # and the payload does the whole of it. The third word is pinned too, so the layout is the audited one.
@@ -222,6 +223,7 @@ FUNCTIONS = {
  'playing_timer_clear': ('int', 'void *'),
  'player_seek_time': ('int', 'int'),
  'player_start': ('int', 'void *, int, int, int'),
+ 'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -233,7 +235,8 @@ PRIVATE_FUNCTIONS = {
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
-           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type']
+           'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
+           'g_keytone_flag']
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,

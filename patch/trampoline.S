@@ -21,3 +21,4 @@ resume playing, 0x52ca94
 resume display, 0x4c1d10
 resume color, 0x649f78
 resume image, 0x6445e0
+resume keydown, 0x4e8430

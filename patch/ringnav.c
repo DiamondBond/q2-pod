@@ -6,6 +6,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
+    stock_keydown_trampoline(void *, void *),
     stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *);
 extern void *coverflow_tracks(void *page);
@@ -26,8 +27,11 @@ extern void *staged(int (*query)(void *), void *arg, int *count);
 #define HOME_SLIDE_MS 200
 #define HOME_FAST_SLIDE_MS 120
 #define WHEEL_RUN_MS 140
-#define WHEEL_RAMP_MS 100
-#define WHEEL_MAX_STEP 8
+#define WHEEL_RAMP_MS 100 /* scrub, the pixel fallback and normal: one step for this long, then */
+#define WHEEL_MAX_STEP 8  /* one more per this much spin, up to this many */
+#define LIST_FIRST_MS 300 /* iPod row lists: one row per step for this long, */
+#define LIST_RAMP_MS 200  /* then one row more per this much spin */
+#define WHEEL_FINE 2      /* iPod Wheel: Fine takes this many ticks one way per row step */
 #define SHORT_LIST_MAX 16
 #define MAX_ENTRIES 512
 #define POS_MEM 64
@@ -61,6 +65,7 @@ typedef struct {
     unsigned last_wheel;  /* time of the previous wheel detent */
     int wheel_dir;        /* direction of that detent */
     unsigned wheel_run;   /* continuous same-direction spin ms + 1; capped at full speed */
+    int wheel_credit;     /* iPod Wheel: Fine: ticks that way still short of a row step */
     int touch_mode;       /* session-wide drawing preference, independent of selection */
     void *wheel_top, *wheel_surface;
     unsigned wheel_scope;
@@ -88,8 +93,9 @@ typedef struct {
     int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full;
-    void *setting_label[2];
+    int settings_read, accent, home_full, wheel_normal;
+    void *setting_label[3];
+    unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
@@ -189,14 +195,18 @@ static int clamp_step(int offset, int maximum, int delta) {
     return offset + delta;
 }
 
-/* One-row steps until a sustained run of accepted same-direction ticks ramps the step up one
- * row per WHEEL_RAMP_MS of spin, capped at WHEEL_MAX_STEP. A pause longer than WHEEL_RUN_MS,
- * a reversal or a change of menu resets the run, so stopping and reversing stay precise. */
-static int ramp(void *top, void *surface, unsigned scope, int ctx, int dir, unsigned now) {
-    if (st.wheel_run && now - st.last_wheel <= WHEEL_RUN_MS && st.wheel_dir == dir &&
-        st.wheel_top == top && st.wheel_surface == surface && st.wheel_scope == scope &&
-        st.wheel_ctx == ctx)
-        st.wheel_run = (unsigned)clamp_step(st.wheel_run, (WHEEL_MAX_STEP - 1) * WHEEL_RAMP_MS + 1,
+/* One-row steps until a sustained run of accepted same-direction ticks has spun for `first` ms;
+ * the step is then two and gains one per `more` ms, capped at WHEEL_MAX_STEP. A pause longer than
+ * WHEEL_RUN_MS, a reversal or a change of menu resets the run, so stopping and reversing stay
+ * precise. The Fine setting's partial step belongs to the same menu and direction, but outlives a
+ * pause. */
+static int ramp(void *top, void *surface, unsigned scope, int ctx, int dir, unsigned now, int first,
+                int more) {
+    int same = st.wheel_dir == dir && st.wheel_top == top && st.wheel_surface == surface &&
+               st.wheel_scope == scope && st.wheel_ctx == ctx;
+    if (!same) st.wheel_credit = 0;
+    if (same && st.wheel_run && now - st.last_wheel <= WHEEL_RUN_MS)
+        st.wheel_run = (unsigned)clamp_step(st.wheel_run, first + (WHEEL_MAX_STEP - 2) * more + 1,
                                             now - st.last_wheel);
     else
         st.wheel_run = 1;
@@ -206,7 +216,8 @@ static int ramp(void *top, void *surface, unsigned scope, int ctx, int dir, unsi
     st.wheel_surface = surface;
     st.wheel_scope = scope;
     st.wheel_ctx = ctx;
-    return 1 + (int)(st.wheel_run - 1) / WHEEL_RAMP_MS;
+    int spin = (int)st.wheel_run - 1;
+    return spin < first ? 1 : 2 + (spin - first) / more;
 }
 
 /* A tap target has an EVT_CLICK handler. V1.32 widget emitter @0x60; emitter_on_with_tag items are
@@ -267,9 +278,15 @@ static void cancel_center(void) {
     if (timer) timer_remove(timer);
 }
 
+/* The list's spin ramp and partial step start over. */
+static void drop_wheel(void) {
+    st.wheel_run = 0;
+    st.wheel_credit = 0;
+}
+
 /* A wheel or centre step supersedes any run: drop the spin ramp and home slide. */
 static void drop_spin(void) {
-    st.wheel_run = 0;
+    drop_wheel();
     st.home_surface = (void *)0;
 }
 
@@ -599,7 +616,7 @@ static int load(menu_t *m, void *w, int recall) {
     }
     if (st.fx_surface && (st.fx_surface != w || scope != m->scope || count != m->rows)) fx_cancel();
     if (count != m->rows) {
-        if (st.wheel_surface == w) st.wheel_run = 0;
+        if (st.wheel_surface == w) drop_wheel();
         prop(w, SEL, -1);
         prop(w, COUNT, m->rows);
     }
@@ -972,9 +989,9 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent and Home settings (docs/ipod.md#display-settings), IPOD/ACCENT and IPOD/HOME in the
- * stock config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the
- * default. */
+/* The Accent, Home and Wheel settings (docs/ipod.md#display-settings), IPOD/ACCENT, IPOD/HOME and
+ * IPOD/WHEEL in the stock config.ini: toolsReadConfig(path, section, key, out, default) copies the
+ * value, or the default. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
@@ -989,6 +1006,7 @@ static int accent(void) {
     if (!st.settings_read) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
+        st.wheel_normal = config_digit("WHEEL", 2);
         st.settings_read = 1;
     }
     return st.accent;
@@ -1098,14 +1116,14 @@ static int letter_expire(const void *info) {
     return 0;
 }
 
-/* iPod fast scroll: while the wheel ramp moves more than one row per detent, the selected row's
+/* iPod fast scroll: while the wheel ramp moves more than one row per step, the selected row's
  * first character sits in a dark translucent square over the list until LETTER_MS after the last
- * detent. A virtual table resolves the logical row in its recycled pool; an offscreen or textless
- * row shows nothing. Stock sets the font before its own text, so only the text color and
+ * such step. A virtual table resolves the logical row in its recycled pool; an offscreen or
+ * textless row shows nothing. Stock sets the font before its own text, so only the text color and
  * alignment are restored, with the fill color and clip. */
 static void paint_letter(void *w, void *canvas) {
     rect_t old;
-    if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= WHEEL_RAMP_MS ||
+    if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= LIST_FIRST_MS ||
         st.touch_mode || !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w))
         return;
     int i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
@@ -1351,8 +1369,8 @@ static int np_toggle(const void *info) {
 
 /* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press toggles
  * DOUBLE_CLICK_MS later, so a second one still reaches stock's screen off. The wheel moves the
- * target SCRUB_STEP seconds times the list ramp, within the track, and only previews it: the
- * seek waits for the scrub to end. Neither the volume nor its dialog sees the wheel. */
+ * target SCRUB_STEP seconds times the WHEEL_RAMP_MS ramp, within the track, and only previews it:
+ * the seek waits for the scrub to end. Neither the volume nor its dialog sees the wheel. */
 static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
@@ -1373,8 +1391,8 @@ static int np_key(void *top, unsigned key) {
         return STOP;
     }
     int dir = key == KEY_NEXT ? 1 : -1;
-    /* the step grows while the wheel spins, as in a long list */
-    int step = SCRUB_STEP * ramp(top, st.np_slider, 0, -1, dir, now);
+    /* the step grows while the wheel spins: every tick counts, on the ramp lists had before */
+    int step = SCRUB_STEP * ramp(top, st.np_slider, 0, -1, dir, now, WHEEL_RAMP_MS, WHEEL_RAMP_MS);
     int to = clamp_step(st.scrub_to, widget_get_prop_int(st.np_slider, "max", 0), dir * step);
     if (to != st.scrub_to) st.scrub_moved = 1;
     st.scrub_to = to;
@@ -1538,21 +1556,26 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 
 static void setting_text(int i) {
     const char *name = accent_names[accent()];
-    if (i) name = st.home_full ? "Home: Full" : "Home: Split";
+    if (i == 1) name = st.home_full ? "Home: Full" : "Home: Split";
+    if (i == 2) name = st.wheel_normal ? "Wheel: Normal" : "Wheel: Fine";
     widget_set_text_utf8(st.setting_label[i], name);
 }
 
 /* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on
  * the next paint, and the theme's colors and images once every cached image is dropped and the
- * screen repaints; Home takes its new layout at once, as it is never recreated. */
+ * screen repaints; Home takes its new layout at once, as it is never recreated; the wheel's next
+ * tick starts a fresh step. */
 static int setting_click(void *ctx, void *event) {
     (void)event;
-    int i = (int)(long)ctx, *value = i ? &st.home_full : &st.accent; /* read by ringnav_display */
+    static const char *const keys[] = { "ACCENT", "HOME", "WHEEL" };
+    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Wheel */
+    int *value = i == 2 ? &st.wheel_normal : i ? &st.home_full : &st.accent;
     *value = (*value + 1) % (i ? 2 : ACCENT_N);
-    write_int_config(*value, "IPOD", i ? "HOME" : "ACCENT");
-    if (i)
+    write_int_config(*value, "IPOD", keys[i]);
+    drop_wheel();
+    if (i == 1)
         coverflow_home_layout();
-    else {
+    else if (!i) {
         np_fill(0);
         image_manager_unload_all(image_manager());
         widget_invalidate_force(window_manager(), (void *)0);
@@ -1563,12 +1586,12 @@ static int setting_click(void *ctx, void *event) {
 
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Accent and Home rows follow with the same widgets and styles, the value in the label, no icon and
- * no chevron, since they change in place. */
+ * Accent, Home and Wheel rows follow with the same widgets and styles, the value in the label, no
+ * icon and no chevron, since they change in place. */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
-    for (int i = 0; view && i < 2; ++i) {
+    for (int i = 0; view && i < 3; ++i) {
         void *item = list_item_create(view, 0, 0, 0, 0);
         widget_use_style(item, "s_listitem_black");
         void *button = button_create(item, 20, 0, 335, 70);
@@ -2107,6 +2130,32 @@ int ringnav_shuffle(int forward) {
     return result;
 }
 
+#if IPOD
+/* on_wm_keydown_before_fun. Stock clicks (buzzeer_switch, which reads g_keytone_flag) on the press,
+ * before the release moves anything. A wheel press on a page whose release ringnav() takes as row
+ * navigation runs the whole stock body with the flag off for that one synchronous call, so its
+ * gates and latches still run, and the release clicks when the selection changes. The test reads
+ * the tree only: nothing is loaded, selected or restored. Carousels, the pixel-scroll fallback,
+ * scrub, the volume and every other key keep the stock click. */
+int ringnav_keydown(void *ctx, void *event) {
+    unsigned key = event ? (unsigned)I(event, EVENT_KEY) : 0;
+    unsigned char tone = g_keytone_flag;
+    void *top = window_manager_get_top_window(window_manager()), *row = (void *)0;
+    entries_t s = { &row, 0, 1, 4096 };
+    st.tone_key = 0;
+    if ((key == KEY_PREV || key == KEY_NEXT) && usable() && allowed_top(top)) {
+        void *w = surface_under(top, (void *)0, (void *)0, 1);
+        unsigned n = w && kind(w) != 3 ? widget_count_children(w) : 0;
+        for (unsigned i = 0; i < n && !s.n; ++i) collect(widget_get_child(w, i), &s, 1);
+        if (s.n) st.tone_key = key;
+    }
+    if (st.tone_key) g_keytone_flag = 0;
+    int result = stock_keydown_trampoline(ctx, event);
+    if (st.tone_key) g_keytone_flag = tone;
+    return result;
+}
+#endif
+
 int ringnav(void *ctx, void *event) {
     pull_cancel();
     /* The stock filter dereferences the event before returning. */
@@ -2115,16 +2164,22 @@ int ringnav(void *ctx, void *event) {
         drop_spin();
         return 0;
     }
+    unsigned key = (unsigned)I(event, EVENT_KEY);
+#if IPOD
+    /* This release's press was silenced by ringnav_keydown: a row change below clicks instead. */
+    int owned = st.tone_key == key;
+    st.tone_key = 0;
+#endif
+    if (key != KEY_PREV && key != KEY_NEXT) st.wheel_credit = 0; /* a button ends a partial step */
     int result = stock_keyup_trampoline(ctx, event);
-    if (I(event, EVENT_KEY) == KEY_PLAY && hold_released()) return STOP;
+    if (key == KEY_PLAY && hold_released()) return STOP;
     if (result) {
         cancel_center();
-        if (I(event, EVENT_KEY) == KEY_PREV || I(event, EVENT_KEY) == KEY_NEXT) st.wheel_run = 0;
+        if (key == KEY_PREV || key == KEY_NEXT) drop_wheel();
         /* Keep the home interval independent of rejected list navigation. */
-        if (I(event, EVENT_KEY) == KEY_CENTER || !usable()) drop_spin();
+        if (key == KEY_CENTER || !usable()) drop_spin();
         return result;
     }
-    unsigned key = (unsigned)I(event, EVENT_KEY);
 #if IPOD
     if (key == KEY_RETURN && st.scrub) { /* ends the scrub without leaving the page */
         np_cancel();
@@ -2224,14 +2279,19 @@ int ringnav(void *ctx, void *event) {
         widget_invalidate_force(w, (void *)0);
         return STOP;
     }
-    int step = 1;
-    if (g_menu.rows <= SHORT_LIST_MAX)
-        st.wheel_run = 0;
-    else
-        step = ramp(top, g_menu.w, g_menu.scope, g_menu.ctx, dir, now);
+    /* Every accepted tick times the run and owns the partial step, short lists included. */
+    int first = WHEEL_RAMP_MS, more = WHEEL_RAMP_MS;
 #if IPOD
-    if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
+    if (g_menu.kind != 3 && g_menu.n) { /* row lists: the gentler ramp */
+        first = LIST_FIRST_MS;
+        more = LIST_RAMP_MS;
+    }
 #endif
+    int step = ramp(top, g_menu.w, g_menu.scope, g_menu.ctx, dir, now, first, more);
+    if (g_menu.rows <= SHORT_LIST_MAX) {
+        st.wheel_run = 0;
+        step = 1;
+    }
     native_scrollbar(&g_menu);
     if (g_menu.kind == 3) {
         if (dir > 0)
@@ -2240,9 +2300,23 @@ int ringnav(void *ctx, void *event) {
             slide_menu_scroll_to_prev(w);
     } else if (g_menu.n) {
         int id = widget_get_prop_int(w, SEL, -1);
+#if IPOD
+        /* Wheel: Fine steps on every WHEEL_FINE-th tick one way; a tick short of that only wakes
+         * the list. Revealing the selection and a turn against an end are not divided, so every
+         * tick there bumps and the wrap pause is timed between ticks. */
+        accent(); /* reads the settings on first use */
+        if (id >= 0 && clamp_step(id, g_menu.rows - 1, dir) != id &&
+            ++st.wheel_credit < (st.wheel_normal ? 1 : WHEEL_FINE)) {
+            stop_scroll(&g_menu);
+            widget_invalidate_force(w, (void *)0);
+            return STOP;
+        }
+        st.wheel_credit = 0;
+        if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
+#endif
         int next = clamp_step(id < 0 ? (cur >= 0 ? g_menu.id[cur] : 0) : id, g_menu.rows - 1,
                               id < 0 ? 0 : dir * step);
-        if (next == 0 || next == g_menu.rows - 1) st.wheel_run = 0;
+        if (next == 0 || next == g_menu.rows - 1) drop_wheel();
         if (next == id) {
             if (!ring_list(&g_menu) || id < 0) {
                 stop_scroll(&g_menu);
@@ -2267,6 +2341,9 @@ int ringnav(void *ctx, void *event) {
         select(&g_menu, next);
         /* Stop momentum even when the selected row already fits the viewport. */
         reveal(&g_menu, next, 1);
+#if IPOD
+        if (owned && id >= 0) buzzeer_switch(1); /* one click per row change, however far */
+#endif
     } else {
         int top = view_top(&g_menu);
         int next = clamp_step(top, max_top(&g_menu), dir * RING_STEP * step);
