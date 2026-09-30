@@ -1,6 +1,6 @@
 # Standard release procedure
 
-To prepare a release, bump `VERSION` in `tools/build.py` and add a `- **V<version>R / V<version>I**` entry to the top of `docs/changelog.md`; packaging uses that entry as the release notes and fails without it. Keep the proprietary stock ZIP local. Use the Python environment with `requirements.txt`
+To prepare a release, bump `VERSION` in `tools/build.py` and add a `- **V<version>R / V<version>I**` entry to the top of `docs/changelog.md`; packaging turns that entry into the release notes (the bold version heading, then one bullet a sentence) and fails without it. Keep the proprietary stock ZIP local. Use the Python environment with `requirements.txt`
 installed for these commands:
 
 ```sh

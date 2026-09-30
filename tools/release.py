@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tarfile
@@ -19,15 +20,17 @@ ASSETS = {'normal': f'Q2.Firmware.V{VERSION}.zip', 'ipod': f'Q2.Firmware.V{VERSI
 
 
 def notes():
-    """This version's entry from docs/changelog.md, so a release edits only VERSION and the changelog."""
+    """This version's line from docs/changelog.md, so a release edits only VERSION and the changelog:
+    its bold version heading, then one bullet a sentence."""
     prefix = f'- **V{VERSION}R'
-    entry = next((e for e in (ROOT/'docs/changelog.md').read_text().split('\n\n') if e.startswith(prefix)), None)
+    entry = next((l for l in (ROOT/'docs/changelog.md').read_text().splitlines() if l.startswith(prefix)), None)
     check(entry, f'docs/changelog.md has no {prefix} entry')
-    return entry.strip()
+    title, text = entry[2:].split(': ', 1)
+    return '\n'.join([title, *('- '+s for s in re.split(r'(?<=[.!?]) +(?=[A-Z*"])', text.strip()))])
 
 
 def release_body(out, record):
-    """Changelog bullets plus the SHA-256 block used by previous releases."""
+    """The version heading and its bullets plus the SHA-256 block used by previous releases."""
     lines = [notes(), '', 'SHA-256:']
     for variant, asset in ASSETS.items():
         lines.append(f'- {asset}: `{record["assets"][asset]}`')

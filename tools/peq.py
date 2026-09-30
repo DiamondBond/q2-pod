@@ -5,6 +5,8 @@ from build import ROOT, FLAGS, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_pay
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
+# demux_audio_open's branch to the whole-file frame walk for Xing/VBRI MP3s; see docs/internals.md.
+VBR_SCAN = 0x48fb3c
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
@@ -105,6 +107,8 @@ def patch_player(raw, out):
     data = bytearray(raw)
     off = fileoff(raw, 0x893e0c)
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
+    off = fileoff(raw, VBR_SCAN)
+    data[off:off+4] = bytes(4)  # nop; was bnez $v0, 0x491de0
     append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 5, 'player')
     (out/'hciplayer').write_bytes(data)
     return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload))

@@ -36,7 +36,9 @@ with tempfile.TemporaryDirectory() as tmp:
     record = dict(tag=release.TAG, revision='revision', source_sha256=release.source_sha256(), assets=assets)
     (out/'release.json').write_text(json.dumps(record))
     (out/'release-notes.md').write_text(release.release_body(out, record))
-    assert (out/'release-notes.md').read_text().startswith(f'- **V{release.VERSION}R')
+    # The heading, then bullets, for this version only.
+    body = (out/'release-notes.md').read_text()
+    assert body.startswith(f'**V{release.VERSION}R / V{release.VERSION}I**\n- ') and body.count(' / V') == 1
     (out/'SHA256SUMS').write_text(''.join(f'{v}  {k}\n' for k, v in assets.items()))
     for failure in ('upload', 'download', 'corrupt', None):
         calls = []

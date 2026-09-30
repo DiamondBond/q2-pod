@@ -109,6 +109,11 @@ def validate_assets(directory):
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]
     assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
+    # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop.
+    from peq import VBR_SCAN
+    old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
+    off = fileoff(old, VBR_SCAN)
+    assert [i for i in range(0x3e40, 0x485250) if old[i] != new[i]] == [*range(off, off+4)] and not any(new[off:off+4])
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
