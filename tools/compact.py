@@ -47,7 +47,7 @@ def corner_x(y, h):
 # clear of the top corners. The play state and EQ are on the left, as in stock; Bluetooth/codec,
 # Wi-Fi and the battery on the right. The clock is centred on the screen, between the wider
 # group's extent with every icon shown and the same distance from the other edge; CLOCK_MIN leaves
-# room for its widest text, "12:59 PM" (86px at 20px, test_build.py). STATUS_PAD keeps the icons
+# room for its widest text, "12:59 PM" (86px at 20px in the pinned stock font). STATUS_PAD keeps the icons
 # that much further in than the corners need, so they don't look cramped against the glass.
 STATUS_PAD = 2
 STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
@@ -60,9 +60,9 @@ CLOCK_MIN = 105
 INC = (ROOT/'patch/offsets.inc').read_text()
 
 
-def inc(name):
-    """An integer #define from patch/offsets.inc, which the payload compiles with."""
-    return int(re.search(rf'#define {name} (0x[0-9a-fA-F]+|\d+)\b', INC)[1], 0)
+# The integer #defines of patch/offsets.inc, which the payload compiles with.
+O = {m[1]: int(m[2], 0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b', INC, re.M)}
+inc = O.__getitem__
 
 
 CHEVRON_W = inc('CHEVRON_W')
@@ -98,7 +98,7 @@ NP_TEXT_X = NP_MARGIN + NP_ART + 12
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
 # The track is TRACK_COLOR; the fill is Graphite's light tone until ringnav_playing sets the
 # accent's (3.3:1 or more on the track for every preset).
-NP_TRACK = '#' + re.search(r'#define TRACK_COLOR 0x(\w+)', INC)[1]
+NP_TRACK = f'#{inc("TRACK_COLOR"):06x}'
 NP_FILL = '#' + re.search(r'#define ACCENTS \{ 0x\w+, 0x\w+, 0x(\w+),', INC)[1]
 
 

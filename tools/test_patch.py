@@ -17,8 +17,7 @@ variant = manifest.get('variant')
 expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
-INC=(ROOT/'patch/offsets.inc').read_text()
-O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',INC,re.M)}
+from compact import INC, O  # patch/offsets.inc and its integer #defines
 DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/ringnav.c').read_text(),re.M)[1])  # centre double-press window
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
@@ -254,6 +253,7 @@ class Machine:
             value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
+        elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
         elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=int(t[0]) if t else 0
         elif name=='strstr@GLIBC_2.0': i=self.text(a).find(self.text(b)); ret=a+i if i>=0 else 0
         elif name=='bitmap_get_line_length': ret=self.get(a+8)
@@ -1529,15 +1529,15 @@ for table in (False,True):
 # Resizing across the short-list boundary cannot carry a previous fast run with it.
 m=Machine(); w,es=m.page_list(17,height=960,extent=17*48)
 m.nodes[w]['children']=es; m.paint(w)
-for want in (1,3,6) if variant=='normal' else (1,2,3,5,7):  # iPod: two rows from 300ms of spin
+for want in (1,3,6) if variant=='normal' else (1,1,2,4,6):  # iPod: the overshoot tick, then two rows from 300ms of spin
     assert m.call(gap=100)==11 and m.selected(w)==want
 m.nodes[w]['children']=es[:16]; m.paint(w)
 assert m.call(gap=100)==11 and m.selected(w)==1   # fresh one-row run on the short list
-for want in (2,3):
+for want in (2,3) if variant=='normal' else (1,2):
     assert m.call(gap=100)==11 and m.selected(w)==want
 m.nodes[w]['children']=es; m.paint(w)
 assert m.call(gap=100)==11 and m.selected(w)==1   # and again after growing back
-for want in (3,) if variant=='normal' else (2,3,5):
+for want in (3,) if variant=='normal' else (1,2,4):
     assert m.call(gap=100)==11 and m.selected(w)==want
 passed()
 
@@ -1557,8 +1557,9 @@ for table in (False,True):
         # further 100ms adds one row until the eight-row ceiling holds.
         seq=((0,1),(99,2),(1,4),(99,6),(1,9),(99,12),(1,16),(99,20),(1,25),(99,30),(1,36),
              (99,42),(1,49),(99,56),(1,64),(99,72),(1,80))
-        if variant=='ipod':  # 299/300, 499/500 ... 1499/1500ms: 1,2,3,4,6,8,10,13 ... 93,101
-            seq=[(gap,sum(g for _,g in IPOD_SPIN[:i+1])) for i,(gap,_) in enumerate(IPOD_SPIN)]
+        if variant=='ipod':  # 299/300, 499/500 ... 1499/1500ms: 1,1,2,3,5,7,9,12 ... 92,100; the second tick
+            # is the overshoot filter's (it times the run all the same)
+            seq=[(gap,sum(g for j,(_,g) in enumerate(IPOD_SPIN[:i+1]) if j!=1)) for i,(gap,_) in enumerate(IPOD_SPIN)]
         for gap,want in seq:
             assert m.call(gap=gap)==11 and m.selected(w)==want
         # 140ms still counts as spinning, 141ms breaks the run and drops back to one row.
@@ -1604,7 +1605,7 @@ for change in ('window','pane','scope','context','count','gesture','screen','uns
     m=Machine(); w,es=m.page_list(40,extent=40*48,
         name='sysset_page' if change=='context' else 'allmusic_page')
     for _ in range(7): m.call(gap=100)
-    assert m.selected(w)==(28 if variant=='normal' else 13)  # iPod: 1,1,1,2,2,3,3 rows
+    assert m.selected(w)==(28 if variant=='normal' else 12)  # iPod: 1,0,1,2,2,3,3 rows
     w=disturb(m,w,change,40)
     m.paint(w,gap=0)
     before=m.selected(w)
@@ -1613,7 +1614,7 @@ for change in ('window','pane','scope','context','count','gesture','screen','uns
 # Rejected stock wheel input resets a sustained list run.
 m=Machine(); w,es=m.page_list(40,extent=40*48)
 for _ in range(7): m.call(gap=100)
-fast=28 if variant=='normal' else 13
+fast=28 if variant=='normal' else 12
 assert m.selected(w)==fast
 m.byte(0xa37c89,1)
 assert m.call(gap=10,debounce=True)==11 and m.selected(w)==fast
@@ -2712,7 +2713,7 @@ for virtual in (False,True):
     m,w,rs,es=letter_machine(virtual); before=canvas_state(m)
     slow=1 if variant=='normal' else 3  # one-row ticks 100ms apart before the ramp's second row
     for _ in range(slow): assert m.call(gap=100)==11; m.paint(w,gap=0); assert not m.letters   # step 1
-    assert m.call(gap=100)==11 and m.selected(w)==slow+2; m.paint(w,gap=0)     # step 2
+    assert m.call(gap=100)==11 and m.selected(w)==slow+2-(variant=='ipod'); m.paint(w,gap=0)     # step 2; iPod dropped its second tick
     if variant!='ipod':
         assert not m.letters and not m.timers and not any(c[0]=='canvas_set_font' for c in m.calls); passed(); continue
     assert m.letters==[dict(text='R',rect=box,color=0xffffffff,font=('default',O['LETTER_PX']),align=(1,1),
@@ -3146,7 +3147,7 @@ class DepthMachine(CoverflowMachine):
         a=self.big; self.big+=(n+15)&~15; assert self.big<=BIG+0x800000; return a
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
-        a,b,c,d=[u.reg_read(r) for r in REGS]; sp=u.reg_read(UC_MIPS_REG_SP)
+        a,b,c,d=[u.reg_read(r) for r in REGS]
         if name=='c:calloc@GLIBC_2.0' and a*b>0x10000: ret=self.big_alloc(a*b)
         elif name=='bitmap_create_ex':
             ret=self.big_alloc(0x48); data=self.big_alloc(b*c)
@@ -3326,10 +3327,10 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==4  # every key, once, on first use
+        assert len(m.config_reads)==2  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','WHEEL','TOUCH')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -3462,8 +3463,8 @@ if variant=='ipod':
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
 
-    # Display settings: after the stock rows, Accent, Home, Wheel and Touch rows in the native row widgets
-    # and styles; Centre or tap cycles and saves each; a new accent drops the image cache and
+    # Display settings: after the stock rows, Accent and Home rows in the native row widgets and
+    # styles, with the Display and cover mode icons; Centre or tap cycles and saves each; a new accent drops the image cache and
     # repaints.
     def display(config):
         CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
@@ -3473,15 +3474,18 @@ if variant=='ipod':
         assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         assert m.calls[0][:3]==('stock_display',m.top,5)
         rows=m.nodes[view]['children'][3:]
+        m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
         return m,view,rows
     m,view,rows=display({})
-    assert len(rows)==4 and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
-    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
+    assert len(rows)==2 and m.icons_set==['system_display','playset_covermode'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
+        icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
+        assert m.nodes[icon]['type']=='image' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Split','Wheel: Normal','Touch: On']; passed()
+    assert texts()==['Accent: Graphite','Home: Split']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -3494,7 +3498,7 @@ if variant=='ipod':
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
     click(1); assert texts()[1]=='Home: Split'; passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][0]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Wheel: Normal','Touch: On']; passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full']; passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)
@@ -3539,7 +3543,7 @@ if variant=='ipod':
         m.word(view+O['W_PARENT'],lst); m.word(lst+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
         m.word(lst+O['ROW_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
         m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
-        if builder=='display':  # the payload's Accent, Home and Wheel rows, after three stock-shaped ones
+        if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
             m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
             assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         else:
@@ -3554,7 +3558,7 @@ if variant=='ipod':
     # Rows at the top and bottom of the four visible slots: text bands, icons and the trailing
     # bitmaps' ink (switch_off/on span 0..50 x 13..38 of their 50px square; list_into and ticks fit
     # inside) stay clear of the rounded glass, and nothing overlaps.
-    def check_row(m,item,slot,text_x=SET['TEXT_X']):
+    def check_row(m,item,slot):
         top=30+SET['TOP']+slot*SET['ROW']
         for b in m.nodes[item]['children']:
             bx,by,bw,bh=geometry(m,b)
@@ -3573,7 +3577,7 @@ if variant=='ipod':
                 x,y,w,h=box; inset=max(corner_inset(y),corner_inset(y+h))
                 assert inset<=x and x+w<=375-inset, (m.nodes[c]['type'],box,inset)
             if icon and label: assert label[0]==icon[0]+icon[2]+SET['GAP']
-            elif label: assert label[0]==text_x
+            elif label: assert label[0]==SET['TEXT_X']
             if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
             if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
     for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
@@ -3581,9 +3585,7 @@ if variant=='ipod':
         before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
         assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
         assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
-        # Display's Accent, Home and Wheel rows have no icon; their text keeps the icon rows' column.
-        text_x=SET['ICON_X']+SET['ICON']+SET['GAP'] if builder=='display' else SET['TEXT_X']
-        for item in items: check_row(m,item,0,text_x); check_row(m,item,SET['ROWS']-1,text_x)
+        for item in items: check_row(m,item,0); check_row(m,item,SET['ROWS']-1)
         after=tree(m,view); assert after!=before
         assert lay(m,view)==0 and tree(m,view)==after, builder  # a later layout changes nothing
         passed()
@@ -3632,9 +3634,9 @@ if variant=='ipod':
     CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
     Machine.hook=orig_hook; CONFIG.clear()
 
-# Wheel precision (docs/internals.md, Wheel movement): iPod's Wheel setting (Fine takes WHEEL_FINE ticks
-# one way per row step, Normal one), the gentler ramp above, the list ends, and Key Tone moved from
-# the press to the row change.
+# Wheel precision (docs/internals.md, Wheel movement): iPod's overshoot filter (the second tick of a
+# run is dropped when it comes OVERSHOOT_MIN_MS to OVERSHOOT_MAX_MS after the first), the list
+# ends, and Key Tone moved from the press to the row change.
 KEYDOWN=IPOD_HOOKS['on_wm_keydown_before_fun'][0]
 NEXT,PREV,CENTER,RETURN=O['KEY_NEXT'],O['KEY_PREV'],O['KEY_CENTER'],O['KEY_RETURN']
 TONE=syms['g_keytone_flag']; SOUND_LATCH=0xa37c90; KEY_LATCH=0xa37c89  # stock: one click a press; wheel lockout
@@ -3661,158 +3663,84 @@ def debounced(m):
     """Stock's wheel lockout after a button runs out: on_wm_timer_setup_state counts it down."""
     for _ in range(8): assert m.call(address=syms['on_wm_timer_setup_state'],args=(0,0,0,0),gap=0,debounce=True)==8
     assert m.u.mem_read(KEY_LATCH,1)==b'\0'
-def wheel(value=None):
-    """IPOD/WHEEL for the machines made next (None: no key). Returns the ticks a row step takes."""
-    CONFIG.pop('WHEEL',None)
-    if value is not None: CONFIG['WHEEL']=value
-    return 2 if value=='1' else 1
+LO,HI=80,140  # ringnav.c OVERSHOOT_MIN_MS, OVERSHOOT_MAX_MS
 
 if variant=='ipod':
-    # 1. Ticks per row step. Home as built, at low speed: Fine leaves the selection on 0, 1, 1, 2 and
-    # a correction takes two fresh ticks. The ends are hard, and Centre opens the row that is highlighted.
-    wheel('1'); m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.paint(view); got=[]
-    for _ in range(4): assert m.call()==11; got.append(m.selected(view))
-    assert got==[0,1,1,2],got
-    for _ in range(14): assert m.call()==11
-    assert m.selected(view)==6 and m.get(view+O['SCROLL_Y'])==0
-    assert m.call(PREV)==11 and m.selected(view)==6
-    assert m.call(PREV)==11 and m.selected(view)==5
-    assert m.confirm()==11 and m.dispatched()[0][1]==imgs[5]; passed()
-    # Ordinary lists and virtual tables of 0, 1, 16 and 17 logical rows at a 50ms cadence in Fine:
-    # sixteen rows never accelerate, and seventeen do by the table's total rows, not its four-row pool
-    # (two rows a step from 300ms of spin, three from 500ms, four from 700ms).
-    for table in (False,True):
-        for count in (0,1,16,17):
-            m=Machine()
-            if table:
-                w,rs,es=m.table_page(n=min(count,4),name='playerqueue_page',rebind=True); m.word(w+O['TABLE_ROWS'],count)
-            else: w,es=m.page_list(count,extent=count*48)
-            m.paint(w); got=[]
-            for _ in range(16): assert m.call(gap=50)==11; got.append(m.selected(w))
-            assert got=={0:[-1]*16,1:[0]*16,16:[0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8],
-                         17:[0,1,1,2,2,3,3,5,5,7,7,10,10,13,13,16]}[count],(table,count,got)
-            passed()
-    # A BUTTONS dialog: two ticks move between its buttons, nothing scrolls, the ends are hard.
-    m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm); m.top=d
-    buttons=[m.entry(d,220) for _ in range(2)]; m.nodes[d]['children']=buttons
-    for b,x in zip(buttons,(53,242)): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
-    m.paint(d); got=[]
-    for key in (NEXT,NEXT,NEXT,NEXT,PREV,PREV): assert m.call(key)==11 and not m.moved(); got.append(m.selected(d))
-    assert got==[0,1,1,1,1,0],got
-    assert m.confirm()==11 and m.dispatched()[0][1]==buttons[0]; passed()
-
-    # 2. A pause resets only the acceleration: ticks 141ms or a second apart still step a row per
-    # pair, on a long list too. A reversal discards the half step and counts as the first tick back.
-    wheel('1')
     def long_list(n=40,m=None):
         m=m or Machine(); w,es=m.page_list(n,extent=n*48,name='allmusic_page'); m.paint(w); return m,w,es
-    for gap in (141,1000):
-        m,w,es=long_list(); got=[]
-        for _ in range(8): assert m.call(gap=gap)==11; got.append(m.selected(w))
-        assert got==[0,1,1,2,2,3,3,4],(gap,got)
-        for key,want in ((PREV,4),(NEXT,4),(PREV,4),(PREV,3),(NEXT,3),(NEXT,4)):
-            assert m.call(key,gap=gap)==11 and m.selected(w)==want,(gap,key,want)
-        passed()
-    # Half a step never completes by itself: no timer is left, and nothing moves or sounds later.
-    m,w,es=long_list(m=audible(Machine()))
-    assert tick(m)==0 and m.ret==11 and m.selected(w)==0 and not m.timers
-    m.advance(10000); assert m.selected(w)==0 and not m.calls; passed()
-
-    # 3. The ramp times every tick, before the divider. On the IPOD_SPIN schedule (299/300, 499/500
-    # ... 1499/1500ms of spin, every gap inside the run window) a Fine pair steps by the rows of its
-    # second tick; starting half a step in puts the other ticks of the schedule on the steps. Then
-    # 140ms still continues the run at eight rows and 141ms ends it. Both directions, both settings,
-    # both list kinds, and a clock that wraps.
-    def spin(m,w,key,sign,phase,at,per):
-        m.call(RETURN)  # a button: no half step is pending
-        if phase: assert m.call(key)==11 and m.selected(w)==at
-        m.advance(1000); credit=phase
-        for gap,rows in (*IPOD_SPIN,(140,8),(141,1)):
-            credit+=1
-            if credit==per: at+=sign*rows; credit=0
-            assert m.call(key,gap=gap)==11 and m.selected(w)==at,(key,phase,per,gap,at,m.selected(w))
-        return at
-    for value in (None,'1'):
-        per=wheel(value)
-        for table in (False,True):
-            for start in (0,0xfffffff0):
-                m=Machine(); m.now=start; w,rs=m.list_surface(table,n=500)
-                if table: m.word(w+O['TABLE_ROWS'],500)
-                m.paint(w,gap=0); at=0; ends=[]
-                for key,sign in ((NEXT,1),(PREV,-1)):
-                    for phase in range(per): at=spin(m,w,key,sign,phase,at,per)
-                    ends.append(at)
-                # Normal: 101 rows, then 8 and 1. Fine: 52 and the 141ms tick's 1, then the other
-                # ticks' 49 and the 140ms tick's 8.
-                assert ends==[110,0],(value,table,start,ends)
+    def turn(m,w,gaps,key=NEXT):
+        got=[]
+        for gap in gaps: assert m.call(key,gap=gap)==11; got.append(m.selected(w))
+        return got
+    # 1. After a stall the first tick moves, a second one LO to HI ms behind it does not, and the
+    # third and later do. A second tick sooner than LO is a spin and one later than HI is a tick of
+    # its own: neither is dropped. Short and long lists and virtual tables, from row 0.
+    for table in (False,True):
+        for count in (16,40):
+            for gaps,want in (((1000,LO),[1,1]),((1000,HI),[1,1]),((1000,LO-1),[1,2]),((1000,HI+1),[1,2]),
+                              ((1000,100,100),[1,1,2]),((1000,100,50),[1,1,2]),((1000,50,100),[1,2,3]),
+                              ((1000,100,HI+1,100,100),[1,1,2,2,3]),((1000,1000,1000),[1,2,3])):
+                m=Machine()
+                if table:
+                    w,rs,es=m.table_page(n=4,name='playerqueue_page',rebind=True); m.word(w+O['TABLE_ROWS'],count)
+                else: w,es=m.page_list(count,extent=count*48)
+                m.paint(w); assert turn(m,w,gaps)==want,(table,count,gaps)
                 passed()
+    # Home as built: the same, its ends are hard, and Centre opens the row that is highlighted.
+    m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.paint(view)
+    assert turn(m,view,(1000,100,100,1000,100,100,100,100,1000))==[1,1,2,3,3,4,5,6,6]
+    assert m.get(view+O['SCROLL_Y'])==0 and turn(m,view,(1000,100),PREV)==[5,5]
+    assert m.confirm()==11 and m.dispatched()[0][1]==imgs[5]; passed()
+    # A BUTTONS dialog: the same between its buttons, and nothing scrolls.
+    m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm); m.top=d
+    buttons=[m.entry(d,220) for _ in range(3)]; m.nodes[d]['children']=buttons
+    for b,x in zip(buttons,(20,147,274)): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
+    m.paint(d); got=[]
+    for gap in (1000,100,100): assert m.call(gap=gap)==11 and not m.moved(); got.append(m.selected(d))
+    assert got==[1,1,2] and m.confirm()==11 and m.dispatched()[0][1]==buttons[2]; passed()
 
-    # 4. Half a step belongs to its live list and direction. After each of these the next tick is
-    # the first of a new pair: nothing moves until the one after it. (Untouched, it completes.)
-    wheel('1')
+    # 2. The dropped tick is still an input: it is consumed, wakes the player's scrollbar and stops
+    # momentum, but moves and sounds nothing, then or later, and leaves no timer. Centre then opens
+    # the row shown.
+    m=audible(Machine()); w,es=m.page_list(20,extent=960); bar=m.node('scroll_bar_m')
+    parent=m.node('list_view',children=[w,bar]); m.word(w+O['W_PARENT'],parent); m.nodes[m.top]['children']=[parent]
+    m.paint(w); assert tick(m)==1 and m.selected(w)==1
+    m.word(w+O['VIEW_ANIMATOR'],0x1234)
+    assert press(m,gap=100)==0 and lift(m)==0 and m.ret==11 and m.selected(w)==1 and not m.timers and not m.moved()
+    assert [c[1] for c in m.calls if c[0]=='scroll_bar_scroll_to']==[bar] and m.get(w+O['VIEW_ANIMATOR'])==0
+    m.advance(10000); assert m.selected(w)==1 and not buzzes(m)
+    assert m.confirm()==11 and m.dispatched()[0][1]==es[1]; passed()
+
+    # 3. A run belongs to its live list and direction. After each of these the next tick is the
+    # first of a new run, so it moves although it comes LO ms after the last one, and the tick after
+    # it is the one dropped. (Untouched, that next tick is the one dropped and the one after moves.)
     for change in ('none','window','pane','scope','context','count','recreated','gesture','animating','screen','unsupported',
                    'rejected','touch','click','missing','centre','return','play','long','reverse'):
         m=long_machine(); w,es=m.page_list(8,extent=8*48,name='allmusic_page'); m.paint(w)
-        for want in (0,1,1): assert m.call()==11 and m.selected(w)==want   # row 1 and half a step
+        assert turn(m,w,(1000,1000))==[1,2]
         w=disturb(m,w,change,8)
         m.paint(w,gap=0); before=m.selected(w)
-        assert m.call()==11 and m.selected(w)==before+(change=='none'),change
-        assert m.call()==11 and m.selected(w)==before+1,change
+        assert m.call(gap=LO if change=='none' else LO-10)==11 and m.selected(w)==before+(change!='none'),change
+        assert m.call(gap=LO)==11 and m.selected(w)==before+1,change
         passed()
 
-    # 5. A tick short of a step is still an input: it is consumed, cancels a pending Centre click,
-    # wakes the player's scrollbar, stops touch momentum and brings the hidden selection back.
-    m=Machine(); w,es=m.page_list(20,extent=960); bar=m.node('scroll_bar_m')
-    parent=m.node('list_view',children=[w,bar]); m.word(w+O['W_PARENT'],parent); m.nodes[m.top]['children']=[parent]
-    m.paint(w); assert m.release()==11 and m.timers
-    assert m.call(gap=100)==11 and m.selected(w)==0 and not m.timers and not m.moved()
-    assert [c[1] for c in m.calls if c[0]=='scroll_bar_scroll_to']==[bar]
-    m.advance(1000); assert not m.clicks; passed()
-    m.touch(); m.word(w+O['VIEW_ANIMATOR'],0x1234); m.paint(w,gap=0); assert not m.drawn()
-    assert m.call(gap=100)==11 and m.get(w+O['VIEW_ANIMATOR'])==0 and m.selected(w)==0 and not m.moved()
-    m.paint(w,gap=0); assert m.sel()==(0,0,240,48); passed()
-    # Centre then opens the row shown, not one half a step on, and the press ends the half step.
-    assert m.confirm()==11 and m.dispatched()[0][1]==es[0]
-    assert m.call()==11 and m.selected(w)==0 and m.call()==11 and m.selected(w)==1; passed()
-    # The double press, power and lock gates after half a step are the ones a whole step leaves.
-    m=Machine(); w,es=m.page_list(3); m.paint(w); m.call()
-    assert m.release()==11 and m.release(100)==0 and m.screens==[0]
-    m.advance(1000); assert not m.clicks and not m.timers; passed()
-    for addr in (syms['g_power_longkey'],syms['g_ingore_bootkey_flag'],O['BOOT_KEY_GUARD']):
-        m=Machine(); w,es=m.page_list(3); m.paint(w); m.call(); m.byte(addr,1)
-        assert m.confirm()==0 and not m.dispatched() and m.selected(w)==0; passed()
-    for flag,value in GATES:
-        m=Machine(); w,es=m.page_list(3); m.paint(w); m.call(); m.byte(syms[flag],value)
-        assert m.call()==0 and m.selected(w)==0 and not m.moved()
-        m.byte(syms[flag],int(flag=='g_backlight_status'))
-        assert m.call()==11 and m.selected(w)==0 and m.call()==11 and m.selected(w)==1,flag
-        passed()
-
-    # 6. List ends in Fine. Reaching an end takes a whole step, but a turn against it is never
-    # divided: every tick bumps and re-arms the stop, so ticks 200ms apart (pairs 400ms apart) never
-    # wrap, and only a tick EDGE_PAUSE_MS after the last one does, once. The wrap and the end leave
-    # no half step and no speed: the next row takes two fresh ticks either way.
+    # 4. List ends. Reaching an end ends the run, and a turn against an end is never dropped: every
+    # tick bumps and re-arms the stop, so ticks 100 or 200ms apart never wrap, and only a tick
+    # EDGE_PAUSE_MS after the last one does, once. The tick after the wrap is a first one.
     def ring(name='playlist_page'):
         m=Machine(); w,es=m.page_list(6,height=96,extent=288,name=name); m.paint(w)
-        for i in range(10): assert m.call()==11 and m.selected(w)==(i+1)//2
+        assert turn(m,w,(1000,)*5)==[1,2,3,4,5]
         return m,w,es
     m,w,es=ring()
-    for gap in (100,100,200,200,200,200,200,200,O['EDGE_PAUSE_MS']-1):
+    for gap in (100,100,200,200,O['EDGE_PAUSE_MS']-1):
         assert m.call(gap=gap)==11 and m.selected(w)==5 and m.get(w+O['SCROLL_Y'])==192,gap
         m.paint(w,gap=0); assert m.sel()==(0,42,240,48)  # bumped against the end
     assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0 and m.get(w+O['SCROLL_Y'])==0
     m.paint(w,gap=0); assert m.sel()==(0,0,240,48)
-    assert m.call(gap=100)==11 and m.selected(w)==0 and m.call(gap=100)==11 and m.selected(w)==1
-    for want in (1,0): assert m.call(PREV)==11 and m.selected(w)==want
+    assert turn(m,w,(100,100,100))==[1,1,2] and turn(m,w,(100,100,100),PREV)==[1,1,0]
     assert m.call(PREV,gap=100)==11 and m.selected(w)==0
     m.paint(w,gap=0); assert m.sel()==(0,6,240,48)   # bumped down at the top, on the first tick
     assert m.call(PREV,gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5; passed()
-    # Half a step back from the end, a turn against it bumps at once; going back then starts over.
-    m,w,es=ring()
-    assert m.call(PREV)==11 and m.selected(w)==5 and m.call()==11 and m.selected(w)==5
-    m.paint(w,gap=0); assert m.sel()==(0,42,240,48)
-    for want in (5,4): assert m.call(PREV)==11 and m.selected(w)==want
-    passed()
     # Settings and Home keep hard ends: no bump and no wrap, however long the pause.
     m,w,es=ring('sysset_page')
     for gap in (100,O['EDGE_PAUSE_MS'],1000):
@@ -3820,128 +3748,52 @@ if variant=='ipod':
         m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
     passed()
 
-    # 7. The letter follows the emitted step. At a 50ms cadence the ramp reaches two rows on the
-    # seventh tick, which is half a step: the letter comes with the eighth. The next half step keeps
-    # it without re-arming, so it goes LETTER_MS after the step; a slow tick clears it at once.
-    for virtual in (False,True):
-        m,w,rs,es=letter_machine(virtual)
-        for _ in range(7): assert m.call(gap=50)==11; m.paint(w,gap=0); assert not m.letters and not m.timers
-        assert m.selected(w)==3 and m.call(gap=50)==11 and m.selected(w)==5
-        m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['R']
-        assert m.call(gap=50)==11 and m.selected(w)==5; m.paint(w,gap=0); assert m.letters
-        m.advance(O['LETTER_MS']-51); m.paint(w,gap=0); assert m.letters
-        m.advance(1); assert any(c[:2]==('widget_invalidate_force',w) for c in m.calls)
-        m.paint(w,gap=0); assert not m.letters; passed()
-    m,w,rs,es=letter_machine(False)
-    for _ in range(10): m.call(gap=50)
-    m.paint(w,gap=0); assert m.letters
-    assert m.call(gap=141)==11; m.paint(w,gap=0); assert not m.letters; passed()
-
-    # 8. IPOD/WHEEL: no key or 0 is Normal, 1 is Fine, anything else is Normal; read once with the others.
-    for value in (None,'0','1','2','9','','x','10','-1','01'):
-        per=wheel(value); m,w,es=long_list(8)
-        assert [(m.call(),m.selected(w)) for _ in range(2)]==([(11,0),(11,1)] if per==2 else [(11,1),(11,2)]),value
-        passed()
-    # The Display page's third row: on Fine the wheel reaches it in two ticks a row, Centre
-    # clicks it and a tap selects it.
-    m,view,rows=display({'WHEEL':'1'})
-    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
-    assert texts()==['Accent: Graphite','Home: Split','Wheel: Fine','Touch: On']
-    m.paint(view)
-    for i in range(10): assert m.call()==11 and m.selected(view)==(i+1)//2
-    assert m.confirm()==11 and m.dispatched()[0][1]==buttons[2]
-    m.click(buttons[1]); assert m.selected(view)==4
-    m.click(buttons[2]); assert m.selected(view)==5 and m.clicks[-1]==buttons[2]; passed()
-    # A click saves IPOD/WHEEL alone and takes effect at once; the next click saves it back.
-    saved=[(v,m.text(section),m.text(key)) for v,section,key in click(2)]
-    assert saved==[(0,'IPOD','WHEEL')] and texts()==['Accent: Graphite','Home: Split','Wheel: Normal','Touch: On']
-    assert not [c for c in m.calls if c[0]=='image_manager_unload_all']
-    m.paint(view); assert m.call(PREV)==11 and m.selected(view)==4
-    assert [(v,m.text(key)) for v,_,key in click(2)]==[(1,'WHEEL')] and texts()[2]=='Wheel: Fine'; passed()
-    # Changing a setting drops half a step, even when neither a press nor a tap delivered the click:
-    # Fine to Normal and back, or another row's change, and the next tick is the first of its pair.
-    for row in (2,1):
-        m,view,rows=display({'WHEEL':'1'})
-        buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
-        m.paint(view); assert m.call()==11 and m.selected(view)==0
-        click(row); click(row); m.paint(view)
-        assert m.call()==11 and m.selected(view)==0 and m.call()==11 and m.selected(view)==1,row
-        passed()
-    # Touch: Off, the fourth row (IPOD/TOUCH). A down or a move stops before stock and the widgets
-    # see it, the selection stays drawn and a finger on the glass does not hold the wheel off.
-    # Where the wheel is not live (the lock screen here) and on Touch: On, touch stays stock's.
-    move=dict(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_MOVE_BEFORE'])
-    for config,off in (({'TOUCH':'1'},1),({'TOUCH':'0'},0),({},0)):
-        m,view,rows=display(config)
-        buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
-        assert texts()[3]==('Touch: Off' if off else 'Touch: On')
-        m.paint(view); assert m.call()==11 and m.selected(view)==1
-        assert m.touch()==(11 if off else 0) and bool(m.calls)!=off,(config,m.calls)
-        assert m.call(**move)==(11 if off else 0) and bool(m.calls)!=off
-        m.paint(view); assert bool(m.drawn())==off and m.selected(view)==1
-        m.pressed=1; assert m.call()==11 and m.selected(view)==1+off; m.pressed=0
-        m.byte(syms['g_lockscreen_pageflag'],1); assert m.touch()==0 and m.calls
-        m.byte(syms['g_lockscreen_pageflag'],0)
-        assert [(v,m.text(key)) for v,_,key in click(3)]==[(1-off,'TOUCH')]
-        assert texts()[3]==('Touch: On' if off else 'Touch: Off') and m.touch()==(0 if off else 11)
-        passed()
-    CONFIG.clear()
-
-    # 9. Key Tone follows the row. Each tick is the pair the window manager delivers: key-down-before
+    # 5. Key Tone follows the row. Each tick is the pair the window manager delivers: key-down-before
     # through the hook and the stock callback, then key-up-before. The count is the buzzer commands
-    # the real buzzeer_switch issues. On Home as built, four slow Fine ticks leave rows 0, 1, 1, 2
-    # and click 0, 1, 0, 1; stock's one-click-per-press latch is set by the press and cleared by the
+    # the real buzzeer_switch issues. On Home as built, a slow tick, the dropped one after it and
+    # two more leave rows 1, 1, 2, 3 and click 1, 0, 1, 1; stock's one-click-per-press latch is set by the press and cleared by the
     # release, as without the hook.
-    def home_machine(value='1',tone=1):
-        wheel(value); m=audible(Machine(),tone); view,imgs=home_list(m); click_target(m,imgs[2]); m.paint(view)
+    def home_machine(tone=1):
+        m=audible(Machine(),tone); view,imgs=home_list(m); click_target(m,imgs[2]); m.paint(view)
         return m,view
     m,view=home_machine(); got=[]
-    for _ in range(4):
-        n=press(m); assert n==0 and m.down==0 and m.u.mem_read(SOUND_LATCH,1)==b'\x01'
+    for gap in (1000,100,100,1000):
+        n=press(m,gap=gap); assert n==0 and m.down==0 and m.u.mem_read(SOUND_LATCH,1)==b'\x01'
         got.append((n+lift(m),m.selected(view))); assert m.ret==11
-    assert got==[(0,0),(1,1),(0,1),(1,2)],got; passed()
-    # Normal clicks on every row; a turn against Home's hard end is silent in both; a repaint and a
-    # long wait add nothing.
-    for value,per in ((None,1),('1',2)):
-        m,view=home_machine(value)
-        assert [tick(m) for _ in range(6*per)]==([0,1] if per==2 else [1])*6 and m.selected(view)==6
-        assert [tick(m,gap=gap) for gap in (1000,50,400)]==[0,0,0] and m.selected(view)==6
-        m.paint(view); assert not buzzes(m)
-        m.advance(10000); assert not buzzes(m); passed()
-    # buzzeer_switch also runs when it is silent, so its calls are not the count: on half a step
-    # stock still calls it on the press, with Key Tone held off; a whole step adds the release's call.
+    assert got==[(1,1),(0,1),(1,2),(1,3)],got; passed()
+    # Slow ticks click on every row; a turn against Home's hard end is silent; a repaint and a long
+    # wait add nothing.
+    m,view=home_machine()
+    assert [tick(m) for _ in range(6)]==[1]*6 and m.selected(view)==6
+    assert [tick(m,gap=gap) for gap in (1000,50,400)]==[0,0,0] and m.selected(view)==6
+    m.paint(view); assert not buzzes(m)
+    m.advance(10000); assert not buzzes(m); passed()
+    # buzzeer_switch also runs when it is silent, so its calls are not the count: stock always calls
+    # it on the press, with Key Tone held off; a row change adds the release's call, a dropped tick none.
     m,view=home_machine(); seen=[]
     m.u.hook_add(UC_HOOK_CODE,lambda u,a,size,x: seen.append(u.mem_read(TONE,1)[0]),begin=syms['buzzeer_switch'],end=syms['buzzeer_switch'])
-    assert tick(m)==0 and seen==[0] and tick(m)==1 and seen==[0,0,1]; passed()
-    # An accelerated step is one click however many rows it takes, in both settings (100ms ticks:
-    # Fine steps 1 to 8 rows on every second tick, Normal 1,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8).
-    for value,per,rows in ((None,1,65),('1',2,36)):
-        wheel(value); m,w,es=long_list(100,audible(Machine()))
-        assert [tick(m,gap=100) for _ in range(16)]==([0,1]*8 if per==2 else [1]*16) and m.selected(w)==rows,(value,m.selected(w))
-        passed()
-    # An end bump is silent and the wrap clicks once; then two fresh Fine ticks for the next click.
-    for value,per in ((None,1),('1',2)):
-        wheel(value); m=audible(Machine()); w,es=m.page_list(6,height=96,extent=288,name='playlist_page'); m.paint(w)
-        assert sum(tick(m) for _ in range(5*per))==5 and m.selected(w)==5
-        assert [tick(m,gap=gap) for gap in (100,200,200,O['EDGE_PAUSE_MS']-1)]==[0,0,0,0] and m.selected(w)==5
-        assert tick(m,gap=O['EDGE_PAUSE_MS'])==1 and m.selected(w)==0
-        assert [tick(m,gap=100) for _ in range(per)]==[0,1][2-per:] and m.selected(w)==1; passed()
+    assert tick(m)==1 and seen==[0,1] and tick(m,gap=100)==0 and seen==[0,1,0]; passed()
+    # An accelerated step is one click however many rows it takes (100ms ticks: the second is
+    # dropped, the others step 1,1,2,2,3,3,4,4,5,5,6,6,7,7,8 rows).
+    m,w,es=long_list(100,audible(Machine()))
+    assert [tick(m,gap=100) for _ in range(16)]==[1,0]+[1]*14 and m.selected(w)==64; passed()
+    # An end bump is silent and the wrap clicks once; the tick after it is a first one and clicks.
+    m=audible(Machine()); w,es=m.page_list(6,height=96,extent=288,name='playlist_page'); m.paint(w)
+    assert sum(tick(m) for _ in range(5))==5 and m.selected(w)==5
+    assert [tick(m,gap=gap) for gap in (100,200,200,O['EDGE_PAUSE_MS']-1)]==[0,0,0,0] and m.selected(w)==5
+    assert tick(m,gap=O['EDGE_PAUSE_MS'])==1 and m.selected(w)==0
+    assert tick(m,gap=100)==1 and m.selected(w)==1; passed()
     # Rejected input is silent: a finger down, a window animation, stock's wheel lockout after a
     # button (until its countdown ends), and a turn while the screen is locked still clicks as stock.
-    wheel(); m,w,es=long_list(8,audible(Machine()))
+    m,w,es=long_list(8,audible(Machine()))
     for field in ('pressed','animating'):
         setattr(m,field,1); assert tick(m)==0 and m.ret==11 and m.selected(w)==0; setattr(m,field,0)
     assert press(m,RETURN)==1 and lift(m,RETURN)==0 and m.ret==0 and m.u.mem_read(KEY_LATCH,1)==b'\x08'
     assert tick(m)==0 and m.ret==11 and m.selected(w)==0
     debounced(m); assert tick(m)==1 and m.selected(w)==1; passed()
-    # Showing or restoring the selection is not a step. A Fine tick after a touch brings the hidden
-    # bar back, and after a swipe adopts the row in view, without a click; a recreated page recalls
-    # its row on paint silently.
-    wheel('1'); m,w,es=long_list(20,audible(Machine()))
-    m.touch(); m.paint(w,gap=0); assert not m.drawn()
-    assert tick(m)==0 and m.selected(w)==0; m.paint(w,gap=0); assert m.drawn() and not buzzes(m)
-    m.touch(); m.word(w+O['SCROLL_Y'],240)
-    assert tick(m)==0 and m.selected(w)==5 and tick(m)==1 and m.selected(w)==6
+    # Restoring the selection is not a step: a recreated page recalls its row on paint silently.
+    m,w,es=long_list(20,audible(Machine()))
+    assert [tick(m) for _ in range(6)]==[1]*6 and m.selected(w)==6
     w2,es2=m.page_list(20,extent=960,name='allmusic_page'); m.paint(w2)
     assert m.selected(w2)==6 and not buzzes(m); passed()
     # Centre is a button: its press clicks as stock, and the delayed confirmation adds nothing.
@@ -3949,12 +3801,12 @@ if variant=='ipod':
     assert press(m,CENTER)==1 and lift(m,CENTER)==0 and m.ret==11
     m.advance(200); assert m.clicks==[es[0]] and not buzzes(m); passed()
 
-    # 10. The Key Tone setting. Off: everything above is silent and the rows still move. The click
+    # 6. The Key Tone setting. Off: everything above is silent and the rows still move. The click
     # uses the setting at the moment of the step, and the byte is never left changed: press() and
     # lift() check it after every call, whatever its value.
     m,view=home_machine(tone=0)
-    assert [tick(m) for _ in range(4)]==[0,0,0,0] and m.selected(view)==2 and m.u.mem_read(TONE,1)==b'\0'; passed()
-    m,view=home_machine(None)
+    assert [tick(m) for _ in range(4)]==[0,0,0,0] and m.selected(view)==4 and m.u.mem_read(TONE,1)==b'\0'; passed()
+    m,view=home_machine()
     assert press(m)==0; m.byte(TONE,0); assert lift(m)==0 and m.selected(view)==1      # switched off in between
     assert press(m)==0; m.byte(TONE,1); assert lift(m)==1 and m.selected(view)==2      # and back on
     m.byte(TONE,0x5a); assert tick(m)==1 and m.u.mem_read(TONE,1)==b'\x5a'; passed()
@@ -3968,7 +3820,6 @@ if variant=='ipod':
         for key in keys:
             out.append(press(s,key)); s.call(key,address=HOOKS['on_wm_keyup_before_fun'][0],gap=0,debounce=True)
         return out
-    wheel('1')
     m=audible(Machine()); m.page('playing_page')
     assert [tick(m,key) for key in (NEXT,PREV,NEXT)]==stock((NEXT,PREV,NEXT))==[1,1,1] and m.ret==0; passed()
     m=audible(scrub_page()); centre(m)
@@ -3995,7 +3846,6 @@ if variant=='ipod':
         locked='g_keylock_flag' in flags
         assert [tick(m),tick(m,CENTER)]==stock((NEXT,CENTER),**flags)==[0 if locked else 1,1],flags
         assert m.selected(w)==0; passed()
-    wheel()
     # Between a press and its release the page may change. List to volume: the silenced press is
     # spent, the volume step is stock's, and the next press there clicks. Volume to list: stock
     # already clicked, so the row change adds none.

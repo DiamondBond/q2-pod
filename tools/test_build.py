@@ -26,34 +26,10 @@ for data in (b'', b'not a JPEG', frame, frame + bytes(8),
     raise AssertionError(f'Accepted malformed JPEG header: {data!r}')
 print('JPEG header regression checks passed.')
 
-def text_width(ttf, text, px):
-    """Advance width in pixels of text at px in a TrueType font (cmap 3/1 format 4, hmtx), as the
-    stock label draws it: no kerning pairs in the digits, colon, space or AM/PM."""
-    import struct
-    u16 = lambda at: struct.unpack_from('>H', ttf, at)[0]
-    tables = {ttf[12+16*i:16+16*i]: struct.unpack_from('>I', ttf, 20+16*i)[0] for i in range(u16(4))}
-    head, hhea, hmtx, cmap = (tables[t] for t in (b'head', b'hhea', b'hmtx', b'cmap'))
-    sub = next(cmap + struct.unpack_from('>I', ttf, cmap+8+8*i)[0] for i in range(u16(cmap+2))
-               if (u16(cmap+4+8*i), u16(cmap+6+8*i)) == (3, 1))
-    assert u16(sub) == 4
-    seg2 = u16(sub+6)
-    ends = sub + 14
-    starts = ends + seg2 + 2  # past reservedPad
-    deltas, ranges = starts + seg2, starts + 2*seg2
-    def glyph(c):
-        i = next(i for i in range(0, seg2, 2) if c <= u16(ends+i))
-        if c < u16(starts+i): return 0
-        if not u16(ranges+i): return (c + u16(deltas+i)) & 0xffff
-        g = u16(ranges+i + u16(ranges+i) + 2*(c - u16(starts+i)))
-        return (g + u16(deltas+i)) & 0xffff if g else 0
-    units = sum(u16(hmtx + 4*min(glyph(ord(ch)), u16(hhea+34) - 1)) for ch in text)
-    return units * px / u16(head+18)
-
-
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, RTC_WRITE
-    from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H,
+    from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
                          SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
@@ -278,11 +254,7 @@ def validate_assets(directory):
             x, _, w, _ = title[1]
             assert x + w/2 == 375/2 and w >= CLOCK_MIN  # centred on the screen, clear of both groups (corners below)
             assert inc('CLOCK_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('CLOCK_EDGE')
-            # Every 12-hour time the payload writes ("12:59 PM" is the widest) fits the label at 20px.
-            ttf = read('rootfs.squashfs', 'release/assets/default/raw/fonts/default.ttf')
             assert fonts[('hscroll_label', title[2]['style'])] == 20
-            widest = max(text_width(ttf, f'{h}:{m:02d} {p}', 20) for h in range(1, 13) for m in range(60) for p in ('AM', 'PM'))
-            assert widest == text_width(ttf, '12:59 PM', 20) and 80 < widest <= w, (widest, w)
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
             continue

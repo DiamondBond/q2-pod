@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '6.5'  # the only place a release bumps the version
+VERSION = '6.6'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
@@ -210,6 +210,7 @@ FUNCTIONS = {
  'button_create': ('void *', 'void *, int, int, int, int'),
  'widget_move_resize': ('int', 'void *, int, int, int, int'),
  'tk_str_end_with': ('int', 'const char *, const char *'),
+ 'tk_str_start_with': ('int', 'const char *, const char *'),
  'image_manager': ('void *', 'void'),
  'image_manager_unload_all': ('int', 'void *'),
  'bitmap_get_line_length': ('unsigned', 'void *'),
@@ -314,12 +315,13 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         digest, name = line.split()
         check(hashlib.md5(blobs[name]).hexdigest() == digest, 'Stock MD5 mismatch')
     sq = out/'stock.squashfs'; sq.write_bytes(blobs['recovery-update/rootfs.squashfs'])
-    raw_demo = subprocess.check_output(['unsquashfs','-cat',str(sq),'release/bin/demo'])
+    def cat(path): return subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
+    raw_demo = cat('release/bin/demo')
     check(sha(raw_demo) == DEMO_SHA, 'Unsupported demo binary')
     # Every allowlisted context must be a window name. The runtime name is the root "name"
     # property of the UI asset, not the asset path, so check the stock rootfs assets directly:
     # a prefix-trimmed typo cannot silently disable a screen this way.
-    from compact import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, INC, SETTINGS_ICONS, UI_ASSETS, patch_asset,
+    from compact import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                          imagemagick, patch_code, patch_style, patch_word, settings_icon)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
@@ -328,8 +330,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         found = re.search(r'/raw/ui/(.+)\.bin$', line)
         if not found: continue
         rel = found.group(1)
-        data = subprocess.check_output(['unsquashfs', '-cat', str(sq),
-                                        'release/assets/default/raw/ui/'+rel+'.bin'])
+        data = cat('release/assets/default/raw/ui/'+rel+'.bin')
         i = data.find(b'name\x00')
         name = data[i+5:data.find(b'\x00', i+5)].decode('utf-8', 'replace') if i >= 0 else ''
         windows.add(name or rel.split('/')[-1])
@@ -377,14 +378,14 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         off = fileoff(patched, address)
         check(syms[name] == address and struct.unpack_from('<III', patched, off) == words, f'{name}: unexpected code')
         # style_get_color's own bal style_get_gradient, returning to STYLE_COLOR_GRADIENT_RET, stays unmapped.
-        ret = int(re.search(r'#define STYLE_COLOR_GRADIENT_RET (0x\w+)', INC)[1], 16)
+        ret = inc('STYLE_COLOR_GRADIENT_RET')
         check(struct.unpack_from('<I', patched, fileoff(patched, ret - 8))[0] == 0x04110000 | (address - ret + 4) >> 2 & 0xffff,
               'style_get_color: unexpected gradient call')
         jump(off, replacement)
     from peq import patch_player
-    raw_player = subprocess.check_output(['unsquashfs', '-cat', str(sq), 'usr/bin/hciplayer'])
+    raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq')
-    bluealsa = patch_bluealsa(subprocess.check_output(['unsquashfs', '-cat', str(sq), BLUEALSA]))
+    bluealsa = patch_bluealsa(cat(BLUEALSA))
     (out/'bluealsa').write_bytes(bluealsa)
     for address, old, new in ARTIST_ALBUMS:
         patch_word(patched, [], address, old, new, 'artist detail opens on Albums')
@@ -453,22 +454,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     assets = ['ui/'+rel for rel in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])]
     if ipod:
         assets += ['styles/'+rel for rel in AUDIT['styles']]
+        # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
+        assets += ['images/'+name for name in SETTINGS_ICONS]
     for rel in assets:
-        path = 'release/assets/default/raw/' + rel
-        original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
         kind, name = rel.split('/', 1)
-        data = patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else patch_asset(name, original, ipod)
+        path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)
+        original = cat(path)
+        data = (patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
+                settings_icon(name, original) if kind == 'images' else patch_asset(name, original, ipod))
         target = out/rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        p = swap_inode(p, path.encode(), target)
-        changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
-    # iPod: settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata.
-    for name in SETTINGS_ICONS if ipod else []:
-        path = 'release/assets/default/raw/images/xx/' + name
-        original = subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
-        data = settings_icon(name, original)
-        target = out/'images'/name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         p = swap_inode(p, path.encode(), target)

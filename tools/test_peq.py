@@ -6,6 +6,10 @@ import math
 import pathlib
 import subprocess
 import tempfile
+from build import FUNCTIONS
+from peq import LIBC
+
+PROTOTYPES = {**FUNCTIONS, **LIBC}  # the stock calls the host shims stand in for
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -241,23 +245,12 @@ SHIM_H = r"""
 #include <sys/stat.h>
 typedef int (*handler)(void *, void *);
 extern volatile unsigned char g_equalizer_flag;
-void *list_item_create(void *, int, int, int, int);
-void *label_create(void *, int, int, int, int);
-void *list_view_create(void *, int, int, int, int);
-void *scroll_view_create(void *, int, int, int, int);
-int widget_use_style(void *, const char *);
-int widget_set_text_utf8(void *, const char *);
-unsigned widget_on(void *, unsigned, handler, void *);
-int widget_get_prop_int(void *, const char *, int);
-int widget_set_prop_int(void *, const char *, int);
-int widget_destroy_children(void *);
-int widget_resize(void *, int, int);
-int scroll_view_set_offset(void *, int, int);
-int widget_invalidate_force(void *, void *);
-unsigned timer_add(int (*)(const void *), void *, unsigned);
-int timer_remove(unsigned);
-int navigator_back(void);
-int write_int_config(int, const char *, const char *);
+""" + ''.join(f'{r} {n}({a});\n' for n in """
+list_item_create label_create list_view_create scroll_view_create widget_use_style
+widget_set_text_utf8 widget_on widget_get_prop_int widget_set_prop_int widget_destroy_children
+widget_resize scroll_view_set_offset widget_invalidate_force timer_add timer_remove
+navigator_back write_int_config
+""".split() for r, a in [PROTOTYPES[n]]) + r"""
 """
 SHIM = r"""
 static struct { int parent, h, bg; char text[160]; handler click, destroy, keyup; void *ctx; } w[4096];

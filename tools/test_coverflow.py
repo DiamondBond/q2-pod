@@ -5,6 +5,10 @@ stSongInfo pointer offsets hold. The stock calls are stubbed; UI widgets are pla
 import pathlib
 import subprocess
 import tempfile
+from build import FUNCTIONS
+from peq import LIBC
+
+PROTOTYPES = {**FUNCTIONS, **LIBC}  # the stock calls the host shims stand in for
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -29,54 +33,22 @@ extern char shim_lastcover[1024];
 #define g_lastcover_url ((const unsigned char *)shim_lastcover)
 #define g_playcover_type shim_covertype
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
-int getAllAlbum(void);
-int getMusicByAlbum(const char *);
-int toolsThumbSpecCover(const char *, const char *, int, int);
-int toolsGetAlbumCover(const char *, const char *, int, int);
-void *_create_deque(const char *);
-void deque_init_copy(void *, const void *), deque_clear(void *), deque_assign(void *, const void *);
-void deque_destroy(void *);
-unsigned deque_size(const void *);
-void *deque_at(const void *, unsigned);
-void *window_create(void *, int, int, int, int);
-void *widget_factory(void);
-void *widget_factory_create_widget(void *, const char *, void *, int, int, int, int);
-void *image_create(void *, int, int, int, int);
-void *hscroll_label_create(void *, int, int, int, int);
-void set_hscroll_label_attribute(void *);
-int slide_menu_set_value(void *, int), slide_menu_item_width(void *), slide_menu_on_scroll_done(void *, void *);
-int slide_menu_scroll_to(void *, int), widget_ungrab(void *, void *);
-void *list_view_create(void *, int, int, int, int);
-void *scroll_view_create(void *, int, int, int, int);
-void *list_item_create(void *, int, int, int, int);
-int image_set_draw_type(void *, int), image_base_set_image(void *, const char *);
-int widget_load_image(void *, const char *, void *), widget_unload_image(void *, void *);
-int widget_set_name(void *, const char *), widget_use_style(void *, const char *);
-int widget_set_text_utf8(void *, const char *), widget_set_visible(void *, int, int);
-int widget_get_prop_int(void *, const char *, int), widget_set_prop_int(void *, const char *, int);
-const char *widget_get_prop_str(void *, const char *, const char *);
-unsigned widget_on(void *, unsigned, handler, void *);
-int widget_destroy_children(void *), widget_invalidate_force(void *, void *);
-unsigned widget_count_children(void *);
-void *widget_get_child(void *, unsigned);
-void *widget_lookup(void *, const char *, int);
-int widget_move_resize(void *, int, int, int, int), widget_get_visible(void *);
-int canvas_get_clip_rect(void *, void *), canvas_set_clip_rect(void *, const void *);
-int widget_set_sensitive(void *, int);
-const char *widget_get_type(void *);
-int tk_strcmp(const char *, const char *);
-unsigned timer_add(int (*)(const void *), void *, unsigned);
-int timer_remove(unsigned);
-int navigator_back_to_home(void), navigator_to_with_context(const char *, const void *);
-void *window_manager(void);
-int window_manager_get_pointer_pressed(void *);
-void *bitmap_create_ex(unsigned, unsigned, unsigned, unsigned);
-int bitmap_destroy(void *), bitmap_unlock_buffer(void *);
-const unsigned char *bitmap_lock_buffer_for_read(void *);
-unsigned char *bitmap_lock_buffer_for_write(void *);
-unsigned bitmap_get_line_length(void *);
-int canvas_draw_image(void *, void *, const void *, const void *);
-int slide_menu_set_spacer(void *, int), widget_to_local(void *, void *);
+""" + ''.join(f'{r} {n}({a});\n' for n in """
+getAllAlbum getMusicByAlbum toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
+deque_assign deque_destroy deque_size deque_at window_create widget_factory
+widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
+slide_menu_set_value slide_menu_item_width slide_menu_on_scroll_done slide_menu_scroll_to
+widget_ungrab list_view_create scroll_view_create list_item_create image_set_draw_type
+image_base_set_image widget_load_image widget_unload_image widget_set_name widget_use_style
+widget_set_text_utf8 widget_set_visible widget_get_prop_int widget_set_prop_int
+widget_get_prop_str widget_on widget_destroy_children widget_invalidate_force
+widget_count_children widget_get_child widget_lookup widget_move_resize widget_get_visible
+canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
+timer_add timer_remove navigator_back_to_home navigator_to_with_context window_manager
+window_manager_get_pointer_pressed bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
+bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
+canvas_draw_image slide_menu_set_spacer widget_to_local
+""".split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
 """
@@ -873,17 +845,6 @@ int main(void) {
 """
 
 
-def png(raw, path, w, h):
-    """RGBA8888 rows (the frame's byte order) as an RGB PNG, with the standard library only."""
-    import struct, zlib
-    rows = b''.join(b'\0' + bytes(b for i in range(y * w * 4, (y + 1) * w * 4, 4) for b in raw[i:i + 3])
-                    for y in range(h))
-    def chunk(kind, data):
-        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
-    path.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
-                     chunk(b'IDAT', zlib.compress(rows, 9)) + chunk(b'IEND', b''))
-
-
 def main():
     import argparse, os
     ap = argparse.ArgumentParser(description=__doc__)
@@ -907,10 +868,11 @@ def main():
             subprocess.run([str(binary)], check=True, env=env)
         if a.captures:
             a.captures.mkdir(parents=True, exist_ok=True)
-            from compact import inc
-            w, h = inc('CF_VIEW_W'), inc('CF_VIEW_H')
-            for raw in sorted((tmp/'frames').glob('*.rgba')):
-                png(raw.read_bytes(), a.captures/(raw.stem + '.png'), w, h)
+            from compact import inc, imagemagick
+            size = f"{inc('CF_VIEW_W')}x{inc('CF_VIEW_H')}"
+            for raw in sorted((tmp/'frames').glob('*.rgba')):  # RGBA8888 rows, the frame's byte order
+                (a.captures/(raw.stem + '.png')).write_bytes(imagemagick(
+                    '-size', size, '-depth', '8', 'rgba:-', '-alpha', 'off', 'png:-', data=raw.read_bytes()))
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
           ' depth renderer (exact centre, clipping, symmetry, depth order, hit testing, reflection, continuity),'
           ' its texture window, taps, small libraries and flat fallback passed;'

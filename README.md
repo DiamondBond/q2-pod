@@ -26,13 +26,13 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 
 ## Controls
 
-| Control | What it does |
-| --- | --- |
-| **Wheel** | Moves one row or icon per tick. Keep spinning in long lists to speed up. |
-| **Centre button** | Opens the highlighted item. Double-press to turn the screen off. |
-| **Hold Play/Pause** | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it. |
-| **Touch** | Works as normal, and hides the selection until you use the wheel or buttons again. |
-| **Hold centre button** | Forces the player off if it freezes or won't finish booting. |
+| Control                | What it does                                                                                                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Wheel**              | Moves one row or icon per tick. Keep spinning in long lists to speed up. In iPod lists, a second tick that slips through just after the first is ignored, so a one-row turn doesn't overshoot. |
+| **Centre button**      | Opens the highlighted item. Double-press to turn the screen off.                                                                                                                               |
+| **Hold Play/Pause**    | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it.                                                         |
+| **Touch**              | Works as normal, and hides the selection until you use the wheel or buttons again.                                                                                                             |
+| **Hold centre button** | Forces the player off if it freezes or won't finish booting.                                                                                                                                   |
 
 - **List ends:** in the local folder and music lists, the list stops at the end while you keep turning. Pause briefly, then turn again to wrap around.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
@@ -100,12 +100,10 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 
 ### Display settings
 
-**System settings → Display** gains four rows. Centre or tap cycles each, and the choice is kept across restarts:
+**System settings → Display** gains two rows. Centre or tap cycles each, and the choice is kept across restarts:
 
 - **Accent:** Graphite (default), Crimson (the stock red), Tidal or Champagne.
 - **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
-- **Wheel:** Normal (default) moves a row on every wheel tick; Fine moves one row for every two ticks, so small corrections don't overshoot.
-- **Touch:** On (default) or Off, which ignores the screen so a stray tap does nothing. The keyboard, quick settings, sliders and online pages need touch; turn it back on here with the wheel. It does not save battery.
 
 ## Help and documentation
 
