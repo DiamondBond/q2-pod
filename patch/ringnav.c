@@ -95,8 +95,8 @@ typedef struct {
     int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, wheel_fine;
-    void *setting_label[3];
+    int settings_read, accent, home_full, wheel_fine, touch_off;
+    void *setting_label[4];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -388,6 +388,19 @@ static int usable(void) {
     return g_backlight_status && !g_lockscreen_pageflag && !g_testmode_flag && !g_guideflag &&
            !g_poweroff_state && g_usblink_status != 2 && !bt__recv_pageflag;
 }
+
+/* iPod's Touch: Off (docs/ipod.md#display-settings) ignores the glass wherever the wheel is live,
+ * so a finger resting on it is not a gesture that holds navigation off either. */
+#if IPOD
+static int accent(void);
+static int touch_off(void) {
+    accent(); /* reads the settings on first use */
+    return st.touch_off && usable();
+}
+#else
+#define touch_off() 0
+#endif
+static int pressed(void *wm) { return !touch_off() && window_manager_get_pointer_pressed(wm); }
 
 static int allowed_top(void *top) {
     return top && context_id(widget_get_prop_str(top, "name", (void *)0)) >= 0;
@@ -847,9 +860,8 @@ static int confirm_center(const void *info) {
     /* Stock removes this one-shot after return; never repeat (RET_REPEAT=8). */
     st.center_timer = 0;
     void *top = window_manager_get_top_window(window_manager());
-    int valid = w && !window_manager_get_pointer_pressed(window_manager()) && !g_power_longkey &&
-                !g_ingore_bootkey_flag && !*(volatile unsigned char *)BOOT_KEY_GUARD &&
-                load_rows(&g_menu, w);
+    int valid = w && !pressed(window_manager()) && !g_power_longkey && !g_ingore_bootkey_flag &&
+                !*(volatile unsigned char *)BOOT_KEY_GUARD && load_rows(&g_menu, w);
     if (valid) {
         /* Validation must not recall/rebind a changed scope or consume its pending recall. */
         g_menu.ctx = context_now(&g_menu.scope);
@@ -1012,9 +1024,9 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent, Home and Wheel settings (docs/ipod.md#display-settings), IPOD/ACCENT, IPOD/HOME and
- * IPOD/WHEEL in the stock config.ini: toolsReadConfig(path, section, key, out, default) copies the
- * value, or the default. */
+/* The Accent, Home, Wheel and Touch settings (docs/ipod.md#display-settings), IPOD/ACCENT,
+ * IPOD/HOME, IPOD/WHEEL and IPOD/TOUCH in the stock config.ini: toolsReadConfig(path, section, key,
+ * out, default) copies the value, or the default. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
@@ -1030,6 +1042,7 @@ static int accent(void) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
         st.wheel_fine = config_digit("WHEEL", 2);
+        st.touch_off = config_digit("TOUCH", 2);
         st.settings_read = 1;
     }
     return st.accent;
@@ -1200,14 +1213,13 @@ static void paint_selection(void *w, void *canvas) {
 #endif
     {
         if (surface((void *)0, (void *)0) != w) return;
-        if (!load(&g_menu, w, !window_manager_get_pointer_pressed(window_manager()))) {
+        if (!load(&g_menu, w, !pressed(window_manager()))) {
             cancel_center();
             return;
         }
         if (st.center_timer && !pending_matches(top, &g_menu)) cancel_center();
         if (g_menu.kind == 3) return; /* Home shows its selected card. */
-        i = reconcile(&g_menu,
-                      !moving(&g_menu) && !window_manager_get_pointer_pressed(window_manager()));
+        i = reconcile(&g_menu, !moving(&g_menu) && !pressed(window_manager()));
     }
     /* Touch hides the selection until the wheel or a button, except on Home (iPod's list). */
     int home = top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page");
@@ -1606,6 +1618,7 @@ static void setting_text(int i) {
     const char *name = accent_names[accent()];
     if (i == 1) name = st.home_full ? "Home: Full" : "Home: Split";
     if (i == 2) name = st.wheel_fine ? "Wheel: Fine" : "Wheel: Normal";
+    if (i == 3) name = st.touch_off ? "Touch: Off" : "Touch: On";
     widget_set_text_utf8(st.setting_label[i], name);
 }
 
@@ -1615,9 +1628,9 @@ static void setting_text(int i) {
  * tick starts a fresh step. */
 static int setting_click(void *ctx, void *event) {
     (void)event;
-    static const char *const keys[] = { "ACCENT", "HOME", "WHEEL" };
-    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Wheel */
-    int *value = i == 2 ? &st.wheel_fine : i ? &st.home_full : &st.accent;
+    static const char *const keys[] = { "ACCENT", "HOME", "WHEEL", "TOUCH" };
+    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Wheel, 3 Touch */
+    int *value = i == 3 ? &st.touch_off : i == 2 ? &st.wheel_fine : i ? &st.home_full : &st.accent;
     *value = (*value + 1) % (i ? 2 : ACCENT_N);
     write_int_config(*value, "IPOD", keys[i]);
     drop_wheel();
@@ -1634,12 +1647,12 @@ static int setting_click(void *ctx, void *event) {
 
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Accent, Home and Wheel rows follow with the same widgets and styles, the value in the label, no
- * icon and no chevron, since they change in place. */
+ * Accent, Home, Wheel and Touch rows follow with the same widgets and styles, the value in the
+ * label, no icon and no chevron, since they change in place. */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
-    for (int i = 0; view && i < 3; ++i) {
+    for (int i = 0; view && i < 4; ++i) {
         void *item = list_item_create(view, 0, 0, 0, 0);
         widget_use_style(item, "s_listitem_black");
         void *button = button_create(item, 20, 0, 335, 70);
@@ -1675,6 +1688,9 @@ static void hide_outline(void) {
 }
 
 int ringnav_touch(void *ctx, void *event) {
+    /* Touch: Off: stopping the down and move before the children keeps them from every widget and
+     * from stock's own handlers, screen timer included; an up alone presses nothing. */
+    if (touch_off()) return STOP;
     np_cancel(); /* before the slider sees the touch, so a drag seeks the stock way */
     hide_outline();
     int result = stock_touch_trampoline(ctx, event);
@@ -2134,8 +2150,7 @@ static int qm_open(const void *unused) {
 static int qm_hold(void) {
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     if (st.qm_dialog || st.qm_timer || !usable() || !allowed_top(top) ||
-        window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm) ||
-        airplayGetFlag() == 2 || g_navbar_status)
+        window_manager_is_animating(wm) || pressed(wm) || airplayGetFlag() == 2 || g_navbar_status)
         return 0;
     const char *name = widget_get_prop_str(top, "name", "");
     int kind = contexts[context_id(name)].kind;
@@ -2282,8 +2297,7 @@ int ringnav(void *ctx, void *event) {
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
 #if IPOD
-    if (top != st.np_win || window_manager_is_animating(wm) ||
-        window_manager_get_pointer_pressed(wm))
+    if (top != st.np_win || window_manager_is_animating(wm) || pressed(wm))
         np_cancel();
     else if (key == KEY_CENTER || st.scrub)
         return np_key(top, key);
@@ -2293,7 +2307,7 @@ int ringnav(void *ctx, void *event) {
         drop_spin();
         return result;
     }
-    if (window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm)) {
+    if (window_manager_is_animating(wm) || pressed(wm)) {
         cancel_center();
         drop_spin();
         return STOP;

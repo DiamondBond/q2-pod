@@ -3326,10 +3326,10 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==3  # every key, once, on first use
+        assert len(m.config_reads)==4  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','WHEEL')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','WHEEL','TOUCH')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -3445,7 +3445,7 @@ if variant=='ipod':
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
 
-    # Display settings: after the stock rows, Accent, Home and Wheel rows in the native row widgets
+    # Display settings: after the stock rows, Accent, Home, Wheel and Touch rows in the native row widgets
     # and styles; Centre or tap cycles and saves each; a new accent drops the image cache and
     # repaints.
     def display(config):
@@ -3458,13 +3458,13 @@ if variant=='ipod':
         rows=m.nodes[view]['children'][3:]
         return m,view,rows
     m,view,rows=display({})
-    assert len(rows)==3 and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert len(rows)==4 and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
     for b,l in zip(buttons,labels):
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Split','Wheel: Normal']; passed()
+    assert texts()==['Accent: Graphite','Home: Split','Wheel: Normal','Touch: On']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -3477,7 +3477,7 @@ if variant=='ipod':
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
     click(1); assert texts()[1]=='Home: Split'; passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][0]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Wheel: Normal']; passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][0]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Wheel: Normal','Touch: On']; passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)
@@ -3829,7 +3829,7 @@ if variant=='ipod':
     # clicks it and a tap selects it.
     m,view,rows=display({'WHEEL':'1'})
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
-    assert texts()==['Accent: Graphite','Home: Split','Wheel: Fine']
+    assert texts()==['Accent: Graphite','Home: Split','Wheel: Fine','Touch: On']
     m.paint(view)
     for i in range(10): assert m.call()==11 and m.selected(view)==(i+1)//2
     assert m.confirm()==11 and m.dispatched()[0][1]==buttons[2]
@@ -3837,7 +3837,7 @@ if variant=='ipod':
     m.click(buttons[2]); assert m.selected(view)==5 and m.clicks[-1]==buttons[2]; passed()
     # A click saves IPOD/WHEEL alone and takes effect at once; the next click saves it back.
     saved=[(v,m.text(section),m.text(key)) for v,section,key in click(2)]
-    assert saved==[(0,'IPOD','WHEEL')] and texts()==['Accent: Graphite','Home: Split','Wheel: Normal']
+    assert saved==[(0,'IPOD','WHEEL')] and texts()==['Accent: Graphite','Home: Split','Wheel: Normal','Touch: On']
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']
     m.paint(view); assert m.call(PREV)==11 and m.selected(view)==4
     assert [(v,m.text(key)) for v,_,key in click(2)]==[(1,'WHEEL')] and texts()[2]=='Wheel: Fine'; passed()
@@ -3849,6 +3849,24 @@ if variant=='ipod':
         m.paint(view); assert m.call()==11 and m.selected(view)==0
         click(row); click(row); m.paint(view)
         assert m.call()==11 and m.selected(view)==0 and m.call()==11 and m.selected(view)==1,row
+        passed()
+    # Touch: Off, the fourth row (IPOD/TOUCH). A down or a move stops before stock and the widgets
+    # see it, the selection stays drawn and a finger on the glass does not hold the wheel off.
+    # Where the wheel is not live (the lock screen here) and on Touch: On, touch stays stock's.
+    move=dict(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_MOVE_BEFORE'])
+    for config,off in (({'TOUCH':'1'},1),({'TOUCH':'0'},0),({},0)):
+        m,view,rows=display(config)
+        buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][0] for b in buttons]
+        assert texts()[3]==('Touch: Off' if off else 'Touch: On')
+        m.paint(view); assert m.call()==11 and m.selected(view)==1
+        assert m.touch()==(11 if off else 0) and bool(m.calls)!=off,(config,m.calls)
+        assert m.call(**move)==(11 if off else 0) and bool(m.calls)!=off
+        m.paint(view); assert bool(m.drawn())==off and m.selected(view)==1
+        m.pressed=1; assert m.call()==11 and m.selected(view)==1+off; m.pressed=0
+        m.byte(syms['g_lockscreen_pageflag'],1); assert m.touch()==0 and m.calls
+        m.byte(syms['g_lockscreen_pageflag'],0)
+        assert [(v,m.text(key)) for v,_,key in click(3)]==[(1-off,'TOUCH')]
+        assert texts()[3]==('Touch: On' if off else 'Touch: Off') and m.touch()==(0 if off else 11)
         passed()
     CONFIG.clear()
 

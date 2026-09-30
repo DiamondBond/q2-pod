@@ -455,27 +455,36 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds three rows the same way:
-"Accent: Graphite", "Home: Split" and "Wheel: Normal", the value in the label (260 pixels wide, to
+pixels high). iPod runs the stock init, then adds four rows the same way:
+"Accent: Graphite", "Home: Split", "Wheel: Normal" and "Touch: On", the value in the label (260 pixels wide, to
 where the chevron ends), with no icon and no chevron, since Centre or a tap changes them in place.
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`
-and `WHEEL`. All three values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`,
+`WHEEL` and `TOUCH`. All four values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split and Normal.
+one valid digit, is Graphite, Split, Normal and On.
 
 `WHEEL` stores 0 for Normal (a row per tick) and 1 for Fine (a row per `WHEEL_FINE` ticks one way,
 2; `patch/ringnav.c`); see [internals.md](internals.md#wheel-movement) for its scope and what
 clears half a step. "Normal" is this setting's value, not the Normal firmware, which has no such
 setting.
+
+`TOUCH` stores 0 for On and 1 for Off. Off returns `RET_STOP` (11) from the touch hook before stock
+runs, for the down and for the move stock forwards to it, so `widget_on_pointer_down` (`0x6630f4`)
+and `widget_on_pointer_move` (`0x66353c`) skip the children and stock's own handlers: no widget is
+pressed, the selection stays drawn, the screen timer is not reset and a finger on the glass does
+not hold the wheel off. What the wheel cannot drive is then unusable: the on-screen keyboard, the
+quick-settings pull-down, sliders and the online pages. Touch stays stock's wherever the wheel is not live (the lock, test,
+guide, power-off, USB-link and Bluetooth-receive screens). The setting saves no battery: the touch
+controller scans as before, and stock already puts it in its low-power mode with the screen off.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
