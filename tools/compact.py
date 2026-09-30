@@ -52,6 +52,7 @@ def corner_x(y, h):
 STATUS_PAD = 2
 STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
 CLOCK_MIN = 105
+CLOCK_TEXT = 86
 # iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. The
 # labels fit the longest English one ("Playback Setting", 149px at 20px) and all start where the last
 # row's clears the bottom-left corner. The art fills the right panel, edge to edge below the status
@@ -274,24 +275,47 @@ def patch_style(data, audit):
 # images, but never their geometry. So widgets iPod hides move off-screen instead of going invisible.
 # The volume number stays hidden: stock already opens dialog/volume_dialog on every wheel change.
 STATUS_BAR = 'system_bar.bin'
-STATUS_LEFT, STATUS_RIGHT = ['img_state', 'label_eq'], ['img_bt', 'img_wifi', 'img_battery']
-STATUS_HIDDEN = ['img_vol', 'label_vol', 'img_synclink', 'label_battery']
+STATUS_LEFT = ['img_state', 'label_eq']
+STATUS_RIGHT = ['img_bt', 'img_wifi', 'label_battery', 'view_battery', 'img_battery']
+STATUS_HIDDEN = ['img_vol', 'label_vol', 'img_synclink']
+# The Battery setting (ringnav.c bar_sync) shows one of the last three: the stock icon, stock's
+# "88%" (label_battery at BATT_PCT_PX, the icons' height, and right-aligned so its width grows away
+# from the corner; "100%" is BATT_PCT_W) or the payload's horizontal battery with the number inside (view_battery). The layout
+# skips hidden children. The Bluetooth images are 42px canvases whose ink ends at column 41: BT_REACH
+# is how far the plain glyph's ink starts left of img_bt's right edge. With it, Wi-Fi and the wider
+# battery, the group's ink stays CLOCK_GAP clear of the widest clock text, CLOCK_TEXT ("12:59 PM"),
+# so every mode fits once a codec badge has faded; wider badges fall back to the icon (BATT_ROOM).
+BATT_MODES = STATUS_RIGHT[2:4]
+BATT_PCT_W, BATT_PCT_PX, BATT_ROOM, BT_REACH = (inc(n) for n in ('BATT_PCT_W', 'BATT_PCT_PX', 'BATT_ROOM', 'BT_REACH'))
+BATT_H_W = inc('BATT_BODY_W') + inc('BATT_NUB_W')  # the payload's battery with its nub
+CLOCK_GAP = 4
 
 
 def status_bar(root):
     left, right = root[3]
     require([left[2].get('name'), right[2].get('name')] == ['view_left', 'view_right'], 'Unexpected status bar')
     widgets = {n[2]['name']: n for n in left[3] + right[3]}
-    require(sorted(widgets) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')
+    require(sorted([*widgets, 'view_battery']) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')
+    pct = widgets['label_battery']
+    pct[1][2] = BATT_PCT_W
+    for s in ('normal', 'disable', 'focused'):
+        require(pct[2][f'style:{s}:font_size'] == '18', 'Unexpected battery label')
+        pct[2].update({f'style:{s}:font_size': str(BATT_PCT_PX), f'style:{s}:text_align_h': 'right'})
+    pct[2]['visible'] = 'false'
+    widgets['view_battery'] = ['view', [0, 0, BATT_H_W, 0], {'name': 'view_battery', 'visible': 'false'}, []]
     left[3] = [widgets[n] for n in STATUS_LEFT]
     right[3] = [widgets[n] for n in STATUS_RIGHT]
     for view in (left, right):
         layout = view[2]['children_layout']
         require('xm=50,s=5)' in layout, 'Unexpected status bar layout')
         view[2]['children_layout'] = layout.replace('xm=50', f'xm={STATUS_MARGIN}')
-    extent = max(STATUS_MARGIN + sum(n[1][2] for n in v[3]) + 5 * (len(v[3]) - 1) for v in (left, right))
+    shown = [[n for n in v[3] if n[2]['name'] not in BATT_MODES] for v in (left, right)]
+    extent = max(STATUS_MARGIN + sum(n[1][2] for n in v) + 5 * (len(v) - 1) for v in shown)
     width = 375 - 2 * extent
     require(width >= CLOCK_MIN and right[1][0] + right[1][2] == 375, f'Status bar clock {width}px, too narrow')
+    room = int(375 - STATUS_MARGIN - (375 / 2 + CLOCK_TEXT / 2 + CLOCK_GAP))
+    reach = BT_REACH + 5 + widgets['img_wifi'][1][2] + 5 + max(BATT_PCT_W, BATT_H_W)
+    require(BATT_ROOM == room and reach <= room, f'Status bar battery needs {reach}px of {room}px')
     for name in STATUS_HIDDEN:
         g = widgets[name][1]
         g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen

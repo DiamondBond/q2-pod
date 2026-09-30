@@ -22,7 +22,7 @@ extern void *staged(int (*query)(void *), void *arg, int *count);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
-#define DOUBLE_CLICK_MS 180
+#define DOUBLE_CLICK_MS 200
 #define HOME_FAST_WINDOW_MS 200
 #define HOME_SLIDE_MS 200
 #define HOME_FAST_SLIDE_MS 120
@@ -86,7 +86,14 @@ typedef struct {
     void *pull_page, *pull_surface;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
-    unsigned clock_key;    /* the clock's minute of the day + 1; 0 before the first, ~0 for --:-- */
+    unsigned clock_key; /* the clock's minute of the day + 1; 0 before the first, ~0 for --:-- */
+    /* The status bar's Bluetooth, Wi-Fi and battery widgets, looked up once (the bar is never
+     * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
+     * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
+     * level, charge and low state. */
+    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon, *bar_level;
+    int codec, codec_step;
+    unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
@@ -98,8 +105,8 @@ typedef struct {
     int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full;
-    void *setting_label[2];
+    int settings_read, accent, home_full, battery;
+    void *setting_label[3];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1024,9 +1031,9 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent and Home settings (docs/ipod.md#display-settings), IPOD/ACCENT and IPOD/HOME in the
- * stock config.ini: toolsReadConfig(path, section, key, out, default) copies the value, or the
- * default. */
+/* The Accent, Home and Battery settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME and
+ * BATTERY in the stock config.ini: toolsReadConfig(path, section, key, out, default) copies the
+ * value, or the default. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
@@ -1041,6 +1048,7 @@ static int accent(void) {
     if (!st.settings_read) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
+        st.battery = config_digit("BATTERY", 3);
         st.settings_read = 1;
     }
     return st.accent;
@@ -1141,6 +1149,21 @@ static void paint_chevrons(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
+/* Text centred in r in the default font at px, in color; text color and alignment are restored,
+ * the font is not (stock sets it before its own text). */
+static void draw_centred(void *canvas, const unsigned *s, unsigned n, const rect_t *r, unsigned px,
+                         unsigned color) {
+    unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
+    int align_v = I(canvas, CANVAS_ALIGN_V), align_h = I(canvas, CANVAS_ALIGN_H);
+    canvas_set_font(canvas, (void *)0, px); /* the system default font */
+    canvas_set_text_color(canvas, color);
+    I(canvas, CANVAS_ALIGN_V) = I(canvas, CANVAS_ALIGN_H) = 1;
+    canvas_draw_text_in_rect(canvas, s, n, r);
+    I(canvas, CANVAS_ALIGN_V) = align_v;
+    I(canvas, CANVAS_ALIGN_H) = align_h;
+    canvas_set_text_color(canvas, text);
+}
+
 static int letter_expire(const void *info) {
     (void)info;
     st.letter_timer = 0;
@@ -1152,8 +1175,7 @@ static int letter_expire(const void *info) {
 /* iPod fast scroll: while the wheel ramp moves more than one row per step, the selected row's
  * first character sits in a dark translucent square over the list until LETTER_MS after the last
  * such step. A virtual table resolves the logical row in its recycled pool; an offscreen or
- * textless row shows nothing. Stock sets the font before its own text, so only the text color and
- * alignment are restored, with the fill color and clip. */
+ * textless row shows nothing. The fill color and clip are restored. */
 static void paint_letter(void *w, void *canvas) {
     rect_t old;
     if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= LIST_FIRST_MS ||
@@ -1164,9 +1186,7 @@ static void paint_letter(void *w, void *canvas) {
     while (s && *s == ' ') ++s;
     if (!s || !*s || !clip_surface(canvas, &g_menu, &old)) return;
     unsigned c = *s >= 'a' && *s <= 'z' ? *s - 32 : *s;
-    void *lcd = P(canvas, CANVAS_LCD);
-    unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR), text = (unsigned)I(lcd, LCD_TEXT_COLOR);
-    int align_v = I(canvas, CANVAS_ALIGN_V), align_h = I(canvas, CANVAS_ALIGN_H);
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (g_menu.height - LETTER_BOX) / 2, LETTER_BOX,
                    LETTER_BOX };
     unsigned color = (LETTER_ALPHA << 24) | FILL_RGB;
@@ -1174,13 +1194,7 @@ static void paint_letter(void *w, void *canvas) {
         canvas_set_fill_color(canvas, color); /* no vgcanvas: a square box */
         canvas_fill_rect(canvas, box.x, box.y, box.w, box.h);
     }
-    canvas_set_font(canvas, (void *)0, LETTER_PX); /* the system default font */
-    canvas_set_text_color(canvas, 0xffffffff);
-    I(canvas, CANVAS_ALIGN_V) = I(canvas, CANVAS_ALIGN_H) = 1;
-    canvas_draw_text_in_rect(canvas, &c, 1, &box);
-    I(canvas, CANVAS_ALIGN_V) = align_v;
-    I(canvas, CANVAS_ALIGN_H) = align_h;
-    canvas_set_text_color(canvas, text);
+    draw_centred(canvas, &c, 1, &box, LETTER_PX, 0xffffffff);
     canvas_set_fill_color(canvas, fill);
     canvas_set_clip_rect(canvas, &old);
 }
@@ -1320,6 +1334,107 @@ static void clock_sync(void *bar) {
         tk_snprintf(s, sizeof s, "%d:%02d %s", (tm[2] + 11) % 12 + 1, tm[1],
                     tm[2] < 12 ? "AM" : "PM");
     widget_set_text_utf8(label, s);
+}
+
+/* systembar_showface sets img_bt's image each second: a codec badge (BT_CODECS) while stock shows
+ * the codec, else bar_bt or BT_GLYPH. A new badge shows CODEC_MS, then codec_fade fades it out and
+ * BT_GLYPH in, and bar_sync keeps putting BT_GLYPH back over stock's badge before img_bt paints. */
+static const char *const codecs[] = BT_CODECS;
+static const int codec_reach[] = BT_CODEC_REACH;
+_Static_assert(sizeof codecs / sizeof *codecs == sizeof codec_reach / sizeof *codec_reach,
+               "one reach per codec");
+
+static int codec_fade(const void *info) {
+    (void)info;
+    int n = ++st.codec_step, d = CODEC_STEPS - n;
+    if (n == 1)
+        st.codec_timer = timer_add(codec_fade, (void *)0, CODEC_STEP_MS); /* this one ends */
+    if (n == CODEC_STEPS) image_base_set_image(st.bar_bt, BT_GLYPH);
+    widget_set_opacity(st.bar_bt, 255u * (unsigned)(d < 0 ? -d : d) / CODEC_STEPS);
+    if (n < 2 * CODEC_STEPS) return n == 1 ? 0 : 8; /* RET_REPEAT */
+    st.codec_timer = 0;
+    return 0;
+}
+
+/* The status bar's codec badge, then the Battery setting (docs/ipod.md#status-bar-and-clock): one
+ * of the stock icon, stock's percentage or the payload's battery (view_battery) shows, and the icon
+ * wherever the group's ink would reach more than BATT_ROOM (a wide badge while it shows).
+ * widget_set_visible does nothing for an unchanged state and relayouts the view for a new one. */
+static void bar_sync(void *bar) {
+    if (!st.bar_bt) {
+        st.bar_bt = widget_lookup(bar, "img_bt", 1);
+        st.bar_wifi = widget_lookup(bar, "img_wifi", 1);
+        st.bar_pct = widget_lookup(bar, "label_battery", 1);
+        st.bar_slot = widget_lookup(bar, "view_battery", 1);
+        st.bar_icon = widget_lookup(bar, "img_battery", 1);
+        st.bar_level = widget_lookup(bar, "progress_battery", 1);
+    }
+    if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon || !st.bar_level)
+        return;
+    int shown = widget_get_visible(st.bar_bt), c = 0;
+    const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
+    for (int i = 0; image && i < (int)(sizeof codecs / sizeof *codecs); ++i)
+        if (!tk_strcmp(image, codecs[i])) c = i + 1;
+    /* A new badge starts over; BT_GLYPH with a badge is the faded badge itself. */
+    if (c != st.codec && (c || !image || tk_strcmp(image, BT_GLYPH))) {
+        stop_timer(&st.codec_timer);
+        st.codec = c;
+        st.codec_step = 0;
+        widget_set_opacity(st.bar_bt, 255);
+        if (c) st.codec_timer = timer_add(codec_fade, (void *)0, CODEC_MS);
+    } else if (c && st.codec_step >= CODEC_STEPS)
+        image_base_set_image(st.bar_bt, BT_GLYPH);
+    accent(); /* reads the settings */
+    int mode = st.battery;
+    if (mode) {
+        int reach = mode == 1 ? BATT_PCT_W : BATT_BODY_W + BATT_NUB_W;
+        if (widget_get_visible(st.bar_wifi)) reach += I(st.bar_wifi, W_W) + 5;
+        if (shown)
+            reach += 5 + (st.codec && st.codec_step < CODEC_STEPS ? codec_reach[st.codec - 1]
+                                                                  : BT_REACH);
+        if (reach > BATT_ROOM) mode = 0;
+    }
+    widget_set_visible(st.bar_icon, !mode, 0);
+    widget_set_visible(st.bar_pct, mode == 1, 0);
+    widget_set_visible(st.bar_slot, mode == 2, 0);
+    if (mode != 2) return;
+    /* the level, then charging (bar_charge) and low (bar_lowcharge), as stock picks the icon */
+    const char *icon = widget_get_prop_str(st.bar_icon, "image", "");
+    int level = widget_get_prop_int(st.bar_level, "value", 0);
+    unsigned key = (unsigned)(level < 0     ? 0
+                              : level > 100 ? 100
+                                            : level)
+                       << 2 |
+                   (unsigned)(icon && !tk_strcmp(icon, "bar_charge")) << 1 |
+                   (unsigned)(icon && !tk_strcmp(icon, "bar_lowcharge"));
+    if (key == st.batt_key) return;
+    st.batt_key = key;
+    widget_invalidate_force(st.bar_slot, (void *)0);
+}
+
+/* view_battery: a BATT_BODY_W x BATT_BODY_H outline with square-cut corners, centred in the bar,
+ * its nub on the right and the level inside, all in one colour; the fill color is restored. */
+static void paint_battery(void *w, void *canvas) {
+    void *lcd = P(canvas, CANVAS_LCD);
+    if (!lcd) return;
+    unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
+    unsigned key = st.batt_key, level = key >> 2, s[3], n = 0;
+    unsigned color = RGBA(key & 2   ? BATT_CHARGE_RGB
+                          : key & 1 ? accents[accent()][TONE_RED]
+                                    : 0xffffff);
+    const int bw = BATT_BODY_W, bh = BATT_BODY_H, y = (I(w, W_H) + 1 - bh) / 2;
+    canvas_set_fill_color(canvas, color);
+    canvas_fill_rect(canvas, 1, y, bw - 2, 1);
+    canvas_fill_rect(canvas, 1, y + bh - 1, bw - 2, 1);
+    canvas_fill_rect(canvas, 0, y + 1, 1, bh - 2);
+    canvas_fill_rect(canvas, bw - 1, y + 1, 1, bh - 2);
+    canvas_fill_rect(canvas, bw, y + (bh - BATT_NUB_H) / 2, BATT_NUB_W, BATT_NUB_H);
+    if (level >= 100) s[n++] = '1';
+    if (level >= 10) s[n++] = '0' + level / 10 % 10;
+    s[n++] = '0' + level % 10;
+    rect_t r = { 0, y, bw, bh };
+    draw_centred(canvas, s, n, &r, BATT_PX, color);
+    canvas_set_fill_color(canvas, fill);
 }
 
 /* Seconds as stock writes label_playtime, after a minus when negative is 1. */
@@ -1496,6 +1611,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
     paint_selection(w, canvas);
     coverflow_home_clip(w, canvas, 1);
+    if (w && w == st.bar_slot) paint_battery(w, canvas);
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
@@ -1508,6 +1624,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     coverflow_home_art(w == bar ? top : w);
     if (bar && (w == bar || w == top)) {
         clock_sync(bar);
+        bar_sync(bar);
         np_sync(top);
         /* Boot may paint Home before the screen is usable, so nothing chose or drew its first
          * row. Once, when the list is first reachable, repaint it. */
@@ -1620,8 +1737,11 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    const char *name = accent_names[accent()];
-    if (i == 1) name = st.home_full ? "Home: Full" : "Home: Split";
+    static const char *const home[] = { "Home: Split", "Home: Full" }, *const battery[] = {
+        "Battery: Icon", "Battery: Percent", "Battery: Icon + Percent"
+    };
+    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };
+    const char *name = names[i];
     widget_set_text_utf8(st.setting_label[i], name);
 }
 
@@ -1630,12 +1750,15 @@ static void setting_text(int i) {
  * screen repaints; Home takes its new layout at once, as it is never recreated. */
 static int setting_click(void *ctx, void *event) {
     (void)event;
-    static const char *const keys[] = { "ACCENT", "HOME" };
-    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home */
-    int *value = i ? &st.home_full : &st.accent;
-    *value = (*value + 1) % (i ? 2 : ACCENT_N);
+    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY" };
+    static const int counts[] = { ACCENT_N, 2, 3 };
+    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery */
+    int *const values[] = { &st.accent, &st.home_full, &st.battery }, *value = values[i];
+    *value = (*value + 1) % counts[i];
     write_int_config(*value, "IPOD", keys[i]);
-    if (i == 1)
+    if (i == 2)
+        widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
+    else if (i == 1)
         coverflow_home_layout();
     else if (!i) {
         np_fill(0);
@@ -1648,19 +1771,21 @@ static int setting_click(void *ctx, void *event) {
 
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Accent and Home rows follow with the same widgets and styles, borrowing the Display and cover
- * mode icons, the value in the label and no chevron, since they change in place. */
+ * Accent, Home and Battery rows follow with the same widgets and styles, borrowing the Display,
+ * cover mode and power manager icons, the value in the label and no chevron, since they change in
+ * place. */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
-    for (int i = 0; view && i < 2; ++i) {
+    for (int i = 0; view && i < 3; ++i) {
         void *item = list_item_create(view, 0, 0, 0, 0);
         widget_use_style(item, "s_listitem_black");
         void *button = button_create(item, 20, 0, 335, 70);
         widget_use_style(button, "s_btn_listitem");
         widget_on(button, EVT_CLICK, setting_click, (void *)(long)i);
-        image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70),
-                             i ? "playset_covermode" : "system_display");
+        static const char *const icons[] = { "system_display", "playset_covermode",
+                                             "system_powermanager" };
+        image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icons[i]);
         st.setting_label[i] = hscroll_label_create(button, 72, 0, 260, 70);
         widget_use_style(st.setting_label[i], "s_scrlabel_white24l");
         set_hscroll_label_attribute(st.setting_label[i]);

@@ -22,6 +22,7 @@ DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/ringnav.c').rea
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
+O_GLYPH=re.search(r'#define BT_GLYPH "(\w+)"',INC)[1]  # the plain Bluetooth glyph a codec badge fades into
 CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
 LCD_COLORS=(0x9abcdef0,0x12345678)
@@ -208,6 +209,7 @@ class Machine:
                 a=self.get(a+O['W_PARENT'])
             self.word(b,x); self.word(b+4,y); ret=0
         elif name=='widget_set_text_utf8': n['text']=self.text(b); ret=0
+        elif name=='image_base_set_image': n['image']=self.text(b); ret=0
         elif name=='widget_use_style': n['style']=self.text(b); ret=0
         elif name.startswith('hscroll_label_set_') or name=='set_hscroll_label_attribute':
             n[name]=b if name!='set_hscroll_label_attribute' else True; ret=0
@@ -679,6 +681,62 @@ else:
         assert clock()=='7:30 AM' and not writes()
     passed()
     s.clock=(19,31); s.top=pages[-1]; bg(pages[-1]); assert clock()=='7:31 PM' and len(writes())==1; passed()
+    # The codec badge and the Battery setting (bar_sync, on each bar paint): stock sets img_bt's image
+    # each second; a new badge shows CODEC_MS, fades out and BT_GLYPH fades in over CODEC_STEPS steps
+    # each way, and BT_GLYPH then replaces the badge stock sets again. The battery shows the icon, the
+    # percentage or view_battery, and the icon while the group's ink would reach past BATT_ROOM.
+    def battery_checks():
+        def battery_bar(mode):
+            b=Machine(); b.config={'BATTERY':str(mode)}
+            level=b.node('progress_bar','progress_battery',value=50)
+            w={n:b.node(t,n,list(c),visible=v,**kw) for n,t,c,v,kw in (
+                ('img_bt','image',(),1,dict(image='bar_ldac')),('img_wifi','image',(),1,{}),
+                ('label_battery','label',(),0,{}),('view_battery','view',(),0,{}),
+                ('img_battery','image',(level,),1,dict(image='bar_battery')))}
+            b.word(w['img_wifi']+O['W_W'],16); b.word(w['view_battery']+O['W_H'],30)
+            bar=b.node('system_bar','system_bar',[b.node('view','view_right',list(w.values()))])
+            w['progress_battery']=level
+            b.word(bar+O['W_PARENT'],b.wm); b.word(syms['system_bar'],bar)
+            return b,bar,w,lambda x=bar: b.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(x,b.canvas,0,0),gap=0)
+        def shown(b,w): return [n for n in ('img_battery','label_battery','view_battery') if b.nodes[w[n]]['visible']]
+        def alpha(b,w): return b.get(w['img_bt']+0x34)&255
+        b,bar,w,paint=battery_bar(1); paint()
+        # LDAC's badge (36px of ink) and Wi-Fi leave no room for the percentage: the icon, until it fades.
+        assert b.nodes[w['img_bt']]['image']=='bar_ldac' and alpha(b,w)==255 and shown(b,w)==['img_battery'] and len(b.timers)==1
+        b.advance(O['CODEC_MS']-1); paint(); assert b.nodes[w['img_bt']]['image']=='bar_ldac' and alpha(b,w)==255
+        steps=[]
+        for _ in range(2*O['CODEC_STEPS']):
+            b.advance(O['CODEC_STEP_MS'] if steps else 1); steps.append((alpha(b,w),b.nodes[w['img_bt']]['image']))
+        n=O['CODEC_STEPS']
+        assert steps==[(255*abs(n-k)//n,'bar_ldac' if k<n else O_GLYPH) for k in range(1,2*n+1)] and not b.timers, steps
+        paint(); assert shown(b,w)==['label_battery']; passed()
+        # Stock's next tick sets the badge again: the glyph goes straight back, with no new fade.
+        b.nodes[w['img_bt']]['image']='bar_ldac'; paint()
+        assert b.nodes[w['img_bt']]['image']==O_GLYPH and not b.timers and shown(b,w)==['label_battery']; passed()
+        # A new codec flashes again; AAC's narrow badge leaves room, so the percentage stays.
+        b.nodes[w['img_bt']]['image']='bar_aac'; paint()
+        assert b.nodes[w['img_bt']]['image']=='bar_aac' and len(b.timers)==1 and shown(b,w)==['label_battery']; passed()
+        # Bluetooth off ends the flash; a reconnect with the same codec flashes again.
+        b.nodes[w['img_bt']]['visible']=0; paint(); assert not b.timers and alpha(b,w)==255
+        b.nodes[w['img_bt']]['visible']=1; paint(); assert len(b.timers)==1; passed()
+        # Icon + Percent: the outline, nub and level in one colour, canvas state restored; charging is
+        # BATT_CHARGE_RGB, low the accent's red tone; the slot repaints only when one of them changes.
+        b,bar,w,paint=battery_bar(2); b.nodes[w['img_bt']]['visible']=0
+        lcd=lambda: (b.lcd_colors(),b.get(b.lcd+O['LCD_TEXT_COLOR']),b.get(b.canvas+O['CANVAS_ALIGN_V']),b.get(b.canvas+O['CANVAS_ALIGN_H']))
+        paint(); assert shown(b,w)==['view_battery']; before=lcd()
+        def slot(): b.bands=[]; b.letters=[]; paint(w['view_battery']); assert lcd()==before; return b.bands,b.letters
+        bw,bh,y=O['BATT_BODY_W'],O['BATT_BODY_H'],(30+1-O['BATT_BODY_H'])//2
+        for image,value,rgb,text in (('bar_battery',88,0xffffff,'88'),('bar_charge',100,O['BATT_CHARGE_RGB'],'100'),
+                                     ('bar_lowcharge',5,ACCENTS[0][3],'5')):
+            b.nodes[w['img_battery']]['image']=image; b.nodes[w['progress_battery']]['value']=value
+            b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) in [c[:2] for c in b.calls]
+            b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) not in [c[:2] for c in b.calls]
+            bands,letters=slot()
+            assert [x[:5] for x in bands]==[(1,y,bw-2,1,color_t(rgb)),(1,y+bh-1,bw-2,1,color_t(rgb)),(0,y+1,1,bh-2,color_t(rgb)),
+                                             (bw-1,y+1,1,bh-2,color_t(rgb)),(bw,y+(bh-O['BATT_NUB_H'])//2,O['BATT_NUB_W'],O['BATT_NUB_H'],color_t(rgb))]
+            assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(text,(0,y,bw,bh),color_t(rgb),('default',O['BATT_PX']),(1,1))]
+        passed()
+    battery_checks()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
 assert m.call()==11 and m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==12
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['SCROLL_Y'])==60
@@ -2688,13 +2746,30 @@ if variant=='ipod':
         layout=m.call(address=syms['children_layouter_default_create'],args=(0,0,0,0),gap=0)
         for param in re.fullmatch(r'default\((.*)\)',m.nodes[v]['asset']['children_layout'])[1].split(','):
             assert m.call(address=syms['children_layouter_set_param_str'],args=(layout,*map(m.string,param.split('=')),0),gap=0)==0
-        m.word(v+O['W_CHILDREN_LAYOUT'],layout); native_row_layout(m,v)
-    cells=[(signed(m.get(v+O['W_X']))+signed(m.get(c+O['W_X'])),m.get(c+O['W_W']),m.get(c+O['W_H'])) for v in views for c in m.nodes[v]['children']]
+        m.word(v+O['W_CHILDREN_LAYOUT'],layout)
+    def laid_out():
+        for v in views: native_row_layout(m,v)
+        return [(signed(m.get(v+O['W_X']))+signed(m.get(c+O['W_X'])),m.get(c+O['W_W']),m.get(c+O['W_H'])) for v in views
+                for c in m.nodes[v]['children'] if m.nodes[c]['visible']]
+    cells=laid_out()
     inset=corner_inset((30-16)//2)
     assert all(h==30 and inset<=x and x+w<=375-inset for x,w,h in cells), (inset,cells)
     title=named(m,bar,'label_clock'); x,w=m.get(title+O['W_X']),m.get(title+O['W_W'])
     left,right=(cells[len(m.nodes[views[0]]['children'])-1],cells[len(m.nodes[views[0]]['children'])])
     assert left[0]+left[1]<=x and x+w<=right[0] and x+w/2==375/2, (left,right,x,w); passed()
+    # Each Battery mode (bar_sync shows one of the three): the layout skips the hidden two, the
+    # battery ends at the icons' margin, a percentage's text clears the corner there, and with
+    # the plain Bluetooth glyph and Wi-Fi the group's ink stays CLOCK_GAP clear of the widest clock.
+    from compact import CLOCK_TEXT, CLOCK_GAP, STATUS_MARGIN, corner_x
+    batt=[named(m,bar,n) for n in ('img_battery','label_battery','view_battery')]
+    for mode,want in enumerate((10,O['BATT_PCT_W'],O['BATT_BODY_W']+O['BATT_NUB_W'])):
+        for i,b in enumerate(batt): m.nodes[b]['visible']=int(i==mode)
+        cells=laid_out(); bt=cells[len(m.nodes[views[0]]['children'])]
+        assert cells[-1][0]+cells[-1][1]==375-STATUS_MARGIN and cells[-1][1]==want, (mode,cells)
+        if mode==1: assert corner_x((30-O['BATT_PCT_PX'])//2,O['BATT_PCT_PX'])<=STATUS_MARGIN
+        ink=bt[0]+bt[1]-O['BT_REACH']
+        assert ink>=375/2+CLOCK_TEXT/2+CLOCK_GAP and 375-STATUS_MARGIN-ink<=O['BATT_ROOM'], (mode,cells)
+    passed()
 
 # Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
 # the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
@@ -3320,7 +3395,7 @@ if variant=='ipod':
             if not same: assert mapped(got,preset,column)==got
         passed()
 
-    # Settings: IPOD/ACCENT and IPOD/HOME come from the stock config.ini once, a missing or bad value
+    # Settings: IPOD/ACCENT, HOME and BATTERY come from the stock config.ini once, a missing or bad value
     # is the default; the style color hook returns stock values under Crimson and maps under others.
     red=color_t(0xff1448); grey=color_t(0x808080)
     tramp={n:int(manifest['patch_symbols'][f'stock_{n}_trampoline'],16) for n in ('color','image','display')}
@@ -3345,10 +3420,10 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==2  # every key, once, on first use
+        assert len(m.config_reads)==3  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -3481,9 +3556,9 @@ if variant=='ipod':
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
 
-    # Display settings: after the stock rows, Accent and Home rows in the native row widgets and
-    # styles, with the Display and cover mode icons; Centre or tap cycles and saves each; a new accent drops the image cache and
-    # repaints.
+    # Display settings: after the stock rows, Accent, Home and Battery rows in the native row widgets
+    # and styles, with the Display, cover mode and power manager icons; Centre or tap cycles and saves
+    # each; a new accent drops the image cache and repaints, a new Battery mode repaints the bar.
     def display(config):
         CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
@@ -3495,7 +3570,7 @@ if variant=='ipod':
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
         return m,view,rows
     m,view,rows=display({})
-    assert len(rows)==2 and m.icons_set==['system_display','playset_covermode'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert len(rows)==3 and m.icons_set==['system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -3503,7 +3578,7 @@ if variant=='ipod':
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Split']; passed()
+    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -3516,7 +3591,12 @@ if variant=='ipod':
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
     click(1); assert texts()[1]=='Home: Split'; passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full']; passed()
+    bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
+    for value,name in ((1,'Percent'),(2,'Icon + Percent'),(0,'Icon')):
+        writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
+        assert ('widget_invalidate_force',bar) in [c[:2] for c in m.calls] and not [c for c in m.calls if c[0]=='image_manager_unload_all']
+    passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent']; passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)

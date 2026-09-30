@@ -81,7 +81,7 @@ Artwork is cached on the microSD card in `.coverflow`, and needs at least 16 MB 
 
 - **Home** is a list instead of the carousel, beside the playing track's cover.
 - **Lists** are flat, four rows per screen, with a full-width selection bar in the accent colour. **`>`** marks every row that opens another list.
-- **Status bar:** play state and EQ on the left, the time in the middle, then Bluetooth, Wi-Fi and the battery.
+- **Status bar:** play state and EQ on the left, the time in the middle, then Bluetooth, Wi-Fi and the battery. A new Bluetooth codec badge (AAC, LDAC…) shows for a second, then fades into the Bluetooth icon.
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
 - **Quick settings:** pull down from the top edge. Brightness is a slim bar you can tap or drag.
 - **Page slides:** lists and settings slide in from the right when opened and back out on Return.
@@ -100,10 +100,11 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 
 ### Display settings
 
-**System settings → Display** gains two rows. Centre or tap cycles each, and the choice is kept across restarts:
+**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
 
 - **Accent:** Graphite (default), Crimson (the stock red), Tidal or Champagne.
 - **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
+- **Battery:** Icon (default), Percent, or Icon + Percent (the level inside a horizontal battery).
 
 ## Help and documentation
 

@@ -151,8 +151,8 @@ so parents and order are free to change. Every tick it re-shows the volume,
 EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
 never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
 and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
-battery icon in `view_right`. The volume icon and number, SyncLink and the battery
-percentage move to `x = -200`, where they draw off-screen. Both groups sit 54 pixels
+battery in `view_right`. The volume icon and number and SyncLink move to `x = -200`, where they
+draw off-screen. Both groups sit 54 pixels
 from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
 ([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass. A new
 `label_clock` (`s_scrlabel_white20c`) is centred on the screen. It has the width left in the
@@ -161,6 +161,28 @@ pixels, right 133); the build fails if that would be under `CLOCK_MIN` (105). Th
 the bar and writes the time into `label_clock` (see
 [internals.md](internals.md#status-bar-ipod)); the widest text, `12:59 PM`, is 86 pixels in the
 stock font at 20 pixels.
+
+**Codec.** The Bluetooth images are 42-pixel canvases with their ink at the right: the glyph takes
+10 pixels, while stock's codec badges take up to 40 (aptX HD). A new badge shows for a second
+(`CODEC_MS`), then fades out and the white Bluetooth glyph (`bar_btcon`) fades in at the same place,
+150 ms each way; the glyph then stays until the codec changes or Bluetooth goes off.
+
+**Battery.** The Battery setting (see [Display settings](#display-settings)) shows one of three
+widgets at the right end, and the layout skips the other two:
+
+- Icon: stock's `img_battery`, as before.
+- Percent: stock's `label_battery` ("88%"), at 16 pixels to match the icons' height (`BATT_PCT_PX`),
+  41 pixels wide (`BATT_PCT_W`, "100%") and right-aligned, so the number sits against the same
+  54-pixel margin as the icons, where its text band clears the corner, and grows toward the
+  centre rather than the glass.
+- Icon + Percent: `view_battery`, which the payload draws as a horizontal battery with the level
+  inside, 27 pixels with its nub: a 25x13 outline with square-cut corners, 12-pixel digits, green
+  (`BATT_CHARGE_RGB`) while charging and in the accent's red tone when stock shows its low icon.
+  The number never touches the curved edge: only the nub, a 5-pixel stub, points at it.
+
+Once a codec badge has faded, every mode fits with Bluetooth and Wi-Fi shown: the group's ink then
+stays at least 4 pixels (`CLOCK_GAP`) clear of `12:59 PM` (`BATT_ROOM`, 86 pixels from the
+margin). While a wide badge shows, a mode that would reach past that shows the icon instead.
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
@@ -444,23 +466,25 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds two rows the same way: "Accent: Graphite" with
-the System settings Display icon (`system_display`) and "Home: Split" with Play settings' cover
-mode icon (`playset_covermode`), both among the [settings icons](#settings-icons) the build
+pixels high). iPod runs the stock init, then adds three rows the same way: "Accent: Graphite" with
+the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
+mode icon (`playset_covermode`) and "Battery: Icon" (Icon, Percent, Icon + Percent; see
+[Status bar and clock](#status-bar-and-clock)) with the power manager icon
+(`system_powermanager`), all among the [settings icons](#settings-icons) the build
 pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
 chevron, since Centre or a tap changes them in place.
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` and `HOME`. Both values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME` and `BATTERY`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite and Split.
+one valid digit, is Graphite, Split and Icon.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |

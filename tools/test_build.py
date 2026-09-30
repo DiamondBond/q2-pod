@@ -262,6 +262,10 @@ def validate_assets(directory):
             assert fonts[('hscroll_label', title[2]['style'])] == 20
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
+            # The Battery setting's percentage and payload battery start hidden (ringnav.c bar_sync).
+            pct, slot = right[3][2:4]
+            assert pct[1][2] == inc('BATT_PCT_W') and pct[2]['visible'] == 'false' and pct[2]['style:normal:text_align_h'] == 'right' and pct[2]['style:normal:font_size'] == str(inc('BATT_PCT_PX'))
+            assert slot == ['view', [0, 0, inc('BATT_BODY_W') + inc('BATT_NUB_W'), 0], {'name': 'view_battery', 'visible': 'false'}, []]
             continue
         if short == PLAYING_PAGE:  # iPod only: see the sketch in docs/ipod.md
             named = {n[2].get('name'): n for n in walk(root)}
