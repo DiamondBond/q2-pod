@@ -498,8 +498,11 @@ fill and, except on Graphite, the bar's one-pixel highlight; Graphite's bar is s
 restrained `#555555` top edge. Tidal and Champagne tops are darkened in hue (and
 their bottoms by the same factor) so white text holds 4.5:1 at the top; their light tone also
 serves as the red tone. One rule picks the tone for stock red: red text (`text_color`,
-`highlight_text_color`) and red pixels in images take the red tone, and every other red color
-(fills, borders, slider and progress fills, gradient stops) takes the light tone. Graphite's red
-tone is silver `#D8D8D8`, so lit switches, ticks and red text stand out (14.7:1 on black), while
-stock's red buttons with white text become white on `#6E6E6E` (5.1:1) and the download bar a
+`highlight_text_color`) and red marks in images take the red tone, and every red surface (fills,
+borders, slider and progress fills, gradient stops, and an image's red under white) takes the
+light tone. Graphite's red tone is silver `#D8D8D8`, so ticks, radio marks and red text stand out
+(14.7:1 on black), while whatever carries white stays a mid grey: lit switches with their white
+knob, the − and + discs, the multi-select tick and stock's red buttons with white text, drawn from
+a style or from a `btn_` image (the time and sleep pages' OK), are white on `#6E6E6E` (5.1:1), and
+the download bar a
 `#6E6E6E` fill on its `#D8D8D8` track. The presets are `ACCENTS` in `patch/offsets.inc`; see [internals.md](internals.md#accent) for the recolouring.

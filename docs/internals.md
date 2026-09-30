@@ -223,6 +223,11 @@ control discs (names starting `DROPDOWN_IMAGE`, `drop_`, except the brightness s
 take the preset's red tone; when that tone is brighter than `GLYPH_LIGHT_MAX` (Graphite's silver),
 an image that holds red also maps its neutral glyph pixels to `CONFIRM_SURFACE`, so the white glyph
 turns dark ([quick settings](ipod.md#quick-settings)). Grey discs hold no red and are unchanged.
+Any other image that holds red and an opaque pure-white pixel (a switch's knob, a disc's glyph; `#7F7F7F`
+on a pressed disc) takes
+the light tone instead of the red one, as do button backgrounds (names starting `BUTTON_IMAGE`,
+`btn_`), whose white label is a widget's text; an image with red alone (a tick, the time page's
+colon) keeps the red tone. Only Graphite's two tones differ, so only it scans for white.
 The settings rows' category icons (`settings_icons` in `patch/compact.json`, which the builder
 writes to `SETTINGS_ICON_NAMES` in `stock.h`) are never mapped: several use stock red as their
 category colour (Network Service, DLNA, Wi-Fi, Backlight), like the purple and orange ones.

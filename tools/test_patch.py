@@ -3437,6 +3437,23 @@ if variant=='ipod':
         red=[(0xff1448,255)]
         for name in ('drop_lighleft','drop_lightright','eqdrop_dot','dropdown','xdrop_bt'):
             assert rgba(config,name,red)==[(tone,255)],(preset,name)
+        # Red under white is a surface and takes the light tone, so the white stays legible (4.5:1
+        # on Graphite, not white on silver): a switch's knob, a disc's glyph, or the label over a
+        # btn_ image, which holds no white itself. A red mark alone (a tick, the knob-less pixels
+        # of the tests above) keeps the red tone, and transparent white is not a glyph.
+        lit=0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][2]
+        for name in ('switch_on','add','dec','mulselect'):
+            assert rgba(config,name,disc[:2])==[(lit,255),(0xffffff,255)] and ratio(0xffffff,lit)>=3,(preset,name)
+            assert rgba(config,name,[(0xffffff,255),(0xff1448,255)])==[(0xffffff,255),(lit,255)],(preset,name)
+        for name in ('btn_enter','btn_red'):
+            assert rgba(config,name,red)==[(lit,255)],(preset,name)
+        # Pressed images (#7F0A24, a disc's glyph #7F7F7F) follow: darker than the same red alone.
+        alone=rgba(config,'select',[(0x7f0a24,255)])[0][0]
+        for name,px in (('btn_enterdown',[(0x7f0a24,255)]),('add_down',[(0x7f0a24,255),(0x7f7f7f,255)])):
+            dim=rgba(config,name,px)
+            assert dim[1:]==px[1:] and (dim[0][0]<alone if preset==0 else dim[0][0]==alone),(preset,name,hex(dim[0][0]))
+        for name in ('select','sleepdot'):
+            assert rgba(config,name,red+[(0xffffff,0)])==[(tone,255),(0xffffff,0)],(preset,name)
         # The settings rows' category icons keep their stock colours, red ones included.
         pink=[(0xcf2f53,255),(0xff1448,255),(0xffffff,255)]
         for name in ('system_netservice','netservice_dlna','wifiset_wifi','display_backlight','system_language'):

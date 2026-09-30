@@ -1573,7 +1573,10 @@ static int settings_icon(const char *name) {
  * (DROPDOWN_IMAGE*, not the brightness suns) take the accent's red tone like everything else red,
  * but their white glyph turns CONFIRM_SURFACE on a tone brighter than GLYPH_LIGHT_MAX (Graphite's
  * silver), so an active disc stands apart from the grey inactive ones and its glyph stays legible.
- * bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte offsets. */
+ * Any other red under white (a switch's knob, a disc's glyph, a BUTTON_IMAGE*'s label) is a surface
+ * and takes the light tone, which keeps the white legible; red marks on their own keep the red
+ * tone. bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte
+ * offsets. */
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4,
@@ -1582,7 +1585,8 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     const char *s = name;
     int dark = s && starts(s, CONFIRM_IMAGE);
     int control = s && starts(s, DROPDOWN_IMAGE) && !starts(s, DROPDOWN_SUN);
-    unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED], glyph = 0xffffff;
+    unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED], glyph = 0xffffff,
+             light = accents[preset][TONE_LIGHT];
     if (control && ((tone >> 16) * 299 + (tone >> 8 & 255) * 587 + (tone & 255) * 114) / 1000 >
                        GLYPH_LIGHT_MAX)
         glyph = CONFIRM_SURFACE;
@@ -1593,14 +1597,22 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
         const unsigned char *o = at[format];
         unsigned stride = bitmap_get_line_length(bitmap);
         /* Only an active control holds red; an inactive one keeps its white glyph. */
-        int red = 0;
-        for (int y = 0; glyph != 0xffffff && !red && y < I(bitmap, 4); ++y)
-            for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); !red && p < end;
+        int red = 0, white = starts(name, BUTTON_IMAGE);
+        int scan = control ? glyph != 0xffffff : !dark && light != tone;
+        for (int y = 0; scan && !(red && white) && y < I(bitmap, 4); ++y)
+            for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end;
                  p += 4) {
                 unsigned c = p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16;
-                red = red_map(c, tone, 0xffffff) != c;
+                if (red_map(c, tone, 0xffffff) != c)
+                    red = 1;
+                else if ((c == 0xffffff || c == 0x7f7f7f) &&
+                         p[o[3]] == 255) /* or a pressed disc's */
+                    white = 1;
             }
-        if (!red) glyph = 0xffffff;
+        if (!red)
+            glyph = 0xffffff;
+        else if (!control && white)
+            tone = light;
         for (int y = 0; y < I(bitmap, 4); ++y)
             for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end;
                  p += 4) {

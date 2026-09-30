@@ -95,6 +95,9 @@
  * #444444 and disabled ones keep their grey glyphs. The brightness suns (DROPDOWN_SUN*) sit on
  * black, not a disc, so they keep the accent's red tone. */
 #define DROPDOWN_IMAGE "drop_"
+/* Stock's red button backgrounds (btn_enter, btn_red and their pressed images) sit under a white
+ * label that is not in the image, so they take the light tone like an image with white on its red. */
+#define BUTTON_IMAGE "btn_"
 #define DROPDOWN_SUN "drop_ligh"
 /* An active control's white glyph turns CONFIRM_SURFACE on an accent tone brighter than this
  * (perceived 0-255, 0.299 R + 0.587 G + 0.114 B): Graphite's silver; the others keep white. */
