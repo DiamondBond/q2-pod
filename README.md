@@ -3,17 +3,15 @@
 A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the stock look, **iPod** restyles browsing after an iPod classic. Both include:
 
 - **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
-- **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, frequency, gain, Q and preamp, or import **AutoEQ / Equalizer APO** presets from your microSD card.
+- **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, or import **AutoEQ / Equalizer APO** presets from your microSD card.
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
-**iPod** restyles browsing after an iPod classic; see [iPod UI](#ipod-ui).
-
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
 
-[Wheel controls](#controls) · [PEQ editor and preset import](#parametric-eq) · [Coverflow](#coverflow) · [iPod UI](#ipod-ui)
+[Install](#install) · [Controls](#controls) · [Parametric EQ](#parametric-eq) · [Coverflow](#coverflow) · [iPod UI](#ipod-ui)
 
 ## Install
 
@@ -25,11 +23,25 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 
 **Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
 
+## Controls
+
+| Control | What it does |
+| --- | --- |
+| **Wheel** | Moves one row or icon per tick. Keep spinning in long lists to speed up. |
+| **Centre button** | Opens the highlighted item. Double-press to turn the screen off. |
+| **Hold Play/Pause** | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it. |
+| **Touch** | Works as normal, and hides the selection until you use the wheel or buttons again. |
+| **Hold centre button** | Forces the player off if it freezes or won't finish booting. |
+
+- **List ends:** in the local folder and music lists, the list stops at the end while you keep turning. Pause briefly, then turn again to wrap around.
+- **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
+- **Artists:** an artist opens on Albums, with All Songs one tap away.
+
+A short Play/Pause press and long-press power are unchanged. iPod adds a few more; see [iPod UI](#ipod-ui).
+
 ## Parametric EQ
 
-Open **Audio settings → Equalizer** for the ten-band PEQ editor. Select a band with the wheel and centre button or touch to change its type, frequency, gain and Q. **Return** steps back through the editor.
-
-Editor overview after loading the example preset below (scroll for all ten bands):
+Open **Audio settings → Equalizer** for the ten-band editor:
 
 ```text
 Apply changes
@@ -40,9 +52,10 @@ Presets
 … bands 2–10
 ```
 
-Each band supports **Peaking**, **Low shelf** or **High shelf** filters and can be enabled separately. The preamp comes from the preset's `Preamp:` line and is shown read-only. Editing a band on the player resets it to just enough cut to keep the combined response at or below 0 dB, so boosts don't clip.
-
-**PEQ: ON/OFF** switches it immediately, and the status-bar **EQ** icon follows it. It stays on or off across restarts; band edits and loaded presets take effect when you choose **Apply changes**.
+- **Bands:** select one to set its type (**Peaking**, **Low shelf** or **High shelf**), frequency, gain and Q, or to switch it off. **Return** steps back.
+- **Apply changes:** band edits and loaded presets take effect when you choose it.
+- **PEQ: ON/OFF:** switches immediately and is kept across restarts. The status-bar **EQ** icon follows it.
+- **Preamp:** read-only. It comes from the preset, and editing a band resets it to just enough cut that boosts don't clip.
 
 ### Import a preset
 
@@ -53,55 +66,47 @@ Each band supports **Peaking**, **Low shelf** or **High shelf** filters and can 
 
 ## Coverflow
 
-**Coverflow** sits after Local Music on Home (the third row in iPod) and flips through your library's albums by cover art. It reads the albums Local Music already knows, so run **Update Local Music** first; until then, and while an update is running, it says so.
+**Coverflow** sits after Local Music on Home and flips through your albums by cover art. Run **Update Local Music** first: it shows the albums Local Music already knows.
 
-- **First open:** it prepares artwork once, showing progress; **Cancel** or Return keeps what's done and finishes on the next open. It uses `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track; albums without art show a placeholder.
-- **Browsing:** the covers stand on a shelf: the selected album faces you, two neighbours a side turn inward, and each has a faint reflection. Turn the wheel or swipe to move between them. Tap a side cover to bring it to the centre; centre or a tap on the middle cover opens the album's tracks, and choosing one plays the album from there. Return goes back to the covers, then Home. Coverflow remembers the last album and each album's highlighted track until power-off, and long names scroll.
-- **New music:** after adding albums, the next open prepares only the new ones. **Refresh library**, the last card, rebuilds all artwork.
+- **First open:** it prepares artwork once, showing progress. **Cancel** or Return keeps what's done and finishes next time.
+- **Browsing:** turn the wheel or swipe to move between covers, or tap a side cover to centre it. Centre, or a tap on the middle cover, opens the album's tracks; choosing one plays the album from there. Return goes back to the covers, then Home.
+- **Queueing:** hold Play/Pause on a track for **Play next** / **Add to queue**.
+- **New music:** the next open prepares only the new albums. **Refresh library**, the last card, rebuilds all artwork.
+- **Artwork:** `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track. Albums without art show a placeholder.
 
-The artwork cache lives on the microSD card in `.coverflow` (one small JPEG per album; an empty file means the album has no art Coverflow can read), and it is skipped while less than 16 MB is free on the card. Holding Play/Pause on a track opens the same Play next / Add to queue menu as the Local Music lists.
+Artwork is cached on the microSD card in `.coverflow`, and needs at least 16 MB free.
 
 ## iPod UI
 
-- **Home** is a list instead of the carousel: Now Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting and System Setting. It sits beside the playing track's cover, which fills the right side of the screen, or spans the screen (see **Home** below).
-- **Lists** have no primary toolbar and use 72-pixel rows, four full entries per screen. Settings lists use 68-pixel rows with 40-pixel icons, also four full entries, clear of the screen's rounded corners. Rows are flat, without the grey cards, and titles use the full row width up to the artwork and controls that are showing. The playing song keeps its icon, but its title stays white.
-- **Selection bar:** a full-width bar in the accent colour marks the selected row.
-- **Status bar:** play state and EQ on the left, the time in the middle (`6:14 PM`), then the Bluetooth and Wi-Fi icons and the battery. Settings and Streaming drop their toolbar, as the local pages do. Volume changes still show the stock volume pop-up.
-- **`>`** marks every row that opens another list: Home and playlists get one to match the rows that already show it (folders, Local Music categories, artists, genres and albums).
-- **Quick settings** (pull down from the top edge): the eight controls keep their grid with evenly spaced two-line labels, and brightness is a slim bar you can tap or drag anywhere along. Controls that are on show as dark discs with white symbols under every accent.
-- **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type over the list.
-- **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before. The centre button scrubs (see [Controls](#controls)).
-- **Starts on Home.** **Memory playback → Location** restores your last queue and song paused where you left it; **Track** restores the song from its beginning. Open Now Playing to view it and press Play/Pause to resume. **In-Vehicle mode** (car mode) starts playing on Now Playing.
-
-**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
-
-- **Accent:** Graphite (default), Crimson, Tidal or Champagne. It colours the selection bar, the Now Playing progress bar and everything the stock theme draws in Shanling red, such as switches, ticks and the display icons. Crimson keeps the stock red. The change shows at once.
-- **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
-- **Wheel:** Normal (default) or Fine. Normal moves a row on every wheel tick; Fine moves one row for every two ticks in the same direction, so single-row moves and small corrections don't overshoot. It applies to lists and the wheel-driven pop-ups, not to the volume, scrubbing or Coverflow's covers.
+- **Home** is a list instead of the carousel, beside the playing track's cover.
+- **Lists** are flat, four rows per screen, with a full-width selection bar in the accent colour. **`>`** marks every row that opens another list.
+- **Status bar:** play state and EQ on the left, the time in the middle, then Bluetooth, Wi-Fi and the battery.
+- **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
+- **Quick settings:** pull down from the top edge. Brightness is a slim bar you can tap or drag.
+- **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type.
+- **Starts on Home.** **Memory playback → Location** restores your last queue and song, paused where you left it; **Track** restores the song from its beginning. **In-Vehicle mode** starts playing on Now Playing.
 
 Tidal pages keep their stock layout, and your saved settings are unchanged.
 
-## Controls
+### Extra controls
 
-- **Wheel:** moves one row or icon per tick. Keep spinning in long lists to speed up, to eight rows per tick. In iPod, lists step per the **Wheel** setting above and speed up more gently: two rows a step after 0.3 seconds of spinning, eight after 1.5.
-- **Key Tone (iPod):** with Key Tone on in System settings, lists click once for each row change instead of on every wheel tick, so nothing clicks at a list end or before the row moves. Buttons, the volume, scrubbing and Coverflow's covers click as before. Normal is unchanged.
-- **List ends:** in the local folder and music lists, a turn past the end nudges the selection and the list stops there while you keep turning; pause briefly, then turn again to wrap around.
-- **Centre button:** opens the highlighted item. Double-press to turn the screen off.
-- **Hold Play/Pause:** on a highlighted song, album or folder in the local lists, opens **Play next** / **Add to queue**. It adds without interrupting what is playing; with shuffle on, Play next is still the next track. Return closes it.
-- **Touch:** works as normal and hides the selection until you use the wheel, Centre or Return again; iPod's Home always shows it. Turning the wheel mid-swipe stops the swipe.
-- **Artists:** an artist opens on Albums, with All Songs one tap away. The tabs are translated instead of the stock Chinese labels.
-- **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
-- **Forcing it off:** if the player freezes or won't finish booting, hold the centre button until it switches off.
-- **Hold Return (iPod):** opens Now Playing without interrupting playback; the next short Return goes back to where you were. On Now Playing it goes Home, as stock.
-- **Scrub (iPod):** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick (more while spinning); the bar and both times follow at once. Press centre or Return to jump there, or touch the screen or wait 3 seconds, which also jumps there; each gives the volume back. Leaving without turning the wheel doesn't seek.
-- **Pop-ups (iPod):** OK/Cancel prompts have dark buttons with clear check and cross marks in every accent. Delete and other OK/Cancel prompts, the auto shut-down warning, and Tidal's quality and sort choices work with the wheel: turn to move between the buttons, press the centre button to pick one. Pop-ups where you type keep the wheel on the volume.
-- **Pull to search (iPod):** at the top of Local Songs, pull down until "Release to search" appears, then let go. Move back up to cancel.
+- **Hold Return:** opens Now Playing without interrupting playback; the next short Return goes back to where you were.
+- **Scrub:** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Press centre or Return, touch the screen, or wait 3 seconds to jump there.
+- **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears, then let go.
+- **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
+- **Key Tone:** with Key Tone on, lists click once for each row change instead of on every wheel tick.
 
-A short Play/Pause press and long-press power are unchanged. Timings and edge cases are in [docs/internals.md](docs/internals.md).
+### Display settings
+
+**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
+
+- **Accent:** Graphite (default), Crimson (the stock red), Tidal or Champagne.
+- **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
+- **Wheel:** Normal (default) moves a row on every wheel tick; Fine moves one row for every two ticks, so small corrections don't overshoot.
+
+## Help and documentation
 
 If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
-
-## Documentation
 
 - [Internals](docs/internals.md): hooks, selection, position memory, timing and drawing.
 - [Building](docs/building.md): building both variants, the MIPS test suite and on-device checks.
