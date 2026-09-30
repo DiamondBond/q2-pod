@@ -26,7 +26,8 @@
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
 
-extern int stock_home_trampoline(void *win, void *ctx);
+extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
+    stock_scan_folder_trampoline(void *, void *), stock_delete_song_trampoline(void *, void *);
 extern void stop_timer(unsigned *timer), rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
 
 enum { PREPARING, COVERS, TRACKS };
@@ -40,12 +41,26 @@ static struct {
     job_t *jobs;
     unsigned long thread;
     unsigned timer;
-    unsigned saved_album;
+    unsigned saved_album, albums_gen; /* albums_gen: library_gen when albums was queried */
     int screen, album, running;
     volatile int done, total, cancel;
 } cf __attribute__((section(".scratch")));
 
 static int pick(void *ctx, void *event);
+
+/* The album list is kept across opens until songtable changes. Only these three stock functions
+ * write it; each moves the generation before and after it runs, so a list queried meanwhile is
+ * never kept. The scans run on stock's scan thread. */
+static volatile unsigned library_gen __attribute__((section(".scratch")));
+static int library_write(int (*stock)(void *, void *), void *a, void *b) {
+    ++library_gen;
+    int result = stock(a, b);
+    ++library_gen;
+    return result;
+}
+int coverflow_scan_all(void *a, void *b) { return library_write(stock_scan_all_trampoline, a, b); }
+int coverflow_scan_folder(void *a, void *b) { return library_write(stock_scan_folder_trampoline, a, b); }
+int coverflow_delete_song(void *a, void *b) { return library_write(stock_delete_song_trampoline, a, b); }
 
 /* The queue menu resolves the live track list again after its dialog closes. */
 void *coverflow_tracks(void *page) {
@@ -145,9 +160,13 @@ static void fx_close(void);
 static void drop(void) {
     stop();
     fx_close();
-    if (cf.albums) deque_destroy(cf.albums);
     if (cf.tracks) deque_destroy(cf.tracks);
-    cf.albums = cf.tracks = 0;
+    cf.tracks = 0;
+}
+
+static void drop_albums(void) {
+    if (cf.albums) deque_destroy(cf.albums);
+    cf.albums = 0;
 }
 
 /* A stock library query's rows (*count its result) copied out of the staging deque, which is
@@ -711,8 +730,9 @@ static int poll(const void *unused) {
 }
 
 /* On open and Refresh: the albums, then art for the ones with no cache file (PictureFlow's
- * first-launch build; later opens resume). check_database(): refuse an empty, unbuilt or
- * scanning library. */
+ * first-launch build; later opens resume). The albums are queried again only on Refresh or after
+ * the library changed: stock's sort converts both names to pinyin on every comparison.
+ * check_database(): refuse an empty, unbuilt or scanning library. */
 static void load(void) {
     drop();
     widget_destroy_children(cf.page);
@@ -720,9 +740,16 @@ static void load(void) {
     cf.album = 0;
     cf.body = widget_factory_create_widget(widget_factory(), "view", cf.page, 0, 0, 375, 290);
     int n = 0;
-    if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE)
+    unsigned gen = library_gen;
+    if (cf.albums_gen != gen) drop_albums();
+    if (cf.albums)
+        n = (int)deque_size(cf.albums);
+    else if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) {
         cf.albums = staged(albums, 0, &n);
+        cf.albums_gen = gen;
+    }
     if (n <= 0) {
+        drop_albums(); /* only a real list is kept */
         cf.screen = COVERS; /* Return goes Home */
         list("Update Local Music first", 0);
         return;
@@ -795,6 +822,7 @@ static int refresh(const void *unused) {
         unlink(path); /* "." and ".." fail harmlessly */
     }
     if (dir) closedir(dir);
+    drop_albums();
     load();
     return 0;
 }

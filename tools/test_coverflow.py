@@ -227,6 +227,14 @@ static int pressed;
 void *window_manager(void) { return &pressed; }
 int window_manager_get_pointer_pressed(void *wm) { return *(int *)wm; }
 int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0; }
+/* The songtable writers' stock bodies; during_write runs inside one, as an open mid-scan would. */
+static void (*during_write)(void);
+static int stock_write(void) { if (during_write) during_write(); return 0; }
+int stock_scan_all_trampoline(void *a, void *b) { (void)a; (void)b; return stock_write(); }
+int stock_scan_folder_trampoline(void *a, void *b) { (void)a; (void)b; return stock_write(); }
+int stock_delete_song_trampoline(void *a, void *b) { (void)a; (void)b; return stock_write(); }
+int coverflow_scan_all(void *, void *);
+static void rescan(void) { coverflow_scan_all(0, 0); } /* the library changed, as only a scan changes it */
 
 static int (*timer_fn)(const void *), (*last_fn)(const void *);
 unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = last_fn = f; return 1; }
@@ -321,6 +329,7 @@ static void open_page(void) {
 }
 static void key(int k) { int e[16] = {0}; e[EVENT_KEY / 4] = k; w[8190].click(0, e); run(); }
 static void close_page(void) { w[8191].click(0, 0); }
+static void mid_write(void) { open_page(); close_page(); }
 static widget *slide(void) {
     for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "slide_menu")) return &w[i];
     return 0;
@@ -599,7 +608,7 @@ static void depth(void) {
     /* Small libraries: two albums and the Refresh card wrap round the ring, each album decoded
        once however often it repeats; missing art shows the placeholder. */
     int keep = albums;
-    albums = 2;
+    albums = 2; rescan();
     open_page();
     s = slide(); raw = s->raw;
     *(void **)(raw + W_PARENT) = &w[s->parent];
@@ -609,13 +618,13 @@ static void depth(void) {
     render(0, (const unsigned *const[7]){ 0 }); /* nothing to draw: all black */
     for (int i = 0; i < CF_VIEW_W; ++i) assert(px(i, CF_TOP + 80) == 0xff000000u);
     close_page();
-    albums = 1;
+    albums = 1; rescan();
     open_page(); s = slide(); *(void **)(s->raw + W_PARENT) = &w[s->parent];
     coverflow_paint(s, canvas);
     assert(s->nkids == 2);
     capture("one-album");
     close_page();
-    albums = keep;
+    albums = keep; rescan();
     /* Allocation failure: the flat covers, as before. */
     tex_fail = 1;
     open_page(); s = slide();
@@ -663,6 +672,7 @@ int main(void) {
     fclose(fopen(both, "w"));
     album("Folder", "folder.jpg");
     album("Embedded", 0);
+    rescan();
     open_page();
     assert(calls == 3 && !strcmp(made[0], "cover.jpg") && !strcmp(made[1], "folder.jpg") && !strcmp(made[2], "embedded"));
     assert(norder == 4 && order[0] == 1 && order[1] == 1 && order[2] == 1 && order[3] == 2);
@@ -672,6 +682,7 @@ int main(void) {
     close_page();
     embedded_fails = 1;
     album("None", 0);
+    rescan();
     open_page();
     assert(calls == 3 && size("None") == 0 && !tmp_files());
     s = slide();
@@ -681,6 +692,7 @@ int main(void) {
 
     /* A later open builds only the albums with no cache file; the marker is not retried. */
     album("New", "cover.jpg");
+    rescan();
     open_page();
     assert(calls == 4 && !strcmp(made[3], "cover.jpg") && size("New") == 9);
     close_page();
@@ -688,6 +700,7 @@ int main(void) {
     /* Cancel mid-build (Return on the progress screen) keeps the finished thumbnails, leaves no
        .tmp, and shows the covers; the next open resumes with the rest. */
     album("A", "cover.jpg"); album("B", "cover.jpg"); album("C", "cover.jpg");
+    rescan();
     block_at = calls + 1;
     widget home;
     memset(&home, 0, sizeof(home));
@@ -736,15 +749,28 @@ int main(void) {
     raw[SLIDE_DRAG + 1] = 0;
 
     /* Refresh (the last card) clears the cache and rebuilds every album. */
-    int before = calls;
+    int before = calls, q = queries;
     s = slide();
     w[s->kids[s->nkids - 1]].click(w[s->kids[s->nkids - 1]].ctx, 0);
     run();
     assert(calls == before + albums - 2 && size("None") == 0 && size("Embedded") == 0 && size("Cover") == 9);
+    assert(queries == q + 1); /* Refresh always queries again */
     close_page();
+
+    /* The album list outlives the page: reopening queries nothing until a songtable writer runs,
+       and a list queried while one runs is not kept. */
+    q = queries;
+    open_page(); assert(queries == q && slide()); close_page();
+    rescan(); /* each writer's hook is checked on the MIPS build (test_patch.py) */
+    open_page(); assert(queries == ++q && slide()); close_page();
+    open_page(); assert(queries == q); close_page();
+    during_write = mid_write; rescan(); during_write = 0;
+    assert(queries == ++q);
+    open_page(); assert(queries == ++q); close_page();
 
     /* Low free space on the card skips the build: placeholders, no thread. */
     album("Tight", "cover.jpg");
+    rescan();
     free_blocks = 4000; /* under 16 MB of 4 KB blocks */
     before = calls;
     open_page();
@@ -873,7 +899,7 @@ def main():
             for raw in sorted((tmp/'frames').glob('*.rgba')):  # RGBA8888 rows, the frame's byte order
                 (a.captures/(raw.stem + '.png')).write_bytes(imagemagick(
                     '-size', size, '-depth', '8', 'rgba:-', '-alpha', 'off', 'png:-', data=raw.read_bytes()))
-    print('Coverflow: art order, locks, markers, resume, cancel, Refresh, low space and empty library passed;'
+    print('Coverflow: art order, locks, markers, resume, cancel, Refresh, album list reuse, low space and empty library passed;'
           ' depth renderer (exact centre, clipping, symmetry, depth order, hit testing, reflection, continuity),'
           ' its texture window, taps, small libraries and flat fallback passed;'
           ' iPod Home art sources, fit, clip and Split/Full layout passed.')

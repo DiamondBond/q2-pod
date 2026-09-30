@@ -2362,7 +2362,7 @@ for patched in (True, False):
 
 # Play/Pause hold queue menu. libcstl deques are Python lists of element addresses; the stock
 # mclLoadPlayList, mclNextSong and key filters run for real.
-from build import SHUFFLE_CALL, fileoff
+from build import SHUFFLE_CALL, DROP_CACHES, fileoff
 class QueueMachine(Machine):
     def __init__(self,page='allmusic_page',rows=20,queue=3,pos=0,mode=0,cls=0xf001):
         super().__init__()
@@ -2515,6 +2515,12 @@ for row,pos,closed in ((0,0,True),(1,0,False),(1,2,True)):
 demo=(B/'demo').read_bytes()
 assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_shuffle']>>2
 m=QueueMachine(mode=2); m.run(0,steps=5); assert m.names()==['A','Row 5','B','C']
+# Screen off, the UI loop idles SCREEN_OFF_SLEEP_MS before stock's own pacing; screen on, stock alone.
+sleep_hook=HOOKS['main_loop_sleep_default'][0]
+for light,want in ((1,[]),(0,[O['SCREEN_OFF_SLEEP_MS']])):
+    s=Machine(); s.handlers[sleep_hook+12]='stock_sleep'; s.byte(syms['g_backlight_status'],light)
+    assert s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)==0
+    assert [c[1] for c in s.calls if c[0]=='sleep_ms']==want and s.calls[-1][:2]==('stock_sleep',0x1234); passed()
 for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
@@ -2744,6 +2750,7 @@ if variant=='ipod':
     m.paint(w,gap=0); assert m.letters
     m.touch(); m.paint(w,gap=0); assert not m.letters; passed()
 
+WRITERS={'scanAllMusicFile':'stock_scan_all','scanSpecFolder':'stock_scan_folder','deleteMusicFromMusicDb':'stock_delete_song'}
 class CoverflowMachine(QueueMachine):
     FREE=0x1000010  # stock free's GOT slot is 0 until lazy binding; give it a stub
     def __init__(self,albums=3,cached=True,**queue):
@@ -2755,6 +2762,7 @@ class CoverflowMachine(QueueMachine):
                   'pthread_join@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
+        for n,stub in WRITERS.items(): self.handlers[HOOKS[n][0]+12]=stub  # the writers' stock bodies
         self.albums=[self.song('T0') for _ in range(albums)]
         for i,r in enumerate(self.albums): self.word(r+O['REC_ALBUM'],self.string(f'Album {i}'))
         self.found=[self.song('T1'),self.song('T2')]
@@ -2816,6 +2824,10 @@ class CoverflowMachine(QueueMachine):
         self.call(address=f,args=(ctx,self.event,0,0),gap=0); self.advance(0)
         view=self.find('scroll_view'); self.paint(view)
         return view
+    def rescan(self,writer='scanAllMusicFile'):
+        """A songtable writer runs: its hook, then its (mocked) stock body."""
+        assert self.call(address=HOOKS[writer][0],args=(1,2,0,0),gap=0)==0 and self.calls[0][:3]==(WRITERS[writer],1,2)
+    def queried(self): return sum(c[0]=='getAllAlbum' for c in self.calls)
     def close(self):
         f,ctx=self.handler(self.page,O['EVT_DESTROY'])
         self.call(address=f,args=(ctx,self.event,0,0),gap=0)
@@ -3033,6 +3045,12 @@ m.missing=True; m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert len(m.pla
 # Return: tracks -> covers on the same album, covers -> Home.
 assert m.key()==11 and m.nodes[m.get(m.slide+O['W_PARENT'])]['visible'] and m.get(m.slide+O['SLIDE_INDEX'])==1 and not m.homes
 assert m.key(O['KEY_NEXT'])==0 and m.key()==11 and m.homes==1; passed()
+# The album list outlives the page: a reopen queries nothing until one of the songtable writers runs.
+m=CoverflowMachine(); m.open(); m.close(); m.calls=[]
+m.open(); assert not m.queried() and len(m.nodes[m.slide]['children'])==4; m.close(); passed()
+for writer in WRITERS:
+    m.rescan(writer); m.calls=[]; m.open(); assert m.queried()==1; m.close()
+    m.calls=[]; m.open(); assert not m.queried(); m.close(); passed()
 # Albums without art start the thread behind a progress screen; destroy joins it and drops the poll.
 m=CoverflowMachine(cached=False); page=m.open()
 assert len(m.threads)==1 and m.timers and any((t or '').startswith('Preparing artwork') for t in m.texts()) and 'Cancel' in m.texts()
@@ -3072,7 +3090,7 @@ for invalidate in ('changed','closed','covers'):
 m=CoverflowMachine(); m.open()
 m.call(address=syms['slide_menu_set_value'],args=(m.slide,2,0,0),gap=0)
 f,ctx=m.handler(m.slide,O['EVT_VALUE_CHANGED']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-m.close(); m.albums.reverse(); m.open()
+m.close(); m.albums.reverse(); m.rescan(); m.open()
 assert m.get(m.slide+O['SLIDE_INDEX'])==0 and 'Album 2' in m.texts(); passed()
 view=m.tracks(0); m.call(); assert m.selected(view)==1
 m.key(); other=m.tracks(1); assert m.selected(other)==0

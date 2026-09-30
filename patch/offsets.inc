@@ -158,6 +158,9 @@
  * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on volume. */
 #define SCRUB_STEP 5
 #define SCRUB_MS 3000
+/* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys
+ * (volume, play/pause, wake) wait at most this much longer. */
+#define SCREEN_OFF_SLEEP_MS 40
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */

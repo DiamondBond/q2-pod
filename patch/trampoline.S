@@ -22,3 +22,7 @@ resume display, 0x4c1d10
 resume color, 0x649f78
 resume image, 0x6445e0
 resume keydown, 0x4e8430
+resume scan_all, 0x4fc794
+resume scan_folder, 0x4fc970
+resume delete_song, 0x500b68
+resume sleep, 0x648f0c

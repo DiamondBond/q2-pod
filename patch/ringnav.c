@@ -6,7 +6,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
-    stock_keydown_trampoline(void *, void *),
+    stock_keydown_trampoline(void *, void *), stock_sleep_trampoline(void *),
     stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *);
 extern void *coverflow_tracks(void *page);
@@ -2201,6 +2201,14 @@ int ringnav_shuffle(int forward) {
     if (queue && at < deque_size(queue) && rec_hash(deque_at(queue, at)) == st.qm_forced_hash)
         MCL(MCL_POS) = (int)at;
     return result;
+}
+
+/* main_loop_sleep_default paces the UI loop at 8 ms (125 Hz), screen on or off. With the backlight
+ * off it first idles SCREEN_OFF_SLEEP_MS; stock then finds its 8 ms gone, sleeps 0 and keeps its
+ * own bookkeeping. */
+int ringnav_sleep(void *loop) {
+    if (!g_backlight_status) sleep_ms(SCREEN_OFF_SLEEP_MS);
+    return stock_sleep_trampoline(loop);
 }
 
 #if IPOD

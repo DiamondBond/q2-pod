@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '6.6'  # the only place a release bumps the version
+VERSION = '6.7'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
@@ -23,6 +23,11 @@ HOOKS = {
     'playset_equalizer_page_init': (0x4b642c, 'peq_page_init'),
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq'),
     'home_page_init': (0x523c84, 'coverflow_home'),
+    # The three songtable writers; Coverflow keeps its album list until one runs.
+    'scanAllMusicFile': (0x4fc788, 'coverflow_scan_all'),
+    'scanSpecFolder': (0x4fc964, 'coverflow_scan_folder'),
+    'deleteMusicFromMusicDb': (0x500b5c, 'coverflow_delete_song'),
+    'main_loop_sleep_default': (0x648f00, 'ringnav_sleep'),
 }
 # Hooked in iPod builds only, so normal keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
@@ -39,10 +44,16 @@ IPOD_LEAF = ('style_get_gradient', 0x649f3c, 'ringnav_style_gradient', (0x108000
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
 AAC_44K1 = 0x317b8
+# platform_init's crash watchdog forks pgrep every 2 s; 10 s is still quick to reboot a dead UI.
+WATCHDOG = 'usr/bin/checkappprocess.sh'
+WATCHDOG_SHA = '68843ed739919420974ca55e6c5a6a2e52e63711b2faca116656440e5bd6a096'
+WATCHDOG_SLEEP = (b'\tsleep 2\n', b'\tsleep 10\n')
 # toolsSetRtcTime's command, with its padding; -u keeps the RTC in UTC. See docs/internals.md#clock.
 RTC_WRITE = (b'hwclock -w\0\0', b'hwclock -wu\0')
 # mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
+# check_mem_thd's "open failed, skip the write" beq becomes b: it never writes 3 to drop_caches.
+DROP_CACHES = (0x5120a8, 0x12220006, 0x10000006)
 
 def run(*args):
     return subprocess.check_output([str(a) for a in args], text=True)
@@ -163,6 +174,7 @@ FUNCTIONS = {
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
  'pointer_event_init': ('void *', 'void *, int, void *, int, int'),
  'time_now_ms': ('unsigned', 'void'),
+ 'sleep_ms': ('int', 'unsigned'),
  'timer_add': ('unsigned', 'int (*)(const void *), void *, unsigned'),
  'timer_remove': ('int', 'unsigned'),
  'tk_strcmp': ('int', 'const char *, const char *'),
@@ -294,6 +306,10 @@ def patch_bluealsa(raw):
     check(sha(raw) == BLUEALSA_SHA, 'Unsupported bluealsa binary')
     return raw[:AAC_44K1] + b'\0' + raw[AAC_44K1+1:]
 
+def patch_watchdog(raw):
+    check(sha(raw) == WATCHDOG_SHA, 'Unsupported watchdog script')
+    return raw.replace(*WATCHDOG_SLEEP)
+
 def build(zip_path, out, logo, ipod=False, dev=False):
     variant = 'ipod' if ipod else 'normal'
     version = (DEV_VERSIONS if dev else VERSIONS)[variant]
@@ -387,10 +403,12 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     audio = patch_player(raw_player, out/'peq')
     bluealsa = patch_bluealsa(cat(BLUEALSA))
     (out/'bluealsa').write_bytes(bluealsa)
+    (out/'watchdog').write_bytes(patch_watchdog(cat(WATCHDOG)))
     for address, old, new in ARTIST_ALBUMS:
         patch_word(patched, [], address, old, new, 'artist detail opens on Albums')
     patch_word(patched, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
+    patch_word(patched, [], *DROP_CACHES, 'keep the page cache')
     # Pin added private entry points as well as every replaced instruction, and the stock bitmap,
     # canvas and slide_menu entries Coverflow's depth renderer calls (docs/internals.md#coverflow-depth).
     for name, original in AUDIT['private_prologues'].items():
@@ -427,6 +445,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     p = swap_inode(p, b'release/bin/demo', out/'demo')
     p = swap_inode(p, b'usr/bin/hciplayer', out/'peq/hciplayer')
     p = swap_inode(p, BLUEALSA.encode(), out/'bluealsa')
+    p = swap_inode(p, WATCHDOG.encode(), out/'watchdog')
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.

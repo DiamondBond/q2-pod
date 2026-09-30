@@ -28,7 +28,7 @@ print('JPEG header regression checks passed.')
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, RTC_WRITE
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES
     from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
@@ -87,6 +87,11 @@ def validate_assets(directory):
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]
     assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
+    # The crash watchdog only sleeps longer; check_mem_thd's drop_caches write is branched over.
+    old, new = read('stock.squashfs', WATCHDOG), read('rootfs.squashfs', WATCHDOG)
+    assert new == old.replace(*WATCHDOG_SLEEP) and new != old
+    off = fileoff(stock, DROP_CACHES[0])
+    assert struct.unpack_from('<I', stock, off)[0] == DROP_CACHES[1] and struct.unpack_from('<I', demo, off)[0] == DROP_CACHES[2]
     # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop.
     from peq import VBR_SCAN
     old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
