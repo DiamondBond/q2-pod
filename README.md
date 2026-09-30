@@ -6,6 +6,7 @@ A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the st
 - **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, or import **AutoEQ / Equalizer APO** presets from your microSD card.
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
+- **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 

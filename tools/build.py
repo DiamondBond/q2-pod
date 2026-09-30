@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '6.4'  # the only place a release bumps the version
+VERSION = '6.5'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
@@ -39,6 +39,8 @@ IPOD_LEAF = ('style_get_gradient', 0x649f3c, 'ringnav_style_gradient', (0x108000
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
 AAC_44K1 = 0x317b8
+# toolsSetRtcTime's command, with its padding; -u keeps the RTC in UTC. See docs/internals.md#clock.
+RTC_WRITE = (b'hwclock -w\0\0', b'hwclock -wu\0')
 # mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
 
@@ -404,6 +406,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(len(version) + 1 == len(b'V1.32\0'),
           'VERSION must stay 5 characters; a longer literal shifts every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
+    patched = patched.replace(*RTC_WRITE)
     append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 7, 'demo')
     (out/'demo').write_bytes(patched)
     # Pseudo-file round trip preserves every original inode's metadata and hardlinks.

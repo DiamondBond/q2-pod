@@ -52,7 +52,7 @@ def text_width(ttf, text, px):
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, RTC_WRITE
     from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_ICON, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
@@ -71,6 +71,8 @@ def validate_assets(directory):
                 off = fileoff(stock, int(address, 16))
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
+    # The RTC is written in UTC: the one hwclock -w literal gains -u in its own padding.
+    assert demo.index(RTC_WRITE[1]) == stock.index(RTC_WRITE[0])
     # The slide hint names a stock animator and gives it a duration (a missing one means stock's 500 ms).
     assert re.fullmatch(r'htranslate\(duration=\d+\)', SLIDE) and b'\0htranslate\0' in stock
     # iPod alone jumps from these entry points to its payload (build.py pins the leaf's words);
