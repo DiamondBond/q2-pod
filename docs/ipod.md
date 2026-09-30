@@ -159,10 +159,9 @@ V5.4I's 8 pixels put the play state and the battery under the glass, so no icon 
 `label_clock` (`s_scrlabel_white20c`) is centred on the screen. It has the width left in the
 narrowest case, 109 pixels at x 133, clear of either group with every icon shown (left 94
 pixels, right 133); the build fails if that would be under `CLOCK_MIN` (105). The payload paints
-the bar's graphite gradient and shows the device's local time in `label_clock` as a 12-hour
-clock without seconds or a leading zero (`6:14 PM`), or `--:--` if the time cannot be read, on
-every page and under every dialog (see [internals.md](internals.md#status-bar-ipod)). The widest
-text, `12:59 PM`, is 86 pixels in the stock font at 20 pixels.
+the bar and writes the time into `label_clock` (see
+[internals.md](internals.md#status-bar-ipod)); the widest text, `12:59 PM`, is 86 pixels in the
+stock font at 20 pixels.
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
@@ -435,16 +434,8 @@ minutes), the pull-down quick settings (`statusbar_dialog`), and the dialogs wit
 
 ## Boot
 
-The iPod build starts on Home. **Playback Setting → Memory playback** has three
-options: **Off**, **Track** (restore the queue and song from its beginning), and
-**Location** (also restore the saved time within the song). With Track or Location,
-the restored player is paused. Opening Now Playing shows it; press Play/Pause to
-resume audio. Opening that page alone does not resume playback.
-
-**System Setting → In-Vehicle mode** is the car-mode exception: it keeps the stock
-behavior, opening Now Playing and starting playback from the saved position.
-With both Memory playback and In-Vehicle mode off, boot does not restore playback.
-See [internals.md](internals.md#boot-resume-ipod).
+The iPod build starts on Home with the remembered queue and track restored paused; In-Vehicle mode
+keeps the stock start on Now Playing. See [internals.md](internals.md#boot-resume-ipod).
 
 ## Display settings
 
