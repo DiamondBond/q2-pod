@@ -83,6 +83,7 @@ Artwork is cached on the microSD card in `.coverflow`, and needs at least 16 MB 
 - **Status bar:** play state and EQ on the left, the time in the middle, then Bluetooth, Wi-Fi and the battery.
 - **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
 - **Quick settings:** pull down from the top edge. Brightness is a slim bar you can tap or drag.
+- **Page slides:** lists and settings slide in from the right when opened and back out on Return.
 - **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type.
 - **Starts on Home.** **Memory playback → Location** restores your last queue and song, paused where you left it; **Track** restores the song from its beginning. **In-Vehicle mode** starts playing on Now Playing.
 

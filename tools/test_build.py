@@ -57,7 +57,7 @@ def validate_assets(directory):
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
                          SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
-                         patch_asset, patch_code, patch_style, style_props)
+                         patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -71,6 +71,8 @@ def validate_assets(directory):
                 off = fileoff(stock, int(address, 16))
                 assert demo[off:off+4] == stock[off:off+4]
     assert manifest['version'].encode()+b'\0' in demo
+    # The slide hint names a stock animator and gives it a duration (a missing one means stock's 500 ms).
+    assert re.fullmatch(r'htranslate\(duration=\d+\)', SLIDE) and b'\0htranslate\0' in stock
     # iPod alone jumps from these entry points to its payload (build.py pins the leaf's words);
     # normal keeps all of them stock.
     for address, name in [*IPOD_HOOKS.values(), IPOD_LEAF[1:3]]:
@@ -208,6 +210,9 @@ def validate_assets(directory):
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
         root = decode(new)
+        # iPod: browsing, settings and the PEQ editor slide; Home, Now Playing, the bar and dialogs don't.
+        slides = ipod and short not in (HOME_PAGE, STATUS_BAR, PLAYING_PAGE, QUICK_SETTINGS, CONFIRM)
+        assert root[2].get('anim_hint') == (SLIDE if slides else None), short
         if ipod:  # screen coordinates: the bar, full-screen dialogs (quick settings slides down from -320), windows
             origin, window = {STATUS_BAR: (0, (0, 30)), QUICK_SETTINGS: (320, (0, 320)), CONFIRM: (0, (0, 320))}.get(short, (30, (30, 320)))
             corners(short, root, 0, origin, window)
@@ -307,6 +312,10 @@ def validate_assets(directory):
             continue
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
+        if short in AUDIT['slide_only']:  # nothing but the hint changes
+            root[2].pop('anim_hint')
+            assert root == decode(original), short
+            continue
         nav = next(n for n in root[3] if n[2].get('name') == 'view_navbar')
         if short in NAVBAR_ONLY:  # content moves up 50; lists hold four whole SET_ROW rows from SET_TOP
             for old, node in zip(decode(original)[3], root[3]):

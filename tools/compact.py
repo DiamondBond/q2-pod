@@ -14,7 +14,7 @@ import struct
 from build import ROOT, check as require, fileoff
 
 AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/compact.json').read_text())
-UI_ASSETS = AUDIT['assets'] | AUDIT['navbar_only']
+UI_ASSETS = AUDIT['assets'] | AUDIT['navbar_only'] | AUDIT['slide_only']
 # The app window is the 375x320 screen minus the 30px status bar, so a 290px list holds four
 # 72px rows. The stock 52px artwork is drawn 1:1 (no rescaling) with an 8px inset inside the
 # 68px row body. Rows keep the row layout's eight-pixel left margin for the artwork.
@@ -66,6 +66,10 @@ def inc(name):
 
 
 CHEVRON_W = inc('CHEVRON_W')
+# iPod page transition: the window anim_hint of the browsing, settings and equalizer pages. Stock's
+# htranslate animator slides a page in from the right and back out on Return; the duration is the
+# calibration knob.
+SLIDE = 'htranslate(duration=120)'
 HOME_TOP = 8
 HOME_ROW = 39
 HOME_TEXT_X = max(MARGIN, corner_x(30 + HOME_TOP + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
@@ -494,6 +498,11 @@ def patch_asset(path, data, ipod):
     if path in whole:
         whole[path](root)
     if path in whole or not ipod:
+        return encode(root)
+    # Home is never reopened; Now Playing, Coverflow and the dialogs open at once.
+    require(root[0] == 'window' and not any(k.endswith('anim_hint') for k in root[2]), f'{path}: unexpected window')
+    root[2]['anim_hint'] = SLIDE
+    if path in AUDIT['slide_only']:  # the PEQ editor builds its own children (patch/peq_ui.c)
         return encode(root)
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
     require(len(nav) == 1 and nav[0][1] in ([0, 0, 375, 50], [0, 0, 370, 50]), f'{path}: unexpected toolbar')  # 370: stream_page

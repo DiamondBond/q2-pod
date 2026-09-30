@@ -53,6 +53,9 @@
     "playset/replaygain_page.bin": "35e4bddbd4791bc8e64b8e0165d5b299a633ad15ca9bae69a945b156a5491602",
     "playset/usbvol_page.bin": "21f4ee2dd2ca9fcd0be904f852ff7051a8015183fca2d1c0741ddf76a43a70ce"
   },
+  "slide_only": {
+    "playset/equalizer_page.bin": "37c084eb1ab9642af62d9e73550a6ec1d2e90410b192f81bfa878af2e5c93fbf"
+  },
   "immediates": [
     {
       "value": "pitch",

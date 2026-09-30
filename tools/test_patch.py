@@ -19,6 +19,7 @@ assert variant in VERSIONS and manifest['version'] == expected_versions[variant]
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 INC=(ROOT/'patch/offsets.inc').read_text()
 O={m.group(1):int(m.group(2),0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b',INC,re.M)}
+DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/ringnav.c').read_text(),re.M)[1])  # centre double-press window
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
@@ -1278,14 +1279,14 @@ assert m.confirm()==11 and m.dispatched()[0][1]==child[0]; passed()
 # Long-press/boot release must reach stock cleanup, never activate a menu item.
 for addr in [syms['g_power_longkey'],syms['g_ingore_bootkey_flag'],O['BOOT_KEY_GUARD']]:
     m.byte(addr,1); assert m.confirm()==0 and not m.dispatched(); m.byte(addr,0); passed()
-# A single release confirms exactly once at 200ms, never at 199ms.
+# A single release confirms exactly once at DOUBLE_CLICK_MS, never a millisecond before.
 m=Machine(); w,es=m.page_list(3)
 assert m.release()==11 and not m.clicks
-m.advance(199); assert not m.clicks
+m.advance(DC-1); assert not m.clicks
 m.advance(1); assert m.clicks==[es[0]] and not m.timers and not m.screens
 m.advance(1000); assert m.clicks==[es[0]]; passed()
 # Before the deadline, the second release cancels the click and executes stock screen-off.
-for gap in (0,100,199):
+for gap in (0,100,DC-1):
     m=Machine(); w,es=m.page_list(3)
     assert m.release()==11 and m.release(gap)==0
     assert m.screens==[0] and not m.u.mem_read(syms['g_backlight_status'],1)[0]
@@ -1294,7 +1295,7 @@ for gap in (0,100,199):
     assert m.release()==0 and m.screens==[0,1]
     assert m.u.mem_read(syms['g_backlight_status'],1)[0]==1 and not m.clicks; passed()
 # At/after expiry, the first single has dispatched; the next release starts a new single.
-for gap in (200,201):
+for gap in (DC,DC+1):
     m=Machine(); w,es=m.page_list(3)
     assert m.release()==11 and m.release(gap)==11 and m.clicks==[es[0]]
     m.advance(300); assert m.clicks==[es[0],es[0]] and not m.screens; passed()
@@ -1493,7 +1494,7 @@ m.word(w+O['SLIDE_INDEX'],0); m.nodes[w]['children']=[m.entry(w),m.entry(w)]
 m.release(); m.word(w+O['SLIDE_INDEX'],1); m.advance(300); assert not m.clicks; passed()
 # Unsigned milliseconds may wrap while confirmation is pending.
 m=Machine(); m.now=0xfffffff0; m.page_list(3)
-assert m.release()==11 and m.release(199)==0
+assert m.release()==11 and m.release(DC-1)==0
 m.advance(300); assert not m.clicks and m.screens==[0]; passed()
 # Short lists stay precise; virtual tables use total logical rows, not their row pool.
 for table in (False,True):
@@ -2593,9 +2594,29 @@ def home_list(m):
 
 # Return is a button too: after a touch, the page it goes back to shows its selection again.
 m=Machine(); w,es=m.page_list(3); m.paint(w); m.touch(); m.paint(w,gap=0); assert not m.drawn()
-assert m.call(O['KEY_RETURN'])==0; m.paint(w,gap=0); assert m.drawn(); passed()
+assert m.call(O['KEY_RETURN'])==0; m.advance(0); m.paint(w,gap=0); assert m.drawn(); passed()
 
 if variant=='ipod':
+    # Page slides (ringnav.c slides()): the page under a sliding top window draws the row it holds; no load, recall or scroll.
+    HINT='htranslate'  # any non-empty anim_hint
+    def under_slide(hint=HINT):
+        m=Machine(); w,es=m.page_list(3); m.paint(w); assert m.call()==11 and m.selected(w)==1
+        m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
+        w2,_=m.page_list(3,name='display_page'); m.nodes[m.top]['anim_hint']=hint
+        return m,w,w2
+    m,w,w2=under_slide(); m.paint(w,gap=0)
+    assert m.drawn() and m.sel()[1]==48-m.get(w+O['SCROLL_Y']) and m.selected(w)==1 and not m.moved(); passed()
+    m,w,w2=under_slide(''); m.paint(w,gap=0); assert not m.drawn(); passed()  # under a page that does not slide
+    # Touch mode hides it there too, until a Return by button, which shows the page behind its row
+    # while the closing page keeps hiding its own.
+    m,w,w2=under_slide(); m.paint(w2); m.touch(); m.paint(w,gap=0); assert not m.drawn()
+    assert m.call(O['KEY_RETURN'])==0; m.paint(w,gap=0); assert m.drawn()
+    m.paint(w2,gap=0); assert not m.drawn(); passed()
+    # A sliding page's first paint is its snapshot, so a recalled row is revealed at once, not by a glide.
+    m,w,es=walk(10,5); w2,es2=m.page_list(10,extent=1000); m.nodes[m.top]['anim_hint']=HINT
+    assert m.paint(w2)==0 and m.selected(w2)==5 and m.get(w2+O['SCROLL_Y'])==204
+    assert [c[0] for c in m.moved()]==['scroll_view_set_offset']; passed()
+
     # Home is an ordinary list: the wheel walks the seven rows one by one, stops hard at both ends
     # (no carry-over, even after a pause), the bar spans the list's width and centre clicks the image.
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2])

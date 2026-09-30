@@ -22,7 +22,7 @@ extern void *staged(int (*query)(void *), void *arg, int *count);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
-#define DOUBLE_CLICK_MS 200
+#define DOUBLE_CLICK_MS 180
 #define HOME_FAST_WINDOW_MS 200
 #define HOME_SLIDE_MS 200
 #define HOME_FAST_SLIDE_MS 120
@@ -70,6 +70,8 @@ typedef struct {
     void *wheel_top, *wheel_surface;
     unsigned wheel_scope;
     int wheel_ctx;
+    /* iPod: a Return by button ends touch mode once stock has handled it */
+    unsigned untouch_timer;
     position_t pos[POS_MEM]; /* most recently selected first; keyed by context and scope */
     void *reveal_surface;    /* surface of the interrupted recall glide, 0 when none */
     int reveal_id;           /* logical row that glide was bringing into view */
@@ -300,6 +302,25 @@ static int carousel_page(void *top) {
 }
 
 static int is_home(void *top, void *w) { return w && kind(w) == 3 && carousel_page(top); }
+
+#if IPOD
+/* A widget's own window: the top-level widget it sits in. */
+static void *window_of(void *w) {
+    void *wm = window_manager();
+    while (w && P(w, W_PARENT) != wm) w = P(w, W_PARENT);
+    return w;
+}
+
+/* A page that opens and closes with stock's slide (tools/compact.py SLIDE). Stock paints it and
+ * the page under it into the animator's snapshots while it is the top window and before
+ * window_manager_is_animating is set; nothing else paints the page under it. */
+static int slides(void *win) {
+    const char *hint = win ? widget_get_prop_str(win, "anim_hint", (void *)0) : (void *)0;
+    return hint && *hint;
+}
+#else
+#define slides(win) 0
+#endif
 
 /* The animator's destination is the intended icon, even before stock commits its index.
  * Keep this widget-owned: touch and page recreation cannot leave a dangling animator here. */
@@ -651,7 +672,8 @@ static int load(menu_t *m, void *w, int recall) {
         }
         if (id >= 0 && id < m->rows) {
             prop(w, SEL, id);
-            reveal(m, id, 0);
+            /* A sliding page's first paint is its snapshot: arrive in place, not mid-glide. */
+            reveal(m, id, slides(window_manager_get_top_window(window_manager())));
             st.reveal_surface = m->w;
             st.reveal_id = id;
             /* A synchronous table rebind changes the row pool; discard the pre-scroll snapshot. */
@@ -1085,8 +1107,7 @@ static int clip_surface(void *canvas, menu_t *m, rect_t *old) {
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
 static int drill(void *w) {
-    void *wm = window_manager();
-    while (w && P(w, W_PARENT) != wm) w = P(w, W_PARENT);
+    w = window_of(w);
     int ctx = w ? context_id(widget_get_prop_str(w, "name", (void *)0)) : -1;
     return ctx >= 0 && (contexts[ctx].flags & DRILL);
 }
@@ -1162,21 +1183,35 @@ static void paint_letter(void *w, void *canvas) {
  * readable over artwork without borrowing the red "playing" language or the native focus flag.
  * Small rows and degenerate geometry keep the square fallback. */
 static void paint_selection(void *w, void *canvas) {
-    if (!w || !canvas || !kind(w) || surface((void *)0, (void *)0) != w) return;
-    if (!load(&g_menu, w, !window_manager_get_pointer_pressed(window_manager()))) {
-        cancel_center();
-        return;
-    }
-    if (st.center_timer &&
-        !pending_matches(window_manager_get_top_window(window_manager()), &g_menu))
-        cancel_center();
-    if (g_menu.kind == 3) return; /* Home shows its selected card. */
-    int i = reconcile(&g_menu,
-                      !moving(&g_menu) && !window_manager_get_pointer_pressed(window_manager()));
-    /* Touch hides the selection until the wheel or a button, except on Home (iPod's list). */
+    if (!w || !canvas || !kind(w)) return;
     void *top = window_manager_get_top_window(window_manager());
+    int i, shown = !st.touch_mode;
+#if IPOD
+    void *own = window_of(w);
+    if (own && own != top && slides(top)) {
+        /* The page under a sliding one, painted into the animator's snapshot: draw the row it
+         * holds. Loading, recall and settling read the top page's state, so none of it runs.
+         * A pending untouch is a Return by button, which shows the row of the page behind. */
+        if (!usable() || !load_rows(&g_menu, w)) return;
+        i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
+        top = own;
+        if (st.untouch_timer) shown = 1;
+    } else
+#endif
+    {
+        if (surface((void *)0, (void *)0) != w) return;
+        if (!load(&g_menu, w, !window_manager_get_pointer_pressed(window_manager()))) {
+            cancel_center();
+            return;
+        }
+        if (st.center_timer && !pending_matches(top, &g_menu)) cancel_center();
+        if (g_menu.kind == 3) return; /* Home shows its selected card. */
+        i = reconcile(&g_menu,
+                      !moving(&g_menu) && !window_manager_get_pointer_pressed(window_manager()));
+    }
+    /* Touch hides the selection until the wheel or a button, except on Home (iPod's list). */
     int home = top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page");
-    if (i < 0 || (st.touch_mode && !home)) return;
+    if (i < 0 || (!shown && !home)) return;
     rect_t r = bounds(&g_menu, i), old;
     /* A boundary detent nudges the selection against the end until it springs back. */
     if (fx_live(w) && st.bump_dir) r.y -= st.bump_dir * BUMP_PX;
@@ -1443,7 +1478,8 @@ int ringnav_playing(void *win, void *ctx) {
  * a BUTTONS dialog is itself top-level. Home's art is clipped to its panel until the border hook.
  * Other top-level widgets are the status bar, which gets its solid fill, and the windows. Painting
  * the top window or the bar (at least each second, systembar_showface) keeps the bar's clock,
- * Home's art and Now Playing's labels current. */
+ * Home's art and Now Playing's labels current; Home's art is also checked when Home is painted
+ * under another window. */
 int ringnav_paint_bg(void *w, void *canvas) {
     int result = stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
@@ -1457,9 +1493,10 @@ int ringnav_paint_bg(void *w, void *canvas) {
         canvas_set_fill_color(canvas, fill);
     }
     void *top = window_manager_get_top_window(wm);
+    /* Any painted window, not only the top one: Home slides back in from a snapshot. */
+    coverflow_home_art(w == bar ? top : w);
     if (bar && (w == bar || w == top)) {
         clock_sync(bar);
-        coverflow_home_art(top);
         np_sync(top);
         /* Boot may paint Home before the screen is usable, so nothing chose or drew its first
          * row. Once, when the list is first reachable, repaint it. */
@@ -1619,7 +1656,19 @@ int ringnav_display(void *win, void *ctx) {
 #define np_cancel() ((void)0)
 #endif
 
+#if IPOD
+static int untouch(const void *info) {
+    (void)info;
+    st.untouch_timer = 0;
+    st.touch_mode = 0;
+    void *top = window_manager_get_top_window(window_manager());
+    if (top) widget_invalidate_force(top, (void *)0);
+    return 0;
+}
+#endif
+
 static void hide_outline(void) {
+    stop_timer(&st.untouch_timer);
     st.touch_mode = 1;
     void *top = window_manager_get_top_window(window_manager());
     if (top) widget_invalidate_force(top, (void *)0);
@@ -2197,7 +2246,17 @@ int ringnav(void *ctx, void *event) {
         if (window_manager_get_top_window(window_manager()) == st.np_win) return STOP;
     }
 #endif
-    if (key == KEY_RETURN) st.touch_mode = 0; /* back by button: the page behind shows its row */
+    /* Back by button: the page behind shows its row. */
+#if IPOD
+    /* A sliding page is painted once more, into its closing snapshot, inside stock's handling of
+     * this release; it keeps hiding its own row until that is done. */
+    if (key == KEY_RETURN && st.touch_mode) {
+        rearm(&st.untouch_timer, untouch, 0);
+        if (!st.untouch_timer) st.touch_mode = 0;
+    }
+#else
+    if (key == KEY_RETURN) st.touch_mode = 0;
+#endif
     if (key != KEY_CENTER && key != KEY_PREV && key != KEY_NEXT) return result;
     if (key == KEY_CENTER) {
         drop_spin();

@@ -11,7 +11,8 @@ type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only the assets
 pinned in `compact.json` are accepted: nine local browsing pages, the settings
 and streaming pages, Home, the status bar, Now Playing, the quick settings
-pull-down, the confirm pop-up and the theme (`styles/default.bin`). The primary `view_navbar` stays allocated but invisible
+pull-down, the confirm pop-up, the equalizer page (its [transition](#transitions) only) and the
+theme (`styles/default.bin`). The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
 moved into its space.
 
@@ -266,7 +267,7 @@ in the top 210 pixels of the page. The album name sits under them (`CF_TEXT_Y`) 
 the artist under that in 20-pixel grey (`#AAAAAA`, stock secondary text), and both, like the
 track list's title and rows and the progress and empty messages, keep 36 pixels (`CF_EDGE`) from
 each side, where the lowest visible track row's text clears the bottom corners. Long names still
-scroll within that. The Refresh card uses the album line. The status bar shows "Coverflow".
+scroll within that. The Refresh card uses the album line.
 Values are `CF_*` in `patch/offsets.inc`; normal keeps its track list layout.
 
 ## Rounded corners
@@ -306,6 +307,22 @@ the switch has landed. The hold's release therefore leaves the unit on Now
 Playing and the first short Return reaches the stock Back path, with position
 memory restoring the browsing page and its selection. No short-Return callback or
 other long-key destination changes.
+
+## Transitions
+
+Pages slide with stock's own window animator; the payload adds no animation code. The build sets
+`anim_hint` to `SLIDE` (`tools/compact.py`) on the window of the nine local browsing pages, the
+settings and streaming pages and the equalizer page. A hinted page slides in from the right,
+pushing the page below it out to the left, and Return reverses that; the status bar is not part
+of either page and stays still.
+
+Left immediate: Home (opened once, never closed), Now Playing (its open starts the player, which
+can hold the UI thread), Coverflow (its open loads the albums and covers), the dialogs and quick
+settings, the queue, More and jump pages over Now Playing, and the pages that keep their stock
+assets: Tidal and the other online pages, Wi-Fi transfer and the firmware download. Moving between
+folders reloads the folder page in place, so only opening and leaving that page slides. Stock
+drops every key and touch while a page slides; none is queued
+([internals.md](internals.md#page-transitions-ipod)).
 
 ## Chevrons
 
@@ -499,11 +516,6 @@ stock's red buttons with white text become white on `#6E6E6E` (5.1:1) and the do
 The regression guide for device tests of the iPod build. Entries that name
 Normal also apply to it.
 
-**Validation status:** the iPod checklist, shared navigation checks and Coverflow
-visual/audio checks pass on hardware, including boot/resume. Numerical Coverflow
-frame-rate measurement remains pending. These results cover existing iPod
-behavior; planned features require their own regression checks.
-
 - **pull to search**: iPod Local Songs only: start at the list top, pull
   47/48/49 pixels and release. Check both prompts, backing below the threshold,
   horizontal swipes, ordinary taps, mid-list starts and empty lists. No row should
@@ -575,6 +587,16 @@ behavior; planned features require their own regression checks.
   as far from the right edge as the labels start from the left (the last row's is not
   cut), the row takes a tap to its chevron and no art shows; switch back to Split and
   the current cover fills the panel again.
+- **transitions**: With music playing, open Local Songs, an artist, an album, Settings and a
+  sub-page and Audio settings → Equalizer, and Return through each: every page slides
+  in from the right and back out, the status bar and clock stay still, the selection bar,
+  chevrons and art arrive with their page, and nothing flashes or jumps when the slide ends. The
+  audio never stutters. Open a long list whose remembered row is far down: it arrives already on
+  that row. Reach a page by touch and press Return: it slides out without a bar and the page
+  behind comes back with its own. Change track from a list and Return to Home: the new cover
+  slides in with it. Press centre and turn the wheel at once: the ticks during the slide are
+  dropped and the next ones move the new page. Now Playing, Coverflow, pop-ups, quick settings and
+  Tidal open at once.
 - **chevrons**: `>` shows on every Home row and playlist row, lined up with the
   stock chevrons of categories, artists and albums. None on song lists, grid
   tiles, playlist Import/Export or in multi-select.
