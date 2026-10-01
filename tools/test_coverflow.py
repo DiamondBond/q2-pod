@@ -511,7 +511,6 @@ static void depth(void) {
        and 3, Embedded and None, have only the empty marker and show the placeholder), one render,
        drawn 1:1 at the slide_menu's origin. A repaint in place only draws again. */
     int canvas[16] = { 0 };
-    *(void **)(raw + W_PARENT) = covers_view;
     *(int *)(raw + SLIDE_INDEX) = 3; *(int *)(raw + SLIDE_OFFSET) = 0;
     loads = unloads = 0;
     coverflow_paint(s, canvas);
@@ -552,7 +551,6 @@ static void depth(void) {
     albums = 2; rescan();
     open_page();
     s = slide(); raw = s->raw;
-    *(void **)(raw + W_PARENT) = &w[s->parent];
     loads = unloads = 0;
     coverflow_paint(s, canvas);
     assert(s->nkids == 3 && loads <= 2 && loads == unloads);
@@ -560,7 +558,7 @@ static void depth(void) {
     for (int i = 0; i < CF_VIEW_W; ++i) assert(px(i, CF_TOP + 80) == 0xff000000u);
     close_page();
     albums = 1; rescan();
-    open_page(); s = slide(); *(void **)(s->raw + W_PARENT) = &w[s->parent];
+    open_page(); s = slide();
     coverflow_paint(s, canvas);
     assert(s->nkids == 2);
     capture("one-album");
