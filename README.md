@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  An iPod classic–style firmware mod for the Shanling Q2.<br>
+  An iPod classic style firmware mod for the Shanling Q2.<br>
   Wheel navigation, parametric EQ and Coverflow, built on the stock firmware.
 </p>
 
@@ -34,7 +34,7 @@
 | For listening                                            | Under the hood                                                                    |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Accent, Home layout and battery style options            | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
-| iPod classic–style lists, Home and Now Playing           | Clock keeps the right time after power-off                                        |
+| iPod classic style lists, Home and Now Playing           | Clock keeps the right time after power-off                                        |
 | Wheel navigation with acceleration and position memory   | Less battery drain with the screen off                                            |
 | Play next / Add to queue                                 | Faster library browsing                                                           |
 | Shuffle Songs across the whole library                   | Long VBR MP3s start at once and seek accurately                                   |
@@ -47,7 +47,6 @@
 
 1. [Download](https://github.com/DiamondBond/q2-ringnav/releases/latest) `Q2.Firmware.V*-ipod.zip`, unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2: **System settings → System Update → TF card update**.
-3. **About** shows a version ending in `I`.
 
 **Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has everything except the [iPod UI](#ipod-ui).
 
