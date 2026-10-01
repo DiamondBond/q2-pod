@@ -6,7 +6,7 @@
 
 <p align="center">
   An iPod classic–style firmware mod for the Shanling Q2.<br>
-  Wheel navigation, a 30-band parametric EQ and Coverflow, built on the stock firmware.
+  Wheel navigation, parametric EQ and Coverflow, built on the stock firmware.
 </p>
 
 <p align="center">
@@ -49,7 +49,7 @@
 2. On the Q2: **System settings → System Update → TF card update**.
 3. **About** shows a version ending in `I`.
 
-**Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has everything except the [iPod UI](#ipod-ui); its version ends in `R`.
+**Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has everything except the [iPod UI](#ipod-ui).
 
 ### Restore stock
 
