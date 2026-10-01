@@ -250,7 +250,6 @@ static int show(void *img, const char *url, unsigned *size) {
 #define CF_REACH 3 /* ring slots either side of the centre that can show (fading in) or preload */
 #define CF_RING (2 * CF_REACH + 1)
 #define CF_TEXELS (ART_SIZE * ART_SIZE)
-#define CF_MISS 99
 #define CF_EYE16 (16 * CF_EYE)
 #define CF_HALF16 (16 * ART_SIZE / 2)
 #define CF_MID256 (256 * (CF_TOP + ART_SIZE / 2)) /* the horizon every cover centres on */
@@ -431,22 +430,6 @@ void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ri
     }
 }
 
-/* The ring offset of the frontmost cover (not its reflection) at frame pixel x, y, as drawn at
- * frac, or CF_MISS. Nearest first, in the drawing order. */
-int coverflow_hit(int frac, int x, int y) {
-    for (int k = 0; k <= CF_REACH; ++k)
-        for (int i = 0; i < (k ? 2 : 1); ++i) {
-            int j = slot(frac, k, i), t = (j - CF_REACH) * CF_ONE - frac;
-            pose_t p;
-            int side = t < 0 ? -1 : 1, v = side > 0 ? x : 2 * CF_CX - 1 - x, u, h;
-            pose(t * side, &p);
-            if (p.bright > 0 && unproject(&p, (2 * v + 1 - 2 * CF_CX) * 8, &u, &h) &&
-                (y << 8) + 128 >= CF_MID256 - h / 2 && (y << 8) + 128 < CF_MID256 - h / 2 + h)
-                return j - CF_REACH;
-        }
-    return CF_MISS;
-}
-
 /* The depth renderer's state: the frame, the textures of the covers around the visual position
  * and the placeholder's. No frame: the flat fallback (stock images on the slide_menu). */
 static struct {
@@ -547,15 +530,14 @@ static int floor_div(int a, int b) { /* floor division, b > 0 */
     return a / b - (a % b < 0);
 }
 
-/* The visual position from the slide_menu's index and live offset (the wheel's animator, a snap or
- * a finger): album c (of n) at the centre, frac past it and the offset q in albums that it is from
- * the index. Stock completion commits index - offset / stride. */
-static int visual(void *s, int n, int *c, int *frac, int *q) {
+/* The visual position from the slide_menu's index and live offset (the wheel's animator): album c
+ * (of n) at the centre and frac past it. Stock completion commits index - offset / stride. */
+static int visual(void *s, int n, int *c, int *frac) {
     int stride = slide_menu_item_width(s) + I(s, SLIDE_SPACER), d = -I(s, SLIDE_OFFSET);
     if (n <= 0 || stride <= 0) return 0;
-    *q = floor_div(2 * d + stride, 2 * stride);
-    *frac = (d - *q * stride) * CF_ONE / stride;
-    *c = ((I(s, SLIDE_INDEX) + *q) % n + n) % n;
+    int q = floor_div(2 * d + stride, 2 * stride);
+    *frac = (d - q * stride) * CF_ONE / stride;
+    *c = ((I(s, SLIDE_INDEX) + q) % n + n) % n;
     return stride;
 }
 
@@ -563,9 +545,9 @@ static int visual(void *s, int n, int *c, int *frac, int *q) {
  * for every widget: over Coverflow's slide_menu it draws the frame, rendered again only when the
  * position or a texture has changed. */
 void coverflow_paint(void *w, void *canvas) {
-    int c, frac, q, n;
+    int c, frac, n;
     if (!w || w != cf.slide || !fx.frame || cf.screen != COVERS ||
-        !visual(w, n = (int)widget_count_children(w), &c, &frac, &q))
+        !visual(w, n = (int)widget_count_children(w), &c, &frac))
         return;
     const unsigned *ring[CF_RING];
     fx_window(c, n, ring);
@@ -578,30 +560,6 @@ void coverflow_paint(void *w, void *canvas) {
     }
     int r[4] = { 0, 0, CF_VIEW_W, CF_VIEW_H };
     canvas_draw_image(canvas, fx.frame, r, r);
-}
-
-/* A tap on the covers (pressed, not dragged): the frontmost projected cover under the finger. The
- * centre one at rest opens, as a click on it would; a side one scrolls to the centre through stock
- * scroll_to and completion. A tap while the covers move only ends the press. */
-static int tap(void *event) {
-    void *s = cf.slide;
-    unsigned char *drag = s ? (unsigned char *)s + SLIDE_DRAG : 0;
-    if (!drag || !fx.frame || cf.screen != COVERS || !drag[1] || drag[0]) return 0;
-    widget_ungrab(P(s, W_PARENT), s);
-    drag[1] = 0;
-    int c, frac, q, point[2] = { I(event, EVENT_X), I(event, EVENT_Y) };
-    int stride = visual(s, (int)widget_count_children(s), &c, &frac, &q);
-    if (!stride || P(s, SLIDE_ANIMATOR)) return 1;
-    widget_to_local(s, point);
-    int j = coverflow_hit(frac, point[0], point[1]), goal = -(q + j) * stride;
-    if (j == CF_MISS) return 1;
-    if (!j && !frac)
-        pick((void *)(long)c, 0);
-    else if (goal == I(s, SLIDE_OFFSET))
-        slide_menu_on_scroll_done(s, 0);
-    else
-        slide_menu_scroll_to(s, goal);
-    return 1;
 }
 
 static void cover(void *img, unsigned i, int near) {
@@ -628,49 +586,11 @@ static int changed(void *ctx, void *event) {
     return 0;
 }
 
-/* Finish a drag on the nearest cover as stock scroll_to (0x5f3400) would: 150 ms, then stock
- * completion commits the index. The stale drag flags and grab that pointer-up would have cleared
- * go first. Returns whether there was a drag to finish. */
-static int snap(void) {
-    void *s = cf.slide;
-    if (!s || cf.screen != COVERS || P(s, SLIDE_ANIMATOR)) return 0;
-    unsigned char *drag = (unsigned char *)s + SLIDE_DRAG;
-    int live = I(s, SLIDE_OFFSET), stride = slide_menu_item_width(s) + I(s, SLIDE_SPACER);
-    if ((!live && !drag[0]) || stride <= 0) return 0;
-    if (drag[1]) widget_ungrab(P(s, W_PARENT), s);
-    drag[0] = drag[1] = 0;
-    int goal = (live + (live < 0 ? -stride : stride) / 2) / stride * stride;
-    if (goal == live) /* stock scroll_to returns without an animator here */
-        slide_menu_on_scroll_done(s, 0);
-    else
-        slide_menu_scroll_to(s, goal);
-    return 1;
-}
-
-/* Stock's pointer-up (0x5f3c80) throws a drag on by its velocity: a whole cover past the finger
- * for a swipe under 200 ms, else velocity % cover width. So drags finish here first, on the page
- * before the slide_menu sees the release, where the finger left them. Taps on the drawn covers
- * are hit-tested first (tap), so one on covers resting between albums still picks the cover under
- * the finger; in the flat fallback taps still reach stock. */
-static int released(void *ctx, void *event) {
-    (void)ctx;
-    return tap(event) || snap() ? 11 : 0; /* RET_STOP; a tap even while the covers rest off-grid */
-}
-
-/* Some releases never reach the page or the slide_menu, leaving the covers between two albums,
- * so while Covers shows a repeating check also finishes any drag at rest. */
-static int settle(const void *unused) {
-    (void)unused;
-    if (!window_manager_get_pointer_pressed(window_manager())) snap();
-    return 8; /* RET_REPEAT */
-}
-
-/* One child per album plus a last Refresh card. With depth the slide_menu spans the page, frame
- * and captions, so a touch anywhere drags it and every step and drag repaints all of it; its
- * 290 px square items with a negative spacer move one album per CF_STRIDE px. The children stay
- * empty under the frame and, like the captions, insensitive, so no touch stops on them. The flat
- * fallback is the stock images, 160 px, as before. ponytail: one child per album; if large libraries lag on
- * hardware, virtualize to a recycled window of children. */
+/* One child per album plus a last Refresh card, moved by the wheel only: the slide_menu takes no
+ * touch. With depth it spans the frame, so every step repaints all of it, and its CF_VIEW_H square
+ * items with a negative spacer move one album per CF_STRIDE px; the children stay empty under the
+ * frame. The flat fallback is the stock images, 160 px, as before. ponytail: one child per album;
+ * if large libraries lag on hardware, virtualize to a recycled window of children. */
 static void covers(void) {
     cf.screen = COVERS;
     widget_set_visible(cf.body, 0, 0);
@@ -679,15 +599,13 @@ static void covers(void) {
         int depth = fx_open();
         cf.covers = widget_factory_create_widget(f, "view", cf.page, 0, 0, 375, 290);
         cf.slide = widget_factory_create_widget(f, "slide_menu", cf.covers, 0, depth ? 0 : 24, 375,
-                                                depth ? 290 : ART_SIZE);
-        if (depth) slide_menu_set_spacer(cf.slide, CF_STRIDE - 290);
+                                                depth ? CF_VIEW_H : ART_SIZE);
+        if (depth) slide_menu_set_spacer(cf.slide, CF_STRIDE - CF_VIEW_H);
+        widget_set_sensitive(cf.slide, 0);
         for (unsigned i = 0, n = deque_size(cf.albums); i <= n; ++i) {
             void *img = image_create(cf.slide, 0, 0, 0, 0);
             image_set_draw_type(img, 4); /* scale_auto, as the stock cover rows */
-            if (depth)
-                widget_set_sensitive(img, 0);
-            else
-                image_base_set_image(img, PLACEHOLDER);
+            if (!depth) image_base_set_image(img, PLACEHOLDER);
             widget_set_prop_int(img, "clickable", 1);
             widget_on(img, EVT_CLICK, pick, (void *)(long)i);
         }
@@ -698,14 +616,12 @@ static void covers(void) {
         cf.artist = text(cf.covers, CF_EDGE, CF_TEXT_Y + CF_NAME_H, 375 - 2 * CF_EDGE, CF_ARTIST_H);
         widget_set_prop_int(cf.artist, "style:normal:font_size", CF_ARTIST_PX);
         widget_set_prop_int(cf.artist, "style:normal:text_color", (int)CF_GREY);
-        if (depth) widget_set_sensitive(cf.name, 0), widget_set_sensitive(cf.artist, 0);
         slide_menu_set_value(cf.slide, cf.album);
         widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
         changed(0, 0);
     }
     widget_set_visible(cf.covers, 1, 0);
     widget_invalidate_force(cf.page, 0);
-    rearm(&cf.timer, settle, 100);
 }
 
 static int to_covers(const void *unused) {
@@ -893,7 +809,6 @@ static int coverflow_open(void *ctx, void *event) {
     widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
-    widget_on(page, EVT_POINTER_UP_BEFORE, released, 0);
     load();
     return 0;
 }

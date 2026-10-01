@@ -37,17 +37,15 @@ int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 getAllAlbum getMusicByAlbum toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
 deque_assign deque_destroy deque_size deque_at window_create widget_factory
 widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
-slide_menu_set_value slide_menu_item_width slide_menu_on_scroll_done slide_menu_scroll_to
-widget_ungrab list_view_create scroll_view_create list_item_create image_set_draw_type
+slide_menu_set_value slide_menu_item_width list_view_create scroll_view_create list_item_create image_set_draw_type
 image_base_set_image widget_load_image widget_unload_image widget_set_name widget_use_style
 widget_set_text_utf8 widget_set_visible widget_get_prop_int widget_set_prop_int
 widget_get_prop_str widget_on widget_destroy_children widget_invalidate_force
 widget_count_children widget_get_child widget_lookup widget_move_resize widget_get_visible
 canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
-timer_add timer_remove navigator_back_to_home navigator_to_with_context window_manager
-window_manager_get_pointer_pressed bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
+timer_add timer_remove navigator_back_to_home navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
-canvas_draw_image slide_menu_set_spacer widget_to_local
+canvas_draw_image slide_menu_set_spacer
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
@@ -141,8 +139,8 @@ int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:n
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     if (!x) return 0;
-    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY || type == EVT_POINTER_UP_BEFORE) {
-        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : type == EVT_DESTROY ? 8191 : 8189); /* page handlers */
+    if (type == EVT_CLICK || type == EVT_KEY_UP || type == EVT_DESTROY) {
+        widget *h = type == EVT_CLICK ? W(x) : &w[0] + (type == EVT_KEY_UP ? 8190 : 8191); /* page handlers */
         h->click = f; h->ctx = ctx;
     }
     return 1;
@@ -174,29 +172,9 @@ int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
 int navigator_to_with_context(const char *n, const void *c) { (void)n; (void)c; return 0; }
-/* slide_menu: square items as high as the menu, plus the spacer; scroll_to records its goal and holds
-   the animator slot. */
-static int anim_from, anim_to, anims, ungrabs;
+/* slide_menu: square items as high as the menu, plus the spacer. */
 int slide_menu_item_width(void *x) { return *(int *)(W(x)->raw + W_H); }
 int slide_menu_set_spacer(void *x, int v) { *(int *)(W(x)->raw + SLIDE_SPACER) = v; return 0; }
-int slide_menu_on_scroll_done(void *x, void *e) {
-    (void)e; char *r = W(x)->raw;
-    int stride = slide_menu_item_width(x) + *(int *)(r + SLIDE_SPACER), n = (int)W(x)->nkids;
-    *(int *)(r + SLIDE_INDEX) = ((*(int *)(r + SLIDE_INDEX) - *(int *)(r + SLIDE_OFFSET) / stride) % n + n) % n;
-    *(int *)(r + SLIDE_OFFSET) = 0; *(void **)(r + SLIDE_ANIMATOR) = 0;
-    return 0;
-}
-int slide_menu_scroll_to(void *x, int to) {
-    ++anims; anim_from = *(int *)(W(x)->raw + SLIDE_OFFSET); anim_to = to;
-    *(void **)(W(x)->raw + SLIDE_ANIMATOR) = &anim_from;
-    return 0;
-}
-int widget_ungrab(void *p, void *c) { assert(W(c)->parent == W(p) - w); ++ungrabs; return 0; }
-/* A point from the screen into the widget: less each ancestor's x, y. */
-int widget_to_local(void *x, void *pt) {
-    for (int *p = pt; x; x = *(void **)(W(x)->raw + W_PARENT)) p[0] -= *(int *)W(x)->raw, p[1] -= *(int *)(W(x)->raw + 4);
-    return 0;
-}
 /* The frame bitmap (bitmap_t as above) and the canvas: canvas_draw_image keeps what it drew. */
 static int frames, frame_fail, tex_fail, locks, draws, drawn[4];
 static unsigned shown[CF_VIEW_H * CF_VIEW_W];
@@ -223,9 +201,6 @@ int canvas_draw_image(void *c, void *b, const void *src, const void *dst) {
     for (int y = 0; y < CF_VIEW_H; ++y) memcpy(shown + y * CF_VIEW_W, *(unsigned char **)((char *)b + 0x14) + y * ((unsigned *)b)[2], CF_VIEW_W * 4);
     return 0;
 }
-static int pressed;
-void *window_manager(void) { return &pressed; }
-int window_manager_get_pointer_pressed(void *wm) { return *(int *)wm; }
 int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0; }
 /* The songtable writers' stock bodies; during_write runs inside one, as an open mid-scan would. */
 static void (*during_write)(void);
@@ -236,8 +211,8 @@ int stock_delete_song_trampoline(void *a, void *b) { (void)a; (void)b; return st
 int coverflow_scan_all(void *, void *);
 static void rescan(void) { coverflow_scan_all(0, 0); } /* the library changed, as only a scan changes it */
 
-static int (*timer_fn)(const void *), (*last_fn)(const void *);
-unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = last_fn = f; return 1; }
+static int (*timer_fn)(const void *);
+unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return 1; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; return 0; }
 void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; } /* ringnav.c's */
 void rearm(unsigned *t, int (*f)(const void *), unsigned ms) { stop_timer(t); *t = timer_add(f, 0, ms); }
@@ -372,7 +347,6 @@ static int tmp_files(void) {
 
 /* ---- Depth: the renderer on its own, then on the page. ---- */
 void coverflow_render(unsigned *, int, int, const unsigned *const[7]);
-int coverflow_hit(int, int, int);
 void coverflow_paint(void *, void *);
 #define ONE 65536
 #define PITCH (CF_VIEW_W + 5) /* guard columns, and guard rows below, to catch clipping errors */
@@ -435,7 +409,7 @@ static void renderer(void) {
         if (!j) continue;
         int first = -1, last = -1;
         for (int x = 0; x < CF_VIEW_W; ++x)
-            if (coverflow_hit(0, x, CF_TOP + 80) == j) last = x, first = first < 0 ? x : first;
+            if (slot_of(px(x, CF_TOP + 80)) == j + 3) last = x, first = first < 0 ? x : first;
         assert(last - first >= (abs(j) == 1 ? 40 : 18));
         unsigned p = px((first + last) / 2, CF_TOP + 80), want = colours[j + 3];
         int b = abs(j) == 1 ? CF_BRIGHT1 : CF_BRIGHT2;
@@ -465,7 +439,7 @@ static void renderer(void) {
     for (int frac = -ONE / 2; frac < ONE / 2; frac += ONE / 16 + 77) {
         render(frac, alone);
         for (int x = 0; x < CF_VIEW_W; ++x) {
-            if (coverflow_hit(frac, x, CF_TOP + 80) != 0) continue;
+            if (slot_of(px(x, CF_TOP + 80)) != 3) continue;
             int body = 256, dipped = 0;
             for (int y = CF_TOP + 80; y < CF_VIEW_H; ++y) {
                 int v = ch(px(x, y), 0);
@@ -490,28 +464,6 @@ static void renderer(void) {
         for (int y = 0; y < CF_VIEW_H; ++y)
             for (int x = 0; x < 2 * CF_CX; ++x) assert(px(x, y) == left[y * PITCH + 2 * CF_CX - 1 - x]);
     }
-    /* Depth order and hit testing agree with what is drawn: wherever the frontmost projected cover
-       is some slot (clear of its edges), the pixel is that slot's colour; nothing is hit where no
-       cover is drawn, reflections included. Side covers overlap: one slot hides part of another. */
-    for (int frac = -ONE / 2; frac < ONE / 2; frac += ONE / 16) {
-        render(frac, ring);
-        int hits = 0, covered[7] = { 0 };
-        for (int y = 1; y < CF_VIEW_H - 1; ++y)
-            for (int x = 1; x < CF_VIEW_W - 1; ++x) {
-                int j = coverflow_hit(frac, x, y);
-                if (j == 99) continue;
-                if (j != coverflow_hit(frac, x - 1, y) || j != coverflow_hit(frac, x + 1, y) ||
-                    j != coverflow_hit(frac, x, y - 1) || j != coverflow_hit(frac, x, y + 1)) continue;
-                if ((px(x, y) & 0xffffff) && ch(px(x, y), 0) < 24 && ch(px(x, y), 1) < 24 && ch(px(x, y), 2) < 24) continue; /* fading in */
-                assert(slot_of(px(x, y)) == j + 3);
-                ++hits, ++covered[j + 3];
-            }
-        assert(hits > 160 * 150);
-    }
-    assert(coverflow_hit(0, CF_CX, CF_TOP + 80) == 0 && coverflow_hit(0, CF_CX, CF_TOP + 170) == 99);
-    assert(coverflow_hit(0, 0, 0) == 99 && coverflow_hit(0, CF_VIEW_W - 1, 0) == 99);
-    assert(coverflow_hit(0, CF_CX + 90, CF_TOP + 80) == 1 && coverflow_hit(0, CF_CX - 91, CF_TOP + 80) == -1);
-    assert(coverflow_hit(0, CF_VIEW_W - 20, CF_TOP + 80) == 2 && coverflow_hit(0, 19, CF_TOP + 80) == -2);
     /* Continuity: covers move, turn and fade from one continuous position, so a small step changes
        only a little, including where the centre changes hands (frac -1/2 after c, +1/2 before). */
     static unsigned a[(CF_VIEW_H + 3) * PITCH];
@@ -541,7 +493,8 @@ static void depth(void) {
     widget *s = slide();
     char *raw = s->raw;
     int *geo = (int *)raw;
-    assert(frames == 1 && geo[0] == 0 && geo[1] == 0 && geo[2] == CF_VIEW_W && geo[3] == 290); /* the whole page takes swipes */
+    assert(frames == 1 && geo[0] == 0 && geo[1] == 0 && geo[2] == CF_VIEW_W && geo[3] == CF_VIEW_H);
+    assert(s == &w[insensitive]); /* wheel only: the covers take no touch */
     assert(slide_menu_item_width(s) + *(int *)(raw + SLIDE_SPACER) == CF_STRIDE);
     for (int i = 0; i < s->nkids; ++i) assert(!w[s->kids[i]].image[0]);
     widget *covers_view = &w[s->parent];
@@ -580,31 +533,11 @@ static void depth(void) {
     *(int *)(raw + SLIDE_OFFSET) = 0; *(int *)(raw + SLIDE_INDEX) = 4;
     coverflow_paint(s, canvas);
     assert(loads == 6 && unloads == 6);
-    /* Taps: the frontmost projected cover. A side cover scrolls to the centre through stock
-       scroll_to; the centre one opens its tracks; a miss or a tap while moving only ends the press.
-       The window sits at y 30 under the status bar. */
-    int (*release)(void *, void *) = w[8189].click;
-    int e[16] = { 0 };
-    *(int *)((char *)page->raw + 4) = 30;
-    #define TAP(x, y) (e[EVENT_X / 4] = (x), e[EVENT_Y / 4] = 30 + (y), raw[SLIDE_DRAG + 1] = 1, release(0, e))
-    int a0 = anims, u0 = ungrabs;
-    assert(TAP(CF_VIEW_W - 20, CF_TOP + 80) == 11 && anims == a0 + 1 && anim_to == -2 * CF_STRIDE && ungrabs == u0 + 1 && !raw[SLIDE_DRAG + 1]);
-    assert(TAP(CF_CX, CF_TOP + 80) == 11 && anims == a0 + 1); /* moving: ignored */
-    *(int *)(raw + SLIDE_OFFSET) = anim_to; slide_menu_on_scroll_done(s, 0);
-    assert(*(int *)(raw + SLIDE_INDEX) == 6);
+    /* The wheel's centre press clicks the centre child, which opens its tracks. */
+    *(int *)(raw + SLIDE_INDEX) = 6;
     int (*waiting)(const void *) = timer_fn;
-    assert(TAP(CF_CX, CF_TOP + 170) == 11 && TAP(5, 5) == 11 && anims == a0 + 1 && timer_fn == waiting); /* reflection, background */
-    assert(TAP(CF_CX - 91, CF_TOP + 80) == 11 && anim_to == CF_STRIDE);
-    *(void **)(raw + SLIDE_ANIMATOR) = 0;
-    /* Covers resting between albums (a release that never reached the page): a tap still picks
-       the cover under the finger rather than only snapping. */
-    *(int *)(raw + SLIDE_OFFSET) = 30;
-    assert(TAP(CF_VIEW_W - 20, CF_TOP + 80) == 11 && anim_to == -2 * CF_STRIDE);
-    *(int *)(raw + SLIDE_OFFSET) = 0;
-    *(void **)(raw + SLIDE_ANIMATOR) = 0;
-    raw[SLIDE_DRAG + 1] = 0;
-    assert(release(0, e) == 0); /* a release that did not press the covers passes on */
-    assert(TAP(CF_CX, CF_TOP + 80) == 11 && timer_fn != waiting);
+    w[s->kids[6]].click(w[s->kids[6]].ctx, 0);
+    assert(timer_fn != waiting);
     run();
     assert(!strcmp(title(), names[6]) && !covers_view->visible && last_album(6)); /* kept for a reboot */
     key(KEY_RETURN); /* back to the same album, still drawn */
@@ -728,33 +661,6 @@ int main(void) {
     block_at = -1;
     open_page();
     assert(size("C") == 9 && !strcmp(made[calls - 1], "cover.jpg"));
-
-    /* Covers at rest between albums snap to the nearest one and drop the stale grab; a finger
-       still down, a snap already running, or a settled menu is left alone. The check repeats. */
-    s = slide();
-    char *raw = s->raw;
-    int (*settle)(const void *) = last_fn;
-    *(void **)(raw + W_PARENT) = &w[s->parent];
-    *(int *)(raw + SLIDE_INDEX) = 2; *(int *)(raw + SLIDE_OFFSET) = -250; raw[SLIDE_DRAG] = raw[SLIDE_DRAG + 1] = 1;
-    pressed = 1; assert(settle(0) == 8 && !anims);
-    pressed = 0; assert(settle(0) == 8);
-    assert(anims == 1 && anim_from == -250 && anim_to == -320 && ungrabs == 1 && !raw[SLIDE_DRAG] && !raw[SLIDE_DRAG + 1]);
-    settle(0); assert(anims == 1); /* the snap is running */
-    *(int *)(raw + SLIDE_OFFSET) = anim_to; slide_menu_on_scroll_done(s, 0); /* the animator's end */
-    assert(*(int *)(raw + SLIDE_INDEX) == 4);
-    *(int *)(raw + SLIDE_OFFSET) = 70; settle(0);
-    assert(anims == 2 && anim_to == 0);
-    *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; settle(0);
-    assert(anims == 2 && ungrabs == 1);
-
-    /* A release finishes the drag where the finger left it, before stock's velocity throw sees
-       it; a tap passes through to stock. */
-    int (*release)(void *, void *) = w[8189].click;
-    *(int *)(raw + SLIDE_OFFSET) = 100; raw[SLIDE_DRAG] = raw[SLIDE_DRAG + 1] = 1;
-    assert(release(0, 0) == 11 && anims == 3 && anim_to == 160 && ungrabs == 2 && !raw[SLIDE_DRAG]);
-    *(void **)(raw + SLIDE_ANIMATOR) = 0; *(int *)(raw + SLIDE_OFFSET) = 0; raw[SLIDE_DRAG + 1] = 1;
-    assert(release(0, 0) == 0 && anims == 3 && ungrabs == 2);
-    raw[SLIDE_DRAG + 1] = 0;
 
     /* Refresh (the last card) clears the cache and rebuilds every album. */
     int before = calls, q = queries;
@@ -908,8 +814,8 @@ def main():
                 (a.captures/(raw.stem + '.png')).write_bytes(imagemagick(
                     '-size', size, '-depth', '8', 'rgba:-', '-alpha', 'off', 'png:-', data=raw.read_bytes()))
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, album list reuse, low space and empty library passed;'
-          ' depth renderer (exact centre, clipping, symmetry, depth order, hit testing, reflection, continuity),'
-          ' its texture window, taps, small libraries and flat fallback passed;'
+          ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
+          ' its texture window, centre click, small libraries and flat fallback passed;'
           ' iPod Home art sources, fit, clip and Split/Full layout passed.')
 
 

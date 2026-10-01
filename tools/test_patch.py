@@ -78,7 +78,7 @@ class Machine:
         self.clip=(0,0,240,240)
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
-        for name in ('slide_menu_item_width','slide_menu_on_scroll_done','slide_menu_scroll_to',
+        for name in ('slide_menu_item_width','slide_menu_on_scroll_done',
                      'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
@@ -3233,23 +3233,9 @@ m.word(m.found[0]+O['REC_NAME'],m.string(long)); m.open(); assert m.texts().coun
 m.tracks(); assert m.texts().count(long)==4  # covers stay alive, hidden behind the tracks
 labels=[n for w,n in m.nodes.items() if m.alive(w) and n.get('text')==long]
 assert all(n['type']=='hscroll_label' and n['loop']==1 and n['set_hscroll_label_attribute'] for n in labels); passed()
-# Drags finish on the nearest cover through stock item width, scroll_to and completion (160px
-# covers): on release before stock's velocity throw, or by the repeating check once no finger is down.
-for offset,want in ((-90,2),(-70,1),(90,0),(70,1),(0,1)):
-    for via in ('release','settle'):
-        m=CoverflowMachine(); page=m.open(); s=m.slide; m.word(s+O['SLIDE_INDEX'],1)
-        m.word(s+O['SLIDE_OFFSET'],offset); m.byte(s+O['SLIDE_DRAG'],1); m.byte(s+O['SLIDE_DRAG']+1,1)
-        if via=='release':
-            f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==11
-        else:
-            m.pressed=1; m.advance(100); assert m.get(s+O['SLIDE_DRAG'])&0xffff==0x101 and not m.slides
-            m.pressed=0; m.advance(100)
-        m.advance(150)
-        assert m.get(s+O['SLIDE_INDEX'])==want and m.get(s+O['SLIDE_OFFSET'])==0 and not m.slides, (offset,via)
-        assert m.get(s+O['SLIDE_DRAG'])&0xffff==0 and not m.get(s+O['SLIDE_ANIMATOR']); passed()
-# A tap at rest reaches stock, so the cover's click still opens it.
-m=CoverflowMachine(); page=m.open(); f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.slides; passed()
+# Wheel only: the covers' slide_menu takes no touch.
+m=CoverflowMachine(); m.open()
+assert m.nodes[m.slide].get('sensitive')==0; passed()
 # Text geometry. Both builds: album over artist under the covers' frame (CF_TEXT_Y), the album larger
 # and white, the artist grey, CF_EDGE from the sides and clear of the rounded glass. iPod keeps every
 # other label (the track list's title and rows, whose last visible row is lowest) CF_EDGE in too;
@@ -3365,10 +3351,9 @@ for (frac,mask),host in zip(cases,want):
 # paint of it draws the frame 1:1 at its origin, marked opaque; the covers around the position are
 # decoded once, each load dropped at once. What is drawn is what the renderer draws for that ring.
 m=DepthMachine(); page=m.open(); s=m.slide
-assert len(m.frames)==1 and cf_geometry(m,s)==(0,0,O['CF_VIEW_W'],290)  # the whole page takes swipes
-stride=signed(m.get(s+O['SLIDE_SPACER']))+290; assert stride==O['CF_STRIDE']
-assert all('image' not in m.nodes[c] and m.nodes[c].get('sensitive')==0 for c in m.nodes[s]['children'])
-assert all(m.nodes[w].get('sensitive')==0 for w in m.nodes[m.get(s+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label')
+assert len(m.frames)==1 and cf_geometry(m,s)==(0,0,O['CF_VIEW_W'],O['CF_VIEW_H'])
+stride=signed(m.get(s+O['SLIDE_SPACER']))+O['CF_VIEW_H']; assert stride==O['CF_STRIDE']
+assert all('image' not in m.nodes[c] for c in m.nodes[s]['children'])
 def paint(m):
     return m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slide,m.canvas,0,0),gap=0,clear=False,count=50_000_000)
 instructions=[0]
@@ -3389,19 +3374,8 @@ m.word(s+O['SLIDE_OFFSET'],-O['CF_STRIDE']//4); instructions[0]=0; paint(m); tur
 assert m.draws[-1][5]!=m.draws[0][5] and len(m.loads)==4 and turn_cost>rest_cost//2; passed()
 m.u.hook_del(counter)
 m.word(s+O['SLIDE_OFFSET'],0); paint(m)
-# Taps: the centre cover opens its tracks; a side one scrolls to the centre; a miss ends the press.
-f,ctx=m.handler(page,O['EVT_POINTER_UP_BEFORE'])
-pointer=m.alloc(0x40)  # its own event: call() writes the key code at 0x18, which is EVENT_X here
-def tap(x,y):
-    m.word(pointer,O['EVT_POINTER_UP_BEFORE']); m.word(pointer+O['EVENT_X'],x); m.word(pointer+O['EVENT_Y'],y)
-    m.byte(s+O['SLIDE_DRAG']+1,1)
-    return m.call(address=f,args=(ctx,pointer,0,0),gap=0)
-assert tap(5,5)==11  # the background: only the press ends
-assert not m.get(s+O['SLIDE_ANIMATOR']) and m.u.mem_read(s+O['SLIDE_DRAG']+1,1)==b'\0'
-assert tap(O['CF_VIEW_W']-20,O['CF_TOP']+80)==11
-a=m.get(s+O['SLIDE_ANIMATOR']); assert a and signed(m.get(a+O['ANIM_X_TO']))==-2*O['CF_STRIDE']
-m.advance(200); assert m.get(s+O['SLIDE_INDEX'])==2 and not m.get(s+O['SLIDE_ANIMATOR'])
-assert tap(O['CF_CX'],O['CF_TOP']+80)==11; m.advance(0)
+# The wheel's centre press clicks the centre child, which opens its tracks.
+m.word(s+O['SLIDE_INDEX'],2); m.tracks(2)
 assert m.query[:2]==('getMusicByAlbum','Album 2') and not m.nodes[m.get(s+O['W_PARENT'])]['visible']; passed()
 # Closing releases the frame and the textures; allocation failure keeps the flat covers.
 m.close(); assert m.destroyed==m.frames; passed()

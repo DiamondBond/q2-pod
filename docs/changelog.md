@@ -1,6 +1,6 @@
 # Changelog
 
-- **V7.4R / V7.4I**: Coverflow: swipe or tap anywhere on the screen, covers and album title included, instead of only the strip between them.
+- **V7.4R / V7.4I**: Coverflow is wheel-only: touch no longer drags or taps the covers.
 - **V7.3R / V7.3I**: iPod: on Now Playing, a single press of the centre button turns the screen off, as on every other page. iPod: a quick double press switches the wheel between volume and scrubbing through the track. iPod: away from Now Playing, the volume panel sits exactly over Quick Settings' brightness bar instead of half over it.
 - **V7.2R / V7.2I**: The equalizer's **Balance** is one row that opens a list from L 12.0 dB through Centre to R 12.0 dB in 0.5 dB steps, starting on the current value, instead of two rows that stepped it 0.1 dB at a time. iPod: away from Now Playing, the volume panel shows a rounded bar and just the number.
 - **V7.1R / V7.1I**: iPod: away from Now Playing, in Quick Settings or on a page without wheel navigation, the volume shows in a rounded panel near the bottom, with a white bar and "Volume 40", instead of stock's large slider.

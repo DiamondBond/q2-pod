@@ -227,7 +227,6 @@
  * start @0x665ab0, time_elapse @0x6660d4, scroll_set_params @0x682124. */
 #define SLIDE_SPACER 0x84
 #define SLIDE_OFFSET 0x94
-#define SLIDE_DRAG 0x98          /* u8 dragged, u8 pressed: pointer-up snaps only while pressed */
 #define SLIDE_ANIMATOR 0xc8
 #define ANIM_ELAPSED 0x10
 #define ANIM_START_TIME 0x18
@@ -292,7 +291,7 @@
  * CF_ZS more behind it, seen from CF_EYE px. Brightness (of 256) is 256 at the centre, CF_BRIGHT1
  * one cover out and CF_BRIGHT2 two out, reaching 0 three out. Each cover's reflection is
  * CF_REFLECT px high at native size, from CF_REFLECT_TOP (of 256) of its brightness down to black.
- * A drag moves one album every CF_STRIDE px. Starting values, to be tuned together on the Q2. */
+ * The wheel moves one album every CF_STRIDE px. Starting values, to be tuned together on the Q2. */
 #define CF_VIEW_W 375
 #define CF_VIEW_H 210
 #define CF_CX 187 /* the centre line lies between screen columns 186 and 187 */
