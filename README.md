@@ -7,6 +7,7 @@ A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the st
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 - **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
+- **Battery and speed:** less drain with the screen off, a quicker library and Coverflow, and long VBR MP3s that start at once and seek exactly.
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
@@ -69,7 +70,7 @@ Presets
 
 ## Shuffle Songs
 
-**Shuffle Songs**, the first row of Local Music, plays every song in Local Music in shuffle, starting from a random one, and turns the play mode to Shuffle.
+**Shuffle Songs**, the first row of Local Music, plays your whole library in shuffle from a random song and sets the play mode to Shuffle.
 
 ## Coverflow
 
@@ -99,7 +100,7 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 ### Extra controls
 
 - **Hold Return:** opens Now Playing without interrupting playback; the next short Return goes back to where you were.
-- **Volume:** on Now Playing, turning the wheel shows the volume as a white bar in place of the progress bar.
+- **Volume:** turning the wheel shows the volume as a white bar, in place of the progress bar on Now Playing and in a small panel elsewhere, without dimming the screen.
 - **Scrub:** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Press centre or Return, touch the screen, or wait 3 seconds to jump there.
 - **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears, then let go.
 - **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
