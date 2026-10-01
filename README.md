@@ -1,5 +1,11 @@
 # q2-ringnav: Wheel Navigation, Parametric EQ & Coverflow
 
+<p align="center">
+  <a href="https://youtu.be/C5x05EwsPGI" title="Watch the Q2-Pod demo on YouTube">
+    <img src="assets/banner.png" alt="Q2-Pod: the iPod firmware mod for the Shanling Q2" width="100%">
+  </a>
+</p>
+
 A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the stock look, **iPod** restyles browsing after an iPod classic. Both include:
 
 - **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
@@ -11,7 +17,7 @@ A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the st
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
-[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md)
+[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md) · [Demo video](https://youtu.be/C5x05EwsPGI)
 
 [Install](#install) · [Controls](#controls) · [Parametric EQ](#parametric-eq) · [Coverflow](#coverflow) · [iPod UI](#ipod-ui)
 
