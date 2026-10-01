@@ -92,11 +92,14 @@ def validate_assets(directory):
     assert new == old.replace(*WATCHDOG_SLEEP) and new != old
     off = fileoff(stock, DROP_CACHES[0])
     assert struct.unpack_from('<I', stock, off)[0] == DROP_CACHES[1] and struct.unpack_from('<I', demo, off)[0] == DROP_CACHES[2]
-    # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop.
-    from peq import VBR_SCAN
+    # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop, and the 48 kHz EQ gates.
+    from peq import VBR_SCAN, EQ_RATE_GATES
     old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
     off = fileoff(old, VBR_SCAN)
-    assert [i for i in range(0x3e40, 0x485250) if old[i] != new[i]] == [*range(off, off+4)] and not any(new[off:off+4])
+    gates = [fileoff(old, a) for a, _, _ in EQ_RATE_GATES]
+    differ = [i for i in range(0x3e40, 0x485250) if old[i] != new[i]]
+    assert set(differ) <= {*range(off, off+4), *(i for g in gates for i in range(g, g+4))} and not any(new[off:off+4])
+    assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in EQ_RATE_GATES] == [p for _, _, p in EQ_RATE_GATES]
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]

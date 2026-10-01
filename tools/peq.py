@@ -9,6 +9,9 @@ PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
 VBR_SCAN = 0x48fb3c
 # The audio demuxer's seek slot (demuxer_desc_audio at 0x89fd90) holds demux_audio_seek; see docs/internals.md.
 SEEK_SLOT, STOCK_SEEK = 0x89fdbc, 0x48d1ac
+# Stock skips the equalizer above 48 kHz (address, stock word, patched word); see docs/internals.md.
+EQ_RATE_GATES = ((0x42ced0, 0x10400098, 0),            # beqz $v0 to "setequalizer off" -> nop
+                 (0x42fd84, 0x1440003b, 0x1000003b))   # bnez $v0 to the insert -> b
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
@@ -112,6 +115,10 @@ def patch_player(raw, out):
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
     off = fileoff(raw, VBR_SCAN)
     data[off:off+4] = bytes(4)  # nop; was bnez $v0, 0x491de0
+    for address, stock, patched in EQ_RATE_GATES:
+        off = fileoff(raw, address)
+        check(struct.unpack_from('<I', raw, off)[0] == stock, 'Equalizer rate gate mismatch')
+        data[off:off+4] = struct.pack('<I', patched)
     off = fileoff(raw, SEEK_SLOT)
     check(struct.unpack_from('<I', raw, off)[0] == STOCK_SEEK, 'Audio demuxer seek slot mismatch')
     data[off:off+4] = struct.pack('<I', ps['mp3_seek'])

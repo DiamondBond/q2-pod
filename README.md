@@ -97,11 +97,11 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 **Audio settings → Equalizer**:
 
-- **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, and channel (both, **L** or **R**).
+- **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, and channel (both, **L** or **R**). Gain is picked with the wheel, -24 to +24 dB, and picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41, one octave wide) work as a 10-band graphic EQ. Frequency and Q open their own menu: tap the value (or press the centre button on it) to type one on the on-screen number keys, or step it with **Raise** / **Lower**.
 - **Balance:** L 12.0 dB to R 12.0 dB in 0.5 dB steps; **R 1.0 dB** plays the left 1 dB quieter.
 - **Apply changes:** edits and presets take effect only when chosen.
 - **PEQ: ON/OFF:** applies at once and persists; the status-bar **EQ** icon follows it.
-- **Preamp:** set automatically to just enough cut that boosts don't clip.
+- **Preamp:** **Auto** sets just enough cut that boosts don't clip and follows band edits. Pick +12 to -24 dB instead to keep a level of your own; above Auto, loud boosts can clip.
 
 ### Import a preset
 

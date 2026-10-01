@@ -11,7 +11,7 @@ void peq_default(peq_preset *p) {
     p->bypass = 1;
     for (int i = 0; i < PEQ_BANDS; ++i) {
         p->bands[i].frequency = i < 10 ? frequencies[i] : 1000;
-        p->bands[i].q = 0.7071067811865476;
+        p->bands[i].q = 1.41; /* one octave wide, as graphic EQs use */
     }
 }
 
@@ -33,7 +33,7 @@ static int error_at(peq_error *e, unsigned line, const char *reason) {
 }
 
 /* Decimal only (comma accepted as the mark, like APO); no hex floats, expressions, NaN or infinity. */
-static int number(const char *s, double *out) {
+int peq_number(const char *s, double *out) {
     double v = 0, scale = 1;
     int sign = 1, digits = 0, exponent = 0, esign = 1;
     if (*s == '+' || *s == '-') { if (*s == '-') sign = -1; ++s; }
@@ -102,7 +102,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
             double gain;
             if (n != 4 || strcmp(t[1], ":") || strcmp(t[3], "dB"))
                 return error_at(error, line, "expected Preamp: <gain> dB");
-            if (!number(t[2], &gain) || !between(gain, -60, 24))
+            if (!peq_number(t[2], &gain) || !between(gain, -60, 24))
                 return error_at(error, line, "preamp outside -60..24 dB or invalid number");
             if (scope == 1) p.preamp += gain;
             else side[scope] += gain;
@@ -143,11 +143,11 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
         ++k;
         if (strcmp(t[k], "Fc") || strcmp(t[k+2], "Hz") || strcmp(t[k+3], "Gain") ||
             strcmp(t[k+5], "dB")) return error_at(error, line, "expected Fc <Hz> Hz Gain <dB> dB");
-        if (!number(t[k+1], &b.frequency) || !number(t[k+4], &b.gain))
+        if (!peq_number(t[k+1], &b.frequency) || !peq_number(t[k+4], &b.gain))
             return error_at(error, line, "invalid frequency or gain number");
         k += 6;
         if (k < n) {
-            if (strcmp(t[k], "Q") || !number(t[k+1], &b.q))
+            if (strcmp(t[k], "Q") || !peq_number(t[k+1], &b.q))
                 return error_at(error, line, "expected Q <number>");
         } else if (!b.type) return error_at(error, line, "peaking filter requires Q");
         if (b.type && valid_band(&b)) {

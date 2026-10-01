@@ -17,12 +17,28 @@ _Static_assert(sizeof(af_data) == 24, "audio ABI");
 _Static_assert(__builtin_offsetof(af_instance, setup) == 16, "setup ABI");
 _Static_assert(__builtin_offsetof(af_instance, mul) == 40, "multiplier ABI");
 
+/* DSD (the vendor's dsdiff driver: dsf, dff, SACD iso; or FFmpeg's ffdsd*) reaches the chain as integer PCM,
+ * possibly DoP, whose bits must arrive unchanged: detach (2); the player re-adds the filter at the next file.
+ * Codec lookup: docs/internals.md. */
+#ifdef PEQ_HOST
+extern char *peq_mpctx;
+#define MPCTX peq_mpctx
+#else
+#define MPCTX (*(char *volatile *)0xaf9e30u)
+#endif
+static int dsd(void) {
+    char *mp = MPCTX, *sh = mp ? *(char **)(mp + 0x2c) : 0, *codec = sh ? *(char **)(sh + 4) : 0;
+    if (!codec) return 0;
+    const char *name = *(char **)(codec + 0x3d0), *drv = *(char **)(codec + 0x3e0);
+    return (drv && !strcmp(drv, "dsdiff")) || (name && strlen(name) >= 5 && !memcmp(name, "ffdsd", 5));
+}
+
 static int control(af_instance *af, int command, void *arg) {
     player_state *s = af->setup;
     if (command == 0x10000100) {
         af_data *in = arg;
         if (!in || in->nch < 1 || in->nch > PEQ_CHANNELS) return -2;
-        if (in->rate < 8000 || in->rate > 384000 || (in->format & ~63)) return 2;
+        if (in->rate < 8000 || in->rate > 384000 || (in->format & ~63) || dsd()) return 2;
         peq_load_active(&s->preset);
         peq_reset(&s->dsp, in->rate, in->nch, &s->preset);
         *af->data = *in;

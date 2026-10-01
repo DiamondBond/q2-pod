@@ -51,6 +51,7 @@
 #define PULL_CLAIM_PX 8
 #define QUICK_EDGE_PX 31        /* stock on_wm_tsmove_fun @0x4e8d10 */
 #define EVT_CLICK 0x10c
+#define EVT_FOCUS 0x10e /* widget_set_focused_internal @0x65fdf4 */
 #define EVT_SCROLL_END 0x14f /* stock lists queue their visible covers on this (album page registers @0x4a43d0) */
 #define CANVAS_X 0x00
 #define CANVAS_Y 0x04

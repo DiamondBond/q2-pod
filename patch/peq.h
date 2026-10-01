@@ -40,6 +40,7 @@ typedef struct {
 void peq_default(peq_preset *p);
 int peq_valid(const peq_preset *p);
 int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error);
+int peq_number(const char *s, double *out);
 int peq_import_file(const char *path, peq_preset *out, peq_error *error);
 int peq_load(const char *path, peq_preset *out);
 void peq_load_active(peq_preset *p);

@@ -14,20 +14,23 @@ int peq_stock_eq(int mode) {
     return result;
 }
 
-enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, BALANCES };
-enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE,
-       FREQ_DOWN, FREQ_UP, GAIN_DOWN, GAIN_UP, Q_DOWN, Q_UP, CHANNEL, STEP,
-       YES, CANCEL, DELETE, BALANCE };
+enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST };
+enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
+       YES, CANCEL, DELETE, BALANCE, PREAMP, GAIN, /* these three open the picker, in picks[] order */
+       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD };
 static struct {
-    void *page, *view;
+    void *page, *view, *edit;
     unsigned timer;
-    int screen, band, step, count, previous, rendered, dirty;
+    int screen, band, step, count, previous, rendered, dirty, pick, adjust, tries;
+    double typed;
     peq_preset draft, candidate;
     char (*names)[256];
     char destination[600], status[160];
 } ui __attribute__((section(".scratch")));
 
 static const int steps[] = {1, 10, 100, 1000};
+/* Wheel pickers in 0.5 dB rows: row i is first + step * i. Preamp's row 0 is Auto (first is unused there). */
+static const struct { double first, step; int rows; } picks[] = {{-12, 0.5, 49}, {12.5, -0.5, 74}, {24, -0.5, 97}};
 static int action(void *ctx, void *event);
 static int render(const void *unused);
 
@@ -65,6 +68,41 @@ static double headroom(const peq_preset *p) {
     return peak == 1 ? 0 : gain < -60 ? -60 : gain; /* no boost: +0, not -0.0 on screen */
 }
 
+static double *picked(void) {
+    return (double *[]){&ui.draft.balance, &ui.draft.preamp, &ui.draft.bands[ui.band].gain}[ui.pick - BALANCE];
+}
+
+/* The value menu's edit closed with new text: apply it if it is a number (clamped like Raise/Lower), else restore it. */
+static int typed(void *ctx, void *event) {
+    (void)ctx; (void)event;
+    const unsigned *t = ui.edit ? widget_get_text(ui.edit) : 0; /* wchar_t */
+    char s[16];
+    unsigned n = 0;
+    while (t && t[n] && n < sizeof(s) - 1) { s[n] = (char)t[n]; ++n; }
+    s[n] = 0;
+    if (peq_number(s, &ui.typed)) action((void *)(long)TYPED, 0);
+    else if (!ui.timer) ui.timer = timer_add(render, 0, 1); /* show the value again */
+    return 0;
+}
+
+/* The T9 keyboard opens on its letters; a value only needs its "123" page (symnum). The keyboard can open a
+ * moment after the focus, so look for its window every 16 ms, up to 20 times. */
+static int numbers(const void *unused) {
+    (void)unused;
+    void *kb = widget_lookup(window_manager(), "kb_default_t9", 0);
+    if (kb) pages_set_active_by_name(widget_lookup(kb, "panel", 1), "symnum");
+    return kb || ++ui.tries >= 20 ? 7 : 8; /* RET_REMOVE, else RET_REPEAT */
+}
+
+static int focused(void *ctx, void *event) {
+    (void)ctx; (void)event;
+    ui.tries = 0;
+    timer_add(numbers, 0, 16);
+    return 0;
+}
+
+static int on_auto(void) { return __builtin_fabs(ui.draft.preamp - headroom(&ui.draft)) < 0.05; }
+
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
 
 static void list_files(const char *folder, const char *extension) {
@@ -101,15 +139,23 @@ static int action(void *ctx, void *event) {
     (void)event;
     int id = (int)(long)ctx;
     if (id < 0) return 0; /* display-only rows */
+    /* The centre button on the value row; no render, which would destroy the edit and close the keyboard. */
+    if (id == KEYBOARD) { widget_set_focused(ui.edit, 1); return 0; }
     peq_band *b = &ui.draft.bands[ui.band];
     ui.status[0] = 0;
+    /* Band edits keep the preamp on Auto (just enough cut for the boosts) only if it was there. */
+    int edit = (id >= ENABLE && id < STEP) || (id < 256 && ui.screen == PICK && ui.pick == GAIN);
+    int automatic = edit && on_auto();
     if (id == BACK) {
         if (ui.screen == HOME) { navigator_back(); return 0; }
-        ui.screen = ui.screen == BAND || ui.screen == PRESETS || ui.screen == BALANCES ? HOME : PRESETS;
+        if (ui.screen == PICK) ui.screen = ui.pick == GAIN ? BAND : HOME;
+        else if (ui.screen == ADJUST) ui.screen = BAND;
+        else ui.screen = ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
     else if (id == DELETE) ui.screen = DELETES;
-    else if (id == BALANCE) ui.screen = BALANCES;
+    else if (id >= BALANCE && id <= GAIN) { ui.pick = id; ui.screen = PICK; }
+    else if (id == FREQUENCY || id == QUALITY) { ui.adjust = id; ui.screen = ADJUST; }
     else if (id == SAVE) ui.screen = SAVES;
     else if (id == BYPASS) {
         /* Takes effect at once and keeps unapplied band edits out of the active preset. */
@@ -127,13 +173,12 @@ static int action(void *ctx, void *event) {
     else if (id == TYPE) b->type = (b->type + 1) % 3;
     else if (id == CHANNEL && b->enabled) b->enabled = b->enabled % 3 + 1; /* both, left, right */
     else if (id == STEP) ui.step = (ui.step + 1) % 4;
-    else if (id >= FREQ_DOWN && id <= Q_UP) {
-        static const double lo[] = {20, -24, 0.1}, hi[] = {20000, 24, 10}, fixed[] = {0, 0.5, 0.05};
-        int k = (id - FREQ_DOWN) / 2;
-        double *value = (double *[]){&b->frequency, &b->gain, &b->q}[k], step = k ? fixed[k] : steps[ui.step];
-        *value += ((id - FREQ_DOWN) & 1) ? step : -step;
-        if (*value < lo[k]) *value = lo[k];
-        if (*value > hi[k]) *value = hi[k];
+    else if (id == RAISE || id == LOWER || id == TYPED) {
+        int k = ui.adjust == QUALITY;
+        double *value = k ? &b->q : &b->frequency, step = k ? 0.05 : steps[ui.step];
+        *value = id == TYPED ? ui.typed : *value + (id == RAISE ? step : -step);
+        if (*value < (k ? 0.1 : 20)) *value = k ? 0.1 : 20;
+        if (*value > (k ? 10 : 20000)) *value = k ? 10 : 20000;
     } else if (id == APPLY) {
         if (peq_save(PEQ_ACTIVE, &ui.draft, 1) == 1) {
             peq_stock_eq(1);
@@ -149,7 +194,13 @@ static int action(void *ctx, void *event) {
     } else if (id == CANCEL) ui.screen = ui.previous;
     else if (id < 256) {
         if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
-        else if (ui.screen == BALANCES && id <= 48) { ui.draft.balance = (id - 24) / 2.0; ui.dirty = 1; ui.screen = HOME; }
+        else if (ui.screen == PICK && id < picks[ui.pick - BALANCE].rows) {
+            /* Preamp's Auto row: the band-edit cut, which later band edits then keep up to date. */
+            *picked() = ui.pick == PREAMP && !id ? headroom(&ui.draft) : picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * id;
+            if (ui.pick == GAIN && !b->enabled) b->enabled = 1; /* picking a gain is using the band */
+            ui.dirty = 1;
+            ui.screen = ui.pick == GAIN ? BAND : HOME;
+        }
         else if (ui.screen == SAVES && id < 10) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/Manual %02d.peq", id + 1);
             ui.candidate = ui.draft;
@@ -183,9 +234,9 @@ static int action(void *ctx, void *event) {
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
-    if (id >= ENABLE && id < STEP) { /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP, CHANNEL */
+    if (edit) { /* ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL and a picked gain */
         ui.dirty = 1;
-        ui.draft.preamp = headroom(&ui.draft);
+        if (automatic) ui.draft.preamp = headroom(&ui.draft);
     }
     if (!ui.timer) ui.timer = timer_add(render, 0, 1);
     return 0;
@@ -202,12 +253,17 @@ static int render(const void *unused) {
     if (ui.view && ui.rendered == ui.screen) {
         selection = widget_get_prop_int(ui.view, "_ringnav_index", 0);
         offset = widget_get_prop_int(ui.view, "yoffset", 0);
-    } else if (ui.screen == BALANCES) { /* opens on the nearest row to the current balance, centred */
-        selection = (int)(ui.draft.balance * 2 + (ui.draft.balance < 0 ? -0.5 : 0.5)) + 24;
+    } else if (ui.screen == PICK) { /* opens on the nearest row to the current value (Auto if on it), centred */
+        int last = picks[ui.pick - BALANCE].rows - 1;
+        double r = (*picked() - picks[ui.pick - BALANCE].first) / picks[ui.pick - BALANCE].step + 0.5;
+        selection = r < 0 ? 0 : r > last ? last : (int)r;
+        if (ui.pick == PREAMP && on_auto()) selection = 0;
+        else if (ui.pick == PREAMP && !selection) selection = 1;
         offset = selection * 48 - (rows - 48) / 2;
-        offset = offset < 0 ? 0 : offset > 49 * 48 - rows ? 49 * 48 - rows : offset;
+        offset = offset < 0 ? 0 : offset > (last + 1) * 48 - rows ? (last + 1) * 48 - rows : offset;
     }
     ui.rendered = ui.screen;
+    ui.edit = 0;
     widget_destroy_children(ui.page);
     void *list = list_view_create(ui.page, 0, 48, 375, rows);
     widget_set_prop_int(list, "item_height", 48);
@@ -225,8 +281,7 @@ static int render(const void *unused) {
     if (ui.screen == HOME) {
         row(view, n++, ui.dirty ? "Apply changes" : "Nothing to apply", ui.dirty ? APPLY : -1);
         row(view, n++, ui.draft.bypass ? "PEQ: OFF" : "PEQ: ON", BYPASS);
-        /* Display only: the preamp comes from the loaded preset; -1 matches no action. */
-        snprintf(text, sizeof(text), "Preamp %.1f dB", ui.draft.preamp); row(view, n++, text, -1);
+        snprintf(text, sizeof(text), "Preamp %.1f dB", ui.draft.preamp); row(view, n++, text, PREAMP);
         /* Balance turns one side down: R 1.0 dB is the left 1 dB quieter. */
         snprintf(text, sizeof(text), __builtin_fabs(ui.draft.balance) >= 0.05 ? "Balance: %s %.1f dB" : "Balance: Centre",
                  ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
@@ -247,16 +302,46 @@ static int render(const void *unused) {
         row(view, n++, b->enabled ? "Band: ON" : "Band: OFF", ENABLE);
         if (b->enabled) row(view, n++, (const char *[]){0, "Channels: Both", "Channels: Left", "Channels: Right"}[b->enabled], CHANNEL);
         row(view, n++, b->type == 0 ? "Type: Peaking" : b->type == 1 ? "Type: Low shelf" : "Type: High shelf", TYPE);
-        snprintf(text, sizeof(text), "Frequency step: %d Hz", steps[ui.step]); row(view, n++, text, STEP);
-        snprintf(text, sizeof(text), "Frequency %.0f Hz: lower", b->frequency); row(view, n++, text, FREQ_DOWN);
-        row(view, n++, "Raise frequency", FREQ_UP);
-        snprintf(text, sizeof(text), "Gain %.1f dB: lower 0.5", b->gain); row(view, n++, text, GAIN_DOWN);
-        row(view, n++, "Raise gain 0.5 dB", GAIN_UP);
-        snprintf(text, sizeof(text), "Q %.2f: lower 0.05", b->q); row(view, n++, text, Q_DOWN);
-        row(view, n++, "Raise Q 0.05", Q_UP);
-    } else if (ui.screen == BALANCES) {
-        for (int i = 0; i <= 48; ++i) { /* L 12.0 dB to R 12.0 dB in 0.5 dB steps */
-            snprintf(text, sizeof(text), i == 24 ? "Centre" : "%s %.1f dB", i < 24 ? "L" : "R", (i < 24 ? 24 - i : i - 24) / 2.0);
+        snprintf(text, sizeof(text), "Frequency %.0f Hz", b->frequency); row(view, n++, text, FREQUENCY);
+        snprintf(text, sizeof(text), "Gain %+.1f dB", b->gain); row(view, n++, text, GAIN);
+        snprintf(text, sizeof(text), "Q %.2f", b->q); row(view, n++, text, QUALITY);
+    } else if (ui.screen == ADJUST) {
+        /* Row 0 is the value in an edit, styled and keyed as the stock playlist dialogs' (T9 keyboard, 123 page
+         * for digits); a tap or the centre button opens the keyboard and the value applies when it closes. */
+        void *item = list_item_create(view, 0, 0, 375, 48);
+        widget_use_style(item, "s_listitem_black");
+        widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
+        ui.edit = widget_factory_create_widget(widget_factory(), "edit", item, 12, 4, 351, 40);
+        static const char *const props[][2] = {{"keyboard", "kb_default_t9"}, {"input_type", "ufloat"}, {"action_text", "OK"},
+            {"bg_color", "#2B2B2B"}, {"border_color", "#2B2B2B00"}, {"text_color", "#FFFFFF"}, {"round_radius", "20"},
+            {"margin_left", "12"}, {"font_size", "22"}};
+        static const char *const states[] = {"normal", "focused", "empty", "empty_focus", "changed", "error", "over", "empty_over"};
+        for (unsigned i = 0; i < sizeof(props) / sizeof(props[0]); ++i) {
+            if (i < 3) { widget_set_prop_str(ui.edit, props[i][0], props[i][1]); continue; }
+            for (unsigned j = 0; j < sizeof(states) / sizeof(states[0]); ++j) {
+                snprintf(text, sizeof(text), "style:%s:%s", states[j], props[i][0]);
+                widget_set_prop_str(ui.edit, text, props[i][1]);
+            }
+        }
+        peq_band *b = &ui.draft.bands[ui.band];
+        snprintf(text, sizeof(text), ui.adjust == QUALITY ? "%.2f" : "%.0f", ui.adjust == QUALITY ? b->q : b->frequency);
+        widget_set_text_utf8(ui.edit, text);
+        widget_on(ui.edit, EVT_VALUE_CHANGED, typed, 0);
+        widget_on(ui.edit, EVT_FOCUS, focused, 0);
+        n = 1;
+        if (ui.adjust == QUALITY) { row(view, n++, "Raise 0.05", RAISE); row(view, n++, "Lower 0.05", LOWER); }
+        else {
+            snprintf(text, sizeof(text), "Raise %d Hz", steps[ui.step]); row(view, n++, text, RAISE);
+            snprintf(text, sizeof(text), "Lower %d Hz", steps[ui.step]); row(view, n++, text, LOWER);
+            snprintf(text, sizeof(text), "Step: %d Hz", steps[ui.step]); row(view, n++, text, STEP);
+        }
+    } else if (ui.screen == PICK) {
+        for (int i = 0; i < picks[ui.pick - BALANCE].rows; ++i) {
+            double v = picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * i;
+            if (ui.pick == BALANCE) /* L 12.0 dB to R 12.0 dB */
+                snprintf(text, sizeof(text), i == 24 ? "Centre" : "%s %.1f dB", v < 0 ? "L" : "R", __builtin_fabs(v));
+            else if (ui.pick == PREAMP && !i) snprintf(text, sizeof(text), "Auto (%.1f dB)", headroom(&ui.draft));
+            else snprintf(text, sizeof(text), "%+.1f dB", v);
             row(view, n++, text, i);
         }
     } else if (ui.screen == CONFIRM && ui.previous == DELETES) {
@@ -280,7 +365,7 @@ static int render(const void *unused) {
     }
     widget_set_prop_int(view, "virtual_h", n * 48);
     /* ringnav keeps the selection above on a view whose row count it already knows. */
-    if (ui.screen == BALANCES) widget_set_prop_int(view, "_ringnav_count", n);
+    if (ui.screen == PICK) widget_set_prop_int(view, "_ringnav_count", n);
     if (n * 48 < rows) { /* short lists: shrink so the list's white background never shows below the rows */
         widget_resize(list, 375, n * 48);
         widget_resize(view, 375, n * 48);
@@ -292,7 +377,9 @@ static int render(const void *unused) {
     widget_set_prop_int(title, "line_wrap", 1);
     if (ui.status[0]) snprintf(text, sizeof(text), "%s", ui.status);
     else if (ui.screen == BAND) snprintf(text, sizeof(text), "PEQ Band %d", ui.band + 1);
-    else if (ui.screen == BALANCES) snprintf(text, sizeof(text), "PEQ Balance");
+    else if (ui.screen == ADJUST) snprintf(text, sizeof(text), ui.adjust == QUALITY ? "PEQ Band %d Q" : "PEQ Band %d Frequency (Hz)", ui.band + 1);
+    else if (ui.screen == PICK && ui.pick == GAIN) snprintf(text, sizeof(text), "PEQ Band %d Gain", ui.band + 1);
+    else if (ui.screen == PICK) snprintf(text, sizeof(text), ui.pick == PREAMP ? "PEQ Preamp" : "PEQ Balance");
     else snprintf(text, sizeof(text), "PEQ");
     widget_set_text_utf8(title, text);
     widget_invalidate_force(ui.page, 0);
