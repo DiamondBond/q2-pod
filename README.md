@@ -17,7 +17,7 @@ A firmware mod that restyles the **Shanling Q2** after an iPod classic. It inclu
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
-[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md) · [Demo video](https://youtu.be/C5x05EwsPGI)
+[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md) · [Video](https://youtu.be/C5x05EwsPGI)
 
 [Install](#install) · [iPod UI](#ipod-ui) · [Controls](#controls) · [Parametric EQ](#parametric-eq) · [Coverflow](#coverflow)
 
