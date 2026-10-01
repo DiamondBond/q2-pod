@@ -18,10 +18,10 @@
 
 <p align="center">
   <b><a href="https://github.com/DiamondBond/q2-ringnav/releases/latest">Download</a></b> ·
+  <b><a href="#install">Install</a></b> ·
   <b><a href="docs/changelog.md">Changelog</a></b> ·
   <b><a href="#documentation">Docs</a></b>
   <br>
-  <a href="#install">Install</a> |
   <a href="#display-settings">Display</a> |
   <a href="#ipod-ui">iPod UI</a> |
   <a href="#controls">Controls</a> |
