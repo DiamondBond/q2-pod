@@ -3108,7 +3108,7 @@ if variant=='ipod':
         if end=='timeout': step(m,O['SCRUB_MS'],wait=True)
         else: centre(m,50)
         ended(m,[],end); passed()
-    # Centre again, Return (swallowed) and touch each end it, committing the target once.
+    # Another double press, Return (swallowed) and touch each end it, committing the target once.
     for end in ('centre','return','touch'):
         m=scrub_page(); centre(m); step(m)
         if end=='centre': centre(m,50)

@@ -68,7 +68,7 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 | Control                | What it does                                                                                                                                         |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Wheel**              | Moves one row or icon per tick; keep spinning in long lists to speed up. iPod lists ignore a stray second tick, so a one-row turn doesn't overshoot. |
-| **Centre button**      | Opens the highlighted item. Double-press to turn the screen off.                                                                                     |
+| **Centre button**      | Opens the highlighted item. Double-press to turn the screen off (on Now Playing, a single press).                                                    |
 | **Hold Play/Pause**    | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it.               |
 | **Touch**              | Works as normal, and hides the selection until you use the wheel or buttons again.                                                                   |
 | **Hold centre button** | Forces the player off if it freezes or won't finish booting.                                                                                         |
