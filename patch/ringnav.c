@@ -2256,7 +2256,7 @@ int ringnav_localmusic(void *win, void *ctx) {
     int result = stock_localmusic_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_localmusic", 1) : (void *)0;
     if (view) {
-        void *label = list_row(view, "playset_playmode", shuffle_songs, 0);
+        void *label = list_row(view, "local_shuffle", shuffle_songs, 0);
         widget_set_text_utf8(label, "Shuffle Songs");
         widget_restack(P(P(label, W_PARENT), W_PARENT), 0);
     }

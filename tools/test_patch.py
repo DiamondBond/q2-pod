@@ -4017,7 +4017,7 @@ assert m.calls[0][:3]==('stock_localmusic',m.top,5)
 row=m.nodes[view]['children'][0]; assert m.nodes[view]['children'][1:]==stock and m.nodes[row]['style']=='s_listitem_black'
 button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[button]['style']=='s_btn_listitem' and [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
-assert m.nodes[icon]['image']=='playset_playmode' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
+assert m.nodes[icon]['image']=='local_shuffle' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
 assert m.nodes[label]['style']=='s_scrlabel_white24l' and m.nodes[label]['text']=='Shuffle Songs' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0

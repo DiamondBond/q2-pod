@@ -269,6 +269,8 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
+# Shuffle Songs' icon: stock's 52px playset_playmode, kept apart from the copy iPod pre-sizes for Settings.
+LOCAL_ICONS = {'local_shuffle.png': 'playset_playmode.png'}
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
 STOCK_EQ = ['release/assets/default/raw/ui/playset/preseteq_page.bin'] + [
@@ -460,7 +462,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo = out/'logo.jpg'
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
-    # Normal's Coverflow card icons are the only new inodes; they copy menu_music's metadata.
+    # New inodes: normal's Coverflow card icons (menu_music's metadata) and Shuffle Songs' icon (its source's).
     added = []
     for name in [] if ipod else ICONS:
         stock = re.search(rb'^release/assets/default/raw/images/xx/'+name.replace('coverflow','music').encode()+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
@@ -469,6 +471,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         (out/name).write_bytes((ROOT/'assets'/name).read_bytes())  # package the hashed bytes, as the logo
         entry = path+b' F '+b' '.join(stock.groups())+b' cat '+shlex.quote(str(out/name)).encode()+b'\n'
         at = p.index(b'# START OF DATA')  # definitions precede the embedded data
+        p = p[:at]+entry+p[at:]
+        added.append([path, b'R', *stock.groups()])
+    for name, original in LOCAL_ICONS.items():
+        stock = re.search(rb'^release/assets/default/raw/images/xx/'+re.escape(original.encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
+        check(stock is not None, f'Missing stock icon for {name}')
+        path = b'release/assets/default/raw/images/xx/'+name.encode()
+        (out/name).write_bytes(cat(path.decode().replace(name, original)))
+        entry = path+b' F '+b' '.join(stock.groups())+b' cat '+shlex.quote(str(out/name)).encode()+b'\n'
+        at = p.index(b'# START OF DATA')
         p = p[:at]+entry+p[at:]
         added.append([path, b'R', *stock.groups()])
     removed = []
