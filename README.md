@@ -41,8 +41,6 @@ Q2 Pod restyles the **Shanling Q2** after an iPod classic and adds some communit
 | Play next / Add to queue                                 | Faster library browsing                                                           |
 | Shuffle Songs across the whole library                   | Long VBR MP3s start at once and seek accurately                                   |
 | Parametric EQ: up to 30 bands, per channel, with balance | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
-| AutoEQ / Equalizer APO preset import from microSD        |                                                                                   |
-| Coverflow album browser                                  |                                                                                   |
 
 ## Install
 
