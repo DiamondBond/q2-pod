@@ -4,8 +4,6 @@
   </a>
 </p>
 
-<h1 align="center">Q2 Pod</h1>
-
 <p align="center">
   An iPod classic–style firmware mod for the Shanling Q2.<br>
   Wheel navigation, a 30-band parametric EQ and Coverflow, built on the stock firmware.
