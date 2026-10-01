@@ -17,29 +17,32 @@
 </p>
 
 <p align="center">
+  <b><a href="https://github.com/DiamondBond/q2-ringnav/releases/latest">Download</a></b> ·
+  <b><a href="docs/changelog.md">Changelog</a></b> ·
+  <b><a href="#documentation">Docs</a></b>
+  <br>
   <a href="#install">Install</a> |
   <a href="#display-settings">Display</a> |
   <a href="#ipod-ui">iPod UI</a> |
   <a href="#controls">Controls</a> |
   <a href="#parametric-eq">Parametric EQ</a> |
-  <a href="#coverflow">Coverflow</a> |
-  <a href="#documentation">Docs</a> |
-  <a href="docs/changelog.md">Changelog</a>
+  <a href="#coverflow">Coverflow</a>
 </p>
 
-Q2 Pod restyles the **Shanling Q2** after an iPod classic and adds what the stock firmware lacks.
+Q2 Pod restyles the **Shanling Q2** after an iPod classic and adds some community appreciated features.
 
 ## Features
 
 | For listening                                            | Under the hood                                                                    |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| iPod classic–style lists, Home and Now Playing           | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
-| Wheel navigation with acceleration and position memory   | Clock keeps the right time after power-off                                        |
-| Parametric EQ: up to 30 bands, per channel, with balance | Less battery drain with the screen off                                            |
-| AutoEQ / Equalizer APO preset import from microSD        | Faster library browsing                                                           |
-| Coverflow album browser                                  | Long VBR MP3s start at once and seek accurately                                   |
-| Shuffle Songs across the whole library                   | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
-| Play next / Add to queue                                 | Accent, Home layout and battery style options                                     |
+| Accent, Home layout and battery style options            | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
+| iPod classic–style lists, Home and Now Playing           | Clock keeps the right time after power-off                                        |
+| Wheel navigation with acceleration and position memory   | Less battery drain with the screen off                                            |
+| Play next / Add to queue                                 | Faster library browsing                                                           |
+| Shuffle Songs across the whole library                   | Long VBR MP3s start at once and seek accurately                                   |
+| Parametric EQ: up to 30 bands, per channel, with balance | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
+| AutoEQ / Equalizer APO preset import from microSD        |                                                                                   |
+| Coverflow album browser                                  |                                                                                   |
 
 ## Install
 
