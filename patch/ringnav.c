@@ -82,6 +82,15 @@ typedef struct {
     void *fx_surface;
     int fx_token, bump_dir, edge_dir, edge_id;
     unsigned fx_timer, edge_time;
+    /* Resume: the saved places, most recent first; the track polled (rs_key, 0 none) and whether
+     * it is long, its last seconds, the seconds last saved and how many polls they stood still;
+     * rs_pending is the place to restore once it plays, rs_settle a track change one poll old. */
+    struct {
+        unsigned key;
+        int sec;
+    } spots[RESUME_SLOTS];
+    unsigned spots_read, rs_at, rs_key;
+    int rs_long, rs_settle, rs_sec, rs_total, rs_saved, rs_still, rs_pending;
 #if IPOD
     void *pull_page, *pull_surface;
     int pull_x, pull_y, pull_claimed;
@@ -96,7 +105,8 @@ typedef struct {
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
-    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
+    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_vol, *np_level;
+    int np_volume;    /* the volume bar is showing */
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
     int np_left;
     /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press; scrub_to is the
@@ -1595,7 +1605,8 @@ static int np_gone(void *win, void *event) {
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
-        st.np_slider = st.np_elapsed = (void *)0;
+        st.np_slider = st.np_elapsed = st.np_vol = st.np_level = (void *)0;
+        st.np_volume = 0;
         st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
@@ -1613,12 +1624,58 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_slider = widget_lookup(win, "slider_play", 1);
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
+    st.np_vol = widget_lookup(win, "slider_ipod_vol", 1);
+    st.np_level = widget_lookup(win, "label_ipod_vol", 1);
+    st.np_volume = 0;
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
     widget_on(win, EVT_DESTROY, np_gone, win);
     np_sync(win);
     return result;
+}
+
+/* The volume over Now Playing, as on an iPod classic. Stock's wheel opens dialog/volume_dialog and
+ * sets its slider_vol; while that dialog sits directly over Now Playing its slider and label are
+ * hidden, and the page's white slider_ipod_vol and "Volume N" take the progress bar's and times'
+ * places until it closes. The dialog's highlighter (highlight="default(alpha=200)") would show a
+ * dimmed snapshot of the page taken at open, so the page neither dims nor updates: it is dropped
+ * as stock drops it on close, and the screen repainted live. Over any other window the dialog
+ * keeps its stock look, dimming included. Painting the dialog, the page or the status bar runs
+ * this; the dialog paints its children after. */
+static void np_volume(void *top) {
+    void *wm = window_manager(), *vol = (void *)0;
+    if (!st.np_vol || !st.np_level) return;
+    if (top && top != st.np_win &&
+        !tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog")) {
+        unsigned n = widget_count_children(wm);
+        if (n >= 2 && widget_get_child(wm, n - 2) == st.np_win)
+            vol = widget_lookup(top, "slider_vol", 1);
+    }
+    if (vol) {
+        void *label = widget_lookup(top, "label_vol", 1);
+        if (P(wm, WM_HIGHLIGHTER)) {
+            wm_drop_highlighter(wm);
+            widget_invalidate_force(top, (void *)0);
+        }
+        widget_set_visible(vol, 0, 0);
+        if (label) widget_set_visible(label, 0, 0);
+        int level = widget_get_prop_int(vol, "value", 0);
+        widget_set_prop_int(st.np_vol, "max", widget_get_prop_int(vol, "max", 100));
+        widget_set_prop_int(st.np_vol, "value", level);
+        char s[16];
+        tk_snprintf(s, sizeof s, "Volume %d", level);
+        widget_set_text_utf8(st.np_level, s);
+    }
+    int on = vol != (void *)0;
+    if (on != st.np_volume) {
+        void *swap[] = { st.np_slider, st.np_elapsed, st.np_remain };
+        for (unsigned i = 0; i < sizeof swap / sizeof *swap; i++)
+            if (swap[i]) widget_set_visible(swap[i], !on, 0);
+        widget_set_visible(st.np_vol, on, 0);
+        widget_set_visible(st.np_level, on, 0);
+    }
+    st.np_volume = on;
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
@@ -1648,6 +1705,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
         clock_sync(bar);
         bar_sync(bar);
         np_sync(top);
+        np_volume(top);
         /* Boot may paint Home before the screen is usable, so nothing chose or drew its first
          * row. Once, when the list is first reachable, repaint it. */
         void *list = st.greeted ? (void *)0 : surface((void *)0, (void *)0);
@@ -2382,10 +2440,95 @@ int ringnav_shuffle(int forward) {
     return result;
 }
 
+/* Resume (docs/internals.md#resume). The ring is written whole, to a .tmp then renamed. */
+#define RESUME_FILE "/mnt/data/ringnav-resume"
+static void spots_io(int write) {
+    void *f = fopen(write ? RESUME_FILE ".tmp" : RESUME_FILE, write ? "wb" : "rb");
+    if (!f) return;
+    int ok = write ? fwrite(st.spots, sizeof st.spots, 1, f) == 1
+                   : fread(st.spots, sizeof st.spots, 1, f) == 1;
+    if (fclose(f) || !ok) {
+        if (!write) memset(st.spots, 0, sizeof st.spots);
+        return;
+    }
+    if (write) rename(RESUME_FILE ".tmp", RESUME_FILE);
+}
+
+/* Moves key's place to the front of the ring at sec, or forgets it near either end. */
+static void spot_keep(unsigned key, int sec, int total) {
+    int i = 0, keep = sec >= RESUME_EDGE_S && sec < total - RESUME_EDGE_S;
+    while (i < RESUME_SLOTS - 1 && st.spots[i].key != key) i++;
+    /* nothing to do: already first at sec, or nothing kept to forget */
+    if (keep ? !i && st.spots[0].key == key && st.spots[0].sec == sec : st.spots[i].key != key)
+        return;
+    if (keep) {
+        for (; i > 0; i--) st.spots[i] = st.spots[i - 1]; /* the oldest falls off the end */
+        st.spots[0].key = key;
+        st.spots[0].sec = sec;
+    } else {
+        for (; i < RESUME_SLOTS - 1; i++) st.spots[i] = st.spots[i + 1];
+        st.spots[i].key = 0;
+    }
+    spots_io(1);
+}
+
+/* Once a second from the UI loop: a long track saves its place and, when it starts playing near
+ * its beginning, jumps to the saved one. A track change waits a poll, so the previous track's
+ * time never counts for the new one. */
+static void resume_poll(void) {
+    unsigned now = (unsigned)time_now_ms(), at, n;
+    if (now - st.rs_at < 1000) return;
+    st.rs_at = now;
+    int sec = 0, total = 0;
+    void *r = queue_now(&at, &n);
+    if (!r || player_playtime_and_length(&sec, &total) < 0 || total <= 0) return;
+    unsigned key = fnv(FNV_SEED, P(r, REC_PATH));
+    if (key != st.rs_key) {
+        if (st.rs_long && !st.rs_pending) spot_keep(st.rs_key, st.rs_sec, st.rs_total);
+        st.rs_key = key;
+        st.rs_long = 0;
+        st.rs_settle = 1;
+        return;
+    }
+    if (st.rs_settle) {
+        st.rs_settle = 0;
+        st.rs_long = total >= RESUME_MIN_S && !I(r, REC_CUE_START) && !I(r, REC_CUE_END);
+        st.rs_pending = 0;
+        if (st.rs_long && !st.spots_read) {
+            st.spots_read = 1;
+            spots_io(0);
+        }
+        for (int i = 0; st.rs_long && i < RESUME_SLOTS; i++)
+            if (st.spots[i].key == key) st.rs_pending = st.spots[i].sec;
+        st.rs_sec = st.rs_saved = sec;
+        st.rs_still = 0;
+    }
+    if (!st.rs_long) return;
+    st.rs_total = total;
+    if (st.rs_pending) {
+        if (sec < 1) return; /* not playing yet: a paused boot resume waits for Play */
+        if (sec < RESUME_START_S) {
+            player_seek_time(st.rs_pending); /* blocks the UI up to 2 s, as Scrub's commit */
+            sec = st.rs_pending;
+        }
+        st.rs_pending = 0;
+        st.rs_sec = st.rs_saved = sec;
+        return;
+    }
+    st.rs_still = sec == st.rs_sec ? st.rs_still + 1 : 0;
+    st.rs_sec = sec;
+    int moved = sec - st.rs_saved;
+    if (moved && (st.rs_still >= 2 || moved >= RESUME_SAVE_S || moved <= -RESUME_SAVE_S)) {
+        st.rs_saved = sec;
+        spot_keep(key, sec, total);
+    }
+}
+
 /* main_loop_sleep_default paces the UI loop at 8 ms (125 Hz), screen on or off. With the backlight
  * off it first idles SCREEN_OFF_SLEEP_MS; stock then finds its 8 ms gone, sleeps 0 and keeps its
  * own bookkeeping. */
 int ringnav_sleep(void *loop) {
+    resume_poll();
     if (!g_backlight_status) sleep_ms(SCREEN_OFF_SLEEP_MS);
     return stock_sleep_trampoline(loop);
 }

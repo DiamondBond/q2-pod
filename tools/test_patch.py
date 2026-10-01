@@ -3006,6 +3006,35 @@ if variant=='ipod':
     f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert repaint()==[] and shown()[0]==''; passed()
 
+    # Volume: with the stock volume dialog directly over Now Playing its slider and label hide, and a
+    # white bar and "Volume N" stand in for the progress bar and times until it closes. Over any
+    # other window the dialog keeps its stock look.
+    m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+    slider,elapsed,remain=m.node('slider','slider_play',max=225,value=100),m.node('label','label_playtime'),m.node('label','label_ipod_remain')
+    vol,level=m.node('slider','slider_ipod_vol',value=0,visible=0),m.node('label','label_ipod_vol',visible=0)
+    win=m.node('window','playing_page',[slider,elapsed,remain,vol,level]); m.word(win+O['W_PARENT'],m.wm); m.top=win
+    m.word(syms['system_bar'],m.node('window','system_bar'))
+    assert m.call(address=playing,args=(win,7,0,0),gap=0)==0
+    sv,lv=m.node('slider','slider_vol',max=100,value=40),m.node('label','label_vol')
+    dlg=m.node('dialog','volume_dialog',[sv,lv]); m.word(dlg+O['W_PARENT'],m.wm)
+    def seen(*ws): return [m.nodes[w]['visible'] for w in ws]
+    def paint(w): m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
+    def did(n): return [c[1:3] for c in m.calls if c[0]==n]
+    hl=O['WM_HIGHLIGHTER']; m.word(m.wm+hl,0x1234)  # the dimmed snapshot of the page, taken at open
+    m.nodes[m.wm]={'children':[win,dlg]}; m.top=dlg; paint(dlg)
+    assert [a for a,_ in did('wm_drop_highlighter')]==[m.wm] and (dlg,0) in did('widget_invalidate_force')
+    assert seen(sv,lv,slider,elapsed,remain)==[0]*5 and seen(vol,level)==[1,1]
+    m.word(m.wm+hl,0)  # stock's teardown clears it
+    assert (m.nodes[vol]['value'],m.nodes[vol]['max'],m.nodes[level]['text'])==(40,100,'Volume 40'); passed()
+    m.nodes[sv]['value']=41; paint(dlg)
+    assert m.nodes[vol]['value']==41 and m.nodes[level]['text']=='Volume 41' and not did('wm_drop_highlighter'); passed()
+    m.nodes[m.wm]['children']=[win]; m.top=win; paint(win)
+    assert seen(slider,elapsed,remain)==[1]*3 and seen(vol,level)==[0,0]; passed()
+    other=m.node('window','home_page'); m.word(other+O['W_PARENT'],m.wm); sv2,lv2=m.node('slider','slider_vol',value=7),m.node('label','label_vol')
+    dlg2=m.node('dialog','volume_dialog',[sv2,lv2]); m.word(dlg2+O['W_PARENT'],m.wm)
+    m.word(m.wm+hl,0x1234); m.nodes[m.wm]['children']=[win,other,dlg2]; m.top=dlg2; paint(dlg2)
+    assert seen(sv2,lv2,slider)==[1,1,1] and seen(vol,level)==[0,0] and not did('wm_drop_highlighter'); passed()
+
     # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,
     # and committed once through player_seek_time (track seconds) when the scrub ends. Stock's page
@@ -4027,5 +4056,71 @@ assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts
 m.found=[]; m.plays=[]; m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert not called('config_playmode') and not m.plays and m.toasts[-1][0]=='dialog/msginfo_dialog' and m.toasts[-1][3]=='Update Local Music first'; passed()
+
+# Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its
+# place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S of play, after a
+# pause and on a track change, and jumps back there when it next starts playing near its beginning.
+# A place near either end is forgotten; a short or CUE track, or a paused start, is left alone.
+class ResumeMachine(QueueMachine):
+    def __init__(self,files=None):
+        super().__init__()
+        self.files={} if files is None else files; self.open={}; self.play=(0,0); self.seeks=[]; self.opens=self.renames=0
+        self.handlers[sleep_hook+12]='stock_sleep'
+        for n in ('fopen@GLIBC_2.2','fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0',
+                  'player_playtime_and_length','player_seek_time'): self.handlers[syms[n]]='r:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('r:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0; self.calls.append((name,a,b,c))
+        if name=='fopen':
+            self.opens+=1; path,mode=self.text(a),self.text(b)
+            if mode=='rb' and path not in self.files: ret=0
+            else: ret=0x2000000+len(self.calls); self.open[ret]=[path,mode,0,b'' if mode=='wb' else self.files[path]]
+        elif name=='fread':
+            f=self.open[d]; data=f[3][f[2]:f[2]+b*c]; f[2]+=len(data); self.u.mem_write(a,data); ret=len(data)//b
+        elif name=='fwrite': self.open[d][3]+=bytes(self.u.mem_read(a,b*c)); ret=c
+        elif name=='fclose':
+            path,mode,_,data=self.open.pop(a)
+            if mode=='wb': self.files[path]=data
+        elif name=='rename': self.renames+=1; self.files[self.text(b)]=self.files.pop(self.text(a))
+        elif name=='player_playtime_and_length':
+            if self.play[1]: self.word(a,self.play[0]); self.word(b,self.play[1]); ret=1
+            else: ret=-1
+        elif name=='player_seek_time': self.seeks.append(signed(a)); self.play=(signed(a),self.play[1])
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def poll(self,sec,total=3600,pos=None,n=1):  # n polls a second apart, the time standing at sec
+        if pos is not None: self.word(O['MCL_POS'],pos)
+        for _ in range(n):
+            self.play=(sec,total); self.now+=1000
+            assert self.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)==0
+            sec=self.play[0]  # where a seek left it
+        return self
+    def places(self):
+        data=self.files.get('/mnt/data/ringnav-resume',b'')
+        return [(k,signed(v)) for k,v in struct.iter_unpack('<II',data) if k]
+def playing(m,sec,total=3600,pos=None,n=1):  # n polls a second apart while it plays on from sec
+    m.poll(sec,total,pos)
+    for _ in range(n-1): m.poll(m.play[0]+1,total)
+    return m
+m=ResumeMachine().poll(0,100,pos=1,n=3)  # a short track: no file read or write
+assert not m.opens; m=ResumeMachine()
+playing(m,0,pos=0,n=70)
+assert len(m.places())==1 and m.places()[0][1]==61 and m.renames==1 and not m.seeks; passed()
+m.poll(80,n=3); assert m.places()[0][1]==80 and m.renames==2; passed()  # paused: saved once it stands still
+m.poll(80,n=5); assert m.renames==2  # still paused: nothing more to write
+playing(m,81,n=5); m.poll(0,pos=1,n=3)  # another track: A's last second is kept
+assert m.places()[0][1]==85 and not m.seeks; passed()
+m.poll(0,pos=0,n=3); assert not m.seeks  # back to A, paused at its start: waits for Play
+playing(m,1,n=3); assert m.seeks==[85] and m.places()[0][1]==85; passed()
+m=ResumeMachine(m.files); m.poll(0,pos=0,n=2); playing(m,2,n=1); assert m.seeks==[85]; passed()  # after a reboot
+m=ResumeMachine(m.files); m.poll(0,pos=0,n=2); playing(m,O['RESUME_START_S'],n=1); assert not m.seeks; passed()  # already under way
+m.poll(3590,n=3); m.poll(0,pos=1,n=2); assert not m.places(); passed()  # finished: forgotten
+m=ResumeMachine(); cue=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; m.word(cue+O['REC_CUE_START'],1200)
+playing(m,0,pos=0,n=70); assert not m.places() and not m.renames; passed()
+m=ResumeMachine()
+for i in range(O['RESUME_SLOTS']+2):  # the last is saved by no later change
+    m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[0]+O['REC_PATH'],m.string(f'/p/long{i}')); m.poll(100+i,pos=0,n=3)
+assert len(m.places())==O['RESUME_SLOTS'] and m.places()[0][1]==100+O['RESUME_SLOTS'] and m.places()[-1][1]==101; passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

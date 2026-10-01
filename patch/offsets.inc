@@ -187,6 +187,18 @@
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys
  * (volume, play/pause, wake) wait at most this much longer. */
 #define SCREEN_OFF_SLEEP_MS 40
+/* window_manager_default's dialog highlighter (window_manager_create_highlighter @0x686068 stores
+ * it): while set, the windows under the top dialog are a dimmed snapshot taken when it opened. */
+#define WM_HIGHLIGHTER 0x300
+/* Resume (docs/internals.md#resume): tracks of RESUME_MIN_S or longer keep their place in the
+ * RESUME_SLOTS most recent; a place within RESUME_EDGE_S of either end is forgotten. Saved on a
+ * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less
+ * than RESUME_START_S when first seen playing. */
+#define RESUME_MIN_S 1200
+#define RESUME_SLOTS 32
+#define RESUME_EDGE_S 30
+#define RESUME_SAVE_S 60
+#define RESUME_START_S 5
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */
@@ -230,6 +242,8 @@
 #define REC_ALBUM 0x14
 #define REC_ARTIST 0x18
 #define REC_TYPE 0x34           /* 8 song, 4 directory */
+#define REC_CUE_START 0x48      /* a CUE track's start and end seconds, 0 otherwise */
+#define REC_CUE_END 0x4c
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */

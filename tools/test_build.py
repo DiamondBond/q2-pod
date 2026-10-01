@@ -271,7 +271,8 @@ def validate_assets(directory):
             named = {n[2].get('name'): n for n in walk(root)}
             assert {n[2].get('name') for n in walk(decode(original))} < set(named)  # stock names kept
             assert [n[2].get('name') for n in root[3]] == ['view_buttons', 'label_playtime', 'label_playlen', 'label_ipod_remain',
-                                                           'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait']
+                                                           'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait',
+                                                           'slider_ipod_vol', 'label_ipod_vol']
             pos = named['label_ipod_pos'][1]
             assert pos[0] + pos[2] == named['img_fav'][1][0] and named['img_return'][1][0] < 0
             icons = [named[n][1] for n in ('img_fav', 'img_more', 'img_playmode')]
@@ -288,6 +289,11 @@ def validate_assets(directory):
             slider = named['slider_play']
             assert slider[1] == [NP_BAR[0], 240, NP_BAR[2], 30] and slider[2]['bar_size'] == '8' and slider[2]['slide_with_bar'] == 'true'
             assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
+            # The volume bar takes the progress bar's place, hidden and untouchable until np_volume shows it.
+            vol, level = named['slider_ipod_vol'], named['label_ipod_vol']
+            assert vol[1] == slider[1] and vol[2]['visible'] == 'false' and vol[2]['sensitive'] == 'false'
+            assert vol[2]['style:normal:fg_color'] == '#FFFFFF' and level[2]['visible'] == 'false'
+            assert level[1][1] == named['label_playtime'][1][1] and level[1][0] + level[1][2] == 375 - level[1][0]
             assert {v for k, v in slider[2].items() if k.endswith('_color')} == {'#1c1c1c', '#6e6e6e'}
             # No theme style of that name, so no thumb icon: stock fills exactly to the value.
             assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')

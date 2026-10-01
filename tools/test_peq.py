@@ -438,6 +438,7 @@ def editor_check(lib, tmp):
 PLAYER = r"""
 #include <assert.h>
 #include "peq.h"
+int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *length);
 typedef struct { void *audio; int len, rate, nch, format, bps; } af_data;
 typedef struct af_instance {
     const void *info;
@@ -576,6 +577,30 @@ int main(void) {
 
     af.uninit(&af);
     assert(!af.data && !af.setup);
+
+    /* Exact VBR seeking: a 44.1 kHz stereo MPEG-1 Layer III Xing frame, 3600 s long, whose table
+     * puts the first half of the time in the first quarter of the bytes. */
+    unsigned char h[192] = {0xff, 0xfb, 0x90, 0x00};
+    unsigned frames = 3600 * 44100 / 1152; /* 137812 frames, 3599.98 s */
+    memcpy(h + 36, "Xing\0\0\0\x07", 8);
+    h[44] = frames >> 24; h[45] = frames >> 16; h[46] = frames >> 8; h[47] = frames;
+    for (int i = 0; i < 100; i++) h[52 + i] = i < 50 ? i * 64 / 50 : 64 + (i - 50) * 192 / 50;
+    double frac, length;
+    assert(mp3_toc(h, sizeof h, 0, &frac, &length) && frac == 0 && fabs(length - frames * 1152.0 / 44100) < 1e-9);
+    assert(mp3_toc(h, sizeof h, length / 2, &frac, &length) && fabs(frac - 0.25) < 1e-9);
+    assert(mp3_toc(h, sizeof h, length / 4, &frac, &length) && fabs(frac - 0.125) < 1e-9);
+    assert(mp3_toc(h, sizeof h, length * 0.995, &frac, &length) && frac > 0.98 && frac < 1);
+    assert(mp3_toc(h, sizeof h, length, &frac, &length) && frac == 1);
+    assert(!mp3_toc(h, 100, 10, &frac, &length));        /* cut short */
+    h[43] = 3;                                            /* no table */
+    assert(!mp3_toc(h, sizeof h, 10, &frac, &length));
+    h[43] = 7; memcpy(h + 36, "Info", 4);                 /* CBR: stock is already exact */
+    assert(!mp3_toc(h, sizeof h, 10, &frac, &length));
+    memcpy(h + 36, "Xing", 4); h[1] = 0xfd;               /* Layer III only */
+    assert(!mp3_toc(h, sizeof h, 10, &frac, &length));
+    h[1] = 0xf3; h[2] = 0x90;                             /* MPEG-2, 22.05 kHz: side info 17, 576 a frame */
+    memmove(h + 21, h + 36, 120);
+    assert(mp3_toc(h, sizeof h, 0, &frac, &length) && fabs(length - frames * 576.0 / 22050) < 1e-9);
     return 0;
 }
 """
@@ -591,7 +616,7 @@ def player_check(tmp):
                     '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'),
                     *map(str, sources), '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-    print('PEQ player: negotiation, pass-through, live updates, track changes and cleanup passed.')
+    print('PEQ player: negotiation, pass-through, live updates, track changes, cleanup and the Xing seek table passed.')
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:

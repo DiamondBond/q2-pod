@@ -245,6 +245,8 @@ FUNCTIONS = {
  'playing_timer_start': ('int', 'void *'),
  'playing_timer_clear': ('int', 'void *'),
  'player_seek_time': ('int', 'int'),
+ 'player_playtime_and_length': ('int', 'int *, int *'),  # elapsed, total: track seconds; -1 none
+ 'wm_drop_highlighter': ('int', 'void *'),
  'player_start': ('int', 'void *, int, int, int'),
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
 }
@@ -255,6 +257,9 @@ PRIVATE_FUNCTIONS = {
     "slide_menu_on_scroll_done": 0x5f3654,
     "slide_menu_scroll_to": 0x5f3400,
     "mcl_shuffle_pick": 0x5a8120,
+    # window_manager_default's own highlighter teardown (dialog close, 0x689e10): unhooks the
+    # dialog's destroy listener, destroys it and clears WM_HIGHLIGHTER.
+    "wm_drop_highlighter": 0x68598c,
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',

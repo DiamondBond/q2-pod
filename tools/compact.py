@@ -401,8 +401,18 @@ def playing_page(root):
     remain[2].update(name='label_ipod_remain', text='')
     total[2]['visible'] = 'false'
     named['label_playtime'][1] = [NP_TIME_X, NP_TIMES_Y, 80, 16]
+    # The volume, as on an iPod classic: while the stock volume dialog is up over this page, a white
+    # bar and "Volume 40" stand in for the progress bar and times (ringnav.c np_volume).
+    vol = copy.deepcopy(slider)
+    vol[2] = plain_slider(vol[2], NP_TRACK, '#FFFFFF', h)
+    vol[2].update(name='slider_ipod_vol', visible='false', sensitive='false', value='0')
+    level = copy.deepcopy(remain)
+    level[1] = [NP_TIME_X, NP_TIMES_Y, 375 - 2 * NP_TIME_X, 16]
+    level[2] = {k: 'center' if k.endswith(':text_align_h') else v for k, v in level[2].items()}
+    level[2].update(name='label_ipod_vol', visible='false')
     root[3][1:3] = []
     root[3].insert(3, remain)
+    root[3] += [vol, level]
 
 
 # iPod only. Quick settings (the pull-down statusbar_dialog, which covers the whole screen): the eight

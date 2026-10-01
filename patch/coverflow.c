@@ -893,6 +893,14 @@ static int coverflow_open(void *ctx, void *event) {
     return 0;
 }
 
+/* The queue's playing record, or 0; *pos and *n get its index and the queue length. */
+void *queue_now(unsigned *pos, unsigned *n) {
+    void *queue = P(mcl_pdeqplaylist, 0);
+    *pos = *(volatile unsigned *)MCL_POS;
+    *n = queue ? deque_size(queue) : 0;
+    return *pos < *n ? deque_at(queue, *pos) : (void *)0;
+}
+
 #if IPOD
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
@@ -911,14 +919,6 @@ extern int ipod_home_full(void);
 static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpic.jpg",
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg" };
-
-/* The queue's playing record, or 0; *pos and *n get its index and the queue length. */
-void *queue_now(unsigned *pos, unsigned *n) {
-    void *queue = P(mcl_pdeqplaylist, 0);
-    *pos = *(volatile unsigned *)MCL_POS;
-    *n = queue ? deque_size(queue) : 0;
-    return *pos < *n ? deque_at(queue, *pos) : (void *)0;
-}
 
 /* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on it, so
  * the native fill draws it whole and the clip crops it evenly; unknown sizes fill the panel. */

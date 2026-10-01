@@ -7,6 +7,8 @@ PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
 # demux_audio_open's branch to the whole-file frame walk for Xing/VBRI MP3s; see docs/internals.md.
 VBR_SCAN = 0x48fb3c
+# The audio demuxer's seek slot (demuxer_desc_audio at 0x89fd90) holds demux_audio_seek; see docs/internals.md.
+SEEK_SLOT, STOCK_SEEK = 0x89fdbc, 0x48d1ac
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
@@ -24,6 +26,7 @@ LIBC = {
     'fflush': ('int', 'void *'), 'fileno': ('int', 'void *'), 'fsync': ('int', 'int'),
     'rename': ('int', 'const char *, const char *'), 'unlink': ('int', 'const char *'),
     'access': ('int', 'const char *, int'), 'mkdir': ('int', 'const char *, unsigned'),
+    'lseek64': ('long long', 'int, long long, int'), 'read': ('int', 'int, void *, unsigned'),
     'snprintf': ('int', 'char *, unsigned, const char *, ...'),
     'opendir': ('void *', 'const char *'), 'closedir': ('int', 'void *'),
     'readdir': ('struct dirent *', 'void *'),
@@ -99,7 +102,7 @@ def patch_player(raw, out):
                       '.data : { *(.data*) *(.sdata*) } .bss : { *(.bss*) *(.sbss*) } '
                       '__end = .; /DISCARD/ : { *(.comment) *(.note*) *(.pdr) *(.mdebug*) '
                       '*(.MIPS.abiflags) *(.reginfo) } }')
-    run('ld.lld', '-m', 'elf32ltsmip', '--gc-sections', '-T', script, '-e', 'peq_open',
+    run('ld.lld', '-m', 'elf32ltsmip', '--gc-sections', '-T', script, '-e', 'peq_open', '--undefined=mp3_seek',
         *objects, '-o', out/'peq.elf')
     run('llvm-objcopy', '-O', 'binary', out/'peq.elf', out/'peq.bin')
     ps = symbols(out/'peq.elf')
@@ -109,6 +112,9 @@ def patch_player(raw, out):
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
     off = fileoff(raw, VBR_SCAN)
     data[off:off+4] = bytes(4)  # nop; was bnez $v0, 0x491de0
+    off = fileoff(raw, SEEK_SLOT)
+    check(struct.unpack_from('<I', raw, off)[0] == STOCK_SEEK, 'Audio demuxer seek slot mismatch')
+    data[off:off+4] = struct.pack('<I', ps['mp3_seek'])
     append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 5, 'player')
     (out/'hciplayer').write_bytes(data)
     return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload))

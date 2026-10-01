@@ -75,3 +75,67 @@ int peq_open(af_instance *af) {
     if (!af->data || !af->setup) return -2; /* af_create calls uninit on failure. */
     return 1;
 }
+
+/* Exact VBR MP3 seeking (docs/internals.md#large-mp3s). A Xing header in the first frame h (n bytes)
+ * gives the track length and a 100-point table of how far into the file each 1% of it starts. For
+ * second t, *frac gets that place as a fraction of the file after the frame, read off the table
+ * and interpolated between its points (t within 0..length); 0 without a VBR header that has both. */
+int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *length) {
+    static const int rates[3] = { 44100, 48000, 32000 };
+    if (n < 4) return 0;
+    unsigned head = (unsigned)h[0] << 24 | h[1] << 16 | h[2] << 8 | h[3];
+    unsigned version = head >> 19 & 3, rate = head >> 10 & 3, mono = (head >> 6 & 3) == 3;
+    if (head >> 21 != 0x7ff || version == 1 || (head >> 17 & 3) != 1 || rate == 3) return 0;
+    unsigned at = 4 + (version == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+    if (n < at + 8 + 4 + 4 + 100 || memcmp(h + at, "Xing", 4)) return 0; /* "Info": CBR, already exact */
+    const unsigned char *p = h + at + 4;
+    unsigned flags = p[3];
+    if ((flags & 5) != 5) return 0;
+    p += 4;
+    unsigned frames = (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3];
+    p += 4 + (flags & 2 ? 4 : 0);
+    if (!frames) return 0;
+    *length = frames * (version == 3 ? 1152.0 : 576.0) / (rates[rate] >> (version == 3 ? 0 : version == 2 ? 1 : 2));
+    double pct = t * 100 / *length;
+    int i = pct >= 100 ? 99 : (int)pct;
+    double a = p[i], b = i < 99 ? p[i + 1] : 256;
+    *frac = (a + (b - a) * (pct - i)) / 256;
+    return 1;
+}
+
+#ifndef PEQ_HOST
+/* demux_audio_seek (0x48d1ac, the audio demuxer's seek slot). For an MP3 (priv->frmt 1, priv at
+ * demuxer+0xc70) without hr_mp3_seek, stock lands at movi_start + seconds * average bytes per
+ * second and sets priv->next_pts (a double at +8) from that place. With a Xing table this seeks to
+ * the table's place for the second instead, as a fraction of movi_start..movi_end (stock's
+ * SEEK_ABSOLUTE | SEEK_FACTOR), then sets next_pts to the second itself. Each seek reads the
+ * first frame through the stream's fd (stream_t +0x14) and puts its offset back, since stock's
+ * stream_seek may reuse its buffer without seeking. STOCK_SEEK is SEEK_SLOT's pinned stock value
+ * in tools/peq.py. */
+#define STOCK_SEEK ((void (*)(void *, float, float, int))0x48d1acu)
+#define HR_MP3_SEEK (*(volatile int *)0xb152b8u)
+#define AT(p, o, type) (*(type *)((char *)(p) + (o)))
+void mp3_seek(void *demuxer, float rel, float delay, int flags) {
+    unsigned char h[192];
+    void *priv = AT(demuxer, 0xc70, void *), *s = AT(demuxer, 0x20, void *);
+    long long movi_start = AT(demuxer, 0x10, long long), movi_end = AT(demuxer, 0x18, long long);
+    double frac, length;
+    if (priv && AT(priv, 0, int) == 1 && !HR_MP3_SEEK && !(flags & 2) && s && movi_end > movi_start) {
+        int fd = AT(s, 0x14, int), got = 0;
+        long long back = lseek64(fd, 0, 1);
+        if (back >= 0) {
+            if (lseek64(fd, movi_start, 0) == movi_start) got = read(fd, h, sizeof h);
+            lseek64(fd, back, 0);
+        }
+        double t = flags & 1 ? rel : AT(priv, 8, double) + rel;
+        if (t < 0) t = 0;
+        if (got > 0 && mp3_toc(h, (unsigned)got, t, &frac, &length)) {
+            if (t > length) t = length;
+            STOCK_SEEK(demuxer, (float)frac, delay, 3);
+            AT(priv, 8, double) = t;
+            return;
+        }
+    }
+    STOCK_SEEK(demuxer, rel, delay, flags);
+}
+#endif

@@ -7,6 +7,7 @@ A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the st
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 - **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
+- **Resume long tracks:** mixes, audiobooks and podcasts of 20 minutes or more pick up where you left them, and VBR MP3s seek to the right place.
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
@@ -99,6 +100,7 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 ### Extra controls
 
 - **Hold Return:** opens Now Playing without interrupting playback; the next short Return goes back to where you were.
+- **Volume:** on Now Playing, turning the wheel shows the volume as a white bar in place of the progress bar.
 - **Scrub:** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Press centre or Return, touch the screen, or wait 3 seconds to jump there.
 - **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears, then let go.
 - **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
