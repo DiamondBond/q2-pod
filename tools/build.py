@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '7.2'  # the only place a release bumps the version
+VERSION = '7.3'  # the only place a release bumps the version
 VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
 DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
@@ -248,6 +248,7 @@ FUNCTIONS = {
  'player_playtime_and_length': ('int', 'int *, int *'),  # elapsed, total: track seconds; -1 none
  'player_start': ('int', 'void *, int, int, int'),
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
+ 'on_wm_keyup_fun': ('int', 'void *, void *'),  # stock key-up: np_single replays a centre release
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {

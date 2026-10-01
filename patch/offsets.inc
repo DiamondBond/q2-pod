@@ -115,9 +115,10 @@
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
 #define VOL_POLL_MS 50 /* how often the volume indicator checks for a change */
-/* The volume panel off Now Playing (vol_paint), clear of the 80px glass corners. */
-#define VOL_PANEL_X 24
-#define VOL_PANEL_Y 240
+/* The volume panel off Now Playing (vol_paint): exactly over Quick Settings' brightness row
+ * (tools/compact.py checks it), its rounded corners clear of the 80px glass corners. */
+#define VOL_PANEL_X 26
+#define VOL_PANEL_Y 256
 #define VOL_PANEL_H 48
 #define VOL_PANEL_PAD 20
 #define VOL_PANEL_BAR 10

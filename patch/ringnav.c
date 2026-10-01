@@ -112,8 +112,8 @@ typedef struct {
     unsigned vol_timer;
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
     int np_left;
-    /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press; scrub_to is the
-     * target second, scrub_moved set once the wheel changed it. */
+    /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press for a second one;
+     * scrub_to is the target second, scrub_moved set once the wheel changed it. */
     unsigned np_press, np_press_at, scrub_timer, scrub_track;
     int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
@@ -1558,42 +1558,46 @@ static void np_cancel(void) {
     scrub_end();
 }
 
-static int np_toggle(const void *info) {
+/* A single centre press, DOUBLE_CLICK_MS on: it ends any scrub, then replays the release to stock
+ * on_wm_keyup_fun, which turns the screen off (it reads only the event's key). */
+static int np_single(const void *info) {
     (void)info;
+    static unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     st.np_press = 0;
-    void *wm = window_manager();
-    if (st.scrub)
-        scrub_end();
-    else if (st.np_slider && usable() && window_manager_get_top_window(wm) == st.np_win &&
-             !window_manager_is_animating(wm)) {
-        st.scrub = 1;
-        st.scrub_moved = 0;
-        st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
-        st.scrub_track = np_track();
-        playing_timer_clear(st.np_win);
-        np_fill(1);
-        rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
-    }
+    scrub_end();
+    if (g_backlight_status) on_wm_keyup_fun((void *)0, release);
     return 0;
 }
 
-/* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press toggles
- * DOUBLE_CLICK_MS later, so a second one still reaches stock's screen off. The wheel moves the
- * target SCRUB_STEP seconds times the WHEEL_RAMP_MS ramp, within the track, and only previews it:
- * the seek waits for the scrub to end. Neither the volume nor its dialog sees the wheel. */
+/* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press waits
+ * DOUBLE_CLICK_MS: a second one toggles scrub, else it turns the screen off as anywhere else. The
+ * wheel moves the target SCRUB_STEP seconds times the WHEEL_RAMP_MS ramp, within the track, and
+ * only previews it: the seek waits for the scrub to end. Neither the volume nor its dialog sees
+ * the wheel. */
 static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
         if (st.np_press) {
             stop_timer(&st.np_press);
-            if (now - st.np_press_at < DOUBLE_CLICK_MS) {
-                scrub_end();
-                return 0;
+            if (now - st.np_press_at < DOUBLE_CLICK_MS) { /* a double press toggles scrub */
+                if (st.scrub)
+                    scrub_end();
+                else if (st.np_slider) {
+                    st.scrub = 1;
+                    st.scrub_moved = 0;
+                    st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
+                    st.scrub_track = np_track();
+                    playing_timer_clear(st.np_win);
+                    np_fill(1);
+                    rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
+                }
+                return STOP;
             }
-            np_toggle((void *)0); /* overdue: that press was a single one */
+            np_single((void *)0); /* overdue: that press was a single one */
+            return 0;             /* and stock takes this one */
         }
         st.np_press_at = now;
-        st.np_press = timer_add(np_toggle, (void *)0, DOUBLE_CLICK_MS);
+        st.np_press = timer_add(np_single, (void *)0, DOUBLE_CLICK_MS);
         return STOP;
     }
     if (np_track() != st.scrub_track) { /* a new track: scrub_end drops the last one's target */

@@ -79,7 +79,7 @@ class Machine:
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done','slide_menu_scroll_to',
-                     'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa'):
+                     'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
                   'widget_set_focused','widget_layout_children','event_init','value_set_int')
@@ -3049,9 +3049,9 @@ if variant=='ipod':
     assert not m.bands and [(t['text'],t['rect'],t['font'][1]) for t in m.letters]==[('7',(X+P+bw,Y,T,H),O['VOL_PANEL_PX'])]; passed()
     m.nodes[sv2]['value']=1; paint(dlg2)  # a sliver is still a round dot
     assert m.rounded[2]['rect']==(*bar[:2],BH,BH),m.rounded; passed()
-    assert X>=max(math.ceil(80-math.sqrt(80**2-max(Y+H-240,0)**2)),0)+4  # clear of the bottom corners
+    R=O['LETTER_RADIUS']; assert math.hypot(80-(X+R),Y+H-R-240)+R<=80  # its rounded corner clears the glass's
 
-    # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP
+    # Scrub: a double centre press toggles it; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,
     # and committed once through player_seek_time (track seconds) when the scrub ends. Stock's page
     # timer stops meanwhile.
@@ -3069,9 +3069,10 @@ if variant=='ipod':
         m.seeks=getattr(m,'seeks',[])+did(m,'player_seek_time'); m.starts=getattr(m,'starts',[])+did(m,'playing_timer_start')
     def step(m,*a,**k):  # one input or timer step, keeping every seek and timer restart it makes
         r=(m.advance if k.pop('wait',False) else m.call)(*a,**k); keep(m); return r
-    def centre(m,gap=1000):
+    def centre(m,gap=1000):  # a double press
         assert m.call(O['KEY_CENTER'],gap=gap)==11 and not did(m,'playing_timer_clear')
-        m.advance(200,clear=False); keep(m)
+        assert m.call(O['KEY_CENTER'],gap=100,clear=False)==11
+        m.advance(DC,clear=False); keep(m); assert not m.screens  # no single press left behind
     def ended(m,seeks,label=''):  # the scrub is over: fill, stock timer and the wheel's volume are back
         assert m.seeks==seeks and m.starts==[m.win], (label,m.seeks,m.starts)
         assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0 and not did(m,'player_seek_time'), label
@@ -3114,12 +3115,14 @@ if variant=='ipod':
         elif end=='return': assert step(m,O['KEY_RETURN'],gap=50)==11
         else: step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
         step(m,O['SCRUB_MS'],wait=True); ended(m,[105],end); passed()
-    # A double press still turns the screen off and leaves no toggle behind; scrubbing, it commits once.
+    # A single press turns the screen off DOUBLE_CLICK_MS later, not a millisecond sooner, and
+    # leaves no toggle behind; scrubbing, it commits once first.
     for scrubbing in (False,True):
         m=scrub_page()
         if scrubbing: centre(m); step(m); m.calls=[]
-        assert Machine.release(m)==11 and Machine.release(m,100)==0 and m.screens==[0]
-        keep(m); step(m,1000+O['SCRUB_MS'],wait=True)
+        assert Machine.release(m)==11; m.advance(DC-1,clear=False); assert not m.screens
+        m.advance(1,clear=False); assert m.screens==[0] and not m.u.mem_read(syms['g_backlight_status'],1)[0]
+        keep(m); m.byte(syms['g_backlight_status'],1); step(m,1000+O['SCRUB_MS'],wait=True)
         assert m.seeks==([105] if scrubbing else []) and not did(m,'playing_timer_clear')
         assert not m.timers and m.call()==0; passed()
     # Another window on top ends it with the one commit; the page's destruction drops the target and
@@ -3972,7 +3975,7 @@ if variant=='ipod':
         return out
     m=audible(Machine()); m.page('playing_page')
     assert [tick(m,key) for key in (NEXT,PREV,NEXT)]==stock((NEXT,PREV,NEXT))==[1,1,1] and m.ret==0; passed()
-    m=audible(scrub_page()); centre(m)
+    m=audible(scrub_page()); centre(m); debounced(m)  # the double press's stock wheel lockout runs out
     assert [tick(m,gap=100) for _ in range(3)]==stock((NEXT,)*3)==[1,1,1] and m.nodes[m.slider]['value']==130; passed()
     m=audible(CoverflowMachine()); m.open()
     assert [tick(m,gap=20) for _ in range(2)]==[1,1] and slide(m,m.slide)[3]==120; passed()

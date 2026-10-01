@@ -50,7 +50,7 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 
 - **Hold Return:** opens Now Playing without interrupting playback; the next short Return goes back to where you were.
 - **Volume:** turning the wheel shows the volume as a white bar, in place of the progress bar on Now Playing and in a small panel elsewhere, without dimming the screen.
-- **Scrub:** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Press centre or Return, touch the screen, or wait 3 seconds to jump there.
+- **Scrub:** on Now Playing, double-press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Double-press again, press Return, touch the screen, or wait 3 seconds to jump there. A single press turns the screen off, as everywhere else.
 - **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears, then let go.
 - **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
 - **Key Tone:** with Key Tone on, lists click once for each row change instead of on every wheel tick.
