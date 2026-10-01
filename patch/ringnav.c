@@ -91,7 +91,7 @@ typedef struct {
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
      * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
      * level, charge and low state. */
-    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon, *bar_level;
+    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon;
     int codec, codec_step;
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
@@ -1367,9 +1367,8 @@ static void bar_sync(void *bar) {
         st.bar_pct = widget_lookup(bar, "label_battery", 1);
         st.bar_slot = widget_lookup(bar, "view_battery", 1);
         st.bar_icon = widget_lookup(bar, "img_battery", 1);
-        st.bar_level = widget_lookup(bar, "progress_battery", 1);
     }
-    if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon || !st.bar_level)
+    if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon)
         return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
@@ -1398,9 +1397,12 @@ static void bar_sync(void *bar) {
     widget_set_visible(st.bar_pct, mode == 1, 0);
     widget_set_visible(st.bar_slot, mode == 2, 0);
     if (mode != 2) return;
-    /* the level, then charging (bar_charge) and low (bar_lowcharge), as stock picks the icon */
+    /* the level from label_battery's "88%" (stock zeroes progress_battery while charging), then
+     * charging (bar_charge) and low (bar_lowcharge), as stock picks the icon */
     const char *icon = widget_get_prop_str(st.bar_icon, "image", "");
-    int level = widget_get_prop_int(st.bar_level, "value", 0);
+    const unsigned *t = widget_get_text(st.bar_pct);
+    int level = 0;
+    while (t && *t >= '0' && *t <= '9') level = level * 10 + (int)(*t++ - '0');
     unsigned key = (unsigned)(level < 0     ? 0
                               : level > 100 ? 100
                                             : level)

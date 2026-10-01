@@ -726,9 +726,11 @@ else:
         paint(); assert shown(b,w)==['view_battery']; before=lcd()
         def slot(): b.bands=[]; b.letters=[]; paint(w['view_battery']); assert lcd()==before; return b.bands,b.letters
         bw,bh,y=O['BATT_BODY_W'],O['BATT_BODY_H'],(30+1-O['BATT_BODY_H'])//2
-        for image,value,rgb,text in (('bar_battery',88,0xffffff,'88'),('bar_charge',100,O['BATT_CHARGE_RGB'],'100'),
+        for image,value,rgb,text in (('bar_battery',88,0xffffff,'88'),('bar_charge',63,O['BATT_CHARGE_RGB'],'63'),('bar_charge',100,O['BATT_CHARGE_RGB'],'100'),
                                      ('bar_lowcharge',5,ACCENTS[0][3],'5')):
-            b.nodes[w['img_battery']]['image']=image; b.nodes[w['progress_battery']]['value']=value
+            # the level is label_battery's text: stock zeroes progress_battery while charging
+            b.nodes[w['img_battery']]['image']=image; b.nodes[w['label_battery']]['text']=f'{value}%'
+            b.nodes[w['progress_battery']]['value']=0 if image=='bar_charge' else value
             b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) in [c[:2] for c in b.calls]
             b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) not in [c[:2] for c in b.calls]
             bands,letters=slot()
