@@ -6,9 +6,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
-    stock_localmusic_trampoline(void *, void *),
-    stock_keydown_trampoline(void *, void *), stock_sleep_trampoline(void *),
-    stock_color_trampoline(void *, void *, const char *, unsigned),
+    stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
+    stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
