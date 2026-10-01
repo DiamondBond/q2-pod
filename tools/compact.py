@@ -465,8 +465,8 @@ def confirm_dialog(root):
 
 
 # iPod only. The volume dialog loses its highlight="default(alpha=200)", so the window manager
-# creates no highlighter and nothing under it dims: on Now Playing the payload draws the volume
-# into the dialog (ringnav.c np_volume), elsewhere stock's slider shows over the page.
+# creates no highlighter and nothing under it dims; the payload draws the volume into the dialog
+# (ringnav.c vol_paint): a band on Now Playing, a panel elsewhere.
 VOLUME = 'dialog/volume_dialog.bin'
 
 

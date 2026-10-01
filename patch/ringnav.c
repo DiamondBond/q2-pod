@@ -106,7 +106,7 @@ typedef struct {
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
-    /* Volume over Now Playing: the dialog last drawn, its value and the redraw timer */
+    /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
     unsigned vol_timer;
@@ -1202,6 +1202,14 @@ static int letter_expire(const void *info) {
  * first character sits in a dark translucent square over the list until LETTER_MS after the last
  * such step. A virtual table resolves the logical row in its recycled pool; an offscreen or
  * textless row shows nothing. The fill color and clip are restored. */
+/* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas). */
+static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
+    if (canvas_fill_rounded_rect(canvas, r, (void *)0, &color, radius)) {
+        canvas_set_fill_color(canvas, color);
+        canvas_fill_rect(canvas, r->x, r->y, r->w, r->h);
+    }
+}
+
 static void paint_letter(void *w, void *canvas) {
     rect_t old;
     if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= LIST_FIRST_MS ||
@@ -1215,11 +1223,7 @@ static void paint_letter(void *w, void *canvas) {
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (g_menu.height - LETTER_BOX) / 2, LETTER_BOX,
                    LETTER_BOX };
-    unsigned color = (LETTER_ALPHA << 24) | FILL_RGB;
-    if (canvas_fill_rounded_rect(canvas, &box, (void *)0, &color, LETTER_RADIUS)) {
-        canvas_set_fill_color(canvas, color); /* no vgcanvas: a square box */
-        canvas_fill_rect(canvas, box.x, box.y, box.w, box.h);
-    }
+    fill_box(canvas, &box, (LETTER_ALPHA << 24) | FILL_RGB, LETTER_RADIUS);
     draw_centred(canvas, &c, 1, &box, LETTER_PX, 0xffffffff);
     canvas_set_fill_color(canvas, fill);
     canvas_set_clip_rect(canvas, &old);
@@ -1640,7 +1644,7 @@ int ringnav_playing(void *win, void *ctx) {
     return result;
 }
 
-/* Every VOL_POLL_MS while the dialog np_volume drew is still on top: a changed volume repaints it
+/* Every VOL_POLL_MS while the dialog vol_paint drew is still on top: a changed volume repaints it
  * whole. Stock's own invalidation of the hidden slider does not reliably reach the screen, so the
  * bar would stop following the wheel after a tick or two. */
 static int vol_poll(const void *info) {
@@ -1657,45 +1661,56 @@ static int vol_poll(const void *info) {
     return 8; /* RET_REPEAT */
 }
 
-/* The volume over Now Playing, as on an iPod classic. Stock's wheel opens dialog/volume_dialog,
- * transparent and full-screen (its dimming highlight removed at build time, tools/compact.py), and
- * sets its slider_vol. While that dialog sits directly over Now Playing, its own paint draws the
- * volume in the band from the progress bar to the times: black, a white bar over the track and
- * "Volume N". slider_vol and label_vol are hidden, and slider_vol is moved onto the band, so
- * stock's partial repaints land on it; vol_poll catches the changes those miss. Over any other
- * window the dialog shows stock's slider. */
-static void np_volume(void *top, void *canvas) {
+/* The volume, drawn by stock's dialog/volume_dialog itself: transparent and full-screen (its
+ * dimming highlight removed at build time, tools/compact.py), it opens on the wheel's volume and
+ * sets its slider_vol. Over Now Playing, as on an iPod classic, the band from the progress bar to
+ * the times turns black with a white bar over the track and "Volume N"; over any other window
+ * (Quick Settings included) a VOL_PANEL_* rounded panel in the fast-scroll letter's style holds
+ * the same bar and text. slider_vol and label_vol are hidden, and slider_vol is moved onto the
+ * area drawn, so stock's partial repaints land on it; vol_poll catches the changes those miss. */
+static void vol_paint(void *top, void *canvas) {
     void *wm = window_manager(), *lcd = P(canvas, CANVAS_LCD);
-    if (!lcd || !st.np_slider || !st.np_elapsed || top == st.np_win ||
-        tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog"))
-        return;
+    if (!lcd || tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog")) return;
     unsigned n = widget_count_children(wm);
     void *vol = widget_lookup(top, "slider_vol", 1), *label = widget_lookup(top, "label_vol", 1);
-    if (n < 2 || widget_get_child(wm, n - 2) != st.np_win || !vol) return;
-    void *bar = st.np_slider, *times = st.np_elapsed;
-    int dy = I(st.np_win, W_Y) - I(top, W_Y), y = dy + I(bar, W_Y);
-    rect_t band = { 0, y, I(st.np_win, W_W), dy + I(times, W_Y) + I(times, W_H) - y };
-    if (I(vol, W_Y) != band.y) widget_move_resize(vol, band.x, band.y, band.w, band.h);
+    if (n < 2 || !vol) return;
+    int np = widget_get_child(wm, n - 2) == st.np_win && st.np_slider && st.np_elapsed;
+    rect_t area, bar, text;
+    if (np) {
+        void *slider = st.np_slider, *times = st.np_elapsed;
+        int dy = I(st.np_win, W_Y) - I(top, W_Y), y = dy + I(slider, W_Y),
+            bh = widget_get_prop_int(slider, "bar_size", 8);
+        area = (rect_t){ 0, y, I(st.np_win, W_W), dy + I(times, W_Y) + I(times, W_H) - y };
+        bar = (rect_t){ I(slider, W_X), y + (I(slider, W_H) - bh) / 2, I(slider, W_W), bh };
+        text = (rect_t){ 0, dy + I(times, W_Y), area.w, I(times, W_H) };
+    } else {
+        area = (rect_t){ VOL_PANEL_X, VOL_PANEL_Y, I(top, W_W) - 2 * VOL_PANEL_X, VOL_PANEL_H };
+        int x = area.x + VOL_PANEL_PAD, bw = area.w - 2 * VOL_PANEL_PAD - VOL_PANEL_TEXT;
+        bar = (rect_t){ x, area.y + (area.h - VOL_PANEL_BAR) / 2, bw, VOL_PANEL_BAR };
+        text = (rect_t){ x + bw, area.y, VOL_PANEL_TEXT, area.h };
+    }
+    if (I(vol, W_Y) != area.y) widget_move_resize(vol, area.x, area.y, area.w, area.h);
     widget_set_visible(vol, 0, 0);
     if (label) widget_set_visible(label, 0, 0);
     int max = widget_get_prop_int(vol, "max", 100), level = widget_get_prop_int(vol, "value", 0);
     st.vol_dialog = top;
     st.vol_drawn = level;
     if (!st.vol_timer) st.vol_timer = timer_add(vol_poll, (void *)0, VOL_POLL_MS);
-    int bh = widget_get_prop_int(bar, "bar_size", 8), bw = I(bar, W_W), x = I(bar, W_X);
-    y += (I(bar, W_H) - bh) / 2;
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR), s[12] = { 'V', 'o', 'l', 'u', 'm', 'e', ' ' },
              k = 7;
-    canvas_set_fill_color(canvas, RGBA(0));
-    canvas_fill_rect(canvas, band.x, band.y, band.w, band.h);
-    canvas_set_fill_color(canvas, RGBA(TRACK_COLOR));
-    canvas_fill_rect(canvas, x, y, bw, bh);
+    if (np) {
+        canvas_set_fill_color(canvas, RGBA(0));
+        canvas_fill_rect(canvas, area.x, area.y, area.w, area.h);
+    } else
+        fill_box(canvas, &area, (LETTER_ALPHA << 24) | FILL_RGB, LETTER_RADIUS);
+    canvas_set_fill_color(canvas, RGBA(np ? TRACK_COLOR : VOL_PANEL_TRACK));
+    canvas_fill_rect(canvas, bar.x, bar.y, bar.w, bar.h);
     canvas_set_fill_color(canvas, RGBA(0xffffff));
-    canvas_fill_rect(canvas, x, y, max > 0 ? bw * clamp_step(0, max, level) / max : 0, bh);
+    canvas_fill_rect(canvas, bar.x, bar.y, max > 0 ? bar.w * clamp_step(0, max, level) / max : 0,
+                     bar.h);
     canvas_set_fill_color(canvas, fill);
     k += put_num(s + k, (unsigned)clamp_step(0, 999, level));
-    rect_t r = { 0, dy + I(times, W_Y), band.w, I(times, W_H) };
-    draw_centred(canvas, s, k, &r, NP_TIMES_PX, 0xffffffff);
+    draw_centred(canvas, s, k, &text, NP_TIMES_PX, 0xffffffff);
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
@@ -1725,7 +1740,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
         clock_sync(bar);
         bar_sync(bar);
         np_sync(top);
-        if (w == top) np_volume(top, canvas);
+        if (w == top) vol_paint(top, canvas);
         /* Boot may paint Home before the screen is usable, so nothing chose or drew its first
          * row. Once, when the list is first reachable, repaint it. */
         void *list = st.greeted ? (void *)0 : surface((void *)0, (void *)0);

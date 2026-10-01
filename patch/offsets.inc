@@ -114,7 +114,15 @@
 #define BAR_COLOR 0x242424
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
-#define VOL_POLL_MS 50 /* how often the volume over Now Playing checks for a change */
+#define VOL_POLL_MS 50 /* how often the volume indicator checks for a change */
+/* The volume panel off Now Playing (vol_paint), clear of the 80px glass corners. */
+#define VOL_PANEL_X 24
+#define VOL_PANEL_Y 240
+#define VOL_PANEL_H 48
+#define VOL_PANEL_PAD 16
+#define VOL_PANEL_BAR 8
+#define VOL_PANEL_TEXT 96
+#define VOL_PANEL_TRACK 0x5a5a5a
 /* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
  * the top corners (test_build.py). */
 #define CLOCK_EDGE 57
