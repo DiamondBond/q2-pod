@@ -1,37 +1,86 @@
-# Q2 Pod: Wheel Navigation, Parametric EQ & Coverflow
-
 <p align="center">
-  <a href="https://youtu.be/C5x05EwsPGI" title="Watch the Q2 Pod demo on YouTube">
+  <a href="https://youtu.be/C5x05EwsPGI" title="Watch the Q2 Pod video on YouTube">
     <img src="assets/banner.png" alt="Q2 Pod: the iPod firmware mod for the Shanling Q2" width="100%">
   </a>
 </p>
 
-A firmware mod that restyles the **Shanling Q2** after an iPod classic. It includes:
+<h1 align="center">Q2 Pod</h1>
 
-- **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
-- **Parametric EQ:** up to 30 peaking and shelf bands, per channel if needed, or import **AutoEQ / Equalizer APO** presets from the microSD card.
-- **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
-- **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
-- **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
-- **Battery and speed:** less drain with the screen off, a quicker library and long VBR MP3s that start at once and seek exactly.
+<p align="center">
+  An iPod classic–style firmware mod for the Shanling Q2.<br>
+  Wheel navigation, a 30-band parametric EQ and Coverflow, built on the stock firmware.
+</p>
 
-Touch works as before, and outside supported menus the wheel still controls volume.
+<p align="center">
+  <a href="https://github.com/DiamondBond/q2-ringnav/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/DiamondBond/q2-ringnav?style=flat-square&label=release&color=3D424B"></a>
+  <a href="#features"><img alt="Device: Shanling Q2" src="https://img.shields.io/badge/device-Shanling%20Q2-B99AC8?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-D77868?style=flat-square"></a>
+  <a href="https://youtu.be/C5x05EwsPGI"><img alt="Watch on YouTube" src="https://img.shields.io/badge/YouTube-video-FF0000?style=flat-square&logo=youtube&logoColor=white"></a>
+</p>
 
-[**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md) · [Video](https://youtu.be/C5x05EwsPGI)
+<p align="center">
+  <a href="#install">Install</a> |
+  <a href="#display-settings">Display</a> |
+  <a href="#ipod-ui">iPod UI</a> |
+  <a href="#controls">Controls</a> |
+  <a href="#parametric-eq">Parametric EQ</a> |
+  <a href="#coverflow">Coverflow</a> |
+  <a href="#documentation">Docs</a> |
+  <a href="docs/changelog.md">Changelog</a>
+</p>
 
-[Install](#install) · [iPod UI](#ipod-ui) · [Controls](#controls) · [Parametric EQ](#parametric-eq) · [Coverflow](#coverflow)
+> [!CAUTION]
+> **Q2 Pod is an unofficial firmware mod.** Flashing any firmware carries risk: a flat battery or
+> removing the microSD card mid-update can leave the player unable to start. Recovery through
+> [Shanling's recovery package](#restore-stock) has worked, but is not guaranteed, and flashing may
+> affect your warranty.
+
+Q2 Pod restyles the **Shanling Q2** after an iPod classic and adds the features the stock firmware
+is missing.
+
+## Features
+
+| For listening | Under the hood |
+|---|---|
+| iPod classic–style lists, Home and Now Playing | Bluetooth AAC fix: no more choppy audio when AirPods and similar headsets auto-connect |
+| Wheel navigation with acceleration and position memory | Clock keeps the right time after power-off |
+| Parametric EQ: up to 30 bands, per channel, with balance | Less battery drain with the screen off |
+| AutoEQ / Equalizer APO preset import from microSD | Faster library browsing |
+| Coverflow album browser with depth and reflections | Long VBR MP3s start at once and seek accurately |
+| Shuffle Songs across the whole library | Long tracks (mixes, audiobooks, podcasts) resume where you left them |
+| Play next / Add to queue from songs, albums and folders | Accent colours, Home layout and battery style in Display settings |
+
+Outside supported menus, the wheel still controls volume.
 
 ## Install
 
-Charge the Q2 first, and leave the microSD card in until the update finishes.
+> [!IMPORTANT]
+> Charge the Q2 first, and leave the microSD card in until the update finishes.
 
-1. Download `Q2.Firmware.V*-ipod.zip`. Unzip it and copy `update.tar` to the root of the microSD card.
+1. [Download the latest release](https://github.com/DiamondBond/q2-ringnav/releases/latest):
+   `Q2.Firmware.V*-ipod.zip`. Unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2, open **System settings → System Update → TF card update** and confirm.
 3. After the restart, **About** shows the version, ending in `I`.
 
-**Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has every feature except the [iPod UI](#ipod-ui); its version ends in `R`.
+**Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has every feature except the
+[iPod UI](#ipod-ui); its version ends in `R`.
 
-**Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
+### Restore stock
+
+Flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't
+start, copy the `recovery-update` folder from
+[Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link)
+to the card, then hold previous-song while powering on with the centre button.
+
+## Display settings
+
+**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
+
+| Setting | Options |
+|---|---|
+| **Accent** | Graphite (default), Crimson (the stock red), Tidal or Champagne |
+| **Home** | Split (the list beside the playing track's cover) or Full (the list across the screen, no cover) |
+| **Battery** | Icon (default), Percent, or Icon + Percent (the level inside a horizontal battery) |
 
 ## iPod UI
 
@@ -55,23 +104,15 @@ Tidal pages keep their stock layout, and your saved settings are unchanged.
 - **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
 - **Key Tone:** with Key Tone on, lists click once for each row change instead of on every wheel tick.
 
-### Display settings
-
-**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
-
-- **Accent:** Graphite (default), Crimson (the stock red), Tidal or Champagne.
-- **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
-- **Battery:** Icon (default), Percent, or Icon + Percent (the level inside a horizontal battery).
-
 ## Controls
 
-| Control                | What it does                                                                                                                                         |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Wheel**              | Moves one row or icon per tick; keep spinning in long lists to speed up. iPod lists ignore a stray second tick, so a one-row turn doesn't overshoot. |
-| **Centre button**      | Opens the highlighted item. Double-press to turn the screen off (on Now Playing, a single press).                                                    |
-| **Hold Play/Pause**    | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it.               |
-| **Touch**              | Works as normal, and hides the selection until you use the wheel or buttons again.                                                                   |
-| **Hold centre button** | Forces the player off if it freezes or won't finish booting.                                                                                         |
+| Control | What it does |
+|---|---|
+| **Wheel** | Moves one row or icon per tick; keep spinning in long lists to speed up. iPod lists ignore a stray second tick, so a one-row turn doesn't overshoot. |
+| **Centre button** | Opens the highlighted item. Double-press to turn the screen off (on Now Playing, a single press). |
+| **Hold Play/Pause** | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it. |
+| **Touch** | Works as normal, and hides the selection until you use the wheel or buttons again. |
+| **Hold centre button** | Forces the player off if it freezes or won't finish booting. |
 
 - **List ends:** in the local folder and music lists, the list stops at the end while you keep turning. Pause briefly, then turn again to wrap around.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
@@ -119,18 +160,28 @@ Presets
 - **New music:** the next open prepares only the new albums. **Refresh library**, the last card, rebuilds all artwork.
 - **Artwork:** `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track. Albums without art show a placeholder.
 
-Artwork is cached on the microSD card in `.coverflow`, and needs at least 16 MB free.
+> [!NOTE]
+> Artwork is cached on the microSD card in `.coverflow`, and needs at least 16 MB free.
 
-## Help and documentation
+## Documentation
 
-If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen you were on and what you did.
+| Document | Covers |
+|---|---|
+| [Changelog](docs/changelog.md) | Every release, newest first |
+| [iPod UI](docs/ipod.md) | Layout audit and each iPod feature |
+| [Internals](docs/internals.md) | Hooks, selection, position memory, timing and drawing |
+| [Building](docs/building.md) | Building both variants and the MIPS test suite |
+| [Releasing](docs/releasing.md) | Packaging, verifying and publishing |
+| [Boot logo](docs/boot-logo.md) | Replacing the power-on splash |
 
-- [Internals](docs/internals.md): hooks, selection, position memory, timing and drawing.
-- [Building](docs/building.md): building both variants and the MIPS test suite.
-- [Releasing](docs/releasing.md): packaging, verifying and publishing.
-- [iPod UI](docs/ipod.md): layout audit and each iPod feature.
-- [Boot logo](docs/boot-logo.md): replacing the power-on splash.
+## Contributing
+
+If a menu behaves strangely, please [open an issue](https://github.com/DiamondBond/q2-ringnav/issues)
+with the screen you were on and what you did. To build the firmware yourself, start with
+[Building](docs/building.md).
 
 ## License
 
-The code and documentation in this repository are [MIT](LICENSE). The license does not cover Shanling's Q2 firmware: the release images are built from it and it remains Shanling's property. This project is not affiliated with Shanling.
+The code and documentation in this repository are [MIT](LICENSE). The license does not cover
+Shanling's Q2 firmware: the release images are built from it and it remains Shanling's property.
+This project is not affiliated with Shanling.
