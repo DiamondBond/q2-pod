@@ -26,7 +26,7 @@ def notes():
     entry = next((l for l in (ROOT/'docs/changelog.md').read_text().splitlines() if l.startswith(prefix)), None)
     check(entry, f'docs/changelog.md has no {prefix} entry')
     title, text = entry[2:].split(': ', 1)
-    return '\n'.join([title, *('- '+s for s in re.split(r'(?<=[.!?]) +(?=[A-Z*"])', text.strip()))])
+    return '\n'.join([title, *('- '+s for s in re.split(r'(?<=[.!?]) +(?=[A-Z*"]|iPod)', text.strip()))])
 
 
 def release_body(out, record):
