@@ -111,8 +111,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 ## Coverflow
 
-On Home after Local Music. Run **Update Local Music** first.
-
+- Run **Update Local Music** first.
 - **First open** prepares artwork once; **Cancel** keeps progress for next time. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
 - **Browse** with the wheel or a swipe; tap a side cover to centre it. Centre or tap the middle cover to open its tracks.
 - **Artwork:** `cover.jpg`, `folder.jpg`, then embedded art; otherwise a placeholder.
