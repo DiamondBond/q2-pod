@@ -1,9 +1,9 @@
-# q2-ringnav: Wheel Navigation, 10-Band PEQ & Coverflow
+# q2-ringnav: Wheel Navigation, Parametric EQ & Coverflow
 
 A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the stock look, **iPod** restyles browsing after an iPod classic. Both include:
 
 - **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
-- **30-band parametric EQ:** tune your headphones with peaking and shelf filters, per channel if needed, or import **AutoEQ / Equalizer APO** presets from your microSD card.
+- **Parametric EQ:** up to 30 peaking and shelf bands, per channel if needed, or import **AutoEQ / Equalizer APO** presets from the microSD card.
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 - **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
@@ -28,7 +28,7 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 
 | Control                | What it does                                                                                                                                                                                   |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Wheel**              | Moves one row or icon per tick. Keep spinning in long lists to speed up. In iPod lists, a second tick that slips through just after the first is ignored, so a one-row turn doesn't overshoot. |
+| **Wheel**              | Moves one row or icon per tick; keep spinning in long lists to speed up. iPod lists ignore a stray second tick, so a one-row turn doesn't overshoot. |
 | **Centre button**      | Opens the highlighted item. Double-press to turn the screen off.                                                                                                                               |
 | **Hold Play/Pause**    | On a song, album or folder in the local lists, opens **Play next** / **Add to queue** without interrupting playback. Return closes it.                                                         |
 | **Touch**              | Works as normal, and hides the selection until you use the wheel or buttons again.                                                                                                             |
@@ -42,7 +42,7 @@ A short Play/Pause press and long-press power are unchanged. iPod adds a few mor
 
 ## Parametric EQ
 
-Open **Audio settings → Equalizer** for the 30-band editor:
+**Audio settings → Equalizer** opens the editor:
 
 ```text
 Apply changes
@@ -52,29 +52,27 @@ Balance centre: shift left
 Shift balance right 0.1 dB
 Presets
 1 ON PK 1000Hz -2.0dB Q1.00
-… bands 2–10, then one spare row to add band 11 and on
+… a row per band, plus a spare to add the next (up to 30)
 ```
 
-- **Bands:** select one to set its type (**Peaking**, **Low shelf** or **High shelf**), frequency, gain and Q, or to switch it off. **Channels** applies it to both sides, or only the left or right (**ON L** / **ON R** in the list). **Return** steps back.
-- **Balance:** fixes a left/right level mismatch in 0.1 dB steps, up to 12 dB. It only turns one side down: **R 1.0 dB** plays the left 1 dB quieter.
-- **Apply changes:** band edits and loaded presets take effect when you choose it.
-- **PEQ: ON/OFF:** switches immediately and is kept across restarts. The status-bar **EQ** icon follows it.
-- **Preamp:** read-only. It comes from the preset, and editing a band resets it to just enough cut that boosts don't clip.
+- **Bands:** type (**Peaking**, **Low shelf**, **High shelf**), frequency, gain, Q, on/off, and **Channels**: both, left or right (**ON L** / **ON R** in the list). **Return** steps back.
+- **Balance:** fixes a left/right level mismatch in 0.1 dB steps, up to 12 dB, by turning one side down: **R 1.0 dB** plays the left 1 dB quieter.
+- **Apply changes:** edits and loaded presets take effect only when you choose it.
+- **PEQ: ON/OFF:** switches at once and is kept across restarts; the status-bar **EQ** icon follows it.
+- **Preamp:** read-only; editing a band resets it to just enough cut that boosts don't clip.
 
 ### Import a preset
 
-1. Put your AutoEQ / Equalizer APO `.txt` preset in an `EQ` folder at the root of the microSD card, for example `/EQ/My headphones.txt`.
-   Equalizer APO's `Channel: L`, `Channel: R` and `Channel: all` lines are supported: filters after them apply to that side, and a `Preamp` under one side sets the balance.
-2. Open **Audio settings → Equalizer → Presets → Import from SD /EQ** and select the file. This saves a copy on the player.
-3. Press **Return** to go back to **Presets**, then select the saved preset to load it into the editor.
-4. Choose **Apply changes**, then switch **PEQ: OFF** to **PEQ: ON** if needed.
+1. Copy an AutoEQ / Equalizer APO `.txt` preset to an `EQ` folder on the microSD card, e.g. `/EQ/My headphones.txt`. `Channel: L`, `R` and `all` sections apply their filters and preamp to that side.
+2. **Presets → Import from SD /EQ**, then pick the file. The player saves a copy.
+3. Return to **Presets**, select the saved preset, then **Apply changes** (and **PEQ: ON** if it's off).
 
 ## Coverflow
 
 **Coverflow** sits after Local Music on Home and flips through your albums by cover art. Run **Update Local Music** first: it shows the albums Local Music already knows.
 
 - **First open:** it prepares artwork once, showing progress. **Cancel** or Return keeps what's done and finishes next time.
-- **Browsing:** turn the wheel or swipe to move between covers, or tap a side cover to centre it. Centre, or a tap on the middle cover, opens the album's tracks; choosing one plays the album from there. Return goes back to the covers, then Home.
+- **Browsing:** turn the wheel or swipe between covers; tap a side cover to centre it. Centre or a tap on the middle cover opens the tracks, and picking one plays the album from there. Return goes back to the covers, then Home.
 - **Queueing:** hold Play/Pause on a track for **Play next** / **Add to queue**.
 - **New music:** the next open prepares only the new albums. **Refresh library**, the last card, rebuilds all artwork.
 - **Artwork:** `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track. Albums without art show a placeholder.
