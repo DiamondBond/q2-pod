@@ -308,10 +308,17 @@ unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     return 1;
 }
 int widget_get_prop_int(void *x, const char *k, int d) { return (long)x == 1 && !strcmp(k, "h") ? 290 : d; }
-int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:normal:bg_color")) w[(long)x].bg = v; return 0; }
+static int selection, offset;
+int widget_set_prop_int(void *x, const char *k, int v) {
+    if (!strcmp(k, "style:normal:bg_color")) w[(long)x].bg = v;
+    if (!strcmp(k, "_ringnav_index")) selection = v;
+    return 0;
+}
 int widget_destroy_children(void *x) { (void)x; count = 1; return 0; }
 int widget_resize(void *x, int ww, int h) { (void)ww; w[(long)x].h = h; return 0; }
-int scroll_view_set_offset(void *x, int a, int b) { (void)x; (void)a; (void)b; return 0; }
+int scroll_view_set_offset(void *x, int a, int b) { (void)x; (void)a; offset = b; return 0; }
+int shim_selection(void) { return selection; }
+int shim_offset(void) { return offset; }
 int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
 unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return ++timers; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; ++removed; return 0; }
@@ -427,10 +434,14 @@ def editor_check(lib, tmp):
     click('1 OFF'); click('Band: OFF'); click('Raise gain'); click('Raise gain'); click('Channels: Both')
     assert title() == 'PEQ Band 1'
     click('Channels: Left'); ui.shim_return()
-    click('Shift balance right'); click('Shift balance right'); click('Balance R 0.2 dB: shift left')
-    click('Balance R 0.1 dB: shift left'); click('Balance centre'); click('Apply changes')
-    r = read(); assert (r.bands[0].enabled, r.balance) == (3, -0.1) and abs(r.preamp + 7.5) < 0.05, (r.bands[0].enabled, r.balance)
-    assert ui.shim_click(b'1 ON R', 0) and ui.shim_click(b'Balance L 0.1 dB', 0)
+    # Balance: one row opens a picker, L 12 to R 12 dB in 0.5 dB steps, on the current value.
+    click('Balance: Centre'); assert title() == 'PEQ Balance'
+    assert (ui.shim_selection(), ui.shim_offset()) == (24, 24 * 48 - 96)  # 5 rows of 48 shown
+    click('R 12.0 dB'); assert title() == 'PEQ'; click('Balance: R 12.0 dB')
+    assert (ui.shim_selection(), ui.shim_offset()) == (48, 49 * 48 - 240)  # clamped to the end
+    ui.shim_return(); assert title() == 'PEQ'; click('Balance: R 12.0 dB'); click('L 0.5 dB'); click('Apply changes')
+    r = read(); assert (r.bands[0].enabled, r.balance) == (3, -0.5) and abs(r.preamp + 7.5) < 0.05, (r.bands[0].enabled, r.balance)
+    assert ui.shim_click(b'1 ON R', 0) and ui.shim_click(b'Balance: L 0.5 dB', 0)
     print('PEQ editor: bypass, apply, auto preamp, channels, balance, load, failed saves, delete and close passed.')
 
 # Drives patch/peq_player.c the way hciplayer's af chain does. Built 32-bit like the device,

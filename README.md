@@ -49,15 +49,14 @@ A short Play/Pause press and long-press power are unchanged. iPod adds a few mor
 Apply changes
 PEQ: OFF
 Preamp -3.0 dB
-Balance centre: shift left
-Shift balance right 0.1 dB
+Balance: Centre
 Presets
 1 ON PK 1000Hz -2.0dB Q1.00
 … a row per band, plus a spare to add the next (up to 30)
 ```
 
 - **Bands:** type (**Peaking**, **Low shelf**, **High shelf**), frequency, gain, Q, on/off, and **Channels**: both, left or right (**ON L** / **ON R** in the list). **Return** steps back.
-- **Balance:** fixes a left/right level mismatch in 0.1 dB steps, up to 12 dB, by turning one side down: **R 1.0 dB** plays the left 1 dB quieter.
+- **Balance:** fixes a left/right level mismatch by turning one side down: **R 1.0 dB** plays the left 1 dB quieter. The row opens a list from **L 12.0 dB** through **Centre** to **R 12.0 dB** in 0.5 dB steps, starting on the current value; pick one.
 - **Apply changes:** edits and loaded presets take effect only when you choose it.
 - **PEQ: ON/OFF:** switches at once and is kept across restarts; the status-bar **EQ** icon follows it.
 - **Preamp:** read-only; editing a band resets it to just enough cut that boosts don't clip.

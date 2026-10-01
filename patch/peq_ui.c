@@ -14,10 +14,10 @@ int peq_stock_eq(int mode) {
     return result;
 }
 
-enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES };
+enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, BALANCES };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE,
        FREQ_DOWN, FREQ_UP, GAIN_DOWN, GAIN_UP, Q_DOWN, Q_UP, CHANNEL, STEP,
-       YES, CANCEL, DELETE, BALANCE_LEFT, BALANCE_RIGHT };
+       YES, CANCEL, DELETE, BALANCE };
 static struct {
     void *page, *view;
     unsigned timer;
@@ -105,10 +105,11 @@ static int action(void *ctx, void *event) {
     ui.status[0] = 0;
     if (id == BACK) {
         if (ui.screen == HOME) { navigator_back(); return 0; }
-        ui.screen = ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
+        ui.screen = ui.screen == BAND || ui.screen == PRESETS || ui.screen == BALANCES ? HOME : PRESETS;
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
     else if (id == DELETE) ui.screen = DELETES;
+    else if (id == BALANCE) ui.screen = BALANCES;
     else if (id == SAVE) ui.screen = SAVES;
     else if (id == BYPASS) {
         /* Takes effect at once and keeps unapplied band edits out of the active preset. */
@@ -125,12 +126,6 @@ static int action(void *ctx, void *event) {
     else if (id == ENABLE) b->enabled = !b->enabled;
     else if (id == TYPE) b->type = (b->type + 1) % 3;
     else if (id == CHANNEL && b->enabled) b->enabled = b->enabled % 3 + 1; /* both, left, right */
-    else if (id == BALANCE_LEFT || id == BALANCE_RIGHT) {
-        /* Whole tenths, so stepping back to centre reads 0.0, not a rounding residue. */
-        int tenths = (int)(ui.draft.balance * 10 + (ui.draft.balance < 0 ? -0.5 : 0.5)) + (id == BALANCE_RIGHT ? 1 : -1);
-        ui.draft.balance = (tenths < -120 ? -120 : tenths > 120 ? 120 : tenths) / 10.0;
-        ui.dirty = 1;
-    }
     else if (id == STEP) ui.step = (ui.step + 1) % 4;
     else if (id >= FREQ_DOWN && id <= Q_UP) {
         static const double lo[] = {20, -24, 0.1}, hi[] = {20000, 24, 10}, fixed[] = {0, 0.5, 0.05};
@@ -154,6 +149,7 @@ static int action(void *ctx, void *event) {
     } else if (id == CANCEL) ui.screen = ui.previous;
     else if (id < 256) {
         if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
+        else if (ui.screen == BALANCES && id <= 48) { ui.draft.balance = (id - 24) / 2.0; ui.dirty = 1; ui.screen = HOME; }
         else if (ui.screen == SAVES && id < 10) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/Manual %02d.peq", id + 1);
             ui.candidate = ui.draft;
@@ -200,14 +196,18 @@ static int render(const void *unused) {
     ui.timer = 0;
     if (!ui.page) return 7;
     int selection = 0, offset = 0;
-    if (ui.view && ui.rendered == ui.screen) {
-        selection = widget_get_prop_int(ui.view, "_ringnav_index", 0);
-        offset = widget_get_prop_int(ui.view, "yoffset", 0);
-    }
-    ui.rendered = ui.screen;
     int height = widget_get_prop_int(ui.page, "h", 320);
     /* Whole rows only, so the last row is never clipped. */
     int rows = (height - 48) / 48 * 48;
+    if (ui.view && ui.rendered == ui.screen) {
+        selection = widget_get_prop_int(ui.view, "_ringnav_index", 0);
+        offset = widget_get_prop_int(ui.view, "yoffset", 0);
+    } else if (ui.screen == BALANCES) { /* opens on the nearest row to the current balance, centred */
+        selection = (int)(ui.draft.balance * 2 + (ui.draft.balance < 0 ? -0.5 : 0.5)) + 24;
+        offset = selection * 48 - (rows - 48) / 2;
+        offset = offset < 0 ? 0 : offset > 49 * 48 - rows ? 49 * 48 - rows : offset;
+    }
+    ui.rendered = ui.screen;
     widget_destroy_children(ui.page);
     void *list = list_view_create(ui.page, 0, 48, 375, rows);
     widget_set_prop_int(list, "item_height", 48);
@@ -228,10 +228,9 @@ static int render(const void *unused) {
         /* Display only: the preamp comes from the loaded preset; -1 matches no action. */
         snprintf(text, sizeof(text), "Preamp %.1f dB", ui.draft.preamp); row(view, n++, text, -1);
         /* Balance turns one side down: R 1.0 dB is the left 1 dB quieter. */
-        snprintf(text, sizeof(text), __builtin_fabs(ui.draft.balance) >= 0.05 ? "Balance %s %.1f dB: shift left" : "Balance centre: shift left",
+        snprintf(text, sizeof(text), __builtin_fabs(ui.draft.balance) >= 0.05 ? "Balance: %s %.1f dB" : "Balance: Centre",
                  ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
-        row(view, n++, text, BALANCE_LEFT);
-        row(view, n++, "Shift balance right 0.1 dB", BALANCE_RIGHT);
+        row(view, n++, text, BALANCE);
         row(view, n++, "Presets", MENU);
         /* Ten rows, then one spare past the last used band to add another. */
         for (int i = 0; i < PEQ_BANDS && (i < 10 || i <= ui.draft.count); ++i) {
@@ -255,6 +254,11 @@ static int render(const void *unused) {
         row(view, n++, "Raise gain 0.5 dB", GAIN_UP);
         snprintf(text, sizeof(text), "Q %.2f: lower 0.05", b->q); row(view, n++, text, Q_DOWN);
         row(view, n++, "Raise Q 0.05", Q_UP);
+    } else if (ui.screen == BALANCES) {
+        for (int i = 0; i <= 48; ++i) { /* L 12.0 dB to R 12.0 dB in 0.5 dB steps */
+            snprintf(text, sizeof(text), i == 24 ? "Centre" : "%s %.1f dB", i < 24 ? "L" : "R", (i < 24 ? 24 - i : i - 24) / 2.0);
+            row(view, n++, text, i);
+        }
     } else if (ui.screen == CONFIRM && ui.previous == DELETES) {
         snprintf(text, sizeof(text), "Delete %.100s? Confirm", deleting()); row(view, n++, text, YES);
         row(view, n++, "Cancel", CANCEL);
@@ -275,6 +279,8 @@ static int render(const void *unused) {
         for (int i = 0; i < ui.count; ++i) row(view, n++, ui.names[i], i);
     }
     widget_set_prop_int(view, "virtual_h", n * 48);
+    /* ringnav keeps the selection above on a view whose row count it already knows. */
+    if (ui.screen == BALANCES) widget_set_prop_int(view, "_ringnav_count", n);
     if (n * 48 < rows) { /* short lists: shrink so the list's white background never shows below the rows */
         widget_resize(list, 375, n * 48);
         widget_resize(view, 375, n * 48);
@@ -286,6 +292,7 @@ static int render(const void *unused) {
     widget_set_prop_int(title, "line_wrap", 1);
     if (ui.status[0]) snprintf(text, sizeof(text), "%s", ui.status);
     else if (ui.screen == BAND) snprintf(text, sizeof(text), "PEQ Band %d", ui.band + 1);
+    else if (ui.screen == BALANCES) snprintf(text, sizeof(text), "PEQ Balance");
     else snprintf(text, sizeof(text), "PEQ");
     widget_set_text_utf8(title, text);
     widget_invalidate_force(ui.page, 0);

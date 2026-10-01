@@ -3037,16 +3037,18 @@ if variant=='ipod':
     assert m.bands[2][2]==327 and m.letters[0]['text']=='Volume 100' and len(m.timers)==1; passed()
     m.nodes[m.wm]['children']=[win]; m.top=win; m.advance(O['VOL_POLL_MS']); assert not m.timers; passed()  # closed: it stops
     # Over any other window (Quick Settings included) a rounded panel in the fast-scroll letter's
-    # style holds the bar on a grey track and the text, clear of the glass corners.
+    # style holds a pill bar on a grey track and the number, clear of the glass corners.
     other=m.node('window','home_page'); m.word(other+O['W_PARENT'],m.wm); sv2,lv2=m.node('slider','slider_vol',max=100,value=7),m.node('label','label_vol')
     dlg2=m.node('dialog','volume_dialog',[sv2,lv2]); m.word(dlg2+O['W_PARENT'],m.wm); put(dlg2,0,0,375,320)
     m.nodes[m.wm]['children']=[win,other,dlg2]; m.top=dlg2; paint(dlg2)
     X,Y,H,P,T=(O['VOL_PANEL_'+k] for k in ('X','Y','H','PAD','TEXT')); panel=(X,Y,375-2*X,H); bw=panel[2]-2*P-T
     assert [m.nodes[w]['visible'] for w in (sv2,lv2)]==[0,0] and [signed(m.get(sv2+O[k])) for k in ('W_X','W_Y','W_W','W_H')]==list(panel)
-    assert [(r['rect'],r['radius'],r['color']) for r in m.rounded]==[(panel,O['LETTER_RADIUS'],(O['LETTER_ALPHA']<<24)|O['FILL_RGB'])]
-    bar=(X+P,Y+(H-O['VOL_PANEL_BAR'])//2,bw,O['VOL_PANEL_BAR'])
-    assert [b[:5] for b in m.bands]==[(*bar,color_t(O['VOL_PANEL_TRACK'])),(bar[0],bar[1],bw*7//100,bar[3],color_t(0xffffff))],m.bands
-    assert [(t['text'],t['rect']) for t in m.letters]==[('Volume 7',(X+P+bw,Y,T,H))]; passed()
+    BH=O['VOL_PANEL_BAR']; bar=(X+P,Y+(H-BH)//2,bw,BH)
+    assert [(r['rect'],r['radius'],r['color']) for r in m.rounded]==[(panel,O['LETTER_RADIUS'],(O['LETTER_ALPHA']<<24)|O['FILL_RGB']),
+        (bar,BH//2,color_t(O['VOL_PANEL_TRACK'])),((*bar[:2],bw*7//100,BH),BH//2,color_t(0xffffff))],m.rounded
+    assert not m.bands and [(t['text'],t['rect'],t['font'][1]) for t in m.letters]==[('7',(X+P+bw,Y,T,H),O['VOL_PANEL_PX'])]; passed()
+    m.nodes[sv2]['value']=1; paint(dlg2)  # a sliver is still a round dot
+    assert m.rounded[2]['rect']==(*bar[:2],BH,BH),m.rounded; passed()
     assert X>=max(math.ceil(80-math.sqrt(80**2-max(Y+H-240,0)**2)),0)+4  # clear of the bottom corners
 
     # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP

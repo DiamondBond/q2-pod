@@ -1666,8 +1666,9 @@ static int vol_poll(const void *info) {
  * sets its slider_vol. Over Now Playing, as on an iPod classic, the band from the progress bar to
  * the times turns black with a white bar over the track and "Volume N"; over any other window
  * (Quick Settings included) a VOL_PANEL_* rounded panel in the fast-scroll letter's style holds
- * the same bar and text. slider_vol and label_vol are hidden, and slider_vol is moved onto the
- * area drawn, so stock's partial repaints land on it; vol_poll catches the changes those miss. */
+ * a pill bar and the number alone. slider_vol and label_vol are hidden, and slider_vol is moved
+ * onto the area drawn, so stock's partial repaints land on it; vol_poll catches the changes those
+ * miss. */
 static void vol_paint(void *top, void *canvas) {
     void *wm = window_manager(), *lcd = P(canvas, CANVAS_LCD);
     if (!lcd || tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog")) return;
@@ -1697,20 +1698,27 @@ static void vol_paint(void *top, void *canvas) {
     st.vol_drawn = level;
     if (!st.vol_timer) st.vol_timer = timer_add(vol_poll, (void *)0, VOL_POLL_MS);
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR), s[12] = { 'V', 'o', 'l', 'u', 'm', 'e', ' ' },
-             k = 7;
+             k = np ? 7 : 0;
+    int w = max > 0 ? bar.w * clamp_step(0, max, level) / max : 0;
     if (np) {
         canvas_set_fill_color(canvas, RGBA(0));
         canvas_fill_rect(canvas, area.x, area.y, area.w, area.h);
-    } else
+        canvas_set_fill_color(canvas, RGBA(TRACK_COLOR));
+        canvas_fill_rect(canvas, bar.x, bar.y, bar.w, bar.h);
+        canvas_set_fill_color(canvas, RGBA(0xffffff));
+        canvas_fill_rect(canvas, bar.x, bar.y, w, bar.h);
+    } else {
+        /* Pills: a non-zero fill is at least round, never a squashed sliver. */
         fill_box(canvas, &area, (LETTER_ALPHA << 24) | FILL_RGB, LETTER_RADIUS);
-    canvas_set_fill_color(canvas, RGBA(np ? TRACK_COLOR : VOL_PANEL_TRACK));
-    canvas_fill_rect(canvas, bar.x, bar.y, bar.w, bar.h);
-    canvas_set_fill_color(canvas, RGBA(0xffffff));
-    canvas_fill_rect(canvas, bar.x, bar.y, max > 0 ? bar.w * clamp_step(0, max, level) / max : 0,
-                     bar.h);
+        fill_box(canvas, &bar, RGBA(VOL_PANEL_TRACK), VOL_PANEL_BAR / 2);
+        if (w) {
+            rect_t on = { bar.x, bar.y, w < bar.h ? bar.h : w, bar.h };
+            fill_box(canvas, &on, RGBA(0xffffff), VOL_PANEL_BAR / 2);
+        }
+    }
     canvas_set_fill_color(canvas, fill);
     k += put_num(s + k, (unsigned)clamp_step(0, 999, level));
-    draw_centred(canvas, s, k, &text, NP_TIMES_PX, 0xffffffff);
+    draw_centred(canvas, s, k, &text, np ? NP_TIMES_PX : VOL_PANEL_PX, 0xffffffff);
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.

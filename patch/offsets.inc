@@ -119,9 +119,10 @@
 #define VOL_PANEL_X 24
 #define VOL_PANEL_Y 240
 #define VOL_PANEL_H 48
-#define VOL_PANEL_PAD 16
-#define VOL_PANEL_BAR 8
-#define VOL_PANEL_TEXT 96
+#define VOL_PANEL_PAD 20
+#define VOL_PANEL_BAR 10
+#define VOL_PANEL_TEXT 52
+#define VOL_PANEL_PX 20 /* the panel's number */
 #define VOL_PANEL_TRACK 0x5a5a5a
 /* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
  * the top corners (test_build.py). */
