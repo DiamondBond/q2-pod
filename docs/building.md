@@ -22,7 +22,7 @@ python3 tools/test_build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reprod
 python3 tools/test_patch.py /tmp/q2-build  # after: pip install -r requirements.txt
 ```
 
-Both variants replace the stock equalizer page with a ten-band PEQ editor (bands, shelves, preamp, on/off, presets, `/EQ` import) and patch `hciplayer`'s equalizer filter with the matching DSP. Both also clear the 44.1 kHz AAC capability bit in `bluealsa` (see [internals.md](internals.md#bluetooth-aac)).
+Both variants replace the stock equalizer page with a 30-band PEQ editor (bands, shelves, preamp, on/off, presets, `/EQ` import) and patch `hciplayer`'s equalizer filter with the matching DSP. Both also clear the 44.1 kHz AAC capability bit in `bluealsa` (see [internals.md](internals.md#bluetooth-aac)).
 
 `--dev` tags a build with the release version in lowercase (`V<version>r`/`V<version>i`), so a test unit is distinguishable from the release and the updater, which only refuses an identical version, installs the release over it. It applies to that build only: the release procedure never passes `--dev`, and the manifest records `dev: true`.
 

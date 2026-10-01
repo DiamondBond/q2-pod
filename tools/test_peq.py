@@ -18,7 +18,8 @@ class Band(C.Structure):
                 ('gain', C.c_double), ('q', C.c_double)]
 
 class Preset(C.Structure):
-    _fields_ = [('count', C.c_int), ('bypass', C.c_int), ('preamp', C.c_double), ('bands', Band * 10)]
+    _fields_ = [('count', C.c_int), ('bypass', C.c_int), ('preamp', C.c_double), ('bands', Band * 30),
+                ('balance', C.c_double)]
 
 class Error(C.Structure):
     _fields_ = [('line', C.c_uint), ('reason', C.c_char_p)]
@@ -27,8 +28,8 @@ class Coeff(C.Structure):
     _fields_ = [(k, C.c_double) for k in ('b0', 'b1', 'b2', 'a1', 'a2')]
 
 class Engine(C.Structure):
-    _fields_ = [('c', Coeff * 10), ('z', ((C.c_double * 2) * 10) * 8),
-                ('gain', C.c_double), ('bypass', C.c_int)]
+    _fields_ = [('c', Coeff * 30), ('z', ((C.c_double * 2) * 30) * 8),
+                ('gain', C.c_double * 8), ('bypass', C.c_int), ('used', C.c_int), ('only', C.c_int * 30)]
 
 class DSP(C.Structure):
     _fields_ = [('current', Engine), ('next', Engine), ('pending', Engine),
@@ -89,19 +90,21 @@ def parser_check(lib, tmp):
     single = 'Filter: ON PK Fc 1e3 Hz Gain +6.0 dB Q .7\n'
     assert parse(lib, single).preamp == 0
     assert parse(lib, 'Preamp: 24 dB\nPreamp: 24 dB\nPreamp: -48 dB').preamp == 0
-    assert parse(lib, single * 10).count == 10
+    assert parse(lib, single * 30).count == 30
+    assert parse(lib, single + 'Filter 2: OFF PK Fc 0 Hz Gain 0.0 dB Q 0.000').count == 1  # blank slot
     assert parse(lib, '').count == 0
     # Import is pure. Saving succeeds only after validation and explicit collision confirmation.
     active, saved = tmp/'active', tmp/'preset'
     for path in (active, saved): assert lib.peq_save(bytes(path), C.byref(p), 0) == 1
     baseline = bytes(p)
     failures = [
-        (single * 10 + single.replace('ON', 'OFF'), 11, 'ten'),
+        (single * 30 + single.replace('ON', 'OFF'), 31, '30 bands'),
         ('Preamp: 24 dB\nPreamp: 1 dB', 2, 'summed'),
         ('Preamp: -61 dB', 1, 'preamp'),
         ('Preamp: -3', 1, 'expected'),
         ('\nGraphicEQ: 20 0; 20000 0', 2, 'unsupported'),
-        ('Include: other.txt', 1, 'unsupported'), ('Channel: L', 1, 'unsupported'),
+        ('Include: other.txt', 1, 'unsupported'), ('Channel: C', 1, 'only channels'), ('Channel:', 1, 'expected Channel'),
+        ('Channel: L\nPreamp: -13 dB', 2, 'differ'),
         ('Eval: x=1', 1, 'unsupported'), ('garbage', 1, 'unsupported'),
         (single.replace(' Q .7', ''), 1, 'requires Q'),
         (single.replace('PK', 'HP'), 1, 'type'),
@@ -109,7 +112,7 @@ def parser_check(lib, tmp):
         (single.replace('Q .7', 'BW Oct 1'), 1, 'form'),
         (single.replace('1e3', '`1000`'), 1, 'number'),
         (single.replace('Filter:', 'Filter x:'), 1, 'label'),
-        (single + 'Filter: OFF PK Fc 19 Hz Gain 0 dB Q 1', 2, 'range'),
+        (single + 'Filter: ON PK Fc 19 Hz Gain 0 dB Q 1', 2, 'range'),
         (b'\0', 1, 'NUL'), (b'#' * 513, 1, 'line'), (b'#' * 16385, 1, 'file'),
     ]
     for old, values in [('1e3', ['nan', 'inf', '-inf', '1e999', '20junk', '0x100', '20001', '-20']),
@@ -140,14 +143,29 @@ def parser_check(lib, tmp):
         assert e.line and e.reason and bytes(p) == unchanged
     saved.write_bytes(saved.read_bytes()[:-1])
     assert not lib.peq_load(bytes(saved), C.byref(p)) and bytes(p) == unchanged
+    # APO Channel scopes: bands follow it, per-channel preamps become preamp + balance.
+    scoped = parse(lib, 'Preamp: -3 dB\nChannel: L\nPreamp: -1.5 dB\n' + single + 'Channel: R\nPreamp: -0.5 dB\n'
+                        + single + 'Channel: L R\n' + single + 'Channel: all\n' + single.replace('ON', 'OFF'))
+    assert [b.enabled for b in scoped.bands[:4]] == [2, 3, 1, 0]
+    assert parse(lib, single * 30 + 'Filter: OFF PK Fc 0 Hz Gain 0 dB Q 0').count == 30  # blank slots do not count
+    assert scoped.preamp == -3.5 and scoped.balance == 1  # left 1 dB below right
+    # v1 files (no balance) still load, with the balance centred.
+    v1 = tmp/'v1'
+    v1.write_bytes(b'Q2PEQ01\0' + bytes(q)[:16 + 10*32])
+    assert lib.peq_load(bytes(v1), C.byref(p)) and bytes(p) == bytes(q)  # q's bands 11-30 are the defaults
+    v1.write_bytes(b'Q2PEQ02\0' + bytes(q)[:-8])
+    assert not lib.peq_load(bytes(v1), C.byref(p))
+    v1.write_bytes(b'')
+    assert not lib.peq_load(bytes(v1), C.byref(p))
     assert not lib.peq_save(bytes(tmp/'missing'/'preset'), C.byref(q), 1)
     print('PEQ parser/storage: syntax, limits, transaction failures, confirmation and persistence passed.')
 
-def response(engine, rate, frequency):
+def response(engine, rate, frequency, ch=0):
     if engine.bypass: return 1
     z = cmath.exp(-2j * math.pi * frequency / rate)
-    result = complex(engine.gain)
-    for c in engine.c: result *= (c.b0 + c.b1*z + c.b2*z*z)/(1 + c.a1*z + c.a2*z*z)
+    result = complex(engine.gain[ch])
+    for c, only in zip(engine.c, engine.only):
+        if not only or only == ch + 1: result *= (c.b0 + c.b1*z + c.b2*z*z)/(1 + c.a1*z + c.a2*z*z)
     return abs(result)
 
 def process(lib, d, values, channels=1):
@@ -212,12 +230,12 @@ def dsp_check(lib):
     p.preamp = -24
     assert lib.peq_update(C.byref(a), C.byref(p)) and a.ramp == old_ramp
     process(lib, a, [0., 0.] * 2000, 2)
-    assert not a.ramp and not a.waiting and abs(a.current.gain-10**(-24/20)) < 1e-12
+    assert not a.ramp and not a.waiting and abs(a.current.gain[0]-10**(-24/20)) < 1e-12
     lib.peq_reset(C.byref(a), 96000, 1, C.byref(p))
     assert process(lib, a, [0.] * 1000) == [0.] * 1000
     # Decaying tails settle at a ~-590 dB normal-float residue, never in the denormal range.
     tail = process(lib, a, [0.5] + [0.] * 96000)
-    state = [abs(a.current.z[0][i][j]) for i in range(10) for j in range(2)]
+    state = [abs(a.current.z[0][i][j]) for i in range(30) for j in range(2)]
     assert all(z < 1e-28 and (z == 0 or z > 1e-300) for z in state) and abs(tail[-1]) < 1e-28
     # A preamp-only change carries filter memory: the crossfade is a pure gain ramp.
     lib.peq_reset(C.byref(a), 48000, 1, C.byref(p))
@@ -235,9 +253,23 @@ def dsp_check(lib):
     process(lib, a, tone[:10000])
     p.bands[0].gain = 0; assert lib.peq_update(C.byref(a), C.byref(p))
     process(lib, a, tone[:2000])
-    assert all(a.current.z[0][i][j] == 0 for i in range(10) for j in range(2))
+    assert all(a.current.z[0][i][j] == 0 for i in range(30) for j in range(2)) and a.current.used == 1
     assert process(lib, a, tone) == list((C.c_float * len(tone))(*tone))
-    print('PEQ DSP: C PCM response, ten bands, shelves, rates, bypass, clipping, channels and updates passed.')
+    # One-channel bands and balance: left gets the band and 2 dB less, right neither.
+    p = parse(lib, 'Channel: L\nFilter: ON PK Fc 1000 Hz Gain 6 dB Q 1'); p.balance = 2
+    e = Engine(); assert lib.peq_compile(C.byref(p), 48000, C.byref(e))
+    assert abs(20*math.log10(response(e, 48000, 1000, 0)) - 4) < 1e-7
+    assert abs(20*math.log10(response(e, 48000, 1000, 1))) < 1e-12
+    lib.peq_reset(C.byref(a), 48000, 2, C.byref(p))
+    out = process(lib, a, [x for v in tone for x in (v, v)], 2)
+    assert out[1::2] == list((C.c_float * len(tone))(*tone))
+    gain = math.sqrt(sum(x*x for x in out[10000::2])/sum(x*x for x in tone[5000:]))
+    assert abs(20*math.log10(gain) + 2) < .1, gain  # 100 Hz: the band barely reaches it
+    # A both-channel band narrowed to the left drops the right's carried memory.
+    p.bands[0].enabled = 1; lib.peq_reset(C.byref(a), 48000, 2, C.byref(p)); process(lib, a, [.5, .5] * 100, 2)
+    p.bands[0].enabled = 2; assert lib.peq_update(C.byref(a), C.byref(p)); process(lib, a, [0., 0.] * 2000, 2)
+    assert a.current.z[1][0][0] == a.current.z[1][0][1] == 0 and a.current.z[0][0][0]
+    print('PEQ DSP: C PCM response, 30 bands, shelves, rates, bypass, clipping, channels, balance and updates passed.')
 
 # Host stand-ins for the stock services peq_platform.h maps on the device.
 SHIM_H = r"""
@@ -391,7 +423,15 @@ def editor_check(lib, tmp):
     assert abs(read().preamp + 12.5) < 0.05, read().preamp
     click('1 ON'); click('Band: ON'); ui.shim_return(); click('2 ON'); click('Band: ON'); ui.shim_return(); click('Apply changes')
     assert math.copysign(1, read().preamp) == 1 and read().preamp == 0, read().preamp  # +0: shown as 0.0
-    print('PEQ editor: bypass, apply, auto preamp, load, failed saves, delete and close passed.')
+    # Channels cycle on enabled bands; headroom takes the louder side, balance only turns one down.
+    click('1 OFF'); click('Band: OFF'); click('Raise gain'); click('Raise gain'); click('Channels: Both')
+    assert title() == 'PEQ Band 1'
+    click('Channels: Left'); ui.shim_return()
+    click('Shift balance right'); click('Shift balance right'); click('Balance R 0.2 dB: shift left')
+    click('Balance R 0.1 dB: shift left'); click('Balance centre'); click('Apply changes')
+    r = read(); assert (r.bands[0].enabled, r.balance) == (3, -0.1) and abs(r.preamp + 7.5) < 0.05, (r.bands[0].enabled, r.balance)
+    assert ui.shim_click(b'1 ON R', 0) and ui.shim_click(b'Balance L 0.1 dB', 0)
+    print('PEQ editor: bypass, apply, auto preamp, channels, balance, load, failed saves, delete and close passed.')
 
 # Drives patch/peq_player.c the way hciplayer's af chain does. Built 32-bit like the device,
 # so the file's ABI asserts hold; checked against the shared DSP driven directly.
@@ -491,7 +531,7 @@ int main(void) {
     same(&af, &ref, 48000, 2);
 
     /* Live updates arrive through the stock gain query on the playback loop, channel 0 only. */
-    float gains[PEQ_BANDS];
+    float gains[10]; /* stock's graphic EQ array */
     struct { float *gain; int channel; } ext = {gains, 1};
     peq_preset second = active(-3, -4);
     assert(af.control(&af, 0x40001d00, &ext) == 1 && !memcmp(&s->preset, &first, sizeof(first)));
@@ -507,9 +547,9 @@ int main(void) {
     assert(af.control(&af, 0x40001d00, &ext) == 1 && !memcmp(&s->preset, &second, sizeof(second)));
     same(&af, &ref, 48000, 2);
     /* The stock graphic gains read back as flat; malformed queries fail. */
-    for (int i = 0; i < PEQ_BANDS; ++i) gains[i] = 1;
+    for (int i = 0; i < 10; ++i) gains[i] = 1;
     assert(af.control(&af, 0x40001d01, &ext) == 1);
-    for (int i = 0; i < PEQ_BANDS; ++i) assert(gains[i] == 0);
+    for (int i = 0; i < 10; ++i) assert(gains[i] == 0);
     assert(af.control(&af, 0x40001d00, 0) == -2);
     ext.channel = PEQ_CHANNELS; assert(af.control(&af, 0x40001d00, &ext) == -2);
     ext.channel = -1; assert(af.control(&af, 0x40001d00, &ext) == -2);

@@ -16,8 +16,8 @@ int peq_stock_eq(int mode) {
 
 enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE,
-       FREQ_DOWN, FREQ_UP, GAIN_DOWN, GAIN_UP, Q_DOWN, Q_UP, STEP,
-       YES, CANCEL, DELETE };
+       FREQ_DOWN, FREQ_UP, GAIN_DOWN, GAIN_UP, Q_DOWN, Q_UP, CHANNEL, STEP,
+       YES, CANCEL, DELETE, BALANCE_LEFT, BALANCE_RIGHT };
 static struct {
     void *page, *view;
     unsigned timer;
@@ -48,15 +48,18 @@ static double headroom(const peq_preset *p) {
     if (!peq_compile(p, 48000, &e)) return p->preamp; /* preamp only sets e.gain, unused here */
     double peak = 1;
     for (int k = 0; k < 1024; ++k) {
-        double w = 6.283185307179586 * 20 * pow(1000, k / 1023.0) / 48000, m = 1;
+        double w = 6.283185307179586 * 20 * pow(1000, k / 1023.0) / 48000, l = 1, r = 1;
         double c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
         for (int i = 0; i < PEQ_BANDS; ++i) {
             const peq_coeff *q = &e.c[i];
             double nr = q->b0 + q->b1 * c1 + q->b2 * c2, ni = q->b1 * s1 + q->b2 * s2;
             double dr = 1 + q->a1 * c1 + q->a2 * c2, di = q->a1 * s1 + q->a2 * s2;
-            m *= (nr * nr + ni * ni) / (dr * dr + di * di);
+            double m = (nr * nr + ni * ni) / (dr * dr + di * di);
+            if (e.only[i] != 2) l *= m; /* only: 1 left, 2 right */
+            if (e.only[i] != 1) r *= m;
         }
-        if (m > peak) peak = m;
+        if (l > peak) peak = l;
+        if (r > peak) peak = r;
     }
     double gain = -10 * log(peak) / 2.302585092994046; /* power ratio to dB */
     return peak == 1 ? 0 : gain < -60 ? -60 : gain; /* no boost: +0, not -0.0 on screen */
@@ -121,6 +124,13 @@ static int action(void *ctx, void *event) {
     }
     else if (id == ENABLE) b->enabled = !b->enabled;
     else if (id == TYPE) b->type = (b->type + 1) % 3;
+    else if (id == CHANNEL && b->enabled) b->enabled = b->enabled % 3 + 1; /* both, left, right */
+    else if (id == BALANCE_LEFT || id == BALANCE_RIGHT) {
+        /* Whole tenths, so stepping back to centre reads 0.0, not a rounding residue. */
+        int tenths = (int)(ui.draft.balance * 10 + (ui.draft.balance < 0 ? -0.5 : 0.5)) + (id == BALANCE_RIGHT ? 1 : -1);
+        ui.draft.balance = (tenths < -120 ? -120 : tenths > 120 ? 120 : tenths) / 10.0;
+        ui.dirty = 1;
+    }
     else if (id == STEP) ui.step = (ui.step + 1) % 4;
     else if (id >= FREQ_DOWN && id <= Q_UP) {
         static const double lo[] = {20, -24, 0.1}, hi[] = {20000, 24, 10}, fixed[] = {0, 0.5, 0.05};
@@ -177,7 +187,7 @@ static int action(void *ctx, void *event) {
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
-    if (id >= ENABLE && id < STEP) { /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP */
+    if (id >= ENABLE && id < STEP) { /* band edits: ENABLE, TYPE, FREQ_DOWN..Q_UP, CHANNEL */
         ui.dirty = 1;
         ui.draft.preamp = headroom(&ui.draft);
     }
@@ -217,11 +227,17 @@ static int render(const void *unused) {
         row(view, n++, ui.draft.bypass ? "PEQ: OFF" : "PEQ: ON", BYPASS);
         /* Display only: the preamp comes from the loaded preset; -1 matches no action. */
         snprintf(text, sizeof(text), "Preamp %.1f dB", ui.draft.preamp); row(view, n++, text, -1);
+        /* Balance turns one side down: R 1.0 dB is the left 1 dB quieter. */
+        snprintf(text, sizeof(text), __builtin_fabs(ui.draft.balance) >= 0.05 ? "Balance %s %.1f dB: shift left" : "Balance centre: shift left",
+                 ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
+        row(view, n++, text, BALANCE_LEFT);
+        row(view, n++, "Shift balance right 0.1 dB", BALANCE_RIGHT);
         row(view, n++, "Presets", MENU);
-        for (int i = 0; i < PEQ_BANDS; ++i) {
+        /* Ten rows, then one spare past the last used band to add another. */
+        for (int i = 0; i < PEQ_BANDS && (i < 10 || i <= ui.draft.count); ++i) {
             peq_band *b = &ui.draft.bands[i];
             snprintf(text, sizeof(text), "%d %s %s %.0fHz %+.1fdB Q%.2f", i+1,
-                     b->enabled ? "ON" : "OFF", b->type == 0 ? "PK" : b->type == 1 ? "LS" : "HS",
+                     (const char *[]){"OFF", "ON", "ON L", "ON R"}[b->enabled], b->type == 0 ? "PK" : b->type == 1 ? "LS" : "HS",
                      b->frequency, b->gain, b->q);
             row(view, n++, text, i);
         }
@@ -230,6 +246,7 @@ static int render(const void *unused) {
         /* Imported missing bands already have valid defaults from peq_default. */
         if (ui.draft.count <= ui.band) ui.draft.count = ui.band + 1;
         row(view, n++, b->enabled ? "Band: ON" : "Band: OFF", ENABLE);
+        if (b->enabled) row(view, n++, (const char *[]){0, "Channels: Both", "Channels: Left", "Channels: Right"}[b->enabled], CHANNEL);
         row(view, n++, b->type == 0 ? "Type: Peaking" : b->type == 1 ? "Type: Low shelf" : "Type: High shelf", TYPE);
         snprintf(text, sizeof(text), "Frequency step: %d Hz", steps[ui.step]); row(view, n++, text, STEP);
         snprintf(text, sizeof(text), "Frequency %.0f Hz: lower", b->frequency); row(view, n++, text, FREQ_DOWN);

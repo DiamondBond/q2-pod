@@ -5,24 +5,24 @@ static int between(double x, double lo, double hi) {
 }
 
 void peq_default(peq_preset *p) {
-    static const double frequencies[PEQ_BANDS] = {31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+    static const double frequencies[10] = {31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
     memset(p, 0, sizeof(*p));
-    p->count = PEQ_BANDS;
+    p->count = 10;
     p->bypass = 1;
     for (int i = 0; i < PEQ_BANDS; ++i) {
-        p->bands[i].frequency = frequencies[i];
+        p->bands[i].frequency = i < 10 ? frequencies[i] : 1000;
         p->bands[i].q = 0.7071067811865476;
     }
 }
 
 static int valid_band(const peq_band *b) {
-    return (b->enabled == 0 || b->enabled == 1) && b->type >= 0 && b->type <= 2 &&
+    return b->enabled >= 0 && b->enabled <= 3 && b->type >= 0 && b->type <= 2 &&
            between(b->frequency, 20, 20000) && between(b->gain, -24, 24) && between(b->q, 0.1, 10);
 }
 
 int peq_valid(const peq_preset *p) {
     if (!p || p->count < 0 || p->count > PEQ_BANDS || (p->bypass != 0 && p->bypass != 1) ||
-        !between(p->preamp, -60, 24)) return 0;
+        !between(p->preamp, -60, 24) || !between(p->balance, -12, 12)) return 0;
     for (int i = 0; i < p->count; ++i) if (!valid_band(&p->bands[i])) return 0;
     return 1;
 }
@@ -64,6 +64,8 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
     p.count = 0;
     p.bypass = 0;
     unsigned pos = 0, line = 0, preamp_line = 1;
+    int scope = 1; /* APO Channel: 1 both, 2 left, 3 right, as peq_band.enabled */
+    double side[4] = {0}; /* Preamp under Channel: L or R */
     if (size > PEQ_FILE_LIMIT) return error_at(error, 1, "file exceeds 16384 bytes");
     if (size >= 3 && (unsigned char)text[0] == 239 && (unsigned char)text[1] == 187 &&
         (unsigned char)text[2] == 191) pos = 3;
@@ -102,8 +104,21 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
                 return error_at(error, line, "expected Preamp: <gain> dB");
             if (!number(t[2], &gain) || !between(gain, -60, 24))
                 return error_at(error, line, "preamp outside -60..24 dB or invalid number");
-            p.preamp += gain;
+            if (scope == 1) p.preamp += gain;
+            else side[scope] += gain;
             preamp_line = line;
+            continue;
+        }
+        if (!strcmp(t[0], "Channel")) {
+            int l = 0, r = 0;
+            if (n < 3 || strcmp(t[1], ":")) return error_at(error, line, "expected Channel: L, R or all");
+            for (int i = 2; i < n; ++i) {
+                if (!strcmp(t[i], "L")) l = 1;
+                else if (!strcmp(t[i], "R")) r = 1;
+                else if (!strcmp(t[i], "all")) l = r = 1;
+                else return error_at(error, line, "only channels L, R and all are supported");
+            }
+            scope = l && r ? 1 : l ? 2 : 3;
             continue;
         }
         if (strcmp(t[0], "Filter")) return error_at(error, line, "unsupported command");
@@ -116,9 +131,8 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
         if (n <= k || strcmp(t[k++], ":")) return error_at(error, line, "expected Filter [number]:");
         if (n - k == 2 && !strcmp(t[k+1], "None")) continue; /* REW/APO empty slot */
         if (n - k != 8 && n - k != 10) return error_at(error, line, "unsupported filter form");
-        if (p.count == PEQ_BANDS) return error_at(error, line, "more than ten bands");
         peq_band b = {0, 0, 0, 0, 0.7071067811865476};
-        if (!strcmp(t[k], "ON")) b.enabled = 1;
+        if (!strcmp(t[k], "ON")) b.enabled = scope;
         else if (strcmp(t[k], "OFF")) return error_at(error, line, "expected ON or OFF");
         ++k;
         if (!strcmp(t[k], "PK") || !strcmp(t[k], "PEQ")) b.type = 0;
@@ -148,10 +162,18 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
                 if (b.frequency < 20) b.frequency = 20;
             }
         }
-        if (!valid_band(&b)) return error_at(error, line, "range: 20..20000 Hz, -24..24 dB, Q 0.1..10");
+        if (!valid_band(&b)) {
+            if (!b.enabled) continue; /* APO ignores OFF filters; exporters fill blank slots with Fc 0 Q 0 */
+            return error_at(error, line, "range: 20..20000 Hz, -24..24 dB, Q 0.1..10");
+        }
+        if (p.count == PEQ_BANDS) return error_at(error, line, "more than 30 bands");
         p.bands[p.count++] = b;
     }
+    /* Per-channel preamps become the louder one's common preamp plus a balance that turns the other down. */
+    p.preamp += side[2] > side[3] ? side[2] : side[3];
+    p.balance = side[3] - side[2];
     if (!between(p.preamp, -60, 24)) return error_at(error, preamp_line, "summed preamp outside -60..24 dB");
+    if (!between(p.balance, -12, 12)) return error_at(error, preamp_line, "L/R preamp differ by more than 12 dB");
     *out = p; /* Commit only after the complete file validates. */
     return 1;
 }
@@ -174,9 +196,15 @@ int peq_load(const char *path, peq_preset *out) {
     void *f = fopen(path, "rb");
     if (!f) return 0;
     char extra;
-    int ok = fread(&file, 1, sizeof(file), f) == sizeof(file) && fread(&extra, 1, 1, f) == 0 && !ferror(f);
+    memset(file.magic, 0, sizeof(file.magic));
+    peq_default(&file.preset); /* bands a v1 file lacks keep their defaults */
+    unsigned n = fread(&file, 1, sizeof(file), f);
+    int ok = fread(&extra, 1, 1, f) == 0 && !ferror(f);
     if (fclose(f)) ok = 0;
-    if (!ok || memcmp(file.magic, "Q2PEQ01", 8) || !peq_valid(&file.preset)) return 0;
+    /* Q2PEQ01 predates balance and held ten bands. */
+    unsigned want = !memcmp(file.magic, "Q2PEQ02", 8) ? sizeof(file)
+                  : !memcmp(file.magic, "Q2PEQ01", 8) ? 8 + __builtin_offsetof(peq_preset, bands[10]) : 0;
+    if (!ok || !want || n != want || !peq_valid(&file.preset)) return 0;
     *out = file.preset;
     return 1;
 }
@@ -193,7 +221,7 @@ int peq_save(const char *path, const peq_preset *p, int replace) {
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     void *f = fopen(tmp, "wb");
     if (!f) return 0;
-    int ok = fwrite("Q2PEQ01", 1, 8, f) == 8 && fwrite(p, 1, sizeof(*p), f) == sizeof(*p);
+    int ok = fwrite("Q2PEQ02", 1, 8, f) == 8 && fwrite(p, 1, sizeof(*p), f) == sizeof(*p);
     if (fflush(f) || fsync(fileno(f))) ok = 0;
     if (fclose(f)) ok = 0;
     if (ok && !rename(tmp, path)) return 1;
@@ -206,11 +234,15 @@ int peq_compile(const peq_preset *p, int rate, peq_engine *out) {
     peq_engine e;
     memset(&e, 0, sizeof(e));
     if (!peq_valid(p) || rate < 8000 || rate > 384000) return 0;
-    e.gain = pow(10, p->preamp / 20);
+    for (int ch = 0; ch < PEQ_CHANNELS; ++ch) e.gain[ch] = pow(10, p->preamp / 20);
+    if (p->balance > 0) e.gain[0] *= pow(10, -p->balance / 20);
+    if (p->balance < 0) e.gain[1] *= pow(10, p->balance / 20);
     e.bypass = p->bypass;
     for (int i = 0; i < PEQ_BANDS; ++i) {
         e.c[i].b0 = 1;
         if (i >= p->count || !p->bands[i].enabled || !p->bands[i].gain) continue;
+        e.used = i + 1;
+        if (p->bands[i].enabled > 1) e.only[i] = p->bands[i].enabled - 1;
         const peq_band *b = &p->bands[i];
         if (b->frequency >= rate * 0.5) continue; /* not representable at this rate; skip only this band */
         double a = pow(10, b->gain / 40), w = 6.283185307179586 * b->frequency / rate;
@@ -250,9 +282,11 @@ int peq_update(peq_dsp *d, const peq_preset *p) {
 
 static double sample(peq_engine *e, double x, int ch) {
     if (e->bypass) return x;
-    for (int i = 0; i < PEQ_BANDS; ++i) {
+    for (int i = 0; i < e->used; ++i) {
         const peq_coeff *c = &e->c[i];
         double *z = e->z[ch][i];
+        /* The other channel's band: drop memory carried from a both-channel version. */
+        if (e->only[i] && e->only[i] != ch + 1) { z[0] = z[1] = 0; continue; }
         /* A band left out with settled memory passes x through: most presets leave several. */
         if (c->b0 == 1 && !c->b1 && !c->b2 && !c->a1 && !c->a2 && !z[0] && !z[1]) continue;
         /* Flush |y| < ~2e-34 to zero: decaying tails would otherwise reach denormals, which MIPS FPUs trap on. */
@@ -261,7 +295,7 @@ static double sample(peq_engine *e, double x, int ch) {
         z[1] = c->b2 * x - c->a2 * y;
         x = y;
     }
-    return x * e->gain; /* after the cascade, so filter memory is independent of preamp */
+    return x * e->gain[ch]; /* after the cascade, so filter memory is independent of preamp */
 }
 
 void peq_process(peq_dsp *d, float *audio, unsigned frames) {
@@ -273,6 +307,9 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames) {
             d->ramp = d->ramp_length;
             /* Carry filter memory over so unchanged bands and preamp-only edits crossfade without a transient. */
             if (!d->current.bypass) memcpy(d->next.z, d->current.z, sizeof(d->next.z));
+            /* Bands dropped from the end still run until their carried memory drains. */
+            for (int b = d->next.used; b < d->current.used; ++b)
+                for (int ch = 0; ch < PEQ_CHANNELS; ++ch) if (d->next.z[ch][b][0] || d->next.z[ch][b][1]) d->next.used = b + 1;
         }
         for (int ch = 0; ch < d->channels; ++ch, ++audio) {
             if (!d->ramp && d->current.bypass) continue; /* bit-exact steady bypass */

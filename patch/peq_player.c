@@ -35,7 +35,7 @@ static int control(af_instance *af, int command, void *arg) {
         struct { float *gain; int channel; } *ext = arg;
         if (!ext || !ext->gain || ext->channel < 0 || ext->channel >= PEQ_CHANNELS) return -2;
         if (command & 1) {
-            memset(ext->gain, 0, PEQ_BANDS * sizeof(float));
+            memset(ext->gain, 0, 10 * sizeof(float)); /* stock's ten graphic bands */
         } else if (!ext->channel) {
             peq_preset p;
             /* Control executes on the playback loop, outside the PCM callback. */

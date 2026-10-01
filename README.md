@@ -3,7 +3,7 @@
 A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the stock look, **iPod** restyles browsing after an iPod classic. Both include:
 
 - **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
-- **Ten-band parametric EQ:** tune your headphones with peaking and shelf filters, or import **AutoEQ / Equalizer APO** presets from your microSD card.
+- **30-band parametric EQ:** tune your headphones with peaking and shelf filters, per channel if needed, or import **AutoEQ / Equalizer APO** presets from your microSD card.
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 - **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
@@ -42,18 +42,21 @@ A short Play/Pause press and long-press power are unchanged. iPod adds a few mor
 
 ## Parametric EQ
 
-Open **Audio settings → Equalizer** for the ten-band editor:
+Open **Audio settings → Equalizer** for the 30-band editor:
 
 ```text
 Apply changes
 PEQ: OFF
 Preamp -3.0 dB
+Balance centre: shift left
+Shift balance right 0.1 dB
 Presets
 1 ON PK 1000Hz -2.0dB Q1.00
-… bands 2–10
+… bands 2–10, then one spare row to add band 11 and on
 ```
 
-- **Bands:** select one to set its type (**Peaking**, **Low shelf** or **High shelf**), frequency, gain and Q, or to switch it off. **Return** steps back.
+- **Bands:** select one to set its type (**Peaking**, **Low shelf** or **High shelf**), frequency, gain and Q, or to switch it off. **Channels** applies it to both sides, or only the left or right (**ON L** / **ON R** in the list). **Return** steps back.
+- **Balance:** fixes a left/right level mismatch in 0.1 dB steps, up to 12 dB. It only turns one side down: **R 1.0 dB** plays the left 1 dB quieter.
 - **Apply changes:** band edits and loaded presets take effect when you choose it.
 - **PEQ: ON/OFF:** switches immediately and is kept across restarts. The status-bar **EQ** icon follows it.
 - **Preamp:** read-only. It comes from the preset, and editing a band resets it to just enough cut that boosts don't clip.
@@ -61,6 +64,7 @@ Presets
 ### Import a preset
 
 1. Put your AutoEQ / Equalizer APO `.txt` preset in an `EQ` folder at the root of the microSD card, for example `/EQ/My headphones.txt`.
+   Equalizer APO's `Channel: L`, `Channel: R` and `Channel: all` lines are supported: filters after them apply to that side, and a `Preamp` under one side sets the balance.
 2. Open **Audio settings → Equalizer → Presets → Import from SD /EQ** and select the file. This saves a copy on the player.
 3. Press **Return** to go back to **Presets**, then select the saved preset to load it into the editor.
 4. Choose **Apply changes**, then switch **PEQ: OFF** to **PEQ: ON** if needed.
