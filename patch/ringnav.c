@@ -1368,8 +1368,7 @@ static void bar_sync(void *bar) {
         st.bar_slot = widget_lookup(bar, "view_battery", 1);
         st.bar_icon = widget_lookup(bar, "img_battery", 1);
     }
-    if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon)
-        return;
+    if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon) return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
     for (int i = 0; image && i < (int)(sizeof codecs / sizeof *codecs); ++i)
@@ -1414,8 +1413,9 @@ static void bar_sync(void *bar) {
     widget_invalidate_force(st.bar_slot, (void *)0);
 }
 
-/* view_battery: a BATT_BODY_W x BATT_BODY_H outline with square-cut corners, centred in the bar (its text 1px low),
- * its nub on the right and the level inside, all in one colour; the fill color is restored. */
+/* view_battery: a BATT_BODY_W x BATT_BODY_H outline with square-cut corners, centred in the bar
+ * (its text 1px low), its nub on the right and the level inside, all in one colour; the fill color
+ * is restored. */
 static void paint_battery(void *w, void *canvas) {
     void *lcd = P(canvas, CANVAS_LCD);
     if (!lcd) return;
