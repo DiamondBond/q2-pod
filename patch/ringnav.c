@@ -1412,7 +1412,7 @@ static void bar_sync(void *bar) {
     widget_invalidate_force(st.bar_slot, (void *)0);
 }
 
-/* view_battery: a BATT_BODY_W x BATT_BODY_H outline with square-cut corners, centred in the bar,
+/* view_battery: a BATT_BODY_W x BATT_BODY_H outline with square-cut corners, centred in the bar (its text 1px low),
  * its nub on the right and the level inside, all in one colour; the fill color is restored. */
 static void paint_battery(void *w, void *canvas) {
     void *lcd = P(canvas, CANVAS_LCD);
@@ -1432,7 +1432,7 @@ static void paint_battery(void *w, void *canvas) {
     if (level >= 100) s[n++] = '1';
     if (level >= 10) s[n++] = '0' + level / 10 % 10;
     s[n++] = '0' + level % 10;
-    rect_t r = { 0, y, bw, bh };
+    rect_t r = { 0, y + 1, bw, bh };
     draw_centred(canvas, s, n, &r, BATT_PX, color);
     canvas_set_fill_color(canvas, fill);
 }

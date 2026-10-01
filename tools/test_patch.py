@@ -734,7 +734,7 @@ else:
             bands,letters=slot()
             assert [x[:5] for x in bands]==[(1,y,bw-2,1,color_t(rgb)),(1,y+bh-1,bw-2,1,color_t(rgb)),(0,y+1,1,bh-2,color_t(rgb)),
                                              (bw-1,y+1,1,bh-2,color_t(rgb)),(bw,y+(bh-O['BATT_NUB_H'])//2,O['BATT_NUB_W'],O['BATT_NUB_H'],color_t(rgb))]
-            assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(text,(0,y,bw,bh),color_t(rgb),('default',O['BATT_PX']),(1,1))]
+            assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(text,(0,y+1,bw,bh),color_t(rgb),('default',O['BATT_PX']),(1,1))]
         passed()
     battery_checks()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
