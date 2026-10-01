@@ -1,4 +1,4 @@
-# q2-ringnav: Wheel Navigation, Parametric EQ & Coverflow
+# Q2 Pod: Wheel Navigation, Parametric EQ & Coverflow
 
 <p align="center">
   <a href="https://youtu.be/C5x05EwsPGI" title="Watch the Q2-Pod demo on YouTube">
