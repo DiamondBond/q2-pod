@@ -3991,4 +3991,41 @@ else:
         assert press(s)==got[-1][0]; s.call(address=HOOKS['on_wm_keyup_before_fun'][0],gap=0,debounce=True)
     assert got==[(1,0,1),(1,0,2),(1,0,2),(1,0,2)] and not m.config_reads; passed()
 
+# Shuffle Songs: after stock's 11 Local Music rows, one more in the same widgets and styles, moved
+# first. A click saves shuffle as the play-mode setting does and folder-plays every song from a
+# random track, leaving the staging deque as it was; an empty library only says so.
+class ShuffleMachine(CoverflowMachine):
+    def __init__(self):
+        super().__init__()
+        for n in ('getAllMusic','toolsRandnum','widget_restack'): self.handlers[syms[n]]='s:'+n
+        self.handlers[int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)]='stock_localmusic'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('s:'): return super().hook(u,address,size,unused)
+        name=name[2:]; a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); ret=0; self.calls.append((name,a,b))
+        if name=='getAllMusic':
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=len(self.found)
+        elif name=='toolsRandnum': ret=a-1  # stock: rand() % a
+        elif name=='widget_restack':
+            kids=self.nodes[self.get(a+O['W_PARENT'])]['children']; kids.remove(a); kids.insert(b,a)
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+m=ShuffleMachine(); stock=[m.node('list_item') for _ in range(11)]
+view=m.node('scroll_view','scroll_view_localmusic',stock); m.top=m.node('window','localmusic_page',[view])
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+assert m.calls[0][:3]==('stock_localmusic',m.top,5)
+row=m.nodes[view]['children'][0]; assert m.nodes[view]['children'][1:]==stock and m.nodes[row]['style']=='s_listitem_black'
+button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[button]['style']=='s_btn_listitem' and [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
+assert m.nodes[icon]['image']=='playset_playmode' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
+assert m.nodes[label]['style']=='s_scrlabel_white24l' and m.nodes[label]['text']=='Shuffle Songs' and not m.nodes[button].get('name')
+f,ctx=m.handler(button,O['EVT_CLICK'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+def called(n): return [c[1:3] for c in m.calls if c[0]==n]
+assert called('config_playmode')==[(2,1)] and [a for a,_ in called('toolsRandnum')]==[2] and m.plays==[('playing_page',m.plays[0][1],1,1,2)]
+assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts; passed()
+m.found=[]; m.plays=[]; m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+assert not called('config_playmode') and not m.plays and m.toasts[-1][0]=='dialog/msginfo_dialog' and m.toasts[-1][3]=='Update Local Music first'; passed()
+
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

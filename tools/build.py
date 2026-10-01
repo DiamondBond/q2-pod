@@ -23,6 +23,7 @@ HOOKS = {
     'playset_equalizer_page_init': (0x4b642c, 'peq_page_init'),
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq'),
     'home_page_init': (0x523c84, 'coverflow_home'),
+    'localmusic_page_init': (0x524424, 'ringnav_localmusic'),
     # The three songtable writers; Coverflow keeps its album list until one runs.
     'scanAllMusicFile': (0x4fc788, 'coverflow_scan_all'),
     'scanSpecFolder': (0x4fc964, 'coverflow_scan_folder'),
@@ -206,6 +207,11 @@ FUNCTIONS = {
  'mclLoadPlayList': ('int', 'void *, int, int'),
  'mcl_shuffle_pick': ('int', 'int'),
  'getAllAlbum': ('int', 'void'),
+ # Shuffle Songs (ringnav.c): every song, shuffle saved as the play-mode setting does, a random start
+ 'getAllMusic': ('int', 'int'),
+ 'config_playmode': ('int', 'int, int'),
+ 'toolsRandnum': ('int', 'int'),
+ 'widget_restack': ('int', 'void *, unsigned'),
  'toolsThumbSpecCover': ('int', 'const char *, const char *, int, int'),
  'toolsGetAlbumCover': ('int', 'const char *, const char *, int, int'),
  'window_create': ('void *', 'void *, int, int, int, int'),

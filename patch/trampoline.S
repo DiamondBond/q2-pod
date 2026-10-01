@@ -16,6 +16,7 @@ resume dispatch, 0x65e0f8
 resume keylong, 0x4e8748
 resume eq, 0x4f923c
 resume home, 0x523c90
+resume localmusic, 0x524430
 resume paint_bg, 0x65c788
 resume playing, 0x52ca94
 resume display, 0x4c1d10

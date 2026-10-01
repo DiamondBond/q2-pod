@@ -6,6 +6,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
+    stock_localmusic_trampoline(void *, void *),
     stock_keydown_trampoline(void *, void *), stock_sleep_trampoline(void *),
     stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *);
@@ -1320,6 +1321,22 @@ int ringnav_paint(void *w, void *canvas) {
     return result;
 }
 
+/* A stock settings-style row (0x4c19bc): a s_listitem_black list_item holding a 335x70
+ * s_btn_listitem button with a 52px icon and a 24px label at x 72, without list_into. Returns the
+ * label. */
+static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
+    void *item = list_item_create(view, 0, 0, 0, 0);
+    widget_use_style(item, "s_listitem_black");
+    void *button = button_create(item, 20, 0, 335, 70);
+    widget_use_style(button, "s_btn_listitem");
+    widget_on(button, EVT_CLICK, click, ctx);
+    image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
+    void *label = hscroll_label_create(button, 72, 0, 260, 70);
+    widget_use_style(label, "s_scrlabel_white24l");
+    set_hscroll_label_attribute(label);
+    return label;
+}
+
 #if IPOD
 /* The status bar's centred label shows the device's local time as 6:14 PM: 12-hour, without
  * seconds or a leading zero, or --:-- when the time cannot be read. The bar repaints at least once
@@ -1783,18 +1800,10 @@ static int setting_click(void *ctx, void *event) {
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
+    static const char *const icons[] = { "system_display", "playset_covermode",
+                                         "system_powermanager" };
     for (int i = 0; view && i < 3; ++i) {
-        void *item = list_item_create(view, 0, 0, 0, 0);
-        widget_use_style(item, "s_listitem_black");
-        void *button = button_create(item, 20, 0, 335, 70);
-        widget_use_style(button, "s_btn_listitem");
-        widget_on(button, EVT_CLICK, setting_click, (void *)(long)i);
-        static const char *const icons[] = { "system_display", "playset_covermode",
-                                             "system_powermanager" };
-        image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icons[i]);
-        st.setting_label[i] = hscroll_label_create(button, 72, 0, 260, 70);
-        widget_use_style(st.setting_label[i], "s_scrlabel_white24l");
-        set_hscroll_label_attribute(st.setting_label[i]);
+        st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
     return result;
@@ -2213,6 +2222,46 @@ static void toast(const char *text) {
     } info = { 1, 2000, { 0 } };
     for (unsigned i = 0; text[i]; ++i) info.text[i] = text[i];
     navigator_to_with_context("dialog/msginfo_dialog", &info);
+}
+
+static int all_songs(void *unused) {
+    (void)unused;
+    return getAllMusic(0);
+}
+
+/* Shuffle Songs: every song, shuffle on as the play-mode setting saves it, from a random track.
+ * ponytail: folder play, as Coverflow's, so a resume after reboot reloads only the last track's
+ * folder; the library class needs g_local_classinfo_save built as stock's All Songs does. */
+static int shuffle_songs(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    int n;
+    void *all = staged(all_songs, 0, &n);
+    int size = (int)deque_size(all);
+    if (size) {
+        config_playmode(2, 1);
+        struct {
+            void *dq;
+            int idx, cls, mode;
+        } context = { all, toolsRandnum(size), 1, 2 };
+        navigator_to_with_context("playing_page", &context); /* mclLoadPlayList copies it */
+    } else
+        toast("Update Local Music first");
+    deque_destroy(all);
+    return 0;
+}
+
+/* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs moved first. Its
+ * button has no name, so stock's row click (atoi of the name, 0x5241fc) never sees it. */
+int ringnav_localmusic(void *win, void *ctx) {
+    int result = stock_localmusic_trampoline(win, ctx);
+    void *view = win ? widget_lookup(win, "scroll_view_localmusic", 1) : (void *)0;
+    if (view) {
+        void *label = list_row(view, "playset_playmode", shuffle_songs, 0);
+        widget_set_text_utf8(label, "Shuffle Songs");
+        widget_restack(P(P(label, W_PARENT), W_PARENT), 0);
+    }
+    return result;
 }
 
 /* Deferred so the dialog is never closed under its own click dispatch. */

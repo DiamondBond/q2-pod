@@ -67,6 +67,10 @@ Presets
 2. **Presets → Import from SD /EQ**, then pick the file. The player saves a copy.
 3. Return to **Presets**, select the saved preset, then **Apply changes** (and **PEQ: ON** if it's off).
 
+## Shuffle Songs
+
+**Shuffle Songs**, the first row of Local Music, plays every song in Local Music in shuffle, starting from a random one, and turns the play mode to Shuffle.
+
 ## Coverflow
 
 **Coverflow** sits after Local Music on Home and flips through your albums by cover art. Run **Update Local Music** first: it shows the albums Local Music already knows.
