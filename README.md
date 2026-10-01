@@ -76,26 +76,22 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **Fast-scroll letter:** spinning through a long list shows the current title's first letter.
 - **Starts on Home.** **Memory playback → Location** restores your queue paused where you left it; **Track** restarts the song. **In-Vehicle mode** starts playing.
 
-### iPod controls
-
-- **Hold Return:** opens Now Playing; the next Return goes back.
-- **Volume:** the wheel shows volume in place of the progress bar on Now Playing, and in a small panel elsewhere.
-- **Scrub:** on Now Playing, double-press centre, then turn 5 seconds per tick. Double-press again, press Return, touch, or wait 3 seconds to jump.
-- **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears.
-- **Pop-ups:** the wheel moves between OK and Cancel.
-- **Key Tone:** clicks once per row, not per wheel tick.
-
 ## Controls
 
-| Control             | What it does                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------------- |
-| **Wheel**           | One row per tick; keep spinning to speed up. Outside supported menus, it controls volume.    |
-| **Centre button**   | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing). |
-| **Hold Play/Pause** | On a song, album or folder: **Play next** / **Add to queue**.                                |
+| Control                   | What it does                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Wheel**                 | One row per tick; keep spinning to speed up. Outside menus it sets volume (iPod: in place of the progress bar on Now Playing, or a small panel). |
+| **Centre button**         | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing).                                                     |
+| **Hold Play/Pause**       | On a song, album or folder: **Play next** / **Add to queue**.                                                                                    |
+| **Hold Return** (iPod)    | Opens Now Playing; the next Return goes back.                                                                                                    |
+| **Scrub** (iPod)          | On Now Playing, double-press centre, then turn 5 seconds per tick. Double-press again, press Return, touch, or wait 3 seconds to jump.           |
+| **Pull to search** (iPod) | At the top of Local Songs, pull down until "Release to search" appears.                                                                          |
 
 - **List ends:** local lists stop at the end; pause, then turn again to wrap.
 - **Position memory:** returning to a recent folder, album, search or menu restores your place until power-off.
 - **Artists:** open on Albums, with All Songs one tap away.
+- **Pop-ups** (iPod): the wheel moves between OK and Cancel.
+- **Key Tone** (iPod): clicks once per row, not per wheel tick.
 
 ## Parametric EQ
 
