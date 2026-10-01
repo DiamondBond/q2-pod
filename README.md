@@ -29,8 +29,6 @@
   <a href="#coverflow">Coverflow</a>
 </p>
 
-Q2 Pod restyles the **Shanling Q2** after an iPod classic and adds some community appreciated features.
-
 ## Features
 
 | For listening                                            | Under the hood                                                                    |
