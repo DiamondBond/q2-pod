@@ -7,7 +7,7 @@ A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the st
 - **Coverflow:** flip through your albums by cover art from Home, then open an album to play or queue its tracks.
 - **Bluetooth AAC fix:** no more choppy AAC audio when a headset such as AirPods connects to the Q2 by itself.
 - **Clock fix:** the time stays right after a power-off instead of jumping by your time zone.
-- **Battery and speed:** less drain with the screen off, a quicker library and Coverflow, and long VBR MP3s that start at once and seek exactly.
+- **Battery and speed:** less drain with the screen off, a quicker library and long VBR MP3s that start at once and seek exactly.
 
 Touch works as before, and outside supported menus the wheel still controls volume.
 
