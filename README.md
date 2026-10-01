@@ -27,12 +27,6 @@
   <a href="docs/changelog.md">Changelog</a>
 </p>
 
-> [!CAUTION]
-> **Q2 Pod is an unofficial firmware mod.** Flashing any firmware carries risk: a flat battery or
-> removing the microSD card mid-update can leave the player unable to start. Recovery through
-> [Shanling's recovery package](#restore-stock) has worked, but is not guaranteed, and flashing may
-> affect your warranty.
-
 Q2 Pod restyles the **Shanling Q2** after an iPod classic and adds what the stock firmware lacks.
 
 ## Features
@@ -83,8 +77,6 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **Fast-scroll letter:** spinning through a long list shows the current title's first letter.
 - **Starts on Home.** **Memory playback → Location** restores your queue paused where you left it; **Track** restarts the song. **In-Vehicle mode** starts playing.
 
-Tidal pages keep their stock layout.
-
 ### iPod controls
 
 - **Hold Return:** opens Now Playing; the next Return goes back.
@@ -96,13 +88,11 @@ Tidal pages keep their stock layout.
 
 ## Controls
 
-| Control                | What it does                                                                                 |
-| ---------------------- | -------------------------------------------------------------------------------------------- |
-| **Wheel**              | One row per tick; keep spinning to speed up. Outside supported menus, it controls volume.    |
-| **Centre button**      | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing). |
-| **Hold Play/Pause**    | On a song, album or folder: **Play next** / **Add to queue**.                                |
-| **Touch**              | Works as normal; hides the selection until you use the wheel or buttons.                     |
-| **Hold centre button** | Forces the player off if it freezes.                                                         |
+| Control             | What it does                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| **Wheel**           | One row per tick; keep spinning to speed up. Outside supported menus, it controls volume.    |
+| **Centre button**   | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing). |
+| **Hold Play/Pause** | On a song, album or folder: **Play next** / **Add to queue**.                                |
 
 - **List ends:** local lists stop at the end; pause, then turn again to wrap.
 - **Position memory:** returning to a recent folder, album, search or menu restores your place until power-off.
@@ -111,16 +101,6 @@ Tidal pages keep their stock layout.
 ## Parametric EQ
 
 **Audio settings → Equalizer**:
-
-```text
-Apply changes
-PEQ: OFF
-Preamp -3.0 dB
-Balance: Centre
-Presets
-1 ON PK 1000Hz -2.0dB Q1.00
-… a row per band, up to 30
-```
 
 - **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, and channel (both, **L** or **R**).
 - **Balance:** L 12.0 dB to R 12.0 dB in 0.5 dB steps; **R 1.0 dB** plays the left 1 dB quieter.
@@ -133,10 +113,6 @@ Presets
 1. Copy an AutoEQ / Equalizer APO `.txt` to `/EQ/` on the microSD card. `Channel: L`, `R` and `all` sections are supported.
 2. **Presets → Import from SD /EQ**, then pick the file.
 3. Select the saved preset, then **Apply changes** (and **PEQ: ON**).
-
-## Shuffle Songs
-
-The first row of Local Music shuffles your whole library.
 
 ## Coverflow
 
