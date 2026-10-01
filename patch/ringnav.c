@@ -750,7 +750,9 @@ static void stop_scroll(menu_t *m) {
     }
 }
 
-/* Wheel offsets are synchronous; table setters can replace the recycled row pool. */
+/* Wheel offsets are synchronous; table setters can replace the recycled row pool. Stock lists
+ * load the covers in view on scroll end, which a touch scroll sends when it settles; send it
+ * after every wheel step too, or the covers wait for the next touch. */
 static void wheel_offset(menu_t *m, int top) {
     stop_scroll(m);
     if (m->kind == 2) {
@@ -758,6 +760,9 @@ static void wheel_offset(menu_t *m, int top) {
         load_rows(m, m->w);
     } else if (m->kind == 1)
         scroll_view_set_offset(m->w, I(m->w, SCROLL_X), top);
+    else
+        return;
+    widget_dispatch_simple_event(m->w, EVT_SCROLL_END);
 }
 
 /* Least viewport move that reveals logical row id with a small reading margin.

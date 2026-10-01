@@ -1027,6 +1027,10 @@ assert m.call()==11 and m.selected(w)==1
 assert m.call()==11 and m.selected(w)==2 and m.get(w+O['TABLE_TOP'])==60
 assert m.moved()[-1][0]=='table_client_set_yoffset'
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[1]; passed()
+# A wheel step ends its scroll as a touch scroll does, so stock lists load the covers in view.
+m=Machine(); w,rows,entries=m.table_page(rebind=True); m.mock('widget_dispatch_simple_event')
+m.paint(w); m.call(); m.call()
+assert ('widget_dispatch_simple_event',w,O['EVT_SCROLL_END']) in [c[:3] for c in m.calls]; passed()
 # A touch click in a rebound row immediately changes what centre opens.
 m.touch(); m.click(entries[0]); assert m.selected(w)==1
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
