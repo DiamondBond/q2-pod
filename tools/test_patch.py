@@ -3006,34 +3006,40 @@ if variant=='ipod':
     f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert repaint()==[] and shown()[0]==''; passed()
 
-    # Volume: with the stock volume dialog directly over Now Playing its slider and label hide, and a
-    # white bar and "Volume N" stand in for the progress bar and times until it closes. Over any
-    # other window the dialog keeps its stock look.
+    # Volume: with the stock volume dialog directly over Now Playing, the dialog's own paint draws
+    # the band from the progress bar to the times: black, the track, a white fill to the volume and
+    # "Volume N". Its slider and label hide, the slider moved onto the band so stock's invalidation
+    # repaints it. Over any other window it stays stock.
     m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
-    slider,elapsed,remain=m.node('slider','slider_play',max=225,value=100),m.node('label','label_playtime'),m.node('label','label_ipod_remain')
-    vol,level=m.node('slider','slider_ipod_vol',value=0,visible=0),m.node('label','label_ipod_vol',visible=0)
-    win=m.node('window','playing_page',[slider,elapsed,remain,vol,level]); m.word(win+O['W_PARENT'],m.wm); m.top=win
+    slider,elapsed,remain=m.node('slider','slider_play',max=225,value=100,bar_size=8),m.node('label','label_playtime'),m.node('label','label_ipod_remain')
+    win=m.node('window','playing_page',[slider,elapsed,remain]); m.word(win+O['W_PARENT'],m.wm); m.top=win
+    def put(w,*g):
+        for k,v in zip(('W_X','W_Y','W_W','W_H'),g): m.word(w+O[k],v)
+    put(win,0,30,375,290); put(slider,24,240,327,30); put(elapsed,16,265,80,16)
     m.word(syms['system_bar'],m.node('window','system_bar'))
     assert m.call(address=playing,args=(win,7,0,0),gap=0)==0
     sv,lv=m.node('slider','slider_vol',max=100,value=40),m.node('label','label_vol')
-    dlg=m.node('dialog','volume_dialog',[sv,lv]); m.word(dlg+O['W_PARENT'],m.wm)
-    def seen(*ws): return [m.nodes[w]['visible'] for w in ws]
+    dlg=m.node('dialog','volume_dialog',[sv,lv]); m.word(dlg+O['W_PARENT'],m.wm); put(dlg,0,0,375,320)
     def paint(w): m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
-    def did(n): return [c[1:3] for c in m.calls if c[0]==n]
-    hl=O['WM_HIGHLIGHTER']; m.word(m.wm+hl,0x1234)  # the dimmed snapshot of the page, taken at open
+    def did(n): return [c[1:] for c in m.calls if c[0]==n]
+    band=(0,270,375,30+265+16-270); bar=(24,281,327,8)
     m.nodes[m.wm]={'children':[win,dlg]}; m.top=dlg; paint(dlg)
-    assert [a for a,_ in did('wm_drop_highlighter')]==[m.wm] and (dlg,0) in did('widget_invalidate_force')
-    assert seen(sv,lv,slider,elapsed,remain)==[0]*5 and seen(vol,level)==[1,1]
-    m.word(m.wm+hl,0)  # stock's teardown clears it
-    assert (m.nodes[vol]['value'],m.nodes[vol]['max'],m.nodes[level]['text'])==(40,100,'Volume 40'); passed()
-    m.nodes[sv]['value']=41; paint(dlg)
-    assert m.nodes[vol]['value']==41 and m.nodes[level]['text']=='Volume 41' and not did('wm_drop_highlighter'); passed()
-    m.nodes[m.wm]['children']=[win]; m.top=win; paint(win)
-    assert seen(slider,elapsed,remain)==[1]*3 and seen(vol,level)==[0,0]; passed()
+    assert [m.nodes[w]['visible'] for w in (sv,lv,slider,elapsed)]==[0,0,1,1]
+    assert [signed(m.get(sv+O[k])) for k in ('W_X','W_Y','W_W','W_H')]==list(band)
+    fills=[b[:5] for b in m.bands]
+    assert fills==[(*band,color_t(0)),(*bar,color_t(O['TRACK_COLOR'])),(24,281,327*40//100,8,color_t(0xffffff))],fills
+    assert [(t['text'],t['rect'],t['font'][1]) for t in m.letters]==[('Volume 40',(0,295,375,16),O['NP_TIMES_PX'])]; passed()
+    assert len(m.timers)==1; poll=next(iter(m.timers))
+    m.advance(O['VOL_POLL_MS']); assert not did('widget_invalidate_force') and poll in m.timers  # unchanged: nothing
+    m.nodes[sv]['value']=41; m.advance(O['VOL_POLL_MS'])  # changed: the whole dialog repaints
+    assert [c[0] for c in did('widget_invalidate_force')]==[dlg]; passed()
+    m.nodes[sv]['value']=100; paint(dlg)
+    assert m.bands[2][2]==327 and m.letters[0]['text']=='Volume 100' and len(m.timers)==1; passed()
+    m.nodes[m.wm]['children']=[win]; m.top=win; m.advance(O['VOL_POLL_MS']); assert not m.timers; passed()  # closed: it stops
     other=m.node('window','home_page'); m.word(other+O['W_PARENT'],m.wm); sv2,lv2=m.node('slider','slider_vol',value=7),m.node('label','label_vol')
     dlg2=m.node('dialog','volume_dialog',[sv2,lv2]); m.word(dlg2+O['W_PARENT'],m.wm)
-    m.word(m.wm+hl,0x1234); m.nodes[m.wm]['children']=[win,other,dlg2]; m.top=dlg2; paint(dlg2)
-    assert seen(sv2,lv2,slider)==[1,1,1] and seen(vol,level)==[0,0] and not did('wm_drop_highlighter'); passed()
+    m.nodes[m.wm]['children']=[win,other,dlg2]; m.top=dlg2; paint(dlg2)
+    assert [m.nodes[w]['visible'] for w in (sv2,lv2)]==[1,1] and not m.letters; passed()
 
     # Scrub: centre toggles it DOUBLE_CLICK_MS later; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,

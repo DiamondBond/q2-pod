@@ -105,8 +105,11 @@ typedef struct {
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
-    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_vol, *np_level;
-    int np_volume;    /* the volume bar is showing */
+    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
+    /* Volume over Now Playing: the dialog last drawn, its value and the redraw timer */
+    void *vol_dialog;
+    int vol_drawn;
+    unsigned vol_timer;
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
     int np_left;
     /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press; scrub_to is the
@@ -1163,6 +1166,15 @@ static void paint_chevrons(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
+/* Writes v (under 1000) in decimal to s; returns the digits written. */
+static unsigned put_num(unsigned *s, unsigned v) {
+    unsigned n = 0;
+    if (v >= 100) s[n++] = '0' + v / 100 % 10;
+    if (v >= 10) s[n++] = '0' + v / 10 % 10;
+    s[n++] = '0' + v % 10;
+    return n;
+}
+
 /* Text centred in r in the default font at px, in color; text color and alignment are restored,
  * the font is not (stock sets it before its own text). */
 static void draw_centred(void *canvas, const unsigned *s, unsigned n, const rect_t *r, unsigned px,
@@ -1450,7 +1462,7 @@ static void paint_battery(void *w, void *canvas) {
     void *lcd = P(canvas, CANVAS_LCD);
     if (!lcd) return;
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
-    unsigned key = st.batt_key, level = key >> 2, s[3], n = 0;
+    unsigned key = st.batt_key, level = key >> 2, s[3], n = put_num(s, level);
     unsigned color = RGBA(key & 2   ? BATT_CHARGE_RGB
                           : key & 1 ? accents[accent()][TONE_RED]
                                     : 0xffffff);
@@ -1461,9 +1473,6 @@ static void paint_battery(void *w, void *canvas) {
     canvas_fill_rect(canvas, 0, y + 1, 1, bh - 2);
     canvas_fill_rect(canvas, bw - 1, y + 1, 1, bh - 2);
     canvas_fill_rect(canvas, bw, y + (bh - BATT_NUB_H) / 2, BATT_NUB_W, BATT_NUB_H);
-    if (level >= 100) s[n++] = '1';
-    if (level >= 10) s[n++] = '0' + level / 10 % 10;
-    s[n++] = '0' + level % 10;
     rect_t r = { 0, y + 1, bw, bh };
     draw_centred(canvas, s, n, &r, BATT_PX, color);
     canvas_set_fill_color(canvas, fill);
@@ -1605,8 +1614,7 @@ static int np_gone(void *win, void *event) {
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
-        st.np_slider = st.np_elapsed = st.np_vol = st.np_level = (void *)0;
-        st.np_volume = 0;
+        st.np_slider = st.np_elapsed = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
@@ -1624,9 +1632,6 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_slider = widget_lookup(win, "slider_play", 1);
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
-    st.np_vol = widget_lookup(win, "slider_ipod_vol", 1);
-    st.np_level = widget_lookup(win, "label_ipod_vol", 1);
-    st.np_volume = 0;
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
@@ -1635,47 +1640,62 @@ int ringnav_playing(void *win, void *ctx) {
     return result;
 }
 
-/* The volume over Now Playing, as on an iPod classic. Stock's wheel opens dialog/volume_dialog and
- * sets its slider_vol; while that dialog sits directly over Now Playing its slider and label are
- * hidden, and the page's white slider_ipod_vol and "Volume N" take the progress bar's and times'
- * places until it closes. The dialog's highlighter (highlight="default(alpha=200)") would show a
- * dimmed snapshot of the page taken at open, so the page neither dims nor updates: it is dropped
- * as stock drops it on close, and the screen repainted live. Over any other window the dialog
- * keeps its stock look, dimming included. Painting the dialog, the page or the status bar runs
- * this; the dialog paints its children after. */
-static void np_volume(void *top) {
-    void *wm = window_manager(), *vol = (void *)0;
-    if (!st.np_vol || !st.np_level) return;
-    if (top && top != st.np_win &&
-        !tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog")) {
-        unsigned n = widget_count_children(wm);
-        if (n >= 2 && widget_get_child(wm, n - 2) == st.np_win)
-            vol = widget_lookup(top, "slider_vol", 1);
+/* Every VOL_POLL_MS while the dialog np_volume drew is still on top: a changed volume repaints it
+ * whole. Stock's own invalidation of the hidden slider does not reliably reach the screen, so the
+ * bar would stop following the wheel after a tick or two. */
+static int vol_poll(const void *info) {
+    (void)info;
+    void *top = window_manager_get_top_window(window_manager());
+    void *vol = top && top == st.vol_dialog ? widget_lookup(top, "slider_vol", 1) : (void *)0;
+    if (!vol) {
+        st.vol_timer = 0;
+        st.vol_dialog = (void *)0;
+        return 0; /* RET_OK: removed */
     }
-    if (vol) {
-        void *label = widget_lookup(top, "label_vol", 1);
-        if (P(wm, WM_HIGHLIGHTER)) {
-            wm_drop_highlighter(wm);
-            widget_invalidate_force(top, (void *)0);
-        }
-        widget_set_visible(vol, 0, 0);
-        if (label) widget_set_visible(label, 0, 0);
-        int level = widget_get_prop_int(vol, "value", 0);
-        widget_set_prop_int(st.np_vol, "max", widget_get_prop_int(vol, "max", 100));
-        widget_set_prop_int(st.np_vol, "value", level);
-        char s[16];
-        tk_snprintf(s, sizeof s, "Volume %d", level);
-        widget_set_text_utf8(st.np_level, s);
-    }
-    int on = vol != (void *)0;
-    if (on != st.np_volume) {
-        void *swap[] = { st.np_slider, st.np_elapsed, st.np_remain };
-        for (unsigned i = 0; i < sizeof swap / sizeof *swap; i++)
-            if (swap[i]) widget_set_visible(swap[i], !on, 0);
-        widget_set_visible(st.np_vol, on, 0);
-        widget_set_visible(st.np_level, on, 0);
-    }
-    st.np_volume = on;
+    if (widget_get_prop_int(vol, "value", 0) != st.vol_drawn)
+        widget_invalidate_force(top, (void *)0);
+    return 8; /* RET_REPEAT */
+}
+
+/* The volume over Now Playing, as on an iPod classic. Stock's wheel opens dialog/volume_dialog,
+ * transparent and full-screen (its dimming highlight removed at build time, tools/compact.py), and
+ * sets its slider_vol. While that dialog sits directly over Now Playing, its own paint draws the
+ * volume in the band from the progress bar to the times: black, a white bar over the track and
+ * "Volume N". slider_vol and label_vol are hidden, and slider_vol is moved onto the band, so
+ * stock's partial repaints land on it; vol_poll catches the changes those miss. Over any other
+ * window the dialog shows stock's slider. */
+static void np_volume(void *top, void *canvas) {
+    void *wm = window_manager(), *lcd = P(canvas, CANVAS_LCD);
+    if (!lcd || !st.np_slider || !st.np_elapsed || top == st.np_win ||
+        tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog"))
+        return;
+    unsigned n = widget_count_children(wm);
+    void *vol = widget_lookup(top, "slider_vol", 1), *label = widget_lookup(top, "label_vol", 1);
+    if (n < 2 || widget_get_child(wm, n - 2) != st.np_win || !vol) return;
+    void *bar = st.np_slider, *times = st.np_elapsed;
+    int dy = I(st.np_win, W_Y) - I(top, W_Y), y = dy + I(bar, W_Y);
+    rect_t band = { 0, y, I(st.np_win, W_W), dy + I(times, W_Y) + I(times, W_H) - y };
+    if (I(vol, W_Y) != band.y) widget_move_resize(vol, band.x, band.y, band.w, band.h);
+    widget_set_visible(vol, 0, 0);
+    if (label) widget_set_visible(label, 0, 0);
+    int max = widget_get_prop_int(vol, "max", 100), level = widget_get_prop_int(vol, "value", 0);
+    st.vol_dialog = top;
+    st.vol_drawn = level;
+    if (!st.vol_timer) st.vol_timer = timer_add(vol_poll, (void *)0, VOL_POLL_MS);
+    int bh = widget_get_prop_int(bar, "bar_size", 8), bw = I(bar, W_W), x = I(bar, W_X);
+    y += (I(bar, W_H) - bh) / 2;
+    unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR), s[12] = { 'V', 'o', 'l', 'u', 'm', 'e', ' ' },
+             k = 7;
+    canvas_set_fill_color(canvas, RGBA(0));
+    canvas_fill_rect(canvas, band.x, band.y, band.w, band.h);
+    canvas_set_fill_color(canvas, RGBA(TRACK_COLOR));
+    canvas_fill_rect(canvas, x, y, bw, bh);
+    canvas_set_fill_color(canvas, RGBA(0xffffff));
+    canvas_fill_rect(canvas, x, y, max > 0 ? bw * clamp_step(0, max, level) / max : 0, bh);
+    canvas_set_fill_color(canvas, fill);
+    k += put_num(s + k, (unsigned)clamp_step(0, 999, level));
+    rect_t r = { 0, dy + I(times, W_Y), band.w, I(times, W_H) };
+    draw_centred(canvas, s, k, &r, NP_TIMES_PX, 0xffffffff);
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
@@ -1705,7 +1725,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
         clock_sync(bar);
         bar_sync(bar);
         np_sync(top);
-        np_volume(top);
+        if (w == top) np_volume(top, canvas);
         /* Boot may paint Home before the screen is usable, so nothing chose or drew its first
          * row. Once, when the list is first reachable, repaint it. */
         void *list = st.greeted ? (void *)0 : surface((void *)0, (void *)0);

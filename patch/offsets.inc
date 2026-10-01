@@ -113,6 +113,8 @@
  * highlight. TRACK_COLOR is the Now Playing progress track. */
 #define BAR_COLOR 0x242424
 #define TRACK_COLOR 0x1c1c1c
+#define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
+#define VOL_POLL_MS 50 /* how often the volume over Now Playing checks for a change */
 /* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
  * the top corners (test_build.py). */
 #define CLOCK_EDGE 57
@@ -187,9 +189,6 @@
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys
  * (volume, play/pause, wake) wait at most this much longer. */
 #define SCREEN_OFF_SLEEP_MS 40
-/* window_manager_default's dialog highlighter (window_manager_create_highlighter @0x686068 stores
- * it): while set, the windows under the top dialog are a dimmed snapshot taken when it opened. */
-#define WM_HIGHLIGHTER 0x300
 /* Resume (docs/internals.md#resume): tracks of RESUME_MIN_S or longer keep their place in the
  * RESUME_SLOTS most recent; a place within RESUME_EDGE_S of either end is forgotten. Saved on a
  * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less

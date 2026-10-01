@@ -401,18 +401,8 @@ def playing_page(root):
     remain[2].update(name='label_ipod_remain', text='')
     total[2]['visible'] = 'false'
     named['label_playtime'][1] = [NP_TIME_X, NP_TIMES_Y, 80, 16]
-    # The volume, as on an iPod classic: while the stock volume dialog is up over this page, a white
-    # bar and "Volume 40" stand in for the progress bar and times (ringnav.c np_volume).
-    vol = copy.deepcopy(slider)
-    vol[2] = plain_slider(vol[2], NP_TRACK, '#FFFFFF', h)
-    vol[2].update(name='slider_ipod_vol', visible='false', sensitive='false', value='0')
-    level = copy.deepcopy(remain)
-    level[1] = [NP_TIME_X, NP_TIMES_Y, 375 - 2 * NP_TIME_X, 16]
-    level[2] = {k: 'center' if k.endswith(':text_align_h') else v for k, v in level[2].items()}
-    level[2].update(name='label_ipod_vol', visible='false')
     root[3][1:3] = []
     root[3].insert(3, remain)
-    root[3] += [vol, level]
 
 
 # iPod only. Quick settings (the pull-down statusbar_dialog, which covers the whole screen): the eight
@@ -474,6 +464,18 @@ def confirm_dialog(root):
     root[3][0][1][0], root[3][1][1][0] = x, 375 - x - CONFIRM_TILE
 
 
+# iPod only. The volume dialog loses its highlight="default(alpha=200)", so the window manager
+# creates no highlighter and nothing under it dims: on Now Playing the payload draws the volume
+# into the dialog (ringnav.c np_volume), elsewhere stock's slider shows over the page.
+VOLUME = 'dialog/volume_dialog.bin'
+
+
+def volume_dialog(root):
+    require(root[0] == 'dialog' and root[2].get('name') == 'volume_dialog' and
+            root[2].get('highlight') == 'default(alpha=200)', 'Unexpected volume dialog')
+    del root[2]['highlight']
+
+
 # iPod only. Settings and Streaming lose their navbar, as on the local pages, and their lists hold
 # SET_ROWS complete SET_ROW rows from SET_TOP; ipod_list_layout (patch/ringnav.c) lays the native
 # rows out to match. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
@@ -528,7 +530,7 @@ def patch_asset(path, data, ipod):
     if path == ARTIST_PAGE:
         artist_tabs(root)
     whole = ({HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page, QUICK_SETTINGS: quick_settings,
-              CONFIRM: confirm_dialog} if ipod else {HOME_PAGE: home_card})
+              CONFIRM: confirm_dialog, VOLUME: volume_dialog} if ipod else {HOME_PAGE: home_card})
     if path in whole:
         whole[path](root)
     if path in whole or not ipod:

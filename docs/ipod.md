@@ -11,7 +11,7 @@ type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only the assets
 pinned in `compact.json` are accepted: nine local browsing pages, the settings
 and streaming pages, Home, the status bar, Now Playing, the quick settings
-pull-down, the confirm pop-up, the equalizer page (its [transition](#transitions) only) and the
+pull-down, the confirm and volume pop-ups, the equalizer page (its [transition](#transitions) only) and the
 theme (`styles/default.bin`). The primary `view_navbar` stays allocated but invisible
 and disabled, including dynamically recreated children. Separate action bars are
 moved into its space.

@@ -29,7 +29,7 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES
-    from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
+    from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
                          SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
@@ -198,6 +198,10 @@ def validate_assets(directory):
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
         root = decode(new)
+        if short == VOLUME:  # iPod only: no highlight, so nothing under it dims; otherwise stock
+            plain = decode(original); del plain[2]['highlight']
+            assert root == plain
+            continue
         # iPod: browsing, settings and the PEQ editor slide; Home, Now Playing, the bar and dialogs don't.
         slides = ipod and short not in (HOME_PAGE, STATUS_BAR, PLAYING_PAGE, QUICK_SETTINGS, CONFIRM)
         assert root[2].get('anim_hint') == (SLIDE if slides else None), short
@@ -271,8 +275,7 @@ def validate_assets(directory):
             named = {n[2].get('name'): n for n in walk(root)}
             assert {n[2].get('name') for n in walk(decode(original))} < set(named)  # stock names kept
             assert [n[2].get('name') for n in root[3]] == ['view_buttons', 'label_playtime', 'label_playlen', 'label_ipod_remain',
-                                                           'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait',
-                                                           'slider_ipod_vol', 'label_ipod_vol']
+                                                           'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait']
             pos = named['label_ipod_pos'][1]
             assert pos[0] + pos[2] == named['img_fav'][1][0] and named['img_return'][1][0] < 0
             icons = [named[n][1] for n in ('img_fav', 'img_more', 'img_playmode')]
@@ -289,11 +292,6 @@ def validate_assets(directory):
             slider = named['slider_play']
             assert slider[1] == [NP_BAR[0], 240, NP_BAR[2], 30] and slider[2]['bar_size'] == '8' and slider[2]['slide_with_bar'] == 'true'
             assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
-            # The volume bar takes the progress bar's place, hidden and untouchable until np_volume shows it.
-            vol, level = named['slider_ipod_vol'], named['label_ipod_vol']
-            assert vol[1] == slider[1] and vol[2]['visible'] == 'false' and vol[2]['sensitive'] == 'false'
-            assert vol[2]['style:normal:fg_color'] == '#FFFFFF' and level[2]['visible'] == 'false'
-            assert level[1][1] == named['label_playtime'][1][1] and level[1][0] + level[1][2] == 375 - level[1][0]
             assert {v for k, v in slider[2].items() if k.endswith('_color')} == {'#1c1c1c', '#6e6e6e'}
             # No theme style of that name, so no thumb icon: stock fills exactly to the value.
             assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')
