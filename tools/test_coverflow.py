@@ -541,7 +541,7 @@ static void depth(void) {
     widget *s = slide();
     char *raw = s->raw;
     int *geo = (int *)raw;
-    assert(frames == 1 && geo[0] == 0 && geo[1] == 0 && geo[2] == CF_VIEW_W && geo[3] == CF_VIEW_H);
+    assert(frames == 1 && geo[0] == 0 && geo[1] == 0 && geo[2] == CF_VIEW_W && geo[3] == 290); /* the whole page takes swipes */
     assert(slide_menu_item_width(s) + *(int *)(raw + SLIDE_SPACER) == CF_STRIDE);
     for (int i = 0; i < s->nkids; ++i) assert(!w[s->kids[i]].image[0]);
     widget *covers_view = &w[s->parent];

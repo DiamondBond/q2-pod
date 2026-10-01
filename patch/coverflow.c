@@ -665,10 +665,11 @@ static int settle(const void *unused) {
     return 8; /* RET_REPEAT */
 }
 
-/* One child per album plus a last Refresh card. With depth the slide_menu spans the frame, so
- * every step and drag repaints all of it, and its CF_VIEW_H square items with a negative spacer
- * move one album per CF_STRIDE px; the children stay empty under the frame. The flat fallback is
- * the stock images, 160 px, as before. ponytail: one child per album; if large libraries lag on
+/* One child per album plus a last Refresh card. With depth the slide_menu spans the page, frame
+ * and captions, so a touch anywhere drags it and every step and drag repaints all of it; its
+ * 290 px square items with a negative spacer move one album per CF_STRIDE px. The children stay
+ * empty under the frame and, like the captions, insensitive, so no touch stops on them. The flat
+ * fallback is the stock images, 160 px, as before. ponytail: one child per album; if large libraries lag on
  * hardware, virtualize to a recycled window of children. */
 static void covers(void) {
     cf.screen = COVERS;
@@ -678,12 +679,15 @@ static void covers(void) {
         int depth = fx_open();
         cf.covers = widget_factory_create_widget(f, "view", cf.page, 0, 0, 375, 290);
         cf.slide = widget_factory_create_widget(f, "slide_menu", cf.covers, 0, depth ? 0 : 24, 375,
-                                                depth ? CF_VIEW_H : ART_SIZE);
-        if (depth) slide_menu_set_spacer(cf.slide, CF_STRIDE - CF_VIEW_H);
+                                                depth ? 290 : ART_SIZE);
+        if (depth) slide_menu_set_spacer(cf.slide, CF_STRIDE - 290);
         for (unsigned i = 0, n = deque_size(cf.albums); i <= n; ++i) {
             void *img = image_create(cf.slide, 0, 0, 0, 0);
             image_set_draw_type(img, 4); /* scale_auto, as the stock cover rows */
-            if (!depth) image_base_set_image(img, PLACEHOLDER);
+            if (depth)
+                widget_set_sensitive(img, 0);
+            else
+                image_base_set_image(img, PLACEHOLDER);
             widget_set_prop_int(img, "clickable", 1);
             widget_on(img, EVT_CLICK, pick, (void *)(long)i);
         }
@@ -694,6 +698,7 @@ static void covers(void) {
         cf.artist = text(cf.covers, CF_EDGE, CF_TEXT_Y + CF_NAME_H, 375 - 2 * CF_EDGE, CF_ARTIST_H);
         widget_set_prop_int(cf.artist, "style:normal:font_size", CF_ARTIST_PX);
         widget_set_prop_int(cf.artist, "style:normal:text_color", (int)CF_GREY);
+        if (depth) widget_set_sensitive(cf.name, 0), widget_set_sensitive(cf.artist, 0);
         slide_menu_set_value(cf.slide, cf.album);
         widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
         changed(0, 0);

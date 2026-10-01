@@ -3365,9 +3365,10 @@ for (frac,mask),host in zip(cases,want):
 # paint of it draws the frame 1:1 at its origin, marked opaque; the covers around the position are
 # decoded once, each load dropped at once. What is drawn is what the renderer draws for that ring.
 m=DepthMachine(); page=m.open(); s=m.slide
-assert len(m.frames)==1 and cf_geometry(m,s)==(0,0,O['CF_VIEW_W'],O['CF_VIEW_H'])
-stride=signed(m.get(s+O['SLIDE_SPACER']))+O['CF_VIEW_H']; assert stride==O['CF_STRIDE']
-assert all('image' not in m.nodes[c] for c in m.nodes[s]['children'])
+assert len(m.frames)==1 and cf_geometry(m,s)==(0,0,O['CF_VIEW_W'],290)  # the whole page takes swipes
+stride=signed(m.get(s+O['SLIDE_SPACER']))+290; assert stride==O['CF_STRIDE']
+assert all('image' not in m.nodes[c] and m.nodes[c].get('sensitive')==0 for c in m.nodes[s]['children'])
+assert all(m.nodes[w].get('sensitive')==0 for w in m.nodes[m.get(s+O['W_PARENT'])]['children'] if m.nodes[w]['type']=='hscroll_label')
 def paint(m):
     return m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slide,m.canvas,0,0),gap=0,clear=False,count=50_000_000)
 instructions=[0]

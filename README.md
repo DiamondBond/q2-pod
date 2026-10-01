@@ -113,7 +113,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 - Run **Update Local Music** first.
 - **First open** prepares artwork once; **Cancel** keeps progress for next time. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
-- **Browse** with the wheel.
+- **Browse** with the wheel, or swipe anywhere on the screen.
 - **Artwork:** `cover.jpg`, `folder.jpg`, then embedded art; otherwise a placeholder.
 
 > [!NOTE]
