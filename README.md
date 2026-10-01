@@ -1,12 +1,12 @@
 # Q2 Pod: Wheel Navigation, Parametric EQ & Coverflow
 
 <p align="center">
-  <a href="https://youtu.be/C5x05EwsPGI" title="Watch the Q2-Pod demo on YouTube">
-    <img src="assets/banner.png" alt="Q2-Pod: the iPod firmware mod for the Shanling Q2" width="100%">
+  <a href="https://youtu.be/C5x05EwsPGI" title="Watch the Q2 Pod demo on YouTube">
+    <img src="assets/banner.png" alt="Q2 Pod: the iPod firmware mod for the Shanling Q2" width="100%">
   </a>
 </p>
 
-A firmware mod for the **Shanling Q2**, in two variants: **Normal** keeps the stock look, **iPod** restyles browsing after an iPod classic. Both include:
+A firmware mod that restyles the **Shanling Q2** after an iPod classic. It includes:
 
 - **Wheel navigation:** scroll through menus and music, press the centre button to select, and move quickly through long lists with acceleration and position memory.
 - **Parametric EQ:** up to 30 peaking and shelf bands, per channel if needed, or import **AutoEQ / Equalizer APO** presets from the microSD card.
@@ -19,17 +19,49 @@ Touch works as before, and outside supported menus the wheel still controls volu
 
 [**Download the latest release**](https://github.com/DiamondBond/q2-ringnav/releases/latest) · [Changelog](docs/changelog.md) · [Demo video](https://youtu.be/C5x05EwsPGI)
 
-[Install](#install) · [Controls](#controls) · [Parametric EQ](#parametric-eq) · [Coverflow](#coverflow) · [iPod UI](#ipod-ui)
+[Install](#install) · [iPod UI](#ipod-ui) · [Controls](#controls) · [Parametric EQ](#parametric-eq) · [Coverflow](#coverflow)
 
 ## Install
 
 Charge the Q2 first, and leave the microSD card in until the update finishes.
 
-1. Download `Q2.Firmware.V*.zip` for Normal or `Q2.Firmware.V*-ipod.zip` for iPod. Unzip it and copy `update.tar` to the root of the microSD card.
+1. Download `Q2.Firmware.V*-ipod.zip`. Unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2, open **System settings → System Update → TF card update** and confirm.
-3. After the restart, **About** shows the version, ending in `R` for Normal or `I` for iPod.
+3. After the restart, **About** shows the version, ending in `I`.
+
+**Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has every feature except the [iPod UI](#ipod-ui); its version ends in `R`.
 
 **Going back to stock:** flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
+
+## iPod UI
+
+- **Home** is a list instead of the carousel, beside the playing track's cover.
+- **Lists** are flat, four rows per screen, with a full-width selection bar in the accent colour. **`>`** marks every row that opens another list.
+- **Status bar:** play state and EQ on the left, the time in the middle, then Bluetooth, Wi-Fi and the battery. A new Bluetooth codec badge (AAC, LDAC…) shows for a second, then fades into the Bluetooth icon.
+- **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
+- **Quick settings:** pull down from the top edge. Brightness is a slim bar you can tap or drag.
+- **Page slides:** lists and settings slide in from the right when opened and back out on Return.
+- **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type.
+- **Starts on Home.** **Memory playback → Location** restores your last queue and song, paused where you left it; **Track** restores the song from its beginning. **In-Vehicle mode** starts playing on Now Playing.
+
+Tidal pages keep their stock layout, and your saved settings are unchanged.
+
+### iPod controls
+
+- **Hold Return:** opens Now Playing without interrupting playback; the next short Return goes back to where you were.
+- **Volume:** turning the wheel shows the volume as a white bar, in place of the progress bar on Now Playing and in a small panel elsewhere, without dimming the screen.
+- **Scrub:** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Press centre or Return, touch the screen, or wait 3 seconds to jump there.
+- **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears, then let go.
+- **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
+- **Key Tone:** with Key Tone on, lists click once for each row change instead of on every wheel tick.
+
+### Display settings
+
+**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
+
+- **Accent:** Graphite (default), Crimson (the stock red), Tidal or Champagne.
+- **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
+- **Battery:** Icon (default), Percent, or Icon + Percent (the level inside a horizontal battery).
 
 ## Controls
 
@@ -45,7 +77,7 @@ Charge the Q2 first, and leave the microSD card in until the update finishes.
 - **Position memory:** going back to a folder, album, search or menu you visited recently restores your place, until power-off.
 - **Artists:** an artist opens on Albums, with All Songs one tap away.
 
-A short Play/Pause press and long-press power are unchanged. iPod adds a few more; see [iPod UI](#ipod-ui).
+A short Play/Pause press and long-press power are unchanged. More in [iPod controls](#ipod-controls).
 
 ## Parametric EQ
 
@@ -88,36 +120,6 @@ Presets
 - **Artwork:** `cover.jpg`, then `folder.jpg` in the album's folder, then art embedded in the first track. Albums without art show a placeholder.
 
 Artwork is cached on the microSD card in `.coverflow`, and needs at least 16 MB free.
-
-## iPod UI
-
-- **Home** is a list instead of the carousel, beside the playing track's cover.
-- **Lists** are flat, four rows per screen, with a full-width selection bar in the accent colour. **`>`** marks every row that opens another list.
-- **Status bar:** play state and EQ on the left, the time in the middle, then Bluetooth, Wi-Fi and the battery. A new Bluetooth codec badge (AAC, LDAC…) shows for a second, then fades into the Bluetooth icon.
-- **Now Playing:** "3 of 12" at the top, the cover with the title, artist and album beside it, and a slim progress bar with the time played and the time left. Swipe the cover for lyrics and track info, as before.
-- **Quick settings:** pull down from the top edge. Brightness is a slim bar you can tap or drag.
-- **Page slides:** lists and settings slide in from the right when opened and back out on Return.
-- **Fast-scroll letter:** spinning quickly through a long list shows the selected title's first letter in large type.
-- **Starts on Home.** **Memory playback → Location** restores your last queue and song, paused where you left it; **Track** restores the song from its beginning. **In-Vehicle mode** starts playing on Now Playing.
-
-Tidal pages keep their stock layout, and your saved settings are unchanged.
-
-### Extra controls
-
-- **Hold Return:** opens Now Playing without interrupting playback; the next short Return goes back to where you were.
-- **Volume:** turning the wheel shows the volume as a white bar, in place of the progress bar on Now Playing and in a small panel elsewhere, without dimming the screen.
-- **Scrub:** on Now Playing, press the centre button and turn the wheel to move 5 seconds per tick, more while spinning. Press centre or Return, touch the screen, or wait 3 seconds to jump there.
-- **Pull to search:** at the top of Local Songs, pull down until "Release to search" appears, then let go.
-- **Pop-ups:** in OK/Cancel prompts, turn the wheel to move between the buttons and press the centre button to pick one.
-- **Key Tone:** with Key Tone on, lists click once for each row change instead of on every wheel tick.
-
-### Display settings
-
-**System settings → Display** gains three rows. Centre or tap cycles each, and the choice is kept across restarts:
-
-- **Accent:** Graphite (default), Crimson (the stock red), Tidal or Champagne.
-- **Home:** Split (the list beside the playing track's cover) or Full (the list across the screen, no cover).
-- **Battery:** Icon (default), Percent, or Icon + Percent (the level inside a horizontal battery).
 
 ## Help and documentation
 
