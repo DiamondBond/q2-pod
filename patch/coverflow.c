@@ -11,6 +11,7 @@
 /* On the card, beside stock's own cover cache (/mnt/mmc/.sldp). */
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
 #define ART_SIZE 160
+#define LAST_ALBUM ART_DIR "/album" /* the centre album's key, so a reboot opens on it */
 #if IPOD /* iPod insets its text from the rounded glass (offsets.inc CF_*); normal keeps its layout */
 #define CF_X CF_EDGE
 #define CF_W (375 - 2 * CF_EDGE)
@@ -729,6 +730,18 @@ static int poll(const void *unused) {
     return 0;
 }
 
+/* The centre album outlives a reboot: read once while unknown, written on
+ * leaving the covers. */
+static void remember(int write) {
+    void *f = fopen(LAST_ALBUM, write ? "wb" : "rb");
+    if (!f) return;
+    if (write)
+        fwrite(&cf.saved_album, sizeof(cf.saved_album), 1, f);
+    else if (fread(&cf.saved_album, sizeof(cf.saved_album), 1, f) != 1)
+        cf.saved_album = 0;
+    fclose(f);
+}
+
 /* On open and Refresh: the albums, then art for the ones with no cache file (PictureFlow's
  * first-launch build; later opens resume). The albums are queried again only on Refresh or after
  * the library changed: stock's sort converts both names to pinyin on every comparison.
@@ -756,6 +769,7 @@ static void load(void) {
     }
     unsigned count = deque_size(cf.albums), fs[32] = { 0 };
     char path[512];
+    if (!cf.saved_album) remember(0);
     cf.jobs = calloc(count, sizeof(job_t));
     for (unsigned i = 0; i < count; ++i) {
         void *r = deque_at(cf.albums, i);
@@ -802,6 +816,8 @@ static int to_tracks(const void *unused) {
     cf.timer = 0;
     int n;
     void *r = deque_at(cf.albums, (unsigned)cf.album);
+    cf.saved_album = album_key(r);
+    remember(1); /* a power-off on the tracks keeps it too */
     if (cf.tracks) deque_destroy(cf.tracks);
     cf.tracks = staged(albums, r, &n);
     n = (int)deque_size(cf.tracks);
@@ -855,6 +871,7 @@ static int keyup(void *ctx, void *event) {
 static int closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
+    if (cf.saved_album) remember(1);
     drop();
     cf.page = cf.body = cf.covers = cf.slide = 0;
     return 0;

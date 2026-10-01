@@ -330,6 +330,14 @@ static void open_page(void) {
 static void key(int k) { int e[16] = {0}; e[EVENT_KEY / 4] = k; w[8190].click(0, e); run(); }
 static void close_page(void) { w[8191].click(0, 0); }
 static void mid_write(void) { open_page(); close_page(); }
+unsigned fnv(unsigned h, const unsigned char *s);
+static int last_album(int i) { /* the card holds album i's key as the one to reopen on */
+    unsigned key = 0;
+    FILE *f = fopen(PEQ_ROOT "/mnt/mmc/.coverflow/album", "rb");
+    int ok = f && fread(&key, sizeof(key), 1, f) == 1;
+    if (f) fclose(f);
+    return ok && key == fnv(fnv(FNV_SEED, (const unsigned char *)"Artist"), (const unsigned char *)names[i]);
+}
 static widget *slide(void) {
     for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "slide_menu")) return &w[i];
     return 0;
@@ -598,7 +606,7 @@ static void depth(void) {
     assert(release(0, e) == 0); /* a release that did not press the covers passes on */
     assert(TAP(CF_CX, CF_TOP + 80) == 11 && timer_fn != waiting);
     run();
-    assert(!strcmp(title(), names[6]) && !covers_view->visible);
+    assert(!strcmp(title(), names[6]) && !covers_view->visible && last_album(6)); /* kept for a reboot */
     key(KEY_RETURN); /* back to the same album, still drawn */
     assert(covers_view->visible && *(int *)(raw + SLIDE_INDEX) == 6);
     coverflow_paint(s, canvas);

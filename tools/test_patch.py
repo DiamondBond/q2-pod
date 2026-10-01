@@ -2840,7 +2840,7 @@ class CoverflowMachine(QueueMachine):
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
-                  'pthread_join@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
+                  'pthread_join@GLIBC_2.0','fopen@GLIBC_2.2'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
         for n,stub in WRITERS.items(): self.handlers[HOOKS[n][0]+12]=stub  # the writers' stock bodies
@@ -2870,6 +2870,7 @@ class CoverflowMachine(QueueMachine):
             if self.text(a)=='playing_page': self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
             else: self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
+        elif name=='fopen': ret=0  # no saved album: remember() keeps the first
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
         elif name=='free': self.freed+=a!=0
