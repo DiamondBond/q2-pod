@@ -17,7 +17,8 @@ extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
-extern void coverflow_paint(void *w, void *canvas);
+extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
+    photos_open(const char *root);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
 extern void scrobble_append(const char *line, unsigned n);
@@ -353,7 +354,8 @@ static void drop_input(void) {
  * ticks leave several fighting over the offset and committing the index twice. */
 static int carousel_page(void *top) {
     const char *name = top ? widget_get_prop_str(top, "name", "") : "";
-    return !tk_strcmp(name, "home_page") || !tk_strcmp(name, "coverflow_page");
+    return !tk_strcmp(name, "home_page") || !tk_strcmp(name, "coverflow_page") ||
+           !tk_strcmp(name, "photos_page"); /* its viewer */
 }
 
 static int is_home(void *top, void *w) { return w && kind(w) == 3 && carousel_page(top); }
@@ -486,6 +488,12 @@ static void *surface(void *target, void **other) {
 
 static void prop(void *w, const char *name, int value) {
     if (widget_get_prop_int(w, name, -1) != value) widget_set_prop_int(w, name, value);
+}
+
+/* A payload page's own choice of row (photos.c: the photo last viewed), kept as a step would. */
+void ringnav_select(void *w, int id, int rows) {
+    prop(w, COUNT, rows);
+    prop(w, SEL, id);
 }
 
 /* The bump timer repaints at 120 ms; the second-detent arm survives independently. */
@@ -1433,6 +1441,7 @@ int ringnav_paint(void *w, void *canvas) {
 #endif
     int result = stock_paint_trampoline(w, canvas);
     coverflow_paint(w, canvas);
+    photos_paint(w, canvas);
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
@@ -2607,12 +2616,13 @@ static int upload_scrobbles(void *ctx, void *event) {
 }
 
 /* Podcasts and Audiobooks (docs/internals.md#podcasts-and-audiobooks): the card's top-level
- * folders of these names, case aside, browsed in folder_page from there. */
-static const char *const MEDIA[] = { "Podcasts", "Audiobooks" };
+ * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c. */
+enum { PODCASTS = 1, AUDIOBOOKS, PHOTOS };
+static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos" };
 
 /* 1 + the MEDIA folder s names (up to its end or a '/'), 0 for none. MEDIA is letters only. */
 static int media_kind(const char *s) {
-    for (int k = 0; k < 2; k++) {
+    for (int k = 0; k < PHOTOS; k++) {
         int i = 0;
         while (MEDIA[k][i] && (s[i] | 0x20) == (MEDIA[k][i] | 0x20)) i++;
         if (!MEDIA[k][i] && (!s[i] || s[i] == '/')) return k + 1;
@@ -2620,9 +2630,9 @@ static int media_kind(const char *s) {
     return 0;
 }
 
-/* A track in one of them: always resumed, never counted or scrobbled. */
+/* A track in Podcasts or Audiobooks: always resumed, never counted or scrobbled. */
 static int spoken(const char *path) {
-    return path && tk_str_start_with(path, "/mnt/mmc/") && media_kind(path + 9);
+    return path && tk_str_start_with(path, "/mnt/mmc/") && media_kind(path + 9) - 1u < AUDIOBOOKS;
 }
 
 /* The card's folder for kind into path (sizeof st.media_root, which a MEDIA name always fits); 0
@@ -2639,7 +2649,13 @@ static int media_find(int kind, char *path) {
 
 static int media_click(void *ctx, void *event) {
     (void)event;
-    st.media_open = media_find((int)(long)ctx, st.media_root);
+    int kind = (int)(long)ctx;
+    char root[sizeof st.media_root];
+    if (kind == PHOTOS) {
+        if (media_find(kind, root)) photos_open(root);
+        return 0;
+    }
+    st.media_open = media_find(kind, st.media_root);
     if (st.media_open) navigator_to("folder_page");
     return 0;
 }
@@ -2689,10 +2705,10 @@ int ringnav_localmusic(void *win, void *ctx) {
             widget_set_text_utf8(label, "Upload Scrobbles");
             widget_restack(P(P(label, W_PARENT), W_PARENT), 2);
         }
-        /* Podcasts, then Audiobooks, last, as Music > Audiobooks; each only with its folder. */
-        static const char *const icons[] = { "local_podcasts", "local_audiobooks" };
+        /* Podcasts, Audiobooks, then Photos, last; each only with its folder. */
+        static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos" };
         char path[sizeof st.media_root];
-        for (int k = 0; k < 2; k++)
+        for (int k = 0; k < PHOTOS; k++)
             if (media_find(k + 1, path))
                 widget_set_text_utf8(list_row(view, icons[k], media_click, (void *)(long)(k + 1)),
                                      MEDIA[k]);

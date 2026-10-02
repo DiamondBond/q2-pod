@@ -4216,6 +4216,175 @@ m.byte(syms['g_folder_layer'],3); assert m.call(address=HOOKS['folder_page_init'
 m.byte(syms['g_folder_layer'],3); m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==3; passed()
 
+# Photos (patch/photos.c): the helpers first. Names: .jpg, .jpeg and .png, case aside, not hidden.
+m=Machine(); m.mock('memcmp@GLIBC_2.0',prefix='cmp:')
+def ph_call(name,*args): return m.call(address=ps[name],args=(*args,0,0,0,0)[:4],gap=0,count=5_000_000)
+assert [ph_call('photo_file',m.string(n)) for n in ('a.JPG','b.jpeg','c.Png','d.gif','._e.jpg','.f.jpg','g','h.jpg.txt')]==[1,1,1,0,0,0,0,0]
+passed()
+# EXIF orientation: either byte order, after another segment, within the bytes read; else 1.
+def exif(o,le=True,pad=b''):
+    e='<' if le else '>'
+    tiff=(b'II' if le else b'MM')+struct.pack(e+'HI',42,8)+struct.pack(e+'H',2)+struct.pack(e+'HHI',0x10f,2,1)+bytes(4)
+    tiff+=struct.pack(e+'HHIH',0x112,3,1,o)+bytes(2)+bytes(4)
+    app1=b'Exif\0\0'+tiff
+    return b'\xff\xd8'+pad+b'\xff\xe1'+struct.pack('>H',len(app1)+2)+app1+b'\xff\xda'
+JFIF=b'\xff\xe0'+struct.pack('>H',16)+b'JFIF\0'+bytes(9)
+def orientation(data): a=m.alloc(len(data)+4); m.u.mem_write(a,data); return ph_call('photo_orientation',a,len(data))
+assert [orientation(d) for d in (exif(6),exif(8,le=False),exif(3,pad=JFIF),exif(9),exif(6)[:30],b'\x89PNG\r\n\x1a\n',b'\xff\xd8\xff\xda')]==[6,8,3,1,1,1,1]
+passed()
+# Orientation: each of the eight against its EXIF meaning (PIL's exif_transpose), the channels from
+# the format's byte order, alpha over black, and a crop to the box.
+W,H=3,2
+def stored(x,y): return (10*x+y+1,100+x,200+y,255)
+def shown(o,x,y):  # the stored pixel shown at x, y
+    return {1:(x,y),2:(W-1-x,y),3:(W-1-x,H-1-y),4:(x,H-1-y),5:(y,x),6:(y,H-1-x),7:(W-1-y,H-1-x),8:(W-1-y,x)}[o]
+src=m.alloc(64); at=m.alloc(4); dst=m.alloc(256); size=m.alloc(8)
+for o in range(1,9):
+    for y in range(H):
+        for x in range(W): r,g,b,a=stored(x,y); m.u.mem_write(src+y*16+x*4,bytes([b,g,r,a]))  # BGRA, format 3
+    m.u.mem_write(at,bytes([2,1,0,3]))
+    m.call(address=ps['photo_orient'],args=(src,W,H,16),stack=(at,o,dst,4,size),gap=0,count=5_000_000)
+    sw,sh=(H,W) if o>=5 else (W,H)
+    assert (m.get(size),m.get(size+4))==(sw,sh),o
+    for y in range(sh):
+        for x in range(sw):
+            r,g,b,_=stored(*shown(o,x,y)); assert m.get(dst+(y*4+x)*4)==0xff000000|b<<16|g<<8|r,(o,x,y)
+m.u.mem_write(src,bytes([200,100,50,128]))  # half transparent, over black
+m.call(address=ps['photo_orient'],args=(src,W,H,16),stack=(at,1,dst,2,size),gap=0,count=5_000_000)
+assert (m.get(size),m.get(size+4))==(2,2) and m.get(dst)==0xff000000|(200*128//255)<<16|(100*128//255)<<8|50*128//255
+passed()
+# Placing: fitted into the box, centred, never enlarged.
+r=m.alloc(16)
+for (w,h,bw,bh),want in (((100,50,85,72),(0,15,85,42)),((40,30,85,72),(22,21,40,30)),((50,100,85,72),(24,0,36,72)),
+                         ((281,375,375,290),(79,0,217,290))):
+    m.call(address=ps['photo_place'],args=(w,h,0,0),stack=(bw,bh,r),gap=0); assert tuple(signed(m.get(r+4*i)) for i in range(4))==want,(w,h,want)
+passed()
+
+class PhotosMachine(DepthMachine):
+    """The card as a tree of {path: [(name, d_type)]}, photo bytes by path, and the cache's files."""
+    def __init__(self,tree,data):
+        super().__init__()
+        self.tree=tree; self.data=data; self.cache=set(); self.thumbs=[]; self.bad=set(); self.open_files={}; self.dirs={}
+        for n in ('opendir@GLIBC_2.0','readdir@GLIBC_2.0','closedir@GLIBC_2.0','qsort@GLIBC_2.0','fopen@GLIBC_2.2',
+                  'fread@GLIBC_2.0','fclose@GLIBC_2.2','access@GLIBC_2.0','rename@GLIBC_2.0','unlink@GLIBC_2.0',
+                  'memcmp@GLIBC_2.0','toolsThumbSpecCover','pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0'):
+            self.handlers[syms[n]]='p:'+n
+        tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
+        self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)  # fast() ran
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        a,b,c,d=[u.reg_read(r) for r in REGS]
+        if name=='c:calloc@GLIBC_2.0' and a*b<=0x10000: ret=self.alloc((a*b+7)&~3)  # word-aligned, unlike Coverflow's mock
+        elif name=='widget_load_image' and '/mnt/mmc/.photos/' in self.text(b):
+            url=self.text(b); self.loads.append(url)
+            if url[7:] not in self.cache: ret=1
+            else:  # thumbnails decode 72x54, screen copies 375x281 (a turned photo's, as stored)
+                w,h=(72,54) if url.endswith('t.jpg') else (375,281); px=self.big_alloc(w*h*4)
+                self.u.mem_write(px,bytes([90,120,150,255])*(w*h))
+                self.word(c,w); self.word(c+4,h); self.word(c+8,w*4); self.u.mem_write(c+0xc,struct.pack('<HH',0,1)); self.word(c+0x14,px); ret=0
+        elif name=='canvas_draw_image':
+            self.draws.append(tuple(tuple(signed(self.get(r+4*i)) for i in range(4)) for r in (c,d))); ret=0
+        elif name.startswith('p:'):
+            name=name[2:].split('@')[0]; ret=0; text=self.text(a) if name not in ('readdir','closedir','qsort','fread','fclose','memcmp') else ''
+            if name=='opendir':
+                ret=0 if text not in self.tree else self.alloc(4); self.dirs[ret]=list(self.tree.get(text,[]))
+            elif name=='readdir' and self.dirs.get(a):
+                n,t=self.dirs[a].pop(0); ret=self.alloc(268); self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
+            elif name=='qsort':
+                ptrs=[self.get(a+4*i) for i in range(b)]
+                for i,p in enumerate(sorted(ptrs,key=self.text)): self.word(a+4*i,p)
+            elif name=='fopen':
+                if text in self.data: ret=self.alloc(4); self.open_files[ret]=self.data[text]
+                elif text.endswith('.bad'): self.bad.add(text); ret=self.alloc(4)
+            elif name=='fread': chunk=self.open_files.get(d,b'')[:b*c]; self.u.mem_write(a,chunk); ret=len(chunk)//b
+            elif name=='access': ret=0 if text in self.cache or text in self.bad or text in self.data else -1
+            elif name=='toolsThumbSpecCover':
+                self.thumbs.append((self.text(a),text if False else self.text(b),c,d))
+                ret=0 if self.data.get(self.text(a))==b'corrupt' else 1
+                if ret: self.cache.add(self.text(b))
+            elif name=='rename': self.cache.discard(text); self.cache.add(self.text(b))
+            elif name=='unlink': self.cache.discard(text)
+            elif name=='memcmp': ret=0 if bytes(self.u.mem_read(a,c))==bytes(self.u.mem_read(b,c)) else 1
+        else: return super().hook(u,address,size,unused)
+        self.calls.append((name,a,b,c))
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+
+# Local Music's last row opens the card's Photos folder (case aside) as albums: All Photos, then
+# each subfolder holding a photo, by name; hidden files, other types and empty folders are left out.
+R='/mnt/mmc/photos'
+tree={'/mnt/mmc':[('Music',4),('photos',4)],R:[('b.jpg',8),('A.png',8),('._b.jpg',8),('notes.txt',8),('Trip',4),('Empty',4),('.hidden',4)],
+      R+'/Trip':[('2.JPG',8),('1.jpg',0)],R+'/Empty':[('x.txt',8)],R+'/.hidden':[('h.jpg',8)]}
+data={R+'/b.jpg':exif(6),R+'/A.png':b'\x89PNG',R+'/Trip/1.jpg':b'corrupt',R+'/Trip/2.JPG':exif(1)}
+m=PhotosMachine(tree,data)
+view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_photos' and m.nodes[label]['text']=='Photos' and len(m.nodes[view]['children'])==14
+f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+page=m.top; assert m.nodes[page]['name']=='photos_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
+albums,grid,viewer=m.nodes[page]['children']; assert not m.nodes[grid]['visible'] and not m.nodes[viewer]['visible']
+def labels(w): return [m.nodes[x].get('text') for x in m.nodes if m.nodes[x]['type']=='hscroll_label' and m.get(x+O['W_PARENT']) in m.nodes and x in m.nodes[m.get(x+O['W_PARENT'])]['children'] and under(x,w)]
+def under(x,w):
+    while x and x!=w: x=m.get(x+O['W_PARENT']) if m.get(x+O['W_PARENT']) in m.nodes else 0
+    return x==w
+assert labels(albums)==['Photos','All Photos','Trip']; passed()
+# All Photos: the folder's own, then Trip's, by name; four tiles of three whole rows' grid, each a
+# s_listitem_black list_item in a bare vertical scroll view, and the worker for the uncached ones.
+rows=m.find('scroll_view',albums); first=m.nodes[rows]['children'][0]
+f,ctx=m.handler(first,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
+assert not m.nodes[albums]['visible'] and m.nodes[grid]['visible'] and labels(grid)==['All Photos']
+tiles_view=m.find('scroll_view',grid); tiles=m.nodes[tiles_view]['children']
+assert m.nodes[tiles_view].get('yslidable')==1 and m.nodes[tiles_view].get('virtual_h')==O['PH_TILE_H']
+assert [cf_geometry(m,t) for t in tiles]==[(O['PH_GRID_X']+i*O['PH_TILE_W'],0,O['PH_TILE_W'],O['PH_TILE_H']) for i in range(4)]
+assert all(m.nodes[t]['style']=='s_listitem_black' for t in tiles) and len(m.threads)==1
+paths=[R+'/A.png',R+'/b.jpg',R+'/Trip/1.jpg',R+'/Trip/2.JPG']; keys=[fnv(p) for p in paths]
+def cache(i,s): return f'/mnt/mmc/.photos/{keys[i]:08x}{s}'
+# Grey until made; the worker makes each photo's screen copy (sides swapped for a turned photo),
+# then its thumbnail from that copy, and marks the corrupt one bad.
+def border(w): return m.call(address=HOOKS['widget_on_paint_border'][0],args=(w,m.canvas,0,0),gap=0,clear=False,count=50_000_000)
+border(tiles[0]); assert m.bands[-1][:5]==((O['PH_TILE_W']-O['PH_THUMB_W'])//2,(O['PH_TILE_H']-O['PH_THUMB_H'])//2,O['PH_THUMB_W'],O['PH_THUMB_H'],O['PH_GREY'])
+worker,arg=m.threads[0]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=20_000_000)==0
+SW,SH,TW,TH=O['PH_SHOT_W'],O['PH_SHOT_H'],O['PH_THUMB_W'],O['PH_THUMB_H']
+assert m.thumbs==[(paths[0],cache(0,'.tmp'),SW,SH),(cache(0,'.jpg'),cache(0,'.tmp'),TW,TH),
+                  (paths[1],cache(1,'.tmp'),SH,SW),(cache(1,'.jpg'),cache(1,'.tmp'),TH,TW),
+                  (paths[2],cache(2,'.tmp'),SW,SH),
+                  (paths[3],cache(3,'.tmp'),SW,SH),(cache(3,'.jpg'),cache(3,'.tmp'),TW,TH)],m.thumbs
+assert m.bad=={cache(2,'.bad')} and cache(2,'.jpg') not in m.cache
+m.advance(250); assert m.joins==[77]; passed()
+# The turned photo's thumbnail is drawn upright, centred in its tile; the bad one stays grey.
+border(tiles[1]); assert m.draws[-1]==((0,0,54,72),((O['PH_TILE_W']-54)//2,(O['PH_TILE_H']-O['PH_THUMB_H'])//2,54,72))
+border(tiles[2]); assert m.bands[-1][4]==O['PH_GREY']
+# Centre on a tile: the viewer, a slide_menu one photo per child, a screen wide per step, drawing
+# the photo fitted and centred; at rest its neighbours are decoded too.
+f,ctx=m.handler(tiles[1],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
+s=m.find('slide_menu',viewer); m.slide=s
+assert m.nodes[viewer]['visible'] and not m.nodes[grid]['visible'] and len(m.nodes[s]['children'])==4
+assert signed(m.get(s+O['SLIDE_SPACER']))+O['PH_SHOT_H']==375 and m.get(s+O['SLIDE_INDEX'])==1
+m.draws=[]; m.loads=[]; paint(m)
+assert m.draws==[((0,0,281,375),((375-217)//2,0,217,290))] and m.loads==['file://'+cache(1,'.jpg'),'file://'+cache(0,'.jpg')]
+# Mid-slide back to the first photo: this one moves right and the first follows a screen behind it.
+m.draws=[]; m.word(s+O['SLIDE_OFFSET'],375//4); paint(m)
+(_,a),(_,b)=m.draws; assert len(m.draws)==2 and a[0]-(375-217)//2==b[0]+375 and 0<a[0]-(375-217)//2<375//2 and b[1:]==(4,375,281)
+m.word(s+O['SLIDE_OFFSET'],0); passed()
+# Centre shows "2 of 4" and the name; a bad photo says so whatever.
+info=[x for x in m.nodes[viewer]['children'] if m.nodes[x]['type']=='hscroll_label'][0]
+x,y,bw,bh=cf_geometry(m,info); inset=max(corner_inset(30+y),corner_inset(30+y+bh))
+assert not m.nodes[info]['visible'] and inset<=x and x+bw<=375-inset  # the whole rounded band clears the glass
+f,ctx=m.handler(m.nodes[s]['children'][1],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+assert m.nodes[info]['visible'] and m.nodes[info]['text']=='2 of 4  b.jpg' and m.nodes[info]['style:normal:bg_color']==signed(0xb3000000)
+m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert not m.nodes[info]['visible']
+m.word(s+O['SLIDE_INDEX'],2); f,ctx=m.handler(s,O['EVT_VALUE_CHANGED']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+assert m.nodes[info]['visible'] and m.nodes[info]['text']=="Can't open this photo"; passed()
+# The wheel steps the viewer a screen at a time, as Coverflow's covers.
+m.top=page; assert m.call()==11 and signed(m.get(m.get(s+O['SLIDE_ANIMATOR'])+O['ANIM_X_TO']))==-375; passed()
+# Return: the grid with the photo last shown selected, then the albums, then Local Music.
+m.page=page; assert m.key()==11 and m.nodes[grid]['visible'] and not m.nodes[viewer]['visible']
+assert m.nodes[tiles_view]['_ringnav_index']==2 and m.nodes[tiles_view]['_ringnav_count']==4
+assert m.key()==11 and m.nodes[albums]['visible'] and not m.nodes[grid]['visible']
+assert m.key()==11 and [c[0] for c in m.calls].count('navigator_back')==1
+m.close(); assert sorted(m.destroyed)==sorted(m.frames) and m.frames; passed()
+
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a Q2 Pod row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
 # Version, so the added row is checked against the real stock widgets, geometry and styles.

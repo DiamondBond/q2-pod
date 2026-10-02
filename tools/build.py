@@ -286,7 +286,7 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page'}
+PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
@@ -484,14 +484,16 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # and Shuffle Songs', Upload Scrobbles', Podcasts' and Audiobooks' icons, stock's 52px playset_playmode,
-    # wifiset_wifi, netservice_dlna and playset_foldercover apart from the copies iPod pre-sizes for Settings.
+    # and Shuffle Songs', Upload Scrobbles', Podcasts', Audiobooks' and Photos' icons, stock's 52px playset_playmode,
+    # wifiset_wifi, netservice_dlna, playset_foldercover and playset_covermode apart from the copies iPod pre-sizes
+    # for Settings.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
     icons['local_shuffle.png'] = ('playset_playmode.png', cat(xx+'playset_playmode.png'))
     icons['local_scrobble.png'] = ('wifiset_wifi.png', cat(xx+'wifiset_wifi.png'))  # Upload Scrobbles, likewise
     icons['local_podcasts.png'] = ('netservice_dlna.png', cat(xx+'netservice_dlna.png'))  # Podcasts, likewise
     icons['local_audiobooks.png'] = ('playset_foldercover.png', cat(xx+'playset_foldercover.png'))  # Audiobooks
+    icons['local_photos.png'] = ('playset_covermode.png', cat(xx+'playset_covermode.png'))  # Photos, likewise
     added = []
     for name, (like, data) in icons.items():
         stock = re.search(rb'^'+re.escape((xx+like).encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)

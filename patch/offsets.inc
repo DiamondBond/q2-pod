@@ -329,3 +329,18 @@
 #define CF_REFLECT_TOP 64
 #define CF_STRIDE 110
 #define CF_TEXT_Y 212 /* the album caption's top, under the frame; the artist follows */
+/* Photos (patch/photos.c, docs/internals.md#photos): under a 48px title, PH_COLS columns of
+ * PH_TILE_W x PH_TILE_H tiles from x PH_GRID_X, three whole rows in the 240px below it, each a
+ * thumbnail of at most PH_THUMB_W x PH_THUMB_H centred in its tile, so the selection shows round
+ * it. The viewer's screen-size copy fits PH_SHOT_W x PH_SHOT_H (the client area). PH_GREY marks a
+ * thumbnail not made yet or a file that will not open. */
+#define PH_COLS 4
+#define PH_GRID_X 1
+#define PH_TILE_W 93
+#define PH_TILE_H 80
+#define PH_THUMB_W 85
+#define PH_THUMB_H 72
+#define PH_SHOT_W 375
+#define PH_SHOT_H 290
+#define PH_GREY 0xff333333 /* color_t #333333 */
+#define PHOTOS_MAX 500 /* ponytail: ringnav navigates at most MAX_ENTRIES (512) rows; page beyond */

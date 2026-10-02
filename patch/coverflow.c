@@ -191,7 +191,7 @@ static int albums(void *album) {
                  : getAllAlbum();
 }
 
-static void *text(void *parent, int x, int y, int w, int h) {
+void *text(void *parent, int x, int y, int w, int h) { /* shared with photos.c */
     void *label = hscroll_label_create(parent, x, y, w, h);
     widget_use_style(label, "s_scrlabel_white20c");
     set_hscroll_label_attribute(label);
@@ -199,29 +199,40 @@ static void *text(void *parent, int x, int y, int w, int h) {
     return label;
 }
 
-/* The peq_ui.c page: a title bar over whole 48px rows, shrunk so the list's white background
- * never shows below a short list. */
-static void *list(const char *title, int n) {
-    int h = widget_get_prop_int(cf.page, "h", 290), rows = (h - 48) / 48 * 48;
-    if (n * 48 < rows) rows = n * 48;
-    widget_destroy_children(cf.body);
-    widget_set_visible(cf.body, 1, 0);
-    cf.title = text(cf.body, CF_X, 0, CF_W, 48);
-    widget_set_text_utf8(cf.title, title);
-    void *lv = list_view_create(cf.body, 0, 48, 375, rows);
-    widget_set_prop_int(lv, "item_height", 48);
+/* A page's 48px title bar; shared with photos.c. */
+void *page_title(void *body, const char *caption) {
+    void *title = text(body, CF_X, 0, CF_W, 48);
+    widget_set_text_utf8(title, caption);
+    return title;
+}
+
+/* The peq_ui.c page: a title bar (*title) over n whole item_h rows in body, shrunk so the list's
+ * white background never shows below a short list. Shared with photos.c. */
+void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h) {
+    int h = widget_get_prop_int(page, "h", 290), rows = (h - 48) / item_h * item_h;
+    if (n * item_h < rows) rows = n * item_h;
+    widget_destroy_children(body);
+    widget_set_visible(body, 1, 0);
+    *title = page_title(body, caption);
+    void *lv = list_view_create(body, 0, 48, 375, rows);
+    widget_set_prop_int(lv, "item_height", item_h);
     /* The theme's default list_view is a light card; stock pages paint theirs black inline. */
     widget_set_prop_int(lv, "style:normal:bg_color", (int)0xff000000u);
     widget_set_prop_int(lv, "style:normal:border_color", 0);
     void *view = scroll_view_create(lv, 0, 0, 375, rows);
     widget_set_prop_int(view, "yslidable", 1);
     widget_set_prop_int(view, "xslidable", 0);
-    widget_set_prop_int(view, "virtual_h", n * 48);
-    widget_invalidate_force(cf.page, 0);
+    widget_set_prop_int(view, "virtual_h", n * item_h);
+    widget_invalidate_force(page, 0);
     return view;
 }
 
-static void row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
+static void *list(const char *title, int n) {
+    return page_list(cf.page, cf.body, &cf.title, title, n, 48);
+}
+
+/* One 48px row of a page_list; shared with photos.c. */
+void row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
     void *label = text(item, CF_ROW_X, 0, CF_ROW_W, 48);
@@ -532,7 +543,7 @@ static int floor_div(int a, int b) { /* floor division, b > 0 */
 
 /* The visual position from the slide_menu's index and live offset (the wheel's animator): album c
  * (of n) at the centre and frac past it. Stock completion commits index - offset / stride. */
-static int visual(void *s, int n, int *c, int *frac) {
+int visual(void *s, int n, int *c, int *frac) { /* shared with photos.c */
     int stride = slide_menu_item_width(s) + I(s, SLIDE_SPACER), d = -I(s, SLIDE_OFFSET);
     if (n <= 0 || stride <= 0) return 0;
     int q = floor_div(2 * d + stride, 2 * stride);
