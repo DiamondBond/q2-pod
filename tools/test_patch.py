@@ -67,7 +67,7 @@ class Machine:
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
-        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
+        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]; self.config_writes=[]
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
@@ -219,8 +219,8 @@ class Machine:
         elif name in ('tk_snprintf','snprintf@GLIBC_2.0'):
             fmt=self.text(c); values=[d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in (16,20,24)]
             if fmt=='%.*s': fmt,values='%s',[self.string(self.text(values[1]).encode()[:values[0]].decode())]  # track_name
-            params=[self.text(value) if kind=='s' else value if kind=='x' else signed(value)
-                    for kind,value in zip(re.findall(r'%\d*([sdx])',fmt),values)]
+            params=[self.text(value) if kind=='s' else value if kind in 'xX' else signed(value)
+                    for kind,value in zip(re.findall(r'%\d*([sdxX])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
         elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
@@ -256,6 +256,10 @@ class Machine:
             key=self.text(c); self.config_reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
             value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
+        elif name=='toolsWriteConfig': self.config_writes.append((self.text(a),self.text(b),self.text(c),self.text(d))); ret=0
+        elif name=='widget_factory_create_widget':  # x in a3; y, w, h on the stack
+            sp=u.reg_read(UC_MIPS_REG_SP); ret=self.node(self.text(b)); self.word(ret+O['W_PARENT'],c); self.nodes[c]['children'].append(ret)
+            for off,v in (('W_X',d),('W_Y',self.get(sp+16)),('W_W',self.get(sp+20)),('W_H',self.get(sp+24))): self.word(ret+O[off],v)
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
         elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
         elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=int(t[0]) if t else 0
@@ -296,10 +300,12 @@ class Machine:
             # Stock text is VALUE_TYPE_WSTRING; value_str does not convert it to UTF-8.
             ret=0 if self.text(b)=='text' else self.string(n.get(self.text(b),''))
         elif name=='widget_get_text': ret=self.wide_string(n.get('text',''))
+        elif name=='widget_get_text_utf8': t=n.get('text','').encode()[:c-1]; self.u.mem_write(b,t+b'\0'); ret=0  # truncates bytes, as tk_utf8_from_utf16_ex
         elif name in ('widget_get_prop_bool','widget_get_prop_int'): ret=n.get(self.text(b),c)
         elif name=='widget_count_children': ret=len(n['children'])
         elif name=='widget_get_child': ret=n['children'][b] if b<len(n['children']) else 0
         elif name=='widget_set_prop_int': n[self.text(b)]=signed(c); ret=0
+        elif name=='widget_set_prop_str': n[self.text(b)]=self.text(c); ret=0
         elif name=='pointer_event_init':
             self.word(a,b); self.word(a+0x10,c); ret=a
         elif name=='time_now_ms': ret=self.now & 0xffffffff
@@ -3469,20 +3475,23 @@ if variant=='ipod':
         if address==GET and getattr(self,'get_gradient',None): return self.get_gradient(u)
         return orig_hook(self,u,address,size,x)
     Machine.hook=hook
-    for config,preset in (({},0),({'ACCENT':'1'},1),({'ACCENT':'2'},2),({'ACCENT':'3','HOME':'1'},3),({'ACCENT':'7'},0),({'ACCENT':'12'},0)):
+    # Custom (4) is the tones of IPOD/ACCENT_HEX, here #3A7BD5 darkened to 4.5:1 under white; a bad value is Champagne's.
+    TONES=ACCENTS+[(0x3673c7,0x244c84,*[0x4e83cd]*3)]
+    for config,preset in (({},0),({'ACCENT':'1'},1),({'ACCENT':'2'},2),({'ACCENT':'3','HOME':'1'},3),({'ACCENT':'7'},0),({'ACCENT':'12'},0),
+                          ({'ACCENT':'4','ACCENT_HEX':'3a7bd5'},4),({'ACCENT':'4','ACCENT_HEX':'#3A7BD5'},4),({'ACCENT':'5'},0)):
         m=Machine(); m.config=config
         ret,got,out=style_color(m,red)
-        assert ret==out and got==(red if preset==O['CRIMSON'] else color_t(ACCENTS[preset][3])),(config,hex(got))
+        assert ret==out and got==(red if preset==O['CRIMSON'] else color_t(TONES[preset][3])),(config,hex(got))
         # Text takes the red tone, every other color property the light tone (Graphite: silver text,
         # #6E6E6E fills under white text).
         for name in ('highlight_text_color','bg_color','fg_color','border_color','selected_fg_color'):
-            want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
+            want=TONES[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==3  # every key, once, on first use
+        assert len(m.config_reads)==4  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','ACCENT_HEX')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -3620,12 +3629,13 @@ if variant=='ipod':
     # each; a new accent drops the image cache and repaints, a new Battery mode repaints the bar.
     def display(config):
         CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
+        m.word(0xa26558,0x1000014); m.handlers[0x1000014]='snprintf@GLIBC_2.0'  # peq_edit's: its GOT slot is 0 until lazy binding
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
         for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
         m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
         assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         assert m.calls[0][:3]==('stock_display',m.top,5)
-        rows=m.nodes[view]['children'][3:]
+        rows=m.nodes[view]['children'][3:]; m.hex=rows.pop(1)  # Custom's Hex row, under Accent
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
         return m,view,rows
     m,view,rows=display({})
@@ -3642,9 +3652,11 @@ if variant=='ipod':
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         return [c[1:] for c in m.calls if c[0]=='write_int_config']
-    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(0,'Graphite')):
+    assert not m.nodes[m.hex]['visible']
+    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Custom'),(0,'Graphite')):
         writes=click(0)
         assert len(writes)==1 and writes[0][0]==value and m.text(writes[0][1])=='IPOD' and m.text(writes[0][2])=='ACCENT'
+        assert m.nodes[m.hex]['visible']==(value==4)
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
         assert texts()[0]=='Accent: '+name; passed()
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
@@ -3661,6 +3673,37 @@ if variant=='ipod':
     m.paint(view)
     for _ in range(3): m.call()
     assert m.selected(view)==3 and m.confirm()==11 and m.dispatched()[0][1]==m.nodes[rows[0]]['children'][0]; passed()
+    # Custom shows the Hex row under Accent and the selection stays on Accent; the wheel then walks onto
+    # it, and Centre or a tap opens its edit's keyboard. Leaving Custom hides it again.
+    for _ in range(4): click(0)
+    m.paint(view); assert m.nodes[m.hex]['visible'] and m.selected(view)==3 and m.nodes[view]['_ringnav_count']==7
+    hexb=m.nodes[m.hex]['children'][0]; m.call(); assert m.selected(view)==4 and m.confirm()==11 and m.dispatched()[0][1]==hexb
+    label,edit=m.nodes[hexb]['children']; f,ctx=m.handler(hexb,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert m.nodes[label]['text']=='Hex' and m.nodes[edit]['type']=='edit' and m.nodes[edit]['focused']==1; passed()
+    m.call(key=O['KEY_PREV']); assert m.selected(view)==3
+    click(0); m.paint(view); assert not m.nodes[m.hex]['visible'] and m.selected(view)==3 and m.nodes[view]['_ringnav_count']==6; passed()
+    # The edit (peq_edit: T9 keyboard, any text) shows the colour, Champagne's top by default. OK saves six hex
+    # digits, '#' optional, either case, as ACCENT_HEX and applies them; anything else shows the colour again.
+    m,view,rows=display({'ACCENT':'4'}); hexb=m.nodes[m.hex]['children'][0]; edit=m.nodes[hexb]['children'][1]
+    props=m.nodes[edit]
+    assert m.nodes[m.hex]['visible'] and m.nodes[edit]['text']=='#8C732C' and m.icons_set==['system_display','playset_covermode','system_powermanager']
+    assert (props['keyboard'],props['input_type'],props['action_text'],props['style:focused:bg_color'])==('kb_default_t9','text','OK','#2B2B2B')
+    def typed(text):
+        m.calls=[]; m.config_writes=[]; m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED'])
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        return [w[3] for w in m.config_writes if w[:3]==('/mnt/data/config.ini','IPOD','ACCENT_HEX')],m.nodes[edit]['text']
+    assert typed('3a7bd5')==(['3A7BD5'],'#3A7BD5') and ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls]
+    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(TONES[4][i]) for i in (0,1,4)]
+    assert typed('#3A7BD5')==([],'#3A7BD5') and not [c for c in m.calls if c[0]=='widget_set_text_utf8']  # unchanged: no write, no set
+    assert typed('#ff00FF')==(['FF00FF'],'#FF00FF')
+    for bad in ('#12345','GGGGGG','#FF00FF0','1234567','##00FF00','',' 00FF00','#00FF0\u0100'): assert typed(bad)==([],'#FF00FF'),bad
+    passed()
+    # Any colour keeps white text at 4.5:1 on the bar, the bar off black and its light tone 3:1 on the track and under white.
+    for c in ('FFFFFF','000000','00FF00','FFFF00','0000FF','FF0000','808080','FF1448','13838D'):
+        m,view,rows=display({'ACCENT':'4','ACCENT_HEX':c}); m.paint(view)
+        top,bottom,light=[(lambda v:(v&255)<<16|(v>>8&255)<<8|v>>16&255)(m.bands[i][4]) for i in (0,47,48)]
+        assert min(ratio(0xffffff,top),ratio(0xffffff,bottom))>=4.5 and ratio(top,0)>=1.9 and ratio(light,O['TRACK_COLOR'])>=3 and ratio(0xffffff,light)>=3,(c,hex(top),hex(light))
+    passed()
 
     # Settings rows (docs/ipod.md#settings). The real stock builders create their rows; the build
     # points the list_view layouter's vtable slot at ipod_list_layout, which normalises stock 78px
@@ -3675,6 +3718,7 @@ if variant=='ipod':
                 view=u.reg_read(UC_MIPS_REG_A1); lst=self.get(view+O['W_PARENT']); y=0
                 ih,dh=(self.get(lst+O[k]) for k in ('ROW_HEIGHT','LIST_DEFAULT_ITEM_HEIGHT'))
                 for c in self.nodes[view]['children']:
+                    if not self.nodes[c]['visible']: continue  # widget_get_children_for_layout drops them
                     if not self.get(c+O['W_W']): self.word(c+O['W_W'],self.get(view+O['W_W']))
                     h=ih or self.get(c+O['W_H']) or dh
                     self.word(c+O['W_Y'],y); self.word(c+O['W_H'],h); y+=h
@@ -3720,10 +3764,12 @@ if variant=='ipod':
         for b in m.nodes[item]['children']:
             bx,by,bw,bh=geometry(m,b)
             assert (bx,by,bw,bh)==(0,0,375,geometry(m,item)[3])
-            icon=label=trail=None
+            icon=label=trail=edit=None
             for c in m.nodes[b]['children']:
                 x,y,w,h=geometry(m,c); kind=m.nodes[c]['type']
-                if kind=='image' and w==SET['ICON']:
+                if kind=='edit':  # Custom's Hex value, a pill ending where trailing images do
+                    assert x+w==375-SET['EDGE'] and y*2+h==bh, (x,y,w,h); edit=x; box=(x,top+y,w,h)
+                elif kind=='image' and w==SET['ICON']:
                     icon=(x,y,w,h); box=(x,top+y,w,h)
                     assert (x,h)==(SET['ICON_X'],SET['ICON']) and y*2+h==bh and m.nodes[c]['draw_type']==O['IMAGE_DRAW_SCALE_DOWN']
                 elif kind=='image':
@@ -3734,11 +3780,14 @@ if variant=='ipod':
                 x,y,w,h=box; inset=max(corner_inset(y),corner_inset(y+h))
                 assert inset<=x and x+w<=375-inset, (m.nodes[c]['type'],box,inset)
             if icon and label: assert label[0]==icon[0]+icon[2]+SET['GAP']
+            elif edit: assert label[0]==SET['ICON_X']+SET['ICON']+SET['GAP'] and label[0]+label[1]<=edit  # indented, as under an icon
             elif label: assert label[0]==SET['TEXT_X']
-            if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
+            if label and not trail and not edit: assert label[0]+label[1]==375-SET['TEXT_X']
             if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
-    for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
-        m,view=settings(builder); items=m.nodes[view]['children']
+    for builder,accent in ((0x4c43e4,'0'),(0x4c0f6c,'0'),(0x4cbcc4,'0'),(0x4ccc70,'0'),('display','4'),('display','0')):  # language, BT quality, System settings, Wi-Fi, Display (Custom: its Hex row)
+        CONFIG.clear(); CONFIG.update(ACCENT=accent)
+        m,view=settings(builder); items=[i for i in m.nodes[view]['children'] if m.nodes[i]['visible']]
+        assert builder!='display' or len(items)==(4 if accent=='4' else 3)
         before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
         assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
         assert all(geometry(m,i)[3]==SET['ROW'] for i in items)

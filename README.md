@@ -64,11 +64,11 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 **System settings → Display**:
 
-| Setting     | Options                                                   |
-| ----------- | --------------------------------------------------------- |
-| **Accent**  | Graphite (default), Crimson (stock red), Tidal, Champagne |
-| **Home**    | Split (list beside the cover) or Full (list only)         |
-| **Battery** | Icon (default), Percent, Icon + Percent                   |
+| Setting     | Options                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| **Accent**  | Graphite (default), Crimson (stock red), Tidal, Champagne, Custom (any hex colour) |
+| **Home**    | Split (list beside the cover) or Full (list only)                                  |
+| **Battery** | Icon (default), Percent, Icon + Percent                                            |
 
 ## iPod UI
 

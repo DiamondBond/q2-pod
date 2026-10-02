@@ -26,7 +26,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `main_loop_sleep_default`     | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                       |
 | `widget_on_paint_background`  | `0x65c77c` | iPod only: selection bar, status bar fill, clock, codec fade and battery         |
 | `playing_page_init`           | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                     |
-| `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent, Home and Battery rows                                |
+| `systemset_display_page_init` | `0x4c1d04` | iPod only: adds the Accent (and Custom's Hex), Home and Battery rows             |
 | `on_wm_keydown_before_fun`    | `0x4e8424` | iPod only: Key Tone clicks on the row change, not the wheel press                |
 | `style_get_color`             | `0x649f6c` | iPod only: maps the returned color to the accent                                 |
 | `style_get_gradient`          | `0x649f3c` | iPod only (`IPOD_LEAF`): no PIC prologue; maps the gradient's stops              |
@@ -190,7 +190,7 @@ The iPod border hook also draws the fast-scroll letter over the list. A step of 
 iPod's accent ([ipod.md](ipod.md#display-settings)) replaces Shanling red wherever it is drawn:
 the theme's style colors, inline `style:*` colors (a mutable style answers through the same
 vtable), decoded images, and the payload's own selection bar and progress fill, which read
-`ACCENTS` directly. `accent_map` (`patch/ringnav.c`) is a pure function on one `color_t` (bytes
+`ACCENTS` (or Custom's derived row, `tones()`) directly. `accent_map` (`patch/ringnav.c`) is a pure function on one `color_t` (bytes
 r, g, b, a). Stock uses `#FF1448`, `#7F0A24`, the pressed tint `#3D1920` and `#FF144840`, all
 stock red blended with a neutral: each channel is `t * red + k`. Least squares against red with
 the mean removed gives `t` (in 1/4096), then `k`. A color within `RED_TOLERANCE` (8) of that
@@ -199,7 +199,8 @@ for one of the preset's tones (`ACCENTS`): the red tone for text colors (a prope
 `text_color`, `tk_str_end_with`) and image pixels, the light tone for every other color property
 and gradient stop; alpha is kept, and anything else, greys and other hues included,
 is returned as it was. Anti-aliased edges onto black, white or a transparent background are such
-blends, so they follow. No preset's colors are red blends, so mapping twice changes nothing.
+blends, so they follow. No preset's colors are red blends, so mapping twice changes nothing (a
+Custom colour close to stock red can be one, and then shifts a shade where it is mapped again).
 Crimson returns every color unchanged, so its theme is stock.
 
 - `style_get_color(color_t *ret, style, name, default)` returns its color through the hidden

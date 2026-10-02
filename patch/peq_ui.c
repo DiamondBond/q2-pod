@@ -101,6 +101,26 @@ static int focused(void *ctx, void *event) {
     return 0;
 }
 
+/* An edit styled and keyed as the stock playlist dialogs' (T9 keyboard, opening on its 123 page): the value
+ * menu's, and iPod's custom accent colour (ringnav.c). */
+void *peq_edit(void *parent, int x, int y, int w, int h, const char *input_type) {
+    void *edit = widget_factory_create_widget(widget_factory(), "edit", parent, x, y, w, h);
+    static const char *const props[][2] = {{"keyboard", "kb_default_t9"}, {"input_type", 0}, {"action_text", "OK"},
+        {"bg_color", "#2B2B2B"}, {"border_color", "#2B2B2B00"}, {"text_color", "#FFFFFF"}, {"round_radius", "20"},
+        {"margin_left", "12"}, {"font_size", "22"}};
+    static const char *const states[] = {"normal", "focused", "empty", "empty_focus", "changed", "error", "over", "empty_over"};
+    char name[40];
+    for (unsigned i = 0; i < sizeof(props) / sizeof(props[0]); ++i) {
+        if (i < 3) { widget_set_prop_str(edit, props[i][0], i == 1 ? input_type : props[i][1]); continue; }
+        for (unsigned j = 0; j < sizeof(states) / sizeof(states[0]); ++j) {
+            snprintf(name, sizeof(name), "style:%s:%s", states[j], props[i][0]);
+            widget_set_prop_str(edit, name, props[i][1]);
+        }
+    }
+    widget_on(edit, EVT_FOCUS, focused, 0);
+    return edit;
+}
+
 static int on_auto(void) { return __builtin_fabs(ui.draft.preamp - headroom(&ui.draft)) < 0.05; }
 
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
@@ -306,28 +326,16 @@ static int render(const void *unused) {
         snprintf(text, sizeof(text), "Gain %+.1f dB", b->gain); row(view, n++, text, GAIN);
         snprintf(text, sizeof(text), "Q %.2f", b->q); row(view, n++, text, QUALITY);
     } else if (ui.screen == ADJUST) {
-        /* Row 0 is the value in an edit, styled and keyed as the stock playlist dialogs' (T9 keyboard, 123 page
-         * for digits); a tap or the centre button opens the keyboard and the value applies when it closes. */
+        /* Row 0 is the value in an edit (peq_edit); a tap or the centre button opens the keyboard and the value
+         * applies when it closes. */
         void *item = list_item_create(view, 0, 0, 375, 48);
         widget_use_style(item, "s_listitem_black");
         widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
-        ui.edit = widget_factory_create_widget(widget_factory(), "edit", item, 12, 4, 351, 40);
-        static const char *const props[][2] = {{"keyboard", "kb_default_t9"}, {"input_type", "ufloat"}, {"action_text", "OK"},
-            {"bg_color", "#2B2B2B"}, {"border_color", "#2B2B2B00"}, {"text_color", "#FFFFFF"}, {"round_radius", "20"},
-            {"margin_left", "12"}, {"font_size", "22"}};
-        static const char *const states[] = {"normal", "focused", "empty", "empty_focus", "changed", "error", "over", "empty_over"};
-        for (unsigned i = 0; i < sizeof(props) / sizeof(props[0]); ++i) {
-            if (i < 3) { widget_set_prop_str(ui.edit, props[i][0], props[i][1]); continue; }
-            for (unsigned j = 0; j < sizeof(states) / sizeof(states[0]); ++j) {
-                snprintf(text, sizeof(text), "style:%s:%s", states[j], props[i][0]);
-                widget_set_prop_str(ui.edit, text, props[i][1]);
-            }
-        }
+        ui.edit = peq_edit(item, 12, 4, 351, 40, "ufloat");
         peq_band *b = &ui.draft.bands[ui.band];
         snprintf(text, sizeof(text), ui.adjust == QUALITY ? "%.2f" : "%.0f", ui.adjust == QUALITY ? b->q : b->frequency);
         widget_set_text_utf8(ui.edit, text);
         widget_on(ui.edit, EVT_VALUE_CHANGED, typed, 0);
-        widget_on(ui.edit, EVT_FOCUS, focused, 0);
         n = 1;
         if (ui.adjust == QUALITY) { row(view, n++, "Raise 0.05", RAISE); row(view, n++, "Lower 0.05", LOWER); }
         else {

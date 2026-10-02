@@ -20,6 +20,7 @@ extern void coverflow_paint(void *w, void *canvas);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 extern const char *track_name(char *buf, unsigned size, void *t);
+extern void *peq_edit(void *parent, int x, int y, int w, int h, const char *input_type);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -131,6 +132,9 @@ typedef struct {
      */
     int settings_read, accent, home_full, battery;
     void *setting_label[3];
+    /* Custom: its colour, its tones (custom_tones), and the display page's Hex row and edit */
+    unsigned custom_hex, custom[5];
+    void *hex_item, *hex_edit;
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1067,23 +1071,69 @@ static unsigned mix(unsigned from, unsigned to, int j, int n) {
  * value, or the default. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
+#define CUSTOM ACCENT_N /* the Accent value after the presets */
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
-                                            "Accent: Champagne" };
-_Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
+                                            "Accent: Champagne", "Accent: Custom" };
+_Static_assert(sizeof accent_names / sizeof *accent_names == CUSTOM + 1, "a name per value");
 static int config_digit(const char *key, int n) {
     char s[256] = "";
     toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "0");
     return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
 }
+
+/* 1 and the 0xRRGGBB for six hex digits in either case, optionally after '#'. */
+static int parse_hex(const char *s, unsigned *out) {
+    unsigned v = 0;
+    int n = 0;
+    for (s += *s == '#'; *s; ++s, ++n) {
+        int c = *s | 32, d = *s >= '0' && *s <= '9' ? *s - '0'
+                             : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                                                    : -1;
+        if (d < 0 || n == 6) return 0;
+        v = v << 4 | (unsigned)d;
+    }
+    if (n != 6) return 0;
+    *out = v;
+    return 1;
+}
+
+/* WCAG relative luminance of a 0xRRGGBB in 1/10000, with c^2.2 as 0.7 c^2 + 0.3 c^3. */
+static int luminance(unsigned c) {
+    static const int weight[3] = { 722, 7152, 2126 }; /* b, g, r */
+    int sum = 0;
+    for (int i = 0; i < 3; ++i) {
+        int x = (int)(c >> 8 * i & 255);
+        sum += weight[i] * (x * x * (1785 + 3 * x) / 2550);
+    }
+    return sum / 65025;
+}
+
+/* Custom's ACCENTS row from its colour (CUSTOM_* in offsets.inc), once per change. */
+static void custom_tones(unsigned c) {
+    while (luminance(c) > CUSTOM_TOP_MAX) c = mix(c, 0, 1, 16);
+    while (luminance(c) < CUSTOM_TOP_MIN) c = mix(c, 0xffffff, 1, 16);
+    unsigned light = mix(c, 0xffffff, 3, 25);
+    while (luminance(light) < CUSTOM_LIGHT_MIN) light = mix(light, 0xffffff, 1, 16);
+    st.custom[0] = c;
+    st.custom[1] = mix(c, 0, 1, 3);
+    st.custom[2] = st.custom[3] = st.custom[4] = light;
+}
+
+/* A missing or bad ACCENT_HEX is Champagne's top, the preset before Custom. */
 static int accent(void) {
     if (!st.settings_read) {
-        st.accent = config_digit("ACCENT", ACCENT_N);
+        char s[256] = "";
+        st.accent = config_digit("ACCENT", CUSTOM + 1);
         st.home_full = config_digit("HOME", 2);
         st.battery = config_digit("BATTERY", 3);
+        toolsReadConfig("/mnt/data/config.ini", "IPOD", "ACCENT_HEX", s, "0");
+        if (!parse_hex(s, &st.custom_hex)) st.custom_hex = accents[CUSTOM - 1][0];
+        custom_tones(st.custom_hex);
         st.settings_read = 1;
     }
     return st.accent;
 }
+static const unsigned *tones(int preset) { return preset == CUSTOM ? st.custom : accents[preset]; }
 int ipod_home_full(void) {
     accent();
     return st.home_full;
@@ -1121,7 +1171,7 @@ static unsigned red_map(unsigned c, unsigned tone, unsigned glyph) {
     return out;
 }
 unsigned accent_map(unsigned c, int preset, int tone) {
-    return preset == CRIMSON ? c : red_map(c, accents[preset][tone], 0xffffff);
+    return preset == CRIMSON ? c : red_map(c, tones(preset)[tone], 0xffffff);
 }
 
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; equal ends give a solid
@@ -1301,7 +1351,7 @@ static void paint_selection(void *w, void *canvas) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
     }
-    const unsigned *a = accents[accent()];
+    const unsigned *a = tones(accent());
     gradient(canvas, r, a[0], a[1], a[4]);
     st.sel_w = w;
     st.sel_row = i;
@@ -1370,15 +1420,15 @@ int ringnav_paint(void *w, void *canvas) {
 }
 
 /* A stock settings-style row (0x4c19bc): a s_listitem_black list_item holding a 335x70
- * s_btn_listitem button with a 52px icon and a 24px label at x 72, without list_into. Returns the
- * label. */
+ * s_btn_listitem button with a 52px icon (none for a null name) and a 24px label at x 72, without
+ * list_into. Returns the label. */
 static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
     void *item = list_item_create(view, 0, 0, 0, 0);
     widget_use_style(item, "s_listitem_black");
     void *button = button_create(item, 20, 0, 335, 70);
     widget_use_style(button, "s_btn_listitem");
     widget_on(button, EVT_CLICK, click, ctx);
-    image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
+    if (icon) image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
     void *label = hscroll_label_create(button, 72, 0, 260, 70);
     widget_use_style(label, "s_scrlabel_white24l");
     set_hscroll_label_attribute(label);
@@ -1491,7 +1541,7 @@ static void paint_battery(void *w, void *canvas) {
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
     unsigned key = st.batt_key, level = key >> 2, s[3], n = put_num(s, level);
     unsigned color = RGBA(key & 2   ? BATT_CHARGE_RGB
-                          : key & 1 ? accents[accent()][TONE_RED]
+                          : key & 1 ? tones(accent())[TONE_RED]
                                     : 0xffffff);
     const int bw = BATT_BODY_W, bh = BATT_BODY_H, y = (I(w, W_H) + 1 - bh) / 2;
     canvas_set_fill_color(canvas, color);
@@ -1550,7 +1600,7 @@ static unsigned np_track(void) {
 /* The accent's light tone fills the progress bar; a white fill marks the scrub. */
 static void np_fill(int scrub) {
     if (!st.np_slider) return;
-    unsigned color = scrub ? 0xffffffff : RGBA(accents[accent()][TONE_LIGHT]);
+    unsigned color = scrub ? 0xffffffff : RGBA(tones(accent())[TONE_LIGHT]);
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
     widget_invalidate_force(st.np_slider, (void *)0);
 }
@@ -1845,8 +1895,8 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     const char *s = name;
     int dark = s && tk_str_start_with(s, CONFIRM_IMAGE);
     int control = s && tk_str_start_with(s, DROPDOWN_IMAGE) && !tk_str_start_with(s, DROPDOWN_SUN);
-    unsigned tone = dark ? CONFIRM_SURFACE : accents[preset][TONE_RED], glyph = 0xffffff,
-             light = accents[preset][TONE_LIGHT];
+    unsigned tone = dark ? CONFIRM_SURFACE : tones(preset)[TONE_RED], glyph = 0xffffff,
+             light = tones(preset)[TONE_LIGHT];
     if (control && ((tone >> 16) * 299 + (tone >> 8 & 255) * 587 + (tone & 255) * 114) / 1000 >
                        GLYPH_LIGHT_MAX)
         glyph = CONFIRM_SURFACE;
@@ -1895,13 +1945,61 @@ static void setting_text(int i) {
     widget_set_text_utf8(st.setting_label[i], name);
 }
 
-/* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on
- * the next paint, and the theme's colors and images once every cached image is dropped and the
- * screen repaints; Home takes its new layout at once, as it is never recreated. */
+/* A new accent reaches the payload's drawing on the next paint, and the theme's colors and images
+ * once every cached image is dropped and the screen repaints. */
+static void accent_changed(void) {
+    np_fill(0);
+    image_manager_unload_all(image_manager());
+    widget_invalidate_force(window_manager(), (void *)0);
+}
+
+/* The Hex row's edit closed: a valid new colour is saved as IPOD/ACCENT_HEX (digits only: '#' could
+ * start an ini comment) and applied; the edit then shows the colour as #RRGGBB, set only when it
+ * differs, so a value-changed event from that set ends here. Longer or non-ASCII text fails. */
+static int hex_typed(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    char s[9] = "", hex[8];
+    unsigned c;
+    widget_get_text_utf8(st.hex_edit, s, sizeof s);
+    int changed = parse_hex(s, &c) && c != st.custom_hex;
+    if (changed) {
+        st.custom_hex = c;
+        custom_tones(c);
+    }
+    tk_snprintf(hex, sizeof hex, "#%06X", st.custom_hex);
+    if (changed) {
+        toolsWriteConfig("/mnt/data/config.ini", "IPOD", "ACCENT_HEX", hex + 1);
+        accent_changed();
+    }
+    if (tk_strcmp(s, hex)) widget_set_text_utf8(st.hex_edit, hex);
+    return 0;
+}
+
+static int hex_click(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    widget_set_focused(st.hex_edit, 1);
+    return 0;
+}
+
+/* The Hex row shows under Custom only. Accent's index is unchanged, so the surface's row count
+ * follows, which keeps the wheel's selection instead of resetting it. */
+static void hex_shown(void) {
+    int shown = st.accent == CUSTOM;
+    if (widget_get_visible(st.hex_item) == shown) return;
+    widget_set_visible(st.hex_item, shown, 0);
+    void *view = P(st.hex_item, W_PARENT);
+    int count = widget_get_prop_int(view, COUNT, -1);
+    if (count >= 0) widget_set_prop_int(view, COUNT, count + (shown ? 1 : -1));
+}
+
+/* Centre or tap cycles the row's value and saves it. Home takes its new layout at once, as it is
+ * never recreated. */
 static int setting_click(void *ctx, void *event) {
     (void)event;
     static const char *const keys[] = { "ACCENT", "HOME", "BATTERY" };
-    static const int counts[] = { ACCENT_N, 2, 3 };
+    static const int counts[] = { CUSTOM + 1, 2, 3 };
     int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery */
     int *const values[] = { &st.accent, &st.home_full, &st.battery }, *value = values[i];
     *value = (*value + 1) % counts[i];
@@ -1911,9 +2009,8 @@ static int setting_click(void *ctx, void *event) {
     else if (i == 1)
         coverflow_home_layout();
     else if (!i) {
-        np_fill(0);
-        image_manager_unload_all(image_manager());
-        widget_invalidate_force(window_manager(), (void *)0);
+        hex_shown();
+        accent_changed();
     }
     setting_text(i);
     return 0;
@@ -1932,6 +2029,18 @@ int ringnav_display(void *win, void *ctx) {
     for (int i = 0; view && i < 3; ++i) {
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
+        if (i) continue;
+        /* Custom's Hex row, indented under Accent (no icon): "Hex" and a pill edit on the right */
+        void *label = list_row(view, (void *)0, hex_click, (void *)0), *button = P(label, W_PARENT);
+        char hex[8];
+        widget_resize(label, 100, 70);
+        widget_set_text_utf8(label, "Hex");
+        st.hex_item = P(button, W_PARENT);
+        st.hex_edit = peq_edit(button, 180, 15, 146, 40, "text");
+        widget_on(st.hex_edit, EVT_VALUE_CHANGED, hex_typed, (void *)0);
+        tk_snprintf(hex, sizeof hex, "#%06X", st.custom_hex);
+        widget_set_text_utf8(st.hex_edit, hex);
+        widget_set_visible(st.hex_item, st.accent == CUSTOM, 0);
     }
     return result;
 }
@@ -2124,7 +2233,7 @@ static void *set_button(void *item) {
  * again. */
 static void set_row(void *item) {
     int row_w = I(item, W_W), row_h = I(item, W_H);
-    void *b = set_button(item);
+    void *b = row_h > 0 ? set_button(item) : (void *)0; /* a hidden row: not laid out yet */
     if (b) {
         int trail = SET_STOCK_TRAIL; /* the rightmost trailing image sets the right column */
         unsigned n = widget_count_children(b);
