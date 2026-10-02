@@ -102,10 +102,12 @@ static int focused(void *ctx, void *event) {
 }
 
 /* An edit styled and keyed as the stock playlist dialogs' (T9 keyboard, opening on its 123 page): the value
- * menu's, and iPod's custom accent colour (ringnav.c). */
+ * menu's, and iPod's custom accent colour (ringnav.c). Its action text is "done", as stock edit_on_event only
+ * acts on the keyboard's OK for "done" (close the keyboard, then EVT_VALUE_CHANGED) or "next"; the dialogs'
+ * "OK" is handled by their own EVT_IM_ACTION handlers. The keyboard's OK key shows an image, not the text. */
 void *peq_edit(void *parent, int x, int y, int w, int h, const char *input_type) {
     void *edit = widget_factory_create_widget(widget_factory(), "edit", parent, x, y, w, h);
-    static const char *const props[][2] = {{"keyboard", "kb_default_t9"}, {"input_type", 0}, {"action_text", "OK"},
+    static const char *const props[][2] = {{"keyboard", "kb_default_t9"}, {"input_type", 0}, {"action_text", "done"},
         {"bg_color", "#2B2B2B"}, {"border_color", "#2B2B2B00"}, {"text_color", "#FFFFFF"}, {"round_radius", "20"},
         {"margin_left", "12"}, {"font_size", "22"}};
     static const char *const states[] = {"normal", "focused", "empty", "empty_focus", "changed", "error", "over", "empty_over"};

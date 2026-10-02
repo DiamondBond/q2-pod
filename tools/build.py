@@ -300,6 +300,7 @@ FUNCTIONS = {
  'player_stop': ('int', 'void'),
  'mclSetDacPwr': ('int', 'int'),
  'reset_poweroptions_timer': ('int', 'int, int, int'),
+ 'device_set_volume': ('int', 'int, int'),  # volume, notify: the DAC's or hciplayer's, as the volume dialog
  'toolsTrimLeft': ('void', 'char *'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
@@ -313,7 +314,7 @@ PRIVATE_FUNCTIONS = {
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
-           'g_keytone_flag', 'g_folder_layer', 'g_delete_flag']
+           'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume']
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
@@ -322,7 +323,7 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
                 'g_dacoff_time': 4, 'p_vector_select_record': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page'}
+PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
@@ -545,13 +546,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # system_language and system_display apart from the copies iPod pre-sizes for Settings; and q2video.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
-    icons['local_shuffle.png'] = ('playset_playmode.png', cat(xx+'playset_playmode.png'))
-    icons['local_scrobble.png'] = ('wifiset_wifi.png', cat(xx+'wifiset_wifi.png'))  # Upload Scrobbles, likewise
-    icons['local_podcasts.png'] = ('netservice_dlna.png', cat(xx+'netservice_dlna.png'))  # Podcasts, likewise
-    icons['local_audiobooks.png'] = ('playset_foldercover.png', cat(xx+'playset_foldercover.png'))  # Audiobooks
-    icons['local_photos.png'] = ('playset_covermode.png', cat(xx+'playset_covermode.png'))  # Photos, likewise
-    icons['local_books.png'] = ('system_language.png', cat(xx+'system_language.png'))  # Books, likewise
-    icons['local_videos.png'] = ('system_display.png', cat(xx+'system_display.png'))  # Videos, likewise
+    icons.update({f'local_{n}.png': (like, cat(xx+like)) for n, like in dict(
+        shuffle='playset_playmode.png', scrobble='wifiset_wifi.png', podcasts='netservice_dlna.png',
+        audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
+        videos='system_display.png').items()})
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat))}.items():

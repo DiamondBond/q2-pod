@@ -487,7 +487,7 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 Accent's last value is Custom. Under it, and only then, a "Hex" row shows, indented (no icon), with
 the colour as `#RRGGBB` in a pill edit on the right: the PEQ value menu's (`peq_edit`: the T9
 keyboard on its 123 page, OK to close, `#2B2B2B` with radius 20). Centre or a tap opens the
-keyboard. OK applies six hex digits in either case, `#` optional, at once; anything else puts the
+keyboard (blurring the edit first, since OK leaves it focused and only a focus change opens it again). OK applies six hex digits in either case, `#` optional, at once; anything else puts the
 colour back. The colour is saved without the `#` (an ini comment character) as `ACCENT_HEX`, with
 the stock `toolsWriteConfig`, and starts as Champagne's top, the preset before it, so the switch
 is gentle. Showing or hiding the row keeps the wheel on Accent: its index is unchanged, so the

@@ -2988,7 +2988,7 @@ class CoverflowMachine(QueueMachine):
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
-                  'pthread_join@GLIBC_2.0','fopen@GLIBC_2.2'): self.handlers[syms[n]]='c:'+n
+                  'pthread_join@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
         for n,stub in WRITERS.items(): self.handlers[HOOKS[n][0]+12]=stub  # the writers' stock bodies
@@ -3019,6 +3019,14 @@ class CoverflowMachine(QueueMachine):
             else: self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
         elif name=='fopen': ret=0  # no saved album: remember() keeps the first
+        elif name=='qsort':  # sorted by the payload's comparator, run nested on a stack below this one
+            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[u.reg_read(r) for r in regs]; pair=self.alloc(8)
+            def compare(x,y):
+                self.word(pair,x); self.word(pair+4,y)
+                for r,v in ((UC_MIPS_REG_SP,sp-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,d),(REGS[0],pair),(REGS[1],pair+4)): u.reg_write(r,v)
+                u.emu_start(d,0x1000000,count=self.budget); return signed(u.reg_read(UC_MIPS_REG_V0))
+            for i,v in enumerate(sorted([self.get(a+4*i) for i in range(b)],key=cmp_to_key(compare))): self.word(a+4*i,v)
+            for r,v in zip(regs,saved): u.reg_write(r,v)
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
         elif name=='free': self.freed+=a!=0
@@ -3827,16 +3835,23 @@ if variant=='ipod':
     for _ in range(4): click(0)
     m.paint(view); assert m.nodes[m.hex]['visible'] and m.selected(view)==3 and m.nodes[view]['_ringnav_count']==7
     hexb=m.nodes[m.hex]['children'][0]; m.call(); assert m.selected(view)==4 and m.confirm()==11 and m.dispatched()[0][1]==hexb
-    label,edit=m.nodes[hexb]['children']; f,ctx=m.handler(hexb,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    assert m.nodes[label]['text']=='Hex' and m.nodes[edit]['type']=='edit' and m.nodes[edit]['focused']==1; passed()
+    label,edit=m.nodes[hexb]['children']; f,ctx=m.handler(hexb,O['EVT_CLICK']); m.calls=[]; m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert m.nodes[label]['text']=='Hex' and m.nodes[edit]['type']=='edit' and m.nodes[edit]['focused']==1
+    # Blurred first: OK leaves the edit focused, and only a focus change opens the keyboard again.
+    assert [c[2] for c in m.calls if c[:2]==('widget_set_focused',edit)]==[0,1]; passed()
     m.call(key=O['KEY_PREV']); assert m.selected(view)==3
     click(0); m.paint(view); assert not m.nodes[m.hex]['visible'] and m.selected(view)==3 and m.nodes[view]['_ringnav_count']==6; passed()
     # The edit (peq_edit: T9 keyboard, any text) shows the colour, Champagne's top by default. OK saves six hex
     # digits, '#' optional, either case, as ACCENT_HEX and applies them; anything else shows the colour again.
+    # OK reports EVT_VALUE_CHANGED only with action_text "done": stock edit_on_event ignores any other text
+    # but "next" (the dialogs' "OK" has their own handlers), so with "OK" typed digits were never saved.
     m,view,rows=display({'ACCENT':'4'}); hexb=m.nodes[m.hex]['children'][0]; edit=m.nodes[hexb]['children'][1]
     props=m.nodes[edit]
     assert m.nodes[m.hex]['visible'] and m.nodes[edit]['text']=='#8C732C' and m.icons_set==['system_display','playset_covermode','system_powermanager']
-    assert (props['keyboard'],props['input_type'],props['action_text'],props['style:focused:bg_color'])==('kb_default_t9','text','OK','#2B2B2B')
+    assert (props['keyboard'],props['input_type'],props['action_text'],props['style:focused:bg_color'])==('kb_default_t9','text','done','#2B2B2B')
+    stock=(B/'stock-demo').read_bytes()
+    def at(va,n): return next(stock[o+va-v:o+va-v+n] for _,(t,o,v,_,f,*_) in segments(stock) if t==1 and v<=va<v+f)
+    assert at(0x613ee8,4)==bytes.fromhex('1cc7a524') and at(0x77c71c,5)==b'done\0'  # edit_on_event: strcmp(action_text, "done")
     def typed(text):
         m.calls=[]; m.config_writes=[]; m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -3844,6 +3859,7 @@ if variant=='ipod':
     assert typed('3a7bd5')==(['3A7BD5'],'#3A7BD5') and ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls]
     m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(TONES[4][i]) for i in (0,1,4)]
     assert typed('#3A7BD5')==([],'#3A7BD5') and not [c for c in m.calls if c[0]=='widget_set_text_utf8']  # unchanged: no write, no set
+    assert typed('123456')==(['123456'],'#123456')  # digits only, from the 123 page
     assert typed('#ff00FF')==(['FF00FF'],'#FF00FF')
     for bad in ('#12345','GGGGGG','#FF00FF0','1234567','##00FF00','',' 00FF00','#00FF0\u0100'): assert typed(bad)==([],'#FF00FF'),bad
     passed()
@@ -4296,14 +4312,38 @@ assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts
 m.found=[]; m.plays=[]; m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert not called('config_playmode') and not m.plays and m.toasts[-1][0]=='dialog/msginfo_dialog' and m.toasts[-1][3]=='Update Local Music first'; passed()
+# Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
+# press while it is open does nothing. Its rows are the top PLAYS_TOP, most played first and, among
+# equal counts, the most recently counted (earlier slot) first; a row folder-plays that ranked list
+# from itself, leaving the play mode alone.
 f,ctx=m.handler(m.nodes[top]['children'][0],O['EVT_CLICK'])
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Update Local Music first'
-m.found=[m.song(n) for n in ('T1','T2','T3')]; m.calls=[]
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.plays and m.toasts[-1][3]=='Nothing played yet'; passed()
-m=ShuffleMachine(); m.found=[m.song(n) for n in ('T1','T2','T3')]
-m.counts=struct.pack('<4I',fnv('/p/T1'),2,fnv('/p/T3'),5).ljust(8*O['PLAYS_SLOTS'],b'\0')
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
-assert m.queued==['T3','T1'] and m.plays==[('playing_page',m.plays[0][1],0,1,2)] and not called('config_playmode'); passed()
+m.found=[m.song(n) for n in ('T1','T2','T3')]; m.calls=[]; toasts=len(m.toasts)
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.plays and len(m.toasts)==toasts
+m.page=m.top; assert m.nodes[m.page]['name']=='mostplayed_page' and m.nodes[m.page]['style:normal:bg_color']==-0x1000000
+assert m.texts()==['No plays yet'] and not m.nodes[m.find('scroll_view')]['children']
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.top==m.page; m.close(); passed()
+m=ShuffleMachine(); m.found=[m.song(f'T{i}') for i in range(40)]
+m.word(m.found[1]+O['REC_ARTIST'],0)  # untagged: the count alone
+slots=[(fnv('/p/T3'),5),(fnv('/p/T1'),2),(fnv('/p/T7'),5)]+[(fnv(f'/p/T{i}'),1) for i in range(8,40)]
+m.counts=b''.join(struct.pack('<2I',*e) for e in slots).ljust(8*O['PLAYS_SLOTS'],b'\0')
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.page=m.top
+ranked=['T3','T7','T1']+[f'T{i}' for i in range(8,40)][:O['PLAYS_TOP']-3]
+# Each 64px row: the title over its artist (when tagged) and play count, in 16px stock grey.
+details=['Artist · 5 plays','Artist · 5 plays','2 plays']+['Artist · 1 play']*(O['PLAYS_TOP']-3)
+assert m.texts()==['Most Played']+[x for p in zip(ranked,details) for x in p]
+rows=m.nodes[m.find('scroll_view')]['children']; assert len(rows)==O['PLAYS_TOP']
+assert [(m.get(rows[1]+O['W_Y']),m.get(rows[1]+O['W_H']))]==[(64,64)]
+title,detail=m.nodes[rows[1]]['children']
+assert m.nodes[title]['style']=='s_scrlabel_white20c' and m.get(title+O['W_Y'])+m.get(title+O['W_H'])<=m.get(detail+O['W_Y'])
+assert m.nodes[detail]['style:normal:text_color']==-0x555556 and m.nodes[detail]['style:normal:font_size']==16
+assert m.get(detail+O['W_Y'])+m.get(detail+O['W_H'])<=64
+r=m.nodes[m.find('scroll_view')]['children'][2]; g,c=m.handler(r,O['EVT_CLICK'])
+assert m.call(address=g,args=(c,m.event,0,0),gap=0)==0
+assert m.queued==ranked and m.plays==[('playing_page',m.plays[0][1],2,1,2)] and not called('config_playmode'); passed()
+# A Play/Pause hold on a row opens the song menu, as Coverflow's tracks do, over the ranked list.
+m.handlers[syms['navigator_to']]='q:navigator_to'; view=m.find('scroll_view'); m.paint(view); m.call()
+m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='T7' and m.release()==0
+assert m.labels()==['Play next','Add to queue','Add to Favourites','Go to artist']; passed()
 
 # Upload Scrobbles: a third row, after Most Played, only with an account in the card's .scrobble.ini (a
 # ListenBrainz token or all four Last.fm keys). Without Wi-Fi it only says so; otherwise scrobble.c's thread
@@ -4568,12 +4608,14 @@ class BooksMachine(DepthMachine):
         elif name=='canvas_measure_text': u.reg_write(UC_MIPS_REG_F0,struct.unpack('<I',struct.pack('<f',BOOK_PITCH*c))[0])
         elif name=='mclGetOutputWay': ret=self.way
         elif name=='fork': ret=self.forked
-        elif name=='execl': self.execs.append((self.text(a),self.text(b),self.text(c),self.text(d),self.get(u.reg_read(UC_MIPS_REG_SP)+16))); ret=-1
+        elif name=='execl':
+            sp=u.reg_read(UC_MIPS_REG_SP); e=self.get(sp+16)  # a volume argv, then its terminator
+            self.execs.append((self.text(a),self.text(b),self.text(c),self.text(d),e and (self.text(e),self.get(sp+20)))); ret=-1
         elif name=='waitpid': assert a==self.forked and c==1; ret=self.waited
         elif name=='socket': assert (a,b,c)==(1,1,0); ret=7
         elif name=='sendto':
             sp=u.reg_read(UC_MIPS_REG_SP); to=self.get(sp+16)
-            self.sent.append((a,chr(self.u.mem_read(b,1)[0]),c,d,self.get(to)&0xffff,self.text(to+2),self.get(sp+20)))
+            self.sent.append((a,bytes(self.u.mem_read(b,c)).decode('latin1'),c,d,self.get(to)&0xffff,self.text(to+2),self.get(sp+20)))
         elif name=='canvas_draw_text':
             sp=u.reg_read(UC_MIPS_REG_SP)
             self.lines.append((''.join(chr(self.get(b+4*j)) for j in range(c)),signed(d),signed(self.get(sp+16)),
@@ -4669,22 +4711,45 @@ def play(i):
 m.forked=0; names=play(1)  # the child
 assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:1,0',R+'/a.mp4',0)]; passed()
-# A DAC check_dacoff_state powered off is powered on first; Bluetooth (way 1) and a USB DAC (2) play silent.
-m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:4]==('plughw:1,0',R+'/b.MKV')
-m.word(syms['g_dacoff_time'],5)
-for m.way in (1,2): assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:4]==('-',R+'/Trip/c.avi')
+# A DAC check_dacoff_state powered off is powered on first. Bluetooth (way 1) plays on hciplayer's
+# plug:bluealsa with the volume for the helper's soft volume; a USB DAC (2) plays silent.
+m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:5]==('plughw:1,0',R+'/b.MKV',0)
+m.word(syms['g_dacoff_time'],5); m.byte(syms['g_volume'],42)
+m.way=1; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
+m.way=2; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('-',R+'/Trip/c.avi',0)
 passed()
-# Playing: no key or touch reaches the UI; a key's release goes to the player's socket as one byte.
+# Playing: no key or touch reaches the UI; a key's release goes to the player's socket as a datagram:
+# Play/Pause pauses, the side buttons seek, Return quits.
 m.way=0; m.forked=4242; play(1)
 inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'
 def event(kind,key=0):
     m.calls=[]; m.sent=[]
     assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=0,clear=False)==0
     return [c[0] for c in m.calls]
-for key,c in ((O['KEY_CENTER'],'p'),(O['KEY_PLAY'],'p'),(O['KEY_NEXT'],'f'),(O['KEY_FWD_BTN'],'f'),(O['KEY_PREV'],'b'),
-              (O['KEY_BACK_BTN'],'b'),(O['KEY_RETURN'],'q')):
+for key,c in ((O['KEY_PLAY'],'p'),(O['KEY_FWD_BTN'],'f'),(O['KEY_BACK_BTN'],'b'),(O['KEY_RETURN'],'q')):
     assert 'stock_input' not in event(O['EVT_KEY_UP'],key) and m.sent==[(7,c,1,0x40,1,'/tmp/q2video.sock',110)]
 assert event(0x110,O['KEY_CENTER'])==[] and event(O['EVT_POINTER_DOWN'])==[] and not m.sent; passed()
+# The wheel is the volume, as stock's volume dialog steps it: 1 a tick through device_set_volume, saved as
+# PLAYSET VOLUME, up to g_maxvolume (and 100) and down to 0; each tick sends v and the volume, at an end too.
+def key(k):
+    names=event(O['EVT_KEY_UP'],k); assert 'stock_input' not in names and len(m.sent)==1 and m.sent[0][2]==len(m.sent[0][1])
+    vol=[c[1:3] for c in m.calls if c[0]=='device_set_volume']; saved=[(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
+    assert len(vol)==len(saved)<=1 and all(v==(s[0],1) and s[1:]==('PLAYSET','VOLUME') for v,s in zip(vol,saved))
+    return m.sent[0][1],vol and vol[0][0]
+m.byte(syms['g_volume'],50); m.byte(syms['g_maxvolume'],52)
+assert [key(O['KEY_NEXT']) for _ in range(3)]==[('v\x33',51),('v\x34',52),('v\x34',[])] and m.u.mem_read(syms['g_volume'],1)[0]==52
+m.byte(syms['g_maxvolume'],100); m.byte(syms['g_volume'],100); assert key(O['KEY_NEXT'])==('v\x64',[])
+m.byte(syms['g_volume'],1); assert [key(O['KEY_PREV']) for _ in range(2)]==[('v\0',0),('v\0',[])]; passed()
+# Centre toggles the wheel to seeking (s, then f and b, no volume) and back (v); seeking also ends
+# SCRUB_MS after the last tick, on the UI loop's poll.
+m.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
+def poll(ms):
+    m.now+=ms; m.call(address=HOOKS['main_loop_sleep_default'][0],args=(0x1234,0,0,0),gap=0,clear=False)
+m.byte(syms['g_volume'],30)
+assert key(O['KEY_CENTER'])==('s',[]) and key(O['KEY_NEXT'])==('f',[]) and key(O['KEY_PREV'])==('b',[])
+poll(O['SCRUB_MS']-1); assert key(O['KEY_NEXT'])==('f',[]) and key(O['KEY_FWD_BTN'])==('f',[]) and key(O['KEY_PLAY'])==('p',[])
+poll(O['SCRUB_MS']-1); assert key(O['KEY_NEXT'])==('f',[]); poll(O['SCRUB_MS']); assert key(O['KEY_NEXT'])==('v\x1f',31)
+assert key(O['KEY_CENTER'])==('s',[]) and key(O['KEY_CENTER'])==('v\x1f',[]) and key(O['KEY_PREV'])==('v\x1e',30); passed()
 # Nor does the window manager paint over it; the screen, standby and DAC power-off timeouts are held off.
 vt=m.alloc(16); m.word(m.wm+0x94,vt); m.word(vt+0xc,0x400100); m.handlers[0x400100]='wm_vt_paint'
 def wm_paint():
@@ -4719,7 +4784,7 @@ kids=m.nodes[view]['children']; assert kids[:2]==rows[:2] and kids[3:]==rows[2:]
 fw=m.nodes[m.nodes[rows[1]]['children'][0]]['children'][1]; assert m.nodes[fw]['text']=='V1.32'
 item=kids[2]; button=m.nodes[item]['children'][0]; title,value=m.nodes[button]['children']
 assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==tree(m.nodes[rows[1]]['children'][0])
-assert m.nodes[title]['text']=='Q2 Pod:' and m.nodes[value]['text']==f"V{VERSION} {EDITIONS[variant]}{' dev'*manifest['dev']}"
+assert m.nodes[title]['text']=='Q2 Pod' and m.nodes[value]['text']==f"V{VERSION} {EDITIONS[variant]}{' dev'*manifest['dev']}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its

@@ -55,7 +55,8 @@ void *text(void *parent, int x, int y, int w, int h);
 void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *));
 void *page_title(void *body, const char *caption);
 void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h);
-void page_row(void *view, int index, const char *caption, int (*click)(void *, void *));
+void page_row_detail(void *view, int index, const char *caption, const char *detail,
+                     int (*click)(void *, void *));
 void *bottom_caption(void *parent, int h);
 int visual(void *s, int n, int *c, int *frac);
 int thumb(const char *src, const char *dst, int w, int h);
@@ -67,5 +68,8 @@ void stop_timer(unsigned *timer), rearm(unsigned *timer, int (*fn)(const void *)
 int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
 void ringnav_select(void *w, int id, int rows);
 void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write);
+#define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", &(buf), sizeof(buf), write)
+int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
+void play_folder(void *dq, int idx);
 
 #endif

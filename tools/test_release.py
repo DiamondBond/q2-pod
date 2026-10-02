@@ -38,13 +38,13 @@ with tempfile.TemporaryDirectory() as tmp:
         data = release.archive_bytes(d)
         (out/name).write_bytes(data)
         assets[name] = release.sha(data)
-    record = dict(tag=release.TAG, revision='revision', source_sha256=release.source_sha256(), assets=assets)
+    record = dict(tag=release.VERSION, revision='revision', source_sha256=release.source_sha256(), assets=assets)
     (out/'release.json').write_text(json.dumps(record))
     (out/'release-notes.md').write_text(release.release_body(out, record))
     # The heading, then bullets, for this version only.
     body = (out/'release-notes.md').read_text()
     assert body.startswith(f'**V{release.VERSION}**\n- One.\n- iPod: two.\n\nSHA-256:\n- {release.ASSETS["ipod"]}: ')
-    assert release.TAG == release.VERSION and release.ASSETS['ipod'] == f'Q2.Firmware.V{release.VERSION}.zip'
+    assert release.ASSETS['ipod'] == f'Q2.Firmware.V{release.VERSION}.zip'
     (out/'SHA256SUMS').write_text(''.join(f'{v}  {k}\n' for k, v in assets.items()))
     for failure in ('upload', 'download', 'corrupt', None):
         calls = []

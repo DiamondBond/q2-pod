@@ -257,13 +257,48 @@ static void *list(const char *title, int n) {
     return page_list(cf.page, cf.body, &cf.title, title, n, 48);
 }
 
-/* One 48px row of a page_list; shared with photos.c. */
-void page_row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
-    void *item = list_item_create(view, 0, index * 48, 375, 48);
+/* One 48px row of a page_list or, with a detail (ringnav.c's Most Played), a 64px one: the caption
+ * over the detail in 16px #AAAAAA, stock's s_scrlabel_gray24l grey. Shared with photos.c. */
+void page_row_detail(void *view, int index, const char *caption, const char *detail,
+                     int (*click)(void *, void *)) {
+    int h = detail ? 64 : 48;
+    void *item = list_item_create(view, 0, index * h, 375, h);
     widget_use_style(item, "s_listitem_black");
-    void *label = text(item, CF_ROW_X, 0, CF_ROW_W, 48);
+    void *label = text(item, CF_ROW_X, detail ? 4 : 0, CF_ROW_W, detail ? 32 : 48);
     widget_set_text_utf8(label, caption ? caption : "");
+    if (detail) {
+        label = text(item, CF_ROW_X, 36, CF_ROW_W, 24);
+        widget_set_prop_int(label, "style:normal:text_color", (int)0xffaaaaaau);
+        widget_set_prop_int(label, "style:normal:font_size", 16);
+        widget_set_text_utf8(label, detail);
+    }
     widget_on(item, EVT_CLICK, click, (void *)(long)index);
+}
+
+/* clip: the canvas clip, read into old, narrowed to x, y, w, h; false when nothing shows. Shared
+ * with ringnav.c. */
+int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h) {
+    canvas_get_clip_rect(canvas, old);
+    clip[0] = old[0] > x ? old[0] : x;
+    clip[1] = old[1] > y ? old[1] : y;
+    clip[2] = (old[0] + old[2] < x + w ? old[0] + old[2] : x + w) - clip[0];
+    clip[3] = (old[1] + old[3] < y + h ? old[1] + old[3] : y + h) - clip[1];
+    if (clip[2] < 0) clip[2] = 0;
+    if (clip[3] < 0) clip[3] = 0;
+    return clip[2] && clip[3];
+}
+
+/* Resume, play counts, Books' pages and the last album: each file is written whole, to a .tmp then
+ * renamed. Shared with ringnav.c and books.c. */
+void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
+    void *f = fopen(write ? tmp : path, write ? "wb" : "rb");
+    if (!f) return;
+    int ok = write ? fwrite(buf, size, 1, f) == 1 : fread(buf, size, 1, f) == 1;
+    if (fclose(f) || !ok) {
+        if (!write) memset(buf, 0, size);
+        return;
+    }
+    if (write) rename(tmp, path);
 }
 
 /* Stock pattern (album rows, Now Playing): load the file, set it, drop the load's reference, so the
@@ -691,13 +726,7 @@ static int poll(const void *unused) {
 /* The centre album outlives a reboot: read once while unknown, written on
  * leaving the covers. */
 static void remember(int write) {
-    void *f = fopen(LAST_ALBUM, write ? "wb" : "rb");
-    if (!f) return;
-    if (write)
-        fwrite(&cf.saved_album, sizeof(cf.saved_album), 1, f);
-    else if (fread(&cf.saved_album, sizeof(cf.saved_album), 1, f) != 1)
-        cf.saved_album = 0;
-    fclose(f);
+    BLOB_IO(LAST_ALBUM, cf.saved_album, write);
 }
 
 /* On open and Refresh: the albums, then art for the ones with no cache file (PictureFlow's
@@ -742,14 +771,23 @@ static void load(void) {
     if (cf.total && card_space(ART_DIR) && !pthread_create(&cf.thread, 0, worker, 0)) {
         cf.running = 1;
         cf.screen = PREPARING;
-        page_row(list("", 1), 0, "Cancel", cancel_row);
+        page_row_detail(list("", 1), 0, "Cancel", 0, cancel_row);
         poll(0);
     } else
         to_covers(0);
 }
 
-/* Folder play (startPlayFolderSong): classType 1 over our deque. playing_page's mclLoadPlayList
- * copies it synchronously, and memory-play later reloads the last track's folder. */
+/* Folder play (startPlayFolderSong): classType 1 over dq from track idx. playing_page's
+ * mclLoadPlayList copies it synchronously, and memory-play later reloads the last track's folder.
+ * Shared with ringnav.c. */
+void play_folder(void *dq, int idx) {
+    struct {
+        void *dq;
+        int idx, cls, mode;
+    } context = { dq, idx, 1, 2 };
+    navigator_to_with_context("playing_page", &context);
+}
+
 static int play(void *ctx, void *event) {
     (void)event;
     int i = (int)(long)ctx;
@@ -758,35 +796,27 @@ static int play(void *ctx, void *event) {
         widget_set_text_utf8(cf.title, "Storage unavailable");
         return 0;
     }
-    struct {
-        void *dq;
-        int idx, cls, mode;
-    } context = { cf.tracks, i, 1, 2 };
-    navigator_to_with_context("playing_page", &context);
+    play_folder(cf.tracks, i);
     return 0;
 }
 
 /* Album order: disc, then track, then path, so an untagged album keeps its file-name order and a
  * CUE image's tracks (one path) their start times. */
-static int before(void *a, void *b) {
+static int before(const void *pa, const void *pb) {
+    void *a = *(void *const *)pa, *b = *(void *const *)pb;
     int d = I(a, REC_DISC) - I(b, REC_DISC);
     if (!d) d = I(a, REC_TRACK) - I(b, REC_TRACK);
     if (!d) d = strcmp(P(a, REC_PATH), P(b, REC_PATH));
-    return (d ? d : I(a, REC_CUE_START) - I(b, REC_CUE_START)) < 0;
+    return d ? d : I(a, REC_CUE_START) - I(b, REC_CUE_START);
 }
 
-/* The tracks in album order, in a new deque; stock's name order when out of memory.
- * ponytail: insertion sort, O(n^2) over an album's few dozen tracks. */
+/* The tracks in album order, in a new deque; stock's name order when out of memory. */
 static void *in_order(void *tracks) {
     unsigned n = deque_size(tracks);
     void **v = calloc(n + 1, sizeof *v);
     if (!v) return tracks;
-    for (unsigned i = 0; i < n; ++i) {
-        void *t = deque_at(tracks, i);
-        unsigned j = i;
-        for (; j && before(t, v[j - 1]); --j) v[j] = v[j - 1];
-        v[j] = t;
-    }
+    for (unsigned i = 0; i < n; ++i) v[i] = deque_at(tracks, i);
+    qsort(v, n, sizeof *v, before);
     void *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i]);
@@ -827,7 +857,8 @@ static int to_tracks(const void *unused) {
     widget_set_visible(cf.covers, 0, 0);
     void *view = list(P(r, REC_ALBUM), n);
     for (int i = 0; i < n; ++i)
-        page_row(view, i, track_name(name, sizeof name, deque_at(cf.tracks, (unsigned)i)), play);
+        page_row_detail(view, i, track_name(name, sizeof name, deque_at(cf.tracks, (unsigned)i)), 0,
+                        play);
     return 0;
 }
 
@@ -965,17 +996,9 @@ void coverflow_home_clip(void *w, void *canvas, int begin) {
         home.clipped = 0;
         return;
     }
-    int *old = home.clip, clip[4];
-    canvas_get_clip_rect(canvas, old);
-    int x = I(canvas, CANVAS_X) - I(w, W_X) + home.panel[0];
-    int y = I(canvas, CANVAS_Y) - I(w, W_Y) + home.panel[1];
-    int right = x + home.panel[2], bottom = y + home.panel[3];
-    clip[0] = old[0] > x ? old[0] : x;
-    clip[1] = old[1] > y ? old[1] : y;
-    clip[2] = (old[0] + old[2] < right ? old[0] + old[2] : right) - clip[0];
-    clip[3] = (old[1] + old[3] < bottom ? old[1] + old[3] : bottom) - clip[1];
-    if (clip[2] < 0) clip[2] = 0;
-    if (clip[3] < 0) clip[3] = 0;
+    int clip[4];
+    clip_within(canvas, home.clip, clip, I(canvas, CANVAS_X) - I(w, W_X) + home.panel[0],
+                I(canvas, CANVAS_Y) - I(w, W_Y) + home.panel[1], home.panel[2], home.panel[3]);
     canvas_set_clip_rect(canvas, clip);
     home.clipped = 1;
 }

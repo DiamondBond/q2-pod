@@ -993,7 +993,7 @@ def books_check(tmp):
     print('Books: inflate, XHTML text, EPUB conversion and refusals, UTF-8 and page layout passed.')
 
 def video_check(tmp):
-    """Videos' player (q2video.c): the framebuffer's pixel format, ffmpeg's argv and frame pacing."""
+    """Videos' player (q2video.c): the framebuffer's pixel format, ffmpeg's argv, frame pacing and BT volume."""
     lib = compile_host(tmp, 'q2video.so', ROOT/'patch/q2video.c')
     lib.pixfmt.restype = C.c_char_p
     assert [lib.pixfmt(*f) for f in ((32, 16), (32, 0), (24, 16), (24, 0), (16, 11), (16, 0), (32, 8), (8, 0))] == \
@@ -1013,7 +1013,32 @@ def video_check(tmp):
     # Frame n shows from n/25 s of the clock, and is dropped a whole frame late.
     lib.frame_due.argtypes = [C.c_int, C.c_longlong]
     assert [lib.frame_due(1, t) for t in (0, 39, 40, 79, 80)] == [0, 0, 1, 1, 2] and lib.frame_due(0, 0) == 1
-    print('Videos: pixel formats, ffmpeg argv and frame pacing passed.')
+    # Bluetooth: hciplayer's soft volume curve in 1/65536, clamped to 0-100, and the samples scaled by it.
+    assert [lib.bt_gain(v) for v in (-5, 0, 1, 25, 49, 50, 75, 99, 100, 120)] == \
+        [0, 0, 131, 3276, 6422, 6553, 36044, 64356, 65536, 65536]
+    pcm = (C.c_short * 6)(32767, -32768, 1000, -1000, 1, -1)
+    lib.scale(pcm, 6, 65536); assert list(pcm) == [32767, -32768, 1000, -1000, 1, -1]
+    lib.scale(pcm, 5, lib.bt_gain(50)); assert list(pcm) == [3276, -3277, 99, -100, 0, -1]
+    lib.scale(pcm, 6, 0); assert list(pcm) == [0] * 6
+    # The length from ffmpeg -i's report, for the position bar.
+    assert lib.duration(b'Input #0, mov\n  Duration: 01:02:03.45, start: 0.0\n') == 3723
+    assert lib.duration(b'  Duration: N/A, bitrate: N/A') == 0 and lib.duration(b'') == 0
+    # The bar: along the bottom of the picture as seen, 40 px in from its ends and 23-30 px up, white
+    # for the share given and black after; on the portrait panel the picture is turned clockwise, so
+    # the bar runs down columns 22-29 (picture x = panel y), from the top. Nothing else changes.
+    def bar(w, h, n, total):
+        f = (C.c_ubyte * (w * h * 2))(*([0x55] * (w * h * 2)))
+        lib.overlay(f, w * 2, 2, w, h, n, total)
+        return [[f[(y * w + x) * 2] for x in range(w)] for y in range(h)]
+    p = bar(320, 375, 1, 4)
+    for y in range(375):
+        for x in range(320):
+            want = 0x55 if not (22 <= x < 30 and 40 <= y < 335) else 0xff if y < 40 + 295 // 4 else 0
+            assert p[y][x] == want, (x, y)
+    l = bar(375, 320, 7, 5)  # clamped to all
+    assert l[290][40:335] == l[297][40:335] == [0xff] * 295 and l[290][39] == l[290][335] == l[289][40] == l[298][40] == 0x55
+    assert bar(375, 320, -3, 5)[290][40:335] == [0] * 295 and bar(375, 320, 1, 0)[290][100] == 0x55
+    print('Videos: pixel formats, ffmpeg argv, frame pacing, Bluetooth volume, length and bar passed.')
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:

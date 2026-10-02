@@ -506,10 +506,7 @@ static void scan(const char *dir, int depth) {
 
 /* path's file name without its extension, into out (sizeof 256). */
 static const char *title(const char *path, char *out) {
-    const char *name = strrchr(path, '/') + 1; /* a full path */
-    unsigned n = 0;
-    while (name[n] && n < 255) out[n] = name[n], ++n;
-    out[n] = 0;
+    tk_snprintf(out, 256, "%s", strrchr(path, '/') + 1); /* a full path */
     char *dot = strrchr(out, '.');
     if (dot && dot != out) *dot = 0;
     return out;
@@ -548,7 +545,7 @@ static void marks_save(void) {
     while (k < MARKS_N - 1 && bk.marks[k].key != bk.key) ++k;
     for (; k; --k) bk.marks[k] = bk.marks[k - 1];
     bk.marks[0].key = bk.key, bk.marks[0].pos = bk.pos;
-    blob_io(BOOK_MARKS, BOOK_MARKS ".tmp", bk.marks, sizeof bk.marks, 1);
+    BLOB_IO(BOOK_MARKS, bk.marks, 1);
 }
 
 /* The text file is ready: open it at the page last read. */
@@ -710,11 +707,12 @@ void books_paint(void *w, void *canvas) {
 
 /* Videos (docs/internals.md#videos): patch/q2video.c draws on /dev/fb0 and plays the sound while
  * demo runs on without painting (ringnav_wm_paint) or input (ringnav_input); a key's release
- * reaches it as one byte on its socket. */
+ * reaches it as a datagram on its socket. */
 #define VIDEO_BIN "/usr/bin/q2video"
 #define VIDEO_SOCK "/tmp/q2video.sock" /* q2video.c Q2VIDEO_SOCK */
 static struct {
-    int pid, sock;
+    int pid, sock, seek; /* seek: the wheel seeks, since seek_at (time_now_ms) */
+    unsigned seek_at;
 } vid __attribute__((section(".scratch")));
 
 int video_on(void) { return vid.pid; }
@@ -722,17 +720,22 @@ int video_on(void) { return vid.pid; }
 static int play_video(void *ctx, void *event) {
     (void)event;
     if (vid.pid) return 0;
-    /* Bluetooth's and a USB DAC's volume is hciplayer's own, so the helper would play at full
-     * scale there: those stay silent. The headphone DAC keeps the volume set. */
+    /* The headphone DAC keeps the volume set. Bluetooth's is hciplayer's soft volume, so the
+     * helper gets g_volume to apply it the same way, on hciplayer's own plug:bluealsa (the device
+     * demo writes to /mnt/data/asound.conf). A USB DAC's stays hciplayer's: silent. */
     int way = mclGetOutputWay(), sound = way != 1 && way != 2;
+    char vol[4];
+    tk_snprintf(vol, sizeof vol, "%u", g_volume);
     player_stop(); /* hciplayer holds the PCM even paused */
     if (sound && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
     int pid = fork();
     if (!pid) {
-        execl(VIDEO_BIN, VIDEO_BIN, sound ? "plughw:1,0" : "-", bk.path[(int)(long)ctx], (char *)0);
+        execl(VIDEO_BIN, VIDEO_BIN, sound ? "plughw:1,0" : way == 1 ? "plug:bluealsa" : "-",
+              bk.path[(int)(long)ctx], way == 1 ? vol : (char *)0, (char *)0);
         exit(127);
     }
     vid.pid = pid > 0 ? pid : 0;
+    vid.seek = 0;
     vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
     return 0;
 }
@@ -745,6 +748,7 @@ void video_poll(void) {
     if (!waitpid(vid.pid, &status, 1)) { /* WNOHANG: still playing */
         reset_poweroptions_timer(1, 1, 1);
         if (I(g_dacoff_time, 0) > 0) I(g_dacoff_time, 0) = 0;
+        if (vid.seek && time_now_ms() - vid.seek_at >= SCRUB_MS) vid.seek = 0; /* back on volume */
         return;
     }
     close(vid.sock);
@@ -752,18 +756,33 @@ void video_poll(void) {
     widget_invalidate_force(window_manager(), 0);
 }
 
-/* Return quits, Centre and Play/Pause pause, the wheel and the side buttons seek. */
+/* Return quits, Play/Pause pauses, the side buttons seek. The wheel is the volume, as on Now
+ * Playing; Centre toggles it to seeking, which ends SCRUB_MS after the last tick (video_poll). The
+ * volume steps as stock's volume_dialog keys (0x4a2044): 1 a tick, up to 100 and g_maxvolume,
+ * through device_set_volume (the DAC's, or hciplayer's for Bluetooth) and saved; the helper gets
+ * it for Bluetooth's gain and its bar. */
 void video_key(unsigned key) {
-    char c = key == KEY_RETURN                    ? 'q'
-             : key == KEY_CENTER || key == KEY_PLAY ? 'p'
-             : key == KEY_NEXT || key == KEY_FWD_BTN ? 'f'
-             : key == KEY_PREV || key == KEY_BACK_BTN ? 'b'
-                                                     : 0;
+    int wheel = key == KEY_NEXT || key == KEY_PREV, v = g_volume + (key == KEY_NEXT ? 1 : -1);
+    if (key == KEY_CENTER) vid.seek = !vid.seek;
+    if (key == KEY_CENTER || (wheel && vid.seek)) vid.seek_at = time_now_ms();
+    if (wheel && !vid.seek && v >= 0 && (key == KEY_PREV || (v <= 100 && v <= g_maxvolume))) {
+        g_volume = (unsigned char)v;
+        device_set_volume(v, 1);
+        write_int_config(v, "PLAYSET", "VOLUME");
+    }
+    char c[2] = { key == KEY_RETURN                                      ? 'q'
+                  : key == KEY_PLAY                                      ? 'p'
+                  : key == KEY_FWD_BTN || (key == KEY_NEXT && vid.seek)  ? 'f'
+                  : key == KEY_BACK_BTN || (key == KEY_PREV && vid.seek) ? 'b'
+                  : key == KEY_CENTER && vid.seek                        ? 's'
+                  : wheel || key == KEY_CENTER                           ? 'v'
+                                                                         : 0,
+                  (char)g_volume };
     struct {
         unsigned short family;
         char path[108];
     } to = { 1, VIDEO_SOCK };
-    if (c) sendto(vid.sock, &c, 1, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
+    if (c[0]) sendto(vid.sock, c, c[0] == 'v' ? 2 : 1, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
 }
 
 /* Local Music's Books and Videos rows (ringnav.c media_click): the books or videos, by path. */
@@ -772,7 +791,7 @@ void books_open(const char *root, int videos) {
     void *page = bk.page = page_open("books_page", closed, keyup);
     if (!page) return;
     bk.videos = videos;
-    blob_io(BOOK_MARKS, BOOK_MARKS ".tmp", bk.marks, sizeof bk.marks, 0);
+    BLOB_IO(BOOK_MARKS, bk.marks, 0);
     void *f = widget_factory();
     int h = widget_get_prop_int(page, "h", 290);
     bk.list = widget_factory_create_widget(f, "view", page, 0, 0, 375, h);
@@ -788,6 +807,7 @@ void books_open(const char *root, int videos) {
                         videos ? bk.n ? "Videos" : "No videos" : bk.n ? "Books" : "No books", bk.n, 48);
     char name[256];
     for (int k = 0; k < bk.n; ++k)
-        page_row(bk.view, k, title(bk.path[k], name), videos ? play_video : open_book);
+        page_row_detail(bk.view, k, title(bk.path[k], name), 0,
+                        videos ? play_video : open_book);
 }
 #endif

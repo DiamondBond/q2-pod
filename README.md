@@ -22,6 +22,7 @@
   <b><a href="docs/changelog.md">Changelog</a></b> ·
   <b><a href="#documentation">Docs</a></b>
   <br>
+  <a href="#microsd-card">microSD card</a> |
   <a href="#display-settings">Display</a> |
   <a href="#ipod-ui">iPod UI</a> |
   <a href="#controls">Controls</a> |
@@ -31,53 +32,17 @@
 
 ## Features
 
-| For listening                                                         | Under the hood                                                                    |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Accent, Home layout and battery style options                         | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
-| iPod classic style lists, Home and Now Playing                        | Clock keeps the right time after power-off                                        |
-| Wheel navigation with acceleration and position memory                | Less battery drain with the screen off                                            |
-| Song and album menus, Podcasts, Audiobooks, Photos, Books, and Videos | Faster library browsing                                                           |
-| Shuffle Songs, Most Played and scrobbling over Wi-Fi                  | Long VBR MP3s start at once and seek accurately                                   |
-| Parametric EQ: up to 30 bands, per channel, with balance              | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
-
-### Podcasts and audiobooks
-
-Put shows in a `Podcasts` folder and books in an `Audiobooks` folder at the root of the microSD card, one subfolder per show or book. **Local Music → Podcasts** and **Audiobooks** then appear at the end of the list and open those folders. An episode or chapter plays on through its folder in the order the folder lists them, always resumes where you left it, whatever its length, and never counts as a play or scrobble. Playback speed is stock's own, in Now Playing's menu.
-
-### Photos
-
-Put photos (`.jpg`, `.jpeg`, `.png`) in a `Photos` folder at the root of the microSD card; each subfolder is an album. **Local Music → Photos** lists **All Photos** and the albums, then shows a grid of thumbnails. **Centre** opens a photo full screen; the **wheel** moves to the previous or next one, **Centre** shows or hides "3 of 40" and the file name, and **Return** goes back. Photos are shown upright from their camera orientation, and music keeps playing.
-
-Thumbnails and screen-size copies are made in the background the first time an album opens and cached in `.photos` on the card (16 MB free needed). A photo that won't open stays grey; JPEGs over 6 MB and PNGs over 1 MB are too big for the stock decoder. Up to 500 photos per album are shown.
-
-### Books
-
-Put ebooks (`.txt` and `.epub`) in a `Books` folder at the root of the microSD card, in subfolders if you like. **Local Music → Books** lists them by file name; **Centre** opens one. The **wheel** turns the pages, **Centre** shows or hides how far in you are, and **Return** goes back to the list. Each book reopens at the page you left. An EPUB is turned into text the first time it opens ("Preparing…") and kept in `.books` on the card; pictures are left out. Books with DRM can't be opened.
-
-### Videos
-
-Put videos (`.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`) in a `Videos` folder at the root of the microSD card, in subfolders if you like. **Local Music → Videos** lists them by file name; **Centre** plays one full screen, fitted to the screen, with the sound on the headphone output at your music volume. **Centre** or **Play/Pause** pauses, the **wheel** or the previous and next buttons skip 10 seconds back or ahead, and **Return** goes back to the list. Music stops while a video plays. Over Bluetooth or a USB DAC videos play without sound. Decoding is done by the CPU, so a video encoded near the screen's size (375 × 320) plays more smoothly than a large one.
-
-### Play counts and scrobbling
-
-A song counts as played once you've heard half of it (or 4 minutes). **Local Music → Most Played** plays your 25 most played songs, most played first.
-
-Each of those plays is also logged to `.scrobbler.log` at the root of the microSD card, in the same format Rockbox uses. Upload it to Last.fm or ListenBrainz with any `.scrobbler.log` uploader, such as [Open Scrobbler](https://openscrobbler.com/), [Universal Scrobbler](https://universalscrobbler.com/) or [rb-scrobbler](https://github.com/jeselnik/rb-scrobbler). Songs without an artist tag are skipped.
-
-To upload from the Q2 itself, put a `.scrobble.ini` at the root of the card with a ListenBrainz token (from [your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
-
-```ini
-[LISTENBRAINZ]
-TOKEN=your-listenbrainz-user-token
-
-[LASTFM]
-USER=your-username
-PASSWORD=your-password
-API_KEY=your-api-key
-API_SECRET=your-shared-secret
-```
-
-Last.fm needs your own API account ([create one](https://www.last.fm/api/account/create); any name works) for the key and secret. **Local Music → Upload Scrobbles** then appears under Most Played. On Wi-Fi it sends the log in the background, 50 plays at a time, and moves what was sent to `.scrobbler.log.sent`; plays that could not be sent stay in the log for next time. Last.fm ignores plays older than 14 days. There is no login screen on the device, as typing a password on the wheel's keyboard is slow; the file is plain text, so keep the card to yourself. The Q2 has no certificate store, so like Shanling's own Tidal and Baidu features the upload does not check the server's certificate, unless you add a PEM CA bundle as `.scrobble.pem` beside the file (for example [curl's](https://curl.se/ca/cacert.pem)).
+| For listening                                                       | Under the hood                                                                    |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| iPod classic style lists, Home and Now Playing                      | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
+| Wheel navigation with acceleration and position memory              | Clock keeps the right time after power-off                                        |
+| Accent (including any custom colour), Home layout, battery style    | Less battery drain with the screen off                                            |
+| Hold menu: Favourites, Add to playlist, Shuffle, Go to album/artist | Faster library browsing                                                           |
+| Shuffle Songs, and Most Played: your top 25 with artist and plays   | Library sort ignores a leading The, A or An                                       |
+| Parametric EQ: up to 30 bands, per channel, with balance            | Long VBR MP3s start at once and seek accurately                                   |
+| Coverflow                                                           | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
+| Podcasts and Audiobooks                                             | Every listen logged in Rockbox's `.scrobbler.log` format                          |
+| Photos, Books (`.txt`, `.epub`) and Videos                          | Upload Scrobbles sends them to Last.fm or ListenBrainz over Wi-Fi                 |
 
 ## Install
 
@@ -93,6 +58,43 @@ Last.fm needs your own API account ([create one](https://www.last.fm/api/account
 
 Flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
 
+## microSD card
+
+Media folders go at the root of the card, any capitalisation; each adds its **Local Music** row only when it exists. Caches are safe to delete and rebuilt as needed (Coverflow and Photos need 16 MB free).
+
+| Path                       | What it is                                                                                 | Made by |
+| -------------------------- | ------------------------------------------------------------------------------------------ | ------- |
+| `Podcasts/`, `Audiobooks/` | One folder per show or book; episodes always resume and never count as plays               | You     |
+| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums                 | You     |
+| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                                          | You     |
+| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                    | You     |
+| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                               | You     |
+| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                                | You     |
+| `.scrobble.pem`            | Optional CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)); uploads then verify TLS | You     |
+| `.scrobbler.log`           | Every listen, Rockbox format; sent by Upload Scrobbles or any `.scrobbler.log` uploader    | Q2 Pod  |
+| `.scrobbler.log.sent`      | Listens already uploaded                                                                   | Q2 Pod  |
+| `.coverflow/`              | Coverflow artwork cache                                                                    | Q2 Pod  |
+| `.photos/`                 | Photo thumbnails and screen-size copies                                                    | Q2 Pod  |
+| `.books/`                  | EPUBs converted to text                                                                    | Q2 Pod  |
+| `.sldp/`                   | Stock's own cover cache                                                                    | Stock   |
+
+`.scrobble.ini` takes a ListenBrainz token ([your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
+
+```ini
+[LISTENBRAINZ]
+TOKEN=your-listenbrainz-user-token
+
+[LASTFM]
+USER=your-username
+PASSWORD=your-password
+API_KEY=your-api-key
+API_SECRET=your-shared-secret
+```
+
+Last.fm's key and secret come from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
+
+Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
+
 ## Display settings
 
 **System settings → Display**:
@@ -106,12 +108,12 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 ## iPod UI
 
 - **Home:** a list beside the playing track's cover, instead of the carousel.
-- **Lists:** flat, four rows per screen, full-width accent selection bar; **`>`** marks rows that open another list.
+- **Lists:** flat, four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
 - **Status bar:** play state and EQ, the time, then Bluetooth, Wi-Fi and battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
 - **Now Playing:** "3 of 12", large rounded cover art beside a bigger title over grey artist and album, and a slim accent capsule with elapsed and remaining time.
 - **Quick settings:** pull down from the top edge.
 - **Page slides:** pages slide in from the right and back out on Return.
-- **Fast-scroll letter:** spinning through a long list shows the current title's first letter (the one it sorts under, so C for The Cure).
+- **Fast-scroll letter:** spinning through a long list shows the first letter it sorts under (C for The Cure).
 - **Starts on Home.** **Memory playback → Location** restores your queue paused where you left it; **Track** restarts the song. **In-Vehicle mode** starts playing.
 
 ## Controls
@@ -128,19 +130,28 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **List ends:** local lists stop at the end; pause, then turn again to wrap.
 - **Position memory:** returning to a recent folder, album, search or menu restores your place until power-off.
 - **Artists:** open on Albums, with All Songs one tap away.
-- **Sorting:** Artists, Albums and Songs ignore a leading "The", "A" or "An", so The Cure sorts under C; names show unchanged.
 - **Pop-ups** (iPod): the wheel moves between OK and Cancel.
 - **Key Tone** (iPod): clicks once per row, not per wheel tick.
+
+### Photos, Books and Videos
+
+| Screen    | Wheel                  | Centre                                         | Other                                                       |
+| --------- | ---------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
+| **Photo** | Previous or next photo | Shows or hides "3 of 40" and the file name     | **Return** goes back                                        |
+| **Book**  | Turns the pages        | Shows or hides how far in you are              | **Return** goes back; each book reopens where you left it   |
+| **Video** | Volume                 | Toggles seeking: the wheel skips 10 s per tick | **Play/Pause** pauses, previous/next skip, **Return** exits |
+
+Videos play their sound on the headphone jack or Bluetooth at your volume; over a USB DAC they're silent. Music stops meanwhile. Decoding is software, so encodes near the screen's 375 × 320 play smoothest.
 
 ## Parametric EQ
 
 **Audio settings → Equalizer**:
 
-- **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, and channel (both, **L** or **R**). Gain is picked with the wheel, -24 to +24 dB, and picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41, one octave wide) work as a 10-band graphic EQ. Frequency and Q open their own menu: tap the value (or press the centre button on it) to type one on the on-screen number keys, or step it with **Raise** / **Lower**.
+- **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, and channel (both, **L** or **R**). Gain is picked with the wheel, -24 to +24 dB, and picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41) work as a 10-band graphic EQ. For frequency and Q, tap the value (or press centre on it) to type one, or step it with **Raise** / **Lower**.
 - **Balance:** L 12.0 dB to R 12.0 dB in 0.5 dB steps; **R 1.0 dB** plays the left 1 dB quieter.
 - **Apply changes:** edits and presets take effect only when chosen.
 - **PEQ: ON/OFF:** applies at once and persists; the status-bar **EQ** icon follows it.
-- **Preamp:** **Auto** sets just enough cut that boosts don't clip and follows band edits. Pick +12 to -24 dB instead to keep a level of your own; above Auto, loud boosts can clip.
+- **Preamp:** **Auto** cuts just enough that boosts don't clip and follows band edits. Pick +12 to -24 dB instead to set your own; above Auto, loud boosts can clip.
 
 ### Import a preset
 
@@ -154,9 +165,6 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **First open** prepares artwork once; **Cancel** keeps progress for next time. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
 - **Browse** with the wheel.
 - **Artwork:** `cover.jpg`, `folder.jpg`, then embedded art; otherwise a placeholder.
-
-> [!NOTE]
-> Artwork is cached in `.coverflow` on the microSD card, which needs 16 MB free.
 
 ## Documentation
 

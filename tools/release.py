@@ -14,7 +14,6 @@ import tempfile
 import zipfile
 from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
-TAG = VERSION  # tags up to 7.6R carried the Stock build's R
 REPO = 'DiamondBond/q2-ringnav'
 # iPod is the main build; Stock keeps the stock UI.
 ASSETS = {'ipod': f'Q2.Firmware.V{VERSION}.zip', 'stock': f'Q2.Firmware.V{VERSION}-stock.zip'}
@@ -95,7 +94,7 @@ def package(stock, out):
         checksums[asset] = sha(data)
     check(source == source_sha256() and revision == run('git', '-C', ROOT, 'rev-parse', 'HEAD').strip(),
           'Source changed during release build')
-    record = dict(tag=TAG, revision=revision, source_sha256=source, assets=checksums)
+    record = dict(tag=VERSION, revision=revision, source_sha256=source, assets=checksums)
     (out/'SHA256SUMS').write_text(''.join(f'{digest}  {name}\n' for name, digest in checksums.items()))
     (out/'release-notes.md').write_text(release_body(out, record))
     (out/'release.json').write_text(json.dumps(record, indent=2)+'\n')
@@ -104,7 +103,7 @@ def package(stock, out):
 
 def upload(out, repo=REPO, publish=False):
     record = json.loads((out/'release.json').read_text())
-    check(record['tag'] == TAG and record['source_sha256'] == source_sha256(), 'Wrong release source/tag')
+    check(record['tag'] == VERSION and record['source_sha256'] == source_sha256(), 'Wrong release source/tag')
     check(set(record['assets']) == set(ASSETS.values()), 'Both variants are required')
     # package() validated these trees; the ZIP bytes and source hash prove they are unchanged.
     for variant, asset in ASSETS.items():
@@ -116,22 +115,22 @@ def upload(out, repo=REPO, publish=False):
     gh = ['gh', '--repo', repo, 'release']
     # Listing distinguishes an absent tag from an authentication/network failure.
     releases = json.loads(run(*gh, 'list', '--limit', '1000', '--json', 'tagName,isDraft'))
-    existing = next((r for r in releases if r['tagName'] == TAG), None)
+    existing = next((r for r in releases if r['tagName'] == VERSION), None)
     if existing:
         check(existing['isDraft'], 'Refusing to overwrite a published release')
-        run(*gh, 'edit', TAG, '--draft', '--title', TAG, '--notes-file', out/'release-notes.md')
+        run(*gh, 'edit', VERSION, '--draft', '--title', VERSION, '--notes-file', out/'release-notes.md')
     else:
-        run(*gh, 'create', TAG, '--draft', '--target', record['revision'], '--title', TAG,
+        run(*gh, 'create', VERSION, '--draft', '--target', record['revision'], '--title', VERSION,
             '--notes-file', out/'release-notes.md')
     files = list(ASSETS.values())
-    run(*gh, 'upload', TAG, *(out/name for name in files), '--clobber')
+    run(*gh, 'upload', VERSION, *(out/name for name in files), '--clobber')
     with tempfile.TemporaryDirectory(prefix='q2-release-verify-') as tmp:
-        run(*gh, 'download', TAG, '--dir', tmp)
+        run(*gh, 'download', VERSION, '--dir', tmp)
         for name in files:
             check((pathlib.Path(tmp)/name).read_bytes() == (out/name).read_bytes(), f'Remote asset mismatch: {name}')
     if publish:
-        run(*gh, 'edit', TAG, '--draft=false')
-    print(f'{"Published" if publish else "Verified draft"}: https://github.com/{repo}/releases/tag/{TAG}')
+        run(*gh, 'edit', VERSION, '--draft=false')
+    print(f'{"Published" if publish else "Verified draft"}: https://github.com/{repo}/releases/tag/{VERSION}')
 
 
 if __name__ == '__main__':

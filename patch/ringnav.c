@@ -106,6 +106,8 @@ typedef struct {
     } plays[PLAYS_SLOTS];
     unsigned plays_read, ls_key;
     int ls_sec, ls_heard, ls_done;
+    void *mp_page, *mp_list; /* Most Played's page and its ranked tracks */
+    unsigned mp_timer;
     int dark; /* the backlight was off at the last UI loop pass */
 #if IPOD
     void *pull_page, *pull_surface;
@@ -327,10 +329,8 @@ void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms) {
 }
 
 static void cancel_center(void) {
-    unsigned timer = st.center_timer;
-    st.center_timer = 0;
+    stop_timer(&st.center_timer);
     st.center_top = st.center_surface = (void *)0;
-    if (timer) timer_remove(timer);
 }
 
 /* The list's spin ramp starts over, and the next tick is the first of its run. */
@@ -1207,17 +1207,11 @@ static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsi
 
 /* Narrow the canvas clip to the surface's viewport, keeping the old clip; false when none shows. */
 static int clip_surface(void *canvas, menu_t *m, rect_t *old) {
-    rect_t clip;
-    canvas_get_clip_rect(canvas, old);
-    int x = I(canvas, CANVAS_X), y = I(canvas, CANVAS_Y);
-    clip.x = old->x > x ? old->x : x;
-    clip.y = old->y > y ? old->y : y;
-    int right = old->x + old->w < x + I(m->w, W_W) ? old->x + old->w : x + I(m->w, W_W);
-    int bottom = old->y + old->h < y + m->height ? old->y + old->h : y + m->height;
-    clip.w = right - clip.x;
-    clip.h = bottom - clip.y;
-    if (clip.w <= 0 || clip.h <= 0) return 0;
-    canvas_set_clip_rect(canvas, &clip);
+    int clip[4];
+    if (!clip_within(canvas, &old->x, clip, I(canvas, CANVAS_X), I(canvas, CANVAS_Y), I(m->w, W_W),
+                     m->height))
+        return 0;
+    canvas_set_clip_rect(canvas, clip);
     return 1;
 }
 
@@ -1481,14 +1475,19 @@ int ringnav_paint(void *w, void *canvas) {
     return result;
 }
 
-/* A stock settings-style row (0x4c19bc): a s_listitem_black list_item holding a 335x70
- * s_btn_listitem button with a 52px icon (none for a null name) and a 24px label at x 72, without
- * list_into. Returns the label. */
-static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
+/* A s_listitem_black list_item in view with a 335x70 s_btn_listitem button; returns the button. */
+static void *list_button(void *view) {
     void *item = list_item_create(view, 0, 0, 0, 0);
     widget_use_style(item, "s_listitem_black");
     void *button = button_create(item, 20, 0, 335, 70);
     widget_use_style(button, "s_btn_listitem");
+    return button;
+}
+
+/* A stock settings-style row (0x4c19bc): a list_button with a 52px icon (none for a null name)
+ * and a 24px label at x 72, without list_into. Returns the label. */
+static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
+    void *button = list_button(view);
     widget_on(button, EVT_CLICK, click, ctx);
     if (icon) image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
     void *label = hscroll_label_create(button, 72, 0, 260, 70);
@@ -2038,6 +2037,7 @@ static int hex_typed(void *ctx, void *event) {
 static int hex_click(void *ctx, void *event) {
     (void)ctx;
     (void)event;
+    widget_set_focused(st.hex_edit, 0); /* OK leaves it focused; a focus change reopens the keyboard */
     widget_set_focused(st.hex_edit, 1);
     return 0;
 }
@@ -2394,10 +2394,14 @@ static unsigned rec_hash(void *r) {
 /* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
 static unsigned browse_hash(void) { return local_hash(hash_bytes(FNV_SEED, g_folder_path, 1024)); }
 
+/* Coverflow's or Most Played's tracks, when page is theirs. */
+static void *page_tracks(void *page) {
+    return page && page == st.mp_page ? st.mp_list : coverflow_tracks(page);
+}
+
 static void *qm_list(void) {
-    return st.qm_kind == QM_COVERFLOW
-               ? coverflow_tracks(window_manager_get_top_window(window_manager()))
-               : P(p_deque_showlist, 0);
+    return st.qm_kind == QM_COVERFLOW ? page_tracks(window_manager_get_top_window(window_manager()))
+                                      : P(p_deque_showlist, 0);
 }
 
 static void *qm_record(void) {
@@ -2551,11 +2555,7 @@ static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
         config_playmode(2, 1);
-        struct {
-            void *dq;
-            int idx, cls, mode;
-        } context = { all, toolsRandnum(size), 1, 2 };
-        navigator_to_with_context("playing_page", &context); /* mclLoadPlayList copies it */
+        play_folder(all, toolsRandnum(size));
     }
     return size;
 }
@@ -2570,20 +2570,8 @@ static int shuffle_songs(void *ctx, void *event) {
     return 0;
 }
 
-/* Resume, play counts and Books' pages: each file is written whole, to a .tmp then renamed. */
-#define RESUME_FILE "/mnt/data/ringnav-resume"
+#define RESUME_FILE "/mnt/data/ringnav-resume" /* coverflow.c's blob_io */
 #define PLAYS_FILE "/mnt/data/ringnav-plays"
-void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
-    void *f = fopen(write ? tmp : path, write ? "wb" : "rb");
-    if (!f) return;
-    int ok = write ? fwrite(buf, size, 1, f) == 1 : fread(buf, size, 1, f) == 1;
-    if (fclose(f) || !ok) {
-        if (!write) memset(buf, 0, size);
-        return;
-    }
-    if (write) rename(tmp, path);
-}
-#define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", buf, sizeof buf, write)
 
 static void plays_load(void) {
     if (!st.plays_read) {
@@ -2601,40 +2589,72 @@ static unsigned listen_key(void *r) {
     return key | !key;
 }
 
-/* Most Played: the PLAYS_TOP most played songs of the library, most played first, folder-played
- * from the top without touching the play mode. ponytail: plays at once like Shuffle Songs; a list
- * if users want to pick a track. */
+/* Most Played's row: the ranked list from that track, folder-played as Coverflow's. */
+static int mp_play(void *ctx, void *event) {
+    (void)event;
+    play_folder(st.mp_list, (int)(long)ctx);
+    return 0;
+}
+
+static int mp_leave(const void *unused) {
+    (void)unused;
+    st.mp_timer = 0;
+    navigator_back();
+    return 0;
+}
+
+static int mp_keyup(void *ctx, void *event) {
+    (void)ctx;
+    if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
+    rearm(&st.mp_timer, mp_leave, 0);
+    return STOP;
+}
+
+static int mp_closed(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    stop_timer(&st.mp_timer);
+    if (st.mp_list) deque_destroy(st.mp_list);
+    st.mp_page = st.mp_list = (void *)0;
+    return 0;
+}
+
+/* Most Played: a page of the PLAYS_TOP most played songs of the library, most played first and,
+ * among equal counts, most recently counted first (the table keeps that order). */
 static int most_played(void *ctx, void *event) {
     (void)ctx;
     (void)event;
+    if (st.mp_page || !(st.mp_page = page_open("mostplayed_page", mp_closed, mp_keyup))) return 0;
     int n, top = 0, idx[PLAYS_TOP];
-    unsigned cnt[PLAYS_TOP];
+    unsigned score[PLAYS_TOP];
     void *all = staged(all_songs, 0, &n);
     int size = (int)deque_size(all);
     plays_load();
     for (int i = 0; i < size; i++) {
         unsigned key = listen_key(deque_at(all, i)), c = 0;
         for (int j = 0; j < PLAYS_SLOTS && !c; j++)
-            if (st.plays[j].key == key) c = st.plays[j].n;
-        if (!c || (top == PLAYS_TOP && cnt[top - 1] >= c)) continue;
+            if (st.plays[j].key == key) c = st.plays[j].n * PLAYS_SLOTS + PLAYS_SLOTS - j;
+        if (!c || (top == PLAYS_TOP && score[top - 1] >= c)) continue;
         int at = top < PLAYS_TOP ? top++ : PLAYS_TOP - 1;
-        for (; at > 0 && cnt[at - 1] < c; at--) cnt[at] = cnt[at - 1], idx[at] = idx[at - 1];
-        cnt[at] = c;
+        for (; at > 0 && score[at - 1] < c; at--) score[at] = score[at - 1], idx[at] = idx[at - 1];
+        score[at] = c;
         idx[at] = i;
     }
-    if (top) {
-        void *list = _create_deque("stSongInfo");
-        deque_init(list);
-        for (int i = 0; i < top; i++) _deque_push_back(list, deque_at(all, idx[i]));
-        struct {
-            void *dq;
-            int idx, cls, mode;
-        } context = { list, 0, 1, 2 };
-        navigator_to_with_context("playing_page", &context); /* mclLoadPlayList copies it */
-        deque_destroy(list);
-    } else
-        toast(size ? "Nothing played yet" : "Update Local Music first");
+    st.mp_list = _create_deque("stSongInfo");
+    deque_init(st.mp_list);
+    for (int i = 0; i < top; i++) _deque_push_back(st.mp_list, deque_at(all, idx[i]));
     deque_destroy(all);
+    void *title, *view = page_list(st.mp_page, st.mp_page, &title,
+                                   top ? "Most Played" : "No plays yet", top, 64);
+    char name[512], detail[300];
+    for (int i = 0; i < top; i++) { /* the artist, if tagged, and the play count, under the title */
+        void *t = deque_at(st.mp_list, (unsigned)i);
+        const char *artist = P(t, REC_ARTIST);
+        unsigned plays = (score[i] - 1) / PLAYS_SLOTS, a = artist && *artist;
+        tk_snprintf(detail, sizeof detail, a ? "%s · %u play%s" : "%s%u play%s", a ? artist : "",
+                    plays, plays == 1 ? "" : "s");
+        page_row_detail(view, i, track_name(name, sizeof name, t), detail, mp_play);
+    }
     return 0;
 }
 
@@ -2786,13 +2806,10 @@ int ringnav_about(void *win, void *ctx) {
     void *view = win ? widget_lookup(win, "scroll_view_about", 1) : (void *)0;
     if (view && widget_count_children(view) == 7) {
         widget_set_text_utf8(widget_get_child(widget_get_child(widget_get_child(view, 1), 0), 1), STOCK_VERSION);
-        void *item = list_item_create(view, 0, 0, 0, 0);
-        widget_use_style(item, "s_listitem_black");
-        void *button = button_create(item, 20, 0, 335, 70);
-        widget_use_style(button, "s_btn_listitem");
-        about_label(button, 10, 166, "s_scrlabel_white24l", "Q2 Pod:");
+        void *button = list_button(view);
+        about_label(button, 10, 166, "s_scrlabel_white24l", "Q2 Pod");
         about_label(button, 176, 149, "s_scrlabel_white20r", Q2POD_VERSION);
-        widget_restack(item, 2);
+        widget_restack(P(button, W_PARENT), 2);
     }
     return result;
 }
@@ -2952,7 +2969,7 @@ static int qm_hold(void) {
         return 0;
     const char *name = widget_get_prop_str(top, "name", "");
     int kind = contexts[context_id(name)].kind;
-    void *list = coverflow_tracks(top);
+    void *list = page_tracks(top);
     int coverflow = list != 0;
     void *w = surface_under(top, (void *)0, (void *)0, 0);
     if ((!coverflow && kind < CTX_FOLDER) || !tk_strcmp(name, "artistinfo_page") || !w ||

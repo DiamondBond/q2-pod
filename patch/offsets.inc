@@ -221,7 +221,7 @@
 #define RESUME_START_S 5
 /* Play counts (docs/internals.md#play-counts): a track over LISTEN_MIN_S counts once half of it,
  * or LISTEN_MAX_S, has been heard; PLAYS_SLOTS counts are kept, the lowest replaced when full, and
- * Most Played plays the top PLAYS_TOP. */
+ * Most Played lists the top PLAYS_TOP. */
 #define LISTEN_MIN_S 30
 #define LISTEN_MAX_S 240
 #define PLAYS_SLOTS 512
