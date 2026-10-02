@@ -2588,6 +2588,12 @@ for light,want in ((1,[]),(0,[O['SCREEN_OFF_SLEEP_MS']])):
     s=Machine(); s.handlers[sleep_hook+12]='stock_sleep'; s.byte(syms['g_backlight_status'],light)
     assert s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)==0
     assert [c[1] for c in s.calls if c[0]=='sleep_ms']==want and s.calls[-1][:2]==('stock_sleep',0x1234); passed()
+    # The next pass with the backlight on repaints the whole screen once; staying on, nothing more.
+    s.byte(syms['g_backlight_status'],1)
+    for wake in (not light,False):
+        s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)
+        assert [c[1] for c in s.calls if c[0]=='widget_invalidate_force']==([s.wm] if wake else [])
+    passed()
 for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)

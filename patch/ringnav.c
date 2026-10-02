@@ -99,6 +99,7 @@ typedef struct {
     } plays[PLAYS_SLOTS];
     unsigned plays_read, ls_key;
     int ls_sec, ls_heard, ls_done;
+    int dark; /* the backlight was off at the last UI loop pass */
 #if IPOD
     void *pull_page, *pull_surface;
     void *sel_w; /* the surface whose selection was last drawn: its row and centre, for Home's > */
@@ -2715,10 +2716,17 @@ static void resume_poll(void) {
 
 /* main_loop_sleep_default paces the UI loop at 8 ms (125 Hz), screen on or off. With the backlight
  * off it first idles SCREEN_OFF_SLEEP_MS; stock then finds its 8 ms gone, sleeps 0 and keeps its
- * own bookkeeping. */
+ * own bookkeeping. The first pass with it back on repaints every window once, so nothing drawn
+ * while dark, or only partly, stays on screen until the next input. */
 int ringnav_sleep(void *loop) {
     resume_poll();
-    if (!g_backlight_status) sleep_ms(SCREEN_OFF_SLEEP_MS);
+    if (!g_backlight_status) {
+        st.dark = 1;
+        sleep_ms(SCREEN_OFF_SLEEP_MS);
+    } else if (st.dark) {
+        st.dark = 0;
+        widget_invalidate_force(window_manager(), (void *)0);
+    }
     return stock_sleep_trampoline(loop);
 }
 
