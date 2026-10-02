@@ -229,6 +229,19 @@ FUNCTIONS = {
  'getMusicByAlbumAndSonger': ('int', 'const char *, const char *, int'),
  'getMusicByAlbumAndAlbumSonger': ('int', 'const char *, const char *, int'),
  'toolsLoadDirectory': ('int', 'const char *'),
+ # Queue menu rows (ringnav.c): artist/composer/genre queries, My Fav, the batch selection record
+ 'getMusicBySonger': ('int', 'const char *'),
+ 'getMusicByAlbumArtist': ('int', 'const char *'),
+ 'getMusicByComposer': ('int', 'const char *'),
+ 'getMusicByGenre': ('int', 'const char *'),
+ 'getMusicByAlbumAndComposer': ('int', 'const char *, const char *, int'),
+ 'getMusicByAlbumAndGenre': ('int', 'const char *, const char *, int'),
+ 'checkFavExist': ('int', 'void *'),
+ 'deleteMusicFromFav': ('int', 'void *'),
+ 'batch_init_selectrecord': ('int', 'int'),
+ 'batch_set_selectitem': ('int', 'int'),
+ 'batch_add_file': ('int', 'int, int, void *, void *, int'),
+ 'navigator_window_is_exist': ('int', 'const char *'),
  'mclLoadPlayList': ('int', 'void *, int, int'),
  'mcl_shuffle_pick': ('int', 'int'),
  'getAllAlbum': ('int', 'void'),
@@ -297,14 +310,14 @@ PRIVATE_FUNCTIONS = {
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
-           'g_keytone_flag', 'g_folder_layer']
+           'g_keytone_flag', 'g_folder_layer', 'g_delete_flag']
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
-                'g_dacoff_time': 4}
+                'g_dacoff_time': 4, 'p_vector_select_record': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']

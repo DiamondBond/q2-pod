@@ -152,6 +152,7 @@ typedef struct {
     unsigned qm_timer, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
     int qm_kind, qm_action;
     void *qm_dialog;
+    unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
     /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set; while the page
      * is there, Back at that root leaves it. */
     int media_open;
@@ -2345,9 +2346,10 @@ void ringnav_boot(const char *page, const int *ctx) {
 #endif
 
 /* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
- * on a local song, album or folder row opens the stock sortselect dialog rebuilt as a two-row
- * menu. */
-enum { QM_SONG = 1, QM_ALBUM, QM_FOLDER, QM_COVERFLOW };
+ * on a local song, album, artist/composer/genre or folder row opens the stock sortselect dialog
+ * rebuilt as that row's menu. */
+enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW };
+enum { QA_NEXT = 1, QA_ADD, QA_SHUFFLE, QA_FAV, QA_UNFAV, QA_PLAYLIST, QA_ALBUM, QA_ARTIST };
 #define MCL(a) (*(volatile int *)(a))
 
 static char *play_key(void) {
@@ -2375,10 +2377,14 @@ static unsigned rec_hash(void *r) {
 /* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
 static unsigned browse_hash(void) { return local_hash(hash_bytes(FNV_SEED, g_folder_path, 1024)); }
 
+static void *qm_list(void) {
+    return st.qm_kind == QM_COVERFLOW
+               ? coverflow_tracks(window_manager_get_top_window(window_manager()))
+               : P(p_deque_showlist, 0);
+}
+
 static void *qm_record(void) {
-    void *list = st.qm_kind == QM_COVERFLOW
-                     ? coverflow_tracks(window_manager_get_top_window(window_manager()))
-                     : P(p_deque_showlist, 0);
+    void *list = qm_list();
     if (!list || deque_size(list) != st.qm_rows || st.qm_idx >= st.qm_rows ||
         (st.qm_kind != QM_COVERFLOW && browse_hash() != st.qm_browse))
         return (void *)0;
@@ -2406,7 +2412,10 @@ static int qm_gone(void *dialog, void *event) {
     return 0;
 }
 
-/* An album or folder row: the query stock would run for it. */
+/* An album, artist/composer/genre or folder row: the query stock would run for it, as
+ * batch_add_file (0x4f4be8) expands each class. Artist 0xf004/0xff01 rows name the artist at +0x18,
+ * composer 0xf005/0xff02 at +0x20, genre 0xf006/0xff03 at +0x1c; classinfo +0xa.. flags Unknown. */
+static const unsigned char qm_by[] = { REC_ARTIST, 0x20, 0x1c };
 static int qm_query(void *r) {
     if (st.qm_kind == QM_FOLDER) {
         char path[1024];
@@ -2414,12 +2423,21 @@ static int qm_query(void *r) {
                     (const char *)P(r, REC_NAME));
         return toolsLoadDirectory(path);
     }
-    if (I(g_class_type, 0) == CLASS_ALBUMS)
-        return getMusicByAlbum(I(r, REC_ID) == -1 ? (const char *)0 : P(r, REC_ALBUM));
-    /* load_album_detaillist 0xff01 -> load_localclass_list 0xff11 */
-    return (I(g_artist_type, 0) == 1 ? getMusicByAlbumAndAlbumSonger : getMusicByAlbumAndSonger)(
-        P(r, REC_ALBUM), g_local_classinfo_save[0xa] ? (const char *)0 : P(r, REC_ARTIST),
-        I(r, REC_ID) == -2);
+    unsigned cls = (unsigned)I(g_class_type, 0), g = (cls & 0xf) - (cls < 0xff00 ? 4 : 1);
+    int artist = I(g_artist_type, 0) == 1, id = I(r, REC_ID);
+    if (cls == CLASS_ALBUMS) return getMusicByAlbum(id == -1 ? (const char *)0 : P(r, REC_ALBUM));
+    if (cls < 0xff00)
+        return (g == 2   ? getMusicByGenre
+                : g      ? getMusicByComposer
+                : artist ? getMusicByAlbumArtist
+                         : getMusicBySonger)(id == -1 ? (const char *)0 : P(r, qm_by[g]));
+    /* load_album_detaillist 0xff01 -> load_localclass_list 0xff11, and its composer/genre kin */
+    return (g == 2   ? getMusicByAlbumAndGenre
+            : g      ? getMusicByAlbumAndComposer
+            : artist ? getMusicByAlbumAndAlbumSonger
+                     : getMusicByAlbumAndSonger)(
+        P(r, REC_ALBUM), g_local_classinfo_save[0xa + g] ? (const char *)0 : P(r, qm_by[g]),
+        id == -2);
 }
 
 /* The tracks stock would play for that row, in its order. */
@@ -2431,6 +2449,17 @@ static void qm_tracks(void *r, void *add) {
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
     }
     deque_destroy(rows);
+}
+
+/* The row's tracks: the song itself, or what stock would play for the row. */
+static void *qm_collect(void *r) {
+    void *add = _create_deque("stSongInfo");
+    deque_init(add);
+    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW)
+        _deque_push_back(add, r);
+    else
+        qm_tracks(r, add);
+    return add;
 }
 
 /* Insert at pos+1 or append, then keep the shuffle pool, previous index and gapless preload
@@ -2471,24 +2500,16 @@ static void qm_insert(void *queue, void *add, unsigned size, int next) {
     }
 }
 
-static int qm_apply(int next) {
-    void *r = qm_record(), *queue = P(mcl_pdeqplaylist, 0);
-    if (!r || !queue || airplayGetFlag() == 2) return 0;
-    unsigned size = deque_size(queue), type = (unsigned)MCL(MCL_TYPE);
+static int qm_apply(void *add, int next) {
+    void *queue = P(mcl_pdeqplaylist, 0);
+    if (!queue || airplayGetFlag() == 2) return 0;
+    unsigned size = deque_size(queue), type = (unsigned)MCL(MCL_TYPE), n = deque_size(add);
     /* Only a local (folder or library) queue grows; streams keep theirs. */
     if (size && type != 1 && (type & 0xf000) != 0xf000) return 0;
-    void *add = _create_deque("stSongInfo");
-    deque_init(add);
-    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW)
-        _deque_push_back(add, r);
-    else
-        qm_tracks(r, add);
-    unsigned n = deque_size(add);
     if (n && !size) /* loads without starting playback */
         mclLoadPlayList(add, 0, st.qm_kind >= QM_FOLDER ? 1 : I(g_class_type, 0));
     else if (n)
         qm_insert(queue, add, size, next);
-    deque_destroy(add);
     return n != 0;
 }
 
@@ -2509,11 +2530,7 @@ static int all_songs(void *unused) {
 /* Shuffle Songs: every song, shuffle on as the play-mode setting saves it, from a random track.
  * ponytail: folder play, as Coverflow's, so a resume after reboot reloads only the last track's
  * folder; the library class needs g_local_classinfo_save built as stock's All Songs does. */
-static int shuffle_songs(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    int n;
-    void *all = staged(all_songs, 0, &n);
+static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
         config_playmode(2, 1);
@@ -2522,8 +2539,16 @@ static int shuffle_songs(void *ctx, void *event) {
             int idx, cls, mode;
         } context = { all, toolsRandnum(size), 1, 2 };
         navigator_to_with_context("playing_page", &context); /* mclLoadPlayList copies it */
-    } else
-        toast("Update Local Music first");
+    }
+    return size;
+}
+
+static int shuffle_songs(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    int n;
+    void *all = staged(all_songs, 0, &n);
+    if (!shuffle_play(all)) toast("Update Local Music first");
     deque_destroy(all);
     return 0;
 }
@@ -2756,13 +2781,72 @@ int ringnav_about(void *win, void *ctx) {
     return result;
 }
 
+/* Go to album/artist reuse g_local_classinfo_save, which the pages underneath reload from when
+ * they come back, so it is put back as the page opened here closes. */
+static int qm_restore(void *page, void *event) {
+    (void)page;
+    (void)event;
+    memcpy((void *)g_local_classinfo_save, st.qm_classinfo, sizeof st.qm_classinfo);
+    return 0;
+}
+
+/* Now Playing's More rows, for this record: Album info (0x5283b0) fills the album query and opens
+ * playerjumpinfo_page; Artist info opens artistinfo_page with {class, record}. */
+static void qm_goto(void *r, int album) {
+    unsigned char *info = (unsigned char *)g_local_classinfo_save;
+    void *wm = window_manager(), *page = window_manager_get_top_window(wm);
+    memcpy(st.qm_classinfo, info, sizeof st.qm_classinfo);
+    if (album) {
+        info[9] = 0;
+        tk_snprintf((char *)info + 0xd, 0x100, "%s", (const char *)P(r, REC_ALBUM));
+        tk_snprintf((char *)info + 0x10d, 0x100, "%s", (const char *)P(r, REC_ARTIST));
+        *(int *)info = 0xff10;
+        navigator_to("playerjumpinfo_page");
+    } else {
+        struct {
+            int cls;
+            void *r;
+        } context = { I(g_class_type, 0), r };
+        navigator_to_with_context("localmusic/artistinfo_page", &context);
+    }
+    void *top = window_manager_get_top_window(wm);
+    if (top != page) widget_on(top, EVT_WINDOW_CLOSE, qm_restore, top);
+}
+
+/* The row alone selected in the stock batch record, as player_addplayList (0x50d0b8) does. */
+static void qm_select(void) {
+    batch_init_selectrecord((int)st.qm_rows);
+    batch_set_selectitem((int)st.qm_idx);
+}
+
 /* Deferred so the dialog is never closed under its own click dispatch. */
 static int qm_run(const void *unused) {
     (void)unused;
     st.qm_timer = 0;
     if (!st.qm_dialog) return 0;
     qm_close();
-    if (!qm_apply(st.qm_action == 1)) toast("Queue unchanged");
+    void *r = qm_record();
+    int a = st.qm_action, cls = st.qm_kind == QM_COVERFLOW ? 0xf001 : I(g_class_type, 0);
+    if (r && a == QA_FAV) { /* tags a folder file as batch-select's Add to My Fav does */
+        qm_select();
+        batch_add_file(cls, 0xf00a, qm_list(), P(p_vector_select_record, 0), 0);
+        toast("Added to Favourites");
+    } else if (r && a == QA_UNFAV) {
+        deleteMusicFromFav(r);
+        if (cls == 0xf00a)
+            g_delete_flag = 1; /* My Fav reloads, as Now Playing's heart (0x52b2e8) */
+        toast("Removed from Favourites");
+    } else if (r && a == QA_PLAYLIST) { /* the playlist page's add mode adds the selected row */
+        qm_select();
+        navigator_to_with_context("localmusic/playlist_page", (void *)(long)(0x10000 | cls));
+    } else if (r && a >= QA_ALBUM)
+        qm_goto(r, a == QA_ALBUM);
+    else {
+        void *add = r ? qm_collect(r) : (void *)0;
+        if (!add || !(a == QA_SHUFFLE ? shuffle_play(add) : qm_apply(add, a == QA_NEXT)))
+            toast("Queue unchanged");
+        if (add) deque_destroy(add);
+    }
     return 0;
 }
 
@@ -2798,19 +2882,46 @@ static int qm_open(const void *unused) {
     widget_on(dialog, EVT_KEY_UP, qm_back, dialog);
     widget_on(back, EVT_CLICK, qm_back, dialog);
     widget_on(dialog, EVT_DESTROY, qm_gone, dialog);
-    const char *title = P(r, st.qm_kind == QM_ALBUM ? REC_ALBUM : REC_NAME);
+    unsigned cls = (unsigned)I(g_class_type, 0);
+    int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW;
+    const char *album = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
+    const char *title = st.qm_kind == QM_ALBUM   ? album
+                        : st.qm_kind == QM_GROUP ? P(r, qm_by[(cls & 0xf) - 4])
+                                                 : P(r, REC_NAME);
     widget_set_text_utf8(widget_lookup(dialog, "scrlabel_title", 1), title ? title : "");
     widget_destroy_children(view);
-    static const char *const rows[] = { "Play next", "Add to queue" };
-    for (int i = 0; i < 2; ++i) { /* stock sortselect row geometry and styles */
+    /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
+     * Go to is left out where its single-instance page is already open, or the album is the page.
+     */
+    unsigned char acts[6], n = 0;
+    acts[n++] = QA_NEXT;
+    acts[n++] = QA_ADD;
+    if (!song) acts[n++] = QA_SHUFFLE;
+    if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
+    if (st.qm_kind != QM_COVERFLOW) acts[n++] = QA_PLAYLIST;
+    if (st.qm_kind == QM_SONG && album && *album && (cls & 0xfff0) != 0xff10 &&
+        !navigator_window_is_exist("playerjumpinfo_page"))
+        acts[n++] = QA_ALBUM;
+    if ((song || cls == CLASS_ALBUMS) && artist && *artist &&
+        !navigator_window_is_exist("artistinfo_page"))
+        acts[n++] = QA_ARTIST;
+    static const char *const rows[] = { "Play next",
+                                        "Add to queue",
+                                        "Shuffle",
+                                        "Add to Favourites",
+                                        "Remove from Favourites",
+                                        "Add to playlist",
+                                        "Go to album",
+                                        "Go to artist" };
+    for (int i = 0; i < n; ++i) { /* stock sortselect row geometry and styles */
         void *item = list_item_create(view, 0, i * 78, 375, 78);
         widget_use_style(item, "s_listitem_black");
         void *label = hscroll_label_create(item, 30, 0, 266, 70);
         widget_use_style(label, "s_scrlabel_white24l");
-        widget_set_text_utf8(label, rows[i]);
-        widget_on(item, EVT_CLICK, qm_pick, (void *)(long)(i + 1));
+        widget_set_text_utf8(label, rows[acts[i] - 1]);
+        widget_on(item, EVT_CLICK, qm_pick, (void *)(long)acts[i]);
     }
-    widget_set_prop_int(view, "virtual_h", 2 * 78);
+    widget_set_prop_int(view, "virtual_h", n * 78);
     st.qm_dialog = dialog;
     return 0;
 }
@@ -2843,10 +2954,10 @@ static int qm_hold(void) {
         if (st.qm_kind) st.qm_kind = QM_COVERFLOW;
     } else if (kind == CTX_FOLDER) {
         if (I(r, REC_TYPE) == 4) st.qm_kind = QM_FOLDER;
-    } else if (cls == CLASS_ALBUMS || cls == CLASS_ARTIST_ALBUMS)
-        st.qm_kind = QM_ALBUM;
-    else if ((cls >= 0xf004 && cls <= 0xf006) || cls == 0xff02 || cls == 0xff03)
-        st.qm_kind = 0; /* artist/composer/genre lists and their album lists: stock */
+    } else if (cls == CLASS_ALBUMS || (cls >= CLASS_ARTIST_ALBUMS && cls <= 0xff03))
+        st.qm_kind = QM_ALBUM; /* all albums, and an artist's, composer's or genre's */
+    else if (cls >= 0xf004 && cls <= 0xf006)
+        st.qm_kind = QM_GROUP; /* artist, composer and genre lists */
     if (!st.qm_kind || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
     st.qm_idx = (unsigned)g_menu.id[cur];
     st.qm_rows = (unsigned)g_menu.rows;

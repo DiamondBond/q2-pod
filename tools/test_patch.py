@@ -2448,7 +2448,10 @@ class QueueMachine(Machine):
                   'deque_assign','deque_clear','deque_destroy','send@GLIBC_2.0','window_manager_get_input_device_status',
                   'navigator_to','navigator_to_with_context','window_close','widget_on','widget_destroy_children',
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
+                  'getMusicBySonger','getMusicByAlbumArtist','getMusicByComposer','getMusicByGenre',
+                  'getMusicByAlbumAndComposer','getMusicByAlbumAndGenre','checkFavExist','navigator_window_is_exist',
                   'mcl_shuffle_pick','airplayGetFlag'): self.handlers[syms[n]]='q:'+n
+        self.favs=set(); self.open_pages=set(); self.opened=[]
         self.handlers.pop(syms['mclLoadPlayList'])
         self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0'); self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
         self.mock('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek')
@@ -2498,8 +2501,16 @@ class QueueMachine(Machine):
         elif name=='window_manager_get_input_device_status': ret=self.status
         elif name=='airplayGetFlag': ret=self.airplay
         elif name=='navigator_to':
-            assert self.text(a)=='dialog/sortselect_dialog'; self.top=self.dialog(); self.stack.append(self.top)
-        elif name=='navigator_to_with_context': self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
+            page=self.text(a); self.top=self.dialog() if page=='dialog/sortselect_dialog' else self.node('window',page)
+            self.stack.append(self.top); self.opened.append((page,None))
+        elif name=='navigator_to_with_context':
+            page=self.text(a)
+            if page=='dialog/msginfo_dialog': self.toasts.append((page,self.get(b),self.get(b+4),self.text(b+8)))
+            elif page=='playing_page': self.opened.append((page,self.names(self.get(b)),self.get(b+4),self.get(b+8),self.get(b+12)))
+            elif page=='localmusic/playlist_page': self.opened.append((page,b))
+            else: self.opened.append((page,self.get(b),self.get(b+4))); self.top=self.node('window',page); self.stack.append(self.top)
+        elif name=='checkFavExist': ret=self.text(self.get(a+O['REC_NAME'])) in self.favs
+        elif name=='navigator_window_is_exist': ret=self.text(a) in self.open_pages
         elif name=='window_close': self.stack.remove(a); self.top=self.stack[-1]
         elif name=='widget_destroy_children': self.nodes[a]['children']=[]
         elif name=='widget_on':
@@ -2508,7 +2519,7 @@ class QueueMachine(Machine):
                 em=self.alloc(4); it=self.alloc(0x28); self.word(a+O['W_EMITTER'],em); self.word(em,it); self.word(it+O['EMIT_TYPE'],b)
         elif name=='mcl_shuffle_pick': self.picks.append(a); self.word(O['MCL_POS'],len(self.names())-1); ret=1
         else:  # the album/folder queries fill the staging deque
-            self.query=(name,self.text(a),self.text(b) if 'And' in name else None,c)
+            self.query=(name,self.text(a) if a else None,(self.text(b) if b else None) if 'And' in name else None,c)
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=3
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
@@ -2533,15 +2544,17 @@ class QueueMachine(Machine):
         n=len(self.toasts); self.t=getattr(self,"t",7000)+1; self.press(self.t); assert self.hold()==11 and self.release()==0
         self.pick(row); self.advance(0)
         return self.toasts[-1][3] if len(self.toasts)>n else None
+    def labels(self): return [self.nodes[self.nodes[i]['children'][0]]['text'] for i in self.nodes[self.view]['children']]
     def playback(self): return [c for c in self.calls if c[0] in ('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek','playpause_quick_click')]
 
+SONG_MENU=['Play next','Add to queue','Add to Favourites','Add to playlist','Go to album','Go to artist']
 # Short press toggles once; a hold opens one menu titled by its row, its release is swallowed and
 # the next short press toggles again. A repeated long event of the same press opens nothing.
 m=QueueMachine(); page=m.top
 m.press(5000); assert m.release()==1
 m.press(6000); assert m.hold()==11 and m.nodes[m.top]['name']=='sortselect_dialog'
 assert {c[1:] for c in m.calls if c[0]=='widget_off_by_func'}=={(m.top,O['EVT_KEY_UP'],O['SORTSELECT_KEYUP']),(m.back,O['EVT_CLICK'],O['SORTSELECT_CLOSE'])}
-assert m.nodes[m.title]['text']=='Row 0' and [m.nodes[m.nodes[i]['children'][0]]['text'] for i in m.nodes[m.view]['children']]==['Play next','Add to queue']
+assert m.nodes[m.title]['text']=='Row 0' and m.labels()==SONG_MENU
 assert m.hold()==0 and not any(c[0]=='navigator_to' for c in m.calls) and len(m.stack)==2
 assert m.release()==0
 m.press(6500); assert m.release()==1; passed()
@@ -2581,6 +2594,68 @@ for cls,artist_type,page,query in ((0xf003,0,'album_page',('getMusicByAlbum','Al
     assert m.run(1) is None and m.names()==['A','B','C','T1','T2'] and m.query[:3]==query, m.query
     assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==[0,1,2,3,4]
     passed()
+# Artist, composer and genre rows, and their album lists, use batch_add_file's per-class queries.
+for cls,artist_type,query in ((0xf004,0,('getMusicBySonger','Artist',None)),(0xf004,1,('getMusicByAlbumArtist','Artist',None)),
+        (0xf005,0,('getMusicByComposer','Comp',None)),(0xf006,0,('getMusicByGenre','Pop',None)),
+        (0xff02,0,('getMusicByAlbumAndComposer','Album','Comp')),(0xff03,0,('getMusicByAlbumAndGenre','Album','Pop'))):
+    m=QueueMachine(page='localclass_page',cls=cls,pos=2); m.word(syms['g_artist_type'],artist_type)
+    m.word(m.row(0)+0x20,m.string('Comp')); m.word(m.row(0)+0x1c,m.string('Pop'))
+    assert m.run(1) is None and m.names()==['A','B','C','T1','T2'] and m.query[:3]==query, m.query
+    assert m.query[3]==0 or cls<0xff00; passed()
+# An Unknown row (id -1) queries the empty name; an artist's All songs row (-2) sets the flag.
+m=QueueMachine(page='localclass_page',cls=0xf004); m.word(m.row(0)+O['REC_ID'],-1); m.run(1)
+assert m.query[:2]==('getMusicBySonger',None); passed()
+m=QueueMachine(page='localclass_page',cls=0xff01); m.word(m.row(0)+O['REC_ID'],-2); m.run(1)
+assert m.query==('getMusicByAlbumAndSonger','Album','Artist',1); passed()
+# Each row gets the menu that fits it. Songs: favourite as stock's heart, add to a playlist and go
+# to album and artist; collections shuffle instead; folders have no favourite; Coverflow (below)
+# has no playlist. Go to is left out where it would land on the page itself or a second instance.
+def menu(m,setup=None):
+    if setup: setup(m)
+    m.press(5); assert m.hold()==11; t=m.nodes[m.title]['text']; got=m.labels(); m.release(); return t,got
+GROUP=['Play next','Add to queue','Shuffle','Add to playlist']
+for kw,setup,want in (({},None,('Row 0',SONG_MENU)),
+        ({},lambda m:m.favs.add('Row 0'),('Row 0',[*SONG_MENU[:2],'Remove from Favourites',*SONG_MENU[3:]])),
+        ({},lambda m:m.open_pages.update({'artistinfo_page','playerjumpinfo_page'}),('Row 0',SONG_MENU[:4])),
+        ({'cls':0xff10,'page':'album_page'},None,('Row 0',[*SONG_MENU[:4],'Go to artist'])),
+        ({},lambda m:m.word(m.row(0)+O['REC_ALBUM'],0),('Row 0',[*SONG_MENU[:4],'Go to artist'])),
+        ({'cls':0xf003,'page':'album_page'},None,('Album',[*GROUP,'Go to artist'])),
+        ({'cls':0xff01,'page':'album_page'},None,('Album',GROUP)),
+        ({'cls':0xf004,'page':'localclass_page'},None,('Artist',GROUP)),
+        ({'cls':0xf006,'page':'localclass_page'},lambda m:m.word(m.row(0)+0x1c,m.string('Pop')),('Pop',GROUP)),
+        ({'page':'folder_page','cls':1},lambda m:m.word(m.row(0)+O['REC_TYPE'],4),('Row 0',GROUP))):
+    assert menu(QueueMachine(**kw),setup)==want, (kw,want); passed()
+# Favourites: Add runs batch-select's Add to My Fav for the row alone, which tags a folder file;
+# Remove deletes it, and on My Fav itself flags the list to reload as Now Playing's heart does.
+m=QueueMachine(); assert m.run(2,steps=3)=='Added to Favourites' and m.names()==['A','B','C']
+sel=lambda m:[c[:2] for c in m.calls if c[0].startswith('batch_')]
+assert sel(m)==[('batch_init_selectrecord',20),('batch_set_selectitem',3),('batch_add_file',0xf001)]
+assert [c[2:] for c in m.calls if c[0]=='batch_add_file']==[(0xf00a,m.get(syms['p_deque_showlist']))]; passed()
+for cls,flag in ((0xf001,0),(0xf00a,1)):
+    m=QueueMachine(cls=cls); m.favs.add('Row 0'); assert m.run(2)=='Removed from Favourites'
+    assert [c[1] for c in m.calls if c[0]=='deleteMusicFromFav']==[m.row(0)] and m.u.mem_read(syms['g_delete_flag'],1)[0]==flag
+    passed()
+# Add to playlist opens the stock playlist page in its add mode (context: 1 << 16 | class) with the
+# row selected, as the batch Add to playlist does; the page adds the row's songs itself.
+for kw in ({},{'cls':0xf003,'page':'album_page'}):
+    m=QueueMachine(**kw); assert m.run(3,steps=1) is None
+    assert m.opened[-1]==('localmusic/playlist_page',0x10000|m.get(syms['g_class_type']))
+    assert sel(m)==[('batch_init_selectrecord',20),('batch_set_selectitem',1)] and m.names()==['A','B','C']; passed()
+# Shuffle plays the collection's songs from a random one with shuffle saved, as Shuffle Songs.
+m=QueueMachine(cls=0xf003,page='album_page'); assert m.run(2) is None
+assert m.opened[-1]==('playing_page',['T1','T2'],0,1,2) and [c[1:3] for c in m.calls if c[0]=='config_playmode']==[(2,1)]; passed()
+m=QueueMachine(cls=0xf003,page='album_page'); m.found=[]; assert m.run(2)=='Queue unchanged' and m.opened[-1][0]!='playing_page'; passed()
+# Go to album fills the album query as Now Playing's Album info and opens playerjumpinfo_page; Go to
+# artist opens artistinfo_page with {class, record}. Closing either puts the browsing state back.
+info=syms['g_local_classinfo_save']
+for row,want in ((4,'playerjumpinfo_page'),(5,'localmusic/artistinfo_page')):
+    m=QueueMachine(); m.u.mem_write(info,bytes(range(256))*3+bytes(144)); before=bytes(m.u.mem_read(info,912))
+    page=m.top; assert m.run(row,steps=2) is None and m.opened[-1][0]==want and m.top!=page
+    if row==4:
+        assert m.get(info)==0xff10 and m.u.mem_read(info+9,1)==b'\0' and m.text(info+0xd)=='Album' and m.text(info+0x10d)=='Artist'
+    else: assert m.opened[-1][1:]==(0xf001,m.row(2))
+    f,ctx=m.handler(m.top,O['EVT_WINDOW_CLOSE']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert bytes(m.u.mem_read(info,912))==before and m.names()==['A','B','C']; passed()
 # An empty queue is filled by the stock loader without starting playback.
 m=QueueMachine(queue=0); assert m.run(0) is None and m.names()==['Row 0'] and m.mcl('MCL_POS')==0
 assert m.mcl('MCL_TYPE')==0xf001 and m.pool()==[0] and not m.playback(); passed()
@@ -2633,7 +2708,7 @@ m=QueueMachine(); m.press(1); m.hold(); m.release(); m.word(m.row(0)+O['REC_NAME
 m.pick(0); m.advance(0); assert m.toasts[-1][3]=='Queue unchanged' and m.names()==['A','B','C']; passed()
 # Unsupported pages and states keep the stock long key: no menu, and the release is stock.
 for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lambda m:m.byte(syms['g_backlight_status'],0),1),
-        (lambda m:m.byte(syms['g_navbar_status'],1),1),(lambda m:m.word(syms['g_class_type'],0xf004),1),
+        (lambda m:m.byte(syms['g_navbar_status'],1),1),
         (lambda m:m.word(m.surface+O['TABLE_ROWS'],7),1),(lambda m:m.word(m.row(0)+O['REC_TYPE'],4),1),
         (lambda m:setattr(m,'airplay',2),0),(lambda m:m.nodes[m.top].__setitem__('name','artistinfo_page'),1),
         (lambda m:setattr(m,'top',m.node('window','home_page',[m.node()])),1)):
@@ -3246,11 +3321,16 @@ for action,want in ((0,['A','T2','B','C']),(1,['A','B','C','T2'])):
     m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open(); view=m.tracks()
     m.call(); assert m.selected(view)==1
     m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='T2' and m.release()==0
+    assert m.labels()==['Play next','Add to queue','Add to Favourites','Go to artist']
     assert m.hold()==0  # a repeated hold while the dialog is open cannot open another
     m.pick(action); m.pick(action); m.advance(0)
     assert m.names()==want and m.top==m.page and m.selected(view)==1 and not m.playback() and not m.plays
     assert m.names(m.get(syms['p_deque_showlist']))==['Row 0','Row 1','Row 2','Row 3']
     m.press(200); assert m.release()==1; passed()
+# Its favourite is batch-select's over Coverflow's own deque, its songs taken as All Songs rows.
+m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open(); view=m.tracks(); assert m.run(2)=='Added to Favourites'
+assert [c[1:3] for c in m.calls if c[0]=='batch_add_file']==[(0xf001,0xf00a)] and [c[1] for c in m.calls if c[0]=='batch_init_selectrecord']==[2]
+assert [c[3] for c in m.calls if c[0]=='batch_add_file'][0]!=m.get(syms['p_deque_showlist']); passed()
 m=CoverflowMachine(queue=0,cls=O['CLASS_ALBUMS']); m.open(); m.tracks()
 assert m.run(1) is None and m.names()==['T1'] and m.mcl('MCL_TYPE')==1 and not m.playback(); passed()
 m=CoverflowMachine(mode=2); m.open(); m.tracks(); m.run(0)

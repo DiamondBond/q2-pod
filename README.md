@@ -36,7 +36,7 @@
 | Accent, Home layout and battery style options                         | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
 | iPod classic style lists, Home and Now Playing                        | Clock keeps the right time after power-off                                        |
 | Wheel navigation with acceleration and position memory                | Less battery drain with the screen off                                            |
-| Play next / Add to queue, Podcasts, Audiobooks, Photos, Books, Videos | Faster library browsing                                                           |
+| Song and album menus, Podcasts, Audiobooks, Photos, Books, and Videos | Faster library browsing                                                           |
 | Shuffle Songs, Most Played and scrobbling over Wi-Fi                  | Long VBR MP3s start at once and seek accurately                                   |
 | Parametric EQ: up to 30 bands, per channel, with balance              | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
 
@@ -120,7 +120,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Wheel**                 | One row per tick; keep spinning to speed up. Outside menus it sets volume (iPod: in place of the progress bar on Now Playing, or a small panel). |
 | **Centre button**         | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing).                                                     |
-| **Hold Play/Pause**       | On a song, album or folder: **Play next** / **Add to queue**.                                                                                    |
+| **Hold Play/Pause**       | On a song: queue, favourite, playlist, go to album or artist. On an album, artist, genre or folder: queue, shuffle, playlist.                    |
 | **Hold Return** (iPod)    | Opens Now Playing; the next Return goes back.                                                                                                    |
 | **Scrub** (iPod)          | On Now Playing, double-press centre, then turn 5 seconds per tick. Double-press again, press Return, touch, or wait 3 seconds to jump.           |
 | **Pull to search** (iPod) | At the top of Local Songs, pull down until "Release to search" appears.                                                                          |
