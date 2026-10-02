@@ -40,6 +40,12 @@
 | Shuffle Songs, Most Played and offline scrobbling        | Long VBR MP3s start at once and seek accurately                                   |
 | Parametric EQ: up to 30 bands, per channel, with balance | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
 
+### Play counts and scrobbling
+
+A song counts as played once you've heard half of it (or 4 minutes). **Local Music → Most Played** plays your 25 most played songs, most played first.
+
+Each of those plays is also logged to `.scrobbler.log` at the root of the microSD card, in the same format Rockbox uses. Upload it to Last.fm or ListenBrainz with any `.scrobbler.log` uploader, such as [Open Scrobbler](https://openscrobbler.com/), [Universal Scrobbler](https://universalscrobbler.com/) or [rb-scrobbler](https://github.com/jeselnik/rb-scrobbler). Songs without an artist tag are skipped.
+
 ## Install
 
 > [!IMPORTANT]
@@ -117,10 +123,6 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 > [!NOTE]
 > Artwork is cached in `.coverflow` on the microSD card, which needs 16 MB free.
-
-## Scrobbling
-
-Every song you hear half of (or 4 minutes of) is logged to `.scrobbler.log` at the root of the microSD card, in the same format Rockbox uses. Upload it to Last.fm or ListenBrainz with any `.scrobbler.log` uploader, such as [Open Scrobbler](https://openscrobbler.com/), [Universal Scrobbler](https://universalscrobbler.com/) or [rb-scrobbler](https://github.com/jeselnik/rb-scrobbler). Songs without an artist tag are skipped.
 
 ## Documentation
 
