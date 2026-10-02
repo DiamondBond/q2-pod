@@ -12,7 +12,7 @@ Symbol-resolved entries (FUNCTIONS, GLOBALS, CONTEXT_DATA, the hooks) only need 
 """
 import argparse, collections, io, json, pathlib, re, struct, subprocess, sys, tarfile, tempfile, zipfile
 from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
-                   SHUFFLE_CALL, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
+                   SHUFFLE_CALL, SORT_TRIMS, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
 import compact, peq
 
 # Raw addresses in patch/offsets.inc; every other define there inside the image is a value.
@@ -27,7 +27,7 @@ SOURCES = {'tools/build.py': ('demo', 'bluealsa'), 'tools/compact.py': ('demo',)
            'patch/compact.json': ('demo',), 'patch/offsets.inc': ('demo',), 'patch/trampoline.S': ('demo',)}
 BRANCHES = {1, 4, 5, 6, 7, 0x14, 0x15, 0x16, 0x17}
 MEMORY = {0x09, *range(0x20, 0x2f), *range(0x30, 0x40)}  # addiu, loads and stores
-SIZES = (8, 16, 32, 64)
+SIZES = (8, 16, 32, 64, 128)  # 128: SORT_TRIMS, in two name comparators that open alike
 
 
 def stock_files(zip_path, tmp):
@@ -187,6 +187,7 @@ def inventory(images):
         items.append((f'trampoline.S {m[1]}', 'demo', int(m[2], 16), None))
     items += [('SHUFFLE_CALL', 'demo', SHUFFLE_CALL[0], demo.word(SHUFFLE_CALL[0])),
               ('DROP_CACHES', 'demo', DROP_CACHES[0], DROP_CACHES[1])]
+    items += [('SORT_TRIMS', 'demo', a, demo.word(a)) for a in SORT_TRIMS]
     items += [('ARTIST_ALBUMS', 'demo', a, old) for a, old, _ in compact.ARTIST_ALBUMS]
     items += [('event_abi_words', 'demo', int(a, 16), struct.unpack('<I', bytes.fromhex(w))[0])
               for a, w in compact.AUDIT['event_abi_words'].items()]

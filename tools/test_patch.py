@@ -2684,6 +2684,45 @@ for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
 passed()
+# Library sorts: both stock name comparators, on the patched trim calls, skip a leading article.
+from build import SORT_TRIMS
+from functools import cmp_to_key
+for a in SORT_TRIMS: assert struct.unpack_from('<I',demo,fileoff(demo,a))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_sort_key']>>2
+class SortMachine(Machine):
+    def __init__(self):
+        super().__init__(); self.handlers.pop(syms['toolsTrimLeft']); self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0')
+        for n in ('__ctype_b_loc@GLIBC_2.3','__ctype_tolower_loc@GLIBC_2.3','strncmp@GLIBC_2.0','atoi@GLIBC_2.0',
+                  'strcasecmp@GLIBC_2.0','strcmp@GLIBC_2.0','strncpy@GLIBC_2.0'): self.handlers[syms[n]]='s:'+n
+        b=self.alloc(0x400); t=self.alloc(0x400)  # glibc's tables from -128: the digit class, ASCII lowercase
+        for c in range(-128,256):
+            self.u.mem_write(b+256+2*c,struct.pack('<H',0x800*(48<=c<58)))
+            self.word(t+512+4*c,ord(chr(c).lower()) if 0<=c<128 else c)
+        self.word(b,b+256); self.word(t,t+512); self.tables=(b,t)
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('s:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]; a,b,c=[u.reg_read(r) for r in REGS[:3]]
+        s=lambda x,n=None: bytes(u.mem_read(x,4096)).split(b'\0')[0][:n]
+        if name.startswith('__ctype'): ret=self.tables[name=='__ctype_tolower_loc']
+        elif name=='atoi': ret=int(re.match(rb'\d*',s(a))[0] or 0)
+        elif name=='strncpy': u.mem_write(a,s(b,c).ljust(c,b'\0')); ret=a
+        else: x,y=(s(a,c),s(b,c)) if name=='strncmp' else (s(a),s(b)); x,y=(x.lower(),y.lower()) if name=='strcasecmp' else (x,y); ret=(x>y)-(x<y)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+m=SortMachine()
+def rec(name):
+    r=m.alloc(0x60); m.word(r+0x10,m.string(name)); m.word(r+8,m.string(name+'.flac')); return r
+def ordered(names,cmp):
+    out=m.alloc(4)
+    def less(x,y):  # the comparator stores x < y
+        m.call(address=cmp,args=(x,y,out,0),gap=0,count=2_000_000); return m.get(out)
+    rs={rec(n):n for n in names}
+    return [rs[r] for r in sorted(rs,key=cmp_to_key(lambda x,y: -1 if less(x,y) else 1 if less(y,x) else 0))]
+names=['Daft Punk','The Cure','Coldplay','Them Crooked Vultures','A Tribe Called Quest','Anthrax','The','an Orchestra','Toto']
+for cmp in (0x5ba658,0x5b9d40):
+    assert ordered(names,cmp)==['Anthrax','Coldplay','The Cure','Daft Punk','an Orchestra','The','Them Crooked Vultures','Toto','A Tribe Called Quest'],ordered(names,cmp)
+    passed()
+key=lambda t: (m.u.mem_write(0x1100000,t.encode()+b'\0'), m.call(address=symbols(B/'patch.elf')['ringnav_sort_key'],args=(0x1100000,0,0,0),gap=0), m.text(0x1100000))[2]
+assert [key(t) for t in ('  The Cure','THE CURE','The ','The  Cure','A','An ','Ant','周杰伦','The 周杰伦')]==['Cure','CURE','The ','The  Cure','A','An ','Ant','周杰伦','周杰伦']; passed()
 # iPod boots to Home: home_page_init's memory-play resume, run from its stock context build, starts
 # the restored queue paused (mode 3) through player_start as playing_page_init would, and opens no
 # page; a 0xff class starts nothing, as the page's init. Car mode (mode 2) opens Now Playing as stock.
@@ -2907,7 +2946,9 @@ for virtual in (False,True):
     assert fills==[dict(kind='fill',rect=box,bg=0,color=O['LETTER_ALPHA']<<24|O['FILL_RGB'],
                         radius=O['LETTER_RADIUS'],width=None,clip=(0,0,240,96))]
     assert canvas_state(m)==before; passed()
-    for text,glyph in (('zeta','Z'),('  apple','A'),('Émile','Émile'[0]),('東京','東'),('9 lives','9')):
+    # A library list shows the letter its row sorts under: a leading article is skipped (ringnav_sort_key).
+    for text,glyph in (('zeta','Z'),('  apple','A'),('Émile','Émile'[0]),('東京','東'),('9 lives','9'),('The Cure','C'),
+                       ('Them Crooked Vultures','T'),('a Tribe','T'),('An Émile','Émile'[0]),('Anthrax','A'),('The','T')):
         m.nodes[selected_entry(m,w,rs,es)]['text']=text; m.paint(w,gap=0)
         assert [l['text'] for l in m.letters]==[glyph],text; passed()
     m.nodes[selected_entry(m,w,rs,es)]['text']='   '; m.paint(w,gap=0)
@@ -2928,6 +2969,11 @@ if variant=='ipod':
     for _ in range(5): m.call(gap=100)
     m.paint(w,gap=0); assert m.letters
     m.touch(); m.paint(w,gap=0); assert not m.letters; passed()
+    # Elsewhere (a folder sorts by its file name) the first character stays.
+    m=Machine(); w,es=m.page_list(40,extent=40*48,name='folder_page')
+    for e in es: m.nodes[e]['text']='The Cure'
+    for _ in range(5): m.call(gap=100)
+    m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['T']; passed()
 
 WRITERS={'scanAllMusicFile':'stock_scan_all','scanSpecFolder':'stock_scan_folder','deleteMusicFromMusicDb':'stock_delete_song'}
 class CoverflowMachine(QueueMachine):

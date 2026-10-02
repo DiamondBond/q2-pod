@@ -1223,6 +1223,18 @@ static int clip_surface(void *canvas, menu_t *m, rect_t *old) {
     return 1;
 }
 
+/* Library sorting ignores a leading "The ", "A " or "An " (Apple's rule) when a name follows it:
+ * the length to skip, else 0. */
+static unsigned article(const char *s) {
+    for (const char *a = "the a an "; *a;) {
+        unsigned n = 0;
+        while (a[n] != ' ' && (s[n] | 32) == a[n]) ++n;
+        if (a[n] == ' ' && s[n] == ' ' && (unsigned char)s[n + 1] > ' ') return n + 1;
+        while (*a++ != ' ') {}
+    }
+    return 0;
+}
+
 #if IPOD
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
@@ -1306,6 +1318,13 @@ static void paint_letter(void *w, void *canvas) {
     const unsigned *s = i < 0 ? (void *)0 : row_id(g_menu.at[i]).title;
     while (s && *s == ' ') ++s;
     if (!s || !*s || !clip_surface(canvas, &g_menu, &old)) return;
+    if (g_menu.ctx >= 0 && contexts[g_menu.ctx].kind == CTX_LOCAL) { /* the letter it sorts under */
+        char head[8];
+        unsigned k = 0;
+        for (; k < 7 && s[k]; ++k) head[k] = (char)(s[k] < 128 ? s[k] : 127);
+        head[k] = 0;
+        s += article(head);
+    }
     unsigned c = *s >= 'a' && *s <= 'z' ? *s - 32 : *s;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (g_menu.height - LETTER_BOX) / 2, LETTER_BOX,
@@ -2984,6 +3003,15 @@ int ringnav_shuffle(int forward) {
     if (queue && at < deque_size(queue) && rec_hash(deque_at(queue, at)) == st.qm_forced_hash)
         MCL(MCL_POS) = (int)at;
     return result;
+}
+
+/* Replaces the name comparators' toolsTrimLeft calls (SORT_TRIMS): each trims its own copy of a
+ * name, which then sorts without its article. */
+void ringnav_sort_key(char *s) {
+    toolsTrimLeft(s);
+    unsigned n = article(s);
+    if (n)
+        for (char *d = s; (*d = d[n]); ++d) {}
 }
 
 /* Moves key's place to the front of the ring at sec, or forgets it near either end. */

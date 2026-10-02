@@ -69,6 +69,9 @@ WATCHDOG_SLEEP = (b'\tsleep 2\n', b'\tsleep 10\n')
 RTC_WRITE = (b'hwclock -w\0\0', b'hwclock -wu\0')
 # mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
+# The bal toolsTrimLeft on each name copy in the two library name comparators (0x5b9d40, 0x5ba658, the
+# Chinese and other-language sorts); they become jal ringnav_sort_key, which also drops a leading article.
+SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
 # check_mem_thd's "open failed, skip the write" beq becomes b: it never writes 3 to drop_caches.
 DROP_CACHES = (0x5120a8, 0x12220006, 0x10000006)
 # demo's .pdr section (offset, size): MIPS procedure descriptors past every LOAD segment, which nothing
@@ -298,6 +301,7 @@ FUNCTIONS = {
  'player_stop': ('int', 'void'),
  'mclSetDacPwr': ('int', 'int'),
  'reset_poweroptions_timer': ('int', 'int, int, int'),
+ 'toolsTrimLeft': ('void', 'char *'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -487,6 +491,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
     patch_word(patched, [], *DROP_CACHES, 'keep the page cache')
+    for address in SORT_TRIMS:
+        patch_word(patched, [], address, 0x04110000 | (syms['toolsTrimLeft'] - address - 4) >> 2 & 0xffff,
+                   0x0c000000 | (ps['ringnav_sort_key'] >> 2), 'sort without a leading article')
     # Pin added private entry points as well as every replaced instruction, and the stock bitmap,
     # canvas and slide_menu entries Coverflow's depth renderer calls (docs/internals.md#coverflow-depth).
     for name, original in AUDIT['private_prologues'].items():

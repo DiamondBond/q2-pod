@@ -111,7 +111,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **Now Playing:** "3 of 12", large rounded cover art beside a bigger title over grey artist and album, and a slim accent capsule with elapsed and remaining time.
 - **Quick settings:** pull down from the top edge.
 - **Page slides:** pages slide in from the right and back out on Return.
-- **Fast-scroll letter:** spinning through a long list shows the current title's first letter.
+- **Fast-scroll letter:** spinning through a long list shows the current title's first letter (the one it sorts under, so C for The Cure).
 - **Starts on Home.** **Memory playback → Location** restores your queue paused where you left it; **Track** restarts the song. **In-Vehicle mode** starts playing.
 
 ## Controls
@@ -128,6 +128,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **List ends:** local lists stop at the end; pause, then turn again to wrap.
 - **Position memory:** returning to a recent folder, album, search or menu restores your place until power-off.
 - **Artists:** open on Albums, with All Songs one tap away.
+- **Sorting:** Artists, Albums and Songs ignore a leading "The", "A" or "An", so The Cure sorts under C; names show unchanged.
 - **Pop-ups** (iPod): the wheel moves between OK and Cancel.
 - **Key Tone** (iPod): clicks once per row, not per wheel tick.
 
