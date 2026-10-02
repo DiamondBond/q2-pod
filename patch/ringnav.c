@@ -8,7 +8,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
     stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
     stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
-    stock_image_trampoline(void *, const char *, void *);
+    stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
@@ -33,7 +33,7 @@ extern void *peq_edit(void *parent, int x, int y, int w, int h, const char *inpu
  * first: sooner is a spin, later a tick of its own. Tuned on the device. */
 #define OVERSHOOT_MIN_MS 80
 #define OVERSHOOT_MAX_MS 140
-#define WHEEL_RAMP_MS 100 /* scrub, the pixel fallback and normal: one step for this long, then */
+#define WHEEL_RAMP_MS 100 /* scrub, the pixel fallback and Stock: one step for this long, then */
 #define WHEEL_MAX_STEP 8  /* one more per this much spin, up to this many */
 #define LIST_FIRST_MS 300 /* iPod row lists: one row per step for this long, */
 #define LIST_RAMP_MS 200  /* then one row more per this much spin */
@@ -1298,7 +1298,7 @@ static void paint_letter(void *w, void *canvas) {
 #endif
 
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
- * in normal, a full-width accent bar behind them in iPod.
+ * in Stock, a full-width accent bar behind them in iPod.
  * The outline is one neutral white line seated on a dark shade line: the shade is the stock dark
  * surface at an alpha high enough to hold the white over bright album art, and being the same
  * color as the dark rows it vanishes on the stock theme. The translucent fill keeps the row
@@ -2568,6 +2568,36 @@ int ringnav_localmusic(void *win, void *ctx) {
         label = list_row(view, "local_frequentplay", most_played, 0); /* stock's, unused */
         widget_set_text_utf8(label, "Most Played");
         widget_restack(P(P(label, W_PARENT), W_PARENT), 1);
+    }
+    return result;
+}
+
+/* systemset_about_page_init: stock's seven rows (0x4bc274), each a s_listitem_black list_item
+ * holding a 335x70 s_btn_listitem button, a 166px s_scrlabel_white24l title at x 10 and a 149px
+ * s_scrlabel_white20r value at x 176, both focus-only scrolling with ellipses. FW. Version (row 1)
+ * reads demo's version literal, which carries the updater tag (tools/build.py VERSIONS), so it
+ * shows the stock firmware's again; a Q2 Pod row in the same widgets follows it. Its button has no
+ * name, so stock's row click (atoi of the name, 0x4bc774) ignores it. */
+static void about_label(void *button, int x, int w, const char *style, const char *text) {
+    void *label = hscroll_label_create(button, x, 0, w, 70);
+    widget_use_style(label, style);
+    hscroll_label_set_only_focus(label, 1);
+    hscroll_label_set_ellipses(label, 1);
+    widget_set_text_utf8(label, text);
+}
+
+int ringnav_about(void *win, void *ctx) {
+    int result = stock_about_trampoline(win, ctx);
+    void *view = win ? widget_lookup(win, "scroll_view_about", 1) : (void *)0;
+    if (view && widget_count_children(view) == 7) {
+        widget_set_text_utf8(widget_get_child(widget_get_child(widget_get_child(view, 1), 0), 1), STOCK_VERSION);
+        void *item = list_item_create(view, 0, 0, 0, 0);
+        widget_use_style(item, "s_listitem_black");
+        void *button = button_create(item, 20, 0, 335, 70);
+        widget_use_style(button, "s_btn_listitem");
+        about_label(button, 10, 166, "s_scrlabel_white24l", "Q2 Pod:");
+        about_label(button, 176, 149, "s_scrlabel_white20r", Q2POD_VERSION);
+        widget_restack(item, 2);
     }
     return result;
 }

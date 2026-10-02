@@ -9,6 +9,8 @@ PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
 VBR_SCAN = 0x48fb3c
 # The audio demuxer's seek slot (demuxer_desc_audio at 0x89fd90) holds demux_audio_seek; see docs/internals.md.
 SEEK_SLOT, STOCK_SEEK = 0x89fdbc, 0x48d1ac
+# The equalizer filter's descriptor (pinned) and its open slot, which becomes peq_open.
+EQ_DESC, EQ_OPEN_SLOT = 0x893df8, 0x893e0c
 # Stock skips the equalizer above 48 kHz (address, stock word, patched word); see docs/internals.md.
 EQ_RATE_GATES = ((0x42ced0, 0x10400098, 0),            # beqz $v0 to "setequalizer off" -> nop
                  (0x42fd84, 0x1440003b, 0x1000003b))   # bnez $v0 to the insert -> b
@@ -97,7 +99,7 @@ def patch_player(raw, out):
     out.mkdir(exist_ok=True)
     binary = out/'stock-hciplayer'
     binary.write_bytes(raw)
-    check(raw[fileoff(raw, 0x893df8):fileoff(raw, 0x893df8)+24].hex() ==
+    check(raw[fileoff(raw, EQ_DESC):fileoff(raw, EQ_DESC)+24].hex() ==
           'ac3d8900cc6388003c3b890098c988000100000024014500', 'EQ descriptor mismatch')
     objects = compile_common(out, binary, True)
     script = out/'link.ld'
@@ -111,7 +113,7 @@ def patch_player(raw, out):
     ps = symbols(out/'peq.elf')
     payload = (out/'peq.bin').read_bytes()
     data = bytearray(raw)
-    off = fileoff(raw, 0x893e0c)
+    off = fileoff(raw, EQ_OPEN_SLOT)
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
     off = fileoff(raw, VBR_SCAN)
     data[off:off+4] = bytes(4)  # nop; was bnez $v0, 0x491de0

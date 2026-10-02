@@ -52,7 +52,7 @@ def validate_assets(directory):
     # The slide hint names a stock animator and gives it a duration (a missing one means stock's 500 ms).
     assert re.fullmatch(r'htranslate\(duration=\d+\)', SLIDE) and b'\0htranslate\0' in stock
     # iPod alone jumps from these entry points to its payload (build.py pins the leaf's words);
-    # normal keeps all of them stock.
+    # Stock keeps all of them stock.
     for address, name in [*IPOD_HOOKS.values(), IPOD_LEAF[1:3]]:
         off = fileoff(stock, address)
         want = stock[off:off+8]
@@ -66,7 +66,7 @@ def validate_assets(directory):
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
     # iPod settings icons: the audited 52px artwork, packaged as SET_ICON RGBA with the same transparency
-    # and, on a plain background, the same average colour; normal keeps them stock.
+    # and, on a plain background, the same average colour; Stock keeps them stock.
     def mean(png, bg):
         cmd = ['png:-', '-background', bg, '-flatten', '-format', '%[fx:mean.r],%[fx:mean.g],%[fx:mean.b]', 'info:']
         return [float(v) for v in imagemagick(*cmd, data=png).split(b',')]
@@ -105,7 +105,7 @@ def validate_assets(directory):
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
     names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
     assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
-    # iPod drops the carousel images and adds no Coverflow icons; normal keeps both.
+    # iPod drops the carousel images and adds no Coverflow icons; Stock keeps both.
     icons = {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS}
     carousel = {'squashfs-root/'+rel for rel in CAROUSEL}
     assert (carousel & names == (set() if ipod else carousel)) and (icons & names == (set() if ipod else icons))

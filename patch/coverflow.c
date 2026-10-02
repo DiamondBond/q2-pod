@@ -12,7 +12,7 @@
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
 #define ART_SIZE 160
 #define LAST_ALBUM ART_DIR "/album" /* the centre album's key, so a reboot opens on it */
-#if IPOD /* iPod insets its text from the rounded glass (offsets.inc CF_*); normal keeps its layout */
+#if IPOD /* iPod insets its text from the rounded glass (offsets.inc CF_*); Stock keeps its layout */
 #define CF_X CF_EDGE
 #define CF_W (375 - 2 * CF_EDGE)
 #define CF_ROW_X CF_X /* one text column throughout */

@@ -8,9 +8,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
 VERSION = '7.6'  # the only place a release bumps the version
-VERSIONS = {'normal': f'V{VERSION}R', 'ipod': f'V{VERSION}I'}
+# The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
+# the stock firmware version and a Q2 Pod row with EDITIONS instead (ringnav_about).
+VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
 # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
-DEV_VERSIONS = {'normal': f'V{VERSION}r', 'ipod': f'V{VERSION}i'}
+DEV_VERSIONS = {'stock': f'V{VERSION}s', 'ipod': f'V{VERSION}i'}
+EDITIONS = {'stock': 'Stock', 'ipod': 'iPod'}
 BASE = 0xb00000
 SCRATCH = 0xb20000
 RING_STEP = 48
@@ -29,8 +32,9 @@ HOOKS = {
     'scanSpecFolder': (0x4fc964, 'coverflow_scan_folder'),
     'deleteMusicFromMusicDb': (0x500b5c, 'coverflow_delete_song'),
     'main_loop_sleep_default': (0x648f00, 'ringnav_sleep'),
+    'systemset_about_page_init': (0x4bc80c, 'ringnav_about'),
 }
-# Hooked in iPod builds only, so normal keeps these entry points stock.
+# Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
               'playing_page_init': (0x52ca88, 'ringnav_playing'),
               'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
@@ -194,6 +198,8 @@ FUNCTIONS = {
  'list_item_create': ('void *', 'void *, int, int, int, int'),
  'hscroll_label_create': ('void *', 'void *, int, int, int, int'),
  'set_hscroll_label_attribute': ('void', 'void *'),
+ 'hscroll_label_set_only_focus': ('int', 'void *, int'),
+ 'hscroll_label_set_ellipses': ('int', 'void *, int'),
  'widget_off_by_func': ('int', 'void *, unsigned, void *, void *'),
  'window_close': ('int', 'void *'),
  'navigator_to': ('int', 'const char *'),
@@ -323,7 +329,7 @@ def patch_watchdog(raw):
     return raw.replace(*WATCHDOG_SLEEP)
 
 def build(zip_path, out, logo, ipod=False, dev=False):
-    variant = 'ipod' if ipod else 'normal'
+    variant = 'ipod' if ipod else 'stock'
     version = (DEV_VERSIONS if dev else VERSIONS)[variant]
     out.mkdir(parents=True, exist_ok=True)
     check(not (out/'update.tar').exists(), 'Output already exists; use a fresh --out directory')
@@ -383,6 +389,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # iPod's image hook leaves the settings icons' category colours alone (ringnav.c settings_icon).
     names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
+    # About: the stock firmware's version on its own row, and this build's on the Q2 Pod row.
+    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {EDITIONS[variant]}{" dev" * dev}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()
@@ -432,7 +440,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     code_changes = []
     if ipod:
         code_changes = patch_code(patched, ps)
-    # Single shared version literal: About display and updater equality check.
+    # Single shared version literal: the updater refuses an equal firmware_v20.info version (update_firmware
+    # 0x4f8440, check_otginfo 0x4f8968), so it carries the build tag and stock V1.32 can be flashed back.
+    # About's FW. Version row reads it too (0x4bc52c); ringnav_about shows STOCK_VERSION there instead.
     check(patched.count(b'V1.32\0') == 1, 'Version literal is not unique')
     check(len(version) + 1 == len(b'V1.32\0'),
           'VERSION must stay 5 characters; a longer literal shifts every later file offset')
@@ -464,7 +474,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo = out/'logo.jpg'
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
-    # New inodes, each with its stock image's metadata: normal's Coverflow card icons (menu_music's),
+    # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
     # and Shuffle Songs' icon, stock's 52px playset_playmode apart from the copy iPod pre-sizes for Settings.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
@@ -544,7 +554,7 @@ if __name__ == '__main__':
                     help='320x375 JPEG boot splash (default: assets/logo.jpg)')
     ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
-                    help=f'development build: lowercase version tag (V{VERSION}r/i); never a release input')
+                    help=f'development build: lowercase version tag (V{VERSION}s/i); never a release input')
     a=ap.parse_args()
     try:
         build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev)

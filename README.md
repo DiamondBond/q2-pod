@@ -51,10 +51,10 @@ Each of those plays is also logged to `.scrobbler.log` at the root of the microS
 > [!IMPORTANT]
 > Charge the Q2 first, and leave the microSD card in until the update finishes.
 
-1. [Download](https://github.com/DiamondBond/q2-ringnav/releases/latest) `Q2.Firmware.V*-ipod.zip`, unzip it and copy `update.tar` to the root of the microSD card.
+1. [Download](https://github.com/DiamondBond/q2-ringnav/releases/latest) `Q2.Firmware.V*.zip`, unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2: **System settings → System Update → TF card update**.
 
-**Prefer the stock look?** The Normal build, `Q2.Firmware.V*.zip`, has everything except the [iPod UI](#ipod-ui).
+**Prefer the stock look?** The Stock build, `Q2.Firmware.V*-stock.zip`, has everything except the [iPod UI](#ipod-ui).
 
 ### Restore stock
 

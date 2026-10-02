@@ -1,6 +1,6 @@
 # Standard release procedure
 
-To prepare a release, bump `VERSION` in `tools/build.py` and add a `- **V<version>R / V<version>I**` entry to the top of `docs/changelog.md`; packaging turns that entry into the release notes (the bold version heading, then one bullet a sentence) and fails without it. Keep the proprietary stock ZIP local. Use the Python environment with `requirements.txt`
+To prepare a release, bump `VERSION` in `tools/build.py` and add a `- **V<version>**` entry to the top of `docs/changelog.md`; packaging turns that entry into the release notes (the bold version heading, then one bullet a sentence) and fails without it. Keep the proprietary stock ZIP local. Use the Python environment with `requirements.txt`
 installed for these commands:
 
 ```sh
@@ -12,9 +12,9 @@ python3 tools/release.py upload /tmp/q2-release
 python3 tools/release.py upload /tmp/q2-release --publish
 ```
 
-Packaging requires a fresh output directory, builds each variant twice, runs the shared MIPS
+Packaging requires a fresh output directory, runs the `port.py` self-check, builds each variant twice, runs the shared MIPS
 suite and asset checks on each build, and compares update.tar and ZIP bytes. It writes both
-ZIPs, manifests, SHA256SUMS, release notes and source revision/hash. Normal is the default for
+ZIPs, manifests, SHA256SUMS, release notes and source revision/hash. Stock is the default for
 direct builds; a single direct build is never a release input. Upload revalidates both variants
 and refuses stale, missing or changed artifacts and published releases. An upload/download
 failure leaves the release unpublished; rerun upload to repair the draft. Packaging uses no

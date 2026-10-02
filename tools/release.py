@@ -14,15 +14,16 @@ import tempfile
 import zipfile
 from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
-TAG = f'{VERSION}R'
+TAG = VERSION  # tags up to 7.6R carried the Stock build's R
 REPO = 'DiamondBond/q2-ringnav'
-ASSETS = {'normal': f'Q2.Firmware.V{VERSION}.zip', 'ipod': f'Q2.Firmware.V{VERSION}-ipod.zip'}
+# iPod is the main build; Stock keeps the stock UI.
+ASSETS = {'ipod': f'Q2.Firmware.V{VERSION}.zip', 'stock': f'Q2.Firmware.V{VERSION}-stock.zip'}
 
 
 def notes():
     """This version's line from docs/changelog.md, so a release edits only VERSION and the changelog:
     its bold version heading, then one bullet a sentence."""
-    prefix = f'- **V{VERSION}R'
+    prefix = f'- **V{VERSION}**'  # entries up to V7.6 read **V7.6R / V7.6I**
     entry = next((l for l in (ROOT/'docs/changelog.md').read_text().splitlines() if l.startswith(prefix)), None)
     check(entry, f'docs/changelog.md has no {prefix} entry')
     title, text = entry[2:].split(': ', 1)
@@ -78,6 +79,8 @@ def package(stock, out):
     out.mkdir(parents=True)
     source = source_sha256()
     revision = run('git', '-C', ROOT, 'rev-parse', 'HEAD').strip()
+    # Every raw stock address keeps a signature that finds it, and only it (docs/internals.md#porting).
+    run(sys.executable, ROOT/'tools/port.py', stock, '--self-check')
     checksums = {}
     for variant, asset in ASSETS.items():
         for suffix in ('', '-repeat'):

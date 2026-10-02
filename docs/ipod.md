@@ -1,7 +1,7 @@
 # iPod UI
 
-Normal and iPod share one navigation payload. `--ipod` enables the compact layout
-payload helpers and build-time edits in `tools/compact.py`; normal receives no
+The Stock and iPod builds share one navigation payload. `--ipod` enables the compact layout
+payload helpers and build-time edits in `tools/compact.py`; Stock receives no
 compact executable sites or UI assets. `patch/compact.json` records the original
 asset hashes and full MIPS instructions. The builder also pins the complete stock
 ZIP and executable, rejects mismatches, and records every changed asset/site.
@@ -251,7 +251,7 @@ and the ImageMagick version under `changed_assets` and `tools`. `tools/test_buil
 packaged bytes, the sizes, and that each icon's average colour on black and on the Graphite
 selection grey matches the stock icon's. Other 52-pixel images that land in settings rows, such as
 Streaming's Tidal logo (`list_tidal`, which the folder root may also use), keep their stock bytes
-and still scale down. Normal keeps every icon stock. The recolouring of accent-red artwork
+and still scale down. The Stock build keeps every icon stock. The recolouring of accent-red artwork
 (`ringnav_image_add`) works on the decoded bitmap, so it applies at either size.
 
 ## Quick settings
@@ -287,7 +287,7 @@ the artist under that in 20-pixel grey (`#AAAAAA`, stock secondary text), and bo
 track list's title and rows and the progress and empty messages, keep 36 pixels (`CF_EDGE`) from
 each side, where the lowest visible track row's text clears the bottom corners. Long names still
 scroll within that. The Refresh card uses the album line.
-Values are `CF_*` in `patch/offsets.inc`; normal keeps its track list layout.
+Values are `CF_*` in `patch/offsets.inc`; Stock keeps its track list layout.
 
 ## Rounded corners
 

@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
-from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS
+from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS, VERSION, EDITIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -612,7 +612,7 @@ assert m.get(w+O['SCROLL_Y'])==148 and m.get(w+O['VIEW_ANIMATOR'])==0; passed()
 # Painting establishes selection without a sacrificial button press or native focus.
 m=Machine(); w,entries=m.page_list(5,extent=1000)
 assert m.paint(w)==0 and m.selected(w)==0
-if variant=='normal':
+if variant=='stock':
     # Default outline: translucent fill, one dark shade stroke, one white stroke, all clipped.
     assert [r['kind'] for r in m.rounded]==['fill','stroke','stroke']
     fill,shade,white=m.rounded
@@ -786,7 +786,7 @@ m.on_click=destroy
 assert m.confirm()==11 and len(m.dispatched())==1; passed()
 
 # Execute native row-pool constructors, including the untouched album grid branch.
-# The 52px artwork keeps the stock nine-pixel inset in normal; iPod keeps that same 52px
+# The 52px artwork keeps the stock nine-pixel inset in Stock; iPod keeps that same 52px
 # artwork at natural size (no rescaling) and gives it an even eight-pixel inset on all four
 # sides of the 68px row body. The playing overlay follows.
 ARTWORK = {
@@ -1260,7 +1260,7 @@ for name in ('searchbox_dialog','tidal_searchbox_dialog'):
 
 # iPod: a confirm dialog's buttons are its rows (contexts.inc BUTTONS). The wheel moves between the
 # side-by-side buttons without scrolling anything, the bar is the button's own tile, the ends are
-# hard and Centre clicks the selected button. Normal leaves the dialog stock: the wheel is volume.
+# hard and Centre clicks the selected button. The Stock build leaves the dialog stock: the wheel is volume.
 m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm)
 m.word(d+O['W_W'],375); m.word(d+O['W_H'],320); m.clip=(0,0,375,320); m.top=d
 buttons=[m.entry(d,220) for _ in range(2)]; m.nodes[d]['children']=buttons
@@ -1587,7 +1587,7 @@ for table in (False,True):
             # Seventeen rows accelerate even at a 50ms cadence: the second tick is still one
             # row (50ms of spin), the third crosses 100ms and steps two. iPod's row lists wait
             # for 300ms of spin: six one-row ticks, then the seventh steps two.
-            for want in (1,2,4) if variant=='normal' else (1,2,3,4,5,6,8):
+            for want in (1,2,4) if variant=='stock' else (1,2,3,4,5,6,8):
                 assert m.call(gap=50)==11 and m.selected(w)==want
             for _ in range(20): m.call(gap=50)
             assert m.selected(w)==count-1      # held at the end
@@ -1606,15 +1606,15 @@ for table in (False,True):
 # Resizing across the short-list boundary cannot carry a previous fast run with it.
 m=Machine(); w,es=m.page_list(17,height=960,extent=17*48)
 m.nodes[w]['children']=es; m.paint(w)
-for want in (1,3,6) if variant=='normal' else (1,1,2,4,6):  # iPod: the overshoot tick, then two rows from 300ms of spin
+for want in (1,3,6) if variant=='stock' else (1,1,2,4,6):  # iPod: the overshoot tick, then two rows from 300ms of spin
     assert m.call(gap=100)==11 and m.selected(w)==want
 m.nodes[w]['children']=es[:16]; m.paint(w)
 assert m.call(gap=100)==11 and m.selected(w)==1   # fresh one-row run on the short list
-for want in (2,3) if variant=='normal' else (1,2):
+for want in (2,3) if variant=='stock' else (1,2):
     assert m.call(gap=100)==11 and m.selected(w)==want
 m.nodes[w]['children']=es; m.paint(w)
 assert m.call(gap=100)==11 and m.selected(w)==1   # and again after growing back
-for want in (3,) if variant=='normal' else (1,2,4):
+for want in (3,) if variant=='stock' else (1,2,4):
     assert m.call(gap=100)==11 and m.selected(w)==want
 passed()
 
@@ -1682,7 +1682,7 @@ for change in ('window','pane','scope','context','count','gesture','screen','uns
     m=Machine(); w,es=m.page_list(40,extent=40*48,
         name='sysset_page' if change=='context' else 'allmusic_page')
     for _ in range(7): m.call(gap=100)
-    assert m.selected(w)==(28 if variant=='normal' else 12)  # iPod: 1,0,1,2,2,3,3 rows
+    assert m.selected(w)==(28 if variant=='stock' else 12)  # iPod: 1,0,1,2,2,3,3 rows
     w=disturb(m,w,change,40)
     m.paint(w,gap=0)
     before=m.selected(w)
@@ -1691,7 +1691,7 @@ for change in ('window','pane','scope','context','count','gesture','screen','uns
 # Rejected stock wheel input resets a sustained list run.
 m=Machine(); w,es=m.page_list(40,extent=40*48)
 for _ in range(7): m.call(gap=100)
-fast=28 if variant=='normal' else 12
+fast=28 if variant=='stock' else 12
 assert m.selected(w)==fast
 m.byte(0xa37c89,1)
 assert m.call(gap=10,debounce=True)==11 and m.selected(w)==fast
@@ -1708,16 +1708,16 @@ m.click(m.node('button')); assert m.selected(w)==0; passed()
 # A 20px row at canvas origin (7,20) under a (10,30)-(229,199) clip.
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
 e=m.entry(w,0); m.word(e+O['W_H'],20); m.nodes[w]['children']=[e]
-sink='lcd_stroke_rect' if variant=='normal' else 'lcd_fill_rect'
+sink='lcd_stroke_rect' if variant=='stock' else 'lcd_fill_rect'
 for name in ('canvas_get_clip_rect','canvas_set_clip_rect',
-             *(('canvas_set_stroke_color','canvas_stroke_rect') if variant=='normal' else ('canvas_fill_rect',))):
+             *(('canvas_set_stroke_color','canvas_stroke_rect') if variant=='stock' else ('canvas_fill_rect',))):
     del m.handlers[syms[name]]
 m.mock(sink)
 m.word(m.lcd+0x3c,1); m.word(m.lcd+0xb0,240); m.word(m.lcd+0xb4,240)
 m.word(m.canvas+O['CANVAS_X'],7); m.word(m.canvas+O['CANVAS_Y'],20)
 for off,val in [(0x10,10),(0x14,30),(0x18,229),(0x1c,199)]: m.word(m.canvas+off,val)
 m.paint(w)
-if variant=='normal':
+if variant=='stock':
     # The square fallback (radius 9 needs more height) runs the stock square code.
     assert not m.rounded and [s[:4] for s in m.strokes]==[(8,21,238,18),(9,22,236,16)]
     assert m.strokes[0][4:]==((10,30,220,86),SHADE)
@@ -1778,7 +1778,7 @@ m.paint(w); assert m.selected(w)==1 and m.get(w+O['SCROLL_Y'])==48; passed()
 
 # Small rows keep the square shade-plus-white outline; the rounded path starts only when both
 # outer dimensions exceed 2*RADIUS. Tiny rows are skipped outright, never with negative sizes.
-for ww,hh in [(240,20),(20,48),(6,6),(21,21)] if variant=='normal' else ():
+for ww,hh in [(240,20),(20,48),(6,6),(21,21)] if variant=='stock' else ():
     m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
     e=m.entry(w,0); m.word(e+O['W_W'],ww); m.word(e+O['W_H'],hh); m.nodes[w]['children']=[e]
     assert m.paint(w)==0
@@ -1829,7 +1829,7 @@ m.paint(b); assert not m.drawn()
 m.paint(a); assert m.sel()==(0,0,240,48); passed()
 
 # A canvas backend that declines the rounded stroke keeps the outline via the square fallback.
-if variant=='normal':
+if variant=='stock':
     m=Machine(); w,es=m.page_list(3,extent=1000); m.rounded_fail=True
     m.paint(w)
     assert [r['kind'] for r in m.rounded]==['fill','stroke'] and [s[:4] for s in m.strokes]==[(1,1,238,46),(2,2,236,44)]
@@ -1940,7 +1940,7 @@ for active in (-1,0,1,2):
     passed()
 
 # If the white rounded stroke fails, draw the square fallback as well.
-if variant=='normal':
+if variant=='stock':
     m=Machine(); w,es=m.page_list(3); m.rounded_fail=O['RADIUS']-1
     m.paint(w)
     assert [s[5] for s in m.strokes]==[SHADE,OUTLINE]
@@ -2803,7 +2803,7 @@ if variant=='ipod':
 # Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
 # the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
 # the list on a translucent dark rounded square, LETTER_MS after the last detent a timer repaints it
-# away, and every canvas text/fill/clip state it touched is restored. Normal draws none.
+# away, and every canvas text/fill/clip state it touched is restored. Stock draws none.
 def canvas_state(m):
     return (m.lcd_colors(),m.get(m.lcd+O['LCD_TEXT_COLOR']),m.get(m.canvas+O['CANVAS_ALIGN_V']),
             m.get(m.canvas+O['CANVAS_ALIGN_H']),m.clip)
@@ -2821,7 +2821,7 @@ def selected_entry(m,w,rs,es):
 box=(120-O['LETTER_BOX']//2,48-O['LETTER_BOX']//2,O['LETTER_BOX'],O['LETTER_BOX'])
 for virtual in (False,True):
     m,w,rs,es=letter_machine(virtual); before=canvas_state(m)
-    slow=1 if variant=='normal' else 3  # one-row ticks 100ms apart before the ramp's second row
+    slow=1 if variant=='stock' else 3  # one-row ticks 100ms apart before the ramp's second row
     for _ in range(slow): assert m.call(gap=100)==11; m.paint(w,gap=0); assert not m.letters   # step 1
     assert m.call(gap=100)==11 and m.selected(w)==slow+2-(variant=='ipod'); m.paint(w,gap=0)     # step 2; iPod dropped its second tick
     if variant!='ipod':
@@ -3274,7 +3274,7 @@ assert m.nodes[m.slide].get('sensitive')==0; passed()
 # Text geometry. Both builds: album over artist under the covers' frame (CF_TEXT_Y), the album larger
 # and white, the artist grey, CF_EDGE from the sides and clear of the rounded glass. iPod keeps every
 # other label (the track list's title and rows, whose last visible row is lowest) CF_EDGE in too;
-# normal keeps its track list layout.
+# Stock keeps its track list layout.
 from compact import corner_inset
 def cf_geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
 def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
@@ -4081,7 +4081,7 @@ if variant=='ipod':
     m.advance(10000); assert not buzzes(m) and m.u.mem_read(TONE,1)==b'\x01'; passed()
     CONFIG.clear()
 else:
-    # Normal firmware has no key-down hook: the stock entry is untouched, every press clicks as the
+    # The Stock build has no key-down hook: the stock entry is untouched, every press clicks as the
     # stock binary does whether or not the row moves, the release adds nothing, every tick steps a
     # row and no setting is read.
     off=fileoff(demo,KEYDOWN); assert demo[off:off+12]==(B/'stock-demo').read_bytes()[off:off+12]
@@ -4149,6 +4149,28 @@ m=ShuffleMachine(); m.found=[m.song(n) for n in ('T1','T2','T3')]
 m.counts=struct.pack('<4I',fnv('/p/T1'),2,fnv('/p/T3'),5).ljust(8*O['PLAYS_SLOTS'],b'\0')
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert m.queued==['T3','T1'] and m.plays==[('playing_page',m.plays[0][1],0,1,2)] and not called('config_playmode'); passed()
+
+# About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
+# literal, and a Q2 Pod row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
+# Version, so the added row is checked against the real stock widgets, geometry and styles.
+m=ShuffleMachine(); m.handlers[int(manifest['patch_symbols']['stock_about_trampoline'],16)]='stock_about'
+m.mock('strcpy@GLIBC_2.0','widget_set_tr_text')
+def tree(w):
+    n=m.nodes[w]
+    return (n['type'],[m.get(w+O[k]) for k in ('W_X','W_Y','W_W','W_H')],n.get('style'),
+            n.get('hscroll_label_set_only_focus'),n.get('hscroll_label_set_ellipses'),[tree(c) for c in n['children']])
+view=m.node('scroll_view','scroll_view_about'); m.top=m.node('window','about_page',[view])
+for i in range(7):
+    row=m.node('list_item'); m.nodes[view]['children'].append(row)
+    if i<2: assert m.call(address=0x4bc274,args=(row,i,0,0),gap=0)==0
+rows=list(m.nodes[view]['children'])
+assert m.call(address=HOOKS['systemset_about_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and m.calls[0][:3]==('stock_about',m.top,5)
+kids=m.nodes[view]['children']; assert kids[:2]==rows[:2] and kids[3:]==rows[2:]
+fw=m.nodes[m.nodes[rows[1]]['children'][0]]['children'][1]; assert m.nodes[fw]['text']=='V1.32'
+item=kids[2]; button=m.nodes[item]['children'][0]; title,value=m.nodes[button]['children']
+assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==tree(m.nodes[rows[1]]['children'][0])
+assert m.nodes[title]['text']=='Q2 Pod:' and m.nodes[value]['text']==f"V{VERSION} {EDITIONS[variant]}{' dev'*manifest['dev']}"
+assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its
 # place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S of play, after a
