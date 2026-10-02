@@ -9,7 +9,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
     stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
-    stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *);
+    stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
+    stock_input_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
@@ -18,8 +19,9 @@ extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
-    photos_open(const char *root), books_paint(void *w, void *canvas), books_open(const char *root);
-extern int books_key(void *top, unsigned key);
+    photos_open(const char *root), books_paint(void *w, void *canvas),
+    books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
+extern int books_key(void *top, unsigned key), video_on(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
 extern void scrobble_append(const char *line, unsigned n);
@@ -2618,14 +2620,14 @@ static int upload_scrobbles(void *ctx, void *event) {
 }
 
 /* Podcasts and Audiobooks (docs/internals.md#podcasts-and-audiobooks): the card's top-level
- * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c and
- * Books books.c. */
-enum { PODCASTS = 1, AUDIOBOOKS, PHOTOS, BOOKS };
-static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos", "Books" };
+ * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c,
+ * Books and Videos books.c. */
+enum { PODCASTS = 1, AUDIOBOOKS, PHOTOS, BOOKS, VIDEOS };
+static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos", "Books", "Videos" };
 
 /* 1 + the MEDIA folder s names (up to its end or a '/'), 0 for none. MEDIA is letters only. */
 static int media_kind(const char *s) {
-    for (int k = 0; k < BOOKS; k++) {
+    for (int k = 0; k < VIDEOS; k++) {
         int i = 0;
         while (MEDIA[k][i] && (s[i] | 0x20) == (MEDIA[k][i] | 0x20)) i++;
         if (!MEDIA[k][i] && (!s[i] || s[i] == '/')) return k + 1;
@@ -2655,7 +2657,11 @@ static int media_click(void *ctx, void *event) {
     int kind = (int)(long)ctx;
     char root[sizeof st.media_root];
     if (kind >= PHOTOS) {
-        if (media_find(kind, root)) (kind == PHOTOS ? photos_open : books_open)(root);
+        if (!media_find(kind, root)) return 0;
+        if (kind == PHOTOS)
+            photos_open(root);
+        else
+            books_open(root, kind == VIDEOS);
         return 0;
     }
     st.media_open = media_find(kind, st.media_root);
@@ -2708,11 +2714,11 @@ int ringnav_localmusic(void *win, void *ctx) {
             widget_set_text_utf8(label, "Upload Scrobbles");
             widget_restack(P(P(label, W_PARENT), W_PARENT), 2);
         }
-        /* Podcasts, Audiobooks, Photos, then Books, last; each only with its folder. */
+        /* Podcasts, Audiobooks, Photos, Books, then Videos, last; each only with its folder. */
         static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos",
-                                             "local_books" };
+                                             "local_books", "local_videos" };
         char path[sizeof st.media_root];
-        for (int k = 0; k < BOOKS; k++)
+        for (int k = 0; k < VIDEOS; k++)
             if (media_find(k + 1, path))
                 widget_set_text_utf8(list_row(view, icons[k], media_click, (void *)(long)(k + 1)),
                                      MEDIA[k]);
@@ -3005,6 +3011,7 @@ static void resume_poll(void) {
  * own bookkeeping. The first pass with it back on repaints every window once, so nothing drawn
  * while dark, or only partly, stays on screen until the next input. */
 int ringnav_sleep(void *loop) {
+    video_poll();
     resume_poll();
     if (!g_backlight_status) {
         st.dark = 1;
@@ -3014,6 +3021,22 @@ int ringnav_sleep(void *loop) {
         widget_invalidate_force(window_manager(), (void *)0);
     }
     return stock_sleep_trampoline(loop);
+}
+
+/* window_manager_dispatch_input_event: while q2video plays (books.c) no key or touch reaches the
+ * UI; a key's release goes to the player instead. */
+int ringnav_input(void *wm, void *e) {
+    if (!video_on()) return stock_input_trampoline(wm, e);
+    if (e && I(e, EVENT_TYPE) == EVT_KEY_UP) video_key((unsigned)I(e, EVENT_KEY));
+    return 0;
+}
+
+/* window_manager_paint, a leaf (tools/build.py WM_PAINT_LEAF): the window manager's own paint
+ * (vtable +0xc), except while q2video has the framebuffer; video_poll repaints after. */
+int ringnav_wm_paint(void *wm) {
+    void *vt = wm && !video_on() ? P(wm, 0x94) : (void *)0;
+    int (*paint)(void *) = vt ? (int (*)(void *))P(vt, 0xc) : (int (*)(void *))0;
+    return paint ? paint(wm) : video_on() ? 0 : 0x10; /* RET_BAD_PARAMS, as stock */
 }
 
 #if IPOD

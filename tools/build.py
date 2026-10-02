@@ -36,6 +36,8 @@ HOOKS = {
     # Podcasts and Audiobooks: folder_page opened at their folder, and Back there leaving it
     'folder_page_init': (0x523330, 'ringnav_folder'),
     'folder_back': (0x507ac8, 'ringnav_folder_back'),
+    # Videos: no input reaches the UI while q2video plays
+    'window_manager_dispatch_input_event': (0x66d49c, 'ringnav_input'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
@@ -48,6 +50,13 @@ IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
 # vtable, then tail-calls get_gradient (+0x18); its first two words (beqz a0; nop) become the jump
 # and the payload does the whole of it. The third word is pinned too, so the layout is the audited one.
 IPOD_LEAF = ('style_get_gradient', 0x649f3c, 'ringnav_style_gradient', (0x10800009, 0, 0x8c820000))
+# Videos: window_manager_paint is a leaf too (null-checks the manager and its vtable at +0x94, then
+# tail-calls paint, +0xc); the payload does the whole of it and skips it while q2video plays.
+WM_PAINT_LEAF = ('window_manager_paint', 0x66d46c, 'ringnav_wm_paint', (0x10800009, 0, 0x8c820094))
+# Videos' player (patch/q2video.c): a separate executable against the rootfs's own libraries,
+# with display_logo's inode metadata.
+HELPER, HELPER_LIKE = 'usr/bin/q2video', 'usr/bin/display_logo'
+HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.so.2.0.0']
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
@@ -271,6 +280,11 @@ FUNCTIONS = {
  'folder_reload_data': ('int', 'void'),
  'folder_reinit_navbarname': ('int', 'void'),
  'folder_refresh': ('int', 'void *'),
+ # Videos (books.c): stop the music, the DAC's power, and the screen and standby timeouts held off
+ 'mclGetOutputWay': ('int', 'void'),
+ 'player_stop': ('int', 'void'),
+ 'mclSetDacPwr': ('int', 'int'),
+ 'reset_poweroptions_timer': ('int', 'int, int, int'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -289,7 +303,8 @@ GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
-                'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024}
+                'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
+                'g_dacoff_time': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
@@ -318,9 +333,25 @@ def compile_payload(out, ipod=False):
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
+        f'--undefined={WM_PAINT_LEAF[2]}',
         out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
+
+def compile_helper(out, cat):
+    """Link patch/q2video.c against the stock rootfs's glibc, libpthread and alsa-lib."""
+    libs = []
+    for rel in HELPER_LIBS:
+        libs.append(out/rel.rsplit('/', 1)[-1])
+        libs[-1].write_bytes(cat(rel))
+    run('clang', '--target=mipsel-linux-gnu', '-march=mips32r2', '-mabi=32', '-mfp64', '-mnan=2008', '-mabs=2008',
+        '-mabicalls', '-fno-pic', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-fno-unwind-tables',
+        '-fno-asynchronous-unwind-tables', '-Oz', '-Wall', '-Wextra', '-Werror',
+        '-c', ROOT/'patch/q2video.c', '-o', out/'q2video.o')
+    run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
+        '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',
+        out/'q2video.o', *libs, '-o', out/'q2video')
+    return (out/'q2video').read_bytes()
 
 def append_payload(image, payload, base, memsz, flags, label):
     """Map payload at base through the image's final PT_NULL header."""
@@ -423,15 +454,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         gp = ((prolog[0] & 65535) << 16) + (low if low < 32768 else low - 65536) + address
         check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
         jump(off, replacement)
-    if ipod:
-        name, address, replacement, words = IPOD_LEAF
+    for name, address, replacement, words in [WM_PAINT_LEAF] + [IPOD_LEAF] * ipod:
         off = fileoff(patched, address)
         check(syms[name] == address and struct.unpack_from('<III', patched, off) == words, f'{name}: unexpected code')
+        jump(off, replacement)
+    if ipod:
         # style_get_color's own bal style_get_gradient, returning to STYLE_COLOR_GRADIENT_RET, stays unmapped.
         ret = inc('STYLE_COLOR_GRADIENT_RET')
-        check(struct.unpack_from('<I', patched, fileoff(patched, ret - 8))[0] == 0x04110000 | (address - ret + 4) >> 2 & 0xffff,
+        check(struct.unpack_from('<I', patched, fileoff(patched, ret - 8))[0] == 0x04110000 | (IPOD_LEAF[1] - ret + 4) >> 2 & 0xffff,
               'style_get_color: unexpected gradient call')
-        jump(off, replacement)
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq')
@@ -492,9 +523,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # and Shuffle Songs', Upload Scrobbles', Podcasts', Audiobooks', Photos' and Books' icons, stock's 52px
-    # playset_playmode, wifiset_wifi, netservice_dlna, playset_foldercover, playset_covermode and system_language
-    # apart from the copies iPod pre-sizes for Settings.
+    # and Shuffle Songs', Upload Scrobbles', Podcasts', Audiobooks', Photos', Books' and Videos' icons, stock's
+    # 52px playset_playmode, wifiset_wifi, netservice_dlna, playset_foldercover, playset_covermode,
+    # system_language and system_display apart from the copies iPod pre-sizes for Settings; and q2video.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
     icons['local_shuffle.png'] = ('playset_playmode.png', cat(xx+'playset_playmode.png'))
@@ -503,12 +534,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     icons['local_audiobooks.png'] = ('playset_foldercover.png', cat(xx+'playset_foldercover.png'))  # Audiobooks
     icons['local_photos.png'] = ('playset_covermode.png', cat(xx+'playset_covermode.png'))  # Photos, likewise
     icons['local_books.png'] = ('system_language.png', cat(xx+'system_language.png'))  # Books, likewise
+    icons['local_videos.png'] = ('system_display.png', cat(xx+'system_display.png'))  # Videos, likewise
     added = []
-    for name, (like, data) in icons.items():
-        stock = re.search(rb'^'+re.escape((xx+like).encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
-        check(stock is not None, f'Missing stock icon for {name}')
-        path = (xx+name).encode()
-        (out/name).write_bytes(data)  # package the hashed bytes, as the logo
+    for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
+                               HELPER: (HELPER_LIKE, compile_helper(out, cat))}.items():
+        stock = re.search(rb'^'+re.escape(like.encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
+        check(stock is not None, f'Missing stock inode for {path}')
+        name = path.rsplit('/', 1)[-1]
+        if path != HELPER: (out/name).write_bytes(data)  # package the hashed bytes, as the logo
+        path = path.encode()
         entry = path+b' F '+b' '.join(stock.groups())+b' cat '+shlex.quote(str(out/name)).encode()+b'\n'
         at = p.index(b'# START OF DATA')  # definitions precede the embedded data
         p = p[:at]+entry+p[at:]
@@ -563,7 +597,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         demo_sha256=sha(patched), patch_sha256=sha(payload), update_sha256=sha((out/'update.tar').read_bytes()),
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
-        version=version, variant=variant, dev=dev, peq=audio, bluealsa_sha256=sha(bluealsa), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        version=version, variant=variant, dev=dev, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
               ({'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]} if ipod else {}))

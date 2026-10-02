@@ -30,3 +30,4 @@ resume sleep, 0x648f0c
 resume about, 0x4bc818
 resume folder, 0x52333c
 resume folder_back, 0x507ad4
+resume input, 0x66d4a8

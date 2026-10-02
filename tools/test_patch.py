@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
-from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS, VERSION, EDITIONS
+from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS, VERSION, EDITIONS
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -4394,8 +4394,12 @@ class BooksMachine(DepthMachine):
         for n in ('opendir@GLIBC_2.0','readdir@GLIBC_2.0','closedir@GLIBC_2.0','qsort@GLIBC_2.0','fopen@GLIBC_2.2',
                   'fread@GLIBC_2.0','fwrite@GLIBC_2.0','fseek@GLIBC_2.0','ftell@GLIBC_2.0','fclose@GLIBC_2.2',
                   'access@GLIBC_2.0','rename@GLIBC_2.0','unlink@GLIBC_2.0','mkdir@GLIBC_2.0','memcmp@GLIBC_2.0',
-                  'strlen@GLIBC_2.0','strstr@GLIBC_2.0','canvas_measure_text','canvas_draw_text'):
+                  'strlen@GLIBC_2.0','strstr@GLIBC_2.0','canvas_measure_text','canvas_draw_text',
+                  'fork@GLIBC_2.0','execl@GLIBC_2.0','exit@GLIBC_2.0','waitpid@GLIBC_2.0','socket@GLIBC_2.0',
+                  'sendto@GLIBC_2.0','close@GLIBC_2.0'):
             self.handlers[syms[n]]='b:'+n
+        self.handlers[syms['mclGetOutputWay']]='b:mclGetOutputWay'
+        self.forked=4242; self.waited=0; self.way=0; self.execs=[]; self.sent=[]
         tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
         self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
     def hook(self,u,address,size,unused):
@@ -4432,6 +4436,14 @@ class BooksMachine(DepthMachine):
         elif name=='strstr':
             i=self.text(a).encode().find(self.text(b).encode()); ret=a+i if i>=0 else 0
         elif name=='canvas_measure_text': u.reg_write(UC_MIPS_REG_F0,struct.unpack('<I',struct.pack('<f',BOOK_PITCH*c))[0])
+        elif name=='mclGetOutputWay': ret=self.way
+        elif name=='fork': ret=self.forked
+        elif name=='execl': self.execs.append((self.text(a),self.text(b),self.text(c),self.text(d),self.get(u.reg_read(UC_MIPS_REG_SP)+16))); ret=-1
+        elif name=='waitpid': assert a==self.forked and c==1; ret=self.waited
+        elif name=='socket': assert (a,b,c)==(1,1,0); ret=7
+        elif name=='sendto':
+            sp=u.reg_read(UC_MIPS_REG_SP); to=self.get(sp+16)
+            self.sent.append((a,chr(self.u.mem_read(b,1)[0]),c,d,self.get(to)&0xffff,self.text(to+2),self.get(sp+20)))
         elif name=='canvas_draw_text':
             sp=u.reg_read(UC_MIPS_REG_SP)
             self.lines.append((''.join(chr(self.get(b+4*j)) for j in range(c)),signed(d),signed(self.get(sp+16)),
@@ -4505,6 +4517,57 @@ passed()
 m.key(); m.files[R+'/Series/A Tale.EPUB']=bytearray(b'PK junk'); m.files.pop(cache); open_book(0)
 worker,arg=m.threads[-1]; m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_000_000); m.advance(250)
 assert m.nodes[info]['visible'] and m.nodes[info]['text']=="Can't open this book" and m.call()==11 and not page_lines()
+m.close(); passed()
+
+# Videos (patch/books.c, docs/internals.md#videos): the card's Videos folder (case aside) lists its and
+# its subfolders' video files as Books does; a row stops the music and starts /usr/bin/q2video with
+# the headphone DAC's PCM and the path as plain argv, never through a shell.
+R='/mnt/mmc/VIDEOS'
+tree={'/mnt/mmc':[('Music',4),('VIDEOS',4)],R:[('b.MKV',8),('a.mp4',8),('notes.txt',8),('._a.mp4',8),('Trip',4)],R+'/Trip':[('c.avi',8)]}
+m=BooksMachine(tree,{})
+view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==14
+f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+page=m.page=m.top; videos,_=m.nodes[page]['children']
+assert m.nodes[page]['name']=='books_page' and labels(videos)==['Videos','c','a','b']; passed()
+rows=m.nodes[m.find('scroll_view',videos)]['children']
+def play(i):
+    m.calls=[]; f,ctx=m.handler(rows[i],O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+    return [c[0] for c in m.calls]
+m.forked=0; names=play(1)  # the child
+assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
+assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:1,0',R+'/a.mp4',0)]; passed()
+# A DAC check_dacoff_state powered off is powered on first; Bluetooth (way 1) and a USB DAC (2) play silent.
+m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:4]==('plughw:1,0',R+'/b.MKV')
+m.word(syms['g_dacoff_time'],5)
+for m.way in (1,2): assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:4]==('-',R+'/Trip/c.avi')
+passed()
+# Playing: no key or touch reaches the UI; a key's release goes to the player's socket as one byte.
+m.way=0; m.forked=4242; play(1)
+inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'
+def event(kind,key=0):
+    m.calls=[]; m.sent=[]
+    assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=0,clear=False)==0
+    return [c[0] for c in m.calls]
+for key,c in ((O['KEY_CENTER'],'p'),(O['KEY_PLAY'],'p'),(O['KEY_NEXT'],'f'),(O['KEY_FWD_BTN'],'f'),(O['KEY_PREV'],'b'),
+              (O['KEY_BACK_BTN'],'b'),(O['KEY_RETURN'],'q')):
+    assert 'stock_input' not in event(O['EVT_KEY_UP'],key) and m.sent==[(7,c,1,0x40,1,'/tmp/q2video.sock',110)]
+assert event(0x110,O['KEY_CENTER'])==[] and event(O['EVT_POINTER_DOWN'])==[] and not m.sent; passed()
+# Nor does the window manager paint over it; the screen, standby and DAC power-off timeouts are held off.
+vt=m.alloc(16); m.word(m.wm+0x94,vt); m.word(vt+0xc,0x400100); m.handlers[0x400100]='wm_vt_paint'
+def wm_paint():
+    m.calls=[]; m.call(address=WM_PAINT_LEAF[1],args=(m.wm,0,0,0),gap=0,clear=False); return [c[0] for c in m.calls]
+assert wm_paint()==[]
+sleep_hook=HOOKS['main_loop_sleep_default'][0]; m.handlers[sleep_hook+12]='stock_sleep'
+m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False)
+assert ('reset_poweroptions_timer',1,1,1) in [c[:4] for c in m.calls] and m.get(syms['g_dacoff_time'])==0 and 'widget_invalidate_force' not in [c[0] for c in m.calls]
+# Its end: the socket closes, the whole screen repaints once, and the UI has its input and paint again.
+m.waited=4242; m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False)
+assert ('close',7) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm,0) in [c[:3] for c in m.calls]
+assert 'stock_input' in event(O['EVT_KEY_UP'],O['KEY_RETURN']) and not m.sent and wm_paint()==['wm_vt_paint']
+m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False); assert 'waitpid' not in [c[0] for c in m.calls]
 m.close(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's

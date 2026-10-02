@@ -475,7 +475,7 @@ enum { READY, PREPARING, BAD };
 static struct {
     void *page, *list, *view, *reader, *sheet, *info, *title;
     char **path; /* the books, by path */
-    int n, screen, target, current, state, info_on;
+    int n, screen, target, current, state, info_on, videos;
     const char *file; /* the text read: the .txt, or the EPUB's in BOOK_DIR */
     char cache[48], tmp[48];
     unsigned key, size, pos, end, prev, base, len;
@@ -494,12 +494,15 @@ static int same(const char *s, const char *ext) {
     return !*s && !*ext;
 }
 
-/* 1 for a .txt, 2 for an .epub, not hidden; else 0. */
+/* 1 for a .txt, 2 for an .epub, 3 for a video, not hidden; else 0. */
 static int book_kind(const char *name) {
     const char *dot = 0;
     for (const char *p = name; *p; ++p)
         if (*p == '.') dot = p;
-    return name[0] == '.' || !dot ? 0 : same(dot + 1, "txt") ? 1 : same(dot + 1, "epub") ? 2 : 0;
+    if (name[0] == '.' || !dot) return 0;
+    for (const char *v = "mp4\0m4v\0mkv\0avi\0mov\0mpg\0"; *v; v += 4)
+        if (same(dot + 1, v)) return 3;
+    return same(dot + 1, "txt") ? 1 : same(dot + 1, "epub") ? 2 : 0;
 }
 
 static int by_name(const void *a, const void *b) {
@@ -513,7 +516,8 @@ static void scan(const char *dir, int depth) {
     for (struct dirent *e; d && bk.n < BOOKS_MAX && (e = readdir(d));) {
         if (e->d_name[0] == '.') continue;
         tk_snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
-        if ((e->d_type == 8 || !e->d_type) && book_kind(e->d_name)) {
+        int kind = book_kind(e->d_name);
+        if ((e->d_type == 8 || !e->d_type) && kind && (kind == 3) == bk.videos) {
             if ((bk.path[bk.n] = strdup(path))) ++bk.n;
         } else if ((e->d_type == 4 || !e->d_type) && depth)
             scan(path, 0);
@@ -732,12 +736,71 @@ void books_paint(void *w, void *canvas) {
     canvas_set_text_color(canvas, color);
 }
 
-/* Local Music's Books row (ringnav.c media_click): the books, by path. */
-void books_open(const char *root) {
+/* Videos (docs/internals.md#videos): patch/q2video.c draws on /dev/fb0 and plays the sound while
+ * demo runs on without painting (ringnav_wm_paint) or input (ringnav_input); a key's release
+ * reaches it as one byte on its socket. */
+#define VIDEO_BIN "/usr/bin/q2video"
+#define VIDEO_SOCK "/tmp/q2video.sock" /* q2video.c Q2VIDEO_SOCK */
+static struct {
+    int pid, sock;
+} vid __attribute__((section(".scratch")));
+
+int video_on(void) { return vid.pid; }
+
+static int play_video(void *ctx, void *event) {
+    (void)event;
+    if (vid.pid) return 0;
+    /* Bluetooth's and a USB DAC's volume is hciplayer's own, so the helper would play at full
+     * scale there: those stay silent. The headphone DAC keeps the volume set. */
+    int way = mclGetOutputWay(), sound = way != 1 && way != 2;
+    player_stop(); /* hciplayer holds the PCM even paused */
+    if (sound && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
+    int pid = fork();
+    if (!pid) {
+        execl(VIDEO_BIN, VIDEO_BIN, sound ? "plughw:1,0" : "-", bk.path[(int)(long)ctx], (char *)0);
+        exit(127);
+    }
+    vid.pid = pid > 0 ? pid : 0;
+    vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
+    return 0;
+}
+
+/* ringnav_sleep, every UI loop pass: the helper's end, and meanwhile no screen, standby or DAC
+ * power-off timeout (on_wm_idle_status, check_dacoff_state). */
+void video_poll(void) {
+    int status;
+    if (!vid.pid) return;
+    if (!waitpid(vid.pid, &status, 1)) { /* WNOHANG: still playing */
+        reset_poweroptions_timer(1, 1, 1);
+        if (I(g_dacoff_time, 0) > 0) I(g_dacoff_time, 0) = 0;
+        return;
+    }
+    close(vid.sock);
+    vid.pid = 0;
+    widget_invalidate_force(window_manager(), 0);
+}
+
+/* Return quits, Centre and Play/Pause pause, the wheel and the side buttons seek. */
+void video_key(unsigned key) {
+    char c = key == KEY_RETURN                    ? 'q'
+             : key == KEY_CENTER || key == KEY_PLAY ? 'p'
+             : key == KEY_NEXT || key == KEY_FWD_BTN ? 'f'
+             : key == KEY_PREV || key == KEY_BACK_BTN ? 'b'
+                                                     : 0;
+    struct {
+        unsigned short family;
+        char path[108];
+    } to = { 1, VIDEO_SOCK };
+    if (c) sendto(vid.sock, &c, 1, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
+}
+
+/* Local Music's Books and Videos rows (ringnav.c media_click): the books or videos, by path. */
+void books_open(const char *root, int videos) {
     if (bk.page) return;
     void *page = window_create(0, 0, 0, 0, 0);
     if (!page) return;
     bk.page = page;
+    bk.videos = videos;
     widget_set_name(page, "books_page");
     widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
     widget_on(page, EVT_DESTROY, closed, 0);
@@ -757,8 +820,10 @@ void books_open(const char *root) {
     bk.path = calloc(BOOKS_MAX, sizeof *bk.path);
     if (bk.buf && bk.path) scan(root, 1);
     if (bk.n) qsort(bk.path, (unsigned)bk.n, sizeof *bk.path, by_name);
-    bk.view = page_list(page, bk.list, &bk.title, bk.n ? "Books" : "No books", bk.n, 48);
+    bk.view = page_list(page, bk.list, &bk.title,
+                        videos ? bk.n ? "Videos" : "No videos" : bk.n ? "Books" : "No books", bk.n, 48);
     char name[256];
-    for (int k = 0; k < bk.n; ++k) row(bk.view, k, title(bk.path[k], name), open_book);
+    for (int k = 0; k < bk.n; ++k)
+        row(bk.view, k, title(bk.path[k], name), videos ? play_video : open_book);
 }
 #endif

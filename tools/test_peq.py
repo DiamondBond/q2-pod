@@ -992,6 +992,29 @@ def books_check(tmp):
         assert b < pos and page(big, b, rows=10, width=320)[0] >= pos and pos - b < 3072
     print('Books: inflate, XHTML text, EPUB conversion and refusals, UTF-8 and page layout passed.')
 
+def video_check(tmp):
+    """Videos' player (q2video.c): the framebuffer's pixel format, ffmpeg's argv and frame pacing."""
+    lib = compile_host(tmp, 'q2video.so', ROOT/'patch/q2video.c')
+    lib.pixfmt.restype = C.c_char_p
+    assert [lib.pixfmt(*f) for f in ((32, 16), (32, 0), (24, 16), (24, 0), (16, 11), (16, 0), (32, 8), (8, 0))] == \
+        [b'bgra', b'rgba', b'bgr24', b'rgb24', b'rgb565le', b'bgr565le', None, None]
+    def argv(w, h, at, audio):
+        a, vf, ss = (C.c_char_p * 27)(), C.create_string_buffer(256), C.create_string_buffer(16)
+        lib.ffmpeg_argv(a, vf, ss, w, h, b'bgra', at, b'/mnt/mmc/Videos/a b.mp4', audio)
+        return [x.decode() for x in a[:a[:].index(None)]]
+    head = ['/usr/bin/ffmpeg', '-nostdin', '-loglevel', 'quiet', '-ss', '30', '-i', '/mnt/mmc/Videos/a b.mp4',
+            '-map', '0:v:0', '-vf', 'scale=375:320:force_original_aspect_ratio=decrease:flags=fast_bilinear,format=bgra,'
+            'pad=375:320:(ow-iw)/2:(oh-ih)/2,transpose=clock', '-r', '25', '-f', 'rawvideo', 'pipe:3']
+    # The portrait 320x375 panel: fitted into the landscape 375x320 view, turned clockwise, as the boot logo.
+    assert argv(320, 375, 30, 1) == head + ['-map', '0:a:0', '-ac', '2', '-ar', '48000', '-f', 's16le', 'pipe:4']
+    assert argv(320, 375, 30, 0) == head
+    assert argv(480, 272, 0, 0)[10:12] == ['-vf', 'scale=480:272:force_original_aspect_ratio=decrease:flags=fast_bilinear,'
+                                           'format=bgra,pad=480:272:(ow-iw)/2:(oh-ih)/2']
+    # Frame n shows from n/25 s of the clock, and is dropped a whole frame late.
+    lib.frame_due.argtypes = [C.c_int, C.c_longlong]
+    assert [lib.frame_due(1, t) for t in (0, 39, 40, 79, 80)] == [0, 0, 1, 1, 2] and lib.frame_due(0, 0) == 1
+    print('Videos: pixel formats, ffmpeg argv and frame pacing passed.')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
         tmp = pathlib.Path(directory); lib = library(tmp)
@@ -1001,3 +1024,4 @@ if __name__ == '__main__':
         player_check(tmp)
         scrobble_check(tmp)
         books_check(tmp)
+        video_check(tmp)

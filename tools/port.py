@@ -11,7 +11,7 @@ Symbol-resolved entries (FUNCTIONS, GLOBALS, CONTEXT_DATA, the hooks) only need 
     python3 tools/port.py 'Q2 Firmware V1.32.zip' --self-check  # V1.32 against itself: every address back
 """
 import argparse, collections, io, json, pathlib, re, struct, subprocess, sys, tarfile, tempfile, zipfile
-from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
+from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
                    SHUFFLE_CALL, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
 import compact, peq
 
@@ -214,7 +214,7 @@ def port(old_zip, new_zip):
         new = {k: Image(p, raw=k == 'bluealsa') for k, p in nf.items()}
     rows = [('GOT base (gp)', 'demo', old['demo'].gp, new['demo'].gp, 'derived'),
             ('hciplayer GOT base (gp)', 'hciplayer', old['hciplayer'].gp, new['hciplayer'].gp, 'derived')]
-    for name, (a, _) in {**HOOKS, **IPOD_HOOKS, IPOD_LEAF[0]: IPOD_LEAF[1:3]}.items():
+    for name, (a, _) in {**HOOKS, **IPOD_HOOKS, IPOD_LEAF[0]: IPOD_LEAF[1:3], WM_PAINT_LEAF[0]: WM_PAINT_LEAF[1:3]}.items():
         n = new['demo'].syms.get(name)
         rows.append((f'hook {name}', 'demo', a, n, 'symbol' if n else 'missing'))
     lost = [n for n in [*FUNCTIONS, *GLOBALS, *CONTEXT_DATA] if n not in PRIVATE_FUNCTIONS and n not in new['demo'].syms]

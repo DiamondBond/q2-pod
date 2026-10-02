@@ -28,7 +28,7 @@ print('JPEG header regression checks passed.')
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, PDR
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, PDR
     from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                          QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                          NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
@@ -60,6 +60,9 @@ def validate_assets(directory):
         want = stock[off:off+8]
         if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)
         assert demo[off:off+8] == want
+    # Both jump from window_manager_paint (Videos).
+    off = fileoff(stock, WM_PAINT_LEAF[1])
+    assert demo[off:off+8] == (0x08000000 | symbols(directory/'patch.elf')[WM_PAINT_LEAF[2]] >> 2).to_bytes(4, 'little') + bytes(4)
     changed = manifest['changed_assets']
     xx = 'release/assets/default/raw/images/xx/'
     assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
@@ -85,6 +88,10 @@ def validate_assets(directory):
         else: raise AssertionError(f'{name}: accepted a changed icon')
         for bg in ('#000000', '#6e6e6e'):  # the list, and the Graphite selection bar
             assert max(abs(a - b) for a, b in zip(mean(old, bg), mean(new, bg))) < 0.02, (name, bg)
+    # Videos' player: an ELF with the stock binaries' ABI flags (nan2008, o32, mips32r2).
+    helper = read('rootfs.squashfs', HELPER)
+    assert sha(helper) == manifest['q2video_sha256'] and helper[:4] == b'\x7fELF'
+    assert helper[36:40] == read('stock.squashfs', HELPER_LIKE)[36:40]
     # bluealsa differs from stock only in the AAC 44.1 kHz bit.
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]
