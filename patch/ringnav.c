@@ -18,7 +18,8 @@ extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
-    photos_open(const char *root);
+    photos_open(const char *root), books_paint(void *w, void *canvas), books_open(const char *root);
+extern int books_key(void *top, unsigned key);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
 extern void scrobble_append(const char *line, unsigned n);
@@ -1442,6 +1443,7 @@ int ringnav_paint(void *w, void *canvas) {
     int result = stock_paint_trampoline(w, canvas);
     coverflow_paint(w, canvas);
     photos_paint(w, canvas);
+    books_paint(w, canvas);
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
@@ -2524,10 +2526,10 @@ static int shuffle_songs(void *ctx, void *event) {
     return 0;
 }
 
-/* Resume and play counts: each file is written whole, to a .tmp then renamed. */
+/* Resume, play counts and Books' pages: each file is written whole, to a .tmp then renamed. */
 #define RESUME_FILE "/mnt/data/ringnav-resume"
 #define PLAYS_FILE "/mnt/data/ringnav-plays"
-static void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
+void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
     void *f = fopen(write ? tmp : path, write ? "wb" : "rb");
     if (!f) return;
     int ok = write ? fwrite(buf, size, 1, f) == 1 : fread(buf, size, 1, f) == 1;
@@ -2616,13 +2618,14 @@ static int upload_scrobbles(void *ctx, void *event) {
 }
 
 /* Podcasts and Audiobooks (docs/internals.md#podcasts-and-audiobooks): the card's top-level
- * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c. */
-enum { PODCASTS = 1, AUDIOBOOKS, PHOTOS };
-static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos" };
+ * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c and
+ * Books books.c. */
+enum { PODCASTS = 1, AUDIOBOOKS, PHOTOS, BOOKS };
+static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos", "Books" };
 
 /* 1 + the MEDIA folder s names (up to its end or a '/'), 0 for none. MEDIA is letters only. */
 static int media_kind(const char *s) {
-    for (int k = 0; k < PHOTOS; k++) {
+    for (int k = 0; k < BOOKS; k++) {
         int i = 0;
         while (MEDIA[k][i] && (s[i] | 0x20) == (MEDIA[k][i] | 0x20)) i++;
         if (!MEDIA[k][i] && (!s[i] || s[i] == '/')) return k + 1;
@@ -2651,8 +2654,8 @@ static int media_click(void *ctx, void *event) {
     (void)event;
     int kind = (int)(long)ctx;
     char root[sizeof st.media_root];
-    if (kind == PHOTOS) {
-        if (media_find(kind, root)) photos_open(root);
+    if (kind >= PHOTOS) {
+        if (media_find(kind, root)) (kind == PHOTOS ? photos_open : books_open)(root);
         return 0;
     }
     st.media_open = media_find(kind, st.media_root);
@@ -2705,10 +2708,11 @@ int ringnav_localmusic(void *win, void *ctx) {
             widget_set_text_utf8(label, "Upload Scrobbles");
             widget_restack(P(P(label, W_PARENT), W_PARENT), 2);
         }
-        /* Podcasts, Audiobooks, then Photos, last; each only with its folder. */
-        static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos" };
+        /* Podcasts, Audiobooks, Photos, then Books, last; each only with its folder. */
+        static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos",
+                                             "local_books" };
         char path[sizeof st.media_root];
-        for (int k = 0; k < PHOTOS; k++)
+        for (int k = 0; k < BOOKS; k++)
             if (media_find(k + 1, path))
                 widget_set_text_utf8(list_row(view, icons[k], media_click, (void *)(long)(k + 1)),
                                      MEDIA[k]);
@@ -3114,6 +3118,7 @@ int ringnav(void *ctx, void *event) {
         drop_input();
         return STOP;
     }
+    if (books_key(top, key)) return STOP; /* the reader's pages and caption */
     int dir = key == KEY_NEXT ? 1 : key == KEY_PREV ? -1 : 0;
     void *w = surface_under(top, (void *)0, (void *)0, dir != 0);
     if (!is_home(top, w) || w != st.home_surface) st.home_surface = (void *)0;

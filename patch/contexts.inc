@@ -13,6 +13,7 @@
 { "home_page", CTX_DYNAMIC, DRILL },
 { "coverflow_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/coverflow.c) */
 { "photos_page", CTX_DYNAMIC, 0 },    /* runtime window (patch/photos.c) */
+{ "books_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/books.c) */
 { "album_page", CTX_LOCAL, 0 },
 { "albuminfo_page", CTX_LOCAL, RING },
 { "allmusic_page", CTX_LOCAL, RING },

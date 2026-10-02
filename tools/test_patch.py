@@ -219,8 +219,8 @@ class Machine:
         elif name in ('tk_snprintf','snprintf@GLIBC_2.0'):
             fmt=self.text(c); values=[d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in (16,20,24)]
             if fmt=='%.*s': fmt,values='%s',[self.string(self.text(values[1]).encode()[:values[0]].decode())]  # track_name
-            params=[self.text(value) if kind=='s' else value if kind in 'xX' else signed(value)
-                    for kind,value in zip(re.findall(r'%\d*([sdxX])',fmt),values)]
+            params=[self.text(value) if kind=='s' else value if kind in 'xXu' else signed(value)
+                    for kind,value in zip(re.findall(r'%\d*([sdxXu])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
         elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
@@ -4384,6 +4384,128 @@ assert m.nodes[tiles_view]['_ringnav_index']==2 and m.nodes[tiles_view]['_ringna
 assert m.key()==11 and m.nodes[albums]['visible'] and not m.nodes[grid]['visible']
 assert m.key()==11 and [c[0] for c in m.calls].count('navigator_back')==1
 m.close(); assert sorted(m.destroyed)==sorted(m.frames) and m.frames; passed()
+
+class BooksMachine(DepthMachine):
+    """The card as a tree of {path: [(name, d_type)]} and files as {path: bytearray}, with stdio
+    handles over them, and a fixed-pitch font: every character BOOK_PITCH wide."""
+    def __init__(self,tree,files):
+        super().__init__()
+        self.tree=tree; self.files=files; self.handles={}; self.dirs={}; self.lines=[]
+        for n in ('opendir@GLIBC_2.0','readdir@GLIBC_2.0','closedir@GLIBC_2.0','qsort@GLIBC_2.0','fopen@GLIBC_2.2',
+                  'fread@GLIBC_2.0','fwrite@GLIBC_2.0','fseek@GLIBC_2.0','ftell@GLIBC_2.0','fclose@GLIBC_2.2',
+                  'access@GLIBC_2.0','rename@GLIBC_2.0','unlink@GLIBC_2.0','mkdir@GLIBC_2.0','memcmp@GLIBC_2.0',
+                  'strlen@GLIBC_2.0','strstr@GLIBC_2.0','canvas_measure_text','canvas_draw_text'):
+            self.handlers[syms[n]]='b:'+n
+        tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
+        self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='c:calloc@GLIBC_2.0': ret=self.alloc((a*b+7)&~3) if a*b<=0x10000 else self.big_alloc(a*b)  # word-aligned
+        elif not name.startswith('b:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]
+        if name=='opendir':
+            path=self.text(a); ret=self.alloc(4) if path in self.tree else 0; self.dirs[ret]=list(self.tree.get(path,[]))
+        elif name=='readdir' and self.dirs.get(a):
+            n,t=self.dirs[a].pop(0); ret=self.alloc(268); self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
+        elif name=='qsort':
+            ptrs=[self.get(a+4*i) for i in range(b)]
+            for i,p in enumerate(sorted(ptrs,key=self.text)): self.word(a+4*i,p)
+        elif name=='fopen':
+            path,mode=self.text(a),self.text(b)
+            if 'w' in mode: self.files[path]=bytearray()
+            if path in self.files: ret=self.alloc(4); self.handles[ret]=[path,0]
+        elif name in ('fread','fwrite'):
+            path,pos=self.handles[d]; f=self.files[path]
+            if name=='fread': chunk=bytes(f[pos:pos+b*c]); self.u.mem_write(a,chunk)
+            else: chunk=bytes(u.mem_read(a,b*c)); f[pos:pos+len(chunk)]=chunk
+            self.handles[d][1]+=len(chunk); ret=len(chunk)//b
+        elif name=='fseek':
+            h=self.handles[a]; h[1]=signed(b)+(0,h[1],len(self.files[h[0]]))[c]; ret=0
+        elif name=='ftell': ret=self.handles[a][1]
+        elif name=='fclose': self.handles.pop(a)
+        elif name=='access': ret=0 if self.text(a) in self.files or self.text(a) in self.tree else -1
+        elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
+        elif name=='unlink': self.files.pop(self.text(a),None)
+        elif name=='memcmp': ret=0 if bytes(u.mem_read(a,c))==bytes(u.mem_read(b,c)) else 1
+        elif name=='strlen': ret=len(self.text(a).encode())
+        elif name=='strstr':
+            i=self.text(a).encode().find(self.text(b).encode()); ret=a+i if i>=0 else 0
+        elif name=='canvas_measure_text': u.reg_write(UC_MIPS_REG_F0,struct.unpack('<I',struct.pack('<f',BOOK_PITCH*c))[0])
+        elif name=='canvas_draw_text':
+            sp=u.reg_read(UC_MIPS_REG_SP)
+            self.lines.append((''.join(chr(self.get(b+4*j)) for j in range(c)),signed(d),signed(self.get(sp+16)),
+                               self.get(self.lcd+O['LCD_TEXT_COLOR']),self.font))
+        self.calls.append((name,a,b,c))
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+
+# Books (patch/books.c): Local Music's last row opens the card's Books folder (case aside): its own
+# .txt and .epub files and its subfolders', by path, named without the extension.
+import io, zipfile
+BOOK_PITCH=9
+R='/mnt/mmc/books'
+para=lambda i: ' '.join(f'w{i}x{k}' for k in range(30))
+txt='﻿'+'\n\n'.join(para(i) for i in range(40))
+buf=io.BytesIO()
+with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
+    z.writestr('mimetype','application/epub+zip')
+    z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
+    z.writestr('content.opf','<package><manifest><item id="a" href="a.xhtml"/><item id="b" href="b.xhtml"/></manifest>'
+               '<spine><itemref idref="a"/><itemref idref="b"/></spine></package>')
+    z.writestr('a.xhtml','<html><head><title>T</title></head><body><h1>Chapter 1</h1><p>Caf&#233; &amp; tea.</p></body></html>')
+    z.writestr('b.xhtml','<html><body><p>Chapter 2</p></body></html>')
+tree={'/mnt/mmc':[('Music',4),('books',4)],R:[('Zed.txt',8),('notes.md',8),('._Zed.txt',8),('Series',4)],R+'/Series':[('A Tale.EPUB',8)]}
+files={R+'/Zed.txt':bytearray(txt.encode()),R+'/Series/A Tale.EPUB':bytearray(buf.getvalue())}
+m=BooksMachine(tree,files)
+view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==14
+f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+page=m.page=m.top; assert m.nodes[page]['name']=='books_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
+books,reader=m.nodes[page]['children']; sheet,info=m.nodes[reader]['children']
+assert not m.nodes[reader]['visible'] and labels(books)==['Books','A Tale','Zed']; passed()
+# A .txt opens on its first page: up to ten white lines of the default font, the BOM dropped,
+# wrapped at spaces within the margins, every line clear of the glass's rounded corners.
+rows=m.nodes[m.find('scroll_view',books)]['children']
+def open_book(i):
+    f,ctx=m.handler(rows[i],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
+def page_lines():
+    m.lines=[]; m.call(address=HOOKS['widget_on_paint_border'][0],args=(sheet,m.canvas,0,0),gap=0,clear=False,count=50_000_000)
+    return m.lines
+open_book(1); assert m.nodes[reader]['visible'] and not m.nodes[books]['visible'] and not m.nodes[info]['visible']
+first=page_lines(); words=txt[1:].split()
+assert len(first)==10 and all(c==0xffffffff and font==('default',20) for _,_,_,c,font in first)
+assert ' '.join(t for t,*_ in first if t).split()==words[:len(' '.join(t for t,*_ in first).split())] and first[0][0].startswith('w0x0 ')
+for t,x,y,*_ in first:
+    top,bottom=30+y,30+y+26; inset=max(corner_inset(top),corner_inset(bottom))
+    assert inset<=x and x+BOOK_PITCH*len(t)<=375-inset and len(t)*BOOK_PITCH<=375-2*x,(t,x,y)
+assert [y for _,_,y,*_ in first]==[6+26*i for i in range(10)] and len(first[0][0])*BOOK_PITCH>375-2*24-BOOK_PITCH*6; passed()
+# The wheel turns the page (the next starts where this one ended), back again, and stops at the start.
+m.top=page; assert m.call()==11; second=page_lines()
+seen=' '.join(t for t,*_ in first+second).split(); assert seen==words[:len(seen)] and second[0][0]!=first[0][0]
+assert m.call(O['KEY_PREV'])==11 and page_lines()==first and m.call(O['KEY_PREV'])==11 and page_lines()==first; passed()
+# Centre shows how far in and the title on a band clear of the glass; Return keeps the page.
+m.call(); m.call(); third=page_lines()
+assert m.call(O['KEY_CENTER'])==11 and m.nodes[info]['visible'] and re.fullmatch(r'\d%  Zed',m.nodes[info]['text'])
+x,y,bw,bh=cf_geometry(m,info); inset=max(corner_inset(30+y),corner_inset(30+y+bh)); assert inset<=x and x+bw<=375-inset
+assert m.key()==11 and m.nodes[books]['visible'] and '/mnt/data/ringnav-books' in m.files
+assert m.nodes[m.find('scroll_view',books)]['_ringnav_index']==1
+open_book(1); assert page_lines()==third; passed()
+# An EPUB is made into text on the worker first ("Preparing…"), then read like a .txt: chapters
+# on new pages, head dropped, entities decoded.
+m.key(); open_book(0); assert m.nodes[info]['visible'] and m.nodes[info]['text']=='Preparing…' and len(m.threads)==1 and not page_lines()
+worker,arg=m.threads[0]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_000_000)==0
+m.advance(250); cache=f'/mnt/mmc/.books/{fnv(R+"/Series/A Tale.EPUB"):08x}.txt'
+assert bytes(m.files[cache])=='Chapter 1\n\nCafé & tea.\f\nChapter 2'.encode() and not m.nodes[info]['visible']
+assert [t for t,*_ in page_lines()]==['Chapter 1','','Café & tea.'] and m.call()==11 and [t for t,*_ in page_lines()]==['Chapter 2']
+passed()
+# A broken EPUB says so; closing joins nothing and frees the window.
+m.key(); m.files[R+'/Series/A Tale.EPUB']=bytearray(b'PK junk'); m.files.pop(cache); open_book(0)
+worker,arg=m.threads[-1]; m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_000_000); m.advance(250)
+assert m.nodes[info]['visible'] and m.nodes[info]['text']=="Can't open this book" and m.call()==11 and not page_lines()
+m.close(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a Q2 Pod row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

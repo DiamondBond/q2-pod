@@ -31,14 +31,14 @@
 
 ## Features
 
-| For listening                                            | Under the hood                                                                    |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Accent, Home layout and battery style options            | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
-| iPod classic style lists, Home and Now Playing           | Clock keeps the right time after power-off                                        |
-| Wheel navigation with acceleration and position memory   | Less battery drain with the screen off                                            |
-| Play next / Add to queue, Podcasts, Audiobooks, Photos   | Faster library browsing                                                           |
-| Shuffle Songs, Most Played and scrobbling over Wi-Fi     | Long VBR MP3s start at once and seek accurately                                   |
-| Parametric EQ: up to 30 bands, per channel, with balance | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
+| For listening                                                 | Under the hood                                                                    |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Accent, Home layout and battery style options                 | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
+| iPod classic style lists, Home and Now Playing                | Clock keeps the right time after power-off                                        |
+| Wheel navigation with acceleration and position memory        | Less battery drain with the screen off                                            |
+| Play next / Add to queue, Podcasts, Audiobooks, Photos, Books | Faster library browsing                                                           |
+| Shuffle Songs, Most Played and scrobbling over Wi-Fi          | Long VBR MP3s start at once and seek accurately                                   |
+| Parametric EQ: up to 30 bands, per channel, with balance      | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
 
 ### Podcasts and audiobooks
 
@@ -49,6 +49,10 @@ Put shows in a `Podcasts` folder and books in an `Audiobooks` folder at the root
 Put photos (`.jpg`, `.jpeg`, `.png`) in a `Photos` folder at the root of the microSD card; each subfolder is an album. **Local Music → Photos** lists **All Photos** and the albums, then shows a grid of thumbnails. **Centre** opens a photo full screen; the **wheel** moves to the previous or next one, **Centre** shows or hides "3 of 40" and the file name, and **Return** goes back. Photos are shown upright from their camera orientation, and music keeps playing.
 
 Thumbnails and screen-size copies are made in the background the first time an album opens and cached in `.photos` on the card (16 MB free needed). A photo that won't open stays grey; JPEGs over 6 MB and PNGs over 1 MB are too big for the stock decoder. Up to 500 photos per album are shown.
+
+### Books
+
+Put ebooks (`.txt` and `.epub`) in a `Books` folder at the root of the microSD card, in subfolders if you like. **Local Music → Books** lists them by file name; **Centre** opens one. The **wheel** turns the pages, **Centre** shows or hides how far in you are, and **Return** goes back to the list. Each book reopens at the page you left. An EPUB is turned into text the first time it opens ("Preparing…") and kept in `.books` on the card; pictures are left out. Books with DRM can't be opened.
 
 ### Play counts and scrobbling
 

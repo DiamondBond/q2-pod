@@ -62,6 +62,9 @@ RTC_WRITE = (b'hwclock -w\0\0', b'hwclock -wu\0')
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
 # check_mem_thd's "open failed, skip the write" beq becomes b: it never writes 3 to drop_caches.
 DROP_CACHES = (0x5120a8, 0x12220006, 0x10000006)
+# demo's .pdr section (offset, size): MIPS procedure descriptors past every LOAD segment, which nothing
+# reads at run time. Zeroed, they pack to almost nothing, which keeps the Stock rootfs within stock's size.
+PDR = (0x61694c, 0x69d40)
 
 def run(*args):
     return subprocess.check_output([str(a) for a in args], text=True)
@@ -181,6 +184,8 @@ FUNCTIONS = {
  'canvas_set_font': ('int', 'void *, const char *, unsigned'),
  'canvas_set_text_color': ('int', 'void *, unsigned'),
  'canvas_draw_text_in_rect': ('int', 'void *, const unsigned *, unsigned, const void *'),
+ 'canvas_draw_text': ('int', 'void *, const unsigned *, unsigned, int, int'),  # Books (books.c)
+ 'canvas_measure_text': ('float', 'void *, const unsigned *, unsigned'),
  'canvas_fill_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned'),
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
  'pointer_event_init': ('void *', 'void *, int, void *, int, int'),
@@ -286,7 +291,7 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page'}
+PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
@@ -457,6 +462,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
           'VERSION must stay 5 characters; a longer literal shifts every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
     patched = patched.replace(*RTC_WRITE)
+    check(re.search(r'\.pdr +PROGBITS +0+ +0*%x +0*%x ' % PDR, run('readelf', '-SW', demo)) and
+          all(p[1]+p[4] <= PDR[0] for _,p in segments(patched) if p[0] == 1), '.pdr: not the audited section')
+    patched[PDR[0]:PDR[0]+PDR[1]] = bytes(PDR[1])
     append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 7, 'demo')
     (out/'demo').write_bytes(patched)
     # Pseudo-file round trip preserves every original inode's metadata and hardlinks.
@@ -484,9 +492,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # and Shuffle Songs', Upload Scrobbles', Podcasts', Audiobooks' and Photos' icons, stock's 52px playset_playmode,
-    # wifiset_wifi, netservice_dlna, playset_foldercover and playset_covermode apart from the copies iPod pre-sizes
-    # for Settings.
+    # and Shuffle Songs', Upload Scrobbles', Podcasts', Audiobooks', Photos' and Books' icons, stock's 52px
+    # playset_playmode, wifiset_wifi, netservice_dlna, playset_foldercover, playset_covermode and system_language
+    # apart from the copies iPod pre-sizes for Settings.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
     icons['local_shuffle.png'] = ('playset_playmode.png', cat(xx+'playset_playmode.png'))
@@ -494,6 +502,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     icons['local_podcasts.png'] = ('netservice_dlna.png', cat(xx+'netservice_dlna.png'))  # Podcasts, likewise
     icons['local_audiobooks.png'] = ('playset_foldercover.png', cat(xx+'playset_foldercover.png'))  # Audiobooks
     icons['local_photos.png'] = ('playset_covermode.png', cat(xx+'playset_covermode.png'))  # Photos, likewise
+    icons['local_books.png'] = ('system_language.png', cat(xx+'system_language.png'))  # Books, likewise
     added = []
     for name, (like, data) in icons.items():
         stock = re.search(rb'^'+re.escape((xx+like).encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
