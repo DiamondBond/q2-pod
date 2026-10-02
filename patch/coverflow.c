@@ -732,20 +732,68 @@ static int play(void *ctx, void *event) {
     return 0;
 }
 
+/* Album order: disc, then track, then path, so an untagged album keeps its file-name order and a
+ * CUE image's tracks (one path) their start times. */
+static int before(void *a, void *b) {
+    int d = I(a, REC_DISC) - I(b, REC_DISC);
+    if (!d) d = I(a, REC_TRACK) - I(b, REC_TRACK);
+    if (!d) d = strcmp(P(a, REC_PATH), P(b, REC_PATH));
+    return (d ? d : I(a, REC_CUE_START) - I(b, REC_CUE_START)) < 0;
+}
+
+/* The tracks in album order, in a new deque; stock's name order when out of memory.
+ * ponytail: insertion sort, O(n^2) over an album's few dozen tracks. */
+static void *in_order(void *tracks) {
+    unsigned n = deque_size(tracks);
+    void **v = calloc(n + 1, sizeof *v);
+    if (!v) return tracks;
+    for (unsigned i = 0; i < n; ++i) {
+        void *t = deque_at(tracks, i);
+        unsigned j = i;
+        for (; j && before(t, v[j - 1]); --j) v[j] = v[j - 1];
+        v[j] = t;
+    }
+    void *out = _create_deque("stSongInfo");
+    deque_init(out);
+    for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i]);
+    free(v);
+    deque_destroy(tracks);
+    return out;
+}
+
+/* A track's file name without its file's extension; a name not ending in it (CUE) stays whole.
+ * Shared with ringnav.c's scrobbler. */
+const char *track_name(char *buf, unsigned size, void *t) {
+    const char *name = P(t, REC_NAME), *path = P(t, REC_PATH), *ext = 0;
+    if (!name || !path) return name;
+    for (; *path; ++path)
+        if (*path == '.')
+            ext = path;
+        else if (*path == '/')
+            ext = 0;
+    if (!ext) return name;
+    unsigned n = strlen(name), e = strlen(ext);
+    if (n <= e || strcmp(name + n - e, ext)) return name;
+    snprintf(buf, size, "%.*s", (int)(n - e), name);
+    return buf;
+}
+
 static int to_tracks(const void *unused) {
     (void)unused;
     cf.timer = 0;
     int n;
+    char name[512];
     void *r = deque_at(cf.albums, (unsigned)cf.album);
     cf.saved_album = album_key(r);
     remember(1); /* a power-off on the tracks keeps it too */
     if (cf.tracks) deque_destroy(cf.tracks);
-    cf.tracks = staged(albums, r, &n);
+    cf.tracks = in_order(staged(albums, r, &n));
     n = (int)deque_size(cf.tracks);
     cf.screen = TRACKS;
     widget_set_visible(cf.covers, 0, 0);
     void *view = list(P(r, REC_ALBUM), n);
-    for (int i = 0; i < n; ++i) row(view, i, P(deque_at(cf.tracks, (unsigned)i), REC_NAME), play);
+    for (int i = 0; i < n; ++i)
+        row(view, i, track_name(name, sizeof name, deque_at(cf.tracks, (unsigned)i)), play);
     return 0;
 }
 

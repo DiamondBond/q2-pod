@@ -348,7 +348,8 @@ drops every key and touch while a page slides; none is queued
 Stock draws `list_into` on Local Music's categories, the `localclass_page` rows (artists, genres,
 composers), the album list and folder rows that are not songs, hidden in multi-select. iPod adds
 it, aligned with those (see [internals.md](internals.md#drawing)), only on the `DRILL` windows in
-`patch/contexts.inc`: Home and the playlist list, whose rows open their tracks. Tiles narrower
+`patch/contexts.inc`: Home and the playlist list, whose rows open their tracks. Home draws only
+the highlighted row's, so it moves with the selection bar. Tiles narrower
 than half the list (playlist Import/Export) get none. The artist page's Albums tab drills but has
 no stock chevron or payload row layouter, so it has none.
 

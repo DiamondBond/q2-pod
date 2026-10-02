@@ -209,6 +209,13 @@
 #define RESUME_EDGE_S 30
 #define RESUME_SAVE_S 60
 #define RESUME_START_S 5
+/* Play counts (docs/internals.md#play-counts): a track over LISTEN_MIN_S counts once half of it,
+ * or LISTEN_MAX_S, has been heard; PLAYS_SLOTS counts are kept, the lowest replaced when full, and
+ * Most Played plays the top PLAYS_TOP. */
+#define LISTEN_MIN_S 30
+#define LISTEN_MAX_S 240
+#define PLAYS_SLOTS 512
+#define PLAYS_TOP 25
 /* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */
@@ -246,11 +253,14 @@
 #define INPUT_KEY_TIME 0x08
 /* stSongInfo rows of p_deque_showlist and the mcl queue. */
 #define REC_ID 0x00             /* -1/-2: unknown album/artist */
-#define REC_NAME 0x08
+#define REC_NAME 0x08           /* the file name; REC_TITLE is the tag's, empty when untagged */
 #define REC_PATH 0x0c
+#define REC_TITLE 0x10
 #define REC_ALBUM 0x14
 #define REC_ARTIST 0x18
 #define REC_TYPE 0x34           /* 8 song, 4 directory */
+#define REC_TRACK 0x3c          /* the tag's track and disc numbers, 0 when untagged */
+#define REC_DISC 0x40
 #define REC_CUE_START 0x48      /* a CUE track's start and end seconds, 0 otherwise */
 #define REC_CUE_END 0x4c
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */

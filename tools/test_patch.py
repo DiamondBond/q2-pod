@@ -216,11 +216,13 @@ class Machine:
         elif name=='image_set_draw_type': ret=a
         elif name=='deque_at': ret=self.row_record
         elif name=='deque_size': ret=1
-        elif name=='tk_snprintf':
+        elif name in ('tk_snprintf','snprintf@GLIBC_2.0'):
             fmt=self.text(c); values=[d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in (16,20,24)]
+            if fmt=='%.*s': fmt,values='%s',[self.string(self.text(values[1]).encode()[:values[0]].decode())]  # track_name
             params=[self.text(value) if kind=='s' else value if kind=='x' else signed(value)
                     for kind,value in zip(re.findall(r'%\d*([sdx])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
+        elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
         elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
             fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
             result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
@@ -309,7 +311,7 @@ class Machine:
         elif name=='timer_remove': self.timers.pop(a,None); ret=0
         elif name=='screen_action': self.screens.append(a); ret=1
         elif name=='player_start': self.started.append((a,b,c,d)); ret=1
-        elif name in ('tk_strcmp','strcmp@GLIBC_2.0'): ret=0 if a and b and self.text(a)==self.text(b) else -1
+        elif name in ('tk_strcmp','strcmp@GLIBC_2.0'): x,y=self.text(a),self.text(b); ret=0 if a and b and x==y else -1 if x<=y else 1
         elif name=='stock_dispatch':
             if self.get(b)==O['EVT_CLICK']:
                 self.clicks.append(a)
@@ -2437,6 +2439,7 @@ class QueueMachine(Machine):
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
                   'mcl_shuffle_pick','airplayGetFlag'): self.handlers[syms[n]]='q:'+n
         self.handlers.pop(syms['mclLoadPlayList'])
+        self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0'); self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
         self.mock('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek')
         self.status=self.alloc(0x200); self.word(syms['g_class_type'],cls)
         self.surface,_,_=self.table_page(4,page,rebind=True); self.word(self.surface+O['TABLE_ROWS'],rows)
@@ -2713,19 +2716,22 @@ if variant=='ipod':
     paint_bar(); assert ('widget_invalidate_force',view) not in [c[:2] for c in m.calls]; passed()
 
     # Chevrons: the stock list_into, where stock rows put img_into, on each visible row of a
-    # drill window (contexts.inc), clipped to the surface. Stock draws its own on folder, category,
-    # album-list and Local Music rows, so those windows, song lists and grids get none from here.
+    # drill window (contexts.inc), clipped to the surface; Home's only on its selection bar.
+    # Stock draws its own on folder, category, album-list and Local Music rows, so those windows,
+    # song lists and grids get none from here.
     def window(m,name,w):
         m.top=m.node('window',name,[w]); m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
     def loaded(m): return [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
     m.paint(view)
     half=O['CHEVRON_W']-25  # centre of the 50px image, as stock img_into
-    assert m.icons==[(HOME_LIST_W-half,i*HOME_ROW+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW)) for i in range(7)]
+    bar=lambda: [(HOME_LIST_W-half,m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
+    assert m.sel()==(0,0,HOME_LIST_W,HOME_ROW) and m.icons==bar()
     assert loaded(m)==['list_into'] and m.clip==(0,0,375,320); passed()
+    m.call(); m.paint(view); assert m.selected(view)==1 and m.sel()[1]>0 and m.icons==bar(); passed()  # follows the bar
     # Drawn in touch mode too, with Home's bar, which touch never hides; none while stock
     # multi-select hides its own.
-    m.touch(); m.paint(view); assert len(m.icons)==7 and m.sel()==(0,0,HOME_LIST_W,HOME_ROW); passed()
+    m.touch(); m.paint(view); assert m.icons==bar() and m.selected(view)==1; passed()
     m.byte(syms['g_navbar_status'],1); m.paint(view); assert not m.icons and not loaded(m); passed()
     # Playlists: every row follows the scroll, clipped to the viewport; the half-width
     # Import/Export tiles get none.
@@ -3186,6 +3192,18 @@ m=CoverflowMachine(cached=False); page=m.open()
 assert len(m.threads)==1 and m.timers and any((t or '').startswith('Preparing artwork') for t in m.texts()) and 'Cancel' in m.texts()
 f,ctx=m.handler(page,O['EVT_DESTROY']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert m.joins==[77] and not m.timers and m.freed==4; passed()  # three job paths and the job array
+# Tracks list and play in album order (disc, track, then path, then CUE start), named without
+# their file's extension; a CUE title keeps its dot.
+def track(m,name,path,disc=0,no=0,cue=0):
+    r=m.song(name); m.word(r+O['REC_PATH'],m.string(path))
+    for k,v in (('REC_DISC',disc),('REC_TRACK',no),('REC_CUE_START',cue)): m.word(r+O[k],v)
+    return r
+for found,want in (((('b.mp3','/p/b.mp3',2,1),('a.mp3','/p/a.mp3',1,2),('c.mp3','/p/c.mp3',1,1)),['c','a','b']),
+                   ((('Mr. Blue','/p/img.flac',0,0,300),('Intro','/p/img.flac'),('01 x.flac','/p/01 x.flac')),['01 x','Intro','Mr. Blue'])):
+    m=CoverflowMachine(); m.found=[track(m,*t) for t in found]; m.open(); view=m.tracks()
+    assert [m.nodes[m.nodes[i]['children'][0]].get('text') for i in m.nodes[view]['children']]==want
+    f,ctx=m.handler(m.nodes[view]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert [n.rsplit('.',1)[0] if n.endswith(('.mp3','.flac')) else n for n in m.names(m.plays[-1][1]&0xffffffff)]==want; passed()
 
 # Coverflow's own song deque feeds the shared queue menu, independently of stock browsing state.
 for action,want in ((0,['A','T2','B','C']),(1,['A','B','C','T2'])):
@@ -4014,19 +4032,30 @@ else:
         assert press(s)==got[-1][0]; s.call(address=HOOKS['on_wm_keyup_before_fun'][0],gap=0,debounce=True)
     assert got==[(1,0,1),(1,0,2),(1,0,2),(1,0,2)] and not m.config_reads; passed()
 
-# Shuffle Songs: after stock's 11 Local Music rows, one more in the same widgets and styles, moved
-# first. A click saves shuffle as the play-mode setting does and folder-plays every song from a
-# random track, leaving the staging deque as it was; an empty library only says so.
+def fnv(s,h=2166136261):
+    for c in s.encode(): h=((h^c)*16777619)&0xffffffff
+    return (h*16777619)&0xffffffff
+
+# Shuffle Songs and Most Played: after stock's 11 Local Music rows, two more in the same widgets and
+# styles, moved first. Shuffle saves shuffle as the play-mode setting does and folder-plays every song
+# from a random track, leaving the staging deque as it was; an empty library only says so. Most
+# Played folder-plays the counted songs, most played first, and leaves the play mode alone.
 class ShuffleMachine(CoverflowMachine):
     def __init__(self):
         super().__init__()
-        for n in ('getAllMusic','toolsRandnum','widget_restack'): self.handlers[syms[n]]='s:'+n
+        self.counts=b''; self.queued=None
+        for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2'): self.handlers[syms[n]]='s:'+n
+        self.handlers[syms['fopen@GLIBC_2.2']]='s:fopen'
         self.handlers[int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)]='stock_localmusic'
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
+        if address==syms['navigator_to_with_context'] and self.text(u.reg_read(REGS[0]))=='playing_page':
+            self.queued=self.names(self.get(u.reg_read(REGS[1])))
         if not name.startswith('s:'): return super().hook(u,address,size,unused)
-        name=name[2:]; a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); ret=0; self.calls.append((name,a,b))
-        if name=='getAllMusic':
+        name=name[2:].split('@')[0]; a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); ret=0; self.calls.append((name,a,b))
+        if name=='fopen': ret=1 if self.text(a)=='/mnt/data/ringnav-plays' and self.counts else 0
+        elif name=='fread': self.u.mem_write(a,self.counts); ret=1
+        elif name=='getAllMusic':
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=len(self.found)
         elif name=='toolsRandnum': ret=a-1  # stock: rand() % a
         elif name=='widget_restack':
@@ -4037,7 +4066,9 @@ m=ShuffleMachine(); stock=[m.node('list_item') for _ in range(11)]
 view=m.node('scroll_view','scroll_view_localmusic',stock); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0
 assert m.calls[0][:3]==('stock_localmusic',m.top,5)
-row=m.nodes[view]['children'][0]; assert m.nodes[view]['children'][1:]==stock and m.nodes[row]['style']=='s_listitem_black'
+row,top=m.nodes[view]['children'][:2]; assert m.nodes[view]['children'][2:]==stock and m.nodes[row]['style']=='s_listitem_black'
+icon,label=m.nodes[m.nodes[top]['children'][0]]['children']
+assert m.nodes[icon]['image']=='local_frequentplay' and m.nodes[label]['text']=='Most Played'
 button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[button]['style']=='s_btn_listitem' and [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
 assert m.nodes[icon]['image']=='local_shuffle' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
@@ -4050,6 +4081,14 @@ assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts
 m.found=[]; m.plays=[]; m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert not called('config_playmode') and not m.plays and m.toasts[-1][0]=='dialog/msginfo_dialog' and m.toasts[-1][3]=='Update Local Music first'; passed()
+f,ctx=m.handler(m.nodes[top]['children'][0],O['EVT_CLICK'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Update Local Music first'
+m.found=[m.song(n) for n in ('T1','T2','T3')]; m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.plays and m.toasts[-1][3]=='Nothing played yet'; passed()
+m=ShuffleMachine(); m.found=[m.song(n) for n in ('T1','T2','T3')]
+m.counts=struct.pack('<4I',fnv('/p/T1'),2,fnv('/p/T3'),5).ljust(8*O['PLAYS_SLOTS'],b'\0')
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+assert m.queued==['T3','T1'] and m.plays==[('playing_page',m.plays[0][1],0,1,2)] and not called('config_playmode'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its
 # place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S of play, after a
@@ -4061,7 +4100,9 @@ class ResumeMachine(QueueMachine):
         self.files={} if files is None else files; self.open={}; self.play=(0,0); self.seeks=[]; self.opens=self.renames=0
         self.handlers[sleep_hook+12]='stock_sleep'
         for n in ('fopen@GLIBC_2.2','fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0',
-                  'player_playtime_and_length','player_seek_time'): self.handlers[syms[n]]='r:'+n
+                  'access@GLIBC_2.0','time@GLIBC_2.0','player_playtime_and_length','player_seek_time'): self.handlers[syms[n]]='r:'+n
+        self.epoch=1700000000
+        self.mock('tk_snprintf')
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('r:'): return super().hook(u,address,size,unused)
@@ -4069,13 +4110,15 @@ class ResumeMachine(QueueMachine):
         if name=='fopen':
             self.opens+=1; path,mode=self.text(a),self.text(b)
             if mode=='rb' and path not in self.files: ret=0
-            else: ret=0x2000000+len(self.calls); self.open[ret]=[path,mode,0,b'' if mode=='wb' else self.files[path]]
+            else: ret=0x2000000+len(self.calls); self.open[ret]=[path,mode,0,b'' if mode=='wb' else self.files.get(path,b'')]
         elif name=='fread':
             f=self.open[d]; data=f[3][f[2]:f[2]+b*c]; f[2]+=len(data); self.u.mem_write(a,data); ret=len(data)//b
         elif name=='fwrite': self.open[d][3]+=bytes(self.u.mem_read(a,b*c)); ret=c
         elif name=='fclose':
             path,mode,_,data=self.open.pop(a)
-            if mode=='wb': self.files[path]=data
+            if mode in ('wb','ab'): self.files[path]=data
+        elif name=='access': ret=0 if self.text(a) in self.files else -1
+        elif name=='time': ret=self.epoch
         elif name=='rename': self.renames+=1; self.files[self.text(b)]=self.files.pop(self.text(a))
         elif name=='player_playtime_and_length':
             if self.play[1]: self.word(a,self.play[0]); self.word(b,self.play[1]); ret=1
@@ -4116,5 +4159,37 @@ m=ResumeMachine()
 for i in range(O['RESUME_SLOTS']+2):  # the last is saved by no later change
     m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[0]+O['REC_PATH'],m.string(f'/p/long{i}')); m.poll(100+i,pos=0,n=3)
 assert len(m.places())==O['RESUME_SLOTS'] and m.places()[0][1]==100+O['RESUME_SLOTS'] and m.places()[-1][1]==101; passed()
+
+# Play counts: a track over LISTEN_MIN_S counts once half of it, or LISTEN_MAX_S, has been heard,
+# seeks aside; a repeat counts again. Counts are written whole to /mnt/data, most recent first, the
+# least recently played of the lowest counts replaced when full.
+def counts(m): return [(k,n) for k,n in struct.iter_unpack('<II',m.files.get('/mnt/data/ringnav-plays',b'')) if k]
+m=ResumeMachine(); playing(m,0,200,pos=0,n=101); assert not counts(m)
+playing(m,100,200,n=50); assert counts(m)==[(fnv('/p/A'),1)]; passed()
+m.poll(0,200); playing(m,1,200,n=101); assert counts(m)==[(fnv('/p/A'),2)]; passed()  # repeat-one
+playing(m,0,200,pos=1,n=5); m.poll(150,200); playing(m,151,200,n=40); assert len(counts(m))==1; passed()  # seeked past half
+playing(m,0,20,pos=2,n=25); assert len(counts(m))==1; passed()  # too short
+playing(m,0,3600,pos=1,n=242); assert counts(m)[0]==(fnv('/p/B'),1); passed()  # 4 minutes of a long track
+log=m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')  # the same listens, scrobbled
+assert log[:3]==['#AUDIOSCROBBLER/1.1','#TZ/UTC','#CLIENT/Q2 Pod'] and log[-1]=='' and len(log)==7
+assert log[3]==f'Artist\tAlbum\tA\t\t200\tL\t{1700000000-100}\t' and log[4]==log[3] and log[5].startswith('Artist\tAlbum\tB\t\t3600\tL\t'); passed()
+m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
+m.word(r+O['REC_ARTIST'],m.string('')); m.word(r+O['REC_TITLE'],m.string('Tab\tbed')); m.word(r+O['REC_TRACK'],7)
+playing(m,0,200,pos=0,n=110); assert counts(m) and '/mnt/mmc/.scrobbler.log' not in m.files  # no artist: counted only
+m.word(r+O['REC_ARTIST'],m.string('X')); m.poll(0,200); playing(m,1,200,n=110)  # the tag's title, not the file name
+assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[3].startswith('X\tAlbum\tTab bed\t7\t200\t'); passed()
+m.word(r+O['REC_TITLE'],m.string('')); m.word(r+O['REC_NAME'],m.string('Song.flac')); m.word(r+O['REC_PATH'],m.string('/p/Song.flac'))
+m.poll(0,200); playing(m,1,200,n=110)  # untitled: the file name without its extension
+assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[4].startswith('X\tAlbum\tSong\t7\t200\t'); passed()
+m=ResumeMachine(); m.epoch=86400; playing(m,0,200,pos=0,n=110)  # clock never set: counted only
+assert counts(m) and '/mnt/mmc/.scrobbler.log' not in m.files; passed()
+m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]  # CUE tracks of one image: apart
+playing(m,0,200,pos=0,n=110); m.word(r+O['REC_CUE_START'],300); m.poll(0,200); playing(m,1,200,n=110)
+assert len(counts(m))==2 and counts(m)[1]==(fnv('/p/A'),1); passed()
+m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]  # a skipped CUE track's time stays its own
+playing(m,0,200,pos=0,n=26); m.word(r+O['REC_CUE_START'],300); playing(m,0,200,n=80); assert not counts(m); passed()
+full=[(i+1,1 if i==5 else 2) for i in range(O['PLAYS_SLOTS'])]
+m=ResumeMachine({'/mnt/data/ringnav-plays':b''.join(struct.pack('<II',*e) for e in full)})
+playing(m,0,200,pos=0,n=110); assert counts(m)==[(fnv('/p/A'),1)]+full[:5]+full[6:]; passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

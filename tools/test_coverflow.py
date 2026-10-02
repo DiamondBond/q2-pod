@@ -35,6 +35,7 @@ extern char shim_lastcover[1024];
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
 getAllAlbum getMusicByAlbum toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
+deque_init _deque_push_back
 deque_assign deque_destroy deque_size deque_at window_create widget_factory
 widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
 slide_menu_set_value slide_menu_item_width list_view_create scroll_view_create list_item_create image_set_draw_type
@@ -53,6 +54,7 @@ void *shim_calloc(size_t, size_t);
 
 TEST = r"""
 #include <assert.h>
+#include <stdarg.h>
 #include <sys/mman.h>
 #include "peq.h"
 #include "offsets.inc"
@@ -225,6 +227,13 @@ void *_create_deque(const char *t) { (void)t; return calloc(1, sizeof(deque)); }
 void deque_init_copy(void *d, const void *s) { *(deque *)d = *(const deque *)s; }
 void deque_assign(void *d, const void *s) { *(deque *)d = *(const deque *)s; }
 void deque_clear(void *d) { ((deque *)d)->n = 0; }
+void deque_init(void *d) { ((deque *)d)->n = 0; }
+void _deque_push_back(void *d, ...) {
+    va_list a;
+    va_start(a, d);
+    ((deque *)d)->at[((deque *)d)->n++] = va_arg(a, void *);
+    va_end(a);
+}
 void deque_destroy(void *d) { free(d); }
 unsigned deque_size(const void *d) { return ((const deque *)d)->n; }
 void *deque_at(const void *d, unsigned i) { return i < ((const deque *)d)->n ? ((const deque *)d)->at[i] : 0; }

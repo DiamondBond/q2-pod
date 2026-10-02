@@ -19,6 +19,7 @@ extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern void coverflow_paint(void *w, void *canvas);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
+extern const char *track_name(char *buf, unsigned size, void *t);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -91,8 +92,17 @@ typedef struct {
     } spots[RESUME_SLOTS];
     unsigned spots_read, rs_at, rs_key;
     int rs_long, rs_settle, rs_sec, rs_total, rs_saved, rs_still, rs_pending;
+    /* Play counts by path hash (plays_read once loaded); the playing track's last second, the
+     * seconds of it heard and whether this play has counted. */
+    struct {
+        unsigned key, n;
+    } plays[PLAYS_SLOTS];
+    unsigned plays_read, ls_key;
+    int ls_sec, ls_heard, ls_done;
 #if IPOD
     void *pull_page, *pull_surface;
+    void *sel_w; /* the surface whose selection was last drawn: its row and centre, for Home's > */
+    int sel_row, sel_y;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
     unsigned clock_key; /* the clock's minute of the day + 1; 0 before the first, ~0 for --:-- */
@@ -1149,19 +1159,22 @@ static int drill(void *w) {
 }
 
 /* The iPod `>` of each drill row, where stock rows place img_into, as stock hides its own
- * list_into: not in multi-select, and not on grid tiles. The image manager caches the bitmap. */
+ * list_into: not in multi-select, and not on grid tiles. Home's rides its selection bar alone,
+ * nudge included. The image manager caches the bitmap. */
 static void paint_chevrons(void *w, void *canvas) {
     unsigned bitmap[64]; /* bitmap_t */
     rect_t old;
+    void *win = window_of(w);
+    int home = win && !tk_strcmp(widget_get_prop_str(win, "name", ""), "home_page");
     if (g_navbar_status || !kind(w) || !P(canvas, CANVAS_LCD) || !drill(w) ||
-        !load_rows(&g_menu, w) || widget_load_image(w, "list_into", bitmap) ||
-        !clip_surface(canvas, &g_menu, &old))
+        (home && st.sel_w != w) || !load_rows(&g_menu, w) ||
+        widget_load_image(w, "list_into", bitmap) || !clip_surface(canvas, &g_menu, &old))
         return;
     for (int i = 0; i < g_menu.n; ++i) {
         rect_t r = bounds(&g_menu, i);
-        if (2 * r.w >= I(w, W_W))
+        if (2 * r.w >= I(w, W_W) && (!home || i == st.sel_row))
             canvas_draw_icon(canvas, bitmap, r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2,
-                             r.y + r.h / 2); /* bitmap_t width @0 */
+                             home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);
 }
@@ -1238,6 +1251,9 @@ static void paint_letter(void *w, void *canvas) {
  * readable over artwork without borrowing the red "playing" language or the native focus flag.
  * Small rows and degenerate geometry keep the square fallback. */
 static void paint_selection(void *w, void *canvas) {
+#if IPOD
+    if (w == st.sel_w) st.sel_w = (void *)0;
+#endif
     if (!w || !canvas || !kind(w)) return;
     void *top = window_manager_get_top_window(window_manager());
     int i, shown = !st.touch_mode;
@@ -1283,6 +1299,9 @@ static void paint_selection(void *w, void *canvas) {
     }
     const unsigned *a = accents[accent()];
     gradient(canvas, r, a[0], a[1], a[4]);
+    st.sel_w = w;
+    st.sel_row = i;
+    st.sel_y = r.y + r.h / 2;
     if (g_menu.kind == 4 &&
         r.w < I(g_menu.w, W_W)) { /* a pop-up button's tile: framed white on any accent */
         canvas_set_stroke_color(canvas, 0xffffffff);
@@ -2355,8 +2374,77 @@ static int shuffle_songs(void *ctx, void *event) {
     return 0;
 }
 
-/* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs moved first. Its
- * button has no name, so stock's row click (atoi of the name, 0x5241fc) never sees it. */
+/* Resume and play counts: each file is written whole, to a .tmp then renamed. */
+#define RESUME_FILE "/mnt/data/ringnav-resume"
+#define PLAYS_FILE "/mnt/data/ringnav-plays"
+static void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
+    void *f = fopen(write ? tmp : path, write ? "wb" : "rb");
+    if (!f) return;
+    int ok = write ? fwrite(buf, size, 1, f) == 1 : fread(buf, size, 1, f) == 1;
+    if (fclose(f) || !ok) {
+        if (!write) memset(buf, 0, size);
+        return;
+    }
+    if (write) rename(tmp, path);
+}
+#define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", buf, sizeof buf, write)
+
+static void plays_load(void) {
+    if (!st.plays_read) {
+        st.plays_read = 1;
+        BLOB_IO(PLAYS_FILE, st.plays, 0);
+    }
+}
+
+/* A play count's key: the path's hash, with a CUE track's start mixed in, since a CUE image's
+ * tracks share one path. Never 0, which marks a free slot. */
+static unsigned listen_key(void *r) {
+    unsigned key = fnv(FNV_SEED, P(r, REC_PATH));
+    int cue = I(r, REC_CUE_START);
+    if (cue) key = hash_bytes(key, (const unsigned char *)&cue, sizeof cue);
+    return key | !key;
+}
+
+/* Most Played: the PLAYS_TOP most played songs of the library, most played first, folder-played
+ * from the top without touching the play mode. ponytail: plays at once like Shuffle Songs; a list
+ * if users want to pick a track. */
+static int most_played(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    int n, top = 0, idx[PLAYS_TOP];
+    unsigned cnt[PLAYS_TOP];
+    void *all = staged(all_songs, 0, &n);
+    int size = (int)deque_size(all);
+    plays_load();
+    for (int i = 0; i < size; i++) {
+        unsigned key = listen_key(deque_at(all, i)), c = 0;
+        for (int j = 0; j < PLAYS_SLOTS && !c; j++)
+            if (st.plays[j].key == key) c = st.plays[j].n;
+        if (!c || (top == PLAYS_TOP && cnt[top - 1] >= c)) continue;
+        int at = top < PLAYS_TOP ? top++ : PLAYS_TOP - 1;
+        for (; at > 0 && cnt[at - 1] < c; at--) cnt[at] = cnt[at - 1], idx[at] = idx[at - 1];
+        cnt[at] = c;
+        idx[at] = i;
+    }
+    if (top) {
+        void *list = _create_deque("stSongInfo");
+        deque_init(list);
+        for (int i = 0; i < top; i++) _deque_push_back(list, deque_at(all, idx[i]));
+        struct {
+            void *dq;
+            int idx, cls, mode;
+        } context = { list, 0, 1, 2 };
+        navigator_to_with_context("playing_page", &context); /* mclLoadPlayList copies it */
+        deque_destroy(list);
+    } else
+        toast(size ? "Nothing played yet" : "Update Local Music first");
+    deque_destroy(all);
+    return 0;
+}
+
+/* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs and Most Played
+ * moved first. Their buttons have no name, so stock's row click (atoi of the name, 0x5241fc) never
+ * sees them. */
 int ringnav_localmusic(void *win, void *ctx) {
     int result = stock_localmusic_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_localmusic", 1) : (void *)0;
@@ -2364,6 +2452,9 @@ int ringnav_localmusic(void *win, void *ctx) {
         void *label = list_row(view, "local_shuffle", shuffle_songs, 0);
         widget_set_text_utf8(label, "Shuffle Songs");
         widget_restack(P(P(label, W_PARENT), W_PARENT), 0);
+        label = list_row(view, "local_frequentplay", most_played, 0); /* stock's, unused */
+        widget_set_text_utf8(label, "Most Played");
+        widget_restack(P(P(label, W_PARENT), W_PARENT), 1);
     }
     return result;
 }
@@ -2487,20 +2578,6 @@ int ringnav_shuffle(int forward) {
     return result;
 }
 
-/* Resume (docs/internals.md#resume). The ring is written whole, to a .tmp then renamed. */
-#define RESUME_FILE "/mnt/data/ringnav-resume"
-static void spots_io(int write) {
-    void *f = fopen(write ? RESUME_FILE ".tmp" : RESUME_FILE, write ? "wb" : "rb");
-    if (!f) return;
-    int ok = write ? fwrite(st.spots, sizeof st.spots, 1, f) == 1
-                   : fread(st.spots, sizeof st.spots, 1, f) == 1;
-    if (fclose(f) || !ok) {
-        if (!write) memset(st.spots, 0, sizeof st.spots);
-        return;
-    }
-    if (write) rename(RESUME_FILE ".tmp", RESUME_FILE);
-}
-
 /* Moves key's place to the front of the ring at sec, or forgets it near either end. */
 static void spot_keep(unsigned key, int sec, int total) {
     int i = 0, keep = sec >= RESUME_EDGE_S && sec < total - RESUME_EDGE_S;
@@ -2516,7 +2593,53 @@ static void spot_keep(unsigned key, int sec, int total) {
         for (; i < RESUME_SLOTS - 1; i++) st.spots[i] = st.spots[i + 1];
         st.spots[i].key = 0;
     }
-    spots_io(1);
+    BLOB_IO(RESUME_FILE, st.spots, 1);
+}
+
+/* Counts key's play and moves it first, so among equal counts the least recently played is the
+ * one replaced when no slot is free. */
+static void play_count(unsigned key) {
+    plays_load();
+    int i = 0;
+    for (int j = 0; j < PLAYS_SLOTS && st.plays[i].key != key; j++)
+        if (st.plays[j].key == key || st.plays[j].n <= st.plays[i].n) i = j;
+    unsigned n = st.plays[i].key == key ? st.plays[i].n + 1 : 1;
+    for (; i > 0; i--) st.plays[i] = st.plays[i - 1];
+    st.plays[0].key = key;
+    st.plays[0].n = n;
+    BLOB_IO(PLAYS_FILE, st.plays, 1);
+}
+
+/* Scrobbling (docs/internals.md#scrobbling): a Rockbox-style AudioScrobbler 1.1 log at the card's
+ * root, for any .scrobbler.log uploader. ponytail: untagged (artist-less) tracks are skipped, as
+ * scrobblers reject them; toolsGetMusicInfo if folder plays need them. */
+#define SCROBBLE_FILE "/mnt/mmc/.scrobbler.log"
+static char *scrobble_tag(char *o, char *end, const char *s) {
+    for (; s && *s && o < end - 1; s++) *o++ = *s == '\t' || *s == '\n' || *s == '\r' ? ' ' : *s;
+    *o++ = '\t';
+    return o;
+}
+
+static void scrobble(void *r, int total, int heard) {
+    static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
+    const char *artist = P(r, REC_ARTIST);
+    if (!artist || !*artist) return;
+    long now = time((void *)0);
+    if (now < 1600000000) return; /* clock never set: Last.fm would reject the time */
+    char line[800], name[512], *end = line + sizeof line - 48, *o = line; /* 48: the numbers */
+    o = scrobble_tag(o, end, artist);
+    o = scrobble_tag(o, end, P(r, REC_ALBUM));
+    const char *title = P(r, REC_TITLE);
+    o = scrobble_tag(o, end, title && *title ? title : track_name(name, sizeof name, r));
+    if (I(r, REC_TRACK) > 0) o += tk_snprintf(o, 12, "%d", I(r, REC_TRACK));
+    o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%d\t\n", total,
+                     (int)now - heard);
+    int fresh = access(SCROBBLE_FILE, 0) != 0;
+    void *f = fopen(SCROBBLE_FILE, "ab");
+    if (!f) return;
+    if (fresh) fwrite(header, sizeof header - 1, 1, f);
+    fwrite(line, (unsigned)(o - line), 1, f);
+    fclose(f);
 }
 
 /* Once a second from the UI loop: a long track saves its place and, when it starts playing near
@@ -2543,12 +2666,31 @@ static void resume_poll(void) {
         st.rs_pending = 0;
         if (st.rs_long && !st.spots_read) {
             st.spots_read = 1;
-            spots_io(0);
+            BLOB_IO(RESUME_FILE, st.spots, 0);
         }
         for (int i = 0; st.rs_long && i < RESUME_SLOTS; i++)
             if (st.spots[i].key == key) st.rs_pending = st.spots[i].sec;
         st.rs_sec = st.rs_saved = sec;
         st.rs_still = 0;
+    }
+    /* A listen: half the track or LISTEN_MAX_S heard, seeks and pauses aside; a repeat starts over.
+     */
+    if (!st.rs_pending) {
+        unsigned lk = listen_key(r);
+        if (lk != st.ls_key || (sec < 2 && st.ls_sec > LISTEN_MIN_S)) {
+            st.ls_key = lk;
+            st.ls_sec = sec;
+            st.ls_heard = st.ls_done = 0;
+        }
+        int d = sec - st.ls_sec;
+        if (d > 0 && d <= 2) st.ls_heard += d;
+        st.ls_sec = sec;
+        if (!st.ls_done && total > LISTEN_MIN_S &&
+            st.ls_heard >= (total / 2 < LISTEN_MAX_S ? total / 2 : LISTEN_MAX_S)) {
+            st.ls_done = 1;
+            play_count(lk);
+            scrobble(r, total, st.ls_heard);
+        }
     }
     if (!st.rs_long) return;
     st.rs_total = total;
