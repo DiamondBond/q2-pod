@@ -173,7 +173,6 @@ FUNCTIONS = {
  'widget_get_child': ('void *', 'void *, unsigned'),
  'widget_set_prop_int': ('int', 'void *, const char *, int'),
  'widget_set_prop_str': ('int', 'void *, const char *, const char *'),
- 'window_manager': ('void *', 'void'),
  'pages_set_active_by_name': ('int', 'void *, const char *'),
  'widget_invalidate_force': ('int', 'void *, void *'),
  'widget_animator_start': ('int', 'void *'),
@@ -361,9 +360,7 @@ def compile_helper(out, cat):
     for rel in HELPER_LIBS:
         libs.append(out/rel.rsplit('/', 1)[-1])
         libs[-1].write_bytes(cat(rel))
-    run('clang', '--target=mipsel-linux-gnu', '-march=mips32r2', '-mabi=32', '-mfp64', '-mnan=2008', '-mabs=2008',
-        '-mabicalls', '-fno-pic', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-fno-unwind-tables',
-        '-fno-asynchronous-unwind-tables', '-Oz', '-Wall', '-Wextra', '-Werror',
+    run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008', '-mabicalls',
         '-c', ROOT/'patch/q2video.c', '-o', out/'q2video.o')
     run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
         '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',

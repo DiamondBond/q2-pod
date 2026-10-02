@@ -23,13 +23,12 @@
 #define CF_ROW_X 12
 #define CF_ROW_W 350
 #endif
-#define ART_MIN_FREE_MB 16 /* no build below this much free space on the card */
+#define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
     stock_scan_folder_trampoline(void *, void *), stock_delete_song_trampoline(void *, void *);
-extern void stop_timer(unsigned *timer), rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
 
 enum { PREPARING, COVERS, TRACKS };
 typedef struct {
@@ -94,9 +93,10 @@ static char *art_path(char *out, unsigned key, const char *suffix) {
     return out;
 }
 
-static int thumb(const char *src, const char *dst) {
+/* stock's thumbnailer, under the lock every stock caller holds; shared with photos.c */
+int thumb(const char *src, const char *dst, int w, int h) {
     pthread_mutex_lock((void *)parse_cover_mutex);
-    int ok = toolsThumbSpecCover(src, dst, ART_SIZE, ART_SIZE) == 1;
+    int ok = toolsThumbSpecCover(src, dst, w, h) == 1;
     pthread_mutex_unlock((void *)parse_cover_mutex);
     return ok;
 }
@@ -108,13 +108,12 @@ static void build_art(const job_t *j) {
     if (access(j->track, 0)) return; /* storage gone: no marker, the next open retries */
     art_path(dst, j->key, "");
     art_path(tmp, j->key, ".tmp");
-    int folder = 0, ok = 0;
-    for (int i = 0; j->track[i]; ++i)
-        if (j->track[i] == '/') folder = i;
+    const char *slash = strrchr(j->track, '/');
+    int folder = slash ? (int)(slash - j->track) : 0, ok = 0;
     static const char *const names[] = { "cover.jpg", "folder.jpg" };
     for (int i = 0; i < 2 && !ok; ++i) {
         snprintf(src, sizeof(src), "%.*s/%s", folder, j->track, names[i]);
-        ok = !access(src, 4) && thumb(src, tmp);
+        ok = !access(src, 4) && thumb(src, tmp, ART_SIZE, ART_SIZE);
     }
     if (!ok) {
         /* toolsGetAlbumCover goes through the shared /tmp/.tmp_picture, which stock guards with
@@ -142,14 +141,29 @@ static void *worker(void *unused) {
     return 0;
 }
 
+/* A running worker cancelled and joined, and its poll timer stopped; 1 when one ran. Shared with
+ * photos.c and books.c. */
+int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer) {
+    int ran = *running;
+    if (ran) {
+        *cancel = 1;
+        pthread_join(thread, 0);
+        *running = 0;
+    }
+    stop_timer(timer);
+    return ran;
+}
+
+/* Whether dir's file system has MIN_FREE_MB free (statfs, MIPS o32 layout: f_bsize is word 1,
+ * f_bavail word 7); shared with photos.c. */
+int card_space(const char *dir) {
+    unsigned fs[32] = { 0 };
+    return !statfs(dir, fs) && (unsigned long long)fs[7] * fs[1] >= (unsigned long long)MIN_FREE_MB << 20;
+}
+
 /* Cancel stops after the current album; finished thumbnails stay, so the next open resumes. */
 static void stop(void) {
-    if (cf.running) {
-        cf.cancel = 1;
-        pthread_join(cf.thread, 0);
-        cf.running = 0;
-    }
-    stop_timer(&cf.timer);
+    worker_stop(cf.thread, &cf.running, &cf.cancel, &cf.timer);
     for (int i = 0; i < cf.total; ++i) free(cf.jobs[i].track);
     free(cf.jobs);
     cf.jobs = 0;
@@ -199,6 +213,18 @@ void *text(void *parent, int x, int y, int w, int h) { /* shared with photos.c *
     return label;
 }
 
+/* A black page named name, with its destroy and Return handlers; 0 when none. Shared with photos.c
+ * and books.c. */
+void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *)) {
+    void *page = window_create(0, 0, 0, 0, 0);
+    if (!page) return 0;
+    widget_set_name(page, name);
+    widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
+    widget_on(page, EVT_DESTROY, closed, 0);
+    widget_on(page, EVT_KEY_UP, keyup, 0);
+    return page;
+}
+
 /* A page's 48px title bar; shared with photos.c. */
 void *page_title(void *body, const char *caption) {
     void *title = text(body, CF_X, 0, CF_W, 48);
@@ -232,7 +258,7 @@ static void *list(const char *title, int n) {
 }
 
 /* One 48px row of a page_list; shared with photos.c. */
-void row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
+void page_row(void *view, int index, const char *caption, int (*click)(void *, void *)) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
     void *label = text(item, CF_ROW_X, 0, CF_ROW_W, 48);
@@ -699,7 +725,7 @@ static void load(void) {
         list("Update Local Music first", 0);
         return;
     }
-    unsigned count = deque_size(cf.albums), fs[32] = { 0 };
+    unsigned count = deque_size(cf.albums);
     char path[512];
     if (!cf.saved_album) remember(0);
     cf.jobs = calloc(count, sizeof(job_t));
@@ -713,13 +739,10 @@ static void load(void) {
     }
     mkdir(ART_DIR, 0755);
     cf.done = cf.cancel = 0;
-    /* statfs, MIPS o32 layout: f_bsize is word 1, f_bavail word 7. */
-    if (cf.total && !statfs(ART_DIR, fs) &&
-        (unsigned long long)fs[7] * fs[1] >= (unsigned long long)ART_MIN_FREE_MB << 20 &&
-        !pthread_create(&cf.thread, 0, worker, 0)) {
+    if (cf.total && card_space(ART_DIR) && !pthread_create(&cf.thread, 0, worker, 0)) {
         cf.running = 1;
         cf.screen = PREPARING;
-        row(list("", 1), 0, "Cancel", cancel_row);
+        page_row(list("", 1), 0, "Cancel", cancel_row);
         poll(0);
     } else
         to_covers(0);
@@ -804,7 +827,7 @@ static int to_tracks(const void *unused) {
     widget_set_visible(cf.covers, 0, 0);
     void *view = list(P(r, REC_ALBUM), n);
     for (int i = 0; i < n; ++i)
-        row(view, i, track_name(name, sizeof name, deque_at(cf.tracks, (unsigned)i)), play);
+        page_row(view, i, track_name(name, sizeof name, deque_at(cf.tracks, (unsigned)i)), play);
     return 0;
 }
 
@@ -860,14 +883,7 @@ static int closed(void *ctx, void *event) {
 static int coverflow_open(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    if (cf.page) return 0;
-    void *page = window_create(0, 0, 0, 0, 0);
-    if (!page) return 0;
-    cf.page = page;
-    widget_set_name(page, "coverflow_page");
-    widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
-    widget_on(page, EVT_DESTROY, closed, 0);
-    widget_on(page, EVT_KEY_UP, keyup, 0);
+    if (cf.page || !(cf.page = page_open("coverflow_page", closed, keyup))) return 0;
     load();
     return 0;
 }

@@ -11,19 +11,7 @@
 #define ALBUMS_MAX 200    /* ponytail: subfolders listed; deeper folders are not albums */
 #define PH_HEAD 4096      /* bytes read for the EXIF orientation; IFD0 sits at the start */
 #define PH_TILE_SLOTS 32  /* decoded thumbnails kept: three rows on screen and some either side */
-#define PH_MIN_FREE_MB 16 /* no new copies below this much free space on the card */
 #define PH_BAD 9          /* state: the file will not open */
-
-extern void *text(void *parent, int x, int y, int w, int h);
-extern void *page_title(void *body, const char *caption);
-extern void *page_list(void *page, void *body, void **title, const char *caption, int n,
-                       int item_h);
-extern void row(void *view, int index, const char *caption, int (*click)(void *, void *));
-extern int visual(void *s, int n, int *c, int *frac);
-extern unsigned fnv(unsigned h, const unsigned char *s);
-extern void stop_timer(unsigned *timer),
-    rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
-extern void ringnav_select(void *w, int id, int rows);
 
 enum { ALBUMS, GRID, VIEWER };
 typedef struct {
@@ -47,19 +35,11 @@ static struct {
     slot_t tiles[PH_TILE_SLOTS], shots[3];
 } ph __attribute__((section(".scratch")));
 
-/* ASCII s against a lower-case ext, case aside. */
-static int same(const char *s, const char *ext) {
-    while (*ext && (*s | 0x20) == *ext) ++s, ++ext;
-    return !*s && !*ext;
-}
-
 /* A .jpg, .jpeg or .png that is not hidden (macOS leaves ._ copies beside each photo). */
 int photo_file(const char *name) {
-    const char *dot = 0;
-    for (const char *p = name; *p; ++p)
-        if (*p == '.') dot = p;
+    const char *dot = strrchr(name, '.');
     return name[0] != '.' && dot &&
-           (same(dot + 1, "jpg") || same(dot + 1, "jpeg") || same(dot + 1, "png"));
+           (!strcasecmp(dot + 1, "jpg") || !strcasecmp(dot + 1, "jpeg") || !strcasecmp(dot + 1, "png"));
 }
 
 static unsigned u16(const unsigned char *p, int le) {
@@ -122,14 +102,6 @@ static void cache_path(char *out, unsigned key, const char *suffix) {
     tk_snprintf(out, 64, PHOTO_DIR "/%08x%s", key, suffix);
 }
 
-/* stock's thumbnailer, under the lock every stock caller holds (Coverflow's thumb) */
-static int scaled(const char *src, const char *dst, int w, int h) {
-    pthread_mutex_lock((void *)parse_cover_mutex);
-    int ok = toolsThumbSpecCover(src, dst, w, h) == 1;
-    pthread_mutex_unlock((void *)parse_cover_mutex);
-    return ok;
-}
-
 /* The worker: photo i's orientation, then its screen-size copy (written to .tmp, renamed) and a
  * thumbnail from that copy, unless cached. A photo that stock cannot read (corrupt, a PNG over
  * 1 MB, a JPEG over 6 MB) gets a .bad marker, so it is not tried again. */
@@ -147,7 +119,7 @@ static int build(int i) {
     cache_path(shot, ph.key[i], ".jpg");
     if (access(shot, 0)) {
         if (!ph.space) return PH_BAD;
-        if (!scaled(ph.path[i], tmp, turn ? PH_SHOT_H : PH_SHOT_W, turn ? PH_SHOT_W : PH_SHOT_H) ||
+        if (!thumb(ph.path[i], tmp, turn ? PH_SHOT_H : PH_SHOT_W, turn ? PH_SHOT_W : PH_SHOT_H) ||
             rename(tmp, shot)) {
             unlink(tmp);
             if (access(ph.path[i], 0)) return PH_BAD;
@@ -158,7 +130,7 @@ static int build(int i) {
     }
     cache_path(small, ph.key[i], "t.jpg");
     if (ph.space && access(small, 0) &&
-        (!scaled(shot, tmp, turn ? PH_THUMB_H : PH_THUMB_W, turn ? PH_THUMB_W : PH_THUMB_H) ||
+        (!thumb(shot, tmp, turn ? PH_THUMB_H : PH_THUMB_W, turn ? PH_THUMB_W : PH_THUMB_H) ||
          rename(tmp, small)))
         unlink(tmp); /* no thumbnail: the tile stays grey, the photo still opens */
     return o;
@@ -210,12 +182,7 @@ static void drop_slots(slot_t *s, int count) {
 
 /* Cancel waits for the photo being made; finished copies stay for the next open. */
 static void drop_photos(void) {
-    if (ph.running) {
-        ph.cancel = 1;
-        pthread_join(ph.thread, 0);
-        ph.running = 0;
-    }
-    stop_timer(&ph.poll);
+    worker_stop(ph.thread, &ph.running, &ph.cancel, &ph.poll);
     for (int i = 0; i < ph.n; ++i) free(ph.path[i]);
     free(ph.path);
     free(ph.key);
@@ -227,7 +194,8 @@ static void drop_photos(void) {
     ph.slide = ph.info = 0;
 }
 
-static int by_name(const void *a, const void *b) {
+/* qsort's order for a list of strings; shared with books.c. */
+int by_string(const void *a, const void *b) {
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
 
@@ -248,7 +216,7 @@ static int scan(const char *dir, char **list, int *n, int cap, int albums) {
             ++*n;
     }
     if (d) closedir(d);
-    if (list) qsort(list + from, (unsigned)(*n - from), sizeof *list, by_name);
+    if (list) qsort(list + from, (unsigned)(*n - from), sizeof *list, by_string);
     return found;
 }
 
@@ -297,10 +265,8 @@ static int to_grid(const void *unused) {
         widget_use_style(tile, "s_listitem_black");
         widget_on(tile, EVT_CLICK, open_tile, (void *)(long)i);
     }
-    unsigned fs[32] = { 0 }; /* statfs, MIPS o32: f_bsize is word 1, f_bavail word 7 */
     mkdir(PHOTO_DIR, 0755);
-    ph.space = !statfs(PHOTO_DIR, fs) &&
-               (unsigned long long)fs[7] * fs[1] >= (unsigned long long)PH_MIN_FREE_MB << 20;
+    ph.space = card_space(PHOTO_DIR);
     ph.done = ph.seen = ph.cancel = ph.finished = ph.cursor = 0;
     ph.want = -1;
     if (n && !pthread_create(&ph.thread, 0, worker, 0)) {
@@ -317,9 +283,7 @@ static int to_grid(const void *unused) {
 static void info(void) {
     if (!ph.info || ph.current >= ph.n) return;
     int s = ph.state[ph.current];
-    const char *name = ph.path[ph.current], *p = name;
-    for (; *p; ++p)
-        if (*p == '/') name = p + 1;
+    const char *name = strrchr(ph.path[ph.current], '/') + 1; /* a full path */
     char caption[300];
     if (!s || s == PH_BAD)
         tk_snprintf(caption, sizeof caption, "%s",
@@ -355,10 +319,7 @@ static int to_viewer(const void *unused) {
             widget_set_prop_int(img, "clickable", 1);
             widget_on(img, EVT_CLICK, toggle_info, 0);
         }
-        /* Above the rounded glass's bottom corners, dark under white so it reads over any photo. */
-        ph.info = text(ph.viewer, CF_EDGE, h - 56, 375 - 2 * CF_EDGE, 36);
-        widget_set_prop_int(ph.info, "style:normal:bg_color", (int)0xb3000000u);
-        widget_set_prop_int(ph.info, "style:normal:round_radius", 8);
+        ph.info = bottom_caption(ph.viewer, h);
         widget_on(ph.slide, EVT_VALUE_CHANGED, moved, 0);
     }
     ph.screen = VIEWER;
@@ -480,6 +441,15 @@ static slot_t *slot(slot_t *s, int count, int box, int i, const char *suffix) {
     return pick;
 }
 
+/* The bottom caption of a page h high: above the rounded glass's bottom corners, dark under white
+ * so it reads over any photo. Shared with books.c. */
+void *bottom_caption(void *parent, int h) {
+    void *label = text(parent, CF_EDGE, h - 56, 375 - 2 * CF_EDGE, 36);
+    widget_set_prop_int(label, "style:normal:bg_color", (int)0xb3000000u);
+    widget_set_prop_int(label, "style:normal:round_radius", 8);
+    return label;
+}
+
 static int ready(int i) { return i >= 0 && i < ph.n && ph.state[i] - 1u < 8; }
 
 /* The viewer's photo i, round the ends as the slide_menu wraps. */
@@ -528,14 +498,9 @@ void photos_paint(void *w, void *canvas) {
 /* Local Music's Photos row (ringnav.c media_click): the albums, or the grid when there are none. */
 void photos_open(const char *root) {
     if (ph.page) return;
-    void *page = window_create(0, 0, 0, 0, 0);
+    void *page = ph.page = page_open("photos_page", closed, keyup);
     if (!page) return;
-    ph.page = page;
     tk_snprintf(ph.root, sizeof ph.root, "%s", root);
-    widget_set_name(page, "photos_page");
-    widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
-    widget_on(page, EVT_DESTROY, closed, 0);
-    widget_on(page, EVT_KEY_UP, keyup, 0);
     void *f = widget_factory();
     int h = widget_get_prop_int(page, "h", PH_SHOT_H);
     ph.albums = widget_factory_create_widget(f, "view", page, 0, 0, 375, h);
@@ -552,6 +517,6 @@ void photos_open(const char *root) {
     }
     ph.screen = ALBUMS;
     void *view = page_list(page, ph.albums, &ph.title, "Photos", ph.nalbums + 1, 48);
-    row(view, 0, "All Photos", open_album);
-    for (int k = 0; k < ph.nalbums; ++k) row(view, k + 1, ph.album[k], open_album);
+    page_row(view, 0, "All Photos", open_album);
+    for (int k = 0; k < ph.nalbums; ++k) page_row(view, k + 1, ph.album[k], open_album);
 }

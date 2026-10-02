@@ -188,7 +188,6 @@ static int by_name(const void *a, const void *b) {
 
 /* A signed Last.fm call: api_sig is the MD5 of the sorted names and values, then the secret. */
 static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
-    static const char hex[] = "0123456789abcdef";
     unsigned ctx[32];
     unsigned char d[16];
     char sig[33];
@@ -206,8 +205,7 @@ static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
     }
     MD5_Update(ctx, up.cfg.v[FM_SECRET], strlen(up.cfg.v[FM_SECRET]));
     MD5_Final(d, ctx);
-    for (int i = 0; i < 16; i++) sig[2 * i] = hex[d[i] >> 4], sig[2 * i + 1] = hex[d[i] & 15];
-    sig[32] = 0;
+    for (int i = 0; i < 16; i++) tk_snprintf(sig + 2 * i, 3, "%02x", d[i]);
     put(b, "api_sig=", 0);
     put(b, sig, 0);
     put(b, "&format=json", 0);

@@ -47,6 +47,8 @@ LIBC = {
     'pthread_join': ('int', 'unsigned long, void **'), 'pthread_mutex_lock': ('int', 'void *'),
     'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
     'strdup': ('char *', 'const char *'),
+    'strrchr': ('char *', 'const char *, int'), 'strcasecmp': ('int', 'const char *, const char *'),
+    'strncasecmp': ('int', 'const char *, const char *, unsigned'),
     # iPod status bar clock (ringnav.c)
     'time': ('long', 'long *'), 'localtime': ('const int *', 'const long *'),
     # Scrobble upload (scrobble.c): demo's libcurl and libcrypto

@@ -900,7 +900,7 @@ def books_check(tmp):
     """Books (books.c): raw inflate against zlib and on garbage, XHTML to text, EPUB to text (stored
     and deflated entries, namespaced OPF, %XX hrefs, DRM, malformed zips), UTF-8 with the Latin-1
     fallback, and page layout forward and back."""
-    import io, random, zipfile, zlib
+    import random, zipfile, zlib
     lib = compile_host(tmp, 'books.so', ROOT/'patch/books.c')
     lib.book_inflate.argtypes = [C.c_char_p, C.c_uint, C.c_char_p, C.c_uint]
     rng = random.Random(7)

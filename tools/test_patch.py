@@ -87,7 +87,8 @@ class Machine:
             for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
-                  'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0')
+                  'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0',
+                  'strlen@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0')
         self.image_size=(50,50)  # what widget_load_image decodes
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
@@ -223,6 +224,9 @@ class Machine:
                     for kind,value in zip(re.findall(r'%\d*([sdxXu])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
+        elif name=='strrchr@GLIBC_2.0': i=self.text(a).encode().rfind(bytes([b&255])); ret=a+i if i>=0 else 0
+        elif name in ('strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0'):  # ASCII case, as the C locale
+            x,y=(self.text(v).encode().lower()[:c if name.startswith('strn') else None] for v in (a,b)); ret=(x>y)-(x<y)
         elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
             fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
             result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
@@ -2439,7 +2443,7 @@ for patched in (True, False):
 
 # Play/Pause hold queue menu. libcstl deques are Python lists of element addresses; the stock
 # mclLoadPlayList, mclNextSong and key filters run for real.
-from build import SHUFFLE_CALL, DROP_CACHES, fileoff
+from build import SHUFFLE_CALL, fileoff
 class QueueMachine(Machine):
     def __init__(self,page='allmusic_page',rows=20,queue=3,pos=0,mode=0,cls=0xf001):
         super().__init__()

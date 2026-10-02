@@ -50,4 +50,22 @@ void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p);
 int peq_update(peq_dsp *d, const peq_preset *p);
 void peq_process(peq_dsp *d, float *audio, unsigned frames);
 
+/* The payload's shared helpers: coverflow.c's pages, hashes and worker, photos.c's, ringnav.c's. */
+void *text(void *parent, int x, int y, int w, int h);
+void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *));
+void *page_title(void *body, const char *caption);
+void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h);
+void page_row(void *view, int index, const char *caption, int (*click)(void *, void *));
+void *bottom_caption(void *parent, int h);
+int visual(void *s, int n, int *c, int *frac);
+int thumb(const char *src, const char *dst, int w, int h);
+int card_space(const char *dir);
+int by_string(const void *a, const void *b);
+unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
+unsigned fnv(unsigned h, const unsigned char *s);
+void stop_timer(unsigned *timer), rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
+int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
+void ringnav_select(void *w, int id, int rows);
+void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write);
+
 #endif

@@ -460,16 +460,6 @@ unsigned book_back(const unsigned char *t, unsigned n, unsigned pos, int rows, i
 #define BOOKS_MAX 500 /* ponytail: ringnav navigates at most MAX_ENTRIES (512) rows */
 #define MARKS_N 64    /* books whose page is kept, the most recently read first */
 
-extern void *text(void *parent, int x, int y, int w, int h);
-extern void *page_list(void *page, void *body, void **title, const char *caption, int n,
-                       int item_h);
-extern void row(void *view, int index, const char *caption, int (*click)(void *, void *));
-extern unsigned fnv(unsigned h, const unsigned char *s);
-extern void stop_timer(unsigned *timer),
-    rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
-extern void ringnav_select(void *w, int id, int rows);
-extern void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write);
-
 enum { LIST, READER };
 enum { READY, PREPARING, BAD };
 static struct {
@@ -489,24 +479,13 @@ static struct {
     } marks[MARKS_N];
 } bk __attribute__((section(".scratch")));
 
-static int same(const char *s, const char *ext) {
-    while (*ext && (*s | 0x20) == *ext) ++s, ++ext;
-    return !*s && !*ext;
-}
-
 /* 1 for a .txt, 2 for an .epub, 3 for a video, not hidden; else 0. */
 static int book_kind(const char *name) {
-    const char *dot = 0;
-    for (const char *p = name; *p; ++p)
-        if (*p == '.') dot = p;
+    const char *dot = strrchr(name, '.');
     if (name[0] == '.' || !dot) return 0;
     for (const char *v = "mp4\0m4v\0mkv\0avi\0mov\0mpg\0"; *v; v += 4)
-        if (same(dot + 1, v)) return 3;
-    return same(dot + 1, "txt") ? 1 : same(dot + 1, "epub") ? 2 : 0;
-}
-
-static int by_name(const void *a, const void *b) {
-    return strcmp(*(char *const *)a, *(char *const *)b);
+        if (!strcasecmp(dot + 1, v)) return 3;
+    return !strcasecmp(dot + 1, "txt") ? 1 : !strcasecmp(dot + 1, "epub") ? 2 : 0;
 }
 
 /* dir's books, and with depth those of its subfolders, as full paths. */
@@ -527,13 +506,12 @@ static void scan(const char *dir, int depth) {
 
 /* path's file name without its extension, into out (sizeof 256). */
 static const char *title(const char *path, char *out) {
-    const char *name = path;
-    for (const char *p = path; *p; ++p)
-        if (*p == '/') name = p + 1;
-    unsigned n = 0, dot;
+    const char *name = strrchr(path, '/') + 1; /* a full path */
+    unsigned n = 0;
     while (name[n] && n < 255) out[n] = name[n], ++n;
-    for (out[dot = n] = 0; dot && out[dot] != '.'; --dot) {}
-    out[dot ? dot : n] = 0;
+    out[n] = 0;
+    char *dot = strrchr(out, '.');
+    if (dot && dot != out) *dot = 0;
     return out;
 }
 
@@ -594,13 +572,7 @@ static void *worker(void *unused) {
 }
 
 static void stop_worker(void) {
-    if (bk.running) {
-        bk.cancel = 1;
-        pthread_join(bk.thread, 0);
-        bk.running = 0;
-        unlink(bk.tmp);
-    }
-    stop_timer(&bk.poll);
+    if (worker_stop(bk.thread, &bk.running, &bk.cancel, &bk.poll)) unlink(bk.tmp);
 }
 
 static int poll(const void *unused) {
@@ -797,33 +769,25 @@ void video_key(unsigned key) {
 /* Local Music's Books and Videos rows (ringnav.c media_click): the books or videos, by path. */
 void books_open(const char *root, int videos) {
     if (bk.page) return;
-    void *page = window_create(0, 0, 0, 0, 0);
+    void *page = bk.page = page_open("books_page", closed, keyup);
     if (!page) return;
-    bk.page = page;
     bk.videos = videos;
-    widget_set_name(page, "books_page");
-    widget_set_prop_int(page, "style:normal:bg_color", (int)0xff000000u);
-    widget_on(page, EVT_DESTROY, closed, 0);
-    widget_on(page, EVT_KEY_UP, keyup, 0);
     blob_io(BOOK_MARKS, BOOK_MARKS ".tmp", bk.marks, sizeof bk.marks, 0);
     void *f = widget_factory();
     int h = widget_get_prop_int(page, "h", 290);
     bk.list = widget_factory_create_widget(f, "view", page, 0, 0, 375, h);
     bk.reader = widget_factory_create_widget(f, "view", page, 0, 0, 375, h);
     bk.sheet = widget_factory_create_widget(f, "view", bk.reader, 0, 0, 375, h);
-    /* Above the rounded glass's bottom corners, as Photos' caption. */
-    bk.info = text(bk.reader, CF_EDGE, h - 56, 375 - 2 * CF_EDGE, 36);
-    widget_set_prop_int(bk.info, "style:normal:bg_color", (int)0xb3000000u);
-    widget_set_prop_int(bk.info, "style:normal:round_radius", 8);
+    bk.info = bottom_caption(bk.reader, h);
     widget_set_visible(bk.reader, 0, 0);
     bk.buf = calloc(BOOK_WIN, 1);
     bk.path = calloc(BOOKS_MAX, sizeof *bk.path);
     if (bk.buf && bk.path) scan(root, 1);
-    if (bk.n) qsort(bk.path, (unsigned)bk.n, sizeof *bk.path, by_name);
+    if (bk.n) qsort(bk.path, (unsigned)bk.n, sizeof *bk.path, by_string);
     bk.view = page_list(page, bk.list, &bk.title,
                         videos ? bk.n ? "Videos" : "No videos" : bk.n ? "Books" : "No books", bk.n, 48);
     char name[256];
     for (int k = 0; k < bk.n; ++k)
-        row(bk.view, k, title(bk.path[k], name), videos ? play_video : open_book);
+        page_row(bk.view, k, title(bk.path[k], name), videos ? play_video : open_book);
 }
 #endif

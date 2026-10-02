@@ -10,7 +10,7 @@ Symbol-resolved entries (FUNCTIONS, GLOBALS, CONTEXT_DATA, the hooks) only need 
     python3 tools/port.py 'Q2 Firmware V1.32.zip' NEW.zip --out /tmp/port  # table, and rewritten sources in /tmp/port
     python3 tools/port.py 'Q2 Firmware V1.32.zip' --self-check  # V1.32 against itself: every address back
 """
-import argparse, collections, io, json, pathlib, re, struct, subprocess, sys, tarfile, tempfile, zipfile
+import argparse, collections, io, pathlib, re, struct, subprocess, tarfile, tempfile, zipfile
 from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
                    SHUFFLE_CALL, SORT_TRIMS, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
 import compact, peq

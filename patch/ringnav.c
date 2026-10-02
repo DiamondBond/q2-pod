@@ -1,6 +1,6 @@
 /* Logical menu selection is independent of native touch focus. Stock code owns gestures. */
 #include "offsets.inc"
-#include "peq_platform.h" /* libc/libcstl imports: deque_*, send */
+#include "peq.h" /* libc/libcstl imports (deque_*, send) and the shared helpers */
 #include "stock.h"
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
@@ -13,8 +13,6 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_input_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
-extern unsigned fnv(unsigned h, const unsigned char *s);
-extern unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
@@ -2672,9 +2670,8 @@ static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos", "Books"
 /* 1 + the MEDIA folder s names (up to its end or a '/'), 0 for none. MEDIA is letters only. */
 static int media_kind(const char *s) {
     for (int k = 0; k < VIDEOS; k++) {
-        int i = 0;
-        while (MEDIA[k][i] && (s[i] | 0x20) == (MEDIA[k][i] | 0x20)) i++;
-        if (!MEDIA[k][i] && (!s[i] || s[i] == '/')) return k + 1;
+        unsigned n = strlen(MEDIA[k]);
+        if (!strncasecmp(s, MEDIA[k], n) && (!s[n] || s[n] == '/')) return k + 1;
     }
     return 0;
 }
