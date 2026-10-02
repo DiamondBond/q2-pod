@@ -4103,8 +4103,9 @@ def fnv(s,h=2166136261):
 class ShuffleMachine(CoverflowMachine):
     def __init__(self):
         super().__init__()
-        self.counts=b''; self.queued=None
-        for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2'): self.handlers[syms[n]]='s:'+n
+        self.counts=b''; self.queued=None; self.wifi=-1
+        for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2','get_wifisignal'): self.handlers[syms[n]]='s:'+n
+        self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
         self.handlers[syms['fopen@GLIBC_2.2']]='s:fopen'
         self.handlers[int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)]='stock_localmusic'
     def hook(self,u,address,size,unused):
@@ -4118,6 +4119,7 @@ class ShuffleMachine(CoverflowMachine):
         elif name=='getAllMusic':
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=len(self.found)
         elif name=='toolsRandnum': ret=a-1  # stock: rand() % a
+        elif name=='get_wifisignal': ret=self.wifi
         elif name=='widget_restack':
             kids=self.nodes[self.get(a+O['W_PARENT'])]['children']; kids.remove(a); kids.insert(b,a)
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
@@ -4149,6 +4151,25 @@ m=ShuffleMachine(); m.found=[m.song(n) for n in ('T1','T2','T3')]
 m.counts=struct.pack('<4I',fnv('/p/T1'),2,fnv('/p/T3'),5).ljust(8*O['PLAYS_SLOTS'],b'\0')
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert m.queued==['T3','T1'] and m.plays==[('playing_page',m.plays[0][1],0,1,2)] and not called('config_playmode'); passed()
+
+# Upload Scrobbles: a third row, after Most Played, only with an account in the card's .scrobble.ini (a
+# ListenBrainz token or all four Last.fm keys). Without Wi-Fi it only says so; otherwise scrobble.c's thread
+# starts, a second press finds it running, and a timer reports the result once the thread ends.
+m=ShuffleMachine(); m.config.update(USER='u',PASSWORD='p',API_KEY='k')  # no API_SECRET: no row
+view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==13
+assert ('/mnt/mmc/.scrobble.ini','LASTFM','API_SECRET','') in m.config_reads
+m.config['TOKEN']='tok'; m.nodes[view]['children']=[m.node('list_item') for _ in range(11)]
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==14
+button=m.nodes[m.nodes[view]['children'][2]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_scrobble' and m.nodes[label]['text']=='Upload Scrobbles' and not m.nodes[button].get('name')
+f,ctx=m.handler(button,O['EVT_CLICK'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads
+m.wifi=3; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Uploading scrobbles' and len(m.threads)==1
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Already uploading' and len(m.threads)==1
+m.advance(2000); assert m.toasts[-1][3]=='Already uploading' and not m.joins  # still uploading
+worker,arg=m.threads[0]; assert m.call(address=worker,args=(arg,0,0,0),gap=0)==0  # no log on the card
+m.advance(600); assert m.toasts[-1][3]=='Nothing to upload' and m.joins==[77] and not m.timers; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a Q2 Pod row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
@@ -4185,6 +4206,7 @@ class ResumeMachine(QueueMachine):
                   'access@GLIBC_2.0','time@GLIBC_2.0','player_playtime_and_length','player_seek_time'): self.handlers[syms[n]]='r:'+n
         self.epoch=1700000000
         self.mock('tk_snprintf')
+        self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')  # scrobble.c's log lock
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('r:'): return super().hook(u,address,size,unused)

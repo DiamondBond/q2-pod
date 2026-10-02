@@ -49,6 +49,14 @@ LIBC = {
     'strdup': ('char *', 'const char *'),
     # iPod status bar clock (ringnav.c)
     'time': ('long', 'long *'), 'localtime': ('const int *', 'const long *'),
+    # Scrobble upload (scrobble.c): demo's libcurl and libcrypto
+    'fseek': ('int', 'void *, long, int'), 'ftell': ('long', 'void *'), 'atoi': ('int', 'const char *'),
+    'strstr': ('char *', 'const char *, const char *'),
+    'curl_easy_init': ('void *', 'void'), 'curl_easy_setopt': ('int', 'void *, int, ...'),
+    'curl_easy_perform': ('int', 'void *'), 'curl_easy_getinfo': ('int', 'void *, int, ...'),
+    'curl_easy_cleanup': ('void', 'void *'), 'curl_slist_append': ('void *', 'void *, const char *'),
+    'curl_slist_free_all': ('void', 'void *'), 'MD5_Init': ('int', 'void *'),
+    'MD5_Update': ('int', 'void *, const void *, unsigned'), 'MD5_Final': ('int', 'unsigned char *, void *'),
 }
 
 def compile_common(out, binary, player=False, ipod=False):
@@ -86,7 +94,7 @@ def compile_common(out, binary, player=False, ipod=False):
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
     if player: flags += ['-mnan=2008']
     objects = []
-    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c']:
+    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c']:
         obj = out/(name+'.o')
         run('clang', *flags, '-I', out, '-c', ROOT/'patch'/name, '-o', obj)
         objects.append(obj)

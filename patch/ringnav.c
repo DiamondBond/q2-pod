@@ -18,6 +18,8 @@ extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern void coverflow_paint(void *w, void *canvas);
 extern void *queue_now(unsigned *pos, unsigned *n);
+extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
+extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 extern const char *track_name(char *buf, unsigned size, void *t);
 extern void *peq_edit(void *parent, int x, int y, int w, int h, const char *input_type);
@@ -2555,9 +2557,32 @@ static int most_played(void *ctx, void *event) {
     return 0;
 }
 
-/* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs and Most Played
- * moved first. Their buttons have no name, so stock's row click (atoi of the name, 0x5241fc) never
- * sees them. */
+/* Upload Scrobbles: the log goes up on scrobble.c's thread, and a timer reports how it went. */
+static int upload_wait(const void *unused) {
+    (void)unused;
+    int sent = 0, done = scrobble_poll(&sent);
+    if (!done) return 8; /* RET_REPEAT */
+    char s[48];
+    tk_snprintf(s, sizeof s, done < 0 ? "Upload failed, %d sent" : "Scrobbles sent: %d", sent);
+    toast(done > 0 && !sent ? "Nothing to upload" : s);
+    return 0;
+}
+
+static int upload_scrobbles(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    int started = get_wifisignal() > 0 ? scrobble_start() : -2;
+    if (started > 0) timer_add(upload_wait, (void *)0, 500);
+    toast(started > 0     ? "Uploading scrobbles"
+          : !started      ? "Already uploading"
+          : started == -2 ? "Connect to Wi-Fi first"
+                          : "Upload failed");
+    return 0;
+}
+
+/* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs, Most Played and,
+ * with an account in .scrobble.ini, Upload Scrobbles moved first. Their buttons have no name, so
+ * stock's row click (atoi of the name, 0x5241fc) never sees them. */
 int ringnav_localmusic(void *win, void *ctx) {
     int result = stock_localmusic_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_localmusic", 1) : (void *)0;
@@ -2568,6 +2593,11 @@ int ringnav_localmusic(void *win, void *ctx) {
         label = list_row(view, "local_frequentplay", most_played, 0); /* stock's, unused */
         widget_set_text_utf8(label, "Most Played");
         widget_restack(P(P(label, W_PARENT), W_PARENT), 1);
+        if (scrobble_ready()) {
+            label = list_row(view, "local_scrobble", upload_scrobbles, 0);
+            widget_set_text_utf8(label, "Upload Scrobbles");
+            widget_restack(P(P(label, W_PARENT), W_PARENT), 2);
+        }
     }
     return result;
 }
@@ -2754,9 +2784,9 @@ static void play_count(unsigned key) {
 }
 
 /* Scrobbling (docs/internals.md#scrobbling): a Rockbox-style AudioScrobbler 1.1 log at the card's
- * root, for any .scrobbler.log uploader. ponytail: untagged (artist-less) tracks are skipped, as
- * scrobblers reject them; toolsGetMusicInfo if folder plays need them. */
-#define SCROBBLE_FILE "/mnt/mmc/.scrobbler.log"
+ * root, for any .scrobbler.log uploader or Upload Scrobbles (scrobble.c). ponytail: untagged
+ * (artist-less) tracks are skipped, as scrobblers reject them; toolsGetMusicInfo if folder plays
+ * need them. */
 static char *scrobble_tag(char *o, char *end, const char *s) {
     for (; s && *s && o < end - 1; s++) *o++ = *s == '\t' || *s == '\n' || *s == '\r' ? ' ' : *s;
     *o++ = '\t';
@@ -2764,7 +2794,6 @@ static char *scrobble_tag(char *o, char *end, const char *s) {
 }
 
 static void scrobble(void *r, int total, int heard) {
-    static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
     const char *artist = P(r, REC_ARTIST);
     if (!artist || !*artist) return;
     long now = time((void *)0);
@@ -2777,12 +2806,7 @@ static void scrobble(void *r, int total, int heard) {
     if (I(r, REC_TRACK) > 0) o += tk_snprintf(o, 12, "%d", I(r, REC_TRACK));
     o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%d\t\n", total,
                      (int)now - heard);
-    int fresh = access(SCROBBLE_FILE, 0) != 0;
-    void *f = fopen(SCROBBLE_FILE, "ab");
-    if (!f) return;
-    if (fresh) fwrite(header, sizeof header - 1, 1, f);
-    fwrite(line, (unsigned)(o - line), 1, f);
-    fclose(f);
+    scrobble_append(line, (unsigned)(o - line));
 }
 
 /* Once a second from the UI loop: a long track saves its place and, when it starts playing near

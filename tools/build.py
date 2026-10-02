@@ -258,6 +258,7 @@ FUNCTIONS = {
  'player_start': ('int', 'void *, int, int, int'),
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
  'on_wm_keyup_fun': ('int', 'void *, void *'),  # stock key-up: np_single replays a centre release
+ 'get_wifisignal': ('int', 'void'),  # the status bar's Wi-Fi bars, 1-4; -1 when not connected
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -475,10 +476,12 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # and Shuffle Songs' icon, stock's 52px playset_playmode apart from the copy iPod pre-sizes for Settings.
+    # and Shuffle Songs' and Upload Scrobbles' icons, stock's 52px playset_playmode and wifiset_wifi apart from
+    # the copies iPod pre-sizes for Settings.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
     icons['local_shuffle.png'] = ('playset_playmode.png', cat(xx+'playset_playmode.png'))
+    icons['local_scrobble.png'] = ('wifiset_wifi.png', cat(xx+'wifiset_wifi.png'))  # Upload Scrobbles, likewise
     added = []
     for name, (like, data) in icons.items():
         stock = re.search(rb'^'+re.escape((xx+like).encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)

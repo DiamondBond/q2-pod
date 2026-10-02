@@ -707,6 +707,195 @@ def player_check(tmp):
     subprocess.run([str(binary)], check=True)
     print('PEQ player: negotiation, pass-through, live updates, track changes, cleanup and the Xing seek table passed.')
 
+SCROBBLE = r"""
+#include <assert.h>
+#include <stdarg.h>
+#include "peq.h"
+int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *);
+void scrobble_append(const char *, unsigned);
+
+static const char *cfg[5]; /* TOKEN, USER, PASSWORD, API_KEY, API_SECRET */
+int toolsReadConfig(const char *path, const char *section, const char *key, char *out, const char *def) {
+    static const char *const keys[] = { "TOKEN", "USER", "PASSWORD", "API_KEY", "API_SECRET" };
+    (void)def;
+    assert(strstr(path, "/mnt/mmc/.scrobble.ini"));
+    for (int i = 0; i < 5; i++)
+        if (!strcmp(key, keys[i]) && !strcmp(section, i ? "LASTFM" : "LISTENBRAINZ") && cfg[i]) { strcpy(out, cfg[i]); return 1; }
+    return -1; /* stock leaves out alone for a missing file or key */
+}
+
+/* libcurl: every request is dumped as url, headers, verify, body; replies are scripted. */
+typedef unsigned (*writer)(const char *, unsigned, unsigned, void *);
+typedef struct node { const char *s; struct node *next; } node;
+static struct { const char *url, *body; node *h; writer w; void *ctx; long verify, code; } easy;
+static int requests, fail_at = -1, no_key, append_at = -1;
+static FILE *dump;
+void *curl_easy_init(void) { memset(&easy, 0, sizeof easy); return &easy; }
+void *curl_slist_append(void *list, const char *s) {
+    node *n = calloc(1, sizeof *n), *l = list;
+    n->s = s;
+    if (!l) return n;
+    while (l->next) l = l->next;
+    l->next = n;
+    return list;
+}
+void curl_slist_free_all(void *list) { for (node *n = list, *x; n; n = x) x = n->next, free(n); }
+int curl_easy_setopt(void *c, int opt, ...) {
+    va_list a;
+    va_start(a, opt);
+    assert(c == &easy);
+    if (opt == 10002) easy.url = va_arg(a, const char *);
+    else if (opt == 10015) easy.body = va_arg(a, const char *);
+    else if (opt == 10023) easy.h = va_arg(a, node *);
+    else if (opt == 20011) easy.w = va_arg(a, writer);
+    else if (opt == 10001) easy.ctx = va_arg(a, void *);
+    else if (opt == 64) easy.verify = va_arg(a, long);
+    else if (opt == 10065) assert(strstr(va_arg(a, const char *), ".scrobble.pem"));
+    else assert(opt == 99 || opt == 13 || opt == 78 || opt == 81);
+    va_end(a);
+    return 0;
+}
+int curl_easy_perform(void *c) {
+    (void)c;
+    int i = requests++;
+    if (i == append_at) scrobble_append("New\tB\tListen\t\t100\tL\t1700009999\t\n", 33); /* a listen meanwhile */
+    fprintf(dump, "%s\t", easy.url);
+    for (node *n = easy.h; n; n = n->next) fprintf(dump, "%s|", n->s);
+    fprintf(dump, "\t%ld\t%s\n", easy.verify, easy.body);
+    const char *reply = !strstr(easy.url, "audioscrobbler") ? "{\"status\":\"ok\"}"
+                        : strstr(easy.body, "auth.getMobileSession") ? (no_key ? "{\"session\":{}}" : "{\"session\":{\"name\":\"u\",\"key\":\"SK123\"}}")
+                        : "{\"scrobbles\":{\"@attr\":{\"accepted\":1,\"ignored\":0}}}";
+    easy.code = i == fail_at ? 500 : 200;
+    easy.w(reply, 1, (unsigned)strlen(reply), easy.ctx);
+    return 0;
+}
+int curl_easy_getinfo(void *c, int opt, ...) {
+    va_list a;
+    va_start(a, opt);
+    assert(c == &easy && opt == 0x200002);
+    *va_arg(a, long *) = easy.code;
+    va_end(a);
+    return 0;
+}
+void curl_easy_cleanup(void *c) { assert(c == &easy); }
+
+static char *slurp(const char *path) {
+    static char s[1 << 20];
+    FILE *f = fopen(path, "rb");
+    size_t n = f ? fread(s, 1, sizeof s - 1, f) : 0;
+    if (f) fclose(f);
+    s[n] = 0;
+    return f ? s : 0;
+}
+static int lines(const char *s) { int n = 0; for (; s && *s; s++) n += *s == '\n'; return n; }
+static int run(int *sent) {
+    int r, started = scrobble_start();
+    if (started <= 0) return started - 10;
+    while (!(r = scrobble_poll(sent))) usleep(1000);
+    assert(!scrobble_poll(sent)); /* reported once */
+    return r;
+}
+static void write_log(int n) {
+    FILE *f = fopen(ROOT "/mnt/mmc/.scrobbler.log", "wb");
+    fputs("#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n", f);
+    for (int i = 0; i < n; i++)
+        fprintf(f, "Art \"%d\" \\ &=+%%\xc3\xa9\t%s\tTitle %d\t%d\t%d\tL\t%d\t\n", i, i % 10 ? "Alb/um" : "", i, i, 200 + i, 1700000000 + i);
+    fputs("Skipped\tA\tT\t\t200\tS\t1700000000\t\njunk\n# a comment\n", f);
+    fclose(f);
+}
+#define LOG ROOT "/mnt/mmc/.scrobbler.log"
+#define HEADER "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n"
+
+int main(void) {
+    int sent = -1;
+    dump = fopen(ROOT "/requests", "w");
+    setvbuf(dump, 0, _IONBF, 0);
+    assert(!scrobble_ready() && run(&sent) == -11); /* no accounts: no row, and never an upload */
+    cfg[0] = "tok";
+    assert(scrobble_ready() == 1);
+    cfg[1] = "u", cfg[2] = "p&w", cfg[3] = "key";
+    assert(scrobble_ready() == 1); /* Last.fm needs all four */
+    cfg[4] = "sec";
+    assert(scrobble_ready() == 3);
+    assert(run(&sent) == 1 && !sent && !requests); /* no log: nothing to upload */
+
+    write_log(120);
+    append_at = 0;
+    assert(run(&sent) == 1 && sent == 120 && requests == 7); /* 50, 50, 20 to each, one session */
+    assert(!strcmp(slurp(LOG), HEADER "New\tB\tListen\t\t100\tL\t1700009999\t\n"));
+    char *s = slurp(LOG ".sent");
+    assert(lines(s) == 122 && !strstr(s, "#") && strstr(s, "junk\n"));
+
+    write_log(60); /* ListenBrainz fails the second batch: the first leaves, the rest stays */
+    append_at = -1, fail_at = 10;
+    assert(run(&sent) == -1 && sent == 50);
+    s = slurp(LOG);
+    assert(!strncmp(s, HEADER "Art \"50\"", sizeof HEADER + 7) && lines(s) == 3 + 10 + 3);
+    assert(lines(slurp(LOG ".sent")) == 172);
+
+    char before[1 << 16];
+    strcpy(before, slurp(LOG)); /* no session key: nothing changes */
+    fail_at = -1, no_key = 1;
+    assert(run(&sent) == -1 && !sent && !strcmp(slurp(LOG), before) && lines(slurp(LOG ".sent")) == 172);
+    cfg[1] = 0, no_key = 0; /* ListenBrainz only, with a CA bundle on the card: verified */
+    fclose(fopen(ROOT "/mnt/mmc/.scrobble.pem", "w"));
+    assert(run(&sent) == 1 && sent == 10 && !strcmp(slurp(LOG), HEADER));
+    fclose(dump);
+    return 0;
+}
+"""
+
+def scrobble_check(tmp):
+    """Upload Scrobbles: config, log parsing and batching, the ListenBrainz JSON, the signed Last.fm
+    form, and the log rewrite, on a real pthread with libcurl scripted and the host's libcrypto MD5."""
+    import hashlib, json, urllib.parse
+    root = tmp/'scrobble'
+    (root/'mnt/mmc').mkdir(parents=True)
+    shim = ['#include <pthread.h>', '#define pthread_mutex_lock(m) pthread_mutex_lock((pthread_mutex_t *)(m))',
+            '#define pthread_mutex_unlock(m) pthread_mutex_unlock((pthread_mutex_t *)(m))', '#define tk_snprintf snprintf']
+    shim += [f'{PROTOTYPES[n][0]} {n}({PROTOTYPES[n][1]});' for n in PROTOTYPES if n.startswith(('curl_', 'MD5_', 'toolsReadConfig'))]
+    (tmp/'scrobble_shim.h').write_text('\n'.join(shim) + '\n')
+    (tmp/'scrobble_test.c').write_text(SCROBBLE)
+    binary = tmp/'scrobble_test'
+    subprocess.run(['cc', '-pthread', '-DPEQ_HOST', f'-DPEQ_ROOT="{root}"', f'-DROOT="{root}"', '-D_GNU_SOURCE',
+                    '-O1', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'), '-include', str(tmp/'scrobble_shim.h'),
+                    str(ROOT/'patch/scrobble.c'), str(tmp/'scrobble_test.c'), '-lcrypto', '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True)
+    requests = [line.split('\t', 3) for line in (root/'requests').read_text().splitlines()]
+    artist = lambda i: f'Art "{i}" \\ &=+%é'
+    lb_sizes, fm_sizes = [], []
+    for url, headers, verify, body in requests:
+        if 'listenbrainz' in url:
+            assert url == 'https://api.listenbrainz.org/1/submit-listens'
+            assert headers == 'Authorization: Token tok|Content-Type: application/json|'
+            listens = json.loads(body)['payload']
+            assert json.loads(body)['listen_type'] == 'import'
+            for x in listens:
+                i = x['listened_at'] - 1700000000; m = x['track_metadata']
+                assert m['artist_name'] == artist(i) and m['track_name'] == f'Title {i}'
+                assert m.get('release_name') == ('Alb/um' if i % 10 else None)
+            lb_sizes.append(len(listens))
+            continue
+        assert url == 'https://ws.audioscrobbler.com/2.0/' and not headers
+        params = urllib.parse.parse_qsl(body, keep_blank_values=True, strict_parsing=True)
+        assert params[-2:][1] == ('format', 'json') and params[-2][0] == 'api_sig'
+        signed = sorted(params[:-2])
+        assert [k for k, _ in params[:-2]] == [k for k, _ in signed]  # sent in signature order
+        assert params[-2][1] == hashlib.md5((''.join(k + v for k, v in signed) + 'sec').encode()).hexdigest()
+        p = dict(params)
+        if p['method'] == 'auth.getMobileSession':
+            assert (p['username'], p['password'], p['api_key']) == ('u', 'p&w', 'key'); continue
+        assert p['method'] == 'track.scrobble' and p['sk'] == 'SK123'
+        n = sum(k.startswith('artist[') for k in p)
+        for j in range(n):
+            i = int(p[f'timestamp[{j}]']) - 1700000000
+            assert p[f'artist[{j}]'] == artist(i) and p[f'track[{j}]'] == f'Title {i}' and p[f'duration[{j}]'] == str(200 + i)
+            assert p.get(f'album[{j}]') == ('Alb/um' if i % 10 else None)
+        fm_sizes.append(n)
+    assert lb_sizes == [50, 50, 20, 50, 10, 10] and fm_sizes == [50, 50, 20, 50]
+    assert [v for _, _, v, _ in requests] == ['0'] * (len(requests) - 1) + ['1']
+    print('Scrobble upload: config, batching, JSON and form escaping, Last.fm signatures, log rewrite and failures passed.')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
         tmp = pathlib.Path(directory); lib = library(tmp)
@@ -714,3 +903,4 @@ if __name__ == '__main__':
         dsp_check(lib)
         editor_check(lib, tmp)
         player_check(tmp)
+        scrobble_check(tmp)

@@ -37,7 +37,7 @@
 | iPod classic style lists, Home and Now Playing           | Clock keeps the right time after power-off                                        |
 | Wheel navigation with acceleration and position memory   | Less battery drain with the screen off                                            |
 | Play next / Add to queue                                 | Faster library browsing                                                           |
-| Shuffle Songs, Most Played and offline scrobbling        | Long VBR MP3s start at once and seek accurately                                   |
+| Shuffle Songs, Most Played and scrobbling over Wi-Fi     | Long VBR MP3s start at once and seek accurately                                   |
 | Parametric EQ: up to 30 bands, per channel, with balance | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
 
 ### Play counts and scrobbling
@@ -45,6 +45,21 @@
 A song counts as played once you've heard half of it (or 4 minutes). **Local Music → Most Played** plays your 25 most played songs, most played first.
 
 Each of those plays is also logged to `.scrobbler.log` at the root of the microSD card, in the same format Rockbox uses. Upload it to Last.fm or ListenBrainz with any `.scrobbler.log` uploader, such as [Open Scrobbler](https://openscrobbler.com/), [Universal Scrobbler](https://universalscrobbler.com/) or [rb-scrobbler](https://github.com/jeselnik/rb-scrobbler). Songs without an artist tag are skipped.
+
+To upload from the Q2 itself, put a `.scrobble.ini` at the root of the card with a ListenBrainz token (from [your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
+
+```ini
+[LISTENBRAINZ]
+TOKEN=your-listenbrainz-user-token
+
+[LASTFM]
+USER=your-username
+PASSWORD=your-password
+API_KEY=your-api-key
+API_SECRET=your-shared-secret
+```
+
+Last.fm needs your own API account ([create one](https://www.last.fm/api/account/create); any name works) for the key and secret. **Local Music → Upload Scrobbles** then appears under Most Played. On Wi-Fi it sends the log in the background, 50 plays at a time, and moves what was sent to `.scrobbler.log.sent`; plays that could not be sent stay in the log for next time. Last.fm ignores plays older than 14 days. There is no login screen on the device, as typing a password on the wheel's keyboard is slow; the file is plain text, so keep the card to yourself. The Q2 has no certificate store, so like Shanling's own Tidal and Baidu features the upload does not check the server's certificate, unless you add a PEM CA bundle as `.scrobble.pem` beside the file (for example [curl's](https://curl.se/ca/cacert.pem)).
 
 ## Install
 

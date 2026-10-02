@@ -14,7 +14,7 @@ SHA-256 of the stock Shanling Q2 V1.32 firmware ZIP.
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-build
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-ipod --ipod
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-dev --ipod --dev  # iPod test build
-python3 tools/test_peq.py  # PEQ parser/storage, DSP, editor and player checks (host cc; player needs -m32 libs)
+python3 tools/test_peq.py  # PEQ parser/storage, DSP, editor and player checks, and the scrobble upload (host cc; player needs -m32 libs, upload libcrypto)
 python3 tools/test_coverflow.py  # Coverflow art cache and depth renderer (host cc -m32, pthreads)
 python3 tools/test_coverflow.py --captures /tmp/cf  # the same, plus the renderer's frames as PNGs
 python3 tools/test_build.py  # JPEG header checks; no emulator required
