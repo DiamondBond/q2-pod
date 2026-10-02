@@ -4122,8 +4122,9 @@ def fnv(s,h=2166136261):
 class ShuffleMachine(CoverflowMachine):
     def __init__(self):
         super().__init__()
-        self.counts=b''; self.queued=None; self.wifi=-1
-        for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2','get_wifisignal'): self.handlers[syms[n]]='s:'+n
+        self.counts=b''; self.queued=None; self.wifi=-1; self.card=[]  # /mnt/mmc's (name, d_type) entries
+        for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2','get_wifisignal',
+                  'opendir@GLIBC_2.0','readdir@GLIBC_2.0','closedir@GLIBC_2.0','navigator_to'): self.handlers[syms[n]]='s:'+n
         self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
         self.handlers[syms['fopen@GLIBC_2.2']]='s:fopen'
         self.handlers[int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)]='stock_localmusic'
@@ -4139,6 +4140,9 @@ class ShuffleMachine(CoverflowMachine):
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=len(self.found)
         elif name=='toolsRandnum': ret=a-1  # stock: rand() % a
         elif name=='get_wifisignal': ret=self.wifi
+        elif name=='opendir': ret=0x3000000 if self.text(a)=='/mnt/mmc' else 0; self.listed=list(self.card)
+        elif name=='readdir' and self.listed:
+            n,t=self.listed.pop(0); ret=self.alloc(268); self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
         elif name=='widget_restack':
             kids=self.nodes[self.get(a+O['W_PARENT'])]['children']; kids.remove(a); kids.insert(b,a)
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
@@ -4189,6 +4193,28 @@ assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='A
 m.advance(2000); assert m.toasts[-1][3]=='Already uploading' and not m.joins  # still uploading
 worker,arg=m.threads[0]; assert m.call(address=worker,args=(arg,0,0,0),gap=0)==0  # no log on the card
 m.advance(600); assert m.toasts[-1][3]=='Nothing to upload' and m.joins==[77] and not m.timers; passed()
+
+# Podcasts and Audiobooks: a row each, last, only for the card's top-level folder of that name (case
+# aside, a directory). A press opens folder_page there as a deeper folder (layer 3, stock reload, title
+# and rebuild); Back there leaves the page (layer 1 before stock's step down), and only for that root.
+m=ShuffleMachine(); m.card=[('Music',4),('PODCASTS',4),('Audiobooks',8)]
+m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
+m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
+view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==14
+button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_podcasts' and m.nodes[label]['text']=='Podcasts' and not m.nodes[button].get('name')
+f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['folder_page']
+win=m.node('window','folder_page'); m.calls=[]
+assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0
+assert m.text(syms['g_folder_path'])=='/mnt/mmc/PODCASTS' and m.u.mem_read(syms['g_folder_layer'],1)[0]==3
+assert [c[0] for c in m.calls]==['stock_folder','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh'] and m.calls[-1][1]==win
+assert m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)==0 and m.calls[-1][0]=='stock_folder_back'
+assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1; passed()
+m.byte(syms['g_folder_layer'],3); assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0  # the Folder view
+m.byte(syms['g_folder_layer'],3); m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+assert m.u.mem_read(syms['g_folder_layer'],1)[0]==3; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a Q2 Pod row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
@@ -4282,6 +4308,11 @@ m=ResumeMachine()
 for i in range(O['RESUME_SLOTS']+2):  # the last is saved by no later change
     m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[0]+O['REC_PATH'],m.string(f'/p/long{i}')); m.poll(100+i,pos=0,n=3)
 assert len(m.places())==O['RESUME_SLOTS'] and m.places()[0][1]==100+O['RESUME_SLOTS'] and m.places()[-1][1]==101; passed()
+
+m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]  # Podcasts/Audiobooks: any length, never counted
+m.word(r+O['REC_PATH'],m.string('/mnt/mmc/audiobooks/Book/01.mp3')); playing(m,0,200,pos=0,n=110)
+assert m.places()==[(fnv('/mnt/mmc/audiobooks/Book/01.mp3'),61)] and '/mnt/data/ringnav-plays' not in m.files
+assert '/mnt/mmc/.scrobbler.log' not in m.files; passed()
 
 # Play counts: a track over LISTEN_MIN_S counts once half of it, or LISTEN_MAX_S, has been heard,
 # seeks aside; a repeat counts again. Counts are written whole to /mnt/data, most recent first, the

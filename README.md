@@ -36,9 +36,13 @@
 | Accent, Home layout and battery style options            | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
 | iPod classic style lists, Home and Now Playing           | Clock keeps the right time after power-off                                        |
 | Wheel navigation with acceleration and position memory   | Less battery drain with the screen off                                            |
-| Play next / Add to queue                                 | Faster library browsing                                                           |
+| Play next / Add to queue, Podcasts and Audiobooks        | Faster library browsing                                                           |
 | Shuffle Songs, Most Played and scrobbling over Wi-Fi     | Long VBR MP3s start at once and seek accurately                                   |
 | Parametric EQ: up to 30 bands, per channel, with balance | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
+
+### Podcasts and audiobooks
+
+Put shows in a `Podcasts` folder and books in an `Audiobooks` folder at the root of the microSD card, one subfolder per show or book. **Local Music → Podcasts** and **Audiobooks** then appear at the end of the list and open those folders. An episode or chapter plays on through its folder in the order the folder lists them, always resumes where you left it, whatever its length, and never counts as a play or scrobble. Playback speed is stock's own, in Now Playing's menu.
 
 ### Play counts and scrobbling
 

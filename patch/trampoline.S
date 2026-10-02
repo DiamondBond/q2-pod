@@ -28,3 +28,5 @@ resume scan_folder, 0x4fc970
 resume delete_song, 0x500b68
 resume sleep, 0x648f0c
 resume about, 0x4bc818
+resume folder, 0x52333c
+resume folder_back, 0x507ad4

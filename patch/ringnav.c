@@ -8,7 +8,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
     stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
     stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
-    stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *);
+    stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
+    stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern unsigned fnv(unsigned h, const unsigned char *s);
@@ -95,6 +96,7 @@ typedef struct {
     } spots[RESUME_SLOTS];
     unsigned spots_read, rs_at, rs_key;
     int rs_long, rs_settle, rs_sec, rs_total, rs_saved, rs_still, rs_pending;
+    int rs_spoken; /* under Podcasts or Audiobooks: resumed at any length, never counted */
     /* Play counts by path hash (plays_read once loaded); the playing track's last second, the
      * seconds of it heard and whether this play has counted. */
     struct {
@@ -146,6 +148,10 @@ typedef struct {
     unsigned qm_timer, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
     int qm_kind, qm_action;
     void *qm_dialog;
+    /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set; while the page
+     * is there, Back at that root leaves it. */
+    int media_open;
+    char media_root[32];
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
 
@@ -2600,6 +2606,71 @@ static int upload_scrobbles(void *ctx, void *event) {
     return 0;
 }
 
+/* Podcasts and Audiobooks (docs/internals.md#podcasts-and-audiobooks): the card's top-level
+ * folders of these names, case aside, browsed in folder_page from there. */
+static const char *const MEDIA[] = { "Podcasts", "Audiobooks" };
+
+/* 1 + the MEDIA folder s names (up to its end or a '/'), 0 for none. MEDIA is letters only. */
+static int media_kind(const char *s) {
+    for (int k = 0; k < 2; k++) {
+        int i = 0;
+        while (MEDIA[k][i] && (s[i] | 0x20) == (MEDIA[k][i] | 0x20)) i++;
+        if (!MEDIA[k][i] && (!s[i] || s[i] == '/')) return k + 1;
+    }
+    return 0;
+}
+
+/* A track in one of them: always resumed, never counted or scrobbled. */
+static int spoken(const char *path) {
+    return path && tk_str_start_with(path, "/mnt/mmc/") && media_kind(path + 9);
+}
+
+/* The card's folder for kind into path (sizeof st.media_root, which a MEDIA name always fits); 0
+ * when there is none. */
+static int media_find(int kind, char *path) {
+    void *dir = opendir("/mnt/mmc");
+    int found = 0;
+    for (struct dirent *e; dir && !found && (e = readdir(dir));)
+        if ((e->d_type == 4 || !e->d_type) && media_kind(e->d_name) == kind)
+            found = tk_snprintf(path, sizeof st.media_root, "/mnt/mmc/%s", e->d_name) > 0;
+    if (dir) closedir(dir);
+    return found;
+}
+
+static int media_click(void *ctx, void *event) {
+    (void)event;
+    st.media_open = media_find((int)(long)ctx, st.media_root);
+    if (st.media_open) navigator_to("folder_page");
+    return 0;
+}
+
+/* folder_page_init lists the storage roots at g_folder_layer 1, a root's folders at 2 and deeper
+ * folders at 3 on (folder_enter). A media root becomes a layer-3 folder, so stock's reload, title
+ * (its name, folder_reinit_navbarname) and entering all treat it as one. */
+int ringnav_folder(void *win, void *ctx) {
+    int result = stock_folder_trampoline(win, ctx);
+    if (st.media_open && win) {
+        memcpy((char *)g_folder_path, st.media_root, sizeof st.media_root);
+        g_folder_layer = 3;
+        folder_reload_data();
+        folder_reinit_navbarname();
+        folder_refresh(win);
+    } else
+        st.media_root[0] = 0;
+    st.media_open = 0;
+    return result;
+}
+
+/* Back at the media root leaves the page (stock's layer 0) instead of climbing to the card. */
+int ringnav_folder_back(void *yoffset, void *index) {
+    if (st.media_root[0] && g_folder_layer == 3 &&
+        !tk_strcmp((const char *)g_folder_path, st.media_root)) {
+        g_folder_layer = 1;
+        st.media_root[0] = 0;
+    }
+    return stock_folder_back_trampoline(yoffset, index);
+}
+
 /* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs, Most Played and,
  * with an account in .scrobble.ini, Upload Scrobbles moved first. Their buttons have no name, so
  * stock's row click (atoi of the name, 0x5241fc) never sees them. */
@@ -2618,6 +2689,13 @@ int ringnav_localmusic(void *win, void *ctx) {
             widget_set_text_utf8(label, "Upload Scrobbles");
             widget_restack(P(P(label, W_PARENT), W_PARENT), 2);
         }
+        /* Podcasts, then Audiobooks, last, as Music > Audiobooks; each only with its folder. */
+        static const char *const icons[] = { "local_podcasts", "local_audiobooks" };
+        char path[sizeof st.media_root];
+        for (int k = 0; k < 2; k++)
+            if (media_find(k + 1, path))
+                widget_set_text_utf8(list_row(view, icons[k], media_click, (void *)(long)(k + 1)),
+                                     MEDIA[k]);
     }
     return result;
 }
@@ -2849,7 +2927,9 @@ static void resume_poll(void) {
     }
     if (st.rs_settle) {
         st.rs_settle = 0;
-        st.rs_long = total >= RESUME_MIN_S && !I(r, REC_CUE_START) && !I(r, REC_CUE_END);
+        st.rs_spoken = spoken(P(r, REC_PATH));
+        st.rs_long =
+            (total >= RESUME_MIN_S || st.rs_spoken) && !I(r, REC_CUE_START) && !I(r, REC_CUE_END);
         st.rs_pending = 0;
         if (st.rs_long && !st.spots_read) {
             st.spots_read = 1;
@@ -2862,7 +2942,7 @@ static void resume_poll(void) {
     }
     /* A listen: half the track or LISTEN_MAX_S heard, seeks and pauses aside; a repeat starts over.
      */
-    if (!st.rs_pending) {
+    if (!st.rs_pending && !st.rs_spoken) {
         unsigned lk = listen_key(r);
         if (lk != st.ls_key || (sec < 2 && st.ls_sec > LISTEN_MIN_S)) {
             st.ls_key = lk;

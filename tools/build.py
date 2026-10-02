@@ -33,6 +33,9 @@ HOOKS = {
     'deleteMusicFromMusicDb': (0x500b5c, 'coverflow_delete_song'),
     'main_loop_sleep_default': (0x648f00, 'ringnav_sleep'),
     'systemset_about_page_init': (0x4bc80c, 'ringnav_about'),
+    # Podcasts and Audiobooks: folder_page opened at their folder, and Back there leaving it
+    'folder_page_init': (0x523330, 'ringnav_folder'),
+    'folder_back': (0x507ac8, 'ringnav_folder_back'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
@@ -259,6 +262,10 @@ FUNCTIONS = {
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
  'on_wm_keyup_fun': ('int', 'void *, void *'),  # stock key-up: np_single replays a centre release
  'get_wifisignal': ('int', 'void'),  # the status bar's Wi-Fi bars, 1-4; -1 when not connected
+ # Podcasts and Audiobooks (ringnav.c): folder_page's reload of g_folder_path, title and list rebuild
+ 'folder_reload_data': ('int', 'void'),
+ 'folder_reinit_navbarname': ('int', 'void'),
+ 'folder_refresh': ('int', 'void *'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -266,11 +273,12 @@ PRIVATE_FUNCTIONS = {
     "slide_menu_item_width": 0x5f3040,
     "slide_menu_on_scroll_done": 0x5f3654,
     "mcl_shuffle_pick": 0x5a8120,
+    "folder_refresh": 0x52176c,  # folder_page's navbar and table from p_deque_showlist (its init, back)
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
-           'g_keytone_flag']
+           'g_keytone_flag', 'g_folder_layer']
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
@@ -476,12 +484,14 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # and Shuffle Songs' and Upload Scrobbles' icons, stock's 52px playset_playmode and wifiset_wifi apart from
-    # the copies iPod pre-sizes for Settings.
+    # and Shuffle Songs', Upload Scrobbles', Podcasts' and Audiobooks' icons, stock's 52px playset_playmode,
+    # wifiset_wifi, netservice_dlna and playset_foldercover apart from the copies iPod pre-sizes for Settings.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
     icons['local_shuffle.png'] = ('playset_playmode.png', cat(xx+'playset_playmode.png'))
     icons['local_scrobble.png'] = ('wifiset_wifi.png', cat(xx+'wifiset_wifi.png'))  # Upload Scrobbles, likewise
+    icons['local_podcasts.png'] = ('netservice_dlna.png', cat(xx+'netservice_dlna.png'))  # Podcasts, likewise
+    icons['local_audiobooks.png'] = ('playset_foldercover.png', cat(xx+'playset_foldercover.png'))  # Audiobooks
     added = []
     for name, (like, data) in icons.items():
         stock = re.search(rb'^'+re.escape((xx+like).encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
