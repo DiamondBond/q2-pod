@@ -285,22 +285,25 @@ def validate_assets(directory):
             assert [g[1:] for g in icons] == [[0, 50, 40]]*3 and [b[0] - a[0] for a, b in zip(icons, icons[1:])] == [50, 50]
             album = named['view_album'][3]
             assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album']
-            # 16px outer margins, 12px from the art to the text, the text column 177px wide.
-            assert [n[1] for n in album] == [[16, 16, 154, 154], [33, 33, 120, 120], [182, 57, 177, 24], [182, 85, 177, 20], [182, 109, 177, 20]]
+            # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
+            assert [n[1] for n in album] == [[16, 10, 166, 166], [39, 33, 120, 120], [194, 55, 165, 28], [194, 87, 165, 20], [194, 111, 165, 20]]
+            assert album[2][2]['style:normal:font_size'] == '22' and album[3][2]['style:normal:font_size'] == '16'
             assert pos[0] == album[0][1][0] == 16 and 375 - 16 == album[2][1][0] + album[2][1][2]
             # Distinct bands: top row, art, page dots, bar (A-B markers y 250 to 260), then the times.
             dots = named['slide_indicator1'][1]
-            assert NP_TOP + 16 + 154 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
+            assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
             assert named['slide_view'][1] == [0, 0, 375, 186] and named['view_lrc'][2]['self_layout'].startswith('default(x=75,')
             slider = named['slider_play']
             assert slider[1] == [NP_BAR[0], 240, NP_BAR[2], 30] and slider[2]['bar_size'] == '8' and slider[2]['slide_with_bar'] == 'true'
             assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
             assert {v for k, v in slider[2].items() if k.endswith('_color')} == {'#1c1c1c', '#6e6e6e'}
+            assert {v for k, v in slider[2].items() if k.endswith(':round_radius')} == {'4'}  # a capsule
             # No theme style of that name, so no thumb icon: stock fills exactly to the value.
             assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')
             played, remain = (named[n][1] for n in ('label_playtime', 'label_ipod_remain'))
             assert played[1:] == remain[1:] == [265, 80, 16] and played[0] == 375 - remain[0] - 80 and 250 + 10 < 265
             assert named['label_playlen'][2]['visible'] == 'false'
+            assert {v for n in ('label_playtime', 'label_ipod_remain') for k, v in named[n][2].items() if k.endswith(':text_color')} == {'#AAAAAA'}
             # Stock places the A-B markers at y 250 and x = 50 + t * 290 / length; iPod's follow its bar.
             assert [int.from_bytes(demo[fileoff(demo, a):fileoff(demo, a)+4], 'little') for a in (0x52a318, 0x52a330)] == [
                 0x24020000 | NP_BAR[2], 0x24420000 | NP_BAR[0]]

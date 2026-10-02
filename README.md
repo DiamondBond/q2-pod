@@ -90,7 +90,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **Home:** a list beside the playing track's cover, instead of the carousel.
 - **Lists:** flat, four rows per screen, full-width accent selection bar; **`>`** marks rows that open another list.
 - **Status bar:** play state and EQ, the time, then Bluetooth, Wi-Fi and battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
-- **Now Playing:** "3 of 12", the cover beside title, artist and album, and a slim progress bar with elapsed and remaining time.
+- **Now Playing:** "3 of 12", large rounded cover art beside a bigger title over grey artist and album, and a slim accent capsule with elapsed and remaining time.
 - **Quick settings:** pull down from the top edge.
 - **Page slides:** pages slide in from the right and back out on Return.
 - **Fast-scroll letter:** spinning through a long list shows the current title's first letter.

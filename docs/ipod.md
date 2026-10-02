@@ -367,28 +367,35 @@ other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`);
 ## Now Playing
 
 `playing_page.bin` follows Rockbox's iVideo Now Playing in the 375x290 client area, below the
-status bar and its clock:
+status bar and its clock, with Apple's finish: rounded art, a larger title over grey artist and
+album, and a slim capsule bar:
 
 ```
   0 +---------------------------------------------------------+
     | 3 of 12 (16,0 187x40)         fav 203  more 253  mode 303|  icons 50x40
  40 +---------------------------------------------------------+
-    |   +---------+                                           |  slide_view 0,40 375x186
-    |   |   art   |   Title   (182,97 177x24, white 20)       |
-    |   | 16,56   |   Artist  (182,125 177x20, grey 16)       |
-    |   | 154x154 |   Album   (182,149 177x20, grey 16)       |
-    |   +---------+                                           |
+    |  .-----------.                                          |  slide_view 0,40 375x186
+    |  |    art    |  Title   (194,95 165x28, white 22)       |
+    |  |   16,50   |  Artist  (194,127 165x20, grey 16)       |
+    |  |  166x166  |  Album   (194,151 165x20, grey 16)       |
+    |  '-----------'  (corners radius 12)                     |
 228 |                     . o .   (page dots)                 |
-251 |  [=========================-------------------------]  |  bar 21,251 333x8
-265 |      01:23 (46 80x16)           -02:34 (249 80x16)      |
+251 |  (=========================------------------------)   |  capsule 21,251 333x8
+265 |      01:23 (46 80x16)           -02:34 (249 80x16)      |  grey 14
 290 +---------------------------------------------------------+
 ```
 
 The art and the metadata keep 16 pixels from the sides (`NP_MARGIN`) and 12 from each other; the
-art is 154 pixels, as large as that leaves while the text column keeps its 177 pixels, and
-"3 of 12" starts in line with it. Each band has its own space: the top row, then the art 16
-pixels below it, the page dots 18 pixels under the art, the bar with the stock A-B markers
+art is 166 pixels, as large as that leaves while the text column keeps its 165 pixels, and
+"3 of 12" starts in line with it. Each band has its own space: the top row, then the art 10
+pixels below it, the page dots 12 pixels under the art, the bar with the stock A-B markers
 (y 250 to 260) and the times 6 pixels under the bar.
+
+The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
+placeholder cover at this size, so real art and the placeholder match. The payload paints them
+over the image in the page's black, with an anti-aliased edge pixel. The title is 22 pixels
+white (`NP_TITLE_PX`); artist, album, "3 of 12" and both times are the stock secondary grey
+`#AAAAAA`. Long lines scroll, as stock.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
 with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
@@ -397,8 +404,8 @@ spinner moves with it. The on-screen Return icon moves off-screen, as on the pag
 hidden; the hardware Return does the same. Favourite, More and the play mode icon keep their stock
 images and handlers in the top row.
 
-The bar is plain colour: a `#1C1C1C` track (`TRACK_COLOR`) and a fill in the accent's light
-tone (Graphite `#6E6E6E`, 3.3:1; see [Display settings](#display-settings)), with no thumb.
+The bar is a plain-colour capsule (radius half its height, track and fill): a `#1C1C1C` track
+(`TRACK_COLOR`) and a fill in the accent's light tone (Graphite `#6E6E6E`, 3.3:1; see [Display settings](#display-settings)), with no thumb.
 The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or drag anywhere on it to seek, as stock. The elapsed time
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/compact.py`; see [internals.md](internals.md#now-playing-ipod).

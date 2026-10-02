@@ -119,7 +119,7 @@ typedef struct {
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
-    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed;
+    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover;
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -1297,6 +1297,28 @@ static void paint_letter(void *w, void *canvas) {
     canvas_set_fill_color(canvas, fill);
     canvas_set_clip_rect(canvas, &old);
 }
+
+/* Now Playing's art gets NP_ART_RADIUS corners, painted over it in the page's black: each corner
+ * row outside the arc, then its edge pixel at the alpha of its uncovered part (1/16 px). */
+static void paint_cover(void *w, void *canvas) {
+    if (!w || w != st.np_cover || !P(canvas, CANVAS_LCD)) return;
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H);
+    for (int i = 0; i < r; ++i) {
+        /* s is 16 sqrt(r * r - d * d / 4), the arc's half-width at this row's centre */
+        int d = 2 * (r - i) - 1, v = (4 * r * r - d * d) * 64, s = 0;
+        while ((s + 1) * (s + 1) <= v) ++s;
+        int out = 16 * r - s, n = out >> 4;
+        for (int c = 0; c < 4; ++c) {
+            int y = c & 1 ? h - 1 - i : i, left = !(c & 2);
+            canvas_set_fill_color(canvas, RGBA(0));
+            canvas_fill_rect(canvas, left ? 0 : ww - n, y, n, 1);
+            canvas_set_fill_color(canvas, (unsigned)(out & 15) * 17 << 24);
+            canvas_fill_rect(canvas, left ? n : ww - n - 1, y, 1, 1);
+        }
+    }
+    canvas_set_fill_color(canvas, fill);
+}
 #endif
 
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
@@ -1414,6 +1436,7 @@ int ringnav_paint(void *w, void *canvas) {
 #if IPOD
     paint_chevrons(w, canvas);
     paint_letter(w, canvas);
+    paint_cover(w, canvas);
     coverflow_home_clip(w, canvas, 0);
 #else
     paint_selection(w, canvas);
@@ -1697,7 +1720,7 @@ static int np_gone(void *win, void *event) {
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
-        st.np_slider = st.np_elapsed = (void *)0;
+        st.np_slider = st.np_elapsed = st.np_cover = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
@@ -1715,6 +1738,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_slider = widget_lookup(win, "slider_play", 1);
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
+    st.np_cover = widget_lookup(win, "img_cover", 1);
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
@@ -1782,18 +1806,14 @@ static void vol_paint(void *top, void *canvas) {
     if (np) {
         canvas_set_fill_color(canvas, RGBA(0));
         canvas_fill_rect(canvas, area.x, area.y, area.w, area.h);
-        canvas_set_fill_color(canvas, RGBA(TRACK_COLOR));
-        canvas_fill_rect(canvas, bar.x, bar.y, bar.w, bar.h);
-        canvas_set_fill_color(canvas, RGBA(0xffffff));
-        canvas_fill_rect(canvas, bar.x, bar.y, w, bar.h);
     } else {
-        /* Pills: a non-zero fill is at least round, never a squashed sliver. */
         fill_box(canvas, &area, (LETTER_ALPHA << 24) | FILL_RGB, LETTER_RADIUS);
-        fill_box(canvas, &bar, RGBA(VOL_PANEL_TRACK), VOL_PANEL_BAR / 2);
-        if (w) {
-            rect_t on = { bar.x, bar.y, w < bar.h ? bar.h : w, bar.h };
-            fill_box(canvas, &on, RGBA(0xffffff), VOL_PANEL_BAR / 2);
-        }
+    }
+    /* Pills, like the progress capsule: a non-zero fill is at least round, never a sliver. */
+    fill_box(canvas, &bar, RGBA(np ? TRACK_COLOR : VOL_PANEL_TRACK), bar.h / 2);
+    if (w) {
+        rect_t on = { bar.x, bar.y, w < bar.h ? bar.h : w, bar.h };
+        fill_box(canvas, &on, RGBA(0xffffff), bar.h / 2);
     }
     canvas_set_fill_color(canvas, fill);
     k += put_num(s + k, (unsigned)clamp_step(0, 999, level));

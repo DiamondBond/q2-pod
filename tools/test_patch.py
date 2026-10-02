@@ -3050,14 +3050,16 @@ if variant=='ipod':
     assert [m.nodes[w]['visible'] for w in (sv,lv,slider,elapsed)]==[0,0,1,1]
     assert [signed(m.get(sv+O[k])) for k in ('W_X','W_Y','W_W','W_H')]==list(band)
     fills=[b[:5] for b in m.bands]
-    assert fills==[(*band,color_t(0)),(*bar,color_t(O['TRACK_COLOR'])),(24,281,327*40//100,8,color_t(0xffffff))],fills
+    assert fills==[(*band,color_t(0))],fills  # then the capsule, as the progress bar
+    assert [(r['rect'],r['radius'],r['color']) for r in m.rounded]==[(bar,4,color_t(O['TRACK_COLOR'])),((24,281,327*40//100,8),4,color_t(0xffffff))],m.rounded
     assert [(t['text'],t['rect'],t['font'][1]) for t in m.letters]==[('Volume 40',(0,295,375,16),O['NP_TIMES_PX'])]; passed()
     assert len(m.timers)==1; poll=next(iter(m.timers))
     m.advance(O['VOL_POLL_MS']); assert not did('widget_invalidate_force') and poll in m.timers  # unchanged: nothing
     m.nodes[sv]['value']=41; m.advance(O['VOL_POLL_MS'])  # changed: the whole dialog repaints
     assert [c[0] for c in did('widget_invalidate_force')]==[dlg]; passed()
     m.nodes[sv]['value']=100; paint(dlg)
-    assert m.bands[2][2]==327 and m.letters[0]['text']=='Volume 100' and len(m.timers)==1; passed()
+    assert m.rounded[-1]['rect'][2]==327 and m.letters[0]['text']=='Volume 100' and len(m.timers)==1; passed()
+
     m.nodes[m.wm]['children']=[win]; m.top=win; m.advance(O['VOL_POLL_MS']); assert not m.timers; passed()  # closed: it stops
     # Over any other window (Quick Settings included) a rounded panel in the fast-scroll letter's
     # style holds a pill bar on a grey track and the number, clear of the glass corners.
@@ -3073,6 +3075,23 @@ if variant=='ipod':
     m.nodes[sv2]['value']=1; paint(dlg2)  # a sliver is still a round dot
     assert m.rounded[2]['rect']==(*bar[:2],BH,BH),m.rounded; passed()
     R=O['LETTER_RADIUS']; assert math.hypot(80-(X+R),Y+H-R-240)+R<=80  # its rounded corner clears the glass's
+
+    # The art's corners: after the image (the border hook), each of the NP_ART_RADIUS rows of a
+    # corner is black outside the arc, then one edge pixel at the alpha it leaves uncovered.
+    m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
+    cover=m.node('image','img_cover'); win=m.node('window','playing_page',[cover]); m.word(win+O['W_PARENT'],m.wm); m.top=win
+    put(cover,16,10,166,166); m.call(address=playing,args=(win,7,0,0),gap=0)
+    m.word(m.lcd+O['LCD_FILL_COLOR'],0x12345678)
+    m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(cover,m.canvas,0,0))
+    R=O['NP_ART_RADIUS']; want=[]
+    for i in range(R):
+        out=16*R-math.isqrt((4*R*R-(2*(R-i)-1)**2)*64); n=out>>4
+        for c in range(4):
+            y=166-1-i if c&1 else i; left=not c&2
+            want+=[(0 if left else 166-n,y,n,1,color_t(0)),(n if left else 166-n-1,y,1,1,(out&15)*17<<24)]
+    assert [b[:5] for b in m.bands]==want and want[0][2]==8 and want[-2][2]==0,want[:2]
+    assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x12345678; passed()  # restored
+    m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(win,m.canvas,0,0)); assert not m.bands; passed()
 
     # Scrub: a double centre press toggles it; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,

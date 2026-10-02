@@ -80,7 +80,8 @@ HOME_ART_RECT = [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290]  # the whole right pane
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
 # 251; their x follows NP_BAR through the np_bar_* immediates in compact.json. The window starts
-# at screen y 30; the top and bottom rows take their insets from the corners.
+# at screen y 30; the top and bottom rows take their insets from the corners. The bar is a capsule
+# (round_radius half its height) and the payload rounds the art's corners (paint_cover).
 # The art and the metadata keep NP_MARGIN from the sides, 12px apart; the art is as large as that
 # leaves while the text column keeps NP_TEXT_W, and "3 of 12" starts in line with the art.
 NP_TOP = 40
@@ -88,7 +89,8 @@ NP_ICON = 50                     # the stock 50px control icons, centred in the 
 NP_MARGIN = 16
 NP_POS_X = max(NP_MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16))  # "3 of 12", 16px text
 NP_ICONS_END = 375 - corner_x(30, NP_TOP)  # the 50px icon images fill the row's height
-NP_TEXT_W = 177
+NP_TEXT_W = 165
+NP_TITLE_PX = 22                 # the title over the 16px artist and album, as Apple's hierarchy
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
 NP_BAR_X = max(MARGIN, corner_x(30 + 251, 8))
@@ -364,15 +366,15 @@ def playing_page(root):
 
     art_y = (NP_SLIDE_H - NP_ART) // 2
     text_w = 375 - NP_MARGIN - NP_TEXT_X
-    top = art_y + NP_ART // 2 - (24 + 4 + 20 + 4 + 20) // 2  # the three lines centre on the art
-    title[1] = [NP_TEXT_X, top, text_w, 24]
-    title[2]['style'] = 's_scrlabel_white20l'
-    artist[1] = [NP_TEXT_X, top + 28, text_w, 20]
+    top = art_y + NP_ART // 2 - (28 + 4 + 20 + 4 + 20) // 2  # the three lines centre on the art
+    title[1] = [NP_TEXT_X, top, text_w, 28]
+    title[2].update({'style': 's_scrlabel_white20l', 'style:normal:font_size': str(NP_TITLE_PX)})
+    artist[1] = [NP_TEXT_X, top + 32, text_w, 20]
     for key in artist[2]:
         if key.endswith(':text_color'): artist[2][key] = NP_GREY
         if key.endswith(':text_align_h'): artist[2][key] = 'left'
     album = copy.deepcopy(artist)
-    album[1] = [NP_TEXT_X, top + 52, text_w, 20]
+    album[1] = [NP_TEXT_X, top + 56, text_w, 20]
     album[2].update(name='label_ipod_album', text='')
     named['img_cover'][1] = [NP_MARGIN, art_y, NP_ART, NP_ART]
     named['img_playstate'][1] = [NP_MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
@@ -393,6 +395,9 @@ def playing_page(root):
     x, y, w, h = NP_BAR
     slider[1] = [x, y - 11, w, h + 22]
     slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
+    require(h // 2 > 3, 'Stock squares a slider radius of 3 or less')
+    for key in slider[2]:
+        if key.endswith(':round_radius'): slider[2][key] = str(h // 2)  # a capsule, track and fill
     for name in ('img_repeata', 'img_repeatb'):
         named[name][1][0] = x
     total = named['label_playlen']
@@ -401,6 +406,9 @@ def playing_page(root):
     remain[2].update(name='label_ipod_remain', text='')
     total[2]['visible'] = 'false'
     named['label_playtime'][1] = [NP_TIME_X, NP_TIMES_Y, 80, 16]
+    for n in (named['label_playtime'], remain):
+        for key in n[2]:
+            if key.endswith(':text_color'): n[2][key] = NP_GREY
     root[3][1:3] = []
     root[3].insert(3, remain)
 
