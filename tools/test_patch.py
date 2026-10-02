@@ -1351,6 +1351,11 @@ assert m.release()==11 and not m.clicks
 m.advance(DC-1); assert not m.clicks
 m.advance(1); assert m.clicks==[es[0]] and not m.timers and not m.screens
 m.advance(1000); assert m.clicks==[es[0]]; passed()
+# Stock's wheel lockout after the centre key ends when the press opens its row: the next tick moves.
+m=Machine(); w,es=m.page_list(3)
+assert m.release()==11 and m.u.mem_read(O['KEY_LOCKOUT'],1)==b'\x08'
+m.advance(DC); assert m.clicks==[es[0]] and m.u.mem_read(O['KEY_LOCKOUT'],1)==b'\0'
+assert m.call(gap=0,debounce=True)==11 and m.selected(w)==1; passed()
 # Before the deadline, the second release cancels the click and executes stock screen-off.
 for gap in (0,100,DC-1):
     m=Machine(); w,es=m.page_list(3)

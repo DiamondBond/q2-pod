@@ -228,6 +228,7 @@
 #define KEY_NEXT 173
 #define KEY_PLAY 171
 #define KEY_RETURN 170 /* on_common_keyup @0x4e8124 */
+#define KEY_LOCKOUT 0xa37c89 /* stock: a centre key sets 8, on_wm_timer_setup_state counts it down per 100 ms */
 #define BOOT_KEY_GUARD 0xa37c8a /* raw flag address, no symbol in the audited binary */
 #define RETURN_RELEASE_LATCH 0xa37c8b /* stock long Return arms it; the key-up filter consumes it */
 

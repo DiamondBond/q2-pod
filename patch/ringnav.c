@@ -904,6 +904,9 @@ static int confirm_center(const void *info) {
     }
     cancel_center(); /* Clear before any app callback can destroy or navigate the page. */
     if (valid) {
+        /* Stock's wheel lockout after the centre key (up to 800 ms) has guarded the press; the
+         * page it opens scrolls at once. */
+        *(volatile unsigned char *)KEY_LOCKOUT = 0;
         void *target = g_menu.at[index_of(&g_menu, st.center_id)];
         char click[0x30];
         stock_dispatch_trampoline(target, pointer_event_init(click, EVT_CLICK, target, 0, 0));
