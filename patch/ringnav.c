@@ -106,7 +106,7 @@ typedef struct {
     unsigned plays_read, ls_key;
     int ls_sec, ls_heard, ls_done;
     void *mp_page, *mp_list; /* Most Played's page and its ranked tracks */
-    int dark; /* the backlight was off at the last UI loop pass */
+    int dark;                /* the backlight was off at the last UI loop pass */
 #if IPOD
     void *pull_page, *pull_surface;
     void *sel_w; /* the surface whose selection was last drawn: its row and centre, for Home's > */
@@ -2686,9 +2686,11 @@ int ringnav_about(void *win, void *ctx) {
     int result = stock_about_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_about", 1) : (void *)0;
     if (view && widget_count_children(view) == 7) {
-        widget_set_text_utf8(widget_get_child(widget_get_child(widget_get_child(view, 1), 0), 1), STOCK_VERSION);
+        widget_set_text_utf8(widget_get_child(widget_get_child(widget_get_child(view, 1), 0), 1),
+                             STOCK_VERSION);
         void *button = list_button(view);
-        about_label(button, 10, 172, "s_scrlabel_white24l", "Q2 Pod Version"); /* 167px; the right-aligned value never reaches it */
+        about_label(button, 10, 172, "s_scrlabel_white24l",
+                    "Q2 Pod Version"); /* 167px; the right-aligned value never reaches it */
         about_label(button, 176, 149, "s_scrlabel_white20r", Q2POD_VERSION);
         widget_restack(P(button, W_PARENT), 2);
     }
