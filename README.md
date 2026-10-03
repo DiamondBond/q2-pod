@@ -33,17 +33,17 @@
 
 ## Features
 
-| For listening                                                       | Under the hood                                                                    |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| iPod classic style lists, Home and Now Playing                      | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
-| Wheel navigation with acceleration and position memory              | Clock keeps the right time after power-off                                        |
-| Accent, Home layout, battery style                                  | Less battery drain with the screen off                                            |
-| Hold menu: Favourites, Add to playlist, Shuffle, Go to album/artist | Faster library browsing                                                           |
-| Shuffle Songs, and Most Played: your top 25 with artist and plays   | Library sort ignores a leading The, A or An                                       |
-| Parametric EQ: up to 30 bands, per channel, with balance            | Long VBR MP3s start at once and seek accurately                                   |
-| Coverflow                                                           | Long tracks (mixes, audiobooks, podcasts) resume where you left them              |
-| Podcasts and Audiobooks                                             | Every listen logged in Rockbox's `.scrobbler.log` format                          |
-| Photos, Books (`.txt`, `.epub`) and Videos                          | Upload Scrobbles sends them to Last.fm or ListenBrainz over Wi-Fi                 |
+| For listening                                                       | Under the hood                                                      |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| iPod classic style lists, Home and Now Playing                      | Bluetooth AAC fix: no choppy audio when AirPods auto-connect        |
+| Wheel navigation with acceleration and position memory              | Clock keeps the right time after power-off                          |
+| Accent, Home layout, battery style                                  | Less battery drain with the screen off                              |
+| Hold menu: Favourites, Add to playlist, Shuffle, Go to album/artist | Faster library browsing                                             |
+| Shuffle Songs; Most Played, your top 25 with artist · plays         | Library sort ignores a leading The, A or An                         |
+| Parametric EQ: up to 30 bands, per channel, with balance            | Long VBR MP3s start at once and seek accurately                     |
+| Coverflow                                                           | Long tracks (mixes, audiobooks, podcasts) resume where you left off |
+| Podcasts and Audiobooks                                             | Every listen logged to `.scrobbler.log` (Rockbox format)            |
+| Photos, Books (`.txt`, `.epub`) and Videos                          | Upload Scrobbles sends them to Last.fm or ListenBrainz over Wi-Fi   |
 
 ## Install
 
@@ -52,12 +52,13 @@
 
 1. [Download](https://github.com/DiamondBond/q2-ringnav/releases/latest) `Q2.Firmware.V*.zip`, unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2: **System settings → System Update → TF card update**.
+3. **System settings → About** then shows FW V1.32 and your **Q2 Pod Version**.
 
-**Prefer the stock look?** The Stock build, `Q2.Firmware.V*-stock.zip`, has everything except the [iPod UI](#ipod-ui).
+**Prefer the stock look?** `Q2.Firmware.V*-stock.zip` has everything except the [iPod UI](#ipod-ui).
 
 ### Restore stock
 
-Flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
+Flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song and power on with the centre button.
 
 ## Display settings
 
@@ -71,77 +72,79 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 ## iPod UI
 
-- **Home:** a list beside the playing track's cover, instead of the carousel.
-- **Lists:** flat, four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
-- **Status bar:** play state and EQ, the time, then Bluetooth, Wi-Fi and battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
-- **Now Playing:** "3 of 12", large rounded cover art beside a bigger title over grey artist and album, and a slim accent capsule with elapsed and remaining time.
+- **Home:** a list (Now Playing, Library, Coverflow…) beside the playing track's cover, instead of the carousel.
+- **Lists:** four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
+- **Status bar:** play state, EQ, time, Bluetooth, Wi-Fi, battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
+- **Now Playing:** "3 of 12", large rounded cover beside title, artist and album, and a slim accent progress capsule.
 - **Quick settings:** pull down from the top edge.
-- **Page slides:** pages slide in from the right and back out on Return.
-- **Fast-scroll letter:** spinning through a long list shows the first letter it sorts under (C for The Cure).
-- **Starts on Home.** **Memory playback → Location** restores your queue paused where you left it; **Track** restarts the song. **In-Vehicle mode** starts playing.
+- **Page slides:** in from the right, back out on Return.
+- **Fast-scroll letter:** spinning a long list shows the letter it sorts under (C for The Cure).
+- **Starts on Home.** **Memory playback → Location** restores your queue, paused; **Track** restarts the song. **In-Vehicle mode** starts playing.
 
 ## Controls
 
-| Control                   | What it does                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Wheel**                 | One row per tick; keep spinning to speed up. Outside menus it sets volume (iPod: in place of the progress bar on Now Playing, or a small panel). |
-| **Centre button**         | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing).                                                     |
-| **Hold Play/Pause**       | On a song: queue, favourite, playlist, go to album or artist. On an album, artist, genre or folder: queue, shuffle, playlist.                    |
-| **Hold Return** (iPod)    | Opens Now Playing; the next Return goes back.                                                                                                    |
-| **Scrub** (iPod)          | On Now Playing, double-press centre, then turn 5 seconds per tick. Double-press again, press Return, touch, or wait 3 seconds to jump.           |
-| **Pull to search** (iPod) | At the top of Local Songs, pull down until "Release to search" appears.                                                                          |
+| Control                   | What it does                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Wheel**                 | One row per tick; spin to speed up. Outside menus it sets volume.                                                  |
+| **Centre button**         | Opens the highlighted item. Double-press turns the screen off (single press on Now Playing).                       |
+| **Hold Play/Pause**       | Song: queue, favourite, playlist, go to album or artist. Album, artist, genre or folder: queue, shuffle, playlist. |
+| **Hold Return** (iPod)    | Opens Now Playing; the next Return goes back.                                                                      |
+| **Scrub** (iPod)          | On Now Playing, double-press centre, then turn: 5 s per tick. Double-press, Return, touch or wait 3 s to jump.     |
+| **Pull to search** (iPod) | At the top of Library (Local Songs), pull down until "Release to search" appears.                                  |
 
-- **List ends:** local lists stop at the end; pause, then turn again to wrap.
-- **Position memory:** returning to a recent folder, album, search or menu restores your place until power-off.
+- **List ends:** lists stop at the end; pause, then turn again to wrap.
+- **Position memory:** recent folders, albums, searches and menus reopen where you were, until power-off.
 - **Artists:** open on Albums, with All Songs one tap away.
 - **Pop-ups** (iPod): the wheel moves between OK and Cancel.
-- **Key Tone:** silent while music plays and while headphones or Bluetooth are connected, so the speaker only clicks with nothing plugged in. iPod: clicks once per row, not per wheel tick.
+- **Key Tone:** the speaker clicks only when nothing plays and no headphones (3.5/4.4 mm), Bluetooth or USB DAC are connected. iPod: once per row, not per tick.
 
 ### Photos, Books and Videos
 
-| Screen    | Wheel                  | Centre                                         | Other                                                       |
-| --------- | ---------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
-| **Photo** | Previous or next photo | Shows or hides "3 of 40" and the file name     | **Return** goes back                                        |
-| **Book**  | Turns the pages        | Shows or hides how far in you are              | **Return** goes back; each book reopens where you left it   |
-| **Video** | Volume                 | Toggles seeking: the wheel skips 10 s per tick | **Play/Pause** pauses, previous/next skip, **Return** exits |
+| Screen    | Wheel                  | Centre                                | Other                                                       |
+| --------- | ---------------------- | ------------------------------------- | ----------------------------------------------------------- |
+| **Photo** | Previous or next photo | Shows or hides "3 of 40" and the name | **Return** goes back                                        |
+| **Book**  | Turns the pages        | Shows or hides progress               | **Return** goes back; books reopen where you left off       |
+| **Video** | Volume                 | Toggles seek: 10 s per tick           | **Play/Pause** pauses, previous/next skip, **Return** exits |
 
-Videos play their sound on the headphone jack or Bluetooth at your volume; over a USB DAC they're silent. Music stops meanwhile. Decoding is software, so encodes near the screen's 375 × 320 play smoothest.
+Video sound plays on the headphone jack or Bluetooth; over a USB DAC it's silent. Music stops meanwhile. Decoding is software, so encodes near the screen's 375 × 320 play smoothest.
 
 ## Parametric EQ
 
 **Audio settings → Equalizer**:
 
-- **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, and channel (both, **L** or **R**). Gain is picked with the wheel, -24 to +24 dB, and picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41) work as a 10-band graphic EQ. For frequency and Q, tap the value (or press centre on it) to type one, or step it with **Raise** / **Lower**.
+- **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, channel (both, **L** or **R**).
+- **Gain:** -24 to +24 dB on the wheel; picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41) work as a graphic EQ.
+- **Frequency and Q:** tap the value (or press centre) to type one, or step with **Raise** / **Lower**.
 - **Balance:** L 12.0 dB to R 12.0 dB in 0.5 dB steps; **R 1.0 dB** plays the left 1 dB quieter.
 - **Apply changes:** edits and presets take effect only when chosen.
 - **PEQ: ON/OFF:** applies at once and persists; the status-bar **EQ** icon follows it.
-- **Preamp:** **Auto** cuts just enough that boosts don't clip and follows band edits. Pick +12 to -24 dB instead to set your own; above Auto, loud boosts can clip.
+- **Preamp:** **Auto** cuts just enough that boosts don't clip. Or pick +12 to -24 dB; above Auto, loud boosts can clip.
 
 ### Import a preset
 
-1. Copy an AutoEQ / Equalizer APO `.txt` to `/EQ/` on the microSD card. `Channel: L`, `R` and `all` sections are supported.
+1. Copy an AutoEQ / Equalizer APO `.txt` to `/EQ/` on the card. `Channel: L`, `R` and `all` sections work.
 2. **Presets → Import from SD /EQ**, then pick the file.
 3. Select the saved preset, then **Apply changes** (and **PEQ: ON**).
 
 ## microSD card
 
-Media folders go at the root of the card, any capitalisation; each adds its **Local Music** row only when it exists. Caches are safe to delete and rebuilt as needed (Coverflow and Photos need 16 MB free).
+Media folders go at the card's root, any capitalisation; each adds its **Local Music** row when present. Caches are safe to delete and rebuild as needed (Coverflow and Photos need 16 MB free).
 
-| Path                       | What it is                                                                                 | Made by |
-| -------------------------- | ------------------------------------------------------------------------------------------ | ------- |
-| `Podcasts/`, `Audiobooks/` | One folder per show or book; episodes always resume and never count as plays               | You     |
-| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums                 | You     |
-| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                                          | You     |
-| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                    | You     |
-| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                               | You     |
-| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                                | You     |
-| `.scrobble.pem`            | Optional CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)); uploads then verify TLS | You     |
-| `.scrobbler.log`           | Every listen, Rockbox format; sent by Upload Scrobbles or any `.scrobbler.log` uploader    | Q2 Pod  |
-| `.scrobbler.log.sent`      | Listens already uploaded                                                                   | Q2 Pod  |
-| `.coverflow/`              | Coverflow artwork cache                                                                    | Q2 Pod  |
-| `.photos/`                 | Photo thumbnails and screen-size copies                                                    | Q2 Pod  |
-| `.books/`                  | EPUBs converted to text                                                                    | Q2 Pod  |
-| `.sldp/`                   | Stock's own cover cache                                                                    | Stock   |
+| Path                       | What it is                                                                              | Made by |
+| -------------------------- | --------------------------------------------------------------------------------------- | ------- |
+| `Podcasts/`, `Audiobooks/` | One folder per show or book; always resume, never count as plays                        | You     |
+| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums              | You     |
+| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                                       | You     |
+| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                 | You     |
+| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                            | You     |
+| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                             | You     |
+| `.scrobble.pem`            | Optional CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)) so uploads verify TLS | You     |
+| `.scrobbler.log`           | Every listen, Rockbox format; for Upload Scrobbles or any uploader                      | Q2 Pod  |
+| `.scrobbler.log.sent`      | Listens already uploaded                                                                | Q2 Pod  |
+| `.coverflow/`              | Coverflow artwork cache                                                                 | Q2 Pod  |
+| `.photos/`                 | Photo thumbnails and screen-size copies                                                 | Q2 Pod  |
+| `.books/`                  | EPUBs converted to text                                                                 | Q2 Pod  |
+| `.sldp/`                   | Stock's own cover cache                                                                 | Stock   |
 
 `.scrobble.ini` takes a ListenBrainz token ([your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
 
@@ -156,27 +159,26 @@ API_KEY=your-api-key
 API_SECRET=your-shared-secret
 ```
 
-Last.fm's key and secret come from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
+Get Last.fm's key and secret from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
 
 Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
 
 ## Coverflow
 
 - Run **Update Local Music** first.
-- **First open** prepares artwork once; **Cancel** keeps progress for next time. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
-- **Browse** with the wheel.
+- **First open** prepares artwork once; **Cancel** keeps progress. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
 - **Artwork:** `cover.jpg`, `folder.jpg`, then embedded art; otherwise a placeholder.
 
 ## Documentation
 
-| Document                       | Covers                                                |
-| ------------------------------ | ----------------------------------------------------- |
-| [Changelog](docs/changelog.md) | Every release                                         |
-| [iPod UI](docs/ipod.md)        | Layout audit and iPod features                        |
-| [Internals](docs/internals.md) | Hooks, selection, position memory, timing and drawing |
-| [Building](docs/building.md)   | Building both variants and the MIPS test suite        |
-| [Releasing](docs/releasing.md) | Packaging, verifying and publishing                   |
-| [Boot logo](docs/boot-logo.md) | Replacing the power-on splash                         |
+| Document                       | Covers                                             |
+| ------------------------------ | -------------------------------------------------- |
+| [Changelog](docs/changelog.md) | Every release                                      |
+| [iPod UI](docs/ipod.md)        | Layout audit and iPod features                     |
+| [Internals](docs/internals.md) | Hooks, selection, position memory, timing, drawing |
+| [Building](docs/building.md)   | Building both variants and the MIPS test suite     |
+| [Releasing](docs/releasing.md) | Packaging, verifying and publishing                |
+| [Boot logo](docs/boot-logo.md) | Replacing the power-on splash                      |
 
 ## Contributing
 
@@ -184,4 +186,4 @@ Found a bug? [Open an issue](https://github.com/DiamondBond/q2-ringnav/issues) w
 
 ## License
 
-[MIT](LICENSE), covering this repository's code and docs. Shanling's Q2 firmware, from which the release images are built, remains Shanling's property. Not affiliated with Shanling.
+[MIT](LICENSE) for this repository's code and docs. Shanling's Q2 firmware, which the release images are built from, remains Shanling's. Not affiliated with Shanling.
