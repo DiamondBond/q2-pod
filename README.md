@@ -33,17 +33,56 @@
 
 ## Features
 
-| For listening                                                       | Under the hood                                                      |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| iPod classic style lists, Home and Now Playing                      | Bluetooth AAC fix: no choppy audio when AirPods auto-connect        |
-| Wheel navigation with acceleration and position memory              | Clock keeps the right time after power-off                          |
-| Accent, Home layout, battery style                                  | Less battery drain with the screen off                              |
-| Hold menu: Favourites, Add to playlist, Shuffle, Go to album/artist | Faster library browsing                                             |
-| Shuffle Songs; Most Played, your top 25 with artist · plays         | Library sort ignores a leading The, A or An                         |
-| Parametric EQ: up to 30 bands, per channel, with balance            | Long VBR MP3s start at once and seek accurately                     |
-| Coverflow                                                           | Long tracks (mixes, audiobooks, podcasts) resume where you left off |
-| Podcasts and Audiobooks                                             | Every listen logged to `.scrobbler.log` (Rockbox format)            |
-| Photos, Books (`.txt`, `.epub`) and Videos                          | Upload Scrobbles sends them to Last.fm or ListenBrainz over Wi-Fi   |
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**🎡 Feels like an iPod**
+
+- iPod classic lists, Home and Now Playing
+- Wheel with acceleration and position memory
+- Coverflow
+- Accent, Home layout and battery style
+
+</td>
+<td width="50%" valign="top">
+
+**🎵 Music**
+
+- Hold Play/Pause: Favourites, Add to playlist, Shuffle, Go to album/artist
+- Shuffle Songs and Most Played (your top 25)
+- Parametric EQ: up to 30 bands, per channel, with balance
+- Sorting ignores a leading The, A or An
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**📺 Beyond music**
+
+- Videos, Photos and Books (`.txt`, `.epub`)
+- Podcasts and Audiobooks that resume where you left off
+- Long mixes resume too
+
+</td>
+<td valign="top">
+
+**📈 Scrobbling**
+
+- Every listen logged to `.scrobbler.log`
+- Upload to Last.fm or ListenBrainz over Wi-Fi
+
+</td>
+</tr>
+<tr>
+<td colspan="2" valign="top">
+
+**🔧 Fixed under the hood**: no choppy AirPods audio (AAC) · clock survives power-off · less battery drain with the screen off · faster library browsing · long VBR MP3s start at once and seek accurately
+
+</td>
+</tr>
+</table>
 
 ## Install
 
