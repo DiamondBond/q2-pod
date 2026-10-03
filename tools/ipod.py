@@ -185,7 +185,10 @@ def artist_tabs(root):
 
 # Both variants. Coverflow's Home card: a clone of Local Music at index 2 with its own icon; its image
 # (patch/coverflow.c binds it) is the click target. Stock translates label_* by name and ignores this one, so its text is literal.
+# Local Music's label is literal too, "Library" in every language: stock would set label_localmusic's
+# text to small_local ("Local Songs"), a key only Home uses.
 HOME_PAGE = 'home_page.bin'
+LIBRARY = {'name': 'label_library', 'text': 'Library'}
 
 
 def home_card(root):
@@ -204,6 +207,7 @@ def home_card(root):
     for key, value in image[2].items():  # assets/menu_coverflow*.png, added to the rootfs by build.py
         if key.endswith(':bg_image'): image[2][key] = value.replace('menu_music', 'menu_coverflow')
     menu[0][3].insert(2, card)
+    menu[0][3][1][3][1][2].update(LIBRARY)
 
 
 # iPod only. Home becomes a list of the stock cards' names, in stock order with Coverflow third.
@@ -229,6 +233,8 @@ def ipod_home(root):
         label = {'name': 'label_' + name, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
         if name == 'coverflow':
             label['text'] = 'Coverflow'
+        if name == 'localmusic':
+            label.update(LIBRARY)
         rows.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + name}, [
             ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - HOME_LABEL_END, HOME_ROW], label, []],
             ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + name, 'clickable': 'true'}, []]]])

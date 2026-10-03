@@ -85,13 +85,14 @@ selected or tapped.
 
 iPod's `home_page.bin` is a `list_view` (39-pixel `item_height`, `HOME_ROW`) holding a
 `scroll_view` of seven 39-pixel rows (`btn_*` views), in stock order with Coverflow third: Now
-Playing, Local Songs, Coverflow, Folder, Streaming, Playback Setting, System Setting. The list
+Playing, Library, Coverflow, Folder, Streaming, Playback Setting, System Setting. The list
 starts `HOME_TOP` (8) pixels below the status bar and ends 9 above the bottom, so the first row
 no longer touches the bar and the last clears the glass. Each row holds a white 20-pixel
 `label_*` (an ellipsis when too long) inset 33 pixels (see [Rounded corners](#rounded-corners)),
 under a full-row transparent `img_*` that takes the tap and is the wheel's click target, so
 the stock visitor binds and translates the rows as it did the cards. Coverflow's label is
-literal. The wheel moves through the rows with hard ends, and the selection bar spans the
+literal, and so is Library's (`label_library`, which the visitor skips), so both read the same
+in every language. The wheel moves through the rows with hard ends, and the selection bar spans the
 list. The scroll view sets `yslidable`: a `list_view`'s layout (`0x5ea3a4`) turns it on only
 for a list with a mobile scroll bar, which Home has none of, and the payload navigates vertical
 scroll views only. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and

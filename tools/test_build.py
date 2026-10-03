@@ -247,6 +247,7 @@ def validate_assets(directory):
         if short == HOME_PAGE and not ipod:  # only the Coverflow card is added
             cards = [n[2]['name'] for n in root[3][0][3]]
             assert cards[:3] == ['btn_playing', 'btn_localmusic', 'btn_coverflow'] and len(cards) == 7, cards
+            assert root[3][0][3][1][3][1][2]['text'] == 'Library'  # literal: stock skips label_library
             continue
         if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
             (lv, lg, _, [sv]), art = root[3]
@@ -255,9 +256,11 @@ def validate_assets(directory):
             assert art[1] == [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290] and art[2]['draw_type'] == 'fill'
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
-                assert label[2]['name'] == 'label_'+name and image[2] == {'name': 'img_'+name, 'clickable': 'true'}
+                assert label[2]['name'] == ('label_library' if name == 'localmusic' else 'label_'+name)
+                assert image[2] == {'name': 'img_'+name, 'clickable': 'true'}
                 # Whole English labels ("Playback Setting", 149px), ending before the chevron's glyph.
                 assert label[1][0] + label[1][2] == image[1][2] - HOME_LABEL_END and label[1][2] >= 149
+            assert [r[3][0][2].get('text') for r in sv[3]][1:3] == ['Library', 'Coverflow']
             assert lg == [0, HOME_TOP, HOME_LIST_W, 7*HOME_ROW] and HOME_TOP + 7*HOME_ROW <= BOTTOM - HOME_TOP
             assert b'menu_' not in new and b'slide_menu' not in new
             # Full (coverflow_home_layout): rows end at HOME_FULL_ROW, so the chevron's glyph (x 20 to 31,
