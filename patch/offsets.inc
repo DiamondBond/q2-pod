@@ -88,13 +88,6 @@
                 { 0x13838d, 0x095158, 0x30929b, 0x30929b, 0x30929b }, /* Tidal */ \
                 { 0x8c732c, 0x5d4a18, 0x9a8446, 0x9a8446, 0x9a8446 }  /* Champagne */
 #define CRIMSON 1
-/* Custom, after the presets, is one colour (IPOD/ACCENT_HEX): darkened in hue until white text holds
- * 4.5:1 on it (CUSTOM_TOP_MAX) and lightened until the bar reads on black (CUSTOM_TOP_MIN), it is the
- * top; the bottom is two thirds of it. The light, red and highlight tones are the top lightened 12%
- * toward white, then until 3:1 on TRACK_COLOR (CUSTOM_LIGHT_MIN). WCAG luminance, in 1/10000. */
-#define CUSTOM_TOP_MAX 1800
-#define CUSTOM_TOP_MIN 500
-#define CUSTOM_LIGHT_MIN 1400
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
  * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
  * OK disc becomes CONFIRM_SURFACE, Cancel's lighter tint a mid grey, and the near-white glyphs stay

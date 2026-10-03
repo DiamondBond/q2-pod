@@ -484,19 +484,9 @@ pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends
 chevron, since Centre or a tap changes them in place.
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
-Accent's last value is Custom. Under it, and only then, a "Hex" row shows, indented (no icon), with
-the colour as `#RRGGBB` in a pill edit on the right: the PEQ value menu's (`peq_edit`: the T9
-keyboard on its 123 page, OK to close, `#2B2B2B` with radius 20). Centre or a tap opens the
-keyboard (blurring the edit first, since OK leaves it focused and only a focus change opens it again). OK applies six hex digits in either case, `#` optional, at once; anything else puts the
-colour back. The colour is saved without the `#` (an ini comment character) as `ACCENT_HEX`, with
-the stock `toolsWriteConfig`, and starts as Champagne's top, the preset before it, so the switch
-is gentle. Showing or hiding the row keeps the wheel on Accent: its index is unchanged, so the
-payload updates the surface's row count instead of resetting the selection. A hidden row is not
-laid out (stock skips invisible children), so the settings row mapping waits until it shows.
-
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`, `BATTERY` and Custom's `ACCENT_HEX`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME` and `BATTERY`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
@@ -525,10 +515,3 @@ knob, the − and + discs, the multi-select tick and stock's red buttons with wh
 a style or from a `btn_` image (the time and sleep pages' OK), are white on `#6E6E6E` (5.1:1), and
 the download bar a
 `#6E6E6E` fill on its `#D8D8D8` track. The presets are `ACCENTS` in `patch/offsets.inc`; see [internals.md](internals.md#accent) for the recolouring.
-
-Custom derives its row the same way, once when it is read or typed (`custom_tones`, `CUSTOM_*` in
-`patch/offsets.inc`): the colour, darkened in hue until white holds 4.5:1 and lightened until the
-bar stands off black, is the top; the bottom is two thirds of it; the light, red and highlight
-tones are the top lightened 12% toward white, and further until 3:1 on `#1C1C1C`. Luminance is
-WCAG's, with each channel's 2.2 power taken as `0.7c² + 0.3c³`. Champagne and Crimson tops
-pass unchanged and Tidal's darkens slightly; white becomes a mid grey and black a dark grey.

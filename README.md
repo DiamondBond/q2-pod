@@ -37,7 +37,7 @@
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | iPod classic style lists, Home and Now Playing                      | Bluetooth AAC fix: no choppy audio when AirPods and similar headsets auto-connect |
 | Wheel navigation with acceleration and position memory              | Clock keeps the right time after power-off                                        |
-| Accent (including any custom colour), Home layout, battery style    | Less battery drain with the screen off                                            |
+| Accent, Home layout, battery style                                  | Less battery drain with the screen off                                            |
 | Hold menu: Favourites, Add to playlist, Shuffle, Go to album/artist | Faster library browsing                                                           |
 | Shuffle Songs, and Most Played: your top 25 with artist and plays   | Library sort ignores a leading The, A or An                                       |
 | Parametric EQ: up to 30 bands, per channel, with balance            | Long VBR MP3s start at once and seek accurately                                   |
@@ -100,11 +100,11 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 
 **System settings → Display**:
 
-| Setting     | Options                                                                            |
-| ----------- | ---------------------------------------------------------------------------------- |
-| **Accent**  | Graphite (default), Crimson (stock red), Tidal, Champagne, Custom (any hex colour) |
-| **Home**    | Split (list beside the cover) or Full (list only)                                  |
-| **Battery** | Icon (default), Percent, Icon + Percent                                            |
+| Setting     | Options                                                   |
+| ----------- | --------------------------------------------------------- |
+| **Accent**  | Graphite (default), Crimson (stock red), Tidal, Champagne |
+| **Home**    | Split (list beside the cover) or Full (list only)         |
+| **Battery** | Icon (default), Percent, Icon + Percent                   |
 
 ## iPod UI
 
@@ -132,7 +132,7 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 - **Position memory:** returning to a recent folder, album, search or menu restores your place until power-off.
 - **Artists:** open on Albums, with All Songs one tap away.
 - **Pop-ups** (iPod): the wheel moves between OK and Cancel.
-- **Key Tone** (iPod): clicks once per row, not per wheel tick.
+- **Key Tone:** silent while music plays and while headphones or Bluetooth are connected, so the speaker only clicks with nothing plugged in. iPod: clicks once per row, not per wheel tick.
 
 ### Photos, Books and Videos
 

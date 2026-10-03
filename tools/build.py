@@ -38,6 +38,8 @@ HOOKS = {
     'folder_back': (0x507ac8, 'ringnav_folder_back'),
     # Videos: no input reaches the UI while q2video plays
     'window_manager_dispatch_input_event': (0x66d49c, 'ringnav_input'),
+    # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
+    'buzzeer_switch': (0x4f3cc8, 'ringnav_buzzer'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
@@ -167,7 +169,6 @@ FUNCTIONS = {
  'widget_get_prop_int': ('int', 'void *, const char *, int'),
  'widget_get_prop_str': ('const char *', 'void *, const char *, const char *'),
  'widget_get_text': ('const unsigned *', 'void *'),
- 'widget_get_text_utf8': ('int', 'void *, char *, unsigned'),
  'widget_get_type': ('const char *', 'void *'),
  'widget_count_children': ('unsigned', 'void *'),
  'widget_get_child': ('void *', 'void *, unsigned'),
@@ -267,7 +268,6 @@ FUNCTIONS = {
  'navigator_back': ('int', 'void'),
  'write_int_config': ('int', 'int, const char *, const char *'),
  'toolsReadConfig': ('int', 'const char *, const char *, const char *, char *, const char *'),
- 'toolsWriteConfig': ('int', 'const char *, const char *, const char *, const char *'),
  'button_create': ('void *', 'void *, int, int, int, int'),
  'widget_move_resize': ('int', 'void *, int, int, int, int'),
  'tk_str_end_with': ('int', 'const char *, const char *'),
@@ -297,6 +297,7 @@ FUNCTIONS = {
  'folder_refresh': ('int', 'void *'),
  # Videos (books.c): stop the music, the DAC's power, and the screen and standby timeouts held off
  'mclGetOutputWay': ('int', 'void'),
+ 'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
  'player_stop': ('int', 'void'),
  'mclSetDacPwr': ('int', 'int'),
  'reset_poweroptions_timer': ('int', 'int, int, int'),
@@ -314,7 +315,8 @@ PRIVATE_FUNCTIONS = {
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
-           'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume']
+           'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
+           'g_po_status', 'g_bal_status']  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,

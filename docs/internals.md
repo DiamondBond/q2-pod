@@ -28,10 +28,11 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `folder_page_init`                    | `0x523330` | Opens at Podcasts or Audiobooks ([Podcasts and Audiobooks](#podcasts-and-audiobooks)) |
 | `folder_back`                         | `0x507ac8` | Back at that folder leaves the page                                                   |
 | `window_manager_dispatch_input_event` | `0x66d49c` | No input reaches the UI while a video plays ([Videos](#videos))                       |
+| `buzzeer_switch`                      | `0x4f3cc8` | No buzzer while music plays or headphones/BT listen ([Key Tone](#key-tone))           |
 | `window_manager_paint`                | `0x66d46c` | `WM_PAINT_LEAF`: no PIC prologue; no painting while a video plays                     |
 | `widget_on_paint_background`          | `0x65c77c` | iPod only: selection bar, status bar fill, clock, codec fade and battery              |
 | `playing_page_init`                   | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                          |
-| `systemset_display_page_init`         | `0x4c1d04` | iPod only: adds the Accent (and Custom's Hex), Home and Battery rows                  |
+| `systemset_display_page_init`         | `0x4c1d04` | iPod only: adds the Accent, Home and Battery rows                                     |
 | `on_wm_keydown_before_fun`            | `0x4e8424` | iPod only: Key Tone clicks on the row change, not the wheel press                     |
 | `style_get_color`                     | `0x649f6c` | iPod only: maps the returned color to the accent                                      |
 | `style_get_gradient`                  | `0x649f3c` | iPod only (`IPOD_LEAF`): no PIC prologue; maps the gradient's stops                   |
@@ -39,7 +40,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 
 Single checked instruction words are patched as well. Both variants: `mclNextSong`'s shuffle pick (`0x5addf0`, [Queue menu](#queue-menu)) and `check_mem_thd`'s drop_caches write (`0x5120a8`, [Battery](#battery)). iPod, from `tools/ipod.py`: the row pitch, artwork and Now Playing bar immediates and the row-layouter calls listed in `patch/ipod.json`, the folder rebind's resize call (`0x522410`, removed), the long-Return Home call (`0x4e8924`, [ipod.md](ipod.md#hold-return)), the boot resume call (`0x523de0`, [Boot resume](#boot-resume-ipod)) and one data word, the `list_view` children layouter's layout slot (`0x926930`, stock `0x5e9eb4`), which becomes `ipod_list_layout` for the settings rows ([ipod.md](ipod.md#settings)). The manifest's `compact_code` lists every changed word.
 
-Stock V1.32 turns the encoder knob into key events 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop: a key-down (`0x110`), a 20 µs `usleep`, then the key-up (`0x114`). The payload moves on the release, at `on_wm_keyup_before_fun`; iPod also sees the press ([Key Tone](#key-tone-ipod)). `get_direction` uses different movement thresholds during a gesture, so these events are not fixed physical detents. Below, a tick is one such event and a step is a row move the payload makes.
+Stock V1.32 turns the encoder knob into key events 172/173: `encoderknob_thread_run` (`0x6256a0`) is the sysfs notifier thread, and the rotation handler after it (`0x6258e0`, unnamed in the symbol table) calls `get_direction` (`0x62587c`) and posts them into the main loop: a key-down (`0x110`), a 20 µs `usleep`, then the key-up (`0x114`). The payload moves on the release, at `on_wm_keyup_before_fun`; iPod also sees the press ([iPod row clicks](#ipod-row-clicks)). `get_direction` uses different movement thresholds during a gesture, so these events are not fixed physical detents. Below, a tick is one such event and a step is a row move the payload makes.
 
 ## Supported screens and panes
 
@@ -74,9 +75,13 @@ The local file and music lists carry over at their ends; `patch/contexts.inc` ma
 
 iPod's overshoot filter never drops a tick against an end: every tick bumps and re-arms, so the pause is measured between ticks. Reaching an end, a bump and the wrap end the run and leave no speed; the next tick is a first one.
 
-## Key Tone (iPod)
+## Key Tone
 
-Stock clicks on the press. `on_wm_keydown_before_fun` (`0x4e8424`) calls `buzzeer_switch` (`0x4f3cc8`, the exported spelling; its only three call sites), which runs `system("cmd_mcu write_str buzzer")` when the byte `g_keytone_flag` (`0xa38c31`, the Key Tone setting) is set. A latch (`0xa37c90`), set after the call and cleared by `on_wm_keyup_before_fun`, keeps it to one click a press. Every wheel tick is a press and a release, so stock clicks on every tick, whether or not a row moves.
+The click is the MCU's buzzer, the device's own speaker: `buzzeer_switch` (`0x4f3cc8`) runs `system("cmd_mcu write_str buzzer")` when the byte `g_keytone_flag` (`0xa38c31`, the Key Tone setting) is set, and nothing else; stock sends it whatever plays and whatever is plugged in. Both builds hook it (`ringnav_buzzer`, stock resumed at `0x4f3cd4`), so every click, stock's three call sites and the iPod row click below, passes one gate: none while music plays (`mclGetPlayStatus`, `0x5ac110`, reads `0xa3beac`: 1 stopped, 2 playing, 3 paused, as `mclStop`, `mclSetResume` and `mclSetPause` store it), and none while headphones or another output listen: either jack (`g_po_status` `0xa38af3`, 3.5 mm, GPIO `PA07`; `g_bal_status` `0xa38af2`, 4.4 mm, `PA08`; 1 plugged, kept by `check_headset_status` at `0x4e8e14`) or an output way other than the DAC (`mclGetOutputWay`, `0x5ac484`: 1 Bluetooth, 2 USB DAC, as `config_outputchannel` sets it). Otherwise stock runs, so with nothing plugged in and the music stopped or paused the buzzer clicks as before, and Key Tone off is still silent. There is no headphone click: a paused hciplayer keeps its PCM (`hw:1,0`, or `bluealsa`, one client per PCM, no `dmix`) open and stock's pause mutes the DAC (`mclSetMute`, `player_play_pause` `0x5157d8`), so a click has no free output; silence is the fallback, never the speaker.
+
+### iPod row clicks
+
+Stock clicks on the press. `on_wm_keydown_before_fun` (`0x4e8424`) calls `buzzeer_switch` (the exported spelling; its only three call sites). A latch (`0xa37c90`), set after the call and cleared by `on_wm_keyup_before_fun`, keeps it to one click a press. Every wheel tick is a press and a release, so stock clicks on every tick, whether or not a row moves.
 
 iPod hooks that callback (`ringnav_keydown`, stock resumed at `0x4e8430`). For a wheel press that the release will take as row navigation it saves `g_keytone_flag`, clears it, runs the whole stock body and restores the byte before returning stock's result: the power timer, the lock gates and both latches run as stock, and only the click is missing. Besides `buzzeer_switch`, the byte is read by `config_init` and by the System settings page's Key Tone row and its click handler (`0x4cc0a0`, `0x4cc2dc`), all on the UI thread, and the stock body calls nothing back into the UI, so nothing else sees it cleared. Whether a press is such a press is decided from the widget tree alone (screen usable, a `contexts.inc` window, a pane that is not a `slide_menu` and holds a clickable row); nothing is loaded, selected or restored. Every other press runs stock unchanged: the buttons, the volume, scrub, carousels and other slide menus, the pixel-scroll fallback, and the wheel while the screen is off or locked.
 
@@ -201,7 +206,7 @@ The iPod border hook also draws the fast-scroll letter over the list. A step of 
 iPod's accent ([ipod.md](ipod.md#display-settings)) replaces Shanling red wherever it is drawn:
 the theme's style colors, inline `style:*` colors (a mutable style answers through the same
 vtable), decoded images, and the payload's own selection bar and progress fill, which read
-`ACCENTS` (or Custom's derived row, `tones()`) directly. `accent_map` (`patch/ringnav.c`) is a pure function on one `color_t` (bytes
+`ACCENTS` directly. `accent_map` (`patch/ringnav.c`) is a pure function on one `color_t` (bytes
 r, g, b, a). Stock uses `#FF1448`, `#7F0A24`, the pressed tint `#3D1920` and `#FF144840`, all
 stock red blended with a neutral: each channel is `t * red + k`. Least squares against red with
 the mean removed gives `t` (in 1/4096), then `k`. A color within `RED_TOLERANCE` (8) of that
@@ -210,8 +215,7 @@ for one of the preset's tones (`ACCENTS`): the red tone for text colors (a prope
 `text_color`, `tk_str_end_with`) and image pixels, the light tone for every other color property
 and gradient stop; alpha is kept, and anything else, greys and other hues included,
 is returned as it was. Anti-aliased edges onto black, white or a transparent background are such
-blends, so they follow. No preset's colors are red blends, so mapping twice changes nothing (a
-Custom colour close to stock red can be one, and then shifts a shade where it is mapped again).
+blends, so they follow. No preset's colors are red blends, so mapping twice changes nothing.
 Crimson returns every color unchanged, so its theme is stock.
 
 - `style_get_color(color_t *ret, style, name, default)` returns its color through the hidden
