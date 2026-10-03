@@ -541,12 +541,13 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # and Shuffle Songs', Upload Scrobbles', Podcasts', Audiobooks', Photos', Books' and Videos' icons, stock's
-    # 52px playset_playmode, wifiset_wifi, netservice_dlna, playset_foldercover, playset_covermode,
-    # system_language and system_display apart from the copies iPod pre-sizes for Settings; and q2video.
+    # the Local Music rows' icons, drawn in assets/ (stock's 52px style) or else a copy of the stock image named
+    # (not the copies iPod pre-sizes for Settings), and q2video.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
-    icons.update({f'local_{n}.png': (like, cat(xx+like)) for n, like in dict(
+    drawn = ('podcasts', 'audiobooks', 'books', 'videos')
+    icons.update({f'local_{n}.png': (like, (ROOT/'assets'/f'local_{n}.png').read_bytes() if n in drawn
+                                     else cat(xx+like)) for n, like in dict(
         shuffle='playset_playmode.png', scrobble='wifiset_wifi.png', podcasts='netservice_dlna.png',
         audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
         videos='system_display.png').items()})

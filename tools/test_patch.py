@@ -4783,8 +4783,10 @@ assert m.call(address=HOOKS['systemset_about_page_init'][0],args=(m.top,5,0,0),g
 kids=m.nodes[view]['children']; assert kids[:2]==rows[:2] and kids[3:]==rows[2:]
 fw=m.nodes[m.nodes[rows[1]]['children'][0]]['children'][1]; assert m.nodes[fw]['text']=='V1.32'
 item=kids[2]; button=m.nodes[item]['children'][0]; title,value=m.nodes[button]['children']
-assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==tree(m.nodes[rows[1]]['children'][0])
-assert m.nodes[title]['text']=='Q2 Pod' and m.nodes[value]['text']==f"V{VERSION} {EDITIONS[variant]}{' dev'*manifest['dev']}"
+# Stock's row, but a title 6px wider for "Q2 Pod Version" (167px of text in a 166px title).
+want=tree(m.nodes[rows[1]]['children'][0]); want[5][0][1][2]+=6
+assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==want
+assert m.nodes[title]['text']=='Q2 Pod Version' and m.nodes[value]['text']==f"V{VERSION} {EDITIONS[variant]}{' dev'*manifest['dev']}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its

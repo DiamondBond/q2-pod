@@ -2807,7 +2807,7 @@ int ringnav_about(void *win, void *ctx) {
     if (view && widget_count_children(view) == 7) {
         widget_set_text_utf8(widget_get_child(widget_get_child(widget_get_child(view, 1), 0), 1), STOCK_VERSION);
         void *button = list_button(view);
-        about_label(button, 10, 166, "s_scrlabel_white24l", "Q2 Pod");
+        about_label(button, 10, 172, "s_scrlabel_white24l", "Q2 Pod Version"); /* 167px; the right-aligned value never reaches it */
         about_label(button, 176, 149, "s_scrlabel_white20r", Q2POD_VERSION);
         widget_restack(P(button, W_PARENT), 2);
     }
