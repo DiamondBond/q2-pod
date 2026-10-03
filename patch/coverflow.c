@@ -232,14 +232,15 @@ void *page_title(void *body, const char *caption) {
     return title;
 }
 
-/* The peq_ui.c page: a title bar (*title) over n whole item_h rows in body, shrunk so the list's
+/* The peq_ui.c page: a title bar (*title, unless 0) over n whole item_h rows in body, shrunk so the list's
  * white background never shows below a short list. Shared with photos.c. */
 void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h) {
     int h = widget_get_prop_int(page, "h", 290), rows = (h - 48) / item_h * item_h;
     if (n * item_h < rows) rows = n * item_h;
     widget_destroy_children(body);
     widget_set_visible(body, 1, 0);
-    *title = page_title(body, caption);
+    void *t = page_title(body, caption);
+    if (title) *title = t;
     void *lv = list_view_create(body, 0, 48, 375, rows);
     widget_set_prop_int(lv, "item_height", item_h);
     /* The theme's default list_view is a light card; stock pages paint theirs black inline. */

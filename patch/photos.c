@@ -20,7 +20,7 @@ typedef struct {
     int w, h;  /* the shown size; 0 when the file did not decode */
 } slot_t;
 static struct {
-    void *page, *albums, *grid, *view, *viewer, *slide, *info, *title;
+    void *page, *albums, *grid, *view, *viewer, *slide, *info;
     char root[32];
     char **album; /* album folder names, sorted */
     int nalbums;
@@ -249,10 +249,10 @@ static int to_grid(const void *unused) {
     widget_set_visible(ph.albums, 0, 0);
     widget_destroy_children(ph.grid);
     widget_set_visible(ph.grid, 1, 0);
-    ph.title = page_title(ph.grid, !n           ? "No photos"
-                                   : a >= 0     ? ph.album[a]
-                                   : ph.nalbums ? "All Photos"
-                                                : "Photos");
+    page_title(ph.grid, !n           ? "No photos"
+                        : a >= 0     ? ph.album[a]
+                        : ph.nalbums ? "All Photos"
+                                     : "Photos");
     /* A bare scroll view: a list_view would lay its children out as full-width rows. */
     int rows = (n + PH_COLS - 1) / PH_COLS;
     ph.view = scroll_view_create(ph.grid, 0, 48, 375, 240);
@@ -516,7 +516,7 @@ void photos_open(const char *root) {
         return;
     }
     ph.screen = ALBUMS;
-    void *view = page_list(page, ph.albums, &ph.title, "Photos", ph.nalbums + 1, 48);
+    void *view = page_list(page, ph.albums, 0, "Photos", ph.nalbums + 1, 48);
     page_row_detail(view, 0, "All Photos", 0, open_album);
     for (int k = 0; k < ph.nalbums; ++k) page_row_detail(view, k + 1, ph.album[k], 0, open_album);
 }

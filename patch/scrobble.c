@@ -16,9 +16,6 @@
 
 enum { LB_TOKEN, FM_USER, FM_PASS, FM_KEY, FM_SECRET, CONFIG_N };
 typedef struct {
-    char v[CONFIG_N][256];
-} config_t;
-typedef struct {
     char *p;
     unsigned n, cap; /* n == cap: overflowed */
 } buf_t;
@@ -38,26 +35,25 @@ static struct {
     unsigned lock[16]; /* a zeroed pthread mutex, 24 bytes on MIPS glibc */
     unsigned long thread;
     volatile int running, done, ok, sent;
-    config_t cfg;
-    reply_t reply;
+    char cfg[CONFIG_N][256];
 } up __attribute__((section(".scratch")));
 
 static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
 
 /* Bit 0 ListenBrainz, bit 1 Last.fm. toolsReadConfig leaves the value alone for a missing file. */
-static int read_config(config_t *c) {
+static int read_config(char c[][256]) {
     static const char *const keys[] = { "TOKEN", "USER", "PASSWORD", "API_KEY", "API_SECRET" };
     for (int i = 0; i < CONFIG_N; i++) {
-        c->v[i][0] = 0;
-        toolsReadConfig(INI_FILE, i ? "LASTFM" : "LISTENBRAINZ", keys[i], c->v[i], "");
+        c[i][0] = 0;
+        toolsReadConfig(INI_FILE, i ? "LASTFM" : "LISTENBRAINZ", keys[i], c[i], "");
     }
-    return (c->v[LB_TOKEN][0] != 0) |
-           (c->v[FM_USER][0] && c->v[FM_PASS][0] && c->v[FM_KEY][0] && c->v[FM_SECRET][0]) << 1;
+    return (c[LB_TOKEN][0] != 0) |
+           (c[FM_USER][0] && c[FM_PASS][0] && c[FM_KEY][0] && c[FM_SECRET][0]) << 1;
 }
 
 int scrobble_ready(void) {
-    config_t c;
-    return read_config(&c);
+    char c[CONFIG_N][256];
+    return read_config(c);
 }
 
 /* The UI thread's listen; the upload's rewrite holds the same lock. */
@@ -172,7 +168,7 @@ static int listenbrainz(const entry_t *e, int n, buf_t *b, reply_t *r) {
         put(b, "\",\"additional_info\":{\"submission_client\":\"Q2 Pod\"}}}", 0);
     }
     put(b, "]}", 0);
-    tk_snprintf(auth, sizeof auth, "Authorization: Token %s", up.cfg.v[LB_TOKEN]);
+    tk_snprintf(auth, sizeof auth, "Authorization: Token %s", up.cfg[LB_TOKEN]);
     return b->n < b->cap && post(LB_URL, b->p, auth, r) == 200;
 }
 
@@ -191,7 +187,7 @@ static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
     unsigned ctx[32];
     unsigned char d[16];
     char sig[33];
-    add(p, &n, "api_key", -1, up.cfg.v[FM_KEY]);
+    add(p, &n, "api_key", -1, up.cfg[FM_KEY]);
     qsort(p, (unsigned)n, sizeof *p, by_name);
     MD5_Init(ctx);
     b->n = 0;
@@ -203,7 +199,7 @@ static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
         put(b, p[i].value, 1);
         put(b, "&", 0);
     }
-    MD5_Update(ctx, up.cfg.v[FM_SECRET], strlen(up.cfg.v[FM_SECRET]));
+    MD5_Update(ctx, up.cfg[FM_SECRET], strlen(up.cfg[FM_SECRET]));
     MD5_Final(d, ctx);
     for (int i = 0; i < 16; i++) tk_snprintf(sig + 2 * i, 3, "%02x", d[i]);
     put(b, "api_sig=", 0);
@@ -217,8 +213,8 @@ static int session(char *sk, buf_t *b, reply_t *r) {
     param_t p[5];
     int n = 0;
     add(p, &n, "method", -1, "auth.getMobileSession");
-    add(p, &n, "username", -1, up.cfg.v[FM_USER]);
-    add(p, &n, "password", -1, up.cfg.v[FM_PASS]);
+    add(p, &n, "username", -1, up.cfg[FM_USER]);
+    add(p, &n, "password", -1, up.cfg[FM_PASS]);
     const char *k = lastfm(p, n, b, r) ? strstr(r->s, "\"key\":\"") : 0;
     unsigned i = 0;
     for (; k && k[7 + i] && k[7 + i] != '"' && i < 63; i++) sk[i] = k[7 + i];
@@ -265,11 +261,11 @@ static void retire(unsigned done) {
 
 static void *worker(void *unused) {
     (void)unused;
-    reply_t *r = &up.reply;
+    reply_t r;
     entry_t e[BATCH];
     char sk[64] = "";
     unsigned size, done = 0;
-    int lb = !!up.cfg.v[LB_TOKEN][0], fm = !!up.cfg.v[FM_USER][0], ok = 1, sent = 0;
+    int lb = !!up.cfg[LB_TOKEN][0], fm = !!up.cfg[FM_USER][0], ok = 1, sent = 0;
     pthread_mutex_lock(up.lock);
     char *log = read_all(LOG_FILE, &size);
     pthread_mutex_unlock(up.lock);
@@ -289,8 +285,8 @@ static void *worker(void *unused) {
             done = at;
             break;
         }
-        ok = (!fm || *sk || session(sk, &b, r)) && (!lb || listenbrainz(e, n, &b, r)) &&
-             (!fm || scrobble_lastfm(e, n, sk, &b, r));
+        ok = (!fm || *sk || session(sk, &b, &r)) && (!lb || listenbrainz(e, n, &b, &r)) &&
+             (!fm || scrobble_lastfm(e, n, sk, &b, &r));
         if (ok) done = at, sent += n;
     }
     if (done) retire(done);
@@ -305,9 +301,9 @@ static void *worker(void *unused) {
 /* 1 started, 0 already running, -1 no thread. */
 int scrobble_start(void) {
     if (up.running) return 0;
-    int on = read_config(&up.cfg);
+    int on = read_config(up.cfg);
     if (!on) return -1; /* nothing would take the batches, so none may leave the log */
-    if (!(on & 2)) up.cfg.v[FM_USER][0] = 0; /* an incomplete Last.fm is off */
+    if (!(on & 2)) up.cfg[FM_USER][0] = 0; /* an incomplete Last.fm is off */
     up.done = 0;
     if (pthread_create(&up.thread, 0, worker, 0)) return -1;
     up.running = 1;

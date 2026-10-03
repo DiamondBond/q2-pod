@@ -9,11 +9,8 @@ ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
 VERSION = '7.7'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
-# the stock firmware version and a Q2 Pod row with EDITIONS instead (ringnav_about).
+# the stock firmware version and a Q2 Pod row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
-# --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
-DEV_VERSIONS = {'stock': f'V{VERSION}s', 'ipod': f'V{VERSION}i'}
-EDITIONS = {'stock': 'Stock', 'ipod': 'iPod'}
 BASE = 0xb00000
 SCRATCH = 0xb20000
 RING_STEP = 48
@@ -392,7 +389,9 @@ def patch_watchdog(raw):
 
 def build(zip_path, out, logo, ipod=False, dev=False):
     variant = 'ipod' if ipod else 'stock'
-    version = (DEV_VERSIONS if dev else VERSIONS)[variant]
+    version = VERSIONS[variant]
+    # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
+    if dev: version = version[:-1] + version[-1].lower()
     out.mkdir(parents=True, exist_ok=True)
     check(not (out/'update.tar').exists(), 'Output already exists; use a fresh --out directory')
     source = source_sha256()
@@ -452,7 +451,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
     # About: the stock firmware's version on its own row, and this build's on the Q2 Pod row.
-    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {EDITIONS[variant]}{" dev" * dev}"']
+    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()

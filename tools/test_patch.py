@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
-from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, DEV_VERSIONS, VERSION, EDITIONS
+from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
@@ -14,8 +14,8 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
     if sha((B/name).read_bytes()) != manifest.get(key):
         raise SystemExit(f'{B/name} does not match manifest.json; rebuild into a fresh directory')
 variant = manifest.get('variant')
-expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
-assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
+v = VERSIONS.get(variant, '')
+assert v and manifest['version'] == (v[:-1] + v[-1].lower() if manifest.get('dev') else v), 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 from ipod import INC, O  # patch/offsets.inc and its integer #defines
 DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/ringnav.c').read_text(),re.M)[1])  # centre double-press window
@@ -4753,7 +4753,7 @@ item=kids[2]; button=m.nodes[item]['children'][0]; title,value=m.nodes[button]['
 # Stock's row, but a title 6px wider for "Q2 Pod Version" (167px of text in a 166px title).
 want=tree(m.nodes[rows[1]]['children'][0]); want[5][0][1][2]+=6
 assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==want
-assert m.nodes[title]['text']=='Q2 Pod Version' and m.nodes[value]['text']==f"V{VERSION} {EDITIONS[variant]}{' dev'*manifest['dev']}"
+assert m.nodes[title]['text']=='Q2 Pod Version' and m.nodes[value]['text']==f"V{VERSION} {'iPod' if variant=='ipod' else 'Stock'}{' dev'*manifest['dev']}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its

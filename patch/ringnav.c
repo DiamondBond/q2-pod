@@ -2525,8 +2525,8 @@ static int most_played(void *ctx, void *event) {
     deque_init(st.mp_list);
     for (int i = 0; i < top; i++) _deque_push_back(st.mp_list, deque_at(all, idx[i]));
     deque_destroy(all);
-    void *title, *view = page_list(st.mp_page, st.mp_page, &title,
-                                   top ? "Most Played" : "No plays yet", top, 64);
+    void *view =
+        page_list(st.mp_page, st.mp_page, 0, top ? "Most Played" : "No plays yet", top, 64);
     char name[512], detail[300];
     for (int i = 0; i < top; i++) { /* the artist, if tagged, and the play count, under the title */
         void *t = deque_at(st.mp_list, (unsigned)i);
