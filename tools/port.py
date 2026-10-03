@@ -10,7 +10,7 @@ Symbol-resolved entries (FUNCTIONS, GLOBALS, CONTEXT_DATA, the hooks) only need 
     python3 tools/port.py 'Q2 Firmware V1.32.zip' NEW.zip --out /tmp/port  # table, and rewritten sources in /tmp/port
     python3 tools/port.py 'Q2 Firmware V1.32.zip' --self-check  # V1.32 against itself: every address back
 """
-import argparse, collections, io, pathlib, re, struct, subprocess, tarfile, tempfile, zipfile
+import argparse, collections, functools, io, pathlib, re, struct, subprocess, tarfile, tempfile, zipfile
 from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
                    SHUFFLE_CALL, SORT_TRIMS, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
 import compact, peq
@@ -56,7 +56,6 @@ class Image:
             self.gp = int(pltgot[1], 16) + 0x7ff0  # MIPS: gp is the GOT start plus 0x7ff0
             self.syms = symbols(path)
         self.counts = {}
-        self._refs = None
 
     def off(self, a):
         if self.raw: return a
@@ -84,6 +83,11 @@ class Image:
         code = not self.raw and self.code(a)
         return start, [(w, self.mask(w, code)) for w in words]
 
+    def match(self, base, words):
+        """Whether the masked words match at file offset base."""
+        return base % 4 == 0 and base >= 0 and base + 4 * len(words) <= len(self.data) and all(
+            (x ^ v) & m == 0 for x, (v, m) in zip(struct.unpack_from(f'<{len(words)}I', self.data, base), words))
+
     def find(self, words):
         """File offsets where the masked words match, at most three."""
         full = [(i, w) for i, (w, m) in enumerate(words) if m == 0xffffffff]
@@ -93,31 +97,28 @@ class Image:
         i, w = min(full, key=lambda iw: self.counts[iw[1]])
         needle, out, p = struct.pack('<I', w), [], self.data.find(struct.pack('<I', w))
         while p >= 0 and len(out) < 3:
-            base = p - 4 * i
-            if p % 4 == 0 and base >= 0 and base + 4 * len(words) <= len(self.data) and all(
-                    (x ^ v) & m == 0 for x, (v, m) in zip(struct.unpack_from(f'<{len(words)}I', self.data, base), words)):
-                out.append(base)
+            if self.match(p - 4 * i, words): out.append(p - 4 * i)
             p = self.data.find(needle, p + 1)
         return out
 
+    @functools.cached_property
     def refs(self):
         """{address reached: [(GOT load address, use address)]}: a GOT page load, then the first
         addiu/load/store based on that register (or the GOT entry itself, use None)."""
-        if self._refs is None:
-            self._refs = collections.defaultdict(list)
-            lo, hi = self.text
-            words = struct.unpack_from(f'<{(hi - lo) // 4}I', self.data, self.off(lo))
-            got = lambda a: self.word(a) if self.off(a) is not None else None
-            for i, w in enumerate(words):
-                if w >> 26 != 0x23 or w >> 21 & 31 != 28: continue
-                rt, page = w >> 16 & 31, got(self.gp + simm(w))
-                if page is None: continue
-                self._refs[page].append((lo + 4 * i, None))
-                for j, u in enumerate(words[i + 1:i + 17], i + 1):
-                    if u >> 26 in MEMORY and u >> 21 & 31 == rt:
-                        self._refs[page + simm(u)].append((lo + 4 * i, lo + 4 * j))
-                        break
-        return self._refs
+        refs = collections.defaultdict(list)
+        lo, hi = self.text
+        words = struct.unpack_from(f'<{(hi - lo) // 4}I', self.data, self.off(lo))
+        got = lambda a: self.word(a) if self.off(a) is not None else None
+        for i, w in enumerate(words):
+            if w >> 26 != 0x23 or w >> 21 & 31 != 28: continue
+            rt, page = w >> 16 & 31, got(self.gp + simm(w))
+            if page is None: continue
+            refs[page].append((lo + 4 * i, None))
+            for j, u in enumerate(words[i + 1:i + 17], i + 1):
+                if u >> 26 in MEMORY and u >> 21 & 31 == rt:
+                    refs[page + simm(u)].append((lo + 4 * i, lo + 4 * j))
+                    break
+        return refs
 
 
 def simm(w): return (w & 0xffff) - ((w & 0x8000) << 1)
@@ -143,7 +144,7 @@ def by_signature(old, new, a):
 
 def by_reference(old, new, a):
     """A bss or pointer-only data address: through the nearest code reference at or below it."""
-    refs = old.refs()
+    refs = old.refs
     near = sorted((a - r, r) for r in refs if 0 <= a - r < 256)
     status = 'missing'
     for delta, r in near[:4]:
@@ -170,10 +171,7 @@ def by_string(old, new, a):
         if at < 0 or new.data.count(b'\0'+s+b'\0') != 1: continue
         needle, hits, p = struct.pack('<I', new.addr(at + 1)), [], -1
         while (p := new.data.find(needle, p + 1)) >= 0:
-            base = p - 4 * i
-            if p % 4 == 0 and base >= 0 and all((x ^ v) & m == 0 for x, (v, m) in
-                                                zip(struct.unpack_from(f'<{len(words)}I', new.data, base), words)):
-                hits.append(base)
+            if new.match(p - 4 * i, words): hits.append(p - 4 * i)
         if len(hits) == 1: return new.addr(hits[0] + old.off(a) - start), f'found via "{s.decode()}"'
     return None, 'missing'
 

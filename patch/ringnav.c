@@ -107,7 +107,6 @@ typedef struct {
     unsigned plays_read, ls_key;
     int ls_sec, ls_heard, ls_done;
     void *mp_page, *mp_list; /* Most Played's page and its ranked tracks */
-    unsigned mp_timer;
     int dark; /* the backlight was off at the last UI loop pass */
 #if IPOD
     void *pull_page, *pull_surface;
@@ -2596,24 +2595,16 @@ static int mp_play(void *ctx, void *event) {
     return 0;
 }
 
-static int mp_leave(const void *unused) {
-    (void)unused;
-    st.mp_timer = 0;
-    navigator_back();
-    return 0;
-}
-
 static int mp_keyup(void *ctx, void *event) {
     (void)ctx;
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
-    rearm(&st.mp_timer, mp_leave, 0);
+    navigator_back();
     return STOP;
 }
 
 static int mp_closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    stop_timer(&st.mp_timer);
     if (st.mp_list) deque_destroy(st.mp_list);
     st.mp_page = st.mp_list = (void *)0;
     return 0;
