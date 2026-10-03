@@ -37,7 +37,7 @@
 <tr>
 <td width="50%" valign="top">
 
-**🎡 Feels like an iPod**
+**Feels like an iPod**
 
 - iPod classic lists, Home and Now Playing
 - Wheel with acceleration and position memory
@@ -47,7 +47,7 @@
 </td>
 <td width="50%" valign="top">
 
-**🎵 Music**
+**Music**
 
 - Hold Play/Pause: Favourites, Add to playlist, Shuffle, Go to album/artist
 - Shuffle Songs and Most Played (your top 25)
@@ -59,7 +59,7 @@
 <tr>
 <td valign="top">
 
-**📺 Beyond music**
+**Beyond music**
 
 - Videos, Photos and Books (`.txt`, `.epub`)
 - Podcasts and Audiobooks that resume where you left off
@@ -68,7 +68,7 @@
 </td>
 <td valign="top">
 
-**📈 Scrobbling**
+**Scrobbling**
 
 - Every listen logged to `.scrobbler.log`
 - Upload to Last.fm or ListenBrainz over Wi-Fi
@@ -78,7 +78,7 @@
 <tr>
 <td colspan="2" valign="top">
 
-**🔧 Fixed under the hood**: no choppy AirPods audio (AAC) · clock survives power-off · less battery drain with the screen off · faster library browsing · long VBR MP3s start at once and seek accurately
+**Fixed under the hood**: no choppy AirPods audio (AAC) · clock survives power-off · less battery drain with the screen off · faster library browsing · long VBR MP3s start at once and seek accurately
 
 </td>
 </tr>
