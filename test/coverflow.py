@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Run patch/coverflow.c's art cache on the host: the library query, the modal art build on a real
-pthread, the stock art calls and their locks. Built 32-bit (-m32, like test_peq.py's player) so the
+pthread, the stock art calls and their locks. Built 32-bit (-m32, like test/peq.py's player) so the
 stSongInfo pointer offsets hold. The stock calls are stubbed; UI widgets are plain records."""
 import pathlib
 import subprocess
 import tempfile
+import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import FUNCTIONS
 from peq import LIBC
 
@@ -216,7 +217,7 @@ static void rescan(void) { coverflow_scan_all(0, 0); } /* the library changed, a
 static int (*timer_fn)(const void *);
 unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return 1; }
 int timer_remove(unsigned id) { (void)id; timer_fn = 0; return 0; }
-void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; } /* ringnav.c's */
+void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; } /* navigation.c's */
 void rearm(unsigned *t, int (*f)(const void *), unsigned ms) { stop_timer(t); *t = timer_add(f, 0, ms); }
 static void run(void) { while (timer_fn) { int (*f)(const void *) = timer_fn; timer_fn = 0; usleep(1000); f(0); } }
 
@@ -682,7 +683,7 @@ int main(void) {
        and a list queried while one runs is not kept. */
     q = queries;
     open_page(); assert(queries == q && slide()); close_page();
-    rescan(); /* each writer's hook is checked on the MIPS build (test_patch.py) */
+    rescan(); /* each writer's hook is checked on the MIPS build (test/patch.py) */
     open_page(); assert(queries == ++q && slide()); close_page();
     open_page(); assert(queries == q); close_page();
     during_write = mid_write; rescan(); during_write = 0;

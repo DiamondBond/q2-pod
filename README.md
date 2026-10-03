@@ -217,7 +217,7 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 | [Internals](docs/internals.md) | Hooks, selection, position memory, timing, drawing |
 | [Building](docs/building.md)   | Building both variants and the MIPS test suite     |
 | [Releasing](docs/releasing.md) | Packaging, verifying and publishing                |
-| [Boot logo](docs/boot-logo.md) | Replacing the power-on splash                      |
+| [Boot](docs/boot.md)           | Boot sequence, framebuffer and the power-on splash |
 
 ## Contributing
 

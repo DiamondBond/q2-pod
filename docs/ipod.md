@@ -234,7 +234,7 @@ owns the geometry:
   layout leaves it alone.
 
 With these values the text, icons and trailing images of the first and the last visible row clear
-the rounded glass (`tools/test_patch.py` runs the Language, Bluetooth quality, System Settings and
+the rounded glass (`test/patch.py` runs the Language, Bluetooth quality, System Settings and
 Wi-Fi builders and the Display rows, then checks both positions).
 
 ### Settings icons
@@ -248,7 +248,7 @@ iPod build runs ImageMagick (`magick`, else `convert`) with an alpha-weighted La
 40x40, strips metadata and date chunks so the bytes are reproducible, and replaces the file in
 place, keeping its inode metadata. The build fails if an input's hash or format differs, or if an
 output is not 40-pixel 8-bit RGBA with the same transparency; the manifest records both hashes
-and the ImageMagick version under `changed_assets` and `tools`. `tools/test_build.py` checks the
+and the ImageMagick version under `changed_assets` and `tools`. `test/build.py` checks the
 packaged bytes, the sizes, and that each icon's average colour on black and on the Graphite
 selection grey matches the stock icon's. Other 52-pixel images that land in settings rows, such as
 Streaming's Tidal logo (`list_tidal`, which the folder root may also use), keep their stock bytes
@@ -303,11 +303,11 @@ ending at 353, the bar 21 and the times 46 pixels from the edges. The runtime la
 (`SET_*`, `CF_*`, `CLOCK_EDGE`, `HOME_FULL_ROW` in `patch/offsets.inc`) are checked against the
 same calibration by the tests.
 
-`tools/test_build.py` fails an iPod build when any fixed text or icon in a changed asset reaches
+`test/build.py` fails an iPod build when any fixed text or icon in a changed asset reaches
 under the glass (screen coordinates: the bar at y 0 to 30, windows at 30 to 320, the quick settings
 and confirm pop-ups at 0 to 320): a label's font-high band, an image drawn centred at its size, a
 slider's bar, else the widget. Backgrounds, tap targets and list rows, which scroll, are not
-checked there; `tools/test_patch.py` checks the settings rows in the first and last visible slots,
+checked there; `test/patch.py` checks the settings rows in the first and last visible slots,
 Coverflow's labels and lowest track row, and the status bar clock against every combination of
 icons. Raising `CORNER_R` until the clock drops
 under `CLOCK_MIN` fails the build.

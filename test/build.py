@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging and reproducibility too."""
+import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import CAROUSEL, ICONS, ROOT, STOCK_EQ, jpeg_size
 
-logo = (ROOT/'assets/logo.jpg').read_bytes()
+logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
 # JPEG permits extra FF fill bytes before a marker.
 assert jpeg_size(logo[:2] + b'\xff' + logo[2:]) == (320, 375)
@@ -281,7 +282,7 @@ def validate_assets(directory):
             assert fonts[('hscroll_label', title[2]['style'])] == 20
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
-            # The Battery setting's percentage and payload battery start hidden (ringnav.c bar_sync).
+            # The Battery setting's percentage and payload battery start hidden (navigation.c bar_sync).
             pct, slot = right[3][2:4]
             assert pct[1][2] == inc('BATT_PCT_W') and pct[2]['visible'] == 'false' and pct[2]['style:normal:text_align_h'] == 'right' and pct[2]['style:normal:font_size'] == str(inc('BATT_PCT_PX'))
             assert slot == ['view', [0, 0, inc('BATT_BODY_W') + inc('BATT_NUB_W'), 0], {'name': 'view_battery', 'visible': 'false'}, []]
@@ -383,7 +384,7 @@ if __name__ == '__main__':
               a=root/"build ' a"; b=root/'build b'
               with patch('build.run',side_effect=change_source):
                   build(args.zip,a,custom,ipod)
-              build(args.zip,b,ROOT/'assets/logo.jpg',ipod)
+              build(args.zip,b,ROOT/'assets/boot-logo.jpg',ipod)
               validate_assets(a)
               assert (a/'update.tar').read_bytes()==(b/'update.tar').read_bytes()
               manifest=json.loads((a/'manifest.json').read_text())

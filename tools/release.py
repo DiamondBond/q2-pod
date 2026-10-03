@@ -57,9 +57,9 @@ def validate(directory, variant):
                                   ['kernel_sha256', 'rootfs_sha256']):
             data = t.extractfile(name).read()
             check(line.split() == [hashlib.md5(data).hexdigest(), name] and sha(data) == m[key], 'Update payload mismatch')
-    subprocess.run([sys.executable, str(ROOT/'tools/test_peq.py')], check=True)
-    subprocess.run([sys.executable, str(ROOT/'tools/test_build.py'), '--build', str(directory)], check=True)
-    subprocess.run([sys.executable, str(ROOT/'tools/test_patch.py'), str(directory)], check=True)
+    subprocess.run([sys.executable, str(ROOT/'test/peq.py')], check=True)
+    subprocess.run([sys.executable, str(ROOT/'test/build.py'), '--build', str(directory)], check=True)
+    subprocess.run([sys.executable, str(ROOT/'test/patch.py'), str(directory)], check=True)
 
 
 def archive_bytes(directory):
@@ -83,7 +83,7 @@ def package(stock, out):
     checksums = {}
     for variant, asset in ASSETS.items():
         for suffix in ('', '-repeat'):
-            build(stock, out/(variant+suffix), ROOT/'assets/logo.jpg', ipod=variant == 'ipod')
+            build(stock, out/(variant+suffix), ROOT/'assets/boot-logo.jpg', ipod=variant == 'ipod')
         # The byte comparisons below prove the repeat build; validate the first only.
         validate(out/variant, variant)
         a, b = out/variant, out/(variant+'-repeat')

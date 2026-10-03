@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import tempfile
 from unittest.mock import patch
+import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 import release
 
 with tempfile.TemporaryDirectory() as tmp:

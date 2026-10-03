@@ -495,7 +495,7 @@ void photos_paint(void *w, void *canvas) {
     }
 }
 
-/* Local Music's Photos row (ringnav.c media_click): the albums, or the grid when there are none. */
+/* Local Music's Photos row (navigation.c media_click): the albums, or the grid when there are none. */
 void photos_open(const char *root) {
     if (ph.page) return;
     void *page = ph.page = page_open("photos_page", closed, keyup);

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reproducibly patch only the audited Q2 V1.32 ZIP. Requires LLVM and squashfs-tools, and ImageMagick for --ipod.
 
---logo swaps the boot splash JPEG (320x375); it defaults to assets/logo.jpg.
+--logo swaps the boot splash JPEG (320x375); it defaults to assets/boot-logo.jpg.
 """
 import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarfile, zipfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -52,7 +52,7 @@ IPOD_LEAF = ('style_get_gradient', 0x649f3c, 'ringnav_style_gradient', (0x108000
 # Videos: window_manager_paint is a leaf too (null-checks the manager and its vtable at +0x94, then
 # tail-calls paint, +0xc); the payload does the whole of it and skips it while q2video plays.
 WM_PAINT_LEAF = ('window_manager_paint', 0x66d46c, 'ringnav_wm_paint', (0x10800009, 0, 0x8c820094))
-# Videos' player (patch/q2video.c): a separate executable against the rootfs's own libraries,
+# Videos' player (patch/video.c): a separate executable against the rootfs's own libraries,
 # with display_logo's inode metadata.
 HELPER, HELPER_LIKE = 'usr/bin/q2video', 'usr/bin/display_logo'
 HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.so.2.0.0']
@@ -85,7 +85,7 @@ def source_sha256():
     """Hash every build input, so a test run cannot silently use a stale output directory."""
     h = hashlib.sha256()
     tools = [ROOT/'tools'/f for f in ('build.py', 'ipod.py', 'peq.py', 'release.py')]
-    for path in sorted([*ROOT.glob('assets/*'), *ROOT.glob('patch/*'), *tools]):
+    for path in sorted([*(p for p in ROOT.glob('assets/**/*') if p.is_file()), *ROOT.glob('patch/*'), *tools]):
         h.update(str(path.relative_to(ROOT)).encode() + b'\0')
         h.update(path.read_bytes())
     return h.hexdigest()
@@ -229,7 +229,7 @@ FUNCTIONS = {
  'getMusicByAlbumAndSonger': ('int', 'const char *, const char *, int'),
  'getMusicByAlbumAndAlbumSonger': ('int', 'const char *, const char *, int'),
  'toolsLoadDirectory': ('int', 'const char *'),
- # Queue menu rows (ringnav.c): artist/composer/genre queries, My Fav, the batch selection record
+ # Queue menu rows (navigation.c): artist/composer/genre queries, My Fav, the batch selection record
  'getMusicBySonger': ('int', 'const char *'),
  'getMusicByAlbumArtist': ('int', 'const char *'),
  'getMusicByComposer': ('int', 'const char *'),
@@ -245,7 +245,7 @@ FUNCTIONS = {
  'mclLoadPlayList': ('int', 'void *, int, int'),
  'mcl_shuffle_pick': ('int', 'int'),
  'getAllAlbum': ('int', 'void'),
- # Shuffle Songs (ringnav.c): every song, shuffle saved as the play-mode setting does, a random start
+ # Shuffle Songs (navigation.c): every song, shuffle saved as the play-mode setting does, a random start
  'getAllMusic': ('int', 'int'),
  'config_playmode': ('int', 'int, int'),
  'toolsRandnum': ('int', 'int'),
@@ -288,7 +288,7 @@ FUNCTIONS = {
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
  'on_wm_keyup_fun': ('int', 'void *, void *'),  # stock key-up: np_single replays a centre release
  'get_wifisignal': ('int', 'void'),  # the status bar's Wi-Fi bars, 1-4; -1 when not connected
- # Podcasts and Audiobooks (ringnav.c): folder_page's reload of g_folder_path, title and list rebuild
+ # Podcasts and Audiobooks (navigation.c): folder_page's reload of g_folder_path, title and list rebuild
  'folder_reload_data': ('int', 'void'),
  'folder_reinit_navbarname': ('int', 'void'),
  'folder_refresh': ('int', 'void *'),
@@ -344,27 +344,27 @@ def hooks(ipod): return HOOKS | IPOD_HOOKS if ipod else HOOKS
 def compile_payload(out, ipod=False):
     """Compile and link the payload."""
     from peq import compile_common
-    extra = compile_common(out, out/'stock-demo', ipod=ipod)  # also writes the libc/libcstl imports ringnav.c uses
-    run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/ringnav.c','-o',out/'ringnav.o')
+    extra = compile_common(out, out/'stock-demo', ipod=ipod)  # also writes the libc/libcstl imports navigation.c uses
+    run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/navigation.c','-o',out/'navigation.o')
     run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}',
-        out/'ringnav.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
+        out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
 
 def compile_helper(out, cat):
-    """Link patch/q2video.c against the stock rootfs's glibc, libpthread and alsa-lib."""
+    """Link patch/video.c against the stock rootfs's glibc, libpthread and alsa-lib."""
     libs = []
     for rel in HELPER_LIBS:
         libs.append(out/rel.rsplit('/', 1)[-1])
         libs[-1].write_bytes(cat(rel))
     run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008', '-mabicalls',
-        '-c', ROOT/'patch/q2video.c', '-o', out/'q2video.o')
+        '-c', ROOT/'patch/video.c', '-o', out/'video.o')
     run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
         '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',
-        out/'q2video.o', *libs, '-o', out/'q2video')
+        out/'video.o', *libs, '-o', out/'q2video')
     return (out/'q2video').read_bytes()
 
 def append_payload(image, payload, base, memsz, flags, label):
@@ -447,7 +447,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         check(re.search(rf'\b{size}\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: context data size mismatch')
         header.append(f'#define {name} ((const unsigned char *)0x{syms[name]:x}u)')
-    # iPod's image hook leaves the settings icons' category colours alone (ringnav.c settings_icon).
+    # iPod's image hook leaves the settings icons' category colours alone (navigation.c settings_icon).
     names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
     # About: the stock firmware's version on its own row, and this build's on the Q2 Pod row.
@@ -542,12 +542,12 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # the Local Music rows' icons, drawn in assets/ (stock's 52px style) or else a copy of the stock image named
+    # the Local Music rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
     # (not the copies iPod pre-sizes for Settings), and q2video.
     xx = 'release/assets/default/raw/images/xx/'
-    icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets'/n).read_bytes()) for n in ICONS}
+    icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets/icons'/n).read_bytes()) for n in ICONS}
     drawn = ('podcasts', 'audiobooks', 'books', 'videos')
-    icons.update({f'local_{n}.png': (like, (ROOT/'assets'/f'local_{n}.png').read_bytes() if n in drawn
+    icons.update({f'local_{n}.png': (like, (ROOT/'assets/icons'/f'local_{n}.png').read_bytes() if n in drawn
                                      else cat(xx+like)) for n, like in dict(
         shuffle='playset_playmode.png', scrobble='wifiset_wifi.png', podcasts='netservice_dlna.png',
         audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
@@ -625,8 +625,8 @@ if __name__ == '__main__':
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('zip',type=pathlib.Path)
     ap.add_argument('--out',type=pathlib.Path,default=ROOT/'build')
-    ap.add_argument('--logo',type=pathlib.Path,default=ROOT/'assets/logo.jpg',
-                    help='320x375 JPEG boot splash (default: assets/logo.jpg)')
+    ap.add_argument('--logo',type=pathlib.Path,default=ROOT/'assets/boot-logo.jpg',
+                    help='320x375 JPEG boot splash (default: assets/boot-logo.jpg)')
     ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
                     help=f'development build: lowercase version tag (V{VERSION}s/i); never a release input')

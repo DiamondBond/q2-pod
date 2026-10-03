@@ -6,6 +6,7 @@ import math
 import pathlib
 import subprocess
 import tempfile
+import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import FUNCTIONS
 from peq import LIBC
 
@@ -993,8 +994,8 @@ def books_check(tmp):
     print('Books: inflate, XHTML text, EPUB conversion and refusals, UTF-8 and page layout passed.')
 
 def video_check(tmp):
-    """Videos' player (q2video.c): ffmpeg's argv for the Q2's framebuffer, frame pacing and BT volume."""
-    lib = compile_host(tmp, 'q2video.so', ROOT/'patch/q2video.c')
+    """Videos' player (video.c): ffmpeg's argv for the Q2's framebuffer, frame pacing and BT volume."""
+    lib = compile_host(tmp, 'q2video.so', ROOT/'patch/video.c')
     def argv(at, audio):
         a, ss = (C.c_char_p * 27)(), C.create_string_buffer(16)
         lib.ffmpeg_argv(a, ss, at, b'/mnt/mmc/Videos/a b.mp4', audio)

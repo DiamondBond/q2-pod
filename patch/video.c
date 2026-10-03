@@ -25,7 +25,7 @@
 #define DAC_PCM 0xc0044d1bu  /* hciplayer sets it to 0 for each PCM track: undoes a DSD one */
 #define DAC_MUTE 0xc0044d1fu /* hciplayer sets it on pause and close, clears it on start */
 
-#ifdef PEQ_HOST /* tools/test_peq.py */
+#ifdef PEQ_HOST /* test/peq.py */
 #include <stdio.h>
 #include <string.h>
 #else

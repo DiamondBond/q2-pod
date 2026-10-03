@@ -204,7 +204,7 @@ def home_card(root):
     image[2]['name'] = 'img_coverflow'
     label[2]['name'] = 'label_coverflow'
     label[2]['text'] = 'Coverflow'
-    for key, value in image[2].items():  # assets/menu_coverflow*.png, added to the rootfs by build.py
+    for key, value in image[2].items():  # assets/icons/menu_coverflow*.png, added to the rootfs by build.py
         if key.endswith(':bg_image'): image[2][key] = value.replace('menu_music', 'menu_coverflow')
     menu[0][3].insert(2, card)
     menu[0][3][1][3][1][2].update(LIBRARY)
@@ -286,7 +286,7 @@ STATUS_BAR = 'system_bar.bin'
 STATUS_LEFT = ['img_state', 'label_eq']
 STATUS_RIGHT = ['img_bt', 'img_wifi', 'label_battery', 'view_battery', 'img_battery']
 STATUS_HIDDEN = ['img_vol', 'label_vol', 'img_synclink']
-# The Battery setting (ringnav.c bar_sync) shows one of the last three: the stock icon, stock's
+# The Battery setting (navigation.c bar_sync) shows one of the last three: the stock icon, stock's
 # "88%" (label_battery at BATT_PCT_PX, the icons' height, and right-aligned so its width grows away
 # from the corner; "100%" is BATT_PCT_W) or the payload's horizontal battery with the number inside (view_battery). The layout
 # skips hidden children. The Bluetooth images are 42px canvases whose ink ends at column 41: BT_REACH
@@ -467,7 +467,7 @@ def quick_settings(root):
 
 # iPod only. The confirm pair (img_cancel, img_enter; 80px tiles around 60px discs) sits symmetrically,
 # each centred in its half of the screen. The discs themselves are recoloured dark with legible
-# glyphs for every accent by ringnav_image_add (patch/ringnav.c).
+# glyphs for every accent by ringnav_image_add (patch/navigation.c).
 CONFIRM = 'dialog/confirminfo_dialog.bin'
 CONFIRM_TILE = 80
 
@@ -481,7 +481,7 @@ def confirm_dialog(root):
 
 # iPod only. The volume dialog loses its highlight="default(alpha=200)", so the window manager
 # creates no highlighter and nothing under it dims; the payload draws the volume into the dialog
-# (ringnav.c vol_paint): a band on Now Playing, a panel elsewhere.
+# (navigation.c vol_paint): a band on Now Playing, a panel elsewhere.
 VOLUME = 'dialog/volume_dialog.bin'
 
 
@@ -492,7 +492,7 @@ def volume_dialog(root):
 
 
 # iPod only. Settings and Streaming lose their navbar, as on the local pages, and their lists hold
-# SET_ROWS complete SET_ROW rows from SET_TOP; ipod_list_layout (patch/ringnav.c) lays the native
+# SET_ROWS complete SET_ROW rows from SET_TOP; ipod_list_layout (patch/navigation.c) lays the native
 # rows out to match. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
 NAVBAR_ONLY = AUDIT['navbar_only']
 SET_ROW, SET_TOP, SET_ROWS, SET_STOCK_ROW = (inc(n) for n in ('SET_ROW', 'SET_TOP', 'SET_ROWS', 'SET_STOCK_ROW'))

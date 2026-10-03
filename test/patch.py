@@ -5,6 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
+import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
@@ -18,7 +19,7 @@ v = VERSIONS.get(variant, '')
 assert v and manifest['version'] == (v[:-1] + v[-1].lower() if manifest.get('dev') else v), 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 from ipod import INC, O  # patch/offsets.inc and its integer #defines
-DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/ringnav.c').read_text(),re.M)[1])  # centre double-press window
+DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/navigation.c').read_text(),re.M)[1])  # centre double-press window
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
@@ -1618,7 +1619,7 @@ passed()
 
 # Sustained ticks ramp one row per 100ms of same-direction spin up to eight rows, then hold;
 # pauses, spacing past the 140ms window and reversal reset. Byte-exact boundaries, wrapped clock.
-# iPod's row lists ramp gently (ringnav.c LIST_FIRST_MS, LIST_RAMP_MS): one row until 300ms of
+# iPod's row lists ramp gently (navigation.c LIST_FIRST_MS, LIST_RAMP_MS): one row until 300ms of
 # spin, two from there and one more per further 200ms, eight from 1500ms. IPOD_SPIN is (gap since
 # the last tick, rows per step then); every gap is inside the 140ms window, so the run is one.
 IPOD_SPIN=((0,1),(100,1),(100,1),(99,1),(1,2),(100,2),(99,2),(1,3),(100,3),(99,3),(1,4),(100,4),(99,4),
@@ -2754,7 +2755,7 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
     passed()
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
-# the tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
+# the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
 from ipod import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
 cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
 if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
@@ -2800,7 +2801,7 @@ m=Machine(); w,es=m.page_list(3); m.paint(w); m.touch(); m.paint(w,gap=0); asser
 assert m.call(O['KEY_RETURN'])==0; m.advance(0); m.paint(w,gap=0); assert m.drawn(); passed()
 
 if variant=='ipod':
-    # Page slides (ringnav.c slides()): the page under a sliding top window draws the row it holds; no load, recall or scroll.
+    # Page slides (navigation.c slides()): the page under a sliding top window draws the row it holds; no load, recall or scroll.
     HINT='htranslate'  # any non-empty anim_hint
     def under_slide(hint=HINT):
         m=Machine(); w,es=m.page_list(3); m.paint(w); assert m.call()==11 and m.selected(w)==1
@@ -3451,7 +3452,7 @@ else:
 passed()
 
 # Coverflow depth (docs/internals.md#coverflow-depth): the payload's renderer, run as MIPS, draws
-# byte for byte what the host build of the same source draws (tools/test_coverflow.py checks that
+# byte for byte what the host build of the same source draws (test/coverflow.py checks that
 # one's geometry); on the page it spans the frame, draws through the stock canvas and hit-tests taps.
 BIG=0x2000000
 def cover_pixels(seed):
@@ -3495,7 +3496,7 @@ class DepthMachine(CoverflowMachine):
 def host_render(textures,cases):
     """The same renderer source built for the host: frames for (frac, mask of drawn slots) cases."""
     import subprocess, tempfile
-    from test_coverflow import SHIM_H
+    from coverflow import SHIM_H
     main=r"""#include <stdio.h>
 void coverflow_render(unsigned *, int, int, const unsigned *const[7]);
 static unsigned tex[7][160 * 160], frame[%d * %d];
@@ -3981,7 +3982,7 @@ def debounced(m):
     """Stock's wheel lockout after a button runs out: on_wm_timer_setup_state counts it down."""
     for _ in range(8): assert m.call(address=syms['on_wm_timer_setup_state'],args=(0,0,0,0),gap=0,debounce=True)==8
     assert m.u.mem_read(KEY_LATCH,1)==b'\0'
-LO,HI=80,140  # ringnav.c OVERSHOOT_MIN_MS, OVERSHOOT_MAX_MS
+LO,HI=80,140  # navigation.c OVERSHOOT_MIN_MS, OVERSHOOT_MAX_MS
 PLAY_STATUS,OUTPUT_WAY=0xa3beac,0xa3beb0  # mclGetPlayStatus, mclGetOutputWay: their stock leaves read these
 def routed(m,status=3,way=0,po=0,bal=0):
     """Key Tone's routing (ringnav_buzzer): the stock leaves run on these play status, output way and jacks."""

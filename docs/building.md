@@ -1,6 +1,14 @@
 # Build and validation
 
-Rebuilt firmware uses `assets/logo.jpg` as the boot splash by default. Pass another 320x375 JPEG with `--logo` to use your own; see [boot-logo.md](boot-logo.md).
+| Path      | Holds                                                                        |
+| --------- | ---------------------------------------------------------------------------- |
+| `patch/`  | The firmware payload (C, MIPS assembly, linker script) and the iPod UI audit |
+| `tools/`  | Build, port and release scripts                                              |
+| `test/`   | Host and MIPS emulator tests, each runnable as `python3 test/test_*.py`      |
+| `assets/` | Boot splash, added icons (`icons/`) and the README banner                    |
+| `docs/`   | Documentation                                                                |
+
+Rebuilt firmware uses `assets/boot-logo.jpg` as the boot splash by default. Pass another 320x375 JPEG with `--logo` to use your own; see [boot.md](boot.md).
 
 Requires clang/lld/llvm-objcopy, squashfs-tools 4.6 or later (tested 4.6.1 and 4.7.5), ImageMagick 6 or 7 for the iPod UI's settings icons (`convert` or `magick`; tested 6.9.12), the test harness dependencies in `requirements.txt`, and the original ZIP:
 
@@ -14,12 +22,12 @@ SHA-256 of the stock Shanling Q2 V1.32 firmware ZIP.
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-build
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-ipod --ipod
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-dev --ipod --dev  # iPod test build
-python3 tools/test_peq.py  # PEQ parser/storage, DSP, editor and player checks, and the scrobble upload (host cc; player needs -m32 libs, upload libcrypto)
-python3 tools/test_coverflow.py  # Coverflow art cache and depth renderer (host cc -m32, pthreads)
-python3 tools/test_coverflow.py --captures /tmp/cf  # the same, plus the renderer's frames as PNGs
-python3 tools/test_build.py  # JPEG header checks; no emulator required
-python3 tools/test_build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reproducibility checks
-python3 tools/test_patch.py /tmp/q2-build  # after: pip install -r requirements.txt
+python3 test/peq.py  # PEQ parser/storage, DSP, editor and player checks, and the scrobble upload (host cc; player needs -m32 libs, upload libcrypto)
+python3 test/coverflow.py  # Coverflow art cache and depth renderer (host cc -m32, pthreads)
+python3 test/coverflow.py --captures /tmp/cf  # the same, plus the renderer's frames as PNGs
+python3 test/build.py  # JPEG header checks; no emulator required
+python3 test/build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reproducibility checks
+python3 test/patch.py /tmp/q2-build  # after: pip install -r requirements.txt
 python3 tools/port.py 'Q2 Firmware V1.32.zip' --self-check  # every raw stock address has a signature (internals.md#porting)
 ```
 
@@ -29,7 +37,7 @@ The updater compares `firmware_v20.info`'s version with demo's one version liter
 
 `--dev` tags a build with the release tag in lowercase (`V<version>s`/`V<version>i`, and `dev` after the Q2 Pod row's edition), so a test unit is distinguishable from the release and the updater installs the release over it. It applies to that build only: the release procedure never passes `--dev`, and the manifest records `dev: true`.
 
-The suite executes the actual patched MIPS payload and stock key/touch filters. Coverflow's depth renderer also runs as MIPS and must draw byte for byte what the host build of the same source draws; the suite prints its instruction count per frame, which is a relative measure only, not a frame time. UI services are mocked; carousel checks execute native animator parameter writes and stock completion, with a deterministic animation scheduler, and audit the stock creation path. Separate scenarios execute the stock canvas clip/color/rectangle code and the stock rounded fill/stroke entry points down to mocked LCD and vgcanvas sinks. The iPod wheel scenarios deliver each tick as the pair stock posts, key-down-before through the hook and the stock callback and then key-up-before, leave the stock latches as stock does, and count Key Tone clicks as the `system()` commands the real `buzzeer_switch` issues, the one mocked boundary; the stock binary runs the same presses for comparison. Case coverage lives in `tools/test_patch.py`.
+The suite executes the actual patched MIPS payload and stock key/touch filters. Coverflow's depth renderer also runs as MIPS and must draw byte for byte what the host build of the same source draws; the suite prints its instruction count per frame, which is a relative measure only, not a frame time. UI services are mocked; carousel checks execute native animator parameter writes and stock completion, with a deterministic animation scheduler, and audit the stock creation path. Separate scenarios execute the stock canvas clip/color/rectangle code and the stock rounded fill/stroke entry points down to mocked LCD and vgcanvas sinks. The iPod wheel scenarios deliver each tick as the pair stock posts, key-down-before through the hook and the stock callback and then key-up-before, leave the stock latches as stock does, and count Key Tone clicks as the `system()` commands the real `buzzeer_switch` issues, the one mocked boundary; the stock binary runs the same presses for comparison. Case coverage lives in `test/patch.py`.
 
 The CPU-LCD fill path runs end to end down to mocked LCD sinks, including radius clamping, the `radius <= 2` decline and allocation balance. The stock rounded vgcanvas branch could not be executed end to end under Unicorn 2.1.4: the stock binary is built `-mfp64` and Unicorn's MIPS32 FPU only implements `FR=0`, so its 64-bit conversions trap. The test harness runs the branch up to the first such instruction and asserts the vgcanvas color and line-width calls that precede it.
 

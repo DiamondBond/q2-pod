@@ -1,4 +1,4 @@
-/* Stock V1.32 layout and ABI constants shared by patch/ringnav.c and tools/test_patch.py.
+/* Stock V1.32 layout and ABI constants shared by patch/navigation.c and test/patch.py.
  * The test harness parses this file, so a field change cannot leave the mocks behind.
  * Fields marked "same slot" are class-specific views of one offset.
  * ponytail: tools/port.py finds only the raw addresses here (its OFFSETS); field offsets and ABI
@@ -130,7 +130,7 @@
 #define VOL_PANEL_PX 20 /* the panel's number */
 #define VOL_PANEL_TRACK 0x5a5a5a
 /* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
- * the top corners (test_build.py). */
+ * the top corners (test/build.py). */
 #define CLOCK_EDGE 57
 /* iPod status bar battery (docs/ipod.md#status-bar-and-clock, tools/ipod.py status_bar): stock's
  * percentage label BATT_PCT_W wide ("100%" at BATT_PCT_PX), or the payload's battery: a BATT_BODY_W x BATT_BODY_H
@@ -168,8 +168,8 @@
  * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a
  * 50px trailing image (chevron, tick or switch); items made SET_STOCK_ROW high are normalised to
  * SET_ROW. The icon shrinks to SET_ICON at SET_ICON_X, the text starts SET_GAP after it (or at
- * SET_TEXT_X without one) and trailing images end SET_EDGE from the right edge; test_build.py
- * and test_patch.py check them against the rounded glass in the first and last visible rows. */
+ * SET_TEXT_X without one) and trailing images end SET_EDGE from the right edge; test/build.py
+ * and test/patch.py check them against the rounded glass in the first and last visible rows. */
 #define SET_ROW 68
 #define SET_TOP 8
 #define SET_ROWS 4
@@ -219,7 +219,7 @@
 #define LISTEN_MAX_S 240
 #define PLAYS_SLOTS 512
 #define PLAYS_TOP 25
-/* End bump and wrap, audited row lists only (see ring_list in patch/ringnav.c). A detent past an
+/* End bump and wrap, audited row lists only (see ring_list in patch/navigation.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */
 #define BUMP_PX 6

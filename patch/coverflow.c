@@ -67,7 +67,7 @@ void *coverflow_tracks(void *page) {
     return page == cf.page && cf.screen == TRACKS ? cf.tracks : 0;
 }
 
-/* FNV-1a, shared with ringnav.c */
+/* FNV-1a, shared with navigation.c */
 unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n) {
     for (unsigned i = 0; i < n; ++i) h = (h ^ s[i]) * 16777619u;
     return h;
@@ -185,7 +185,7 @@ static void drop_albums(void) {
 }
 
 /* A stock library query's rows (*count its result) copied out of the staging deque, which is
- * restored so the query leaves no trace; shared with ringnav.c's queue menu. */
+ * restored so the query leaves no trace; shared with navigation.c's queue menu. */
 void *staged(int (*query)(void *), void *arg, int *count) {
     void *dir = P(tools_pdeq_directory, 0), *save = _create_deque("stSongInfo"),
          *out = _create_deque("stSongInfo");
@@ -258,7 +258,7 @@ static void *list(const char *title, int n) {
     return page_list(cf.page, cf.body, &cf.title, title, n, 48);
 }
 
-/* One 48px row of a page_list or, with a detail (ringnav.c's Most Played), a 64px one: the caption
+/* One 48px row of a page_list or, with a detail (navigation.c's Most Played), a 64px one: the caption
  * over the detail in 16px #AAAAAA, stock's s_scrlabel_gray24l grey. Shared with photos.c. */
 void page_row_detail(void *view, int index, const char *caption, const char *detail,
                      int (*click)(void *, void *)) {
@@ -277,7 +277,7 @@ void page_row_detail(void *view, int index, const char *caption, const char *det
 }
 
 /* clip: the canvas clip, read into old, narrowed to x, y, w, h; false when nothing shows. Shared
- * with ringnav.c. */
+ * with navigation.c. */
 int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h) {
     canvas_get_clip_rect(canvas, old);
     clip[0] = old[0] > x ? old[0] : x;
@@ -290,7 +290,7 @@ int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h) {
 }
 
 /* Resume, play counts, Books' pages and the last album: each file is written whole, to a .tmp then
- * renamed. Shared with ringnav.c and books.c. */
+ * renamed. Shared with navigation.c and books.c. */
 void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
     void *f = fopen(write ? tmp : path, write ? "wb" : "rb");
     if (!f) return;
@@ -773,7 +773,7 @@ static void load(void) {
 
 /* Folder play (startPlayFolderSong): classType 1 over dq from track idx. playing_page's
  * mclLoadPlayList copies it synchronously, and memory-play later reloads the last track's folder.
- * Shared with ringnav.c. */
+ * Shared with navigation.c. */
 void play_folder(void *dq, int idx) {
     struct {
         void *dq;
@@ -820,7 +820,7 @@ static void *in_order(void *tracks) {
 }
 
 /* A track's file name without its file's extension; a name not ending in it (CUE) stays whole.
- * Shared with ringnav.c's scrobbler. */
+ * Shared with navigation.c's scrobbler. */
 const char *track_name(char *buf, unsigned size, void *t) {
     const char *name = P(t, REC_NAME), *path = P(t, REC_PATH), *ext = 0;
     if (!name || !path) return name;

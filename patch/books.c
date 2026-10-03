@@ -705,11 +705,11 @@ void books_paint(void *w, void *canvas) {
     canvas_set_text_color(canvas, color);
 }
 
-/* Videos (docs/internals.md#videos): patch/q2video.c draws on /dev/fb0 and plays the sound while
+/* Videos (docs/internals.md#videos): patch/video.c draws on /dev/fb0 and plays the sound while
  * demo runs on without painting (ringnav_wm_paint) or input (ringnav_input); a key's release
  * reaches it as a datagram on its socket. */
 #define VIDEO_BIN "/usr/bin/q2video"
-#define VIDEO_SOCK "/tmp/q2video.sock" /* q2video.c Q2VIDEO_SOCK */
+#define VIDEO_SOCK "/tmp/q2video.sock" /* video.c Q2VIDEO_SOCK */
 static struct {
     int pid, sock, seek; /* seek: the wheel seeks, since seek_at (time_now_ms) */
     unsigned seek_at;
@@ -785,7 +785,7 @@ void video_key(unsigned key) {
     if (c[0]) sendto(vid.sock, c, c[0] == 'v' ? 2 : 1, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
 }
 
-/* Local Music's Books and Videos rows (ringnav.c media_click): the books or videos, by path. */
+/* Local Music's Books and Videos rows (navigation.c media_click): the books or videos, by path. */
 void books_open(const char *root, int videos) {
     if (bk.page) return;
     void *page = bk.page = page_open("books_page", closed, keyup);

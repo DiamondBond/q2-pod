@@ -36,7 +36,7 @@ LIBC = {
     'opendir': ('void *', 'const char *'), 'closedir': ('int', 'void *'),
     'readdir': ('struct dirent *', 'void *'),
     'qsort': ('void', 'void *, unsigned, unsigned, int (*)(const void *, const void *)'),
-    # libcstl and socket imports for the Play/Pause queue menu in ringnav.c
+    # libcstl and socket imports for the Play/Pause queue menu in navigation.c
     '_create_deque': ('void *', 'const char *'), 'deque_init': ('void', 'void *'),
     'deque_init_copy': ('void', 'void *, const void *'), 'deque_size': ('unsigned', 'const void *'),
     'deque_at': ('void *', 'const void *, unsigned'), '_deque_push_back': ('void', 'void *, ...'),
@@ -49,7 +49,7 @@ LIBC = {
     'strdup': ('char *', 'const char *'),
     'strrchr': ('char *', 'const char *, int'), 'strcasecmp': ('int', 'const char *, const char *'),
     'strncasecmp': ('int', 'const char *, const char *, unsigned'),
-    # iPod status bar clock (ringnav.c)
+    # iPod status bar clock (navigation.c)
     'time': ('long', 'long *'), 'localtime': ('const int *', 'const long *'),
     # Scrobble upload (scrobble.c): demo's libcurl and libcrypto
     'fseek': ('int', 'void *, long, int'), 'ftell': ('long', 'void *'), 'atoi': ('int', 'const char *'),
