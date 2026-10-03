@@ -1,12 +1,14 @@
 /* q2video, Videos' player (docs/internals.md#videos): /usr/bin/q2video DEVICE FILE [VOLUME],
  * started by demo (books.c play_video). Stock ffmpeg decodes FILE, fits it into the screen, turns
- * it onto the portrait panel as the boot logo is stored and converts it to the framebuffer's pixel
- * format, frames on one pipe and 48 kHz stereo on another; this plays the sound on ALSA DEVICE ("-"
+ * it onto the portrait panel as the boot logo is stored and converts it to the framebuffer's BGRA,
+ * frames on one pipe and 48 kHz stereo on another; this plays the sound on ALSA DEVICE ("-"
  * for none; VOLUME, Bluetooth's 0-100, scales it as hciplayer does there) and puts each frame on
  * /dev/fb0 when the sound reaches it, dropping late ones. demo sends keys as datagrams to
  * Q2VIDEO_SOCK: p pause, f and b seek SEEK_S, s seek mode, v and a byte the volume set, q quit;
  * the last four show a bar along the bottom for OVERLAY_MS, the position or the volume. No MIPS sysroot: the declarations below are
  * glibc 2.28's and alsa-lib's, with MIPS o32 constants. */
+#define W 320 /* /dev/fb0: 320 x 375, 32 bpp, red at bit 16, two pages (docs/internals.md#videos) */
+#define H 375
 #define FPS 25
 #define RATE 48000
 #define CHUNK 512      /* frames per ALSA write: the audio clock's step, about 11 ms */
@@ -32,27 +34,16 @@ void *memcpy(void *, const void *, unsigned), *memset(void *, int, unsigned);
 char *strstr(const char *, const char *);
 #endif
 
-/* ffmpeg's pixel format for a bpp-bit framebuffer whose red field starts at bit red; 0 if none. */
-const char *pixfmt(unsigned bpp, unsigned red) {
-    if (bpp == 32) return red == 16 ? "bgra" : red == 0 ? "rgba" : 0;
-    if (bpp == 24) return red == 16 ? "bgr24" : red == 0 ? "rgb24" : 0;
-    if (bpp == 16) return red == 11 ? "rgb565le" : red == 0 ? "bgr565le" : 0;
-    return 0;
-}
-
-/* ffmpeg's argv into a (27 slots) for frames w x h in fmt from second at; vf and ss hold its
- * filter and start. A portrait framebuffer gets the picture fitted into its landscape view, then
- * turned clockwise. Without audio there is no sound output. */
-void ffmpeg_argv(const char **a, char *vf, char *ss, int w, int h, const char *fmt, int at,
-                 const char *file, int audio) {
-    int turn = w < h, vw = turn ? h : w, vh = turn ? w : h;
+/* ffmpeg's argv into a (27 slots) for frames from second at; ss holds the start. The picture is
+ * fitted into the landscape H x W view, then turned clockwise onto the portrait framebuffer. Without
+ * audio there is no sound output. */
+void ffmpeg_argv(const char **a, char *ss, int at, const char *file, int audio) {
     snprintf(ss, 16, "%d", at);
-    snprintf(vf, 256,
-             "scale=%d:%d:force_original_aspect_ratio=decrease:flags=fast_bilinear,format=%s,"
-             "pad=%d:%d:(ow-iw)/2:(oh-ih)/2%s",
-             vw, vh, fmt, vw, vh, turn ? ",transpose=clock" : "");
     const char *v[27] = { FFMPEG, "-nostdin", "-loglevel", "quiet", "-ss", ss, "-i", file,
-                          "-map", "0:v:0", "-vf", vf, "-r", "25", "-f", "rawvideo", "pipe:3",
+                          "-map", "0:v:0", "-vf",
+                          "scale=375:320:force_original_aspect_ratio=decrease:flags=fast_bilinear,"
+                          "format=bgra,pad=375:320:(ow-iw)/2:(oh-ih)/2,transpose=clock",
+                          "-r", "25", "-f", "rawvideo", "pipe:3",
                           "-map", "0:a:0", "-ac", "2", "-ar", "48000", "-f", "s16le", "pipe:4", 0 };
     memcpy(a, v, sizeof v);
     if (!audio) a[17] = 0;
@@ -77,25 +68,15 @@ int duration(const char *s) {
     return s && sscanf(s + 10, "%d:%d:%d", &h, &m, &sec) == 3 ? h * 3600 + m * 60 + sec : 0;
 }
 
-/* Byte c over the picture's rectangle x0-x1, y0-y1 as seen, on a frame of w x h px-byte pixels,
- * line bytes a row; a portrait frame holds the picture turned clockwise. */
-static void rect(unsigned char *f, unsigned line, unsigned px, int turn, int vh, int x0, int x1,
-                 int y0, int y1, int c) {
-    if (turn) {
-        int t = vh - y1;
-        y1 = x1, x1 = vh - y0, y0 = x0, x0 = t;
-    }
-    for (int y = y0; y < y1; ++y) memset(f + y * line + x0 * px, c, (unsigned)(x1 - x0) * px);
-}
-
-/* The overlay: a bar along the picture's bottom, white for n of total, black for the rest. */
-void overlay(unsigned char *f, unsigned line, unsigned px, int w, int h, int n, int total) {
-    int turn = w < h, vw = turn ? h : w, vh = turn ? w : h, end = vw - BAR_X;
+/* The overlay on framebuffer page f, line bytes a row: a bar along the picture's bottom, white for
+ * n of total, black for the rest. The picture is turned clockwise (picture x is panel y), so the
+ * bar runs down the panel's columns BAR_Y to BAR_Y + BAR_H. */
+void overlay(unsigned char *f, unsigned line, int n, int total) {
+    int end = H - BAR_X;
     if (total <= 0) return;
     n = n < 0 ? 0 : n > total ? total : n;
     int fill = BAR_X + (end - BAR_X) * n / total; /* total: seconds, far below overflow */
-    rect(f, line, px, turn, vh, BAR_X, fill, vh - BAR_Y - BAR_H, vh - BAR_Y, 0xff);
-    rect(f, line, px, turn, vh, fill, end, vh - BAR_Y - BAR_H, vh - BAR_Y, 0);
+    for (int y = BAR_X; y < end; ++y) memset(f + y * line + BAR_Y * 4, y < fill ? 0xff : 0, BAR_H * 4);
 }
 
 /* Frame n's fate at clock ms: 0 wait, 1 show, 2 drop (a whole frame late). */
@@ -183,12 +164,13 @@ int main(int argc, char **argv) {
     unsigned var[40], fix[17];
     int fb = open("/dev/fb0", O_RDWR | O_CLOEXEC);
     if (fb < 0 || ioctl(fb, FBIOGET_VSCREENINFO, var) || ioctl(fb, FBIOGET_FSCREENINFO, fix)) return 1;
-    unsigned w = var[0], h = var[1], line = fix[11], row = w * (var[6] / 8), y0 = var[5];
-    const char *fmt = pixfmt(var[6], var[8]);
-    unsigned char *mem = mmap(0, fix[5], 3, 1, fb, 0), *frame = malloc(row * h);
-    if (!fmt || mem == (void *)-1 || !frame || row > line) return 1;
-    /* Two pages: draw the hidden one and pan, then leave demo's showing again. */
-    unsigned back = var[3] >= 2 * h && 2 * h * line <= fix[5] ? (y0 ? 0 : h) : y0;
+    unsigned line = fix[11], row = W * 4, y0 = var[5], back = y0 ? 0 : H; /* demo's other page */
+    /* anything but the Q2's xres, yres, yres_virtual, bpp and red offset: no drawing */
+    if (var[0] != W || var[1] != H || var[3] < 2 * H || var[6] != 32 || var[8] != 16 || row > line ||
+        2 * H * line > fix[5])
+        return 1;
+    unsigned char *mem = mmap(0, fix[5], 3, 1, fb, 0), *frame = malloc(row * H);
+    if (mem == (void *)-1 || !frame) return 1;
     int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
     struct sockaddr_un addr = { AF_UNIX, Q2VIDEO_SOCK };
     unlink(Q2VIDEO_SOCK);
@@ -220,8 +202,8 @@ int main(int argc, char **argv) {
         if (pipe2(vp, O_CLOEXEC) || (audio && pipe2(ap, O_CLOEXEC))) break;
         fcntl(vp[0], F_SETPIPE_SZ, 4 << 20); /* frames ahead, so the sound paces ffmpeg */
         const char *args[27];
-        char vf[256], ss[16];
-        ffmpeg_argv(args, vf, ss, (int)w, (int)h, fmt, at, argv[2], audio);
+        char ss[16];
+        ffmpeg_argv(args, ss, at, argv[2], audio);
         int pid = fork();
         if (!pid) {
             dup2(vp[1], 3);
@@ -239,7 +221,7 @@ int main(int argc, char **argv) {
         }
         int n = 0, seek = 0, ended = pid < 0, paced = audio;
         au.paused = held;
-        unsigned have = 0, size = row * h;
+        unsigned have = 0, size = row * H;
         long long wall = 0, last = now_ms(), seek_at = 0;
         while (!ended && !quit) {
             long long t = now_ms(), clock;
@@ -250,16 +232,14 @@ int main(int argc, char **argv) {
             if (until && t >= until) until = 0, redraw = au.paused;
             int wait = 100, fate = have == size ? frame_due(n, clock) : 0;
             if (fate == 1 || (redraw && have == size)) { /* paused, the next frame shows the change */
-                for (unsigned y = 0; y < h; ++y)
+                for (unsigned y = 0; y < H; ++y)
                     memcpy(mem + (back + y) * line, frame + y * row, row);
                 if (until)
-                    overlay(mem + back * line, line, var[6] / 8, (int)w, (int)h,
-                            pos_bar ? at + seek + n / FPS : vol, pos_bar ? len : 100);
-                if (back != y0 || var[5] != y0) {
-                    var[5] = back;
-                    ioctl(fb, FBIOPAN_DISPLAY, var);
-                    back = back ? 0 : h;
-                }
+                    overlay(mem + back * line, line, pos_bar ? at + seek + n / FPS : vol,
+                            pos_bar ? len : 100);
+                var[5] = back; /* draw the hidden page and pan, as demo does */
+                ioctl(fb, FBIOPAN_DISPLAY, var);
+                back = back ? 0 : H;
                 redraw = 0;
             }
             if (fate) {

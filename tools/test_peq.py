@@ -993,23 +993,19 @@ def books_check(tmp):
     print('Books: inflate, XHTML text, EPUB conversion and refusals, UTF-8 and page layout passed.')
 
 def video_check(tmp):
-    """Videos' player (q2video.c): the framebuffer's pixel format, ffmpeg's argv, frame pacing and BT volume."""
+    """Videos' player (q2video.c): ffmpeg's argv for the Q2's framebuffer, frame pacing and BT volume."""
     lib = compile_host(tmp, 'q2video.so', ROOT/'patch/q2video.c')
-    lib.pixfmt.restype = C.c_char_p
-    assert [lib.pixfmt(*f) for f in ((32, 16), (32, 0), (24, 16), (24, 0), (16, 11), (16, 0), (32, 8), (8, 0))] == \
-        [b'bgra', b'rgba', b'bgr24', b'rgb24', b'rgb565le', b'bgr565le', None, None]
-    def argv(w, h, at, audio):
-        a, vf, ss = (C.c_char_p * 27)(), C.create_string_buffer(256), C.create_string_buffer(16)
-        lib.ffmpeg_argv(a, vf, ss, w, h, b'bgra', at, b'/mnt/mmc/Videos/a b.mp4', audio)
+    def argv(at, audio):
+        a, ss = (C.c_char_p * 27)(), C.create_string_buffer(16)
+        lib.ffmpeg_argv(a, ss, at, b'/mnt/mmc/Videos/a b.mp4', audio)
         return [x.decode() for x in a[:a[:].index(None)]]
+    # /dev/fb0 is 320x375 BGRA (display_logo, soc_fb.ko): fitted into the landscape 375x320 view and
+    # turned clockwise, as the boot logo.
     head = ['/usr/bin/ffmpeg', '-nostdin', '-loglevel', 'quiet', '-ss', '30', '-i', '/mnt/mmc/Videos/a b.mp4',
             '-map', '0:v:0', '-vf', 'scale=375:320:force_original_aspect_ratio=decrease:flags=fast_bilinear,format=bgra,'
             'pad=375:320:(ow-iw)/2:(oh-ih)/2,transpose=clock', '-r', '25', '-f', 'rawvideo', 'pipe:3']
-    # The portrait 320x375 panel: fitted into the landscape 375x320 view, turned clockwise, as the boot logo.
-    assert argv(320, 375, 30, 1) == head + ['-map', '0:a:0', '-ac', '2', '-ar', '48000', '-f', 's16le', 'pipe:4']
-    assert argv(320, 375, 30, 0) == head
-    assert argv(480, 272, 0, 0)[10:12] == ['-vf', 'scale=480:272:force_original_aspect_ratio=decrease:flags=fast_bilinear,'
-                                           'format=bgra,pad=480:272:(ow-iw)/2:(oh-ih)/2']
+    assert argv(30, 1) == head + ['-map', '0:a:0', '-ac', '2', '-ar', '48000', '-f', 's16le', 'pipe:4']
+    assert argv(30, 0) == head
     # Frame n shows from n/25 s of the clock, and is dropped a whole frame late.
     lib.frame_due.argtypes = [C.c_int, C.c_longlong]
     assert [lib.frame_due(1, t) for t in (0, 39, 40, 79, 80)] == [0, 0, 1, 1, 2] and lib.frame_due(0, 0) == 1
@@ -1024,21 +1020,21 @@ def video_check(tmp):
     assert lib.duration(b'Input #0, mov\n  Duration: 01:02:03.45, start: 0.0\n') == 3723
     assert lib.duration(b'  Duration: N/A, bitrate: N/A') == 0 and lib.duration(b'') == 0
     # The bar: along the bottom of the picture as seen, 40 px in from its ends and 23-30 px up, white
-    # for the share given and black after; on the portrait panel the picture is turned clockwise, so
-    # the bar runs down columns 22-29 (picture x = panel y), from the top. Nothing else changes.
-    def bar(w, h, n, total):
-        f = (C.c_ubyte * (w * h * 2))(*([0x55] * (w * h * 2)))
-        lib.overlay(f, w * 2, 2, w, h, n, total)
-        return [[f[(y * w + x) * 2] for x in range(w)] for y in range(h)]
-    p = bar(320, 375, 1, 4)
+    # for the share given and black after; the picture is turned clockwise, so the bar runs down
+    # columns 22-29 (picture x = panel y), from the top. Nothing else changes.
+    def bar(n, total, line=1300):  # a padded line, as fix.line_length may be
+        f = (C.c_ubyte * (line * 375))(*([0x55] * (line * 375)))
+        lib.overlay(f, line, n, total)
+        return [[f[y * line + x * 4 + b] for x in range(320) for b in range(4)] for y in range(375)], f
+    p, f = bar(1, 4)
     for y in range(375):
-        for x in range(320):
-            want = 0x55 if not (22 <= x < 30 and 40 <= y < 335) else 0xff if y < 40 + 295 // 4 else 0
+        for x in range(320 * 4):
+            want = 0x55 if not (22 * 4 <= x < 30 * 4 and 40 <= y < 335) else 0xff if y < 40 + 295 // 4 else 0
             assert p[y][x] == want, (x, y)
-    l = bar(375, 320, 7, 5)  # clamped to all
-    assert l[290][40:335] == l[297][40:335] == [0xff] * 295 and l[290][39] == l[290][335] == l[289][40] == l[298][40] == 0x55
-    assert bar(375, 320, -3, 5)[290][40:335] == [0] * 295 and bar(375, 320, 1, 0)[290][100] == 0x55
-    print('Videos: pixel formats, ffmpeg argv, frame pacing, Bluetooth volume, length and bar passed.')
+    assert all(f[y * 1300 + c] == 0x55 for y in range(375) for c in range(1280, 1300))
+    assert [r[88] for r in bar(7, 5)[0][40:335]] == [0xff] * 295  # clamped to all
+    assert [r[88] for r in bar(-3, 5)[0][40:335]] == [0] * 295 and bar(1, 0)[0][100][88] == 0x55
+    print('Videos: ffmpeg argv, frame pacing, Bluetooth volume, length and bar passed.')
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
