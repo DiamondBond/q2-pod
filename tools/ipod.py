@@ -13,7 +13,7 @@ import re
 import struct
 from build import ROOT, check as require, fileoff
 
-AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/compact.json').read_text())
+AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/ipod.json').read_text())
 UI_ASSETS = AUDIT['assets'] | AUDIT['navbar_only'] | AUDIT['slide_only']
 # The app window is the 375x320 screen minus the 30px status bar, so a 290px list holds four
 # 72px rows. The stock 52px artwork is drawn 1:1 (no rescaling) with an 8px inset inside the
@@ -79,7 +79,7 @@ HOME_LIST_W = HOME_TEXT_X + 149 + HOME_LABEL_END
 HOME_ART_RECT = [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290]  # the whole right panel under the status bar
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
-# 251; their x follows NP_BAR through the np_bar_* immediates in compact.json. The window starts
+# 251; their x follows NP_BAR through the np_bar_* immediates in ipod.json. The window starts
 # at screen y 30; the top and bottom rows take their insets from the corners. The bar is a capsule
 # (round_radius half its height) and the payload rounds the art's corners (paint_cover).
 # The art and the metadata keep NP_MARGIN from the sides, 12px apart; the art is as large as that
@@ -491,7 +491,7 @@ def volume_dialog(root):
 NAVBAR_ONLY = AUDIT['navbar_only']
 SET_ROW, SET_TOP, SET_ROWS, SET_STOCK_ROW = (inc(n) for n in ('SET_ROW', 'SET_TOP', 'SET_ROWS', 'SET_STOCK_ROW'))
 
-# iPod only. The settings rows' stock 52px artwork (SET_STOCK_ICON), pinned by hash in compact.json,
+# iPod only. The settings rows' stock 52px artwork (SET_STOCK_ICON), pinned by hash in ipod.json,
 # is pre-sized to SET_ICON at build time so the rows draw it 1:1 instead of scaling it on the device.
 # ImageMagick's Lanczos resize weights colour by alpha, so edges keep their colour and transparency;
 # -strip and the excluded date chunks keep the bytes reproducible. Only native settings code names

@@ -1924,7 +1924,7 @@ void *ringnav_style_gradient(void *style, const char *name, void *out) {
 }
 
 /* 1 if name is one of the settings rows' category icons (SETTINGS_ICON_NAMES in stock.h, from
- * compact.json): their red is a category colour, like the purple and orange ones, not an accent. */
+ * ipod.json): their red is a category colour, like the purple and orange ones, not an accent. */
 static int settings_icon(const char *name) {
     for (const char *n = SETTINGS_ICON_NAMES; *n;) {
         if (!tk_strcmp(name, n)) return 1;

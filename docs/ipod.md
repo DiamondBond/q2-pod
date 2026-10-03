@@ -2,14 +2,14 @@
 
 The Stock and iPod builds share one navigation payload. `--ipod` enables the compact layout
 payload helpers and build-time edits in `tools/ipod.py`; Stock receives no
-compact executable sites or UI assets. `patch/compact.json` records the original
+compact executable sites or UI assets. `patch/ipod.json` records the original
 asset hashes and full MIPS instructions. The builder also pins the complete stock
 ZIP and executable, rejects mismatches, and records every changed asset/site.
 
 AWTK binary UI files contain a four-byte magic, recursive widgets with a 32-byte
 type and four signed geometry fields, NUL-separated properties and child/end
 markers. Decode/encode must round-trip exactly before editing. Only the assets
-pinned in `compact.json` are accepted: nine local browsing pages, the settings
+pinned in `ipod.json` are accepted: nine local browsing pages, the settings
 and streaming pages, Home, the status bar, Now Playing, the quick settings
 pull-down, the confirm and volume pop-ups, the equalizer page (its [transition](#transitions) only) and the
 theme (`styles/default.bin`). The primary `view_navbar` stays allocated but invisible
@@ -54,7 +54,7 @@ width. Title styles and scrolling/ellipsis settings are untouched.
 Theme edits change values in place in the shared `styles/default.bin`, so they
 reach every page using these styles. The file holds a magic `0xFAFBFCFD`, a
 100-byte index entry (data offset, state, style, widget type) per style state,
-and typed properties. `compact.json` pins its hash and lists each edit with its
+and typed properties. `ipod.json` pins its hash and lists each edit with its
 old value and the number of states holding it; a count mismatch fails the build.
 List buttons (`s_btn_listitem`) lose their grey fill and 14-pixel corners, keeping
 the pressed colour for touch feedback. Black list items, table rows and the black
@@ -186,7 +186,7 @@ margin). While a wide badge shows, a mode that would reach past that shows the i
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
-`navbar_only` in `compact.json` with their pinned hashes. Their native
+`navbar_only` in `ipod.json` with their pinned hashes. Their native
 inits destroy the navbar's children and create an unnamed title `hscroll_label`,
 back, Home and Now Playing buttons; none has a control the keys lack. Lists hold
 settings rows (see [Settings](#settings)); other panels move up 50 pixels and keep
@@ -239,7 +239,7 @@ Wi-Fi builders and the Display rows, then checks both positions).
 ### Settings icons
 
 Scaling the 52-pixel artwork down on the device left jagged edges, so the build pre-sizes it
-instead. `settings_icons` in `compact.json` pins the 39 settings icons by hash: `system_*`,
+instead. `settings_icons` in `ipod.json` pins the 39 settings icons by hash: `system_*`,
 `playset_*`, `display_*`, `wifiset_*`, `netservice_*`, `usb_chargeswitch` and `bt_adjvol`, 52-pixel
 RGBA PNGs that only native settings code names (top level and nested pages such as Display,
 Wi-Fi, Bluetooth and Network services); no UI asset or other screen uses them. For each one the

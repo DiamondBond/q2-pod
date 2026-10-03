@@ -24,7 +24,7 @@ OFFSETS = ['DEFAULT_LAYOUT_VTABLE', 'STYLE_COLOR_GRADIENT_RET', 'LIST_VIEW_LAYOU
 NOT_ADDRESSES = {'VOL_PANEL_TRACK'}  # a colour that happens to fall inside the image
 # Each source and the binaries whose addresses it holds.
 SOURCES = {'tools/build.py': ('demo', 'bluealsa'), 'tools/ipod.py': ('demo',), 'tools/peq.py': ('hciplayer',),
-           'patch/compact.json': ('demo',), 'patch/offsets.inc': ('demo',), 'patch/trampoline.S': ('demo',)}
+           'patch/ipod.json': ('demo',), 'patch/offsets.inc': ('demo',), 'patch/trampoline.S': ('demo',)}
 BRANCHES = {1, 4, 5, 6, 7, 0x14, 0x15, 0x16, 0x17}
 MEMORY = {0x09, *range(0x20, 0x2f), *range(0x30, 0x40)}  # addiu, loads and stores
 SIZES = (8, 16, 32, 64, 128)  # 128: SORT_TRIMS, in two name comparators that open alike
