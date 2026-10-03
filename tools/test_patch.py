@@ -17,7 +17,7 @@ variant = manifest.get('variant')
 expected_versions = DEV_VERSIONS if manifest.get('dev') else VERSIONS
 assert variant in VERSIONS and manifest['version'] == expected_versions[variant], 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
-from compact import INC, O  # patch/offsets.inc and its integer #defines
+from ipod import INC, O  # patch/offsets.inc and its integer #defines
 DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/ringnav.c').read_text(),re.M)[1])  # centre double-press window
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
@@ -2761,7 +2761,7 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (tools/test_coverflow.py).
-from compact import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
+from ipod import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
 cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
 if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
@@ -2885,7 +2885,7 @@ if variant=='ipod':
     # The status bar as built (ui/system_bar.bin), laid out by the stock row layouter
     # (children_layouter_default, 0x628838) with every icon shown: the icons, 16px high and drawn
     # centred in their 30px cells, and the title clear the glass's rounded top corners.
-    from compact import STATUS_BAR, corner_inset
+    from ipod import STATUS_BAR, corner_inset
     m=Machine(); m.mock('strtol@GLIBC_2.0','strstr@GLIBC_2.0'); m.mock('tk_calloc','tk_free',prefix='alloc:')
     bar=asset_tree(m,STATUS_BAR); m.word(bar+O['W_W'],375)
     views=[named(m,bar,n) for n in ('view_left','view_right')]
@@ -2907,7 +2907,7 @@ if variant=='ipod':
     # Each Battery mode (bar_sync shows one of the three): the layout skips the hidden two, the
     # battery ends at the icons' margin, a percentage's text clears the corner there, and with
     # the plain Bluetooth glyph and Wi-Fi the group's ink stays CLOCK_GAP clear of the widest clock.
-    from compact import CLOCK_TEXT, CLOCK_GAP, STATUS_MARGIN, corner_x
+    from ipod import CLOCK_TEXT, CLOCK_GAP, STATUS_MARGIN, corner_x
     batt=[named(m,bar,n) for n in ('img_battery','label_battery','view_battery')]
     for mode,want in enumerate((10,O['BATT_PCT_W'],O['BATT_BODY_W']+O['BATT_NUB_W'])):
         for i,b in enumerate(batt): m.nodes[b]['visible']=int(i==mode)
@@ -3432,7 +3432,7 @@ assert m.nodes[m.slide].get('sensitive')==0; passed()
 # and white, the artist grey, CF_EDGE from the sides and clear of the rounded glass. iPod keeps every
 # other label (the track list's title and rows, whose last visible row is lowest) CF_EDGE in too;
 # Stock keeps its track list layout.
-from compact import corner_inset
+from ipod import corner_inset
 def cf_geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
 def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
     return max(corner_inset(30+top),corner_inset(30+top+px))<=x and x+w<=375-max(corner_inset(30+top),corner_inset(30+top+px))
@@ -3874,7 +3874,7 @@ if variant=='ipod':
     # points the list_view layouter's vtable slot at ipod_list_layout, which normalises stock 78px
     # items, runs the stock layout (stacking modelled here: item_height, else the item's own height,
     # else default_item_height, as 0x5ea5c4 onward) and maps each row's children.
-    from compact import corner_inset
+    from ipod import corner_inset
     class SettingsMachine(Machine):
         def hook(self,u,address,size,x):
             name=self.handlers.get(address,'')

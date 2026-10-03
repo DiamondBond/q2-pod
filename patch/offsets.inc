@@ -127,7 +127,7 @@
 #define NP_ART_RADIUS 12 /* Now Playing's art corners (paint_cover), as stock's play_defaultcover scaled to the art */
 #define VOL_POLL_MS 50 /* how often the volume indicator checks for a change */
 /* The volume panel off Now Playing (vol_paint): exactly over Quick Settings' brightness row
- * (tools/compact.py checks it), its rounded corners clear of the 80px glass corners. */
+ * (tools/ipod.py checks it), its rounded corners clear of the 80px glass corners. */
 #define VOL_PANEL_X 26
 #define VOL_PANEL_Y 256
 #define VOL_PANEL_H 48
@@ -139,7 +139,7 @@
 /* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
  * the top corners (test_build.py). */
 #define CLOCK_EDGE 57
-/* iPod status bar battery (docs/ipod.md#status-bar-and-clock, tools/compact.py status_bar): stock's
+/* iPod status bar battery (docs/ipod.md#status-bar-and-clock, tools/ipod.py status_bar): stock's
  * percentage label BATT_PCT_W wide ("100%" at BATT_PCT_PX), or the payload's battery: a BATT_BODY_W x BATT_BODY_H
  * outline centred in the bar, square-cut corners, a BATT_NUB_W x BATT_NUB_H nub and the level in
  * BATT_PX text; charging draws it BATT_CHARGE_RGB, low (stock's bar_lowcharge) the accent's red
@@ -168,7 +168,7 @@
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58
 /* iPod Home in Full: the rows end here, so the chevron's glyph (x 20 to 31 of list_into) ends as far
- * from the right edge as the labels start from the left (HOME_TEXT_X in tools/compact.py). */
+ * from the right edge as the labels start from the left (HOME_TEXT_X in tools/ipod.py). */
 #define HOME_FULL_ROW 369
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
  * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a

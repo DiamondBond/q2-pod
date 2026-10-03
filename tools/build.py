@@ -85,7 +85,7 @@ def sha(b): return hashlib.sha256(b).hexdigest()
 def source_sha256():
     """Hash every build input, so a test run cannot silently use a stale output directory."""
     h = hashlib.sha256()
-    tools = [ROOT/'tools'/f for f in ('build.py', 'compact.py', 'peq.py', 'release.py')]
+    tools = [ROOT/'tools'/f for f in ('build.py', 'ipod.py', 'peq.py', 'release.py')]
     for path in sorted([*ROOT.glob('assets/*'), *ROOT.glob('patch/*'), *tools]):
         h.update(str(path.relative_to(ROOT)).encode() + b'\0')
         h.update(path.read_bytes())
@@ -415,8 +415,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # Every allowlisted context must be a window name. The runtime name is the root "name"
     # property of the UI asset, not the asset path, so check the stock rootfs assets directly:
     # a prefix-trimmed typo cannot silently disable a screen this way.
-    from compact import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
-                         imagemagick, patch_code, patch_style, patch_word, settings_icon)
+    from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
+                      imagemagick, patch_code, patch_style, patch_word, settings_icon)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows = set()

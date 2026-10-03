@@ -13,7 +13,7 @@ Symbol-resolved entries (FUNCTIONS, GLOBALS, CONTEXT_DATA, the hooks) only need 
 import argparse, collections, functools, io, pathlib, re, struct, subprocess, tarfile, tempfile, zipfile
 from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
                    SHUFFLE_CALL, SORT_TRIMS, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
-import compact, peq
+import ipod, peq
 
 # Raw addresses in patch/offsets.inc; every other define there inside the image is a value.
 # ponytail: widget/struct field offsets (W_*, REC_*, ...) are not addresses and stay manual.
@@ -23,7 +23,7 @@ OFFSETS = ['DEFAULT_LAYOUT_VTABLE', 'STYLE_COLOR_GRADIENT_RET', 'LIST_VIEW_LAYOU
            'SCAN_THREAD', 'SCAN_DONE']
 NOT_ADDRESSES = {'VOL_PANEL_TRACK'}  # a colour that happens to fall inside the image
 # Each source and the binaries whose addresses it holds.
-SOURCES = {'tools/build.py': ('demo', 'bluealsa'), 'tools/compact.py': ('demo',), 'tools/peq.py': ('hciplayer',),
+SOURCES = {'tools/build.py': ('demo', 'bluealsa'), 'tools/ipod.py': ('demo',), 'tools/peq.py': ('hciplayer',),
            'patch/compact.json': ('demo',), 'patch/offsets.inc': ('demo',), 'patch/trampoline.S': ('demo',)}
 BRANCHES = {1, 4, 5, 6, 7, 0x14, 0x15, 0x16, 0x17}
 MEMORY = {0x09, *range(0x20, 0x2f), *range(0x30, 0x40)}  # addiu, loads and stores
@@ -178,7 +178,7 @@ def by_string(old, new, a):
 
 def inventory(images):
     """(name, image key, address, pinned stock word or None) for every raw address, from the
-    tables build.py, compact.py and peq.py patch from."""
+    tables build.py, ipod.py and peq.py patch from."""
     demo = images['demo']
     items = [(f'PRIVATE_FUNCTIONS {n}', 'demo', a, None) for n, a in PRIVATE_FUNCTIONS.items()]
     for m in re.finditer(r'^resume (\w+), (0x[0-9a-f]+)$', (ROOT/'patch/trampoline.S').read_text(), re.M):
@@ -186,13 +186,13 @@ def inventory(images):
     items += [('SHUFFLE_CALL', 'demo', SHUFFLE_CALL[0], demo.word(SHUFFLE_CALL[0])),
               ('DROP_CACHES', 'demo', DROP_CACHES[0], DROP_CACHES[1])]
     items += [('SORT_TRIMS', 'demo', a, demo.word(a)) for a in SORT_TRIMS]
-    items += [('ARTIST_ALBUMS', 'demo', a, old) for a, old, _ in compact.ARTIST_ALBUMS]
+    items += [('ARTIST_ALBUMS', 'demo', a, old) for a, old, _ in ipod.ARTIST_ALBUMS]
     items += [('event_abi_words', 'demo', int(a, 16), struct.unpack('<I', bytes.fromhex(w))[0])
-              for a, w in compact.AUDIT['event_abi_words'].items()]
-    # Every word compact.patch_code changes, as recorded in the manifest's compact_code.
-    for c in compact.patch_code(bytearray(demo.data), collections.defaultdict(int)):
+              for a, w in ipod.AUDIT['event_abi_words'].items()]
+    # Every word ipod.patch_code changes, as recorded in the manifest's compact_code.
+    for c in ipod.patch_code(bytearray(demo.data), collections.defaultdict(int)):
         items.append((f'compact {c["purpose"][:40]}', 'demo', int(c['address'], 16), int(c['original'], 16)))
-    defines = {m[1]: int(m[2], 16) for m in re.finditer(r'^#define (\w+) (0x[0-9a-fA-F]+)', compact.INC, re.M)}
+    defines = {m[1]: int(m[2], 16) for m in re.finditer(r'^#define (\w+) (0x[0-9a-fA-F]+)', ipod.INC, re.M)}
     inside = {n for n, v in defines.items() if demo.off(v) is not None or demo.pointer(v)}
     check(inside - NOT_ADDRESSES == set(OFFSETS), f'offsets.inc addresses not in port.py OFFSETS: {sorted(inside - NOT_ADDRESSES ^ set(OFFSETS))}')
     items += [(f'offsets.inc {n}', 'demo', defines[n], None) for n in OFFSETS]

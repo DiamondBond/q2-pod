@@ -1,7 +1,7 @@
 # iPod UI
 
 The Stock and iPod builds share one navigation payload. `--ipod` enables the compact layout
-payload helpers and build-time edits in `tools/compact.py`; Stock receives no
+payload helpers and build-time edits in `tools/ipod.py`; Stock receives no
 compact executable sites or UI assets. `patch/compact.json` records the original
 asset hashes and full MIPS instructions. The builder also pins the complete stock
 ZIP and executable, rejects mismatches, and records every changed asset/site.
@@ -102,7 +102,7 @@ bottom-left corner, and end 10 pixels before the chevron's glyph, 149 pixels wid
 English label ("Playback Setting") fits. Every label shares that left edge and every chevron the
 column 58 pixels from the row's end. `img_homeart` fills the right panel edge to edge: x 230 to
 the screen edge and the whole window height under the status bar (145x290, `HOME_ART_RECT`). Sizes
-are `HOME_*` constants in `tools/compact.py`.
+are `HOME_*` constants in `tools/ipod.py`.
 
 The art is cropped to fill the panel, never stretched. Stock's own `fill` draw type (`8`,
 `canvas_draw_image_fill` `0x63856c`) scales proportionally but anchors its crop at the image's
@@ -263,7 +263,7 @@ two-line labels start on the same line, 6 pixels under its icon and 12 above the
 brightness slider becomes a 6-pixel track (`#3A3A3A`, white fill) in a 48-pixel-high slider that
 still takes a tap or drag anywhere on it (`slide_with_bar`), from x 68 to 307. The stock dim and
 bright suns stay at its ends, in line with the first and last icon columns. Sizes are `QS_*` in
-`tools/compact.py`. `dialog_statusbar_dialog_init` (`0x4a0d88`) finds every widget by name and
+`tools/ipod.py`. `dialog_statusbar_dialog_init` (`0x4a0d88`) finds every widget by name and
 never moves or resizes one.
 
 The controls' stock images are 60-pixel discs: `#444444` with a white glyph when off, stock red
@@ -292,7 +292,7 @@ Values are `CF_*` in `patch/offsets.inc`; Stock keeps its track list layout.
 ## Rounded corners
 
 The panel's glass rounds its corners and hides what is drawn under them. `CORNER_R` in
-`tools/compact.py` (80 pixels) is the calibration knob: the radius, fitted to V5.4I photos and
+`tools/ipod.py` (80 pixels) is the calibration knob: the radius, fitted to V5.4I photos and
 to stock's 50-pixel status bar margins. `corner_inset(y)` gives the width hidden at each end of
 screen row `y`, and `corner_x` adds `CORNER_SLACK` (4). The status bar groups, the Home labels
 and Now Playing's top and bottom rows take their insets from it; settings notes moved under the
@@ -330,7 +330,7 @@ other long-key destination changes.
 ## Transitions
 
 Pages slide with stock's own window animator; the payload adds no animation code. The build sets
-`anim_hint` to `SLIDE` (`tools/compact.py`) on the window of the nine local browsing pages, the
+`anim_hint` to `SLIDE` (`tools/ipod.py`) on the window of the nine local browsing pages, the
 settings and streaming pages and the equalizer page. A hinted page slides in from the right,
 pushing the page below it out to the left, and Return reverses that; the status bar is not part
 of either page and stays still.
@@ -409,7 +409,7 @@ The bar is a plain-colour capsule (radius half its height, track and fill): a `#
 (`TRACK_COLOR`) and a fill in the accent's light tone (Graphite `#6E6E6E`, 3.3:1; see [Display settings](#display-settings)), with no thumb.
 The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or drag anywhere on it to seek, as stock. The elapsed time
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
-`tools/compact.py`; see [internals.md](internals.md#now-playing-ipod).
+`tools/ipod.py`; see [internals.md](internals.md#now-playing-ipod).
 
 **Scrub.** A double press of the centre button starts scrubbing, as on an iPod classic, and the bar fill turns white
 while it lasts. Each wheel tick moves 5 seconds, times a ramp of one more step per 100 ms of spin

@@ -29,11 +29,11 @@ print('JPEG header regression checks passed.')
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, PDR
-    from compact import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
-                         QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
-                         NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
-                         SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
-                         patch_asset, patch_code, patch_style, style_props, SLIDE)
+    from ipod import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
+                      QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
+                      NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
+                      SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
+                      patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -137,7 +137,7 @@ def validate_assets(directory):
         kind, _, p, v = c
         if int(v[6:], 16) <= 0x40: return False
         return luma(v) < 0.25 if p == 'text_color' else luma(v) > 0.35 and kind != 'image'
-    # iPod: text and icons must clear the glass's rounded corners (compact.CORNER_R); backgrounds,
+    # iPod: text and icons must clear the glass's rounded corners (ipod.CORNER_R); backgrounds,
     # bars and full-bleed art may reach into them. Content is a label's font-high band, an image drawn centred at its
     # size, a slider's bar, else the widget; the window clips it, and row layouts place their children.
     # List rows scroll, so only fixed widgets are checked.

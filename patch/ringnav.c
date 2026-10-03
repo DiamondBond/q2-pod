@@ -369,7 +369,7 @@ static void *window_of(void *w) {
     return w;
 }
 
-/* A page that opens and closes with stock's slide (tools/compact.py SLIDE). Stock paints it and
+/* A page that opens and closes with stock's slide (tools/ipod.py SLIDE). Stock paints it and
  * the page under it into the animator's snapshots while it is the top window and before
  * window_manager_is_animating is set; nothing else paints the page under it. */
 static int slides(void *win) {
@@ -1800,7 +1800,7 @@ static int vol_poll(const void *info) {
 }
 
 /* The volume, drawn by stock's dialog/volume_dialog itself: transparent and full-screen (its
- * dimming highlight removed at build time, tools/compact.py), it opens on the wheel's volume and
+ * dimming highlight removed at build time, tools/ipod.py), it opens on the wheel's volume and
  * sets its slider_vol. Over Now Playing, as on an iPod classic, the band from the progress bar to
  * the times turns black with a white bar over the track and "Volume N"; over any other window
  * (Quick Settings included) a VOL_PANEL_* rounded panel in the fast-scroll letter's style holds

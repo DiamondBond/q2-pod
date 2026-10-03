@@ -815,7 +815,7 @@ def main():
             subprocess.run([str(binary)], check=True, env=env)
         if a.captures:
             a.captures.mkdir(parents=True, exist_ok=True)
-            from compact import inc, imagemagick
+            from ipod import inc, imagemagick
             size = f"{inc('CF_VIEW_W')}x{inc('CF_VIEW_H')}"
             for raw in sorted((tmp/'frames').glob('*.rgba')):  # RGBA8888 rows, the frame's byte order
                 (a.captures/(raw.stem + '.png')).write_bytes(imagemagick(
