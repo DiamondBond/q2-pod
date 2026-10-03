@@ -23,11 +23,11 @@
   <b><a href="docs/changelog.md">Changelog</a></b> ·
   <b><a href="#documentation">Docs</a></b>
   <br>
-  <a href="#microsd-card">microSD card</a> |
   <a href="#display-settings">Display</a> |
   <a href="#ipod-ui">iPod UI</a> |
   <a href="#controls">Controls</a> |
   <a href="#parametric-eq">Parametric EQ</a> |
+  <a href="#microsd-card">microSD card</a> |
   <a href="#coverflow">Coverflow</a>
 </p>
 
@@ -58,43 +58,6 @@
 ### Restore stock
 
 Flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song while powering on with the centre button.
-
-## microSD card
-
-Media folders go at the root of the card, any capitalisation; each adds its **Local Music** row only when it exists. Caches are safe to delete and rebuilt as needed (Coverflow and Photos need 16 MB free).
-
-| Path                       | What it is                                                                                 | Made by |
-| -------------------------- | ------------------------------------------------------------------------------------------ | ------- |
-| `Podcasts/`, `Audiobooks/` | One folder per show or book; episodes always resume and never count as plays               | You     |
-| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums                 | You     |
-| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                                          | You     |
-| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                    | You     |
-| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                               | You     |
-| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                                | You     |
-| `.scrobble.pem`            | Optional CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)); uploads then verify TLS | You     |
-| `.scrobbler.log`           | Every listen, Rockbox format; sent by Upload Scrobbles or any `.scrobbler.log` uploader    | Q2 Pod  |
-| `.scrobbler.log.sent`      | Listens already uploaded                                                                   | Q2 Pod  |
-| `.coverflow/`              | Coverflow artwork cache                                                                    | Q2 Pod  |
-| `.photos/`                 | Photo thumbnails and screen-size copies                                                    | Q2 Pod  |
-| `.books/`                  | EPUBs converted to text                                                                    | Q2 Pod  |
-| `.sldp/`                   | Stock's own cover cache                                                                    | Stock   |
-
-`.scrobble.ini` takes a ListenBrainz token ([your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
-
-```ini
-[LISTENBRAINZ]
-TOKEN=your-listenbrainz-user-token
-
-[LASTFM]
-USER=your-username
-PASSWORD=your-password
-API_KEY=your-api-key
-API_SECRET=your-shared-secret
-```
-
-Last.fm's key and secret come from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
-
-Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
 
 ## Display settings
 
@@ -159,6 +122,43 @@ Videos play their sound on the headphone jack or Bluetooth at your volume; over 
 1. Copy an AutoEQ / Equalizer APO `.txt` to `/EQ/` on the microSD card. `Channel: L`, `R` and `all` sections are supported.
 2. **Presets → Import from SD /EQ**, then pick the file.
 3. Select the saved preset, then **Apply changes** (and **PEQ: ON**).
+
+## microSD card
+
+Media folders go at the root of the card, any capitalisation; each adds its **Local Music** row only when it exists. Caches are safe to delete and rebuilt as needed (Coverflow and Photos need 16 MB free).
+
+| Path                       | What it is                                                                                 | Made by |
+| -------------------------- | ------------------------------------------------------------------------------------------ | ------- |
+| `Podcasts/`, `Audiobooks/` | One folder per show or book; episodes always resume and never count as plays               | You     |
+| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums                 | You     |
+| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                                          | You     |
+| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                    | You     |
+| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                               | You     |
+| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                                | You     |
+| `.scrobble.pem`            | Optional CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)); uploads then verify TLS | You     |
+| `.scrobbler.log`           | Every listen, Rockbox format; sent by Upload Scrobbles or any `.scrobbler.log` uploader    | Q2 Pod  |
+| `.scrobbler.log.sent`      | Listens already uploaded                                                                   | Q2 Pod  |
+| `.coverflow/`              | Coverflow artwork cache                                                                    | Q2 Pod  |
+| `.photos/`                 | Photo thumbnails and screen-size copies                                                    | Q2 Pod  |
+| `.books/`                  | EPUBs converted to text                                                                    | Q2 Pod  |
+| `.sldp/`                   | Stock's own cover cache                                                                    | Stock   |
+
+`.scrobble.ini` takes a ListenBrainz token ([your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
+
+```ini
+[LISTENBRAINZ]
+TOKEN=your-listenbrainz-user-token
+
+[LASTFM]
+USER=your-username
+PASSWORD=your-password
+API_KEY=your-api-key
+API_SECRET=your-shared-secret
+```
+
+Last.fm's key and secret come from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
+
+Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
 
 ## Coverflow
 
