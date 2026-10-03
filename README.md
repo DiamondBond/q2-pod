@@ -37,7 +37,7 @@
 <tr>
 <td width="50%" valign="top">
 
-**Feels like an iPod**
+**Feel**
 
 - iPod classic lists, Home and Now Playing
 - Wheel with acceleration and position memory
