@@ -724,16 +724,9 @@ static int poll(const void *unused) {
     return 0;
 }
 
-/* The centre album outlives a reboot: read once while unknown, written on
- * leaving the covers. */
-static void remember(int write) {
-    BLOB_IO(LAST_ALBUM, cf.saved_album, write);
-}
-
 /* On open and Refresh: the albums, then art for the ones with no cache file (PictureFlow's
  * first-launch build; later opens resume). The albums are queried again only on Refresh or after
- * the library changed: stock's sort converts both names to pinyin on every comparison.
- * check_database(): refuse an empty, unbuilt or scanning library. */
+ * the library changed: stock's sort converts both names to pinyin on every comparison. */
 static void load(void) {
     drop();
     widget_destroy_children(cf.page);
@@ -757,7 +750,7 @@ static void load(void) {
     }
     unsigned count = deque_size(cf.albums);
     char path[512];
-    if (!cf.saved_album) remember(0);
+    if (!cf.saved_album) BLOB_IO(LAST_ALBUM, cf.saved_album, 0); /* outlives a reboot */
     cf.jobs = calloc(count, sizeof(job_t));
     for (unsigned i = 0; i < count; ++i) {
         void *r = deque_at(cf.albums, i);
@@ -850,7 +843,7 @@ static int to_tracks(const void *unused) {
     char name[512];
     void *r = deque_at(cf.albums, (unsigned)cf.album);
     cf.saved_album = album_key(r);
-    remember(1); /* a power-off on the tracks keeps it too */
+    BLOB_IO(LAST_ALBUM, cf.saved_album, 1); /* a power-off on the tracks keeps it too */
     if (cf.tracks) deque_destroy(cf.tracks);
     cf.tracks = in_order(staged(albums, r, &n));
     n = (int)deque_size(cf.tracks);
@@ -906,7 +899,7 @@ static int keyup(void *ctx, void *event) {
 static int closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    if (cf.saved_album) remember(1);
+    if (cf.saved_album) BLOB_IO(LAST_ALBUM, cf.saved_album, 1);
     drop();
     cf.page = cf.body = cf.covers = cf.slide = 0;
     return 0;

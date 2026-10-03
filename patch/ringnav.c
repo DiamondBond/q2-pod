@@ -1948,8 +1948,7 @@ static void setting_text(int i) {
         "Battery: Icon", "Battery: Percent", "Battery: Icon + Percent"
     };
     const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };
-    const char *name = names[i];
-    widget_set_text_utf8(st.setting_label[i], name);
+    widget_set_text_utf8(st.setting_label[i], names[i]);
 }
 
 /* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on

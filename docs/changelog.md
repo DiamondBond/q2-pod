@@ -63,3 +63,4 @@
 - **V1.7R**: Added centre button double-press to toggle the screen on/off.
 - **V1.6R**: Home screen now keeps the stock selected-card highlight without any extra outline.
 - **V1.5R**: Added menu item highlighting, centre-button selection, and music selection features.
+- **V1.4R**: The first release, then called Q2 ring navigation. The touch ring scrolls lists and the Home carousel instead of changing the volume, and the centre button opens the selected row. Lists glide with AWTK's own scrolling, and the ring does nothing at a list's end or while a page slides, so it never changes the volume by accident.
