@@ -78,9 +78,11 @@ unsigned fnv(unsigned h, const unsigned char *s) {
     return h * 16777619u; /* a separator, so "ab"+"c" and "a"+"bc" differ */
 }
 
-static unsigned album_key(void *r) {
-    return fnv(fnv(FNV_SEED, P(r, REC_ARTIST)), P(r, REC_ALBUM));
+static unsigned tags_key(const char *artist, const char *album) {
+    return fnv(fnv(FNV_SEED, (const unsigned char *)artist), (const unsigned char *)album);
 }
+
+static unsigned album_key(void *r) { return tags_key(P(r, REC_ARTIST), P(r, REC_ALBUM)); }
 
 /* Track selection uses ringnav's existing position memory, keyed by this album. */
 unsigned coverflow_scope(void *page) {
@@ -921,6 +923,16 @@ void *queue_now(unsigned *pos, unsigned *n) {
     return *pos < *n ? deque_at(queue, *pos) : (void *)0;
 }
 
+/* r's REC_ALBUM or REC_ARTIST as the player parsed it from the file, once it has parsed r's;
+ * else the record's own. The records of the next folder, which stock queues when a folder play
+ * ends (on_player_autochange), carry no tags (issue #7). */
+const char *now_tag(void *r, int field) {
+    if (!r) return (void *)0;
+    if (!tk_strcmp((const char *)g_play_id3_info, P(r, REC_PATH)))
+        return (const char *)g_play_id3_info + (field == REC_ALBUM ? ID3_ALBUM : ID3_ARTIST);
+    return P(r, field);
+}
+
 #if IPOD
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
@@ -953,18 +965,20 @@ static void home_fit(unsigned w, unsigned h) {
     widget_move_resize(home.art, home.panel[0] + (pw - fw) / 2, home.panel[1] + (ph - fh) / 2, fw, fh);
 }
 
-/* The player's cover, else the Coverflow cache of the track's album, else the placeholder. The
- * player's files belong to the track whose path it copies to g_lastcover_url after writing them,
- * so right after a track change they count only once that is this track. Runs whenever Home or
- * the status bar paints (at least once a second) and reloads only when the track or the cover it
- * can use changes. */
+/* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
+ * placeholder. The player's files belong to the track whose path it copies to g_lastcover_url
+ * after writing them, so right after a track change they count only once that is this track. Runs
+ * whenever Home or the status bar paints (at least once a second) and reloads only when the track,
+ * the cover it can use or its parsed tags change. */
 void coverflow_home_art(void *top) {
     if (!home.art || top != home.win || !widget_get_visible(home.art)) return;
     unsigned pos, n;
     void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
     unsigned char type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
-    unsigned key = hash_bytes(fnv(FNV_SEED, (const unsigned char *)path), &type, 1);
+    unsigned album = tags_key(now_tag(r, REC_ARTIST), now_tag(r, REC_ALBUM));
+    unsigned key = hash_bytes(hash_bytes(fnv(FNV_SEED, (const unsigned char *)path), &type, 1),
+                              (const unsigned char *)&album, sizeof(album));
     if (key == home.key) return;
     home.key = key;
     const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
@@ -972,7 +986,7 @@ void coverflow_home_art(void *top) {
     int shown = cover && show(home.art, cover, size);
     if (!shown && r) {
         char url[600] = "file://";
-        art_path(url + 7, album_key(r), "");
+        art_path(url + 7, album, "");
         shown = show(home.art, url, size);
     }
     if (!shown && !show(home.art, PLACEHOLDER, size)) image_base_set_image(home.art, PLACEHOLDER);

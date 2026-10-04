@@ -41,6 +41,7 @@ LIBC = {
     'deque_init_copy': ('void', 'void *, const void *'), 'deque_size': ('unsigned', 'const void *'),
     'deque_at': ('void *', 'const void *, unsigned'), '_deque_push_back': ('void', 'void *, ...'),
     'deque_assign': ('void', 'void *, const void *'), 'deque_clear': ('void', 'void *'),
+    'deque_pop_back': ('void', 'void *'),
     'deque_destroy': ('void', 'void *'), 'send': ('int', 'int, const void *, unsigned, int'),
     # Coverflow's art thread (coverflow.c)
     'pthread_create': ('int', 'unsigned long *, const void *, void *(*)(void *), void *'),

@@ -10,7 +10,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
-    stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int);
+    stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
+    stock_localclass_trampoline(int);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
@@ -21,6 +22,7 @@ extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
 extern int books_key(void *top, unsigned key), video_on(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
+extern const char *now_tag(void *r, int field);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
@@ -1578,7 +1580,7 @@ static void np_sync(void *top) {
     if (!top || top != st.np_win) return;
     unsigned at, n;
     void *r = queue_now(&at, &n);
-    const char *album = r ? P(r, REC_ALBUM) : (void *)0;
+    const char *album = now_tag(r, REC_ALBUM);
     char s[24] = "";
     unsigned pos[2] = { at, n };
     unsigned h = hash_bytes(fnv(FNV_SEED, (const unsigned char *)album), (const unsigned char *)pos,
@@ -2325,14 +2327,8 @@ static int qm_gone(void *dialog, void *event) {
  * batch_add_file (0x4f4be8) expands each class. Artist 0xf004/0xff01 rows name the artist at +0x18,
  * composer 0xf005/0xff02 at +0x20, genre 0xf006/0xff03 at +0x1c; classinfo +0xa.. flags Unknown. */
 static const unsigned char qm_by[] = { REC_ARTIST, 0x20, 0x1c };
-static int qm_query(void *r) {
-    if (st.qm_kind == QM_FOLDER) {
-        char path[1024];
-        tk_snprintf(path, sizeof(path), "%s/%s", (const char *)g_folder_path,
-                    (const char *)P(r, REC_NAME));
-        return toolsLoadDirectory(path);
-    }
-    unsigned cls = (unsigned)I(g_class_type, 0), g = (cls & 0xf) - (cls < 0xff00 ? 4 : 1);
+static int class_query(unsigned cls, void *r) {
+    unsigned g = (cls & 0xf) - (cls < 0xff00 ? 4 : 1);
     int artist = I(g_artist_type, 0) == 1, id = I(r, REC_ID);
     if (cls == CLASS_ALBUMS) return getMusicByAlbum(id == -1 ? (const char *)0 : P(r, REC_ALBUM));
     if (cls < 0xff00)
@@ -2347,6 +2343,33 @@ static int qm_query(void *r) {
                      : getMusicByAlbumAndSonger)(
         P(r, REC_ALBUM), g_local_classinfo_save[0xa + g] ? (const char *)0 : P(r, qm_by[g]),
         id == -2);
+}
+
+static int qm_query(void *r) {
+    if (st.qm_kind == QM_FOLDER) {
+        char path[1024];
+        tk_snprintf(path, sizeof(path), "%s/%s", (const char *)g_folder_path,
+                    (const char *)P(r, REC_NAME));
+        return toolsLoadDirectory(path);
+    }
+    return class_query((unsigned)I(g_class_type, 0), r);
+}
+
+/* load_localclass_list: stock fills p_deque_showlist and returns its size. getAllAlbum,
+ * getAllArtist (and its album-artist twin), getAllComposer and getAllGenre end with an Unknown row
+ * (id -1) whenever the library has songs; it goes when the query its press runs finds none. Stock
+ * clears the staging deque before returning, and so does this. */
+int ringnav_localclass(int cls) {
+    int n = stock_localclass_trampoline(cls);
+    void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0);
+    if (n <= 0 || cls < CLASS_ALBUMS || cls > 0xf006 ||
+        I(deque_at(list, (unsigned)n - 1), REC_ID) != -1)
+        return n;
+    class_query((unsigned)cls, deque_at(list, (unsigned)n - 1));
+    int empty = !deque_size(dir);
+    deque_clear(dir);
+    if (empty) deque_pop_back(list);
+    return n - empty;
 }
 
 /* The tracks stock would play for that row, in its order. */
@@ -2854,8 +2877,8 @@ static int qm_hold(void) {
     void *list = page_tracks(top);
     int coverflow = list != 0;
     void *w = surface_under(top, (void *)0, (void *)0, 0);
-    if ((!coverflow && kind < CTX_FOLDER) || !tk_strcmp(name, "artistinfo_page") || !w ||
-        !load(&g_menu, w, 1) || g_menu.ctx < 0 || g_menu.kind == 3)
+    if ((!coverflow && kind < CTX_FOLDER) || !w || !load(&g_menu, w, 1) || g_menu.ctx < 0 ||
+        g_menu.kind == 3)
         return 0;
     int cur = reconcile(&g_menu, !moving(&g_menu));
     if (!coverflow) list = P(p_deque_showlist, 0);
@@ -2943,9 +2966,9 @@ static void play_count(unsigned key) {
 }
 
 /* Scrobbling (docs/internals.md#scrobbling): a Rockbox-style AudioScrobbler 1.1 log at the card's
- * root, for any .scrobbler.log uploader or Upload Scrobbles (scrobble.c). ponytail: untagged
- * (artist-less) tracks are skipped, as scrobblers reject them; toolsGetMusicInfo if folder plays
- * need them. */
+ * root, for any .scrobbler.log uploader or Upload Scrobbles (scrobble.c). Artist and album are the
+ * player's parsed tags when it has parsed this track (now_tag); untagged (artist-less) tracks are
+ * skipped, as scrobblers reject them. */
 static char *scrobble_tag(char *o, char *end, const char *s) {
     for (; s && *s && o < end - 1; s++) *o++ = *s == '\t' || *s == '\n' || *s == '\r' ? ' ' : *s;
     *o++ = '\t';
@@ -2953,13 +2976,13 @@ static char *scrobble_tag(char *o, char *end, const char *s) {
 }
 
 static void scrobble(void *r, int total, int heard) {
-    const char *artist = P(r, REC_ARTIST);
+    const char *artist = now_tag(r, REC_ARTIST);
     if (!artist || !*artist) return;
     long now = time((void *)0);
     if (now < 1600000000) return; /* clock never set: Last.fm would reject the time */
     char line[800], name[512], *end = line + sizeof line - 48, *o = line; /* 48: the numbers */
     o = scrobble_tag(o, end, artist);
-    o = scrobble_tag(o, end, P(r, REC_ALBUM));
+    o = scrobble_tag(o, end, now_tag(r, REC_ALBUM));
     const char *title = P(r, REC_TITLE);
     o = scrobble_tag(o, end, title && *title ? title : track_name(name, sizeof name, r));
     if (I(r, REC_TRACK) > 0) o += tk_snprintf(o, 12, "%d", I(r, REC_TRACK));

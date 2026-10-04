@@ -2444,7 +2444,7 @@ class QueueMachine(Machine):
         super().__init__()
         self.deqs={}; self.toasts=[]; self.sent=[]; self.picks=[]; self.airplay=0
         for n in ('_create_deque','deque_init','deque_init_copy','deque_size','deque_at','_deque_push_back',
-                  'deque_assign','deque_clear','deque_destroy','send@GLIBC_2.0','window_manager_get_input_device_status',
+                  'deque_assign','deque_clear','deque_destroy','deque_pop_back','send@GLIBC_2.0','window_manager_get_input_device_status',
                   'navigator_to','navigator_to_with_context','window_close','widget_on','widget_destroy_children',
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
                   'getMusicBySonger','getMusicByAlbumArtist','getMusicByComposer','getMusicByGenre',
@@ -2496,6 +2496,7 @@ class QueueMachine(Machine):
         elif name=='deque_at': ret=self.items(a)[b]
         elif name=='_deque_push_back': self.items(a).append(self.copy(self.deqs[a][0],b))
         elif name=='deque_destroy': del self.deqs[a]
+        elif name=='deque_pop_back': self.items(a).pop()
         elif name=='send@GLIBC_2.0': self.sent.append((a,bytes(u.mem_read(b,c)),c,d)); ret=c
         elif name=='window_manager_get_input_device_status': ret=self.status
         elif name=='airplayGetFlag': ret=self.airplay
@@ -2620,6 +2621,7 @@ for kw,setup,want in (({},None,('Row 0',SONG_MENU)),
         ({},lambda m:m.word(m.row(0)+O['REC_ALBUM'],0),('Row 0',[*SONG_MENU[:4],'Go to artist'])),
         ({'cls':0xf003,'page':'album_page'},None,('Album',[*GROUP,'Go to artist'])),
         ({'cls':0xff01,'page':'album_page'},None,('Album',GROUP)),
+        ({'cls':0xff01,'page':'artistinfo_page'},None,('Album',GROUP)),  # an artist's Albums tab
         ({'cls':0xf004,'page':'localclass_page'},None,('Artist',GROUP)),
         ({'cls':0xf006,'page':'localclass_page'},lambda m:m.word(m.row(0)+0x1c,m.string('Pop')),('Pop',GROUP)),
         ({'page':'folder_page','cls':1},lambda m:m.word(m.row(0)+O['REC_TYPE'],4),('Row 0',GROUP))):
@@ -2748,11 +2750,38 @@ m.pick(0); m.advance(0); assert m.toasts[-1][3]=='Queue unchanged' and m.names()
 for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lambda m:m.byte(syms['g_backlight_status'],0),1),
         (lambda m:m.byte(syms['g_navbar_status'],1),1),
         (lambda m:m.word(m.surface+O['TABLE_ROWS'],7),1),(lambda m:m.word(m.row(0)+O['REC_TYPE'],4),1),
-        (lambda m:setattr(m,'airplay',2),0),(lambda m:m.nodes[m.top].__setitem__('name','artistinfo_page'),1),
+        (lambda m:setattr(m,'airplay',2),0),
         (lambda m:setattr(m,'top',m.node('window','home_page',[m.node()])),1)):
     m=QueueMachine(); setup(m); m.press(3)
     assert m.hold()==0 and len(m.stack)==1 and m.release()==toggles
     passed()
+# Unknown rows (docs/internals.md#unknown-rows): stock's list (here the showlist as built, its size
+# returned) keeps its trailing Unknown row (id -1) only when the query its press runs finds a song;
+# the staging deque is left cleared. Other rows and classes stay stock.
+class ClassMachine(QueueMachine):
+    tramp=int(manifest['patch_symbols']['stock_localclass_trampoline'],16)
+    def hook(self,u,address,size,unused):
+        if address!=self.tramp: return super().hook(u,address,size,unused)
+        self.calls.append(('stock_localclass',u.reg_read(REGS[0]),0,0))
+        u.reg_write(UC_MIPS_REG_V0,len(self.items(self.get(syms['p_deque_showlist']))))
+        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+def unknown(cls,found,last=-1,artist=0,rows=3):
+    m=ClassMachine(page='localclass_page',cls=0xf001,rows=rows); m.found=[m.song('T1')]*found; m.query=None
+    m.word(syms['g_artist_type'],artist)
+    if rows: m.word(m.row(rows-1)+O['REC_ID'],last)
+    n=m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+    shown=m.names(m.get(syms['p_deque_showlist']))
+    assert n==len(shown) and m.calls[0][:2]==('stock_localclass',cls)
+    return shown,m.query,m.items(m.get(syms['tools_pdeq_directory']))
+for cls,artist,query in ((0xf003,0,'getMusicByAlbum'),(0xf004,0,'getMusicBySonger'),(0xf004,1,'getMusicByAlbumArtist'),
+                         (0xf005,0,'getMusicByComposer'),(0xf006,0,'getMusicByGenre')):
+    shown,q,staging=unknown(cls,0,artist=artist)
+    assert shown==['Row 0','Row 1'] and q[:2]==(query,None) and not staging, (cls,artist)
+    shown,q,staging=unknown(cls,1,artist=artist)
+    assert shown==['Row 0','Row 1','Row 2'] and q[:2]==(query,None) and not staging, (cls,artist); passed()
+for cls,last,rows in ((0xf004,1,3),(0xff01,-1,3),(0xf007,-1,3),(0xf004,-1,0)):
+    shown,q,_=unknown(cls,0,last=last,rows=rows)
+    assert len(shown)==rows and q is None, (cls,last,rows); passed()
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
@@ -3145,6 +3174,12 @@ if variant=='ipod':
     # A rebuilt queue can reuse the same string address with new text; the text itself is hashed.
     m.u.mem_write(m.get(m.items(m.get(syms['mcl_pdeqplaylist']))[2]+O['REC_ALBUM']),b'Other\0')
     assert 'label_ipod_album' in repaint() and shown()[1]=='Other'; passed()
+    # Issue #7: once the player has parsed the playing file (g_play_id3_info starts with its path)
+    # the label shows the album it parsed, which a next folder's untagged records lack.
+    id3=syms['g_play_id3_info']; m.u.mem_write(id3+O['ID3_ALBUM'],b'Parsed\0')
+    m.u.mem_write(id3,b'/p/other\0'); assert repaint()==[] and shown()[1]=='Other'
+    m.u.mem_write(id3,b'/p/C\0'); assert repaint()==['label_ipod_pos','label_ipod_album'] and shown()[1]=='Parsed'
+    m.u.mem_write(id3,b'\0'); assert repaint()==['label_ipod_pos','label_ipod_album'] and shown()[1]=='Other'; passed()
     for mx,v,want in ((3725,0,'-01:02:05'),(3600,0,'-01:00:00'),(3599,0,'-59:59'),(90,90,'-00:00'),(90,95,'-00:00')):
         m.nodes[slider].update(max=mx,value=v); repaint(); assert shown()[2]==want,(mx,v)
     passed()
@@ -4290,12 +4325,12 @@ assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.plays and len
 m.page=m.top; assert m.nodes[m.page]['name']=='mostplayed_page' and m.nodes[m.page]['style:normal:bg_color']==-0x1000000
 assert m.texts()==['No plays yet'] and not m.nodes[m.find('scroll_view')]['children']
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.top==m.page; m.close(); passed()
-m=ShuffleMachine(); m.found=[m.song(f'T{i}') for i in range(40)]
+m=ShuffleMachine(); m.found=[m.song(f'T{i}') for i in range(130)]
 m.word(m.found[1]+O['REC_ARTIST'],0)  # untagged: the count alone
-slots=[(fnv('/p/T3'),5),(fnv('/p/T1'),2),(fnv('/p/T7'),5)]+[(fnv(f'/p/T{i}'),1) for i in range(8,40)]
+slots=[(fnv('/p/T3'),5),(fnv('/p/T1'),2),(fnv('/p/T7'),5)]+[(fnv(f'/p/T{i}'),1) for i in range(8,130)]
 m.counts=b''.join(struct.pack('<2I',*e) for e in slots).ljust(8*O['PLAYS_SLOTS'],b'\0')
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.page=m.top
-ranked=['T3','T7','T1']+[f'T{i}' for i in range(8,40)][:O['PLAYS_TOP']-3]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0; m.page=m.top
+ranked=['T3','T7','T1']+[f'T{i}' for i in range(8,130)][:O['PLAYS_TOP']-3]
 # Each 64px row: the title over its artist (when tagged) and play count, in 16px stock grey.
 details=['Artist · 5 plays','Artist · 5 plays','2 plays']+['Artist · 1 play']*(O['PLAYS_TOP']-3)
 assert m.texts()==['Most Played']+[x for p in zip(ranked,details) for x in p]

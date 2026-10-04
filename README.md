@@ -50,7 +50,7 @@
 **Music**
 
 - Hold Play/Pause: Favourites, Add to playlist, Shuffle, Go to album/artist
-- Shuffle Songs and Most Played (your top 25)
+- Shuffle Songs and Most Played (your top 100)
 - Parametric EQ: up to 30 bands, per channel, with balance
 - Sorting ignores a leading The, A or An
 

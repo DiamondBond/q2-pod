@@ -29,9 +29,10 @@ extern void *shim_dir;
 #define tk_snprintf snprintf
 extern void *shim_queue;
 extern unsigned char shim_covertype;
-extern char shim_lastcover[1024];
+extern char shim_lastcover[1024], shim_id3[2716];
 #define mcl_pdeqplaylist ((const unsigned char *)&shim_queue)
 #define g_lastcover_url ((const unsigned char *)shim_lastcover)
+#define g_play_id3_info ((const unsigned char *)shim_id3)
 #define g_playcover_type shim_covertype
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
@@ -301,7 +302,7 @@ int shim_statfs(const char *p, void *out) {
 
 void *shim_queue;
 unsigned char shim_covertype;
-char shim_lastcover[1024];
+char shim_lastcover[1024], shim_id3[2716];
 static widget *page;
 static void *release(void *unused) { (void)unused; usleep(50000); blocked = 0; return 0; }
 static void open_page(void) {
@@ -762,6 +763,25 @@ int main(void) {
     *(volatile int *)MCL_POS = 1; shim_covertype = 1; /* next track, the old cover still in place */
     coverflow_home_art(win);
     assert(!strcmp(art, "default_album_big"));
+    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
+    coverflow_home_art(win);
+    assert(!strcmp(art, player) && loads == unloads);
+    /* Issue #7: the next folder stock queues after a folder play carries no tags; with no player
+       cover the art is the placeholder until the player's parsed tags name the cached album. */
+    static char next[0x60];
+    *(const char **)(next + REC_PATH) = "/mnt/mmc/Next/01.flac";
+    queue.n = 3; queue.at[2] = next;
+    *(volatile int *)MCL_POS = 2; shim_covertype = 3;
+    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", "/mnt/mmc/Next/01.flac");
+    coverflow_home_art(win);
+    assert(!strcmp(art, "default_album_big"));
+    snprintf(shim_id3, sizeof(shim_id3), "%s", "/mnt/mmc/Next/01.flac");
+    snprintf(shim_id3 + ID3_ALBUM, 256, "%s", "Cover");
+    snprintf(shim_id3 + ID3_ARTIST, 256, "%s", "Artist");
+    coverflow_home_art(win);
+    assert(strstr(art, "/mnt/mmc/.coverflow/") && loads == unloads);
+    memset(shim_id3, 0, sizeof(shim_id3));
+    queue.n = 2; *(volatile int *)MCL_POS = 1; shim_covertype = 1;
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
     coverflow_home_art(win);
     assert(!strcmp(art, player) && loads == unloads);

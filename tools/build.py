@@ -24,6 +24,8 @@ HOOKS = {
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq'),
     'home_page_init': (0x523c84, 'coverflow_home'),
     'localmusic_page_init': (0x524424, 'ringnav_localmusic'),
+    # Library lists: an Unknown row with no songs is dropped
+    'load_localclass_list': (0x5088cc, 'ringnav_localclass'),
     # The three songtable writers; Coverflow keeps its album list until one runs.
     'scanAllMusicFile': (0x4fc788, 'coverflow_scan_all'),
     'scanSpecFolder': (0x4fc964, 'coverflow_scan_folder'),
@@ -315,12 +317,14 @@ GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
            'g_po_status', 'g_bal_status']  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
-# (system_bar_init stores it) and the playing cover's track path; sizes are checked against the ELF.
+# (system_bar_init stores it), the playing cover's track path and the playing track's tags as
+# player_get_id3info parsed them; sizes are checked against the ELF.
 CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
-                'g_dacoff_time': 4, 'p_vector_select_record': 4}
+                'g_dacoff_time': 4, 'p_vector_select_record': 4,
+                'g_play_id3_info': 2716}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']

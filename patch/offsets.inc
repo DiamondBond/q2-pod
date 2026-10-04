@@ -218,7 +218,7 @@
 #define LISTEN_MIN_S 30
 #define LISTEN_MAX_S 240
 #define PLAYS_SLOTS 512
-#define PLAYS_TOP 25
+#define PLAYS_TOP 100
 /* End bump and wrap, audited row lists only (see ring_list in patch/navigation.c). A detent past an
  * end nudges the outline; further detents stop there while the wheel keeps turning, and the first
  * same-direction detent after a pause of EDGE_PAUSE_MS moves to the other end of the same list. */
@@ -269,6 +269,9 @@
 #define REC_DISC 0x40
 #define REC_CUE_START 0x48      /* a CUE track's start and end seconds, 0 otherwise */
 #define REC_CUE_END 0x4c
+/* g_play_id3_info, as player_get_id3info (0x5146bc) parses the playing file: its path, then tags. */
+#define ID3_ALBUM 0x404
+#define ID3_ARTIST 0x504
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */
