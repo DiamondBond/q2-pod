@@ -2694,7 +2694,7 @@ int ringnav_localmusic(void *win, void *ctx) {
  * holding a 335x70 s_btn_listitem button, a 166px s_scrlabel_white24l title at x 10 and a 149px
  * s_scrlabel_white20r value at x 176, both focus-only scrolling with ellipses. FW. Version (row 1)
  * reads demo's version literal, which carries the updater tag (tools/build.py VERSIONS), so it
- * shows the stock firmware's again; a Q2 Pod row in the same widgets follows it. Its button has no
+ * shows the stock firmware's again; a CFW Version row in the same widgets follows it. Its button has no
  * name, so stock's row click (atoi of the name, 0x4bc774) ignores it. */
 static void about_label(void *button, int x, int w, const char *style, const char *text) {
     void *label = hscroll_label_create(button, x, 0, w, 70);
@@ -2711,8 +2711,7 @@ int ringnav_about(void *win, void *ctx) {
         widget_set_text_utf8(widget_get_child(widget_get_child(widget_get_child(view, 1), 0), 1),
                              STOCK_VERSION);
         void *button = list_button(view);
-        about_label(button, 10, 172, "s_scrlabel_white24l",
-                    "Q2 Pod Version"); /* 167px; the right-aligned value never reaches it */
+        about_label(button, 10, 166, "s_scrlabel_white24l", "CFW Version");
         about_label(button, 176, 149, "s_scrlabel_white20r", Q2POD_VERSION);
         widget_restack(P(button, W_PARENT), 2);
     }

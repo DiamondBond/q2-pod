@@ -12,7 +12,7 @@ Symbol-resolved entries (FUNCTIONS, GLOBALS, CONTEXT_DATA, the hooks) only need 
 """
 import argparse, collections, functools, io, pathlib, re, struct, subprocess, tarfile, tempfile, zipfile
 from build import (ROOT, HOOKS, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, PRIVATE_FUNCTIONS, FUNCTIONS, GLOBALS, CONTEXT_DATA,
-                   SHUFFLE_CALL, SORT_TRIMS, DROP_CACHES, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
+                   SHUFFLE_CALL, SORT_TRIMS, DROP_CACHES, WHEEL_THRESHOLDS, BLUEALSA, AAC_44K1, ZIP_SHA, check, run, segments, sha, symbols)
 import ipod, peq
 
 # Raw addresses in patch/offsets.inc; every other define there inside the image is a value.
@@ -185,6 +185,7 @@ def inventory(images):
         items.append((f'trampoline.S {m[1]}', 'demo', int(m[2], 16), None))
     items += [('SHUFFLE_CALL', 'demo', SHUFFLE_CALL[0], demo.word(SHUFFLE_CALL[0])),
               ('DROP_CACHES', 'demo', DROP_CACHES[0], DROP_CACHES[1])]
+    items += [('WHEEL_THRESHOLDS', 'demo', a, old) for a, old in WHEEL_THRESHOLDS]
     items += [('SORT_TRIMS', 'demo', a, demo.word(a)) for a in SORT_TRIMS]
     items += [('ARTIST_ALBUMS', 'demo', a, old) for a, old, _ in ipod.ARTIST_ALBUMS]
     items += [('event_abi_words', 'demo', int(a, 16), struct.unpack('<I', bytes.fromhex(w))[0])

@@ -7,9 +7,9 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '7.7'
+VERSION = '7.8'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
-# the stock firmware version and a Q2 Pod row with the edition instead (ringnav_about).
+# the stock firmware version and a CFW Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
 BASE = 0xb00000
 SCRATCH = 0xb20000
@@ -75,6 +75,11 @@ SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
 # check_mem_thd's "open failed, skip the write" beq becomes b: it never writes 3 to drop_caches.
 DROP_CACHES = (0x5120a8, 0x12220006, 0x10000006)
+# The knob's travel per tick: get_direction's threshold (knob units, 200 a turn) in the rotation
+# handler, stock 20 for a gesture's first tick (and a release without one) and 10 after, scaled by
+# WHEEL_TRAVEL. At stock a small nudge moved a row. Tuned on the device.
+WHEEL_TRAVEL = 1.2
+WHEEL_THRESHOLDS = ((0x625ce0, 0x24060014), (0x625cdc, 0x2403000a), (0x625ba0, 0x24060014))
 # demo's .pdr section (offset, size): MIPS procedure descriptors past every LOAD segment, which nothing
 # reads at run time. Zeroed, they pack to almost nothing, which keeps the Stock rootfs within stock's size.
 PDR = (0x61694c, 0x69d40)
@@ -454,7 +459,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # iPod's image hook leaves the settings icons' category colours alone (navigation.c settings_icon).
     names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
-    # About: the stock firmware's version on its own row, and this build's on the Q2 Pod row.
+    # About: the stock firmware's version on its own row, and this build's on the CFW Version row.
     header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
@@ -494,6 +499,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
     patch_word(patched, [], *DROP_CACHES, 'keep the page cache')
+    for address, old in WHEEL_THRESHOLDS:
+        patch_word(patched, [], address, old, old & 0xffff0000 | round((old & 0xffff) * WHEEL_TRAVEL),
+                   'wheel travel per tick')
     for address in SORT_TRIMS:
         patch_word(patched, [], address, 0x04110000 | (syms['toolsTrimLeft'] - address - 4) >> 2 & 0xffff,
                    0x0c000000 | (ps['ringnav_sort_key'] >> 2), 'sort without a leading article')
