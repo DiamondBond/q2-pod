@@ -14,7 +14,7 @@ import tempfile
 import zipfile
 from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
-REPO = 'DiamondBond/q2-ringnav'
+REPO = 'DiamondBond/q2-pod'
 # iPod is the main build; Stock keeps the stock UI.
 ASSETS = {'ipod': f'Q2.Firmware.V{VERSION}.zip', 'stock': f'Q2.Firmware.V{VERSION}-stock.zip'}
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/DiamondBond/q2-ringnav/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/DiamondBond/q2-ringnav?style=flat-square&label=release&color=3D424B"></a>
+  <a href="https://github.com/DiamondBond/q2-pod/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/DiamondBond/q2-pod?style=flat-square&label=release&color=3D424B"></a>
   <a href="#features"><img alt="Device: Shanling Q2" src="https://img.shields.io/badge/device-Shanling%20Q2-B99AC8?style=flat-square"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-D77868?style=flat-square"></a>
   <a href="https://youtu.be/C5x05EwsPGI"><img alt="Watch on YouTube" src="https://img.shields.io/badge/YouTube-video-FF0000?style=flat-square&logo=youtube&logoColor=white"></a>
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <b><a href="https://github.com/DiamondBond/q2-ringnav/releases/latest">Download</a></b> ·
+  <b><a href="https://github.com/DiamondBond/q2-pod/releases/latest">Download</a></b> ·
   <b><a href="#install">Install</a></b> ·
   <b><a href="docs/changelog.md">Changelog</a></b> ·
   <b><a href="#documentation">Docs</a></b>
@@ -89,7 +89,7 @@
 > [!IMPORTANT]
 > Charge the Q2 first, and leave the microSD card in until the update finishes.
 
-1. [Download](https://github.com/DiamondBond/q2-ringnav/releases/latest) `Q2.Firmware.V*.zip`, unzip it and copy `update.tar` to the root of the microSD card.
+1. [Download](https://github.com/DiamondBond/q2-pod/releases/latest) `Q2.Firmware.V*.zip`, unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2: **System settings → System Update → TF card update**.
 3. **System settings → About** then shows FW V1.32 and your **CFW. Version**.
 
@@ -221,7 +221,7 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 
 ## Contributing
 
-Found a bug? [Open an issue](https://github.com/DiamondBond/q2-ringnav/issues) with the screen and steps. To build it yourself, see [Building](docs/building.md).
+Found a bug? [Open an issue](https://github.com/DiamondBond/q2-pod/issues) with the screen and steps. To build it yourself, see [Building](docs/building.md).
 
 ## License
 
