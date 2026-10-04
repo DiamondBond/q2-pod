@@ -144,9 +144,10 @@ typedef struct {
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
-     * checked by count, record and browsing-state hashes; qm_forced is a shuffle Play next. */
+     * checked by count, record and browsing-state hashes; qm_cls is the class its list holds;
+     * qm_forced is a shuffle Play next. */
     unsigned long long qm_press;
-    unsigned qm_timer, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
+    unsigned qm_timer, qm_cls, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
     int qm_kind, qm_action;
     void *qm_dialog;
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
@@ -2352,7 +2353,7 @@ static int qm_query(void *r) {
                     (const char *)P(r, REC_NAME));
         return toolsLoadDirectory(path);
     }
-    return class_query((unsigned)I(g_class_type, 0), r);
+    return class_query(st.qm_cls, r);
 }
 
 /* load_localclass_list: stock fills p_deque_showlist and returns its size. getAllAlbum,
@@ -2439,7 +2440,7 @@ static int qm_apply(void *add, int next) {
     /* Only a local (folder or library) queue grows; streams keep theirs. */
     if (size && type != 1 && (type & 0xf000) != 0xf000) return 0;
     if (n && !size) /* loads without starting playback */
-        mclLoadPlayList(add, 0, st.qm_kind >= QM_FOLDER ? 1 : I(g_class_type, 0));
+        mclLoadPlayList(add, 0, st.qm_kind >= QM_FOLDER ? 1 : (int)st.qm_cls);
     else if (n)
         qm_insert(queue, add, size, next);
     return n != 0;
@@ -2743,7 +2744,7 @@ static void qm_goto(void *r, int album) {
         struct {
             int cls;
             void *r;
-        } context = { I(g_class_type, 0), r };
+        } context = { (int)st.qm_cls, r };
         navigator_to_with_context("localmusic/artistinfo_page", &context);
     }
     void *top = window_manager_get_top_window(wm);
@@ -2763,7 +2764,7 @@ static int qm_run(const void *unused) {
     if (!st.qm_dialog) return 0;
     qm_close();
     void *r = qm_record();
-    int a = st.qm_action, cls = st.qm_kind == QM_COVERFLOW ? 0xf001 : I(g_class_type, 0);
+    int a = st.qm_action, cls = st.qm_kind == QM_COVERFLOW ? 0xf001 : (int)st.qm_cls;
     if (r && a == QA_FAV) { /* tags a folder file as batch-select's Add to My Fav does */
         qm_select();
         batch_add_file(cls, 0xf00a, qm_list(), P(p_vector_select_record, 0), 0);
@@ -2819,7 +2820,7 @@ static int qm_open(const void *unused) {
     widget_on(dialog, EVT_KEY_UP, qm_back, dialog);
     widget_on(back, EVT_CLICK, qm_back, dialog);
     widget_on(dialog, EVT_DESTROY, qm_gone, dialog);
-    unsigned cls = (unsigned)I(g_class_type, 0);
+    unsigned cls = st.qm_cls;
     int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW;
     const char *album = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
     const char *title = st.qm_kind == QM_ALBUM   ? album
@@ -2883,7 +2884,10 @@ static int qm_hold(void) {
     if (!coverflow) list = P(p_deque_showlist, 0);
     if (cur < 0 || !list || deque_size(list) != (unsigned)g_menu.rows) return 0;
     void *r = deque_at(list, g_menu.id[cur]);
-    unsigned cls = (unsigned)I(g_class_type, 0);
+    /* An artist's tabs reload the showlist with load_localartist_list, which sets classinfo +0
+     * (0xff07 songs, 0xff01 albums) but not g_class_type. */
+    unsigned cls = (unsigned)(tk_strcmp(name, "artistinfo_page") ? I(g_class_type, 0)
+                                                                 : I(g_local_classinfo_save, 0));
     char *key = play_key();
     if (!r || !key) return 0;
     st.qm_kind = I(r, REC_TYPE) == 8 ? QM_SONG : 0;
@@ -2896,6 +2900,7 @@ static int qm_hold(void) {
     else if (cls >= 0xf004 && cls <= 0xf006)
         st.qm_kind = QM_GROUP; /* artist, composer and genre lists */
     if (!st.qm_kind || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
+    st.qm_cls = cls;
     st.qm_idx = (unsigned)g_menu.id[cur];
     st.qm_rows = (unsigned)g_menu.rows;
     st.qm_hash = rec_hash(r);

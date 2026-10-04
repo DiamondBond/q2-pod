@@ -2621,7 +2621,9 @@ for kw,setup,want in (({},None,('Row 0',SONG_MENU)),
         ({},lambda m:m.word(m.row(0)+O['REC_ALBUM'],0),('Row 0',[*SONG_MENU[:4],'Go to artist'])),
         ({'cls':0xf003,'page':'album_page'},None,('Album',[*GROUP,'Go to artist'])),
         ({'cls':0xff01,'page':'album_page'},None,('Album',GROUP)),
-        ({'cls':0xff01,'page':'artistinfo_page'},None,('Album',GROUP)),  # an artist's Albums tab
+        # An artist's tabs set classinfo +0, not g_class_type: Albums first, then Songs after an album.
+        ({'cls':0xff07,'page':'artistinfo_page'},lambda m:m.word(syms['g_local_classinfo_save'],0xff01),('Album',GROUP)),
+        ({'cls':0xff01,'page':'artistinfo_page'},lambda m:(m.word(syms['g_local_classinfo_save'],0xff07),m.open_pages.add('artistinfo_page')),('Row 0',SONG_MENU[:5])),
         ({'cls':0xf004,'page':'localclass_page'},None,('Artist',GROUP)),
         ({'cls':0xf006,'page':'localclass_page'},lambda m:m.word(m.row(0)+0x1c,m.string('Pop')),('Pop',GROUP)),
         ({'page':'folder_page','cls':1},lambda m:m.word(m.row(0)+O['REC_TYPE'],4),('Row 0',GROUP))):
