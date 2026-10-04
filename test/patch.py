@@ -4769,7 +4769,7 @@ m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False); as
 m.close(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
-# literal, and a CFW Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
+# literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
 # Version, so the added row is checked against the real stock widgets, geometry and styles.
 m=ShuffleMachine(); m.handlers[int(manifest['patch_symbols']['stock_about_trampoline'],16)]='stock_about'
 m.mock('strcpy@GLIBC_2.0','widget_set_tr_text')
@@ -4789,7 +4789,7 @@ item=kids[2]; button=m.nodes[item]['children'][0]; title,value=m.nodes[button]['
 # Stock's row, title and value widgets alike.
 want=tree(m.nodes[rows[1]]['children'][0])
 assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==want
-assert m.nodes[title]['text']=='CFW Version' and m.nodes[value]['text']==f"V{VERSION} {'iPod' if variant=='ipod' else 'Stock'}{' dev'*manifest['dev']}"
+assert m.nodes[title]['text']=='CFW. Version' and m.nodes[value]['text']==f"V{VERSION} {'iPod' if variant=='ipod' else 'Stock'}{' dev'*manifest['dev']}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its

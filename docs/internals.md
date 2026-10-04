@@ -25,7 +25,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `scanSpecFolder`                      | `0x4fc964` | The same                                                                              |
 | `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                              |
 | `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                            |
-| `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW Version row ([building.md](building.md))  |
+| `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md))  |
 | `folder_page_init`                    | `0x523330` | Opens at Podcasts or Audiobooks ([Podcasts and Audiobooks](#podcasts-and-audiobooks)) |
 | `folder_back`                         | `0x507ac8` | Back at that folder leaves the page                                                   |
 | `window_manager_dispatch_input_event` | `0x66d49c` | No input reaches the UI while a video plays ([Videos](#videos))                       |

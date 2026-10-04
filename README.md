@@ -91,7 +91,7 @@
 
 1. [Download](https://github.com/DiamondBond/q2-ringnav/releases/latest) `Q2.Firmware.V*.zip`, unzip it and copy `update.tar` to the root of the microSD card.
 2. On the Q2: **System settings → System Update → TF card update**.
-3. **System settings → About** then shows FW V1.32 and your **CFW Version**.
+3. **System settings → About** then shows FW V1.32 and your **CFW. Version**.
 
 **Prefer the stock look?** `Q2.Firmware.V*-stock.zip` has everything except the [iPod UI](#ipod-ui).
 
