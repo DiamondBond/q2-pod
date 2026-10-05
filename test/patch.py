@@ -79,7 +79,8 @@ class Machine:
         self.clip=(0,0,240,240)
         self.handlers={}
         for name in FUNCTIONS: self.handlers[syms[name]]=name
-        for name in ('slide_menu_item_width','slide_menu_on_scroll_done',
+        # canvas_get_vgcanvas runs stock, down to the mocked lcd_get_vgcanvas, as the rounded wrappers need
+        for name in ('slide_menu_item_width','slide_menu_on_scroll_done','canvas_get_vgcanvas',
                      'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun'):
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',

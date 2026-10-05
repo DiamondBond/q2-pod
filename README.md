@@ -115,6 +115,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **Lists:** four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
 - **Status bar:** play state, EQ, time, Bluetooth, Wi-Fi, battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
 - **Now Playing:** "3 of 12", large rounded cover beside title, artist and album, and a slim accent progress capsule.
+- **Visualizer:** swipe Now Playing to its fourth page: Spectrum, Oscilloscope, VU Meters or Halo. Tap to switch.
 - **Quick settings:** pull down from the top edge.
 - **Page slides:** in from the right, back out on Return.
 - **Fast-scroll letter:** spinning a long list shows the letter it sorts under (C for The Cure).
@@ -151,6 +152,7 @@ Video sound plays on the headphone jack or Bluetooth; over a USB DAC it's silent
 
 **Audio settings → Equalizer**:
 
+- **Curve:** the response is drawn above the list as you edit, with a ring on each band.
 - **Bands:** Peaking, Low shelf or High shelf; frequency, gain, Q, on/off, channel (both, **L** or **R**).
 - **Gain:** -24 to +24 dB on the wheel; picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41) work as a graphic EQ.
 - **Frequency and Q:** tap the value (or press centre) to type one, or step with **Raise** / **Lower**.

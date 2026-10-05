@@ -14,18 +14,36 @@ int peq_stock_eq(int mode) {
     return result;
 }
 
+/* PEQ off but its filter in the chain, for the visualizer's tap (visualizer.c): the switch's Off, so a
+ * preset saved On while the stock flag is clear stays silent; nothing if that cannot be saved. */
+void peq_attach(void) {
+    peq_preset active;
+    peq_load_active(&active);
+    if (active.bypass || (active.bypass = 1, peq_save(PEQ_ACTIVE, &active, 1) == 1)) peq_stock_eq(1);
+}
+
 enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
        YES, CANCEL, DELETE, BALANCE, PREAMP, GAIN, /* these three open the picker, in picks[] order */
        FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD };
+#define GRAPH_W (375 - 2 * PEQ_GRAPH_X)
+#if IPOD
+#define ROW_X CF_EDGE /* the text column clear of the rounded glass, as coverflow.c's */
+#define TONE accent_tone(2) /* the light tone */
+#else
+#define ROW_X 12
+#define TONE 0xffffff
+#endif
 static struct {
-    void *page, *view, *edit;
+    void *page, *view, *edit, *graph;
     unsigned timer;
     int screen, band, step, count, previous, rendered, dirty, pick, adjust, tries;
     double typed;
-    peq_preset draft, candidate;
+    peq_preset draft, candidate, named; /* named: the preset applied under applied's name */
     char (*names)[256];
     char destination[600], status[160];
+    char name[64], applied[64]; /* the draft's preset, and the active one's, when loaded from a file */
+    float curve[2][GRAPH_W];      /* the left and right response, in graph rows */
 } ui __attribute__((section(".scratch")));
 
 static const int steps[] = {1, 10, 100, 1000};
@@ -34,13 +52,54 @@ static const struct { double first, step; int rows; } picks[] = {{-12, 0.5, 49},
 static int action(void *ctx, void *event);
 static int render(const void *unused);
 
-static void row(void *view, int index, const char *text, int id) {
+/* A row: the caption on the left, white or, for display-only rows and off bands (dim), grey, and the
+ * value, if any, in grey against the right edge. */
+static void row_dim(void *view, int index, const char *text, const char *value, int id, int dim) {
     void *item = list_item_create(view, 0, index * 48, 375, 48);
     widget_use_style(item, "s_listitem_black");
-    void *label = label_create(item, 12, 0, 350, 48);
-    widget_use_style(label, "s_label_white20c");
-    widget_set_text_utf8(label, text);
+    for (int i = 0; i < 1 + !!value; ++i) {
+        void *label = label_create(item, ROW_X, 0, 375 - 2 * ROW_X, 48);
+        widget_use_style(label, "s_label_white20l");
+        if (i || dim || id < 0) widget_set_prop_int(label, "style:normal:text_color", (int)CF_GREY);
+        if (i) widget_set_prop_str(label, "style:normal:text_align_h", "right");
+        widget_set_text_utf8(label, i ? value : text);
+    }
     widget_on(item, EVT_CLICK, action, (void *)(long)id);
+}
+#define row(view, index, text, id) row_dim(view, index, text, 0, id, 0)
+
+/* |H|^2 of the engine's left and right chains at f Hz (at 48 kHz, as compiled here). */
+static void response(const peq_engine *e, double f, double *l, double *r) {
+    double w = 6.283185307179586 * f / 48000, c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
+    *l = *r = 1;
+    for (int i = 0; i < e->used; ++i) { /* bands past used are identity */
+        const peq_coeff *q = &e->c[i];
+        double nr = q->b0 + q->b1 * c1 + q->b2 * c2, ni = q->b1 * s1 + q->b2 * s2;
+        double dr = 1 + q->a1 * c1 + q->a2 * c2, di = q->a1 * s1 + q->a2 * s2;
+        double m = (nr * nr + ni * ni) / (dr * dr + di * di);
+        if (e->only[i] != 2) *l *= m; /* only: 1 left, 2 right */
+        if (e->only[i] != 1) *r *= m;
+    }
+}
+
+static double decibels(double power) { return 10 * log(power) / 2.302585092994046; }
+static float graph_y(double db) {
+    if (db > PEQ_GRAPH_DB) db = PEQ_GRAPH_DB;
+    if (db < -PEQ_GRAPH_DB) db = -PEQ_GRAPH_DB;
+    return (float)((PEQ_PLOT_TOP + PEQ_PLOT_BOTTOM) / 2.0 - db * (PEQ_PLOT_BOTTOM - PEQ_PLOT_TOP) / (2.0 * PEQ_GRAPH_DB));
+}
+static float graph_x(double f) { return (float)(PEQ_GRAPH_X + (GRAPH_W - 1) * log(f / 20) / log(1000)); }
+
+/* The draft's response, one point a column, for peq_paint. */
+static void curve(void) {
+    peq_engine e;
+    int ok = peq_compile(&ui.draft, 48000, &e);
+    for (int x = 0; x < GRAPH_W; ++x) {
+        double l = 1, r = 1;
+        if (ok) response(&e, 20 * pow(1000, x / (GRAPH_W - 1.0)), &l, &r);
+        ui.curve[0][x] = graph_y(decibels(l));
+        ui.curve[1][x] = graph_y(decibels(r));
+    }
 }
 
 /* Preamp that keeps the combined response at or below 0 dB, as AutoEQ sets it: minus the peak
@@ -51,20 +110,12 @@ static double headroom(const peq_preset *p) {
     if (!peq_compile(p, 48000, &e)) return p->preamp; /* preamp only sets e.gain, unused here */
     double peak = 1;
     for (int k = 0; k < 1024; ++k) {
-        double w = 6.283185307179586 * 20 * pow(1000, k / 1023.0) / 48000, l = 1, r = 1;
-        double c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
-        for (int i = 0; i < PEQ_BANDS; ++i) {
-            const peq_coeff *q = &e.c[i];
-            double nr = q->b0 + q->b1 * c1 + q->b2 * c2, ni = q->b1 * s1 + q->b2 * s2;
-            double dr = 1 + q->a1 * c1 + q->a2 * c2, di = q->a1 * s1 + q->a2 * s2;
-            double m = (nr * nr + ni * ni) / (dr * dr + di * di);
-            if (e.only[i] != 2) l *= m; /* only: 1 left, 2 right */
-            if (e.only[i] != 1) r *= m;
-        }
+        double l, r;
+        response(&e, 20 * pow(1000, k / 1023.0), &l, &r);
         if (l > peak) peak = l;
         if (r > peak) peak = r;
     }
-    double gain = -10 * log(peak) / 2.302585092994046; /* power ratio to dB */
+    double gain = -decibels(peak);
     return peak == 1 ? 0 : gain < -60 ? -60 : gain; /* no boost: +0, not -0.0 on screen */
 }
 
@@ -183,6 +234,8 @@ static int action(void *ctx, void *event) {
         if (peq_save(PEQ_ACTIVE, &ui.draft, 1) == 1) {
             peq_stock_eq(1);
             ui.dirty = 0;
+            memcpy(ui.applied, ui.name, sizeof(ui.name));
+            ui.named = ui.draft;
             snprintf(ui.status, sizeof(ui.status), "Applied");
         } else snprintf(ui.status, sizeof(ui.status), "Apply failed; active EQ unchanged");
     } else if (id == YES) {
@@ -229,6 +282,7 @@ static int action(void *ctx, void *event) {
                 p.bypass = ui.draft.bypass; /* ON/OFF is live state, not part of the edit */
                 ui.draft = p;
                 ui.dirty = 1;
+                snprintf(ui.name, sizeof(ui.name), "%.*s", (int)strlen(ui.names[id]) - 4, ui.names[id]);
                 ui.screen = HOME;
                 snprintf(ui.status, sizeof(ui.status), "Preset loaded; choose Apply to activate");
             } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
@@ -247,9 +301,10 @@ static int render(const void *unused) {
     ui.timer = 0;
     if (!ui.page) return 7;
     int selection = 0, offset = 0;
-    int height = widget_get_prop_int(ui.page, "h", 320);
+    int height = widget_get_prop_int(ui.page, "h", 320), graph = ui.screen == HOME || ui.screen == BAND;
+    int top = 48 + graph * PEQ_GRAPH_H;
     /* Whole rows only, so the last row is never clipped. */
-    int rows = (height - 48) / 48 * 48;
+    int rows = (height - top) / 48 * 48;
     if (ui.view && ui.rendered == ui.screen) {
         selection = widget_get_prop_int(ui.view, "_ringnav_index", 0);
         offset = widget_get_prop_int(ui.view, "yoffset", 0);
@@ -265,7 +320,7 @@ static int render(const void *unused) {
     ui.rendered = ui.screen;
     ui.edit = 0;
     widget_destroy_children(ui.page);
-    void *list = list_view_create(ui.page, 0, 48, 375, rows);
+    void *list = list_view_create(ui.page, 0, top, 375, rows);
     widget_set_prop_int(list, "item_height", 48);
     /* The theme's default list_view is a light card; stock pages paint theirs black inline. */
     widget_set_prop_int(list, "style:normal:bg_color", (int)0xff000000u);
@@ -275,36 +330,38 @@ static int render(const void *unused) {
     widget_set_prop_int(view, "yslidable", 1);
     widget_set_prop_int(view, "xslidable", 0);
     widget_set_prop_int(view, "_ringnav_index", selection);
-    char text[160];
+    char text[160], value[32];
     int n = 0;
+    static const char *const types[] = {"Peaking", "Low shelf", "High shelf"};
     /* No Back row: Return steps back on every screen (keyup). */
     if (ui.screen == HOME) {
         row(view, n++, ui.dirty ? "Apply changes" : "Nothing to apply", ui.dirty ? APPLY : -1);
-        row(view, n++, ui.draft.bypass ? "PEQ: OFF" : "PEQ: ON", BYPASS);
-        snprintf(text, sizeof(text), "Preamp %.1f dB", ui.draft.preamp); row(view, n++, text, PREAMP);
+        row_dim(view, n++, "PEQ", ui.draft.bypass ? "Off" : "On", BYPASS, 0);
+        snprintf(value, sizeof(value), on_auto() ? "%.1f dB (Auto)" : "%.1f dB", ui.draft.preamp);
+        row_dim(view, n++, "Preamp", value, PREAMP, 0);
         /* Balance turns one side down: R 1.0 dB is the left 1 dB quieter. */
-        snprintf(text, sizeof(text), __builtin_fabs(ui.draft.balance) >= 0.05 ? "Balance: %s %.1f dB" : "Balance: Centre",
+        snprintf(value, sizeof(value), __builtin_fabs(ui.draft.balance) >= 0.05 ? "%s %.1f dB" : "Centre",
                  ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
-        row(view, n++, text, BALANCE);
+        row_dim(view, n++, "Balance", value, BALANCE, 0);
         row(view, n++, "Presets", MENU);
         /* Ten rows, then one spare past the last used band to add another. */
         for (int i = 0; i < PEQ_BANDS && (i < 10 || i <= ui.draft.count); ++i) {
             peq_band *b = &ui.draft.bands[i];
-            snprintf(text, sizeof(text), "%d %s %s %.0fHz %+.1fdB Q%.2f", i+1,
-                     (const char *[]){"OFF", "ON", "ON L", "ON R"}[b->enabled], b->type == 0 ? "PK" : b->type == 1 ? "LS" : "HS",
-                     b->frequency, b->gain, b->q);
-            row(view, n++, text, i);
+            snprintf(text, sizeof(text), "%d  %s %.0f Hz%s", i + 1, types[b->type], b->frequency,
+                     (const char *[]){"", "", " L", " R"}[b->enabled]);
+            snprintf(value, sizeof(value), b->enabled ? "%+.1f dB" : "Off", b->gain);
+            row_dim(view, n++, text, value, i, !b->enabled);
         }
     } else if (ui.screen == BAND) {
         peq_band *b = &ui.draft.bands[ui.band];
         /* Imported missing bands already have valid defaults from peq_default. */
         if (ui.draft.count <= ui.band) ui.draft.count = ui.band + 1;
-        row(view, n++, b->enabled ? "Band: ON" : "Band: OFF", ENABLE);
-        if (b->enabled) row(view, n++, (const char *[]){0, "Channels: Both", "Channels: Left", "Channels: Right"}[b->enabled], CHANNEL);
-        row(view, n++, b->type == 0 ? "Type: Peaking" : b->type == 1 ? "Type: Low shelf" : "Type: High shelf", TYPE);
-        snprintf(text, sizeof(text), "Frequency %.0f Hz", b->frequency); row(view, n++, text, FREQUENCY);
-        snprintf(text, sizeof(text), "Gain %+.1f dB", b->gain); row(view, n++, text, GAIN);
-        snprintf(text, sizeof(text), "Q %.2f", b->q); row(view, n++, text, QUALITY);
+        row_dim(view, n++, "Band", b->enabled ? "On" : "Off", ENABLE, 0);
+        if (b->enabled) row_dim(view, n++, "Channels", (const char *[]){0, "Both", "Left", "Right"}[b->enabled], CHANNEL, 0);
+        row_dim(view, n++, "Type", types[b->type], TYPE, 0);
+        snprintf(value, sizeof(value), "%.0f Hz", b->frequency); row_dim(view, n++, "Frequency", value, FREQUENCY, 0);
+        snprintf(value, sizeof(value), "%+.1f dB", b->gain); row_dim(view, n++, "Gain", value, GAIN, 0);
+        snprintf(value, sizeof(value), "%.2f", b->q); row_dim(view, n++, "Q", value, QUALITY, 0);
     } else if (ui.screen == ADJUST) {
         /* Row 0 is the value in an edit, styled and keyed as the stock playlist dialogs' (T9 keyboard, 123 page
          * for digits); a tap or the centre button opens the keyboard and the value applies when it closes. Its
@@ -332,12 +389,11 @@ static int render(const void *unused) {
         widget_on(ui.edit, EVT_VALUE_CHANGED, typed, 0);
         widget_on(ui.edit, EVT_FOCUS, focused, 0);
         n = 1;
-        if (ui.adjust == QUALITY) { row(view, n++, "Raise 0.05", RAISE); row(view, n++, "Lower 0.05", LOWER); }
-        else {
-            snprintf(text, sizeof(text), "Raise %d Hz", steps[ui.step]); row(view, n++, text, RAISE);
-            snprintf(text, sizeof(text), "Lower %d Hz", steps[ui.step]); row(view, n++, text, LOWER);
-            snprintf(text, sizeof(text), "Step: %d Hz", steps[ui.step]); row(view, n++, text, STEP);
-        }
+        if (ui.adjust == QUALITY) snprintf(value, sizeof(value), "0.05");
+        else snprintf(value, sizeof(value), "%d Hz", steps[ui.step]);
+        row_dim(view, n++, "Raise", value, RAISE, 0);
+        row_dim(view, n++, "Lower", value, LOWER, 0);
+        if (ui.adjust != QUALITY) row_dim(view, n++, "Step", value, STEP, 0);
     } else if (ui.screen == PICK) {
         for (int i = 0; i < picks[ui.pick - BALANCE].rows; ++i) {
             double v = picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * i;
@@ -374,6 +430,11 @@ static int render(const void *unused) {
         widget_resize(view, 375, n * 48);
     }
     scroll_view_set_offset(view, 0, offset);
+    ui.graph = 0;
+    if (graph) {
+        curve();
+        ui.graph = widget_factory_create_widget(widget_factory(), "view", ui.page, 0, 48, 375, PEQ_GRAPH_H);
+    }
     /* A message takes the title bar until the next action, so it never shrinks the list. */
     void *title = label_create(ui.page, 8, 0, 359, 48);
     widget_use_style(title, "s_label_white20c");
@@ -383,10 +444,86 @@ static int render(const void *unused) {
     else if (ui.screen == ADJUST) snprintf(text, sizeof(text), ui.adjust == QUALITY ? "PEQ Band %d Q" : "PEQ Band %d Frequency (Hz)", ui.band + 1);
     else if (ui.screen == PICK && ui.pick == GAIN) snprintf(text, sizeof(text), "PEQ Band %d Gain", ui.band + 1);
     else if (ui.screen == PICK) snprintf(text, sizeof(text), ui.pick == PREAMP ? "PEQ Preamp" : "PEQ Balance");
+    else if (ui.name[0]) snprintf(text, sizeof(text), "PEQ: %s", ui.name);
     else snprintf(text, sizeof(text), "PEQ");
     widget_set_text_utf8(title, text);
     widget_invalidate_force(ui.page, 0);
     return 7; /* RET_REMOVE */
+}
+
+/* 0xRRGGBB and an alpha to a color_t, whose bytes are r, g, b, a. Shared with visualizer.c. */
+unsigned rgba(unsigned c, unsigned a) { return a << 24 | (c & 255) << 16 | (c & 0xff00) | c >> 16; }
+
+/* ASCII s centred in x, y, w, h (draw_centred). Shared with visualizer.c. */
+void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color) {
+    unsigned wide[16], n = 0;
+    for (; s[n] && n < 16; ++n) wide[n] = (unsigned char)s[n];
+    int r[4] = {x, y, w, h};
+    draw_centred(canvas, wide, n, r, px, color);
+}
+
+static void path(void *vg, const float *y) {
+    vgcanvas_begin_path(vg);
+    vgcanvas_move_to(vg, PEQ_GRAPH_X, y[0]);
+    for (int x = 1; x < GRAPH_W; ++x) vgcanvas_line_to(vg, PEQ_GRAPH_X + x, y[x]);
+}
+
+/* The graph view (ringnav_paint, after stock): a faint grid at 0, +-6 and +-12 dB and 100 Hz, 1 kHz
+ * and 10 kHz, labelled in grey; the response as a 2px line in the accent's light tone (white in
+ * Stock), fading to clear toward 0 dB, the other channel's dimmer when the two differ; a ring on each
+ * band in use, the edited band's larger and filled. Off: the line alone, grey. */
+void peq_paint(void *w, void *canvas) {
+    if (!w || w != ui.graph || !P(canvas, CANVAS_LCD)) return;
+    static const int lines[] = {0, 6, -6, 12, -12}, ticks[] = {100, 1000, 10000};
+    static const char *const labels[] = {"100", "1k", "10k"};
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    unsigned tone = ui.draft.bypass ? 0x666666 : TONE;
+    float zero = graph_y(0);
+    for (int i = 0; i < 5; ++i) {
+        canvas_set_fill_color(canvas, rgba(i ? 0x262626 : 0x4a4a4a, 255));
+        canvas_fill_rect(canvas, PEQ_GRAPH_X, (int)graph_y(lines[i]), GRAPH_W, 1);
+    }
+    for (int i = 0; i < 3; ++i) {
+        int x = (int)graph_x(ticks[i]);
+        canvas_set_fill_color(canvas, rgba(0x262626, 255));
+        canvas_fill_rect(canvas, x, PEQ_PLOT_TOP, 1, PEQ_PLOT_BOTTOM - PEQ_PLOT_TOP);
+        caption(canvas, labels[i], x - 16, PEQ_PLOT_BOTTOM + 2, 32, PEQ_GRAPH_H - PEQ_PLOT_BOTTOM - 2, 12, CF_GREY);
+    }
+    canvas_set_fill_color(canvas, fill);
+    void *vg = canvas_get_vgcanvas(canvas);
+    if (!vg) return;
+    int split = 0;
+    for (int x = 0; x < GRAPH_W; ++x) split |= __builtin_fabsf(ui.curve[0][x] - ui.curve[1][x]) > 0.25f;
+    vgcanvas_save(vg);
+    vgcanvas_translate(vg, (float)I(canvas, CANVAS_X), (float)I(canvas, CANVAS_Y));
+    if (!ui.draft.bypass) /* one path, two fills: each gradient is clear beyond 0 dB on its side */
+        for (int side = 0; side < 2; ++side) {
+            path(vg, ui.curve[0]);
+            vgcanvas_line_to(vg, PEQ_GRAPH_X + GRAPH_W - 1, zero);
+            vgcanvas_line_to(vg, PEQ_GRAPH_X, zero);
+            vgcanvas_close_path(vg);
+            vgcanvas_set_fill_linear_gradient(vg, 0, side ? PEQ_PLOT_BOTTOM : PEQ_PLOT_TOP, 0, zero,
+                                              rgba(tone, 0x90), rgba(tone, 0));
+            vgcanvas_fill(vg);
+        }
+    vgcanvas_set_line_width(vg, 2);
+    for (int ch = split; ch >= 0; --ch) {
+        path(vg, ui.curve[ch]);
+        vgcanvas_set_stroke_color(vg, rgba(tone, ch ? 0x80 : 0xff));
+        vgcanvas_stroke(vg);
+    }
+    for (int i = 0; i < ui.draft.count; ++i) {
+        const peq_band *b = &ui.draft.bands[i];
+        int edited = ui.screen == BAND && i == ui.band;
+        if (!b->enabled && !edited) continue;
+        vgcanvas_begin_path(vg);
+        vgcanvas_arc(vg, graph_x(b->frequency), graph_y(b->gain), edited ? 5 : 3.5f, 0, 6.2831853f, 0);
+        vgcanvas_set_fill_color(vg, rgba(edited ? tone : 0, 255));
+        vgcanvas_fill(vg);
+        vgcanvas_set_stroke_color(vg, rgba(edited ? 0xffffff : tone, 255));
+        vgcanvas_stroke(vg);
+    }
+    vgcanvas_restore(vg);
 }
 
 /* Replaces the stock page's on_common_keyup: Return steps back one screen. */
@@ -402,6 +539,7 @@ static int closed(void *ctx, void *event) {
     ui.timer = 0;
     ui.page = 0;
     ui.view = 0;
+    ui.graph = 0;
     free(ui.names);
     ui.names = 0;
     return 0;
@@ -418,7 +556,9 @@ int peq_page_init(void *page, void *context) {
     peq_load_active(&ui.draft);
     /* Boot instantiates the filter only when the switch left PLAYSET/EQFLAG set; the flag
      * then follows the active preset's bypass (peq_stock_eq). */
-    ui.draft.bypass = !g_equalizer_flag;
+    ui.draft.bypass = ui.named.bypass = !g_equalizer_flag;
+    if (memcmp(&ui.draft, &ui.named, sizeof(ui.named))) ui.applied[0] = 0; /* replaced since */
+    memcpy(ui.name, ui.applied, sizeof(ui.name));
     widget_on(page, EVT_DESTROY, closed, 0);
     widget_on(page, EVT_KEY_UP, keyup, 0);
     render(0);

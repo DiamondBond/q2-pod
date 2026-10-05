@@ -2,6 +2,12 @@
 #define Q2_PEQ_H
 
 #ifdef PEQ_HOST
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* mmap64 */
+#endif
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +56,15 @@ void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p);
 int peq_update(peq_dsp *d, const peq_preset *p);
 void peq_process(peq_dsp *d, float *audio, unsigned frames);
 
+/* The visualizer's PCM tap (docs/internals.md#visualizer): hciplayer's filter writes what plays, its
+ * first two channels and above 48 kHz every rate / 44100th frame, to ring[seq % VIS_RING], then sets
+ * rate (of the ring), stamp (CLOCK_MONOTONIC ns of that write) and seq, the frames written. demo
+ * creates the file, sized, under another name and renames it, so it never maps a short one. */
+#define VIS_FILE PEQ_ROOT "/tmp/q2vis"
+#define VIS_RING 65536 /* a power of two: 1.5 s at 44.1 kHz, room for VIS_LATENCY_MS */
+typedef struct { unsigned seq, rate; long long stamp; float ring[VIS_RING][2]; } vis_tap;
+long long now_ns(void);
+
 /* The payload's shared helpers: coverflow.c's pages, hashes and worker, photos.c's, navigation.c's. */
 void *text(void *parent, int x, int y, int w, int h);
 void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *));
@@ -71,5 +86,10 @@ void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int wr
 #define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", &(buf), sizeof(buf), write)
 int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
 void play_folder(void *dq, int idx);
+void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
+unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column, 0xRRGGBB */
+unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
+void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color);
+void peq_paint(void *w, void *canvas);
 
 #endif

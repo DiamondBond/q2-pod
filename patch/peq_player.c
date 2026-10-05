@@ -64,12 +64,42 @@ static int control(af_instance *af, int command, void *arg) {
     return -1;
 }
 
+/* The visualizer's tap (peq.h): what plays, after the filter. The file appears when the visualizer
+ * first opens; until then it is looked for at most once a second. */
+static void tap(const float *a, unsigned frames, int nch, int rate) {
+    static vis_tap *t;
+    static long long tried;
+    long long now = now_ns();
+    if (!t && now - tried >= 1000000000LL) {
+        tried = now;
+        int fd = open(VIS_FILE, 2); /* O_RDWR */
+        if (fd >= 0) {
+            void *p = mmap64(0, sizeof(vis_tap), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
+            close(fd);
+            if (p != (void *)-1) t = p;
+        }
+    }
+    if (!t) return;
+    unsigned step = rate > 48000 ? (unsigned)rate / 44100 : 1, seq = t->seq;
+    for (unsigned i = 0; i < frames; i += step, ++seq) {
+        t->ring[seq % VIS_RING][0] = a[i * nch];
+        t->ring[seq % VIS_RING][1] = a[i * nch + (nch > 1)];
+    }
+    t->rate = (unsigned)rate / step;
+    t->stamp = now;
+    __asm__ volatile("" ::: "memory"); /* the frames before seq; the reader tolerates a torn one */
+    t->seq = seq;
+}
+
 static af_data *play(af_instance *af, af_data *data) {
     player_state *s = af->setup;
     if (data && data->len > 0 && data->format == 0x1d && data->bps == 4 &&
         data->nch == s->dsp.channels && data->rate == s->dsp.rate &&
-        !(data->len % (4 * data->nch)))
-        peq_process(&s->dsp, data->audio, (unsigned)data->len / (4 * data->nch));
+        !(data->len % (4 * data->nch))) {
+        unsigned frames = (unsigned)data->len / (4 * data->nch);
+        peq_process(&s->dsp, data->audio, frames);
+        tap(data->audio, frames, data->nch, data->rate);
+    }
     return data;
 }
 

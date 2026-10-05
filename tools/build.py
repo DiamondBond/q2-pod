@@ -7,12 +7,12 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '7.9'
+VERSION = '8.0'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
 # the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
 BASE = 0xb00000
-SCRATCH = 0xb20000
+SCRATCH = 0xb40000
 RING_STEP = 48
 HOOKS = {
     'on_wm_keyup_before_fun': (0x4e85c8, 'ringnav'),
@@ -47,6 +47,18 @@ IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
               'style_get_color': (0x649f6c, 'ringnav_style_color'),
               'image_manager_add': (0x6445d4, 'ringnav_image_add'),
               'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown')}
+# The payload's stock_<name>_trampoline resumes each hook past its 3-word PIC prologue, in this order.
+TRAMPOLINES = {'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_fun', 'paint': 'widget_on_paint_border',
+               'dispatch': 'widget_dispatch', 'keylong': 'on_wm_keylong_fun', 'eq': 'set_equalizer_value',
+               'home': 'home_page_init', 'localmusic': 'localmusic_page_init', 'localclass': 'load_localclass_list',
+               'paint_bg': 'widget_on_paint_background', 'playing': 'playing_page_init',
+               'display': 'systemset_display_page_init', 'color': 'style_get_color', 'image': 'image_manager_add',
+               'keydown': 'on_wm_keydown_before_fun', 'scan_all': 'scanAllMusicFile', 'scan_folder': 'scanSpecFolder',
+               'delete_song': 'deleteMusicFromMusicDb', 'sleep': 'main_loop_sleep_default',
+               'about': 'systemset_about_page_init', 'folder': 'folder_page_init', 'folder_back': 'folder_back',
+               'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch'}
+# Every audited stock PIC prologue resolves this GOT base.
+GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
 # vtable, then tail-calls get_gradient (+0x18); its first two words (beqz a0; nop) become the jump
 # and the payload does the whole of it. The third word is pinned too, so the layout is the audited one.
@@ -204,6 +216,18 @@ FUNCTIONS = {
  'canvas_measure_text': ('float', 'void *, const unsigned *, unsigned'),
  'canvas_fill_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned'),
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
+ # The PEQ curve (peq_ui.c) and the visualizer (visualizer.c): AWTK's software nanovg, float_t float, color_t by value
+ 'canvas_get_vgcanvas': ('void *', 'void *'),
+ 'vgcanvas_save': ('int', 'void *'), 'vgcanvas_restore': ('int', 'void *'),
+ 'vgcanvas_translate': ('int', 'void *, float, float'),
+ 'vgcanvas_begin_path': ('int', 'void *'), 'vgcanvas_close_path': ('int', 'void *'),
+ 'vgcanvas_move_to': ('int', 'void *, float, float'), 'vgcanvas_line_to': ('int', 'void *, float, float'),
+ 'vgcanvas_arc': ('int', 'void *, float, float, float, float, float, int'),
+ 'vgcanvas_rounded_rect': ('int', 'void *, float, float, float, float, float'),
+ 'vgcanvas_fill': ('int', 'void *'), 'vgcanvas_stroke': ('int', 'void *'),
+ 'vgcanvas_set_fill_color': ('int', 'void *, unsigned'), 'vgcanvas_set_stroke_color': ('int', 'void *, unsigned'),
+ 'vgcanvas_set_fill_linear_gradient': ('int', 'void *, float, float, float, float, unsigned, unsigned'),
+ 'vgcanvas_set_line_width': ('int', 'void *, float'), 'vgcanvas_set_line_cap': ('int', 'void *, const char *'),
  'pointer_event_init': ('void *', 'void *, int, void *, int, int'),
  'time_now_ms': ('unsigned', 'void'),
  'sleep_ms': ('int', 'unsigned'),
@@ -355,7 +379,12 @@ def compile_payload(out, ipod=False):
     from peq import compile_common
     extra = compile_common(out, out/'stock-demo', ipod=ipod)  # also writes the libc/libcstl imports navigation.c uses
     run('clang',*FLAGS,f'-DIPOD={int(ipod)}','-I',out,'-c',ROOT/'patch/navigation.c','-o',out/'navigation.o')
-    run('clang',*FLAGS,'-c',ROOT/'patch/trampoline.S','-o',out/'trampoline.o')
+    asm = ['.set noreorder', '.text']
+    for x, hook in TRAMPOLINES.items():
+        asm += [f'.globl stock_{x}_trampoline', f'stock_{x}_trampoline:', f'lui $gp, {GP >> 16}',
+                f'ori $gp, $gp, {GP & 65535}', f'j 0x{(HOOKS | IPOD_HOOKS)[hook][0] + 12:x}', 'nop']
+    (out/'trampoline.S').write_text('\n'.join(asm)+'\n')
+    run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}',
@@ -477,7 +506,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
               prolog[2] == 0x0399e021, f'{name}: unexpected PIC prologue')
         low = prolog[1] & 65535
         gp = ((prolog[0] & 65535) << 16) + (low if low < 32768 else low - 65536) + address
-        check(gp == 0xa26cc0, f'{name}: unexpected GOT base')
+        check(gp == GP, f'{name}: unexpected GOT base')
         jump(off, replacement)
     for name, address, replacement, words in [WM_PAINT_LEAF] + [IPOD_LEAF] * ipod:
         off = fileoff(patched, address)
@@ -539,8 +568,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     t,mode,uid,gid = (x.decode() for x in root.groups())
     rootargs = ['-root-time',t,'-root-mode',mode,'-root-uid',uid,'-root-gid',gid]
     # Paths are passed through a shell by mksquashfs F entries; quote them explicitly.
+    def inode(p, path): return re.search(rb'^'+re.escape(path)+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
     def swap_inode(p, path, src):
-        line = re.search(rb'^'+re.escape(path)+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
+        line = inode(p, path)
         check(line is not None, f'Missing {path.decode()} pseudo inode')
         return p[:line.start()]+path+b' F '+b' '.join(line.groups())+b' cat '+shlex.quote(str(src)).encode()+p[line.end():]
     p = swap_inode(p, b'release/bin/demo', out/'demo')
@@ -567,7 +597,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat))}.items():
-        stock = re.search(rb'^'+re.escape(like.encode())+rb' R (\d+) (\d+) (\d+) (\d+) .+$',p,re.M)
+        stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')
         name = path.rsplit('/', 1)[-1]
         if path != HELPER: (out/name).write_bytes(data)  # package the hashed bytes, as the logo

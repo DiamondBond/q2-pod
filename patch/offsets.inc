@@ -342,3 +342,28 @@
 #define PH_SHOT_H 290
 #define PH_GREY 0xff333333 /* color_t #333333 */
 #define PHOTOS_MAX 500 /* ponytail: ringnav navigates at most MAX_ENTRIES (512) rows; page beyond */
+/* PEQ editor (patch/peq_ui.c): on the main and band screens a PEQ_GRAPH_H view under the title
+ * holds the response from PEQ_GRAPH_X to 375 - PEQ_GRAPH_X (20 Hz to 20 kHz, log), +-PEQ_GRAPH_DB at
+ * its plot's top and bottom (rows PEQ_PLOT_TOP to PEQ_PLOT_BOTTOM), frequency labels under it. */
+#define PEQ_GRAPH_H 96
+#define PEQ_GRAPH_X 16
+#define PEQ_GRAPH_DB 15
+#define PEQ_PLOT_TOP 6
+#define PEQ_PLOT_BOTTOM 78
+/* iPod visualizer (patch/visualizer.c, docs/ipod.md#visualizer), Now Playing's fourth page. The
+ * page shows the audio VIS_LATENCY_MS behind what hciplayer last handed the filter: its ao_alsa asks
+ * for a 500 ms buffer in 16 periods (0x438a2c: buffer_time 500000 us) and refills it a period at a
+ * time, so a block waits about 500 ms less half a period to a period; Bluetooth adds its own, so this
+ * stays the knob for sync. VIS_FPS frames a second; spectrum bars
+ * fall VIS_DECAY of full scale a second, their caps hold VIS_HOLD_MS then fall at VIS_GRAVITY full
+ * scale a second squared. Levels span VIS_FLOOR_DB below full scale; the VU meters read 0 VU at
+ * VIS_VU_REF_DB dBFS RMS and light their peak LED from VIS_LED_DB dBFS for VIS_HOLD_MS. */
+#define VIS_LATENCY_MS 480
+#define VIS_FPS 30
+#define VIS_BARS 32
+#define VIS_DECAY 1.6f
+#define VIS_HOLD_MS 400
+#define VIS_GRAVITY 3.0f
+#define VIS_FLOOR_DB 60
+#define VIS_VU_REF_DB -14
+#define VIS_LED_DB -1

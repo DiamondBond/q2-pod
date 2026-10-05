@@ -3,6 +3,6 @@ SECTIONS {
   .text : { *(.text*) }
   .rodata : { *(.rodata*) }
   /* Zero-filled writable state; the builder maps it R/W past the payload text. */
-  .scratch 0xb20000 (NOLOAD) : { __scratch_start = .; *(.scratch) __scratch_end = .; }
+  .scratch 0xb40000 (NOLOAD) : { __scratch_start = .; *(.scratch) __scratch_end = .; }
   /DISCARD/ : { *(.comment) *(.note*) *(.pdr) *(.mdebug*) *(.MIPS.abiflags) *(.reginfo) }
 }

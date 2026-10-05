@@ -1,7 +1,7 @@
 """Checked Q2 V1.32 PEQ hooks and target ABI imports; no vendor code is distributed."""
 import re
 import struct
-from build import ROOT, FLAGS, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_payload, check, fileoff, run, sha, symbols
+from build import ROOT, FLAGS, GP, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_payload, check, fileoff, run, sha, symbols
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
@@ -64,6 +64,12 @@ LIBC = {
     'fork': ('int', 'void'), 'execl': ('int', 'const char *, const char *, ...'), 'exit': ('void', 'int'),
     'waitpid': ('int', 'int, int *, int'), 'socket': ('int', 'int, int, int'), 'close': ('int', 'int'),
     'sendto': ('int', 'int, const void *, unsigned, int, const void *, unsigned'),
+    # The visualizer's PCM tap (peq_player.c writes, visualizer.c reads) and its analysis
+    'open': ('int', 'const char *, int, ...'), 'ftruncate': ('int', 'int, long'),
+    'mmap': ('void *', 'void *, unsigned, int, int, int, long'),
+    'mmap64': ('void *', 'void *, unsigned, int, int, int, long long'),
+    'clock_gettime': ('int', 'int, void *'),
+    'sinf': ('float', 'float'), 'cosf': ('float', 'float'),
 }
 
 def compile_common(out, binary, player=False, ipod=False):
@@ -72,7 +78,7 @@ def compile_common(out, binary, player=False, ipod=False):
         words = line.split()
         if len(words) >= 6 and 'UND' in words and re.fullmatch('[0-9a-f]{8}', words[0]):
             got[words[-1].split('@')[0]] = int(words[0], 16)
-    gp = 0xb16750 if player else 0xa26cc0
+    gp = 0xb16750 if player else GP
     header = ['struct dirent { unsigned ino, off; unsigned short reclen; unsigned char d_type; char d_name[256]; };']
     asm = ['.set noreorder', '.text']
     for name, (ret, args) in LIBC.items():
@@ -101,7 +107,7 @@ def compile_common(out, binary, player=False, ipod=False):
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
     if player: flags += ['-mnan=2008']
     objects = []
-    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c']:
+    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'visualizer.c']:
         obj = out/(name+'.o')
         run('clang', *flags, '-I', out, '-c', ROOT/'patch'/name, '-o', obj)
         objects.append(obj)

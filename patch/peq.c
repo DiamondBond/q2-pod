@@ -326,3 +326,9 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames) {
         if (d->ramp && !--d->ramp) d->current = d->next;
     }
 }
+
+long long now_ns(void) {
+    struct { long s, ns; } t; /* struct timespec */
+    clock_gettime(1, (void *)&t); /* CLOCK_MONOTONIC: the same clock in hciplayer and demo */
+    return t.s * 1000000000LL + t.ns;
+}

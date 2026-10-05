@@ -284,6 +284,9 @@ widget_set_text_utf8 widget_on widget_get_prop_int widget_set_prop_int widget_de
 widget_resize scroll_view_set_offset widget_invalidate_force timer_add timer_remove
 navigator_back write_int_config widget_factory widget_factory_create_widget widget_set_prop_str
 widget_get_text widget_set_focused widget_lookup window_manager pages_set_active_by_name
+canvas_set_fill_color canvas_fill_rect canvas_get_vgcanvas vgcanvas_save vgcanvas_restore vgcanvas_translate
+vgcanvas_begin_path vgcanvas_close_path vgcanvas_move_to vgcanvas_line_to vgcanvas_arc vgcanvas_fill vgcanvas_stroke
+vgcanvas_set_fill_color vgcanvas_set_stroke_color vgcanvas_set_fill_linear_gradient vgcanvas_set_line_width
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 """
 SHIM = r"""
@@ -304,6 +307,25 @@ void *widget_factory_create_widget(void *f, const char *type, void *p, int x, in
     (void)f; (void)x; (void)y; (void)ww; void *e = make(p, h);
     if (!strcmp(type, "edit")) { edit_widget = (int)(long)e; keyboard[0] = 0; focused = 0; }
     return e;
+}
+/* The curve's drawing (peq_paint) is checked on the device; here it only has to link. */
+int canvas_set_fill_color(void *c, unsigned v) { (void)c; (void)v; return 0; }
+int canvas_fill_rect(void *c, int x, int y, int ww, int h) { (void)c; (void)x; (void)y; (void)ww; (void)h; return 0; }
+void *canvas_get_vgcanvas(void *c) { (void)c; return 0; }
+#define VG(name, ...) int name(void *vg, ##__VA_ARGS__) { (void)vg; return 0; }
+VG(vgcanvas_save) VG(vgcanvas_restore) VG(vgcanvas_begin_path) VG(vgcanvas_close_path) VG(vgcanvas_fill) VG(vgcanvas_stroke)
+int vgcanvas_translate(void *vg, float x, float y) { (void)vg; (void)x; (void)y; return 0; }
+int vgcanvas_move_to(void *vg, float x, float y) { (void)vg; (void)x; (void)y; return 0; }
+int vgcanvas_line_to(void *vg, float x, float y) { (void)vg; (void)x; (void)y; return 0; }
+int vgcanvas_arc(void *vg, float x, float y, float r, float a, float b, int ccw) { (void)vg; (void)x; (void)y; (void)r; (void)a; (void)b; (void)ccw; return 0; }
+int vgcanvas_set_fill_color(void *vg, unsigned c) { (void)vg; (void)c; return 0; }
+int vgcanvas_set_stroke_color(void *vg, unsigned c) { (void)vg; (void)c; return 0; }
+int vgcanvas_set_line_width(void *vg, float w) { (void)vg; (void)w; return 0; }
+int vgcanvas_set_fill_linear_gradient(void *vg, float a, float b, float c, float d, unsigned e, unsigned f) {
+    (void)vg; (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; return 0;
+}
+void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color) {
+    (void)canvas; (void)s; (void)n; (void)r; (void)px; (void)color;
 }
 int widget_set_prop_str(void *x, const char *k, const char *v) {
     if ((long)x == edit_widget && !strcmp(k, "keyboard")) snprintf(keyboard, sizeof(keyboard), "%s", v);
@@ -379,15 +401,19 @@ int shim_pending(void) { return timer_fn != 0; }
 int shim_removed(void) { return removed; }
 unsigned char shim_flag(void) { return g_equalizer_flag; }
 void shim_run(void) { int (*f)(const void *) = timer_fn; timer_fn = 0; if (f) f(0); }
-/* Click the row whose label starts with text; optionally let the deferred render run. */
+/* Click the row whose labels, caption and value joined by a space, start with text; optionally let
+ * the deferred render run. */
 int shim_click(const char *text, int run) {
-    for (int i = 2; i <= count; ++i)
-        if (!strncmp(w[i].text, text, strlen(text)) && w[w[i].parent].click) {
-            int p = w[i].parent;
+    for (int p = 2; p <= count; ++p) {
+        char joined[400] = "";
+        for (int i = p + 1; i <= count; ++i)
+            if (w[i].parent == p) snprintf(joined + strlen(joined), sizeof(joined) - strlen(joined), "%s%s", *joined ? " " : "", w[i].text);
+        if (w[p].click && *joined && !strncmp(joined, text, strlen(text))) {
             w[p].click(w[p].ctx, 0);
             if (run) shim_run();
             return 1;
         }
+    }
     return 0;
 }
 void shim_return(void) { int event[8] = {0}; event[6] = 170; w[1].keyup(0, event); shim_run(); }
@@ -422,36 +448,39 @@ def editor_check(lib, tmp):
     assert lib.peq_save(bytes(active), C.byref(preset(enabled=1)), 1) == 1
     # With the stock flag clear no filter runs, so the saved ON reads OFF.
     assert ui.shim_open() == 0 and title() == 'PEQ'
+    # The visualizer's attach puts the filter in the chain with PEQ off: the saved ON becomes OFF, so it stays silent.
+    ui.shim_close(); ui.peq_attach(); assert read().bypass == 1 and ui.shim_flag() == 0; ui.shim_open()
+    assert lib.peq_save(bytes(active), C.byref(preset(enabled=1)), 1) == 1
     # The switch writes the stock config key, so boot restores it; the flag follows the preset.
-    click('PEQ: OFF'); assert ui.shim_eqflag() == 1 and ui.shim_flag() == 1
-    click('PEQ: ON'); assert ui.shim_eqflag() == 0 and ui.shim_flag() == 0
-    ui.shim_close(); assert ui.shim_open() == 0; click('PEQ: OFF')
+    click('PEQ Off'); assert ui.shim_eqflag() == 1 and ui.shim_flag() == 1
+    click('PEQ On'); assert ui.shim_eqflag() == 0 and ui.shim_flag() == 0
+    ui.shim_close(); assert ui.shim_open() == 0; click('PEQ Off')
     full = ui.shim_list_height()
     # iPod rows are transparent, so the list itself must paint black, not the theme's light card.
     ui.shim_list_bg.restype = C.c_uint; assert ui.shim_list_bg() == 0xff000000
     # Bypass switches at once but keeps unapplied band edits out of the active preset.
-    click('1 ON'); click('Gain +0.0 dB'); assert title() == 'PEQ Band 1 Gain'; click('+1.0 dB'); ui.shim_return()
-    click('PEQ: ON')
+    click('1  '); click('Gain +0.0 dB'); assert title() == 'PEQ Band 1 Gain'; click('+1.0 dB'); ui.shim_return()
+    click('PEQ On')
     assert read().bypass == 1 and read().bands[0].gain == 0 and ui.shim_flag() == 0
     click('Apply changes')
     assert read().bands[0].gain == 1 and read().bypass == 1 and title() == 'Applied'
     # A band edit sets the preamp to minus the combined response's peak: here the one +1 dB band.
     assert abs(read().preamp + 1) < 0.01, read().preamp
     # A message takes the title bar; the list keeps every row.
-    assert ui.shim_list_height() == full == 240
+    assert ui.shim_list_height() == full == 144  # 3 rows under the curve
     # Loading into the editor does not activate it.
     assert lib.peq_save(bytes(saved/'HD650.peq'), C.byref(preset(enabled=1, gain=-3.0)), 1) == 1
     before = active.read_bytes()
     click('Presets'); click('HD650.peq')
     assert active.read_bytes() == before and title() == 'Preset loaded; choose Apply to activate'
-    click('PEQ: OFF'); click('PEQ: ON')  # any action clears the message
-    assert title() == 'PEQ' and read().bands[0].gain == 1  # still the applied preset
+    click('PEQ Off'); click('PEQ On')  # any action clears the message
+    assert title() == 'PEQ: HD650' and read().bands[0].gain == 1  # the draft's name; still the applied preset
     # A failed apply or switch leaves the active preset untouched.
     before = active.read_bytes()
     (data/'peq-active.tmp').mkdir()
     click('Apply changes')
     assert title() == 'Apply failed; active EQ unchanged' and active.read_bytes() == before
-    click('PEQ: OFF')
+    click('PEQ Off')
     assert title() == 'Switch failed; PEQ unchanged' and active.read_bytes() == before
     (data/'peq-active.tmp').rmdir()
     click('Apply changes'); assert read().bands[0].gain == -3
@@ -461,7 +490,7 @@ def editor_check(lib, tmp):
     ui.shim_close()
     assert not ui.shim_pending() and ui.shim_removed() == removed + 1
     ui.shim_open()
-    assert title() == 'PEQ'
+    assert title() == 'PEQ: HD650'  # the applied preset's name survives the page
     # Deleting asks first, removes only the saved copy and leaves the active EQ alone.
     before = active.read_bytes()
     click('Presets'); click('Delete a preset'); click('HD650.peq'); click('Cancel')
@@ -472,33 +501,33 @@ def editor_check(lib, tmp):
     # Overlapping boosts add up (+6.5 and +6 dB at 1 kHz); cuts alone leave 0 dB.
     p = preset(enabled=1, gain=6.0); p.count = 2; p.bands[1] = p.bands[0]; p.preamp = -1
     assert lib.peq_save(bytes(active), C.byref(p), 1) == 1
-    ui.shim_close(); ui.shim_open(); click('1 ON'); click('Gain +6.0 dB'); click('+6.5 dB'); ui.shim_return(); click('Apply changes')
+    ui.shim_close(); ui.shim_open(); click('1  '); click('Gain +6.0 dB'); click('+6.5 dB'); ui.shim_return(); click('Apply changes')
     assert read().preamp == -1, read().preamp  # a preamp off Auto (here the preset's) sticks through band edits
     click('Preamp -1.0 dB'); assert title() == 'PEQ Preamp' and ui.shim_selection() == 27  # opens on -1.0
     click('Auto (-12.5 dB)'); click('Apply changes')
     assert abs(read().preamp + 12.5) < 0.05, read().preamp
-    click('1 ON'); click('Band: ON'); ui.shim_return(); click('2 ON'); click('Band: ON'); ui.shim_return(); click('Apply changes')
+    click('1  '); click('Band On'); ui.shim_return(); click('2  '); click('Band On'); ui.shim_return(); click('Apply changes')
     assert math.copysign(1, read().preamp) == 1 and read().preamp == 0, read().preamp  # +0: shown as 0.0
     # Channels cycle on enabled bands; headroom takes the louder side, balance only turns one down.
-    click('1 OFF'); click('Gain +6.5 dB'); click('+7.5 dB'); click('Channels: Both')  # picking a gain turns the band on
+    click('1  Peaking 31 Hz Off'); click('Gain +6.5 dB'); click('+7.5 dB'); click('Channels Both')  # picking a gain turns the band on
     assert title() == 'PEQ Band 1'
-    click('Channels: Left'); ui.shim_return()
-    # Balance: one row opens a picker, L 12 to R 12 dB in 0.5 dB steps, on the current value.
-    click('Balance: Centre'); assert title() == 'PEQ Balance'
+    click('Channels Left'); ui.shim_return()
+    # Balance one row opens a picker, L 12 to R 12 dB in 0.5 dB steps, on the current value.
+    click('Balance Centre'); assert title() == 'PEQ Balance'
     assert (ui.shim_selection(), ui.shim_offset()) == (24, 24 * 48 - 96)  # 5 rows of 48 shown
-    click('R 12.0 dB'); assert title() == 'PEQ'; click('Balance: R 12.0 dB')
+    click('R 12.0 dB'); assert title() == 'PEQ'; click('Balance R 12.0 dB')
     assert (ui.shim_selection(), ui.shim_offset()) == (48, 49 * 48 - 240)  # clamped to the end
-    ui.shim_return(); assert title() == 'PEQ'; click('Balance: R 12.0 dB'); click('L 0.5 dB'); click('Apply changes')
+    ui.shim_return(); assert title() == 'PEQ'; click('Balance R 12.0 dB'); click('L 0.5 dB'); click('Apply changes')
     r = read(); assert (r.bands[0].enabled, r.balance) == (3, -0.5) and abs(r.preamp + 7.5) < 0.05, (r.bands[0].enabled, r.balance)
-    assert ui.shim_click(b'1 ON R', 0) and ui.shim_click(b'Balance: L 0.5 dB', 0)
+    assert ui.shim_click(b'1  Peaking 31 Hz R +7.5 dB', 0) and ui.shim_click(b'Balance L 0.5 dB', 0)
     # Frequency and Q open a value menu: an edit with the value (keyboard on tap or centre), then Raise/Lower.
     ui.shim_edit.restype = ui.shim_keyboard.restype = C.c_char_p
     edit = lambda: ui.shim_edit().decode()
-    ui.shim_close(); ui.shim_open(); click('1 ON R'); click('Frequency 31 Hz')
+    ui.shim_close(); ui.shim_open(); click('1  Peaking 31 Hz R'); click('Frequency 31 Hz')
     assert title() == 'PEQ Band 1 Frequency (Hz)' and edit() == '31' and ui.shim_keyboard() == b'kb_default_t9'
     click('Lower 1 Hz'); click('Lower 1 Hz'); assert edit() == '29'
-    click('Step: 1 Hz'); click('Lower 10 Hz'); assert edit() == '20'  # clamped at 20 Hz
-    click('Step: 10 Hz'); click('Raise 100 Hz'); assert edit() == '120'
+    click('Step 1 Hz'); click('Lower 10 Hz'); assert edit() == '20'  # clamped at 20 Hz
+    click('Step 10 Hz'); click('Raise 100 Hz'); assert edit() == '120'
     ui.shim_page.restype = C.c_char_p
     assert not ui.shim_focused(); click('120'); assert ui.shim_focused()  # the centre button opens the keyboard
     assert ui.shim_page() == b'symnum'  # on its number keys
@@ -553,6 +582,18 @@ static peq_preset active(double preamp, double gain) {
 
 static int negotiate(af_instance *af, af_data *in) { return af->control(af, 0x10000100, in); }
 
+/* The visualizer's tap (demo creates the file before the player maps it). */
+static vis_tap *tap_view(void) {
+    static vis_tap *t;
+    if (!t) {
+        int fd = open(VIS_FILE, O_RDWR | O_CREAT, 0644);
+        assert(fd >= 0 && !ftruncate(fd, sizeof(vis_tap)));
+        t = mmap(0, sizeof(vis_tap), PROT_READ, MAP_SHARED, fd, 0);
+        assert(t != MAP_FAILED && !close(fd));
+    }
+    return t;
+}
+
 /* One block through the filter equals the same block through the reference DSP, and is filtered. */
 static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
     float a[1024], b[1024], in[1024];
@@ -562,10 +603,18 @@ static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
     assert(af->play(af, &d) == &d);
     peq_process(ref, b, frames);
     assert(!memcmp(a, b, sizeof(a)) && memcmp(a, in, sizeof(a)));
+    /* The tap ends with what played: the first two channels, every rate / 44100th frame above 48 kHz. */
+    vis_tap *t = tap_view();
+    unsigned step = rate > 48000 ? (unsigned)rate / 44100 : 1, n = (frames + step - 1) / step;
+    assert(t->rate == (unsigned)rate / step && t->stamp > 0);
+    for (unsigned i = 0; i < n; ++i)
+        for (int ch = 0; ch < 2; ++ch)
+            assert(t->ring[(t->seq - n + i) % VIS_RING][ch] == a[i * step * nch + (ch && nch > 1)]);
 }
 
 int main(void) {
     af_instance af;
+    tap_view();
     /* A failed open is cleaned up by af_create calling uninit on the partial state. */
     for (int n = 0; n < 2; ++n) {
         memset(&af, 0, sizeof(af));
@@ -699,6 +748,7 @@ def player_check(tmp):
     """hciplayer's filter: negotiation, track changes, live updates and cleanup."""
     root = tmp/'player'
     (root/'mnt/data').mkdir(parents=True)
+    (root/'tmp').mkdir()
     (tmp/'player_test.c').write_text(PLAYER)
     binary = tmp/'player_test'
     sources = [ROOT/'patch/peq_player.c', ROOT/'patch/peq.c', tmp/'player_test.c']
@@ -706,7 +756,25 @@ def player_check(tmp):
                     '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'),
                     *map(str, sources), '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-    print('PEQ player: negotiation, pass-through, live updates, track changes, cleanup and the Xing seek table passed.')
+    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup and the Xing seek table passed.')
+
+def visualizer_check(tmp):
+    """The visualizer's analysis (patch/visualizer.c vis_bands): a sine lands in its band at full scale."""
+    lib = compile_host(tmp, 'visualizer.so', ROOT/'patch/visualizer.c', '-DIPOD=1', '-I', ROOT/'patch')
+    rate, n, bands = 44100, 1024, 64
+    def levels(pcm):
+        out = (C.c_float * bands)()
+        lib.vis_bands((C.c_float * (2 * n))(*pcm), rate, out)
+        return list(out)
+    assert levels([0.0] * (2 * n)) == [0.0] * bands  # silence rests
+    edge = lambda b: int(40 * 400 ** (b / bands) * n / rate + 0.5)  # the C band_bin
+    for k in (12, 100, 300):  # a sine exactly on bin k, in both channels
+        pcm = [math.sin(2 * math.pi * k * i / n) for i in range(n) for _ in (0, 1)]
+        got, want = levels(pcm), max(b for b in range(bands) if edge(b) <= k)
+        assert got[want] > 0.99 and got.index(max(got)) <= want, (k, want, got)
+        assert all(v == 0 for b, v in enumerate(got) if edge(b) > k + 1 or edge(b + 1) < k - 1), (k, got)
+        assert abs(levels([v / 2 for v in pcm])[want] - (1 - 6.0206 / 60)) < 0.01  # half scale: 6 dB down
+    print('Visualizer: FFT bands of silence and sines, and their levels, passed.')
 
 SCROBBLE = r"""
 #include <assert.h>
@@ -1044,6 +1112,7 @@ if __name__ == '__main__':
         dsp_check(lib)
         editor_check(lib, tmp)
         player_check(tmp)
+        visualizer_check(tmp)
         scrobble_check(tmp)
         books_check(tmp)
         video_check(tmp)

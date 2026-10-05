@@ -21,6 +21,7 @@ extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
 extern int books_key(void *top, unsigned key), video_on(void);
+extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
@@ -1074,8 +1075,8 @@ static void pull_begin(void *event) {
 /* 0xRRGGBB to an opaque color_t, whose bytes are r, g, b, a. */
 #define RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
 
-/* The 0xRRGGBB j/n of the way from one color to another, per channel. */
-static unsigned mix(unsigned from, unsigned to, int j, int n) {
+/* The 0xRRGGBB j/n of the way from one color to another, per channel. Shared with visualizer.c. */
+unsigned mix(unsigned from, unsigned to, int j, int n) {
     unsigned c = 0;
     for (int s = 0; s < 24; s += 8)
         c |= (unsigned)(((int)(from >> s & 255) * (n - j) + (int)(to >> s & 255) * j) / n) << s;
@@ -1090,7 +1091,7 @@ static const unsigned accents[][5] = { ACCENTS };
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
                                             "Accent: Champagne" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-static int config_digit(const char *key, int n) {
+int config_digit(const char *key, int n) { /* shared with visualizer.c */
     char s[256] = "";
     toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "0");
     return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
@@ -1108,6 +1109,7 @@ int ipod_home_full(void) {
     accent();
     return st.home_full;
 }
+unsigned accent_tone(int tone) { return accents[accent()][tone]; }
 
 /* A color_t (bytes r, g, b, a) that is stock red blended with a neutral, t * red + k * white per
  * channel within RED_TOLERANCE, becomes the same blend of one of the preset's tones (TONE_RED for
@@ -1179,6 +1181,21 @@ static unsigned article(const char *s) {
     return 0;
 }
 
+/* Text centred in r in the default font at px, in color; text color and alignment are restored,
+ * the font is not (stock sets it before its own text). Shared with peq_ui.c and visualizer.c. */
+void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px,
+                  unsigned color) {
+    unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
+    int align_v = I(canvas, CANVAS_ALIGN_V), align_h = I(canvas, CANVAS_ALIGN_H);
+    canvas_set_font(canvas, (void *)0, px); /* the system default font */
+    canvas_set_text_color(canvas, color);
+    I(canvas, CANVAS_ALIGN_V) = I(canvas, CANVAS_ALIGN_H) = 1;
+    canvas_draw_text_in_rect(canvas, s, n, r);
+    I(canvas, CANVAS_ALIGN_V) = align_v;
+    I(canvas, CANVAS_ALIGN_H) = align_h;
+    canvas_set_text_color(canvas, text);
+}
+
 #if IPOD
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
@@ -1216,21 +1233,6 @@ static unsigned put_num(unsigned *s, unsigned v) {
     if (v >= 10) s[n++] = '0' + v / 10 % 10;
     s[n++] = '0' + v % 10;
     return n;
-}
-
-/* Text centred in r in the default font at px, in color; text color and alignment are restored,
- * the font is not (stock sets it before its own text). */
-static void draw_centred(void *canvas, const unsigned *s, unsigned n, const rect_t *r, unsigned px,
-                         unsigned color) {
-    unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
-    int align_v = I(canvas, CANVAS_ALIGN_V), align_h = I(canvas, CANVAS_ALIGN_H);
-    canvas_set_font(canvas, (void *)0, px); /* the system default font */
-    canvas_set_text_color(canvas, color);
-    I(canvas, CANVAS_ALIGN_V) = I(canvas, CANVAS_ALIGN_H) = 1;
-    canvas_draw_text_in_rect(canvas, s, n, r);
-    I(canvas, CANVAS_ALIGN_V) = align_v;
-    I(canvas, CANVAS_ALIGN_H) = align_h;
-    canvas_set_text_color(canvas, text);
 }
 
 static int letter_expire(const void *info) {
@@ -1410,6 +1412,10 @@ int ringnav_paint(void *w, void *canvas) {
     coverflow_paint(w, canvas);
     photos_paint(w, canvas);
     books_paint(w, canvas);
+    peq_paint(w, canvas);
+#if IPOD
+    visualizer_paint(w, canvas);
+#endif
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
@@ -1648,10 +1654,10 @@ static void np_cancel(void) {
  * on_wm_keyup_fun, which turns the screen off (it reads only the event's key). */
 static int np_single(const void *info) {
     (void)info;
-    static unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
+    static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     st.np_press = 0;
     scrub_end();
-    if (g_backlight_status) on_wm_keyup_fun((void *)0, release);
+    if (g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
     return 0;
 }
 
@@ -1732,6 +1738,7 @@ int ringnav_playing(void *win, void *ctx) {
     np_fill(0);
     widget_on(win, EVT_DESTROY, np_gone, win);
     np_sync(win);
+    visualizer_attach(win);
     return result;
 }
 
