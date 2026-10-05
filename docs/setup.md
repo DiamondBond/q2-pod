@@ -11,7 +11,7 @@ For a brand new Q2. You need the Q2, its microSD card, a computer and internet.
 
 ## 2. Install Rockbox
 
-1. Download `rockbox.zip` here: https://github.com/DiamondBond/rockbox/releases
+1. Download `rockbox.zip` here: https://github.com/DiamondBond/q2-rockbox/releases
 2. Unzip it onto the card (the main folder). It adds a `.rockbox` folder.
 3. Turn the Q2 on. Rockbox starts.
 

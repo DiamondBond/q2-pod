@@ -29,7 +29,7 @@ demo's `platform_init` starts `checkappprocess.sh &`, the watchdog: it checks wi
 
 ## Rockbox
 
-Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/rockbox/tree/shanlingq2), which runs from the microSD card. Once Rockbox is on the card, the Q2 starts it at power-on, as an iPod with Rockbox does: **holding Play/Pause while powering on** starts Q2 Pod for that session instead, and Rockbox's **Boot stock OS** returns to Q2 Pod the same way. Nothing is remembered, so the next power-on is Rockbox again while the card still has it.
+Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/q2-rockbox/tree/shanlingq2), which runs from the microSD card. Once Rockbox is on the card, the Q2 starts it at power-on, as an iPod with Rockbox does: **holding Play/Pause while powering on** starts Q2 Pod for that session instead, and Rockbox's **Boot stock OS** returns to Q2 Pod the same way. Nothing is remembered, so the next power-on is Rockbox again while the card still has it.
 
 | What       | Where                                                                                      |
 | ---------- | ------------------------------------------------------------------------------------------ |
