@@ -226,6 +226,7 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 | [Building](docs/building.md)   | Building both variants and the MIPS test suite     |
 | [Releasing](docs/releasing.md) | Packaging, verifying and publishing                |
 | [Boot](docs/boot.md)           | Boot sequence, Rockbox, framebuffer and the splash |
+| [Setup](docs/setup.md)         | Q2 Pod, Rockbox and themes on a fresh Q2           |
 
 ## Contributing
 
