@@ -359,7 +359,7 @@
  * scale a second squared. Levels span VIS_FLOOR_DB below full scale; the VU meters read 0 VU at
  * VIS_VU_REF_DB dBFS RMS and light their peak LED from VIS_LED_DB dBFS for VIS_HOLD_MS. */
 #define VIS_LATENCY_MS 480
-#define VIS_FPS 30
+#define VIS_FPS 25
 #define VIS_BARS 32
 #define VIS_DECAY 1.6f
 #define VIS_HOLD_MS 400

@@ -64,14 +64,18 @@ static int control(af_instance *af, int command, void *arg) {
     return -1;
 }
 
-/* The visualizer's tap (peq.h): what plays, after the filter. The file appears when the visualizer
- * first opens; until then it is looked for at most once a second. */
+/* The visualizer's tap (peq.h): what plays, after the filter, while the visualizer shows. The file
+ * appears when it first opens; until then it is looked for once a second of audio. Counting frames,
+ * not time, keeps an idle tap to a compare per block. */
 static void tap(const float *a, unsigned frames, int nch, int rate) {
     static vis_tap *t;
-    static long long tried;
-    long long now = now_ns();
-    if (!t && now - tried >= 1000000000LL) {
-        tried = now;
+    static unsigned wait = ~0u, seen, idle;
+    if (!t) {
+        if (wait < (unsigned)rate) {
+            wait += frames;
+            return;
+        }
+        wait = 0;
         int fd = open(VIS_FILE, 2); /* O_RDWR */
         if (fd >= 0) {
             void *p = mmap64(0, sizeof(vis_tap), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
@@ -80,6 +84,12 @@ static void tap(const float *a, unsigned frames, int nch, int rate) {
         }
     }
     if (!t) return;
+    if (t->want != seen) { /* watched again after a pause: no stale audio half a second back */
+        if (idle > (unsigned)rate) memset(t->ring, 0, sizeof t->ring);
+        seen = t->want, idle = 0;
+    }
+    else if (idle > (unsigned)rate || (idle += frames) > (unsigned)rate) return; /* nobody watching */
+    long long now = now_ns();
     unsigned step = rate > 48000 ? (unsigned)rate / 44100 : 1, seq = t->seq;
     for (unsigned i = 0; i < frames; i += step, ++seq) {
         t->ring[seq % VIS_RING][0] = a[i * nch];

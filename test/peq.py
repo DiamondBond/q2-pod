@@ -588,7 +588,7 @@ static vis_tap *tap_view(void) {
     if (!t) {
         int fd = open(VIS_FILE, O_RDWR | O_CREAT, 0644);
         assert(fd >= 0 && !ftruncate(fd, sizeof(vis_tap)));
-        t = mmap(0, sizeof(vis_tap), PROT_READ, MAP_SHARED, fd, 0);
+        t = mmap(0, sizeof(vis_tap), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         assert(t != MAP_FAILED && !close(fd));
     }
     return t;
@@ -600,6 +600,7 @@ static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
     unsigned frames = 1024 / nch;
     for (int i = 0; i < 1024; ++i) a[i] = b[i] = in[i] = 0.5f * sinf(i * 0.05f);
     af_data d = {a, (int)(frames * nch * 4), rate, nch, 0x1d, 4};
+    ++tap_view()->want; /* the visualizer is watching */
     assert(af->play(af, &d) == &d);
     peq_process(ref, b, frames);
     assert(!memcmp(a, b, sizeof(a)) && memcmp(a, in, sizeof(a)));
@@ -713,6 +714,17 @@ int main(void) {
     peq_preset defaults;
     peq_default(&defaults);
     assert(!memcmp(&s->preset, &defaults, sizeof(defaults)));
+
+    /* With nobody watching for a second of audio, the tap stops copying; a bump resumes it. */
+    vis_tap *t = tap_view();
+    unsigned seq = t->seq;
+    float block[2 * 1000] = {0};
+    af_data idle = {block, (int)sizeof(block), 44100, 1, 0x1d, 4};
+    for (int i = 0; i < 100; ++i) af.play(&af, &idle); /* 200000 frames, past 44100 */
+    unsigned after = t->seq;
+    assert(after != seq && after - seq < 50000);
+    af.play(&af, &idle); assert(t->seq == after);
+    ++t->want; af.play(&af, &idle); assert(t->seq == after + 2000);
 
     af.uninit(&af);
     assert(!af.data && !af.setup);

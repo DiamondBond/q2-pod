@@ -15,13 +15,14 @@
 enum { SPECTRUM, SCOPE, METERS, HALO, STYLES };
 
 static struct {
-    float re[VIS_N], im[VIS_N], pcm[VIS_N][2];
+    float re[VIS_N], im[VIS_N], pcm[VIS_N][2], hann[VIS_N]; /* hann[VIS_N / 2] is 0 until filled */
     float level[VIS_HALO], peak[VIS_BARS], fall[VIS_BARS], wave[2][VIS_W], vu[2], spin, bass;
-    unsigned held[VIS_BARS], lit[2];
+    unsigned held[VIS_BARS], lit[2], bin_rate;
+    int bin[VIS_HALO + 1]; /* each band's first FFT bin at bin_rate */
 #ifndef PEQ_HOST
     void *win, *slide, *page, *art, *cover;
     vis_tap *tap;
-    unsigned timer, last, named;
+    unsigned timer, last, named, heard; /* heard: the last tick with audio */
     int style, tapped; /* tapped: the filter was put in the chain this boot */
 #endif
 } vz __attribute__((section(".scratch")));
@@ -60,13 +61,19 @@ static int band_bin(int b, unsigned rate) { return (int)(40 * pow(400, (double)b
 /* level[VIS_HALO]: each band's loudest bin of the Hann-windowed mono mix of VIS_N frames at rate, 0
  * at VIS_FLOOR_DB below a full-scale sine to 1 at it. */
 void vis_bands(const float (*pcm)[2], unsigned rate, float *level) {
+    if (!vz.hann[VIS_N / 2]) /* the window, once */
+        for (int i = 0; i < VIS_N; ++i) vz.hann[i] = 0.25f - 0.25f * cosf(TAU * i / (VIS_N - 1)); /* with the mono mix's 1/2 */
     for (int i = 0; i < VIS_N; ++i) {
-        vz.re[i] = (pcm[i][0] + pcm[i][1]) * 0.5f * (0.5f - 0.5f * cosf(TAU * i / (VIS_N - 1)));
+        vz.re[i] = (pcm[i][0] + pcm[i][1]) * vz.hann[i];
         vz.im[i] = 0;
     }
     fft(vz.re, vz.im, VIS_N);
+    if (vz.bin_rate != rate) {
+        for (int b = 0; b <= VIS_HALO; ++b) vz.bin[b] = band_bin(b, rate);
+        vz.bin_rate = rate;
+    }
     for (int b = 0; b < VIS_HALO; ++b) {
-        int lo = band_bin(b, rate), hi = band_bin(b + 1, rate);
+        int lo = vz.bin[b], hi = vz.bin[b + 1];
         float m = 0;
         for (int k = lo; k < (hi > lo ? hi : lo + 1) && k < VIS_N / 2; ++k) {
             float p = vz.re[k] * vz.re[k] + vz.im[k] * vz.im[k];
@@ -92,6 +99,15 @@ static int showing(void) {
            widget_get_prop_int(vz.slide, "value", 0) == (int)widget_count_children(vz.slide) - 1;
 }
 
+/* Showing and still: no finger down (a drag of the slide_view), no window sliding, and the page at
+ * the screen's left edge, where the iPod layout puts it once a slide_view animation ends (value only
+ * changes then). The page draws its content only then, so slides stay smooth. */
+static int settled(void *canvas) {
+    void *wm = window_manager(); /* painting, a drag shows as the page off x 0; a tap must not blank it */
+    return showing() && !window_manager_is_animating(wm) &&
+           (canvas ? !I(canvas, CANVAS_X) : !window_manager_get_pointer_pressed(wm));
+}
+
 /* The tap, mapped read-only; demo makes the file whole under another name first (peq.h). */
 static vis_tap *tap(void) {
     if (vz.tap) return vz.tap;
@@ -104,7 +120,7 @@ static vis_tap *tap(void) {
             return 0;
         }
     }
-    void *p = mmap(0, sizeof(vis_tap), 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
+    void *p = mmap(0, sizeof(vis_tap), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE (want), MAP_SHARED */
     close(fd);
     return vz.tap = p == (void *)-1 ? 0 : p;
 }
@@ -114,6 +130,7 @@ static vis_tap *tap(void) {
 static unsigned capture(void) {
     vis_tap *t = tap();
     if (!t || mclGetPlayStatus() != 2) return 0;
+    ++t->want; /* keep the writer copying */
     unsigned seq = t->seq, rate = t->rate;
     long long age = now_ns() - t->stamp;
     /* nothing written lately (DSD, or the filter is off), or a stamp read torn mid-write: one frame at rest */
@@ -181,6 +198,10 @@ static int tick(const void *unused) {
     }
     float bass = (vz.level[0] + vz.level[2] + vz.level[4] + vz.level[6]) / 4;
     vz.bass += (bass - vz.bass) * 0.5f;
+    /* 1.5 s after the audio stops everything has come to rest (a cap's hold and fall, the wave's fade)
+     * and the style's name has faded: no repaint until it plays again. */
+    if (rate) vz.heard = now;
+    if ((now - vz.heard > 1500 && now - vz.named > 1500) || !settled(0)) return 8; /* RET_REPEAT */
     vz.spin += dt * 0.2f; /* radians a second */
     widget_invalidate_force(vz.page, 0);
     return 8; /* RET_REPEAT */
@@ -223,37 +244,36 @@ static void disc(void *vg, float x, float y, float r, unsigned color) {
 #define TALL 126
 static void spectrum(void *vg, unsigned tone) {
     float pitch = (float)VIS_W / VIS_BARS, w = pitch * 0.66f;
-    for (int i = 0; i < VIS_BARS; ++i) {
-        float x = VIS_X + i * pitch + (pitch - w) / 2, h = 3 + bar(i) * (TALL - 3);
+    /* Three fills for all the bars: the bars (one gradient, in page coordinates, serves them all),
+     * their reflections and their caps. A fill each costs a frame. */
+    for (int k = 0; k < 3; ++k) {
         vgcanvas_begin_path(vg);
-        vgcanvas_rounded_rect(vg, x, BASE - h, w, h, w / 2);
-        vgcanvas_set_fill_linear_gradient(vg, 0, BASE, 0, BASE - TALL, rgba(DARK(tone), 255), rgba(BRIGHT(tone), 255));
-        vgcanvas_fill(vg);
-        vgcanvas_begin_path(vg);
-        vgcanvas_rounded_rect(vg, x, BASE + 4, w, h * 0.3f, w / 2);
-        vgcanvas_set_fill_linear_gradient(vg, 0, BASE + 4, 0, BASE + 4 + TALL * 0.3f, rgba(tone, 0x38), rgba(tone, 0));
-        vgcanvas_fill(vg);
-        vgcanvas_begin_path(vg);
-        vgcanvas_rounded_rect(vg, x, BASE - 3 - vz.peak[i] * (TALL - 3) - 4, w, 3, 1.5f);
-        vgcanvas_set_fill_color(vg, rgba(BRIGHT(tone), 255));
+        for (int i = 0; i < VIS_BARS; ++i) {
+            float x = VIS_X + i * pitch + (pitch - w) / 2, h = 3 + bar(i) * (TALL - 3);
+            if (!k) vgcanvas_rounded_rect(vg, x, BASE - h, w, h, w / 2);
+            else if (k == 1) vgcanvas_rounded_rect(vg, x, BASE + 4, w, h * 0.3f, w / 2);
+            else vgcanvas_rounded_rect(vg, x, BASE - 3 - vz.peak[i] * (TALL - 3) - 4, w, 3, 1.5f);
+        }
+        if (!k) vgcanvas_set_fill_linear_gradient(vg, 0, BASE, 0, BASE - TALL, rgba(DARK(tone), 255), rgba(BRIGHT(tone), 255));
+        else vgcanvas_set_fill_color(vg, rgba(k == 1 ? tone : BRIGHT(tone), k == 1 ? 0x24 : 255));
         vgcanvas_fill(vg);
     }
 }
 
-/* Rockbox's oscilloscope: the right channel a faint accent line, the left over it with a glow, three
- * strokes from wide and faint to fine and bright. */
+/* Rockbox's oscilloscope: the right channel a faint accent line, the left over it with a glow, a wide
+ * faint stroke under a fine bright one; a point every 2 px, which the anti-aliasing hides. */
 static void scope(void *vg, unsigned tone) {
-    static const struct { float width; unsigned alpha; } pass[] = { { 1.5f, 0x50 }, { 7, 0x28 }, { 3.5f, 0x60 }, { 1.5f, 0xff } };
-    for (int k = 0; k < 4; ++k) {
+    static const struct { float width; unsigned alpha; } pass[] = { { 1.5f, 0x50 }, { 5, 0x40 }, { 1.5f, 0xff } };
+    for (int k = 0; k < 3; ++k) {
         const float *w = vz.wave[!k ? 1 : 0];
         vgcanvas_begin_path(vg);
-        for (int x = 0; x < VIS_W; ++x) {
+        for (int x = 0; x < VIS_W; x += 2) {
             float y = VIS_H / 2 + (k ? 0 : 3) - w[x] * (VIS_H / 2 - 16);
             if (x) vgcanvas_line_to(vg, VIS_X + x, y);
             else vgcanvas_move_to(vg, VIS_X, y);
         }
         vgcanvas_set_line_width(vg, pass[k].width);
-        vgcanvas_set_stroke_color(vg, rgba(k == 3 ? BRIGHT(tone) : tone, pass[k].alpha));
+        vgcanvas_set_stroke_color(vg, rgba(k == 2 ? BRIGHT(tone) : tone, pass[k].alpha));
         vgcanvas_stroke(vg);
     }
 }
@@ -278,11 +298,20 @@ static void meters(void *vg, void *canvas, unsigned tone, unsigned now) {
         vgcanvas_set_stroke_color(vg, rgba(BRIGHT(tone), 255));
         vgcanvas_stroke(vg);
         vgcanvas_set_line_width(vg, 1.5f);
-        for (unsigned i = 0; i < sizeof marks; ++i) {
-            float a = zero + spread * vu_at(marks[i]), c = cosf(a), s = sinf(a), out = labels[i][0] ? 8 : 5;
-            vgcanvas_set_stroke_color(vg, rgba(marks[i] > 0 ? BRIGHT(tone) : tone, 255));
-            line(vg, cx + c * r, py + s * r, cx + c * (r + out), py + s * (r + out));
-            if (labels[i][0]) caption(canvas, labels[i], (int)(cx + c * (r + 16)) - 14, (int)(py + s * (r + 16)) - 8, 28, 16, 12, CF_GREY);
+        for (int over = 0; over < 2; ++over) { /* the ticks up to 0 VU, then past it: a stroke each */
+            vgcanvas_begin_path(vg);
+            for (unsigned i = 0; i < sizeof marks; ++i) {
+                float a = zero + spread * vu_at(marks[i]), c = cosf(a), s = sinf(a), out = labels[i][0] ? 8 : 5;
+                if ((marks[i] > 0) != over) continue;
+                vgcanvas_move_to(vg, cx + c * r, py + s * r);
+                vgcanvas_line_to(vg, cx + c * (r + out), py + s * (r + out));
+            }
+            vgcanvas_set_stroke_color(vg, rgba(over ? BRIGHT(tone) : tone, 255));
+            vgcanvas_stroke(vg);
+        }
+        for (unsigned i = 0; i < sizeof marks; ++i) { /* text after the strokes: it may reset the path */
+            float a = zero + spread * vu_at(marks[i]);
+            if (labels[i][0]) caption(canvas, labels[i], (int)(cx + cosf(a) * (r + 16)) - 14, (int)(py + sinf(a) * (r + 16)) - 8, 28, 16, 12, CF_GREY);
         }
         caption(canvas, ch ? "R" : "L", (int)cx - 48, (int)py - 20, 24, 20, 14, CF_GREY); /* clear of the needle */
         float a = zero + spread * vz.vu[ch];
@@ -310,14 +339,18 @@ static void halo(void *vg, unsigned tone) {
     vgcanvas_set_stroke_color(vg, rgba(tone, 0x50 + (unsigned)(0xaf * vz.bass)));
     vgcanvas_stroke(vg);
     vgcanvas_set_line_cap(vg, "round");
-    for (int pass = 0; pass < 2; ++pass) { /* a soft accent glow, then the bar */
-        vgcanvas_set_line_width(vg, pass ? 2.5f : 5);
+    vgcanvas_set_line_width(vg, 3);
+    for (int level = 0; level < 6; ++level) { /* a stroke per shade, its bars all in one path */
+        vgcanvas_begin_path(vg);
         for (int i = 0; i < VIS_HALO; ++i) {
             float v = bar(i < VIS_HALO / 2 ? i : VIS_HALO - 1 - i), a = vz.spin + TAU * i / VIS_HALO;
+            if ((v >= 1 ? 5 : (int)(v * 6)) != level) continue;
             float c = cosf(a), s = sinf(a), len = 3 + v * (cy - r0 - 6);
-            vgcanvas_set_stroke_color(vg, pass ? rgba(mix(DARK(tone), BRIGHT(tone), 35 + (int)(65 * v), 100), 255) : rgba(tone, 0x30));
-            line(vg, cx + c * r0, cy + s * r0, cx + c * (r0 + len), cy + s * (r0 + len));
+            vgcanvas_move_to(vg, cx + c * r0, cy + s * r0);
+            vgcanvas_line_to(vg, cx + c * (r0 + len), cy + s * (r0 + len));
         }
+        vgcanvas_set_stroke_color(vg, rgba(mix(DARK(tone), BRIGHT(tone), 35 + 65 * (2 * level + 1) / 12, 100), 255));
+        vgcanvas_stroke(vg);
     }
     vgcanvas_set_line_cap(vg, "butt");
 }
@@ -328,7 +361,7 @@ void visualizer_paint(void *w, void *canvas) {
     static const char *const names[] = { "Spectrum", "Oscilloscope", "VU Meters", "Halo" };
     if (!w || w != vz.page || !P(canvas, CANVAS_LCD)) return;
     arm();
-    void *vg = canvas_get_vgcanvas(canvas);
+    void *vg = settled(canvas) ? canvas_get_vgcanvas(canvas) : 0; /* mid-slide: just the black page */
     unsigned tone = accent_tone(2), now = time_now_ms();
     if (vg) {
         vgcanvas_save(vg);

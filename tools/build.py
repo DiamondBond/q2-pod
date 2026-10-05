@@ -92,6 +92,10 @@ DROP_CACHES = (0x5120a8, 0x12220006, 0x10000006)
 # WHEEL_TRAVEL. At stock a small nudge moved a row. Tuned on the device.
 WHEEL_TRAVEL = 1.2
 WHEEL_THRESHOLDS = ((0x625ce0, 0x24060014), (0x625cdc, 0x2403000a), (0x625ba0, 0x24060014))
+# Now Playing More's first row and the page it opens are the play queue, which stock English calls
+# "Playlists" (player_playlist, used nowhere else; Local Music's are "Playlist"). Same size: the
+# table finds each value by offset, so the padding NULs are never read.
+QUEUE_LABEL = (b'player_playlist\0Playlists\0', b'player_playlist\0Queue\0\0\0\0\0')
 # demo's .pdr section (offset, size): MIPS procedure descriptors past every LOAD segment, which nothing
 # reads at run time. Zeroed, they pack to almost nothing, which keeps the Stock rootfs within stock's size.
 PDR = (0x61694c, 0x69d40)
@@ -613,7 +617,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         removed.append(line.group().split()[:6])
         p = p[:line.start()]+p[line.end():]
     changed_assets = {}
-    assets = ['ui/'+rel for rel in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])]
+    assets = ['ui/'+rel for rel in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])] + ['strings/en_US.bin']
     if ipod:
         assets += ['styles/'+rel for rel in AUDIT['styles']]
         # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
@@ -622,7 +626,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         kind, name = rel.split('/', 1)
         path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)
         original = cat(path)
-        data = (patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
+        check(kind != 'strings' or original.count(QUEUE_LABEL[0]) == 1, 'Unexpected queue label')
+        data = (original.replace(*QUEUE_LABEL) if kind == 'strings' else
+                patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
                 settings_icon(name, original) if kind == 'images' else patch_asset(name, original, ipod))
         target = out/rel
         target.parent.mkdir(parents=True, exist_ok=True)

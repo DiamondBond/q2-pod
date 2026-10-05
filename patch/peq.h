@@ -59,10 +59,11 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames);
 /* The visualizer's PCM tap (docs/internals.md#visualizer): hciplayer's filter writes what plays, its
  * first two channels and above 48 kHz every rate / 44100th frame, to ring[seq % VIS_RING], then sets
  * rate (of the ring), stamp (CLOCK_MONOTONIC ns of that write) and seq, the frames written. demo
- * creates the file, sized, under another name and renames it, so it never maps a short one. */
+ * creates the file, sized, under another name and renames it, so it never maps a short one, and bumps
+ * want each frame it shows: a second of audio without a bump and the writer stops copying. */
 #define VIS_FILE PEQ_ROOT "/tmp/q2vis"
 #define VIS_RING 65536 /* a power of two: 1.5 s at 44.1 kHz, room for VIS_LATENCY_MS */
-typedef struct { unsigned seq, rate; long long stamp; float ring[VIS_RING][2]; } vis_tap;
+typedef struct { unsigned seq, rate; long long stamp; unsigned want, pad; float ring[VIS_RING][2]; } vis_tap;
 long long now_ns(void);
 
 /* The payload's shared helpers: coverflow.c's pages, hashes and worker, photos.c's, navigation.c's. */
