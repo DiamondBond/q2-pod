@@ -97,7 +97,7 @@
 
 ### Rockbox
 
-[Rockbox](https://github.com/DiamondBond/rockbox/tree/shanlingq2) can run next to Q2 Pod from the microSD card: unzip its `rockbox.zip` to the card's root and the Q2 starts Rockbox at power-on. Its **Boot stock OS** returns to Q2 Pod until you choose Rockbox again; **hold Play/Pause while powering on** to switch between the two. See [Boot](docs/boot.md#rockbox).
+[Rockbox](https://github.com/DiamondBond/rockbox) can run next to Q2 Pod from the microSD card: unzip its [`rockbox.zip`](https://github.com/DiamondBond/rockbox/releases) to the card's root and the Q2 starts Rockbox at power-on. **Hold Play/Pause while powering on**, or Rockbox's **Boot stock OS**, to start Q2 Pod for that session; the next power-on is Rockbox again. Ported themes: [q2-rockbox-themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). See [Boot](docs/boot.md#rockbox).
 
 ### Restore stock
 
