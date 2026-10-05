@@ -23,6 +23,7 @@ static struct {
     void *win, *slide, *page, *art, *cover;
     vis_tap *tap;
     unsigned timer, last, named, heard; /* heard: the last tick with audio */
+    int ox, oy, page_x; /* the slide area in the window; the page's canvas x there as last painted */
     int style, tapped; /* tapped: the filter was put in the chain this boot */
 #endif
 } vz __attribute__((section(".scratch")));
@@ -99,13 +100,23 @@ static int showing(void) {
            widget_get_prop_int(vz.slide, "value", 0) == (int)widget_count_children(vz.slide) - 1;
 }
 
-/* Showing and still: no finger down (a drag of the slide_view), no window sliding, and the page at
- * the screen's left edge, where the iPod layout puts it once a slide_view animation ends (value only
- * changes then). The page draws its content only then, so slides stay smooth. */
-static int settled(void *canvas) {
-    void *wm = window_manager(); /* painting, a drag shows as the page off x 0; a tap must not blank it */
-    return showing() && !window_manager_is_animating(wm) &&
-           (canvas ? !I(canvas, CANVAS_X) : !window_manager_get_pointer_pressed(wm));
+/* Showing and still: no window sliding, and the page last painted at the slide area's left edge, so
+ * not dragged or mid-slide (value only changes once a slide ends); a tap leaves it there. */
+static int settled(void) {
+    return showing() && !window_manager_is_animating(window_manager()) && !vz.page_x;
+}
+
+/* The Halo's centre shows Now Playing's own art, in the same image, so stock's reload of the cover
+ * reaches both; it shows only while the Halo draws round it. */
+static void halo_art(int on) {
+    if (!vz.art) return;
+    on = on && vz.style == HALO;
+    if (widget_get_visible(vz.art) != on) widget_set_visible(vz.art, on, 0);
+    const char *src = vz.cover ? widget_get_prop_str(vz.cover, "image", "") : "";
+    if (on && tk_strcmp(src, widget_get_prop_str(vz.art, "image", ""))) {
+        image_set_draw_type(vz.art, widget_get_prop_int(vz.cover, "draw_type", IMAGE_DRAW_SCALE_DOWN));
+        image_base_set_image(vz.art, src);
+    }
 }
 
 /* The tap, mapped read-only; demo makes the file whole under another name first (peq.h). */
@@ -154,6 +165,7 @@ static float vu_at(float vu) { return (float)pow(10, (vu - 3) / 20); }
 static int tick(const void *unused) {
     (void)unused;
     if (!showing()) {
+        halo_art(0);
         vz.timer = 0;
         return 7; /* RET_REMOVE */
     }
@@ -201,7 +213,9 @@ static int tick(const void *unused) {
     /* 1.5 s after the audio stops everything has come to rest (a cap's hold and fall, the wave's fade)
      * and the style's name has faded: no repaint until it plays again. */
     if (rate) vz.heard = now;
-    if ((now - vz.heard > 1500 && now - vz.named > 1500) || !settled(0)) return 8; /* RET_REPEAT */
+    int still = settled() && !window_manager_get_pointer_pressed(window_manager()); /* a drag starting */
+    halo_art(still);
+    if ((now - vz.heard > 1500 && now - vz.named > 1500) || !still) return 8; /* RET_REPEAT */
     vz.spin += dt * 0.2f; /* radians a second */
     /* The slide_view: the page's own rect does not map to the screen inside it. */
     widget_invalidate_force(vz.slide, 0);
@@ -212,17 +226,6 @@ static void arm(void) {
     if (vz.timer || !showing()) return;
     vz.last = time_now_ms();
     vz.timer = timer_add(tick, 0, 1000 / VIS_FPS);
-}
-
-/* The Halo's centre shows Now Playing's own art: the same image, so stock's reload of it reaches both. */
-static void halo_art(void) {
-    if (!vz.art) return;
-    widget_set_visible(vz.art, vz.style == HALO, 0);
-    const char *src = vz.cover ? widget_get_prop_str(vz.cover, "image", "") : "";
-    if (vz.style == HALO && tk_strcmp(src, widget_get_prop_str(vz.art, "image", ""))) {
-        image_set_draw_type(vz.art, widget_get_prop_int(vz.cover, "draw_type", IMAGE_DRAW_SCALE_DOWN));
-        image_base_set_image(vz.art, src);
-    }
 }
 
 static void line(void *vg, float x0, float y0, float x1, float y1) {
@@ -356,13 +359,28 @@ static void halo(void *vg, unsigned tone) {
     vgcanvas_set_line_cap(vg, "butt");
 }
 
-/* ringnav_paint, after stock: the page in the current style on black, and for 1.5 s after a change
- * the style's name, fading over its last half second. Painting the page starts its timer. */
+/* ringnav_paint, after stock, on Now Playing's window (after all its children): the current style
+ * over the slide area, and for 1.5 s after a change the style's name, fading over its last half
+ * second. Drawing on the window, clipped to the slide area, not on the page: the slide_view clips the
+ * page it was given at run time to a sliver. Painting starts the timer. */
 void visualizer_paint(void *w, void *canvas) {
     static const char *const names[] = { "Spectrum", "Oscilloscope", "VU Meters", "Halo" };
-    if (!w || w != vz.page || !P(canvas, CANVAS_LCD)) return;
+    if (!w) return;
+    if (w == vz.page) { /* the page paints first, its canvas x 0 only when still */
+        vz.page_x = I(canvas, CANVAS_X) - vz.ox;
+        if (vz.page_x) halo_art(0); /* the art is the window's, painted after the page: off this frame */
+        return;
+    }
+    if (w != vz.win || !P(canvas, CANVAS_LCD) || !showing()) return;
     arm();
-    void *vg = settled(canvas) ? canvas_get_vgcanvas(canvas) : 0; /* mid-slide: just the black page */
+    int x = vz.ox, y = vz.oy, old[4], clip[4];
+    if (!settled() ||
+        !clip_within(canvas, old, clip, I(canvas, CANVAS_X) + x, I(canvas, CANVAS_Y) + y, 375, VIS_H))
+        return;
+    canvas_set_clip_rect(canvas, clip);
+    I(canvas, CANVAS_X) += x; /* the slide area's origin, for the vector drawing and the text alike */
+    I(canvas, CANVAS_Y) += y;
+    void *vg = canvas_get_vgcanvas(canvas);
     unsigned tone = accent_tone(2), now = time_now_ms();
     if (vg) {
         vgcanvas_save(vg);
@@ -377,6 +395,9 @@ void visualizer_paint(void *w, void *canvas) {
     if (vz.named && shown < 1500)
         caption(canvas, names[vz.style], 0, VIS_H - 22, 375, 20, 14,
              rgba(0xaaaaaa, shown < 1000 ? 255 : 255 * (1500 - shown) / 500));
+    I(canvas, CANVAS_X) -= x;
+    I(canvas, CANVAS_Y) -= y;
+    canvas_set_clip_rect(canvas, old);
 }
 
 static int next_style(void *ctx, void *event) {
@@ -384,14 +405,12 @@ static int next_style(void *ctx, void *event) {
     vz.style = (vz.style + 1) % STYLES;
     vz.named = time_now_ms() | 1; /* never 0, which is none */
     write_int_config(vz.style, "IPOD", "VIS");
-    halo_art();
     widget_invalidate_force(vz.slide, 0);
     return 0;
 }
 
 static int slid(void *ctx, void *event) {
     (void)ctx; (void)event;
-    halo_art();
     arm();
     return 0;
 }
@@ -413,15 +432,18 @@ void visualizer_attach(void *win) {
     vz.win = win;
     vz.slide = slide;
     vz.cover = widget_lookup(win, "img_cover", 1);
-    vz.page = list_item_create(slide, 0, 0, I(slide, W_W), I(slide, W_H));
+    vz.page = list_item_create(slide, 0, 0, 375, VIS_H);
     widget_use_style(vz.page, "s_listitem_black");
     widget_on(vz.page, EVT_CLICK, next_style, 0);
-    vz.art = image_create(vz.page, (I(slide, W_W) - VIS_ART) / 2, (I(slide, W_H) - VIS_ART) / 2, VIS_ART, VIS_ART);
+    /* The art is the window's child, over the slide area's centre, for the same reason as the drawing. */
+    vz.ox = vz.oy = 0;
+    for (void *p = slide; p && p != win; p = P(p, W_PARENT)) vz.ox += I(p, W_X), vz.oy += I(p, W_Y);
+    vz.art = image_create(win, vz.ox + (375 - VIS_ART) / 2, vz.oy + (VIS_H - VIS_ART) / 2, VIS_ART, VIS_ART);
     widget_set_sensitive(vz.art, 0);
+    widget_set_visible(vz.art, 0, 0);
     if (dots) widget_set_prop_int(dots, "max", (int)widget_count_children(slide));
     widget_on(slide, EVT_VALUE_CHANGED, slid, 0);
     widget_on(win, EVT_DESTROY, gone, win);
-    halo_art();
 }
 #endif
 #endif
