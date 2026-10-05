@@ -4778,7 +4778,7 @@ inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_i
 def event(kind,key=0):
     m.calls=[]; m.sent=[]
     assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=0,clear=False)==0
-    return [c[0] for c in m.calls]
+    return [c[0] for c in m.calls if c[0]!='time_now_ms']  # the hook times Low power's idle, not input
 for key,c in ((O['KEY_PLAY'],'p'),(O['KEY_FWD_BTN'],'f'),(O['KEY_BACK_BTN'],'b'),(O['KEY_RETURN'],'q')):
     assert 'stock_input' not in event(O['EVT_KEY_UP'],key) and m.sent==[(7,c,1,0x40,1,'/tmp/q2video.sock',110)]
 assert event(0x110,O['KEY_CENTER'])==[] and event(O['EVT_POINTER_DOWN'])==[] and not m.sent; passed()
