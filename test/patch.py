@@ -3017,7 +3017,7 @@ class CoverflowMachine(QueueMachine):
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
-                  'pthread_join@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0'): self.handlers[syms[n]]='c:'+n
+                  'pthread_join@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0','toolsQueryDbTable'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
         for n,stub in WRITERS.items(): self.handlers[HOOKS[n][0]+12]=stub  # the writers' stock bodies
@@ -3044,17 +3044,21 @@ class CoverflowMachine(QueueMachine):
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.albums]; ret=len(self.albums)
         elif name=='navigator_back_to_home': self.homes+=1
         elif name=='navigator_to_with_context':
-            if self.text(a)=='playing_page': self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
-            else: self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
+            if self.text(a)=='playing_page':
+                self.play_names=self.names(self.get(b))
+                self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
+            elif self.text(a)=='dialog/msginfo_dialog': self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
+            else: self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
         elif name=='fopen': ret=0  # no saved album: remember() keeps the first
+        elif name=='toolsQueryDbTable': self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[]
         elif name=='qsort':  # sorted by the payload's comparator, run nested on a stack below this one
-            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[u.reg_read(r) for r in regs]; pair=self.alloc(8)
+            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[u.reg_read(r) for r in regs]; pair=self.alloc(2*c)
             def compare(x,y):
-                self.word(pair,x); self.word(pair+4,y)
-                for r,v in ((UC_MIPS_REG_SP,sp-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,d),(REGS[0],pair),(REGS[1],pair+4)): u.reg_write(r,v)
+                self.u.mem_write(pair,x); self.u.mem_write(pair+c,y)
+                for r,v in ((UC_MIPS_REG_SP,sp-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,d),(REGS[0],pair),(REGS[1],pair+c)): u.reg_write(r,v)
                 u.emu_start(d,0x1000000,count=self.budget); return signed(u.reg_read(UC_MIPS_REG_V0))
-            for i,v in enumerate(sorted([self.get(a+4*i) for i in range(b)],key=cmp_to_key(compare))): self.word(a+4*i,v)
+            for i,v in enumerate(sorted([bytes(u.mem_read(a+c*i,c)) for i in range(b)],key=cmp_to_key(compare))): u.mem_write(a+c*i,v)
             for r,v in zip(regs,saved): u.reg_write(r,v)
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
@@ -3390,7 +3394,9 @@ covers=m.nodes[m.slide]['children']; assert len(covers)==5
 assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
 assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']=='default_album_big'
 assert 'Album 0' in m.texts(); passed()
-m.press(3); assert m.hold()==0 and m.top==page; passed()  # Play/Pause hold stays stock here
+m.press(3); assert m.hold()==11 and m.nodes[m.title]['text']=='Album 0'
+f,ctx=m.handler(m.back,O['EVT_CLICK']); m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)
+assert m.top==page and m.release()==0; passed()
 # Covers step like Home: fast ticks retarget one animator, never stock next/previous, whose
 # scroll_to orphans the running animator.
 assert m.call(gap=0)==11; a,_,to,dur=slide(m,m.slide); assert to<0 and dur==200
@@ -3438,6 +3444,46 @@ for found,want in (((('b.mp3','/p/b.mp3',2,1),('a.mp3','/p/a.mp3',1,2),('c.mp3',
     assert [m.nodes[m.nodes[i]['children'][0]].get('text') for i in m.nodes[view]['children']]==want
     f,ctx=m.handler(m.nodes[view]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert [n.rsplit('.',1)[0] if n.endswith(('.mp3','.flac')) else n for n in m.names(m.plays[-1][1]&0xffffffff)]==want; passed()
+
+# Album holds use the live carousel before tracks have ever been opened, and the same ordering.
+for action,want in ((0,['A','early','late','B','C']),(1,['A','B','C','early','late'])):
+    m=CoverflowMachine(); m.found=[track(m,'late','/p/z',2,1),track(m,'early','/p/a',1,2)]
+    m.open(); m.word(m.slide+O['SLIDE_INDEX'],2)
+    m.press(100); assert m.hold()==11 and m.release()==0
+    assert m.nodes[m.title]['text']=='Album 2' and m.labels()==['Play next','Add to queue','Shuffle','Go to artist']
+    assert m.hold()==0
+    m.pick(action); m.pick(action); m.advance(0)
+    assert m.names()==want and not m.playback() and not m.plays and m.top==m.page
+    assert m.query[:2]==('getMusicByAlbum','Album 2') and m.names(m.get(syms['tools_pdeq_directory']))==['staged']; passed()
+for index in (3,4):
+    m=CoverflowMachine(); m.open(); m.word(m.slide+O['SLIDE_INDEX'],index)
+    m.press(100); assert m.hold()==0 and m.top==m.page; passed()
+for kwargs in ({'albums':0},{'cached':False}):
+    m=CoverflowMachine(**kwargs); m.open(); m.press(100); assert m.hold()==0; passed()
+for invalidate in ('selection','closed','tracks'):
+    m=CoverflowMachine(); m.open(); m.press(100); assert m.hold()==11; m.release()
+    if invalidate=='selection': m.word(m.slide+O['SLIDE_INDEX'],1)
+    elif invalidate=='closed': m.close()
+    else: m.tracks(1)
+    m.pick(0); m.advance(0)
+    assert m.names()==['A','B','C'] and m.toasts[-1][3]=='Queue unchanged'; passed()
+m=CoverflowMachine(); m.open(); m.tracks(2); m.key(); m.word(m.slide+O['SLIDE_INDEX'],1)
+assert m.run(2) is None and m.plays[-1][2] in (0,1) and m.plays[-1][3:]==(1,2) and m.play_names==['T1','T2']; passed()
+# Sorting leaves the utility card selected; the next album hold follows the reordered deque.
+m=CoverflowMachine(); m.word(m.albums[2]+O['REC_ARTIST'],m.string('Aardvark')); m.open(); m.tracks(3); m.slide=m.find('slide_menu'); m.press(100); assert m.hold()==0
+m.word(m.slide+O['SLIDE_INDEX'],0); m.press(101); assert m.hold()==11
+assert m.nodes[m.title]['text']=='Album 2'; m.release(); m.pick(1); m.advance(0)
+assert m.query[:2]==('getMusicByAlbum','Album 2'); passed()
+
+# Go to artist uses the album record directly; an absent artist omits that action.
+m=CoverflowMachine(); m.open(); m.run(3)
+assert m.opened[-1][:2]==('localmusic/artistinfo_page',O['CLASS_ALBUMS']); passed()
+m=CoverflowMachine(); m.word(m.albums[0]+O['REC_ARTIST'],0); m.open(); m.press(100); assert m.hold()==11
+assert m.labels()==['Play next','Add to queue','Shuffle']; passed()
+# Closing the source before the deferred open never creates a dialog.
+m=CoverflowMachine(); m.open(); m.press(100)
+assert m.call(O['KEY_PLAY'],address=syms['on_wm_keylong_fun'],event_type=O['EVT_KEY_LONG'],gap=0)==11
+m.close(); m.advance(0); assert not any(p[0]=='dialog/sortselect_dialog' for p in m.opened); passed()
 
 # Coverflow's own song deque feeds the shared queue menu, independently of stock browsing state.
 for action,want in ((0,['A','T2','B','C']),(1,['A','B','C','T2'])):
@@ -3520,6 +3566,148 @@ if variant=='ipod':
 else:
     view=m.tracks(); assert {cf_geometry(m,m.nodes[i]['children'][0])[::2] for i in m.nodes[view]['children']}=={(12,350)}
 passed()
+
+# Execute stock sibling selection and playback scheduling; mock filesystem enumeration,
+# tag decoder and image codec boundaries, never the resulting player globals.
+class RolloverMachine(CoverflowMachine):
+    def __init__(self,sizes=(2,2,1,1)):
+        super().__init__(queue=0,cls=1)
+        self.native_trace={syms[n]:n for n in ('mclAutoChange','mclNextSong','on_player_autochange','toolsLoadNextDir',
+                          'player_refresh_playqueue','mclLoadPlayList','player_get_id3info','player_set_coverinfo','mclClearChangeFlag')}
+        self.trace=[]; self.files={}; self.dirs={}; self.artfiles=set(); self.worker=False
+        self.handlers[0x5c29bc]='r:directory'; self.handlers[0x5c2c8c]='r:directory'
+        self.handlers[0x5ace14]='r:decoder_start'
+        # Lazy-bound malloc, as used by stock player_refresh_playqueue.
+        self.word(0xa26cc0-0xabc,0x1000014); self.handlers[0x1000014]='r:malloc'
+        for name in ('strcpy@GLIBC_2.0','strncmp@GLIBC_2.0','strstr@GLIBC_2.0','strchr@GLIBC_2.0',
+                     'toolsGetMusicInfo','toolsGetFileSize','toolsGetAlbumCover','toolsGetExternCover',
+                     'access@GLIBC_2.0','remove@GLIBC_2.0','usleep@GLIBC_2.0'):
+            self.handlers[syms[name]]='r:'+name.split('@')[0]
+        self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0','toolsFreeStSongInfo',
+                  'mclLoadExLyric','sendBtHeadsetPlayStatus','notifyPlayInfo','notifyPlayStatus','notifyRefreshLyric',
+                  'dmrNotifyPlayStatus','dlnaRenderSaveUrlMetadata','reset_repeatinfo','initializeDmrQCurrentInfo',
+                  'player_reconfig','add_playrecord','toolsTrimLeft')
+        self.handlers.pop(syms['mclStartPlayer'],None)
+        for i,n in enumerate(sizes):
+            folder=f'/mnt/mmc/{i}'; entries=[]
+            for j in range(n):
+                path=f'{folder}/{j}.flac'; r=self.song(f'{j}.flac')
+                self.word(r+O['REC_PATH'],self.string(path)); self.word(r+0x38,1)
+                for off in ('REC_ALBUM','REC_ARTIST'): self.word(r+O[off],0)
+                entries.append(r); self.files[path]=(f'Album {i}' if i!=2 else '',i!=2)
+            self.dirs[folder]=entries
+        self.dirs['/mnt/mmc']=[]
+        for folder in list(self.dirs)[:-1]:
+            r=self.song(folder.rsplit('/',1)[1],4); self.word(r+O['REC_PATH'],self.string(folder)); self.dirs['/mnt/mmc'].append(r)
+        self.word(0xa3bda8,syms['on_player_autochange']) # registered by stock player startup
+        self.byte(0xa3be53,1) # mclSetJumpFolder's flag
+        self.call(address=syms['mclLoadPlayList'],args=(self.deque(self.dirs['/mnt/mmc/0']),0,1,0),gap=0)
+        self.call(address=syms['mclStartPlayer'],args=(0,0,0,0),gap=0)
+        self.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
+    def hook(self,u,address,size,unused):
+        if address in getattr(self,'native_trace',{}): self.trace.append((self.native_trace[address],None))
+        name=self.handlers.get(address,'')
+        if name=='widget_load_image':
+            path=self.text(u.reg_read(UC_MIPS_REG_A1))
+            self.image_size=None if path.startswith('file://') and path[7:] not in self.artfiles else (50,50)
+        if not name.startswith('r:'): return super().hook(u,address,size,unused)
+        name=name[2:]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        self.trace.append((name,self.text(a) if name in ('directory','decoder_start','toolsGetAlbumCover') else a))
+        if name=='directory':
+            path=self.text(a); self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',r) for r in self.dirs.get(path,[])]; ret=len(self.dirs.get(path,[]))
+        elif name=='decoder_start': self.byte(0xa3be55,1)
+        elif name=='malloc': ret=self.alloc((a+3)&~3)
+        elif name=='strcpy': u.mem_write(a,self.text(b).encode()+b'\0'); ret=a
+        elif name=='strncmp': x,y=self.text(a)[:c],self.text(b)[:c]; ret=(x>y)-(x<y)
+        elif name in ('strchr','strstr'):
+            i=self.text(a).find(chr(b) if name=='strchr' else self.text(b)); ret=a+i if i>=0 else 0
+        elif name=='toolsGetMusicInfo':
+            path=self.text(c); album,_=self.files[path]; self.trace.append(('tags',path))
+            if album:
+                u.mem_write(b,album.encode()+b'\0'); u.mem_write(b+0x100,b'Artist\0')
+                u.mem_write(b+0x280,path.rsplit('/',1)[1].encode()+b'\0')
+            ret=int(bool(album))
+        elif name=='toolsGetFileSize': ret=4096
+        elif name=='toolsGetAlbumCover':
+            ret=int(self.files[self.text(a)][1])
+            if ret: self.artfiles.add(self.text(b))
+        elif name=='access': ret=0 if self.text(a) in self.artfiles else -1
+        elif name=='remove': self.artfiles.discard(self.text(a))
+        elif name=='usleep' and self.worker:
+            u.reg_write(UC_MIPS_REG_PC,0x1000000); u.emu_stop(); return
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def tick(self): self.call(address=syms['player_mainscheduling'],args=(0,0,0,0),gap=0)
+    def artwork(self):
+        self.worker=True
+        self.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
+        self.u.reg_write(UC_MIPS_REG_T9,syms['player_parsecover_thd'])
+        self.u.emu_start(syms['player_parsecover_thd'],0x1000000,count=self.budget)
+        assert self.u.reg_read(UC_MIPS_REG_PC)==0x1000000
+        self.worker=False
+
+
+    def ui(self):
+        self.top=self.win
+        self.call(address=0x52bffc,args=(self.info,0,0,0),gap=0) # stock playing_timer_start callback
+        if variant=='ipod':
+            self.paint(self.win,gap=0)
+            self.top=self.home; self.paint(self.home,gap=0); self.top=self.win
+    def setup_ui(self):
+        bar=self.node('window','system_bar'); self.word(syms['system_bar'],bar); self.word(bar+O['W_PARENT'],self.wm)
+        if variant=='ipod':
+            home_list(self); self.home=self.top; self.art=named(self,self.home,'img_homeart')
+            self.call(address=home_hook[0],args=(self.home,0,0,0),gap=0)
+        self.cover=self.node('image','img_cover'); self.songlabel=self.node('hscroll_label','scrlabel_title')
+        self.albumlabel=self.node('label','label_ipod_album'); self.poslabel=self.node('label','label_ipod_pos')
+        self.win=self.node('window','playing_page',[self.cover,self.songlabel,self.albumlabel,self.poslabel])
+        self.word(self.win+O['W_PARENT'],self.wm); self.top=self.win
+        self.info=self.alloc(0x40); self.word(self.info+0x20,self.win)
+        if variant=='ipod':
+            playing=IPOD_HOOKS['playing_page_init'][0]; self.handlers[playing+12]='stock_playing'
+            self.call(address=playing,args=(self.win,0,0,0),gap=0)
+        self.byte(syms['g_forcerefresh_flag'],1)
+
+for sizes in ((2,2,1,1),(1,1,1,1)):
+    m=RolloverMachine(sizes); m.setup_ui(); m.artwork(); m.ui()
+    paths=[path for path in m.files]
+    assert m.text(syms['g_play_id3_info'])==paths[0]
+    for index,path in enumerate(paths[1:],1):
+        old=m.text(syms['g_play_id3_info']); m.byte(0xa3be55,0) # hciplayer EOF
+        # Delay the UI scheduler after stock queue replacement on alternate transitions.
+        if index%2:
+            m.call(address=syms['mclAutoChange'],args=(0,0,0,0),gap=0)
+            assert m.text(syms['g_play_id3_info'])==old
+            m.ui()
+            if variant=='ipod':
+                assert m.nodes[m.albumlabel]['text']=='' and m.nodes[m.art]['image']=='default_album_big'
+        m.tick() # native auto-change, sibling traversal, queue reload, parsing and notification
+        assert m.text(syms['g_play_id3_info'])==path
+        assert m.text(syms['g_play_id3_info']+O['ID3_ALBUM'])==m.files[path][0]
+        assert m.text(syms['g_play_cover_info']+8)==path
+        assert m.text(syms['g_lastcover_url'])==old # worker has not completed yet
+        m.ui()
+        if variant=='ipod':
+            assert m.nodes[m.albumlabel]['text']==m.files[path][0]
+            assert m.nodes[m.art]['image']=='default_album_big'
+        m.artwork()
+        assert m.text(syms['g_lastcover_url'])==path
+        assert m.u.mem_read(syms['g_playcover_finishflag'],1)==b'\1'
+        m.ui()
+        want='file:///tmp/coverpic.jpg' if m.files[path][1] else 'default_album_big'
+        assert m.nodes[m.cover]['image']==(want if m.files[path][1] else 'play_defaultcover'),(path,m.nodes[m.cover])
+        assert m.nodes[m.songlabel]['text']==path.rsplit('/',1)[1]
+        if variant=='ipod':
+            assert m.nodes[m.art]['image']==want
+            assert m.nodes[m.poslabel]['text']==f"{m.mcl('MCL_POS')+1} of {len(m.names())}"
+        queue=m.items(m.get(syms['mcl_pdeqplaylist']))
+        assert all(not m.get(r+O['REC_ALBUM']) for r in queue) # tags came from parsing, not library rows
+        assert ('tags',path) in m.trace and ('decoder_start',path) in m.trace
+        passed()
+    assert [path for event,path in m.trace if event=='directory']==['/mnt/mmc','/mnt/mmc/1','/mnt/mmc','/mnt/mmc/2','/mnt/mmc','/mnt/mmc/3']
+    events=[event for event,_ in m.trace]
+    for event in ('on_player_autochange','toolsLoadNextDir','player_refresh_playqueue'): assert events.count(event)==3
+    assert events.count('mclLoadPlayList')==4 and events.count('mclClearChangeFlag')==len(paths)-1
 
 # Coverflow depth (docs/internals.md#coverflow-depth): the payload's renderer, run as MIPS, draws
 # byte for byte what the host build of the same source draws (test/coverflow.py checks that

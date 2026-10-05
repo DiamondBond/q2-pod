@@ -71,6 +71,13 @@ void *coverflow_tracks(void *page) {
     return page == cf.page && cf.screen == TRACKS ? cf.tracks : 0;
 }
 
+/* Only a live album card, never Sort, Refresh or a pending screen change. */
+void *coverflow_album(void *page) {
+    if (page != cf.page || cf.screen != COVERS || !cf.slide || cf.timer) return 0;
+    unsigned i = (unsigned)I(cf.slide, SLIDE_INDEX);
+    return cf.albums && i < deque_size(cf.albums) ? deque_at(cf.albums, i) : 0;
+}
+
 /* FNV-1a, shared with navigation.c */
 unsigned hash_bytes(unsigned h, const unsigned char *s, unsigned n) {
     for (unsigned i = 0; i < n; ++i) h = (h ^ s[i]) * 16777619u;
@@ -992,6 +999,11 @@ const char *track_name(char *buf, unsigned size, void *t) {
     return buf;
 }
 
+void *coverflow_album_tracks(void *r) {
+    int n;
+    return in_order(staged(albums, r, &n));
+}
+
 static int to_tracks(const void *unused) {
     (void)unused;
     cf.timer = 0;
@@ -1001,7 +1013,7 @@ static int to_tracks(const void *unused) {
     cf.saved_album = album_key(r);
     BLOB_IO(LAST_ALBUM, cf.saved_album, 1); /* a power-off on the tracks keeps it too */
     if (cf.tracks) deque_destroy(cf.tracks);
-    cf.tracks = in_order(staged(albums, r, &n));
+    cf.tracks = coverflow_album_tracks(r);
     n = (int)deque_size(cf.tracks);
     cf.screen = TRACKS;
     widget_set_visible(cf.covers, 0, 0);

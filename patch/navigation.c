@@ -14,6 +14,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_localclass_trampoline(int), stock_power_trampoline(void *, void *),
     stock_audioset_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
+extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
@@ -2386,7 +2387,7 @@ void ringnav_boot(const char *page, const int *ctx) {
 /* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
  * on a local song, album, artist/composer/genre or folder row opens the stock sortselect dialog
  * rebuilt as that row's menu. */
-enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW };
+enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW, QM_COVERALBUM };
 enum { QA_NEXT = 1, QA_ADD, QA_SHUFFLE, QA_FAV, QA_UNFAV, QA_PLAYLIST, QA_ALBUM, QA_ARTIST };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -2426,6 +2427,10 @@ static void *qm_list(void) {
 }
 
 static void *qm_record(void) {
+    if (st.qm_kind == QM_COVERALBUM) {
+        void *r = coverflow_album(window_manager_get_top_window(window_manager()));
+        return r && rec_hash(r) == st.qm_hash ? r : 0;
+    }
     void *list = qm_list();
     if (!list || deque_size(list) != st.qm_rows || st.qm_idx >= st.qm_rows ||
         (st.qm_kind != QM_COVERFLOW && browse_hash() != st.qm_browse))
@@ -2519,6 +2524,7 @@ static void qm_tracks(void *r, void *add) {
 
 /* The row's tracks: the song itself, or what stock would play for the row. */
 static void *qm_collect(void *r) {
+    if (st.qm_kind == QM_COVERALBUM) return coverflow_album_tracks(r);
     void *add = _create_deque("stSongInfo");
     deque_init(add);
     if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW)
@@ -3028,7 +3034,7 @@ static int qm_open(const void *unused) {
     unsigned cls = st.qm_cls;
     int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW;
     const char *album = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
-    const char *title = st.qm_kind == QM_ALBUM   ? album
+    const char *title = (st.qm_kind == QM_ALBUM || st.qm_kind == QM_COVERALBUM) ? album
                         : st.qm_kind == QM_GROUP ? P(r, qm_by[(cls & 0xf) - 4])
                                                  : P(r, REC_NAME);
     widget_set_text_utf8(widget_lookup(dialog, "scrlabel_title", 1), title ? title : "");
@@ -3041,7 +3047,7 @@ static int qm_open(const void *unused) {
     acts[n++] = QA_ADD;
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
-    if (st.qm_kind != QM_COVERFLOW) acts[n++] = QA_PLAYLIST;
+    if (st.qm_kind < QM_COVERFLOW) acts[n++] = QA_PLAYLIST;
     if (st.qm_kind == QM_SONG && album && *album && (cls & 0xfff0) != 0xff10 &&
         !navigator_window_is_exist("playerjumpinfo_page"))
         acts[n++] = QA_ALBUM;
@@ -3079,6 +3085,17 @@ static int qm_hold(void) {
         return 0;
     const char *name = widget_get_prop_str(top, "name", "");
     int kind = contexts[context_id(name)].kind;
+    void *album = coverflow_album(top);
+    char *key = play_key();
+    if (album) {
+        if (!key || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
+        st.qm_kind = QM_COVERALBUM;
+        st.qm_cls = CLASS_ALBUMS;
+        st.qm_hash = rec_hash(album);
+        st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
+        drop_input();
+        return 1;
+    }
     void *list = page_tracks(top);
     int coverflow = list != 0;
     void *w = surface_under(top, (void *)0, (void *)0, 0);
@@ -3093,7 +3110,6 @@ static int qm_hold(void) {
      * (0xff07 songs, 0xff01 albums) but not g_class_type. */
     unsigned cls = (unsigned)(tk_strcmp(name, "artistinfo_page") ? I(g_class_type, 0)
                                                                  : I(g_local_classinfo_save, 0));
-    char *key = play_key();
     if (!r || !key) return 0;
     st.qm_kind = I(r, REC_TYPE) == 8 ? QM_SONG : 0;
     if (coverflow) {
@@ -3293,7 +3309,8 @@ static void resume_poll(void) {
 static void charge_poll(void) {
     unsigned now = time_now_ms();
     if (st.charge_at && now - st.charge_at < CHARGE_POLL_MS) return;
-    st.charge_at = now | !now; /* never 0, no poll yet; |1 would eat a millisecond when now is even */
+    st.charge_at =
+        now | !now; /* never 0, no poll yet; |1 would eat a millisecond when now is even */
     int level = I(g_power_capacity, 0), charging = (unsigned)I(g_power_chargestate, 0) - 1 < 2;
     int hold = st.charge_limit && level > CHARGE_RESUME && (st.charge_held || level >= CHARGE_STOP);
     if (hold && (!st.charge_held || charging))
@@ -3332,7 +3349,8 @@ static void cpu_poll(void) {
     if (!off) { /* a refused online is retried once a second */
         if (st.cpu_retry && now - st.cpu_retry < 1000) return;
         st.cpu_off = !cpu1_write(1);
-        st.cpu_retry = st.cpu_off ? now | !now : 0; /* never 0; |1 would eat a millisecond when now is even */
+        st.cpu_retry =
+            st.cpu_off ? now | !now : 0; /* never 0; |1 would eat a millisecond when now is even */
         return;
     }
     if (!st.cpu_marked) { /* no marker on flash, no offline: the guard must hold */
