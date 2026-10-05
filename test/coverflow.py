@@ -37,7 +37,7 @@ extern char shim_lastcover[1024], shim_id3[2716];
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
 getAllAlbum getMusicByAlbum toolsQueryDbTable album_row toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
-deque_init _deque_push_back
+deque_init _deque_push_back deque_pop_back
 deque_assign deque_destroy deque_size deque_at window_create widget_factory
 widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
 slide_menu_set_value slide_menu_item_width list_view_create scroll_view_create list_item_create image_set_draw_type
@@ -237,6 +237,7 @@ void _deque_push_back(void *d, ...) {
     va_end(a);
 }
 void deque_destroy(void *d) { free(d); }
+void deque_pop_back(void *d) { --((deque *)d)->n; }
 unsigned deque_size(const void *d) { return ((const deque *)d)->n; }
 void *deque_at(const void *d, unsigned i) { return i < ((const deque *)d)->n ? ((const deque *)d)->at[i] : 0; }
 
@@ -256,14 +257,33 @@ static void album(const char *name, const char *art) {
     *(char **)(r + REC_ARTIST) = "Artist";
     *(char **)(r + REC_PATH) = paths[albums++];
 }
+/* Stock appends an "Unknown Album" row (id -1) whenever any album exists; unknown_songs is what
+   its press, getMusicByAlbum(NULL), finds. */
+static int unknown_row, unknown_songs;
+static char unknown_record[0x60], untagged_song[0x60];
 int getAllAlbum(void) {
     deque *d = shim_dir;
     ++queries;
     d->n = albums;
     for (int i = 0; i < albums; ++i) d->at[i] = records[i];
+    if (unknown_row && albums) {
+        *(int *)(unknown_record + REC_ID) = -1;
+        *(const char **)(unknown_record + REC_ALBUM) = "Unknown Album";
+        *(const char **)(unknown_record + REC_ARTIST) = "Unknown Artist";
+        d->at[d->n++] = unknown_record;
+    }
     return albums;
 }
-int getMusicByAlbum(const char *a) { (void)a; return 0; }
+static int unknown_queries;
+int getMusicByAlbum(const char *a) {
+    deque *d = shim_dir;
+    d->n = 0;
+    if (!a) {
+        ++unknown_queries;
+        if (unknown_songs) d->at[d->n++] = untagged_song;
+    }
+    return (int)d->n;
+}
 
 /* Sort's ranking queries: getAllAlbum's row callback over the grouping in another order, here the
    test's own order by name; a row may differ in case from the stock one, as the grouping allows. */
@@ -688,6 +708,30 @@ static void sorting(void) {
     rescan();
 }
 
+/* The Unknown Album card shows only when its press would find a song: getAllAlbum appends it even
+   when every song carries an album tag. It stays last whatever the Sort. */
+static void unknown_card(void) {
+    unknown_row = 1;
+    rescan();
+    open_page();
+    assert(slide()->nkids == albums + 2 && unknown_queries == 1);
+    close_page();
+    unknown_songs = 1;
+    rescan();
+    open_page();
+    widget *s = slide();
+    assert(s->nkids == albums + 3 && !strcmp(album_at(albums), "Unknown Album"));
+    ranked[0] = "Unknown Album", ranked[1] = "None", ranked[2] = 0; /* Artist, then year */
+    press_sort();
+    assert(!strcmp(album_at(albums), "Unknown Album") && !strcmp(album_at(0), "None"));
+    ranked[0] = 0;
+    for (int i = 0; i < 3; ++i) press_sort(); /* back to Album */
+    close_page();
+    assert(loads == unloads);
+    unknown_row = unknown_songs = 0;
+    rescan();
+}
+
 int main(void) {
     /* The stock scan flags are raw addresses in the device ABI; map them here. */
     assert(mmap((void *)(SCAN_THREAD & ~4095), 4096, PROT_READ | PROT_WRITE,
@@ -800,6 +844,7 @@ int main(void) {
     assert(loads == unloads);
     depth();
     sorting();
+    unknown_card();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the

@@ -212,6 +212,19 @@ static int albums(void *album) {
                  : getAllAlbum();
 }
 
+/* getAllAlbum ends with an "Unknown Album" row (id -1) whenever any album exists, even when every
+ * song has an album tag. It goes when the query its card opens, getMusicByAlbum(NULL), finds no
+ * song, as navigation.c's ringnav_localclass drops it from the Albums list. */
+static void drop_unknown(void) {
+    unsigned n = deque_size(cf.stock);
+    void *last = n ? deque_at(cf.stock, n - 1) : 0;
+    if (!last || I(last, REC_ID) != -1) return;
+    int found;
+    void *songs = staged(albums, last, &found);
+    if (!deque_size(songs)) deque_pop_back(cf.stock);
+    deque_destroy(songs);
+}
+
 /* Sort, the card before Refresh (docs/internals.md#coverflow-sort): Album is the stock order;
  * Artist sorts by artist without a leading article, as every library list does (ringnav_sort_key),
  * then year, then album; Recently Added by the newest song's time_create; Most Played by the
@@ -877,6 +890,7 @@ static void load(void) {
     else if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) {
         cf.stock = staged(albums, 0, &n);
         cf.albums_gen = gen;
+        drop_unknown();
     }
     if (n > 0 && !cf.albums) {
         if (!cf.sort_read) BLOB_IO(SORT_FILE, cf.sort, 0), cf.sort_read = 1;
