@@ -80,25 +80,37 @@ HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.
 # power-on tries Rockbox again. ponytail: the card's mount is awaited (up to 3 s without a card)
 # unless Q2 Pod was asked for, as the card probe can't tell "no card" from "not yet". Rockbox runs
 # with the launcher contract in its tools/shanlingq2/README; demo starts when it exits, or when the
-# card has none. exec keeps demo's argv[0], which checkappprocess.sh pgreps for.
+# card has none. demo keeps its argv[0], which checkappprocess.sh pgreps for. iPod's Home shortcut
+# (navigation.c rockbox_shortcut) leaves ROCKBOX_FLAG and kills demo: Rockbox runs again, its
+# watchdog stopped in case demo's kill was not reached, then demo once more. Any other end of demo
+# ends the loop, so the watchdog reboots as stock's would.
 BOOT = 'usr/bin/q2boot'
 S90PLAY = 'etc/init.d/S90play'
 S90PLAY_SHA = 'a6a7ed7d9a10e38801f4a41ec6f3c0ce2bc07c00d213c9278785c5f8d4520e24'
-BOOT_HOOK = (b'    /release/bin/demo &\n', b'''    (
+ROCKBOX_FLAG = '/tmp/q2pod-rockbox'
+BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
+        rb=/mnt/mmc/.rockbox
+        rockbox() {{
+            [ -f $rb/rockbox ] || return
+            (cd $rb && exec ./rockbox) > $rb/rockbox.log 2>&1
+            echo "exit $?" >> $rb/rockbox.log
+        }}
         if ! /usr/bin/q2boot; then
             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
                 [ -e /tmp/mmc_add ] && break
                 usleep 200000
             done
-            rb=/mnt/mmc/.rockbox
-            if [ -f $rb/rockbox ]; then
-                (cd $rb && exec ./rockbox) > $rb/rockbox.log 2>&1
-                echo "exit $?" >> $rb/rockbox.log
-            fi
+            rockbox
         fi
-        exec /release/bin/demo
+        while :; do
+            /release/bin/demo
+            [ -e {ROCKBOX_FLAG} ] || break
+            rm -f {ROCKBOX_FLAG}
+            killall checkappprocess.sh 2>/dev/null
+            rockbox
+        done
     ) &
-''')
+'''.encode())
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
@@ -196,6 +208,7 @@ FUNCTIONS = {
  'widget_set_opacity': ('int', 'void *, unsigned'),
  'widget_set_enable': ('int', 'void *, int'),
  'widget_set_text_utf8': ('int', 'void *, const char *'),
+ 'widget_set_tr_text': ('int', 'void *, const char *'),  # Home's Streaming row as Rockbox, or back
  'widget_use_style': ('int', 'void *, const char *'),
  'widget_set_name': ('int', 'void *, const char *'),
  'widget_set_sensitive': ('int', 'void *, int'),
@@ -360,6 +373,7 @@ FUNCTIONS = {
  'mclGetLyricSize': ('int', 'void'),  # the playing track's lyric lines, 0 without
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
  'player_stop': ('int', 'void'),
+ 'save_memoryplay_info': ('int', 'void'),  # Memory playback's queue and position, as into_poweroff saves them
  'mclSetDacPwr': ('int', 'int'),
  'reset_poweroptions_timer': ('int', 'int, int, int'),
  'device_set_volume': ('int', 'int, int'),  # volume, notify: the DAC's or hciplayer's, as the volume dialog
@@ -537,6 +551,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # iPod's image hook leaves the settings icons' category colours alone (navigation.c settings_icon).
     names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
+    header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox shortcut, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
     header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')

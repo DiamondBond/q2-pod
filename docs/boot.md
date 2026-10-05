@@ -39,6 +39,20 @@ Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/q2-roc
 
 Unless Play/Pause is held, `S90play` waits up to 3 s for the card (`/tmp/mmc_add`); the card's driver polls for it, so it can't tell an empty slot from a card still being read. If the card has Rockbox, it runs Rockbox and appends `exit N` to `rockbox.log`; any exit, including 0x51 (81) from **Boot stock OS**, falls through to demo, which starts with its usual name so the watchdog finds it. Install Rockbox by unzipping its `rockbox.zip` to the card's root. A Rockbox that hangs keeps Q2 Pod away: hold Play/Pause at the next power-on, or remove `/.rockbox/rockbox` with a card reader.
 
+### Rockbox from Home
+
+iPod's **System settings → Display → Shortcut: Rockbox** turns Home's Streaming row into **Rockbox** (`IPOD`/`SHORTCUT` in `config.ini`). It is the way to Rockbox with Bluetooth: shut Rockbox down (Q2 Pod starts), connect the headphones in Q2 Pod, then pick **Rockbox** on Home, and Rockbox plays through them.
+
+demo cannot start Rockbox itself, as Rockbox takes the screen, the keys and ALSA, so it hands over to `S90play` (`rockbox_shortcut`, `patch/navigation.c`):
+
+1. With no `/mnt/mmc/.rockbox/rockbox` it shows "Rockbox is not on the card" and stays.
+2. It creates `/tmp/q2pod-rockbox` (`ROCKBOX_FLAG`), saves Memory playback's queue and position with stock `save_memoryplay_info` (what power-off does), stops the player, and hands back charging (Charge limit) and the second core (Low power) as Rockbox finds them at power-on.
+3. `system("killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID")`: the watchdog would reboot once demo is gone, and hciplayer holds the DAC's PCM. demo is killed outright, so none of its exit handlers can hang.
+
+`S90play` runs demo in a loop rather than `exec`ing it: when demo ends and the flag is there, it removes the flag, stops the watchdog again (in case demo's kill came first), runs Rockbox as at power-on, and starts demo when Rockbox exits. Any other end of demo ends the loop, and the watchdog reboots as stock's does.
+
+Bluetooth survives the hand-over: demo starts `rtk_hciattach`, `bluetoothd` and `bluealsa` with `system("... &")`, so none is demo's child and the headphones stay connected. Rockbox opens bluez-alsa's `bluealsa` PCM (the most recently connected device, through `plug` for its rate and format) whenever it opens, and the DAC otherwise ([q2-rockbox](https://github.com/DiamondBond/q2-rockbox), `shanlingq2_codec.c`). bluealsa is Q2 Pod's, so AirPods keep its 48 kHz AAC fix ([internals.md](internals.md#bluetooth-aac)). When Rockbox exits, demo starts afresh and sets Bluetooth up again.
+
 ## Custom boot logo
 
 Every build replaces the splash with `assets/boot-logo.jpg`. Pass another 320x375 JPEG with `--logo` to use your own:

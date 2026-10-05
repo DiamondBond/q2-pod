@@ -117,6 +117,12 @@ the list, so Home makes the art insensitive (`widget_set_sensitive`) and taps th
 the rows. The rounded glass hides the
 panel's two right-hand corners, like any background.
 
+The Shortcut setting (see [Display settings](#display-settings)) can make the Streaming row
+**Rockbox**: `coverflow_home_layout` gives `label_stream` the literal tr_text "Rockbox" (which
+translates to itself, so a language change keeps it) or stock's `small_stream` back, and
+`ringnav_dispatch` takes a click on `img_stream` before stock's handler and leaves Q2 Pod for
+Rockbox ([boot.md](boot.md#rockbox-from-home)).
+
 The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
 as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar
 spans the screen, and the rows and their tap images to `HOME_FULL_ROW` (369, `patch/offsets.inc`)
@@ -501,25 +507,26 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds three rows the same way: "Accent: Graphite" with
+pixels high). iPod runs the stock init, then adds four rows the same way: "Accent: Graphite" with
 the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
-mode icon (`playset_covermode`) and "Battery: Icon" (Icon, Percent, Icon + Percent; see
+mode icon (`playset_covermode`), "Battery: Icon" (Icon, Percent, Icon + Percent; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
-(`system_powermanager`), all among the [settings icons](#settings-icons) the build
-pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
+(`system_powermanager`) and "Shortcut: Streaming" (Streaming, Rockbox; see [Home](#home)) with
+the network service icon (`system_netservice`), all among the [settings icons](#settings-icons)
+the build pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
 chevron, since Centre or a tap changes them in place.
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME` and `BATTERY`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`, `BATTERY` and `SHORTCUT`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split and Icon.
+one valid digit, is Graphite, Split, Icon and Streaming.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
