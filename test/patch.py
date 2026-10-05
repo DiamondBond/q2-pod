@@ -3390,7 +3390,7 @@ covers=m.nodes[m.slide]['children']; assert len(covers)==5
 assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
 assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']=='default_album_big'
 assert 'Album 0' in m.texts(); passed()
-m.press(3); assert m.hold()==0 and m.top==page; passed()  # Play/Pause hold stays stock here
+m2=CoverflowMachine(); m2.open(); m2.press(3); assert m2.hold()==11 and m2.release()==0; passed()  # a hold opens the album's menu (below)
 # Covers step like Home: fast ticks retarget one animator, never stock next/previous, whose
 # scroll_to orphans the running animator.
 assert m.call(gap=0)==11; a,_,to,dur=slide(m,m.slide); assert to<0 and dur==200
@@ -3450,6 +3450,23 @@ for action,want in ((0,['A','T2','B','C']),(1,['A','B','C','T2'])):
     assert m.names()==want and m.top==m.page and m.selected(view)==1 and not m.playback() and not m.plays
     assert m.names(m.get(syms['p_deque_showlist']))==['Row 0','Row 1','Row 2','Row 3']
     m.press(200); assert m.release()==1; passed()
+# A hold on a cover opens its album's menu: the centre album's songs, in its card's order, queue next
+# or last, shuffle or go to its artist. No Add to playlist (that page adds the stock list's selected
+# row) and no Favourites; nothing on the Sort and Refresh cards, whose hold stays stock.
+for action,want in ((0,['A','T1','T2','B','C']),(1,['A','B','C','T1','T2'])):
+    m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open()
+    m.call(address=syms['slide_menu_set_value'],args=(m.slide,1,0,0),gap=0)
+    m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='Album 1' and m.release()==0
+    assert m.labels()==['Play next','Add to queue','Shuffle','Go to artist']
+    m.pick(action); m.advance(0)
+    assert m.names()==want and m.top==m.page and not m.playback() and not m.plays
+    assert [m.text(c[1]) for c in m.calls if c[0]=='getMusicByAlbum']==['Album 1']; passed()
+m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open(); assert m.run(2) is None
+assert len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][3:]==(1,2); passed()
+for card in (3,4):
+    m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open()
+    m.call(address=syms['slide_menu_set_value'],args=(m.slide,card,0,0),gap=0)
+    m.press(100); assert m.hold()!=11 and m.top==m.page; passed()
 # Its favourite is batch-select's over Coverflow's own deque, its songs taken as All Songs rows.
 m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open(); view=m.tracks(); assert m.run(2)=='Added to Favourites'
 assert [c[1:3] for c in m.calls if c[0]=='batch_add_file']==[(0xf001,0xf00a)] and [c[1] for c in m.calls if c[0]=='batch_init_selectrecord']==[2]

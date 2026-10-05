@@ -2399,9 +2399,11 @@ void ringnav_boot(const char *page, const int *ctx) {
 #endif
 
 /* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
- * on a local song, album, artist/composer/genre or folder row opens the stock sortselect dialog
- * rebuilt as that row's menu. */
-enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW };
+ * on a local song, album, artist/composer/genre or folder row, or on a Coverflow track or cover,
+ * opens the stock sortselect dialog rebuilt as that row's menu. QM_COVER is a cover's album. */
+enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW, QM_COVER };
+extern void *coverflow_albums(void *page), *coverflow_cover(void *page, unsigned *idx),
+    *coverflow_album_tracks(void *r);
 enum { QA_NEXT = 1, QA_ADD, QA_SHUFFLE, QA_FAV, QA_UNFAV, QA_PLAYLIST, QA_ALBUM, QA_ARTIST };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -2436,14 +2438,16 @@ static void *page_tracks(void *page) {
 }
 
 static void *qm_list(void) {
-    return st.qm_kind == QM_COVERFLOW ? page_tracks(window_manager_get_top_window(window_manager()))
+    void *top = window_manager_get_top_window(window_manager());
+    return st.qm_kind == QM_COVERFLOW ? page_tracks(top)
+           : st.qm_kind == QM_COVER   ? coverflow_albums(top)
                                       : P(p_deque_showlist, 0);
 }
 
 static void *qm_record(void) {
     void *list = qm_list();
     if (!list || deque_size(list) != st.qm_rows || st.qm_idx >= st.qm_rows ||
-        (st.qm_kind != QM_COVERFLOW && browse_hash() != st.qm_browse))
+        (st.qm_kind < QM_COVERFLOW && browse_hash() != st.qm_browse))
         return (void *)0;
     void *r = deque_at(list, st.qm_idx);
     return r && rec_hash(r) == st.qm_hash ? r : (void *)0;
@@ -2534,6 +2538,7 @@ static void qm_tracks(void *r, void *add) {
 
 /* The row's tracks: the song itself, or what stock would play for the row. */
 static void *qm_collect(void *r) {
+    if (st.qm_kind == QM_COVER) return coverflow_album_tracks(r); /* in its card's order */
     void *add = _create_deque("stSongInfo");
     deque_init(add);
     if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW)
@@ -3043,7 +3048,7 @@ static int qm_open(const void *unused) {
     unsigned cls = st.qm_cls;
     int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW;
     const char *album = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
-    const char *title = st.qm_kind == QM_ALBUM   ? album
+    const char *title = st.qm_kind == QM_ALBUM || st.qm_kind == QM_COVER ? album
                         : st.qm_kind == QM_GROUP ? P(r, qm_by[(cls & 0xf) - 4])
                                                  : P(r, REC_NAME);
     widget_set_text_utf8(widget_lookup(dialog, "scrlabel_title", 1), title ? title : "");
@@ -3056,7 +3061,7 @@ static int qm_open(const void *unused) {
     acts[n++] = QA_ADD;
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
-    if (st.qm_kind != QM_COVERFLOW) acts[n++] = QA_PLAYLIST;
+    if (st.qm_kind < QM_COVERFLOW) acts[n++] = QA_PLAYLIST; /* needs the stock showlist */
     if (st.qm_kind == QM_SONG && album && *album && (cls & 0xfff0) != 0xff10 &&
         !navigator_window_is_exist("playerjumpinfo_page"))
         acts[n++] = QA_ALBUM;
@@ -3084,14 +3089,37 @@ static int qm_open(const void *unused) {
     return 0;
 }
 
+/* The menu opens once the hold is let go; the press is swallowed until then. */
+static int qm_arm(void *r, unsigned idx, unsigned rows, char *key) {
+    if (!(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
+    st.qm_idx = idx;
+    st.qm_rows = rows;
+    st.qm_hash = rec_hash(r);
+    st.qm_browse = browse_hash();
+    st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
+    drop_input();
+    return 1;
+}
+
 /* The hold: the same gates and row as a centre press, over the stock showlist or Coverflow's
- * own tracks (row count checked). Everything else stays stock. */
+ * own tracks (row count checked), or the album at the centre of Coverflow's covers. Everything
+ * else stays stock. */
 static int qm_hold(void) {
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     if (st.qm_dialog || st.qm_timer || !usable() || !allowed_top(top) ||
         window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm) ||
         airplayGetFlag() == 2 || g_navbar_status)
         return 0;
+    unsigned at;
+    void *albums = coverflow_cover(top, &at);
+    if (albums) {
+        void *r = deque_at(albums, at);
+        char *key = play_key();
+        if (!r || !key) return 0;
+        st.qm_kind = QM_COVER;
+        st.qm_cls = CLASS_ALBUMS;
+        return qm_arm(r, at, deque_size(albums), key);
+    }
     const char *name = widget_get_prop_str(top, "name", "");
     int kind = contexts[context_id(name)].kind;
     void *list = page_tracks(top);
@@ -3119,15 +3147,9 @@ static int qm_hold(void) {
         st.qm_kind = QM_ALBUM; /* all albums, and an artist's, composer's or genre's */
     else if (cls >= 0xf004 && cls <= 0xf006)
         st.qm_kind = QM_GROUP; /* artist, composer and genre lists */
-    if (!st.qm_kind || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
+    if (!st.qm_kind) return 0;
     st.qm_cls = cls;
-    st.qm_idx = (unsigned)g_menu.id[cur];
-    st.qm_rows = (unsigned)g_menu.rows;
-    st.qm_hash = rec_hash(r);
-    st.qm_browse = browse_hash();
-    st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
-    drop_input();
-    return 1;
+    return qm_arm(r, (unsigned)g_menu.id[cur], (unsigned)g_menu.rows, key);
 }
 
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. */

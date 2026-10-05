@@ -992,6 +992,26 @@ const char *track_name(char *buf, unsigned size, void *t) {
     return buf;
 }
 
+/* navigation.c's Play/Pause hold menu on the covers: the albums, while page shows them, and the
+ * one at the centre (*idx), as the name under the covers shows; none on the Sort or Refresh card. */
+void *coverflow_albums(void *page) {
+    return page && page == cf.page && cf.screen == COVERS && cf.slide ? cf.albums : 0;
+}
+void *coverflow_cover(void *page, unsigned *idx) {
+    int c, frac, n;
+    void *list = coverflow_albums(page);
+    if (!list || !visual(cf.slide, n = (int)widget_count_children(cf.slide), &c, &frac) ||
+        c + CARDS >= n)
+        return 0;
+    *idx = (unsigned)c;
+    return list;
+}
+/* An album's tracks as its card lists and plays them, in a new deque. */
+void *coverflow_album_tracks(void *r) {
+    int n;
+    return in_order(staged(albums, r, &n));
+}
+
 static int to_tracks(const void *unused) {
     (void)unused;
     cf.timer = 0;
