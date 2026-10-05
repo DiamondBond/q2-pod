@@ -203,7 +203,8 @@ static int tick(const void *unused) {
     if (rate) vz.heard = now;
     if ((now - vz.heard > 1500 && now - vz.named > 1500) || !settled(0)) return 8; /* RET_REPEAT */
     vz.spin += dt * 0.2f; /* radians a second */
-    widget_invalidate_force(vz.page, 0);
+    /* The slide_view: the page's own rect does not map to the screen inside it. */
+    widget_invalidate_force(vz.slide, 0);
     return 8; /* RET_REPEAT */
 }
 
@@ -384,7 +385,7 @@ static int next_style(void *ctx, void *event) {
     vz.named = time_now_ms() | 1; /* never 0, which is none */
     write_int_config(vz.style, "IPOD", "VIS");
     halo_art();
-    widget_invalidate_force(vz.page, 0);
+    widget_invalidate_force(vz.slide, 0);
     return 0;
 }
 
