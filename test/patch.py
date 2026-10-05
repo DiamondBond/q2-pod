@@ -4475,7 +4475,7 @@ class PhotosMachine(DepthMachine):
             elif name=='fread': chunk=self.open_files.get(d,b'')[:b*c]; self.u.mem_write(a,chunk); ret=len(chunk)//b
             elif name=='access': ret=0 if text in self.cache or text in self.bad or text in self.data else -1
             elif name=='toolsThumbSpecCover':
-                self.thumbs.append((self.text(a),text if False else self.text(b),c,d))
+                self.thumbs.append((self.text(a),self.text(b),c,d))
                 ret=0 if self.data.get(self.text(a))==b'corrupt' else 1
                 if ret: self.cache.add(self.text(b))
             elif name=='rename': self.cache.discard(text); self.cache.add(self.text(b))

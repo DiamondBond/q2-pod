@@ -527,15 +527,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     (out/'bluealsa').write_bytes(bluealsa)
     (out/'watchdog').write_bytes(patch_watchdog(cat(WATCHDOG)))
     for address, old, new in ARTIST_ALBUMS:
-        patch_word(patched, [], address, old, new, 'artist detail opens on Albums')
-    patch_word(patched, [], *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
+        patch_word(patched, address, old, new, 'artist detail opens on Albums')
+    patch_word(patched, *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
-    patch_word(patched, [], *DROP_CACHES, 'keep the page cache')
+    patch_word(patched, *DROP_CACHES, 'keep the page cache')
     for address, old in WHEEL_THRESHOLDS:
-        patch_word(patched, [], address, old, old & 0xffff0000 | round((old & 0xffff) * WHEEL_TRAVEL),
+        patch_word(patched, address, old, old & 0xffff0000 | round((old & 0xffff) * WHEEL_TRAVEL),
                    'wheel travel per tick')
     for address in SORT_TRIMS:
-        patch_word(patched, [], address, 0x04110000 | (syms['toolsTrimLeft'] - address - 4) >> 2 & 0xffff,
+        patch_word(patched, address, 0x04110000 | (syms['toolsTrimLeft'] - address - 4) >> 2 & 0xffff,
                    0x0c000000 | (ps['ringnav_sort_key'] >> 2), 'sort without a leading article')
     # Pin added private entry points as well as every replaced instruction, and the stock bitmap,
     # canvas and slide_menu entries Coverflow's depth renderer calls (docs/internals.md#coverflow-depth).

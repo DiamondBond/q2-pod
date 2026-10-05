@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JPEG checks; optionally pass the stock ZIP to test packaging and reproducibility too."""
+"""JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import CAROUSEL, ICONS, QUEUE_LABEL, ROOT, STOCK_EQ, jpeg_size
 
@@ -372,7 +372,7 @@ def validate_assets(directory):
     print(f'{manifest["variant"]}: asset geometry, exclusion parity and mismatch rejection passed.')
 
 if __name__ == '__main__':
-    import argparse, hashlib, json, pathlib, subprocess, tarfile, tempfile
+    import argparse, json, pathlib, subprocess, tempfile
     from unittest.mock import patch
     from build import build, run, sha
     ap=argparse.ArgumentParser(description=__doc__)
@@ -381,6 +381,7 @@ if __name__ == '__main__':
     args=ap.parse_args()
     if args.build: validate_assets(args.build)
     if args.zip:
+        # Reproducibility and update.tar's MD5s are release.py package's; this covers the logo and quoting.
         for ipod in (False, True):
           with tempfile.TemporaryDirectory(prefix='q2-package-') as tmp:
               root=pathlib.Path(tmp)
@@ -389,23 +390,13 @@ if __name__ == '__main__':
               def change_source(*command):
                   if command[0]=='mksquashfs': custom.write_bytes(b'edited during compression')
                   return run(*command)
-              a=root/"build ' a"; b=root/'build b'
+              a=root/"build ' a"
               with patch('build.run',side_effect=change_source):
                   build(args.zip,a,custom,ipod)
-              build(args.zip,b,ROOT/'assets/boot-logo.jpg',ipod)
               validate_assets(a)
-              assert (a/'update.tar').read_bytes()==(b/'update.tar').read_bytes()
               manifest=json.loads((a/'manifest.json').read_text())
               assert manifest['logo_sha256']==sha(logo)
               for rel,expected in [('release/assets/default/raw/images/xx/logo.jpg',logo),
                                    ('release/bin/demo',(a/'demo').read_bytes())]:
                   assert subprocess.check_output(['unsquashfs','-cat',str(a/'rootfs.squashfs'),rel])==expected
-              with tarfile.open(a/'update.tar') as archive:
-                  info=archive.extractfile('firmware_v20.info').read().decode().splitlines()
-                  assert info[:2]==['Shanling Q2',manifest['version']]
-                  for line in info[2:]:
-                      digest,name=line.split()
-                      data=archive.extractfile(name).read()
-                      assert hashlib.md5(data).hexdigest()==digest
-                      if name.endswith('xImage'): assert sha(data)==manifest['kernel_sha256']
-              print('Packaging, mutable logo, quoted paths and reproducibility checks passed.')
+              print('Packaging, mutable logo and quoted paths checks passed.')

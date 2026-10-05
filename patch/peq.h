@@ -66,6 +66,20 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames);
 typedef struct { unsigned seq, rate; long long stamp; unsigned want, pad; float ring[VIS_RING][2]; } vis_tap;
 long long now_ns(void);
 
+/* Audited against hciplayer 9c3f8c6d… and MPlayer 1.3.0 libaf/af.h: the filter peq_player.c opens. */
+typedef struct { void *audio; int len, rate, nch, format, bps; } af_data;
+typedef struct af_instance {
+    const void *info;
+    int (*control)(struct af_instance *, int, void *);
+    void (*uninit)(struct af_instance *);
+    af_data *(*play)(struct af_instance *, af_data *);
+    void *setup;
+    af_data *data;
+    struct af_instance *next, *prev;
+    double delay, mul;
+} af_instance;
+typedef struct { peq_dsp dsp; peq_preset preset; } player_state;
+
 /* The payload's shared helpers: coverflow.c's pages, hashes and worker, photos.c's, navigation.c's. */
 void *text(void *parent, int x, int y, int w, int h);
 void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *));

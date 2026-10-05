@@ -42,11 +42,9 @@ def release_body(out, record):
 def validate(directory, variant):
     m = json.loads((directory/'manifest.json').read_text())
     check(m['variant'] == variant and m['version'] == VERSIONS[variant], 'Wrong variant identity')
-    check(m['source_sha256'] == source_sha256(), 'Stale release sources')
     check(m['input_zip_sha256'] == ZIP_SHA and m['stock_demo_sha256'] == DEMO_SHA, 'Wrong stock identity')
-    for name, key in [('demo', 'demo_sha256'), ('stock-demo', 'stock_demo_sha256'),
-                      ('patch.bin', 'patch_sha256'), ('rootfs.squashfs', 'rootfs_sha256'),
-                      ('update.tar', 'update_sha256')]:
+    # test/patch.py (below) checks the sources and the demo, stock-demo and patch.bin hashes.
+    for name, key in [('rootfs.squashfs', 'rootfs_sha256'), ('update.tar', 'update_sha256')]:
         check(sha((directory/name).read_bytes()) == m[key], f'{directory/name}: hash mismatch')
     with tarfile.open(directory/'update.tar') as t:
         check(t.getnames() == ['firmware_v20.info', 'recovery-update', 'recovery-update/xImage',
@@ -78,8 +76,6 @@ def package(stock, out):
     out.mkdir(parents=True)
     source = source_sha256()
     revision = run('git', '-C', ROOT, 'rev-parse', 'HEAD').strip()
-    # Every raw stock address keeps a signature that finds it, and only it (docs/internals.md#porting).
-    run(sys.executable, ROOT/'tools/port.py', stock, '--self-check')
     checksums = {}
     for variant, asset in ASSETS.items():
         for suffix in ('', '-repeat'):

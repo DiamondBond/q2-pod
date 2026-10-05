@@ -531,11 +531,12 @@ def settings_icon(name, data):
     return out
 
 
-def patch_word(data, changes, address, old, new, purpose):
+def patch_word(data, address, old, new, purpose, changes=None):
     off = fileoff(data, address)
     require(struct.unpack_from('<I', data, off)[0] == old, f'{address:#x}: unexpected instruction')
     struct.pack_into('<I', data, off, new)
-    changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
+    if changes is not None:
+        changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
 
 
 def patch_asset(path, data, ipod):
@@ -623,7 +624,7 @@ def patch_asset(path, data, ipod):
 
 def patch_code(data, symbols):
     changes = []
-    word = functools.partial(patch_word, data, changes)
+    word = functools.partial(patch_word, data, changes=changes)
 
     for group in AUDIT['immediates']:
         value = {'pitch': PITCH, 'body': BODY, 'art': ART, 'art_inset': ART_INSET,

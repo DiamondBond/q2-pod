@@ -1,18 +1,5 @@
 #include "peq.h"
 
-/* Audited against hciplayer 9c3f8c6d… and MPlayer 1.3.0 libaf/af.h. */
-typedef struct { void *audio; int len, rate, nch, format, bps; } af_data;
-typedef struct af_instance {
-    const void *info;
-    int (*control)(struct af_instance *, int, void *);
-    void (*uninit)(struct af_instance *);
-    af_data *(*play)(struct af_instance *, af_data *);
-    void *setup;
-    af_data *data;
-    struct af_instance *next, *prev;
-    double delay, mul;
-} af_instance;
-typedef struct { peq_dsp dsp; peq_preset preset; } player_state;
 _Static_assert(sizeof(af_data) == 24, "audio ABI");
 _Static_assert(__builtin_offsetof(af_instance, setup) == 16, "setup ABI");
 _Static_assert(__builtin_offsetof(af_instance, mul) == 40, "multiplier ABI");

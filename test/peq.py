@@ -549,18 +549,6 @@ PLAYER = r"""
 #include <assert.h>
 #include "peq.h"
 int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *length);
-typedef struct { void *audio; int len, rate, nch, format, bps; } af_data;
-typedef struct af_instance {
-    const void *info;
-    int (*control)(struct af_instance *, int, void *);
-    void (*uninit)(struct af_instance *);
-    af_data *(*play)(struct af_instance *, af_data *);
-    void *setup;
-    af_data *data;
-    struct af_instance *next, *prev;
-    double delay, mul;
-} af_instance;
-typedef struct { peq_dsp dsp; peq_preset preset; } player_state;
 int peq_open(af_instance *af);
 
 char *peq_mpctx; /* the player's MPContext pointer; null: no codec to check */

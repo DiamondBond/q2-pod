@@ -1,8 +1,6 @@
 /* Stock V1.32 layout and ABI constants shared by patch/navigation.c and test/patch.py.
  * The test harness parses this file, so a field change cannot leave the mocks behind.
- * Fields marked "same slot" are class-specific views of one offset.
- * ponytail: tools/port.py finds only the raw addresses here (its OFFSETS); field offsets and ABI
- * values are re-audited by hand for another firmware. */
+ * Fields marked "same slot" are class-specific views of one offset. */
 #define I(p, o) (*(int *)((char *)(p) + (o)))
 #define P(p, o) (*(void **)((char *)(p) + (o)))
 #define FNV_SEED 2166136261u /* FNV-1a offset basis */

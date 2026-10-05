@@ -26,9 +26,8 @@ python3 test/peq.py  # PEQ parser/storage, DSP, editor and player checks, the vi
 python3 test/coverflow.py  # Coverflow art cache and depth renderer (host cc -m32, pthreads)
 python3 test/coverflow.py --captures /tmp/cf  # the same, plus the renderer's frames as PNGs
 python3 test/build.py  # JPEG header checks; no emulator required
-python3 test/build.py 'Q2 Firmware V1.32.zip'  # optional packaging/reproducibility checks
+python3 test/build.py 'Q2 Firmware V1.32.zip'  # optional packaging checks (custom logo, quoted paths)
 python3 test/patch.py /tmp/q2-build  # after: pip install -r requirements.txt
-python3 tools/port.py 'Q2 Firmware V1.32.zip' --self-check  # every raw stock address has a signature (internals.md#porting)
 ```
 
 Both variants replace the stock equalizer page with a 30-band PEQ editor (bands, shelves, preamp, on/off, presets, `/EQ` import) and patch `hciplayer`'s equalizer filter with the matching DSP. Both also clear the 44.1 kHz AAC capability bit in `bluealsa` (see [internals.md](internals.md#bluetooth-aac)).

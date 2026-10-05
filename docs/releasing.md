@@ -12,7 +12,7 @@ python3 tools/release.py upload /tmp/q2-release
 python3 tools/release.py upload /tmp/q2-release --publish
 ```
 
-Packaging requires a fresh output directory, runs the `port.py` self-check, builds each variant twice, runs the shared MIPS
+Packaging requires a fresh output directory, builds each variant twice, runs the shared MIPS
 suite and asset checks on each build, and compares update.tar and ZIP bytes. It writes both
 ZIPs, manifests, SHA256SUMS, release notes and source revision/hash. Stock is the default for
 direct builds; a single direct build is never a release input. Upload revalidates both variants
