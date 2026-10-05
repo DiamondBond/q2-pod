@@ -145,6 +145,6 @@ def patch_player(raw, out):
     off = fileoff(raw, SEEK_SLOT)
     check(struct.unpack_from('<I', raw, off)[0] == STOCK_SEEK, 'Audio demuxer seek slot mismatch')
     data[off:off+4] = struct.pack('<I', ps['mp3_seek'])
-    append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 5, 'player')
+    append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 'player')
     (out/'hciplayer').write_bytes(data)
     return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload))

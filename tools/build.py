@@ -409,15 +409,15 @@ def compile_helper(out, cat):
         out/'video.o', *libs, '-o', out/'q2video')
     return (out/'q2video').read_bytes()
 
-def append_payload(image, payload, base, memsz, flags, label):
-    """Map payload at base through the image's final PT_NULL header."""
+def append_payload(image, payload, base, memsz, label):
+    """Map payload at base through the image's final PT_NULL header, R/W/X: payloads keep static state."""
     nulls = [(o,p) for o,p in segments(image) if p[0] == 0]
     check(len(nulls) == 1 and nulls[0][0] == segments(image)[-1][0], f'{label}: no final PT_NULL slot')
     check(all(p[2]+p[5] < base for _,p in segments(image) if p[0] == 1), f'{label}: payload mapping overlaps')
     off = (len(image)+65535)&~65535
     image.extend(bytes(off-len(image)))
     image.extend(payload)
-    struct.pack_into('<8I',image,nulls[0][0],1,off,base,base,len(payload),memsz,flags,65536)
+    struct.pack_into('<8I',image,nulls[0][0],1,off,base,base,len(payload),memsz,7,65536)
 
 def patch_bluealsa(raw):
     """Offer AAC at 48 kHz only. A headset that opens the stream itself (AirPods out of the case)
@@ -560,7 +560,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(re.search(r'\.pdr +PROGBITS +0+ +0*%x +0*%x ' % PDR, run('readelf', '-SW', demo)) and
           all(p[1]+p[4] <= PDR[0] for _,p in segments(patched) if p[0] == 1), '.pdr: not the audited section')
     patched[PDR[0]:PDR[0]+PDR[1]] = bytes(PDR[1])
-    append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 7, 'demo')
+    append_payload(patched, payload, BASE, ps['__scratch_end']-BASE, 'demo')
     (out/'demo').write_bytes(patched)
     # Pseudo-file round trip preserves every original inode's metadata and hardlinks.
     pseudo = out/'root.pseudo'
