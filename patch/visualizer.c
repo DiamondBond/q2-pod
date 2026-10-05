@@ -235,6 +235,18 @@ static void line(void *vg, float x0, float y0, float x1, float y1) {
     vgcanvas_stroke(vg);
 }
 
+/* A rounded rectangle as a sub-path of the current path. Stock vgcanvas_rounded_rect begins a new
+ * path itself, so in one path of 32 bars only the last survived; its arcs and lines do not. */
+static void capsule(void *vg, float x, float y, float w, float h, float r) {
+    if (r > h / 2) r = h / 2;
+    vgcanvas_move_to(vg, x, y + r);
+    vgcanvas_arc(vg, x + r, y + r, r, TAU / 2, TAU * 3 / 4, 0);
+    vgcanvas_arc(vg, x + w - r, y + r, r, TAU * 3 / 4, TAU, 0);
+    vgcanvas_arc(vg, x + w - r, y + h - r, r, 0, TAU / 4, 0);
+    vgcanvas_arc(vg, x + r, y + h - r, r, TAU / 4, TAU / 2, 0);
+    vgcanvas_close_path(vg);
+}
+
 static void disc(void *vg, float x, float y, float r, unsigned color) {
     vgcanvas_begin_path(vg);
     vgcanvas_arc(vg, x, y, r, 0, TAU, 0);
@@ -254,9 +266,9 @@ static void spectrum(void *vg, unsigned tone) {
         vgcanvas_begin_path(vg);
         for (int i = 0; i < VIS_BARS; ++i) {
             float x = VIS_X + i * pitch + (pitch - w) / 2, h = 3 + bar(i) * (TALL - 3);
-            if (!k) vgcanvas_rounded_rect(vg, x, BASE - h, w, h, w / 2);
-            else if (k == 1) vgcanvas_rounded_rect(vg, x, BASE + 4, w, h * 0.3f, w / 2);
-            else vgcanvas_rounded_rect(vg, x, BASE - 3 - vz.peak[i] * (TALL - 3) - 4, w, 3, 1.5f);
+            if (!k) capsule(vg, x, BASE - h, w, h, w / 2);
+            else if (k == 1) capsule(vg, x, BASE + 4, w, h * 0.3f, w / 2);
+            else capsule(vg, x, BASE - 3 - vz.peak[i] * (TALL - 3) - 4, w, 3, 1.5f);
         }
         if (!k) vgcanvas_set_fill_linear_gradient(vg, 0, BASE, 0, BASE - TALL, rgba(DARK(tone), 255), rgba(BRIGHT(tone), 255));
         else vgcanvas_set_fill_color(vg, rgba(k == 1 ? tone : BRIGHT(tone), k == 1 ? 0x24 : 255));
