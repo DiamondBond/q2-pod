@@ -41,22 +41,25 @@ def boot_check():
         def exe(path, body): (r/path).write_text('#!/bin/sh\n' + body + '\n'); (r/path).chmod(0o755)
         exe('release/bin/demo', f'echo demo >> {r}/ran')
         rb, target = r/'mnt/mmc/.rockbox/rockbox', r/'mnt/data/boot-target'
-        def boot(held, card):
+        def boot(held, card, code=81):
             exe('usr/bin/q2boot', 'exit ' + ('0' if held else '1'))
-            if card: exe('mnt/mmc/.rockbox/rockbox', f'pwd >> {r}/ran; exit 81')
+            if card: exe('mnt/mmc/.rockbox/rockbox', f'pwd >> {r}/ran; exit {code}')
             else: rb.unlink(missing_ok=True)
             (r/'ran').write_text('')
             subprocess.run(['sh', '-c', script], check=True)
-            return (r/'ran').read_text().split(), target.exists()
+            return (r/'ran').read_text().split(), target.exists() and target.read_text().strip()
         rockbox = [str(rb.parent), 'demo']
-        assert boot(False, True) == (['demo'], False)      # Q2 Pod by default
-        assert boot(True, True) == (rockbox, True)         # Play/Pause held: Rockbox, remembered
-        assert (r/'mnt/mmc/.rockbox/rockbox.log').read_text() == 'exit 81\n'
-        assert boot(False, True) == (rockbox, True)
-        assert boot(False, False) == (['demo'], True)      # no Rockbox on the card: demo, still chosen
-        assert boot(True, True) == (['demo'], False)       # held again: back to Q2 Pod
-        assert boot(True, False) == (['demo'], True)
-    print('Dual boot: Play/Pause switch, remembered choice and card fallback passed.')
+        assert boot(False, False) == (['demo'], False)          # no Rockbox on the card: Q2 Pod, nothing saved
+        assert boot(False, True, 1) == (rockbox, False)         # Rockbox by default; a crash keeps it
+        assert (r/'mnt/mmc/.rockbox/rockbox.log').read_text() == 'exit 1\n'
+        assert boot(False, True) == (rockbox, 'stock')          # Boot stock OS (0x51): Q2 Pod remembered
+        assert boot(False, True) == (['demo'], 'stock')
+        assert boot(True, True, 1) == (rockbox, 'rockbox')      # Play/Pause held: back to Rockbox
+        assert boot(False, True, 1) == (rockbox, 'rockbox')
+        assert boot(True, True) == (['demo'], 'stock')          # held again: Q2 Pod
+        target.write_text('rockbox\n')                         # V8.3's choice of Rockbox carries over
+        assert boot(False, False) == (['demo'], 'rockbox')      # no Rockbox on the card: Q2 Pod, still chosen
+    print('Dual boot: Rockbox by default, Play/Pause switch, Boot stock OS remembered and card fallback passed.')
 boot_check()
 
 def validate_assets(directory):

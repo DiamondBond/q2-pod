@@ -16,7 +16,7 @@ BusyBox `init` runs `/etc/init.d/rcS`, which starts the `S??*` scripts in order:
 2. `S11logo_display_shell`: in the background, polls every 20 ms for `/dev/fb0`, then runs `display_logo` on the splash.
 3. `S11module_driver_default`: `/module_driver/driver_default_init_script.sh` loads the drivers, among them `soc_fb.sh` (the framebuffer, so `/dev/fb0` appears and the splash is drawn) and the LCD panel.
 4. `S20urandom`, `S40network`.
-5. `S90play`: starts `dbus-daemon`, then the player: `/release/bin/demo`, or Rockbox first when it is chosen ([Rockbox](#rockbox)).
+5. `S90play`: starts `dbus-daemon`, then the player: `/release/bin/demo`, or Rockbox first when the card has it ([Rockbox](#rockbox)).
 
 demo's `platform_init` starts `checkappprocess.sh &`, the watchdog: it checks with `pgrep` that `/release/bin/demo` runs and reboots if not. Stock checks every 2 s; Q2 Pod every 10 s ([internals.md](internals.md#battery)).
 
@@ -29,16 +29,16 @@ demo's `platform_init` starts `checkappprocess.sh &`, the watchdog: it checks wi
 
 ## Rockbox
 
-Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/rockbox/tree/shanlingq2), which runs from the microSD card. **Hold Play/Pause while powering on** to switch between them; the Q2 then starts the system chosen at every power-on until Play/Pause is held again.
+Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/rockbox/tree/shanlingq2), which runs from the microSD card. Once Rockbox is on the card, the Q2 starts it at power-on, as an iPod with Rockbox does. Rockbox's **Boot stock OS** switches to Q2 Pod until you choose Rockbox again, and **holding Play/Pause while powering on** switches between the two.
 
 | What       | Where                                                                                      |
 | ---------- | ------------------------------------------------------------------------------------------ |
-| Choice     | `/mnt/data/boot-target`: present for Rockbox, absent for Q2 Pod                            |
+| Choice     | `/mnt/data/boot-target`: `stock` for Q2 Pod; `rockbox`, or no file, for Rockbox            |
 | Key check  | `/usr/bin/q2boot` (`patch/boot.c`): exits 0 while Play/Pause (`md-gpio-keys`, 108) is held |
 | Rockbox    | `/mnt/mmc/.rockbox/rockbox`, run from that folder, its output in `rockbox.log` there       |
 | Started by | `S90play`, in place of `/release/bin/demo &`                                               |
 
-With Rockbox chosen, `S90play` waits up to 3 s for the card (`/tmp/mmc_add`), runs Rockbox and appends `exit N` to `rockbox.log`. Whenever Rockbox exits (its **Boot stock OS**, a shutdown or a crash), or the card has no Rockbox, demo starts with its usual name, so the watchdog finds it. Neither changes the choice, so the next power-on starts Rockbox again. Install Rockbox by unzipping its `rockbox.zip` to the card's root. A Rockbox that hangs keeps Q2 Pod away: hold its own escape key, Return, at power-on, or remove `/.rockbox/rockbox` with a card reader.
+Unless the choice is `stock`, `S90play` waits up to 3 s for the card (`/tmp/mmc_add`); the card's driver polls for it, so it can't tell an empty slot from a card still being read. If the card has Rockbox, it runs Rockbox and appends `exit N` to `rockbox.log`. Exit 0x51 (81), Rockbox's **Boot stock OS** or Return held at its start, saves `stock`; other exits (a crash) keep the choice. Then, or when the card has no Rockbox, demo starts with its usual name, so the watchdog finds it. Install Rockbox by unzipping its `rockbox.zip` to the card's root. A Rockbox that hangs keeps Q2 Pod away: hold Play/Pause or Return at power-on, or remove `/.rockbox/rockbox` with a card reader.
 
 ## Custom boot logo
 
