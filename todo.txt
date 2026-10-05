@@ -6,3 +6,5 @@ Just got my Q2 and setting it up now. I saw some previous questions on this but 
 
 One more nit. Would love to sort Cover Flow by Artist > Release Year. But that’s a cherry on top
 Agree, I'd like to sort it by recently added or most played though
+
+add low power mode = stops pinning the cpu at 100%, save power = profit??? think about it carefully, think about what users care about most to deliver a proper low power experience.
