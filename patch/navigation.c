@@ -154,8 +154,8 @@ typedef struct {
     unsigned lyric_timer; /* runs while the wheel holds the lyrics and stock's timer is stopped */
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, battery;
-    void *setting_label[3];
+    int settings_read, accent, home_full, battery, shortcut;
+    void *setting_label[4];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1106,9 +1106,9 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent, Home and Battery settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME and
- * BATTERY in the stock config.ini: toolsReadConfig(path, section, key, out, default) copies the
- * value, or the default. */
+/* The Accent, Home, Battery and Shortcut settings (docs/ipod.md#display-settings), IPOD/ACCENT,
+ * HOME, BATTERY and SHORTCUT in the stock config.ini: toolsReadConfig(path, section, key, out,
+ * default) copies the value, or the default. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
@@ -1122,6 +1122,7 @@ static int accent(void) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
         st.battery = config_digit("BATTERY", 3);
+        st.shortcut = config_digit("SHORTCUT", 2);
         st.settings_read = 1;
     }
     return st.accent;
@@ -1129,6 +1130,11 @@ static int accent(void) {
 int ipod_home_full(void) {
     accent();
     return st.home_full;
+}
+/* 1 when Home's Streaming row is the Rockbox shortcut (coverflow_home_layout labels it). */
+int ipod_home_rockbox(void) {
+    accent();
+    return st.shortcut;
 }
 unsigned accent_tone(int tone) { return accents[accent()][tone]; }
 
@@ -2077,27 +2083,30 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    static const char *const home[] = { "Home: Split", "Home: Full" }, *const battery[] = {
-        "Battery: Icon", "Battery: Percent", "Battery: Icon + Percent"
-    };
-    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };
+    static const char *const home[] = { "Home: Split", "Home: Full" },
+                             *const battery[] = { "Battery: Icon", "Battery: Percent",
+                                                  "Battery: Icon + Percent" },
+                             *const shortcut[] = { "Shortcut: Streaming", "Shortcut: Rockbox" };
+    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery],
+                                  shortcut[st.shortcut] };
     widget_set_text_utf8(st.setting_label[i], names[i]);
 }
 
 /* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on
  * the next paint, and the theme's colors and images once every cached image is dropped and the
- * screen repaints; Home takes its new layout at once, as it is never recreated. */
+ * screen repaints; Home takes its new layout and Streaming label at once (never recreated). */
 static int setting_click(void *ctx, void *event) {
     (void)event;
-    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY" };
-    static const int counts[] = { ACCENT_N, 2, 3 };
-    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery */
-    int *const values[] = { &st.accent, &st.home_full, &st.battery }, *value = values[i];
+    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY", "SHORTCUT" };
+    static const int counts[] = { ACCENT_N, 2, 3, 2 };
+    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery, 3 Shortcut */
+    int *const values[] = { &st.accent, &st.home_full, &st.battery, &st.shortcut },
+               *value = values[i];
     *value = (*value + 1) % counts[i];
     write_int_config(*value, "IPOD", keys[i]);
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
-    else if (i == 1)
+    else if (i == 1 || i == 3)
         coverflow_home_layout();
     else if (!i) {
         np_fill(0);
@@ -2110,15 +2119,15 @@ static int setting_click(void *ctx, void *event) {
 
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Accent, Home and Battery rows follow with the same widgets and styles, borrowing the Display,
- * cover mode and power manager icons, the value in the label and no chevron, since they change in
- * place. */
+ * Accent, Home, Battery and Shortcut rows follow with the same widgets and styles, borrowing the
+ * Display, cover mode, power manager and network service icons, the value in the label and no
+ * chevron, since they change in place. */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
     static const char *const icons[] = { "system_display", "playset_covermode",
-                                         "system_powermanager" };
-    for (int i = 0; view && i < 3; ++i) {
+                                         "system_powermanager", "system_netservice" };
+    for (int i = 0; view && i < 4; ++i) {
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
@@ -2177,10 +2186,16 @@ static int selects(menu_t *m, void *target) {
     return -1;
 }
 
+#if IPOD
+static int rockbox_shortcut(void *target);
+#endif
+
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
 #if IPOD
+    if (target && event && I(event, EVENT_TYPE) == EVT_CLICK && rockbox_shortcut(target))
+        return STOP;
     if (st.pull_page && (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
         pull_cancel();
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
@@ -3358,6 +3373,35 @@ static void power_poll(void) {
     charge_poll();
     cpu_poll();
 }
+
+#if IPOD
+/* Home's Rockbox shortcut (docs/boot.md#rockbox-from-home): with Shortcut: Rockbox, a click on the
+ * Streaming row (img_stream, which only Home has) leaves Q2 Pod for Rockbox instead of opening
+ * Streaming. demo cannot start it itself: Rockbox needs the screen, the keys and ALSA. So demo
+ * leaves S90play's flag and ends; S90play sees it, runs Rockbox and starts demo again when Rockbox
+ * exits. Bluetooth's daemons are not demo's children and keep the headphones connected, so
+ * Rockbox finds them and plays there (q2-rockbox's pcm-alsa). The queue is saved as power-off
+ * saves it, charging and the second core are handed back as Rockbox expects them at boot, the
+ * watchdog (checkappprocess.sh, which reboots once demo is gone) and hciplayer (which holds the
+ * DAC's PCM) are stopped, and demo is killed outright, so no exit handler can hang it. */
+#define ROCKBOX_BIN "/mnt/mmc/.rockbox/rockbox"
+static int rockbox_shortcut(void *target) {
+    if (!ipod_home_rockbox() || tk_strcmp(widget_get_prop_str(target, "name", ""), "img_stream"))
+        return 0;
+    void *flag = access(ROCKBOX_BIN, 0) ? (void *)0 : fopen(ROCKBOX_FLAG, "w");
+    if (!flag) {
+        toast("Rockbox is not on the card");
+        return 1;
+    }
+    fclose(flag);
+    save_memoryplay_info();
+    player_stop();
+    if (st.charge_held) switch_charge_enable(1);
+    if (st.cpu_off) cpu1_write(1);
+    system("killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID");
+    return 1;
+}
+#endif
 
 /* Now Playing on top: its visualizer, progress and lyrics run on timers, which an idle pass would
  * make late, so Low power leaves the loop at stock's pace there. */

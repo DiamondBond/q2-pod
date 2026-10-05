@@ -1113,7 +1113,7 @@ static struct {
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
-extern int ipod_home_full(void);
+extern int ipod_home_full(void), ipod_home_rockbox(void);
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
  * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
@@ -1193,9 +1193,12 @@ static void home_width(void *w, int outer, int inner, int depth) {
 
 /* The Home setting: Split keeps the asset's list and art; Full widens the list, so the selection
  * bar spans the window, and its rows and tap targets to HOME_FULL_ROW, so the chevrons mirror the
- * labels' margin clear of the corners, and hides the art. */
+ * labels' margin clear of the corners, and hides the art. The Shortcut setting names the Streaming
+ * row: Rockbox is a literal, which translates to itself, so a language change keeps it. */
 void coverflow_home_layout(void) {
     if (!home.list) return;
+    void *stream = widget_lookup(home.win, "label_stream", 1);
+    if (stream) widget_set_tr_text(stream, ipod_home_rockbox() ? "Rockbox" : "small_stream");
     int full = ipod_home_full();
     home_width(home.list, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
     widget_set_visible(home.art, !full, 0);

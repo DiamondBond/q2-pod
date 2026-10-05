@@ -98,7 +98,9 @@
 
 ### Rockbox
 
-[Rockbox](https://github.com/DiamondBond/q2-rockbox) can run next to Q2 Pod from the microSD card: unzip its [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root and the Q2 starts Rockbox at power-on. **Hold Play/Pause while powering on**, or Rockbox's **Boot stock OS**, to start Q2 Pod for that session; the next power-on is Rockbox again. Ported themes: [q2-rockbox-themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). See [Boot](docs/boot.md#rockbox).
+[Rockbox](https://github.com/DiamondBond/q2-rockbox) can run next to Q2 Pod from the microSD card: unzip its [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root and the Q2 starts Rockbox at power-on. **Hold Play/Pause while powering on**, or Rockbox's **Boot stock OS**, to start Q2 Pod for that session; the next power-on is Rockbox again. Ported themes: [q2-rockbox-themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). See [Setup](docs/setup.md).
+
+**Rockbox over Bluetooth:** set **Display → Shortcut** to **Rockbox**, and Home's Streaming row starts Rockbox. Connect your headphones in Q2 Pod first, then pick **Rockbox** on Home: Rockbox plays through them.
 
 ### Restore stock
 
@@ -108,11 +110,12 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 **System settings → Display**:
 
-| Setting     | Options                                                   |
-| ----------- | --------------------------------------------------------- |
-| **Accent**  | Graphite (default), Crimson (stock red), Tidal, Champagne |
-| **Home**    | Split (list beside the cover) or Full (list only)         |
-| **Battery** | Icon (default), Percent, Icon + Percent                   |
+| Setting      | Options                                                         |
+| ------------ | --------------------------------------------------------------- |
+| **Accent**   | Graphite (default), Crimson (stock red), Tidal, Champagne       |
+| **Home**     | Split (list beside the cover) or Full (list only)               |
+| **Battery**  | Icon (default), Percent, Icon + Percent                         |
+| **Shortcut** | Streaming (default) or Rockbox: what Home's Streaming row opens |
 
 ## Battery and library settings
 

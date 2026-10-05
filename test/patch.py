@@ -3707,10 +3707,10 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==3  # every key, once, on first use
+        assert len(m.config_reads)==4  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','SHORTCUT')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -3843,9 +3843,10 @@ if variant=='ipod':
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
 
-    # Display settings: after the stock rows, Accent, Home and Battery rows in the native row widgets
-    # and styles, with the Display, cover mode and power manager icons; Centre or tap cycles and saves
-    # each; a new accent drops the image cache and repaints, a new Battery mode repaints the bar.
+    # Display settings: after the stock rows, Accent, Home, Battery and Shortcut rows in the native row
+    # widgets and styles, with the Display, cover mode, power manager and network service icons; Centre
+    # or tap cycles and saves each; a new accent drops the image cache and repaints, a new Battery mode
+    # repaints the bar.
     def display(config):
         CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
@@ -3857,7 +3858,7 @@ if variant=='ipod':
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
         return m,view,rows
     m,view,rows=display({})
-    assert len(rows)==3 and m.icons_set==['system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert len(rows)==4 and m.icons_set==['system_display','playset_covermode','system_powermanager','system_netservice'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -3865,7 +3866,7 @@ if variant=='ipod':
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon']; passed()
+    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Shortcut: Streaming']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -3883,7 +3884,40 @@ if variant=='ipod':
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
         assert ('widget_invalidate_force',bar) in [c[:2] for c in m.calls] and not [c for c in m.calls if c[0]=='image_manager_unload_all']
     passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent']; passed()
+    for value,name in ((1,'Rockbox'),(0,'Streaming')):
+        writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'SHORTCUT')] and texts()[3]=='Shortcut: '+name
+        assert not [c for c in m.calls if c[0]=='image_manager_unload_all']
+    passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent','Shortcut: Rockbox']; passed()
+    # Home's Rockbox shortcut (docs/boot.md#rockbox-from-home): with Shortcut: Rockbox, a click on the
+    # Streaming row saves the queue as power-off does, stops the player, leaves S90play's flag and kills
+    # demo, instead of reaching Streaming; without Rockbox on the card it says so. Streaming as before.
+    class ShortcutMachine(Machine):
+        card=True
+        def hook(self,u,address,size,unused):
+            name=self.handlers.get(address,'')
+            if not name.startswith('r:'): return super().hook(u,address,size,unused)
+            name=name[2:].split('@')[0]; a=u.reg_read(UC_MIPS_REG_A0); self.calls.append((name,a))
+            ret={'access':0 if self.card else -1,'fopen':0x2000000}.get(name,0)
+            u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def shortcut(config,card=True):
+        CONFIG.clear(); CONFIG.update(config); m=ShortcutMachine(); m.card=card
+        for n in ('access@GLIBC_2.0','fopen@GLIBC_2.2','fclose@GLIBC_2.2','system@GLIBC_2.0'): m.handlers[syms[n]]='r:'+n
+        m.mock('save_memoryplay_info','player_stop','switch_charge_enable','navigator_to_with_context')
+        view,imgs=home_list(m)
+        ret=m.click(imgs[HOME_ROWS.index('stream')])
+        return m,ret,[c[0] for c in m.calls if c[0]!='toolsReadConfig']
+    m,ret,names=shortcut({'SHORTCUT':'1'})
+    assert ret==11 and 'stock_dispatch' not in names
+    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('access','fopen','system')}
+    assert texts=={'access':'/mnt/mmc/.rockbox/rockbox','fopen':'/tmp/q2pod-rockbox',
+                   'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}
+    assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
+    m,ret,names=shortcut({'SHORTCUT':'1'},card=False)
+    assert ret==11 and not {'stock_dispatch','fopen','player_stop','system'} & set(names)
+    assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to_with_context']==['dialog/msginfo_dialog']; passed()
+    m,ret,names=shortcut({})
+    assert 'stock_dispatch' in names and not {'access','player_stop','system'} & set(names); passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)

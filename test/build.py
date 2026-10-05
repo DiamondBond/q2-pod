@@ -30,18 +30,22 @@ print('JPEG header regression checks passed.')
 def boot_check():
     """S90play's dual boot (build.py BOOT_HOOK) under the host sh, with stand-in programs."""
     import subprocess, tempfile, pathlib
-    from build import BOOT_HOOK
+    from build import BOOT_HOOK, ROCKBOX_FLAG
     with tempfile.TemporaryDirectory(prefix='q2-boot-') as tmp:
         r = pathlib.Path(tmp)
         script = BOOT_HOOK[1].decode().replace(' &\n', '\n')
-        for old in ('/mnt/', '/tmp/mmc_add', '/usr/bin/q2boot', '/release/bin/demo'):
+        for old in ('/mnt/', '/tmp/mmc_add', ROCKBOX_FLAG, '/usr/bin/q2boot', '/release/bin/demo'):
             script = script.replace(old, f'{r}{old}')
         script = script.replace('usleep 200000', ':')
         for d in ('mnt/data', 'mnt/mmc/.rockbox', 'tmp', 'usr/bin', 'release/bin'): (r/d).mkdir(parents=True)
         def exe(path, body): (r/path).write_text('#!/bin/sh\n' + body + '\n'); (r/path).chmod(0o755)
-        exe('release/bin/demo', f'echo demo >> {r}/ran')
+        # demo takes Home's Rockbox shortcut (leaves the flag) as many times as the shortcuts file says
+        flag, shortcuts = f'{r}{ROCKBOX_FLAG}', r/'shortcuts'
+        exe('release/bin/demo', f'echo demo >> {r}/ran; n=$(cat {shortcuts}); '
+            f'[ "$n" -gt 0 ] && echo $((n - 1)) > {shortcuts} && : > {flag}; exit 137')
         rb, target = r/'mnt/mmc/.rockbox/rockbox', r/'mnt/data/boot-target'
-        def boot(held, card, code=81):
+        def boot(held, card, code=81, shortcut=0):
+            shortcuts.write_text(f'{shortcut}\n')
             exe('usr/bin/q2boot', 'exit ' + ('0' if held else '1'))
             if card: exe('mnt/mmc/.rockbox/rockbox', f'pwd >> {r}/ran; exit {code}')
             else: rb.unlink(missing_ok=True)
@@ -58,7 +62,12 @@ def boot_check():
         target.write_text('stock\n')                            # a stale V8.4 choice is ignored
         assert boot(False, True, 1) == (rockbox, 'stock')
         assert boot(True, True, 1) == (['demo'], 'stock')
-    print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored and card fallback passed.')
+        target.unlink()
+        # Home's Rockbox shortcut: Rockbox, then Q2 Pod again, as often as it is taken; the flag is gone after
+        assert boot(True, True, 81, 1) == (['demo', *rockbox], False)
+        assert boot(False, True, 81, 2) == (rockbox * 3, False) and not pathlib.Path(flag).exists()
+        assert boot(True, False, 81, 1) == (['demo', 'demo'], False)  # no Rockbox on the card: Q2 Pod again
+    print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback and Home shortcut passed.')
 boot_check()
 
 def validate_assets(directory):
