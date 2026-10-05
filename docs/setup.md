@@ -4,7 +4,7 @@ For a brand new Q2. You need the Q2, its microSD card, a computer and internet.
 
 ## 1. Install Q2 Pod
 
-1. Download `Q2.Firmware.V8.5.zip` here: https://github.com/DiamondBond/q2-pod/releases (the `-stock` file next to it looks like the normal Shanling player; either works).
+1. Download the latest `Q2.Firmware.V8.5+` here: https://github.com/DiamondBond/q2-pod/releases/latest (the `-stock` file next to it looks like the normal Shanling player; either works).
 2. Unzip it, then copy `update.tar` onto the card (the main folder).
 3. Put the card in the Q2 and turn it on.
 4. On the Q2: **System settings > System Update > TF card update**. Wait for the restart. Do not unplug it while it updates.
