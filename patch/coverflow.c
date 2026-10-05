@@ -51,7 +51,7 @@ static int pick(void *ctx, void *event);
 /* The album list is kept across opens until songtable changes. Only these three stock functions
  * write it; each moves the generation before and after it runs, so a list queried meanwhile is
  * never kept. The scans run on stock's scan thread. */
-static volatile unsigned library_gen __attribute__((section(".scratch")));
+volatile unsigned library_gen __attribute__((section(".scratch"))); /* also Most Played's */
 static int library_write(int (*stock)(void *, void *), void *a, void *b) {
     ++library_gen;
     int result = stock(a, b);

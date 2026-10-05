@@ -27,6 +27,7 @@ extern const char *now_tag(void *r, int field);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
+extern volatile unsigned library_gen;
 extern const char *track_name(char *buf, unsigned size, void *t);
 #define STOP 11
 #define GLIDE_MS 300
@@ -108,8 +109,11 @@ typedef struct {
     } plays[PLAYS_SLOTS];
     unsigned plays_read, ls_key;
     int ls_sec, ls_heard, ls_done;
-    void *mp_page, *mp_list; /* Most Played's page and its ranked tracks */
-    int dark;                /* the backlight was off at the last UI loop pass */
+    /* Most Played's page and its tracks: the last ranking plus the songs counted since, kept across
+     * opens while the library is at mp_gen (~library_gen once stale). */
+    void *mp_page, *mp_list;
+    unsigned mp_gen;
+    int dark; /* the backlight was off at the last UI loop pass */
 #if IPOD
     void *pull_page, *pull_surface;
     void *sel_w; /* the surface whose selection was last drawn: its row and centre, for Home's > */
@@ -127,6 +131,7 @@ typedef struct {
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover;
+    void *np_slide, *np_lrc; /* the art/lyrics/info pages and the lyric lines' scroll_view */
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -137,6 +142,7 @@ typedef struct {
      * scrub_to is the target second, scrub_moved set once the wheel changed it. */
     unsigned np_press, np_press_at, scrub_timer, scrub_track;
     int scrub, scrub_to, scrub_moved;
+    unsigned lyric_timer; /* runs while the wheel holds the lyrics and stock's timer is stopped */
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, home_full, battery;
@@ -1645,9 +1651,42 @@ static int scrub_expire(const void *info) {
     return 0;
 }
 
+/* The lyrics: stock's 250 ms timer scrolls scroll_lrc back to the current line on every tick, so
+ * it stops while the wheel scrolls them and restarts SCRUB_MS after the last tick, as for a scrub.
+ */
+static void lyric_end(void) {
+    if (!st.lyric_timer) return;
+    stop_timer(&st.lyric_timer);
+    if (st.np_win) playing_timer_start(st.np_win);
+}
+
+static int lyric_expire(const void *info) {
+    (void)info;
+    st.lyric_timer = 0;
+    if (st.np_win) playing_timer_start(st.np_win);
+    return 0;
+}
+
+/* The wheel on the lyrics page (the slide_view's second), while the track has lyrics, scrolls
+ * them LYRIC_STEP a tick, ahead of scrub (which ends) and the volume. */
+static int np_lyrics(unsigned key) {
+    void *lrc = st.np_lrc;
+    if (!st.np_slide || !lrc || widget_get_prop_int(st.np_slide, "value", 0) != 1 ||
+        !widget_count_children(lrc) || mclGetLyricSize() <= 0)
+        return 0;
+    scrub_end();
+    if (!st.lyric_timer) playing_timer_clear(st.np_win);
+    rearm(&st.lyric_timer, lyric_expire, SCRUB_MS);
+    int y = clamp_step(I(lrc, SCROLL_Y), I(lrc, VIEW_CONTENT_H) - I(lrc, W_H),
+                       key == KEY_NEXT ? LYRIC_STEP : -LYRIC_STEP);
+    scroll_view_set_offset(lrc, I(lrc, SCROLL_X), y);
+    return 1;
+}
+
 static void np_cancel(void) {
     stop_timer(&st.np_press);
     scrub_end();
+    lyric_end();
 }
 
 /* A single centre press, DOUBLE_CLICK_MS on: it ends any scrub, then replays the release to stock
@@ -1675,6 +1714,7 @@ static int np_key(void *top, unsigned key) {
                 if (st.scrub)
                     scrub_end();
                 else if (st.np_slider) {
+                    lyric_end();
                     st.scrub = 1;
                     st.scrub_moved = 0;
                     st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
@@ -1714,7 +1754,7 @@ static int np_gone(void *win, void *event) {
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
-        st.np_slider = st.np_elapsed = st.np_cover = (void *)0;
+        st.np_slider = st.np_elapsed = st.np_cover = st.np_slide = st.np_lrc = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
@@ -1733,6 +1773,8 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_cover = widget_lookup(win, "img_cover", 1);
+    st.np_slide = widget_lookup(win, "slide_view", 1);
+    st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
@@ -2525,24 +2567,17 @@ static int mp_keyup(void *ctx, void *event) {
 static int mp_closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    if (st.mp_list) deque_destroy(st.mp_list);
-    st.mp_page = st.mp_list = (void *)0;
+    st.mp_page = (void *)0;
     return 0;
 }
 
-/* Most Played: a page of the PLAYS_TOP most played songs of the library, most played first and,
- * among equal counts, most recently counted first (the table keeps that order). */
-static int most_played(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    if (st.mp_page || !(st.mp_page = page_open("mostplayed_page", mp_closed, mp_keyup))) return 0;
-    int n, top = 0, idx[PLAYS_TOP];
-    unsigned score[PLAYS_TOP];
-    void *all = staged(all_songs, 0, &n);
-    int size = (int)deque_size(all);
+/* The PLAYS_TOP most played of songs, their indices in idx, most played first and, among equal
+ * counts, most recently counted first (the table keeps that order); returns how many. */
+static int mp_rank(void *songs, int *idx, unsigned *score) {
+    int top = 0, size = (int)deque_size(songs);
     plays_load();
     for (int i = 0; i < size; i++) {
-        unsigned key = listen_key(deque_at(all, i)), c = 0;
+        unsigned key = listen_key(deque_at(songs, i)), c = 0;
         for (int j = 0; j < PLAYS_SLOTS && !c; j++)
             if (st.plays[j].key == key) c = st.plays[j].n * PLAYS_SLOTS + PLAYS_SLOTS - j;
         if (!c || (top == PLAYS_TOP && score[top - 1] >= c)) continue;
@@ -2551,10 +2586,38 @@ static int most_played(void *ctx, void *event) {
         score[at] = c;
         idx[at] = i;
     }
-    st.mp_list = _create_deque("stSongInfo");
-    deque_init(st.mp_list);
-    for (int i = 0; i < top; i++) _deque_push_back(st.mp_list, deque_at(all, idx[i]));
-    deque_destroy(all);
+    return top;
+}
+
+/* Where key is among Most Played's tracks, -1 when not (or none are kept). */
+static int mp_find(unsigned key) {
+    for (unsigned i = 0; st.mp_list && i < deque_size(st.mp_list); i++)
+        if (listen_key(deque_at(st.mp_list, i)) == key) return (int)i;
+    return -1;
+}
+
+/* Most Played: a page of the PLAYS_TOP most played songs of the library. The whole library is read
+ * only when nothing is kept; otherwise the kept tracks are ranked again.
+ * ponytail: the first open after boot or a library change still reads every song, and a song first
+ * counted from stock's folder browser shows without its artist until then (no library tags). */
+static int most_played(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    if (st.mp_page || !(st.mp_page = page_open("mostplayed_page", mp_closed, mp_keyup))) return 0;
+    int n, idx[PLAYS_TOP];
+    unsigned score[PLAYS_TOP], gen = library_gen;
+    void *from = st.mp_list;
+    if (!from || st.mp_gen != gen) {
+        from = staged(all_songs, 0, &n);
+        st.mp_gen = gen;
+    }
+    int top = mp_rank(from, idx, score);
+    void *ranked = _create_deque("stSongInfo");
+    deque_init(ranked);
+    for (int i = 0; i < top; i++) _deque_push_back(ranked, deque_at(from, idx[i]));
+    if (st.mp_list && st.mp_list != from) deque_destroy(st.mp_list);
+    deque_destroy(from);
+    st.mp_list = ranked;
     void *view =
         page_list(st.mp_page, st.mp_page, 0, top ? "Most Played" : "No plays yet", top, 64);
     char name[512], detail[300];
@@ -2991,11 +3054,22 @@ static void spot_keep(unsigned key, int sec, int total) {
 
 /* Counts key's play and moves it first, so among equal counts the least recently played is the
  * one replaced when no slot is free. */
-static void play_count(unsigned key) {
+static void play_count(void *r, unsigned key) {
     plays_load();
     int i = 0;
     for (int j = 0; j < PLAYS_SLOTS && st.plays[i].key != key; j++)
         if (st.plays[j].key == key || st.plays[j].n <= st.plays[i].n) i = j;
+    /* Most Played's kept tracks take a newly counted song, unless its page shows them (its rows
+     * and song menu match the deque); one that loses its count may have hidden the next best,
+     * which only the whole library knows. */
+    if (st.plays[i].key && st.plays[i].key != key && mp_find(st.plays[i].key) >= 0)
+        st.mp_gen = ~library_gen;
+    else if (st.mp_list && mp_find(key) < 0) {
+        if (!st.mp_page && deque_size(st.mp_list) < 2 * PLAYS_TOP)
+            _deque_push_back(st.mp_list, r);
+        else
+            st.mp_gen = ~library_gen;
+    }
     unsigned n = st.plays[i].key == key ? st.plays[i].n + 1 : 1;
     for (; i > 0; i--) st.plays[i] = st.plays[i - 1];
     st.plays[0].key = key;
@@ -3077,7 +3151,7 @@ static void resume_poll(void) {
         if (!st.ls_done && total > LISTEN_MIN_S &&
             st.ls_heard >= (total / 2 < LISTEN_MAX_S ? total / 2 : LISTEN_MAX_S)) {
             st.ls_done = 1;
-            play_count(lk);
+            play_count(r, lk);
             scrobble(r, total, st.ls_heard);
         }
     }
@@ -3235,6 +3309,8 @@ int ringnav(void *ctx, void *event) {
     if (top != st.np_win || window_manager_is_animating(wm) ||
         window_manager_get_pointer_pressed(wm))
         np_cancel();
+    else if (key != KEY_CENTER && np_lyrics(key))
+        return STOP;
     else if (key == KEY_CENTER || st.scrub)
         return np_key(top, key);
 #endif

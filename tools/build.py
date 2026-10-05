@@ -328,6 +328,7 @@ FUNCTIONS = {
  'folder_refresh': ('int', 'void *'),
  # Videos (books.c): stop the music, the DAC's power, and the screen and standby timeouts held off
  'mclGetOutputWay': ('int', 'void'),
+ 'mclGetLyricSize': ('int', 'void'),  # the playing track's lyric lines, 0 without
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
  'player_stop': ('int', 'void'),
  'mclSetDacPwr': ('int', 'int'),

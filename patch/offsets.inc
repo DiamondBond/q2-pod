@@ -198,6 +198,7 @@
  * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on volume. */
 #define SCRUB_STEP 5
 #define SCRUB_MS 3000
+#define LYRIC_STEP 25 /* px per wheel tick on the lyrics page: one stock lyric row */
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys
  * (volume, play/pause, wake) wait at most this much longer. */
 #define SCREEN_OFF_SLEEP_MS 40

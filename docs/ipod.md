@@ -426,7 +426,12 @@ scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
 
-**Lyrics.** Stock already highlights the current line and scrolls to keep it in view.
+**Lyrics.** Stock already highlights the current line and scrolls to keep it in view. On the
+lyrics page, while the track has lyrics, the wheel scrolls them a line (25 pixels, `LYRIC_STEP`)
+per tick instead of changing the volume or scrubbing; a scrub under way ends first, as any other end
+does. Both times, the bar and the highlight wait meanwhile, and 3 seconds (`SCRUB_MS`) after the
+last tick, or at a touch, the page follows the current line again; see
+[internals.md](internals.md#scrub-ipod).
 
 ### Visualizer
 

@@ -303,6 +303,7 @@ class Machine:
             ret=0 if self.text(b)=='text' else self.string(n.get(self.text(b),''))
         elif name=='widget_get_text': ret=self.wide_string(n.get('text',''))
         elif name in ('widget_get_prop_bool','widget_get_prop_int'): ret=n.get(self.text(b),c)
+        elif name=='mclGetLyricSize': ret=getattr(self,'lyric_size',0)
         elif name=='widget_count_children': ret=len(n['children'])
         elif name=='widget_get_child': ret=n['children'][b] if b<len(n['children']) else 0
         elif name=='widget_set_prop_int': n[self.text(b)]=signed(c); ret=0
@@ -3349,6 +3350,36 @@ if variant=='ipod':
         elif end=='timeout': step(m,O['SCRUB_MS'],wait=True)
         else: assert step(m,O['KEY_RETURN'],gap=50)==11
         ended(m,[],end); passed()
+    # The lyrics page (slide value 1) with lyrics: the wheel scrolls scroll_lrc LYRIC_STEP a tick within
+    # its content, ahead of scrub and the volume, with stock's timer (which re-pins the current line)
+    # stopped until SCRUB_MS after the last tick. Another page or no lyrics leaves the wheel on volume.
+    def lyric_page(page=1,size=9,lines=1):
+        m=scrub_page(); m.lyric_size=size
+        m.lrc=m.node('scroll_view','scroll_lrc',[m.node('label') for _ in range(lines)])
+        m.word(m.lrc+O['W_H'],178); m.word(m.lrc+O['VIEW_CONTENT_H'],250)
+        m.slide=m.node('slide_view','slide_view',[m.lrc],value=page)
+        m.nodes[m.win]['children'].append(m.slide)
+        assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0; m.calls=[]
+        return m
+    for kw in ({'page':0},{'size':0},{'lines':0}):
+        m=lyric_page(**kw); assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
+    m=lyric_page()
+    assert step(m)==11 and m.get(m.lrc+O['SCROLL_Y'])==O['LYRIC_STEP'] and did(m,'playing_timer_clear')==[m.win]
+    for _ in range(5): assert step(m,gap=200)==11
+    assert m.get(m.lrc+O['SCROLL_Y'])==72 and not did(m,'playing_timer_clear')  # 250 - 178
+    for _ in range(5): assert step(m,O['KEY_PREV'],gap=200)==11
+    assert m.get(m.lrc+O['SCROLL_Y'])==0 and not m.starts
+    step(m,O['SCRUB_MS']-1,wait=True); assert not m.starts
+    step(m,1,wait=True); assert m.starts==[m.win] and not m.timers and m.seeks==[]; passed()
+    # A scrub begun on the lyrics page ends at the next tick, committing once, and the tick scrolls.
+    m=lyric_page(); centre(m); m.nodes[m.slide]['value']=0; step(m); m.nodes[m.slide]['value']=1
+    assert step(m)==11 and m.seeks==[105] and m.get(m.lrc+O['SCROLL_Y'])==O['LYRIC_STEP']
+    step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win,m.win] and not m.timers; passed()
+    # Touch ends it at once; the page's destruction keeps stock's timer off.
+    m=lyric_page(); step(m); step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
+    assert m.starts==[m.win] and not m.timers; passed()
+    m=lyric_page(); step(m); f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
+    assert not m.starts and not m.timers; passed()
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
 # plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.
@@ -4353,6 +4384,13 @@ assert m.queued==ranked and m.plays==[('playing_page',m.plays[0][1],2,1,2)] and 
 m.handlers[syms['navigator_to']]='q:navigator_to'; view=m.find('scroll_view'); m.paint(view); m.call()
 m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='T7' and m.release()==0
 assert m.labels()==['Play next','Add to queue','Add to Favourites','Go to artist']; passed()
+# Opened again, the kept tracks are ranked again without reading the library; a library change reads it again.
+m.close(); m.found=m.found[:8]; m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0 and not called('getAllMusic')
+m.page=m.top; assert m.texts()==['Most Played']+[x for p in zip(ranked,details) for x in p]
+m.close(); m.calls=[]; m.rescan(); m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0 and called('getAllMusic')
+m.page=m.top; assert m.texts()==['Most Played']+[x for p in zip(ranked[:3],details[:3]) for x in p]; passed()
 
 # Upload Scrobbles: the second-last row, above Update Local Music, only with an account in the card's .scrobble.ini (a
 # ListenBrainz token or all four Last.fm keys). Without Wi-Fi it only says so; otherwise scrobble.c's thread
