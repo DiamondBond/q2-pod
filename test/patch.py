@@ -2771,11 +2771,12 @@ class ClassMachine(QueueMachine):
         u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 def unknown(cls,found,last=-1,artist=0,rows=3):
     m=ClassMachine(page='localclass_page',cls=0xf001,rows=rows); m.found=[m.song('T1')]*found; m.query=None
-    m.word(syms['g_artist_type'],artist)
+    m.word(syms['artist_type'],artist); m.word(syms['g_artist_type'],1-artist)
     if rows: m.word(m.row(rows-1)+O['REC_ID'],last)
     n=m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
     shown=m.names(m.get(syms['p_deque_showlist']))
-    assert n==len(shown) and m.calls[0][:2]==('stock_localclass',cls)
+    # Artists follow the artist page's own switch (artist_type), which stock never copied to g_artist_type
+    assert n==len(shown) and m.calls[0][:2]==('stock_localclass',cls) and m.get(syms['g_artist_type'])==artist
     return shown,m.query,m.items(m.get(syms['tools_pdeq_directory']))
 for cls,artist,query in ((0xf003,0,'getMusicByAlbum'),(0xf004,0,'getMusicBySonger'),(0xf004,1,'getMusicByAlbumArtist'),
                          (0xf005,0,'getMusicByComposer'),(0xf006,0,'getMusicByGenre')):
@@ -3382,12 +3383,12 @@ if variant=='ipod':
     assert not m.starts and not m.timers; passed()
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
-# plus the Refresh card, the wheel steps the stock slide_menu and centre confirms the cover.
+# plus the Sort and Refresh cards, the wheel steps the stock slide_menu and centre confirms the cover.
 m=CoverflowMachine(); page=m.open()
 assert m.nodes[page]['name']=='coverflow_page' and m.slide and not m.threads
-covers=m.nodes[m.slide]['children']; assert len(covers)==4
+covers=m.nodes[m.slide]['children']; assert len(covers)==5
 assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
-assert m.nodes[covers[-1]]['image']=='default_album_big'
+assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']=='default_album_big'
 assert 'Album 0' in m.texts(); passed()
 m.press(3); assert m.hold()==0 and m.top==page; passed()  # Play/Pause hold stays stock here
 # Covers step like Home: fast ticks retarget one animator, never stock next/previous, whose
@@ -3416,7 +3417,7 @@ assert m.key()==11 and m.nodes[m.get(m.slide+O['W_PARENT'])]['visible'] and m.ge
 assert m.key(O['KEY_NEXT'])==0 and m.key()==11 and m.homes==1; passed()
 # The album list outlives the page: a reopen queries nothing until one of the songtable writers runs.
 m=CoverflowMachine(); m.open(); m.close(); m.calls=[]
-m.open(); assert not m.queried() and len(m.nodes[m.slide]['children'])==4; m.close(); passed()
+m.open(); assert not m.queried() and len(m.nodes[m.slide]['children'])==5; m.close(); passed()
 for writer in WRITERS:
     m.rescan(writer); m.calls=[]; m.open(); assert m.queried()==1; m.close()
     m.calls=[]; m.open(); assert not m.queried(); m.close(); passed()
@@ -3618,11 +3619,11 @@ counter=m.u.hook_add(UC_HOOK_BLOCK,count_block,begin=BASE,end=SCRATCH-1)
 paint(m); rest_cost=instructions[0]
 assert len(m.draws)==1 and m.draws[0][1]==m.frames[0] and m.draws[0][2]==m.draws[0][3]==(0,0,O['CF_VIEW_W'],O['CF_VIEW_H'])
 assert m.draws[0][4]&1  # BITMAP_FLAG_OPAQUE
-# The placeholder first (fx_open), then the ring from -3 round album 0 of three and the Refresh card:
-# albums 1, 2, Refresh (the placeholder, no load), 0, then 1 and 2 again from their slots.
+# The placeholder first (fx_open), then the ring from -3 round album 0 of three and the Sort and
+# Refresh cards: album 2, Sort and Refresh (the placeholder, no load), 0, 1, then 2 and Sort again.
 assert len(m.loads)==4 and m.loads[0]=='default_album_big' and all(u.startswith('file://') for u in m.loads[1:]) and m.unloads==3
 tex_of={u:bytes(m.u.mem_read(m.pixels[u],160*160*4)) for u in m.pixels}
-ring_tex=[tex_of[m.loads[1]],tex_of[m.loads[2]],tex_of['default_album_big'],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of[m.loads[2]],tex_of['default_album_big']]
+ring_tex=[tex_of[m.loads[1]],tex_of['default_album_big'],tex_of['default_album_big'],tex_of[m.loads[2]],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of['default_album_big']]
 assert host_render(ring_tex,[(0,127)])[0]==m.draws[0][5]; passed()
 # A repaint in place draws again without rendering; a quarter turn renders from the live offset.
 instructions[0]=0; paint(m); assert len(m.draws)==2 and instructions[0]<rest_cost//20
@@ -4759,11 +4760,16 @@ m.forked=0; names=play(1)  # the child
 assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:1,0',R+'/a.mp4',0)]; passed()
 # A DAC check_dacoff_state powered off is powered on first. Bluetooth (way 1) plays on hciplayer's
-# plug:bluealsa with the volume for the helper's soft volume; a USB DAC (2) plays silent.
+# plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on hciplayer's
+# hw:2,0, through plughw: with the volume marked h (the DAC's own control, or a fixed USB volume),
+# or plain when the USB volume is variable and the DAC has no control (USB_MIXER -2: hciplayer's soft volume).
 m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:5]==('plughw:1,0',R+'/b.MKV',0)
 m.word(syms['g_dacoff_time'],5); m.byte(syms['g_volume'],42)
 m.way=1; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
-m.way=2; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('-',R+'/Trip/c.avi',0)
+m.way=2; m.byte(syms['g_usbvol_mode'],0); m.word(O['USB_MIXER'],0xfffffffe)
+assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plughw:2,0',R+'/Trip/c.avi',('h42',0))
+m.byte(syms['g_usbvol_mode'],1); m.word(O['USB_MIXER'],0); play(0); assert m.execs[-1][2:]==('plughw:2,0',R+'/Trip/c.avi',('h42',0))
+m.word(O['USB_MIXER'],0xfffffffe); play(0); assert m.execs[-1][2:]==('plughw:2,0',R+'/Trip/c.avi',('42',0))
 passed()
 # Playing: no key or touch reaches the UI; a key's release goes to the player's socket as a datagram:
 # Play/Pause pauses, the side buttons seek, Return quits.
@@ -4943,5 +4949,108 @@ playing(m,0,200,pos=0,n=26); m.word(r+O['REC_CUE_START'],300); playing(m,0,200,n
 full=[(i+1,1 if i==5 else 2) for i in range(O['PLAYS_SLOTS'])]
 m=ResumeMachine({'/mnt/data/ringnav-plays':b''.join(struct.pack('<II',*e) for e in full)})
 playing(m,0,200,pos=0,n=110); assert counts(m)==[(fnv('/p/A'),1)]+full[:5]+full[6:]; passed()
+
+# Settings rows (docs/internals.md#charge-limit, #low-power, #album-artists): Power management gains
+# Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
+# and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
+def settings_page(hook,view_name,config={},stock_rows=2):
+    m=QueueMachine(); m.config.update(config)
+    m.handlers[int(manifest['patch_symbols'][f'stock_{hook}_trampoline'],16)]='stock_'+hook
+    view=m.node('scroll_view',view_name,[m.entry(0) for _ in range(stock_rows)])
+    for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
+    m.top=m.node('window','page',[m.node('list_view','list_view',[view])])
+    target={'power':'systemset_powermanager_page_init','audioset':'playset_playset_page_init'}[hook]
+    assert m.call(address=HOOKS[target][0],args=(m.top,5,0,0),gap=0)==0 and m.calls[0][:3]==('stock_'+hook,m.top,5)
+    rows=m.nodes[view]['children'][stock_rows:]
+    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
+    icons=[m.nodes[m.nodes[b]['children'][0]]['image'] for b in buttons]
+    def click(i):
+        m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        return [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
+    return m,rows,lambda:[m.nodes[l]['text'] for l in labels],icons,click
+m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager')
+assert len(rows)==2 and icons==['usb_chargeswitch','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
+assert texts()==['Charge limit: Off','Low power: Off']
+assert click(0)==[(1,'Q2POD','CHARGELIMIT')] and texts()[0]==f"Charge limit: {O['CHARGE_STOP']}%"
+assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low power: On'
+assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge limit: Off','Low power: On']; passed()
+m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1'})
+assert texts()==[f"Charge limit: {O['CHARGE_STOP']}%",'Low power: On']; passed()
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
+assert len(rows)==1 and icons==['playset_folderjump'] and texts()==['Artists: Artist']
+assert click(0)==[(1,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==1 and texts()==['Artists: Album Artist']
+assert click(0)==[(0,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==0; passed()
+
+# The power poll, on the UI loop. Charge limit: the charger stops (switch_charge_enable(0), the
+# BQ25890's /CE) at CHARGE_STOP, again whenever it charges meanwhile, and is handed back at
+# CHARGE_RESUME: on, or USB mode's own choice while its page is open. Every CHARGE_POLL_MS.
+class PowerMachine(ResumeMachine):
+    def __init__(self,config={},files=None):
+        super().__init__(files); self.config.update(config); self.writes=[]
+        for n in ('fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','unlink@GLIBC_2.0','open@GLIBC_2.0','close@GLIBC_2.0'):
+            self.handlers[syms[n]]='p:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,''); a=u.reg_read(REGS[0])
+        if name.startswith('r:fclose') and self.open.get(a,[0,0])[1]=='w':
+            path,_,_,data=self.open.pop(a); self.files[path]=data; self.writes.append((path,data)); self.calls.append(('fclose',a,0,0))
+            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if name.startswith('r:fopen') and self.text(u.reg_read(REGS[1]))=='w':
+            ret=0x2000000+len(self.calls); self.open[ret]=[self.text(a),'w',0,b'']; self.calls.append(('fopen',a,0,0))
+            u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if not name.startswith('p:'): return super().hook(u,address,size,unused)
+        self.calls.append((name[2:].split('@')[0],a,0,0))
+        if name.startswith('p:unlink'): self.files.pop(self.text(a),None)
+        u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def pass_(self,ms=O['CHARGE_POLL_MS']):
+        self.now+=ms; self.calls=[]
+        assert self.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)==0
+        return [c[1] for c in self.calls if c[0]=='switch_charge_enable'],[c[1] for c in self.calls if c[0]=='sleep_ms']
+def level(m,pct,charging=0): m.word(syms['g_power_capacity'],pct); m.word(syms['g_power_chargestate'],charging)
+m=PowerMachine({'CHARGELIMIT':'1'})
+for pct,charging,want in ((79,2,[]),(80,2,[0]),(79,0,[]),(78,2,[0]),(76,0,[]),(75,0,[1]),(79,2,[])):
+    level(m,pct,charging); assert m.pass_()[0]==want,(pct,charging); passed()
+level(m,90); assert m.pass_(O['CHARGE_POLL_MS']-1)[0]==[] and m.pass_(1)[0]==[0]; passed()  # polled, not every pass
+m.open_pages=['usbmode_page']; m.byte(syms['g_usbdac_chargeflag'],0); level(m,70); assert m.pass_()[0]==[0]; passed()
+m=PowerMachine(); level(m,95,2); assert m.pass_()[0]==[]; passed()  # the limit off: stock charges
+# Low power: CPU1 offline while the screen is off (the first time bracketed by a synced marker),
+# back with the screen; the screen-off pass idles LOW_OFF_SLEEP_MS, and a screen-on pass with no input
+# or animation for LOW_IDLE_MS idles LOW_IDLE_SLEEP_MS. Off, no file is touched.
+CPU1,MARK='/sys/devices/system/cpu/cpu1/online','/mnt/data/q2pod-cpu1'
+m=PowerMachine()
+m.byte(syms['g_backlight_status'],0); assert m.pass_(1)[1]==[O['SCREEN_OFF_SLEEP_MS']] and not m.writes and not m.opens; passed()
+m=PowerMachine({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0)
+assert m.pass_(1)[1]==[O['LOW_OFF_SLEEP_MS']] and m.writes==[(MARK,b''),(CPU1,b'0')] and MARK not in m.files
+assert [c[0] for c in m.calls if c[0] in ('fsync','unlink')]==['fsync','unlink','fsync']; passed()  # the marker, then its removal, on flash
+m.writes=[]; m.byte(syms['g_backlight_status'],1); m.pass_(1); assert m.writes==[(CPU1,b'1')]; passed()
+m.writes=[]; m.byte(syms['g_backlight_status'],0); m.pass_(1); assert m.writes==[(CPU1,b'0')]; passed()  # marked once a boot
+m.byte(syms['g_backlight_status'],1); m.animating=1; m.pass_(1)
+assert m.pass_(O['LOW_IDLE_MS'])[1]==[]; m.animating=0
+assert m.pass_(1)[1]==[O['LOW_IDLE_SLEEP_MS']]; passed()
+inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'
+m.call(address=inp,args=(m.wm,m.event,0,0),gap=0); assert m.pass_(1)[1]==[]; passed()  # input: full speed again
+# A refused online is retried once a second, not every pass.
+class Refused(PowerMachine):
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address,'').startswith('r:fwrite') and self.text(u.reg_read(REGS[0]))=='1':
+            self.calls.append(('refused',0,0,0)); u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        return super().hook(u,address,size,unused)
+m=Refused({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1); m.byte(syms['g_backlight_status'],1)
+tries=lambda ms:[c[0] for c in m.pass_(ms) and m.calls if c[0]=='refused']
+assert tries(1)==['refused'] and tries(500)==[] and tries(500)==['refused']; passed()
+# A marker that cannot be written: no offline, so a stall could not go unnoticed.
+class Full(PowerMachine):
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address,'').startswith('p:fsync'):
+            self.calls.append(('fsync',0,0,0)); u.reg_write(UC_MIPS_REG_V0,0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        return super().hook(u,address,size,unused)
+m=Full({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1); m.pass_(1)
+assert not any(p==CPU1 for p,_ in m.writes); passed()
+# Now Playing keeps stock's pace: its visualizer and progress run on timers.
+m=PowerMachine({'LOWPOWER':'1'}); m.top=m.node('window','playing_page'); m.pass_(1)
+assert m.pass_(O['LOW_IDLE_MS'])[1]==[]; passed()
+# A boot that stalled offlining CPU1 left the marker: the next one renames it and never tries.
+m=PowerMachine({'LOWPOWER':'1'},files={MARK:b''}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
+assert not m.writes and '/mnt/data/q2pod-cpu1.bad' in m.files and MARK not in m.files; passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

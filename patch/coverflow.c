@@ -26,6 +26,7 @@
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
+#define CARDS 2 /* after the albums: Sort, then Refresh library */
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
     stock_scan_folder_trampoline(void *, void *), stock_delete_song_trampoline(void *, void *);
@@ -37,7 +38,10 @@ typedef struct {
 } job_t;
 static struct {
     void *page, *body, *covers, *slide, *name, *artist, *title;
-    void *albums, *tracks; /* our copies of the stock query results */
+    void *albums, *tracks; /* our copies of the stock query results; albums in the Sort's order */
+    void *stock;           /* the albums in stock order, which albums is, or is sorted from */
+    int sort, sort_read;   /* the Sort card's order (SORT_*), from SORT_FILE once */
+    int on_sort;           /* the next load centres the Sort card */
     job_t *jobs;
     unsigned long thread;
     unsigned timer;
@@ -182,8 +186,9 @@ static void drop(void) {
 }
 
 static void drop_albums(void) {
-    if (cf.albums) deque_destroy(cf.albums);
-    cf.albums = 0;
+    if (cf.albums && cf.albums != cf.stock) deque_destroy(cf.albums);
+    if (cf.stock) deque_destroy(cf.stock);
+    cf.albums = cf.stock = 0;
 }
 
 /* A stock library query's rows (*count its result) copied out of the staging deque, which is
@@ -205,6 +210,146 @@ void *staged(int (*query)(void *), void *arg, int *count) {
 static int albums(void *album) {
     return album ? getMusicByAlbum(I(album, REC_ID) == -1 ? (const char *)0 : P(album, REC_ALBUM))
                  : getAllAlbum();
+}
+
+/* getAllAlbum ends with an "Unknown Album" row (id -1) whenever any album exists, even when every
+ * song has an album tag. It goes when the query its card opens, getMusicByAlbum(NULL), finds no
+ * song, as navigation.c's ringnav_localclass drops it from the Albums list. */
+static void drop_unknown(void) {
+    unsigned n = deque_size(cf.stock);
+    void *last = n ? deque_at(cf.stock, n - 1) : 0;
+    if (!last || I(last, REC_ID) != -1) return;
+    int found;
+    void *songs = staged(albums, last, &found);
+    if (!deque_size(songs)) deque_pop_back(cf.stock);
+    deque_destroy(songs);
+}
+
+/* Sort, the card before Refresh (docs/internals.md#coverflow-sort): Album is the stock order;
+ * Artist sorts by artist without a leading article, as every library list does (ringnav_sort_key),
+ * then year, then album; Recently Added by the newest song's time_create; Most Played by the
+ * album's listens (navigation.c album_plays). Ties keep the stock order, and the Unknown row stays
+ * last. Ranks come from getAllAlbum's own row callback over the same grouping with another ORDER BY
+ * (toolsQueryDbTable without its name sort), matched back to the stock rows by album name, case
+ * aside, as the grouping is. */
+enum { SORT_ALBUM, SORT_ARTIST, SORT_ADDED, SORT_PLAYED, SORT_N };
+#define SORT_FILE PEQ_ROOT "/mnt/data/ringnav-coversort"
+#define SORT_SQL "select id,album,songer,fileurl from songtable group by album COLLATE NOCASE order by "
+static const char *const sort_names[SORT_N] = { "Sort: Album", "Sort: Artist", "Sort: Recently Added",
+                                                "Sort: Most Played" };
+extern void album_plays(int (*album_of)(void *), unsigned *sum);
+extern void ringnav_sort_key(char *s);
+
+typedef struct {
+    unsigned key;
+    int idx;
+} name_t;
+typedef struct {
+    void *r;
+    const char *artist; /* Artist: the artist's sort key, without its article */
+    unsigned rank;
+    int idx;
+} order_t;
+#define ARTIST_KEY 96
+static struct {
+    name_t *names; /* the stock rows by name_key, the Unknown row left out, for album_index */
+    unsigned n;
+} by_name __attribute__((section(".scratch")));
+
+static const char *album_name(void *r) {
+    const char *s = P(r, REC_ALBUM);
+    return s ? s : "";
+}
+static unsigned name_key(void *r) { /* the album name, ASCII case aside */
+    unsigned h = FNV_SEED;
+    for (const unsigned char *s = (const unsigned char *)album_name(r); *s; ++s) {
+        unsigned char c = *s >= 'A' && *s <= 'Z' ? *s + 32 : *s;
+        h = hash_bytes(h, &c, 1);
+    }
+    return h;
+}
+static int by_key(const void *a, const void *b) {
+    const name_t *x = a, *y = b;
+    return x->key != y->key ? (x->key < y->key ? -1 : 1) : x->idx - y->idx;
+}
+/* The stock row whose album r names, case aside, or -1: the hash finds the run, the names decide. */
+static int album_index(void *r) {
+    unsigned key = name_key(r), lo = 0, hi = by_name.n;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2;
+        if (by_name.names[mid].key < key) lo = mid + 1;
+        else hi = mid;
+    }
+    for (; lo < by_name.n && by_name.names[lo].key == key; ++lo) {
+        int i = by_name.names[lo].idx;
+        if (!strcasecmp(album_name(deque_at(cf.stock, (unsigned)i)), album_name(r))) return i;
+    }
+    return -1;
+}
+static int rank_query(void *sql) { return toolsQueryDbTable("/mnt/data/database.db", sql, album_row, 0); }
+static void rank_by(order_t *v, const char *sql) {
+    int n;
+    void *rows = staged(rank_query, (void *)sql, &n);
+    for (unsigned j = 0; j < deque_size(rows); ++j) {
+        int i = album_index(deque_at(rows, j));
+        if (i >= 0 && v[i].rank == ~0u) v[i].rank = j;
+    }
+    deque_destroy(rows);
+}
+static int by_rank(const void *a, const void *b) {
+    const order_t *x = a, *y = b;
+    int unknown = (I(x->r, REC_ID) == -1) - (I(y->r, REC_ID) == -1); /* the Unknown card last */
+    if (unknown) return unknown;
+    return x->rank != y->rank ? (x->rank < y->rank ? -1 : 1) : x->idx - y->idx;
+}
+static int by_artist(const void *a, const void *b) {
+    const order_t *x = a, *y = b;
+    int d = (I(x->r, REC_ID) == -1) - (I(y->r, REC_ID) == -1);
+    if (!d) d = strcasecmp(x->artist, y->artist);
+    return d ? d : by_rank(a, b);
+}
+
+/* cf.stock in the Sort's order: cf.stock itself for Album. Out of memory, the Sort falls back to
+ * Album too, so its card says what is shown. */
+static void *sorted(void) {
+    unsigned n = deque_size(cf.stock), m = 0;
+    int artist = cf.sort == SORT_ARTIST, played = cf.sort == SORT_PLAYED;
+    order_t *v = cf.sort == SORT_ALBUM ? 0 : calloc(n + 1, sizeof *v);
+    name_t *names = v ? calloc(n + 1, sizeof *names) : 0;
+    unsigned *sum = names && played ? calloc(n + 1, sizeof *sum) : 0;
+    char *keys = names && artist ? calloc(n + 1, ARTIST_KEY) : 0;
+    if (!names || (played && !sum) || (artist && !keys)) {
+        free(v), free(names), free(sum), free(keys);
+        cf.sort = SORT_ALBUM;
+        return cf.stock;
+    }
+    for (unsigned i = 0; i < n; ++i) {
+        void *r = v[i].r = deque_at(cf.stock, i);
+        v[i].rank = ~0u, v[i].idx = (int)i;
+        if (I(r, REC_ID) != -1) names[m].key = name_key(r), names[m++].idx = (int)i;
+        if (keys) {
+            const char *a = P(r, REC_ARTIST);
+            snprintf(keys + i * ARTIST_KEY, ARTIST_KEY, "%s", a ? a : "");
+            ringnav_sort_key(keys + i * ARTIST_KEY);
+            v[i].artist = keys + i * ARTIST_KEY;
+        }
+    }
+    qsort(names, m, sizeof *names, by_key);
+    by_name.names = names, by_name.n = m;
+    if (sum) {
+        album_plays(album_index, sum);
+        for (unsigned i = 0; i < n; ++i)
+            if (sum[i]) v[i].rank = ~sum[i]; /* most first; never played after, in stock order */
+    } else
+        rank_by(v, cf.sort == SORT_ADDED ? SORT_SQL "max(time_create) desc"
+                                         : SORT_SQL "ifnull(max(year),0)=0,max(year),album COLLATE NOCASE");
+    by_name.names = 0, by_name.n = 0;
+    qsort(v, n, sizeof *v, artist ? by_artist : by_rank);
+    void *out = _create_deque("stSongInfo");
+    deque_init(out);
+    for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i].r);
+    free(v), free(names), free(sum), free(keys);
+    return out;
 }
 
 void *text(void *parent, int x, int y, int w, int h) { /* shared with photos.c */
@@ -654,14 +799,14 @@ static int changed(void *ctx, void *event) {
         unsigned d = i > c ? i - c : c - i;
         cover(widget_get_child(cf.slide, i), i, d <= ART_NEAR || n - d <= ART_NEAR);
     }
-    void *r = c + 1 < n ? deque_at(cf.albums, c) : (void *)0;
+    void *r = c + CARDS < n ? deque_at(cf.albums, c) : (void *)0;
     if (r) cf.saved_album = album_key(r);
-    widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM) : "Refresh library");
+    widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM) : c + 1 < n ? sort_names[cf.sort] : "Refresh library");
     widget_set_text_utf8(cf.artist, r && P(r, REC_ARTIST) ? P(r, REC_ARTIST) : "");
     return 0;
 }
 
-/* One child per album plus a last Refresh card, moved by the wheel only: the slide_menu takes no
+/* One child per album plus the Sort and Refresh cards, moved by the wheel only: the slide_menu takes no
  * touch. With depth it spans the frame, so every step repaints all of it, and its CF_VIEW_H square
  * items with a negative spacer move one album per CF_STRIDE px; the children stay empty under the
  * frame. The flat fallback is the stock images, 160 px, as before. ponytail: one child per album;
@@ -677,7 +822,7 @@ static void covers(void) {
                                                 depth ? CF_VIEW_H : ART_SIZE);
         if (depth) slide_menu_set_spacer(cf.slide, CF_STRIDE - CF_VIEW_H);
         widget_set_sensitive(cf.slide, 0);
-        for (unsigned i = 0, n = deque_size(cf.albums); i <= n; ++i) {
+        for (unsigned i = 0, n = deque_size(cf.albums); i < n + CARDS; ++i) {
             void *img = image_create(cf.slide, 0, 0, 0, 0);
             image_set_draw_type(img, 4); /* scale_auto, as the stock cover rows */
             if (!depth) image_base_set_image(img, PLACEHOLDER);
@@ -730,6 +875,8 @@ static int poll(const void *unused) {
  * first-launch build; later opens resume). The albums are queried again only on Refresh or after
  * the library changed: stock's sort converts both names to pinyin on every comparison. */
 static void load(void) {
+    int on_sort = cf.on_sort; /* taken whatever this load shows */
+    cf.on_sort = 0;
     drop();
     widget_destroy_children(cf.page);
     cf.covers = cf.slide = cf.name = cf.artist = 0; /* destroyed with the page's children */
@@ -738,11 +885,17 @@ static void load(void) {
     int n = 0;
     unsigned gen = library_gen;
     if (cf.albums_gen != gen) drop_albums();
-    if (cf.albums)
-        n = (int)deque_size(cf.albums);
+    if (cf.stock)
+        n = (int)deque_size(cf.stock);
     else if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) {
-        cf.albums = staged(albums, 0, &n);
+        cf.stock = staged(albums, 0, &n);
         cf.albums_gen = gen;
+        drop_unknown();
+    }
+    if (n > 0 && !cf.albums) {
+        if (!cf.sort_read) BLOB_IO(SORT_FILE, cf.sort, 0), cf.sort_read = 1;
+        if ((unsigned)cf.sort >= SORT_N) cf.sort = SORT_ALBUM;
+        cf.albums = sorted();
     }
     if (n <= 0) {
         drop_albums(); /* only a real list is kept */
@@ -757,11 +910,12 @@ static void load(void) {
     for (unsigned i = 0; i < count; ++i) {
         void *r = deque_at(cf.albums, i);
         unsigned key = album_key(r);
-        if (key == cf.saved_album) cf.album = (int)i;
+        if (key == cf.saved_album && !on_sort) cf.album = (int)i;
         if (cf.jobs && P(r, REC_PATH) && access(art_path(path, key, ""), 0) &&
             (cf.jobs[cf.total].track = strdup(P(r, REC_PATH))))
             cf.jobs[cf.total++].key = key;
     }
+    if (on_sort) cf.album = (int)count; /* the Sort card, pressed again and again */
     mkdir(ART_DIR, 0755);
     cf.done = cf.cancel = 0;
     if (cf.total && card_space(ART_DIR) && !pthread_create(&cf.thread, 0, worker, 0)) {
@@ -873,12 +1027,28 @@ static int refresh(const void *unused) {
     return 0;
 }
 
+/* The Sort card: the next order, saved, and the covers again in it, still on the Sort card. The
+ * stock list is kept, so nothing is queried but the order's own ranking. */
+static int resort(const void *unused) {
+    (void)unused;
+    cf.timer = 0;
+    cf.sort = (cf.sort + 1) % SORT_N;
+    BLOB_IO(SORT_FILE, cf.sort, 1);
+    if (cf.albums != cf.stock) deque_destroy(cf.albums);
+    cf.albums = 0;
+    cf.on_sort = 1;
+    load();
+    return 0;
+}
+
 /* Clicks only schedule: a screen change never destroys the widget whose click is running. */
 static int pick(void *ctx, void *event) {
     (void)event;
-    int i = (int)(long)ctx;
-    if (i == (int)deque_size(cf.albums))
+    int i = (int)(long)ctx, n = (int)deque_size(cf.albums);
+    if (i == n + 1)
         rearm(&cf.timer, refresh, 0);
+    else if (i == n)
+        rearm(&cf.timer, resort, 0);
     else {
         cf.album = i;
         rearm(&cf.timer, to_tracks, 0);

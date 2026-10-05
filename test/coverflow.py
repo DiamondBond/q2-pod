@@ -36,8 +36,8 @@ extern char shim_lastcover[1024], shim_id3[2716];
 #define g_playcover_type shim_covertype
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
-getAllAlbum getMusicByAlbum toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
-deque_init _deque_push_back
+getAllAlbum getMusicByAlbum toolsQueryDbTable album_row toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
+deque_init _deque_push_back deque_pop_back
 deque_assign deque_destroy deque_size deque_at window_create widget_factory
 widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
 slide_menu_set_value slide_menu_item_width list_view_create scroll_view_create list_item_create image_set_draw_type
@@ -237,6 +237,7 @@ void _deque_push_back(void *d, ...) {
     va_end(a);
 }
 void deque_destroy(void *d) { free(d); }
+void deque_pop_back(void *d) { --((deque *)d)->n; }
 unsigned deque_size(const void *d) { return ((const deque *)d)->n; }
 void *deque_at(const void *d, unsigned i) { return i < ((const deque *)d)->n ? ((const deque *)d)->at[i] : 0; }
 
@@ -256,14 +257,62 @@ static void album(const char *name, const char *art) {
     *(char **)(r + REC_ARTIST) = "Artist";
     *(char **)(r + REC_PATH) = paths[albums++];
 }
+/* Stock appends an "Unknown Album" row (id -1) whenever any album exists; unknown_songs is what
+   its press, getMusicByAlbum(NULL), finds. */
+static int unknown_row, unknown_songs;
+static char unknown_record[0x60], untagged_song[0x60];
 int getAllAlbum(void) {
     deque *d = shim_dir;
     ++queries;
     d->n = albums;
     for (int i = 0; i < albums; ++i) d->at[i] = records[i];
+    if (unknown_row && albums) {
+        *(int *)(unknown_record + REC_ID) = -1;
+        *(const char **)(unknown_record + REC_ALBUM) = "Unknown Album";
+        *(const char **)(unknown_record + REC_ARTIST) = "Unknown Artist";
+        d->at[d->n++] = unknown_record;
+    }
     return albums;
 }
-int getMusicByAlbum(const char *a) { (void)a; return 0; }
+static int unknown_queries;
+int getMusicByAlbum(const char *a) {
+    deque *d = shim_dir;
+    d->n = 0;
+    if (!a) {
+        ++unknown_queries;
+        if (unknown_songs) d->at[d->n++] = untagged_song;
+    }
+    return (int)d->n;
+}
+
+/* Sort's ranking queries: getAllAlbum's row callback over the grouping in another order, here the
+   test's own order by name; a row may differ in case from the stock one, as the grouping allows. */
+static const char *ranked[16];
+static char rank_rows[16][0x60];
+int album_row(void *a, int n, char **v, char **c) { (void)a; (void)n; (void)v; (void)c; return 0; }
+int toolsQueryDbTable(const char *db, const char *sql, void *row, int sort) {
+    assert(!strcmp(db, "/mnt/data/database.db") && row == (void *)album_row && !sort);
+    assert(strstr(sql, "group by album COLLATE NOCASE order by ") && (strstr(sql, "time_create") || strstr(sql, "year")));
+    deque *d = shim_dir;
+    d->n = 0;
+    for (int i = 0; ranked[i]; ++i) {
+        *(const char **)(rank_rows[i] + REC_ALBUM) = ranked[i];
+        d->at[d->n++] = rank_rows[i];
+    }
+    ++queries;
+    return (int)d->n;
+}
+/* navigation.c's: Most Played's counts, per stock record here, and the library lists' article. */
+static unsigned played[64];
+void album_plays(int (*album_of)(void *), unsigned *sum) {
+    for (int i = 0; i < albums; ++i) {
+        int a = played[i] ? album_of(records[i]) : -1;
+        if (a >= 0) sum[a] += played[i];
+    }
+}
+void ringnav_sort_key(char *s) {
+    if (!strncasecmp(s, "the ", 4)) memmove(s, s + 4, strlen(s + 4) + 1);
+}
 
 /* The stock art calls: each writes its source into dst, and checks the locks it runs under. */
 pthread_mutex_t shim_parse = PTHREAD_MUTEX_INITIALIZER, shim_play = PTHREAD_MUTEX_INITIALIZER;
@@ -556,7 +605,7 @@ static void depth(void) {
     /* Refresh and close release the frame and every texture. */
     close_page();
     assert(frames == 0 && loads == unloads);
-    /* Small libraries: two albums and the Refresh card wrap round the ring, each album decoded
+    /* Small libraries: two albums and the Sort and Refresh cards wrap round the ring, each album decoded
        once however often it repeats; missing art shows the placeholder. */
     int keep = albums;
     albums = 2; rescan();
@@ -564,14 +613,14 @@ static void depth(void) {
     s = slide(); raw = s->raw;
     loads = unloads = 0;
     coverflow_paint(s, canvas);
-    assert(s->nkids == 3 && loads <= 2 && loads == unloads);
+    assert(s->nkids == 4 && loads <= 2 && loads == unloads);
     render(0, (const unsigned *const[7]){ 0 }); /* nothing to draw: all black */
     for (int i = 0; i < CF_VIEW_W; ++i) assert(px(i, CF_TOP + 80) == 0xff000000u);
     close_page();
     albums = 1; rescan();
     open_page(); s = slide();
     coverflow_paint(s, canvas);
-    assert(s->nkids == 2);
+    assert(s->nkids == 3);
     capture("one-album");
     close_page();
     albums = keep; rescan();
@@ -588,6 +637,99 @@ static void depth(void) {
     close_page();
     assert(loads == unloads);
     tex_fail = 0;
+}
+
+/* Sort (the card before Refresh): each press takes the next order, saved for the next open and kept
+   on the Sort card; ties keep the stock order. */
+static const char *album_at(int i) {
+    static char got[160];
+    widget *s = slide();
+    s->kids[i] && (w[s->kids[i]].click(w[s->kids[i]].ctx, 0), 0);
+    run();
+    snprintf(got, sizeof got, "%s", title());
+    key(KEY_RETURN);
+    return got;
+}
+static void order_is(const char *const *want) {
+    for (int i = 0; want[i]; ++i) assert(!strcmp(album_at(i), want[i]));
+}
+static int saved_sort(void) {
+    int v = -1;
+    FILE *f = fopen(PEQ_ROOT "/mnt/data/ringnav-coversort", "rb");
+    if (f) assert(fread(&v, sizeof v, 1, f) == 1), fclose(f);
+    return v;
+}
+static void press_sort(void) {
+    widget *s = slide();
+    int n = s->nkids - 2;
+    w[s->kids[n]].click(w[s->kids[n]].ctx, 0);
+    run();
+    assert(*(int *)(slide()->raw + SLIDE_INDEX) == n); /* still on the Sort card */
+}
+static void sorting(void) {
+    mkdir(PEQ_ROOT "/mnt/data", 0755);
+    /* Cover Folder Embedded None New A B C Tight; B is The Beatles', Tight Abba's. */
+    assert(albums == 9 && !strcmp(names[8], "Tight"));
+    *(const char **)(records[6] + REC_ARTIST) = "The Beatles";
+    *(const char **)(records[8] + REC_ARTIST) = "Abba";
+    rescan();
+    open_page();
+    widget *s = slide();
+    assert(s->nkids == albums + 2);
+    order_is((const char *const[]){ "Cover", "Folder", "Embedded", "None", "New", "A", "B", "C", "Tight", 0 });
+    int q = queries;
+    /* Artist, articles aside (The Beatles under B), then year (the query: None, Folder), then stock. */
+    ranked[0] = "none", ranked[1] = "Folder", ranked[2] = 0;
+    press_sort();
+    assert(saved_sort() == 1 && queries == q + 1); /* only the ranking is queried */
+    order_is((const char *const[]){ "Tight", "None", "Folder", "Cover", "Embedded", "New", "A", "C", "B", 0 });
+    /* Recently Added: the query's order (a name in another case still matches), the rest after. */
+    ranked[0] = "C", ranked[1] = "a", ranked[2] = "New", ranked[3] = "COVER", ranked[4] = "Gone", ranked[5] = 0;
+    press_sort();
+    order_is((const char *const[]){ "C", "A", "New", "Cover", "Folder", "Embedded", "None", "B", "Tight", 0 });
+    /* Most Played: the album's listens, most first, ties and unplayed in stock order. */
+    played[4] = 5, played[1] = 2, played[7] = 2;
+    q = queries;
+    press_sort();
+    assert(saved_sort() == 3 && queries == q);
+    order_is((const char *const[]){ "New", "Folder", "C", "Cover", "Embedded", "None", "A", "B", "Tight", 0 });
+    /* The order outlives the page; Album again is the stock order. */
+    close_page();
+    open_page();
+    order_is((const char *const[]){ "New", "Folder", "C", 0 });
+    press_sort();
+    assert(saved_sort() == 0);
+    order_is((const char *const[]){ "Cover", "Folder", "Embedded", "None", "New", "A", "B", "C", "Tight", 0 });
+    close_page();
+    assert(loads == unloads);
+    *(const char **)(records[6] + REC_ARTIST) = "Artist";
+    *(const char **)(records[8] + REC_ARTIST) = "Artist";
+    memset(played, 0, sizeof played);
+    rescan();
+}
+
+/* The Unknown Album card shows only when its press would find a song: getAllAlbum appends it even
+   when every song carries an album tag. It stays last whatever the Sort. */
+static void unknown_card(void) {
+    unknown_row = 1;
+    rescan();
+    open_page();
+    assert(slide()->nkids == albums + 2 && unknown_queries == 1);
+    close_page();
+    unknown_songs = 1;
+    rescan();
+    open_page();
+    widget *s = slide();
+    assert(s->nkids == albums + 3 && !strcmp(album_at(albums), "Unknown Album"));
+    ranked[0] = "Unknown Album", ranked[1] = "None", ranked[2] = 0; /* Artist, then year */
+    press_sort();
+    assert(!strcmp(album_at(albums), "Unknown Album") && !strcmp(album_at(0), "None"));
+    ranked[0] = 0;
+    for (int i = 0; i < 3; ++i) press_sort(); /* back to Album */
+    close_page();
+    assert(loads == unloads);
+    unknown_row = unknown_songs = 0;
+    rescan();
 }
 
 int main(void) {
@@ -628,7 +770,7 @@ int main(void) {
     assert(norder == 4 && order[0] == 1 && order[1] == 1 && order[2] == 1 && order[3] == 2);
     assert(size("Cover") == 9 && size("Folder") == 10 && size("Embedded") == 8 && !tmp_files());
     widget *s = slide();
-    assert(s && s->nkids == 4 && !strncmp(w[s->kids[0]].image, "file://", 7));
+    assert(s && s->nkids == 5 && !strncmp(w[s->kids[0]].image, "file://", 7));
     close_page();
     embedded_fails = 1;
     album("None", 0);
@@ -637,7 +779,7 @@ int main(void) {
     assert(calls == 3 && size("None") == 0 && !tmp_files());
     s = slide();
     assert(!strcmp(w[s->kids[3]].image, "default_album_big") && !strncmp(w[s->kids[2]].image, "file://", 7));
-    assert(!strcmp(w[s->kids[4]].image, "default_album_big")); /* the Refresh card */
+    assert(!strcmp(w[s->kids[4]].image, "default_album_big") && !strcmp(w[s->kids[5]].image, "default_album_big")); /* Sort, Refresh */
     close_page();
 
     /* A later open builds only the albums with no cache file; the marker is not retried. */
@@ -701,6 +843,8 @@ int main(void) {
     close_page();
     assert(loads == unloads);
     depth();
+    sorting();
+    unknown_card();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
@@ -844,6 +988,7 @@ def main():
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, album list reuse, low space and empty library passed;'
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
+          ' Sort by artist, recently added and most played, kept across opens, passed;'
           ' iPod Home art sources, fit, clip and Split/Full layout passed.')
 
 

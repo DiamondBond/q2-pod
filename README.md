@@ -43,6 +43,7 @@
 - Wheel with acceleration and position memory
 - Coverflow and a Now Playing visualizer
 - Accent, Home layout and battery style
+- Charge limit (80%) and Low power mode
 
 </td>
 <td width="50%" valign="top">
@@ -113,6 +114,16 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 | **Home**    | Split (list beside the cover) or Full (list only)         |
 | **Battery** | Icon (default), Percent, Icon + Percent                   |
 
+## Battery and library settings
+
+| Where                                  | Setting          | What it does                                                                                                                            |
+| -------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **System settings → Power management** | **Charge limit** | **80%** stops charging at 80% and starts again at 75%, so a Q2 left plugged in isn't held full. Off by default.                         |
+| **System settings → Power management** | **Low power**    | Longer battery: the second CPU core sleeps while the screen is off, and the screen-on UI idles when you don't touch it. Off by default. |
+| **Audio settings**                     | **Artists**      | **Artist** (default) or **Album Artist**: browse Artists by the Album Artist tag, so guest artists don't split albums.                  |
+
+Charge limit applies while the Q2 is on; charging while it's powered off is stock's. Low power never touches the sound, EQ, brightness or radios. Audio settings also has stock's DAC **Filter**.
+
 ## iPod UI
 
 - **Home:** a list (Now Playing, Library, Coverflow…) beside the playing track's cover, instead of the carousel.
@@ -138,7 +149,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 
 - **List ends:** lists stop at the end; pause, then turn again to wrap.
 - **Position memory:** recent folders, albums, searches and menus reopen where you were, until power-off.
-- **Artists:** open on Albums, with All Songs one tap away.
+- **Artists:** open on Albums, with All Songs one tap away. Browse by the Album Artist tag with **Audio settings → Artists**.
 - **Pop-ups** (iPod): the wheel moves between OK and Cancel.
 - **Key Tone:** the speaker clicks only when nothing plays and no headphones (3.5/4.4 mm), Bluetooth or USB DAC are connected. iPod: once per row, not per tick.
 
@@ -150,7 +161,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 | **Book**  | Turns the pages        | Shows or hides progress               | **Return** goes back; books reopen where you left off       |
 | **Video** | Volume                 | Toggles seek: 10 s per tick           | **Play/Pause** pauses, previous/next skip, **Return** exits |
 
-Video sound plays on the headphone jack or Bluetooth; over a USB DAC it's silent. Music stops meanwhile. Decoding is software, so encodes near the screen's 375 × 320 play smoothest.
+Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops meanwhile. Decoding is software, so encodes near the screen's 375 × 320 play smoothest.
 
 ## Parametric EQ
 
@@ -214,6 +225,7 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 
 - Run **Update Local Music** first.
 - **First open** prepares artwork once; **Cancel** keeps progress. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
+- **Sort**, the card before it: press to switch between **Album**, **Artist** (then year), **Recently Added** and **Most Played**. The choice is kept.
 - **Artwork:** `cover.jpg`, `folder.jpg`, then embedded art; otherwise a placeholder.
 
 ## Documentation

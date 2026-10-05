@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '8.5'
+VERSION = '8.6'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
 # the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
@@ -39,6 +39,9 @@ HOOKS = {
     'window_manager_dispatch_input_event': (0x66d49c, 'ringnav_input'),
     # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
     'buzzeer_switch': (0x4f3cc8, 'ringnav_buzzer'),
+    # Power management gains Charge limit and Low power; Audio settings gains Artists (Album Artist)
+    'systemset_powermanager_page_init': (0x4c72d0, 'ringnav_powermanager'),
+    'playset_playset_page_init': (0x4b98d8, 'ringnav_audioset'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
@@ -56,7 +59,8 @@ TRAMPOLINES = {'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_
                'keydown': 'on_wm_keydown_before_fun', 'scan_all': 'scanAllMusicFile', 'scan_folder': 'scanSpecFolder',
                'delete_song': 'deleteMusicFromMusicDb', 'sleep': 'main_loop_sleep_default',
                'about': 'systemset_about_page_init', 'folder': 'folder_page_init', 'folder_back': 'folder_back',
-               'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch'}
+               'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch',
+               'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init'}
 # Every audited stock PIC prologue resolves this GOT base.
 GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
@@ -360,6 +364,10 @@ FUNCTIONS = {
  'reset_poweroptions_timer': ('int', 'int, int, int'),
  'device_set_volume': ('int', 'int, int'),  # volume, notify: the DAC's or hciplayer's, as the volume dialog
  'toolsTrimLeft': ('void', 'char *'),
+ 'switch_charge_enable': ('int', 'int'),  # 1 charges: the BQ25890's /CE on GPIO PE22 (usbmode_page_init)
+ # Coverflow's Sort: another ORDER BY over getAllAlbum's grouping, filled by its own row callback
+ 'toolsQueryDbTable': ('int', 'const char *, const char *, void *, int'),  # db, sql, row, name sort
+ 'album_row': ('int', 'void *, int, char **, char **'),
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -367,13 +375,16 @@ PRIVATE_FUNCTIONS = {
     "slide_menu_item_width": 0x5f3040,
     "slide_menu_on_scroll_done": 0x5f3654,
     "mcl_shuffle_pick": 0x5a8120,
+    "album_row": 0x4fc324,  # getAllAlbum's sqlite3_exec callback: id, album, songer, fileurl to a record
     "folder_refresh": 0x52176c,  # folder_page's navbar and table from p_deque_showlist (its init, back)
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
            'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
-           'g_po_status', 'g_bal_status']  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
+           'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
+           'g_usbvol_mode',  # USB DAC volume: 0 fixed, else the volume (config_usbvolmode, device_set_volume)
+           'g_usbdac_chargeflag']  # USB mode's charge choice, which switch_charge_enable gets there
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.
@@ -382,7 +393,10 @@ CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
                 'g_dacoff_time': 4, 'p_vector_select_record': 4,
-                'g_play_id3_info': 2716}
+                'g_play_id3_info': 2716,
+                # Artists' source (PLAYSET ARTISTTYPE, the artist page's switch: 1 album artist);
+                # the battery level (0-100) and the charger's state (1, 2 charging), get_battery_capacity's
+                'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']

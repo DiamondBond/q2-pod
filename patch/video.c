@@ -2,7 +2,8 @@
  * started by demo (books.c play_video). Stock ffmpeg decodes FILE, fits it into the screen, turns
  * it onto the portrait panel as the boot logo is stored and converts it to the framebuffer's BGRA,
  * frames on one pipe and 48 kHz stereo on another; this plays the sound on ALSA DEVICE ("-"
- * for none; VOLUME, Bluetooth's 0-100, scales it as hciplayer does there) and puts each frame on
+ * for none; VOLUME, Bluetooth's or a soft USB volume's 0-100, scales it as hciplayer does there,
+ * and "h" before it marks a USB DAC that applies the volume itself) and puts each frame on
  * /dev/fb0 when the sound reaches it, dropping late ones. demo sends keys as datagrams to
  * Q2VIDEO_SOCK: p pause, f and b seek SEEK_S, s seek mode, v and a byte the volume set, q quit;
  * the last four show a bar along the bottom for OVERLAY_MS, the position or the volume. No MIPS sysroot: the declarations below are
@@ -175,7 +176,9 @@ int main(int argc, char **argv) {
     unlink(Q2VIDEO_SOCK);
     bind(sock, &addr, sizeof addr);
     int dac = -1, off = 0, on = 1;
-    au.gain = argc > 3 ? bt_gain(atoi(argv[3])) : 65536; /* Bluetooth: hciplayer's soft volume, no DAC */
+    /* Bluetooth or a USB DAC: no headphone DAC; hciplayer's soft volume unless "h" */
+    int soft = argc > 3 && argv[3][0] != 'h';
+    au.gain = soft ? bt_gain(atoi(argv[3])) : 65536;
     if (strcmp(argv[1], "-")) {
         /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop */
         for (int i = 0; i < 20 && snd_pcm_open(&au.pcm, argv[1], 0, 0); ++i) au.pcm = 0, usleep(100000);
@@ -255,7 +258,7 @@ int main(int argc, char **argv) {
             if (p[0].revents && recv(sock, c, 2, 0) > 0) {
                 if (c[0] == 'p') au.paused = !au.paused;
                 if (c[0] == 'f' || c[0] == 'b') seek += c[0] == 'f' ? SEEK_S : -SEEK_S, seek_at = t + SEEK_WAIT_MS;
-                if (c[0] == 'v') vol = (unsigned char)c[1], au.gain = argc > 3 ? bt_gain(vol) : 65536;
+                if (c[0] == 'v') vol = (unsigned char)c[1], au.gain = soft ? bt_gain(vol) : 65536;
                 if (c[0] && c[0] != 'p' && c[0] != 'q') /* s, f, b, v: the bar */
                     pos_bar = c[0] != 'v', until = t + OVERLAY_MS, redraw = au.paused;
                 quit = c[0] == 'q';

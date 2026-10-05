@@ -11,7 +11,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
-    stock_localclass_trampoline(int);
+    stock_localclass_trampoline(int), stock_power_trampoline(void *, void *),
+    stock_audioset_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
@@ -114,6 +115,14 @@ typedef struct {
     void *mp_page, *mp_list;
     unsigned mp_gen;
     int dark; /* the backlight was off at the last UI loop pass */
+    /* Power management's Charge limit and Low power (read once from config.ini's Q2POD), the value
+     * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
+     * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
+     * the check, 1 usable, 2 refused by an earlier boot's stall, 3 refused by the kernel;
+     * last_input times the screen-on idle. */
+    int pod_read, charge_limit, low_power, charge_held, cpu_off, cpu_bad, cpu_marked;
+    void *pod_label[3];
+    unsigned charge_at, last_input, cpu_retry;
 #if IPOD
     void *pull_page, *pull_surface;
     void *sel_w; /* the surface whose selection was last drawn: its row and centre, for Home's > */
@@ -1077,6 +1086,14 @@ static void pull_begin(void *event) {
 #define pull_begin(event) ((void)0)
 #endif
 
+/* A one-digit setting under section in the stock config.ini, 0 to n - 1, else 0:
+ * toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
+static int config_value(const char *section, const char *key, int n) {
+    char s[256] = "";
+    toolsReadConfig("/mnt/data/config.ini", section, key, s, "0");
+    return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
+}
+
 #if IPOD
 /* 0xRRGGBB to an opaque color_t, whose bytes are r, g, b, a. */
 #define RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
@@ -1097,11 +1114,9 @@ static const unsigned accents[][5] = { ACCENTS };
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
                                             "Accent: Champagne" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-int config_digit(const char *key, int n) { /* shared with visualizer.c */
-    char s[256] = "";
-    toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "0");
-    return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
-}
+int config_digit(const char *key, int n) {
+    return config_value("IPOD", key, n);
+} /* and visualizer.c's */
 static int accent(void) {
     if (!st.settings_read) {
         st.accent = config_digit("ACCENT", ACCENT_N);
@@ -1458,6 +1473,72 @@ static void *list_row(void *view, const char *icon, int (*click)(void *, void *)
     widget_use_style(label, "s_scrlabel_white24l");
     set_hscroll_label_attribute(label);
     return label;
+}
+
+/* Power management's Charge limit and Low power (docs/internals.md#charge-limit, #low-power), Q2POD
+ * CHARGELIMIT and LOWPOWER in config.ini, and Audio settings' Artists, which is stock's own
+ * PLAYSET ARTISTTYPE (artist_type, the artist page's switch; docs/internals.md#album-artists). */
+#define STR_(x) #x
+#define STR(x) STR_(x)
+enum { POD_CHARGE, POD_LOW, POD_ARTISTS };
+static void pod_settings(void) {
+    if (st.pod_read) return;
+    st.charge_limit = config_value("Q2POD", "CHARGELIMIT", 2);
+    st.low_power = config_value("Q2POD", "LOWPOWER", 2);
+    st.pod_read = 1;
+}
+static void pod_text(int i) {
+    static const char *const names[][2] = {
+        { "Charge limit: Off", "Charge limit: " STR(CHARGE_STOP) "%" },
+        { "Low power: Off", "Low power: On" },
+        { "Artists: Artist", "Artists: Album Artist" },
+    };
+    int v = i == POD_CHARGE ? st.charge_limit
+            : i == POD_LOW  ? st.low_power
+                            : I(artist_type, 0) == 1;
+    widget_set_text_utf8(st.pod_label[i], names[i][v]);
+}
+/* Centre or tap toggles and saves. Charge limit and Low power take effect on the next UI loop pass
+ * (power_poll); Artists on the next load of an artist list, as the artist page's switch does. */
+static int pod_click(void *ctx, void *event) {
+    (void)event;
+    int i = (int)(long)ctx;
+    pod_settings();
+    if (i == POD_ARTISTS) {
+        int v = I(artist_type, 0) != 1;
+        I(artist_type, 0) = v;
+        write_int_config(v, "PLAYSET", "ARTISTTYPE");
+    } else {
+        int *value = i == POD_LOW ? &st.low_power : &st.charge_limit;
+        *value = !*value;
+        write_int_config(*value, "Q2POD", i == POD_LOW ? "LOWPOWER" : "CHARGELIMIT");
+        st.charge_at = 0;
+    }
+    pod_text(i);
+    return 0;
+}
+static void pod_rows(void *win, const char *view_name, int first, int n, const char *const *icons) {
+    void *view = win ? widget_lookup(win, view_name, 1) : (void *)0;
+    pod_settings();
+    for (int i = 0; view && i < n; ++i) {
+        st.pod_label[first + i] = list_row(view, icons[i], pod_click, (void *)(long)(first + i));
+        pod_text(first + i);
+    }
+}
+
+/* systemset_powermanager_page_init and playset_playset_page_init: stock builds its rows, then
+ * these follow in the same widgets and styles (list_row), with the value in the label. */
+int ringnav_powermanager(void *win, void *ctx) {
+    static const char *const icons[] = { "usb_chargeswitch", "system_powermanager" };
+    int result = stock_power_trampoline(win, ctx);
+    pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 2, icons);
+    return result;
+}
+int ringnav_audioset(void *win, void *ctx) {
+    static const char *const icons[] = { "playset_folderjump" };
+    int result = stock_audioset_trampoline(win, ctx);
+    pod_rows(win, "scroll_view_playset", POD_ARTISTS, 1, icons);
+    return result;
 }
 
 #if IPOD
@@ -2408,8 +2489,11 @@ static int qm_query(void *r) {
 /* load_localclass_list: stock fills p_deque_showlist and returns its size. getAllAlbum,
  * getAllArtist (and its album-artist twin), getAllComposer and getAllGenre end with an Unknown row
  * (id -1) whenever the library has songs; it goes when the query its press runs finds none. Stock
- * clears the staging deque before returning, and so does this. */
+ * clears the staging deque before returning, and so does this. Stock never sets g_artist_type,
+ * which picks the album-artist queries for Artists and an artist's albums, so those lists always
+ * went by the Artist tag; it follows artist_type, the setting the artist page itself uses. */
 int ringnav_localclass(int cls) {
+    I(g_artist_type, 0) = I(artist_type, 0) == 1;
     int n = stock_localclass_trampoline(cls);
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0);
     if (n <= 0 || cls < CLASS_ALBUMS || cls > 0xf006 ||
@@ -2587,6 +2671,30 @@ static int mp_rank(void *songs, int *idx, unsigned *score) {
         idx[at] = i;
     }
     return top;
+}
+
+/* Every song, newest first: getAllMusic's sort_time_desc, an SQL ORDER BY, without the pinyin name
+ * sort mode 0 runs on every comparison. */
+static int songs_unsorted(void *unused) {
+    (void)unused;
+    return getAllMusic(3);
+}
+
+/* Coverflow's Most Played order: every counted song's listens added to sum[album_of(song)], the
+ * album's index in Coverflow's list (-1 none). One pass over the library. */
+void album_plays(int (*album_of)(void *), unsigned *sum) {
+    int n;
+    void *songs = staged(songs_unsorted, 0, &n);
+    plays_load();
+    for (unsigned i = 0; i < deque_size(songs); i++) {
+        void *r = deque_at(songs, i);
+        unsigned key = listen_key(r), c = 0;
+        for (int j = 0; j < PLAYS_SLOTS && !c; j++)
+            if (st.plays[j].key == key) c = st.plays[j].n;
+        int a = c ? album_of(r) : -1;
+        if (a >= 0) sum[a] += c;
+    }
+    deque_destroy(songs);
 }
 
 /* Where key is among Most Played's tracks, -1 when not (or none are kept). */
@@ -3176,26 +3284,114 @@ static void resume_poll(void) {
     }
 }
 
+/* Charge limit (docs/internals.md#charge-limit): get_battery_capacity keeps g_power_capacity and
+ * the BQ25890's g_power_chargestate (1 pre-charge, 2 fast charge, else 0); switch_charge_enable
+ * drives its /CE pin, as stock's USB mode does with g_usbdac_chargeflag. At CHARGE_STOP charging
+ * stops, and again whenever something else (USB mode's exit, AirPlay) turned it back on, until
+ * the level falls to CHARGE_RESUME; then, or with the limit off, charging is handed back as stock
+ * would have it: USB mode's and AirPlay's own choice while their page is open, else on. */
+static void charge_poll(void) {
+    unsigned now = time_now_ms();
+    if (st.charge_at && now - st.charge_at < CHARGE_POLL_MS) return;
+    st.charge_at = now | 1;
+    int level = I(g_power_capacity, 0), charging = (unsigned)I(g_power_chargestate, 0) - 1 < 2;
+    int hold = st.charge_limit && level > CHARGE_RESUME && (st.charge_held || level >= CHARGE_STOP);
+    if (hold && (!st.charge_held || charging))
+        switch_charge_enable(0);
+    else if (!hold && st.charge_held)
+        switch_charge_enable(navigator_window_is_exist("usbmode_page") ||
+                                     navigator_window_is_exist("airplay_page")
+                                 ? g_usbdac_chargeflag
+                                 : 1);
+    st.charge_held = hold;
+}
+
+/* Low power's second core (docs/internals.md#low-power): CPU1 is offline while the screen is off
+ * and no video plays, so the player decodes on one core and the UI, Coverflow and videos keep both.
+ * The first offline of a boot is bracketed by CPU1_PENDING, synced to flash: if a kernel stalled on
+ * it, the next boot finds the file, renames it CPU1_BAD and never tries again. A write that fails
+ * (no hotplug) stops the attempts until the next boot. */
+#define CPU1_ONLINE "/sys/devices/system/cpu/cpu1/online"
+#define CPU1_PENDING "/mnt/data/q2pod-cpu1"
+#define CPU1_BAD "/mnt/data/q2pod-cpu1.bad"
+static int cpu1_write(int on) {
+    void *f = fopen(CPU1_ONLINE, "w");
+    if (!f) return 0;
+    int ok = fwrite(on ? "1" : "0", 1, 1, f) == 1;
+    return !fclose(f) && ok;
+}
+static void cpu_poll(void) {
+    if (!st.low_power && !st.cpu_off) return; /* off: no file is touched */
+    if (!st.cpu_bad) {                        /* once a boot */
+        if (!access(CPU1_PENDING, 0)) rename(CPU1_PENDING, CPU1_BAD);
+        st.cpu_bad = access(CPU1_BAD, 0) ? 1 : 2;
+    }
+    int off = st.low_power && !g_backlight_status && !video_on() && st.cpu_bad == 1;
+    if (off == st.cpu_off) return;
+    unsigned now = time_now_ms();
+    if (!off) { /* a refused online is retried once a second */
+        if (st.cpu_retry && now - st.cpu_retry < 1000) return;
+        st.cpu_off = !cpu1_write(1);
+        st.cpu_retry = st.cpu_off ? now | 1 : 0;
+        return;
+    }
+    if (!st.cpu_marked) { /* no marker on flash, no offline: the guard must hold */
+        void *mark = fopen(CPU1_PENDING, "w");
+        int synced = mark && !fflush(mark) && !fsync(fileno(mark));
+        if (mark) fclose(mark);
+        if (!synced) {
+            st.cpu_bad = 3;
+            return;
+        }
+    }
+    st.cpu_off = cpu1_write(0);
+    if (!st.cpu_marked) {
+        unlink(CPU1_PENDING);
+        int dir = open("/mnt/data", 0); /* O_RDONLY: the unlink reaches flash too */
+        if (dir >= 0) fsync(dir), close(dir);
+        st.cpu_marked = 1;
+    }
+    if (!st.cpu_off) st.cpu_bad = 3;
+}
+static void power_poll(void) {
+    pod_settings();
+    charge_poll();
+    cpu_poll();
+}
+
+/* Now Playing on top: its visualizer, progress and lyrics run on timers, which an idle pass would
+ * make late, so Low power leaves the loop at stock's pace there. */
+static int now_playing(void) {
+    void *top = window_manager_get_top_window(window_manager());
+    return top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page");
+}
+
 /* main_loop_sleep_default paces the UI loop at 8 ms (125 Hz), screen on or off. With the backlight
- * off it first idles SCREEN_OFF_SLEEP_MS; stock then finds its 8 ms gone, sleeps 0 and keeps its
- * own bookkeeping. The first pass with it back on repaints every window once, so nothing drawn
- * while dark, or only partly, stays on screen until the next input. */
+ * off it first idles SCREEN_OFF_SLEEP_MS (Low power: LOW_OFF_SLEEP_MS); stock then finds its 8 ms
+ * gone, sleeps 0 and keeps its own bookkeeping. The first pass with it back on repaints every
+ * window once, so nothing drawn while dark, or only partly, stays on screen until the next input.
+ * With Low power and the screen on, a pass idles LOW_IDLE_SLEEP_MS once input and window
+ * animations have been still for LOW_IDLE_MS, except on Now Playing. */
 int ringnav_sleep(void *loop) {
     video_poll();
     resume_poll();
+    power_poll();
     if (!g_backlight_status) {
         st.dark = 1;
-        sleep_ms(SCREEN_OFF_SLEEP_MS);
+        sleep_ms(st.low_power ? LOW_OFF_SLEEP_MS : SCREEN_OFF_SLEEP_MS);
     } else if (st.dark) {
         st.dark = 0;
         widget_invalidate_force(window_manager(), (void *)0);
-    }
+    } else if (st.low_power && time_now_ms() - st.last_input >= LOW_IDLE_MS &&
+               !window_manager_is_animating(window_manager()) && !now_playing())
+        sleep_ms(LOW_IDLE_SLEEP_MS);
     return stock_sleep_trampoline(loop);
 }
 
 /* window_manager_dispatch_input_event: while q2video plays (books.c) no key or touch reaches the
- * UI; a key's release goes to the player instead. */
+ * UI; a key's release goes to the player instead. Every event times Low power's idle. */
 int ringnav_input(void *wm, void *e) {
+    st.last_input = time_now_ms();
     if (!video_on()) return stock_input_trampoline(wm, e);
     if (e && I(e, EVENT_TYPE) == EVT_KEY_UP) video_key((unsigned)I(e, EVENT_KEY));
     return 0;
