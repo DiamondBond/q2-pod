@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '8.4'
+VERSION = '8.5'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
 # the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
@@ -70,24 +70,18 @@ WM_PAINT_LEAF = ('window_manager_paint', 0x66d46c, 'ringnav_wm_paint', (0x108000
 # with display_logo's inode metadata.
 HELPER, HELPER_LIKE = 'usr/bin/q2video', 'usr/bin/display_logo'
 HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.so.2.0.0']
-# Rockbox dual boot (docs/boot.md#rockbox): S90play starts Rockbox when the card has it, unless Q2 Pod
-# was chosen last: Play/Pause held at power-on (patch/boot.c reads the key) or Rockbox's exit 0x51
-# (Boot stock OS). ponytail: the card's mount is awaited (up to 3 s without a card) on every boot
-# but those, as the card probe can't tell "no card" from "not yet". Rockbox runs with the launcher
-# contract in its tools/shanlingq2/README; demo starts when it exits, or when the card has none. exec
-# keeps demo's argv[0], which checkappprocess.sh pgreps for.
+# Rockbox dual boot (docs/boot.md#rockbox): S90play starts Rockbox whenever the card has it, as an
+# iPod with Rockbox does. Play/Pause held at power-on (patch/boot.c reads the key) or Rockbox's
+# exit 0x51 (Boot stock OS) starts Q2 Pod for that session only; nothing is saved, so the next
+# power-on tries Rockbox again. ponytail: the card's mount is awaited (up to 3 s without a card)
+# unless Q2 Pod was asked for, as the card probe can't tell "no card" from "not yet". Rockbox runs
+# with the launcher contract in its tools/shanlingq2/README; demo starts when it exits, or when the
+# card has none. exec keeps demo's argv[0], which checkappprocess.sh pgreps for.
 BOOT = 'usr/bin/q2boot'
 S90PLAY = 'etc/init.d/S90play'
 S90PLAY_SHA = 'a6a7ed7d9a10e38801f4a41ec6f3c0ce2bc07c00d213c9278785c5f8d4520e24'
 BOOT_HOOK = (b'    /release/bin/demo &\n', b'''    (
-        t=/mnt/data/boot-target
-        c=$(cat $t 2>/dev/null)
-        if /usr/bin/q2boot; then
-            if [ "$c" = stock ]; then c=rockbox; else c=stock; fi
-            echo $c > $t
-            sync
-        fi
-        if [ "$c" != stock ]; then
+        if ! /usr/bin/q2boot; then
             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
                 [ -e /tmp/mmc_add ] && break
                 usleep 200000
@@ -95,9 +89,7 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', b'''    (
             rb=/mnt/mmc/.rockbox
             if [ -f $rb/rockbox ]; then
                 (cd $rb && exec ./rockbox) > $rb/rockbox.log 2>&1
-                s=$?
-                echo "exit $s" >> $rb/rockbox.log
-                if [ $s = 81 ]; then echo stock > $t; sync; fi
+                echo "exit $?" >> $rb/rockbox.log
             fi
         fi
         exec /release/bin/demo

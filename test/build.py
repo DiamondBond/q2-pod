@@ -49,17 +49,16 @@ def boot_check():
             subprocess.run(['sh', '-c', script], check=True)
             return (r/'ran').read_text().split(), target.exists() and target.read_text().strip()
         rockbox = [str(rb.parent), 'demo']
-        assert boot(False, False) == (['demo'], False)          # no Rockbox on the card: Q2 Pod, nothing saved
-        assert boot(False, True, 1) == (rockbox, False)         # Rockbox by default; a crash keeps it
+        assert boot(False, False) == (['demo'], False)          # no Rockbox on the card: Q2 Pod
+        assert boot(False, True, 1) == (rockbox, False)         # Rockbox by default; a crash starts Q2 Pod
         assert (r/'mnt/mmc/.rockbox/rockbox.log').read_text() == 'exit 1\n'
-        assert boot(False, True) == (rockbox, 'stock')          # Boot stock OS (0x51): Q2 Pod remembered
-        assert boot(False, True) == (['demo'], 'stock')
-        assert boot(True, True, 1) == (rockbox, 'rockbox')      # Play/Pause held: back to Rockbox
-        assert boot(False, True, 1) == (rockbox, 'rockbox')
-        assert boot(True, True) == (['demo'], 'stock')          # held again: Q2 Pod
-        target.write_text('rockbox\n')                         # V8.3's choice of Rockbox carries over
-        assert boot(False, False) == (['demo'], 'rockbox')      # no Rockbox on the card: Q2 Pod, still chosen
-    print('Dual boot: Rockbox by default, Play/Pause switch, Boot stock OS remembered and card fallback passed.')
+        assert boot(False, True) == (rockbox, False)            # Boot stock OS (0x51): Q2 Pod starts, nothing saved
+        assert boot(True, True, 1) == (['demo'], False)         # Play/Pause held: Q2 Pod, this session
+        assert boot(False, True, 1) == (rockbox, False)         # the next power-on is Rockbox again
+        target.write_text('stock\n')                            # a stale V8.4 choice is ignored
+        assert boot(False, True, 1) == (rockbox, 'stock')
+        assert boot(True, True, 1) == (['demo'], 'stock')
+    print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored and card fallback passed.')
 boot_check()
 
 def validate_assets(directory):

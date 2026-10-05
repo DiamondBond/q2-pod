@@ -1,5 +1,6 @@
 # Changelog
 
+- **V8.5**: Rockbox starts whenever the microSD card has it, as an iPod with Rockbox. Holding Play/Pause while powering on, or Rockbox's Boot stock OS, starts Q2 Pod for that session only, and the next power-on is Rockbox again.
 - **V8.4**: Rockbox starts by default whenever it is on the microSD card, as on an iPod with Rockbox. Its Boot stock OS (or holding Play/Pause while powering on) switches to Q2 Pod, which then starts at every power-on until you hold Play/Pause again. A choice of Rockbox made on V8.3 carries over.
 - **V8.3**: Rockbox can share the Q2 with Q2 Pod: unzip its `rockbox.zip` to the microSD card, then hold Play/Pause while powering on to switch between the two. The Q2 starts the system you chose at every power-on until you hold Play/Pause again. When Rockbox exits, or the card has none, Q2 Pod starts.
 - **V8.2**: Most Played opens faster after its first open, reading the library again only after it changes. iPod: on Now Playing's lyrics page, the wheel scrolls the lyrics instead of changing the volume, and they follow the song again three seconds after the last turn.
