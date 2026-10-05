@@ -27,9 +27,41 @@ for data in (b'', b'not a JPEG', frame, frame + bytes(8),
     raise AssertionError(f'Accepted malformed JPEG header: {data!r}')
 print('JPEG header regression checks passed.')
 
+def boot_check():
+    """S90play's dual boot (build.py BOOT_HOOK) under the host sh, with stand-in programs."""
+    import subprocess, tempfile, pathlib
+    from build import BOOT_HOOK
+    with tempfile.TemporaryDirectory(prefix='q2-boot-') as tmp:
+        r = pathlib.Path(tmp)
+        script = BOOT_HOOK[1].decode().replace(' &\n', '\n')
+        for old in ('/mnt/', '/tmp/mmc_add', '/usr/bin/q2boot', '/release/bin/demo'):
+            script = script.replace(old, f'{r}{old}')
+        script = script.replace('usleep 200000', ':')
+        for d in ('mnt/data', 'mnt/mmc/.rockbox', 'tmp', 'usr/bin', 'release/bin'): (r/d).mkdir(parents=True)
+        def exe(path, body): (r/path).write_text('#!/bin/sh\n' + body + '\n'); (r/path).chmod(0o755)
+        exe('release/bin/demo', f'echo demo >> {r}/ran')
+        rb, target = r/'mnt/mmc/.rockbox/rockbox', r/'mnt/data/boot-target'
+        def boot(held, card):
+            exe('usr/bin/q2boot', 'exit ' + ('0' if held else '1'))
+            if card: exe('mnt/mmc/.rockbox/rockbox', f'pwd >> {r}/ran; exit 81')
+            else: rb.unlink(missing_ok=True)
+            (r/'ran').write_text('')
+            subprocess.run(['sh', '-c', script], check=True)
+            return (r/'ran').read_text().split(), target.exists()
+        rockbox = [str(rb.parent), 'demo']
+        assert boot(False, True) == (['demo'], False)      # Q2 Pod by default
+        assert boot(True, True) == (rockbox, True)         # Play/Pause held: Rockbox, remembered
+        assert (r/'mnt/mmc/.rockbox/rockbox.log').read_text() == 'exit 81\n'
+        assert boot(False, True) == (rockbox, True)
+        assert boot(False, False) == (['demo'], True)      # no Rockbox on the card: demo, still chosen
+        assert boot(True, True) == (['demo'], False)       # held again: back to Q2 Pod
+        assert boot(True, False) == (['demo'], True)
+    print('Dual boot: Play/Pause switch, remembered choice and card fallback passed.')
+boot_check()
+
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_THRESHOLDS, PDR
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, S90PLAY, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_THRESHOLDS, PDR
     from ipod import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
@@ -97,6 +129,10 @@ def validate_assets(directory):
     helper = read('rootfs.squashfs', HELPER)
     assert sha(helper) == manifest['q2video_sha256'] and helper[:4] == b'\x7fELF'
     assert helper[36:40] == read('stock.squashfs', HELPER_LIKE)[36:40]
+    # Rockbox's dual boot: q2boot likewise, and S90play differs from stock only in starting demo.
+    boot = read('rootfs.squashfs', BOOT)
+    assert sha(boot) == manifest['q2boot_sha256'] and boot[:4] == b'\x7fELF' and boot[36:40] == helper[36:40]
+    assert read('rootfs.squashfs', S90PLAY) == read('stock.squashfs', S90PLAY).replace(*BOOT_HOOK)
     # bluealsa differs from stock only in the AAC 44.1 kHz bit.
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]

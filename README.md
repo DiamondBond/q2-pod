@@ -95,6 +95,10 @@
 
 **Prefer the stock look?** `Q2.Firmware.V*-stock.zip` has everything except the [iPod UI](#ipod-ui).
 
+### Rockbox
+
+[Rockbox](https://github.com/DiamondBond/rockbox/tree/shanlingq2) can run next to Q2 Pod from the microSD card: unzip its `rockbox.zip` to the card's root, then **hold Play/Pause while powering on** to switch between the two. The Q2 remembers the choice. See [Boot](docs/boot.md#rockbox).
+
 ### Restore stock
 
 Flash the [official firmware](https://en.shanling.com/download/150) the same way. If the UI won't start, copy the `recovery-update` folder from [Shanling's recovery package](https://drive.google.com/file/d/1aINQfJu6n0JTQ4hOzzD1uSpSj3TS_NJj/view?usp=drive_link) to the card, then hold previous-song and power on with the centre button.
@@ -221,7 +225,7 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 | [Internals](docs/internals.md) | Hooks, selection, position memory, timing, drawing |
 | [Building](docs/building.md)   | Building both variants and the MIPS test suite     |
 | [Releasing](docs/releasing.md) | Packaging, verifying and publishing                |
-| [Boot](docs/boot.md)           | Boot sequence, framebuffer and the power-on splash |
+| [Boot](docs/boot.md)           | Boot sequence, Rockbox, framebuffer and the splash |
 
 ## Contributing
 

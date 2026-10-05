@@ -70,6 +70,33 @@ WM_PAINT_LEAF = ('window_manager_paint', 0x66d46c, 'ringnav_wm_paint', (0x108000
 # with display_logo's inode metadata.
 HELPER, HELPER_LIKE = 'usr/bin/q2video', 'usr/bin/display_logo'
 HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.so.2.0.0']
+# Rockbox dual boot (docs/boot.md#rockbox): S90play starts the system last chosen, switched by holding
+# Play/Pause at power-on (patch/boot.c reads the key). Rockbox runs from the card with the launcher
+# contract in its tools/shanlingq2/README; demo starts when it exits, or when the card has none. exec
+# keeps demo's argv[0], which checkappprocess.sh pgreps for.
+BOOT = 'usr/bin/q2boot'
+S90PLAY = 'etc/init.d/S90play'
+S90PLAY_SHA = 'a6a7ed7d9a10e38801f4a41ec6f3c0ce2bc07c00d213c9278785c5f8d4520e24'
+BOOT_HOOK = (b'    /release/bin/demo &\n', b'''    (
+        t=/mnt/data/boot-target
+        if /usr/bin/q2boot; then
+            if [ -e $t ]; then rm -f $t; else echo rockbox > $t; fi
+            sync
+        fi
+        if [ -e $t ]; then
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+                [ -e /tmp/mmc_add ] && break
+                usleep 200000
+            done
+            rb=/mnt/mmc/.rockbox
+            if [ -f $rb/rockbox ]; then
+                (cd $rb && exec ./rockbox) > $rb/rockbox.log 2>&1
+                echo "exit $?" >> $rb/rockbox.log
+            fi
+        fi
+        exec /release/bin/demo
+    ) &
+''')
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
@@ -396,18 +423,24 @@ def compile_payload(out, ipod=False):
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
 
-def compile_helper(out, cat):
-    """Link patch/video.c against the stock rootfs's glibc, libpthread and alsa-lib."""
+def compile_helper(out, cat, src, name, rels):
+    """Link patch/src (and start.c) as name against the stock rootfs's libraries rels."""
     libs = []
-    for rel in HELPER_LIBS:
+    for rel in rels:
         libs.append(out/rel.rsplit('/', 1)[-1])
         libs[-1].write_bytes(cat(rel))
-    run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008', '-mabicalls',
-        '-c', ROOT/'patch/video.c', '-o', out/'video.o')
+    objs = [out/f'{s}.o' for s in (src, 'start')]
+    for o in objs:
+        run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008',
+            '-mabicalls', '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
     run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
         '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',
-        out/'video.o', *libs, '-o', out/'q2video')
-    return (out/'q2video').read_bytes()
+        *objs, *libs, '-o', out/name)
+    return (out/name).read_bytes()
+
+def patch_s90play(raw):
+    check(sha(raw) == S90PLAY_SHA, 'Unsupported S90play')
+    return raw.replace(*BOOT_HOOK)
 
 def append_payload(image, payload, base, memsz, label):
     """Map payload at base through the image's final PT_NULL header, R/W/X: payloads keep static state."""
@@ -581,6 +614,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     p = swap_inode(p, b'usr/bin/hciplayer', out/'peq/hciplayer')
     p = swap_inode(p, BLUEALSA.encode(), out/'bluealsa')
     p = swap_inode(p, WATCHDOG.encode(), out/'watchdog')
+    (out/'S90play').write_bytes(patch_s90play(cat(S90PLAY)))
+    p = swap_inode(p, S90PLAY.encode(), out/'S90play')
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.
@@ -600,11 +635,12 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         videos='system_display.png').items()})
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
-                               HELPER: (HELPER_LIKE, compile_helper(out, cat))}.items():
+                               HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
+                               BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1]))}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')
         name = path.rsplit('/', 1)[-1]
-        if path != HELPER: (out/name).write_bytes(data)  # package the hashed bytes, as the logo
+        if path not in (HELPER, BOOT): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
         path = path.encode()
         entry = path+b' F '+b' '.join(stock.groups())+b' cat '+shlex.quote(str(out/name)).encode()+b'\n'
         at = p.index(b'# START OF DATA')  # definitions precede the embedded data
@@ -662,7 +698,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         demo_sha256=sha(patched), patch_sha256=sha(payload), update_sha256=sha((out/'update.tar').read_bytes()),
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
-        version=version, variant=variant, dev=dev, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        version=version, variant=variant, dev=dev, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
               ({'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]} if ipod else {}))
