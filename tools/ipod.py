@@ -219,8 +219,8 @@ HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'stream', 'playset'
 
 
 # Stock list pages paint their list_view black inline; the theme default is a light rounded card.
-LIST_CLEAR = {f'style:{state}:{prop}': '#00000000' for state in ('normal', 'disable', 'focused')
-              for prop in ('bg_color', 'border_color')}
+LIST_BLACK = {f'style:{state}:{prop}': color for state in ('normal', 'disable', 'focused')
+              for prop, color in (('bg_color', '#000000'), ('border_color', '#00000000'))}
 
 
 def ipod_home(root):
@@ -243,12 +243,10 @@ def ipod_home(root):
     # vertical scroll views.
     view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
             {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)', 'yslidable': 'true'}, rows]
-    # The art paints first and the list is clear, so Backdrop's cover (coverflow_home_layout) shows
-    # behind the rows; the window's black is under both.
     root[3] = [
-        ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'fill'}, []],
         ['list_view', [0, HOME_TOP, HOME_LIST_W, HOME_ROW * len(rows)],
-         {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_CLEAR}, [view]]]
+         {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_BLACK}, [view]],
+        ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'fill'}, []]]
 
 
 def style_props(data):

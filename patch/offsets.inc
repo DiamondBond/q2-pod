@@ -117,10 +117,6 @@
 #define BAR_COLOR 0x242424
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
-/* Now Playing's tint: the cover's average color scaled to this brightest channel, at the window's top,
- * fading to black at the progress bar. 0x3c keeps the grey #AAAAAA text at 4.5:1 on a grey tint;
- * raise it for a stronger color. */
-#define NP_TINT_MAX 0x3c
 #define NP_ART_RADIUS 12 /* Now Playing's art corners (paint_cover), as stock's play_defaultcover scaled to the art */
 #define VOL_POLL_MS 50 /* how often the volume indicator checks for a change */
 /* The volume panel off Now Playing (vol_paint): exactly over Quick Settings' brightness row
@@ -167,9 +163,6 @@
 /* iPod Home in Full: the rows end here, so the chevron's glyph (x 20 to 31 of list_into) ends as far
  * from the right edge as the labels start from the left (HOME_TEXT_X in tools/ipod.py). */
 #define HOME_FULL_ROW 369
-/* Home Backdrop's dimming over the cover, 0-255 black: 0xa6 (65%) leaves a white cover #595959,
- * under white labels at 7:1. Lower it for more cover, down to about 0x89 (4.5:1). */
-#define HOME_DIM_ALPHA 0xa6
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
  * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
  * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a

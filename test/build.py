@@ -259,7 +259,7 @@ def validate_assets(directory):
             assert root[3][0][3][1][3][1][2]['text'] == 'Library'  # literal: stock skips label_library
             continue
         if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
-            art, (lv, lg, _, [sv]) = root[3]
+            (lv, lg, _, [sv]), art = root[3]
             assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
             # The art fills the right panel below the status bar; the payload fits and crops it.
             assert art[1] == [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290] and art[2]['draw_type'] == 'fill'

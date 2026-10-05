@@ -24,7 +24,7 @@ DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/navigation.c').
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
 O_GLYPH=re.search(r'#define BT_GLYPH "(\w+)"',INC)[1]  # the plain Bluetooth glyph a codec badge fades into
-CONFIG={'HOME':'0'}  # config.ini [IPOD] keys a new Machine starts with (Split Home, as the Home tests lay out); the payload reads them on first use
+CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
 FILL,SHADE,OUTLINE=((O[a]<<24)|O[c] for a,c in (('FILL_ALPHA','FILL_RGB'),('SHADE_ALPHA','FILL_RGB'),('OUTLINE_ALPHA','OUTLINE_RGB')))
 LCD_COLORS=(0x9abcdef0,0x12345678)
 syms=symbols(B/'stock-demo')
@@ -2789,8 +2789,8 @@ for cls,last,rows in ((0xf004,1,3),(0xff01,-1,3),(0xf007,-1,3),(0xf004,-1,0)):
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
 from ipod import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
-cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3]
-cards=cards[1][3][0] if variant=='ipod' else cards[0]  # iPod's list_view (after the art) and its rows, or the carousel
+cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
+if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
@@ -3258,31 +3258,6 @@ if variant=='ipod':
     assert [b[:5] for b in m.bands]==want and want[0][2]==8 and want[-2][2]==0,want[:2]
     assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x12345678; passed()  # restored
     m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(win,m.canvas,0,0)); assert not m.bands; passed()
-    # The tint: the cover's average (an orange 32x32 RGBA cover) scaled to NP_TINT_MAX at the window's
-    # top, fading to black at the progress bar; the art's corners take the background at their row.
-    class TintMachine(QueueMachine):
-        def hook(self,u,address,size,x):
-            name=self.handlers.get(address,'')
-            if name in ('widget_load_image','bitmap_lock_buffer_for_read','bitmap_unlock_buffer'):
-                a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
-                if name=='widget_load_image':
-                    px=self.alloc(32*32*4); self.u.mem_write(px,bytes([200,100,0,255])*32*32)
-                    self.word(c,32); self.word(c+4,32); self.word(c+8,128); self.u.mem_write(c+0xc,struct.pack('<HH',0,1)); self.word(c+0x14,px)
-                elif name=='bitmap_lock_buffer_for_read': ret=self.get(a+0x14)
-                u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
-            return super().hook(u,address,size,x)
-    m=TintMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
-    cover=m.node('image','img_cover',image='file:///tmp/coverpic.jpg'); slider=m.node('slider','slider_play',max=225,value=100)
-    win=m.node('window','playing_page',[cover,slider]); m.word(win+O['W_PARENT'],m.wm); m.top=win
-    put(win,0,30,375,290); put(cover,16,10,166,166); put(slider,21,240,333,30); m.word(syms['system_bar'],m.node('window','system_bar'))
-    m.call(address=playing,args=(win,7,0,0),gap=0)
-    T=O['NP_TINT_MAX']; tint=T<<16|(100*T//200)<<8
-    m.bands.clear(); m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(win,m.canvas,0,0))
-    rows=[b[:5] for b in m.bands if b[2]==375]
-    assert rows[0]==(0,0,375,1,color_t(tint)) and rows[239]==(0,239,375,1,color_t(0)) and len(rows)==241,rows[:2]
-    m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(cover,m.canvas,0,0))
-    def fade(y): return sum(((tint>>s&255)*(239-y)//239)<<s for s in (0,8,16))
-    assert m.bands[0][:5]==(0,0,8,1,color_t(fade(10))) and m.bands[2][4]==color_t(fade(10+165)); passed()
 
     # Scrub: a double centre press toggles it; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,
@@ -3703,7 +3678,7 @@ if variant=='ipod':
         assert len(m.config_reads)==3  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'-') for key in ('ACCENT','HOME','BATTERY')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -3858,7 +3833,7 @@ if variant=='ipod':
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Backdrop','Battery: Icon']; passed()
+    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -3870,14 +3845,13 @@ if variant=='ipod':
         assert texts()[0]=='Accent: '+name; passed()
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
-    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'HOME')] and texts()[1]=='Home: Split'; passed()
-    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(2,'HOME')] and texts()[1]=='Home: Backdrop'; passed()
+    click(1); assert texts()[1]=='Home: Split'; passed()
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
     for value,name in ((1,'Percent'),(2,'Icon + Percent'),(0,'Icon')):
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
         assert ('widget_invalidate_force',bar) in [c[:2] for c in m.calls] and not [c for c in m.calls if c[0]=='image_manager_unload_all']
     passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'2','BATTERY':'2'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Backdrop','Battery: Icon + Percent']; passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent']; passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)
@@ -4000,7 +3974,7 @@ if variant=='ipod':
     assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[2][i]) for i in (0,1,4)]; passed()
     f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[3][i]) for i in (0,1,4)]; passed()
-    CONFIG.clear(); CONFIG.update(HOME='0'); m=scrub_page()
+    CONFIG.clear(); m=scrub_page()
     assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[0][2])); passed()
     CONFIG.update(ACCENT='3'); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
     m.slider=m.node('slider','slider_play',max=225,value=100)
@@ -4014,10 +3988,8 @@ if variant=='ipod':
     CONFIG.clear(); CONFIG.update(HOME='1'); m=CoverflowMachine(); m.open()
     rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
     assert rowsw==[375]+[O['HOME_FULL_ROW']]*7 and m.nodes[m.art]['visible']==0; passed()
-    CONFIG.clear(); CONFIG.update(HOME='0'); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
-    # No HOME key is Backdrop: the list as Full, the art shown across the window.
-    CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==375 and m.nodes[m.art].get('visible',1); passed()
-    Machine.hook=orig_hook; CONFIG.clear(); CONFIG.update(HOME='0')
+    CONFIG.clear(); m=CoverflowMachine(); m.open(); assert m.get(m.list+O['W_W'])==HOME_LIST_W and m.nodes[m.art].get('visible',1); passed()
+    Machine.hook=orig_hook; CONFIG.clear()
 
 # Wheel precision (docs/internals.md, Wheel movement): iPod's overshoot filter (the second tick of a
 # run is dropped when it comes OVERSHOOT_MIN_MS to OVERSHOOT_MAX_MS after the first), the list
