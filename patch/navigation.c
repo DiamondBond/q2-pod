@@ -3090,18 +3090,6 @@ static int qm_open(const void *unused) {
     return 0;
 }
 
-/* The menu opens once the hold is let go; the press is swallowed until then. */
-static int qm_arm(void *r, unsigned idx, unsigned rows, char *key) {
-    if (!(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
-    st.qm_idx = idx;
-    st.qm_rows = rows;
-    st.qm_hash = rec_hash(r);
-    st.qm_browse = browse_hash();
-    st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
-    drop_input();
-    return 1;
-}
-
 /* The hold: the same gates and row as a centre press, over the stock showlist or Coverflow's
  * own tracks (row count checked), or the album at the centre of Coverflow's covers. Everything
  * else stays stock. */
@@ -3148,9 +3136,15 @@ static int qm_hold(void) {
         st.qm_kind = QM_ALBUM; /* all albums, and an artist's, composer's or genre's */
     else if (cls >= 0xf004 && cls <= 0xf006)
         st.qm_kind = QM_GROUP; /* artist, composer and genre lists */
-    if (!st.qm_kind) return 0;
+    if (!st.qm_kind || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
     st.qm_cls = cls;
-    return qm_arm(r, (unsigned)g_menu.id[cur], (unsigned)g_menu.rows, key);
+    st.qm_idx = (unsigned)g_menu.id[cur];
+    st.qm_rows = (unsigned)g_menu.rows;
+    st.qm_hash = rec_hash(r);
+    st.qm_browse = browse_hash();
+    st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
+    drop_input();
+    return 1;
 }
 
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. */
