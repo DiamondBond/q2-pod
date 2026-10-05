@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging and reproducibility too."""
 import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
-from build import CAROUSEL, ICONS, ROOT, STOCK_EQ, jpeg_size
+from build import CAROUSEL, ICONS, QUEUE_LABEL, ROOT, STOCK_EQ, jpeg_size
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -68,9 +68,13 @@ def validate_assets(directory):
     xx = 'release/assets/default/raw/images/xx/'
     assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
         'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
-        xx+n for n in (SETTINGS_ICONS if ipod else [])}
+        xx+n for n in (SETTINGS_ICONS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin'}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
+    # Now Playing's queue reads "Queue" (QUEUE_LABEL); nothing else in the string table moves.
+    strings = 'release/assets/default/raw/strings/en_US.bin'
+    old, new = read('stock.squashfs', strings), read('rootfs.squashfs', strings)
+    assert new == old.replace(*QUEUE_LABEL) and new != old and len(new) == len(old)
     # iPod settings icons: the audited 52px artwork, packaged as SET_ICON RGBA with the same transparency
     # and, on a plain background, the same average colour; Stock keeps them stock.
     def mean(png, bg):
