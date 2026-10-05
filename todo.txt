@@ -3,3 +3,5 @@ Video sound over USB DAC.
 Does this have a battery charge limit after mod? I really want any device to be able to be capped at 80% so the battery doesn’t prematurely fail.
 
 Just got my Q2 and setting it up now. I saw some previous questions on this but doesn’t look like it was fully understood. Can we get the option to use the “Album Artist” tag for browsing artist instead of “Artist” tag?   A lot of us have libraries that have features or guest artists in the “Artist” tag and that creates duplicate entries and breaks up albums when browsing by this tag. Using “Album Artist” for the Artist browser fixes this
+
+One more nit. Would love to sort Cover Flow by Artist > Release Year. But that’s a cherry on top
