@@ -202,6 +202,8 @@ API_SECRET=your-shared-secret
 
 Get Last.fm's key and secret from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
 
+**Upload Scrobbles** is the third row of **Local Music**, used while on Wi-Fi. It only shows when the file is named exactly `.scrobble.ini` (leading dot, no hidden `.txt`) and saved as plain text. Leave out any section you don't use: a placeholder token still counts as an account, and its failures stop every upload.
+
 Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
 
 ## Coverflow
