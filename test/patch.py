@@ -4296,14 +4296,17 @@ class ShuffleMachine(CoverflowMachine):
         elif name=='readdir' and self.listed:
             n,t=self.listed.pop(0); ret=self.alloc(268); self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
         elif name=='widget_restack':
-            kids=self.nodes[self.get(a+O['W_PARENT'])]['children']; kids.remove(a); kids.insert(b,a)
+            kids=next(n['children'] for n in self.nodes.values() if a in n['children']); kids.remove(a); kids.insert(b,a)
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 m=ShuffleMachine(); stock=[m.node('list_item') for _ in range(11)]
 view=m.node('scroll_view','scroll_view_localmusic',stock); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0
 assert m.calls[0][:3]==('stock_localmusic',m.top,5)
-row,top=m.nodes[view]['children'][:2]; assert m.nodes[view]['children'][2:]==stock and m.nodes[row]['style']=='s_listitem_black'
+# Library order: Shuffle Songs; Artist, Album, All Songs, Genre, Playlist, My Fav; Recently Added, Recent,
+# Most Played, Frequent, Hi-Res; then Update Local Music, last (stock rows by get_localmusic_showinfo index).
+kids=m.nodes[view]['children']; row,top=kids[0],kids[9]
+assert [kids[i] for i in (*range(1,9),10,11,12)]==[stock[i] for i in (3,2,1,4,10,6,9,8,7,5,0)] and m.nodes[row]['style']=='s_listitem_black'
 icon,label=m.nodes[m.nodes[top]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_frequentplay' and m.nodes[label]['text']=='Most Played'
 button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
@@ -4351,7 +4354,7 @@ m.handlers[syms['navigator_to']]='q:navigator_to'; view=m.find('scroll_view'); m
 m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='T7' and m.release()==0
 assert m.labels()==['Play next','Add to queue','Add to Favourites','Go to artist']; passed()
 
-# Upload Scrobbles: a third row, after Most Played, only with an account in the card's .scrobble.ini (a
+# Upload Scrobbles: the second-last row, above Update Local Music, only with an account in the card's .scrobble.ini (a
 # ListenBrainz token or all four Last.fm keys). Without Wi-Fi it only says so; otherwise scrobble.c's thread
 # starts, a second press finds it running, and a timer reports the result once the thread ends.
 m=ShuffleMachine(); m.config.update(USER='u',PASSWORD='p',API_KEY='k')  # no API_SECRET: no row
@@ -4360,7 +4363,7 @@ assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
 assert ('/mnt/mmc/.scrobble.ini','LASTFM','API_SECRET','') in m.config_reads
 m.config['TOKEN']='tok'; m.nodes[view]['children']=[m.node('list_item') for _ in range(11)]
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==14
-button=m.nodes[m.nodes[view]['children'][2]]['children'][0]; icon,label=m.nodes[button]['children']
+button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_scrobble' and m.nodes[label]['text']=='Upload Scrobbles' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads
@@ -4370,7 +4373,7 @@ m.advance(2000); assert m.toasts[-1][3]=='Already uploading' and not m.joins  # 
 worker,arg=m.threads[0]; assert m.call(address=worker,args=(arg,0,0,0),gap=0)==0  # no log on the card
 m.advance(600); assert m.toasts[-1][3]=='Nothing to upload' and m.joins==[77] and not m.timers; passed()
 
-# Podcasts and Audiobooks: a row each, last, only for the card's top-level folder of that name (case
+# Podcasts and Audiobooks: a row each, above upkeep, only for the card's top-level folder of that name (case
 # aside, a directory). A press opens folder_page there as a deeper folder (layer 3, stock reload, title
 # and rebuild); Back there leaves the page (layer 1 before stock's step down), and only for that root.
 m=ShuffleMachine(); m.card=[('Music',4),('PODCASTS',4),('Audiobooks',8)]
@@ -4378,7 +4381,7 @@ m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_
 m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==14
-button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_podcasts' and m.nodes[label]['text']=='Podcasts' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['folder_page']
