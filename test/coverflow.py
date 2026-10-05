@@ -45,7 +45,7 @@ image_base_set_image widget_load_image widget_unload_image widget_set_name widge
 widget_set_text_utf8 widget_set_visible widget_get_prop_int widget_set_prop_int
 widget_get_prop_str widget_on widget_destroy_children widget_invalidate_force
 widget_count_children widget_get_child widget_lookup widget_move_resize widget_get_visible
-canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
+canvas_get_clip_rect canvas_set_clip_rect canvas_set_fill_color canvas_fill_rect widget_set_sensitive widget_get_type tk_strcmp
 timer_add timer_remove navigator_back_to_home navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
 canvas_draw_image slide_menu_set_spacer
@@ -159,8 +159,8 @@ void *widget_lookup(void *x, const char *n, int r) {
     return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
            !strcmp(n, "list_view_home") ? home_list : 0;
 }
-static int home_full;
-int ipod_home_full(void) { return home_full; }
+static int home_layout;
+int ipod_home_layout(void) { return home_layout; }
 int widget_move_resize(void *x, int left, int top, int ww, int h) {
     int *r = (int *)W(x)->raw; /* W_X, W_Y, W_W, W_H */
     r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
@@ -172,6 +172,13 @@ static int clip_rect[4] = { 0, 0, 375, 320 }; /* the canvas clip, screen x, y, w
 int canvas_get_clip_rect(void *c, void *r) { (void)c; memcpy(r, clip_rect, sizeof clip_rect); return 0; }
 int canvas_set_clip_rect(void *c, const void *r) { (void)c; memcpy(clip_rect, r, sizeof clip_rect); return 0; }
 const char *widget_get_type(void *x) { return W(x)->type; }
+static unsigned fill_color;
+static int filled[4]; /* the last fill color and rect (canvas x, y, w, h) */
+int canvas_set_fill_color(void *c, unsigned v) { (void)c; fill_color = v; return 0; }
+int canvas_fill_rect(void *c, int x, int y, int ww, int h) {
+    (void)c; filled[0] = x; filled[1] = y; filled[2] = ww; filled[3] = h;
+    return 0;
+}
 int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
@@ -794,19 +801,37 @@ int main(void) {
            *tap = make(row, "image"), *all[] = { home_list, sv, row, tap };
     for (int i = 0; i < 4; ++i) *(int *)(all[i]->raw + W_W) = 205;
     *(int *)(label->raw + W_W) = 149;
-    home_full = 1;
+    home_layout = 1;
     coverflow_home(win, 0);
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
     assert(*(int *)(label->raw + W_W) == 149 && !W(home_art)->visible);
     before = loads;
     coverflow_home_art(win); /* hidden: nothing loads */
     assert(loads == before);
-    home_full = 0;
+    home_layout = 0;
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 205);
     assert(*(int *)(label->raw + W_W) == 149 && W(home_art)->visible);
     coverflow_home_art(win);
     assert(loads == before + 1 && !strcmp(art, player));
+    /* Backdrop: the list as Full, the art shown and fitted to the window's height under it, then
+       dimmed over that panel (canvas origin at the art) before the clip is put back. */
+    home_layout = 2;
+    coverflow_home_layout();
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
+    assert(W(home_art)->visible);
+    coverflow_home_art(win);
+    int *g = (int *)W(home_art)->raw;
+    assert(g[0] == 0 && g[2] == 375 && g[3] >= 290 && g[1] + g[3] / 2 == 145);
+    static char lcd[0x100];
+    char cv[0x40] = { 0 };
+    *(void **)(cv + CANVAS_LCD) = lcd;
+    coverflow_home_clip(home_art, cv, 1);
+    coverflow_home_clip(home_art, cv, 0);
+    assert(filled[0] == -g[0] && filled[1] == -g[1] && filled[2] == 375 && filled[3] == 290);
+    assert(!memcmp(clip_rect, full, sizeof full));
+    home_layout = 0;
+    coverflow_home_layout();
 #endif
     return 0;
 }
@@ -844,7 +869,7 @@ def main():
     print('Coverflow: art order, locks, markers, resume, cancel, Refresh, album list reuse, low space and empty library passed;'
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
-          ' iPod Home art sources, fit, clip and Split/Full layout passed.')
+          ' iPod Home art sources, fit, clip and Split/Full/Backdrop layout passed.')
 
 
 if __name__ == '__main__':

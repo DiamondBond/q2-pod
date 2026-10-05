@@ -939,11 +939,12 @@ static struct {
     void *win, *art, *list;
     unsigned key;
     int split_w;  /* the list's width in the asset */
-    int panel[4]; /* the art's x, y, w, h in the asset: the right panel it fills */
+    int panel[4]; /* the x, y, w, h the art fills: the asset's right panel, or Backdrop's window */
+    int asset[4]; /* the art's x, y, w, h in the asset */
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
-extern int ipod_home_full(void);
+extern int ipod_home_layout(void); /* 0 Split, 1 Full, 2 Backdrop */
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
  * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
@@ -996,10 +997,17 @@ void coverflow_home_art(void *top) {
 
 /* The art paints only inside the panel: ringnav_paint_bg narrows the canvas clip (screen
  * coordinates; the canvas origin is the art's) before stock draws it, and ringnav_paint puts the
- * old clip back after. */
+ * old clip back after, Backdrop first dimming it to HOME_DIM_ALPHA black under the list. */
 void coverflow_home_clip(void *w, void *canvas, int begin) {
     if (!w || w != home.art) return;
     if (!begin) {
+        if (home.clipped && ipod_home_layout() == 2 && P(canvas, CANVAS_LCD)) {
+            unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+            canvas_set_fill_color(canvas, (unsigned)HOME_DIM_ALPHA << 24);
+            canvas_fill_rect(canvas, home.panel[0] - I(w, W_X), home.panel[1] - I(w, W_Y), home.panel[2],
+                             home.panel[3]);
+            canvas_set_fill_color(canvas, fill);
+        }
         if (home.clipped) canvas_set_clip_rect(canvas, home.clip);
         home.clipped = 0;
         return;
@@ -1023,13 +1031,19 @@ static void home_width(void *w, int outer, int inner, int depth) {
 
 /* The Home setting: Split keeps the asset's list and art; Full widens the list, so the selection
  * bar spans the window, and its rows and tap targets to HOME_FULL_ROW, so the chevrons mirror the
- * labels' margin clear of the corners, and hides the art. */
+ * labels' margin clear of the corners, and hides the art. Backdrop lays the list out as Full and
+ * fills the window's height under it with the art, dimmed (coverflow_home_clip). */
 void coverflow_home_layout(void) {
+    int layout = ipod_home_layout();
+    for (int i = 0; i < 4; ++i) home.panel[i] = home.asset[i];
     if (!home.list) return;
-    int full = ipod_home_full();
-    home_width(home.list, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
-    widget_set_visible(home.art, !full, 0);
-    home.key = ~0u; /* Split shows the current art again */
+    if (layout == 2) {
+        home.panel[0] = 0;
+        home.panel[2] = 375;
+    }
+    home_width(home.list, layout ? 375 : home.split_w, layout ? HOME_FULL_ROW : home.split_w, 0);
+    widget_set_visible(home.art, layout != 1, 0);
+    home.key = ~0u; /* the current art again, fitted to the panel */
 }
 #endif
 
@@ -1043,7 +1057,7 @@ int coverflow_home(void *win, void *ctx) {
     void *art = widget_lookup(win, "img_homeart", 1);
     home.art = art;
     home.clipped = 0;
-    for (int i = 0; art && i < 4; ++i) home.panel[i] = I(art, W_X + 4 * i); /* x, y, w, h */
+    for (int i = 0; art && i < 4; ++i) home.asset[i] = I(art, W_X + 4 * i); /* x, y, w, h */
     /* A fitted cover reaches under the list; taps there must still find the rows. */
     if (art) widget_set_sensitive(art, 0);
     void *list = widget_lookup(win, "list_view_home", 1);

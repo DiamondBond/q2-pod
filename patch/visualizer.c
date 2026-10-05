@@ -87,7 +87,8 @@ void vis_bands(const float (*pcm)[2], unsigned rate, float *level) {
 }
 
 #ifndef PEQ_HOST
-extern int config_digit(const char *key, int n);
+extern int config_digit(const char *key, int n, int fallback);
+extern unsigned np_bg(int y);
 extern void peq_attach(void);
 /* The accent's palette: its light tone, a dark shade of it and a bright tint, never washed to white. */
 #define DARK(tone) mix(tone, 0, 55, 100)
@@ -344,11 +345,15 @@ static void meters(void *vg, void *canvas, unsigned tone, unsigned now) {
  * in a circle, turning slowly, with the bass pulsing the ring. */
 static void halo(void *vg, unsigned tone) {
     float cx = 375 / 2.0f, cy = VIS_H / 2.0f, art = VIS_ART / 2.0f, r0 = art + 7 + 5 * vz.bass;
-    vgcanvas_set_line_width(vg, art * 0.42f + 2); /* round the art: black over its corners */
+    /* Round the art: a ring in the page's background over its corners, the tint's own linear fade
+     * (np_bg) from the ring's top to its bottom. */
+    float in = art, out = art * 1.42f + 2;
     vgcanvas_begin_path(vg);
-    vgcanvas_arc(vg, cx, cy, art * 1.21f + 1, 0, TAU, 0);
-    vgcanvas_set_stroke_color(vg, rgba(0, 255));
-    vgcanvas_stroke(vg);
+    vgcanvas_arc(vg, cx, cy, out, 0, TAU, 0);
+    vgcanvas_arc(vg, cx, cy, in, TAU, 0, 1);
+    vgcanvas_set_fill_linear_gradient(vg, 0, cy - out, 0, cy + out, rgba(np_bg(vz.oy + (int)(cy - out)), 255),
+                                      rgba(np_bg(vz.oy + (int)(cy + out)), 255));
+    vgcanvas_fill(vg);
     vgcanvas_set_line_width(vg, 2);
     vgcanvas_begin_path(vg);
     vgcanvas_arc(vg, cx, cy, art + 3, 0, TAU, 0);
@@ -440,7 +445,7 @@ static int gone(void *win, void *event) {
 void visualizer_attach(void *win) {
     void *slide = widget_lookup(win, "slide_view", 1), *dots = widget_lookup(win, "slide_indicator1", 1);
     if (!slide) return;
-    vz.style = config_digit("VIS", STYLES);
+    vz.style = config_digit("VIS", STYLES, 0);
     vz.win = win;
     vz.slide = slide;
     vz.cover = widget_lookup(win, "img_cover", 1);

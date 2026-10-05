@@ -83,7 +83,7 @@ the list repaints it once (`greeted`): Home starts with the bar on Now Playing. 
 ([internals.md](internals.md#touch-mode)) does not hide Home's bar, so coming back shows the row last
 selected or tapped.
 
-iPod's `home_page.bin` is a `list_view` (39-pixel `item_height`, `HOME_ROW`) holding a
+iPod's `home_page.bin` is `img_homeart` and then a clear `list_view` (39-pixel `item_height`, `HOME_ROW`) holding a
 `scroll_view` of seven 39-pixel rows (`btn_*` views), in stock order with Coverflow third: Now
 Playing, Library, Coverflow, Folder, Streaming, Playback Setting, System Setting. The list
 starts `HOME_TOP` (8) pixels below the status bar and ends 9 above the bottom, so the first row
@@ -123,7 +123,12 @@ spans the screen, and the rows and their tap images to `HOME_FULL_ROW` (369, `pa
 with `widget_move_resize` (`0x65ea44`, which also marks the children for relayout), and hides the
 art. The labels keep their width. The chevrons' glyphs then end 33 pixels from the right edge, as
 the labels start 33 from the left: at the screen edge the last row's chevron would sit under the
-bottom-right corner. Split puts back the list's asset width, recorded at init. Home is
+bottom-right corner. Backdrop lays the list out as Full and keeps the art, which then fills the whole client area
+(375x290) instead of the right panel, with the same fit, crop and clip. Before the art's border
+hook puts the clip back, it covers the panel in black at `HOME_DIM_ALPHA` (65%,
+`patch/offsets.inc`), so over a white cover the labels are white on `#595959` (7:1). The art paints
+first and the list is clear, so the cover shows behind the rows and the selection bar paints over
+it. Split puts back the list's asset width, recorded at init. Home is
 opened once and never recreated, so the layout is applied at init and again when the setting
 changes. The art is not loaded while it is hidden.
 
@@ -393,9 +398,17 @@ art is 166 pixels, as large as that leaves while the text column keeps its 165 p
 pixels below it, the page dots 12 pixels under the art, the bar with the stock A-B markers
 (y 250 to 260) and the times 6 pixels under the bar.
 
+**Tint.** The background takes the cover's colour: from the window's top to the progress bar it
+fades from a tint to black. The tint is the cover's average over a 16x16 sample of the image
+manager's cached copy (read, never unloaded), scaled so its brightest channel is `NP_TINT_MAX`
+(`0x3c`, `patch/offsets.inc`), where the grey `#AAAAAA` text still holds 4.5:1. A near-black or
+missing cover leaves the page black. The sample runs whenever the labels sync, and a changed tint
+repaints the page.
+
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
 placeholder cover at this size, so real art and the placeholder match. The payload paints them
-over the image in the page's black, with an anti-aliased edge pixel. The title is 22 pixels
+over the image in the page's background at that row (`np_bg`), with an anti-aliased edge pixel;
+Halo's mask over its art uses the same colour. The title is 22 pixels
 white (`NP_TITLE_PX`); artist, album, "3 of 12" and both times are the stock secondary grey
 `#AAAAAA`. Long lines scroll, as stock.
 
@@ -497,7 +510,7 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
 pixels high). iPod runs the stock init, then adds three rows the same way: "Accent: Graphite" with
-the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
+the System settings Display icon (`system_display`), "Home: Backdrop" (Backdrop, Full, Split; see [Home](#home)) with Play settings' cover
 mode icon (`playset_covermode`) and "Battery: Icon" (Icon, Percent, Icon + Percent; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
 (`system_powermanager`), all among the [settings icons](#settings-icons) the build
@@ -513,8 +526,9 @@ calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in t
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
-first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split and Icon.
+first byte). The payload passes `"-"`, so a missing or unreadable entry, or any value that is not
+one valid digit, is the row's default: Graphite, Backdrop (`2`) and Icon. Home's row steps
+Backdrop, Full, Split (2, 1, 0); the stored values are unchanged, so a saved Split stays Split.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |

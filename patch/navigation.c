@@ -132,6 +132,7 @@ typedef struct {
     int vol_drawn;
     unsigned vol_timer;
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
+    unsigned np_tint; /* the cover's 0xRRGGBB tint at the window's top, 0 for black */
     int np_left;
     /* Scrub: a centre press at np_press_at waits DOUBLE_CLICK_MS in np_press for a second one;
      * scrub_to is the target second, scrub_moved set once the wheel changed it. */
@@ -139,7 +140,7 @@ typedef struct {
     int scrub, scrub_to, scrub_moved;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, battery;
+    int settings_read, accent, home, battery; /* home: 0 Split, 1 Full, 2 Backdrop */
     void *setting_label[3];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
@@ -1091,23 +1092,23 @@ static const unsigned accents[][5] = { ACCENTS };
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
                                             "Accent: Champagne" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-int config_digit(const char *key, int n) { /* shared with visualizer.c */
+int config_digit(const char *key, int n, int fallback) { /* shared with visualizer.c */
     char s[256] = "";
-    toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "0");
-    return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
+    toolsReadConfig("/mnt/data/config.ini", "IPOD", key, s, "-");
+    return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : fallback;
 }
 static int accent(void) {
     if (!st.settings_read) {
-        st.accent = config_digit("ACCENT", ACCENT_N);
-        st.home_full = config_digit("HOME", 2);
-        st.battery = config_digit("BATTERY", 3);
+        st.accent = config_digit("ACCENT", ACCENT_N, 0);
+        st.home = config_digit("HOME", 3, 2); /* Backdrop by default */
+        st.battery = config_digit("BATTERY", 3, 0);
         st.settings_read = 1;
     }
     return st.accent;
 }
-int ipod_home_full(void) {
+int ipod_home_layout(void) {
     accent();
-    return st.home_full;
+    return st.home;
 }
 unsigned accent_tone(int tone) { return accents[accent()][tone]; }
 
@@ -1281,12 +1282,16 @@ static void paint_letter(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
-/* Now Playing's art gets NP_ART_RADIUS corners, painted over it in the page's black: each corner
- * row outside the arc, then its edge pixel at the alpha of its uncovered part (1/16 px). */
+unsigned np_bg(int y);
+
+/* Now Playing's art gets NP_ART_RADIUS corners, painted over it in the page's background at that
+ * row (np_bg): each corner row outside the arc, then its edge pixel at the alpha of its uncovered
+ * part (1/16 px). */
 static void paint_cover(void *w, void *canvas) {
     if (!w || w != st.np_cover || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-    int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H);
+    int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H), top = 0;
+    for (void *p = w; p && p != st.np_win; p = P(p, W_PARENT)) top += I(p, W_Y);
     for (int i = 0; i < r; ++i) {
         /* s is 16 sqrt(r * r - d * d / 4), the arc's half-width at this row's centre */
         int d = 2 * (r - i) - 1, v = (4 * r * r - d * d) * 64, s = 0;
@@ -1294,9 +1299,10 @@ static void paint_cover(void *w, void *canvas) {
         int out = 16 * r - s, n = out >> 4;
         for (int c = 0; c < 4; ++c) {
             int y = c & 1 ? h - 1 - i : i, left = !(c & 2);
-            canvas_set_fill_color(canvas, RGBA(0));
+            unsigned bg = RGBA(np_bg(top + y));
+            canvas_set_fill_color(canvas, bg);
             canvas_fill_rect(canvas, left ? 0 : ww - n, y, n, 1);
-            canvas_set_fill_color(canvas, (unsigned)(out & 15) * 17 << 24);
+            canvas_set_fill_color(canvas, (bg & 0xffffff) | (unsigned)(out & 15) * 17 << 24);
             canvas_fill_rect(canvas, left ? n : ww - n - 1, y, 1, 1);
         }
     }
@@ -1583,8 +1589,50 @@ static void clock_text(void *label, int negative, int t) {
 
 /* Now Playing's "3 of 12", album and remaining time (slider max less value, stock's seconds, so a
  * drag or scrub previews it). Labels are written only when their source changes. */
+/* Now Playing's background at window row y: the cover's tint at the top, fading to black at the
+ * progress bar. Shared with visualizer.c (Halo's mask). */
+unsigned np_bg(int y) {
+    int end = st.np_slider ? I(st.np_slider, W_Y) : 0;
+    if (!st.np_tint || y >= end) return 0;
+    return mix(st.np_tint, 0, y, end - 1);
+}
+
+/* The cover's average color (a 16x16 sample of the image manager's copy, kept cached), scaled so
+ * its brightest channel is NP_TINT_MAX: grey #AAAAAA text keeps 4.5:1 on it. A near-black cover
+ * or none tints nothing. */
+static void np_tint(void) {
+    static const unsigned char at[4][4] = BITMAP_RGBA_AT;
+    unsigned bitmap[64], tint = 0, sum[3] = { 0, 0, 0 }; /* bitmap_t */
+    const char *name = widget_get_prop_str(st.np_cover, "image", (void *)0);
+    if (name && *name && !widget_load_image(st.np_cover, name, bitmap)) {
+        unsigned w = bitmap[0], h = bitmap[1], format = ((unsigned short *)bitmap)[7] - 1u;
+        const unsigned char *data = format < 4 && w && h && w <= 4096 && h <= 4096
+                                        ? bitmap_lock_buffer_for_read(bitmap)
+                                        : 0;
+        if (data) {
+            const unsigned char *o = at[format];
+            unsigned stride = bitmap_get_line_length(bitmap);
+            for (unsigned y = 0; y < 16; ++y)
+                for (unsigned x = 0; x < 16; ++x) {
+                    const unsigned char *px =
+                        data + (y * h / 16 + h / 32) * stride + (x * w / 16 + w / 32) * 4;
+                    for (int c = 0; c < 3; ++c) sum[c] += px[o[c]] * px[o[3]] / 255;
+                }
+            bitmap_unlock_buffer(bitmap);
+        }
+    }
+    unsigned m = sum[0] > sum[1] ? sum[0] : sum[1];
+    if (sum[2] > m) m = sum[2];
+    if (m >= 16 * 256) /* an average channel of 16 or more */
+        for (int c = 0; c < 3; ++c) tint |= sum[c] * NP_TINT_MAX / m << (16 - 8 * c);
+    if (tint == st.np_tint) return;
+    st.np_tint = tint;
+    widget_invalidate_force(st.np_win, (void *)0);
+}
+
 static void np_sync(void *top) {
     if (!top || top != st.np_win) return;
+    np_tint();
     unsigned at, n;
     void *r = queue_now(&at, &n);
     const char *album = now_tag(r, REC_ALBUM);
@@ -1829,6 +1877,12 @@ int ringnav_paint_bg(void *w, void *canvas) {
     coverflow_home_clip(w, canvas, 1);
     if (w && w == st.bar_slot) paint_battery(w, canvas);
     if (!w || P(w, W_PARENT) != wm) return result;
+    if (w == st.np_win && st.np_tint && st.np_slider && P(canvas, CANVAS_LCD)) {
+        unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+        gradient(canvas, (rect_t){ 0, 0, I(w, W_W), I(st.np_slider, W_Y) }, st.np_tint, 0,
+                 st.np_tint);
+        canvas_set_fill_color(canvas, fill);
+    }
     if (w == bar && P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
         canvas_set_fill_color(canvas, RGBA(BAR_COLOR));
@@ -1954,10 +2008,10 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    static const char *const home[] = { "Home: Split", "Home: Full" }, *const battery[] = {
-        "Battery: Icon", "Battery: Percent", "Battery: Icon + Percent"
-    };
-    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };
+    static const char *const home[] = { "Home: Split", "Home: Full", "Home: Backdrop" },
+                             *const battery[] = { "Battery: Icon", "Battery: Percent",
+                                                  "Battery: Icon + Percent" };
+    const char *const names[] = { accent_names[accent()], home[st.home], battery[st.battery] };
     widget_set_text_utf8(st.setting_label[i], names[i]);
 }
 
@@ -1967,10 +2021,10 @@ static void setting_text(int i) {
 static int setting_click(void *ctx, void *event) {
     (void)event;
     static const char *const keys[] = { "ACCENT", "HOME", "BATTERY" };
-    static const int counts[] = { ACCENT_N, 2, 3 };
+    static const int counts[] = { ACCENT_N, 3, 3 };
     int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery */
-    int *const values[] = { &st.accent, &st.home_full, &st.battery }, *value = values[i];
-    *value = (*value + 1) % counts[i];
+    int *const values[] = { &st.accent, &st.home, &st.battery }, *value = values[i];
+    *value = (*value + (i == 1 ? 2 : 1)) % counts[i]; /* Home: Backdrop, Full, Split */
     write_int_config(*value, "IPOD", keys[i]);
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
