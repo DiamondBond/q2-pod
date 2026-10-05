@@ -3293,7 +3293,7 @@ static void resume_poll(void) {
 static void charge_poll(void) {
     unsigned now = time_now_ms();
     if (st.charge_at && now - st.charge_at < CHARGE_POLL_MS) return;
-    st.charge_at = now | 1;
+    st.charge_at = now | !now; /* never 0, no poll yet; |1 would eat a millisecond when now is even */
     int level = I(g_power_capacity, 0), charging = (unsigned)I(g_power_chargestate, 0) - 1 < 2;
     int hold = st.charge_limit && level > CHARGE_RESUME && (st.charge_held || level >= CHARGE_STOP);
     if (hold && (!st.charge_held || charging))
@@ -3332,7 +3332,7 @@ static void cpu_poll(void) {
     if (!off) { /* a refused online is retried once a second */
         if (st.cpu_retry && now - st.cpu_retry < 1000) return;
         st.cpu_off = !cpu1_write(1);
-        st.cpu_retry = st.cpu_off ? now | 1 : 0;
+        st.cpu_retry = st.cpu_off ? now | !now : 0; /* never 0; |1 would eat a millisecond when now is even */
         return;
     }
     if (!st.cpu_marked) { /* no marker on flash, no offline: the guard must hold */
