@@ -202,6 +202,18 @@
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys
  * (volume, play/pause, wake) wait at most this much longer. */
 #define SCREEN_OFF_SLEEP_MS 40
+/* Low power (docs/internals.md#low-power): the screen-off turn idles LOW_OFF_SLEEP_MS instead, and
+ * with the screen on, once LOW_IDLE_MS pass without input or a window animation, each turn idles
+ * LOW_IDLE_SLEEP_MS (about 30 passes a second; the first input after waits at most that). CPU1
+ * goes offline while the screen is off and no video plays. */
+#define LOW_OFF_SLEEP_MS 100
+#define LOW_IDLE_MS 2000
+#define LOW_IDLE_SLEEP_MS 25
+/* Charge limit: the charger stops at CHARGE_STOP percent and starts again at CHARGE_RESUME,
+ * checked every CHARGE_POLL_MS. */
+#define CHARGE_STOP 80
+#define CHARGE_RESUME 75
+#define CHARGE_POLL_MS 5000
 /* Resume (docs/internals.md#resume): tracks of RESUME_MIN_S or longer keep their place in the
  * RESUME_SLOTS most recent; a place within RESUME_EDGE_S of either end is forgotten. Saved on a
  * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less
@@ -281,6 +293,9 @@
 #define MCL_POS 0xa3bea4
 #define MCL_MODE 0xa3bea8       /* 0 order, 1 repeat one, 2 shuffle, 3 repeat all */
 #define MCL_FD 0xa3beb4         /* player socket, -1 none */
+/* mclUsbAudioSetVol (0x5ac574): the USB DAC's volume control, -1 before the first set, -2 when it
+ * has none and hciplayer's soft volume (mcl-softvolflag) applies instead (0x5a8498 opens hw:1). */
+#define USB_MIXER 0xa3be6c
 /* Stock sortselect_dialog callbacks the menu replaces: both set g_sort_changeflag, which makes
  * allmusic reload and scroll to the top on return. */
 #define SORTSELECT_KEYUP 0x49f3e0

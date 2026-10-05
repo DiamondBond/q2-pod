@@ -717,21 +717,31 @@ static struct {
 
 int video_on(void) { return vid.pid; }
 
+/* A USB DAC's volume is in software, hciplayer's as Bluetooth's, only when the USB volume is
+ * variable (g_usbvol_mode) and the DAC has no volume control of its own: mclUsbAudioSetVol then
+ * finds none (USB_MIXER -2) and tells hciplayer {mcl-softvolflag\1}. Otherwise the DAC applies it. */
+static int usb_soft(void) { return g_usbvol_mode && I(USB_MIXER, 0) == -2; }
+
 static int play_video(void *ctx, void *event) {
     (void)event;
     if (vid.pid) return 0;
     /* The headphone DAC keeps the volume set. Bluetooth's is hciplayer's soft volume, so the
      * helper gets g_volume to apply it the same way, on hciplayer's own plug:bluealsa (the device
-     * demo writes to /mnt/data/asound.conf). A USB DAC's stays hciplayer's: silent. */
+     * demo writes to /mnt/data/asound.conf). A USB DAC plays on hciplayer's hw:2,0 (plughw, for
+     * the 48 kHz stereo stream): with g_volume when its volume is soft, else "h" and the volume,
+     * which the helper only shows. */
     int way = mclGetOutputWay(), sound = way != 1 && way != 2;
-    char vol[4];
-    tk_snprintf(vol, sizeof vol, "%u", g_volume);
+    char vol[5];
+    tk_snprintf(vol, sizeof vol, way == 2 && !usb_soft() ? "h%u" : "%u", g_volume);
     player_stop(); /* hciplayer holds the PCM even paused */
     if (sound && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
     int pid = fork();
     if (!pid) {
-        execl(VIDEO_BIN, VIDEO_BIN, sound ? "plughw:1,0" : way == 1 ? "plug:bluealsa" : "-",
-              bk.path[(int)(long)ctx], way == 1 ? vol : (char *)0, (char *)0);
+        execl(VIDEO_BIN, VIDEO_BIN,
+              sound       ? "plughw:1,0"
+              : way == 1 ? "plug:bluealsa"
+                         : "plughw:2,0",
+              bk.path[(int)(long)ctx], sound ? (char *)0 : vol, (char *)0);
         exit(127);
     }
     vid.pid = pid > 0 ? pid : 0;
@@ -759,8 +769,8 @@ void video_poll(void) {
 /* Return quits, Play/Pause pauses, the side buttons seek. The wheel is the volume, as on Now
  * Playing; Centre toggles it to seeking, which ends SCRUB_MS after the last tick (video_poll). The
  * volume steps as stock's volume_dialog keys (0x4a2044): 1 a tick, up to 100 and g_maxvolume,
- * through device_set_volume (the DAC's, or hciplayer's for Bluetooth) and saved; the helper gets
- * it for Bluetooth's gain and its bar. */
+ * through device_set_volume (the DAC's, or hciplayer's for Bluetooth and a soft USB volume) and
+ * saved; the helper gets it for that soft gain and its bar. */
 void video_key(unsigned key) {
     int wheel = key == KEY_NEXT || key == KEY_PREV, v = g_volume + (key == KEY_NEXT ? 1 : -1);
     if (key == KEY_CENTER) vid.seek = !vid.seek;
