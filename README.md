@@ -41,7 +41,7 @@
 
 - iPod classic lists, Home and Now Playing
 - Wheel with acceleration and position memory
-- Coverflow
+- Coverflow and a Now Playing visualizer
 - Accent, Home layout and battery style
 
 </td>
@@ -51,7 +51,7 @@
 
 - Hold Play/Pause: Favourites, Add to playlist, Shuffle, Go to album/artist
 - Shuffle Songs and Most Played (your top 100)
-- Parametric EQ: up to 30 bands, per channel, with balance
+- Parametric EQ: up to 30 bands, per channel, with balance and a live curve
 - Sorting ignores a leading The, A or An
 
 </td>
@@ -115,7 +115,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 - **Lists:** four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
 - **Status bar:** play state, EQ, time, Bluetooth, Wi-Fi, battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
 - **Now Playing:** "3 of 12", large rounded cover beside title, artist and album, and a slim accent progress capsule.
-- **Visualizer:** swipe Now Playing to its fourth page: Spectrum, Oscilloscope, VU Meters or Halo. Tap to switch.
+- **Visualizer:** swipe Now Playing to its fourth page: Spectrum, Oscilloscope, VU Meters or Halo. Tap to switch; your choice is kept. It follows what you hear, EQ included.
 - **Quick settings:** pull down from the top edge.
 - **Page slides:** in from the right, back out on Return.
 - **Fast-scroll letter:** spinning a long list shows the letter it sorts under (C for The Cure).
