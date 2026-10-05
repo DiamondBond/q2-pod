@@ -1,1 +1,3 @@
 Video sound over USB DAC.
+
+Does this have a battery charge limit after mod? I really want any device to be able to be capped at 80% so the battery doesn’t prematurely fail.
