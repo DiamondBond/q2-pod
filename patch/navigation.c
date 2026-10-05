@@ -2668,33 +2668,60 @@ int ringnav_folder_back(void *yoffset, void *index) {
     return stock_folder_back_trampoline(yoffset, index);
 }
 
-/* localmusic_page_init: stock's 11 category rows (0x5247ec), then Shuffle Songs, Most Played and,
- * with an account in .scrobble.ini, Upload Scrobbles moved first. Their buttons have no name, so
- * stock's row click (atoi of the name, 0x5241fc) never sees them. */
+/* A list_row titled text; returns its list_item. */
+static void *library_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx,
+                         const char *text) {
+    void *label = list_row(view, icon, click, ctx);
+    widget_set_text_utf8(label, text);
+    return P(P(label, W_PARENT), W_PARENT);
+}
+
+/* localmusic_page_init: stock's 11 category rows (0x5247ec), by index (get_localmusic_showinfo
+ * 0x5012d0): Update Local Music, All Songs, Album, Artist, Genre, Hi-Res, My Fav, Frequent,
+ * Recent, Recently Added, Playlist. */
+enum {
+    L_UPDATE,
+    L_SONGS,
+    L_ALBUMS,
+    L_ARTISTS,
+    L_GENRES,
+    L_HIRES,
+    L_FAV,
+    L_FREQUENT,
+    L_RECENT,
+    L_ADDED,
+    L_PLAYLISTS,
+    L_STOCK
+};
+
+/* The Library: Shuffle Songs, browsing, the user's own lists, listening history, the card's other
+ * media, then upkeep. The added rows' buttons have no name, so stock's row click (atoi of the
+ * name, 0x5241fc) never sees them. */
 int ringnav_localmusic(void *win, void *ctx) {
     int result = stock_localmusic_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_localmusic", 1) : (void *)0;
-    if (view) {
-        void *label = list_row(view, "local_shuffle", shuffle_songs, 0);
-        widget_set_text_utf8(label, "Shuffle Songs");
-        widget_restack(P(P(label, W_PARENT), W_PARENT), 0);
-        label = list_row(view, "local_frequentplay", most_played, 0); /* stock's, unused */
-        widget_set_text_utf8(label, "Most Played");
-        widget_restack(P(P(label, W_PARENT), W_PARENT), 1);
-        if (scrobble_ready()) {
-            label = list_row(view, "local_scrobble", upload_scrobbles, 0);
-            widget_set_text_utf8(label, "Upload Scrobbles");
-            widget_restack(P(P(label, W_PARENT), W_PARENT), 2);
-        }
-        /* Podcasts, Audiobooks, Photos, Books, then Videos, last; each only with its folder. */
-        static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos",
-                                             "local_books", "local_videos" };
-        char path[sizeof st.media_root];
-        for (int k = 0; k < VIDEOS; k++)
-            if (media_find(k + 1, path))
-                widget_set_text_utf8(list_row(view, icons[k], media_click, (void *)(long)(k + 1)),
-                                     MEDIA[k]);
-    }
+    if (!view || widget_count_children(view) != L_STOCK) return result;
+    void *stock[L_STOCK];
+    for (int i = 0; i < L_STOCK; i++) stock[i] = widget_get_child(view, i);
+    unsigned n = 0; /* each row moves to n as it comes, so Update Local Music, left, ends last */
+    widget_restack(library_row(view, "local_shuffle", shuffle_songs, 0, "Shuffle Songs"), n++);
+    static const unsigned char middle[] = { L_ARTISTS,   L_ALBUMS, L_SONGS, L_GENRES,
+                                            L_PLAYLISTS, L_FAV,    L_ADDED, L_RECENT };
+    for (unsigned i = 0; i < sizeof middle; i++) widget_restack(stock[middle[i]], n++);
+    widget_restack(library_row(view, "local_frequentplay", most_played, 0, "Most Played"), n++);
+    widget_restack(stock[L_FREQUENT], n++);
+    widget_restack(stock[L_HIRES], n++);
+    /* Podcasts, Audiobooks, Photos, Books and Videos, each only with its folder. */
+    static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos",
+                                         "local_books", "local_videos" };
+    char path[sizeof st.media_root];
+    for (int k = 0; k < VIDEOS; k++)
+        if (media_find(k + 1, path))
+            widget_restack(
+                library_row(view, icons[k], media_click, (void *)(long)(k + 1), MEDIA[k]), n++);
+    if (scrobble_ready())
+        widget_restack(library_row(view, "local_scrobble", upload_scrobbles, 0, "Upload Scrobbles"),
+                       n++);
     return result;
 }
 
