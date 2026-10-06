@@ -3080,13 +3080,9 @@ static void qm_playlist_bind(void *w, int depth) {
         qm_playlist_bind(widget_get_child(w, i), depth + 1);
 }
 
-/* Stock destroys the old rows before rebuilding, including our Create row. */
+/* Rebind the guarded Now Playing picker after stock rebuilds its rows. */
 int ringnav_playlist(void *win) {
     int result = stock_playlist_trampoline(win);
-    void *view = win ? widget_lookup(win, "scroll_view", 1) : (void *)0;
-    if (view)
-        widget_restack(library_row(view, "playlist_default", playlist_create, win,
-                                   "Create playlist"), 0);
     if (win == st.qm_playlist) qm_playlist_bind(win, 0);
     return result;
 }

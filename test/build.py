@@ -391,7 +391,10 @@ def validate_assets(directory):
                     assert node[2] == {**old[2], 'default_item_height': str(SET_ROW)} and node[3] == old[3], short
                     continue
                 assert node[1][1] == old[1][1] - 50 and node[1][3] == old[1][3] and node[2] == old[2], short
-        assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
+        if short == 'localmusic/playlist_page.bin':
+            assert nav == next(n for n in decode(original)[3] if n[2].get('name') == 'view_navbar')
+        else:
+            assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         assert not ipod or not [v for n in walk(root) if n[0] in ('button', 'list_item', 'table_row')
                                 for k, v in n[2].items() if k.endswith(':bg_color') and v == '#000000'], 'Opaque inline row background'
         old_nodes, new_nodes = list(walk(decode(original))), list(walk(root))
@@ -401,7 +404,8 @@ def validate_assets(directory):
                 if 'font' in key or key == 'style': assert node[2][key] == value
         if short in ('folder_page.bin', 'localmusic_page.bin', 'localmusic/localclass_page.bin', 'localmusic/playlist_page.bin'):
             surface = next(n for n in root[3] if n[0] in ('list_view', 'table_view'))
-            assert surface[1][1:] == [0, 375, BOTTOM], 'Lists must fill the client area'
+            top = 50 if short == 'localmusic/playlist_page.bin' else 0
+            assert surface[1][1:] == [top, 375, BOTTOM-top], 'Lists must fill the client area'
             assert 4*PITCH <= BOTTOM, 'Four complete rows must fit'
         # Corrupt inputs must be rejected, never silently patched.
         try: patch_asset(short, original[:-1]+b'x', ipod)

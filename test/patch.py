@@ -2689,28 +2689,11 @@ class PlaylistMachine(PlayingPlaylistMachine):
 for count in (0,3):
     for mode in (0,1,2):
         m=PlaylistMachine(count,mode); kids=m.rebuild()
-        assert len(kids)==count+(0 if mode else 1)+(variant=='ipod')
-        if variant=='ipod':
-            create=m.nodes[kids[0]]['children'][0]
-            icon,label=m.nodes[create]['children']
-            assert m.nodes[label]['text']=='Create playlist' and m.nodes[icon]['image']=='playlist_default'
-            assert m.handler(create,O['EVT_CLICK'])==(syms['playlist_create'],m.top)
-            for accept in (False,True):
-                m.accept=accept
-                m.paint(m.view); m.click(create)  # touch dispatch selects the same target
-                assert m.clicks[-1]==create
-                f,ctx=m.handler(create,O['EVT_CLICK'])
-                m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-                assert m.dialogs==1+accept
-                kids=m.rebuild(); create=m.nodes[kids[0]]['children'][0]
-                assert len(kids)==count+(0 if mode else 1)+1+accept
-            previous=len(kids); kids=m.rebuild(); assert len(kids)==previous
-            create=m.nodes[kids[0]]['children'][0]
-            m.paint(m.view); m.call(O['KEY_NEXT']); m.call(O['KEY_PREV']); m.call(O['KEY_CENTER']); m.advance(DC+1)
-            assert m.clicks[-1]==create
+        assert len(kids)==count+(0 if mode else 1)
+        previous=len(kids); kids=m.rebuild(); assert len(kids)==previous
         # Restacking leaves stock's numeric button names/context unchanged.
         if count:
-            row=kids[(variant=='ipod')+(0 if mode else 1)]
+            row=kids[0 if mode else 1]
             button=m.nodes[row]['children'][0]
             assert m.nodes[button]['name']=='0'
             assert m.handler(button,O['EVT_CLICK'])==(m.STOCK_PICK,button)
@@ -2723,7 +2706,7 @@ if variant=='ipod':
         m.top=m.stack[0]; m.run(3); page=m.top
         m.view=m.nodes[page]['children'][0]; m.nodes[m.view]['name']='scroll_view'
         m.word(syms['p_deque_playlist'],m.deque([m.song('Created')]))
-        kids=m.rebuild(); button=m.nodes[kids[1]]['children'][0]
+        kids=m.rebuild(); button=m.nodes[kids[0]]['children'][0]
         f,ctx=m.handler(button,O['EVT_CLICK']); assert f!=m.STOCK_PICK
         if stale: m.word(O['MCL_POS'],2)
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==(11 if stale else 0)

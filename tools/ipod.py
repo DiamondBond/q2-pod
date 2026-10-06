@@ -559,8 +559,10 @@ def patch_asset(path, data, ipod):
     nav = [n for n in root[3] if n[2].get('name') == 'view_navbar']
     require(len(nav) == 1 and nav[0][1] in ([0, 0, 375, 50], [0, 0, 370, 50]), f'{path}: unexpected toolbar')  # 370: stream_page
     # Keep the widget (and callback lookups) alive. Children may be recreated by stock.
-    nav[0][2]['visible'] = 'false'
-    nav[0][2]['enable'] = 'false'
+    playlist = path == 'localmusic/playlist_page.bin'
+    if not playlist:
+        nav[0][2]['visible'] = 'false'
+        nav[0][2]['enable'] = 'false'
     for n in root[3]:
         if n is nav[0]:
             continue
@@ -572,7 +574,8 @@ def patch_asset(path, data, ipod):
             g[1], g[3] = SET_TOP, SET_ROWS * SET_ROW
         elif kind in ('list_view', 'table_view', 'tab_control'):
             require(g[1] in (50, 100), f'{path}: unexpected list position')
-            g[1] -= 50
+            if not playlist:
+                g[1] -= 50
             g[3] = BOTTOM - g[1]
         elif props.get('name') == 'view_navbar_allplay':
             require(g == [0, 50, 375, 50], f'{path}: unexpected action bar')

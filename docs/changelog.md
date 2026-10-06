@@ -1,6 +1,6 @@
 # Changelog
 
-- iPod: the playlist picker now starts with **Create playlist**, selectable with the wheel or touch, including when no playlists exist.
+- **V9.1**: iPod: restore the stock playlist toolbar and its menu, replacing the separate Create playlist row. Restore the stock-connected Bluetooth handoff to Rockbox.
 
 - **V9.0**: Hold Play/Pause on Now Playing opens the current local track’s queue, favourites, playlist and album/artist actions. Actions cancel if playback advances or the queue changes. Sustained Coverflow scrolling in Album or Artist order jumps between populated initials, with a brief letter overlay; Sort, Refresh and wrapping remain reachable.
 
