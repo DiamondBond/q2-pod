@@ -100,7 +100,7 @@
 
 [Rockbox](https://github.com/DiamondBond/q2-rockbox) can run next to Q2 Pod from the microSD card: unzip its [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root and the Q2 starts Rockbox at power-on. **Hold Play/Pause while powering on**, or Rockbox's **Boot stock OS**, to start Q2 Pod for that session; the next power-on is Rockbox again. Ported themes: [q2-rockbox-themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). See [Setup](docs/setup.md).
 
-**Rockbox over Bluetooth:** set **Display → Shortcut** to **Rockbox**, and Home's Streaming row starts Rockbox. Connect your headphones in Q2 Pod first, then pick **Rockbox** on Home: Rockbox plays through them.
+**Rockbox over Bluetooth:** pair your headphones once in Q2 Pod and leave stock Bluetooth enabled. Rockbox then reconnects to stock’s last paired headset at startup, including cold boot. Wired headphones take priority. **Display → Shortcut → Rockbox** also starts Rockbox from Home. This requires firmware and Rockbox builds containing the automatic reconnect changes; hardware validation is pending.
 
 ### Restore stock
 

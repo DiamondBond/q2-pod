@@ -84,6 +84,7 @@ HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.
 # (navigation.c rockbox_shortcut) leaves ROCKBOX_FLAG and kills demo: Rockbox runs again, its
 # watchdog stopped in case demo's kill was not reached, then demo once more. Any other end of demo
 # ends the loop, so the watchdog reboots as stock's would.
+BLUETOOTH = 'usr/bin/q2bluetooth'
 BOOT = 'usr/bin/q2boot'
 S90PLAY = 'etc/init.d/S90play'
 S90PLAY_SHA = 'a6a7ed7d9a10e38801f4a41ec6f3c0ce2bc07c00d213c9278785c5f8d4520e24'
@@ -92,8 +93,13 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
         rb=/mnt/mmc/.rockbox
         rockbox() {{
             [ -f $rb/rockbox ] || return
+            /usr/bin/q2bluetooth >> $rb/rockbox.log 2>&1 &
+            bt=$!
             (cd $rb && exec ./rockbox) > $rb/rockbox.log 2>&1
-            echo "exit $?" >> $rb/rockbox.log
+            status=$?
+            kill "$bt" 2>/dev/null
+            wait "$bt" 2>/dev/null
+            echo "exit $status" >> $rb/rockbox.log
         }}
         if ! /usr/bin/q2boot; then
             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -663,6 +669,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
+                               BLUETOOTH: (HELPER_LIKE, (ROOT/'patch/q2bluetooth.sh').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1]))}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')
