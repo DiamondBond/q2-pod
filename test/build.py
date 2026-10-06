@@ -392,7 +392,13 @@ def validate_assets(directory):
                     continue
                 assert node[1][1] == old[1][1] - 50 and node[1][3] == old[1][3] and node[2] == old[2], short
         if short == 'localmusic/playlist_page.bin':
-            assert nav == next(n for n in decode(original)[3] if n[2].get('name') == 'view_navbar')
+            old_nav = next(n for n in decode(original)[3] if n[2].get('name') == 'view_navbar')
+            gif, old = (next(n for n in p[3] if n[2].get('name') == 'gif_returnplay') for p in (nav, old_nav))
+            assert gif[1] == [375 - corner_x(30, old[1][3]) - old[1][2], *old[1][1:]]
+            assert nav[2].get('visible') != 'false' and nav[2].get('enable') != 'false'
+            gif[1][0] = old[1][0]
+            assert nav == old_nav, 'only the right button keeps clear of the glass'
+            gif[1][0] = 375 - corner_x(30, gif[1][3]) - gif[1][2]
         else:
             assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         assert not ipod or not [v for n in walk(root) if n[0] in ('button', 'list_item', 'table_row')

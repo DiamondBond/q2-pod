@@ -563,6 +563,10 @@ def patch_asset(path, data, ipod):
     if not playlist:
         nav[0][2]['visible'] = 'false'
         nav[0][2]['enable'] = 'false'
+    else:  # the toolbar's right button keeps the iPod glyphs' corner clearance
+        for n in nav[0][3]:
+            if n[2].get('name') == 'gif_returnplay':
+                n[1][0] = 375 - corner_x(30, n[1][3]) - n[1][2]
     for n in root[3]:
         if n is nav[0]:
             continue
