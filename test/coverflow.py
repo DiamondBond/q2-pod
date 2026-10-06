@@ -64,6 +64,7 @@ TEST = r"""
 #undef pthread_mutex_lock /* the stubs below record, then take the real lock */
 #undef pthread_mutex_unlock
 int coverflow_home(void *, void *);
+const char *track_name(char *, unsigned, void *);
 
 /* Widgets: raw memory first, so the payload's field reads (SLIDE_INDEX) land in it. */
 typedef struct { char raw[0x100]; int parent, visible, kids[512], nkids, bg; char type[32], text[160], image[600];
@@ -735,6 +736,18 @@ static void unknown_card(void) {
 }
 
 int main(void) {
+    /* Titles come from tags, unchanged; missing tags retain filename/CUE fallbacks. */
+    char track[0x60] = {0}, name[512];
+    *(const char **)(track + REC_NAME) = "01 - File.flac";
+    *(const char **)(track + REC_PATH) = "/music/01 - File.flac";
+    *(const char **)(track + REC_TITLE) = "Tagged title.flac";
+    assert(!strcmp(track_name(name, sizeof name, track), "Tagged title.flac"));
+    *(const char **)(track + REC_TITLE) = "";
+    assert(!strcmp(track_name(name, sizeof name, track), "01 - File"));
+    *(const char **)(track + REC_TITLE) = 0;
+    assert(!strcmp(track_name(name, sizeof name, track), "01 - File"));
+    *(const char **)(track + REC_NAME) = "CUE title";
+    assert(!strcmp(track_name(name, sizeof name, track), "CUE title"));
     /* The stock scan flags are raw addresses in the device ABI; map them here. */
     assert(mmap((void *)(SCAN_THREAD & ~4095), 4096, PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);

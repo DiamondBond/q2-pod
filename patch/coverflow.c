@@ -982,9 +982,11 @@ static void *in_order(void *tracks) {
     return out;
 }
 
-/* A track's file name without its file's extension; a name not ending in it (CUE) stays whole.
- * Shared with navigation.c's scrobbler. */
+/* A track's tagged title, else its file name without the extension; CUE names stay whole.
+ * Shared with navigation.c's Most Played and scrobbler. */
 const char *track_name(char *buf, unsigned size, void *t) {
+    const char *title = P(t, REC_TITLE);
+    if (title && *title) return title;
     const char *name = P(t, REC_NAME), *path = P(t, REC_PATH), *ext = 0;
     if (!name || !path) return name;
     for (; *path; ++path)

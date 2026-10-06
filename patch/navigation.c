@@ -3240,8 +3240,7 @@ static void scrobble(void *r, int total, int heard) {
     char line[800], name[512], *end = line + sizeof line - 48, *o = line; /* 48: the numbers */
     o = scrobble_tag(o, end, artist);
     o = scrobble_tag(o, end, now_tag(r, REC_ALBUM));
-    const char *title = P(r, REC_TITLE);
-    o = scrobble_tag(o, end, title && *title ? title : track_name(name, sizeof name, r));
+    o = scrobble_tag(o, end, track_name(name, sizeof name, r));
     if (I(r, REC_TRACK) > 0) o += tk_snprintf(o, 12, "%d", I(r, REC_TRACK));
     o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%d\t\n", total,
                      (int)now - heard);
