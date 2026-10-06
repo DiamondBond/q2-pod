@@ -669,6 +669,8 @@ static void press_sort(void) {
     run();
     assert(*(int *)(slide()->raw + SLIDE_INDEX) == n); /* still on the Sort card */
 }
+extern int coverflow_jump(void *, int, int, unsigned *);
+
 static void sorting(void) {
     mkdir(PEQ_ROOT "/mnt/data", 0755);
     /* Cover Folder Embedded None New A B C Tight; B is The Beatles', Tight Abba's. */
@@ -686,16 +688,22 @@ static void sorting(void) {
     press_sort();
     assert(saved_sort() == 1 && queries == q + 1); /* only the ranking is queried */
     order_is((const char *const[]){ "Tight", "None", "Folder", "Cover", "Embedded", "New", "A", "C", "B", 0 });
+    unsigned letter;
+    assert(coverflow_jump(slide(), 0, 1, &letter) == 8 && letter == 'B');
+    assert(coverflow_jump(slide(), 1, 1, &letter) == 7 && letter == 'B');
+    assert(coverflow_jump(slide(), 8, -1, &letter) == 8 && letter == 'A');
     /* Recently Added: the query's order (a name in another case still matches), the rest after. */
     ranked[0] = "C", ranked[1] = "a", ranked[2] = "New", ranked[3] = "COVER", ranked[4] = "Gone", ranked[5] = 0;
     press_sort();
     order_is((const char *const[]){ "C", "A", "New", "Cover", "Folder", "Embedded", "None", "B", "Tight", 0 });
+    assert(coverflow_jump(slide(), 0, 1, &letter) == 1 && !letter);
     /* Most Played: the album's listens, most first, ties and unplayed in stock order. */
     played[4] = 5, played[1] = 2, played[7] = 2;
     q = queries;
     press_sort();
     assert(saved_sort() == 3 && queries == q);
     order_is((const char *const[]){ "New", "Folder", "C", "Cover", "Embedded", "None", "A", "B", "Tight", 0 });
+    assert(coverflow_jump(slide(), 0, 1, &letter) == 1 && !letter);
     /* The order outlives the page; Album again is the stock order. */
     close_page();
     open_page();

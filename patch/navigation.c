@@ -14,6 +14,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_localclass_trampoline(int), stock_power_trampoline(void *, void *),
     stock_audioset_trampoline(void *, void *);
 extern void *coverflow_tracks(void *page);
+extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
@@ -72,6 +73,8 @@ typedef struct {
     unsigned last_center; /* release time of the pending selection press */
     unsigned center_timer, center_token, center_scope, center_hash, center_hash2;
     int center_id, center_ctx, center_rows;
+    unsigned cf_letter, cf_letter_at, cf_letter_timer;
+    void *cf_letter_surface;
     unsigned last_home;
     int home_dir;
     void *home_surface;   /* non-null also marks a step accepted at time zero */
@@ -166,7 +169,8 @@ typedef struct {
     unsigned long long qm_press;
     unsigned qm_timer, qm_cls, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
     int qm_kind, qm_action;
-    void *qm_dialog;
+    void *qm_dialog, *qm_queue, *qm_playlist;
+    unsigned qm_queue_hash;
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
     /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set; while the page
      * is there, Back at that root leaves it. */
@@ -416,7 +420,17 @@ static int home_done(void *w, void *event) {
     return 7; /* RET_REMOVE: same one-shot lifetime as stock completion */
 }
 
-static void home_step(void *w, int dir, unsigned now) {
+static void *surface(void *target, void **other);
+
+static int cf_letter_expire(const void *info) {
+    (void)info;
+    st.cf_letter_timer = st.cf_letter = 0;
+    void *w = surface(0, 0);
+    if (w && w == st.cf_letter_surface) widget_invalidate_force(w, 0);
+    return 0;
+}
+
+static void home_step(void *w, int dir, unsigned now, int jump) {
     int n = (int)widget_count_children(w);
     int stride = slide_menu_item_width(w) + I(w, SLIDE_SPACER);
     int fast =
@@ -431,6 +445,18 @@ static void home_step(void *w, int dir, unsigned now) {
         if (dir > 0 ? goal >= live : goal <= live) goal -= dir * stride;
     } else
         goal -= dir * stride;
+    unsigned letter = 0;
+    int from = (I(w, SLIDE_INDEX) - goal / stride - dir) % n;
+    if (from < 0) from += n;
+    int steps = jump ? coverflow_jump(w, from, dir, &letter) : 1;
+    goal -= dir * stride * (steps - 1);
+    st.cf_letter = letter;
+    st.cf_letter_at = now;
+    st.cf_letter_surface = w;
+    if (letter)
+        rearm(&st.cf_letter_timer, cf_letter_expire, LETTER_MS);
+    else
+        stop_timer(&st.cf_letter_timer);
     if (!a) {
         a = widget_animator_scroll_create(w, HOME_SLIDE_MS, 0, SLIDE_EASING);
         if (a && !widget_animator_on(a, EVT_ANIM_END, home_done, w)) {
@@ -1447,6 +1473,19 @@ int ringnav_paint(void *w, void *canvas) {
 #endif
     int result = stock_paint_trampoline(w, canvas);
     coverflow_paint(w, canvas);
+    if (w == st.cf_letter_surface && st.cf_letter &&
+        (unsigned)time_now_ms() - st.cf_letter_at < LETTER_MS && P(canvas, CANVAS_LCD)) {
+        unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+        rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (I(w, W_H) - LETTER_BOX) / 2, LETTER_BOX,
+                       LETTER_BOX };
+        unsigned color = (LETTER_ALPHA << 24) | FILL_RGB;
+        if (canvas_fill_rounded_rect(canvas, &box, 0, &color, LETTER_RADIUS)) {
+            canvas_set_fill_color(canvas, color);
+            canvas_fill_rect(canvas, box.x, box.y, box.w, box.h);
+        }
+        draw_centred(canvas, &st.cf_letter, 1, &box, LETTER_PX, 0xffffffff);
+        canvas_set_fill_color(canvas, fill);
+    }
     photos_paint(w, canvas);
     books_paint(w, canvas);
     peq_paint(w, canvas);
@@ -2407,7 +2446,7 @@ void ringnav_boot(const char *page, const int *ctx) {
 /* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
  * on a local song, album, artist/composer/genre or folder row opens the stock sortselect dialog
  * rebuilt as that row's menu. */
-enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW, QM_COVERALBUM };
+enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW, QM_COVERALBUM, QM_PLAYING };
 enum { QA_NEXT = 1, QA_ADD, QA_SHUFFLE, QA_FAV, QA_UNFAV, QA_PLAYLIST, QA_ALBUM, QA_ARTIST };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -2430,7 +2469,7 @@ static int hold_released(void) {
 static unsigned rec_hash(void *r) {
     unsigned h = FNV_SEED;
     for (int o = REC_NAME; o <= REC_ARTIST; o += 4) h = fnv(h, P(r, o));
-    return h;
+    return hash_bytes(h, (const unsigned char *)r + REC_CUE_START, 8);
 }
 
 /* Everything a row's tracks are resolved from; a change while the menu is open cancels it. */
@@ -2441,12 +2480,32 @@ static void *page_tracks(void *page) {
     return page && page == st.mp_page ? st.mp_list : coverflow_tracks(page);
 }
 
+static unsigned queue_hash(void *q) {
+    unsigned h = FNV_SEED;
+    for (unsigned i = 0, n = deque_size(q); i < n; ++i) {
+        unsigned r = rec_hash(deque_at(q, i));
+        h = hash_bytes(h, (const unsigned char *)&r, sizeof r);
+    }
+    return h;
+}
+
 static void *qm_list(void) {
+    if (st.qm_kind == QM_PLAYING) return P(mcl_pdeqplaylist, 0);
     return st.qm_kind == QM_COVERFLOW ? page_tracks(window_manager_get_top_window(window_manager()))
                                       : P(p_deque_showlist, 0);
 }
 
 static void *qm_record(void) {
+    if (st.qm_kind == QM_PLAYING) {
+        unsigned at, n;
+        void *r = queue_now(&at, &n), *q = P(mcl_pdeqplaylist, 0);
+        unsigned type = (unsigned)MCL(MCL_TYPE);
+        return r && q == st.qm_queue && at == st.qm_idx && n == st.qm_rows &&
+                       (type == 1 || (type & 0xf000) == 0xf000) && airplayGetFlag() != 2 &&
+                       rec_hash(r) == st.qm_hash && queue_hash(q) == st.qm_queue_hash
+                   ? r
+                   : 0;
+    }
     if (st.qm_kind == QM_COVERALBUM) {
         void *r = coverflow_album(window_manager_get_top_window(window_manager()));
         return r && rec_hash(r) == st.qm_hash ? r : 0;
@@ -2547,7 +2606,7 @@ static void *qm_collect(void *r) {
     if (st.qm_kind == QM_COVERALBUM) return coverflow_album_tracks(r);
     void *add = _create_deque("stSongInfo");
     deque_init(add);
-    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW)
+    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_PLAYING)
         _deque_push_back(add, r);
     else
         qm_tracks(r, add);
@@ -2988,6 +3047,39 @@ static void qm_select(void) {
     batch_set_selectitem((int)st.qm_idx);
 }
 
+/* Stock playlist rows use the queue in add mode 2. Guard their final dispatch as well. */
+#define PLAYLIST_PICK ((int (*)(void *, void *))0x4b1d24)
+static int qm_playlist_pick(void *ctx, void *event) {
+    if (!qm_record()) {
+        toast("Queue unchanged");
+        return STOP;
+    }
+    qm_select();
+    return PLAYLIST_PICK(ctx, event);
+}
+
+static int qm_playlist_gone(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    st.qm_playlist = 0;
+    return 0;
+}
+
+static void qm_playlist_bind(void *w, int depth) {
+    if (!w || depth == 16) return;
+    void *emitter = P(w, W_EMITTER);
+    for (void *item = emitter ? P(emitter, 0) : 0; item; item = P(item, EMIT_NEXT))
+        if (I(item, EMIT_TYPE) == EVT_CLICK && P(item, 12) == (void *)PLAYLIST_PICK &&
+            !B(item, EMIT_PENDING_REMOVE)) {
+            void *ctx = P(item, 0);
+            widget_off_by_func(w, EVT_CLICK, (void *)PLAYLIST_PICK, ctx);
+            widget_on(w, EVT_CLICK, qm_playlist_pick, ctx);
+            break;
+        }
+    for (unsigned i = 0, n = widget_count_children(w); i < n; ++i)
+        qm_playlist_bind(widget_get_child(w, i), depth + 1);
+}
+
 /* Deferred so the dialog is never closed under its own click dispatch. */
 static int qm_run(const void *unused) {
     (void)unused;
@@ -3007,7 +3099,17 @@ static int qm_run(const void *unused) {
         toast("Removed from Favourites");
     } else if (r && a == QA_PLAYLIST) { /* the playlist page's add mode adds the selected row */
         qm_select();
-        navigator_to_with_context("localmusic/playlist_page", (void *)(long)(0x10000 | cls));
+        navigator_to_with_context(
+            "localmusic/playlist_page",
+            (void *)(long)((st.qm_kind == QM_PLAYING ? 0x20000 : 0x10000) | cls));
+        if (st.qm_kind == QM_PLAYING) {
+            void *top = window_manager_get_top_window(window_manager());
+            if (!tk_strcmp(widget_get_prop_str(top, "name", ""), "playlist_page")) {
+                st.qm_playlist = top;
+                qm_playlist_bind(top, 0);
+                widget_on(top, EVT_DESTROY, qm_playlist_gone, top);
+            }
+        }
     } else if (r && a >= QA_ALBUM)
         qm_goto(r, a == QA_ALBUM);
     else {
@@ -3052,7 +3154,7 @@ static int qm_open(const void *unused) {
     widget_on(back, EVT_CLICK, qm_back, dialog);
     widget_on(dialog, EVT_DESTROY, qm_gone, dialog);
     unsigned cls = st.qm_cls;
-    int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW;
+    int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_PLAYING;
     const char *album = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
     const char *title = (st.qm_kind == QM_ALBUM || st.qm_kind == QM_COVERALBUM) ? album
                         : st.qm_kind == QM_GROUP ? P(r, qm_by[(cls & 0xf) - 4])
@@ -3067,9 +3169,9 @@ static int qm_open(const void *unused) {
     acts[n++] = QA_ADD;
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
-    if (st.qm_kind < QM_COVERFLOW) acts[n++] = QA_PLAYLIST;
-    if (st.qm_kind == QM_SONG && album && *album && (cls & 0xfff0) != 0xff10 &&
-        !navigator_window_is_exist("playerjumpinfo_page"))
+    if (st.qm_kind < QM_COVERFLOW || st.qm_kind == QM_PLAYING) acts[n++] = QA_PLAYLIST;
+    if ((st.qm_kind == QM_SONG || st.qm_kind == QM_PLAYING) && album && *album &&
+        (cls & 0xfff0) != 0xff10 && !navigator_window_is_exist("playerjumpinfo_page"))
         acts[n++] = QA_ALBUM;
     if ((song || cls == CLASS_ALBUMS) && artist && *artist &&
         !navigator_window_is_exist("artistinfo_page"))
@@ -3100,11 +3202,30 @@ static int qm_open(const void *unused) {
  * else stays stock. */
 static int qm_hold(void) {
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
-    if (st.qm_dialog || st.qm_timer || !usable() || !allowed_top(top) ||
-        window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm) ||
-        airplayGetFlag() == 2 || g_navbar_status)
+    const char *name = top ? widget_get_prop_str(top, "name", "") : "";
+    int playing = !tk_strcmp(name, "playing_page");
+    if (st.qm_dialog || st.qm_timer || st.qm_playlist || !usable() ||
+        (!playing && !allowed_top(top)) || window_manager_is_animating(wm) ||
+        window_manager_get_pointer_pressed(wm) || airplayGetFlag() == 2 || g_navbar_status)
         return 0;
-    const char *name = widget_get_prop_str(top, "name", "");
+    if (playing) {
+        unsigned at, n, type = (unsigned)MCL(MCL_TYPE);
+        void *r = queue_now(&at, &n), *q = P(mcl_pdeqplaylist, 0);
+        char *key = play_key();
+        if (!r || !key || (type != 1 && (type & 0xf000) != 0xf000) ||
+            !(st.qm_timer = timer_add(qm_open, 0, 0)))
+            return 0;
+        st.qm_kind = QM_PLAYING;
+        st.qm_cls = 0xf001;
+        st.qm_queue = q;
+        st.qm_idx = at;
+        st.qm_rows = n;
+        st.qm_hash = rec_hash(r);
+        st.qm_queue_hash = queue_hash(q);
+        st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
+        drop_input();
+        return 1;
+    }
     int kind = contexts[context_id(name)].kind;
     void *album = coverflow_album(top);
     char *key = play_key();
@@ -3633,7 +3754,8 @@ int ringnav(void *ctx, void *event) {
     }
     st.touch_mode = 0;
     if (is_home(top, w)) {
-        home_step(w, dir, now);
+        int speed = ramp(top, w, g_menu.scope, g_menu.ctx, dir, now, LIST_FIRST_MS, LIST_RAMP_MS);
+        home_step(w, dir, now, speed > 1);
         widget_invalidate_force(w, (void *)0);
         return STOP;
     }

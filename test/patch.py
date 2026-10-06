@@ -2549,7 +2549,89 @@ class QueueMachine(Machine):
     def labels(self): return [self.nodes[self.nodes[i]['children'][0]]['text'] for i in self.nodes[self.view]['children']]
     def playback(self): return [c for c in self.calls if c[0] in ('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek','playpause_quick_click')]
 
+sel=lambda m:[c[:2] for c in m.calls if c[0].startswith('batch_')]
 SONG_MENU=['Play next','Add to queue','Add to Favourites','Add to playlist','Go to album','Go to artist']
+# Now Playing targets the queue even when the last browsed list has unrelated rows.
+def playing_menu(**kw):
+    m=QueueMachine(page='playing_page',pos=1,**kw)
+    return m
+for state in (3,2):  # paused and playing both expose the same actions
+    m=playing_menu(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,state)
+    m.press(5000); assert m.release()==1
+    m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU
+    assert m.nodes[m.title]['text']=='B' and m.release()==0
+    m.press(7000); assert m.release()==1 and m.get(0xa3beac)==state; passed()
+for action,expected in ((0,['A','B','B','C']),(1,['A','B','C','B'])):
+    m=playing_menu(); assert m.run(action) is None and m.names()==expected and not m.playback(); passed()
+m=playing_menu(); assert m.run(2)=='Added to Favourites'
+assert [c[2:] for c in m.calls if c[0]=='batch_add_file']==[(0xf00a,m.get(syms['mcl_pdeqplaylist']))]
+assert sel(m)[:2]==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]; passed()
+m=playing_menu(); m.favs.add('B'); assert m.run(2)=='Removed from Favourites'
+assert [c[1] for c in m.calls if c[0]=='deleteMusicFromFav']==[m.items(m.get(syms['mcl_pdeqplaylist']))[1]]; passed()
+m=playing_menu(); m.run(3)
+assert m.opened[-1]==('localmusic/playlist_page',0x2f001)
+assert sel(m)==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]; passed()
+for action,page in ((4,'playerjumpinfo_page'),(5,'localmusic/artistinfo_page')):
+    m=playing_menu(); m.run(action); assert m.opened[-1][0]==page
+    if action==5: assert m.opened[-1][2]==m.items(m.get(syms['mcl_pdeqplaylist']))[1]
+    passed()
+for stage in ('open','action'):
+    for change in ('advance','replace','resize','other','song','cue','stream'):
+        m=playing_menu(); m.press(100)
+        if stage=='action': assert m.hold()==11; m.release(); m.pick(0)
+        else: assert m.call(O['KEY_PLAY'],address=syms['on_wm_keylong_fun'],event_type=O['EVT_KEY_LONG'],gap=0)==11
+        q=m.get(syms['mcl_pdeqplaylist'])
+        if change=='advance': m.word(O['MCL_POS'],2)
+        elif change=='replace': m.word(syms['mcl_pdeqplaylist'],m.deque([m.song(c) for c in 'ABC']))
+        elif change=='resize': m.items(q).append(m.song('D'))
+        elif change=='other': m.word(m.items(q)[0]+O['REC_PATH'],m.string('/different'))
+        elif change=='song': m.word(m.items(q)[1]+O['REC_PATH'],m.string('/different'))
+        elif change=='cue': m.word(m.items(q)[1]+O['REC_CUE_START'],123)
+        else: m.word(O['MCL_TYPE'],5)
+        m.advance(0)
+        if stage=='open': assert m.nodes[m.top]['name']=='playing_page'
+        else: assert m.names(q)==(['A','B','C','D'] if change=='resize' else ['A','B','C'])
+        assert not m.playback(); passed()
+for kw in ({'queue':0},{'queue':1},{'queue':3}):
+    m=playing_menu(**kw)
+    if kw['queue']==3: m.word(O['MCL_TYPE'],5)
+    m.press(100); assert m.hold()==0 and m.nodes[m.top]['name']=='playing_page'; passed()
+m=playing_menu(); m.airplay=2; m.press(100); assert m.hold()==0; passed()
+
+# The existing non-pooled playlist rows are guarded at their final click dispatch.
+class PlayingPlaylistMachine(QueueMachine):
+    STOCK_PICK=0x4b1d24
+    def __init__(self):
+        super().__init__(page='playing_page',pos=1)
+        self.added=[]
+        self.handlers[self.STOCK_PICK]='playlist_pick'
+    def hook(self,u,address,size,unused):
+        if address==self.STOCK_PICK:
+            self.added.append(self.names()[1])
+            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        opening=self.handlers.get(address)=='q:navigator_to_with_context' and self.text(u.reg_read(UC_MIPS_REG_A0))=='localmusic/playlist_page'
+        super().hook(u,address,size,unused)
+        if opening:
+            self.playlist_rows=[self.node('button',f'playlist_{i}') for i in range(3)]
+            view=self.node('scroll_view',children=self.playlist_rows)
+            page=self.node('window','playlist_page',[view]); self.top=page; self.stack.append(page)
+            for row in self.playlist_rows:
+                em,it=self.alloc(4),self.alloc(0x28)
+                self.word(row+O['W_EMITTER'],em); self.word(em,it)
+                self.word(it,row); self.word(it+O['EMIT_TYPE'],O['EVT_CLICK']); self.word(it+12,self.STOCK_PICK)
+for stale in (False,True):
+    m=PlayingPlaylistMachine(); m.run(3)
+    assert m.nodes[m.top]['name']=='playlist_page'
+    for row in m.playlist_rows:
+        f,ctx=m.handler(row,O['EVT_CLICK']); assert f!=m.STOCK_PICK and ctx==row
+    if stale: m.word(O['MCL_POS'],2)
+    f,ctx=m.handler(m.playlist_rows[2],O['EVT_CLICK'])
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==(11 if stale else 0)
+    assert m.added==([] if stale else ['B'])
+    if not stale: assert sel(m)==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]
+    f,ctx=m.handler(m.top,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    m.top=m.stack[0]; m.press(200); assert m.hold()==11; passed()
+
 # Short press toggles once; a hold opens one menu titled by its row, its release is swallowed and
 # the next short press toggles again. A repeated long event of the same press opens nothing.
 m=QueueMachine(); page=m.top
@@ -2633,7 +2715,6 @@ for kw,setup,want in (({},None,('Row 0',SONG_MENU)),
 # Favourites: Add runs batch-select's Add to My Fav for the row alone, which tags a folder file;
 # Remove deletes it, and on My Fav itself flags the list to reload as Now Playing's heart does.
 m=QueueMachine(); assert m.run(2,steps=3)=='Added to Favourites' and m.names()==['A','B','C']
-sel=lambda m:[c[:2] for c in m.calls if c[0].startswith('batch_')]
 assert sel(m)==[('batch_init_selectrecord',20),('batch_set_selectitem',3),('batch_add_file',0xf001)]
 assert [c[2:] for c in m.calls if c[0]=='batch_add_file']==[(0xf00a,m.get(syms['p_deque_showlist']))]; passed()
 for cls,flag in ((0xf001,0),(0xf00a,1)):
@@ -3385,6 +3466,58 @@ if variant=='ipod':
     assert m.starts==[m.win] and not m.timers; passed()
     m=lyric_page(); step(m); f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
     assert not m.starts and not m.timers; passed()
+
+# Sparse populated initials: one destination per sustained tick, both directions, utilities
+# and wrap edges. Album and Artist share article handling; nonalphabetical sorts stay single-step.
+def cf_jump(m,at,direction):
+    letter=m.alloc(4)
+    steps=m.call(address=symbols(B/'patch.elf')['coverflow_jump'],args=(m.slide,at,direction,letter),gap=0)
+    return steps,m.get(letter)
+m=CoverflowMachine(albums=8)
+for r,name in zip(m.albums,['Apple One','The Apple','Dawn','Dusk','Zulu','9 Lives','—Noise','Été']):
+    m.word(r+O['REC_ALBUM'],m.string(name))
+m.open()
+assert cf_jump(m,0,1)==(2,ord('D')) and cf_jump(m,3,-1)==(3,ord('A'))
+assert cf_jump(m,2,-1)==(2,ord('A')) and cf_jump(m,4,1)==(1,ord('#'))
+assert cf_jump(m,5,1)==(2,ord('É')) and cf_jump(m,7,1)==(1,0)
+assert cf_jump(m,0,-1)==(1,0) and cf_jump(m,1,-1)==(2,0)
+assert cf_jump(m,8,1)==(1,0) and cf_jump(m,9,1)==(1,0); passed()
+# Unicode punctuation/numbers and missing names share #; letters retain their codepoints.
+for name,want in (('١ Song',ord('#')),('—Song',ord('#')),('',ord('#')),('Жизнь',ord('Ж')),('東京',ord('東'))):
+    m=CoverflowMachine(albums=2)
+    m.word(m.albums[1]+O['REC_ALBUM'],m.string(name)); m.open()
+    assert cf_jump(m,0,1)==(1,want); passed()
+m=CoverflowMachine(albums=2); m.word(m.albums[1]+O['REC_ALBUM'],m.string('Unknown Album'))
+m.word(m.albums[1]+O['REC_ID'],0xffffffff); m.open(); assert cf_jump(m,0,1)==(1,ord('#')); passed()
+# Slow steps stay precise. Continuous 50ms ticks cross the 300ms threshold and jump groups.
+m=CoverflowMachine(albums=10)
+for r,name in zip(m.albums,['A1','A2','A3','D1','D2','D3','G1','G2','Z1','Z2']): m.word(r+O['REC_ALBUM'],m.string(name))
+m.open()
+stride=m.call(address=syms['slide_menu_item_width'],args=(m.slide,0,0,0),gap=0)+m.get(m.slide+O['SLIDE_SPACER'])
+for _ in range(6): assert m.call(gap=50)==11
+assert m.get(m.slide+O['SLIDE_INDEX'])==0 and slide(m,m.slide)[2]==-6*stride
+assert m.call(gap=50)==11
+assert slide(m,m.slide)[2]==-8*stride  # intended index 6 jumps to Z at 8
+m.paint(m.slide,gap=0); assert any(t['text']=='Z' for t in m.letters)
+a=slide(m,m.slide)[0]
+m.advance(400); assert m.get(m.slide+O['SLIDE_INDEX'])==8
+m.paint(m.slide,gap=0); assert not any(t['text']=='Z' for t in m.letters)
+assert m.call(O['KEY_PREV'],gap=50)==11  # reversal resets sustained scrolling
+m.advance(200); assert m.get(m.slide+O['SLIDE_INDEX'])==7; passed()
+# A reversal while moving reuses the animator and returns to the adjacent live cover.
+m=CoverflowMachine(albums=10); m.open(); m.call(gap=0); m.call(gap=20)
+a=slide(m,m.slide)[0]; assert m.call(O['KEY_PREV'],gap=20)==11 and slide(m,m.slide)[0]==a
+m.advance(300); assert m.get(m.slide+O['SLIDE_INDEX'])==0; passed()
+# Single stops through Sort, Refresh, wrapping, and back, even with a sustained run.
+m=CoverflowMachine(albums=3); m.open()
+for expected in (1,2,3,4,0):
+    assert m.call(gap=50)==11; m.advance(200)
+    assert m.get(m.slide+O['SLIDE_INDEX'])==expected
+for expected in (4,3,2):
+    assert m.call(O['KEY_PREV'],gap=50)==11; m.advance(200)
+    assert m.get(m.slide+O['SLIDE_INDEX'])==expected
+passed()
+
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
 # plus the Sort and Refresh cards, the wheel steps the stock slide_menu and centre confirms the cover.
