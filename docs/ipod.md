@@ -121,7 +121,8 @@ The Shortcut setting (see [Display settings](#display-settings)) can make the St
 **Rockbox**: `coverflow_home_layout` gives `label_stream` the literal tr_text "Rockbox" (which
 translates to itself, so a language change keeps it) or stock's `small_stream` back, and
 `ringnav_dispatch` takes a click on `img_stream` before stock's handler and leaves Q2 Pod for
-Rockbox ([boot.md](boot.md#rockbox-from-home)).
+Rockbox ([boot.md](boot.md#rockbox-from-home)). `confirm_center` checks it as well, so the wheel's
+centre leaves for Rockbox like a tap, not only the touchscreen.
 
 The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
 as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar

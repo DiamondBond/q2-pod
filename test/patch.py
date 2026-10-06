@@ -4088,12 +4088,17 @@ if variant=='ipod':
             name=name[2:].split('@')[0]; a=u.reg_read(UC_MIPS_REG_A0); self.calls.append((name,a))
             ret={'access':0 if self.card else -1,'fopen':0x2000000}.get(name,0)
             u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
-    def shortcut(config,card=True):
+    def shortcut(config,card=True,wheel=False):
         CONFIG.clear(); CONFIG.update(config); m=ShortcutMachine(); m.card=card
         for n in ('access@GLIBC_2.0','fopen@GLIBC_2.2','fclose@GLIBC_2.2','system@GLIBC_2.0'): m.handlers[syms[n]]='r:'+n
         m.mock('save_memoryplay_info','player_stop','switch_charge_enable','navigator_to_with_context')
         view,imgs=home_list(m)
-        ret=m.click(imgs[HOME_ROWS.index('stream')])
+        if wheel:
+            click_target(m,imgs[2])  # the payload binds Coverflow's image at Home init
+            m.paint(view)
+            for _ in range(HOME_ROWS.index('stream')): m.call()
+            ret=m.confirm()
+        else: ret=m.click(imgs[HOME_ROWS.index('stream')])
         return m,ret,[c[0] for c in m.calls if c[0]!='toolsReadConfig']
     m,ret,names=shortcut({'SHORTCUT':'1'})
     assert ret==11 and 'stock_dispatch' not in names
@@ -4101,6 +4106,13 @@ if variant=='ipod':
     assert texts=={'access':'/mnt/mmc/.rockbox/rockbox','fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
+    # The wheel's centre takes the same shortcut as the tap. confirm_center dispatches the click
+    # itself, so the check has to sit there too (a centre press opened stock Streaming instead).
+    m,ret,names=shortcut({'SHORTCUT':'1'},wheel=True)
+    assert ret==11 and 'system' in names and 'stock_dispatch' not in names
+    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('access','fopen','system')}
+    assert texts=={'access':'/mnt/mmc/.rockbox/rockbox','fopen':'/tmp/q2pod-rockbox',
+                   'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}; passed()
     m,ret,names=shortcut({'SHORTCUT':'1'},card=False)
     assert ret==11 and not {'stock_dispatch','fopen','player_stop','system'} & set(names)
     assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to_with_context']==['dialog/msginfo_dialog']; passed()

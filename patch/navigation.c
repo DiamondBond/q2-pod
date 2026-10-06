@@ -924,6 +924,10 @@ static int pending_matches(void *top, menu_t *m) {
     return r.one == st.center_hash && r.two == st.center_hash2;
 }
 
+#if IPOD
+static int rockbox_shortcut(void *target);
+#endif
+
 static int confirm_center(const void *info) {
     (void)info;
     void *w = surface((void *)0, (void *)0);
@@ -946,6 +950,11 @@ static int confirm_center(const void *info) {
         *(volatile unsigned char *)KEY_LOCKOUT = 0;
         void *target = g_menu.at[index_of(&g_menu, st.center_id)];
         char click[0x30];
+#if IPOD
+        /* The wheel's click is dispatched here, not by ringnav_dispatch, so Home's Rockbox row
+         * takes its shortcut here too: a tap and the centre behave alike. */
+        if (rockbox_shortcut(target)) return 0;
+#endif
         stock_dispatch_trampoline(target, pointer_event_init(click, EVT_CLICK, target, 0, 0));
     }
     return 0;
@@ -2186,10 +2195,6 @@ static int selects(menu_t *m, void *target) {
     }
     return -1;
 }
-
-#if IPOD
-static int rockbox_shortcut(void *target);
-#endif
 
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
