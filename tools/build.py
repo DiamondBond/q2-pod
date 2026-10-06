@@ -44,14 +44,15 @@ HOOKS = {
     'playset_playset_page_init': (0x4b98d8, 'ringnav_audioset'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
-IPOD_HOOKS = {'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
+IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist'),
+              'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
               'playing_page_init': (0x52ca88, 'ringnav_playing'),
               'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
               'style_get_color': (0x649f6c, 'ringnav_style_color'),
               'image_manager_add': (0x6445d4, 'ringnav_image_add'),
               'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown')}
 # The payload's stock_<name>_trampoline resumes each hook past its 3-word PIC prologue, in this order.
-TRAMPOLINES = {'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_fun', 'paint': 'widget_on_paint_border',
+TRAMPOLINES = {'playlist': 'playlist_rebuild', 'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_fun', 'paint': 'widget_on_paint_border',
                'dispatch': 'widget_dispatch', 'keylong': 'on_wm_keylong_fun', 'eq': 'set_equalizer_value',
                'home': 'home_page_init', 'localmusic': 'localmusic_page_init', 'localclass': 'load_localclass_list',
                'paint_bg': 'widget_on_paint_background', 'playing': 'playing_page_init',
@@ -209,6 +210,7 @@ def fileoff(b, a):
     raise ValueError(f'Unmapped address {a:x}')
 
 FUNCTIONS = {
+ 'playlist_create': ('int', 'void *, void *'),
  'widget_on': ('unsigned', 'void *, unsigned, int (*)(void *, void *), void *'),
  'widget_set_visible': ('int', 'void *, int, int'),
  'widget_set_opacity': ('int', 'void *, unsigned'),
@@ -391,6 +393,9 @@ FUNCTIONS = {
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
+    "playlist_rebuild": 0x4b2dac,  # picker init and re-entry rebuild all rows
+    "playlist_create": 0x4b1a88,  # stock naming dialog callback
+
     "stock_search": 0x5241c4,
     "slide_menu_item_width": 0x5f3040,
     "slide_menu_on_scroll_done": 0x5f3654,

@@ -12,7 +12,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
     stock_localclass_trampoline(int), stock_power_trampoline(void *, void *),
-    stock_audioset_trampoline(void *, void *);
+    stock_audioset_trampoline(void *, void *), stock_playlist_trampoline(void *);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -3078,6 +3078,17 @@ static void qm_playlist_bind(void *w, int depth) {
         }
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i)
         qm_playlist_bind(widget_get_child(w, i), depth + 1);
+}
+
+/* Stock destroys the old rows before rebuilding, including our Create row. */
+int ringnav_playlist(void *win) {
+    int result = stock_playlist_trampoline(win);
+    void *view = win ? widget_lookup(win, "scroll_view", 1) : (void *)0;
+    if (view)
+        widget_restack(library_row(view, "playlist_default", playlist_create, win,
+                                   "Create playlist"), 0);
+    if (win == st.qm_playlist) qm_playlist_bind(win, 0);
+    return result;
 }
 
 /* Deferred so the dialog is never closed under its own click dispatch. */

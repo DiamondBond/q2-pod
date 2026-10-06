@@ -1,5 +1,7 @@
 # Changelog
 
+- iPod: the playlist picker now starts with **Create playlist**, selectable with the wheel or touch, including when no playlists exist.
+
 - **V9.0**: Hold Play/Pause on Now Playing opens the current local track’s queue, favourites, playlist and album/artist actions. Actions cancel if playback advances or the queue changes. Sustained Coverflow scrolling in Album or Artist order jumps between populated initials, with a brief letter overlay; Sort, Refresh and wrapping remain reachable.
 
 - **V8.9**: Coverflow and Most Played show track title tags, falling back to file names when a title tag is missing.

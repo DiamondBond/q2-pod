@@ -2632,6 +2632,103 @@ for stale in (False,True):
     f,ctx=m.handler(m.top,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     m.top=m.stack[0]; m.press(200); assert m.hold()==11; passed()
 
+# Execute stock's rebuild and naming callback; only UI/dialog and database services are mocked.
+class PlaylistMachine(PlayingPlaylistMachine):
+    def __init__(self, count=0, mode=1):
+        super().__init__()
+        self.handlers.pop(syms['playlist_create'])
+        self.mock('button_create','list_item_create','image_create','view_create','hscroll_label_create',
+                  'widget_use_style','widget_set_name','widget_set_text_utf8','widget_set_visible',
+                  'image_set_draw_type','image_base_set_image','set_hscroll_label_attribute',
+                  'hscroll_label_set_only_focus','hscroll_label_set_ellipses','hscroll_label_set_speed',
+                  'gif_image_play','batch_get_selectitem','file_is_playing','getFormatString',
+                  'getMusicByPlayList','get_albumcover_listsize','mclGetPlayStatus','list_get_img_pic',
+                  'toolsTrimLeft','toolsTrimRight','tk_snprintf')
+        self.handlers[0x4aad10]='row_toolbar'
+        self.handlers[0x4b1438]='playlist_load'
+        self.handlers[syms['widget_restack']]='picker_restack'
+        self.handlers[syms['navigator_to']]='picker_dialog'
+        self.accept=False; self.dialogs=0
+        self.word(syms['p_deque_playlist'],self.deque([self.song(f'List {i}') for i in range(count)]))
+        # Stock's private playlist add-mode global, loaded through its GOT.
+        data=(B/'stock-demo').read_bytes()
+        from build import fileoff, GP
+        self.mode=struct.unpack_from('<I',data,fileoff(data,GP-0x5810))[0]+0x7894
+        self.word(self.mode,mode)
+        self.view=self.node('scroll_view','scroll_view')
+        self.top=self.node('window','playlist_page',[self.view])
+        self.word(self.view+O['W_PARENT'],self.top); self.word(self.top+O['W_PARENT'],self.wm)
+    def rebuild(self):
+        assert self.call(address=0x4b2dac,args=(self.top,0,0,0),gap=0)==0
+        kids=self.nodes[self.view]['children']
+        for i,row in enumerate(kids): self.word(row+O['W_Y'],i*48)
+        self.word(self.view+O['VIEW_CONTENT_H'],len(kids)*48)
+        return kids
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,''); a,b,c,d=[u.reg_read(r) for r in REGS]
+        if name=='picker_dialog' and self.text(a)!='dialog/addplaylist_dialog':
+            self.handlers[address]='q:navigator_to'
+            super().hook(u,address,size,unused)
+            self.handlers[address]=name
+            return
+        if name in ('picker_restack','picker_dialog'):
+            if name=='picker_restack':
+                kids=self.nodes[self.view]['children']; kids.remove(a); kids.insert(b,a); ret=0
+            else:
+                assert self.text(a)=='dialog/addplaylist_dialog'
+                self.dialogs+=1
+                if self.accept: self.items(self.get(syms['p_deque_playlist'])).append(self.song('Created'))
+                ret=0
+            u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if name=='widget_off_by_func':
+            self.nodes[a]['handlers']=[h for h in self.nodes[a].get('handlers',[]) if h!=(b,c,d)]
+        super().hook(u,address,size,unused)
+        if name=='q:widget_on' and b==O['EVT_CLICK']:
+            it=self.get(self.get(a+O['W_EMITTER'])); self.word(it,d); self.word(it+12,c)
+
+for count in (0,3):
+    for mode in (0,1,2):
+        m=PlaylistMachine(count,mode); kids=m.rebuild()
+        assert len(kids)==count+(0 if mode else 1)+(variant=='ipod')
+        if variant=='ipod':
+            create=m.nodes[kids[0]]['children'][0]
+            icon,label=m.nodes[create]['children']
+            assert m.nodes[label]['text']=='Create playlist' and m.nodes[icon]['image']=='playlist_default'
+            assert m.handler(create,O['EVT_CLICK'])==(syms['playlist_create'],m.top)
+            for accept in (False,True):
+                m.accept=accept
+                m.paint(m.view); m.click(create)  # touch dispatch selects the same target
+                assert m.clicks[-1]==create
+                f,ctx=m.handler(create,O['EVT_CLICK'])
+                m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+                assert m.dialogs==1+accept
+                kids=m.rebuild(); create=m.nodes[kids[0]]['children'][0]
+                assert len(kids)==count+(0 if mode else 1)+1+accept
+            previous=len(kids); kids=m.rebuild(); assert len(kids)==previous
+            create=m.nodes[kids[0]]['children'][0]
+            m.paint(m.view); m.call(O['KEY_NEXT']); m.call(O['KEY_PREV']); m.call(O['KEY_CENTER']); m.advance(DC+1)
+            assert m.clicks[-1]==create
+        # Restacking leaves stock's numeric button names/context unchanged.
+        if count:
+            row=kids[(variant=='ipod')+(0 if mode else 1)]
+            button=m.nodes[row]['children'][0]
+            assert m.nodes[button]['name']=='0'
+            assert m.handler(button,O['EVT_CLICK'])==(m.STOCK_PICK,button)
+        passed()
+
+if variant=='ipod':
+    for stale in (False,True):
+        m=PlaylistMachine(3,2)
+        # Open through Now Playing so the picker is tracked, then rebuild as creation does.
+        m.top=m.stack[0]; m.run(3); page=m.top
+        m.view=m.nodes[page]['children'][0]; m.nodes[m.view]['name']='scroll_view'
+        m.word(syms['p_deque_playlist'],m.deque([m.song('Created')]))
+        kids=m.rebuild(); button=m.nodes[kids[1]]['children'][0]
+        f,ctx=m.handler(button,O['EVT_CLICK']); assert f!=m.STOCK_PICK
+        if stale: m.word(O['MCL_POS'],2)
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==(11 if stale else 0)
+        assert m.added==([] if stale else ['B']); passed()
+
 # Short press toggles once; a hold opens one menu titled by its row, its release is swallowed and
 # the next short press toggles again. A repeated long event of the same press opens nothing.
 m=QueueMachine(); page=m.top
