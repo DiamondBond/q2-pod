@@ -2648,7 +2648,6 @@ class PlaylistMachine(PlayingPlaylistMachine):
         self.handlers[0x4b1438]='playlist_load'
         self.handlers[syms['widget_restack']]='picker_restack'
         self.handlers[syms['navigator_to']]='picker_dialog'
-        self.accept=False; self.dialogs=0
         self.word(syms['p_deque_playlist'],self.deque([self.song(f'List {i}') for i in range(count)]))
         # Stock's private playlist add-mode global, loaded through its GOT.
         data=(B/'stock-demo').read_bytes()
@@ -2676,8 +2675,6 @@ class PlaylistMachine(PlayingPlaylistMachine):
                 kids=self.nodes[self.view]['children']; kids.remove(a); kids.insert(b,a); ret=0
             else:
                 assert self.text(a)=='dialog/addplaylist_dialog'
-                self.dialogs+=1
-                if self.accept: self.items(self.get(syms['p_deque_playlist'])).append(self.song('Created'))
                 ret=0
             u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
         if name=='widget_off_by_func':

@@ -398,7 +398,6 @@ def validate_assets(directory):
             assert nav[2].get('visible') != 'false' and nav[2].get('enable') != 'false'
             gif[1][0] = old[1][0]
             assert nav == old_nav, 'only the right button keeps clear of the glass'
-            gif[1][0] = 375 - corner_x(30, gif[1][3]) - gif[1][2]
         else:
             assert not ipod or nav[2]['visible'] == 'false' and nav[2]['enable'] == 'false'
         assert not ipod or not [v for n in walk(root) if n[0] in ('button', 'list_item', 'table_row')
