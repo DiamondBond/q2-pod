@@ -26,14 +26,10 @@ For a brand new Q2. You need the Q2, its microSD card, a computer and internet.
 - **Want the stock player (Q2 Pod) instead?** Hold Play/Pause while turning the Q2 on. It only lasts that time; the next start is Rockbox.
 - **To copy music over USB:** turn on with Play/Pause held, plug in, drag your files over.
 - **No card in it?** It starts Q2 Pod.
-- **Bluetooth headphones with Rockbox:** pair once in Q2 Pod and leave **System settings > Bluetooth** enabled. Rockbox automatically reconnects to stock’s last paired headset on cold boot or Home-menu launch. It tries four times, waiting 20 seconds between failed attempts, while Rockbox starts normally. Wired headphones take priority; a lost Bluetooth link falls back to the DAC. Turn stock Bluetooth off to disable startup and reconnect attempts. These changes require updated firmware and Rockbox builds; hardware validation is pending.
+- **Bluetooth headphones with Rockbox:** in Q2 Pod, set **System settings > Display > Shortcut** to **Rockbox** once. Then: shut Rockbox down (it goes to Q2 Pod), turn on Bluetooth and connect your headphones, and pick **Rockbox** on the Home menu (where Streaming was). Rockbox starts and plays through the headphones. When it shuts down, you are back in Q2 Pod.
 
 ## If something goes wrong
 
 - **Rockbox is stuck:** hold Return while turning the Q2 on. It goes to Q2 Pod.
 - **Rockbox does not start:** the card must be exFAT or FAT32, and the `.rockbox` folder must be in the card's main folder.
 - **Want the normal Shanling player back:** flash Shanling's stock V1.32 file the same way as step 1.
-
-## Automatic Bluetooth hardware checks
-
-Before calling automatic connection working, test cold boot with stock Bluetooth on and off, an unavailable headset and one powered on during retries, disconnect/reconnect, both wired jacks taking priority, and return to stock. Check that `rtk_hciattach`, `bluetoothd` and `bluealsa` each have one instance and AirPods still use the existing 48 kHz AAC fix. These device checks have not been run here.
