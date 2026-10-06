@@ -1,0 +1,1 @@
+In Coverflow I just noticed when you select an album it is listing the track file names instead of the track tags. Can that be changed?
