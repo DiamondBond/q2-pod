@@ -1,6 +1,6 @@
 # Changelog
 
-- **Unreleased**: Hold Play/Pause on Now Playing opens the current local track’s queue, favourites, playlist and album/artist actions. Actions cancel if playback advances or the queue changes. Sustained Coverflow scrolling in Album or Artist order jumps between populated initials, with a brief letter overlay; Sort, Refresh and wrapping remain reachable.
+- **V9.0**: Hold Play/Pause on Now Playing opens the current local track’s queue, favourites, playlist and album/artist actions. Actions cancel if playback advances or the queue changes. Sustained Coverflow scrolling in Album or Artist order jumps between populated initials, with a brief letter overlay; Sort, Refresh and wrapping remain reachable.
 
 - **V8.9**: Coverflow and Most Played show track title tags, falling back to file names when a title tag is missing.
 - **V8.8**: iPod: **System settings → Display → Shortcut** can turn Home's Streaming row into **Rockbox**, which starts Rockbox from the card and comes back to Q2 Pod when Rockbox shuts down. Headphones connected over Bluetooth in Q2 Pod stay connected, and Rockbox plays through them (needs q2-rockbox V1.3 or later). Your queue and position are saved first, as at power-off.
