@@ -229,7 +229,7 @@ Media folders go at the card's root, any capitalisation; each adds its **Library
 
 ### Set up scrobbling
 
-Install **V9.5 or later** to fix scrobble uploads. Save a plain-text file named **`.scrobble.ini`** in the microSD card's root (next to `update.tar`, not inside a folder). Keep the leading dot and make sure your editor hasn't added `.txt`.
+Save a plain-text file named **`.scrobble.ini`** in the microSD card's root (next to `update.tar`, not inside a folder). Keep the leading dot and make sure your editor hasn't added `.txt`.
 
 Copy the entire example for the service you use, including the section heading and field names. Replace only the values after `=` with your own details; do not add quotes. GitHub's purple/red syntax colours are just highlighting, not instructions to remove text.
 
