@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '9.2'
+VERSION = '9.3'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
 # the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
@@ -30,6 +30,7 @@ HOOKS = {
     'scanAllMusicFile': (0x4fc788, 'coverflow_scan_all'),
     'scanSpecFolder': (0x4fc964, 'coverflow_scan_folder'),
     'deleteMusicFromMusicDb': (0x500b5c, 'coverflow_delete_song'),
+    'mclSetBtVol': (0x5accec, 'ringnav_btvol'),
     'main_loop_sleep_default': (0x648f00, 'ringnav_sleep'),
     'systemset_about_page_init': (0x4bc80c, 'ringnav_about'),
     # Podcasts and Audiobooks: folder_page opened at their folder, and Back there leaving it
@@ -59,7 +60,7 @@ IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist'),
               'image_manager_add': (0x6445d4, 'ringnav_image_add'),
               'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown')}
 # The payload's stock_<name>_trampoline resumes each hook past its 3-word PIC prologue, in this order.
-TRAMPOLINES = {'savequeue': 'save_memoryplay_info', 'load': 'mclLoadPlayList', 'next': 'mclNextSong', 'prev': 'mclPrevSong',
+TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'load': 'mclLoadPlayList', 'next': 'mclNextSong', 'prev': 'mclPrevSong',
                'mode': 'mclSetPlayMode', 'preload': 'mcl_preload', 'memory': 'memeory_startplayer', 'playlist': 'playlist_rebuild', 'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_fun', 'paint': 'widget_on_paint_border',
                'dispatch': 'widget_dispatch', 'keylong': 'on_wm_keylong_fun', 'eq': 'set_equalizer_value',
                'home': 'home_page_init', 'localmusic': 'localmusic_page_init', 'localclass': 'load_localclass_list',
@@ -392,6 +393,8 @@ FUNCTIONS = {
  'save_memoryplay_info': ('int', 'void'),  # Memory playback's queue and position, as into_poweroff saves them
  'mclSetDacPwr': ('int', 'int'),
  'reset_poweroptions_timer': ('int', 'int, int, int'),
+ 'btctl_transport_get_volume': ('int', 'void'),
+ 'btctl_transport_set_volume': ('int', 'int'),
  'device_set_volume': ('int', 'int, int'),  # volume, notify: the DAC's or hciplayer's, as the volume dialog
  'toolsTrimLeft': ('void', 'char *'),
  'switch_charge_enable': ('int', 'int'),  # 1 charges: the BQ25890's /CE on GPIO PE22 (usbmode_page_init)
@@ -414,7 +417,7 @@ PRIVATE_FUNCTIONS = {
     "folder_refresh": 0x52176c,  # folder_page's navbar and table from p_deque_showlist (its init, back)
 }
 GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
-           'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
+           'g_bluetoothflag', 'bt_linkstatus', 'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
            'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
            'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
@@ -423,7 +426,7 @@ GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.
-CONTEXT_DATA = {'g_memory_info': 3476, 'g_folder_path': 1024, 'g_class_type': 4,
+CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
