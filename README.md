@@ -227,24 +227,38 @@ Media folders go at the card's root, any capitalisation; each adds its **Library
 | `.books/`                  | EPUBs converted to text                                                       | Q2 Pod  |
 | `.sldp/`                   | Stock's own cover cache                                                       | Stock   |
 
-`.scrobble.ini` takes a ListenBrainz token ([your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
+### Set up scrobbling
+
+Install **V9.5 or later** to fix scrobble uploads. Save a plain-text file named **`.scrobble.ini`** in the microSD card's root (next to `update.tar`, not inside a folder). Keep the leading dot and make sure your editor hasn't added `.txt`.
+
+Copy the entire example for the service you use, including the section heading and field names. Replace only the values after `=` with your own details; do not add quotes. GitHub's purple/red syntax colours are just highlighting, not instructions to remove text.
+
+**Last.fm only — completed example with made-up credentials:**
+
+```ini
+[LASTFM]
+USER=q2listener
+PASSWORD=ExamplePassword123
+API_KEY=0123456789abcdef0123456789abcdef
+API_SECRET=fedcba9876543210fedcba9876543210
+```
+
+Use your Last.fm username and password. Get your own API key and shared secret from [Create API account](https://www.last.fm/api/account/create) (any application name works). These example credentials won't authenticate.
+
+**ListenBrainz only — completed example with a made-up token:**
 
 ```ini
 [LISTENBRAINZ]
-TOKEN=your-listenbrainz-user-token
-
-[LASTFM]
-USER=your-username
-PASSWORD=your-password
-API_KEY=your-api-key
-API_SECRET=your-shared-secret
+TOKEN=12345678-1234-1234-1234-123456789abc
 ```
 
-Get Last.fm's key and secret from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
+Copy your user token from [ListenBrainz settings](https://listenbrainz.org/settings/). The example token won't authenticate.
 
-**Upload Scrobbles** is the second-last row of **Library**, just above Update Local Music, used while on Wi-Fi. It only shows when the file is named exactly `.scrobble.ini` (leading dot, no hidden `.txt`) and saved as plain text. Leave out any section you don't use: a placeholder token still counts as an account, and its failures stop every upload.
+To upload to both services, put both completed sections in the same file, separated by a blank line. Otherwise leave out the entire unused section: a placeholder token still counts as an account, and its failures stop every upload. The file contains plain-text credentials, so keep the card to yourself.
 
-Uploads always verify TLS. Stock has no CA bundle: copy `.scrobble.pem` to the card before uploading. A certificate or storage failure keeps the pending listens.
+Safely eject the card, put it in the Q2 and reopen **Library**. **Upload Scrobbles** appears just above **Update Local Music** when a ListenBrainz token or all four Last.fm fields are present. Connect to Wi-Fi, then select **Upload Scrobbles**. If the row is missing, check the filename, section headings and required fields first.
+
+V9.5 includes the certificates needed for verified TLS uploads; no `.scrobble.pem` file is needed on the card. A certificate or storage failure keeps pending listens. Uploads need listens in `.scrobbler.log`: play a tagged song for at least half its length or four minutes, whichever comes first. Set the Q2's date and time correctly before listening.
 
 Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
 

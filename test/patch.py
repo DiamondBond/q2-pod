@@ -4547,7 +4547,7 @@ if variant=='ipod':
             if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
             if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
     for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
-        m,view=settings(builder); items=m.nodes[view]['children'][:-1] if builder=='display' else m.nodes[view]['children']
+        m,view=settings(builder); items=m.nodes[view]['children']
         before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
         assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
         assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
@@ -4560,8 +4560,7 @@ if variant=='ipod':
             icon,label=m.nodes[button]['children']
             assert geometry(m,icon)==(SET['ICON_X'],(SET['ROW']-SET['ICON'])//2,SET['ICON'],SET['ICON'])
             assert geometry(m,label)[0]==SET['ICON_X']+SET['ICON']+SET['GAP']
-            slider=m.nodes[wheel]['children'][1]
-            assert geometry(m,slider)[1]==SET['ROW'] and geometry(m,slider)[1]+geometry(m,slider)[3]<=geometry(m,wheel)[3]
+            assert len(m.nodes[wheel]['children'])==1 and geometry(m,wheel)[3]==SET['ROW']
         passed()
     # A list whose default_item_height is not SET_ROW (local pages, Home) keeps its rows as built.
     m,view=settings(0x4cbcc4,default=72); before=tree(m,view); lay(m,view); after=tree(m,view)

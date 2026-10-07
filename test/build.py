@@ -173,6 +173,8 @@ def validate_assets(directory):
     assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
     from bluealsa import check as check_bluetooth_drop
     check_bluetooth_drop(directory)
+    from build import SCROBBLE_CA
+    assert read('rootfs.squashfs', SCROBBLE_CA) == (ROOT/'assets/scrobble-ca.pem').read_bytes()
     # The crash watchdog only sleeps longer; check_mem_thd's drop_caches write is branched over.
     old, new = read('stock.squashfs', WATCHDOG), read('rootfs.squashfs', WATCHDOG)
     assert new == old.replace(*WATCHDOG_SLEEP) and new != old

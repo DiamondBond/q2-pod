@@ -2192,80 +2192,93 @@ static int setting_click(void *ctx, void *event) {
 
 extern int wheel_value(void);
 extern void wheel_set(int);
-static void *wheel_slider __attribute__((section(".scratch")));
 static void *wheel_label __attribute__((section(".scratch")));
-static int wheel_edit __attribute__((section(".scratch")));
+static void *wheel_dialog __attribute__((section(".scratch")));
+static unsigned wheel_timer __attribute__((section(".scratch")));
 static void wheel_text(void) {
     char buf[40];
     tk_snprintf(buf, sizeof buf, "Wheel sensitivity: %d%%", wheel_value());
     widget_set_text_utf8(wheel_label, buf);
 }
-static int wheel_changed(void *ctx, void *event) {
+static int wheel_back(void *dialog, void *event) {
+    if (I(event, EVENT_TYPE) == EVT_KEY_UP && I(event, EVENT_KEY) != KEY_RETURN) return 0;
+    if (wheel_dialog == dialog) wheel_dialog = 0;
+    window_close(dialog);
+    return STOP;
+}
+static int wheel_dialog_gone(void *dialog, void *event) {
     (void)event;
-    int v = widget_get_prop_int(ctx, "value", 100);
-    v = (v + 5) / 10 * 10;
-    wheel_set(v);
-    wheel_text();
+    if (wheel_dialog == dialog) wheel_dialog = 0;
     return 0;
 }
-static int wheel_gone(void *ctx, void *event) {
-    (void)ctx;
+static int wheel_pick(void *ctx, void *event) {
     (void)event;
-    wheel_slider = wheel_label = 0;
-    wheel_edit = 0;
+    wheel_set((int)(long)ctx);
+    wheel_text();
+    void *dialog = wheel_dialog;
+    wheel_dialog = 0;
+    if (dialog) window_close(dialog);
+    return 0;
+}
+/* Use the existing choice dialog: no slider or extra height in the Display list,
+ * and its ordinary row selection supplies touch, wheel, confirmation and Back. */
+static int wheel_open(const void *unused) {
+    (void)unused;
+    wheel_timer = 0;
+    void *wm = window_manager(), *page = window_manager_get_top_window(wm);
+    if (!wheel_label || wheel_dialog || !usable() || window_manager_is_animating(wm) ||
+        tk_strcmp(widget_get_prop_str(page, "name", ""), "display_page")) return 0;
+    navigator_to("dialog/sortselect_dialog");
+    void *dialog = window_manager_get_top_window(wm);
+    if (dialog == page) return 0;
+    if (tk_strcmp(widget_get_prop_str(dialog, "name", ""), "sortselect_dialog")) {
+        window_close(dialog);
+        return 0;
+    }
+    void *back = widget_lookup(dialog, "img_return", 1),
+         *view = widget_lookup(dialog, "scroll_view", 1);
+    widget_off_by_func(dialog, EVT_KEY_UP, (void *)SORTSELECT_KEYUP, dialog);
+    widget_off_by_func(back, EVT_CLICK, (void *)SORTSELECT_CLOSE, dialog);
+    widget_on(dialog, EVT_KEY_UP, wheel_back, dialog);
+    widget_on(back, EVT_CLICK, wheel_back, dialog);
+    widget_on(dialog, EVT_DESTROY, wheel_dialog_gone, dialog);
+    widget_set_text_utf8(widget_lookup(dialog, "scrlabel_title", 1), "Wheel sensitivity");
+    widget_destroy_children(view);
+    for (int i = 0; i < 16; ++i) {
+        int value = 50 + 10 * i;
+        char text[16];
+        tk_snprintf(text, sizeof text, "%d%%", value);
+        void *item = list_item_create(view, 0, i * 78, 375, 78);
+        widget_use_style(item, "s_listitem_black");
+        void *label = hscroll_label_create(item, 30, 0, 310, 70);
+        widget_use_style(label, "s_scrlabel_white24l");
+        widget_set_text_utf8(label, text);
+        if (value == wheel_value())
+            image_base_set_image(image_create(item, 340, 0, 24, 70), "select");
+        widget_on(item, EVT_CLICK, wheel_pick, (void *)(long)value);
+    }
+    widget_set_prop_int(view, "virtual_h", 16 * 78);
+    wheel_dialog = dialog;
+    ringnav_select(view, (wheel_value() - 50) / 10, 16);
     return 0;
 }
 static int wheel_click(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    wheel_edit = !wheel_edit;
-    widget_set_prop_int(wheel_slider, "focused", wheel_edit);
+    if (!wheel_dialog && !wheel_timer) wheel_timer = timer_add(wheel_open, 0, 0);
+    return 0;
+}
+static int wheel_gone(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    stop_timer(&wheel_timer);
+    wheel_label = 0;
+    if (wheel_dialog) window_close(wheel_dialog);
     return 0;
 }
 static void wheel_row(void *view) {
-    wheel_edit = 0;
-    void *item = list_item_create(view, 0, 0, 375, 110);
-    widget_use_style(item, "s_listitem_black");
-    int header = IPOD ? SET_ROW : 50;
-    /* iPod's slider row has its own height: build its header in the same final
-     * icon/text columns as the ordinary settings rows, without remapping it. */
-    void *button = button_create(item, IPOD ? 0 : 20, 0, IPOD ? 375 : 335, header);
-    widget_use_style(button, "s_btn_listitem");
-    /* Let the list's selection show through instead of drawing a second focus rectangle. */
-    static const char *const states[] = { "normal", "pressed", "over", "focused" };
-    char key[48];
-    for (unsigned i = 0; i < sizeof states / sizeof *states; ++i) {
-        tk_snprintf(key, sizeof key, "style:%s:bg_color", states[i]);
-        widget_set_prop_int(button, key, 0);
-    }
-    widget_on(button, EVT_CLICK, wheel_click, item);
-    image_base_set_image(image_create(button, IPOD ? SET_ICON_X : 10,
-                                     (header - 40) / 2, 40, 40), "system_display");
-    wheel_label = hscroll_label_create(button, IPOD ? SET_ICON_X + SET_ICON + SET_GAP : 72,
-                                      0, 260, header);
-    widget_use_style(wheel_label, "s_scrlabel_white20l");
-    set_hscroll_label_attribute(wheel_label);
-    wheel_slider = widget_factory_create_widget(widget_factory(), "slider", item,
-                                                IPOD ? SET_ICON_X + SET_ICON + SET_GAP : 92,
-                                                header, 253, IPOD ? 34 : 46);
-    widget_use_style(wheel_slider, "s_ipod_progress");
-    widget_set_prop_int(wheel_slider, "bar_size", 10);
-    widget_set_prop_int(wheel_slider, "dragger_size", 28);
-    widget_set_prop_int(wheel_slider, "slide_with_bar", 1);
-    for (unsigned i = 0; i < sizeof states / sizeof *states; ++i) {
-        tk_snprintf(key, sizeof key, "style:%s:bg_color", states[i]);
-        widget_set_prop_int(wheel_slider, key, (int)0xff303030u);
-        tk_snprintf(key, sizeof key, "style:%s:fg_color", states[i]);
-        widget_set_prop_int(wheel_slider, key, (int)0xffffffffu);
-        tk_snprintf(key, sizeof key, "style:%s:round_radius", states[i]);
-        widget_set_prop_int(wheel_slider, key, 5);
-    }
-    widget_set_prop_int(wheel_slider, "min", 50);
-    widget_set_prop_int(wheel_slider, "max", 200);
-    widget_set_prop_int(wheel_slider, "step", 10);
-    widget_set_prop_int(wheel_slider, "value", wheel_value());
-    widget_on(wheel_slider, EVT_VALUE_CHANGED, wheel_changed, wheel_slider);
-    widget_on(item, EVT_DESTROY, wheel_gone, item);
+    wheel_label = list_row(view, "system_display", wheel_click, 0);
+    widget_on(P(P(wheel_label, W_PARENT), W_PARENT), EVT_DESTROY, wheel_gone, 0);
     wheel_text();
 }
 
@@ -3962,10 +3975,6 @@ int ringnav(void *ctx, void *event) {
 #else
     if (key == KEY_RETURN) st.touch_mode = 0; /* Back by button: the page behind shows its row. */
 #endif
-    if (key == KEY_RETURN && wheel_edit) {
-        wheel_edit = 0;
-        return STOP;
-    }
     if (key != KEY_CENTER && key != KEY_PREV && key != KEY_NEXT) return result;
     if (key == KEY_CENTER) {
         drop_spin();
@@ -3989,21 +3998,7 @@ int ringnav(void *ctx, void *event) {
         return result;
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
-    if (wheel_edit && wheel_slider &&
-        !tk_strcmp(widget_get_prop_str(top, "name", ""), "display_page")) {
-        if (key == KEY_CENTER || key == KEY_RETURN) {
-            wheel_edit = 0;
-            return STOP;
-        }
-        if (key == KEY_NEXT || key == KEY_PREV) {
-            int v = clamp_step(wheel_value(), 200, key == KEY_NEXT ? 10 : -10);
-            if (v < 50) v = 50;
-            wheel_set(v);
-            widget_set_prop_int(wheel_slider, "value", v);
-            wheel_text();
-            return STOP;
-        }
-    }
+
 #if IPOD
     if (top != st.np_win || window_manager_is_animating(wm) ||
         window_manager_get_pointer_pressed(wm))

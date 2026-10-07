@@ -339,18 +339,31 @@ view=m.node('scroll_view','scroll_view_display'); lst=m.node('list_view','list_v
 m.top=m.node('window','display_page',[lst]); m.stack=[m.top]
 for child,parent in ((view,lst),(lst,m.top),(m.top,m.wm)): m.word(child+O['W_PARENT'],parent)
 assert m.fn('ringnav_display',m.top,0)==0
-item=m.nodes[view]['children'][-1]; button,slider=m.nodes[item]['children']
+item=m.nodes[view]['children'][-1]; button,=m.nodes[item]['children']
 label=m.nodes[button]['children'][1]
 assert m.nodes[label]['text']=='Wheel sensitivity: 100%'
-assert m.nodes[button]['style:normal:bg_color']==0
-assert m.nodes[slider]['style']=='s_ipod_progress' and m.nodes[slider]['bar_size']==10
-assert m.nodes[slider]['slide_with_bar']==1 and m.nodes[slider]['style:normal:round_radius']==5
-f,ctx=m.handler(slider,O['EVT_VALUE_CHANGED'])
-m.nodes[slider]['value']=150; m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-assert m.fn('wheel_value')==150 and m.nodes[label]['text']=='Wheel sensitivity: 150%'
-f,ctx=m.handler(button,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-assert m.call(O['KEY_NEXT'],gap=1000)==11 and m.fn('wheel_value')==160
-assert m.call(O['KEY_RETURN'],gap=1000)==11
+assert not any(n.get('type')=='slider' for n in m.nodes.values())
+f,ctx=m.handler(button,O['EVT_CLICK'])
+def open_wheel():
+    m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    m.advance(0,clear=False)
+    assert m.labels()==[f'{v}%' for v in range(50,201,10)]
+    assert any(n.get('image')=='select' for n in m.nodes.values())
+open_wheel()
+m.pick(10)
+assert m.top==m.stack[0] and m.fn('wheel_value')==150
+assert m.nodes[label]['text']=='Wheel sensitivity: 150%'
+open_wheel()
+dialog=m.top
+back,owner=m.handler(dialog,O['EVT_KEY_UP'])
+m.word(m.event+O['EVENT_TYPE'],O['EVT_KEY_UP']); m.word(m.event+O['EVENT_KEY'],O['KEY_RETURN'])
+m.call(address=back,args=(owner,m.event,0,0),event_type=O['EVT_KEY_UP'],key=O['KEY_RETURN'],gap=0)
+assert m.top==m.stack[0] and m.fn('wheel_value')==150
+open_wheel()
+arrow=m.back
+back,owner=m.handler(arrow,O['EVT_CLICK'])
+m.call(address=back,args=(owner,m.event,0,0),event_type=O['EVT_CLICK'],gap=0)
+assert m.top==m.stack[0] and m.fn('wheel_value')==150
 checks+=1
 
 # At default sensitivity, execute stock's original leaf too, including both wrap directions.

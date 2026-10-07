@@ -8,7 +8,7 @@
 
 #define LOG_FILE PEQ_ROOT "/mnt/mmc/.scrobbler.log"
 #define INI_FILE PEQ_ROOT "/mnt/mmc/.scrobble.ini"
-#define CA_FILE PEQ_ROOT "/mnt/mmc/.scrobble.pem" /* CA bundle: TLS verification is always enabled */
+#define CA_FILE PEQ_ROOT "/etc/scrobble-ca.pem" /* supplied by the firmware, no card setup */
 #define BATCH 50                                  /* Last.fm's limit; ListenBrainz takes 100 */
 #define BODY_MAX (192 << 10)                      /* 50 lines of at most 800 bytes, URL-encoded */
 #define LB_URL "https://api.listenbrainz.org/1/submit-listens"
@@ -125,7 +125,7 @@ static unsigned got(const char *data, unsigned size, unsigned n, void *ctx) {
 }
 
 /* POST body; the HTTP status, 0 when no reply. Credentials are sent only over verified TLS;
- * the card's CA bundle supplies roots missing from the stock image. */
+ * the firmware's CA bundle supplies roots missing from the stock image. */
 static long post(const char *url, const char *body, const char *auth, reply_t *r) {
     void *c = curl_easy_init(), *h = 0;
     long code = 0;
@@ -141,7 +141,7 @@ static long post(const char *url, const char *body, const char *auth, reply_t *r
     curl_easy_setopt(c, 99, 1L);                     /* NOSIGNAL: off the UI thread */
     curl_easy_setopt(c, 78, 15L);                    /* CONNECTTIMEOUT */
     curl_easy_setopt(c, 13, 60L);                    /* TIMEOUT */
-    if (!access(CA_FILE, 0)) curl_easy_setopt(c, 10065, CA_FILE); /* CAINFO */
+    curl_easy_setopt(c, 10065, CA_FILE);              /* CAINFO */
     curl_easy_setopt(c, 64, 1L);                 /* SSL_VERIFYPEER */
     curl_easy_setopt(c, 81, 2L);             /* SSL_VERIFYHOST */
     if (!curl_easy_perform(c)) curl_easy_getinfo(c, 0x200002, &code); /* RESPONSE_CODE */

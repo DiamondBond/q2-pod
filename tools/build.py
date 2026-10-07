@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '9.4'
+VERSION = '9.5'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
 # the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
@@ -126,12 +126,17 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 BLUEALSA_SHA = '0a4ffb7cc8207a46a3568440c5f31022b7125befd164e2f1af52537340a9892a'
+SCROBBLE_CA = 'etc/scrobble-ca.pem'
 AAC_44K1 = 0x317b8
 # DROP is acknowledged before the encoder handles its signal. Flush in the control
 # thread instead, so a delayed signal cannot discard the next track's first PCM.
 BT_DROP = 0x40cb50
 BT_DROP_HANDLER = 0x4147ac
 BT_DROP_PAYLOAD = 0x450000
+# Return address -> PCM ffb_t offset from the caller's io state. The last caller
+# is Q2's LDAC loop, which accumulates 256 samples in saved s6/s7 instead of ffb_t.
+BT_PCM_CALLERS = ((0x40649c, 0x74), (0x4150dc, 0x34), (0x41746c, 0x98),
+                  (0x418114, 0x34), (0x418c84, 0x60), (0x41a6ec, None))
 # platform_init's crash watchdog forks pgrep every 2 s; 10 s is still quick to reboot a dead UI.
 WATCHDOG = 'usr/bin/checkappprocess.sh'
 WATCHDOG_SHA = '68843ed739919420974ca55e6c5a6a2e52e63711b2faca116656440e5bd6a096'
@@ -523,13 +528,28 @@ def patch_bluealsa(raw):
              0x0c10c0e8, 0x2604000c,
              0x8e040000, 0x24050006, 0x0c102dce, 0x24840050,
              0x8fb00018, 0x8fbf001c, 0x00001025, 0x03e00008, 0x27bd0020]
-    payload = struct.pack('<21I', *words)
+    reset = BT_DROP_PAYLOAD + len(words) * 4
+    # The shared read helper receives a raw tail pointer, not the ffb_t. Rewind
+    # each audited caller's partial PCM and update the helper's pointer/capacity
+    # before it repolls; otherwise old and new tracks share one encoder frame.
+    words += [0x8fa80054]  # saved return address
+    for caller, offset in BT_PCM_CALLERS:
+        check(struct.unpack_from('<I', raw, fileoff(raw, caller-8))[0] == 0x0c105174,
+              'Bluetooth PCM caller mismatch')
+        body = ([0x264b0000 | offset, 0x8d760000, 0xad760004, 0x8d750008]
+                if offset is not None else
+                [0x8fab004c, 0x8fac0040, 0x02cbb023, 0x02ccb021,
+                 0xafac004c, 0x24150100, 0xafb50048])
+        body += [0x081051e4, 0]  # existing OPEN/RESUME pacing reset and repoll
+        words += [0x3c0a0000 | caller >> 16, 0x354a0000 | caller & 0xffff,
+                  0x150a0000 | len(body)+1, 0, *body]
+    words += [0x081051e4, 0]  # unknown caller: reset pacing without touching its buffer
+    payload = struct.pack(f'<{len(words)}I', *words)
     append_payload(image, payload, BT_DROP_PAYLOAD, len(payload), 'bluealsa')
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP),
                      0x08000000 | BT_DROP_PAYLOAD >> 2, 0)
-    # The shared AAC/LDAC/SBC/etc. DROP branch now resets asrs.frames and the
-    # poll timeout through the existing OPEN/RESUME path; it never flushes PCM.
-    struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), 0x081051e4, 0)
+    # Never flush the new track's FIFO from this asynchronously handled signal.
+    struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), 0x08000000 | reset >> 2, 0)
     return bytes(image)
 
 def patch_watchdog(raw):
@@ -711,6 +731,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
+                               SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1]))}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')

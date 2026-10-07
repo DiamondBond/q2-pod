@@ -826,7 +826,7 @@ int curl_easy_setopt(void *c, int opt, ...) {
     else if (opt == 10001) easy.ctx = va_arg(a, void *);
     else if (opt == 64) { easy.verify = va_arg(a, long); assert(easy.verify == 1); }
     else if (opt == 81) assert(va_arg(a, long) == 2);
-    else if (opt == 10065) assert(strstr(va_arg(a, const char *), ".scrobble.pem"));
+    else if (opt == 10065) assert(strstr(va_arg(a, const char *), "/etc/scrobble-ca.pem"));
     else assert(opt == 99 || opt == 13 || opt == 78 || opt == 81);
     va_end(a);
     return 0;
@@ -913,7 +913,7 @@ int main(void) {
     strcpy(before, slurp(LOG)); /* no session key: nothing changes */
     fail_at = -1, no_key = 1;
     assert(run(&sent) == -1 && !sent && !strcmp(slurp(LOG), before) && lines(slurp(LOG ".sent")) == 172);
-    cfg[1] = 0, no_key = 0; /* ListenBrainz only, with a CA bundle on the card: verified */
+    cfg[1] = 0, no_key = 0; /* An old card CA file is ignored: firmware supplies trust. */
     fclose(fopen(ROOT "/mnt/mmc/.scrobble.pem", "w"));
     assert(run(&sent) == 1 && sent == 10 && !strcmp(slurp(LOG), HEADER));
     /* A full archive must never discard the source listens after network success. */
