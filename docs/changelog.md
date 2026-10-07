@@ -1,6 +1,6 @@
 # Changelog
 
-- **V9.6**: iPod: show a full green battery in the status bar while charging instead of a dark split through the fill.
+- **V9.6**: Library: one **Shuffle** row opens **Shuffle Songs**, **Shuffle Albums** and **Shuffle Folders**, with a note that shuffling albums or folders may take a while; picking one leaves the menu open for another. iPod: show a full green battery in the status bar while charging instead of a dark split through the fill.
 
 - **V9.5**: Fix scrobble uploads by supplying TLS trust roots in firmware; no card-side `.scrobble.pem` is needed. Add completed Last.fm and ListenBrainz `.scrobble.ini` examples and setup checks to the README. Use a separate 50–200% Wheel sensitivity choice menu with no slider protruding at the list end. Discard partial Bluetooth encoder PCM when skipping tracks, in addition to flushing old audio and resetting pacing; audible AAC and LDAC behavior still needs device testing.
 

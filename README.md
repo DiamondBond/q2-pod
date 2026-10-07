@@ -51,7 +51,7 @@
 **Music**
 
 - Hold Play/Pause: Favourites, Add to playlist, Shuffle, Go to album/artist
-- Shuffle Songs and Most Played (your top 100)
+- Shuffle Songs, Albums or Folders from one Library menu, and Most Played (your top 100)
 - Parametric EQ: up to 30 bands, per channel, with balance and a live curve
 - Sorting ignores a leading The, A or An
 
@@ -172,7 +172,7 @@ On **Now Playing**, hold **Play/Pause** for **Shuffle**, **Repeat** and **Group 
 
 **Play Single Song**, **Play Category** and **Play All Categories** stop after that song, group or queue. **Repeat Song**, **Repeat Category** and **Repeat All Categories** loop that scope, with a fresh shuffle cycle. Each shuffle cycle visits every eligible occurrence once, including duplicate entries. Manual Next bypasses single-song stop/repeat; category modes stay in the current category. Previous follows playback history (up to 4096 transitions).
 
-Album groups use the album name, ignoring case; untagged songs use their parent folder. Albums play in disc, track, path and CUE-start order. Folder groups use the immediate parent directory and play in path and CUE-start order. **Library → Shuffle Albums / Shuffle Folders** loads all scanned songs and shuffles those groups. Existing collection Shuffle actions still shuffle all collected songs. **Next album / Previous album** in the hold menu skips the remaining group or returns to the start of the previously played group; folder grouping shows **Next folder / Previous folder**. Choosing a stock play mode clears the advanced options.
+Album groups use the album name, ignoring case; untagged songs use their parent folder. Albums play in disc, track, path and CUE-start order. Folder groups use the immediate parent directory and play in path and CUE-start order. **Library → Shuffle → Shuffle Albums / Shuffle Folders** loads all scanned songs and shuffles those groups, which can take a while on a large library. Existing collection Shuffle actions still shuffle all collected songs. **Next album / Previous album** in the hold menu skips the remaining group or returns to the start of the previously played group; folder grouping shows **Next folder / Previous folder**. Choosing a stock play mode clears the advanced options.
 
 Advanced queues, options, traversal and history restore after reboot from `/mnt/data/ringnav-queue`; missing files are skipped. Restored queues keep their Library or Folder playback origin, so Folder Skip applies only to Folder playback. **Memory playback → Location** restores elapsed time, **Track** starts at the beginning, and **In-Vehicle mode** plays automatically. Invalid snapshots fall back to stock resume. Queues up to 16,384 occurrences can use advanced playback. Long Songs is deferred.
 

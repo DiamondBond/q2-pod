@@ -15,6 +15,7 @@
 { "photos_page", CTX_DYNAMIC, 0 },    /* runtime window (patch/photos.c) */
 { "books_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/books.c) */
 { "mostplayed_page", CTX_FIXED, 0 }, /* runtime window (patch/navigation.c); fixed: the hold menu */
+{ "shuffle_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "album_page", CTX_LOCAL, 0 },
 { "albuminfo_page", CTX_LOCAL, RING },
 { "allmusic_page", CTX_LOCAL, RING },

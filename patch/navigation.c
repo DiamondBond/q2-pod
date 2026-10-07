@@ -121,7 +121,8 @@ typedef struct {
      * opens while the library is at mp_gen (~library_gen once stale). */
     void *mp_page, *mp_list;
     unsigned mp_gen;
-    int dark; /* the backlight was off at the last UI loop pass */
+    void *sp_page; /* the Library Shuffle menu's page, kept across picks */
+    int dark;      /* the backlight was off at the last UI loop pass */
     /* Power management's Charge limit and Low power (read once from config.ini's Q2POD), the value
      * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
@@ -1526,15 +1527,22 @@ static void *list_button(void *view) {
 }
 
 /* A stock settings-style row (0x4c19bc): a list_button with a 52px icon and a 24px label at x 72,
- * without list_into. Returns the label. */
-static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
+ * into adding stock's list_into trailing image with the label narrowed clear of it, as the stock
+ * Local Music categories place it. Returns the label. */
+static void *list_row_core(void *view, const char *icon, int (*click)(void *, void *), void *ctx,
+                           int w, int into) {
     void *button = list_button(view);
     if (click) widget_on(button, EVT_CLICK, click, ctx);
     image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
-    void *label = hscroll_label_create(button, 72, 0, 260, 70);
+    void *label = hscroll_label_create(button, 72, 0, w, 70);
     widget_use_style(label, "s_scrlabel_white24l");
     set_hscroll_label_attribute(label);
+    if (into) image_base_set_image(image_create(button, 282, 0, 50, 70), "list_into");
     return label;
+}
+
+static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
+    return list_row_core(view, icon, click, ctx, 260, 0);
 }
 
 /* Power management's Charge limit and Low power (docs/internals.md#charge-limit, #low-power), Q2POD
@@ -2890,6 +2898,48 @@ static int shuffle_groups(void *ctx, void *event) {
     return 0;
 }
 
+/* Return and destroy for the payload's own pages, shared with Most Played. */
+static int page_keyup(void *ctx, void *event) {
+    (void)ctx;
+    if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
+    navigator_back();
+    return STOP;
+}
+
+static int page_closed(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    st.mp_page = st.sp_page = 0;
+    return 0;
+}
+
+/* The Library's Shuffle row opens these three actions on one page. A pick starts playback and
+ * leaves the page open, as Most Played's rows do. Album and folder shuffles queue and group the
+ * whole library, hence the note. */
+static int sp_pick(void *ctx, void *event) {
+    (void)event;
+    if ((long)ctx)
+        shuffle_groups((void *)((long)ctx - 1), 0);
+    else
+        shuffle_songs(0, 0);
+    return 0;
+}
+
+static int shuffle_menu(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    if (st.sp_page || !(st.sp_page = page_open("shuffle_page", page_closed, page_keyup))) return 0;
+    void *view = page_list(st.sp_page, st.sp_page, 0, "Shuffle", 3, 48);
+    page_row_detail(view, 0, "Shuffle Songs", 0, sp_pick);
+    page_row_detail(view, 1, "Shuffle Albums", 0, sp_pick);
+    page_row_detail(view, 2, "Shuffle Folders", 0, sp_pick);
+    void *note = text(st.sp_page, 20, 200, 335, 24);
+    widget_set_prop_int(note, "style:normal:text_color", (int)0xffaaaaaau);
+    widget_set_prop_int(note, "style:normal:font_size", 16);
+    widget_set_text_utf8(note, "Shuffling albums or folders may take a while");
+    return 0;
+}
+
 #define RESUME_FILE "/mnt/data/ringnav-resume" /* coverflow.c's blob_io */
 #define PLAYS_FILE "/mnt/data/ringnav-plays"
 
@@ -2913,20 +2963,6 @@ static unsigned listen_key(void *r) {
 static int mp_play(void *ctx, void *event) {
     (void)event;
     play_folder(st.mp_list, (int)(long)ctx, 1);
-    return 0;
-}
-
-static int mp_keyup(void *ctx, void *event) {
-    (void)ctx;
-    if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
-    navigator_back();
-    return STOP;
-}
-
-static int mp_closed(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    st.mp_page = (void *)0;
     return 0;
 }
 
@@ -2986,7 +3022,8 @@ static int mp_find(unsigned key) {
 static int most_played(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    if (st.mp_page || !(st.mp_page = page_open("mostplayed_page", mp_closed, mp_keyup))) return 0;
+    if (st.mp_page || !(st.mp_page = page_open("mostplayed_page", page_closed, page_keyup)))
+        return 0;
     int n, idx[PLAYS_TOP];
     unsigned score[PLAYS_TOP], gen = library_gen;
     void *from = st.mp_list;
@@ -3122,6 +3159,15 @@ static void *library_row(void *view, const char *icon, int (*click)(void *, void
     return P(P(label, W_PARENT), W_PARENT);
 }
 
+/* A library row that opens another list: stock's own list_into trailing image, as the stock Local
+ * Music categories place it. Returns the row's list_item. */
+static void *library_into(void *view, const char *icon, int (*click)(void *, void *), void *ctx,
+                          const char *text) {
+    void *label = list_row_core(view, icon, click, ctx, 210, 1);
+    widget_set_text_utf8(label, text);
+    return P(P(label, W_PARENT), W_PARENT);
+}
+
 /* localmusic_page_init: stock's 11 category rows (0x5247ec), by index (get_localmusic_showinfo
  * 0x5012d0): Update Local Music, All Songs, Album, Artist, Genre, Hi-Res, My Fav, Frequent,
  * Recent, Recently Added, Playlist. */
@@ -3140,9 +3186,9 @@ enum {
     L_STOCK
 };
 
-/* The Library: Shuffle Songs, browsing, the user's own lists, listening history, the card's other
- * media, then upkeep. The added rows' buttons have no name, so stock's row click (atoi of the
- * name, 0x5241fc) never sees them. */
+/* The Library: one Shuffle row opening its menu, browsing, the user's own lists, listening
+ * history, the card's other media, then upkeep. The added rows' buttons have no name, so stock's
+ * row click (atoi of the name, 0x5241fc) never sees them. */
 int ringnav_localmusic(void *win, void *ctx) {
     int result = stock_localmusic_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_localmusic", 1) : (void *)0;
@@ -3150,10 +3196,7 @@ int ringnav_localmusic(void *win, void *ctx) {
     void *stock[L_STOCK];
     for (int i = 0; i < L_STOCK; i++) stock[i] = widget_get_child(view, i);
     unsigned n = 0; /* each row moves to n as it comes, so Update Local Music, left, ends last */
-    widget_restack(library_row(view, "local_shuffle", shuffle_songs, 0, "Shuffle Songs"), n++);
-    widget_restack(library_row(view, "local_shuffle", shuffle_groups, 0, "Shuffle Albums"), n++);
-    widget_restack(library_row(view, "local_shuffle", shuffle_groups, (void *)1, "Shuffle Folders"),
-                   n++);
+    widget_restack(library_into(view, "local_shuffle", shuffle_menu, 0, "Shuffle"), n++);
     static const unsigned char middle[] = { L_ARTISTS,   L_ALBUMS, L_SONGS, L_GENRES,
                                             L_PLAYLISTS, L_FAV,    L_ADDED, L_RECENT };
     for (unsigned i = 0; i < sizeof middle; i++) widget_restack(stock[middle[i]], n++);
