@@ -278,8 +278,11 @@ m.top=m.node('window','display_page',[lst]); m.stack=[m.top]
 for child,parent in ((view,lst),(lst,m.top),(m.top,m.wm)): m.word(child+O['W_PARENT'],parent)
 assert m.fn('ringnav_display',m.top,0)==0
 item=m.nodes[view]['children'][-1]; button,slider=m.nodes[item]['children']
-label=m.nodes[button]['children'][0]
+label=m.nodes[button]['children'][1]
 assert m.nodes[label]['text']=='Wheel sensitivity: 100%'
+assert m.nodes[button]['style:normal:bg_color']==0
+assert m.nodes[slider]['style']=='s_ipod_progress' and m.nodes[slider]['bar_size']==10
+assert m.nodes[slider]['slide_with_bar']==1 and m.nodes[slider]['style:normal:round_radius']==5
 f,ctx=m.handler(slider,O['EVT_VALUE_CHANGED'])
 m.nodes[slider]['value']=150; m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.fn('wheel_value')==150 and m.nodes[label]['text']=='Wheel sensitivity: 150%'

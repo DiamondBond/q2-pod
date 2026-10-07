@@ -1,6 +1,6 @@
 # Changelog
 
-- **V9.2**: Simplify Coverflow caching and reduce idle visualizer work. Harden Low power crash markers and MP3 seeking, including CRC-protected Xing headers. Keep pending scrobbles when archival fails and always verify upload TLS; stock firmware needs a `.scrobble.pem` CA bundle on the card.
+- **V9.2**: Add album and folder shuffle, playing each randomly selected group in order, with Next/Previous group actions in the Now Playing hold menu. Add advanced shuffle and repeat choices, and restore queues, traversal and playback position after reboot. Add a 50–200% wheel sensitivity slider under System settings → Display in both builds. Simplify Coverflow caching and reduce idle visualizer work. Harden Low power crash markers and MP3 seeking, including CRC-protected Xing headers. Keep pending scrobbles when archival fails and always verify upload TLS; stock firmware needs a `.scrobble.pem` CA bundle on the card.
 
 - **V9.1**: iPod: restore the stock playlist toolbar and its menu, replacing the separate Create playlist row. Restore the stock-connected Bluetooth handoff to Rockbox.
 

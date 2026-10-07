@@ -2204,12 +2204,35 @@ static void wheel_row(void *view) {
     wheel_edit = 0;
     void *item = list_item_create(view, 0, 0, 375, 110);
     widget_use_style(item, "s_listitem_black");
-    void *button = button_create(item, 25, 0, 325, 50);
+    void *button = button_create(item, 20, 0, 335, 50);
     widget_use_style(button, "s_btn_listitem");
+    /* Let the list's selection show through instead of drawing a second focus rectangle. */
+    static const char *const states[] = { "normal", "pressed", "over", "focused" };
+    char key[48];
+    for (unsigned i = 0; i < sizeof states / sizeof *states; ++i) {
+        tk_snprintf(key, sizeof key, "style:%s:bg_color", states[i]);
+        widget_set_prop_int(button, key, 0);
+        tk_snprintf(key, sizeof key, "style:%s:border_color", states[i]);
+        widget_set_prop_int(button, key, 0);
+    }
     widget_on(button, EVT_CLICK, wheel_click, item);
-    wheel_label = hscroll_label_create(button, 0, 0, 325, 50);
-    widget_use_style(wheel_label, "s_scrlabel_white24l");
-    wheel_slider = widget_factory_create_widget(widget_factory(), "slider", item, 25, 50, 325, 50);
+    image_base_set_image(image_create(button, 10, 5, 40, 40), "system_display");
+    wheel_label = hscroll_label_create(button, 72, 0, 260, 50);
+    widget_use_style(wheel_label, "s_scrlabel_white20l");
+    set_hscroll_label_attribute(wheel_label);
+    wheel_slider = widget_factory_create_widget(widget_factory(), "slider", item, 92, 50, 253, 46);
+    widget_use_style(wheel_slider, "s_ipod_progress");
+    widget_set_prop_int(wheel_slider, "bar_size", 10);
+    widget_set_prop_int(wheel_slider, "dragger_size", 28);
+    widget_set_prop_int(wheel_slider, "slide_with_bar", 1);
+    for (unsigned i = 0; i < sizeof states / sizeof *states; ++i) {
+        tk_snprintf(key, sizeof key, "style:%s:bg_color", states[i]);
+        widget_set_prop_int(wheel_slider, key, (int)0xff303030u);
+        tk_snprintf(key, sizeof key, "style:%s:fg_color", states[i]);
+        widget_set_prop_int(wheel_slider, key, (int)0xffffffffu);
+        tk_snprintf(key, sizeof key, "style:%s:round_radius", states[i]);
+        widget_set_prop_int(wheel_slider, key, 5);
+    }
     widget_set_prop_int(wheel_slider, "min", 50);
     widget_set_prop_int(wheel_slider, "max", 200);
     widget_set_prop_int(wheel_slider, "step", 10);
