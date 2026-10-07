@@ -2212,8 +2212,6 @@ static void wheel_row(void *view) {
     for (unsigned i = 0; i < sizeof states / sizeof *states; ++i) {
         tk_snprintf(key, sizeof key, "style:%s:bg_color", states[i]);
         widget_set_prop_int(button, key, 0);
-        tk_snprintf(key, sizeof key, "style:%s:border_color", states[i]);
-        widget_set_prop_int(button, key, 0);
     }
     widget_on(button, EVT_CLICK, wheel_click, item);
     image_base_set_image(image_create(button, 10, 5, 40, 40), "system_display");
