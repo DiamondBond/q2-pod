@@ -8,7 +8,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
     stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
-    stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
+    stock_btvol_trampoline(int, int), stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
@@ -3726,6 +3726,44 @@ static int now_playing(void) {
     return top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page");
 }
 
+/* AVRCP absolute volume, as in PR #3. libbtctl returns 0 on a successful write.
+ * Keep stock software gain unless the headset accepted the requested level. */
+static int bt_audio_ready(void) {
+    return g_bluetoothflag && bt_linkstatus && *(const volatile int *)bt_showcoding > 0 &&
+           !bt__recv_pageflag && mclGetOutputWay() == 1;
+}
+
+static int bt_sync_volume(int left, int right) {
+    unsigned cur = (unsigned)btctl_transport_get_volume();
+    if (cur > 127) return 0;
+    int v = left > right ? left : right;
+    v = v < 0 ? 0 : v > 100 ? 100 : v;
+    int want = (v * 127 + 50) / 100;
+    return cur == (unsigned)want || btctl_transport_set_volume(want) == 0;
+}
+
+int ringnav_btvol(int left, int right) {
+    if (bt_audio_ready() && bt_sync_volume(left, right))
+        return stock_btvol_trampoline(100, 100);
+    return stock_btvol_trampoline(left, right);
+}
+
+static struct {
+    unsigned checked;
+    int ready;
+} btvol __attribute__((section(".scratch")));
+
+static void bt_volume_poll(void) {
+    unsigned now = time_now_ms();
+    if (now - btvol.checked < 400) return;
+    btvol.checked = now;
+    if (!bt_audio_ready()) btvol.ready = 0;
+    else if (!btvol.ready && bt_sync_volume(g_volume, g_volume)) {
+        stock_btvol_trampoline(100, 100);
+        btvol.ready = 1;
+    }
+}
+
 /* main_loop_sleep_default paces the UI loop at 8 ms (125 Hz), screen on or off. With the backlight
  * off it first idles SCREEN_OFF_SLEEP_MS (Low power: LOW_OFF_SLEEP_MS); stock then finds its 8 ms
  * gone, sleeps 0 and keeps its own bookkeeping. The first pass with it back on repaints every
@@ -3733,6 +3771,7 @@ static int now_playing(void) {
  * With Low power and the screen on, a pass idles LOW_IDLE_SLEEP_MS once input and window
  * animations have been still for LOW_IDLE_MS, except on Now Playing. */
 int ringnav_sleep(void *loop) {
+    bt_volume_poll();
     video_poll();
     playback_poll();
     resume_poll();

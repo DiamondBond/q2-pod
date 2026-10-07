@@ -2838,6 +2838,78 @@ for row,pos,closed in ((0,0,True),(1,0,False),(1,2,True)):
 demo=(B/'demo').read_bytes()
 assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_shuffle']>>2
 m=QueueMachine(mode=2); m.run(0,steps=5); assert m.names()==['A','Row 5','B','C']
+# Bluetooth volume runs through the shared hook in both variants. Mock only headset I/O
+# and stock gain; device_set_volume itself executes its native output routing.
+class BtVolumeMachine(Machine):
+    def __init__(self):
+        super().__init__()
+        self.absolute=10; self.write_result=0; self.way=1
+        self.byte(syms['g_bluetoothflag'],1); self.byte(syms['bt_linkstatus'],1)
+        self.word(syms['bt_showcoding'],1); self.byte(syms['g_volume'],20)
+        self.handlers[HOOKS['mclSetBtVol'][0]+12]='stock_btvol'
+        self.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
+        self.mock('mclSetLocalVol','mclUsbAudioSetVol','notifyVolume','airplaySendVol')
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name not in ('btctl_transport_get_volume','btctl_transport_set_volume','mclGetOutputWay'):
+            return super().hook(u,address,size,unused)
+        a=u.reg_read(REGS[0]); self.calls.append((name,a,0,0))
+        if name=='btctl_transport_get_volume': ret=self.absolute
+        elif name=='mclGetOutputWay': ret=self.way
+        else:
+            ret=self.write_result
+            if ret==0: self.absolute=a
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff)
+        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def volume(self,left,right):
+        self.call(address=HOOKS['mclSetBtVol'][0],args=(left,right,0,0),gap=0)
+        return [(signed(c[1]),signed(c[2])) for c in self.calls if c[0]=='stock_btvol']
+    def writes(self): return [c[1] for c in self.calls if c[0]=='btctl_transport_set_volume']
+    def poll(self,gap=400):
+        self.call(address=HOOKS['main_loop_sleep_default'][0],args=(self.wm,0,0,0),gap=gap)
+
+for left,right,want in ((0,0,0),(1,1,1),(20,20,25),(40,30,51),(50,50,64),(100,100,127),
+                        (-5,-1,0),(101,200,127)):
+    b=BtVolumeMachine(); assert b.volume(left,right)==[(100,100)] and b.writes()==[want]
+    assert b.volume(left,right)==[(100,100)] and not b.writes(); passed()
+for cur in (-1,128,255):
+    b=BtVolumeMachine(); b.absolute=cur
+    assert b.volume(20,30)==[(20,30)] and not b.writes(); passed()
+b=BtVolumeMachine(); b.write_result=-1
+assert b.volume(20,30)==[(20,30)] and b.writes()==[38]; passed()
+for name,value in (('g_bluetoothflag',0),('bt_linkstatus',0),('bt__recv_pageflag',1),('bt_showcoding',0)):
+    b=BtVolumeMachine()
+    (b.word if name=='bt_showcoding' else b.byte)(syms[name],value)
+    assert b.volume(20,30)==[(20,30)] and not b.writes(); passed()
+for way in (0,2):
+    b=BtVolumeMachine(); b.way=way
+    assert b.volume(20,30)==[(20,30)] and not b.writes(); passed()
+b=BtVolumeMachine(); b.absolute=-1; b.poll()
+assert not b.writes()
+b.absolute=10; b.poll(399); assert not b.writes()
+b.poll(1); assert b.writes()==[25]
+b.absolute=5; b.poll(); assert not b.writes()  # one synchronization per ready connection
+b.byte(syms['bt_linkstatus'],0); b.poll(); assert not b.writes()
+b.byte(syms['bt_linkstatus'],1); b.word(syms['bt_showcoding'],0); b.poll(); assert not b.writes()
+b.word(syms['bt_showcoding'],1); b.poll(); assert b.writes()==[25]; passed()
+b=BtVolumeMachine(); b.write_result=-1; b.poll()
+assert b.writes()==[25] and not any(c[0]=='stock_btvol' for c in b.calls)
+b.write_result=0; b.poll(); assert b.writes()==[25]; passed()
+# Native device_set_volume calls LocalVol and BtVol for the DAC/Bluetooth, USB's own
+# setter for USB. g_output_way=0 avoids stock's fixed line-out branch; notify is covered too.
+for way,soft in ((0,0),(1,0),(2,0),(2,1)):
+    b=BtVolumeMachine(); b.handlers.pop(syms['device_set_volume'])
+    b.byte(syms['g_output_way'],0); b.way=way; b.byte(syms['g_usbvol_mode'],soft)
+    b.call(address=syms['device_set_volume'],args=(20,1,0,0),gap=0)
+    gains=[c[1:3] for c in b.calls if c[0]=='stock_btvol']
+    local=[c[1:3] for c in b.calls if c[0]=='mclSetLocalVol']
+    usb=[c[1:3] for c in b.calls if c[0]=='mclUsbAudioSetVol']
+    assert gains==([(100,100)] if way==1 else [(20,20)] if way==0 else [])
+    assert local==([(20,20)] if way in (0,1) else [])
+    assert usb==([(20,20)] if soft else [(100,100)]) if way==2 else not usb
+    assert b.writes()==([25] if way==1 else [])
+    assert any(c[0]=='notifyVolume' for c in b.calls); passed()
+
 # Screen off, the UI loop idles SCREEN_OFF_SLEEP_MS before stock's own pacing; screen on, stock alone.
 sleep_hook=HOOKS['main_loop_sleep_default'][0]
 for light,want in ((1,[]),(0,[O['SCREEN_OFF_SLEEP_MS']])):
