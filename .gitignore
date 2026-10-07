@@ -2,6 +2,7 @@
 stock/
 work/
 build/
+build-*/
 dist/*
 *.zip
 *.tar

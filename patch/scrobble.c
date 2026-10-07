@@ -8,7 +8,7 @@
 
 #define LOG_FILE PEQ_ROOT "/mnt/mmc/.scrobbler.log"
 #define INI_FILE PEQ_ROOT "/mnt/mmc/.scrobble.ini"
-#define CA_FILE PEQ_ROOT "/mnt/mmc/.scrobble.pem" /* optional: verify TLS against it */
+#define CA_FILE PEQ_ROOT "/mnt/mmc/.scrobble.pem" /* CA bundle: TLS verification is always enabled */
 #define BATCH 50                                  /* Last.fm's limit; ListenBrainz takes 100 */
 #define BODY_MAX (192 << 10)                      /* 50 lines of at most 800 bytes, URL-encoded */
 #define LB_URL "https://api.listenbrainz.org/1/submit-listens"
@@ -124,11 +124,11 @@ static unsigned got(const char *data, unsigned size, unsigned n, void *ctx) {
     return size * n;
 }
 
-/* POST body; the HTTP status, 0 when no reply. Stock's own HTTPS (Tidal, Baidu) skips peer
- * verification, as the rootfs has no CA bundle; a card .scrobble.pem turns it on. */
+/* POST body; the HTTP status, 0 when no reply. Credentials are sent only over verified TLS;
+ * the card's CA bundle supplies roots missing from the stock image. */
 static long post(const char *url, const char *body, const char *auth, reply_t *r) {
     void *c = curl_easy_init(), *h = 0;
-    long code = 0, verify = !access(CA_FILE, 0);
+    long code = 0;
     if (!c) return 0;
     if (auth) h = curl_slist_append(curl_slist_append(0, auth), "Content-Type: application/json");
     r->n = 0;
@@ -141,9 +141,9 @@ static long post(const char *url, const char *body, const char *auth, reply_t *r
     curl_easy_setopt(c, 99, 1L);                     /* NOSIGNAL: off the UI thread */
     curl_easy_setopt(c, 78, 15L);                    /* CONNECTTIMEOUT */
     curl_easy_setopt(c, 13, 60L);                    /* TIMEOUT */
-    if (verify) curl_easy_setopt(c, 10065, CA_FILE); /* CAINFO */
-    curl_easy_setopt(c, 64, verify);                 /* SSL_VERIFYPEER */
-    curl_easy_setopt(c, 81, verify * 2);             /* SSL_VERIFYHOST */
+    if (!access(CA_FILE, 0)) curl_easy_setopt(c, 10065, CA_FILE); /* CAINFO */
+    curl_easy_setopt(c, 64, 1L);                 /* SSL_VERIFYPEER */
+    curl_easy_setopt(c, 81, 2L);             /* SSL_VERIFYHOST */
     if (!curl_easy_perform(c)) curl_easy_getinfo(c, 0x200002, &code); /* RESPONSE_CODE */
     curl_easy_cleanup(c);
     curl_slist_free_all(h);
@@ -239,24 +239,32 @@ static int scrobble_lastfm(const entry_t *e, int n, const char *sk, buf_t *b, re
 
 /* Moves the first done bytes' scrobbles to .sent and keeps the rest under the header. The log is
  * only appended to meanwhile, so those bytes are the ones uploaded. */
-static void retire(unsigned done) {
+static int retire(unsigned done) {
     pthread_mutex_lock(up.lock);
     unsigned size;
     char *p = read_all(LOG_FILE, &size);
     void *sent = p && size >= done ? fopen(LOG_FILE ".sent", "ab") : 0;
-    for (unsigned i = 0, j; sent && i < done; i = j) {
+    int ok = sent != 0;
+    for (unsigned i = 0, j; ok && i < done; i = j) {
         for (j = i; j < done && p[j++] != '\n';) {}
-        if (p[i] != '#') fwrite(p + i, j - i, 1, sent);
+        if (p[i] != '#') ok = fwrite(p + i, j - i, 1, sent) == 1;
     }
-    if (sent) fclose(sent);
-    void *f = sent ? fopen(LOG_FILE ".tmp", "wb") : 0;
+    if (sent) {
+        if (fflush(sent) || fsync(fileno(sent))) ok = 0;
+        if (fclose(sent)) ok = 0;
+    }
+    void *f = ok ? fopen(LOG_FILE ".tmp", "wb") : 0;
     if (f) {
-        int ok = fwrite(header, sizeof header - 1, 1, f) == 1 &&
+        ok = fwrite(header, sizeof header - 1, 1, f) == 1 &&
                  (size == done || fwrite(p + done, size - done, 1, f) == 1);
-        if (!fclose(f) && ok) rename(LOG_FILE ".tmp", LOG_FILE);
+        if (fflush(f) || fsync(fileno(f))) ok = 0;
+        if (fclose(f)) ok = 0;
+        if (ok) ok = !rename(LOG_FILE ".tmp", LOG_FILE);
     }
+    else ok = 0;
     free(p);
     pthread_mutex_unlock(up.lock);
+    return ok;
 }
 
 static void *worker(void *unused) {
@@ -289,7 +297,7 @@ static void *worker(void *unused) {
              (!fm || scrobble_lastfm(e, n, sk, &b, &r));
         if (ok) done = at, sent += n;
     }
-    if (done) retire(done);
+    if (done && !retire(done)) ok = 0;
     free(b.p);
     free(log);
     up.sent = sent;

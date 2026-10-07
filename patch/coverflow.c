@@ -571,13 +571,9 @@ static unsigned initial(int i) {
     }
     if (c >= 'a' && c <= 'z') c -= 32;
     if (c < 128) return c >= 'A' && c <= 'Z' ? c : '#';
-    unsigned lo = 0, hi = sizeof initial_misc / sizeof *initial_misc;
-    while (lo < hi) {
-        unsigned mid = (lo + hi) / 2;
-        if (initial_misc[mid][1] < c) lo = mid + 1;
-        else hi = mid;
-    }
-    return lo < sizeof initial_misc / sizeof *initial_misc && initial_misc[lo][0] <= c ? '#' : c;
+    for (unsigned i = 0; i < sizeof initial_misc / sizeof *initial_misc; ++i)
+        if (c >= initial_misc[i][0] && c <= initial_misc[i][1]) return '#';
+    return c;
 }
 
 /* Utility cards and wrap edges remain individual stops. Reverse lands at a group's start. */
@@ -602,47 +598,24 @@ int coverflow_jump(void *w, int from, int dir, unsigned *letter) {
 }
 
 typedef struct {
-    unsigned key;
-    int idx;
-} name_t;
-typedef struct {
     void *r;
     const char *artist; /* Artist: the artist's sort key, without its article */
     unsigned rank;
     int idx;
 } order_t;
-static struct {
-    name_t *names; /* the stock rows by name_key, the Unknown row left out, for album_index */
-    unsigned n;
-} by_name __attribute__((section(".scratch")));
 
 static const char *album_name(void *r) {
     const char *s = P(r, REC_ALBUM);
     return s ? s : "";
 }
-static unsigned name_key(void *r) { /* the album name, ASCII case aside */
-    unsigned h = FNV_SEED;
-    for (const unsigned char *s = (const unsigned char *)album_name(r); *s; ++s) {
-        unsigned char c = *s >= 'A' && *s <= 'Z' ? *s + 32 : *s;
-        h = hash_bytes(h, &c, 1);
-    }
-    return h;
-}
-static int by_key(const void *a, const void *b) {
-    const name_t *x = a, *y = b;
-    return x->key != y->key ? (x->key < y->key ? -1 : 1) : x->idx - y->idx;
-}
-/* The stock row whose album r names, case aside, or -1: the hash finds the run, the names decide. */
+/* The stock row whose album r names, case aside, or -1: the Unknown row never matches. A linear
+ * scan: the rank queries and play counts together look up at most the album count + 512 songs. */
 static int album_index(void *r) {
-    unsigned key = name_key(r), lo = 0, hi = by_name.n;
-    while (lo < hi) {
-        unsigned mid = (lo + hi) / 2;
-        if (by_name.names[mid].key < key) lo = mid + 1;
-        else hi = mid;
-    }
-    for (; lo < by_name.n && by_name.names[lo].key == key; ++lo) {
-        int i = by_name.names[lo].idx;
-        if (!strcasecmp(album_name(deque_at(cf.stock, (unsigned)i)), album_name(r))) return i;
+    unsigned n = cf.stock ? deque_size(cf.stock) : 0;
+    const char *name = album_name(r);
+    for (unsigned i = 0; i < n; ++i) {
+        void *s = deque_at(cf.stock, i);
+        if (I(s, REC_ID) != -1 && !strcasecmp(album_name(s), name)) return (int)i;
     }
     return -1;
 }
@@ -672,21 +645,19 @@ static int by_artist(const void *a, const void *b) {
 /* cf.stock in the Sort's order: cf.stock itself for Album. Out of memory, the Sort falls back to
  * Album too, so its card says what is shown. */
 static void *sorted(void) {
-    unsigned n = deque_size(cf.stock), m = 0;
+    unsigned n = deque_size(cf.stock);
     int artist = cf.sort == SORT_ARTIST, played = cf.sort == SORT_PLAYED;
     order_t *v = cf.sort == SORT_ALBUM ? 0 : calloc(n + 1, sizeof *v);
-    name_t *names = v ? calloc(n + 1, sizeof *names) : 0;
-    unsigned *sum = names && played ? calloc(n + 1, sizeof *sum) : 0;
-    char *keys = names && artist ? calloc(n + 1, ARTIST_KEY) : 0;
-    if (!names || (played && !sum) || (artist && !keys)) {
-        free(v), free(names), free(sum), free(keys);
+    unsigned *sum = v && played ? calloc(n + 1, sizeof *sum) : 0;
+    char *keys = v && artist ? calloc(n + 1, ARTIST_KEY) : 0;
+    if (!v || (played && !sum) || (artist && !keys)) {
+        free(v), free(sum), free(keys);
         cf.sort = SORT_ALBUM;
         return cf.stock;
     }
     for (unsigned i = 0; i < n; ++i) {
         void *r = v[i].r = deque_at(cf.stock, i);
         v[i].rank = ~0u, v[i].idx = (int)i;
-        if (I(r, REC_ID) != -1) names[m].key = name_key(r), names[m++].idx = (int)i;
         if (keys) {
             const char *a = P(r, REC_ARTIST);
             snprintf(keys + i * ARTIST_KEY, ARTIST_KEY, "%s", a ? a : "");
@@ -694,8 +665,6 @@ static void *sorted(void) {
             v[i].artist = keys + i * ARTIST_KEY;
         }
     }
-    qsort(names, m, sizeof *names, by_key);
-    by_name.names = names, by_name.n = m;
     if (sum) {
         album_plays(album_index, sum);
         for (unsigned i = 0; i < n; ++i)
@@ -703,12 +672,11 @@ static void *sorted(void) {
     } else
         rank_by(v, cf.sort == SORT_ADDED ? SORT_SQL "max(time_create) desc"
                                          : SORT_SQL "ifnull(max(year),0)=0,max(year),album COLLATE NOCASE");
-    by_name.names = 0, by_name.n = 0;
     qsort(v, n, sizeof *v, artist ? by_artist : by_rank);
     void *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i].r);
-    free(v), free(names), free(sum), free(keys);
+    free(v), free(sum), free(keys);
     return out;
 }
 

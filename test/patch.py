@@ -5,7 +5,7 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 import json, math, pathlib, re, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
-import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
+sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 manifest=json.loads((B/'manifest.json').read_text())
@@ -3560,7 +3560,9 @@ assert cf_jump(m,5,1)==(2,ord('É')) and cf_jump(m,7,1)==(1,0)
 assert cf_jump(m,0,-1)==(1,0) and cf_jump(m,1,-1)==(2,0)
 assert cf_jump(m,8,1)==(1,0) and cf_jump(m,9,1)==(1,0); passed()
 # Unicode punctuation/numbers and missing names share #; letters retain their codepoints.
-for name,want in (('١ Song',ord('#')),('—Song',ord('#')),('',ord('#')),('Жизнь',ord('Ж')),('東京',ord('東'))):
+for name,want in (('١ Song',ord('#')),('० Song',ord('#')),('—Song',ord('#')),('',ord('#')),
+                  ('Жизнь',ord('Ж')),('東京',ord('東')),('Ａ Song',ord('Ａ')),('Ｂ Song',ord('Ｂ')),
+                  ('Ⰰ Song',ord('Ⰰ'))):
     m=CoverflowMachine(albums=2)
     m.word(m.albums[1]+O['REC_ALBUM'],m.string(name)); m.open()
     assert cf_jump(m,0,1)==(1,want); passed()
@@ -3982,7 +3984,7 @@ int main(void) {
 }""" % (O['CF_VIEW_H'],O['CF_VIEW_W'],O['CF_VIEW_W'])
     with tempfile.TemporaryDirectory(prefix='q2-render-') as d:
         d=pathlib.Path(d); (d/'shim.h').write_text(SHIM_H); (d/'main.c').write_text(main)
-        subprocess.run(['cc','-m32','-O1','-DPEQ_HOST','-DPEQ_ROOT=""',f'-DIPOD={int(variant=="ipod")}','-D_GNU_SOURCE',
+        subprocess.run(['cc','-O1','-DPEQ_HOST','-DPEQ_ROOT=""',f'-DIPOD={int(variant=="ipod")}','-D_GNU_SOURCE',
                         '-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-I',str(ROOT/'patch'),'-include',str(d/'shim.h'),
                         str(ROOT/'patch/coverflow.c'),str(d/'main.c'),'-o',str(d/'render')],check=True)
         feed=b''.join(textures)+''.join(f'{f} {m}\n' for f,m in cases).encode()
@@ -5465,7 +5467,7 @@ m=PowerMachine()
 m.byte(syms['g_backlight_status'],0); assert m.pass_(1)[1]==[O['SCREEN_OFF_SLEEP_MS']] and not m.writes and not m.opens; passed()
 m=PowerMachine({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0)
 assert m.pass_(1)[1]==[O['LOW_OFF_SLEEP_MS']] and m.writes==[(MARK,b''),(CPU1,b'0')] and MARK not in m.files
-assert [c[0] for c in m.calls if c[0] in ('fsync','unlink')]==['fsync','unlink','fsync']; passed()  # the marker, then its removal, on flash
+assert [c[0] for c in m.calls if c[0] in ('fsync','unlink')]==['fsync','fsync','unlink','fsync']; passed()  # the marker, then its removal, on flash
 m.writes=[]; m.byte(syms['g_backlight_status'],1); m.pass_(1); assert m.writes==[(CPU1,b'1')]; passed()
 m.writes=[]; m.byte(syms['g_backlight_status'],0); m.pass_(1); assert m.writes==[(CPU1,b'0')]; passed()  # marked once a boot
 m.byte(syms['g_backlight_status'],1); m.animating=1; m.pass_(1)
@@ -5496,5 +5498,26 @@ assert m.pass_(O['LOW_IDLE_MS'])[1]==[]; passed()
 # A boot that stalled offlining CPU1 left the marker: the next one renames it and never tries.
 m=PowerMachine({'LOWPOWER':'1'},files={MARK:b''}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
 assert not m.writes and '/mnt/data/q2pod-cpu1.bad' in m.files and MARK not in m.files; passed()
+
+# Even if renaming a previous crash marker fails, never offline the core again.
+class RenameFailed(PowerMachine):
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address,'').startswith('r:rename'):
+            u.reg_write(UC_MIPS_REG_V0,0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        return super().hook(u,address,size,unused)
+m=RenameFailed({'LOWPOWER':'1'},files={MARK:b''}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
+assert not m.writes and MARK in m.files; passed()
+
+# A flushed inode alone is insufficient if its directory entry cannot reach flash.
+class DirectoryFull(PowerMachine):
+    syncs = 0
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address,'').startswith('p:fsync'):
+            self.syncs += 1
+            if self.syncs == 2:
+                u.reg_write(UC_MIPS_REG_V0,0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        return super().hook(u,address,size,unused)
+m=DirectoryFull({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
+assert not any(p==CPU1 for p,_ in m.writes); passed()
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

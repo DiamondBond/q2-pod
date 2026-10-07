@@ -1,5 +1,7 @@
 # Changelog
 
+- **V9.2**: Simplify Coverflow caching and reduce idle visualizer work. Harden Low power crash markers and MP3 seeking, including CRC-protected Xing headers. Keep pending scrobbles when archival fails and always verify upload TLS; stock firmware needs a `.scrobble.pem` CA bundle on the card.
+
 - **V9.1**: iPod: restore the stock playlist toolbar and its menu, replacing the separate Create playlist row. Restore the stock-connected Bluetooth handoff to Rockbox.
 
 - **V9.0**: Hold Play/Pause on Now Playing opens the current local track’s queue, favourites, playlist and album/artist actions. Actions cancel if playback advances or the queue changes. Sustained Coverflow scrolling in Album or Artist order jumps between populated initials, with a brief letter overlay; Sort, Refresh and wrapping remain reachable.

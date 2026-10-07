@@ -75,7 +75,11 @@ static void tap(const float *a, unsigned frames, int nch, int rate) {
         if (idle > (unsigned)rate) memset(t->ring, 0, sizeof t->ring);
         seen = t->want, idle = 0;
     }
-    else if (idle > (unsigned)rate || (idle += frames) > (unsigned)rate) return; /* nobody watching */
+    else if (idle > (unsigned)rate || frames > (unsigned)rate - idle) {
+        idle = (unsigned)rate + 1;
+        return;
+    }
+    else idle += frames; /* nobody watching */
     long long now = now_ns();
     unsigned step = rate > 48000 ? (unsigned)rate / 44100 : 1, seq = t->seq;
     for (unsigned i = 0; i < frames; i += step, ++seq) {
@@ -125,11 +129,11 @@ int peq_open(af_instance *af) {
  * and interpolated between its points (t within 0..length); 0 without a VBR header that has both. */
 int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *length) {
     static const int rates[3] = { 44100, 48000, 32000 };
-    if (n < 4) return 0;
+    if (n < 4 || !__builtin_isfinite(t)) return 0;
     unsigned head = (unsigned)h[0] << 24 | h[1] << 16 | h[2] << 8 | h[3];
     unsigned version = head >> 19 & 3, rate = head >> 10 & 3, mono = (head >> 6 & 3) == 3;
     if (head >> 21 != 0x7ff || version == 1 || (head >> 17 & 3) != 1 || rate == 3) return 0;
-    unsigned at = 4 + (version == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+    unsigned at = 4 + (!(head & 0x10000) ? 2 : 0) + (version == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17));
     if (n < at + 8 + 4 + 4 + 100 || memcmp(h + at, "Xing", 4)) return 0; /* "Info": CBR, already exact */
     const unsigned char *p = h + at + 4;
     unsigned flags = p[3];
@@ -139,6 +143,8 @@ int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *
     p += 4 + (flags & 2 ? 4 : 0);
     if (!frames) return 0;
     *length = frames * (version == 3 ? 1152.0 : 576.0) / (rates[rate] >> (version == 3 ? 0 : version == 2 ? 1 : 2));
+    if (t < 0) t = 0;
+    if (t > *length) t = *length;
     double pct = t * 100 / *length;
     int i = pct >= 100 ? 99 : (int)pct;
     double a = p[i], b = i < 99 ? p[i + 1] : 256;
