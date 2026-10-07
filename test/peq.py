@@ -818,7 +818,8 @@ int curl_easy_setopt(void *c, int opt, ...) {
     else if (opt == 10023) easy.h = va_arg(a, node *);
     else if (opt == 20011) easy.w = va_arg(a, writer);
     else if (opt == 10001) easy.ctx = va_arg(a, void *);
-    else if (opt == 64) easy.verify = va_arg(a, long);
+    else if (opt == 64) { easy.verify = va_arg(a, long); assert(easy.verify == 1); }
+    else if (opt == 81) assert(va_arg(a, long) == 2);
     else if (opt == 10065) assert(strstr(va_arg(a, const char *), ".scrobble.pem"));
     else assert(opt == 99 || opt == 13 || opt == 78 || opt == 81);
     va_end(a);
@@ -909,6 +910,11 @@ int main(void) {
     cfg[1] = 0, no_key = 0; /* ListenBrainz only, with a CA bundle on the card: verified */
     fclose(fopen(ROOT "/mnt/mmc/.scrobble.pem", "w"));
     assert(run(&sent) == 1 && sent == 10 && !strcmp(slurp(LOG), HEADER));
+    /* A full archive must never discard the source listens after network success. */
+    unlink(LOG ".sent"); assert(!symlink("/dev/full", LOG ".sent"));
+    write_log(1); strcpy(before, slurp(LOG));
+    assert(run(&sent) == -1 && sent == 1 && !strcmp(slurp(LOG), before));
+    unlink(LOG ".sent");
     fclose(dump);
     return 0;
 }
@@ -961,8 +967,8 @@ def scrobble_check(tmp):
             assert p[f'artist[{j}]'] == artist(i) and p[f'track[{j}]'] == f'Title {i}' and p[f'duration[{j}]'] == str(200 + i)
             assert p.get(f'album[{j}]') == ('Alb/um' if i % 10 else None)
         fm_sizes.append(n)
-    assert lb_sizes == [50, 50, 20, 50, 10, 10] and fm_sizes == [50, 50, 20, 50]
-    assert [v for _, _, v, _ in requests] == ['0'] * (len(requests) - 1) + ['1']
+    assert lb_sizes == [50, 50, 20, 50, 10, 10, 1] and fm_sizes == [50, 50, 20, 50]
+    assert [v for _, _, v, _ in requests] == ['1'] * len(requests)
     print('Scrobble upload: config, batching, JSON and form escaping, Last.fm signatures, log rewrite and failures passed.')
 
 def books_check(tmp):

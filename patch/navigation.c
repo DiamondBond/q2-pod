@@ -1259,6 +1259,14 @@ void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, un
     canvas_set_text_color(canvas, text);
 }
 
+/* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas). */
+static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
+    if (canvas_fill_rounded_rect(canvas, r, (void *)0, &color, radius)) {
+        canvas_set_fill_color(canvas, color);
+        canvas_fill_rect(canvas, r->x, r->y, r->w, r->h);
+    }
+}
+
 #if IPOD
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
@@ -1310,14 +1318,6 @@ static int letter_expire(const void *info) {
  * first character sits in a dark translucent square over the list until LETTER_MS after the last
  * such step. A virtual table resolves the logical row in its recycled pool; an offscreen or
  * textless row shows nothing. The fill color and clip are restored. */
-/* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas). */
-static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
-    if (canvas_fill_rounded_rect(canvas, r, (void *)0, &color, radius)) {
-        canvas_set_fill_color(canvas, color);
-        canvas_fill_rect(canvas, r->x, r->y, r->w, r->h);
-    }
-}
-
 static void paint_letter(void *w, void *canvas) {
     rect_t old;
     if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= LIST_FIRST_MS ||
@@ -1479,10 +1479,7 @@ int ringnav_paint(void *w, void *canvas) {
         rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (I(w, W_H) - LETTER_BOX) / 2, LETTER_BOX,
                        LETTER_BOX };
         unsigned color = (LETTER_ALPHA << 24) | FILL_RGB;
-        if (canvas_fill_rounded_rect(canvas, &box, 0, &color, LETTER_RADIUS)) {
-            canvas_set_fill_color(canvas, color);
-            canvas_fill_rect(canvas, box.x, box.y, box.w, box.h);
-        }
+        fill_box(canvas, &box, color, LETTER_RADIUS);
         draw_centred(canvas, &st.cf_letter, 1, &box, LETTER_PX, 0xffffffff);
         canvas_set_fill_color(canvas, fill);
     }
@@ -3488,8 +3485,9 @@ static int cpu1_write(int on) {
 static void cpu_poll(void) {
     if (!st.low_power && !st.cpu_off) return; /* off: no file is touched */
     if (!st.cpu_bad) {                        /* once a boot */
-        if (!access(CPU1_PENDING, 0)) rename(CPU1_PENDING, CPU1_BAD);
-        st.cpu_bad = access(CPU1_BAD, 0) ? 1 : 2;
+        int pending = !access(CPU1_PENDING, 0);
+        if (pending) rename(CPU1_PENDING, CPU1_BAD);
+        st.cpu_bad = pending || !access(CPU1_BAD, 0) ? 2 : 1;
     }
     int off = st.low_power && !g_backlight_status && !video_on() && st.cpu_bad == 1;
     if (off == st.cpu_off) return;
@@ -3504,7 +3502,13 @@ static void cpu_poll(void) {
     if (!st.cpu_marked) { /* no marker on flash, no offline: the guard must hold */
         void *mark = fopen(CPU1_PENDING, "w");
         int synced = mark && !fflush(mark) && !fsync(fileno(mark));
-        if (mark) fclose(mark);
+        if (mark && fclose(mark)) synced = 0;
+        int dir = open("/mnt/data", 0); /* persist the marker's directory entry before hotplug */
+        if (dir < 0) synced = 0;
+        else {
+            if (fsync(dir)) synced = 0;
+            close(dir);
+        }
         if (!synced) {
             st.cpu_bad = 3;
             return;

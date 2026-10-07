@@ -25,6 +25,7 @@ python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-dev --ipod --dev  #
 python3 test/peq.py  # PEQ parser/storage, DSP, editor and player checks, the visualizer's FFT bands, and the scrobble upload (host cc; player needs -m32 libs, upload libcrypto)
 python3 test/coverflow.py  # Coverflow art cache and depth renderer (host cc -m32, pthreads)
 python3 test/coverflow.py --captures /tmp/cf  # the same, plus the renderer's frames as PNGs
+python3 test/mp3.py  # native Xing seek bounds, CRC and truncated headers
 python3 test/build.py  # JPEG header checks; no emulator required
 python3 test/build.py 'Q2 Firmware V1.32.zip'  # optional packaging checks (custom logo, quoted paths)
 python3 test/patch.py /tmp/q2-build  # after: pip install -r requirements.txt

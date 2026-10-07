@@ -248,307 +248,15 @@ extern void album_plays(int (*album_of)(void *), unsigned *sum);
 extern void ringnav_sort_key(char *s);
 #define ARTIST_KEY 96
 
-/* Unicode 16.0.0 number, punctuation and separator ranges. */
+/* Broad Unicode number, punctuation and separator ranges: an initial outside them shows itself. */
 static const unsigned initial_misc[][2] = {
-    { 0xa0, 0xa1 },
-    { 0xa7, 0xa7 },
-    { 0xab, 0xab },
-    { 0xb2, 0xb3 },
-    { 0xb6, 0xb7 },
-    { 0xb9, 0xb9 },
-    { 0xbb, 0xbf },
-    { 0x37e, 0x37e },
-    { 0x387, 0x387 },
-    { 0x55a, 0x55f },
-    { 0x589, 0x58a },
-    { 0x5be, 0x5be },
-    { 0x5c0, 0x5c0 },
-    { 0x5c3, 0x5c3 },
-    { 0x5c6, 0x5c6 },
-    { 0x5f3, 0x5f4 },
-    { 0x609, 0x60a },
-    { 0x60c, 0x60d },
-    { 0x61b, 0x61b },
-    { 0x61d, 0x61f },
-    { 0x660, 0x66d },
-    { 0x6d4, 0x6d4 },
-    { 0x6f0, 0x6f9 },
-    { 0x700, 0x70d },
-    { 0x7c0, 0x7c9 },
-    { 0x7f7, 0x7f9 },
-    { 0x830, 0x83e },
-    { 0x85e, 0x85e },
-    { 0x964, 0x970 },
-    { 0x9e6, 0x9ef },
-    { 0x9f4, 0x9f9 },
-    { 0x9fd, 0x9fd },
-    { 0xa66, 0xa6f },
-    { 0xa76, 0xa76 },
-    { 0xae6, 0xaf0 },
-    { 0xb66, 0xb6f },
-    { 0xb72, 0xb77 },
-    { 0xbe6, 0xbf2 },
-    { 0xc66, 0xc6f },
-    { 0xc77, 0xc7e },
-    { 0xc84, 0xc84 },
-    { 0xce6, 0xcef },
-    { 0xd58, 0xd5e },
-    { 0xd66, 0xd78 },
-    { 0xde6, 0xdef },
-    { 0xdf4, 0xdf4 },
-    { 0xe4f, 0xe5b },
-    { 0xed0, 0xed9 },
-    { 0xf04, 0xf12 },
-    { 0xf14, 0xf14 },
-    { 0xf20, 0xf33 },
-    { 0xf3a, 0xf3d },
-    { 0xf85, 0xf85 },
-    { 0xfd0, 0xfd4 },
-    { 0xfd9, 0xfda },
-    { 0x1040, 0x104f },
-    { 0x1090, 0x1099 },
-    { 0x10fb, 0x10fb },
-    { 0x1360, 0x137c },
-    { 0x1400, 0x1400 },
-    { 0x166e, 0x166e },
-    { 0x1680, 0x1680 },
-    { 0x169b, 0x169c },
-    { 0x16eb, 0x16f0 },
-    { 0x1735, 0x1736 },
-    { 0x17d4, 0x17d6 },
-    { 0x17d8, 0x17da },
-    { 0x17e0, 0x17e9 },
-    { 0x17f0, 0x17f9 },
-    { 0x1800, 0x180a },
-    { 0x1810, 0x1819 },
-    { 0x1944, 0x194f },
-    { 0x19d0, 0x19da },
-    { 0x1a1e, 0x1a1f },
-    { 0x1a80, 0x1a89 },
-    { 0x1a90, 0x1a99 },
-    { 0x1aa0, 0x1aa6 },
-    { 0x1aa8, 0x1aad },
-    { 0x1b4e, 0x1b60 },
-    { 0x1b7d, 0x1b7f },
-    { 0x1bb0, 0x1bb9 },
-    { 0x1bfc, 0x1bff },
-    { 0x1c3b, 0x1c49 },
-    { 0x1c50, 0x1c59 },
-    { 0x1c7e, 0x1c7f },
-    { 0x1cc0, 0x1cc7 },
-    { 0x1cd3, 0x1cd3 },
-    { 0x2000, 0x200a },
-    { 0x2010, 0x2029 },
-    { 0x202f, 0x2043 },
-    { 0x2045, 0x2051 },
-    { 0x2053, 0x205f },
-    { 0x2070, 0x2070 },
-    { 0x2074, 0x2079 },
-    { 0x207d, 0x207e },
-    { 0x2080, 0x2089 },
-    { 0x208d, 0x208e },
-    { 0x2150, 0x2182 },
-    { 0x2185, 0x2189 },
-    { 0x2308, 0x230b },
-    { 0x2329, 0x232a },
-    { 0x2460, 0x249b },
-    { 0x24ea, 0x24ff },
-    { 0x2768, 0x2793 },
-    { 0x27c5, 0x27c6 },
-    { 0x27e6, 0x27ef },
-    { 0x2983, 0x2998 },
-    { 0x29d8, 0x29db },
-    { 0x29fc, 0x29fd },
-    { 0x2cf9, 0x2cff },
-    { 0x2d70, 0x2d70 },
-    { 0x2e00, 0x2e2e },
-    { 0x2e30, 0x2e4f },
-    { 0x2e52, 0x2e5d },
-    { 0x3000, 0x3003 },
-    { 0x3007, 0x3011 },
-    { 0x3014, 0x301f },
-    { 0x3021, 0x3029 },
-    { 0x3030, 0x3030 },
-    { 0x3038, 0x303a },
-    { 0x303d, 0x303d },
-    { 0x30a0, 0x30a0 },
-    { 0x30fb, 0x30fb },
-    { 0x3192, 0x3195 },
-    { 0x3220, 0x3229 },
-    { 0x3248, 0x324f },
-    { 0x3251, 0x325f },
-    { 0x3280, 0x3289 },
-    { 0x32b1, 0x32bf },
-    { 0xa4fe, 0xa4ff },
-    { 0xa60d, 0xa60f },
-    { 0xa620, 0xa629 },
-    { 0xa673, 0xa673 },
-    { 0xa67e, 0xa67e },
-    { 0xa6e6, 0xa6ef },
-    { 0xa6f2, 0xa6f7 },
-    { 0xa830, 0xa835 },
-    { 0xa874, 0xa877 },
-    { 0xa8ce, 0xa8d9 },
-    { 0xa8f8, 0xa8fa },
-    { 0xa8fc, 0xa8fc },
-    { 0xa900, 0xa909 },
-    { 0xa92e, 0xa92f },
-    { 0xa95f, 0xa95f },
-    { 0xa9c1, 0xa9cd },
-    { 0xa9d0, 0xa9d9 },
-    { 0xa9de, 0xa9df },
-    { 0xa9f0, 0xa9f9 },
-    { 0xaa50, 0xaa59 },
-    { 0xaa5c, 0xaa5f },
-    { 0xaade, 0xaadf },
-    { 0xaaf0, 0xaaf1 },
-    { 0xabeb, 0xabeb },
-    { 0xabf0, 0xabf9 },
-    { 0xfd3e, 0xfd3f },
-    { 0xfe10, 0xfe19 },
-    { 0xfe30, 0xfe52 },
-    { 0xfe54, 0xfe61 },
-    { 0xfe63, 0xfe63 },
-    { 0xfe68, 0xfe68 },
-    { 0xfe6a, 0xfe6b },
-    { 0xff01, 0xff03 },
-    { 0xff05, 0xff0a },
-    { 0xff0c, 0xff1b },
-    { 0xff1f, 0xff20 },
-    { 0xff3b, 0xff3d },
-    { 0xff3f, 0xff3f },
-    { 0xff5b, 0xff5b },
-    { 0xff5d, 0xff5d },
-    { 0xff5f, 0xff65 },
-    { 0x10100, 0x10102 },
-    { 0x10107, 0x10133 },
-    { 0x10140, 0x10178 },
-    { 0x1018a, 0x1018b },
-    { 0x102e1, 0x102fb },
-    { 0x10320, 0x10323 },
-    { 0x10341, 0x10341 },
-    { 0x1034a, 0x1034a },
-    { 0x1039f, 0x1039f },
-    { 0x103d0, 0x103d5 },
-    { 0x104a0, 0x104a9 },
-    { 0x1056f, 0x1056f },
-    { 0x10857, 0x1085f },
-    { 0x10879, 0x1087f },
-    { 0x108a7, 0x108af },
-    { 0x108fb, 0x108ff },
-    { 0x10916, 0x1091b },
-    { 0x1091f, 0x1091f },
-    { 0x1093f, 0x1093f },
-    { 0x109bc, 0x109bd },
-    { 0x109c0, 0x109cf },
-    { 0x109d2, 0x109ff },
-    { 0x10a40, 0x10a48 },
-    { 0x10a50, 0x10a58 },
-    { 0x10a7d, 0x10a7f },
-    { 0x10a9d, 0x10a9f },
-    { 0x10aeb, 0x10af6 },
-    { 0x10b39, 0x10b3f },
-    { 0x10b58, 0x10b5f },
-    { 0x10b78, 0x10b7f },
-    { 0x10b99, 0x10b9c },
-    { 0x10ba9, 0x10baf },
-    { 0x10cfa, 0x10cff },
-    { 0x10d30, 0x10d39 },
-    { 0x10d40, 0x10d49 },
-    { 0x10d6e, 0x10d6e },
-    { 0x10e60, 0x10e7e },
-    { 0x10ead, 0x10ead },
-    { 0x10f1d, 0x10f26 },
-    { 0x10f51, 0x10f59 },
-    { 0x10f86, 0x10f89 },
-    { 0x10fc5, 0x10fcb },
-    { 0x11047, 0x1104d },
-    { 0x11052, 0x1106f },
-    { 0x110bb, 0x110bc },
-    { 0x110be, 0x110c1 },
-    { 0x110f0, 0x110f9 },
-    { 0x11136, 0x11143 },
-    { 0x11174, 0x11175 },
-    { 0x111c5, 0x111c8 },
-    { 0x111cd, 0x111cd },
-    { 0x111d0, 0x111d9 },
-    { 0x111db, 0x111db },
-    { 0x111dd, 0x111df },
-    { 0x111e1, 0x111f4 },
-    { 0x11238, 0x1123d },
-    { 0x112a9, 0x112a9 },
-    { 0x112f0, 0x112f9 },
-    { 0x113d4, 0x113d5 },
-    { 0x113d7, 0x113d8 },
-    { 0x1144b, 0x1145b },
-    { 0x1145d, 0x1145d },
-    { 0x114c6, 0x114c6 },
-    { 0x114d0, 0x114d9 },
-    { 0x115c1, 0x115d7 },
-    { 0x11641, 0x11643 },
-    { 0x11650, 0x11659 },
-    { 0x11660, 0x1166c },
-    { 0x116b9, 0x116b9 },
-    { 0x116c0, 0x116c9 },
-    { 0x116d0, 0x116e3 },
-    { 0x11730, 0x1173e },
-    { 0x1183b, 0x1183b },
-    { 0x118e0, 0x118f2 },
-    { 0x11944, 0x11946 },
-    { 0x11950, 0x11959 },
-    { 0x119e2, 0x119e2 },
-    { 0x11a3f, 0x11a46 },
-    { 0x11a9a, 0x11a9c },
-    { 0x11a9e, 0x11aa2 },
-    { 0x11b00, 0x11b09 },
-    { 0x11be1, 0x11be1 },
-    { 0x11bf0, 0x11bf9 },
-    { 0x11c41, 0x11c45 },
-    { 0x11c50, 0x11c6c },
-    { 0x11c70, 0x11c71 },
-    { 0x11d50, 0x11d59 },
-    { 0x11da0, 0x11da9 },
-    { 0x11ef7, 0x11ef8 },
-    { 0x11f43, 0x11f59 },
-    { 0x11fc0, 0x11fd4 },
-    { 0x11fff, 0x11fff },
-    { 0x12400, 0x1246e },
-    { 0x12470, 0x12474 },
-    { 0x12ff1, 0x12ff2 },
-    { 0x16130, 0x16139 },
-    { 0x16a60, 0x16a69 },
-    { 0x16a6e, 0x16a6f },
-    { 0x16ac0, 0x16ac9 },
-    { 0x16af5, 0x16af5 },
-    { 0x16b37, 0x16b3b },
-    { 0x16b44, 0x16b44 },
-    { 0x16b50, 0x16b59 },
-    { 0x16b5b, 0x16b61 },
-    { 0x16d6d, 0x16d79 },
-    { 0x16e80, 0x16e9a },
-    { 0x16fe2, 0x16fe2 },
-    { 0x1bc9f, 0x1bc9f },
-    { 0x1ccf0, 0x1ccf9 },
-    { 0x1d2c0, 0x1d2d3 },
-    { 0x1d2e0, 0x1d2f3 },
-    { 0x1d360, 0x1d378 },
-    { 0x1d7ce, 0x1d7ff },
-    { 0x1da87, 0x1da8b },
-    { 0x1e140, 0x1e149 },
-    { 0x1e2f0, 0x1e2f9 },
-    { 0x1e4f0, 0x1e4f9 },
-    { 0x1e5f1, 0x1e5fa },
-    { 0x1e5ff, 0x1e5ff },
-    { 0x1e8c7, 0x1e8cf },
-    { 0x1e950, 0x1e959 },
-    { 0x1e95e, 0x1e95f },
-    { 0x1ec71, 0x1ecab },
-    { 0x1ecad, 0x1ecaf },
-    { 0x1ecb1, 0x1ecb4 },
-    { 0x1ed01, 0x1ed2d },
-    { 0x1ed2f, 0x1ed3d },
-    { 0x1f100, 0x1f10c },
-    { 0x1fbf0, 0x1fbf9 },
+    { 0x00a0, 0x00bf },                 /* Latin-1 symbols and punctuation */
+    { 0x00d7, 0x00d7 }, { 0x00f7, 0x00f7 }, /* multiplication and division signs */
+    { 0x0660, 0x0669 }, { 0x06f0, 0x06f9 }, /* Arabic-Indic and extended Arabic-Indic digits */
+    { 0x2000, 0x2e7f },                 /* general punctuation, symbols, arrows and math */
+    { 0x3000, 0x303f },                 /* CJK symbols and punctuation */
+    { 0xfe30, 0xfe6f },                 /* CJK compatibility forms */
+    { 0xff00, 0xff65 },                 /* fullwidth and halfwidth forms */
 };
 
 /* Initial of the active alphabetic key; UTF-8 is decoded without losing non-ASCII names. */
@@ -571,13 +279,9 @@ static unsigned initial(int i) {
     }
     if (c >= 'a' && c <= 'z') c -= 32;
     if (c < 128) return c >= 'A' && c <= 'Z' ? c : '#';
-    unsigned lo = 0, hi = sizeof initial_misc / sizeof *initial_misc;
-    while (lo < hi) {
-        unsigned mid = (lo + hi) / 2;
-        if (initial_misc[mid][1] < c) lo = mid + 1;
-        else hi = mid;
-    }
-    return lo < sizeof initial_misc / sizeof *initial_misc && initial_misc[lo][0] <= c ? '#' : c;
+    for (unsigned i = 0; i < sizeof initial_misc / sizeof *initial_misc; ++i)
+        if (c >= initial_misc[i][0] && c <= initial_misc[i][1]) return '#';
+    return c;
 }
 
 /* Utility cards and wrap edges remain individual stops. Reverse lands at a group's start. */
@@ -602,47 +306,24 @@ int coverflow_jump(void *w, int from, int dir, unsigned *letter) {
 }
 
 typedef struct {
-    unsigned key;
-    int idx;
-} name_t;
-typedef struct {
     void *r;
     const char *artist; /* Artist: the artist's sort key, without its article */
     unsigned rank;
     int idx;
 } order_t;
-static struct {
-    name_t *names; /* the stock rows by name_key, the Unknown row left out, for album_index */
-    unsigned n;
-} by_name __attribute__((section(".scratch")));
 
 static const char *album_name(void *r) {
     const char *s = P(r, REC_ALBUM);
     return s ? s : "";
 }
-static unsigned name_key(void *r) { /* the album name, ASCII case aside */
-    unsigned h = FNV_SEED;
-    for (const unsigned char *s = (const unsigned char *)album_name(r); *s; ++s) {
-        unsigned char c = *s >= 'A' && *s <= 'Z' ? *s + 32 : *s;
-        h = hash_bytes(h, &c, 1);
-    }
-    return h;
-}
-static int by_key(const void *a, const void *b) {
-    const name_t *x = a, *y = b;
-    return x->key != y->key ? (x->key < y->key ? -1 : 1) : x->idx - y->idx;
-}
-/* The stock row whose album r names, case aside, or -1: the hash finds the run, the names decide. */
+/* The stock row whose album r names, case aside, or -1: the Unknown row never matches. A linear
+ * scan: the rank queries and play counts together look up at most the album count + 512 songs. */
 static int album_index(void *r) {
-    unsigned key = name_key(r), lo = 0, hi = by_name.n;
-    while (lo < hi) {
-        unsigned mid = (lo + hi) / 2;
-        if (by_name.names[mid].key < key) lo = mid + 1;
-        else hi = mid;
-    }
-    for (; lo < by_name.n && by_name.names[lo].key == key; ++lo) {
-        int i = by_name.names[lo].idx;
-        if (!strcasecmp(album_name(deque_at(cf.stock, (unsigned)i)), album_name(r))) return i;
+    unsigned n = cf.stock ? deque_size(cf.stock) : 0;
+    const char *name = album_name(r);
+    for (unsigned i = 0; i < n; ++i) {
+        void *s = deque_at(cf.stock, i);
+        if (I(s, REC_ID) != -1 && !strcasecmp(album_name(s), name)) return (int)i;
     }
     return -1;
 }
@@ -672,21 +353,19 @@ static int by_artist(const void *a, const void *b) {
 /* cf.stock in the Sort's order: cf.stock itself for Album. Out of memory, the Sort falls back to
  * Album too, so its card says what is shown. */
 static void *sorted(void) {
-    unsigned n = deque_size(cf.stock), m = 0;
+    unsigned n = deque_size(cf.stock);
     int artist = cf.sort == SORT_ARTIST, played = cf.sort == SORT_PLAYED;
     order_t *v = cf.sort == SORT_ALBUM ? 0 : calloc(n + 1, sizeof *v);
-    name_t *names = v ? calloc(n + 1, sizeof *names) : 0;
-    unsigned *sum = names && played ? calloc(n + 1, sizeof *sum) : 0;
-    char *keys = names && artist ? calloc(n + 1, ARTIST_KEY) : 0;
-    if (!names || (played && !sum) || (artist && !keys)) {
-        free(v), free(names), free(sum), free(keys);
+    unsigned *sum = v && played ? calloc(n + 1, sizeof *sum) : 0;
+    char *keys = v && artist ? calloc(n + 1, ARTIST_KEY) : 0;
+    if (!v || (played && !sum) || (artist && !keys)) {
+        free(v), free(sum), free(keys);
         cf.sort = SORT_ALBUM;
         return cf.stock;
     }
     for (unsigned i = 0; i < n; ++i) {
         void *r = v[i].r = deque_at(cf.stock, i);
         v[i].rank = ~0u, v[i].idx = (int)i;
-        if (I(r, REC_ID) != -1) names[m].key = name_key(r), names[m++].idx = (int)i;
         if (keys) {
             const char *a = P(r, REC_ARTIST);
             snprintf(keys + i * ARTIST_KEY, ARTIST_KEY, "%s", a ? a : "");
@@ -694,8 +373,6 @@ static void *sorted(void) {
             v[i].artist = keys + i * ARTIST_KEY;
         }
     }
-    qsort(names, m, sizeof *names, by_key);
-    by_name.names = names, by_name.n = m;
     if (sum) {
         album_plays(album_index, sum);
         for (unsigned i = 0; i < n; ++i)
@@ -703,12 +380,11 @@ static void *sorted(void) {
     } else
         rank_by(v, cf.sort == SORT_ADDED ? SORT_SQL "max(time_create) desc"
                                          : SORT_SQL "ifnull(max(year),0)=0,max(year),album COLLATE NOCASE");
-    by_name.names = 0, by_name.n = 0;
     qsort(v, n, sizeof *v, artist ? by_artist : by_rank);
     void *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i].r);
-    free(v), free(names), free(sum), free(keys);
+    free(v), free(sum), free(keys);
     return out;
 }
 

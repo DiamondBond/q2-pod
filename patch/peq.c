@@ -1,5 +1,9 @@
 #include "peq.h"
 
+#ifdef PEQ_HOST
+int __isoc99_sscanf(const char *, const char *, ...); /* stdio.h may hide it behind C23's sscanf redirect */
+#endif
+
 static int between(double x, double lo, double hi) {
     return __builtin_isfinite(x) && x >= lo && x <= hi;
 }
@@ -32,30 +36,26 @@ static int error_at(peq_error *e, unsigned line, const char *reason) {
     return 0;
 }
 
-/* Decimal only (comma accepted as the mark, like APO); no hex floats, expressions, NaN or infinity. */
+/* Decimal only (comma accepted as the mark, like APO); no hex floats, expressions, NaN or infinity.
+ * libc reads the value, and the token must be consumed whole. demo's GOT carries __isoc99_sscanf,
+ * not strtod (tools/peq.py LIBC). */
 int peq_number(const char *s, double *out) {
-    double v = 0, scale = 1;
-    int sign = 1, digits = 0, exponent = 0, esign = 1;
-    if (*s == '+' || *s == '-') { if (*s == '-') sign = -1; ++s; }
-    while (*s >= '0' && *s <= '9') { v = v * 10 + *s++ - '0'; ++digits; }
-    if (*s == '.' || *s == ',') {
-        ++s;
-        while (*s >= '0' && *s <= '9') { scale *= 0.1; v += (*s++ - '0') * scale; ++digits; }
+    char buf[PEQ_LINE_LIMIT + 1];
+    unsigned n = 0;
+    while (s[n]) {
+        if (n == PEQ_LINE_LIMIT) return 0;
+        buf[n] = s[n] == ',' ? '.' : s[n];
+        ++n;
     }
-    if (!digits) return 0;
-    if (*s == 'e' || *s == 'E') {
-        ++s;
-        if (*s == '+' || *s == '-') { if (*s == '-') esign = -1; ++s; }
-        if (*s < '0' || *s > '9') return 0;
-        while (*s >= '0' && *s <= '9') {
-            exponent = exponent * 10 + *s++ - '0';
-            if (exponent > 308) return 0;
-        }
-    }
-    if (*s) return 0;
-    while (exponent--) v *= esign < 0 ? 0.1 : 10;
-    *out = sign * v;
-    return __builtin_isfinite(*out);
+    buf[n] = 0;
+    const char *p = buf + (buf[0] == '+' || buf[0] == '-');
+    if (!n || (p[0] == '0' && (p[1] | 32) == 'x')) return 0; /* no hex floats */
+    int len = 0;
+    double v;
+    if (__isoc99_sscanf(buf, "%lf%n", &v, &len) != 1 || len != (int)n || !__builtin_isfinite(v))
+        return 0;
+    *out = v;
+    return 1;
 }
 
 int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error) {

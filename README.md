@@ -198,7 +198,7 @@ Media folders go at the card's root, any capitalisation; each adds its **Library
 | `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                 | You     |
 | `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                            | You     |
 | `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                             | You     |
-| `.scrobble.pem`            | Optional CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)) so uploads verify TLS | You     |
+| `.scrobble.pem`            | CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)) for verified uploads | You     |
 | `.scrobbler.log`           | Every listen, Rockbox format; for Upload Scrobbles or any uploader                      | Q2 Pod  |
 | `.scrobbler.log.sent`      | Listens already uploaded                                                                | Q2 Pod  |
 | `.coverflow/`              | Coverflow artwork cache                                                                 | Q2 Pod  |
@@ -222,6 +222,8 @@ API_SECRET=your-shared-secret
 Get Last.fm's key and secret from your own [API account](https://www.last.fm/api/account/create) (any name works). The file is plain text, so keep the card to yourself.
 
 **Upload Scrobbles** is the second-last row of **Library**, just above Update Local Music, used while on Wi-Fi. It only shows when the file is named exactly `.scrobble.ini` (leading dot, no hidden `.txt`) and saved as plain text. Leave out any section you don't use: a placeholder token still counts as an account, and its failures stop every upload.
+
+Uploads always verify TLS. Stock has no CA bundle: copy `.scrobble.pem` to the card before uploading. A certificate or storage failure keeps the pending listens.
 
 Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt/data`), not the card.
 

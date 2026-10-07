@@ -33,6 +33,7 @@ LIBC = {
     'access': ('int', 'const char *, int'), 'mkdir': ('int', 'const char *, unsigned'),
     'lseek64': ('long long', 'int, long long, int'), 'read': ('int', 'int, void *, unsigned'),
     'snprintf': ('int', 'char *, unsigned, const char *, ...'),
+    '__isoc99_sscanf': ('int', 'const char *, const char *, ...'),  # peq.c peq_number: no strtod in demo's GOT
     'opendir': ('void *', 'const char *'), 'closedir': ('int', 'void *'),
     'readdir': ('struct dirent *', 'void *'),
     'qsort': ('void', 'void *, unsigned, unsigned, int (*)(const void *, const void *)'),
