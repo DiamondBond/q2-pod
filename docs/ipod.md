@@ -163,12 +163,12 @@ battery in `view_right`. The volume icon and number and SyncLink move to `x = -2
 draw off-screen. Both groups sit 54 pixels
 from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
 ([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass. A new
-`label_clock` (`s_scrlabel_white20c`) is centred on the screen. It has the width left in the
+`label_clock` (`s_scrlabel_white20c`, overridden to 16 px) is centred on the screen. It has the width left in the
 narrowest case, 109 pixels at x 133, clear of either group with every icon shown (left 94
 pixels, right 133); the build fails if that would be under `CLOCK_MIN` (105). The payload paints
 the bar and writes the time into `label_clock` (see
-[internals.md](internals.md#status-bar-ipod)); the widest text, `12:59 PM`, is 86 pixels in the
-stock font at 20 pixels.
+[internals.md](internals.md#status-bar-ipod)); the widest text, `12:59 PM`, is 69 pixels in the
+stock font at 16 pixels.
 
 **Codec.** The Bluetooth images are 42-pixel canvases with their ink at the right: the glyph takes
 10 pixels, while stock's codec badges take up to 40 (aptX HD). A new badge shows for a second
@@ -178,19 +178,15 @@ stock font at 20 pixels.
 **Battery.** The Battery setting (see [Display settings](#display-settings)) shows one of three
 widgets at the right end, and the layout skips the other two:
 
-- Icon: stock's `img_battery`, as before.
-- Percent: stock's `label_battery` ("88%"), at 16 pixels to match the icons' height (`BATT_PCT_PX`),
-  41 pixels wide (`BATT_PCT_W`, "100%") and right-aligned, so the number sits against the same
-  54-pixel margin as the icons, where its text band clears the corner, and grows toward the
-  centre rather than the glass.
-- Icon + Percent: `view_battery`, which the payload draws as a horizontal battery with the level
-  inside, 27 pixels with its nub: a 25x13 outline with square-cut corners, 12-pixel digits, green
-  (`BATT_CHARGE_RGB`) while charging and in the accent's red tone when stock shows its low icon.
-  The number never touches the curved edge: only the nub, a 5-pixel stub, points at it.
+- Icon: a clean 16×11 charge-level outline and a 2-pixel nub, drawn in `view_battery`.
+- Percent: stock's `label_battery`, 14 px, right-aligned in a 36-pixel slot.
+- Icon + Percent: the same charge-level icon with a readable 14 px percentage beside it, in a 56-pixel slot.
 
-Once a codec badge has faded, every mode fits with Bluetooth and Wi-Fi shown: the group's ink then
-stays at least 4 pixels (`CLOCK_GAP`) clear of `12:59 PM` (`BATT_ROOM`, 86 pixels from the
-margin). While a wide badge shows, a mode that would reach past that shows the icon instead.
+Charging is green (`BATT_CHARGE_RGB`) with a dark split in the fill; low battery always uses
+`BATT_LOW_RGB` (`#FF1448`) under every accent. Saved Battery values keep their existing meanings.
+The bar surface is `#161616`. Every mode fits with ordinary Bluetooth and Wi-Fi, with at least
+4 pixels (`CLOCK_GAP`) before the widest clock text (`BATT_ROOM`, 94 pixels from the margin).
+Wide codec badges temporarily show the icon alone until they fade.
 
 The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
@@ -516,6 +512,7 @@ mode icon (`playset_covermode`), "Battery: Icon" (Icon, Percent, Icon + Percent;
 the network service icon (`system_netservice`), all among the [settings icons](#settings-icons)
 the build pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
 chevron, since Centre or a tap changes them in place.
+The Shortcut row only appears when the Rockbox binary is a regular file; its saved value is retained when absent. Both variants also append **Boot to: Rockbox / Q2-Pod** to System settings when Rockbox is present; see [Boot](boot.md#rockbox).
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
@@ -549,3 +546,5 @@ knob, the − and + discs, the multi-select tick and stock's red buttons with wh
 a style or from a `btn_` image (the time and sleep pages' OK), are white on `#6E6E6E` (5.1:1), and
 the download bar a
 `#6E6E6E` fill on its `#D8D8D8` track. The presets are `ACCENTS` in `patch/offsets.inc`; see [internals.md](internals.md#accent) for the recolouring.
+
+See [native-size comparisons](ui-refinement/README.md). Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the existing touch targets. Favourite keeps its outline/filled states; inactive dots are muted, and progress retains the chosen accent. Artwork, scrolling metadata and playback controls retain their existing behavior.

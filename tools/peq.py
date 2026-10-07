@@ -30,6 +30,7 @@ LIBC = {
     'fclose': ('int', 'void *'), 'ferror': ('int', 'void *'),
     'fflush': ('int', 'void *'), 'fileno': ('int', 'void *'), 'fsync': ('int', 'int'),
     'rename': ('int', 'const char *, const char *'), 'unlink': ('int', 'const char *'),
+    '__xstat': ('int', 'int, const char *, void *'),
     'access': ('int', 'const char *, int'), 'mkdir': ('int', 'const char *, unsigned'),
     'lseek64': ('long long', 'int, long long, int'), 'read': ('int', 'int, void *, unsigned'),
     'snprintf': ('int', 'char *, unsigned, const char *, ...'),

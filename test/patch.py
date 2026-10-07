@@ -8,6 +8,7 @@ from unicorn.mips_const import *
 sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import segments, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
+payload_syms=symbols(B/'patch.elf')
 manifest=json.loads((B/'manifest.json').read_text())
 if manifest.get('source_sha256') != source_sha256():
     raise SystemExit(f'{B}/manifest.json does not match the current patch sources; rebuild into a fresh directory and pass it here')
@@ -94,6 +95,8 @@ class Machine:
                   'unlink@GLIBC_2.0','atoi@GLIBC_2.0')
         self.image_size=(50,50)  # what widget_load_image decodes
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
+        self.rockbox_mode=0o100755
+        self.handlers[syms['__xstat@GLIBC_2.0']]='rockbox_stat'
         self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
         self.handlers[syms['memset@GLIBC_2.0']]='memset'
@@ -231,6 +234,9 @@ class Machine:
                     for kind,value in zip(re.findall(r'%\d*([sdxXu])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
+        elif name=='rockbox_stat':
+            assert a==3 and self.text(b)=='/mnt/mmc/.rockbox/rockbox'
+            self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
         elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
         elif name=='strrchr@GLIBC_2.0': i=self.text(a).encode().rfind(bytes([b&255])); ret=a+i if i>=0 else 0
         elif name in ('strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0'):  # ASCII case, as the C locale
@@ -718,7 +724,7 @@ else:
         def alpha(b,w): return b.get(w['img_bt']+0x34)&255
         b,bar,w,paint=battery_bar(1); paint()
         # LDAC's badge (36px of ink) and Wi-Fi leave no room for the percentage: the icon, until it fades.
-        assert b.nodes[w['img_bt']]['image']=='bar_ldac' and alpha(b,w)==255 and shown(b,w)==['img_battery'] and len(b.timers)==1
+        assert b.nodes[w['img_bt']]['image']=='bar_ldac' and alpha(b,w)==255 and shown(b,w)==['view_battery'] and len(b.timers)==1
         b.advance(O['CODEC_MS']-1); paint(); assert b.nodes[w['img_bt']]['image']=='bar_ldac' and alpha(b,w)==255
         steps=[]
         for _ in range(2*O['CODEC_STEPS']):
@@ -739,20 +745,35 @@ else:
         # BATT_CHARGE_RGB, low the accent's red tone; the slot repaints only when one of them changes.
         b,bar,w,paint=battery_bar(2); b.nodes[w['img_bt']]['visible']=0
         lcd=lambda: (b.lcd_colors(),b.get(b.lcd+O['LCD_TEXT_COLOR']),b.get(b.canvas+O['CANVAS_ALIGN_V']),b.get(b.canvas+O['CANVAS_ALIGN_H']))
+        b.nodes[w['label_battery']]['text']='50%'
         paint(); assert shown(b,w)==['view_battery']; before=lcd()
         def slot(): b.bands=[]; b.letters=[]; paint(w['view_battery']); assert lcd()==before; return b.bands,b.letters
         bw,bh,y=O['BATT_BODY_W'],O['BATT_BODY_H'],(30+1-O['BATT_BODY_H'])//2
-        for image,value,rgb,text in (('bar_battery',88,0xffffff,'88'),('bar_charge',63,O['BATT_CHARGE_RGB'],'63'),('bar_charge',100,O['BATT_CHARGE_RGB'],'100'),
-                                     ('bar_lowcharge',5,ACCENTS[0][3],'5')):
+        for image,value,rgb,text in (('bar_battery',0,0xffffff,'0'),('bar_battery',1,0xffffff,'1'),('bar_battery',50,0xffffff,'50'),('bar_battery',100,0xffffff,'100'),('bar_battery',88,0xffffff,'88'),('bar_charge',63,O['BATT_CHARGE_RGB'],'63'),('bar_charge',100,O['BATT_CHARGE_RGB'],'100'),
+                                     ('bar_lowcharge',5,O['BATT_LOW_RGB'],'5')):
             # the level is label_battery's text: stock zeroes progress_battery while charging
             b.nodes[w['img_battery']]['image']=image; b.nodes[w['label_battery']]['text']=f'{value}%'
             b.nodes[w['progress_battery']]['value']=0 if image=='bar_charge' else value
             b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) in [c[:2] for c in b.calls]
             b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) not in [c[:2] for c in b.calls]
             bands,letters=slot()
-            assert [x[:5] for x in bands]==[(1,y,bw-2,1,color_t(rgb)),(1,y+bh-1,bw-2,1,color_t(rgb)),(0,y+1,1,bh-2,color_t(rgb)),
-                                             (bw-1,y+1,1,bh-2,color_t(rgb)),(bw,y+(bh-O['BATT_NUB_H'])//2,O['BATT_NUB_W'],O['BATT_NUB_H'],color_t(rgb))]
-            assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(text,(0,y+1,bw,bh),color_t(rgb),('default',O['BATT_PX']),(1,1))]
+            expected=[(1,y,bw-2,1,color_t(rgb)),(1,y+bh-1,bw-2,1,color_t(rgb)),(0,y+1,1,bh-2,color_t(rgb)),
+                      (bw-1,y+1,1,bh-2,color_t(rgb)),(bw,y+(bh-O['BATT_NUB_H'])//2,O['BATT_NUB_W'],O['BATT_NUB_H'],color_t(rgb)),
+                      (2,y+2,(bw-4)*value//100,bh-4,color_t(rgb))]
+            if image=='bar_charge': expected.append((bw//2,y+2,2,bh-4,color_t(0x161616)))
+            assert [x[:5] for x in bands]==expected
+            assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(text+'%',(bw+O['BATT_NUB_W']+O['BATT_GAP'],0,O['BATT_PCT_W'],30),color_t(rgb),('default',O['BATT_PX']),(1,1))]
+
+        for mode in range(3):
+            for bt in (0,1):
+                for wifi in (0,1):
+                    b,bar,w,paint=battery_bar(mode)
+                    b.nodes[w['img_bt']].update(visible=bt,image=O_GLYPH)
+                    b.nodes[w['img_wifi']]['visible']=wifi
+                    b.nodes[w['label_battery']]['text']='100%'
+                    paint()
+                    assert shown(b,w)==(['label_battery'] if mode==1 else ['view_battery'])
+                    assert b.get(w['view_battery']+O['W_W'])==O['BATT_BODY_W']+O['BATT_NUB_W']+(O['BATT_GAP']+O['BATT_PCT_W'] if mode==2 else 0)
         passed()
     battery_checks()
 assert m.confirm()==11 and m.dispatched()[0][1]==entries[0]; passed()
@@ -2203,6 +2224,8 @@ class NavigationMachine(Machine):
                   'widget_remove_child','widget_destroy','window_manager_dispatch_window_event',
                   'widget_foreach','widget_on','playing_timer_start','access@GLIBC_2.0',
                   'remove@GLIBC_2.0','idle_add','netdisk_folder_clear','awake_screen',prefix='nav:')
+        self.rockbox_mode=0o100755
+        self.handlers[syms['__xstat@GLIBC_2.0']]='rockbox_stat'
         self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
         for address in (0x52b6f4,0x68541c,0x6885c0,0x6861d4): self.handlers[address]='nav:'+hex(address)
     def sync_order(self):
@@ -3175,7 +3198,7 @@ if variant=='ipod':
     # the plain Bluetooth glyph and Wi-Fi the group's ink stays CLOCK_GAP clear of the widest clock.
     from ipod import CLOCK_TEXT, CLOCK_GAP, STATUS_MARGIN, corner_x
     batt=[named(m,bar,n) for n in ('img_battery','label_battery','view_battery')]
-    for mode,want in enumerate((10,O['BATT_PCT_W'],O['BATT_BODY_W']+O['BATT_NUB_W'])):
+    for mode,want in enumerate((10,O['BATT_PCT_W'],O['BATT_BODY_W']+O['BATT_NUB_W']+O['BATT_GAP']+O['BATT_PCT_W'])):
         for i,b in enumerate(batt): m.nodes[b]['visible']=int(i==mode)
         cells=laid_out(); bt=cells[len(m.nodes[views[0]]['children'])]
         assert cells[-1][0]+cells[-1][1]==375-STATUS_MARGIN and cells[-1][1]==want, (mode,cells)
@@ -4326,8 +4349,8 @@ if variant=='ipod':
     # widgets and styles, with the Display, cover mode, power manager and network service icons; Centre
     # or tap cycles and saves each; a new accent drops the image cache and repaints, a new Battery mode
     # repaints the bar.
-    def display(config):
-        CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.handlers[tramp['display']]='stock_display'
+    def display(config,card=True):
+        CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.rockbox_mode=0o100755 if card else 0; m.handlers[tramp['display']]='stock_display'
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
         for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
         m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
@@ -4380,10 +4403,12 @@ if variant=='ipod':
             ret={'access':0 if self.card else -1,'fopen':0x2000000}.get(name,0)
             u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
     def shortcut(config,card=True,wheel=False):
-        CONFIG.clear(); CONFIG.update(config); m=ShortcutMachine(); m.card=card
+        CONFIG.clear(); CONFIG.update(config); m=ShortcutMachine(); m.card=card; m.rockbox_mode=0o100755 if card else 0
         for n in ('access@GLIBC_2.0','fopen@GLIBC_2.2','fclose@GLIBC_2.2','system@GLIBC_2.0'): m.handlers[syms[n]]='r:'+n
         m.mock('save_memoryplay_info','player_stop','switch_charge_enable','navigator_to_with_context')
         view,imgs=home_list(m)
+        m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)
+        if card=='removed': m.rockbox_mode=0
         if wheel:
             click_target(m,imgs[2])  # the payload binds Coverflow's image at Home init
             m.paint(view)
@@ -4393,22 +4418,29 @@ if variant=='ipod':
         return m,ret,[c[0] for c in m.calls if c[0]!='toolsReadConfig']
     m,ret,names=shortcut({'SHORTCUT':'1'})
     assert ret==11 and 'stock_dispatch' not in names
-    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('access','fopen','system')}
-    assert texts=={'access':'/mnt/mmc/.rockbox/rockbox','fopen':'/tmp/q2pod-rockbox',
+    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
+    assert texts=={'fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
     # The wheel's centre takes the same shortcut as the tap. confirm_center dispatches the click
     # itself, so the check has to sit there too (a centre press opened stock Streaming instead).
     m,ret,names=shortcut({'SHORTCUT':'1'},wheel=True)
     assert ret==11 and 'system' in names and 'stock_dispatch' not in names
-    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('access','fopen','system')}
-    assert texts=={'access':'/mnt/mmc/.rockbox/rockbox','fopen':'/tmp/q2pod-rockbox',
+    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
+    assert texts=={'fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}; passed()
-    m,ret,names=shortcut({'SHORTCUT':'1'},card=False)
+    m,ret,names=shortcut({'SHORTCUT':'1'},card='removed')
     assert ret==11 and not {'stock_dispatch','fopen','player_stop','system'} & set(names)
     assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to_with_context']==['dialog/msginfo_dialog']; passed()
     m,ret,names=shortcut({})
     assert 'stock_dispatch' in names and not {'access','player_stop','system'} & set(names); passed()
+    m,view,rows=display({'SHORTCUT':'1'},card=False)
+    assert len(m.nodes[view]['children'])==7 and m.config['SHORTCUT']=='1'
+    assert m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)==0
+    m.rockbox_mode=0o100755
+    assert m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)==1
+    m,ret,names=shortcut({'SHORTCUT':'1'},card=False)
+    assert 'stock_dispatch' in names and not {'fopen','player_stop','system'} & set(names); passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)
@@ -5598,5 +5630,71 @@ class DirectoryFull(PowerMachine):
         return super().hook(u,address,size,unused)
 m=DirectoryFull({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
 assert not any(p==CPU1 for p,_ in m.writes); passed()
+
+
+
+# System boot row in both variants: regular-file gating, persisted choice and transactional failures.
+class BootMachine(ResumeMachine):
+    failure=''
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='boot_memcmp':
+            a,b,c=[u.reg_read(r) for r in REGS[:3]]
+            u.reg_write(UC_MIPS_REG_V0,int(bytes(u.mem_read(a,c))!=bytes(u.mem_read(b,c))))
+            u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if name=='unlink@GLIBC_2.0': self.files.pop(self.text(u.reg_read(UC_MIPS_REG_A0)),None)
+        if name in ('r:fopen@GLIBC_2.2','r:fwrite@GLIBC_2.0','r:fclose@GLIBC_2.2','r:rename@GLIBC_2.0','fflush@GLIBC_2.0','fsync@GLIBC_2.0'):
+            a=u.reg_read(UC_MIPS_REG_A0)
+            fail=name.removeprefix('r:').split('@')[0]
+            if self.failure==fail and (fail!='fopen' or self.text(u.reg_read(UC_MIPS_REG_A1))=='wb'):
+                u.reg_write(UC_MIPS_REG_V0,0 if fail in ('fopen','fwrite') else 0xffffffff)
+                u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        return super().hook(u,address,size,unused)
+def boot_row(value=None,mode=0o100755):
+    path='/mnt/data/boot-target'
+    m=BootMachine({} if value is None else {path:value}); m.rockbox_mode=mode
+    m.handlers[syms['memcmp@GLIBC_2.0']]='boot_memcmp'
+    m.handlers[int(manifest['patch_symbols']['stock_systemset_trampoline'],16)]='stock_systemset'
+    m.mock('ferror@GLIBC_2.0','fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','navigator_to_with_context')
+    view=m.node('scroll_view','scroll_view_sysset',[m.entry(0) for _ in range(14)])
+    m.top=m.node('window','sysset_page',[m.node('list_view','list_view_sysset',[view])])
+    assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+    assert m.calls[0][:3]==('stock_systemset',m.top,5)
+    if mode!=0o100755:
+        assert len(m.nodes[view]['children'])==14
+        return m,None,None
+    assert len(m.nodes[view]['children'])==15
+    button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]
+    label=m.nodes[button]['children'][1]
+    return m,button,label
+def toggle_boot(m,button):
+    f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+for value,expected in ((None,'Rockbox'),(b'bad','Rockbox'),(b'q2pod','Q2-Pod'),(b'rockbox','Rockbox'),
+                       (b'q2pod\n','Q2-Pod'),(b'q2pod\0bad','Rockbox')):
+    m,button,label=boot_row(value)
+    assert m.nodes[label]['text']=='Boot to: '+expected
+    toggle_boot(m,button)
+    next_value=b'rockbox' if expected=='Q2-Pod' else b'q2pod'
+    assert m.files['/mnt/data/boot-target']==next_value
+    assert m.nodes[label]['text']=='Boot to: '+('Rockbox' if next_value==b'rockbox' else 'Q2-Pod')
+    restarted,_,l=boot_row(next_value); assert restarted.nodes[l]['text']==m.nodes[label]['text']
+    passed()
+for mode in (0,0o040755,0o020644): boot_row(mode=mode); passed()
+for failure in ('fopen','fwrite','fflush','fsync','fclose','rename'):
+    m,button,label=boot_row(b'rockbox'); m.failure=failure
+    toggle_boot(m,button)
+    assert m.files['/mnt/data/boot-target']==b'rockbox' and m.nodes[label]['text']=='Boot to: Rockbox'
+    assert '/mnt/data/boot-target.tmp' not in m.files
+    assert any(c[0]=='navigator_to_with_context' for c in m.calls)
+    passed()
+m,button,label=boot_row(); m.rockbox_mode=0; toggle_boot(m,button)
+assert m.nodes[label]['text']=='Boot to: Rockbox' and '/mnt/data/boot-target' not in m.files; passed()
+# Wheel centre reaches the final row through the existing selection/dispatch path.
+m,button,label=boot_row(); view=m.nodes[m.top]['children'][0]; view=m.nodes[view]['children'][0]
+m.paint(view)
+for _ in range(14): m.call()
+assert m.confirm()==11 and m.dispatched()[0][1]==button; passed()
+print('Boot settings: conditional final row, restart, card removal and failed atomic writes passed.')
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

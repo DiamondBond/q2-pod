@@ -29,7 +29,7 @@ demo's `platform_init` starts `checkappprocess.sh &`, the watchdog: it checks wi
 
 ## Rockbox
 
-Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/q2-rockbox/tree/shanlingq2), which runs from the microSD card. Once Rockbox is on the card, the Q2 starts it at power-on, as an iPod with Rockbox does: **holding Play/Pause while powering on** starts Q2 Pod for that session instead, and Rockbox's **Boot stock OS** returns to Q2 Pod the same way. Nothing is remembered, so the next power-on is Rockbox again while the card still has it.
+Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/q2-rockbox/tree/shanlingq2), which runs from the microSD card. Rockbox is the initial power-on default when installed: **holding Play/Pause while powering on** starts Q2 Pod for that session instead, and Rockbox's **Boot stock OS** returns to Q2 Pod the same way. Both variants have a final **System settings → Boot to: Rockbox / Q2-Pod** row while `/mnt/mmc/.rockbox/rockbox` is a regular file. Tap or Centre toggles the next power-on choice; Rockbox is the initial default. The choice is saved in `/mnt/data/boot-target` as `rockbox` or `q2pod`, through a synced temporary file and rename. A failed save reports an error and keeps the displayed choice. Missing or invalid preferences default to Rockbox. Holding Play/Pause always starts Q2-Pod for that session, and missing Rockbox always falls back to Q2-Pod.
 
 | What       | Where                                                                                      |
 | ---------- | ------------------------------------------------------------------------------------------ |
@@ -37,11 +37,11 @@ Q2 Pod can share the device with [Rockbox](https://github.com/DiamondBond/q2-roc
 | Rockbox    | `/mnt/mmc/.rockbox/rockbox`, run from that folder, its output in `rockbox.log` there       |
 | Started by | `S90play`, in place of `/release/bin/demo &`                                               |
 
-Unless Play/Pause is held, `S90play` waits up to 3 s for the card (`/tmp/mmc_add`); the card's driver polls for it, so it can't tell an empty slot from a card still being read. If the card has Rockbox, it runs Rockbox and appends `exit N` to `rockbox.log`; any exit, including 0x51 (81) from **Boot stock OS**, falls through to demo, which starts with its usual name so the watchdog finds it. Install Rockbox by unzipping its `rockbox.zip` to the card's root. A Rockbox that hangs keeps Q2 Pod away: hold Play/Pause at the next power-on, or remove `/.rockbox/rockbox` with a card reader.
+When the saved choice is Rockbox and Play/Pause is not held, `S90play` waits up to 3 s for the card (`/tmp/mmc_add`); the card's driver polls for it, so it can't tell an empty slot from a card still being read. If the card has Rockbox, it runs Rockbox and appends `exit N` to `rockbox.log`; any exit, including 0x51 (81) from **Boot stock OS**, falls through to demo, which starts with its usual name so the watchdog finds it. Install Rockbox by unzipping its `rockbox.zip` to the card's root. A Rockbox that hangs keeps Q2 Pod away: hold Play/Pause at the next power-on, or remove `/.rockbox/rockbox` with a card reader.
 
 ### Rockbox from Home
 
-iPod's **System settings → Display → Shortcut: Rockbox** turns Home's Streaming row into **Rockbox** (`IPOD`/`SHORTCUT` in `config.ini`). It is the way to Rockbox with Bluetooth: shut Rockbox down (Q2 Pod starts), connect the headphones in Q2 Pod, then pick **Rockbox** on Home, and Rockbox plays through them.
+iPod's **System settings → Display → Shortcut: Rockbox** turns Home's Streaming row into **Rockbox** (`IPOD`/`SHORTCUT` in `config.ini`). The Display shortcut row is shown only while the Rockbox binary is a regular file. Its saved preference survives card removal; Home shows Streaming while Rockbox is absent and restores Rockbox when available. Activation checks the file again in case the card was removed after the row appeared. This handover always launches Rockbox regardless of the saved boot choice. It is the way to Rockbox with Bluetooth: shut Rockbox down (Q2 Pod starts), connect the headphones in Q2 Pod, then pick **Rockbox** on Home, and Rockbox plays through them.
 
 demo cannot start Rockbox itself, as Rockbox takes the screen, the keys and ALSA, so it hands over to `S90play` (`rockbox_shortcut`, `patch/navigation.c`):
 

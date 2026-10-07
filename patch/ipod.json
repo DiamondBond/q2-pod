@@ -301,5 +301,15 @@
         ["hscroll_label", "s_scrlabel_red24l", "text_color", "ff1448ff", "ffffffff", 3]
       ]
     }
+  },
+  "quiet_icons": {
+    "play_cycle.png": "b40c14b19a133a83a5f4057c558197ba81b73b3c9dd8b8d28e7fd8f249111e47",
+    "play_cycle1.png": "9886fe03f8d5bc9bae0134afaa370060d40e9de65a64124c4086b8ed991b6609",
+    "play_fav.png": "96a152d513e108810d25cd179ab7c8ce80e49cc9259c9270f12f496c1e75d029",
+    "play_more.png": "d073c48e609e3ce0d5dbeaf68e11a1345e850eb813690038876ce0e366a017d4",
+    "play_moredown.png": "528d84351aaa429d08c214d1e8fdf9ede5302aba3fd2deb20d2deceb2b6cdbed",
+    "play_order.png": "508038ef8c00cc7014147bb0eb547c1b813f2308fd7d8b329b9894bbc513a5e0",
+    "play_random.png": "d81c704f4d9a48f5e846cf65562b9e23a444d235693a42b333af218355ccaae6",
+    "play_unfav.png": "04d0c4d00711d1164999e9342bc58f2fe1c94ae0e0c739489f6c9e9e6cb880ad"
   }
 }

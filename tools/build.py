@@ -41,6 +41,7 @@ HOOKS = {
     # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
     'buzzeer_switch': (0x4f3cc8, 'ringnav_buzzer'),
     # Power management gains Charge limit and Low power; Audio settings gains Artists (Album Artist)
+    'systemset_sysset_page_init': (0x4cc4cc, 'ringnav_systemset'),
     'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
     'save_memoryplay_info': (0x516344, 'ringnav_savequeue'),
     'mclLoadPlayList': (0x5aa8d4, 'ringnav_load'),
@@ -65,7 +66,7 @@ TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'loa
                'dispatch': 'widget_dispatch', 'keylong': 'on_wm_keylong_fun', 'eq': 'set_equalizer_value',
                'home': 'home_page_init', 'localmusic': 'localmusic_page_init', 'localclass': 'load_localclass_list',
                'paint_bg': 'widget_on_paint_background', 'playing': 'playing_page_init',
-               'display': 'systemset_display_page_init', 'color': 'style_get_color', 'image': 'image_manager_add',
+               'systemset': 'systemset_sysset_page_init', 'display': 'systemset_display_page_init', 'color': 'style_get_color', 'image': 'image_manager_add',
                'keydown': 'on_wm_keydown_before_fun', 'scan_all': 'scanAllMusicFile', 'scan_folder': 'scanSpecFolder',
                'delete_song': 'deleteMusicFromMusicDb', 'sleep': 'main_loop_sleep_default',
                'about': 'systemset_about_page_init', 'folder': 'folder_page_init', 'folder_back': 'folder_back',
@@ -87,8 +88,8 @@ HELPER, HELPER_LIKE = 'usr/bin/q2video', 'usr/bin/display_logo'
 HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.so.2.0.0']
 # Rockbox dual boot (docs/boot.md#rockbox): S90play starts Rockbox whenever the card has it, as an
 # iPod with Rockbox does. Play/Pause held at power-on (patch/boot.c reads the key) or Rockbox's
-# exit 0x51 (Boot stock OS) starts Q2 Pod for that session only; nothing is saved, so the next
-# power-on tries Rockbox again. ponytail: the card's mount is awaited (up to 3 s without a card)
+# exit 0x51 (Boot stock OS) starts Q2 Pod for that session only. boot-target selects the next
+# power-on default (missing or invalid retains Rockbox). ponytail: the card's mount is awaited (up to 3 s without a card)
 # unless Q2 Pod was asked for, as the card probe can't tell "no card" from "not yet". Rockbox runs
 # with the launcher contract in its tools/shanlingq2/README; demo starts when it exits, or when the
 # card has none. demo keeps its argv[0], which checkappprocess.sh pgreps for. iPod's Home shortcut
@@ -106,7 +107,7 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
             (cd $rb && exec ./rockbox) > $rb/rockbox.log 2>&1
             echo "exit $?" >> $rb/rockbox.log
         }}
-        if ! /usr/bin/q2boot; then
+        if [ "$(cat /mnt/data/boot-target 2>/dev/null)" != q2pod ] && ! /usr/bin/q2boot; then
             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
                 [ -e /tmp/mmc_add ] && break
                 usleep 200000
@@ -542,7 +543,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # property of the UI asset, not the asset path, so check the stock rootfs assets directly:
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
-                      imagemagick, patch_code, patch_style, patch_word, settings_icon)
+                      QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, settings_icon)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows = set()
@@ -708,7 +709,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     if ipod:
         assets += ['styles/'+rel for rel in AUDIT['styles']]
         # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
-        assets += ['images/'+name for name in SETTINGS_ICONS]
+        assets += ['images/'+name for name in SETTINGS_ICONS | QUIET_ICONS]
     for rel in assets:
         kind, name = rel.split('/', 1)
         path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)
@@ -716,7 +717,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         check(kind != 'strings' or original.count(QUEUE_LABEL[0]) == 1, 'Unexpected queue label')
         data = (original.replace(*QUEUE_LABEL) if kind == 'strings' else
                 patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
-                settings_icon(name, original) if kind == 'images' else patch_asset(name, original, ipod))
+                (quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else patch_asset(name, original, ipod))
         target = out/rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)

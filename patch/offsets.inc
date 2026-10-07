@@ -127,25 +127,20 @@
 #define VOL_PANEL_TEXT 52
 #define VOL_PANEL_PX 20 /* the panel's number */
 #define VOL_PANEL_TRACK 0x5a5a5a
-/* iPod status bar clock: never nearer the screen edge than CLOCK_EDGE, where its 20px text clears
- * the top corners (test/build.py). */
+/* The centred 16px clock and battery clear the rounded glass; widths are checked with the stock font. */
 #define CLOCK_EDGE 57
-/* iPod status bar battery (docs/ipod.md#status-bar-and-clock, tools/ipod.py status_bar): stock's
- * percentage label BATT_PCT_W wide ("100%" at BATT_PCT_PX), or the payload's battery: a BATT_BODY_W x BATT_BODY_H
- * outline centred in the bar, square-cut corners, a BATT_NUB_W x BATT_NUB_H nub and the level in
- * BATT_PX text; charging draws it BATT_CHARGE_RGB, low (stock's bar_lowcharge) the accent's red
- * tone. The right group's ink may reach BATT_ROOM left of its end; past that, the icon shows.
- * BT_REACH is how far the plain Bluetooth glyph's ink starts left of img_bt's right edge (43px box,
- * 42px image, ink at columns 31-40), BT_CODEC_REACH the same for BT_CODECS' badges. */
-#define BATT_PCT_W 41
-#define BATT_PCT_PX 16
-#define BATT_BODY_W 25
-#define BATT_BODY_H 13
+#define BATT_PCT_W 36
+#define BATT_PCT_PX 14
+#define BATT_BODY_W 16
+#define BATT_BODY_H 11
 #define BATT_NUB_W 2
 #define BATT_NUB_H 5
-#define BATT_PX 12
+#define BATT_PX 14
+#define BATT_GAP 2
 #define BATT_CHARGE_RGB 0x34c759
-#define BATT_ROOM 86
+#define BATT_LOW_RGB 0xff1448
+#define BATT_ROOM 94
+/* Plain Bluetooth ink and codec reaches from the right edge of their stock canvases. */
 #define BT_REACH 12
 #define BT_CODECS { "bar_sbc", "bar_aac", "bar_aptx", "bar_aptxhd", "bar_ldac" }
 #define BT_CODEC_REACH { 22, 12, 27, 41, 36 }

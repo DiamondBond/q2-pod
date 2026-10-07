@@ -62,6 +62,14 @@ def boot_check():
         target.write_text('stock\n')                            # a stale V8.4 choice is ignored
         assert boot(False, True, 1) == (rockbox, 'stock')
         assert boot(True, True, 1) == (['demo'], 'stock')
+        for value in ('q2pod', 'rockbox', 'bad', '', 'q2pod\n', 'q2pod-extra'):
+            target.write_text(value)
+            expected = ['demo'] if value.rstrip('\n') == 'q2pod' else rockbox
+            assert boot(False, True, 0) == (expected, value.strip())
+            assert boot(False, True, 1) == (expected, value.strip())  # restart preserves choice
+            assert boot(True, True) == (['demo'], value.strip())
+            assert boot(False, False) == (['demo'], value.strip())
+            assert boot(True, True, 81, 1) == (['demo', *rockbox], value.strip())
         target.unlink()
         # Home's Rockbox shortcut: Rockbox, then Q2 Pod again, as often as it is taken; the flag is gone after
         assert boot(True, True, 81, 1) == (['demo', *rockbox], False)
@@ -75,8 +83,8 @@ def validate_assets(directory):
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, S90PLAY, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_THRESHOLDS, PDR
     from ipod import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
-                      NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, corner_inset, corner_x,
-                      SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
+                      NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
+                      QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
                       patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
@@ -111,9 +119,16 @@ def validate_assets(directory):
     xx = 'release/assets/default/raw/images/xx/'
     assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
         'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
-        xx+n for n in (SETTINGS_ICONS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin'}
+        xx+n for n in (SETTINGS_ICONS | QUIET_ICONS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin'}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
+    if ipod:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.ttf') as font:
+            font.write(read('stock.squashfs','release/assets/default/raw/fonts/default.ttf')); font.flush()
+            for text,size,room in [('12:59 PM',16,CLOCK_TEXT),('100%',inc('BATT_PCT_PX'),inc('BATT_PCT_W'))]:
+                rendered=imagemagick('-font',font.name,'-pointsize',str(size),'label:'+text,'png:-',data=b'')
+                assert png_header(rendered)[0]-1<=room,(text,size,room,png_header(rendered))
     # Now Playing's queue reads "Queue" (QUEUE_LABEL); nothing else in the string table moves.
     strings = 'release/assets/default/raw/strings/en_US.bin'
     old, new = read('stock.squashfs', strings), read('rootfs.squashfs', strings)
@@ -263,6 +278,13 @@ def validate_assets(directory):
             except ValueError:
                 pass
             continue
+        if '/raw/images/' in rel:
+            name=rel.rsplit('/',1)[-1]
+            if name in QUIET_ICONS:
+                assert sha(original)==QUIET_ICONS[name] and new==quiet_icon(name,original)
+                assert png_header(new)==(28,28,8,6)
+            else: assert name in SETTINGS_ICONS and new==settings_icon(name,original)
+            continue
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
         root = decode(new)
@@ -334,13 +356,13 @@ def validate_assets(directory):
             x, _, w, _ = title[1]
             assert x + w/2 == 375/2 and w >= CLOCK_MIN  # centred on the screen, clear of both groups (corners below)
             assert inc('CLOCK_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('CLOCK_EDGE')
-            assert fonts[('hscroll_label', title[2]['style'])] == 20
+            assert title[2]['style:normal:font_size'] == '16'
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
             # The Battery setting's percentage and payload battery start hidden (navigation.c bar_sync).
             pct, slot = right[3][2:4]
             assert pct[1][2] == inc('BATT_PCT_W') and pct[2]['visible'] == 'false' and pct[2]['style:normal:text_align_h'] == 'right' and pct[2]['style:normal:font_size'] == str(inc('BATT_PCT_PX'))
-            assert slot == ['view', [0, 0, inc('BATT_BODY_W') + inc('BATT_NUB_W'), 0], {'name': 'view_battery', 'visible': 'false'}, []]
+            assert slot == ['view', [0, 0, inc('BATT_BODY_W') + inc('BATT_NUB_W') + inc('BATT_GAP') + inc('BATT_PCT_W'), 0], {'name': 'view_battery', 'visible': 'false'}, []]
             continue
         if short == PLAYING_PAGE:  # iPod only: see the sketch in docs/ipod.md
             named = {n[2].get('name'): n for n in walk(root)}

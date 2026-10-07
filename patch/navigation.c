@@ -8,12 +8,14 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
     stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
-    stock_btvol_trampoline(int, int), stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
+    stock_btvol_trampoline(int, int), stock_sleep_trampoline(void *),
+    stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
     stock_localclass_trampoline(int), stock_power_trampoline(void *, void *),
-    stock_audioset_trampoline(void *, void *), stock_playlist_trampoline(void *);
+    stock_systemset_trampoline(void *, void *), stock_audioset_trampoline(void *, void *),
+    stock_playlist_trampoline(void *);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -159,7 +161,7 @@ typedef struct {
     unsigned lyric_timer; /* runs while the wheel holds the lyrics and stock's timer is stopped */
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, battery, shortcut;
+    int settings_read, accent, home_full, battery, shortcut, home_rockbox;
     void *setting_label[4];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
@@ -1131,6 +1133,13 @@ static int config_value(const char *section, const char *key, int n) {
     return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : 0;
 }
 
+#define ROCKBOX_BIN "/mnt/mmc/.rockbox/rockbox"
+/* glibc 2.28 MIPS o32 stat v3: st_mode at byte 20, as stock's fs stat reads it. */
+static int rockbox_available(void) {
+    unsigned info[36];
+    return !__xstat(3, ROCKBOX_BIN, info) && (info[5] & 0170000) == 0100000;
+}
+
 #if IPOD
 /* 0xRRGGBB to an opaque color_t, whose bytes are r, g, b, a. */
 #define RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
@@ -1171,7 +1180,7 @@ int ipod_home_full(void) {
 /* 1 when Home's Streaming row is the Rockbox shortcut (coverflow_home_layout labels it). */
 int ipod_home_rockbox(void) {
     accent();
-    return st.shortcut;
+    return st.home_rockbox = st.shortcut && rockbox_available();
 }
 unsigned accent_tone(int tone) { return accents[accent()][tone]; }
 
@@ -1520,7 +1529,7 @@ static void *list_button(void *view) {
  * without list_into. Returns the label. */
 static void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
     void *button = list_button(view);
-    widget_on(button, EVT_CLICK, click, ctx);
+    if (click) widget_on(button, EVT_CLICK, click, ctx);
     image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
     void *label = hscroll_label_create(button, 72, 0, 260, 70);
     widget_use_style(label, "s_scrlabel_white24l");
@@ -1635,7 +1644,7 @@ static int codec_fade(const void *info) {
 }
 
 /* The status bar's codec badge, then the Battery setting (docs/ipod.md#status-bar-and-clock): one
- * of the stock icon, stock's percentage or the payload's battery (view_battery) shows, and the icon
+ * of the charge-level icon, stock's percentage or icon plus percentage shows, and the icon
  * wherever the group's ink would reach more than BATT_ROOM (a wide badge while it shows).
  * widget_set_visible does nothing for an unchanged state and relayouts the view for a new one. */
 static void bar_sync(void *bar) {
@@ -1661,19 +1670,21 @@ static void bar_sync(void *bar) {
     } else if (c && st.codec_step >= CODEC_STEPS)
         image_base_set_image(st.bar_bt, BT_GLYPH);
     accent(); /* reads the settings */
+    if (st.home_rockbox != (st.shortcut && rockbox_available())) coverflow_home_layout();
     int mode = st.battery;
     if (mode) {
-        int reach = mode == 1 ? BATT_PCT_W : BATT_BODY_W + BATT_NUB_W;
+        int reach = mode == 1 ? BATT_PCT_W : BATT_BODY_W + BATT_NUB_W + BATT_GAP + BATT_PCT_W;
         if (widget_get_visible(st.bar_wifi)) reach += I(st.bar_wifi, W_W) + 5;
         if (shown)
             reach += 5 + (st.codec && st.codec_step < CODEC_STEPS ? codec_reach[st.codec - 1]
                                                                   : BT_REACH);
         if (reach > BATT_ROOM) mode = 0;
     }
-    widget_set_visible(st.bar_icon, !mode, 0);
+    widget_set_visible(st.bar_icon, 0, 0);
+    widget_resize(st.bar_slot, BATT_BODY_W + BATT_NUB_W + (mode == 2 ? BATT_GAP + BATT_PCT_W : 0), 30);
     widget_set_visible(st.bar_pct, mode == 1, 0);
-    widget_set_visible(st.bar_slot, mode == 2, 0);
-    if (mode != 2) return;
+    widget_set_visible(st.bar_slot, mode != 1, 0);
+
     /* the level from label_battery's "88%" (stock zeroes progress_battery while charging), then
      * charging (bar_charge) and low (bar_lowcharge), as stock picks the icon */
     const char *icon = widget_get_prop_str(st.bar_icon, "image", "");
@@ -1686,22 +1697,21 @@ static void bar_sync(void *bar) {
                        << 2 |
                    (unsigned)(icon && !tk_strcmp(icon, "bar_charge")) << 1 |
                    (unsigned)(icon && !tk_strcmp(icon, "bar_lowcharge"));
+    unsigned color = RGBA(key & 2 ? BATT_CHARGE_RGB : key & 1 ? BATT_LOW_RGB : 0xffffff);
+    widget_set_prop_int(st.bar_pct, "style:normal:text_color", (int)color);
     if (key == st.batt_key) return;
     st.batt_key = key;
     widget_invalidate_force(st.bar_slot, (void *)0);
 }
 
-/* view_battery: a BATT_BODY_W x BATT_BODY_H outline with square-cut corners, centred in the bar
- * (its text 1px low), its nub on the right and the level inside, all in one colour; the fill color
- * is restored. */
+/* Charge-level outline and nub, with a percentage alongside in mode 2; restore canvas state. */
 static void paint_battery(void *w, void *canvas) {
     void *lcd = P(canvas, CANVAS_LCD);
     if (!lcd) return;
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
-    unsigned key = st.batt_key, level = key >> 2, s[3], n = put_num(s, level);
-    unsigned color = RGBA(key & 2   ? BATT_CHARGE_RGB
-                          : key & 1 ? accents[accent()][TONE_RED]
-                                    : 0xffffff);
+    unsigned key = st.batt_key, level = key >> 2, s[4], n = put_num(s, level);
+    s[n++] = '%';
+    unsigned color = RGBA(key & 2 ? BATT_CHARGE_RGB : key & 1 ? BATT_LOW_RGB : 0xffffff);
     const int bw = BATT_BODY_W, bh = BATT_BODY_H, y = (I(w, W_H) + 1 - bh) / 2;
     canvas_set_fill_color(canvas, color);
     canvas_fill_rect(canvas, 1, y, bw - 2, 1);
@@ -1709,8 +1719,15 @@ static void paint_battery(void *w, void *canvas) {
     canvas_fill_rect(canvas, 0, y + 1, 1, bh - 2);
     canvas_fill_rect(canvas, bw - 1, y + 1, 1, bh - 2);
     canvas_fill_rect(canvas, bw, y + (bh - BATT_NUB_H) / 2, BATT_NUB_W, BATT_NUB_H);
-    rect_t r = { 0, y + 1, bw, bh };
-    draw_centred(canvas, s, n, &r, BATT_PX, color);
+    canvas_fill_rect(canvas, 2, y + 2, (bw - 4) * level / 100, bh - 4);
+    if (key & 2) { /* dark split keeps charging distinct even at full charge */
+        canvas_set_fill_color(canvas, RGBA(0x161616));
+        canvas_fill_rect(canvas, bw / 2, y + 2, 2, bh - 4);
+    }
+    if (I(w, W_W) > bw + BATT_NUB_W) {
+        rect_t r = { bw + BATT_NUB_W + BATT_GAP, 0, BATT_PCT_W, I(w, W_H) };
+        draw_centred(canvas, s, n, &r, BATT_PX, color);
+    }
     canvas_set_fill_color(canvas, fill);
 }
 
@@ -2251,12 +2268,67 @@ int ringnav_display(void *win, void *ctx) {
 #if IPOD
     static const char *const icons[] = { "system_display", "playset_covermode",
                                          "system_powermanager", "system_netservice" };
-    for (int i = 0; view && i < 4; ++i) {
+    int count = rockbox_available() ? 4 : 3;
+    for (int i = 0; view && i < count; ++i) {
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
 #endif
     if (view) wheel_row(view);
+    return result;
+}
+
+static void toast(const char *text);
+#define BOOT_TARGET "/mnt/data/boot-target"
+static int boot_rockbox __attribute__((section(".scratch")));
+static void boot_text(void *label) {
+    widget_set_text_utf8(label, boot_rockbox ? "Boot to: Rockbox" : "Boot to: Q2-Pod");
+}
+static int boot_click(void *label, void *event) {
+    (void)event;
+    if (!rockbox_available()) {
+        toast("Rockbox is not on the card");
+        return 0;
+    }
+    const char *value = boot_rockbox ? "q2pod" : "rockbox";
+    void *f = fopen(BOOT_TARGET ".tmp", "wb");
+    int ok = 0;
+    if (f) {
+        ok = fwrite(value, 1, strlen(value), f) == strlen(value);
+        if (fflush(f) || fsync(fileno(f))) ok = 0;
+        if (fclose(f)) ok = 0;
+    }
+    if (!ok || rename(BOOT_TARGET ".tmp", BOOT_TARGET)) {
+        unlink(BOOT_TARGET ".tmp");
+        toast("Could not save boot choice");
+        return 0;
+    }
+    boot_rockbox = !boot_rockbox;
+    boot_text(label);
+    return 0;
+}
+int ringnav_systemset(void *win, void *ctx) {
+    int result = stock_systemset_trampoline(win, ctx);
+    void *view = win ? widget_lookup(win, "scroll_view_sysset", 1) : (void *)0;
+    if (view && rockbox_available()) {
+        char value[16];
+        void *f = fopen(BOOT_TARGET, "rb");
+        boot_rockbox = 1;
+        if (f) {
+            unsigned n = fread(value, 1, 5, f);
+            int q2pod = n == 5 && !memcmp(value, "q2pod", 5);
+            /* Shell command substitution strips all trailing newlines. */
+            while (q2pod && (n = fread(value, 1, sizeof value, f)))
+                for (unsigned i = 0; i < n; ++i)
+                    if (value[i] != '\n') q2pod = 0;
+            boot_rockbox = !q2pod || ferror(f);
+            fclose(f);
+        }
+        void *label = list_row(view, "system_powermanager", 0, 0);
+        void *button = P(label, W_PARENT);
+        widget_on(button, EVT_CLICK, boot_click, label);
+        boot_text(label);
+    }
     return result;
 }
 
@@ -3699,11 +3771,11 @@ static void power_poll(void) {
  * saves it, charging and the second core are handed back as Rockbox expects them at boot, the
  * watchdog (checkappprocess.sh, which reboots once demo is gone) and hciplayer (which holds the
  * DAC's PCM) are stopped, and demo is killed outright, so no exit handler can hang it. */
-#define ROCKBOX_BIN "/mnt/mmc/.rockbox/rockbox"
 static int rockbox_shortcut(void *target) {
-    if (!ipod_home_rockbox() || tk_strcmp(widget_get_prop_str(target, "name", ""), "img_stream"))
+    accent();
+    if (!st.home_rockbox || tk_strcmp(widget_get_prop_str(target, "name", ""), "img_stream"))
         return 0;
-    void *flag = access(ROCKBOX_BIN, 0) ? (void *)0 : fopen(ROCKBOX_FLAG, "w");
+    void *flag = !rockbox_available() ? (void *)0 : fopen(ROCKBOX_FLAG, "w");
     if (!flag) {
         toast("Rockbox is not on the card");
         return 1;
@@ -3743,8 +3815,7 @@ static int bt_sync_volume(int left, int right) {
 }
 
 int ringnav_btvol(int left, int right) {
-    if (bt_audio_ready() && bt_sync_volume(left, right))
-        return stock_btvol_trampoline(100, 100);
+    if (bt_audio_ready() && bt_sync_volume(left, right)) return stock_btvol_trampoline(100, 100);
     return stock_btvol_trampoline(left, right);
 }
 
@@ -3757,7 +3828,8 @@ static void bt_volume_poll(void) {
     unsigned now = time_now_ms();
     if (now - btvol.checked < 400) return;
     btvol.checked = now;
-    if (!bt_audio_ready()) btvol.ready = 0;
+    if (!bt_audio_ready())
+        btvol.ready = 0;
     else if (!btvol.ready && bt_sync_volume(g_volume, g_volume)) {
         stock_btvol_trampoline(100, 100);
         btvol.ready = 1;

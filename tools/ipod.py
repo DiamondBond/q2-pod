@@ -47,12 +47,12 @@ def corner_x(y, h):
 # clear of the top corners. The play state and EQ are on the left, as in stock; Bluetooth/codec,
 # Wi-Fi and the battery on the right. The clock is centred on the screen, between the wider
 # group's extent with every icon shown and the same distance from the other edge; CLOCK_MIN leaves
-# room for its widest text, "12:59 PM" (86px at 20px in the pinned stock font). STATUS_PAD keeps the icons
+# room for its widest text, "12:59 PM" (69px at 16px in the pinned stock font). STATUS_PAD keeps the icons
 # that much further in than the corners need, so they don't look cramped against the glass.
 STATUS_PAD = 2
 STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
 CLOCK_MIN = 105
-CLOCK_TEXT = 86
+CLOCK_TEXT = 70
 # iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. The
 # labels fit the longest English one ("Playback Setting", 149px at 20px) and all start where the last
 # row's clears the bottom-left corner. The art fills the right panel, edge to edge below the status
@@ -288,19 +288,20 @@ STATUS_RIGHT = ['img_bt', 'img_wifi', 'label_battery', 'view_battery', 'img_batt
 STATUS_HIDDEN = ['img_vol', 'label_vol', 'img_synclink']
 # The Battery setting (navigation.c bar_sync) shows one of the last three: the stock icon, stock's
 # "88%" (label_battery at BATT_PCT_PX, the icons' height, and right-aligned so its width grows away
-# from the corner; "100%" is BATT_PCT_W) or the payload's horizontal battery with the number inside (view_battery). The layout
+# from the corner; "100%" is BATT_PCT_W) or the payload's charge-level battery with the percentage beside it (view_battery). The layout
 # skips hidden children. The Bluetooth images are 42px canvases whose ink ends at column 41: BT_REACH
 # is how far the plain glyph's ink starts left of img_bt's right edge. With it, Wi-Fi and the wider
 # battery, the group's ink stays CLOCK_GAP clear of the widest clock text, CLOCK_TEXT ("12:59 PM"),
 # so every mode fits once a codec badge has faded; wider badges fall back to the icon (BATT_ROOM).
 BATT_MODES = STATUS_RIGHT[2:4]
 BATT_PCT_W, BATT_PCT_PX, BATT_ROOM, BT_REACH = (inc(n) for n in ('BATT_PCT_W', 'BATT_PCT_PX', 'BATT_ROOM', 'BT_REACH'))
-BATT_H_W = inc('BATT_BODY_W') + inc('BATT_NUB_W')  # the payload's battery with its nub
+BATT_H_W = inc('BATT_BODY_W') + inc('BATT_NUB_W') + inc('BATT_GAP') + BATT_PCT_W  # the payload's battery with its nub
 CLOCK_GAP = 4
 
 
 def status_bar(root):
     left, right = root[3]
+    root[2]['style:normal:bg_color'] = '#161616'
     require([left[2].get('name'), right[2].get('name')] == ['view_left', 'view_right'], 'Unexpected status bar')
     widgets = {n[2]['name']: n for n in left[3] + right[3]}
     require(sorted([*widgets, 'view_battery']) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')
@@ -330,7 +331,7 @@ def status_bar(root):
         root[3].append(widgets[name])
     # The payload writes the local time here (ringnav_paint_bg).
     root[3].append(['hscroll_label', [extent, 0, width, 30], {
-        'name': 'label_clock', 'style': 's_scrlabel_white20c', 'only_focus': 'true'}, []])
+        'name': 'label_clock', 'style': 's_scrlabel_white20c', 'style:normal:font_size': '16', 'only_focus': 'true'}, []])
 
 
 # iPod only. Stock finds every Now Playing widget by name, recursively, so they can move: title, artist
@@ -393,6 +394,9 @@ def playing_page(root):
     named['slide_view_view'][1] = [0, NP_TOP, 375, NP_SLIDE_H + 12]
     named['slide_view'][1] = [0, 0, 375, NP_SLIDE_H]
     dots = named['slide_indicator1']
+    for key in dots[2]:
+        if key.endswith(':selected_fg_color'): dots[2][key] = '#eeeeee'
+        elif key.endswith(':fg_color'): dots[2][key] = '#555555'
     dots[1][1] = NP_SLIDE_H + 2
     dots[2]['self_layout'] = f'default(x=0,y={NP_SLIDE_H + 2},w=100%,h=10)'
     named['image_wait'][1] = [NP_MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
@@ -529,6 +533,18 @@ def settings_icon(name, data):
     opaque = [imagemagick('png:-', '-format', '%[opaque]', 'info:', data=d) for d in (data, out)]
     require(opaque[0] == opaque[1], f'{name}: filtering changed the transparency')
     return out
+
+
+QUIET_ICONS = AUDIT['quiet_icons']
+
+
+def quiet_icon(name, data):
+    require(hashlib.sha256(data).hexdigest() == QUIET_ICONS.get(name), f'{name}: unaudited control icon')
+    return imagemagick('png:-', '-trim', '+repage', '-filter', 'Lanczos', '-resize', '24x24',
+                      '-channel', 'RGB', '-fill', '#aaaaaa' if name == 'play_moredown.png' else '#eeeeee',
+                      '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'none',
+                      '-extent', '28x28', '-strip', '-define', 'png:exclude-chunks=date,time',
+                      '-define', 'png:color-type=6', '-define', 'png:bit-depth=8', 'png:-', data=data)
 
 
 def patch_word(data, address, old, new, purpose, changes=None):
