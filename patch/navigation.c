@@ -1681,9 +1681,14 @@ static void bar_sync(void *bar) {
         if (reach > BATT_ROOM) mode = 0;
     }
     widget_set_visible(st.bar_icon, 0, 0);
-    widget_resize(st.bar_slot, BATT_BODY_W + BATT_NUB_W + (mode == 2 ? BATT_GAP + BATT_PCT_W : 0), 30);
+    int width = BATT_BODY_W + BATT_NUB_W + (mode == 2 ? BATT_GAP + BATT_PCT_W : 0);
+    int resized = I(st.bar_slot, W_W) != width;
+    widget_resize(st.bar_slot, width, 30);
     widget_set_visible(st.bar_pct, mode == 1, 0);
     widget_set_visible(st.bar_slot, mode != 1, 0);
+    /* Resize only relayouts the slot's own children; the right-aligned row must
+     * position it again even when Icon + Percent -> Icon keeps it visible. */
+    if (resized) widget_layout_children(P(st.bar_slot, W_PARENT));
 
     /* the level from label_battery's "88%" (stock zeroes progress_battery while charging), then
      * charging (bar_charge) and low (bar_lowcharge), as stock picks the icon */
@@ -2221,7 +2226,10 @@ static void wheel_row(void *view) {
     wheel_edit = 0;
     void *item = list_item_create(view, 0, 0, 375, 110);
     widget_use_style(item, "s_listitem_black");
-    void *button = button_create(item, 20, 0, 335, 50);
+    int header = IPOD ? SET_ROW : 50;
+    /* iPod's slider row has its own height: build its header in the same final
+     * icon/text columns as the ordinary settings rows, without remapping it. */
+    void *button = button_create(item, IPOD ? 0 : 20, 0, IPOD ? 375 : 335, header);
     widget_use_style(button, "s_btn_listitem");
     /* Let the list's selection show through instead of drawing a second focus rectangle. */
     static const char *const states[] = { "normal", "pressed", "over", "focused" };
@@ -2231,11 +2239,15 @@ static void wheel_row(void *view) {
         widget_set_prop_int(button, key, 0);
     }
     widget_on(button, EVT_CLICK, wheel_click, item);
-    image_base_set_image(image_create(button, 10, 5, 40, 40), "system_display");
-    wheel_label = hscroll_label_create(button, 72, 0, 260, 50);
+    image_base_set_image(image_create(button, IPOD ? SET_ICON_X : 10,
+                                     (header - 40) / 2, 40, 40), "system_display");
+    wheel_label = hscroll_label_create(button, IPOD ? SET_ICON_X + SET_ICON + SET_GAP : 72,
+                                      0, 260, header);
     widget_use_style(wheel_label, "s_scrlabel_white20l");
     set_hscroll_label_attribute(wheel_label);
-    wheel_slider = widget_factory_create_widget(widget_factory(), "slider", item, 92, 50, 253, 46);
+    wheel_slider = widget_factory_create_widget(widget_factory(), "slider", item,
+                                                IPOD ? SET_ICON_X + SET_ICON + SET_GAP : 92,
+                                                header, 253, IPOD ? 34 : 46);
     widget_use_style(wheel_slider, "s_ipod_progress");
     widget_set_prop_int(wheel_slider, "bar_size", 10);
     widget_set_prop_int(wheel_slider, "dragger_size", 28);

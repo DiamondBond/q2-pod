@@ -3207,6 +3207,26 @@ if variant=='ipod':
         assert ink>=375/2+CLOCK_TEXT/2+CLOCK_GAP and 375-STATUS_MARGIN-ink<=O['BATT_ROOM'], (mode,cells)
     passed()
 
+    # Cycle the live Battery setting with the actual parent row layouter. Icon
+    # remains visible after Icon + Percent, so a width change must reposition it.
+    m.config={'BATTERY':'0'}
+    m.word(bar+O['W_PARENT'],m.wm); m.word(syms['system_bar'],bar)
+    m.nodes[named(m,bar,'img_bt')]['visible']=0
+    m.nodes[named(m,bar,'img_wifi')]['visible']=0
+    slot=named(m,bar,'view_battery')
+    m.nodes[named(m,bar,'label_battery')]['text']='50%'
+    def paint_live_bar():
+        m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(bar,m.canvas,0,0),gap=0)
+    paint_live_bar()
+    for mode in (1,2,0,1,2,0):
+        m.call(address=payload_syms['setting_click'],args=(2,m.event,0,0),gap=0)
+        paint_live_bar()
+        if mode != 1:
+            assert m.nodes[slot]['visible']
+            assert m.get(slot+O['W_W'])==O['BATT_BODY_W']+O['BATT_NUB_W']+(O['BATT_GAP']+O['BATT_PCT_W'] if mode==2 else 0)
+            assert signed(m.get(views[1]+O['W_X']))+signed(m.get(slot+O['W_X']))+m.get(slot+O['W_W'])==375-STATUS_MARGIN
+    passed()
+
 # Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
 # the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
 # the list on a translucent dark rounded square, LETTER_MS after the last detent a timer repaints it
@@ -4534,6 +4554,14 @@ if variant=='ipod':
         for item in items: check_row(m,item,0); check_row(m,item,SET['ROWS']-1)
         after=tree(m,view); assert after!=before
         assert lay(m,view)==0 and tree(m,view)==after, builder  # a later layout changes nothing
+        if builder=='display':
+            wheel=m.nodes[view]['children'][-1]
+            button=m.nodes[wheel]['children'][0]
+            icon,label=m.nodes[button]['children']
+            assert geometry(m,icon)==(SET['ICON_X'],(SET['ROW']-SET['ICON'])//2,SET['ICON'],SET['ICON'])
+            assert geometry(m,label)[0]==SET['ICON_X']+SET['ICON']+SET['GAP']
+            slider=m.nodes[wheel]['children'][1]
+            assert geometry(m,slider)[1]==SET['ROW'] and geometry(m,slider)[1]+geometry(m,slider)[3]<=geometry(m,wheel)[3]
         passed()
     # A list whose default_item_height is not SET_ROW (local pages, Home) keeps its rows as built.
     m,view=settings(0x4cbcc4,default=72); before=tree(m,view); lay(m,view); after=tree(m,view)

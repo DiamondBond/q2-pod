@@ -159,10 +159,20 @@ def validate_assets(directory):
     boot = read('rootfs.squashfs', BOOT)
     assert sha(boot) == manifest['q2boot_sha256'] and boot[:4] == b'\x7fELF' and boot[36:40] == helper[36:40]
     assert read('rootfs.squashfs', S90PLAY) == read('stock.squashfs', S90PLAY).replace(*BOOT_HOOK)
-    # bluealsa differs from stock only in the AAC 44.1 kHz bit.
+    # bluealsa: AAC capability, the two DROP jumps, and one appended LOAD payload.
+    from build import BT_DROP, BT_DROP_HANDLER, BT_DROP_PAYLOAD, patch_bluealsa, segments
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
-    assert len(new) == len(old) and [i for i in range(len(old)) if old[i] != new[i]] == [AAC_44K1]
+    header = segments(old)[-1][0]
+    allowed = {AAC_44K1, *range(header, header+32)}
+    for address in (BT_DROP, BT_DROP_HANDLER):
+        off = fileoff(old, address)
+        allowed.update(range(off, off+8))
+    assert {i for i in range(len(old)) if old[i] != new[i]} <= allowed
+    assert new == patch_bluealsa(old)
+    assert segments(new)[-1][1][2] == BT_DROP_PAYLOAD
     assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
+    from bluealsa import check as check_bluetooth_drop
+    check_bluetooth_drop(directory)
     # The crash watchdog only sleeps longer; check_mem_thd's drop_caches write is branched over.
     old, new = read('stock.squashfs', WATCHDOG), read('rootfs.squashfs', WATCHDOG)
     assert new == old.replace(*WATCHDOG_SLEEP) and new != old

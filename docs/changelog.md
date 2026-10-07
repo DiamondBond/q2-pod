@@ -1,5 +1,7 @@
 # Changelog
 
+- **V9.4**: iPod: fix the right-side gap when switching Battery from Icon + Percent back to Icon, and align the Wheel sensitivity icon and label with the other Display settings rows. Flush old Bluetooth audio before acknowledging a manual skip and reset encoder pacing in both variants; audible AAC and LDAC behavior still needs device testing. Include the refined iPod settings layout and persistent Rockbox/Q2 Pod boot selection.
+
 - **V9.3**: Synchronize Bluetooth headset absolute volume in both variants, retaining stock software volume when the headset reading is unsupported or an update fails. Synchronize again when a usable audio transport appears after connecting. AirPods playback remains experimental pending device testing.
 
 - **V9.2**: Add album and folder shuffle, playing each randomly selected group in order, with Next/Previous group actions in the Now Playing hold menu. Add advanced shuffle and repeat choices, and restore queues, traversal and playback position after reboot. Add a 50–200% wheel sensitivity slider under System settings → Display in both builds. Simplify Coverflow caching and reduce idle visualizer work. Harden Low power crash markers and MP3 seeking, including CRC-protected Xing headers. Keep pending scrobbles when archival fails and always verify upload TLS; stock firmware needs a `.scrobble.pem` CA bundle on the card.
