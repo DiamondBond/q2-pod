@@ -46,6 +46,7 @@ def library(tmp):
     lib = compile_host(tmp, 'peq.so', ROOT/'patch/peq.c')
     signatures = {
         'peq_default': [C.POINTER(Preset)], 'peq_valid': [C.POINTER(Preset)],
+        'peq_number': [C.c_char_p, C.POINTER(C.c_double)],
         'peq_parse': [C.c_char_p, C.c_uint, C.POINTER(Preset), C.POINTER(Error)],
         'peq_import_file': [C.c_char_p, C.POINTER(Preset), C.POINTER(Error)],
         'peq_save': [C.c_char_p, C.POINTER(Preset), C.c_int],
@@ -65,6 +66,11 @@ def parse(lib, text):
     return p
 
 def parser_check(lib, tmp):
+    value = C.c_double()
+    for text in (b" 0x1p0", b"\t+0x1p0", b" 1", b"1 "):
+        assert not lib.peq_number(text, C.byref(value)), text
+    for text, want in ((b"1e3", 1000), (b"-1,5", -1.5), (b"+.7", .7)):
+        assert lib.peq_number(text, C.byref(value)) and value.value == want, text
     source = '\ufeff # comment\r\nPreamp : -3 dB # inline\r\nPreamp:\t-2 dB\n'
     aliases = ['PK', 'PEQ', 'LS', 'LSC', 'HS', 'HSC']
     for i, alias in enumerate(aliases):

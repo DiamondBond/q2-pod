@@ -44,7 +44,10 @@ int peq_number(const char *s, double *out) {
     unsigned n = 0;
     while (s[n]) {
         if (n == PEQ_LINE_LIMIT) return 0;
-        buf[n] = s[n] == ',' ? '.' : s[n];
+        char c = s[n];
+        if (!(c >= '0' && c <= '9') && c != '+' && c != '-' && c != '.' && c != ',' &&
+            c != 'e' && c != 'E') return 0;
+        buf[n] = c == ',' ? '.' : c;
         ++n;
     }
     buf[n] = 0;

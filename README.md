@@ -190,21 +190,21 @@ Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops mea
 
 Media folders go at the card's root, any capitalisation; each adds its **Library** row when present. Caches are safe to delete and rebuild as needed (Coverflow and Photos need 16 MB free).
 
-| Path                       | What it is                                                                              | Made by |
-| -------------------------- | --------------------------------------------------------------------------------------- | ------- |
-| `Podcasts/`, `Audiobooks/` | One folder per show or book; always resume, never count as plays                        | You     |
-| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums              | You     |
-| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                                       | You     |
-| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders                 | You     |
-| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                            | You     |
-| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                             | You     |
+| Path                       | What it is                                                                    | Made by |
+| -------------------------- | ----------------------------------------------------------------------------- | ------- |
+| `Podcasts/`, `Audiobooks/` | One folder per show or book; always resume, never count as plays              | You     |
+| `Photos/`                  | `.jpg`, `.jpeg`, `.png` (JPEG up to 6 MB, PNG 1 MB); subfolders are albums    | You     |
+| `Books/`                   | `.txt`, `.epub` (no DRM); one level of subfolders                             | You     |
+| `Videos/`                  | `.mp4`, `.m4v`, `.mkv`, `.avi`, `.mov`, `.mpg`; one level of subfolders       | You     |
+| `EQ/`                      | AutoEQ / Equalizer APO presets to [import](#import-a-preset)                  | You     |
+| `.scrobble.ini`            | Scrobble accounts (sample below); adds **Upload Scrobbles**                   | You     |
 | `.scrobble.pem`            | CA bundle (e.g. [curl's](https://curl.se/ca/cacert.pem)) for verified uploads | You     |
-| `.scrobbler.log`           | Every listen, Rockbox format; for Upload Scrobbles or any uploader                      | Q2 Pod  |
-| `.scrobbler.log.sent`      | Listens already uploaded                                                                | Q2 Pod  |
-| `.coverflow/`              | Coverflow artwork cache                                                                 | Q2 Pod  |
-| `.photos/`                 | Photo thumbnails and screen-size copies                                                 | Q2 Pod  |
-| `.books/`                  | EPUBs converted to text                                                                 | Q2 Pod  |
-| `.sldp/`                   | Stock's own cover cache                                                                 | Stock   |
+| `.scrobbler.log`           | Every listen, Rockbox format; for Upload Scrobbles or any uploader            | Q2 Pod  |
+| `.scrobbler.log.sent`      | Listens already uploaded                                                      | Q2 Pod  |
+| `.coverflow/`              | Coverflow artwork cache                                                       | Q2 Pod  |
+| `.photos/`                 | Photo thumbnails and screen-size copies                                       | Q2 Pod  |
+| `.books/`                  | EPUBs converted to text                                                       | Q2 Pod  |
+| `.sldp/`                   | Stock's own cover cache                                                       | Stock   |
 
 `.scrobble.ini` takes a ListenBrainz token ([your settings](https://listenbrainz.org/settings/)), a Last.fm account, or both:
 

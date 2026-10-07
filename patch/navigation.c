@@ -3504,7 +3504,8 @@ static void cpu_poll(void) {
         int synced = mark && !fflush(mark) && !fsync(fileno(mark));
         if (mark && fclose(mark)) synced = 0;
         int dir = open("/mnt/data", 0); /* persist the marker's directory entry before hotplug */
-        if (dir < 0) synced = 0;
+        if (dir < 0)
+            synced = 0;
         else {
             if (fsync(dir)) synced = 0;
             close(dir);

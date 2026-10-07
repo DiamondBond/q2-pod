@@ -3560,7 +3560,9 @@ assert cf_jump(m,5,1)==(2,ord('É')) and cf_jump(m,7,1)==(1,0)
 assert cf_jump(m,0,-1)==(1,0) and cf_jump(m,1,-1)==(2,0)
 assert cf_jump(m,8,1)==(1,0) and cf_jump(m,9,1)==(1,0); passed()
 # Unicode punctuation/numbers and missing names share #; letters retain their codepoints.
-for name,want in (('١ Song',ord('#')),('—Song',ord('#')),('',ord('#')),('Жизнь',ord('Ж')),('東京',ord('東'))):
+for name,want in (('١ Song',ord('#')),('० Song',ord('#')),('—Song',ord('#')),('',ord('#')),
+                  ('Жизнь',ord('Ж')),('東京',ord('東')),('Ａ Song',ord('Ａ')),('Ｂ Song',ord('Ｂ')),
+                  ('Ⰰ Song',ord('Ⰰ'))):
     m=CoverflowMachine(albums=2)
     m.word(m.albums[1]+O['REC_ALBUM'],m.string(name)); m.open()
     assert cf_jump(m,0,1)==(1,want); passed()
