@@ -288,6 +288,7 @@
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */
 #define MCL_POOL 0xa3bdb0       /* deque_t * of int: unplayed shuffle indices */
 #define MCL_LASTPOS 0xa3be90    /* shuffle "previous" index, -1 none */
+#define MCL_PREPOS 0xa3be94
 #define MCL_PRELOAD 0xa3be98    /* 1 preloaded, 0 none, -1 closed for this track */
 #define MCL_TYPE 0xa3bea0       /* queue classType: 1 folder, 0xfxxx local */
 #define MCL_POS 0xa3bea4

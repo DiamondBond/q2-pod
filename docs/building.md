@@ -28,6 +28,7 @@ python3 test/coverflow.py --captures /tmp/cf  # the same, plus the renderer's fr
 python3 test/mp3.py  # native Xing seek bounds, CRC and truncated headers
 python3 test/build.py  # JPEG header checks; no emulator required
 python3 test/build.py 'Q2 Firmware V1.32.zip'  # optional packaging checks (custom logo, quoted paths)
+python3 test/playback.py /tmp/q2-build  # grouped traversal, snapshots and shared wheel thresholds
 python3 test/patch.py /tmp/q2-build  # after: pip install -r requirements.txt
 ```
 

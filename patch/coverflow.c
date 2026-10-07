@@ -7,6 +7,7 @@
 #ifndef PEQ_HOST
 #include "stock.h"
 #endif
+#include "playback.h"
 
 /* On the card, beside stock's own cover cache (/mnt/mmc/.sldp). */
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
@@ -1280,7 +1281,7 @@ static int play(void *ctx, void *event) {
 
 /* Album order: disc, then track, then path, so an untagged album keeps its file-name order and a
  * CUE image's tracks (one path) their start times. */
-static int before(const void *pa, const void *pb) {
+int album_before(const void *pa, const void *pb) {
     void *a = *(void *const *)pa, *b = *(void *const *)pb;
     int d = I(a, REC_DISC) - I(b, REC_DISC);
     if (!d) d = I(a, REC_TRACK) - I(b, REC_TRACK);
@@ -1294,7 +1295,7 @@ static void *in_order(void *tracks) {
     void **v = calloc(n + 1, sizeof *v);
     if (!v) return tracks;
     for (unsigned i = 0; i < n; ++i) v[i] = deque_at(tracks, i);
-    qsort(v, n, sizeof *v, before);
+    qsort(v, n, sizeof *v, album_before);
     void *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i]);
@@ -1544,6 +1545,7 @@ void coverflow_home_layout(void) {
 /* home_page_init: stock binds the name-matched img_* cards, then the Coverflow card binds here,
  * on its image as stock does, whatever stock returned. */
 int coverflow_home(void *win, void *ctx) {
+    wheel_load();
     int result = stock_home_trampoline(win, ctx);
     widget_on(widget_lookup(win, "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
 #if IPOD

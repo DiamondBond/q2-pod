@@ -40,6 +40,14 @@ HOOKS = {
     # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
     'buzzeer_switch': (0x4f3cc8, 'ringnav_buzzer'),
     # Power management gains Charge limit and Low power; Audio settings gains Artists (Album Artist)
+    'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
+    'save_memoryplay_info': (0x516344, 'ringnav_savequeue'),
+    'mclLoadPlayList': (0x5aa8d4, 'ringnav_load'),
+    'mclNextSong': (0x5adbbc, 'ringnav_next'),
+    'mclPrevSong': (0x5ada98, 'ringnav_prev'),
+    'mclSetPlayMode': (0x5ab25c, 'ringnav_mode'),
+    'mcl_preload': (0x5a8c1c, 'ringnav_preload'),
+    'memeory_startplayer': (0x5164e0, 'ringnav_memory'),
     'systemset_powermanager_page_init': (0x4c72d0, 'ringnav_powermanager'),
     'playset_playset_page_init': (0x4b98d8, 'ringnav_audioset'),
 }
@@ -47,12 +55,12 @@ HOOKS = {
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist'),
               'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
               'playing_page_init': (0x52ca88, 'ringnav_playing'),
-              'systemset_display_page_init': (0x4c1d04, 'ringnav_display'),
               'style_get_color': (0x649f6c, 'ringnav_style_color'),
               'image_manager_add': (0x6445d4, 'ringnav_image_add'),
               'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown')}
 # The payload's stock_<name>_trampoline resumes each hook past its 3-word PIC prologue, in this order.
-TRAMPOLINES = {'playlist': 'playlist_rebuild', 'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_fun', 'paint': 'widget_on_paint_border',
+TRAMPOLINES = {'savequeue': 'save_memoryplay_info', 'load': 'mclLoadPlayList', 'next': 'mclNextSong', 'prev': 'mclPrevSong',
+               'mode': 'mclSetPlayMode', 'preload': 'mcl_preload', 'memory': 'memeory_startplayer', 'playlist': 'playlist_rebuild', 'keyup': 'on_wm_keyup_before_fun', 'touch': 'on_wm_tsdown_before_fun', 'paint': 'widget_on_paint_border',
                'dispatch': 'widget_dispatch', 'keylong': 'on_wm_keylong_fun', 'eq': 'set_equalizer_value',
                'home': 'home_page_init', 'localmusic': 'localmusic_page_init', 'localclass': 'load_localclass_list',
                'paint_bg': 'widget_on_paint_background', 'playing': 'playing_page_init',
@@ -70,6 +78,7 @@ GP = 0xa26cc0
 IPOD_LEAF = ('style_get_gradient', 0x649f3c, 'ringnav_style_gradient', (0x10800009, 0, 0x8c820000))
 # Videos: window_manager_paint is a leaf too (null-checks the manager and its vtable at +0x94, then
 # tail-calls paint, +0xc); the payload does the whole of it and skips it while q2video plays.
+WHEEL_LEAF = ('get_direction', 0x62587c, 'ringnav_direction', (0x00852023, 0x248500c8, 0x2887ff9c))
 WM_PAINT_LEAF = ('window_manager_paint', 0x66d46c, 'ringnav_wm_paint', (0x10800009, 0, 0x8c820094))
 # Videos' player (patch/video.c): a separate executable against the rootfs's own libraries,
 # with display_logo's inode metadata.
@@ -320,6 +329,11 @@ FUNCTIONS = {
  'batch_set_selectitem': ('int', 'int'),
  'batch_add_file': ('int', 'int, int, void *, void *, int'),
  'navigator_window_is_exist': ('int', 'const char *'),
+ 'mclStartPlayer': ('int', 'void'),
+ 'mclStop': ('int', 'void'),
+ 'mclGetPlayTime': ('int', 'int *, int *'),
+ 'mclSetStartSeekTime': ('int', 'int'),
+ 'mcl_open_preload': ('int', 'void'),
  'mclLoadPlayList': ('int', 'void *, int, int'),
  'mcl_shuffle_pick': ('int', 'int'),
  'getAllAlbum': ('int', 'void'),
@@ -393,6 +407,8 @@ PRIVATE_FUNCTIONS = {
     "stock_search": 0x5241c4,
     "slide_menu_item_width": 0x5f3040,
     "slide_menu_on_scroll_done": 0x5f3654,
+    "mcl_preload": 0x5a8c1c,
+    "mcl_open_preload": 0x5a8948,
     "mcl_shuffle_pick": 0x5a8120,
     "album_row": 0x4fc324,  # getAllAlbum's sqlite3_exec callback: id, album, songer, fileurl to a record
     "folder_refresh": 0x52176c,  # folder_page's navbar and table from p_deque_showlist (its init, back)
@@ -403,11 +419,11 @@ GLOBALS = ['g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
            'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
            'g_usbvol_mode',  # USB DAC volume: 0 fixed, else the volume (config_usbvolmode, device_set_volume)
-           'g_usbdac_chargeflag']  # USB mode's charge choice, which switch_charge_enable gets there
+           'g_usbdac_chargeflag', 'g_memory_play', 'g_carmode']  # USB mode's charge choice, which switch_charge_enable gets there
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.
-CONTEXT_DATA = {'g_folder_path': 1024, 'g_class_type': 4,
+CONTEXT_DATA = {'g_memory_info': 3476, 'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
                 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
@@ -449,7 +465,7 @@ def compile_payload(out, ipod=False):
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
-        f'--undefined={WM_PAINT_LEAF[2]}',
+        f'--undefined={WM_PAINT_LEAF[2]}', f'--undefined={WHEEL_LEAF[2]}',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -577,7 +593,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         gp = ((prolog[0] & 65535) << 16) + (low if low < 32768 else low - 65536) + address
         check(gp == GP, f'{name}: unexpected GOT base')
         jump(off, replacement)
-    for name, address, replacement, words in [WM_PAINT_LEAF] + [IPOD_LEAF] * ipod:
+    for name, address, replacement, words in [WM_PAINT_LEAF, WHEEL_LEAF] + [IPOD_LEAF] * ipod:
         off = fileoff(patched, address)
         check(syms[name] == address and struct.unpack_from('<III', patched, off) == words, f'{name}: unexpected code')
         jump(off, replacement)

@@ -1,6 +1,7 @@
 /* Logical menu selection is independent of native touch focus. Stock code owns gestures. */
 #include "offsets.inc"
 #include "peq.h" /* libc/libcstl imports (deque_*, send) and the shared helpers */
+#include "playback.h"
 #include "stock.h"
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
@@ -168,7 +169,7 @@ typedef struct {
      * qm_forced is a shuffle Play next. */
     unsigned long long qm_press;
     unsigned qm_timer, qm_cls, qm_idx, qm_rows, qm_hash, qm_browse, qm_forced, qm_forced_hash;
-    int qm_kind, qm_action;
+    int qm_kind, qm_action, qm_choice;
     void *qm_dialog, *qm_queue, *qm_playlist;
     unsigned qm_queue_hash;
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
@@ -2163,6 +2164,61 @@ static int setting_click(void *ctx, void *event) {
     return 0;
 }
 
+#else
+#define np_cancel() ((void)0)
+#endif
+
+extern int wheel_value(void);
+extern void wheel_set(int);
+static void *wheel_slider __attribute__((section(".scratch")));
+static void *wheel_label __attribute__((section(".scratch")));
+static int wheel_edit __attribute__((section(".scratch")));
+static void wheel_text(void) {
+    char buf[40];
+    tk_snprintf(buf, sizeof buf, "Wheel sensitivity: %d%%", wheel_value());
+    widget_set_text_utf8(wheel_label, buf);
+}
+static int wheel_changed(void *ctx, void *event) {
+    (void)event;
+    int v = widget_get_prop_int(ctx, "value", 100);
+    v = (v + 5) / 10 * 10;
+    wheel_set(v);
+    wheel_text();
+    return 0;
+}
+static int wheel_gone(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    wheel_slider = wheel_label = 0;
+    wheel_edit = 0;
+    return 0;
+}
+static int wheel_click(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    wheel_edit = !wheel_edit;
+    widget_set_prop_int(wheel_slider, "focused", wheel_edit);
+    return 0;
+}
+static void wheel_row(void *view) {
+    wheel_edit = 0;
+    void *item = list_item_create(view, 0, 0, 375, 110);
+    widget_use_style(item, "s_listitem_black");
+    void *button = button_create(item, 25, 0, 325, 50);
+    widget_use_style(button, "s_btn_listitem");
+    widget_on(button, EVT_CLICK, wheel_click, item);
+    wheel_label = hscroll_label_create(button, 0, 0, 325, 50);
+    widget_use_style(wheel_label, "s_scrlabel_white24l");
+    wheel_slider = widget_factory_create_widget(widget_factory(), "slider", item, 25, 50, 325, 50);
+    widget_set_prop_int(wheel_slider, "min", 50);
+    widget_set_prop_int(wheel_slider, "max", 200);
+    widget_set_prop_int(wheel_slider, "step", 10);
+    widget_set_prop_int(wheel_slider, "value", wheel_value());
+    widget_on(wheel_slider, EVT_VALUE_CHANGED, wheel_changed, wheel_slider);
+    widget_on(item, EVT_DESTROY, wheel_gone, item);
+    wheel_text();
+}
+
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
  * Accent, Home, Battery and Shortcut rows follow with the same widgets and styles, borrowing the
@@ -2171,17 +2227,17 @@ static int setting_click(void *ctx, void *event) {
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
+#if IPOD
     static const char *const icons[] = { "system_display", "playset_covermode",
                                          "system_powermanager", "system_netservice" };
     for (int i = 0; view && i < 4; ++i) {
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
+#endif
+    if (view) wheel_row(view);
     return result;
 }
-#else
-#define np_cancel() ((void)0)
-#endif
 
 #if IPOD
 static int untouch(const void *info) {
@@ -2444,7 +2500,21 @@ void ringnav_boot(const char *page, const int *ctx) {
  * on a local song, album, artist/composer/genre or folder row opens the stock sortselect dialog
  * rebuilt as that row's menu. */
 enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW, QM_COVERALBUM, QM_PLAYING };
-enum { QA_NEXT = 1, QA_ADD, QA_SHUFFLE, QA_FAV, QA_UNFAV, QA_PLAYLIST, QA_ALBUM, QA_ARTIST };
+enum {
+    QA_NEXT = 1,
+    QA_ADD,
+    QA_SHUFFLE,
+    QA_FAV,
+    QA_UNFAV,
+    QA_PLAYLIST,
+    QA_ALBUM,
+    QA_ARTIST,
+    QA_ADV_SHUFFLE,
+    QA_REPEAT,
+    QA_GROUP,
+    QA_NEXT_GROUP,
+    QA_PREV_GROUP
+};
 #define MCL(a) (*(volatile int *)(a))
 
 static char *play_key(void) {
@@ -2641,6 +2711,7 @@ static void qm_insert(void *queue, void *add, unsigned size, int next) {
         if (MCL(MCL_FD) != -1) send(MCL(MCL_FD), "{mcl-closegapless\\null}", 23, 0);
         MCL(MCL_PRELOAD) = -1;
     }
+    playback_insert(at, n, next);
     /* Shuffle picks at random: the first inserted track is forced once (ringnav_shuffle). */
     if (next) {
         st.qm_forced = MCL(MCL_MODE) == 2 ? at + 1 : 0;
@@ -2675,9 +2746,7 @@ static int all_songs(void *unused) {
     return getAllMusic(0);
 }
 
-/* Shuffle Songs: every song, shuffle on as the play-mode setting saves it, from a random track.
- * ponytail: folder play, as Coverflow's, so a resume after reboot reloads only the last track's
- * folder; the library class needs g_local_classinfo_save built as stock's All Songs does. */
+/* Collection Shuffle keeps stock shuffle-all behavior. */
 static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
@@ -2693,6 +2762,15 @@ static int shuffle_songs(void *ctx, void *event) {
     int n;
     void *all = staged(all_songs, 0, &n);
     if (!shuffle_play(all)) toast("Update Local Music first");
+    deque_destroy(all);
+    return 0;
+}
+
+static int shuffle_groups(void *ctx, void *event) {
+    (void)event;
+    int n;
+    void *all = staged(all_songs, 0, &n);
+    if (!playback_groups(all, (int)(long)ctx)) toast("Update Local Music first");
     deque_destroy(all);
     return 0;
 }
@@ -2958,6 +3036,9 @@ int ringnav_localmusic(void *win, void *ctx) {
     for (int i = 0; i < L_STOCK; i++) stock[i] = widget_get_child(view, i);
     unsigned n = 0; /* each row moves to n as it comes, so Update Local Music, left, ends last */
     widget_restack(library_row(view, "local_shuffle", shuffle_songs, 0, "Shuffle Songs"), n++);
+    widget_restack(library_row(view, "local_shuffle", shuffle_groups, 0, "Shuffle Albums"), n++);
+    widget_restack(library_row(view, "local_shuffle", shuffle_groups, (void *)1, "Shuffle Folders"),
+                   n++);
     static const unsigned char middle[] = { L_ARTISTS,   L_ALBUMS, L_SONGS, L_GENRES,
                                             L_PLAYLISTS, L_FAV,    L_ADDED, L_RECENT };
     for (unsigned i = 0; i < sizeof middle; i++) widget_restack(stock[middle[i]], n++);
@@ -3085,6 +3166,8 @@ int ringnav_playlist(void *win) {
 }
 
 /* Deferred so the dialog is never closed under its own click dispatch. */
+static int qm_open(const void *unused);
+
 static int qm_run(const void *unused) {
     (void)unused;
     st.qm_timer = 0;
@@ -3092,7 +3175,15 @@ static int qm_run(const void *unused) {
     qm_close();
     void *r = qm_record();
     int a = st.qm_action, cls = st.qm_kind == QM_COVERFLOW ? 0xf001 : (int)st.qm_cls;
-    if (r && a == QA_FAV) { /* tags a folder file as batch-select's Add to My Fav does */
+    if (r && a >= 100) {
+        if (!playback_set(st.qm_choice - 1, a - 100)) toast("Queue unchanged");
+        st.qm_choice = 0;
+    } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
+        if (!playback_group_skip(a == QA_NEXT_GROUP)) toast("No other group");
+    } else if (r && a >= QA_ADV_SHUFFLE && a <= QA_GROUP) {
+        st.qm_choice = a - QA_ADV_SHUFFLE + 1;
+        qm_open(0);
+    } else if (r && a == QA_FAV) { /* tags a folder file as batch-select's Add to My Fav does */
         qm_select();
         batch_add_file(cls, 0xf00a, qm_list(), P(p_vector_select_record, 0), 0);
         toast("Added to Favourites");
@@ -3157,6 +3248,34 @@ static int qm_open(const void *unused) {
     widget_on(dialog, EVT_KEY_UP, qm_back, dialog);
     widget_on(back, EVT_CLICK, qm_back, dialog);
     widget_on(dialog, EVT_DESTROY, qm_gone, dialog);
+    if (st.qm_choice) {
+        static const char *const shuffle[] = { "Off", "All", "Songs", "Categories",
+                                               "Songs/Categories" };
+        static const char *const repeat[] = { "Play Single Song",    "Play Category",
+                                              "Play All Categories", "Repeat Song",
+                                              "Repeat Category",     "Repeat All Categories" };
+        static const char *const groups[] = { "Album", "Folder" };
+        int kind = st.qm_choice - 1, count = kind == 0 ? 5 : kind == 1 ? 6 : 2;
+        const char *const *names = kind == 0 ? shuffle : kind == 1 ? repeat : groups;
+        widget_set_text_utf8(widget_lookup(dialog, "scrlabel_title", 1), kind == 0   ? "Shuffle"
+                                                                         : kind == 1 ? "Repeat"
+                                                                                     : "Group by");
+        widget_destroy_children(view);
+        for (int i = 0; i < count; ++i) {
+            void *item = list_item_create(view, 0, i * 78, 375, 78);
+            widget_use_style(item, "s_listitem_black");
+            void *label = hscroll_label_create(item, 30, 0, 310, 70);
+            widget_use_style(label, "s_scrlabel_white24l");
+            widget_set_text_utf8(label, names[i]);
+            if (i == playback_option(kind))
+                image_base_set_image(image_create(item, 340, 0, 24, 70), "select");
+            widget_on(item, EVT_CLICK, qm_pick, (void *)(long)(100 + i));
+        }
+        widget_set_prop_int(view, "virtual_h", count * 78);
+        st.qm_dialog = dialog;
+        ringnav_select(view, playback_option(kind), count);
+        return 0;
+    }
     unsigned cls = st.qm_cls;
     int song = st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_PLAYING;
     const char *album = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
@@ -3168,7 +3287,7 @@ static int qm_open(const void *unused) {
     /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
      * Go to is left out where its single-instance page is already open, or the album is the page.
      */
-    unsigned char acts[6], n = 0;
+    unsigned char acts[11], n = 0;
     acts[n++] = QA_NEXT;
     acts[n++] = QA_ADD;
     if (!song) acts[n++] = QA_SHUFFLE;
@@ -3180,6 +3299,13 @@ static int qm_open(const void *unused) {
     if ((song || cls == CLASS_ALBUMS) && artist && *artist &&
         !navigator_window_is_exist("artistinfo_page"))
         acts[n++] = QA_ARTIST;
+    if (st.qm_kind == QM_PLAYING) {
+        acts[n++] = QA_ADV_SHUFFLE;
+        acts[n++] = QA_REPEAT;
+        acts[n++] = QA_GROUP;
+        acts[n++] = QA_NEXT_GROUP;
+        acts[n++] = QA_PREV_GROUP;
+    }
     static const char *const rows[] = { "Play next",
                                         "Add to queue",
                                         "Shuffle",
@@ -3187,13 +3313,23 @@ static int qm_open(const void *unused) {
                                         "Remove from Favourites",
                                         "Add to playlist",
                                         "Go to album",
-                                        "Go to artist" };
+                                        "Go to artist",
+                                        "Shuffle",
+                                        "Repeat",
+                                        "Group by",
+                                        "Next album",
+                                        "Previous album" };
     for (int i = 0; i < n; ++i) { /* stock sortselect row geometry and styles */
         void *item = list_item_create(view, 0, i * 78, 375, 78);
         widget_use_style(item, "s_listitem_black");
         void *label = hscroll_label_create(item, 30, 0, 266, 70);
         widget_use_style(label, "s_scrlabel_white24l");
-        widget_set_text_utf8(label, rows[acts[i] - 1]);
+        widget_set_text_utf8(label,
+                             acts[i] == QA_GROUP
+                                 ? (playback_option(2) ? "Group by: Folder" : "Group by: Album")
+                             : acts[i] == QA_NEXT_GROUP && playback_option(2) ? "Next folder"
+                             : acts[i] == QA_PREV_GROUP && playback_option(2) ? "Previous folder"
+                                                                              : rows[acts[i] - 1]);
         widget_on(item, EVT_CLICK, qm_pick, (void *)(long)acts[i]);
     }
     widget_set_prop_int(view, "virtual_h", n * 78);
@@ -3205,6 +3341,7 @@ static int qm_open(const void *unused) {
  * own tracks (row count checked), or the album at the centre of Coverflow's covers. Everything
  * else stays stock. */
 static int qm_hold(void) {
+    st.qm_choice = 0;
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     const char *name = top ? widget_get_prop_str(top, "name", "") : "";
     int playing = !tk_strcmp(name, "playing_page");
@@ -3402,6 +3539,7 @@ static void resume_poll(void) {
         }
         for (int i = 0; st.rs_long && i < RESUME_SLOTS; i++)
             if (st.spots[i].key == key) st.rs_pending = st.spots[i].sec;
+        if (playback_resumed(r)) st.rs_pending = 0;
         st.rs_sec = st.rs_saved = sec;
         st.rs_still = 0;
     }
@@ -3550,6 +3688,7 @@ static int rockbox_shortcut(void *target) {
         return 1;
     }
     fclose(flag);
+    playback_save();
     save_memoryplay_info();
     player_stop();
     if (st.charge_held) switch_charge_enable(1);
@@ -3574,6 +3713,7 @@ static int now_playing(void) {
  * animations have been still for LOW_IDLE_MS, except on Now Playing. */
 int ringnav_sleep(void *loop) {
     video_poll();
+    playback_poll();
     resume_poll();
     power_poll();
     if (!g_backlight_status) {
@@ -3678,6 +3818,10 @@ int ringnav(void *ctx, void *event) {
 #else
     if (key == KEY_RETURN) st.touch_mode = 0; /* Back by button: the page behind shows its row. */
 #endif
+    if (key == KEY_RETURN && wheel_edit) {
+        wheel_edit = 0;
+        return STOP;
+    }
     if (key != KEY_CENTER && key != KEY_PREV && key != KEY_NEXT) return result;
     if (key == KEY_CENTER) {
         drop_spin();
@@ -3701,6 +3845,21 @@ int ringnav(void *ctx, void *event) {
         return result;
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+    if (wheel_edit && wheel_slider &&
+        !tk_strcmp(widget_get_prop_str(top, "name", ""), "display_page")) {
+        if (key == KEY_CENTER || key == KEY_RETURN) {
+            wheel_edit = 0;
+            return STOP;
+        }
+        if (key == KEY_NEXT || key == KEY_PREV) {
+            int v = clamp_step(wheel_value(), 200, key == KEY_NEXT ? 10 : -10);
+            if (v < 50) v = 50;
+            wheel_set(v);
+            widget_set_prop_int(wheel_slider, "value", v);
+            wheel_text();
+            return STOP;
+        }
+    }
 #if IPOD
     if (top != st.np_win || window_manager_is_animating(wm) ||
         window_manager_get_pointer_pressed(wm))

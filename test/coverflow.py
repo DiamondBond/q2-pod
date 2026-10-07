@@ -209,6 +209,7 @@ int canvas_draw_image(void *c, void *b, const void *src, const void *dst) {
     return 0;
 }
 int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0; }
+void wheel_load(void) {} /* Playback owns wheel configuration in the firmware. */
 /* The songtable writers' stock bodies; during_write runs inside one, as an open mid-scan would. */
 static void (*during_write)(void);
 static int stock_write(void) { if (during_write) during_write(); return 0; }
