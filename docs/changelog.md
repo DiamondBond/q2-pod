@@ -1,5 +1,7 @@
 # Changelog
 
+- **V9.6**: iPod: show a full green battery in the status bar while charging instead of a dark split through the fill.
+
 - **V9.5**: Fix scrobble uploads by supplying TLS trust roots in firmware; no card-side `.scrobble.pem` is needed. Add completed Last.fm and ListenBrainz `.scrobble.ini` examples and setup checks to the README. Use a separate 50–200% Wheel sensitivity choice menu with no slider protruding at the list end. Discard partial Bluetooth encoder PCM when skipping tracks, in addition to flushing old audio and resetting pacing; audible AAC and LDAC behavior still needs device testing.
 
 - **V9.4**: iPod: fix the right-side gap when switching Battery from Icon + Percent back to Icon, and align the Wheel sensitivity icon and label with the other Display settings rows. Flush old Bluetooth audio before acknowledging a manual skip and reset encoder pacing in both variants; audible AAC and LDAC behavior still needs device testing. Include the refined iPod settings layout and persistent Rockbox/Q2 Pod boot selection.

@@ -182,7 +182,7 @@ widgets at the right end, and the layout skips the other two:
 - Percent: stock's `label_battery`, 14 px, right-aligned in a 36-pixel slot.
 - Icon + Percent: the same charge-level icon with a readable 14 px percentage beside it, in a 56-pixel slot.
 
-Charging is green (`BATT_CHARGE_RGB`) with a dark split in the fill; low battery always uses
+Charging fills the icon solid green (`BATT_CHARGE_RGB`); low battery always uses
 `BATT_LOW_RGB` (`#FF1448`) under every accent. Saved Battery values keep their existing meanings.
 The bar surface is `#161616`. Every mode fits with ordinary Bluetooth and Wi-Fi, with at least
 4 pixels (`CLOCK_GAP`) before the widest clock text (`BATT_ROOM`, 94 pixels from the margin).

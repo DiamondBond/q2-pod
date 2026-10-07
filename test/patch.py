@@ -741,8 +741,9 @@ else:
         # Bluetooth off ends the flash; a reconnect with the same codec flashes again.
         b.nodes[w['img_bt']]['visible']=0; paint(); assert not b.timers and alpha(b,w)==255
         b.nodes[w['img_bt']]['visible']=1; paint(); assert len(b.timers)==1; passed()
-        # Icon + Percent: the outline, nub and level in one colour, canvas state restored; charging is
-        # BATT_CHARGE_RGB, low the accent's red tone; the slot repaints only when one of them changes.
+        # Icon + Percent: the outline, nub and level in one colour, canvas state restored; charging
+        # is a full BATT_CHARGE_RGB icon, low the accent's red tone; the slot repaints only when one
+        # of them changes.
         b,bar,w,paint=battery_bar(2); b.nodes[w['img_bt']]['visible']=0
         lcd=lambda: (b.lcd_colors(),b.get(b.lcd+O['LCD_TEXT_COLOR']),b.get(b.canvas+O['CANVAS_ALIGN_V']),b.get(b.canvas+O['CANVAS_ALIGN_H']))
         b.nodes[w['label_battery']]['text']='50%'
@@ -757,10 +758,10 @@ else:
             b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) in [c[:2] for c in b.calls]
             b.calls=[]; paint(); assert ('widget_invalidate_force',w['view_battery']) not in [c[:2] for c in b.calls]
             bands,letters=slot()
+            fill=bw-4 if image=='bar_charge' else (bw-4)*value//100
             expected=[(1,y,bw-2,1,color_t(rgb)),(1,y+bh-1,bw-2,1,color_t(rgb)),(0,y+1,1,bh-2,color_t(rgb)),
                       (bw-1,y+1,1,bh-2,color_t(rgb)),(bw,y+(bh-O['BATT_NUB_H'])//2,O['BATT_NUB_W'],O['BATT_NUB_H'],color_t(rgb)),
-                      (2,y+2,(bw-4)*value//100,bh-4,color_t(rgb))]
-            if image=='bar_charge': expected.append((bw//2,y+2,2,bh-4,color_t(0x161616)))
+                      (2,y+2,fill,bh-4,color_t(rgb))]
             assert [x[:5] for x in bands]==expected
             assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(text+'%',(bw+O['BATT_NUB_W']+O['BATT_GAP'],0,O['BATT_PCT_W'],30),color_t(rgb),('default',O['BATT_PX']),(1,1))]
 

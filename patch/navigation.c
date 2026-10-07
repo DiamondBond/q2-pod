@@ -1709,7 +1709,8 @@ static void bar_sync(void *bar) {
     widget_invalidate_force(st.bar_slot, (void *)0);
 }
 
-/* Charge-level outline and nub, with a percentage alongside in mode 2; restore canvas state. */
+/* Charge-level outline and nub, with a percentage alongside in mode 2; charging fills the icon
+ * solid green, without the level; restore canvas state. */
 static void paint_battery(void *w, void *canvas) {
     void *lcd = P(canvas, CANVAS_LCD);
     if (!lcd) return;
@@ -1724,11 +1725,7 @@ static void paint_battery(void *w, void *canvas) {
     canvas_fill_rect(canvas, 0, y + 1, 1, bh - 2);
     canvas_fill_rect(canvas, bw - 1, y + 1, 1, bh - 2);
     canvas_fill_rect(canvas, bw, y + (bh - BATT_NUB_H) / 2, BATT_NUB_W, BATT_NUB_H);
-    canvas_fill_rect(canvas, 2, y + 2, (bw - 4) * level / 100, bh - 4);
-    if (key & 2) { /* dark split keeps charging distinct even at full charge */
-        canvas_set_fill_color(canvas, RGBA(0x161616));
-        canvas_fill_rect(canvas, bw / 2, y + 2, 2, bh - 4);
-    }
+    canvas_fill_rect(canvas, 2, y + 2, (bw - 4) * (key & 2 ? 100 : level) / 100, bh - 4);
     if (I(w, W_W) > bw + BATT_NUB_W) {
         rect_t r = { bw + BATT_NUB_W + BATT_GAP, 0, BATT_PCT_W, I(w, W_H) };
         draw_centred(canvas, s, n, &r, BATT_PX, color);
