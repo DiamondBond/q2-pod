@@ -2772,7 +2772,7 @@ static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
         config_playmode(2, 1);
-        play_folder(all, toolsRandnum(size));
+        play_folder(all, toolsRandnum(size), 1);
     }
     return size;
 }
@@ -2818,7 +2818,7 @@ static unsigned listen_key(void *r) {
 /* Most Played's row: the ranked list from that track, folder-played as Coverflow's. */
 static int mp_play(void *ctx, void *event) {
     (void)event;
-    play_folder(st.mp_list, (int)(long)ctx);
+    play_folder(st.mp_list, (int)(long)ctx, 1);
     return 0;
 }
 

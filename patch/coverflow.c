@@ -1256,14 +1256,12 @@ static void load(void) {
         to_covers(0);
 }
 
-/* Folder play (startPlayFolderSong): classType 1 over dq from track idx. playing_page's
- * mclLoadPlayList copies it synchronously, and memory-play later reloads the last track's folder.
- * Shared with navigation.c. */
-void play_folder(void *dq, int idx) {
+/* Start a queue at idx with its playback class; playing_page copies dq synchronously. */
+void play_folder(void *dq, int idx, int cls) {
     struct {
         void *dq;
         int idx, cls, mode;
-    } context = { dq, idx, 1, 2 };
+    } context = { dq, idx, cls, 2 };
     navigator_to_with_context("playing_page", &context);
 }
 
@@ -1275,7 +1273,7 @@ static int play(void *ctx, void *event) {
         widget_set_text_utf8(cf.title, "Storage unavailable");
         return 0;
     }
-    play_folder(cf.tracks, i);
+    play_folder(cf.tracks, i, 1);
     return 0;
 }
 

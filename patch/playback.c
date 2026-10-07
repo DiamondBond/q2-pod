@@ -256,11 +256,7 @@ int playback_groups(void *all, int folder) {
     if (!s.active) return 0;
     make_order(s.order);
     int at = (int)s.order[0].index;
-    struct {
-        void *dq;
-        int idx, cls, mode;
-    } context = { all, at, 0xf001, 2 };
-    navigator_to_with_context("playing_page", &context);
+    play_folder(all, at, 0xf001);
     playback_save();
     return 1;
 }
