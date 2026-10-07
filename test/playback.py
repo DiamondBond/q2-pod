@@ -89,6 +89,7 @@ class PlaybackMachine(QueueMachine):
             self.random_calls+=1; self.rng=(self.rng*1103515245+12345)&0x7fffffff; ret=self.rng%a
         elif name=='getAllMusic':
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.library_rows]; ret=len(self.library_rows)
+        elif name=='folder_skip': self.folder_skips+=1
         elif name=='fallback': ret=-1
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
@@ -224,6 +225,67 @@ r=PlaybackMachine(files); r.byte(syms['g_memory_play'],1)
 assert r.fn('ringnav_memory',r.deque([]))>=0 and r.seek==0
 r=PlaybackMachine(files); assert r.fn('ringnav_memory',r.deque([]))==-1
 checks+=1
+
+# Selecting a stock mode during playback also closes a stale advanced repeat preload.
+for skip in (0,1):
+    m=PlaybackMachine(); m.word(O['MCL_POS'],6); m.options(0,5,0)
+    m.fn('ringnav_preload'); assert m.mcl('MCL_PRELOAD')==1
+    m.byte(0xa3be53,skip); m.fn('ringnav_mode',0)
+    assert m.mcl('MCL_PRELOAD')==0
+    m.advance_song(); assert m.stops==1 and m.current()==6
+    checks+=1
+
+# Stock repeat modes still repeat after advanced playback is cleared.
+for mode,want in ((1,6),(3,0)):
+    m=PlaybackMachine(); m.word(O['MCL_POS'],6); m.options(0,5,0); m.fn('ringnav_preload')
+    assert m.fn('ringnav_mode',mode)==1 and m.mcl('MCL_PRELOAD')==0
+    m.advance_song(); assert m.current()==want and m.stops==0 and len(m.starts)==1
+    checks+=1
+
+# The Library's grouped shuffles are library queues, including when grouping by folders.
+for folder in (0,1):
+    m=PlaybackMachine(); all=m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist']))))
+    assert m.fn('playback_groups',all,folder)==1
+    assert m.mcl('MCL_TYPE')==0xf001 and m.opened[-1][3]==0xf001
+    checks+=1
+
+# Upgrade V1 snapshots safely; an omitted class must not turn a library into Folder Play.
+def snapshot_checksum(data):
+    struct.pack_into('<I',data,12,0)
+    value=2166136261
+    for b in data: value=((value^b)*16777619)&0xffffffff
+    struct.pack_into('<I',data,12,value)
+legacy=bytearray(files['/mnt/data/ringnav-queue']); del legacy[56:60]
+struct.pack_into('<I',legacy,4,1); struct.pack_into('<I',legacy,8,len(legacy)); snapshot_checksum(legacy)
+r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(legacy)}); r.byte(syms['g_memory_play'],2)
+assert r.fn('ringnav_memory',r.deque([]))==want and r.mcl('MCL_TYPE')==0xf001
+bad=bytearray(files['/mnt/data/ringnav-queue']); struct.pack_into('<I',bad,56,5); snapshot_checksum(bad)
+r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(bad)}); r.byte(syms['g_memory_play'],2)
+assert r.fn('ringnav_memory',r.deque([]))==-1
+checks+=1
+
+# Stock List Play must discard advanced repeat preloads and retain queue provenance on reboot.
+for cls in (0xf001,0xff10,1):
+    for skip in (0,1):
+        m=PlaybackMachine(); m.word(O['MCL_TYPE'],cls); m.word(O['MCL_POS'],6)
+        m.options(0,5,0); m.fn('ringnav_preload'); m.fn('playback_save')
+        r=PlaybackMachine(m.files); r.byte(syms['g_memory_play'],2); out=r.deque([])
+        assert r.fn('ringnav_memory',out)==6
+        assert r.mcl('MCL_TYPE')==cls
+        assert r.get(syms['g_memory_info'])==cls
+        r.fn('ringnav_load',out,6,1) # legacy startup caller must not reclassify the restored queue
+        assert r.mcl('MCL_TYPE')==cls
+        r.fn('ringnav_preload'); assert r.mcl('MCL_PRELOAD')==1
+        r.byte(0xa3be53,skip)
+        assert r.fn('ringnav_mode',0)==1 and r.mcl('MCL_PRELOAD')==0
+        assert r.mcl('MCL_PREPOS')==-1 and r.mcl('MCL_MODE')==0
+        # Run native List Play, including its folder-only callback at the boundary.
+        callback=0x1000020; r.handlers[callback]='p:folder_skip'
+        r.word(0xa3bda8,callback); r.folder_skips=0
+        r.advance_song()
+        assert r.folder_skips==(1 if cls==1 and skip else 0)
+        assert r.current()==6 and r.stops==1
+        checks+=1
 
 # Empty replacement cannot resurrect the previous saved queue at the next boot.
 m=PlaybackMachine(); m.options(0,2,0); assert '/mnt/data/ringnav-queue' in m.files

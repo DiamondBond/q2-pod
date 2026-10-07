@@ -248,7 +248,7 @@ int playback_set(int kind, int value) {
 }
 int playback_groups(void *all, int folder) {
     if (!deque_size(all)) return 0;
-    mclLoadPlayList(all, 0, 1);
+    mclLoadPlayList(all, 0, 0xf001);
     s.folder = folder;
     s.shuffle = 3;
     s.repeat = 2;
@@ -256,7 +256,11 @@ int playback_groups(void *all, int folder) {
     if (!s.active) return 0;
     make_order(s.order);
     int at = (int)s.order[0].index;
-    play_folder(all, at);
+    struct {
+        void *dq;
+        int idx, cls, mode;
+    } context = { all, at, 0xf001, 2 };
+    navigator_to_with_context("playing_page", &context);
     playback_save();
     return 1;
 }
@@ -304,6 +308,7 @@ static void commit(unsigned next) {
     s.dirty = 1;
 }
 int ringnav_load(void *q, int at, int type) {
+    if (s.restoring == 2) type = M(MCL_TYPE);
     close_preload();
     int result = stock_load_trampoline(q, at, type);
     if (s.restoring == 2)
@@ -322,6 +327,8 @@ int ringnav_load(void *q, int at, int type) {
     return result;
 }
 int ringnav_mode(int mode) {
+    /* Stock keeps a preload when selecting List Play; an advanced repeat preload may wrap. */
+    if (s.active) close_preload();
     s.active = 0;
     release();
     unlink(QUEUE_FILE);
@@ -441,7 +448,7 @@ void playback_insert(unsigned at, unsigned n, int next) {
 /* Snapshot fields are little-endian uint32 on this MIPS target, no pointers. */
 typedef struct {
     unsigned magic, version, size, checksum, n, pos, elapsed, shuffle, repeat, folder, cursor, hn,
-        forced, force_end;
+        forced, force_end, type;
 } snapshot;
 static unsigned checksum(void *buf, unsigned size) { return hash_bytes(FNV_SEED, buf, size); }
 void playback_save(void) {
@@ -466,7 +473,7 @@ void playback_save(void) {
     else if (sec > 0)
         s.resume_wait = 0;
     snapshot h = { 0x5132524e,
-                   1,
+                   2,
                    size,
                    0,
                    s.n,
@@ -478,7 +485,8 @@ void playback_save(void) {
                    s.cursor,
                    s.hn,
                    s.forced,
-                   s.force_end };
+                   s.force_end,
+                   (unsigned)M(MCL_TYPE) };
     memcpy(buf, &h, sizeof h);
     unsigned char *p = buf + sizeof h;
     for (unsigned i = 0; i < s.n * 3 + s.hn; ++i) {
@@ -515,17 +523,27 @@ int ringnav_memory(void *out) {
     if (!g_memory_play && !g_carmode) return stock_memory_trampoline(out);
     void *f = fopen(QUEUE_FILE, "rb");
     if (!f) return stock_memory_trampoline(out);
-    snapshot h;
-    int ok = fread(&h, sizeof h, 1, f) == 1 && h.magic == 0x5132524e && h.version == 1 && h.n &&
-             h.n <= QUEUE_LIMIT && h.pos < h.n && h.cursor < h.n && h.hn <= HISTORY_LIMIT &&
-             h.shuffle < 5 && h.repeat < 6 && h.folder < 2 && h.elapsed <= 0x7fffffff &&
-             h.forced <= h.n && h.force_end <= h.n && (!h.forced || h.forced <= h.force_end) &&
-             h.size >= sizeof h + (h.n * 3 + h.hn) * 4 + h.n * 14 &&
-             h.size <= sizeof h + (h.n * 3 + h.hn) * 4 + h.n * 1036;
+    /* V1 omitted queue provenance. Treat those queues as local lists rather than allowing
+     * Folder Skip to escape the saved queue after the user selects a stock play mode. */
+    snapshot h = { 0 };
+    unsigned header_size = sizeof h - sizeof h.type;
+    int ok = fread(&h, header_size, 1, f) == 1 && h.magic == 0x5132524e &&
+             (h.version == 1 || h.version == 2);
+    h.type = 0xf001;
+    if (ok && h.version == 2) {
+        ok = fread(&h.type, sizeof h.type, 1, f) == 1;
+        header_size = sizeof h;
+    }
+    ok = ok && (h.type == 1 || (h.type & 0xf000) == 0xf000) && h.type <= 0xffff && h.n &&
+         h.n <= QUEUE_LIMIT && h.pos < h.n && h.cursor < h.n && h.hn <= HISTORY_LIMIT &&
+         h.shuffle < 5 && h.repeat < 6 && h.folder < 2 && h.elapsed <= 0x7fffffff &&
+         h.forced <= h.n && h.force_end <= h.n && (!h.forced || h.forced <= h.force_end) &&
+         h.size >= header_size + (h.n * 3 + h.hn) * 4 + h.n * 14 &&
+         h.size <= header_size + (h.n * 3 + h.hn) * 4 + h.n * 1036;
     unsigned char *buf = ok ? calloc(h.size, 1) : 0;
     if (buf) {
-        memcpy(buf, &h, sizeof h);
-        ok = fread(buf + sizeof h, h.size - sizeof h, 1, f) == 1;
+        memcpy(buf, &h, header_size);
+        ok = fread(buf + header_size, h.size - header_size, 1, f) == 1;
         unsigned char extra;
         if (fread(&extra, 1, 1, f)) ok = 0;
         ((snapshot *)buf)->checksum = 0;
@@ -534,8 +552,8 @@ int ringnav_memory(void *out) {
         ok = 0;
     if (fclose(f)) ok = 0;
     /* Validate the entire snapshot before queries or mutations. */
-    unsigned *indices = (unsigned *)(buf ? buf + sizeof h : 0);
-    unsigned char *p = buf ? buf + sizeof h + (h.n * 3 + h.hn) * 4 : 0;
+    unsigned *indices = (unsigned *)(buf ? buf + header_size : 0);
+    unsigned char *p = buf ? buf + header_size + (h.n * 3 + h.hn) * 4 : 0;
     unsigned *map = ok ? calloc(h.n, sizeof *map) : 0;
     if (!map) ok = 0;
     for (unsigned i = 0; ok && i < h.n * 3 + h.hn; ++i)
@@ -571,7 +589,7 @@ int ringnav_memory(void *out) {
         int count;
         all = staged(library, 0, &count);
         char folder[1024] = "";
-        p = buf + sizeof h + (h.n * 3 + h.hn) * 4;
+        p = buf + header_size + (h.n * 3 + h.hn) * 4;
         for (unsigned i = 0; i < h.n; ++i) {
             unsigned id[3];
             memcpy(id, p, 12);
@@ -626,7 +644,7 @@ int ringnav_memory(void *out) {
             h.elapsed = 0;
         }
         s.restoring = 1;
-        mclLoadPlayList(q, (int)pos, 1);
+        mclLoadPlayList(q, (int)pos, (int)h.type);
         s.shuffle = (int)h.shuffle;
         s.repeat = (int)h.repeat;
         s.folder = (int)h.folder;
@@ -654,7 +672,7 @@ int ringnav_memory(void *out) {
             s.forced = h.forced && map[h.forced - 1] != ~0u ? map[h.forced - 1] + 1 : 0;
             s.force_end = h.force_end && map[h.force_end - 1] != ~0u ? map[h.force_end - 1] + 1 : 0;
             deque_assign(out, q);
-            I(g_memory_info, 0) = 1;
+            I(g_memory_info, 0) = (int)h.type;
             mclSetStartSeekTime(g_memory_play == 2 || g_carmode ? (int)h.elapsed : 0);
             s.resume_key = fnv(FNV_SEED, P(deque_at(queue(), pos), REC_PATH));
             s.resume_pos = pos;
