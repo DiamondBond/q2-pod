@@ -68,7 +68,7 @@ class Machine:
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False
-        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
+        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]; self.wheel_config_reads=[]
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
@@ -90,9 +90,11 @@ class Machine:
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0',
-                  'strlen@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0')
+                  'strlen@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
+                  'unlink@GLIBC_2.0','atoi@GLIBC_2.0')
         self.image_size=(50,50)  # what widget_load_image decodes
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
+        self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
         self.handlers[syms['memcpy@GLIBC_2.0']]='memcpy'
         self.handlers[syms['memset@GLIBC_2.0']]='memset'
         self.mock('canvas_set_global_alpha')
@@ -202,6 +204,9 @@ class Machine:
                 self.word(ret+off, value)
             self.word(ret+O['W_PARENT'], a)
             self.nodes[a]['children'].append(ret)
+        elif name=='widget_factory_create_widget':
+            ret=self.node(self.text(b)); self.word(ret+O['W_PARENT'],c); self.nodes[c]['children'].append(ret)
+            for off,value in zip(('W_X','W_Y','W_W','W_H'),(d,self.get(u.reg_read(UC_MIPS_REG_SP)+16),self.get(u.reg_read(UC_MIPS_REG_SP)+20),self.get(u.reg_read(UC_MIPS_REG_SP)+24))): self.word(ret+O[off],value)
         elif name=='widget_set_name': n['name']=self.text(b); ret=0
         elif name=='widget_set_enable': n['enable']=b; ret=0
         elif name=='widget_on': n.setdefault('handlers',[]).append((b,c,d)); ret=len(n['handlers'])
@@ -225,6 +230,7 @@ class Machine:
             params=[self.text(value) if kind=='s' else value if kind in 'xXu' else signed(value)
                     for kind,value in zip(re.findall(r'%\d*([sdxXu])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
+        elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
         elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
         elif name=='strrchr@GLIBC_2.0': i=self.text(a).encode().rfind(bytes([b&255])); ret=a+i if i>=0 else 0
         elif name in ('strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0'):  # ASCII case, as the C locale
@@ -259,8 +265,9 @@ class Machine:
             for i,child in enumerate(children): self.word(values+4*i,child)
             self.word(b,len(children)); self.word(b+8,values); ret=0
         elif name=='toolsReadConfig':
-            key=self.text(c); self.config_reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
-            value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
+            key=self.text(c); reads=self.wheel_config_reads if key=='WHEELSENSITIVITY' else self.config_reads
+            reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
+            value=self.config.get(key,reads[-1][3])  # stock copies the default when the key is missing
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
         elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
@@ -2558,7 +2565,7 @@ def playing_menu(**kw):
 for state in (3,2):  # paused and playing both expose the same actions
     m=playing_menu(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,state)
     m.press(5000); assert m.release()==1
-    m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU
+    m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU+["Shuffle","Repeat","Group by: Album","Next album","Previous album"]
     assert m.nodes[m.title]['text']=='B' and m.release()==0
     m.press(7000); assert m.release()==1 and m.get(0xa3beac)==state; passed()
 for action,expected in ((0,['A','B','B','C']),(1,['A','B','C','B'])):
@@ -4252,9 +4259,9 @@ if variant=='ipod':
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
         for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
         m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
-        assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+        assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         assert m.calls[0][:3]==('stock_display',m.top,5)
-        rows=m.nodes[view]['children'][3:]
+        rows=m.nodes[view]['children'][3:7]
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
         return m,view,rows
     m,view,rows=display({})
@@ -4380,7 +4387,7 @@ if variant=='ipod':
         m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
         if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
             m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
-            assert m.call(address=IPOD_HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+            assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         else:
             m.call(address=builder,args=(m.top,0,0,0),gap=0)  # learn the name it looks up
             m.nodes[view]['name']=m.text(next(c for c in m.calls if c[0]=='widget_lookup')[2])
@@ -4416,7 +4423,7 @@ if variant=='ipod':
             if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
             if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
     for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
-        m,view=settings(builder); items=m.nodes[view]['children']
+        m,view=settings(builder); items=m.nodes[view]['children'][:-1] if builder=='display' else m.nodes[view]['children']
         before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
         assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
         assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
@@ -4783,8 +4790,8 @@ assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
 assert m.calls[0][:3]==('stock_localmusic',m.top,5)
 # Library order: Shuffle Songs; Artist, Album, All Songs, Genre, Playlist, My Fav; Recently Added, Recent,
 # Most Played, Frequent, Hi-Res; then Update Local Music, last (stock rows by get_localmusic_showinfo index).
-kids=m.nodes[view]['children']; row,top=kids[0],kids[9]
-assert [kids[i] for i in (*range(1,9),10,11,12)]==[stock[i] for i in (3,2,1,4,10,6,9,8,7,5,0)] and m.nodes[row]['style']=='s_listitem_black'
+kids=m.nodes[view]['children']; row,top=kids[0],kids[11]
+assert [kids[i] for i in (*range(3,11),12,13,14)]==[stock[i] for i in (3,2,1,4,10,6,9,8,7,5,0)] and m.nodes[row]['style']=='s_listitem_black'
 icon,label=m.nodes[m.nodes[top]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_frequentplay' and m.nodes[label]['text']=='Most Played'
 button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
@@ -4844,10 +4851,10 @@ m.page=m.top; assert m.texts()==['Most Played']+[x for p in zip(ranked[:3],detai
 # starts, a second press finds it running, and a timer reports the result once the thread ends.
 m=ShuffleMachine(); m.config.update(USER='u',PASSWORD='p',API_KEY='k')  # no API_SECRET: no row
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
-assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==13
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==15
 assert ('/mnt/mmc/.scrobble.ini','LASTFM','API_SECRET','') in m.config_reads
 m.config['TOKEN']='tok'; m.nodes[view]['children']=[m.node('list_item') for _ in range(11)]
-assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==14
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16
 button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_scrobble' and m.nodes[label]['text']=='Upload Scrobbles' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK'])
@@ -4865,7 +4872,7 @@ m=ShuffleMachine(); m.card=[('Music',4),('PODCASTS',4),('Audiobooks',8)]
 m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
 m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
-assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==14
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16
 button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_podcasts' and m.nodes[label]['text']=='Podcasts' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
@@ -4984,7 +4991,7 @@ m=PhotosMachine(tree,data)
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
-assert m.nodes[icon]['image']=='local_photos' and m.nodes[label]['text']=='Photos' and len(m.nodes[view]['children'])==14
+assert m.nodes[icon]['image']=='local_photos' and m.nodes[label]['text']=='Photos' and len(m.nodes[view]['children'])==16
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.top; assert m.nodes[page]['name']=='photos_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
 albums,grid,viewer=m.nodes[page]['children']; assert not m.nodes[grid]['visible'] and not m.nodes[viewer]['visible']
@@ -5139,7 +5146,7 @@ m=BooksMachine(tree,files)
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
-assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==14
+assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==16
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.page=m.top; assert m.nodes[page]['name']=='books_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
 books,reader=m.nodes[page]['children']; sheet,info=m.nodes[reader]['children']
@@ -5194,7 +5201,7 @@ m=BooksMachine(tree,{})
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
-assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==14
+assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==16
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.page=m.top; videos,_=m.nodes[page]['children']
 assert m.nodes[page]['name']=='books_page' and labels(videos)==['Videos','c','a','b']; passed()

@@ -116,6 +116,7 @@ Flash the [official firmware](https://en.shanling.com/download/150) the same way
 | **Home**     | Split (list beside the cover) or Full (list only)               |
 | **Battery**  | Icon (default), Percent, Icon + Percent                         |
 | **Shortcut** | Streaming (default) or Rockbox: what Home's Streaming row opens |
+| **Wheel sensitivity** | 50–200% in 10% steps; default 100%, in both builds |
 
 ## Battery and library settings
 
@@ -156,6 +157,26 @@ Charge limit applies while the Q2 is on; charging while it's powered off is stoc
 - **Artists:** open on Albums, with All Songs one tap away. Browse by the Album Artist tag with **Audio settings → Artists**.
 - **Pop-ups** (iPod): the wheel moves between OK and Cancel.
 - **Key Tone:** the speaker clicks only when nothing plays and no headphones (3.5/4.4 mm), Bluetooth or USB DAC are connected. iPod: once per row, not per tick.
+
+### Shuffle, repeat and grouping
+
+On **Now Playing**, hold **Play/Pause** for **Shuffle**, **Repeat** and **Group by: Album / Folder**, in both iPod and Stock builds. The wheel and touch select an option; the selected option has a check mark. Changes keep the playing track and its position.
+
+| Shuffle | Traversal of the current queue |
+| --- | --- |
+| **Off** | Groups in their first appearance order, tracks in group order |
+| **All** | Every queued song in random order |
+| **Songs** | Groups in order, songs shuffled within each group |
+| **Categories** | Groups shuffled, songs in group order |
+| **Songs/Categories** | Groups and their songs shuffled |
+
+**Play Single Song**, **Play Category** and **Play All Categories** stop after that song, group or queue. **Repeat Song**, **Repeat Category** and **Repeat All Categories** loop that scope, with a fresh shuffle cycle. Each shuffle cycle visits every eligible occurrence once, including duplicate entries. Manual Next bypasses single-song stop/repeat; category modes stay in the current category. Previous follows playback history (up to 4096 transitions).
+
+Album groups use the album name, ignoring case; untagged songs use their parent folder. Albums play in disc, track, path and CUE-start order. Folder groups use the immediate parent directory and play in path and CUE-start order. **Library → Shuffle Albums / Shuffle Folders** loads all scanned songs and shuffles those groups. Existing collection Shuffle actions still shuffle all collected songs. **Next album / Previous album** in the hold menu skips the remaining group or returns to the start of the previously played group; folder grouping shows **Next folder / Previous folder**. Choosing a stock play mode clears the advanced options.
+
+Advanced queues, options, traversal and history restore after reboot from `/mnt/data/ringnav-queue`; missing files are skipped. **Memory playback → Location** restores elapsed time, **Track** starts at the beginning, and **In-Vehicle mode** plays automatically. Invalid snapshots fall back to stock resume. Queues up to 16,384 occurrences can use advanced playback. Long Songs is deferred.
+
+**Wheel sensitivity** changes scrolling and wheel volume, including screen-off volume and video controls. Drag its slider or press centre on its row, turn the wheel, then press centre or Return to finish. A higher percentage needs less wheel travel; volume still changes one step per event. The setting persists as `Q2POD/WHEELSENSITIVITY`.
 
 ### Photos, Books and Videos
 
