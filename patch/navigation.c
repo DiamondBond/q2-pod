@@ -2845,7 +2845,7 @@ int ringnav_albumcovers(void *list) { return rename_covers(list, split_key); }
  * across folders whose album artist isn't the row's keeps stock's key; look up its track's
  * albumsonger by fileurl if that shows. */
 static void artist_keys_free(void) {
-    for (unsigned i = 0; st.art_keys && i < st.art_n; ++i) free(st.art_keys[i]);
+    for (unsigned i = 0; i < st.art_n; ++i) free(st.art_keys[i]);
     free(st.art_keys);
     st.art_keys = 0, st.art_n = 0;
 }
@@ -3760,6 +3760,10 @@ void ringnav_sort_key(char *s) {
     if (n)
         for (char *d = s; (*d = d[n]); ++d) {}
 }
+
+/* Replaces toolsLoadAllFile's 20,000-song check (SCAN_LIMIT): the scan goes on while it holds.
+ * A leaf: the scanner reuses its gp after the call without reloading it. */
+int ringnav_scan_room(int songs) { return songs < 65000; }
 
 /* Moves key's place to the front of the ring at sec, or forgets it near either end. */
 static void spot_keep(unsigned key, int sec, int total) {

@@ -72,7 +72,7 @@ See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes
 | **Double-press centre, then turn** (iPod UI) | Scrub on Now Playing, 5 seconds per tick. |
 | **Pull down from the top edge** (iPod UI) | Open quick settings. |
 
-Run **Library → Update Local Music** after adding music. Coverflow prepares artwork on its first open; cancelling keeps its progress.
+Run **Library → Update Local Music** after adding music; it adds up to 65,000 songs. Coverflow prepares artwork on its first open; cancelling keeps its progress.
 
 - **Personalise:** **System settings → Display** for accent, Home layout, battery display, shortcut and wheel sensitivity.
 - **Save battery:** **System settings → Power management** for Charge limit and Low power. Both are off by default; charge limit applies while the Q2 is on.

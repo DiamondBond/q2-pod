@@ -3031,6 +3031,47 @@ for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
 passed()
+# Update Local Music: the stock scanner, nested folders and all, checks ringnav_scan_room (65,000
+# songs; stock 20,000) before each entry. Only the folder listing, paths and database insert are mocked.
+from build import SCAN_LIMIT
+assert struct.unpack_from('<2I',demo,fileoff(demo,SCAN_LIMIT[0]))==(0x0c000000|payload_syms['ringnav_scan_room']>>2,SCAN_LIMIT[3])
+SONGS,STOP,LISTING=0xa3c354,0xa3c358,0xa3bf48  # toolsGetMusicNum's count, toolsStopUpdateMusic's flag, the listing deque
+class ScanMachine(Machine):
+    def __init__(self,tree,songs,patched=True,stop_at=None):
+        super().__init__(patched); self.tree=tree; self.added=[]; self.stop_at=stop_at
+        for n in ('toolsSetScanFolderPath','toolsCheckItemExist','deque_size','deque_at','sprintf@GLIBC_2.0'): self.handlers[syms[n]]='scan:'+n
+        self.handlers[0x5c38c8]='scan:list'; self.handlers[0x5c73e4]='scan:insert'  # private: lists a folder, adds a song
+        self.word(SONGS,songs); self.word(LISTING,self.alloc(0x20))
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('scan:'): return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address
+        name=name[5:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='list':
+            self.path=self.text(a); self.listing=[]
+            for n in self.tree[self.path]:
+                r=self.alloc(0x60); self.word(r+O['REC_NAME'],self.string(n))
+                self.word(r+O['REC_TYPE'],4 if f'{self.path}/{n}' in self.tree else 8); self.listing.append(r)
+        elif name=='deque_size': assert a==self.get(LISTING); ret=len(self.listing)
+        elif name=='deque_at': ret=self.listing[b]
+        elif name=='sprintf': assert self.text(b)=='%s/%s'; u.mem_write(a,f'{self.text(c)}/{self.text(d)}'.encode()+b'\0')
+        elif name=='insert':
+            self.added.append(f'{self.path}/{self.text(self.get(a+O["REC_NAME"]))}'); self.word(SONGS,self.get(SONGS)+1)
+            if len(self.added)==self.stop_at: self.byte(STOP,1)  # Back on the Update Local Music dialog
+        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+def scan(songs,tree={'/m':['a']},**kw):
+    """(return, songs added, stop flag, count): 1 finished, 0 stopped."""
+    m=ScanMachine(tree,songs,**kw)
+    return m.call(address=syms['toolsLoadAllFile'],args=(m.string('/m'),0,0,0),gap=0),m.added,m.u.mem_read(STOP,1)[0],m.get(SONGS)
+for patched,limit in ((True,65000),(False,20000)):
+    for songs in (19999,20000,32767,32768,64999,65000,65001):
+        more=songs<limit
+        assert scan(songs,patched=patched)==(more,['/m/a']*more,1-more,songs+more),(patched,songs); passed()
+nested={'/m':['a','sub','b'],'/m/sub':['c','d']}
+assert scan(0,nested)==(1,['/m/a','/m/sub/c','/m/sub/d','/m/b'],0,4); passed()
+assert scan(64998,nested)==(0,['/m/a','/m/sub/c'],1,65000); passed()  # the limit inside a subfolder ends the scan
+assert scan(0,nested,stop_at=2)==(0,['/m/a','/m/sub/c'],1,2); passed()  # the bnez delay slot's stop flag
+assert scan(0,{'/m':['a','b','c']},stop_at=1)==(0,['/m/a'],1,1); passed()
 # Library sorts: both stock name comparators, on the patched trim calls, skip a leading article.
 from build import SORT_TRIMS
 from functools import cmp_to_key

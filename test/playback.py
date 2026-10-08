@@ -428,6 +428,16 @@ for cls in (0xf001,0xff10,1):
         assert r.current()==6 and r.stops==1
         checks+=1
 
+# Shuffle Albums resumed after a reboot keeps its album order when hciplayer connects: stock
+# player_initconfig re-applies the saved play mode, which is not a user's mode choice.
+m=PlaybackMachine(); assert m.fn('playback_groups',m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist'])))),0)==1
+m.fn('playback_save'); want=m.sequence()
+r=PlaybackMachine(m.files); r.byte(syms['g_memory_play'],2); out=r.deque([])
+at=r.fn('ringnav_memory',out); r.fn('ringnav_load',out,at,0xf001)
+r.call(address=0x513374,args=(0,0,0,0),gap=0) # player_initconfig
+assert '/mnt/data/ringnav-queue' in r.files and r.sequence()==want
+checks+=1
+
 # Empty replacement cannot resurrect the previous saved queue at the next boot.
 m=PlaybackMachine(); m.options(0,2,0); assert '/mnt/data/ringnav-queue' in m.files
 m.fn('ringnav_load',m.deque([]),0,1); m.fn('playback_save')
@@ -442,6 +452,11 @@ for n in (0,1):
             m.options(shuffle,repeat,0)
             assert m.fn('playback_successor',1)==(0 if n and repeat>=3 else -1)
             m.advance_song(); checks+=1
+# Capacity: a scan's 65,000 songs fit QUEUE_LIMIT (65,536); one occurrence past it stays a stock queue.
+# ponytail: the 65,000 side (sorts and snapshot) takes minutes under emulation, so it is run by hand.
+m=PlaybackMachine(); m.u.mem_map(0x1200000,0x1000000); q=m.get(syms['mcl_pdeqplaylist'])
+m.deqs[q][1]=[m.song('t')]*65537
+assert m.fn('playback_set',0,1)==0 and m.fn('playback_successor',1)==-1; checks+=1
 
 # Shared wheel threshold: compare the patched leaf directly to stock at 100% for every
 # pair, and check strict scaled boundaries, half turns, and wraparound at 50/200%.

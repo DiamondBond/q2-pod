@@ -106,7 +106,7 @@ Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops mea
 
 ## microSD card
 
-Media folders go at the card's root, any capitalisation; each adds its **Library** row when present. Caches are safe to delete and rebuild as needed (Coverflow and Photos need 16 MB free).
+Media folders go at the card's root, any capitalisation; each adds its **Library** row when present. Caches are safe to delete and rebuild as needed (Coverflow and Photos need 16 MB free). **Library → Update Local Music** adds up to 65,000 songs; stock stopped at 20,000, so with a larger library run it again after updating.
 
 | Path                       | What it is                                                                    | Made by |
 | -------------------------- | ----------------------------------------------------------------------------- | ------- |

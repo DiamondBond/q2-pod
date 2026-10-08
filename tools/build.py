@@ -156,6 +156,10 @@ SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a
 # The bal toolsTrimLeft on each name copy in the two library name comparators (0x5b9d40, 0x5ba658, the
 # Chinese and other-language sorts); they become jal ringnav_sort_key, which also drops a leading article.
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
+# toolsLoadAllFile stops a scan at 20,000 songs: lw $2,count; slti $2,$2,0x4e20 before each entry. 65,000
+# overflows slti's signed immediate, so the lw becomes jal ringnav_scan_room and the slti loads the count
+# into a0 in its delay slot; the bnez after it, and its delay slot's stop-flag load, stay.
+SCAN_LIMIT = (0x5c977c, 0x8fc2c354, 0x28424e20, 0x8fc4c354)  # lw $2/$4, -0x3cac($fp)
 # Library Albums' cover cache names (navigation.c art_key): the row renderer's snprintf of the name,
 # with a2 the row (addiu a2,"%s" becomes move a2,s3), the Albums page's albumcoverinfo_init calls
 # and the album page's big cover snprintf become jal to the payload; so do an artist page's albums
@@ -677,6 +681,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         ret = inc('STYLE_COLOR_GRADIENT_RET')
         check(struct.unpack_from('<I', patched, fileoff(patched, ret - 8))[0] == 0x04110000 | (IPOD_LEAF[1] - ret + 4) >> 2 & 0xffff,
               'style_get_color: unexpected gradient call')
+    # ringnav_mode leaves advanced play on for player_initconfig's call, which returns to INITCONFIG_MODE_RET.
+    ret = inc('INITCONFIG_MODE_RET')
+    check(struct.unpack_from('<II', patched, fileoff(patched, ret - 12)) == (0x8f99b77c, 0x0320f809),
+          'player_initconfig: unexpected mclSetPlayMode call')
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq')
@@ -687,6 +695,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         patch_word(patched, address, old, new, 'artist detail opens on Albums')
     patch_word(patched, *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
+    scan, load, limit, count = SCAN_LIMIT
+    patch_word(patched, scan, load, 0x0c000000 | (ps['ringnav_scan_room'] >> 2), 'scan up to 65,000 songs')
+    patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')
     patch_word(patched, *DROP_CACHES, 'keep the page cache')
     for address, old, new in LDAC_HQ:
         patch_word(patched, address, old, new, 'LDAC HQ sends 990 kbps')

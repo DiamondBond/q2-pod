@@ -325,6 +325,9 @@ int ringnav_load(void *q, int at, int type) {
     return result;
 }
 int ringnav_mode(int mode) {
+    /* player_initconfig re-applies the saved mode each time hciplayer connects, after a boot
+     * resume too: not a choice, so advanced play stays. */
+    if (__builtin_return_address(0) == (void *)INITCONFIG_MODE_RET) return stock_mode_trampoline(mode);
     /* Stock keeps a preload when selecting List Play; an advanced repeat preload may wrap. */
     if (s.active) close_preload();
     s.active = 0;
@@ -747,12 +750,8 @@ int playback_resumed(void *r) {
 void playback_poll(void) {
     wheel_load();
     unsigned now = time_now_ms();
-    if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= 5000)) {
-        int sec = 0, total = 0;
-        mclGetPlayTime(&sec, &total);
-        if (s.dirty || sec != s.saved_elapsed) playback_save();
-        s.stamp = now;
-    }
+    /* playback_save writes only what changed. */
+    if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= 5000)) playback_save(), s.stamp = now;
 }
 
 int ringnav_savequeue(void) {
