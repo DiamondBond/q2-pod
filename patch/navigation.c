@@ -13,9 +13,9 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
-    stock_localclass_trampoline(int), stock_power_trampoline(void *, void *),
-    stock_systemset_trampoline(void *, void *), stock_audioset_trampoline(void *, void *),
-    stock_playlist_trampoline(void *);
+    stock_localclass_trampoline(int), stock_detail_trampoline(int, void *),
+    stock_power_trampoline(void *, void *), stock_systemset_trampoline(void *, void *),
+    stock_audioset_trampoline(void *, void *), stock_playlist_trampoline(void *);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -34,6 +34,8 @@ extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
     scrobble_album_artist(void);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
+extern int album_cmp(void *, void *), album_only(void *, void *, int), coverflow_split(void *);
+extern unsigned album_dir(const char *, int);
 extern volatile unsigned library_gen;
 extern const char *track_name(char *buf, unsigned size, void *t);
 #define STOP 11
@@ -181,6 +183,7 @@ typedef struct {
      * is there, Back at that root leaves it. */
     int media_open;
     char media_root[32];
+    void *album; /* what an Albums row or Go to album opened (album_open), a one-record deque */
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
 
@@ -2764,16 +2767,93 @@ static int qm_query(void *r) {
     return class_query(st.qm_cls, r);
 }
 
+/* An Albums row (load_album_detaillist) or Go to album opens its name's songs, 0xff10 with
+ * classinfo +0xd the name and +0x10d the artist: r is kept, a copy, to keep its album alone. */
+static void album_open(void *r) {
+    if (st.album) deque_destroy(st.album);
+    st.album = 0;
+    if (!r || I(r, REC_ID) < 0) return;
+    st.album = _create_deque("stSongInfo");
+    deque_init(st.album);
+    _deque_push_back(st.album, r);
+}
+int ringnav_album_detail(int cls, void *r) {
+    album_open(cls == CLASS_ALBUMS ? r : 0);
+    return stock_detail_trampoline(cls, r);
+}
+/* The opened album, when the classinfo 0xff10 loads is still its name and artist. */
+static void *album_opened(void) {
+    const char *info = (const char *)g_local_classinfo_save;
+    void *a = st.album ? deque_at(st.album, 0) : 0;
+    const char *name = a ? P(a, REC_ALBUM) : 0, *artist = a ? P(a, REC_ARTIST) : 0;
+    int same = name && artist && !info[9] && !strcasecmp(info + 0xd, name);
+    return same && !strcmp(info + 0x10d, artist) ? a : 0;
+}
+
+/* Stock's album art cache, /mnt/mmc/.sldp/<md5 of the name>0.jpg (1.jpg big), keys by name, so
+ * split Albums rows of a name shared a cover: theirs adds the album artist, else the album's
+ * folder. A name of one album keeps its key and cached art. buf holds 256 bytes, as stock's. */
+static int twin(void *o, void *r) {
+    const char *x = P(o, REC_ALBUM), *y = P(r, REC_ALBUM);
+    return x && !strcasecmp(x, y) && album_cmp(o, r);
+}
+static const char *art_key(char *buf, void *list, unsigned i) {
+    void *r = deque_at(list, i);
+    const char *name = P(r, REC_ALBUM), *aa = P(r, REC_ALBUM_ARTIST), *path = P(r, REC_PATH);
+    if (!name || !((i && twin(deque_at(list, i - 1), r)) ||
+                   (i + 1 < deque_size(list) && twin(deque_at(list, i + 1), r))))
+        return name;
+    if (aa && *aa)
+        snprintf(buf, 256, "%s\x1f%s", name, aa);
+    else
+        snprintf(buf, 256, "%s\x1f%.*s", name, path ? (int)album_dir(path, 1) : 0,
+                 path ? path : "");
+    return buf;
+}
+/* The Albums row renderer's snprintf(buf, 0x100, "%s", album) (0x4a388c), a2 the row. */
+int ringnav_art_name(char *buf, unsigned size, unsigned row, const char *album) {
+    char key[256];
+    void *list = P(p_deque_showlist, 0);
+    return snprintf(buf, size, "%s", row < deque_size(list) ? art_key(key, list, row) : album);
+}
+/* The Albums page's albumcoverinfo_init calls: the art thread hashes each cover task's copy of
+ * its row's name (+4, read under aclist_mutex), so a split row's becomes its key. */
+int ringnav_albumcovers(void *list) {
+    int result = albumcoverinfo_init(list);
+    void *covers = P(pdeq_albumcoverlist, 0);
+    char key[256], *s;
+    pthread_mutex_lock((void *)aclist_mutex);
+    for (unsigned i = 0; i < deque_size(list) && i < deque_size(covers); ++i) {
+        char **name = (char **)((char *)deque_at(covers, i) + 4);
+        if (art_key(key, list, i) == key && (s = strdup(key))) free(*name), *name = s;
+    }
+    pthread_mutex_unlock((void *)aclist_mutex);
+    return result;
+}
+/* The album page's big cover, snprintf of classinfo +0xd (0x4a72a4): its Albums row's cover task
+ * name, as the thread hashed it, when that is this album's key. */
+int ringnav_art_header(char *buf, unsigned size, const char *fmt, const char *album) {
+    void *covers = P(pdeq_albumcoverlist, 0);
+    unsigned i = (unsigned)I(ALBUMINFO_ROW, 0), n = strlen(album);
+    const char *key = i < deque_size(covers) ? P(deque_at(covers, i), 4) : 0;
+    return snprintf(buf, size, fmt,
+                    key && !strncasecmp(key, album, n) && key[n] == 0x1f ? key : album);
+}
+
 /* load_localclass_list: stock fills p_deque_showlist and returns its size. getAllAlbum,
  * getAllArtist (and its album-artist twin), getAllComposer and getAllGenre end with an Unknown row
  * (id -1) whenever the library has songs; it goes when the query its press runs finds none. Stock
  * clears the staging deque before returning, and so does this. Stock never sets g_artist_type,
  * which picks the album-artist queries for Artists and an artist's albums, so those lists always
- * went by the Artist tag; it follows artist_type, the setting the artist page itself uses. */
+ * went by the Artist tag; it follows artist_type, the setting the artist page itself uses.
+ * getAllAlbum groups by name alone: Albums is split as Coverflow is (album artist, else folder),
+ * and the name's songs an album row opens (0xff10) keep only that album (album_open). */
 int ringnav_localclass(int cls) {
     I(g_artist_type, 0) = I(artist_type, 0) == 1;
     int n = stock_localclass_trampoline(cls);
-    void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0);
+    void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
+    if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
+    if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
     if (n <= 0 || cls < CLASS_ALBUMS || cls > 0xf006 ||
         I(deque_at(list, (unsigned)n - 1), REC_ID) != -1)
         return n;
@@ -2795,9 +2875,11 @@ static void qm_tracks(void *r, void *add) {
     deque_destroy(rows);
 }
 
-/* The row's tracks: the song itself, or what stock would play for the row. */
+/* The row's tracks: the song itself, or what stock would play for the row; an Albums row's own
+ * album alone (getMusicByAlbum finds every album of the name), in album order, as Coverflow's. */
 static void *qm_collect(void *r) {
-    if (st.qm_kind == QM_COVERALBUM) return coverflow_album_tracks(r);
+    if (st.qm_kind == QM_COVERALBUM || (st.qm_kind == QM_ALBUM && st.qm_cls == CLASS_ALBUMS))
+        return coverflow_album_tracks(r);
     void *add = _create_deque("stSongInfo");
     deque_init(add);
     if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_PLAYING)
@@ -3273,6 +3355,7 @@ static void qm_goto(void *r, int album) {
         tk_snprintf((char *)info + 0xd, 0x100, "%s", (const char *)P(r, REC_ALBUM));
         tk_snprintf((char *)info + 0x10d, 0x100, "%s", (const char *)P(r, REC_ARTIST));
         *(int *)info = 0xff10;
+        album_open(r);
         navigator_to("playerjumpinfo_page");
     } else {
         struct {

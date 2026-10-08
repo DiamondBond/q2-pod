@@ -2787,10 +2787,9 @@ m=QueueMachine(); m.word(O['MCL_LASTPOS'],2)
 assert m.run(0,steps=4) is None and m.names()==['A','Row 4','B','C']
 assert m.pool()==[0,2,3,1] and m.mcl('MCL_LASTPOS')==3 and m.mcl('MCL_POS')==0
 m.run(0); assert m.names()==['A','Row 4','Row 4','B','C'] and not m.playback(); passed()
-# Albums and an artist's albums use the stock detail queries; a folder row loads like folder_enter.
-# Only songs join, in order, and the staging deque is restored.
-for cls,artist_type,page,query in ((0xf003,0,'album_page',('getMusicByAlbum','Album',None)),
-        (0xff01,1,'album_page',('getMusicByAlbumAndAlbumSonger','Album','Artist')),
+# An artist's albums use the stock detail queries (Albums, below Coverflow's); a folder row loads
+# like folder_enter. Only songs join, in order, and the staging deque is restored.
+for cls,artist_type,page,query in ((0xff01,1,'album_page',('getMusicByAlbumAndAlbumSonger','Album','Artist')),
         (0xff01,0,'localclass_page',('getMusicByAlbumAndSonger','Album','Artist')),
         (0xf001,0,'folder_page',('toolsLoadDirectory','/mnt/sd/Music/Row 0',None))):
     m=QueueMachine(page=page,cls=cls,pos=2); m.word(syms['g_artist_type'],artist_type)
@@ -2848,9 +2847,9 @@ for kw in ({},{'cls':0xf003,'page':'album_page'}):
     assert m.opened[-1]==('localmusic/playlist_page',0x10000|m.get(syms['g_class_type']))
     assert sel(m)==[('batch_init_selectrecord',20),('batch_set_selectitem',1)] and m.names()==['A','B','C']; passed()
 # Shuffle plays the collection's songs from a random one with shuffle saved, as Shuffle Songs.
-m=QueueMachine(cls=0xf003,page='album_page'); assert m.run(2) is None
+m=QueueMachine(cls=0xf004,page='localclass_page'); assert m.run(2) is None
 assert m.opened[-1]==('playing_page',['T1','T2'],0,0xf001,2) and [c[1:3] for c in m.calls if c[0]=='config_playmode']==[(2,1)]; passed()
-m=QueueMachine(cls=0xf003,page='album_page'); m.found=[]; assert m.run(2)=='Queue unchanged' and m.opened[-1][0]!='playing_page'; passed()
+m=QueueMachine(cls=0xf004,page='localclass_page'); m.found=[]; assert m.run(2)=='Queue unchanged' and m.opened[-1][0]!='playing_page'; passed()
 # Go to album fills the album query as Now Playing's Album info and opens playerjumpinfo_page; Go to
 # artist opens artistinfo_page with {class, record}. Closing either puts the browsing state back.
 info=syms['g_local_classinfo_save']
@@ -3044,7 +3043,11 @@ for setup,toggles in ((lambda m:m.byte(syms['g_lockscreen_pageflag'],1),1),(lamb
 # the staging deque is left cleared. Other rows and classes stay stock.
 class ClassMachine(QueueMachine):
     tramp=int(manifest['patch_symbols']['stock_localclass_trampoline'],16)
+    split=[]  # Albums' own grouping (split), which toolsQueryDbTable stages
     def hook(self,u,address,size,unused):
+        if address==syms['toolsQueryDbTable']:
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.split]
+            u.reg_write(UC_MIPS_REG_V0,len(self.split)); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
         if address!=self.tramp: return super().hook(u,address,size,unused)
         self.calls.append(('stock_localclass',u.reg_read(REGS[0]),0,0))
         u.reg_write(UC_MIPS_REG_V0,len(self.items(self.get(syms['p_deque_showlist']))))
@@ -3067,6 +3070,29 @@ for cls,artist,query in ((0xf003,0,'getMusicByAlbum'),(0xf004,0,'getMusicBySonge
 for cls,last,rows in ((0xf004,1,3),(0xff01,-1,3),(0xf007,-1,3),(0xf004,-1,0)):
     shown,q,_=unknown(cls,0,last=last,rows=rows)
     assert len(shown)==rows and q is None, (cls,last,rows); passed()
+# Albums: each stock row (a name) becomes that name's albums, told apart by album artist, else folder.
+m=ClassMachine(page='localclass_page',cls=0xf001,rows=2); m.word(m.row(1)+O['REC_ALBUM'],m.string('Other'))
+m.split=[m.song('Baroness'),m.song('STP')]; m.word(m.split[1]+O['REC_PATH'],m.string('/q/STP'))
+assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf003,0,0,0),gap=0)==3
+assert m.names(m.get(syms['p_deque_showlist']))==['Baroness','STP','Row 1']; passed()
+# Their stock art cache names (/mnt/mmc/.sldp/<md5>0.jpg): a shared name adds the album artist,
+# a name alone stays; the album page's big cover follows its row's cover task name.
+for e in m.items(m.get(syms['p_deque_showlist']))[:2]: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
+art=symbols(B/'patch.elf'); buf=m.alloc(0x100)
+keys=['Album\x1fBaroness','Album\x1fSTP','Other']
+for i,want in enumerate(keys):
+    m.call(address=art['ringnav_art_name'],args=(buf,0x100,i,0),gap=0); assert m.text(buf)==want
+covers=[m.alloc(12) for _ in keys]
+for c,k in zip(covers,keys): m.word(c+4,m.string(k))
+m.word(syms['pdeq_albumcoverlist'],m.deque(covers))
+for row,want in ((1,'Album\x1fSTP'),(2,'Album'),(9,'Album')):
+    m.word(O['ALBUMINFO_ROW'],row); m.call(address=art['ringnav_art_header'],args=(buf,0x100,m.string('%s'),m.string('Album')),gap=0)
+    assert m.text(buf)==want, row
+passed()
+# A row opens its name's songs (0xff10, getMusicByAlbum): only its own album's stay.
+m=ClassMachine(page='album_page',cls=0xf003,rows=2); m.word(m.row(1)+O['REC_PATH'],m.string('/q/Row 1'))
+assert m.call(address=HOOKS['load_album_detaillist'][0],args=(0xf003,m.song('Album'),0,0),gap=0)==1
+assert m.names(m.get(syms['p_deque_showlist']))==['Row 0'] and ('stock_localclass',0xff10,0,0) in m.calls; passed()
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
@@ -3830,6 +3856,11 @@ m=CoverflowMachine(); m.word(m.albums[2]+O['REC_ARTIST'],m.string('Aardvark')); 
 m.word(m.slide+O['SLIDE_INDEX'],0); m.press(101); assert m.hold()==11
 assert m.nodes[m.title]['text']=='Album 2'; m.release(); m.pick(1); m.advance(0)
 assert m.query[:2]==('getMusicByAlbum','Album 2'); passed()
+# A Library Albums row queues its own album alone, as a cover does: getMusicByAlbum finds every
+# album of the name, here T1 in another folder.
+m=CoverflowMachine(page='album_page',cls=O['CLASS_ALBUMS'],pos=2); m.word(m.found[0]+O['REC_PATH'],m.string('/q/T1'))
+assert m.run(1) is None and m.names()==['A','B','C','T2'] and m.query[:3]==('getMusicByAlbum','Album',None)
+assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==[0,1,2,3]; passed()
 
 # Go to artist uses the album record directly; an absent artist omits that action.
 m=CoverflowMachine(); m.open(); m.run(3)

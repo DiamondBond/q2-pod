@@ -220,16 +220,30 @@ static int albums(void *album) {
                  : getAllAlbum();
 }
 
-/* Albums apart, as ALBUM_SQL groups them: the name, then the album artist, else the folder, ASCII
- * case aside but the folder's, so a compilation stays one album; tagged names first. Both shared
- * with playback.c. */
-int folder_cmp(void *a, void *b) {
+/* p's folder length; with disc, a CD1, Disc 2 or Disk_03 folder (cd/disc/disk, case aside, an
+ * optional space, _ or -, digits) is its parent's, so a multi-disc album is one. */
+unsigned album_dir(const char *p, int disc) {
+    const char *e = strrchr(p, '/');
+    unsigned n = e ? (unsigned)(e - p) : 0, i = n;
+    while (disc && i && p[i - 1] >= '0' && p[i - 1] <= '9') --i;
+    if (i == n) return n;
+    i -= i && (p[i - 1] == ' ' || p[i - 1] == '_' || p[i - 1] == '-');
+    if (i >= 3 && p[i - 3] == '/' && !strncasecmp(p + i - 2, "cd", 2)) return i - 3;
+    if (i >= 5 && p[i - 5] == '/' && !strncasecmp(p + i - 4, "dis", 3) &&
+        ((p[i - 1] | 32) == 'c' || (p[i - 1] | 32) == 'k'))
+        return i - 5;
+    return n;
+}
+static int dir_cmp(void *a, void *b, int disc) {
     const char *pa = P(a, REC_PATH) ? P(a, REC_PATH) : "", *pb = P(b, REC_PATH) ? P(b, REC_PATH) : "";
-    const char *ea = strrchr(pa, '/'), *eb = strrchr(pb, '/');
-    unsigned na = ea ? (unsigned)(ea - pa) : 0, nb = eb ? (unsigned)(eb - pb) : 0;
+    unsigned na = album_dir(pa, disc), nb = album_dir(pb, disc);
     int d = memcmp(pa, pb, na < nb ? na : nb);
     return d ? d : na < nb ? -1 : na != nb;
 }
+/* Albums apart, as split groups them: the name, then the album artist, else the folder (disc
+ * folders as one), ASCII case aside but the folder's, so a compilation stays one album; tagged
+ * names first. Shuffle Folders' folder_cmp keeps disc folders apart. Both shared with playback.c. */
+int folder_cmp(void *a, void *b) { return dir_cmp(a, b, 0); }
 int album_cmp(void *a, void *b) {
     const char *x = P(a, REC_ALBUM), *y = P(b, REC_ALBUM);
     int tx = x && *x, d = (y && *y) - tx;
@@ -237,7 +251,7 @@ int album_cmp(void *a, void *b) {
     x = P(a, REC_ALBUM_ARTIST), y = P(b, REC_ALBUM_ARTIST);
     int ax = x && *x, ay = y && *y;
     if (tx && (ax || ay)) return ay != ax ? ay - ax : strcasecmp(x, y);
-    return folder_cmp(a, b);
+    return dir_cmp(a, b, 1);
 }
 
 /* getAllAlbum ends with an "Unknown Album" row (id -1) whenever any album exists, even when every
@@ -652,23 +666,52 @@ static int split_row(void *a, int n, char **v, char **c) {
 static int rank_query(void *sql) { return toolsQueryDbTable("/mnt/data/database.db", sql, split_row, 0); }
 
 /* getAllAlbum groups by name alone, as stock's Albums list does: each of its rows becomes that
- * name's ALBUM_SQL rows, in its place; a row the query missed stays. ponytail: a scan per row,
- * albums squared; merge name-sorted lists if large libraries feel it. */
+ * name's ALBUM_SQL rows, one per album_cmp album (the SQL keeps disc folders apart), in its place;
+ * a row the query missed stays. ponytail: a scan per row, albums squared; merge name-sorted lists
+ * if large libraries feel it. */
 static void *split(void *stock) {
     int n;
     void *rows = staged(rank_query, ALBUM_SQL, &n), *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < deque_size(stock); ++i) {
         void *r = deque_at(stock, i);
-        int found = 0;
-        for (unsigned j = 0; I(r, REC_ID) != -1 && j < deque_size(rows); ++j)
-            if (!strcasecmp(album_name(r), album_name(deque_at(rows, j))))
-                _deque_push_back(out, deque_at(rows, j)), found = 1;
-        if (!found) _deque_push_back(out, r);
+        unsigned from = deque_size(out), k;
+        for (unsigned j = 0; I(r, REC_ID) != -1 && j < deque_size(rows); ++j) {
+            void *a = deque_at(rows, j);
+            if (strcasecmp(album_name(r), album_name(a))) continue;
+            for (k = from; k < deque_size(out) && album_cmp(deque_at(out, k), a); ++k) {}
+            if (k == deque_size(out)) _deque_push_back(out, a);
+        }
+        if (from == deque_size(out)) _deque_push_back(out, r);
     }
     deque_destroy(rows);
     deque_destroy(stock);
     return out;
+}
+/* navigation.c's Albums list (load_localclass_list 0xf003), split in place as Coverflow's: its size. */
+int coverflow_split(void *list) {
+    void *copy = _create_deque("stSongInfo"), *out;
+    deque_init_copy(copy, list);
+    out = split(copy);
+    deque_clear(list);
+    deque_assign(list, out);
+    deque_destroy(out);
+    return (int)deque_size(list);
+}
+/* list down to r's album (album_cmp), in order and in place, unless none is; then at's index.
+ * navigation.c's album pages and playback.c's stock resume. */
+int album_only(void *list, void *r, int at) {
+    void *out = _create_deque("stSongInfo");
+    int k = at;
+    deque_init(out);
+    for (unsigned i = 0; i < deque_size(list); ++i)
+        if (!album_cmp(deque_at(list, i), r)) {
+            if ((int)i == at) k = (int)deque_size(out);
+            _deque_push_back(out, deque_at(list, i));
+        }
+    if (deque_size(out)) deque_clear(list), deque_assign(list, out);
+    deque_destroy(out);
+    return k;
 }
 static void rank_by(order_t *v, const char *sql) {
     int n;

@@ -281,6 +281,7 @@
 #define ID3_ARTIST 0x504
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
+#define ALBUMINFO_ROW 0xa27200  /* the albums row localmusic_albuminfo_page_init opened (0x4a7ab4) */
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */
 #define MCL_POOL 0xa3bdb0       /* deque_t * of int: unplayed shuffle indices */
 #define MCL_LASTPOS 0xa3be90    /* shuffle "previous" index, -1 none */

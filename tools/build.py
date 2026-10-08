@@ -26,6 +26,8 @@ HOOKS = {
     'localmusic_page_init': (0x524424, 'ringnav_localmusic'),
     # Library lists: an Unknown row with no songs is dropped
     'load_localclass_list': (0x5088cc, 'ringnav_localclass'),
+    # An Albums row: the album it opens keeps only that album's songs
+    'load_album_detaillist': (0x508efc, 'ringnav_album_detail'),
     # The three songtable writers; Coverflow keeps its album list until one runs.
     'scanAllMusicFile': (0x4fc788, 'coverflow_scan_all'),
     'scanSpecFolder': (0x4fc964, 'coverflow_scan_folder'),
@@ -74,7 +76,7 @@ TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'loa
                'about': 'systemset_about_page_init', 'folder': 'folder_page_init', 'folder_back': 'folder_back',
                'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch',
                'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init',
-               'change': 'player_change_music'}
+               'change': 'player_change_music', 'detail': 'load_album_detaillist'}
 # Every audited stock PIC prologue resolves this GOT base.
 GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
@@ -151,6 +153,12 @@ SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a
 # The bal toolsTrimLeft on each name copy in the two library name comparators (0x5b9d40, 0x5ba658, the
 # Chinese and other-language sorts); they become jal ringnav_sort_key, which also drops a leading article.
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
+# Library Albums' cover cache names (navigation.c art_key): the row renderer's snprintf of the name,
+# with a2 the row (addiu a2,"%s" becomes move a2,s3), the Albums page's albumcoverinfo_init calls
+# and the album page's big cover snprintf become jal to the payload.
+ALBUM_ART = ((0x4a388c, 'ringnav_art_name'), (0x4a421c, 'ringnav_albumcovers'), (0x4a42c0, 'ringnav_albumcovers'),
+             (0x4a5718, 'ringnav_albumcovers'), (0x4a72a4, 'ringnav_art_header'))
+ALBUM_ART_ROW = (0x4a3890, 0x24c66c04, 0x02603025)
 # switchBtPriority sends LDAC quality 0x16 (SQ, 660 kbps) for both HQ (row 0) and Standard (row 1).
 # The dispatch keeps 0x15 + row in its free 0x14($sp) slot, so HQ sends 0x15 (990 kbps); see docs/internals.md.
 LDAC_HQ = ((0x4f033c, 0x00042080, 0x00041880),   # sll $3,$4,2
@@ -424,6 +432,7 @@ FUNCTIONS = {
  # Coverflow's Sort: another ORDER BY over getAllAlbum's grouping, filled by its own row callback
  'toolsQueryDbTable': ('int', 'const char *, const char *, void *, int'),  # db, sql, row, name sort
  'album_row': ('int', 'void *, int, char **, char **'),
+ 'albumcoverinfo_init': ('int', 'void *'),  # a list's cover tasks, each a copy of its row's name and path
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -457,7 +466,8 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'g_play_id3_info': 2716,
                 # Artists' source (PLAYSET ARTISTTYPE, the artist page's switch: 1 album artist);
                 # the battery level (0-100) and the charger's state (1, 2 charging), get_battery_capacity's
-                'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4}
+                'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
+                'pdeq_albumcoverlist': 4, 'aclist_mutex': 24}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
@@ -679,6 +689,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     for address in SORT_TRIMS:
         patch_word(patched, address, 0x04110000 | (syms['toolsTrimLeft'] - address - 4) >> 2 & 0xffff,
                    0x0c000000 | (ps['ringnav_sort_key'] >> 2), 'sort without a leading article')
+    for address, name in ALBUM_ART:
+        patch_word(patched, address, 0x0320f809, 0x0c000000 | (ps[name] >> 2), 'same-named albums apart in art')
+    patch_word(patched, *ALBUM_ART_ROW, 'same-named albums apart in art')
     # Pin added private entry points as well as every replaced instruction, and the stock bitmap,
     # canvas and slide_menu entries Coverflow's depth renderer calls (docs/internals.md#coverflow-depth).
     for name, original in AUDIT['private_prologues'].items():

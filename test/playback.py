@@ -15,7 +15,7 @@ class PlaybackMachine(QueueMachine):
         super().__init__()
         self.files = dict(files or {}); self.handles = {}; self.fd = 100
         self.fail = ''; self.elapsed = 37; self.random_calls = 0; self.rng = 71
-        self.missing = set(); self.starts = []; self.stops = 0; self.seek = None
+        self.missing = set(); self.starts = []; self.stops = 0; self.seek = None; self.stock_resume = None
         self.handlers.pop(syms['mclLoadPlayList'], None)
         self.handlers[ps['stock_memory_trampoline']] = 'p:fallback'
         self.handlers[ps['stock_savequeue_trampoline']] = 'p:saved'
@@ -90,7 +90,9 @@ class PlaybackMachine(QueueMachine):
         elif name=='getAllMusic':
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.library_rows]; ret=len(self.library_rows)
         elif name=='folder_skip': self.folder_skips+=1
-        elif name=='fallback': ret=-1
+        elif name=='fallback':  # stock resume: stock_resume's (class, rows, index) into out, else none
+            cls,rows,ret=self.stock_resume or (0,[],-1)
+            self.deqs[a][1]=[self.copy('stSongInfo',e) for e in rows]; self.word(syms['g_memory_info'],cls)
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
         u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
     def fn(self,name,*args): return signed(self.call(address=ps[name],args=tuple(args)+(0,)*(4-len(args)),gap=0))
@@ -146,6 +148,13 @@ for folder,artist,want in ((0,1,[1,2,0]),(1,1,[1]),(0,0,[1,0])):
     m=PlaybackMachine(); m.install(tracks,1)
     for r in m.items(m.get(syms['mcl_pdeqplaylist']))[:3*artist]: m.word(r+O['REC_ALBUM_ARTIST'],m.string('Artist'))
     m.options(0,1,folder)
+    assert m.sequence()==want
+# Without an album artist, an album's disc folders are one album group and another folder of the
+# name is not; Shuffle Folders keeps each disc folder apart.
+tracks=[('disc2','/m/Purple/Disc 2/01','Purple',0,0,0,0),('cd1','/m/Purple/CD1/01','Purple',0,0,0,0),
+        ('other','/m/STP Purple/01','Purple',0,0,0,0)]
+for folder,want in ((0,[1,0]),(1,[1])):
+    m=PlaybackMachine(); m.install(tracks,1); m.options(0,1,folder)
     assert m.sequence()==want
 m=PlaybackMachine(); m.install([('a','/a/1','A',0,0,0,0),('b','/b/1','B',0,0,0,0),('c','/c/1','C',0,0,0,0)],1)
 m.options(0,2,0); assert m.sequence()==[1,2]
@@ -227,6 +236,12 @@ for corrupt in (b'',files['/mnt/data/ringnav-queue'][:-1],b'bad'+files['/mnt/dat
 r=PlaybackMachine(files); r.byte(syms['g_memory_play'],1)
 assert r.fn('ringnav_memory',r.deque([]))>=0 and r.seek==0
 r=PlaybackMachine(files); assert r.fn('ringnav_memory',r.deque([]))==-1
+# Without a snapshot, stock rebuilds an album queue (0xff10) from every album of its name: only
+# the resumed track's album stays, at its index there. Other classes stay as stock built them.
+for cls,want in ((0xff10,(1,['a2','a1'])),(0xf001,(2,['a2','b1','a1']))):
+    r=PlaybackMachine(); r.byte(syms['g_memory_play'],2); rows=r.library_rows[:3]; out=r.deque([])
+    for e in rows: r.word(e+O['REC_ALBUM'],r.string('Album A'))
+    r.stock_resume=(cls,rows,2); assert (r.fn('ringnav_memory',out),r.names(out))==want
 checks+=1
 
 # Selecting a stock mode during playback also closes a stale advanced repeat preload.

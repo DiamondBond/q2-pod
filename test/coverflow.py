@@ -793,6 +793,34 @@ static void same_name(void) {
     rescan();
 }
 
+/* Without album artists: an album's disc folders (CD1, Disc 2) are one card with both tracks,
+   and a same-named album in another folder is its own. */
+static void disc_folders(void) {
+    extern void *coverflow_tracks(void *);
+    static const char *const dirs[3] = { "Purple/CD1", "Purple/Disc 2", "Other Purple" }, *const who[3] = { "Baroness", "Baroness", "STP" };
+    mkdir(PEQ_ROOT "/music/Purple", 0755);
+    for (int i = 0; i < 3; ++i) {
+        album(dirs[i], 0);
+        snprintf(names[albums - 1], 64, "Purple");
+        *(const char **)(records[albums - 1] + REC_ARTIST) = who[i];
+    }
+    rescan();
+    open_page();
+    widget *s = slide();
+    assert(s->nkids == albums - 1 + 2);
+    for (int i = 0; i < 2; ++i) {
+        w[s->kids[albums - 3 + i]].click(w[s->kids[albums - 3 + i]].ctx, 0);
+        run();
+        void *t = coverflow_tracks(page);
+        assert(deque_size(t) == (unsigned)(2 - i) && deque_at(t, 0) == records[albums - 3 + 2 * i]);
+        if (!i) assert(deque_at(t, 1) == records[albums - 2]);
+        key(KEY_RETURN);
+    }
+    close_page();
+    albums -= 3;
+    rescan();
+}
+
 int main(void) {
     /* Titles come from tags, unchanged; missing tags retain filename/CUE fallbacks. */
     char track[0x60] = {0}, name[512];
@@ -919,6 +947,7 @@ int main(void) {
     sorting();
     unknown_card();
     same_name();
+    disc_folders();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the

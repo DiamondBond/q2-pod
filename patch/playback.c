@@ -13,7 +13,8 @@ extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_memory_trampoline(void *), stock_savequeue_trampoline(void),
     stock_change_trampoline(int);
 extern void *staged(int (*)(void *), void *, int *);
-extern int album_before(const void *, const void *), album_cmp(void *, void *), folder_cmp(void *, void *);
+extern int album_before(const void *, const void *), album_cmp(void *, void *), folder_cmp(void *, void *),
+    album_only(void *, void *, int);
 
 typedef struct {
     unsigned index, group, rank;
@@ -547,11 +548,17 @@ static int library(void *unused) {
     return getAllMusic(0);
 }
 static int directory(void *path) { return toolsLoadDirectory(path); }
+/* Stock resume rebuilds an album queue (0xff10) from every album of its name (getMusicByAlbum):
+ * the playing track's album alone. */
+static int stock_memory(void *out) {
+    int at = stock_memory_trampoline(out);
+    return at >= 0 && I(g_memory_info, 0) == 0xff10 ? album_only(out, deque_at(out, (unsigned)at), at) : at;
+}
 int ringnav_memory(void *out) {
     wheel_load();
-    if (!g_memory_play && !g_carmode) return stock_memory_trampoline(out);
+    if (!g_memory_play && !g_carmode) return stock_memory(out);
     void *f = fopen(QUEUE_FILE, "rb");
-    if (!f) return stock_memory_trampoline(out);
+    if (!f) return stock_memory(out);
     /* V1 omitted queue provenance. Treat those queues as local lists rather than allowing
      * Folder Skip to escape the saved queue after the user selects a stock play mode. */
     snapshot h = { 0 };
@@ -714,7 +721,7 @@ int ringnav_memory(void *out) {
     if (q) deque_destroy(q);
     free(map);
     free(buf);
-    return result >= 0 ? result : stock_memory_trampoline(out);
+    return result >= 0 ? result : stock_memory(out);
 }
 /* The queue snapshot's startup position takes precedence over per-track long-song resume. */
 int playback_resumed(void *r) {
