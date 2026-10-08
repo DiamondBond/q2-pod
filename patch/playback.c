@@ -81,12 +81,11 @@ static void release(void) {
     s.resume_key = s.resume_pending = s.resume_wait = 0;
 }
 /* Albums as Coverflow tells them apart (album_cmp: tagged albums first), or folders. */
-static int same_group(void *a, void *b) { return !(s.folder ? folder_cmp(a, b) : album_cmp(a, b)); }
-/* Total order matching same_group, then index. */
+static int group_cmp(void *a, void *b) { return s.folder ? folder_cmp(a, b) : album_cmp(a, b); }
+/* Total order matching group_cmp, then index. */
 static int group_before(const void *pa, const void *pb) {
     unsigned ia = ((const entry *)pa)->index, ib = ((const entry *)pb)->index;
-    void *a = deque_at(queue(), ia), *b = deque_at(queue(), ib);
-    int d = s.folder ? folder_cmp(a, b) : album_cmp(a, b);
+    int d = group_cmp(deque_at(queue(), ia), deque_at(queue(), ib));
     return d ? d : ia < ib ? -1 : ia != ib;
 }
 static int compare(const void *pa, const void *pb) {
@@ -172,11 +171,11 @@ static int rebuild(int keep) {
     }
     if (oldseen) free(oldseen);
     if (oldhistory) free(oldhistory);
-    /* Sort by same_group's key; each run's group is its smallest index. cycle is scratch here. */
+    /* Sort by group_cmp; each run's group is its smallest index. cycle is scratch here. */
     for (unsigned i = 0; i < n; ++i) cycle[i].index = i;
     qsort(cycle, n, sizeof *cycle, group_before);
     for (unsigned i = 0, first = 0; i < n; ++i) {
-        if (!i || !same_group(deque_at(queue(), cycle[i - 1].index), deque_at(queue(), cycle[i].index)))
+        if (!i || group_cmp(deque_at(queue(), cycle[i - 1].index), deque_at(queue(), cycle[i].index)))
             first = cycle[i].index;
         groups[cycle[i].index] = first;
     }
