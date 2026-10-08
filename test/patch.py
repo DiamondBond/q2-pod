@@ -3152,6 +3152,28 @@ for row,want in ((1,'Album\x1fSTP'),(2,'Album'),(9,'Album')):
     m.word(O['ALBUMINFO_ROW'],row); m.call(address=art['ringnav_art_header'],args=(buf,0x100,m.string('%s'),m.string('Album')),gap=0)
     assert m.text(buf)==want, row
 passed()
+# An artist's albums tab has one row of a shared name: it takes its album's key in the split
+# order, by folder, else by album artist; a name alone, and the songs tab, stay stock's.
+class ArtistMachine(ClassMachine):
+    tramp=int(manifest['patch_symbols']['stock_artist_trampoline'],16)
+    def __init__(self,**kw): super().__init__(**kw); self.word(0xa2638c,0x1000010)  # free's GOT slot, as Coverflow's
+    def hook(self,u,address,size,unused):
+        a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); libc={syms[n+'@GLIBC_2.0']:n for n in ('calloc','strdup')}|{0x1000010:'free'}
+        if address not in libc: return super().hook(u,address,size,unused)
+        u.reg_write(UC_MIPS_REG_V0,{'calloc':lambda:self.alloc(a*b+4),'strdup':lambda:self.string(self.text(a)),'free':lambda:0}[libc[address]]())
+        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+for path,artist,want in (('/p/x','Artist','Album\x1fBaroness'),('/z/x','STP','Album\x1fSTP'),('/z/x','Artist','Album')):
+    m=ArtistMachine(page='localclass_page',cls=0xff01,rows=2); m.word(m.row(1)+O['REC_ALBUM'],m.string('Other'))
+    m.word(m.row(0)+O['REC_PATH'],m.string(path)); m.word(m.row(0)+O['REC_ARTIST'],m.string(artist))
+    m.split=[m.song('Baroness'),m.song('STP')]; m.word(m.split[1]+O['REC_PATH'],m.string('/q/STP'))
+    for e in m.split: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
+    assert m.call(address=HOOKS['load_localartist_list'][0],args=(1,0,0,0),gap=0)==2
+    for i,k in enumerate((want,'Other')):
+        m.call(address=art['ringnav_artist_art_name'],args=(buf,0x100,i,m.string(['Album','Other'][i])),gap=0)
+        assert m.text(buf)==k, (path,artist,i,m.text(buf))
+    m.call(address=HOOKS['load_localartist_list'][0],args=(0,0,0,0),gap=0)
+    m.call(address=art['ringnav_artist_art_name'],args=(buf,0x100,0,m.string('Album')),gap=0); assert m.text(buf)=='Album'
+passed()
 # A row opens its name's songs (0xff10, getMusicByAlbum): only its own album's stay.
 m=ClassMachine(page='album_page',cls=0xf003,rows=2); m.word(m.row(1)+O['REC_PATH'],m.string('/q/Row 1'))
 assert m.call(address=HOOKS['load_album_detaillist'][0],args=(0xf003,m.song('Album'),0,0),gap=0)==1

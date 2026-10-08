@@ -13,7 +13,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
-    stock_localclass_trampoline(int), stock_detail_trampoline(int, void *),
+    stock_localclass_trampoline(int), stock_detail_trampoline(int, void *), stock_artist_trampoline(int),
     stock_power_trampoline(void *, void *), stock_systemset_trampoline(void *, void *),
     stock_audioset_trampoline(void *, void *), stock_playlist_trampoline(void *);
 extern void *coverflow_tracks(void *page);
@@ -184,6 +184,8 @@ typedef struct {
     int media_open;
     char media_root[32];
     void *album; /* what an Albums row or Go to album opened (album_open), a one-record deque */
+    char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own (ringnav_artist_list) */
+    unsigned art_n;
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
 
@@ -2816,19 +2818,88 @@ int ringnav_art_name(char *buf, unsigned size, unsigned row, const char *album) 
     void *list = P(p_deque_showlist, 0);
     return snprintf(buf, size, "%s", row < deque_size(list) ? art_key(key, list, row) : album);
 }
-/* The Albums page's albumcoverinfo_init calls: the art thread hashes each cover task's copy of
- * its row's name (+4, read under aclist_mutex), so a split row's becomes its key. */
-int ringnav_albumcovers(void *list) {
+/* A list's albumcoverinfo_init: the art thread hashes each cover task's copy of its row's name
+ * (+4, read under aclist_mutex): key renames a row's, or returns 0 to keep it. */
+static int rename_covers(void *list, const char *(*key)(char *, void *, unsigned)) {
     int result = albumcoverinfo_init(list);
     void *covers = P(pdeq_albumcoverlist, 0);
-    char key[256], *s;
+    char buf[256], *s;
+    const char *k;
     pthread_mutex_lock((void *)aclist_mutex);
     for (unsigned i = 0; i < deque_size(list) && i < deque_size(covers); ++i) {
         char **name = (char **)((char *)deque_at(covers, i) + 4);
-        if (art_key(key, list, i) == key && (s = strdup(key))) free(*name), *name = s;
+        if ((k = key(buf, list, i)) && (s = strdup(k))) free(*name), *name = s;
     }
     pthread_mutex_unlock((void *)aclist_mutex);
     return result;
+}
+static const char *split_key(char *buf, void *list, unsigned i) {
+    return art_key(buf, list, i) == buf ? buf : 0;
+}
+/* The Albums page's albumcoverinfo_init calls. */
+int ringnav_albumcovers(void *list) { return rename_covers(list, split_key); }
+
+/* An artist's albums (load_localartist_list 1) group by name too, and a name there is usually one
+ * row though another artist's album shares it, so each row takes its album's art_key in the split
+ * Albums order: the same-named album in its folder, else by its album artist. ponytail: an album
+ * across folders whose album artist isn't the row's keeps stock's key; look up its track's
+ * albumsonger by fileurl if that shows. */
+static void artist_keys_free(void) {
+    for (unsigned i = 0; st.art_keys && i < st.art_n; ++i) free(st.art_keys[i]);
+    free(st.art_keys);
+    st.art_keys = 0, st.art_n = 0;
+}
+static int same_dir(void *a, void *b) {
+    const char *x = P(a, REC_PATH), *y = P(b, REC_PATH);
+    unsigned n = x ? album_dir(x, 1) : 0;
+    return n && y && album_dir(y, 1) == n && !memcmp(x, y, n);
+}
+/* r's album among all's rows of its name: by folder, or (by_dir 0) album artist as r's artist. */
+static int artist_album(void *all, void *r, int by_dir) {
+    const char *name = P(r, REC_ALBUM), *artist = P(r, REC_ARTIST);
+    for (unsigned j = 0; name && j < deque_size(all); ++j) {
+        void *a = deque_at(all, j);
+        const char *x = P(a, REC_ALBUM), *aa = P(a, REC_ALBUM_ARTIST);
+        if (x && !strcasecmp(x, name) &&
+            (by_dir ? same_dir(a, r) : aa && artist && !strcasecmp(aa, artist)))
+            return (int)j;
+    }
+    return -1;
+}
+int ringnav_artist_list(int tab) {
+    int n = stock_artist_trampoline(tab);
+    void *list = P(p_deque_showlist, 0), *all;
+    artist_keys_free();
+    if (tab != 1 || n <= 0 || !(st.art_keys = calloc((unsigned)n, sizeof(char *)))) return n;
+    st.art_n = (unsigned)n;
+    all = _create_deque("stSongInfo");
+    deque_init_copy(all, list);
+    coverflow_split(all);
+    for (unsigned i = 0; i < st.art_n && i < deque_size(list); ++i) {
+        void *r = deque_at(list, i);
+        int j = artist_album(all, r, 1);
+        const char *k;
+        char buf[256];
+        if (j < 0) j = artist_album(all, r, 0);
+        if (j >= 0 && (k = split_key(buf, all, (unsigned)j))) st.art_keys[i] = strdup(k);
+    }
+    deque_destroy(all);
+    return n;
+}
+static const char *artist_key(char *buf, void *list, unsigned i) {
+    (void)buf;
+    return st.art_keys && list == P(p_deque_showlist, 0) && st.art_n == deque_size(list) && i < st.art_n
+               ? st.art_keys[i]
+               : 0;
+}
+/* The artist page's albums renderer's snprintf of the name (0x4ab804), a2 the row. */
+int ringnav_artist_art_name(char *buf, unsigned size, unsigned row, const char *album) {
+    const char *k = artist_key(0, P(p_deque_showlist, 0), row);
+    return snprintf(buf, size, "%s", k ? k : album);
+}
+/* The artist page's albumcoverinfo_init calls. */
+int ringnav_artist_covers(void *list) {
+    return st.art_keys ? rename_covers(list, artist_key) : albumcoverinfo_init(list);
 }
 /* The album page's big cover, snprintf of classinfo +0xd (0x4a72a4): its Albums row's cover task
  * name, as the thread hashed it, when that is this album's key. */
