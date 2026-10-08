@@ -264,6 +264,66 @@ r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(bad)}); r.byte(syms['g_memory
 assert r.fn('ringnav_memory',r.deque([]))==-1
 checks+=1
 
+# List Play stops both Next and natural completion at the selected library queue's end.
+# Exercise actual stock loading, restored identity, and switching from advanced repeat.
+for cls in (0xf001,0xff10,0xff11):
+    for skip in (0,1):
+        for automatic in (0,1):
+            for count in (1,3):
+                for origin in ('fresh','restored','advanced'):
+                    m=PlaybackMachine()
+                    tracks=[('first','/A/1','Album A',1,1,0,0),
+                            ('second','/A/2','Album A',1,2,0,0),
+                            ('last','/B/1','Album B',1,1,0,0)][:count]
+                    m.install(tracks)
+                    q=m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist']))))
+                    m.fn('ringnav_load',q,0,cls)
+                    if origin!='fresh':
+                        m.word(O['MCL_POS'],count-1); m.options(0,5,0)
+                        m.fn('ringnav_preload'); assert m.mcl('MCL_PRELOAD')==1
+                        if origin=='restored':
+                            m.fn('playback_save')
+                            m=PlaybackMachine(m.files); m.install(tracks)
+                            m.byte(syms['g_memory_play'],2)
+                            out=m.deque([])
+                            assert m.fn('ringnav_memory',out)==count-1
+                            m.fn('ringnav_load',out,count-1,1)
+                            m.fn('ringnav_preload'); assert m.mcl('MCL_PRELOAD')==1
+                        m.fn('ringnav_mode',0)
+                        assert m.mcl('MCL_PRELOAD')==0 and m.mcl('MCL_PREPOS')==-1
+                    m.byte(0xa3be53,skip)
+                    callback=0x1000020; m.handlers[callback]='p:folder_skip'
+                    m.word(0xa3bda8,callback); m.folder_skips=0
+                    if origin=='fresh':
+                        for at in range(1,count):
+                            starts=len(m.starts)
+                            assert m.advance_song(automatic)==1 and m.current()==at
+                            assert len(m.starts)==starts+1 and m.stops==0
+                    q=m.get(syms['mcl_pdeqplaylist'])
+                    def identity():
+                        rows=m.items(q)
+                        return (m.get(syms['mcl_pdeqplaylist']),m.mcl('MCL_TYPE'),
+                                m.get(syms['g_memory_info']),list(rows),
+                                [bytes(m.u.mem_read(row,0x60)) for row in rows],
+                                [[m.text(m.get(row+O[key])) for key in
+                                  ('REC_NAME','REC_PATH','REC_ALBUM','REC_ARTIST')] for row in rows])
+                    before=identity(); starts=len(m.starts); stops=m.stops
+                    assert m.mcl('MCL_TYPE')==cls
+                    # Even a pending stale preload must not hand off beyond the boundary.
+                    m.word(O['MCL_PRELOAD'],1); m.word(O['MCL_PREPOS'],0); m.word(O['MCL_FD'],9)
+                    sent=len(m.sent)
+                    for action in (automatic,0,0):
+                        result=m.advance_song(action)
+                        assert result==-1, (cls,skip,automatic,count,origin,action,result,
+                                            m.mcl('MCL_MODE'),m.current(),len(m.items(q)))
+                        stops+=1
+                        assert m.stops==stops and len(m.starts)==starts
+                        assert m.current()==count-1 and m.folder_skips==0
+                        assert m.mcl('MCL_PRELOAD')==0 and m.mcl('MCL_PREPOS')==-1
+                        assert identity()==before
+                    assert m.sent[sent:]==[(9,b'{mcl-closegapless\\null}',23,0)]
+                    checks+=1
+
 # Stock List Play must discard advanced repeat preloads and retain queue provenance on reboot.
 for cls in (0xf001,0xff10,1):
     for skip in (0,1):

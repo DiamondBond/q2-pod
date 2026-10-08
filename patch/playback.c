@@ -331,7 +331,16 @@ int ringnav_mode(int mode) {
     return stock_mode_trampoline(mode);
 }
 int ringnav_next(int automatic) {
-    if (!s.active) return stock_next_trampoline(automatic);
+    if (!s.active) {
+        /* Stock stops List Play at the end, but manual Next then restarts it. */
+        if (M(MCL_MODE) == 0 && (M(MCL_TYPE) & 0xf000) == 0xf000 && queue() &&
+            M(MCL_POS) >= 0 && (unsigned)M(MCL_POS) + 1 == deque_size(queue())) {
+            close_preload();
+            mclStop();
+            return -1;
+        }
+        return stock_next_trampoline(automatic);
+    }
     int next = playback_successor(automatic);
     if (next < 0) {
         close_preload();
