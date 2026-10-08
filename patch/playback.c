@@ -13,7 +13,7 @@ extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_memory_trampoline(void *), stock_savequeue_trampoline(void),
     stock_change_trampoline(int);
 extern void *staged(int (*)(void *), void *, int *);
-extern int album_before(const void *, const void *);
+extern int album_before(const void *, const void *), album_cmp(void *, void *), folder_cmp(void *, void *);
 
 typedef struct {
     unsigned index, group, rank;
@@ -79,29 +79,13 @@ static void release(void) {
     s.n = s.hn = s.cursor = s.forced = s.force_end = 0;
     s.resume_key = s.resume_pending = s.resume_wait = 0;
 }
-static int same_group(void *a, void *b) {
-    const char *aa = P(a, REC_ALBUM), *ab = P(b, REC_ALBUM);
-    if (!s.folder && aa && *aa && ab && *ab) return !strcasecmp(aa, ab);
-    if (!s.folder && ((aa && *aa) || (ab && *ab))) return 0;
-    const char *pa = P(a, REC_PATH), *pb = P(b, REC_PATH);
-    const char *ea = strrchr(pa, '/'), *eb = strrchr(pb, '/');
-    unsigned na = ea ? (unsigned)(ea - pa) : 0, nb = eb ? (unsigned)(eb - pb) : 0;
-    return na == nb && !memcmp(pa, pb, na);
-}
-/* Total order matching same_group: tagged albums, then folders, then index. */
+/* Albums as Coverflow tells them apart (album_cmp: tagged albums first), or folders. */
+static int same_group(void *a, void *b) { return !(s.folder ? folder_cmp(a, b) : album_cmp(a, b)); }
+/* Total order matching same_group, then index. */
 static int group_before(const void *pa, const void *pb) {
     unsigned ia = ((const entry *)pa)->index, ib = ((const entry *)pb)->index;
     void *a = deque_at(queue(), ia), *b = deque_at(queue(), ib);
-    const char *aa = s.folder ? 0 : P(a, REC_ALBUM), *ab = s.folder ? 0 : P(b, REC_ALBUM);
-    int ta = aa && *aa, tb = ab && *ab, d = tb - ta;
-    if (!d && ta) d = strcasecmp(aa, ab);
-    if (!d && !ta) {
-        const char *pa = P(a, REC_PATH), *pb = P(b, REC_PATH);
-        const char *ea = strrchr(pa, '/'), *eb = strrchr(pb, '/');
-        unsigned na = ea ? (unsigned)(ea - pa) : 0, nb = eb ? (unsigned)(eb - pb) : 0;
-        d = memcmp(pa, pb, na < nb ? na : nb);
-        if (!d) d = na < nb ? -1 : na != nb;
-    }
+    int d = s.folder ? folder_cmp(a, b) : album_cmp(a, b);
     return d ? d : ia < ib ? -1 : ia != ib;
 }
 static int compare(const void *pa, const void *pb) {

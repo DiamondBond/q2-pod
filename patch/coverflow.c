@@ -220,6 +220,26 @@ static int albums(void *album) {
                  : getAllAlbum();
 }
 
+/* Albums apart, as ALBUM_SQL groups them: the name, then the album artist, else the folder, ASCII
+ * case aside but the folder's, so a compilation stays one album; tagged names first. Both shared
+ * with playback.c. */
+int folder_cmp(void *a, void *b) {
+    const char *pa = P(a, REC_PATH) ? P(a, REC_PATH) : "", *pb = P(b, REC_PATH) ? P(b, REC_PATH) : "";
+    const char *ea = strrchr(pa, '/'), *eb = strrchr(pb, '/');
+    unsigned na = ea ? (unsigned)(ea - pa) : 0, nb = eb ? (unsigned)(eb - pb) : 0;
+    int d = memcmp(pa, pb, na < nb ? na : nb);
+    return d ? d : na < nb ? -1 : na != nb;
+}
+int album_cmp(void *a, void *b) {
+    const char *x = P(a, REC_ALBUM), *y = P(b, REC_ALBUM);
+    int tx = x && *x, d = (y && *y) - tx;
+    if (d || (tx && (d = strcasecmp(x, y)))) return d;
+    x = P(a, REC_ALBUM_ARTIST), y = P(b, REC_ALBUM_ARTIST);
+    int ax = x && *x, ay = y && *y;
+    if (tx && (ax || ay)) return ay != ax ? ay - ax : strcasecmp(x, y);
+    return folder_cmp(a, b);
+}
+
 /* getAllAlbum ends with an "Unknown Album" row (id -1) whenever any album exists, even when every
  * song has an album tag. It goes when the query its card opens, getMusicByAlbum(NULL), finds no
  * song, as navigation.c's ringnav_localclass drops it from the Albums list. */
@@ -237,12 +257,13 @@ static void drop_unknown(void) {
  * Artist sorts by artist without a leading article, as every library list does (ringnav_sort_key),
  * then year, then album; Recently Added by the newest song's time_create; Most Played by the
  * album's listens (navigation.c album_plays). Ties keep the stock order, and the Unknown row stays
- * last. Ranks come from getAllAlbum's own row callback over the same grouping with another ORDER BY
- * (toolsQueryDbTable without its name sort), matched back to the stock rows by album name, case
- * aside, as the grouping is. */
+ * last. Ranks come from ALBUM_SQL with another ORDER BY (toolsQueryDbTable without its name sort),
+ * matched back to the rows by album_cmp. */
 enum { SORT_ALBUM, SORT_ARTIST, SORT_ADDED, SORT_PLAYED, SORT_N };
 #define SORT_FILE PEQ_ROOT "/mnt/data/ringnav-coversort"
-#define SORT_SQL "select id,album,songer,fileurl from songtable group by album COLLATE NOCASE order by "
+#define ALBUM_SQL "select id,album,songer,fileurl,albumsonger from songtable group by album COLLATE NOCASE," \
+    "ifnull(albumsonger,'') COLLATE NOCASE,case ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end"
+#define SORT_SQL ALBUM_SQL " order by "
 static const char *const sort_names[SORT_N] = { "Sort: Album", "Sort: Artist", "Sort: Recently Added",
                                                 "Sort: Most Played" };
 extern void album_plays(int (*album_of)(void *), unsigned *sum);
@@ -609,18 +630,46 @@ static const char *album_name(void *r) {
     const char *s = P(r, REC_ALBUM);
     return s ? s : "";
 }
-/* The stock row whose album r names, case aside, or -1: the Unknown row never matches. A linear
+/* The row of r's album (album_cmp), or -1: the Unknown row never matches. A linear
  * scan: the rank queries and play counts together look up at most the album count + 512 songs. */
 static int album_index(void *r) {
     unsigned n = cf.stock ? deque_size(cf.stock) : 0;
-    const char *name = album_name(r);
     for (unsigned i = 0; i < n; ++i) {
         void *s = deque_at(cf.stock, i);
-        if (I(s, REC_ID) != -1 && !strcasecmp(album_name(s), name)) return (int)i;
+        if (I(s, REC_ID) != -1 && !album_cmp(s, r)) return (int)i;
     }
     return -1;
 }
-static int rank_query(void *sql) { return toolsQueryDbTable("/mnt/data/database.db", sql, album_row, 0); }
+/* album_row on the first four columns, then the fifth, the album artist, on the row it added; the
+ * stSongInfo copy (0x5b3b1c) duplicates +0x24 as it does the other strings. */
+static int split_row(void *a, int n, char **v, char **c) {
+    void *dir = P(tools_pdeq_directory, 0);
+    unsigned k = deque_size(dir);
+    album_row(a, n - 1, v, c);
+    if (deque_size(dir) > k && v[4]) P(deque_at(dir, k), REC_ALBUM_ARTIST) = strdup(v[4]);
+    return 0;
+}
+static int rank_query(void *sql) { return toolsQueryDbTable("/mnt/data/database.db", sql, split_row, 0); }
+
+/* getAllAlbum groups by name alone, as stock's Albums list does: each of its rows becomes that
+ * name's ALBUM_SQL rows, in its place; a row the query missed stays. ponytail: a scan per row,
+ * albums squared; merge name-sorted lists if large libraries feel it. */
+static void *split(void *stock) {
+    int n;
+    void *rows = staged(rank_query, ALBUM_SQL, &n), *out = _create_deque("stSongInfo");
+    deque_init(out);
+    for (unsigned i = 0; i < deque_size(stock); ++i) {
+        void *r = deque_at(stock, i);
+        int found = 0;
+        for (unsigned j = 0; I(r, REC_ID) != -1 && j < deque_size(rows); ++j)
+            if (!strcasecmp(album_name(r), album_name(deque_at(rows, j))))
+                _deque_push_back(out, deque_at(rows, j)), found = 1;
+        if (!found) _deque_push_back(out, r);
+    }
+    deque_destroy(rows);
+    deque_destroy(stock);
+    return out;
+}
 static void rank_by(order_t *v, const char *sql) {
     int n;
     void *rows = staged(rank_query, (void *)sql, &n);
@@ -1218,6 +1267,7 @@ static void load(void) {
         n = (int)deque_size(cf.stock);
     else if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) {
         cf.stock = staged(albums, 0, &n);
+        if (n > 0) cf.stock = split(cf.stock);
         cf.albums_gen = gen;
         drop_unknown();
     }
@@ -1298,12 +1348,14 @@ int album_before(const void *pa, const void *pb) {
     return d ? d : I(a, REC_CUE_START) - I(b, REC_CUE_START);
 }
 
-/* The tracks in album order, in a new deque; stock's name order when out of memory. */
-static void *in_order(void *tracks) {
-    unsigned n = deque_size(tracks);
-    void **v = calloc(n + 1, sizeof *v);
+/* album's tracks (getMusicByAlbum finds every album of its name) in album order, in a new deque;
+ * all of them in stock's name order when out of memory. */
+static void *in_order(void *tracks, void *album) {
+    unsigned n = 0;
+    void **v = calloc(deque_size(tracks) + 1, sizeof *v);
     if (!v) return tracks;
-    for (unsigned i = 0; i < n; ++i) v[i] = deque_at(tracks, i);
+    for (unsigned i = 0; i < deque_size(tracks); ++i)
+        if (I(album, REC_ID) == -1 || !album_cmp(deque_at(tracks, i), album)) v[n++] = deque_at(tracks, i);
     qsort(v, n, sizeof *v, album_before);
     void *out = _create_deque("stSongInfo");
     deque_init(out);
@@ -1334,7 +1386,7 @@ const char *track_name(char *buf, unsigned size, void *t) {
 
 void *coverflow_album_tracks(void *r) {
     int n;
-    return in_order(staged(albums, r, &n));
+    return in_order(staged(albums, r, &n), r);
 }
 
 static int to_tracks(const void *unused) {

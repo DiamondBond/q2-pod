@@ -263,15 +263,18 @@ static void album(const char *name, const char *art) {
     *(char **)(r + REC_ARTIST) = "Artist";
     *(char **)(r + REC_PATH) = paths[albums++];
 }
-/* Stock appends an "Unknown Album" row (id -1) whenever any album exists; unknown_songs is what
-   its press, getMusicByAlbum(NULL), finds. */
+/* Stock groups albums by name alone, and appends an "Unknown Album" row (id -1) whenever any album
+   exists; unknown_songs is what its press, getMusicByAlbum(NULL), finds. */
 static int unknown_row, unknown_songs;
 static char unknown_record[0x60], untagged_song[0x60];
 int getAllAlbum(void) {
     deque *d = shim_dir;
     ++queries;
-    d->n = albums;
-    for (int i = 0; i < albums; ++i) d->at[i] = records[i];
+    d->n = 0;
+    for (int i = 0, j; i < albums; ++i) {
+        for (j = 0; j < i && strcasecmp(names[j], names[i]); ++j) {}
+        if (j == i) d->at[d->n++] = records[i];
+    }
     if (unknown_row && albums) {
         *(int *)(unknown_record + REC_ID) = -1;
         *(const char **)(unknown_record + REC_ALBUM) = "Unknown Album";
@@ -287,21 +290,32 @@ int getMusicByAlbum(const char *a) {
     if (!a) {
         ++unknown_queries;
         if (unknown_songs) d->at[d->n++] = untagged_song;
-    }
+    } else
+        for (int i = 0; i < albums; ++i)
+            if (!strcasecmp(names[i], a)) d->at[d->n++] = records[i]; /* each album's one song: its record */
     return (int)d->n;
 }
 
-/* Sort's ranking queries: getAllAlbum's row callback over the grouping in another order, here the
-   test's own order by name; a row may differ in case from the stock one, as the grouping allows. */
+/* The albums told apart (a record each), and Sort's ranking queries over that grouping in another
+   order, here the test's own order by name; a row may differ in case from the stock one, as the
+   grouping allows. */
 static const char *ranked[16];
 static char rank_rows[16][0x60];
 int album_row(void *a, int n, char **v, char **c) { (void)a; (void)n; (void)v; (void)c; return 0; }
 int toolsQueryDbTable(const char *db, const char *sql, void *row, int sort) {
-    assert(!strcmp(db, "/mnt/data/database.db") && row == (void *)album_row && !sort);
-    assert(strstr(sql, "group by album COLLATE NOCASE order by ") && (strstr(sql, "time_create") || strstr(sql, "year")));
+    (void)row;
+    assert(!strcmp(db, "/mnt/data/database.db") && !sort && strstr(sql, "group by album COLLATE NOCASE,ifnull(albumsonger"));
     deque *d = shim_dir;
     d->n = 0;
+    if (!strstr(sql, " order by ")) {
+        for (int i = 0; i < albums; ++i) d->at[d->n++] = records[i];
+        return albums;
+    }
+    assert(strstr(sql, "time_create") || strstr(sql, "year"));
     for (int i = 0; ranked[i]; ++i) {
+        memset(rank_rows[i], 0, 0x60);
+        for (int j = 0; j < albums; ++j)
+            if (!strcasecmp(names[j], ranked[i])) memcpy(rank_rows[i], records[j], 0x60);
         *(const char **)(rank_rows[i] + REC_ALBUM) = ranked[i];
         d->at[d->n++] = rank_rows[i];
     }
@@ -747,6 +761,38 @@ static void unknown_card(void) {
     rescan();
 }
 
+/* Baroness' and Stone Temple Pilots' "Purple": getAllAlbum's one row for the name becomes two cards,
+   each with its own art and only its own track. */
+static void same_name(void) {
+    extern void *coverflow_tracks(void *);
+    static const char *const who[2] = { "Baroness", "Stone Temple Pilots" };
+    album(who[0], "cover.jpg"), album(who[1], "cover.jpg"); /* their folders */
+    for (int i = 0; i < 2; ++i) {
+        snprintf(names[albums - 2 + i], 64, "Purple");
+        *(const char **)(records[albums - 2 + i] + REC_ARTIST) = who[i];
+        *(const char **)(records[albums - 2 + i] + REC_ALBUM_ARTIST) = who[i];
+    }
+    rescan();
+    free_blocks = 1 << 20;
+    open_page();
+    widget *s = slide();
+    assert(s->nkids == albums + 2);
+    for (int i = albums - 2; i < albums; ++i) {
+        char art[600];
+        snprintf(art, sizeof art, PEQ_ROOT "/mnt/mmc/.coverflow/%08x.jpg",
+                 fnv(fnv(FNV_SEED, (const unsigned char *)who[i - albums + 2]), (const unsigned char *)"Purple"));
+        assert(!access(art, 0));
+        w[s->kids[i]].click(w[s->kids[i]].ctx, 0);
+        run();
+        void *t = coverflow_tracks(page);
+        assert(!strcmp(title(), "Purple") && deque_size(t) == 1 && deque_at(t, 0) == records[i]);
+        key(KEY_RETURN);
+    }
+    close_page();
+    albums -= 2;
+    rescan();
+}
+
 int main(void) {
     /* Titles come from tags, unchanged; missing tags retain filename/CUE fallbacks. */
     char track[0x60] = {0}, name[512];
@@ -872,6 +918,7 @@ int main(void) {
     depth();
     sorting();
     unknown_card();
+    same_name();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the

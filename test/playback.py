@@ -137,12 +137,15 @@ for grouping in (0,1):
             if repeat in (1,4): assert set(m.sequence(0,10))<={0,2,6}
             checks+=1
 
-# Album identity crosses folders; folder grouping does not. Disc/track and CUE order differ
-# from source order, and categories keep their first appearance without shuffle.
+# Album identity (name, then album artist, else folder) crosses folders with an album artist;
+# folder grouping does not. Disc/track and CUE order differ from source order, and categories keep
+# their first appearance without shuffle.
 tracks=[('disc2','/x/01','SAME',2,1,0,0),('first','/x/02','same',1,1,0,0),
         ('other-folder','/y/01','Same',1,2,0,0),('unknown','/z/01','',0,0,0,0)]
-for folder,want in ((0,[1,2,0]),(1,[1])):
-    m=PlaybackMachine(); m.install(tracks,1); m.options(0,1,folder)
+for folder,artist,want in ((0,1,[1,2,0]),(1,1,[1]),(0,0,[1,0])):
+    m=PlaybackMachine(); m.install(tracks,1)
+    for r in m.items(m.get(syms['mcl_pdeqplaylist']))[:3*artist]: m.word(r+O['REC_ALBUM_ARTIST'],m.string('Artist'))
+    m.options(0,1,folder)
     assert m.sequence()==want
 m=PlaybackMachine(); m.install([('a','/a/1','A',0,0,0,0),('b','/b/1','B',0,0,0,0),('c','/c/1','C',0,0,0,0)],1)
 m.options(0,2,0); assert m.sequence()==[1,2]
