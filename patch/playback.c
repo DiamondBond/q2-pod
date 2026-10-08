@@ -6,7 +6,7 @@
 #include "stock.h"
 #define M(a) (*(volatile int *)(a))
 #define QUEUE_FILE "/mnt/data/ringnav-queue"
-#define QUEUE_LIMIT 16384
+#define QUEUE_LIMIT 65536
 #define HISTORY_LIMIT 4096
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_prev_trampoline(void), stock_mode_trampoline(int), stock_preload_trampoline(void),
@@ -87,6 +87,22 @@ static int same_group(void *a, void *b) {
     const char *ea = strrchr(pa, '/'), *eb = strrchr(pb, '/');
     unsigned na = ea ? (unsigned)(ea - pa) : 0, nb = eb ? (unsigned)(eb - pb) : 0;
     return na == nb && !memcmp(pa, pb, na);
+}
+/* Total order matching same_group: tagged albums, then folders, then index. */
+static int group_before(const void *pa, const void *pb) {
+    unsigned ia = ((const entry *)pa)->index, ib = ((const entry *)pb)->index;
+    void *a = deque_at(queue(), ia), *b = deque_at(queue(), ib);
+    const char *aa = s.folder ? 0 : P(a, REC_ALBUM), *ab = s.folder ? 0 : P(b, REC_ALBUM);
+    int ta = aa && *aa, tb = ab && *ab, d = tb - ta;
+    if (!d && ta) d = strcasecmp(aa, ab);
+    if (!d && !ta) {
+        const char *pa = P(a, REC_PATH), *pb = P(b, REC_PATH);
+        const char *ea = strrchr(pa, '/'), *eb = strrchr(pb, '/');
+        unsigned na = ea ? (unsigned)(ea - pa) : 0, nb = eb ? (unsigned)(eb - pb) : 0;
+        d = memcmp(pa, pb, na < nb ? na : nb);
+        if (!d) d = na < nb ? -1 : na != nb;
+    }
+    return d ? d : ia < ib ? -1 : ia != ib;
 }
 static int compare(const void *pa, const void *pb) {
     const entry *a = pa, *b = pb;
@@ -171,14 +187,13 @@ static int rebuild(int keep) {
     }
     if (oldseen) free(oldseen);
     if (oldhistory) free(oldhistory);
-    /* ponytail: grouping scans earlier records, O(n²); use a hash map if large queues lag. */
-    for (unsigned i = 0; i < n; ++i) {
-        groups[i] = i;
-        for (unsigned j = 0; j < i; ++j)
-            if (same_group(deque_at(queue(), i), deque_at(queue(), j))) {
-                groups[i] = groups[j];
-                break;
-            }
+    /* Sort by same_group's key; each run's group is its smallest index. cycle is scratch here. */
+    for (unsigned i = 0; i < n; ++i) cycle[i].index = i;
+    qsort(cycle, n, sizeof *cycle, group_before);
+    for (unsigned i = 0, first = 0; i < n; ++i) {
+        if (!i || !same_group(deque_at(queue(), cycle[i - 1].index), deque_at(queue(), cycle[i].index)))
+            first = cycle[i].index;
+        groups[cycle[i].index] = first;
     }
     make_order(order);
     unsigned at = (unsigned)M(MCL_POS), k = 0;

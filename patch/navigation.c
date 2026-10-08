@@ -2897,7 +2897,8 @@ static int shuffle_groups(void *ctx, void *event) {
     (void)event;
     int n;
     void *all = staged(all_songs, 0, &n);
-    if (!playback_groups(all, (int)(long)ctx)) toast("Update Local Music first");
+    if (!playback_groups(all, (int)(long)ctx))
+        toast(deque_size(all) ? "Too many songs to shuffle" : "Update Local Music first");
     deque_destroy(all);
     return 0;
 }
