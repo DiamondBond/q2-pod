@@ -2848,8 +2848,11 @@ static int qm_apply(void *add, int next) {
     unsigned size = deque_size(queue), type = (unsigned)MCL(MCL_TYPE), n = deque_size(add);
     /* Only a local (folder or library) queue grows; streams keep theirs. */
     if (size && type != 1 && (type & 0xf000) != 0xf000) return 0;
-    if (n && !size) /* loads without starting playback */
-        mclLoadPlayList(add, 0, st.qm_kind >= QM_FOLDER ? 1 : (int)st.qm_cls);
+    int album = st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_COVERALBUM;
+    if (n && !size) { /* loads without starting playback; only a real folder is class 1 */
+        if (album) album_memory(deque_at(add, 0));
+        mclLoadPlayList(add, 0, st.qm_kind == QM_FOLDER ? 1 : album ? 0xff10 : (int)st.qm_cls);
+    }
     else if (n)
         qm_insert(queue, add, size, next);
     return n != 0;
@@ -2874,7 +2877,7 @@ static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
         config_playmode(2, 1);
-        play_folder(all, toolsRandnum(size), 1);
+        play_folder(all, toolsRandnum(size), 0xf001);
     }
     return size;
 }
@@ -2959,10 +2962,10 @@ static unsigned listen_key(void *r) {
     return key | !key;
 }
 
-/* Most Played's row: the ranked list from that track, folder-played as Coverflow's. */
+/* Most Played's row: the ranked list from that track, as a library (not folder) queue. */
 static int mp_play(void *ctx, void *event) {
     (void)event;
-    play_folder(st.mp_list, (int)(long)ctx, 1);
+    play_folder(st.mp_list, (int)(long)ctx, 0xf001);
     return 0;
 }
 

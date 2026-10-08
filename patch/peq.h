@@ -101,6 +101,7 @@ void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int wr
 #define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", &(buf), sizeof(buf), write)
 int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
 void play_folder(void *dq, int idx, int cls);
+void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column, 0xRRGGBB */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);

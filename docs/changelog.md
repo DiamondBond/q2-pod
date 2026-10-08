@@ -1,5 +1,7 @@
 # Changelog
 
+- **V9.7**: Coverflow albums, Most Played and Shuffle Songs no longer jump to the next folder on disk with Folder Skip on, whether a track ends or you skip, so their last track no longer leads into untagged Unknown Artist/Album songs. Coverflow albums now resume as that album. Manual Next and Previous at either end of an advanced Q2 Pod queue follow its order, and manual Next past its end starts it again, as stock List Play does. Bluetooth **LDAC HQ** now sends 990 kbps; stock sent 660 kbps for both HQ and Standard, and Standard stays at 660 kbps.
+
 - **V9.6**: Library: one **Shuffle** row opens **Shuffle Songs**, **Shuffle Albums** and **Shuffle Folders**, with a note that shuffling albums or folders may take a while; picking one leaves the menu open for another. iPod: show a full green battery in the status bar while charging instead of a dark split through the fill.
 
 - **V9.5**: Fix scrobble uploads by supplying TLS trust roots in firmware; no card-side `.scrobble.pem` is needed. Add completed Last.fm and ListenBrainz `.scrobble.ini` examples and setup checks to the README. Use a separate 50–200% Wheel sensitivity choice menu with no slider protruding at the list end. Discard partial Bluetooth encoder PCM when skipping tracks, in addition to flushing old audio and resetting pacing; audible AAC and LDAC behavior still needs device testing.

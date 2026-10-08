@@ -10,7 +10,8 @@
 #define HISTORY_LIMIT 4096
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_prev_trampoline(void), stock_mode_trampoline(int), stock_preload_trampoline(void),
-    stock_memory_trampoline(void *), stock_savequeue_trampoline(void);
+    stock_memory_trampoline(void *), stock_savequeue_trampoline(void),
+    stock_change_trampoline(int);
 extern void *staged(int (*)(void *), void *, int *);
 extern int album_before(const void *, const void *);
 
@@ -260,7 +261,8 @@ int playback_groups(void *all, int folder) {
     playback_save();
     return 1;
 }
-/* Peek has no side effects, RNG or history writes. Manual next bypasses single-song rules. */
+/* Peek has no side effects, RNG or history writes. Manual next bypasses single-song rules and,
+ * as stock List Play's manual Next does, wraps at the end of the order. */
 int playback_successor(int automatic) {
     unsigned at = (unsigned)M(MCL_POS);
     if (!s.active || at >= s.n) return -1;
@@ -272,7 +274,7 @@ int playback_successor(int automatic) {
     for (unsigned i = s.cursor + 1; i < s.n; ++i)
         if (!s.seen[s.order[i].index] && (!category || s.groups[s.order[i].index] == s.groups[at]))
             return (int)s.order[i].index;
-    if (s.repeat < 3) return -1;
+    if (automatic && s.repeat < 3) return -1;
     for (unsigned i = 0; i < s.n; ++i)
         if (!category || s.groups[s.cycle[i].index] == s.groups[at]) return (int)s.cycle[i].index;
     return -1;
@@ -369,6 +371,21 @@ int ringnav_prev(void) {
         }
     s.dirty = 1;
     return mclStartPlayer();
+}
+/* Manual Next/Prev (player_change_music). At queue index 0 or n-1 stock wraps or loads a sibling
+ * folder itself; in Repeat All without Folder Skip every branch calls mclNextSong(0)/mclPrevSong,
+ * so advanced order applies. MCL_MODE is written directly: mclSetPlayMode would end advanced play. */
+int ringnav_change(int next) {
+    if (!s.active) return stock_change_trampoline(next);
+    volatile unsigned char *skip = (volatile unsigned char *)MCL_JUMPFOLDER;
+    int mode = M(MCL_MODE);
+    unsigned char was = *skip;
+    M(MCL_MODE) = 3;
+    *skip = 0;
+    int result = stock_change_trampoline(next);
+    M(MCL_MODE) = mode;
+    *skip = was;
+    return result;
 }
 int playback_group_skip(int forward) {
     if (!s.active && !playback_set(2, s.folder)) return 0;

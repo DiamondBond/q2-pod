@@ -1256,8 +1256,19 @@ static void load(void) {
         to_covers(0);
 }
 
+/* Album queues use stock's album class (0xff10), never folder class 1: Folder Skip only acts on
+ * class 1 and would load the next directory's untagged files. Stock resume rebuilds 0xff10 with
+ * getMusicByAlbum from the resume record's album, which player_load_songlist fills for stock lists. */
+void album_memory(void *r) {
+    const char *album = P(r, REC_ALBUM);
+    unsigned char *m = (unsigned char *)g_memory_info;
+    m[0x60d] = !album || !*album; /* Unknown album */
+    tk_snprintf((char *)m + 0x611, 0x100, "%s", album ? album : "");
+}
+
 /* Start a queue at idx with its playback class; playing_page copies dq synchronously. */
 void play_folder(void *dq, int idx, int cls) {
+    if (cls == 0xff10) album_memory(deque_at(dq, (unsigned)idx));
     struct {
         void *dq;
         int idx, cls, mode;
@@ -1273,7 +1284,7 @@ static int play(void *ctx, void *event) {
         widget_set_text_utf8(cf.title, "Storage unavailable");
         return 0;
     }
-    play_folder(cf.tracks, i, 1);
+    play_folder(cf.tracks, i, 0xff10);
     return 0;
 }
 

@@ -2837,7 +2837,7 @@ for kw in ({},{'cls':0xf003,'page':'album_page'}):
     assert sel(m)==[('batch_init_selectrecord',20),('batch_set_selectitem',1)] and m.names()==['A','B','C']; passed()
 # Shuffle plays the collection's songs from a random one with shuffle saved, as Shuffle Songs.
 m=QueueMachine(cls=0xf003,page='album_page'); assert m.run(2) is None
-assert m.opened[-1]==('playing_page',['T1','T2'],0,1,2) and [c[1:3] for c in m.calls if c[0]=='config_playmode']==[(2,1)]; passed()
+assert m.opened[-1]==('playing_page',['T1','T2'],0,0xf001,2) and [c[1:3] for c in m.calls if c[0]=='config_playmode']==[(2,1)]; passed()
 m=QueueMachine(cls=0xf003,page='album_page'); m.found=[]; assert m.run(2)=='Queue unchanged' and m.opened[-1][0]!='playing_page'; passed()
 # Go to album fills the album query as Now Playing's Album info and opens playerjumpinfo_page; Go to
 # artist opens artistinfo_page with {class, record}. Closing either puts the browsing state back.
@@ -2862,6 +2862,13 @@ for row,pos,closed in ((0,0,True),(1,0,False),(1,2,True)):
 demo=(B/'demo').read_bytes()
 assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_shuffle']>>2
 m=QueueMachine(mode=2); m.run(0,steps=5); assert m.names()==['A','Row 5','B','C']
+# LDAC: stock switchBtPriority sends quality 0x16 for both HQ and Standard; patched HQ sends 0x15.
+for patched,want in ((True,(0x15,0x16,0x18)),(False,(0x16,0x16,0x18))):
+    bt=Machine(patched); bt.mock('btctl_set_codec_priority','btctl_set_ldac_quality','btctl_set_sbc_quality')
+    for row,quality in enumerate(want):
+        assert bt.call(address=syms['switchBtPriority'],args=(row,0,0,0),gap=0)==1
+        assert [c[1] for c in bt.calls if c[0]=='btctl_set_ldac_quality']==[quality], (patched,row)
+    passed()
 # Bluetooth volume runs through the shared hook in both variants. Mock only headset I/O
 # and stock gain; device_set_volume itself executes its native output routing.
 class BtVolumeMachine(Machine):
@@ -3743,14 +3750,16 @@ assert not any(c[0].startswith('slide_menu_scroll_to_') for c in m.calls)
 m.clicks=[]; m.word(m.slide+O['SLIDE_INDEX'],1); assert m.confirm()==11 and m.clicks==[covers[1]]; passed()
 m.clicks=[]; assert Machine.release(m)==11 and Machine.release(m,100)==0 and m.screens==[0] and not m.clicks; passed()
 # The cover's click queries its tracks (staging restored) and lists them; a track hands playing_page
-# our deque with its index as folder play (class 1, mode 2); a missing file refuses.
+# our deque with its index as an album queue (class 0xff10, mode 2) and the album for stock resume;
+# a missing file refuses.
 m.byte(syms['g_backlight_status'],1); f,ctx=m.handler(covers[1],O['EVT_CLICK'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.advance(0)
 assert m.query[:2]==('getMusicByAlbum','Album 1') and m.names(m.get(syms['tools_pdeq_directory']))==['staged']
 rows=[w for w in m.nodes if m.nodes[w]['type']=='list_item' and m.alive(w)]; assert len(rows)==2
 assert not m.nodes[m.get(m.slide+O['W_PARENT'])]['visible']
 f,ctx=m.handler(rows[1],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-assert len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][2:]==(1,1,2)
+assert len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][2:]==(1,0xff10,2)
+assert m.text(syms['g_memory_info']+0x611)=='Album' and m.u.mem_read(syms['g_memory_info']+0x60d,1)==b'\0'
 dq=m.plays[-1][1]&0xffffffff; assert m.names(dq)==['T1','T2']; passed()
 m.missing=True; m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert len(m.plays)==1 and 'Storage unavailable' in m.texts(); passed()
 # Return: tracks -> covers on the same album, covers -> Home.
@@ -3803,7 +3812,7 @@ for invalidate in ('selection','closed','tracks'):
     m.pick(0); m.advance(0)
     assert m.names()==['A','B','C'] and m.toasts[-1][3]=='Queue unchanged'; passed()
 m=CoverflowMachine(); m.open(); m.tracks(2); m.key(); m.word(m.slide+O['SLIDE_INDEX'],1)
-assert m.run(2) is None and m.plays[-1][2] in (0,1) and m.plays[-1][3:]==(1,2) and m.play_names==['T1','T2']; passed()
+assert m.run(2) is None and m.plays[-1][2] in (0,1) and m.plays[-1][3:]==(0xf001,2) and m.play_names==['T1','T2']; passed()
 # Sorting leaves the utility card selected; the next album hold follows the reordered deque.
 m=CoverflowMachine(); m.word(m.albums[2]+O['REC_ARTIST'],m.string('Aardvark')); m.open(); m.tracks(3); m.slide=m.find('slide_menu'); m.press(100); assert m.hold()==0
 m.word(m.slide+O['SLIDE_INDEX'],0); m.press(101); assert m.hold()==11
@@ -3836,7 +3845,7 @@ m=CoverflowMachine(cls=O['CLASS_ALBUMS']); m.open(); view=m.tracks(); assert m.r
 assert [c[1:3] for c in m.calls if c[0]=='batch_add_file']==[(0xf001,0xf00a)] and [c[1] for c in m.calls if c[0]=='batch_init_selectrecord']==[2]
 assert [c[3] for c in m.calls if c[0]=='batch_add_file'][0]!=m.get(syms['p_deque_showlist']); passed()
 m=CoverflowMachine(queue=0,cls=O['CLASS_ALBUMS']); m.open(); m.tracks()
-assert m.run(1) is None and m.names()==['T1'] and m.mcl('MCL_TYPE')==1 and not m.playback(); passed()
+assert m.run(1) is None and m.names()==['T1'] and m.mcl('MCL_TYPE')==0xff10 and not m.playback(); passed()
 m=CoverflowMachine(mode=2); m.open(); m.tracks(); m.run(0)
 m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
 assert m.names()==['A','T1','B','C'] and m.mcl('MCL_POS')==1; passed()
@@ -4886,8 +4895,8 @@ def fnv(s,h=2166136261):
 
 # Shuffle and Most Played: after stock's 11 Local Music rows, more in the same widgets and styles,
 # moved first. The Shuffle row opens shuffle_page; its Shuffle Songs row saves shuffle as the
-# play-mode setting does and folder-plays every song from a random track, leaving the staging deque
-# as it was. Picks leave the page open; an empty library only says so. Most Played folder-plays the
+# play-mode setting does and plays every song (library class 0xf001) from a random track, leaving the staging deque
+# as it was. Picks leave the page open; an empty library only says so. Most Played plays the
 # counted songs, most played first, and leaves the play mode alone.
 class ShuffleMachine(CoverflowMachine):
     def __init__(self):
@@ -4952,7 +4961,7 @@ assert m.nodes[note]['type']=='hscroll_label' and m.nodes[note]['style:normal:te
 def called(n): return [c[1:3] for c in m.calls if c[0]==n]
 f0,ctx0=m.handler(rows[0],O['EVT_CLICK'])
 assert m.call(address=f0,args=(ctx0,m.event,0,0),gap=0)==0
-assert called('config_playmode')==[(2,1)] and [a for a,_ in called('toolsRandnum')]==[2] and m.plays==[('playing_page',m.plays[0][1],1,1,2)]
+assert called('config_playmode')==[(2,1)] and [a for a,_ in called('toolsRandnum')]==[2] and m.plays==[('playing_page',m.plays[0][1],1,0xf001,2)]
 assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts and m.top==page; passed()
 m.found=[]; m.plays=[]; m.calls=[]
 assert m.call(address=f0,args=(ctx0,m.event,0,0),gap=0)==0
@@ -4975,8 +4984,8 @@ assert m.call(address=fk,args=(ck,ev,0,0),gap=0)==11 and [c[0] for c in m.calls]
 m.close(); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.top!=page and m.nodes[m.top]['name']=='shuffle_page'; passed()
 # Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
 # press while it is open does nothing. Its rows are the top PLAYS_TOP, most played first and, among
-# equal counts, the most recently counted (earlier slot) first; a row folder-plays that ranked list
-# from itself, leaving the play mode alone.
+# equal counts, the most recently counted (earlier slot) first; a row plays that ranked list as a
+# library queue (0xf001) from itself, leaving the play mode alone.
 f,ctx=m.handler(m.nodes[top]['children'][0],O['EVT_CLICK'])
 m.found=[m.song(n) for n in ('T1','T2','T3')]; m.calls=[]; toasts=len(m.toasts)
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not m.plays and len(m.toasts)==toasts
@@ -5000,7 +5009,7 @@ assert m.nodes[detail]['style:normal:text_color']==-0x555556 and m.nodes[detail]
 assert m.get(detail+O['W_Y'])+m.get(detail+O['W_H'])<=64
 r=m.nodes[m.find('scroll_view')]['children'][2]; g,c=m.handler(r,O['EVT_CLICK'])
 assert m.call(address=g,args=(c,m.event,0,0),gap=0)==0
-assert m.queued==ranked and m.plays==[('playing_page',m.plays[0][1],2,1,2)] and not called('config_playmode'); passed()
+assert m.queued==ranked and m.plays==[('playing_page',m.plays[0][1],2,0xf001,2)] and not called('config_playmode'); passed()
 # A Play/Pause hold on a row opens the song menu, as Coverflow's tracks do, over the ranked list.
 m.handlers[syms['navigator_to']]='q:navigator_to'; view=m.find('scroll_view'); m.paint(view); m.call()
 m.press(100); assert m.hold()==11 and m.nodes[m.title]['text']=='T7' and m.release()==0

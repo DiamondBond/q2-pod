@@ -288,6 +288,7 @@
 #define MCL_TYPE 0xa3bea0       /* queue classType: 1 folder, 0xfxxx local */
 #define MCL_POS 0xa3bea4
 #define MCL_MODE 0xa3bea8       /* 0 order, 1 repeat one, 2 shuffle, 3 repeat all */
+#define MCL_JUMPFOLDER 0xa3be53 /* byte: Folder Skip, read only for class 1 queues */
 #define MCL_FD 0xa3beb4         /* player socket, -1 none */
 /* mclUsbAudioSetVol (0x5ac574): the USB DAC's volume control, -1 before the first set, -2 when it
  * has none and hciplayer's soft volume (mcl-softvolflag) applies instead (0x5a8498 opens hw:1). */

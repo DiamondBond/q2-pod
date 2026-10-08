@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '9.6'
+VERSION = '9.7'
 # The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
 # the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
 VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
@@ -48,6 +48,8 @@ HOOKS = {
     'mclNextSong': (0x5adbbc, 'ringnav_next'),
     'mclPrevSong': (0x5ada98, 'ringnav_prev'),
     'mclSetPlayMode': (0x5ab25c, 'ringnav_mode'),
+    # Manual Next/Prev: at the queue ends stock wraps or loads the next folder without mclNextSong
+    'player_change_music': (0x51503c, 'ringnav_change'),
     'mcl_preload': (0x5a8c1c, 'ringnav_preload'),
     'memeory_startplayer': (0x5164e0, 'ringnav_memory'),
     'systemset_powermanager_page_init': (0x4c72d0, 'ringnav_powermanager'),
@@ -71,7 +73,8 @@ TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'loa
                'delete_song': 'deleteMusicFromMusicDb', 'sleep': 'main_loop_sleep_default',
                'about': 'systemset_about_page_init', 'folder': 'folder_page_init', 'folder_back': 'folder_back',
                'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch',
-               'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init'}
+               'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init',
+               'change': 'player_change_music'}
 # Every audited stock PIC prologue resolves this GOT base.
 GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
@@ -148,6 +151,14 @@ SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a
 # The bal toolsTrimLeft on each name copy in the two library name comparators (0x5b9d40, 0x5ba658, the
 # Chinese and other-language sorts); they become jal ringnav_sort_key, which also drops a leading article.
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
+# switchBtPriority sends LDAC quality 0x16 (SQ, 660 kbps) for both HQ (row 0) and Standard (row 1).
+# The dispatch keeps 0x15 + row in its free 0x14($sp) slot, so HQ sends 0x15 (990 kbps); see docs/internals.md.
+LDAC_HQ = ((0x4f033c, 0x00042080, 0x00041880),   # sll $3,$4,2
+           (0x4f0340, 0x2442f030, 0x00431021),   # addu $2,$2,$3
+           (0x4f0344, 0x00442021, 0x8c42f030),   # lw $2,-0xfd0($2)
+           (0x4f0348, 0x8c820000, 0x24840015),   # addiu $4,$4,0x15
+           (0x4f0354, 0x00000000, 0xafa40014),   # sw $4,0x14($sp), jr's delay slot
+           (0x4f0360, 0x24040016, 0x8fa40014))   # lw $4,0x14($sp), was li $4,0x16
 # check_mem_thd's "open failed, skip the write" beq becomes b: it never writes 3 to drop_caches.
 DROP_CACHES = (0x5120a8, 0x12220006, 0x10000006)
 # The knob's travel per tick: get_direction's threshold (knob units, 200 a turn) in the rotation
@@ -660,6 +671,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, *SHUFFLE_CALL, 0x0c000000 | (ps['ringnav_shuffle'] >> 2),
                'shuffle honours Play next')
     patch_word(patched, *DROP_CACHES, 'keep the page cache')
+    for address, old, new in LDAC_HQ:
+        patch_word(patched, address, old, new, 'LDAC HQ sends 990 kbps')
     for address, old in WHEEL_THRESHOLDS:
         patch_word(patched, address, old, old & 0xffff0000 | round((old & 0xffff) * WHEEL_TRAVEL),
                    'wheel travel per tick')

@@ -34,6 +34,8 @@ extern char shim_lastcover[1024], shim_id3[2716];
 #define g_lastcover_url ((const unsigned char *)shim_lastcover)
 #define g_play_id3_info ((const unsigned char *)shim_id3)
 #define g_playcover_type shim_covertype
+extern unsigned char shim_memory[0x800];
+#define g_memory_info shim_memory
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
 getAllAlbum getMusicByAlbum toolsQueryDbTable album_row toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
@@ -354,6 +356,7 @@ int shim_statfs(const char *p, void *out) {
 }
 
 void *shim_queue;
+unsigned char shim_memory[0x800]; /* g_memory_info, which album_memory fills */
 unsigned char shim_covertype;
 char shim_lastcover[1024], shim_id3[2716];
 static widget *page;

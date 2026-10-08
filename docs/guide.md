@@ -29,6 +29,7 @@ Charge limit applies while the Q2 is on; charging while it's powered off is stoc
 - **Home:** a list (Now Playing, Library, Coverflow…) beside the playing track's cover, instead of the carousel.
 - **Lists:** four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
 - **Status bar:** play state, EQ, time, Bluetooth, Wi-Fi, battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
+- **Bluetooth quality:** LDAC HQ is 990 kbps (909 for 44.1 kHz music), LDAC Standard 660 (606), and LDAC Connection (auto) adapts the bit rate to the connection. Rockbox uses the last choice made here.
 - **Now Playing:** "3 of 12", large rounded cover beside title, artist and album, and a slim accent progress capsule.
 - **Visualizer:** swipe Now Playing to its fourth page: Spectrum, Oscilloscope, VU Meters or Halo. Tap to switch; your choice is kept. It follows what you hear, EQ included.
 - **Quick settings:** pull down from the top edge.
@@ -70,7 +71,7 @@ On **Now Playing**, hold **Play/Pause** for **Shuffle**, **Repeat** and **Group 
 
 Album groups use the album name, ignoring case; untagged songs use their parent folder. Albums play in disc, track, path and CUE-start order. Folder groups use the immediate parent directory and play in path and CUE-start order. **Library → Shuffle → Shuffle Albums / Shuffle Folders** loads all scanned songs and shuffles those groups, which can take a while on a large library. Existing collection Shuffle actions still shuffle all collected songs. **Next album / Previous album** in the hold menu skips the remaining group or returns to the start of the previously played group; folder grouping shows **Next folder / Previous folder**. Choosing a stock play mode clears the advanced options.
 
-Advanced queues, options, traversal and history restore after reboot from `/mnt/data/ringnav-queue`; missing files are skipped. Restored queues keep their Library or Folder playback origin, so Folder Skip applies only to Folder playback. **Memory playback → Location** restores elapsed time, **Track** starts at the beginning, and **In-Vehicle mode** plays automatically. Invalid snapshots fall back to stock resume. Queues up to 16,384 occurrences can use advanced playback. Long Songs is deferred.
+Advanced queues, options, traversal and history restore after reboot from `/mnt/data/ringnav-queue`; missing files are skipped. Restored queues keep their Library or Folder playback origin, so Folder Skip applies only to Folder playback; Coverflow albums, Most Played and Shuffle Songs are never folder plays. **Memory playback → Location** restores elapsed time, **Track** starts at the beginning, and **In-Vehicle mode** plays automatically. Invalid snapshots fall back to stock resume. Queues up to 16,384 occurrences can use advanced playback. Long Songs is deferred.
 
 **Wheel sensitivity** changes scrolling and wheel volume, including screen-off volume and video controls. Drag its slider or press centre on its row, turn the wheel, then press centre or Return to finish. A higher percentage needs less wheel travel; volume still changes one step per event. The setting persists as `Q2POD/WHEELSENSITIVITY`.
 

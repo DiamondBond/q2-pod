@@ -435,4 +435,38 @@ for threshold in (12,24):
             assert m.fn('ringnav_direction',now,before,threshold)==want
 checks+=1
 
+# Manual Next/Prev at the queue ends runs stock player_change_music through ringnav_change. Stock
+# keeps Folder Skip's sibling folder for class 1 and wraps other classes; advanced playback takes
+# mclNextSong/mclPrevSong, then restores MCL_MODE and Folder Skip. Its tail notifications are mocked.
+class ChangeMachine(PlaybackMachine):
+    TAIL=('strncmp@GLIBC_2.0','strcpy@GLIBC_2.0','toolsCheckMount','config_outputchannel','toolsLoadNextDir',
+          'toolsLoadPrevDir','player_refresh_playqueue','mclSetPlayPos','player_get_id3info','notifyPlayStatus',
+          'dmrNotifyPlayStatus','sendBtHeadsetPlayStatus','notifyPlayInfo','sendBtHeadsetPlayInfo',
+          'notifyRefreshLyric','dlnaRenderSaveUrlMetadata','reset_repeatinfo','initializeDmrQCurrentInfo')
+    def __init__(self):
+        super().__init__(); self.seen=[]
+        for n in self.TAIL: self.handlers[syms[n]]='x:'+n.split('@')[0]
+    def hook(self,u,address,size,unused):
+        if address in (syms['mclNextSong'],syms['mclPrevSong']): self.seen.append(self.handlers.get(address,'mcl'))
+        name=self.handlers.get(address,'')
+        if not name.startswith('x:'): return super().hook(u,address,size,unused)
+        name=name[2:]; a=u.reg_read(REGS[0]); self.seen.append((name,a) if name=='mclSetPlayPos' else name)
+        ret=1 if name in ('toolsCheckMount','toolsLoadNextDir','toolsLoadPrevDir','player_refresh_playqueue') else 0
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+for nxt,pos,wrap,folder in ((1,6,0,'toolsLoadNextDir'),(0,0,6,'toolsLoadPrevDir')):
+    for active in (0,1):
+        for cls in (1,0xff10,0xf001):
+            m=ChangeMachine()
+            if active: m.options(0,2,0); want=m.fn('playback_successor',0) if nxt else None
+            m.word(O['MCL_TYPE'],cls); m.word(O['MCL_POS'],pos); m.word(O['MCL_MODE'],0); m.byte(O['MCL_JUMPFOLDER'],1)
+            assert signed(m.call(address=syms['player_change_music'],args=(nxt,0,0,0),gap=0))==1
+            if active:
+                assert 'mcl' in m.seen and folder not in m.seen and not any(type(e) is tuple for e in m.seen), m.seen
+                assert m.mcl('MCL_MODE')==0 and m.u.mem_read(O['MCL_JUMPFOLDER'],1)==b'\1'
+                assert not nxt or m.current()==want
+            elif cls==1: assert folder in m.seen, m.seen
+            else: assert folder not in m.seen and ('mclSetPlayPos',wrap) in m.seen, m.seen
+            checks+=1
+
 print(f'{checks} advanced playback/wheel MIPS checks passed ({variant})')
