@@ -30,7 +30,8 @@ extern int books_key(void *top, unsigned key), video_on(void);
 extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
-extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent);
+extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
+    scrobble_album_artist(void);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 extern volatile unsigned library_gen;
@@ -3647,7 +3648,8 @@ static void play_count(void *r, unsigned key) {
 
 /* Scrobbling (docs/internals.md#scrobbling): a Rockbox-style AudioScrobbler 1.1 log at the card's
  * root, for any .scrobbler.log uploader or Upload Scrobbles (scrobble.c). Artist and album are the
- * player's parsed tags when it has parsed this track (now_tag); untagged (artist-less) tracks are
+ * player's parsed tags when it has parsed this track (now_tag), or with .scrobble.ini's
+ * ALBUM_ARTIST the library's album artist when the song has one; untagged (artist-less) tracks are
  * skipped, as scrobblers reject them. */
 static char *scrobble_tag(char *o, char *end, const char *s) {
     for (; s && *s && o < end - 1; s++) *o++ = *s == '\t' || *s == '\n' || *s == '\r' ? ' ' : *s;
@@ -3656,7 +3658,8 @@ static char *scrobble_tag(char *o, char *end, const char *s) {
 }
 
 static void scrobble(void *r, int total, int heard) {
-    const char *artist = now_tag(r, REC_ARTIST);
+    const char *artist = now_tag(r, REC_ARTIST), *album_artist = P(r, REC_ALBUM_ARTIST);
+    if (album_artist && *album_artist && scrobble_album_artist()) artist = album_artist;
     if (!artist || !*artist) return;
     long now = time((void *)0);
     if (now < 1600000000) return; /* clock never set: Last.fm would reject the time */

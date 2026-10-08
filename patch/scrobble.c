@@ -56,6 +56,14 @@ int scrobble_ready(void) {
     return read_config(c);
 }
 
+/* [SCROBBLE] ALBUM_ARTIST=1: listens log the album artist in place of the artist, for tags whose
+ * artist carries "feat." guests. */
+int scrobble_album_artist(void) {
+    char v[256] = "";
+    toolsReadConfig(INI_FILE, "SCROBBLE", "ALBUM_ARTIST", v, "");
+    return atoi(v) == 1;
+}
+
 /* The UI thread's listen; the upload's rewrite holds the same lock. */
 void scrobble_append(const char *line, unsigned n) {
     pthread_mutex_lock(up.lock);

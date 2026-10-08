@@ -153,6 +153,15 @@ Copy your user token from [ListenBrainz settings](https://listenbrainz.org/setti
 
 To upload to both services, put both completed sections in the same file, separated by a blank line. Otherwise leave out the entire unused section: a placeholder token still counts as an account, and its failures stop every upload. The file contains plain-text credentials, so keep the card to yourself.
 
+**Album artist instead of artist (optional):** if your Artist tags carry guests ("Artist feat. Guest") and you'd rather scrobble the album's artist, add this section. Songs without an Album Artist tag still scrobble their Artist. A compilation tagged "Various Artists" scrobbles as that, so leave this out if you have those.
+
+```ini
+[SCROBBLE]
+ALBUM_ARTIST=1
+```
+
+It applies to songs you listen to from then on; listens already in `.scrobbler.log` keep their artist.
+
 Safely eject the card, put it in the Q2 and reopen **Library**. **Upload Scrobbles** appears just above **Update Local Music** when a ListenBrainz token or all four Last.fm fields are present. Connect to Wi-Fi, then select **Upload Scrobbles**. If the row is missing, check the filename, section headings and required fields first.
 
 V9.5 includes the certificates needed for verified TLS uploads; no `.scrobble.pem` file is needed on the card. A certificate or storage failure keeps pending listens. Uploads need listens in `.scrobbler.log`: play a tagged song for at least half its length or four minutes, whichever comes first. Set the Q2's date and time correctly before listening.

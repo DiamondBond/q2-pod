@@ -786,16 +786,17 @@ SCROBBLE = r"""
 #include <assert.h>
 #include <stdarg.h>
 #include "peq.h"
-int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *);
+int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *), scrobble_album_artist(void);
 void scrobble_append(const char *, unsigned);
 
-static const char *cfg[5]; /* TOKEN, USER, PASSWORD, API_KEY, API_SECRET */
+static const char *cfg[6]; /* TOKEN, USER, PASSWORD, API_KEY, API_SECRET, ALBUM_ARTIST */
 int toolsReadConfig(const char *path, const char *section, const char *key, char *out, const char *def) {
-    static const char *const keys[] = { "TOKEN", "USER", "PASSWORD", "API_KEY", "API_SECRET" };
+    static const char *const keys[] = { "TOKEN", "USER", "PASSWORD", "API_KEY", "API_SECRET", "ALBUM_ARTIST" };
+    static const char *const sections[] = { "LISTENBRAINZ", "LASTFM", "LASTFM", "LASTFM", "LASTFM", "SCROBBLE" };
     (void)def;
     assert(strstr(path, "/mnt/mmc/.scrobble.ini"));
-    for (int i = 0; i < 5; i++)
-        if (!strcmp(key, keys[i]) && !strcmp(section, i ? "LASTFM" : "LISTENBRAINZ") && cfg[i]) { strcpy(out, cfg[i]); return 1; }
+    for (int i = 0; i < 6; i++)
+        if (!strcmp(key, keys[i]) && !strcmp(section, sections[i]) && cfg[i]) { strcpy(out, cfg[i]); return 1; }
     return -1; /* stock leaves out alone for a missing file or key */
 }
 
@@ -887,6 +888,11 @@ int main(void) {
     dump = fopen(ROOT "/requests", "w");
     setvbuf(dump, 0, _IONBF, 0);
     assert(!scrobble_ready() && run(&sent) == -11); /* no accounts: no row, and never an upload */
+    assert(!scrobble_album_artist()); /* [SCROBBLE] ALBUM_ARTIST: off unless 1 */
+    cfg[5] = "0";
+    assert(!scrobble_album_artist());
+    cfg[5] = "1";
+    assert(scrobble_album_artist() && !scrobble_ready()); /* not an account */
     cfg[0] = "tok";
     assert(scrobble_ready() == 1);
     cfg[1] = "u", cfg[2] = "p&w", cfg[3] = "key";
