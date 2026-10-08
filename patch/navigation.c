@@ -138,7 +138,7 @@ typedef struct {
     int sel_row, sel_y;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
-    unsigned clock_key; /* the clock's minute of the day + 1; 0 before the first, ~0 for --:-- */
+    unsigned clock_key; /* minute + 1 and format bit; 0 before the first, ~0 for --:-- */
     /* The status bar's Bluetooth, Wi-Fi and battery widgets, looked up once (the bar is never
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
      * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
@@ -1613,20 +1613,23 @@ int ringnav_audioset(void *win, void *ctx) {
 }
 
 #if IPOD
-/* The status bar's centred label shows the device's local time as 6:14 PM: 12-hour, without
- * seconds or a leading zero, or --:-- when the time cannot be read. The bar repaints at least once
+/* The status bar's centred label follows stock's 24-hour setting (18:14 or 6:14 PM), without
+ * seconds, or --:-- when the time cannot be read. The bar repaints at least once
  * a second (systembar_showface), and the label is written only when the minute shown changes.
  * struct tm: tm_min @4, tm_hour @8. */
 static void clock_sync(void *bar) {
     long now = time((void *)0);
     const int *tm = now == -1 ? (void *)0 : localtime(&now);
     int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
-    unsigned key = ok ? (unsigned)(tm[2] * 60 + tm[1]) + 1 : ~0u; /* 0 before the first */
+    int full = g_time24h_flag != 0;
+    unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11 : ~0u; /* 0 before the first */
     void *label = key == st.clock_key ? (void *)0 : widget_lookup(bar, "label_clock", 1);
     if (!label) return;
     st.clock_key = key;
     char s[16] = "--:--";
-    if (ok)
+    if (ok && full)
+        tk_snprintf(s, sizeof s, "%02d:%02d", tm[2], tm[1]);
+    else if (ok)
         tk_snprintf(s, sizeof s, "%d:%02d %s", (tm[2] + 11) % 12 + 1, tm[1],
                     tm[2] < 12 ? "AM" : "PM");
     widget_set_text_utf8(label, s);

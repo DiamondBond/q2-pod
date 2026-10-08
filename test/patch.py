@@ -686,6 +686,15 @@ else:
     # Repaints within the minute leave the label alone; the next minute rewrites it.
     bg(bar); assert not writes(); passed()
     s.clock=(0,0); bg(bar); assert clock()=='12:00 AM' and len(writes())==1; passed()
+    # Stock's 24-hour toggle updates within the same minute, including leading zeroes.
+    s.u.mem_write(syms['g_time24h_flag'], b'\x01')
+    bg(bar); assert clock()=='00:00' and len(writes())==1
+    bg(bar); assert not writes()
+    for h,mi,want in ((0,5,'00:05'),(9,7,'09:07'),(12,0,'12:00'),(18,14,'18:14'),(23,59,'23:59')):
+        s.clock=(h,mi); bg(bar); assert clock()==want,(h,mi,clock())
+    s.u.mem_write(syms['g_time24h_flag'], b'\x00')
+    bg(bar); assert clock()=='11:59 PM' and len(writes())==1
+    bg(bar); assert not writes(); passed()
     # A failed time or localtime shows --:-- once; the clock comes back when it reads again.
     for fail in ('time','localtime'):
         s.clock=fail; bg(bar); assert clock()=='--:--' and len(writes())==1
