@@ -436,8 +436,8 @@ for threshold in (12,24):
 checks+=1
 
 # Manual Next/Prev at the queue ends runs stock player_change_music through ringnav_change. Stock
-# keeps Folder Skip's sibling folder for class 1 and wraps other classes; advanced playback takes
-# mclNextSong/mclPrevSong, then restores MCL_MODE and Folder Skip. Its tail notifications are mocked.
+# keeps Folder Skip's sibling folder for class 1; other classes stop at the end (Next) or wrap (Prev); advanced
+# playback takes mclNextSong/mclPrevSong, then restores MCL_MODE and Folder Skip. Its tail notifications are mocked.
 class ChangeMachine(PlaybackMachine):
     TAIL=('strncmp@GLIBC_2.0','strcpy@GLIBC_2.0','toolsCheckMount','config_outputchannel','toolsLoadNextDir',
           'toolsLoadPrevDir','player_refresh_playqueue','mclSetPlayPos','player_get_id3info','notifyPlayStatus',
@@ -460,12 +460,14 @@ for nxt,pos,wrap,folder in ((1,6,0,'toolsLoadNextDir'),(0,0,6,'toolsLoadPrevDir'
             m=ChangeMachine()
             if active: m.options(0,2,0); want=m.fn('playback_successor',0) if nxt else None
             m.word(O['MCL_TYPE'],cls); m.word(O['MCL_POS'],pos); m.word(O['MCL_MODE'],0); m.byte(O['MCL_JUMPFOLDER'],1)
-            assert signed(m.call(address=syms['player_change_music'],args=(nxt,0,0,0),gap=0))==1
+            stop=not active and nxt and cls!=1 # List Play stops a library queue's manual Next at its end
+            assert signed(m.call(address=syms['player_change_music'],args=(nxt,0,0,0),gap=0))==(0 if stop else 1)
             if active:
                 assert 'mcl' in m.seen and folder not in m.seen and not any(type(e) is tuple for e in m.seen), m.seen
                 assert m.mcl('MCL_MODE')==0 and m.u.mem_read(O['MCL_JUMPFOLDER'],1)==b'\1'
                 assert not nxt or m.current()==want
             elif cls==1: assert folder in m.seen, m.seen
+            elif stop: assert m.stops==1 and folder not in m.seen and not any(type(e) is tuple for e in m.seen), m.seen
             else: assert folder not in m.seen and ('mclSetPlayPos',wrap) in m.seen, m.seen
             checks+=1
 

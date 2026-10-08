@@ -261,8 +261,7 @@ int playback_groups(void *all, int folder) {
     playback_save();
     return 1;
 }
-/* Peek has no side effects, RNG or history writes. Manual next bypasses single-song rules and,
- * as stock List Play's manual Next does, wraps at the end of the order. */
+/* Peek has no side effects, RNG or history writes. Manual next bypasses single-song rules. */
 int playback_successor(int automatic) {
     unsigned at = (unsigned)M(MCL_POS);
     if (!s.active || at >= s.n) return -1;
@@ -274,7 +273,7 @@ int playback_successor(int automatic) {
     for (unsigned i = s.cursor + 1; i < s.n; ++i)
         if (!s.seen[s.order[i].index] && (!category || s.groups[s.order[i].index] == s.groups[at]))
             return (int)s.order[i].index;
-    if (automatic && s.repeat < 3) return -1;
+    if (s.repeat < 3) return -1;
     for (unsigned i = 0; i < s.n; ++i)
         if (!category || s.groups[s.cycle[i].index] == s.groups[at]) return (int)s.cycle[i].index;
     return -1;
@@ -332,11 +331,15 @@ int ringnav_mode(int mode) {
     unlink(QUEUE_FILE);
     return stock_mode_trampoline(mode);
 }
+/* List Play on a library queue's last track. Stock stops there at a natural end, but its manual
+ * Next wraps to the first track (player_change_music, without mclNextSong); both stop instead. */
+static int list_end(void) {
+    return M(MCL_MODE) == 0 && (M(MCL_TYPE) & 0xf000) == 0xf000 && queue() && M(MCL_POS) >= 0 &&
+           (unsigned)M(MCL_POS) + 1 == deque_size(queue());
+}
 int ringnav_next(int automatic) {
     if (!s.active) {
-        /* Stock stops List Play at the end, but manual Next then restarts it. */
-        if (M(MCL_MODE) == 0 && (M(MCL_TYPE) & 0xf000) == 0xf000 && queue() &&
-            M(MCL_POS) >= 0 && (unsigned)M(MCL_POS) + 1 == deque_size(queue())) {
+        if (list_end()) {
             close_preload();
             mclStop();
             return -1;
@@ -372,11 +375,16 @@ int ringnav_prev(void) {
     s.dirty = 1;
     return mclStartPlayer();
 }
-/* Manual Next/Prev (player_change_music). At queue index 0 or n-1 stock wraps or loads a sibling
- * folder itself; in Repeat All without Folder Skip every branch calls mclNextSong(0)/mclPrevSong,
- * so advanced order applies. MCL_MODE is written directly: mclSetPlayMode would end advanced play. */
+/* Manual Next/Prev (player_change_music). List Play stops at a library queue's end, as above. At
+ * queue index 0 or n-1 stock wraps or loads a sibling folder itself; in Repeat All without Folder
+ * Skip every branch calls mclNextSong(0)/mclPrevSong, so advanced order applies. MCL_MODE is
+ * written directly: mclSetPlayMode would end advanced play. */
 int ringnav_change(int next) {
-    if (!s.active) return stock_change_trampoline(next);
+    if (!s.active) {
+        if (!next || !list_end()) return stock_change_trampoline(next);
+        ringnav_next(0); /* stops */
+        return 0;        /* the caller toasts -1 (no storage) and -5 */
+    }
     volatile unsigned char *skip = (volatile unsigned char *)MCL_JUMPFOLDER;
     int mode = M(MCL_MODE);
     unsigned char was = *skip;
