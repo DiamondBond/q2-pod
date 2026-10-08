@@ -649,6 +649,13 @@ def patch_code(data, symbols):
     changes = []
     word = functools.partial(patch_word, data, changes=changes)
 
+    # Lookup song handlers loop until Now Playing is on top; animated Back cannot finish
+    # until they return. Close each named page synchronously with stock navigator_close.
+    for address, name_slot in ((0x4a6250, 0x468), (0x4ad458, 0x468), (0x526e70, 0x420)):
+        word(address, 0x8f99aeb0, 0x8f99a8f8, 'lookup unwind uses navigator_close')
+        word(address + 4, 0x0320f809, 0x0320f809, 'lookup close call')
+        word(address + 8, 0, 0x8fa40000 | name_slot, 'lookup close receives the top window name')
+
     for group in AUDIT['immediates']:
         value = {'pitch': PITCH, 'body': BODY, 'art': ART, 'art_inset': ART_INSET,
                  'scroll': BOTTOM - 50, 'np_bar_x': NP_BAR[0], 'np_bar_w': NP_BAR[2]}.get(group['value'], group['value'])

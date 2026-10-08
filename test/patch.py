@@ -2593,6 +2593,69 @@ class QueueMachine(Machine):
     def playback(self): return [c for c in self.calls if c[0] in ('mclStartPlayer','mclStop','mclSetPause','mclSetResume','mclSetSeek','playpause_quick_click')]
 
 sel=lambda m:[c[:2] for c in m.calls if c[0].startswith('batch_')]
+
+# Lookup playback must unwind animated pages synchronously: navigator_back only schedules a
+# close, so a stock loop waiting for the top window to change starves the animation forever.
+class LookupMachine(QueueMachine):
+    def __init__(self, pages, selected=1, lookup=True):
+        super().__init__(rows=3)
+        self.selected=selected; self.closed=[]; self.backs=0
+        self.stack=[self.node('window',name) for name in pages]; self.top=self.stack[-1]
+        for w in self.stack: self.word(w+0x10,self.string(self.nodes[w]['name']))
+        self.byte(syms['g_songerinfo_flag'],int(lookup)); self.byte(syms['g_navbar_status'],0)
+        for name in ('navigator_back','navigator_close'): self.handlers.pop(syms[name],None)
+        self.mock('widget_get_window','widget_child','window_manager_back','window_manager_close_window_force',
+                  'window_close','navigator_window_is_exist','strstr@GLIBC_2.0','strcpy@GLIBC_2.0',
+                  'strtok@GLIBC_2.0','access@GLIBC_2.0','player_load_songlist','table_row_of',prefix='lookup:')
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('lookup:'): return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address
+        name=name[7:]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='widget_get_window': ret=self.top
+        elif name=='widget_child': ret=next((w for w in self.stack if self.nodes[w]['name']==self.text(b)),0)
+        elif name=='navigator_window_is_exist': ret=int(any(self.nodes[w]['name']==self.text(a) for w in self.stack))
+        elif name=='window_manager_back':
+            self.backs+=1
+            if variant!='ipod': self.stack.pop(); self.top=self.stack[-1]
+            # iPod close animation needs the main loop: no top-window change inside this callback.
+        elif name in ('window_manager_close_window_force','window_close'):
+            w=b if name=='window_manager_close_window_force' else a
+            self.closed.append(self.nodes[w]['name']); self.stack.remove(w); self.top=self.stack[-1]
+        elif name=='strstr@GLIBC_2.0':
+            i=self.text(a).find(self.text(b)); ret=a+i if i>=0 else 0
+        elif name=='strcpy@GLIBC_2.0': self.u.mem_write(a,self.text(b).encode()+b'\0'); ret=a
+        elif name=='strtok@GLIBC_2.0':
+            if a: self.token=a
+            ret=self.token
+            s=self.text(ret); i=s.find(self.text(b))
+            if i>=0: self.byte(ret+i,0); self.token=ret+i+1
+        elif name=='table_row_of': ret=a
+        elif name=='player_load_songlist':
+            assert self.text(b)==f'Row {self.selected}'
+            self.deqs[a][1]=[self.copy('stSongInfo',e) for e in self.items(self.get(syms['p_deque_showlist']))]
+            ret=self.selected
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+
+for callback,button,pages in (
+    (0x4ad0b4,'track', ['artistinfo_page']),
+    (0x4a5ea4,'albuminfo', ['artistinfo_page','albuminfo_page']),
+    (0x526b74,'', ['playerjumpinfo_page']),
+):
+    for lookup in (False,True):
+        for selected in (0,2):
+            m=LookupMachine(['home_page','playing_page']+pages,selected,lookup)
+            w=m.node('button',f'{button}_{selected}'); m.word(w+0x10,m.string(f'{button}_{selected}'))
+            m.word(w+0x78,selected); m.word(m.event+0x10,w)
+            assert m.call(address=callback,args=(w,m.event,0,0),gap=0)==0
+            assert m.opened[-1]==('playing_page',['Row 0','Row 1','Row 2'],selected,0xf001,2)
+            unwind=lookup or callback==0x526b74
+            assert [m.nodes[w]['name'] for w in m.stack]==(['home_page'] if unwind else ['home_page','playing_page']+pages)
+            assert m.backs==0 if variant=='ipod' else m.backs==(len(pages) if unwind else 0)
+            assert m.closed==((list(reversed(pages)) if variant=='ipod' else [])+['playing_page'] if unwind else [])
+            passed()
+
 SONG_MENU=['Play next','Add to queue','Add to Favourites','Add to playlist','Go to album','Go to artist']
 # Now Playing targets the queue even when the last browsed list has unrelated rows.
 def playing_menu(**kw):

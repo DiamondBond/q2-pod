@@ -105,6 +105,11 @@ def validate_assets(directory):
     assert demo.index(RTC_WRITE[1]) == stock.index(RTC_WRITE[0])
     # The slide hint names a stock animator and gives it a duration (a missing one means stock's 500 ms).
     assert re.fullmatch(r'htranslate\(duration=\d+\)', SLIDE) and b'\0htranslate\0' in stock
+    # Only iPod's animated lookup pages need synchronous unwind; Stock keeps its Back calls.
+    for address, slot in ((0x4a6250, 0x468), (0x4ad458, 0x468), (0x526e70, 0x420)):
+        off = fileoff(stock, address)
+        want = struct.pack('<III', 0x8f99a8f8, 0x0320f809, 0x8fa40000 | slot) if ipod else stock[off:off+12]
+        assert demo[off:off+12] == want
     # iPod alone jumps from these entry points to its payload (build.py pins the leaf's words);
     # Stock keeps all of them stock.
     for address, name in [*IPOD_HOOKS.values(), IPOD_LEAF[1:3]]:

@@ -303,6 +303,7 @@ static double sample(peq_engine *e, double x, int ch) {
 
 void peq_process(peq_dsp *d, float *audio, unsigned frames) {
     if (!audio || d->channels < 1 || d->channels > PEQ_CHANNELS) return;
+    if (d->current.bypass && !d->ramp && !d->waiting) return; /* steady bypass leaves the whole block untouched */
     for (unsigned i = 0; i < frames; ++i) {
         if (!d->ramp && d->waiting) {
             d->next = d->pending;

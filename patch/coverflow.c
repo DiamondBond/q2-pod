@@ -859,15 +859,15 @@ int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h) {
 
 /* Resume, play counts, Books' pages and the last album: each file is written whole, to a .tmp then
  * renamed. Shared with navigation.c and books.c. */
-void blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
+int blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
     void *f = fopen(write ? tmp : path, write ? "wb" : "rb");
-    if (!f) return;
+    if (!f) return 0;
     int ok = write ? fwrite(buf, size, 1, f) == 1 : fread(buf, size, 1, f) == 1;
     if (fclose(f) || !ok) {
         if (!write) memset(buf, 0, size);
-        return;
+        return 0;
     }
-    if (write) rename(tmp, path);
+    return !write || !rename(tmp, path);
 }
 
 /* Stock pattern (album rows, Now Playing): load the file, set it, drop the load's reference, so the

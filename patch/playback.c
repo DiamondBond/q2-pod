@@ -22,7 +22,8 @@ typedef struct {
 typedef struct {
     int active, shuffle, repeat, folder, restoring, dirty;
     unsigned n, cursor, forced, force_end, hn, stamp;
-    int saved_elapsed, resume_pending, resume_elapsed, resume_wait;
+    int saved_elapsed, save_failed, resume_pending, resume_elapsed, resume_wait;
+    unsigned saved_pos;
     unsigned resume_key, resume_pos;
     entry *order, *cycle;
     unsigned *groups, *seen, *history;
@@ -78,7 +79,7 @@ static void release(void) {
     s.order = s.cycle = 0;
     s.groups = s.seen = s.history = 0;
     s.n = s.hn = s.cursor = s.forced = s.force_end = 0;
-    s.resume_key = s.resume_pending = s.resume_wait = 0;
+    s.resume_key = s.resume_pending = s.resume_wait = s.save_failed = 0;
 }
 /* Albums as Coverflow tells them apart (album_cmp: tagged albums first), or folders. */
 static int group_cmp(void *a, void *b) { return s.folder ? folder_cmp(a, b) : album_cmp(a, b); }
@@ -229,6 +230,7 @@ int playback_option(int kind) {
 }
 int playback_set(int kind, int value) {
     if (kind < 0 || kind > 2 || value < 0 || value >= (kind == 0 ? 5 : kind == 1 ? 6 : 2)) return 0;
+    if (s.active && playback_option(kind) == value) return 1;
     if (!s.active) {
         s.repeat = 2;
         s.shuffle = 0;
@@ -486,6 +488,17 @@ void playback_save(void) {
         unlink(QUEUE_FILE);
         return;
     }
+    int sec = 0, total = 0;
+    mclGetPlayTime(&sec, &total);
+    if (!sec && s.resume_wait && s.resume_key && (unsigned)M(MCL_POS) == s.resume_pos)
+        sec = s.resume_elapsed;
+    else if (sec > 0)
+        s.resume_wait = 0;
+    if (sec < 0) sec = 0;
+    if (!s.dirty && sec == s.saved_elapsed && (unsigned)M(MCL_POS) == s.saved_pos) return;
+    /* Failed checkpoints stay pending, but the UI loop retries at most every five seconds. */
+    s.dirty = s.save_failed = 1;
+    s.stamp = time_now_ms();
     unsigned size = sizeof(snapshot) + (s.n * 3 + s.hn) * 4;
     for (unsigned i = 0; i < s.n; ++i) {
         const char *path = P(deque_at(queue(), i), REC_PATH);
@@ -495,19 +508,13 @@ void playback_save(void) {
     }
     unsigned char *buf = calloc(size, 1);
     if (!buf) return;
-    int sec = 0, total = 0;
-    mclGetPlayTime(&sec, &total);
-    if (!sec && s.resume_wait && s.resume_key && (unsigned)M(MCL_POS) == s.resume_pos)
-        sec = s.resume_elapsed;
-    else if (sec > 0)
-        s.resume_wait = 0;
     snapshot h = { 0x5132524e,
                    2,
                    size,
                    0,
                    s.n,
                    (unsigned)M(MCL_POS),
-                   sec < 0 ? 0 : (unsigned)sec,
+                   (unsigned)sec,
                    (unsigned)s.shuffle,
                    (unsigned)s.repeat,
                    (unsigned)s.folder,
@@ -537,10 +544,13 @@ void playback_save(void) {
         p += identity[0];
     }
     ((snapshot *)buf)->checksum = checksum(buf, size);
-    blob_io(QUEUE_FILE, QUEUE_FILE ".tmp", buf, size, 1);
+    int ok = blob_io(QUEUE_FILE, QUEUE_FILE ".tmp", buf, size, 1);
     free(buf);
-    s.saved_elapsed = sec;
-    s.dirty = 0;
+    if (ok) {
+        s.saved_elapsed = sec;
+        s.saved_pos = (unsigned)M(MCL_POS);
+        s.dirty = s.save_failed = 0;
+    }
 }
 static int library(void *unused) {
     (void)unused;
@@ -704,8 +714,13 @@ int ringnav_memory(void *out) {
                     s.cursor = i;
                     break;
                 }
-            s.forced = h.forced && map[h.forced - 1] != ~0u ? map[h.forced - 1] + 1 : 0;
-            s.force_end = h.force_end && map[h.force_end - 1] != ~0u ? map[h.force_end - 1] + 1 : 0;
+            s.forced = s.force_end = 0;
+            if (h.forced)
+                for (unsigned i = h.forced - 1; i < h.force_end; ++i)
+                    if (map[i] != ~0u) {
+                        if (!s.forced) s.forced = map[i] + 1;
+                        s.force_end = map[i] + 1;
+                    }
             deque_assign(out, q);
             I(g_memory_info, 0) = (int)h.type;
             mclSetStartSeekTime(g_memory_play == 2 || g_carmode ? (int)h.elapsed : 0);
@@ -732,7 +747,7 @@ int playback_resumed(void *r) {
 void playback_poll(void) {
     wheel_load();
     unsigned now = time_now_ms();
-    if (s.active && (s.dirty || now - s.stamp >= 5000)) {
+    if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= 5000)) {
         int sec = 0, total = 0;
         mclGetPlayTime(&sec, &total);
         if (s.dirty || sec != s.saved_elapsed) playback_save();

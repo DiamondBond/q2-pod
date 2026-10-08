@@ -229,6 +229,11 @@ def dsp_check(lib):
     assert lib.peq_update(C.byref(a), C.byref(p))
     process(lib, a, [0., 0.] * 960, 2)
     assert process(lib, a, signal, 2) == list((C.c_float * len(signal))(*signal))
+    # A settled bypass preserves every bit, even NaNs, signed zero and out-of-range input.
+    bits = (C.c_uint32 * 6)(0x7fc00001, 0x80000000, 0x7f800000, 0xff800000, 0x40000000, 0xc0000000)
+    before = bytes(bits), bytes(a)
+    lib.peq_process(C.byref(a), C.cast(bits, C.POINTER(C.c_float)), 3)
+    assert (bytes(bits), bytes(a)) == before
     # Rapid updates queue the latest target without restarting the current fade.
     p.bypass = 0
     assert lib.peq_update(C.byref(a), C.byref(p))
@@ -780,7 +785,53 @@ def visualizer_check(tmp):
         assert got[want] > 0.99 and got.index(max(got)) <= want, (k, want, got)
         assert all(v == 0 for b, v in enumerate(got) if edge(b) > k + 1 or edge(b + 1) < k - 1), (k, got)
         assert abs(levels([v / 2 for v in pcm])[want] - (1 - 6.0206 / 60)) < 0.01  # half scale: 6 dB down
-    print('Visualizer: FFT bands of silence and sines, and their levels, passed.')
+    harness = tmp/'visualizer_checks.c'
+    harness.write_text(r"""
+#include <assert.h>
+#include "visualizer.c"
+void check_styles(void) {
+    for (int style = 0; style < STYLES; ++style) {
+        memset(&vz, 0, sizeof vz);
+        for (int i = 0; i < VIS_N; ++i) {
+            vz.pcm[i][0] = sinf(TAU * 12 * i / VIS_N);
+            vz.pcm[i][1] = 0;
+        }
+        vz.re[0] = 123; /* FFT scratch stays untouched by time-domain styles. */
+        vis_analyze(style, 44100, 0.04f, 100);
+        if (style == SCOPE || style == METERS) {
+            assert(vz.re[0] == 123 && vz.bin_rate == 0);
+            for (int i = 0; i < VIS_HALO; ++i) assert(vz.level[i] == 0);
+        } else {
+            assert(vz.bin_rate == 44100 && vz.re[0] != 123);
+            float max = 0;
+            for (int i = 0; i < VIS_HALO; ++i) if (vz.level[i] > max) max = vz.level[i];
+            assert(max > 0.5f);
+        }
+        if (style == SCOPE) assert(vz.wave[0][10] != 0 && vz.wave[1][10] == 0);
+        else for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < VIS_W; ++i) assert(vz.wave[ch][i] == 0);
+        if (style == METERS) assert(vz.vu[0] > 0 && vz.vu[1] == 0 && vz.lit[0] == 500);
+        else assert(vz.vu[0] == 0 && vz.vu[1] == 0);
+        if (style != SPECTRUM)
+            for (int i = 0; i < VIS_BARS; ++i) assert(vz.peak[i] == 0);
+        vis_reset();
+        for (int i = 0; i < VIS_HALO; ++i) assert(vz.level[i] == 0);
+        for (int i = 0; i < VIS_BARS; ++i) assert(vz.peak[i] == 0);
+        assert(vz.vu[0] == 0 && vz.lit[0] == 0 && vz.bass == 0 && vz.wave[0][10] == 0);
+        vis_analyze(style, 44100, 0.04f, 100);
+        for (unsigned now = 140; now <= 1600; now += 40) vis_analyze(style, 0, 0.04f, now);
+        for (int i = 0; i < VIS_HALO; ++i) assert(vz.level[i] == 0);
+        for (int i = 0; i < VIS_BARS; ++i) assert(vz.peak[i] == 0);
+        for (int ch = 0; ch < 2; ++ch) {
+            assert(vz.vu[ch] < 0.0001f);
+            for (int i = 0; i < VIS_W; ++i) assert(fabsf(vz.wave[ch][i]) < 0.0003f);
+        }
+    }
+}
+""")
+    checked = compile_host(tmp, 'visualizer_checks.so', harness, '-DIPOD=1', '-I', ROOT/'patch')
+    checked.check_styles()
+    print('Visualizer: FFT bands, selected-style work, stereo scope/VU and pause decay passed.')
 
 SCROBBLE = r"""
 #include <assert.h>

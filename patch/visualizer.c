@@ -86,13 +86,72 @@ void vis_bands(const float (*pcm)[2], unsigned rate, float *level) {
     }
 }
 
+static float bar(int i) { return (vz.level[2 * i] + vz.level[2 * i + 1]) / 2; }
+
+/* VU position 0 to 1 of a level in VU (dB): proportional to voltage, +3 at the end, as the meter's scale. */
+static float vu_at(float vu) { return (float)pow(10, (vu - 3) / 20); }
+
+void vis_reset(void) {
+    /* An inactive style has no fresh history; start it at rest, including while paused. */
+    memset(vz.level, 0, sizeof vz.level);
+    memset(vz.peak, 0, sizeof vz.peak);
+    memset(vz.wave, 0, sizeof vz.wave);
+    memset(vz.vu, 0, sizeof vz.vu);
+    memset(vz.lit, 0, sizeof vz.lit);
+    vz.bass = 0;
+}
+
+/* Only the visible style consumes analysis work; scope and meters do not need an FFT. */
+void vis_analyze(int style, unsigned rate, float dt, unsigned now) {
+    float target[VIS_HALO] = { 0 };
+    if (style == SPECTRUM || style == HALO) {
+        if (rate) vis_bands(vz.pcm, rate, target);
+        for (int b = 0; b < VIS_HALO; ++b) {
+            float fall = vz.level[b] - VIS_DECAY * dt;
+            vz.level[b] = target[b] > vz.level[b] ? vz.level[b] + (target[b] - vz.level[b]) * 0.6f : target[b] > fall ? target[b] : fall;
+        }
+    }
+    if (style == SPECTRUM) for (int i = 0; i < VIS_BARS; ++i) {
+        if (bar(i) >= vz.peak[i]) {
+            vz.peak[i] = bar(i);
+            vz.fall[i] = 0;
+            vz.held[i] = now + VIS_HOLD_MS;
+        } else if ((int)(now - vz.held[i]) > 0) {
+            vz.fall[i] += VIS_GRAVITY * dt;
+            vz.peak[i] -= vz.fall[i] * dt;
+            if (vz.peak[i] < bar(i)) vz.peak[i] = bar(i);
+        }
+    }
+    if (style == SCOPE) {
+        int at = 0;
+        for (int i = 1; rate && i < VIS_N - VIS_W && !at; ++i)
+            if (vz.pcm[i - 1][0] + vz.pcm[i - 1][1] < 0 && vz.pcm[i][0] + vz.pcm[i][1] >= 0) at = i;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < VIS_W; ++i) vz.wave[ch][i] = rate ? vz.pcm[at + i][ch] : vz.wave[ch][i] * 0.8f;
+    }
+    if (style == METERS) for (int ch = 0; ch < 2; ++ch) {
+        float sum = 0, peak = 0;
+        for (int i = 0; rate && i < VIS_N; ++i) {
+            float v = vz.pcm[i][ch];
+            sum += v * v;
+            if (__builtin_fabsf(v) > peak) peak = __builtin_fabsf(v);
+        }
+        float to = sum > 0 ? vu_at(db(sum / VIS_N) - VIS_VU_REF_DB) : 0;
+        vz.vu[ch] += ((to > 1 ? 1 : to) - vz.vu[ch]) * dt / (dt + 0.065f);
+        if (peak >= (float)pow(10, VIS_LED_DB / 20.0)) vz.lit[ch] = now + VIS_HOLD_MS;
+    }
+    if (style == HALO) {
+        float bass = (vz.level[0] + vz.level[2] + vz.level[4] + vz.level[6]) / 4;
+        vz.bass += (bass - vz.bass) * 0.5f;
+    }
+}
+
 #ifndef PEQ_HOST
 extern int config_digit(const char *key, int n);
 extern void peq_attach(void);
 /* The accent's palette: its light tone, a dark shade of it and a bright tint, never washed to white. */
 #define DARK(tone) mix(tone, 0, 55, 100)
 #define BRIGHT(tone) mix(tone, 0xffffff, 30, 100)
-static float bar(int i) { return (vz.level[2 * i] + vz.level[2 * i + 1]) / 2; }
 
 /* Now Playing is on top, on this page, with the screen on. */
 static int showing(void) {
@@ -155,9 +214,6 @@ static unsigned capture(void) {
     return rate;
 }
 
-/* VU position 0 to 1 of a level in VU (dB): proportional to voltage, +3 at the end, as the meter's scale. */
-static float vu_at(float vu) { return (float)pow(10, (vu - 3) / 20); }
-
 /* Each 1000 / VIS_FPS ms while showing: the levels rise fast and fall at VIS_DECAY a second, a cap
  * holds VIS_HOLD_MS over each spectrum bar's peak, then falls under VIS_GRAVITY; the scope starts on a
  * rising zero crossing so the wave stands still; the VU needles integrate over 300 ms. With nothing
@@ -174,42 +230,10 @@ static int tick(const void *unused) {
     if (!vz.tapped && !g_equalizer_flag) peq_attach();
     vz.tapped = 1;
     unsigned now = time_now_ms(), rate = capture();
-    float dt = (now - vz.last) / 1000.0f, target[VIS_HALO] = { 0 };
+    float dt = (now - vz.last) / 1000.0f;
     vz.last = now;
     if (dt > 0.1f) dt = 0.1f;
-    if (rate) vis_bands(vz.pcm, rate, target);
-    for (int b = 0; b < VIS_HALO; ++b) {
-        float fall = vz.level[b] - VIS_DECAY * dt;
-        vz.level[b] = target[b] > vz.level[b] ? vz.level[b] + (target[b] - vz.level[b]) * 0.6f : target[b] > fall ? target[b] : fall;
-    }
-    for (int i = 0; i < VIS_BARS; ++i) {
-        if (bar(i) >= vz.peak[i]) {
-            vz.peak[i] = bar(i);
-            vz.fall[i] = 0;
-            vz.held[i] = now + VIS_HOLD_MS;
-        } else if ((int)(now - vz.held[i]) > 0) {
-            vz.fall[i] += VIS_GRAVITY * dt;
-            vz.peak[i] -= vz.fall[i] * dt;
-            if (vz.peak[i] < bar(i)) vz.peak[i] = bar(i);
-        }
-    }
-    int at = 0;
-    for (int i = 1; rate && i < VIS_N - VIS_W && !at; ++i)
-        if (vz.pcm[i - 1][0] + vz.pcm[i - 1][1] < 0 && vz.pcm[i][0] + vz.pcm[i][1] >= 0) at = i;
-    for (int ch = 0; ch < 2; ++ch) {
-        float sum = 0, peak = 0;
-        for (int i = 0; i < VIS_W; ++i) vz.wave[ch][i] = rate ? vz.pcm[at + i][ch] : vz.wave[ch][i] * 0.8f;
-        for (int i = 0; rate && i < VIS_N; ++i) {
-            float v = vz.pcm[i][ch];
-            sum += v * v;
-            if (__builtin_fabsf(v) > peak) peak = __builtin_fabsf(v);
-        }
-        float to = sum > 0 ? vu_at(db(sum / VIS_N) - VIS_VU_REF_DB) : 0;
-        vz.vu[ch] += ((to > 1 ? 1 : to) - vz.vu[ch]) * dt / (dt + 0.065f);
-        if (peak >= (float)pow(10, VIS_LED_DB / 20.0)) vz.lit[ch] = now + VIS_HOLD_MS;
-    }
-    float bass = (vz.level[0] + vz.level[2] + vz.level[4] + vz.level[6]) / 4;
-    vz.bass += (bass - vz.bass) * 0.5f;
+    if (rate || now - vz.heard <= 1500) vis_analyze(vz.style, rate, dt, now);
     /* 1.5 s after the audio stops everything has come to rest (a cap's hold and fall, the wave's fade)
      * and the style's name has faded: no repaint until it plays again. */
     if (rate) vz.heard = now;
@@ -225,6 +249,7 @@ static int tick(const void *unused) {
 static void arm(void) {
     if (vz.timer || !showing()) return;
     vz.last = time_now_ms();
+    if (vz.last - vz.heard > 1500) vis_reset();
     vz.timer = timer_add(tick, 0, 1000 / VIS_FPS);
 }
 
@@ -415,6 +440,7 @@ void visualizer_paint(void *w, void *canvas) {
 static int next_style(void *ctx, void *event) {
     (void)ctx; (void)event;
     vz.style = (vz.style + 1) % STYLES;
+    vis_reset();
     vz.named = time_now_ms() | 1; /* never 0, which is none */
     write_int_config(vz.style, "IPOD", "VIS");
     widget_invalidate_force(vz.slide, 0);

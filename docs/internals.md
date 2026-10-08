@@ -455,6 +455,19 @@ The same listen also appends a line to `/mnt/mmc/.scrobbler.log`, the card's roo
 
 The kernel has no cpufreq core (no governor to set) and stays stock; three rootfs drains change instead.
 
+The generic X2000 battery suggestions need these Q2-specific qualifications; no percentage savings have been measured here:
+
+| Suggestion | Q2 Pod assessment |
+| --- | --- |
+| Cap CPU frequency / change governor | Not available with this kernel; Low power uses CPU1 hotplug and UI sleep instead. |
+| Disable DSP | PEQ's steady bypass skips its sample-processing loop. The filter still requests float PCM, so bypass does not remove every format-conversion cost in the player. Keep this a listening preference. |
+| Disable wireless | Use stock wireless settings when radios are unwanted. Low power does not change them; interface-down alone is not evidence that the RF rail is off. |
+| Lower amplifier gain / use single-ended | No verified Q2 rail-control or dual-DAC power-gating evidence establishes the pasted savings. Do not change hardware controls on that assumption. |
+| Increase ALSA / file buffers | These are different buffering layers. Keeping the page cache already avoids forced rereads; no verified 20–50 MB playback-cache setting or measured benefit justifies changing ALSA buffers. |
+| Shorter display timeout / lower brightness | Prefer the existing display controls. A 15-second timeout and 30% brightness are user choices, not measured Q2 optima. |
+
+Native-rate playback, Wi-Fi rail shutdown and buffer changes need player/driver tracing and hardware power measurements before further optimization. No card reformatting is needed for these fixes.
+
 - **drop_caches.** `check_mem_thd` (`0x512050`, started by `platform_init`) writes `3` to `/proc/sys/vm/drop_caches` every sixth second for the life of the player, throwing away the page, dentry and inode caches: the library database, the card's directories, the playing file's readahead and squashfs assets are read again. `toolsGetSysMemFree` has no callers, so nothing depends on it. The `beq` at `0x5120a8` that skips the write when the open failed becomes `b` (`DROP_CACHES` in `tools/build.py`); the thread keeps its one-second sleep and never writes.
 - **UI loop.** `main_loop_sleep_default` sleeps at most 8 ms (its expected-sleep argument can only shorten that), so AWTK's loop runs at 125 Hz, screen on or off. `ringnav_sleep` first sleeps `SCREEN_OFF_SLEEP_MS` (40 ms, `patch/offsets.inc`) with `sleep_ms` (`0x724928`) while `g_backlight_status` is clear; stock then finds its 8 ms gone, sleeps 0 and updates its own timestamps. The loop runs at about 20 Hz with the screen off, and a key pressed then waits at most 40 ms longer. The first pass with the backlight back on calls `widget_invalidate_force` on the window manager once, so the whole screen repaints on wake rather than only the regions that change next.
 - **Watchdog.** `platform_init` starts `checkappprocess.sh`, which forks `pgrep` every 2 s and reboots if `demo` is gone. Its `sleep 2` becomes `sleep 10` (`WATCHDOG` in `tools/build.py`, pinned by SHA-256), so a crashed player reboots within 10 s.
