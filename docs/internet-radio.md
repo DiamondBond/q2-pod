@@ -1,4 +1,6 @@
-# Internet Radio under Streaming, version 9.9 → 1.0
+# Internet Radio under Streaming (planned after 1.0)
+
+1.0 shipped without it; the version change below is done.
 
 ## Context
 Streaming currently has only Spotify. The user wants a full Internet Radio, and FM if possible.

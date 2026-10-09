@@ -64,7 +64,7 @@ See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes
 
 ### Spotify
 
-Spotify isn't in the firmware; it runs from the card. With the Q2 powered off, unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root, so it has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh` (the leading dot hides the folder; Cmd+Shift+. shows it in macOS Finder). Power on, open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card. After each power-on, open the row once to make the Q2 appear in Spotify again; nothing Spotify runs until you do.
+Spotify isn't in the firmware; it runs from the card. With the Q2 powered off, unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root, so it has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh` (the leading dot hides the folder; Cmd+Shift+. shows it in macOS Finder). Power on, open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card. After each power-on, and after 30 seconds paused, open the row once to make the Q2 appear in Spotify again; nothing Spotify runs until you do.
 
 Needs Spotify Premium. Audio plays on the headphone jack only (no Bluetooth or USB DAC). Play/Pause and Next/Prev control Spotify until you play local music; the wheel sets volume. Delete `.spotify` to remove it. See the [guide](docs/guide.md#spotify) for details.
 
@@ -103,6 +103,16 @@ Put these folders at the microSD card's root; each adds a Library entry when pre
 For format limits and cache details, see [microSD card](docs/guide.md#microsd-card). Settings, play counts and resume points live on the Q2, so they stay with the device.
 
 **Want scrobbling?** Add your account details to `.scrobble.ini` at the card's root, then connect to Wi-Fi and choose **Library → Upload Scrobbles**. Follow the [scrobbling setup](docs/guide.md#set-up-scrobbling) for the exact file format and credentials. Set the Q2's date and time before listening; listens are saved in `.scrobbler.log`.
+
+## Known limitations
+
+- **Library size:** Update Local Music adds up to 65,000 songs; shuffle and advanced queues take up to 65,536.
+- **Albums with the same name:** a few stock features still find albums by name alone: the Albums list's now playing marker, multi-select actions such as Add to playlist, and deleting an album from the Albums list.
+- **Bluetooth:** skipping tracks can stutter on some headphones (AAC and LDAC), and AirPods' tap controls don't reach the Q2.
+- **Spotify:** Premium only, headphone jack only, and the **Streaming → Spotify** row must be opened once after each power-on and after 30 seconds paused.
+- **Lock screen:** black until you add your own [images](docs/guide.md#lock-screen).
+
+New to Q2 Pod? The guide's [tips](docs/guide.md#tips) cover features that are easy to miss.
 
 ## Documentation
 
