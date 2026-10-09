@@ -113,5 +113,26 @@ unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column, 0xRRGGBB *
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
 void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color);
 void peq_paint(void *w, void *canvas);
+/* spotify.c's, shared with radio.c */
+unsigned long long now_ms(void); /* CLOCK_MONOTONIC */
+void field(const char *raw, const char *key, char *out, unsigned n);
+unsigned long long number(const char *raw, const char *key);
+void *label(void *parent, int x, int y, int w, int h, const char *style, int px, unsigned color);
+void spot_yield(void), radio_stop(void);
+int video_start(const char *file, int radio); /* books.c */
+/* Spotify's and Internet Radio's Now Playing layout (tools/ipod.py NP_*): the art and the text
+ * 16px from the sides, 12 apart, the bar and times clear of the glass's corners. */
+#define SPOT_ART_X 16
+#define SPOT_ART_Y 50
+#define SPOT_ART_PX 166
+#define SPOT_TEXT_X 194
+#define SPOT_TEXT_W 165
+#define SPOT_BAR_X 21
+#define SPOT_BAR_Y 251
+#define SPOT_BAR_W 333
+#define SPOT_BAR_H 8
+#define SPOT_TIMES_Y 265
+#define SPOT_TIME_X 46
+#define SPOT_GREY 0xffaaaaaau
 
 #endif

@@ -1180,7 +1180,42 @@ def video_check(tmp):
     assert all(f[y * 1300 + c] == 0x55 for y in range(375) for c in range(1280, 1300))
     assert [r[88] for r in bar(7, 5)[0][40:335]] == [0xff] * 295  # clamped to all
     assert [r[88] for r in bar(-3, 5)[0][40:335]] == [0] * 295 and bar(1, 0)[0][100][88] == 0x55
-    print('Videos: ffmpeg argv, frame pacing, Bluetooth volume, length and bar passed.')
+    # Internet Radio (-r): the ICY tags in stock ffmpeg 4.2's report, in its input dump or as updates.
+    out = C.create_string_buffer(16)
+    def meta(line, key, n=16):
+        return lib.meta(line, key, out, n) and out.value.decode()
+    assert meta(b'    icy-br          : 128\n', b'icy-br') == '128' and meta(b'    icy-name   : X', b'icy-br') == 0
+    assert meta(b'[http @ 0x7f] Metadata update for StreamTitle: A - B\r', b'StreamTitle') == 'A - B'
+    assert meta(b'    StreamTitle     : ', b'StreamTitle') == '' and meta(b'StreamTitle=x', b'StreamTitle') == 0
+    assert meta(b'  Stream #0:0: Audio: mp3 (mp3float), 44100 Hz', b'Audio') == 'mp3 (mp3float),'
+    assert meta(b'StreamTitle: a long title past the buffer', b'StreamTitle', 8) == 'a long '
+    print('Videos: ffmpeg argv, frame pacing, Bluetooth volume, length and bar passed; radio tags passed.')
+
+def radio_check(tmp):
+    """Internet Radio (radio.c): .m3u and .pls favourites, radio-browser's m3u and CSV, URL escaping."""
+    lib = compile_host(tmp, 'radio.so', ROOT/'patch/radio.c')
+    def parse(fn, text, *extra):
+        buf, a, b = C.create_string_buffer(text), (C.c_uint * 8)(), (C.c_uint * 8)()
+        n = fn(buf, a, b, *extra)
+        return [(C.string_at(C.addressof(buf) + a[i]).decode(), C.string_at(C.addressof(buf) + b[i]).decode()) for i in range(n)]
+    playlist = lambda text, max=8: parse(lib.playlist, text, max)
+    # #EXTINF names the next URL (CRLF, a BOM, radio-browser's extra tags); a bare URL names itself.
+    assert playlist(b'\xef\xbb\xbf#EXTM3U\r\n#RADIOBROWSERUUID:1\r\n#EXTINF:-1,A, B\r\nhttp://a/1?x=1\r\n\r\n'
+                    b'  https://b/2\n#EXTINF:1,\nhttp://c/3\n/local/file.mp3\n') == \
+        [('A, B', 'http://a/1?x=1'), ('https://b/2', 'https://b/2'), ('http://c/3', 'http://c/3')]
+    # .pls: FileN is a URL, TitleN names it; other keys are skipped. At most max.
+    assert playlist(b'[playlist]\nFile1=http://p/1\nTitle1=One\nLength1=-1\nfile2=http://p/2\nNumberOfEntries=2\n') == \
+        [('One', 'http://p/1'), ('http://p/2', 'http://p/2')]
+    assert playlist(b'http://a\nhttp://b\nhttp://c\n', 2) == [('http://a',) * 2, ('http://b',) * 2] and playlist(b'') == []
+    # The CSV after its header: a country's code, or the tag itself; a quoted name keeps its commas.
+    countries = b'name,iso_3166_1,stationcount\n"Taiwan, Republic Of China",TW,214\r\nGermany,DE,6496\n,XX,1\nbad\n'
+    assert parse(lib.choices, countries, 8, 1) == [('Taiwan, Republic Of China', 'TW'), ('Germany', 'DE')]
+    assert parse(lib.choices, b'name,stationcount\npop,6387\nclassic rock,3312\n', 8, 0) == \
+        [('pop', 'pop'), ('classic rock', 'classic rock')]
+    out = C.create_string_buffer(64)
+    lib.url_escape('drum & bass/é~'.encode(), out, 64); assert out.value == b'drum%20%26%20bass%2F%C3%A9~'
+    lib.url_escape(b'abc def', out, 6); assert out.value == b'abc'  # never a cut escape
+    print('Internet Radio: m3u and pls favourites, the directory\'s m3u and CSV, URL escaping passed.')
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
@@ -1193,3 +1228,4 @@ if __name__ == '__main__':
         scrobble_check(tmp)
         books_check(tmp)
         video_check(tmp)
+        radio_check(tmp)

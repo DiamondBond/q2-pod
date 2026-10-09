@@ -722,14 +722,13 @@ int video_on(void) { return vid.pid; }
  * finds none (USB_MIXER -2) and tells hciplayer {mcl-softvolflag\1}. Otherwise the DAC applies it. */
 static int usb_soft(void) { return g_usbvol_mode && I(USB_MIXER, 0) == -2; }
 
-static int play_video(void *ctx, void *event) {
-    (void)event;
-    if (vid.pid) return 0;
-    /* The headphone DAC keeps the volume set. Bluetooth's is hciplayer's soft volume, so the
-     * helper gets g_volume to apply it the same way, on hciplayer's own plug:bluealsa (the device
-     * demo writes to /mnt/data/asound.conf). A USB DAC plays on hciplayer's hw:2,0 (plughw, for
-     * the 48 kHz stereo stream): with g_volume when its volume is soft, else "h" and the volume,
-     * which the helper only shows. */
+/* q2video on the output in use, for file or, with radio, Internet Radio's url (radio.c): its pid,
+ * 0 when it did not start. The headphone DAC keeps the volume set. Bluetooth's is hciplayer's soft
+ * volume, so the helper gets g_volume to apply it the same way, on hciplayer's own plug:bluealsa
+ * (the device demo writes to /mnt/data/asound.conf). A USB DAC plays on hciplayer's hw:2,0
+ * (plughw, for the 48 kHz stereo stream): with g_volume when its volume is soft, else "h" and the
+ * volume, which the helper only shows. */
+int video_start(const char *file, int radio) {
     int way = mclGetOutputWay(), sound = way != 1 && way != 2;
     char vol[5];
     tk_snprintf(vol, sizeof vol, way == 2 && !usb_soft() ? "h%u" : "%u", g_volume);
@@ -737,14 +736,22 @@ static int play_video(void *ctx, void *event) {
     if (sound && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
     int pid = fork();
     if (!pid) {
-        execl(VIDEO_BIN, VIDEO_BIN,
-              sound       ? "plughw:1,0"
-              : way == 1 ? "plug:bluealsa"
-                         : "plughw:2,0",
-              bk.path[(int)(long)ctx], sound ? (char *)0 : vol, (char *)0);
+        const char *dev = sound ? "plughw:1,0" : way == 1 ? "plug:bluealsa" : "plughw:2,0",
+                   *v = sound ? (char *)0 : vol;
+        if (radio)
+            execl(VIDEO_BIN, VIDEO_BIN, "-r", dev, file, v, (char *)0);
+        else
+            execl(VIDEO_BIN, VIDEO_BIN, dev, file, v, (char *)0);
         exit(127);
     }
-    vid.pid = pid > 0 ? pid : 0;
+    return pid > 0 ? pid : 0;
+}
+
+static int play_video(void *ctx, void *event) {
+    (void)event;
+    if (vid.pid) return 0;
+    radio_stop(); /* it holds the PCM too */
+    vid.pid = video_start(bk.path[(int)(long)ctx], 0);
     vid.seek = 0;
     vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
     return 0;

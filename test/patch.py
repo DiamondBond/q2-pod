@@ -5744,16 +5744,16 @@ class SpotMachine(BooksMachine):
     def key(self,k):
         self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
 def stream_page(m):
-    """Stock Streaming's one Tidal row, then the hook's row; returns the added row's button."""
+    """Stock Streaming's one Tidal row, then the hook's Spotify and Internet Radio rows; returns Spotify's button."""
     view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
     assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0 and m.calls[0][0]=='stock_stream'
-    assert len(m.nodes[view]['children'])==2
-    return m.nodes[m.nodes[view]['children'][-1]]['children'][0]
+    assert len(m.nodes[view]['children'])==3
+    return m.nodes[m.nodes[view]['children'][1]]['children'][0]
 def spot_open(m,button):
     f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
     m.page=m.top; assert m.nodes[m.page]['name']=='spotify_page'; return m.page
 def texts(w): return [t for t in labels(w) if t is not None]
-# The row is Streaming's last, with its icon. Without librespot on the card the page says so and
+# The row follows stock's, with its icon. Without librespot on the card the page says so and
 # nothing starts.
 m=SpotMachine({}); button=stream_page(m)
 icon,label=m.nodes[button]['children'][:2]
@@ -5860,6 +5860,151 @@ assert m.key(O['KEY_NEXT'])!=11
 m.sent=[]; assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls] and not m.sent
 m.close(); spot_open(m,button); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.close(); passed()
+
+# Internet Radio (patch/radio.c, docs/internals.md#internet-radio): favourites on the card and
+# radio-browser.info's directory, a station played by q2video -r, its tags from RADIO_STATE.
+RSTATE,RSOCK,RDIR='/tmp/q2radio.state','/tmp/q2radio.sock','/mnt/mmc/Radio'
+class RadioMachine(SpotMachine):
+    """SpotMachine's side, plus Wi-Fi and demo's libcurl: perform hands reply to the write callback."""
+    def __init__(self,files=None):
+        super().__init__(files or {})
+        for n in ('curl_easy_init','curl_easy_setopt','curl_easy_perform','curl_easy_getinfo','curl_easy_cleanup','get_wifisignal',
+                  'mkdir@GLIBC_2.0'):
+            self.handlers[syms[n]]='r:'+n
+        self.mock('fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0')
+        self.wifi=3; self.reply=b''; self.code=200; self.opts={}
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('r:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='get_wifisignal': ret=self.wifi
+        elif name=='mkdir': self.tree[self.text(a)]=[]
+        elif name=='curl_easy_init': ret=0x5150
+        elif name=='curl_easy_setopt': self.opts[b]=self.text(c) if b in (10002,10018,10065) else c
+        elif name=='curl_easy_perform':  # the write callback, run nested as qsort's comparator is
+            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[u.reg_read(r) for r in regs]
+            data=self.alloc((len(self.reply)+7)&~3); u.mem_write(data,self.reply); f=self.opts[20011]
+            for r,v in ((UC_MIPS_REG_SP,u.reg_read(UC_MIPS_REG_SP)-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,f),
+                        (REGS[0],data),(REGS[1],1),(REGS[2],len(self.reply)),(REGS[3],0)): u.reg_write(r,v)
+            u.emu_start(f,0x1000000,count=self.budget); took=u.reg_read(UC_MIPS_REG_V0)
+            for r,v in zip(regs,saved): u.reg_write(r,v)
+            ret=0 if took==len(self.reply) and self.code else 23  # CURLE_WRITE_ERROR
+        elif name=='curl_easy_getinfo': self.word(c,self.code)
+        self.calls.append((name,a,b,c))
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def stream(self):
+        view=self.node('scroll_view','scroll_view_streamsset',[self.node('list_item')]); self.top=self.node('window','stream_page',[view])
+        assert self.call(address=HOOKS['stream_page_init'][0],args=(self.top,5,0,0),gap=0,count=5_000_000)==0
+        return self.nodes[self.nodes[view]['children'][2]]['children'][0]
+    def click(self,w):
+        f,ctx=self.handler(w,O['EVT_CLICK']); assert self.call(address=f,args=(ctx,self.event,0,0),gap=0,count=5_000_000)==0
+        self.advance(0,clear=False)
+    def rows(self): return self.nodes[self.find('scroll_view',self.page)]['children']
+    def row(self,i): self.click(self.rows()[i])
+    def labels(self,w=None):
+        """Texts still linked below w (page_list's destroy_children mock only unlinks)."""
+        def linked(x,w):
+            while x!=w:
+                parent=self.get(x+O['W_PARENT'])
+                if parent not in self.nodes or x not in self.nodes[parent]['children']: return False
+                x=parent
+            return True
+        w=w or self.page
+        return [n['text'] for x,n in self.nodes.items() if n['type']=='hscroll_label' and n.get('text') is not None and linked(x,w)]
+    def back(self,w=None):
+        """Return on page w (the radio list by default), and its timers."""
+        w=w or self.page; f,ctx=self.handler(w,O['EVT_KEY_UP']); ev=self.alloc(0x40)
+        self.word(ev,O['EVT_KEY_UP']); self.word(ev+O['EVENT_KEY'],O['KEY_RETURN'])
+        assert self.call(address=f,args=(ctx,ev,0,0),gap=0,count=5_000_000)==11; self.advance(0,clear=False)
+    def destroy(self,w):
+        f,ctx=self.handler(w,O['EVT_DESTROY']); self.call(address=f,args=(ctx,self.event,0,0),gap=0)
+    def worker(self):
+        worker,arg=self.threads[-1]; assert self.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0; self.advance(250)
+def radio_open(m):
+    button=m.stream(); icon,label=m.nodes[button]['children'][:2]
+    assert m.nodes[icon]['image']=='stream_radio' and m.nodes[label]['text']=='Internet Radio' and not m.nodes[button].get('name')
+    m.click(button); m.page=m.top; assert m.nodes[m.page]['name']=='radio_page'; return m.page
+# The row is Streaming's last. The first open fills the card's Radio folder with a few stations; the
+# menu has no Now Playing until something has played.
+m=RadioMachine(); page=radio_open(m)
+favs=m.files[RDIR+'/favourites.m3u'].decode()
+assert favs.startswith('#EXTM3U\n#EXTINF:-1,Radio Paradise\nhttp://stream.radioparadise.com/mp3-128\n') and favs.count('#EXTINF')==6
+assert m.labels()==['Internet Radio','Favourites','Top Stations','By Country','By Genre'] and m.nodes[m.find('scroll_view')]['_ringnav_index']==0
+m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'); radio_open(m)
+assert m.files[RDIR+'/favourites.m3u']==b'#EXTM3U\n'; passed()  # seeded once: an emptied file stays empty
+# Favourites: favourites.m3u, then the folder's other .m3u and .pls files (a .pls's TitleN names its FileN).
+m=RadioMachine({RDIR+'/favourites.m3u':bytearray(b'#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/a\r\nhttp://two/b\r\n'),
+                RDIR+'/x.pls':bytearray(b'[playlist]\nFile1=https://three/c?x=1\nTitle1=Three\nNumberOfEntries=1\n'),
+                RDIR+'/notes.txt':bytearray(b'http://no/')})
+m.tree[RDIR]=[('favourites.m3u',8),('x.pls',8),('notes.txt',8),('._x.pls',8)]; page=radio_open(m)
+m.row(0); assert m.labels()==['Favourites','One','http://two/b','Three']; passed()
+# A station: local music stops, then q2video -r on the headphone DAC's PCM with the URL as plain
+# argv, Now Playing over the list, and the station kept as the last. The page says it connects.
+m.forked=0; m.row(2)  # the child
+names=[c[0] for c in m.calls]; assert names.index('player_stop')<names.index('fork')
+assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','-r','plughw:1,0',('https://three/c?x=1',0))]
+m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' and m.files[RDIR+'/.last']==b'#EXTM3U\n#EXTINF:-1,Three\nhttps://three/c?x=1\n'
+m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']; passed()
+# Playing: its tags (the StreamTitle as artist - title), the stream and the time since the sound
+# started; standby and auto power-off held (not the screen's timer) and the DAC kept on.
+m.word(syms['g_dacoff_time'],5)
+m.files[RSTATE]=bytearray(f'state=playing\ntitle=Some Artist - A Song\ncodec=MP3\nbitrate=128\nat={m.now}\n'.encode())
+m.poll(); assert ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls] and m.get(syms['g_dacoff_time'])==0
+m.advance(3000); assert m.labels(np)==['Internet Radio','Three','Some Artist','A Song','MP3  128 kbps','00:03']
+# The volume reaches q2video for Bluetooth's and USB's soft volume, once a change.
+m.byte(syms['g_volume'],44); m.poll(); assert m.sent==[(m.sent[0][0],'v,',2,0x40,1,RSOCK,110)]; m.poll(); assert not m.sent; passed()
+# Play/Pause stops it (q, then its end) and starts it again; the side buttons step through the
+# list it was played from, round the ends; on any page.
+def last(): return m.files[RDIR+'/.last'].decode().split('\n')[2]
+def forks(): return [c[0] for c in m.calls].count('fork')
+m.top=m.node('window','home_page'); m.waited=4343
+assert m.key(O['KEY_PLAY'])==11 and m.sent[0][1]=='q' and RSTATE not in m.files and not forks()
+assert m.key(O['KEY_PLAY'])==11 and forks()==1 and last()=='https://three/c?x=1'
+assert m.key(O['KEY_FWD_BTN'])==11 and m.sent[0][1]=='q' and forks()==1 and last()=='http://one/a'
+assert m.key(O['KEY_BACK_BTN'])==11 and last()=='https://three/c?x=1'; passed()
+# Local music starting takes the output: q2video quits first, and the keys are local music's again.
+names=start(); assert m.sent[0][1]=='q' and names.index('waitpid')<names.index('stock_start_player')
+assert m.key(O['KEY_PLAY'])!=11 and not forks(); passed()
+# A q2video that does not quit within RADIO_QUIT_MS is killed.
+m.top=page; m.row(1); m.waited=0; m.top=m.node('window','home_page')
+m.handlers[syms['waitpid@GLIBC_2.0']]='s:waitpid'  # WNOHANG polls say running; the blocking wait reaps
+t0=m.now; assert m.key(O['KEY_PLAY'])==11 and 1500<=m.now-t0<=1540 and m.systems[-1]=='killall -9 q2video'
+m.handlers[syms['waitpid@GLIBC_2.0']]='b:waitpid@GLIBC_2.0'; passed()
+# One that gives up says so.
+assert m.key(O['KEY_PLAY'])==11; m.files[RSTATE]=bytearray(b'state=error\n'); m.waited=4343; m.poll()
+m.advance(500); assert m.labels(np)[4]=="Can't play this station" and 'reset_poweroptions_timer' not in [c[0] for c in m.calls]; passed()
+# Holding Play/Pause on a station takes it out of favourites.m3u, or adds it; the release is
+# swallowed, the list follows, and elsewhere the hold is stock's.
+m.back(np); assert 'navigator_back' in [c[0] for c in m.calls]; m.destroy(np); m.top=page
+rows=m.find('scroll_view'); m.nodes[rows]['_ringnav_index']=0; m.status=m.alloc(0x200); m.press(77)
+assert m.hold()==11 and m.toasts[-1][3]=='Removed from Favourites'
+assert m.files[RDIR+'/favourites.m3u']==b'#EXTM3U\n#EXTINF:-1,http://two/b\nhttp://two/b\n' and m.labels()==['Favourites','http://two/b','Three']
+m.nodes[m.find('scroll_view')]['_ringnav_index']=1; assert m.hold()==11 and m.toasts[-1][3]=='Added to Favourites'
+assert m.files[RDIR+'/favourites.m3u'].endswith(b'#EXTINF:-1,Three\nhttps://three/c?x=1\n')
+assert m.call(O['KEY_PLAY'],gap=0)==11 and not m.sent; passed()
+# Top Stations: the directory's m3u, fetched on the worker over verified TLS, "Loading…" meanwhile.
+# Return goes up a level at a time, then back to Streaming. Without Wi-Fi it says so.
+m.back(); assert m.labels()[0]=='Internet Radio' and m.labels()[1]=='Now Playing'
+m.row(2); assert m.labels()==['Loading…'] and len(m.threads)==1
+m.reply=b'#EXTM3U\n#RADIOBROWSERUUID:7\n#EXTINF:1,MANGORADIO\nhttps://mango/r\n\n#EXTINF:1,Dance Wave!\nhttps://dance/w.mp3\n'
+m.worker(); assert m.labels()==['Top Stations','MANGORADIO','Dance Wave!']
+assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/topvote/100?hidebroken=true'
+assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
+m.back(); assert m.labels()[0]=='Internet Radio'
+m.wifi=-1; m.row(2); assert m.labels()==['No Wi-Fi'] and len(m.threads)==1; m.back(); m.wifi=3; passed()
+# By Genre: the tags' CSV, then a tag's stations by its name, %-encoded.
+m.row(4); m.reply=b'name,stationcount\npop,6387\nclassic rock,3312\n'; m.worker()
+assert m.labels()==['Genres','pop','classic rock']
+m.row(1); m.reply=b'#EXTM3U\n#EXTINF:1,Rock FM\nhttp://rock/fm\n'; m.worker()
+assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/bytagexact/classic%20rock?order=votes&reverse=true&limit=100&hidebroken=true'
+assert m.labels()==['classic rock','Rock FM']
+# By Country: by code; a name may be quoted. A failed fetch says so; Return leaves the note.
+m.back(); m.back(); m.row(3); m.reply=b'name,iso_3166_1,stationcount\n"Taiwan, Republic Of China",TW,214\nGermany,DE,6496\n'; m.worker()
+assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
+m.row(0); m.code=0; m.worker(); assert m.labels()==['Directory unavailable'] and 'bycountrycodeexact/TW?' in m.opts[10002]
+m.back(); assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
+m.back(); m.calls=[]; m.back(); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

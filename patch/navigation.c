@@ -33,6 +33,9 @@ extern int books_key(void *top, unsigned key), video_on(void);
 extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas), *spot_art(void);
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event);
+extern void radio_poll(void);
+extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
+extern const char *radio_hold(void *top);
 extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
@@ -3392,18 +3395,23 @@ int ringnav_localmusic(void *win, void *ctx) {
     return result;
 }
 
-/* stream_page_init: stock's rows, then Spotify (spotify.c), which opens its Now Playing page. Its
- * button has no name, so stock's row click never sees it. */
+/* stream_page_init: stock's rows, then Spotify (spotify.c), which opens its Now Playing page, and
+ * Internet Radio (radio.c). Their buttons have no name, so stock's row click never sees them. */
 int ringnav_stream(void *win, void *ctx) {
     int result = stock_stream_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;
-    if (view) library_into(view, "stream_spotify", spot_open, 0, "Spotify");
+    if (view) {
+        library_into(view, "stream_spotify", spot_open, 0, "Spotify");
+        library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
+    }
     return result;
 }
 
-/* mclStartPlayer, every local track's start: a playing librespot lets the DAC's PCM go first. */
+/* mclStartPlayer, every local track's start: a playing librespot or radio station lets the DAC's
+ * PCM go first. */
 int ringnav_start_player(void) {
     spot_yield();
+    radio_stop();
     return stock_start_player_trampoline();
 }
 
@@ -3763,9 +3771,19 @@ static int qm_hold(void) {
     return 1;
 }
 
-/* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. */
+/* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. On an
+ * Internet Radio station it is the favourite toggle, its release latched as the queue menu's. */
 int ringnav_keylong(void *ctx, void *event) {
-    if (event && I(event, EVENT_KEY) == KEY_PLAY && qm_hold()) return STOP;
+    if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
+    const char *fav = radio_hold(window_manager_get_top_window(window_manager()));
+    char *key = fav ? play_key() : (char *)0;
+    if (fav) {
+        if (key) st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
+        drop_input();
+        toast(fav);
+        return STOP;
+    }
+    if (qm_hold()) return STOP;
     return stock_keylong_trampoline(ctx, event);
 }
 
@@ -4044,6 +4062,7 @@ int rockbox_open(void *ctx, void *event) {
     playback_save();
     save_memoryplay_info();
     player_stop();
+    radio_stop();
     if (st.charge_held) switch_charge_enable(1);
     if (st.cpu_off) cpu1_write(1);
     system("killall checkappprocess.sh; killall -9 hciplayer; " SPOT_KILL "; sync; kill -9 $PPID");
@@ -4109,6 +4128,7 @@ int ringnav_sleep(void *loop) {
     bt_volume_poll();
     video_poll();
     spot_poll();
+    radio_poll();
     playback_poll();
     resume_poll();
     power_poll();
@@ -4211,7 +4231,8 @@ int ringnav(void *ctx, void *event) {
     if (key != KEY_PREV && key != KEY_NEXT) st.wheel_tick = 0; /* a button ends the run */
     int result = stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
-    if (!result && spot_media(key)) return STOP; /* Spotify's while it was the last to play */
+    if (!result && (spot_media(key) || radio_media(key)))
+        return STOP; /* Spotify's or the radio's while it was the last to play */
     if (result) {
         cancel_center();
         if (key == KEY_PREV || key == KEY_NEXT) drop_wheel();

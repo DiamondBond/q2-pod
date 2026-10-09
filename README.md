@@ -34,6 +34,7 @@ Made for the **Shanling Q2**, with an iPod classic feel and a few extras:
 - **Parametric EQ:** up to 30 bands, per-channel adjustments, balance, a live curve and AutoEQ / Equalizer APO preset imports.
 - **Beyond music:** videos, photos, books, podcasts and audiobooks. Podcasts, audiobooks and long mixes resume where you left off.
 - **Spotify Connect:** **Streaming → Spotify** turns the Q2 into a Spotify Connect speaker with its own Now Playing page (Premium; runs from the microSD card).
+- **Internet Radio:** **Streaming → Internet Radio** plays favourites from the card's `Radio` folder and the [radio-browser.info](https://www.radio-browser.info) directory's stations, on the headphone jack, Bluetooth or a USB DAC ([guide](docs/guide.md#internet-radio)).
 - **Scrobbling:** log listens and upload to Last.fm or ListenBrainz over Wi-Fi.
 - **Battery options:** an optional 80% charge limit and Low power mode.
 

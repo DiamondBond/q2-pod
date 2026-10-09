@@ -126,6 +126,36 @@ The first time, open **Streaming → Spotify** and pick **Q2** in the Spotify ap
 
 To update, unzip a newer release over it; its `cache/` keeps the saved login. To remove Spotify, delete the `.spotify` folder. To build it yourself, see [q2-librespot](https://github.com/DiamondBond/q2-librespot/blob/shanlingq2/contrib/shanlingq2/README).
 
+### Internet Radio
+
+**Streaming → Internet Radio** plays radio stations over Wi-Fi: your favourites, or stations from the [radio-browser.info](https://www.radio-browser.info) directory.
+
+- **Favourites:** the stations in the card's `Radio` folder. The first time you open Internet Radio, it creates `Radio/favourites.m3u` with six stations to start with.
+- **Top Stations:** the directory's 100 most-voted stations.
+- **By Country** and **By Genre:** the 60 biggest countries or genres, then each one's 100 most-voted stations.
+- **Now Playing:** opens the station that's playing, or plays the last one again after a restart.
+
+| Control             | What it does                                                                     |
+| ------------------- | -------------------------------------------------------------------------------- |
+| **Centre**          | On a station, plays it and opens its Now Playing page                            |
+| **Hold Play/Pause** | On a station, adds it to `favourites.m3u`, or removes it when it's already there |
+| **Play/Pause**      | Stops the station or starts it again, on any page and with the screen off        |
+| **Next / Prev**     | The next or previous station in the list you played it from                      |
+| **Wheel**           | Volume, as everywhere                                                            |
+| **Return**          | Goes back a level                                                                |
+
+Now Playing shows the station, the artist and song when the station sends them, the format and bitrate, and how long it has played. Until you play local music again, the buttons stay the radio's. Picking a song in the Library, playing a video or casting Spotify stops the radio. It plays on the headphone jack, Bluetooth or a USB DAC, and carries on with the screen off. If the stream drops, it reconnects; after five failed tries it shows **Can't play this station**.
+
+To add your own stations, put `.m3u` or `.pls` playlists in the card's `Radio` folder: they all appear under **Favourites**. An `.m3u` lists each station as a name line, then its address:
+
+```
+#EXTM3U
+#EXTINF:-1,Radio Paradise
+http://stream.radioparadise.com/mp3-128
+```
+
+There's no FM radio: the Q2 has no FM tuner.
+
 ## Parametric EQ
 
 **Audio settings → Equalizer**:
@@ -166,6 +196,7 @@ Media folders go at the card's root, any capitalisation; each adds its **Library
 | `.books/`                  | EPUBs converted to text                                                       | Q2 Pod  |
 | `.sldp/`                   | Stock's own cover cache                                                       | Stock   |
 | `.spotify/`                | Spotify ([install](#install-spotify)); `cache/` is the saved login, plus logs | You     |
+| `Radio/`                   | [Internet Radio](#internet-radio) favourites, `.m3u` and `.pls`               | Both    |
 
 ### Set up scrobbling
 

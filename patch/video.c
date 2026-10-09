@@ -6,8 +6,11 @@
  * and "h" before it marks a USB DAC that applies the volume itself) and puts each frame on
  * /dev/fb0 when the sound reaches it, dropping late ones. demo sends keys as datagrams to
  * Q2VIDEO_SOCK: p pause, f and b seek SEEK_S, s seek mode, v and a byte the volume set, q quit;
- * the last four show a bar along the bottom for OVERLAY_MS, the position or the volume. No MIPS sysroot: the declarations below are
- * glibc 2.28's and alsa-lib's, with MIPS o32 constants. */
+ * the last four show a bar along the bottom for OVERLAY_MS, the position or the volume.
+ * q2video -r DEVICE URL [VOLUME] plays Internet Radio (radio.c): the stream's sound alone, ffmpeg
+ * restarted when it drops, and its report's ICY tags in RADIO_STATE; keys come on RADIO_SOCK, v
+ * and q as above. No MIPS sysroot: the declarations below are glibc 2.28's and alsa-lib's, with
+ * MIPS o32 constants. */
 #define W 320 /* /dev/fb0: 320 x 375, 32 bpp, red at bit 16, two pages (docs/internals.md#videos) */
 #define H 375
 #define FPS 25
@@ -21,6 +24,9 @@
 #define BAR_Y 22 /* its bottom from the picture's */
 #define BAR_H 8
 #define Q2VIDEO_SOCK "/tmp/q2video.sock"
+#define RADIO_SOCK "/tmp/q2radio.sock"
+#define RADIO_STATE "/tmp/q2radio.state" /* key=value lines, as spotify.c reads librespot's */
+#define RADIO_TRIES 5                       /* starts in a row without sound, then state=error */
 #define FFMPEG "/usr/bin/ffmpeg"
 #define DAC "/dev/shanling_dac"
 #define DAC_PCM 0xc0044d1bu  /* hciplayer sets it to 0 for each PCM track: undoes a DSD one */
@@ -33,6 +39,7 @@
 int snprintf(char *, unsigned, const char *, ...), sscanf(const char *, const char *, ...);
 void *memcpy(void *, const void *, unsigned), *memset(void *, int, unsigned);
 char *strstr(const char *, const char *);
+unsigned strlen(const char *);
 #endif
 
 /* ffmpeg's argv into a (27 slots) for frames from second at; ss holds the start. The picture is
@@ -86,6 +93,21 @@ int frame_due(int n, long long clock) {
     return clock < due ? 0 : clock < due + 1000 / FPS ? 1 : 2;
 }
 
+/* ffmpeg's report line s: key's value ("    icy-br          : 128", "Metadata update for
+ * StreamTitle: A - B") into out, n bytes; 0 when the line has no key. */
+int meta(const char *s, const char *key, char *out, unsigned n) {
+    const char *v = strstr(s, key);
+    unsigned len = 0;
+    if (!v) return 0;
+    for (v += strlen(key); *v == ' ';) ++v;
+    if (*v++ != ':') return 0;
+    while (*v == ' ') ++v;
+    while (v[len] && v[len] != '\n' && v[len] != '\r' && len + 1 < n) ++len;
+    memcpy(out, v, len);
+    out[len] = 0;
+    return 1;
+}
+
 #ifndef PEQ_HOST
 struct timespec {
     long sec, nsec;
@@ -102,7 +124,7 @@ int open(const char *, int, ...), close(int), read(int, void *, unsigned), ioctl
 int fork(void), execv(const char *, const char *const *), waitpid(int, int *, int), kill(int, int);
 int dup2(int, int), pipe2(int *, int), fcntl(int, int, ...), poll(struct pollfd *, unsigned, int);
 int socket(int, int, int), bind(int, const void *, unsigned), recv(int, void *, unsigned, int);
-int atoi(const char *), unlink(const char *), usleep(unsigned), clock_gettime(int, struct timespec *), strcmp(const char *, const char *);
+int atoi(const char *), unlink(const char *), rename(const char *, const char *), write(int, const void *, unsigned), usleep(unsigned), clock_gettime(int, struct timespec *), strcmp(const char *, const char *);
 void *mmap(void *, unsigned, int, int, int, long), *malloc(unsigned), (*signal(int, void (*)(int)))(int);
 void _exit(int) __attribute__((noreturn));
 int pthread_create(unsigned long *, const void *, void *(*)(void *), void *), pthread_join(unsigned long, void **);
@@ -112,6 +134,9 @@ int snd_pcm_recover(void *, int, int), snd_pcm_delay(void *, long *);
 long snd_pcm_writei(void *, const void *, unsigned long);
 
 #define O_RDWR 2
+#define O_WRONLY 1
+#define O_CREAT 0x100
+#define O_TRUNC 0x200
 #define O_CLOEXEC 0x80000
 #define SIGKILL 9
 #define SIGCHLD 18
@@ -157,10 +182,127 @@ static long long now_ms(void) {
     return (long long)t.sec * 1000 + t.nsec / 1000000;
 }
 
+/* ALSA argv[1] ("-" for none) into au.pcm; Bluetooth or a USB DAC (argv[3]) have no headphone
+ * DAC and get hciplayer's soft volume unless "h". Returns the DAC, readied, or -1. */
+static int sound_open(int argc, char **argv) {
+    int dac = -1, off = 0;
+    au.gain = argc > 3 && argv[3][0] != 'h' ? bt_gain(atoi(argv[3])) : 65536;
+    if (strcmp(argv[1], "-")) {
+        /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop */
+        for (int i = 0; i < 20 && snd_pcm_open(&au.pcm, argv[1], 0, 0); ++i) au.pcm = 0, usleep(100000);
+        if (au.pcm && snd_pcm_set_params(au.pcm, 2, 3, 2, RATE, 1, LATENCY)) /* S16_LE, RW_INTERLEAVED */
+            snd_pcm_close(au.pcm), au.pcm = 0;
+        if (au.pcm && argc < 4 && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
+            ioctl(dac, DAC_PCM, &off), ioctl(dac, DAC_MUTE, &off);
+    }
+    return dac;
+}
+
+static struct {
+    char title[256], codec[16], bitrate[16];
+    long long at; /* CLOCK_MONOTONIC ms the sound started, 0 before */
+} rs;
+
+/* RADIO_STATE, whole: written aside and renamed, so demo never reads half of it. */
+static void radio_state(const char *state) {
+    char s[400];
+    int n = snprintf(s, sizeof s, "state=%s\ntitle=%s\ncodec=%s\nbitrate=%s\nat=%lld\n", state, rs.title,
+                     rs.codec, rs.bitrate, rs.at),
+        fd = open(RADIO_STATE ".tmp", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+    write(fd, s, (unsigned)n < sizeof s ? (unsigned)n : sizeof s - 1);
+    close(fd);
+    rename(RADIO_STATE ".tmp", RADIO_STATE);
+}
+
+/* A key from demo: v sets the soft gain, q quits. */
+static void radio_key(int sock, int soft, int *quit) {
+    char k[2] = { 0 };
+    if (recv(sock, k, 2, 0) <= 0) return;
+    if (k[0] == 'v') au.gain = soft ? bt_gain((unsigned char)k[1]) : 65536;
+    *quit |= k[0] == 'q';
+}
+
+/* -r: ffmpeg reads URL (argv[2]) with its ICY tags and reconnects as it can; when it ends anyway
+ * it starts again, after a second more each time, until RADIO_TRIES starts in a row bring no
+ * sound. Its report (stderr) gives the codec, bitrate and each StreamTitle. q quits, unlinking
+ * the state; giving up leaves state=error. */
+static int radio(int argc, char **argv) {
+    int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argc, argv), on = 1, quit = 0, tries = 0;
+    int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
+    struct sockaddr_un addr = { AF_UNIX, RADIO_SOCK };
+    unlink(RADIO_SOCK);
+    bind(sock, &addr, sizeof addr);
+    while (au.pcm && !quit && tries++ < RADIO_TRIES) {
+        int ap[2], ep[2] = { -1, -1 }, len = 0;
+        if (pipe2(ap, O_CLOEXEC) || pipe2(ep, O_CLOEXEC)) break;
+        /* verbose: libavformat's http logs each StreamTitle there, not at info */
+        const char *args[] = { FFMPEG, "-nostdin", "-hide_banner", "-nostats", "-loglevel", "verbose",
+                               "-icy", "1", "-reconnect", "1", "-reconnect_streamed", "1", "-rw_timeout",
+                               "15000000", "-i", argv[2], "-vn", "-ac", "2", "-ar", "48000", "-f", "s16le",
+                               "pipe:4", 0 };
+        rs.at = 0;
+        radio_state("connecting");
+        int pid = fork();
+        if (!pid) {
+            dup2(ap[1], 4);
+            dup2(ep[1], 2);
+            execv(FFMPEG, args);
+            _exit(127);
+        }
+        close(ap[1]), close(ep[1]);
+        unsigned long thread = 0;
+        au.fd = ap[0];
+        au.played = au.done = 0;
+        if (pid < 0 || pthread_create(&thread, 0, writer, 0)) thread = 0;
+        char line[512], c;
+        while (thread && !quit) {
+            struct pollfd p[2] = { { sock, 1, 0 }, { ep[0], 1, 0 } };
+            poll(p, 2, 500);
+            if (p[0].revents) radio_key(sock, soft, &quit);
+            if (!rs.at && au.played > 0) rs.at = now_ms(), tries = 0, radio_state("playing");
+            if (!p[1].revents) continue;
+            if (read(ep[0], &c, 1) <= 0) break; /* ffmpeg ended */
+            if (c != '\n' && c != '\r') {
+                if (len < (int)sizeof line - 1) line[len++] = c;
+                continue;
+            }
+            line[len] = 0, len = 0;
+            if (!rs.codec[0] && meta(line, "Audio", rs.codec, sizeof rs.codec)) {
+                char *x = rs.codec; /* "mp3 (mp3float), 44100 Hz, ...": MP3 */
+                for (; *x && *x != ' ' && *x != ','; ++x)
+                    if (*x >= 'a' && *x <= 'z') *x -= 32;
+                *x = 0;
+            }
+            if (meta(line, "StreamTitle", rs.title, sizeof rs.title) ||
+                meta(line, "icy-br", rs.bitrate, sizeof rs.bitrate))
+                radio_state(rs.at ? "playing" : "connecting");
+        }
+        if (pid > 0) kill(pid, SIGKILL), waitpid(pid, 0, 0);
+        if (thread) pthread_join(thread, 0);
+        close(ap[0]), close(ep[0]);
+        snd_pcm_drop(au.pcm), snd_pcm_prepare(au.pcm);
+        /* the wait before the next start, a key at a time */
+        for (long long until = now_ms() + 1000 * tries; !quit && tries < RADIO_TRIES && now_ms() < until;) {
+            struct pollfd p = { sock, 1, 0 };
+            if (poll(&p, 1, 100) > 0) radio_key(sock, soft, &quit);
+        }
+    }
+    if (quit)
+        unlink(RADIO_STATE);
+    else
+        radio_state("error");
+    if (au.pcm) snd_pcm_close(au.pcm);
+    if (dac >= 0) ioctl(dac, DAC_MUTE, &on);
+    unlink(RADIO_SOCK);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) return 2;
     for (int fd = 3; fd < 1024; ++fd) close(fd); /* demo's, inherited */
     signal(SIGCHLD, 0); /* SIG_DFL, so waitpid sees ffmpeg */
+    if (argc > 3 && !strcmp(argv[1], "-r")) return radio(argc - 1, argv + 1);
     unsigned var[40], fix[17];
     int fb = open("/dev/fb0", O_RDWR | O_CLOEXEC);
     if (fb < 0 || ioctl(fb, FBIOGET_VSCREENINFO, var) || ioctl(fb, FBIOGET_FSCREENINFO, fix)) return 1;
@@ -175,18 +317,7 @@ int main(int argc, char **argv) {
     struct sockaddr_un addr = { AF_UNIX, Q2VIDEO_SOCK };
     unlink(Q2VIDEO_SOCK);
     bind(sock, &addr, sizeof addr);
-    int dac = -1, off = 0, on = 1;
-    /* Bluetooth or a USB DAC: no headphone DAC; hciplayer's soft volume unless "h" */
-    int soft = argc > 3 && argv[3][0] != 'h';
-    au.gain = soft ? bt_gain(atoi(argv[3])) : 65536;
-    if (strcmp(argv[1], "-")) {
-        /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop */
-        for (int i = 0; i < 20 && snd_pcm_open(&au.pcm, argv[1], 0, 0); ++i) au.pcm = 0, usleep(100000);
-        if (au.pcm && snd_pcm_set_params(au.pcm, 2, 3, 2, RATE, 1, LATENCY)) /* S16_LE, RW_INTERLEAVED */
-            snd_pcm_close(au.pcm), au.pcm = 0;
-        if (au.pcm && argc < 4 && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
-            ioctl(dac, DAC_PCM, &off), ioctl(dac, DAC_MUTE, &off);
-    }
+    int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argc, argv), on = 1;
     /* ffmpeg -i alone, meanwhile, for the length the position bar needs */
     char info[4096];
     int at = 0, audio = au.pcm != 0, first = 1, quit = 0, held = 0, pp[2] = { -1, -1 }, got = 0;

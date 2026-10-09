@@ -22,20 +22,6 @@
                             */
 #define SPOT_STEP_MS 5000  /* a scrub tick, as Now Playing's */
 #define SPOT_IDLE_MS 30000 /* not playing this long after it has played: librespot is stopped */
-/* Now Playing's layout (tools/ipod.py NP_*): the art and the text 16px from the sides, 12 apart,
- * the bar and times clear of the glass's corners. */
-#define SPOT_ART_X 16
-#define SPOT_ART_Y 50
-#define SPOT_ART_PX 166
-#define SPOT_TEXT_X 194
-#define SPOT_TEXT_W 165
-#define SPOT_BAR_X 21
-#define SPOT_BAR_Y 251
-#define SPOT_BAR_W 333
-#define SPOT_BAR_H 8
-#define SPOT_TIMES_Y 265
-#define SPOT_TIME_X 46
-#define SPOT_GREY 0xffaaaaaau
 
 extern int image_show(void *img, const char *url, unsigned *size),
     center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing);
@@ -58,7 +44,7 @@ static struct {
     char art_track[64];
 } ui __attribute__((section(".scratch")));
 
-static unsigned long long now_ms(void) {
+unsigned long long now_ms(void) { /* shared with radio.c */
     int ts[2];            /* o32 timespec */
     clock_gettime(1, ts); /* CLOCK_MONOTONIC, librespot's at= clock */
     return (unsigned long long)(unsigned)ts[0] * 1000 + (unsigned)ts[1] / 1000000;
@@ -87,8 +73,8 @@ static void spot_send(const char *c, unsigned n) {
     spot_log("send", c[0], (int)n);
 }
 
-/* The value of key in raw into out (n bytes), "" without one. */
-static void field(const char *raw, const char *key, char *out, unsigned n) {
+/* The value of key in raw into out (n bytes), "" without one. Shared with radio.c. */
+void field(const char *raw, const char *key, char *out, unsigned n) {
     char k[16];
     tk_snprintf(k, sizeof k, "\n%s=", key);
     const char *v = strstr(raw, k), *e;
@@ -99,7 +85,7 @@ static void field(const char *raw, const char *key, char *out, unsigned n) {
     out[len] = 0;
 }
 
-static unsigned long long number(const char *raw, const char *key) {
+unsigned long long number(const char *raw, const char *key) {
     char v[24];
     unsigned long long x = 0;
     field(raw, key, v, sizeof v);
@@ -132,6 +118,7 @@ static unsigned spot_position(void) {
  * the headphone DAC only. */
 static void spot_take(void) {
     spot_log("take", g_headset_output, mclGetOutputWay());
+    radio_stop(); /* Internet Radio's q2video holds the PCM */
     if (mclGetPlayStatus() != 1) player_stop(); /* 1 stopped */
     if (g_headset_output < 2)
         config_outputchannel(g_headset_output, 2);
@@ -404,7 +391,7 @@ static int closed(void *ctx, void *event) {
     return 0;
 }
 
-static void *label(void *parent, int x, int y, int w, int h, const char *style, int px,
+void *label(void *parent, int x, int y, int w, int h, const char *style, int px,
                    unsigned color) {
     void *l = text(parent, x, y, w, h);
     widget_use_style(l, style);
