@@ -34,6 +34,8 @@ extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas)
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event);
 extern void radio_poll(void);
+extern void xfade_row(void *label);
+extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key);
 extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
 extern const char *radio_hold(void *top);
 extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
@@ -1643,6 +1645,8 @@ int ringnav_audioset(void *win, void *ctx) {
     static const char *const icons[] = { "playset_folderjump" };
     int result = stock_audioset_trampoline(win, ctx);
     pod_rows(win, "scroll_view_playset", POD_ARTISTS, 1, icons);
+    void *view = win ? widget_lookup(win, "scroll_view_playset", 1) : (void *)0;
+    if (view) xfade_row(list_row(view, "playset_gapless", xfade_open, (void *)0)); /* crossfade.c */
     return result;
 }
 
@@ -4282,6 +4286,7 @@ int ringnav(void *ctx, void *event) {
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     if (spot_key(top, key)) return STOP; /* Spotify's page: Centre scrubs */
+    if (xfade_key(top, key)) return STOP; /* Crossfade's page: Centre toggles, the wheel sets the length */
 
 #if IPOD
     if (top != st.np_win || window_manager_is_animating(wm) ||

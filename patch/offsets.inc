@@ -298,6 +298,7 @@
 #define MCL_POS 0xa3bea4
 #define MCL_MODE 0xa3bea8       /* 0 order, 1 repeat one, 2 shuffle, 3 repeat all */
 #define MCL_JUMPFOLDER 0xa3be53 /* byte: Folder Skip, read only for class 1 queues */
+#define MCL_GAPLESS 0xa3be54    /* byte: stock's Gapless setting (mclGetGaplessMode); mclAutoChange preloads only with it */
 #define MCL_FD 0xa3beb4         /* player socket, -1 none */
 #define INITCONFIG_MODE_RET 0x513420 /* player_initconfig's mclSetPlayMode call (jalr 0x513418) returns here */
 /* mclUsbAudioSetVol (0x5ac574): the USB DAC's volume control, -1 before the first set, -2 when it
@@ -313,6 +314,14 @@
  * done flag (wait_scan sets it) have no symbols: a scan runs while the handle is set and the
  * flag is clear. */
 #define EVT_VALUE_CHANGED 0x0e
+#define EVT_VALUE_CHANGING 0x0f
+/* playset_bootvol_page_init (0x4b4a80) binds these, each with the window as context; Crossfade
+ * re-dresses the page (crossfade.c) and unbinds them first. */
+#define BOOTVOL_SWITCH 0x4b44d8   /* on_bootvol_switch_onclick: img_bootswitch's click */
+#define BOOTVOL_DEC 0x4b4624      /* img_dec's click */
+#define BOOTVOL_ADD 0x4b45a8      /* img_add's click */
+#define BOOTVOL_CHANGING 0x4b48f4 /* slider_bootvol's EVT_VALUE_CHANGING */
+#define BOOTVOL_CHANGED 0x4b4300  /* slider_bootvol's EVT_VALUE_CHANGED */
 #define SCAN_THREAD 0xa271d8
 #define SCAN_DONE 0xa271d4
 /* Coverflow text: iPod keeps every label CF_EDGE from the sides, where the lowest track row's text

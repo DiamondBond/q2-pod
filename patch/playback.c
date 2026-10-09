@@ -755,8 +755,17 @@ int playback_resumed(void *r) {
     return pending && (unsigned)M(MCL_POS) == s.resume_pos &&
            fnv(FNV_SEED, P(r, REC_PATH)) == s.resume_key;
 }
+/* The track gapless preloads after this one, or -1: Crossfade's next (crossfade.c). Stock preloads
+ * pos+1 only in order and repeat-all (mclSetPlayMode's modes 0 and 3). */
+int playback_next(void) {
+    if (s.active) return playback_successor(1);
+    unsigned at = (unsigned)M(MCL_POS);
+    int mode = M(MCL_MODE);
+    return (mode == 0 || mode == 3) && queue() && at + 1 < deque_size(queue()) ? (int)at + 1 : -1;
+}
 void playback_poll(void) {
     wheel_load();
+    xfade_poll(playback_next());
     unsigned now = time_now_ms();
     /* playback_save writes only what changed. */
     if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= 5000)) playback_save(), s.stamp = now;

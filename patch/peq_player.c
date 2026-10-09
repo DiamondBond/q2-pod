@@ -92,6 +92,106 @@ static void tap(const float *a, unsigned frames, int nch, int rate) {
     t->seq = seq;
 }
 
+/* Crossfade (docs/internals.md#crossfade). Near a track's end the filter holds its last seconds back,
+ * putting out half of what comes in until the hold is full, so the decoder runs ahead at twice real
+ * time and no gap opens. The next track's filter (a new instance: the player re-adds it at each file)
+ * then mixes the held tail under its own start, equal power. The ring outlives both instances. */
+#define XF_FLOATS (1u << 20) /* ponytail: 4 MB; about 10 s at 44.1 kHz stereo, 4.7 s at 96, 2.3 s at 192 */
+#define XF_SLACK (1u << 17)  /* room for one block past the held tail */
+#define XF_LEAD_S 2.0        /* the hold starts this much early, for the length's whole seconds */
+#define XF_STALE_NS 3000000000LL /* a tail not followed this soon (stop, pause) is dropped */
+#define XF_SEEK_S 1.5        /* a position jump this large while holding is a seek */
+#ifdef PEQ_HOST
+extern double peq_pts;
+extern int peq_length;
+static double decoded(void) { return peq_pts; }
+#define LENGTH peq_length
+#else
+/* written_audio_pts (0x44641c, a leaf): seconds decoded so far, NOPTS (-2^63) without a stream;
+ * the length is {media-info}'s whole seconds (0xb10e84, demo's mclGetPlayTime). */
+static double decoded(void) {
+    char *mp = MPCTX, *sh = mp ? *(char **)(mp + 0x2c) : 0, *ds = mp ? *(char **)(mp + 0x34) : 0;
+    return sh && ds ? ((double (*)(void *, void *))0x44641cu)(sh, ds) : -1;
+}
+#define LENGTH (*(volatile int *)0xb10e84u)
+#endif
+static struct {
+    float *ring;
+    unsigned head, len, total; /* frames held from head; total: held when the mix began */
+    int rate, nch, owner, length; /* the holder's format, instance and length when it began */
+    long long last;               /* now_ns of the holder's last block */
+    double pts;                   /* its position then */
+} xf;
+static int xf_ids;
+
+/* demo's fade for the next change, looked for once a second of audio until the file appears. */
+static int xfade_ms(int rate, unsigned frames) {
+    static xfade_flag *f;
+    static unsigned wait = ~0u;
+    if (!f && wait < (unsigned)rate) {
+        wait += frames;
+    } else if (!f) {
+        wait = 0;
+        int fd = open(XFADE_FILE, 0); /* O_RDONLY */
+        if (fd >= 0) {
+            void *p = mmap64(0, sizeof(xfade_flag), 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
+            close(fd);
+            if (p != (void *)-1) f = p;
+        }
+    }
+    return f && f->ms > 0 ? f->ms : 0;
+}
+
+/* Frames of a (interleaved, nch) put out in place: all of them, or fewer while the hold fills. */
+static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, int rate) {
+    unsigned cap = XF_FLOATS / (unsigned)nch;
+    long long now = now_ns();
+    double pts = decoded();
+    /* The next track: another instance, or this one starting over from the end (should the player
+     * keep the chain across a gapless change); xf.total marks a mix under way. */
+    int mine = xf.len && xf.owner == s->id,
+        restart = mine && xf.pts >= xf.length - XF_SEEK_S && pts >= 0 && pts < XF_SEEK_S;
+    if (xf.len && (xf.total || !mine || restart)) {
+        if (now - xf.last > XF_STALE_NS || rate != xf.rate || nch != xf.nch) {
+            xf.len = xf.total = 0; /* ponytail: a new rate or channel count drops the tail */
+        } else {
+            if (!xf.total) xf.total = xf.len;
+            unsigned n = frames < xf.len ? frames : xf.len;
+            for (unsigned i = 0; i < n; ++i) {
+                float p = (xf.total - xf.len + i + 0.5f) / xf.total * 1.5707963f;
+                float in = sinf(p), out = cosf(p), *held = xf.ring + (xf.head + i) % cap * nch;
+                for (int c = 0; c < nch; ++c) a[i * nch + c] = a[i * nch + c] * in + held[c] * out;
+            }
+            xf.head = (xf.head + n) % cap;
+            if (!(xf.len -= n)) xf.total = 0;
+            xf.last = now;
+            return frames;
+        }
+    }
+    int ms = xfade_ms(rate, frames), length = mine ? xf.length : LENGTH;
+    unsigned want = (unsigned)ms * (unsigned)(rate / 10) / 100; /* 32-bit: no __divdi3 here */
+    if (want > cap - XF_SLACK / (unsigned)nch) want = cap - XF_SLACK / (unsigned)nch;
+    int ending = want && length > 0 && pts >= 0 && pts > length - 2.0 * want / rate - XF_LEAD_S;
+    mine = xf.len && xf.owner == s->id;
+    if (mine && (!ending || __builtin_fabs(pts - xf.pts) > XF_SEEK_S || xf.len + frames > cap))
+        xf.len = 0; /* a seek, or no fade any more: the held audio was left behind */
+    if (!ending || frames > cap - want || (!xf.ring && !(xf.ring = calloc(XF_FLOATS, sizeof(float)))))
+        return frames;
+    if (!xf.len) xf.head = 0, xf.owner = s->id, xf.rate = rate, xf.nch = nch, xf.length = length;
+    for (unsigned i = 0; i < frames; ++i)
+        memcpy(xf.ring + (xf.head + xf.len + i) % cap * nch, a + i * nch, 4 * nch);
+    xf.len += frames;
+    unsigned k = (frames + 1) / 2;
+    if (xf.len > want && xf.len - want > k) k = xf.len - want;
+    if (k > frames) k = frames;
+    for (unsigned i = 0; i < k; ++i) memcpy(a + i * nch, xf.ring + (xf.head + i) % cap * nch, 4 * nch);
+    xf.head = (xf.head + k) % cap;
+    xf.len -= k;
+    xf.last = now;
+    xf.pts = pts;
+    return k;
+}
+
 static af_data *play(af_instance *af, af_data *data) {
     player_state *s = af->setup;
     if (data && data->len > 0 && data->format == 0x1d && data->bps == 4 &&
@@ -99,6 +199,8 @@ static af_data *play(af_instance *af, af_data *data) {
         !(data->len % (4 * data->nch))) {
         unsigned frames = (unsigned)data->len / (4 * data->nch);
         peq_process(&s->dsp, data->audio, frames);
+        frames = crossfade(s, data->audio, frames, data->nch, data->rate);
+        data->len = (int)(frames * 4 * data->nch);
         tap(data->audio, frames, data->nch, data->rate);
     }
     return data;
@@ -120,6 +222,7 @@ int peq_open(af_instance *af) {
     af->data = calloc(1, sizeof(af_data));
     af->setup = calloc(1, sizeof(player_state));
     if (!af->data || !af->setup) return -2; /* af_create calls uninit on failure. */
+    ((player_state *)af->setup)->id = ++xf_ids;
     return 1;
 }
 

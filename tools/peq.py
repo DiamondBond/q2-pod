@@ -111,7 +111,7 @@ def compile_common(out, binary, player=False, ipod=False):
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
     if player: flags += ['-mnan=2008']
     objects = []
-    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'visualizer.c', 'playback.c', 'spotify.c', 'radio.c', 'tidal.c']:
+    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'visualizer.c', 'playback.c', 'spotify.c', 'radio.c', 'tidal.c', 'crossfade.c']:
         obj = out/(name+'.o')
         run('clang', *flags, '-I', out, '-c', ROOT/'patch'/name, '-o', obj)
         objects.append(obj)

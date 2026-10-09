@@ -32,12 +32,13 @@ Things people often don't know are already there:
 
 ## Battery and library settings
 
-| Where                                  | Setting          | What it does                                                                                                                                                                                                        |
-| -------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **System settings → Power management** | **Charge limit** | **80%** stops charging at 80% and starts again at 75%, so a Q2 left plugged in isn't held full. Off by default.                                                                                                     |
-| **System settings → Power management** | **Low power**    | Longer battery: the second CPU core sleeps while the screen is off, and the screen-on UI idles when you don't touch it. Off by default.                                                                             |
-| **System settings → Power management** | **Wake**         | **Double press**: with the screen off, a single centre press is ignored, so a pocket bump stays dark; press twice to wake. To power off from a dark screen, double-press, then hold. Off (Single press) by default. |
-| **Audio settings**                     | **Artists**      | **Artist** (default) or **Album Artist**: browse Artists by the Album Artist tag, so guest artists don't split albums.                                                                                              |
+| Where                                  | Setting          | What it does                                                                                                                                                                                                               |
+| -------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **System settings → Power management** | **Charge limit** | **80%** stops charging at 80% and starts again at 75%, so a Q2 left plugged in isn't held full. Off by default.                                                                                                            |
+| **System settings → Power management** | **Low power**    | Longer battery: the second CPU core sleeps while the screen is off, and the screen-on UI idles when you don't touch it. Off by default.                                                                                    |
+| **System settings → Power management** | **Wake**         | **Double press**: with the screen off, a single centre press is ignored, so a pocket bump stays dark; press twice to wake. To power off from a dark screen, double-press, then hold. Off (Single press) by default.        |
+| **Audio settings**                     | **Artists**      | **Artist** (default) or **Album Artist**: browse Artists by the Album Artist tag, so guest artists don't split albums.                                                                                                     |
+| **Audio settings**                     | **Crossfade**    | Fades one song into the next, 1-10 s (5 by default): turn the wheel or drag the slider; Centre switches it on or off. Only between different albums, so albums stay gapless; needs stock's **Gapless** on. Off by default. |
 
 Charge limit applies while the Q2 is on; charging while it's powered off is stock's. Low power never touches the sound, EQ, brightness or radios. Audio settings also has stock's DAC **Filter**.
 

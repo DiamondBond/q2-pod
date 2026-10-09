@@ -6,6 +6,8 @@ int playback_groups(void *all, int folder);
 int playback_group_skip(int forward);
 void playback_insert(unsigned at, unsigned n, int next);
 void playback_poll(void);
+int playback_next(void);
+void xfade_poll(int next); /* crossfade.c */
 int playback_resumed(void *r);
 void playback_save(void);
 void wheel_load(void);

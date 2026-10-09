@@ -571,6 +571,8 @@ int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *
 int peq_open(af_instance *af);
 
 char *peq_mpctx; /* the player's MPContext pointer; null: no codec to check */
+double peq_pts = -1; /* written_audio_pts: seconds decoded */
+int peq_length;      /* {media-info}'s whole seconds */
 static int left = -1; /* calloc calls before one fails; -1: never */
 void *test_calloc(size_t n, size_t size) {
     if (!left--) return 0;
@@ -618,6 +620,119 @@ static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
     for (unsigned i = 0; i < n; ++i)
         for (int ch = 0; ch < 2; ++ch)
             assert(t->ring[(t->seq - n + i) % VIS_RING][ch] == a[i * step * nch + (ch && nch > 1)]);
+}
+
+/* Crossfade (peq_player.c crossfade): demo's flag, one filter instance per track. */
+static xfade_flag *xfade_view(int ms) {
+    static xfade_flag *f;
+    if (!f) {
+        int fd = open(XFADE_FILE, O_RDWR | O_CREAT, 0644);
+        assert(fd >= 0 && !ftruncate(fd, sizeof(xfade_flag)));
+        f = mmap(0, sizeof(xfade_flag), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        assert(f != MAP_FAILED && !close(fd));
+    }
+    f->ms = ms;
+    return f;
+}
+static af_instance *track(af_instance *af, int rate) {
+    memset(af, 0, sizeof(*af));
+    assert(peq_open(af) == 1);
+    af_data in = {0, 0, rate, 2, 0x1d, 4};
+    assert(negotiate(af, &in) == 1);
+    return af;
+}
+/* One stereo block: channel 0 a ramp from *n (the track's frame count), channel 1 level. Returns
+ * the frames put out, into out. */
+static unsigned block(af_instance *af, float *out, unsigned frames, unsigned *n, float level, int rate) {
+    for (unsigned i = 0; i < frames; ++i) out[2 * i] = (float)(*n + i), out[2 * i + 1] = level;
+    *n += frames;
+    peq_pts = (double)*n / rate;
+    af_data d = {out, (int)(frames * 8), rate, 2, 0x1d, 4};
+    assert(af->play(af, &d) == &d && d.audio == out && d.len % 8 == 0);
+    return (unsigned)d.len / 8;
+}
+
+static void crossfade_check(void) {
+    static float buf[2 * 1024];
+    af_instance a, b;
+    unlink(PEQ_ACTIVE); /* the defaults: bypass, so the filter leaves samples exact */
+    xfade_view(1000);
+    peq_length = 10;
+    /* Outgoing: untouched until the hold window (2 x 1 s + 2 s before the end), then half of each
+     * block until a second is held; what comes out is the track in order, nothing skipped. */
+    track(&a, 48000);
+    unsigned n = 0, out = 0, held;
+    while (n < 10 * 48000) {
+        unsigned k = block(&a, buf, 1024, &n, 1, 48000);
+        if (n <= 6 * 48000) assert(k == 1024);
+        for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)out++);
+    }
+    held = n - out;
+    assert(held == 48000);
+    a.uninit(&a);
+    /* Incoming: its first second mixed with the held tail, equal power (ch 1: 1 out, 0 in, so the
+     * tail's cos), the tail's frames in order; then the track alone. Every frame comes out. */
+    track(&b, 48000);
+    unsigned m = 0, mixed = 0;
+    while (m < 2 * 48000) {
+        unsigned start = m, k = block(&b, buf, 1024, &m, 0, 48000);
+        assert(k == 1024);
+        for (unsigned i = 0; i < k; ++i, ++mixed) {
+            if (mixed < held) {
+                float p = (mixed + 0.5f) / held * 1.5707963f;
+                assert(fabsf(buf[2 * i + 1] - cosf(p)) < 1e-5f);
+                assert(fabsf(buf[2 * i] - ((start + i) * sinf(p) + (out + mixed) * cosf(p))) < 0.5f);
+            } else
+                assert(buf[2 * i] == (float)(start + i) && buf[2 * i + 1] == 0);
+        }
+    }
+    /* Halfway the two are at equal power: cos^2 + sin^2 = 1, each at 0.707. */
+    float p = (held / 2 + 0.5f) / held * 1.5707963f;
+    assert(fabsf(cosf(p) - 0.70710678f) < 1e-3f);
+    b.uninit(&b);
+
+    /* No fade asked (another album next, Crossfade off, Gapless off): every block whole. */
+    xfade_view(0);
+    track(&a, 48000);
+    for (n = 0; n < 10 * 48000;) assert(block(&a, buf, 1024, &n, 1, 48000) == 1024);
+    a.uninit(&a);
+
+    /* A seek while holding drops the held audio (it was left behind) and plays on whole. */
+    xfade_view(1000);
+    track(&a, 48000);
+    for (n = 0; n < 9 * 48000;) block(&a, buf, 1024, &n, 1, 48000);
+    n = 2 * 48000; /* back to 2 s */
+    assert(block(&a, buf, 1024, &n, 1, 48000) == 1024 && buf[0] == 2 * 48000);
+    a.uninit(&a);
+    /* A tail followed by another rate is dropped: the next track plays alone. */
+    track(&a, 48000);
+    for (n = 0; n < 10 * 48000;) block(&a, buf, 1024, &n, 1, 48000);
+    a.uninit(&a);
+    track(&b, 44100);
+    m = 0;
+    assert(block(&b, buf, 1024, &m, 0, 44100) == 1024 && buf[0] == 0 && buf[1] == 0);
+    b.uninit(&b);
+    /* The same instance starting over at the end (a chain kept across the change) is the next track. */
+    track(&a, 48000);
+    for (n = 0; n < 10 * 48000;) block(&a, buf, 1024, &n, 1, 48000);
+    peq_length = 30; /* the next track's, once the player has switched */
+    m = 0;
+    for (mixed = 0; m < 2 * 48000;) {
+        unsigned start = m, k = block(&a, buf, 1024, &m, 0, 48000);
+        assert(k == 1024);
+        for (unsigned i = 0; i < k; ++i, ++mixed)
+            if (mixed < 48000) assert(fabsf(buf[2 * i + 1] - cosf((mixed + 0.5f) / 48000 * 1.5707963f)) < 1e-5f);
+            else assert(buf[2 * i] == (float)(start + i) && buf[2 * i + 1] == 0);
+    }
+    a.uninit(&a);
+    peq_length = 10;
+    /* Unknown length or position: no hold. */
+    peq_length = 0;
+    track(&a, 48000);
+    for (n = 0; n < 10 * 48000;) assert(block(&a, buf, 1024, &n, 1, 48000) == 1024);
+    a.uninit(&a);
+    xfade_view(0);
+    peq_pts = -1;
 }
 
 int main(void) {
@@ -735,6 +850,7 @@ int main(void) {
 
     af.uninit(&af);
     assert(!af.data && !af.setup);
+    crossfade_check();
 
     /* Exact VBR seeking: a 44.1 kHz stereo MPEG-1 Layer III Xing frame, 3600 s long, whose table
      * puts the first half of the time in the first quarter of the bytes. */
@@ -775,7 +891,7 @@ def player_check(tmp):
                     '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'),
                     *map(str, sources), '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup and the Xing seek table passed.')
+    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup, crossfade and the Xing seek table passed.')
 
 def visualizer_check(tmp):
     """The visualizer's analysis (patch/visualizer.c vis_bands): a sine lands in its band at full scale."""

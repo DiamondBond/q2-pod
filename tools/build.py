@@ -268,6 +268,9 @@ FUNCTIONS = {
  'widget_set_visible': ('int', 'void *, int, int'),
  'widget_set_opacity': ('int', 'void *, unsigned'),
  'widget_set_enable': ('int', 'void *, int'),
+ # Crossfade's page (crossfade.c): stock's Boot volume slider, its value a double
+ 'slider_set_min': ('int', 'void *, double'), 'slider_set_max': ('int', 'void *, double'),
+ 'slider_set_step': ('int', 'void *, double'), 'slider_set_value': ('int', 'void *, double'),
  'widget_set_text_utf8': ('int', 'void *, const char *'),
  'widget_use_style': ('int', 'void *, const char *'),
  'widget_set_name': ('int', 'void *, const char *'),
