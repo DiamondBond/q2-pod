@@ -64,7 +64,7 @@ LIBC = {
     'MD5_Update': ('int', 'void *, const void *, unsigned'), 'MD5_Final': ('int', 'unsigned char *, void *'),
     # Videos (books.c): q2video started and waited for, and its key socket
     'fork': ('int', 'void'), 'execl': ('int', 'const char *, const char *, ...'), 'exit': ('void', 'int'),
-    # Home's Rockbox shortcut (navigation.c rockbox_shortcut)
+    # Home's Rockbox row (navigation.c rockbox_open)
     'system': ('int', 'const char *'),
     'waitpid': ('int', 'int, int *, int'), 'socket': ('int', 'int, int, int'), 'close': ('int', 'int'),
     'sendto': ('int', 'int, const void *, unsigned, int, const void *, unsigned'),

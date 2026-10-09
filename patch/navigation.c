@@ -129,6 +129,7 @@ typedef struct {
     void *mp_page, *mp_list;
     unsigned mp_gen;
     void *sp_page; /* the Library Shuffle menu's page, kept across picks */
+    void *set_page; /* Home's Settings menu's page */
     int dark;      /* the backlight was off at the last UI loop pass */
     /* Power management's Charge limit and Low power (read once from config.ini's Q2POD), the value
      * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
@@ -169,8 +170,8 @@ typedef struct {
     unsigned lyric_timer; /* runs while the wheel holds the lyrics and stock's timer is stopped */
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, battery, shortcut, home_rockbox;
-    void *setting_label[4];
+    int settings_read, accent, home_full, battery, home_rockbox;
+    void *setting_label[3];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -965,10 +966,6 @@ static int pending_matches(void *top, menu_t *m) {
     return r.one == st.center_hash && r.two == st.center_hash2;
 }
 
-#if IPOD
-static int rockbox_shortcut(void *target);
-#endif
-
 static int confirm_center(const void *info) {
     (void)info;
     void *w = surface((void *)0, (void *)0);
@@ -991,11 +988,6 @@ static int confirm_center(const void *info) {
         *(volatile unsigned char *)KEY_LOCKOUT = 0;
         void *target = g_menu.at[index_of(&g_menu, st.center_id)];
         char click[0x30];
-#if IPOD
-        /* The wheel's click is dispatched here, not by ringnav_dispatch, so Home's Rockbox row
-         * takes its shortcut here too: a tap and the centre behave alike. */
-        if (rockbox_shortcut(target)) return 0;
-#endif
         stock_dispatch_trampoline(target, pointer_event_init(click, EVT_CLICK, target, 0, 0));
     }
     return 0;
@@ -1164,8 +1156,8 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent, Home, Battery and Shortcut settings (docs/ipod.md#display-settings), IPOD/ACCENT,
- * HOME, BATTERY and SHORTCUT in the stock config.ini: toolsReadConfig(path, section, key, out,
+/* The Accent, Home and Battery settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME and
+ * BATTERY in the stock config.ini: toolsReadConfig(path, section, key, out,
  * default) copies the value, or the default. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
@@ -1180,7 +1172,6 @@ static int accent(void) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
         st.battery = config_digit("BATTERY", 3);
-        st.shortcut = config_digit("SHORTCUT", 2);
         st.settings_read = 1;
     }
     return st.accent;
@@ -1189,10 +1180,9 @@ int ipod_home_full(void) {
     accent();
     return st.home_full;
 }
-/* 1 when Home's Streaming row is the Rockbox shortcut (coverflow_home_layout labels it). */
+/* 1 when Home shows its Rockbox row (coverflow_home_layout): the card has Rockbox. */
 int ipod_home_rockbox(void) {
-    accent();
-    return st.home_rockbox = st.shortcut && rockbox_available();
+    return st.home_rockbox = rockbox_available();
 }
 unsigned accent_tone(int tone) { return accents[accent()][tone]; }
 
@@ -1695,7 +1685,7 @@ static void bar_sync(void *bar) {
     } else if (c && st.codec_step >= CODEC_STEPS)
         image_base_set_image(st.bar_bt, BT_GLYPH);
     accent(); /* reads the settings */
-    if (st.home_rockbox != (st.shortcut && rockbox_available())) coverflow_home_layout();
+    if (st.home_rockbox != rockbox_available()) coverflow_home_layout();
     int mode = st.battery;
     if (mode) {
         int reach = mode == 1 ? BATT_PCT_W : BATT_BODY_W + BATT_NUB_W + BATT_GAP + BATT_PCT_W;
@@ -2184,10 +2174,8 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 static void setting_text(int i) {
     static const char *const home[] = { "Home: Split", "Home: Full" },
                              *const battery[] = { "Battery: Icon", "Battery: Percent",
-                                                  "Battery: Icon + Percent" },
-                             *const shortcut[] = { "Shortcut: Streaming", "Shortcut: Rockbox" };
-    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery],
-                                  shortcut[st.shortcut] };
+                                                  "Battery: Icon + Percent" };
+    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };
     widget_set_text_utf8(st.setting_label[i], names[i]);
 }
 
@@ -2196,16 +2184,16 @@ static void setting_text(int i) {
  * screen repaints; Home takes its new layout and Streaming label at once (never recreated). */
 static int setting_click(void *ctx, void *event) {
     (void)event;
-    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY", "SHORTCUT" };
-    static const int counts[] = { ACCENT_N, 2, 3, 2 };
-    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery, 3 Shortcut */
-    int *const values[] = { &st.accent, &st.home_full, &st.battery, &st.shortcut },
+    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY" };
+    static const int counts[] = { ACCENT_N, 2, 3 };
+    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery */
+    int *const values[] = { &st.accent, &st.home_full, &st.battery },
                *value = values[i];
     *value = (*value + 1) % counts[i];
     write_int_config(*value, "IPOD", keys[i]);
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
-    else if (i == 1 || i == 3)
+    else if (i == 1)
         coverflow_home_layout();
     else if (!i) {
         np_fill(0);
@@ -2315,17 +2303,16 @@ static void wheel_row(void *view) {
 
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Accent, Home, Battery and Shortcut rows follow with the same widgets and styles, borrowing the
- * Display, cover mode, power manager and network service icons, the value in the label and no
- * chevron, since they change in place. */
+ * Accent, Home and Battery rows follow with the same widgets and styles, borrowing the Display,
+ * cover mode and power manager icons, the value in the label and no chevron, since they change in
+ * place. */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
 #if IPOD
     static const char *const icons[] = { "system_display", "playset_covermode",
-                                         "system_powermanager", "system_netservice" };
-    int count = rockbox_available() ? 4 : 3;
-    for (int i = 0; view && i < count; ++i) {
+                                         "system_powermanager" };
+    for (int i = 0; view && i < 3; ++i) {
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
@@ -2441,8 +2428,6 @@ static int selects(menu_t *m, void *target) {
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
 #if IPOD
-    if (target && event && I(event, EVENT_TYPE) == EVT_CLICK && rockbox_shortcut(target))
-        return STOP;
     if (st.pull_page && (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
         pull_cancel();
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
@@ -3087,7 +3072,7 @@ static int page_keyup(void *ctx, void *event) {
 static int page_closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    st.mp_page = st.sp_page = 0;
+    st.mp_page = st.sp_page = st.set_page = 0;
     return 0;
 }
 
@@ -3117,6 +3102,25 @@ static int shuffle_menu(void *ctx, void *event) {
     widget_set_text_utf8(note, "Shuffling albums or folders may take a while");
     return 0;
 }
+
+#if IPOD
+/* Home's Settings row: Playback and System settings, the stock pages Home's cards opened. */
+static int set_pick(void *ctx, void *event) {
+    (void)event;
+    navigator_to(ctx ? "systemset/sysset_page" : "playset/playset_page");
+    return 0;
+}
+
+int settings_open(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    if (st.set_page || !(st.set_page = page_open("settings_page", page_closed, page_keyup))) return 0;
+    void *view = page_list(st.set_page, st.set_page, 0, "Settings", 2, 48);
+    page_row_detail(view, 0, "Playback Settings", 0, set_pick);
+    page_row_detail(view, 1, "System Settings", 0, set_pick);
+    return 0;
+}
+#endif
 
 #define RESUME_FILE "/mnt/data/ringnav-resume" /* coverflow.c's blob_io */
 #define PLAYS_FILE "/mnt/data/ringnav-plays"
@@ -4027,23 +4031,21 @@ static void power_poll(void) {
 }
 
 #if IPOD
-/* Home's Rockbox shortcut (docs/boot.md#rockbox-from-home): with Shortcut: Rockbox, a click on the
- * Streaming row (img_stream, which only Home has) leaves Q2 Pod for Rockbox instead of opening
- * Streaming. demo cannot start it itself: Rockbox needs the screen, the keys and ALSA. So demo
+/* Home's Rockbox row (docs/boot.md#rockbox-from-home), bound by coverflow_home: a click leaves
+ * Q2 Pod for Rockbox. demo cannot start it itself: Rockbox needs the screen, the keys and ALSA. So demo
  * leaves S90play's flag and ends; S90play sees it, runs Rockbox and starts demo again when Rockbox
  * exits. Bluetooth's daemons are not demo's children and keep the headphones connected, so
  * Rockbox finds them and plays there (q2-rockbox's pcm-alsa). The queue is saved as power-off
  * saves it, charging and the second core are handed back as Rockbox expects them at boot, the
  * watchdog (checkappprocess.sh, which reboots once demo is gone) and hciplayer (which holds the
  * DAC's PCM) are stopped, and demo is killed outright, so no exit handler can hang it. */
-static int rockbox_shortcut(void *target) {
-    accent();
-    if (!st.home_rockbox || tk_strcmp(widget_get_prop_str(target, "name", ""), "img_stream"))
-        return 0;
+int rockbox_open(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
     void *flag = !rockbox_available() ? (void *)0 : fopen(ROCKBOX_FLAG, "w");
     if (!flag) {
         toast("Rockbox is not on the card");
-        return 1;
+        return 0;
     }
     fclose(flag);
     playback_save();
@@ -4054,7 +4056,7 @@ static int rockbox_shortcut(void *target) {
     /* librespot (spotify.c) and its restart loop, whose pid its launcher left, let ALSA go too */
     system("killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); "
            "killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID");
-    return 1;
+    return 0;
 }
 #endif
 

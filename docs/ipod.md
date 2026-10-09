@@ -84,8 +84,9 @@ the list repaints it once (`greeted`): Home starts with the bar on Now Playing. 
 selected or tapped.
 
 iPod's `home_page.bin` is a `list_view` (39-pixel `item_height`, `HOME_ROW`) holding a
-`scroll_view` of seven 39-pixel rows (`btn_*` views), in stock order with Coverflow third: Now
-Playing, Library, Coverflow, Folder, Streaming, Playback Setting, System Setting. The list
+`scroll_view` of seven 39-pixel rows (`btn_*` views): Now Playing, Library, Coverflow, Folder,
+Rockbox, Streaming, Settings. Stock's Playback Setting and System Setting cards become the one
+Settings row, so the Rockbox row fits. The list
 starts `HOME_TOP` (8) pixels below the status bar and ends 9 above the bottom, so the first row
 no longer touches the bar and the last clears the glass. Each row holds a white 20-pixel
 `label_*` (an ellipsis when too long) inset 33 pixels (see [Rounded corners](#rounded-corners)),
@@ -100,7 +101,7 @@ the executable were checked; the inputs are SHA-pinned), so iPod removes them.
 
 The list is 187 pixels wide, half the screen. Labels start 33 pixels in, where the last row's text
 clears the bottom-left corner, and end 10 pixels before the chevron's glyph, 106 pixels wide; a
-longer one ("Playback Setting") ends in an ellipsis and scrolls while its row is selected. Every label shares that left edge and every chevron the
+longer one (a long translation) ends in an ellipsis and scrolls while its row is selected. Every label shares that left edge and every chevron the
 column 58 pixels from the row's end. `img_homeart` fills the right panel edge to edge: x 187 to
 the screen edge and the whole window height under the status bar (188x290, `HOME_ART_RECT`). Sizes
 are `HOME_*` constants in `tools/ipod.py`.
@@ -117,12 +118,15 @@ the list, so Home makes the art insensitive (`widget_set_sensitive`) and taps th
 the rows. The rounded glass hides the
 panel's two right-hand corners, like any background.
 
-The Shortcut setting (see [Display settings](#display-settings)) can make the Streaming row
-**Rockbox**: `coverflow_home_layout` gives `label_stream` the literal tr_text "Rockbox" (which
-translates to itself, so a language change keeps it) or stock's `small_stream` back, and
-`ringnav_dispatch` takes a click on `img_stream` before stock's handler and leaves Q2 Pod for
-Rockbox ([boot.md](boot.md#rockbox-from-home)). `confirm_center` checks it as well, so the wheel's
-centre leaves for Rockbox like a tap, not only the touchscreen.
+Coverflow, Rockbox and Settings have literal labels and no stock handler; `coverflow_home` binds
+their images' clicks, so a tap and the wheel's centre (which dispatches a click to the row's
+image) behave alike. **Rockbox** leaves Q2 Pod for Rockbox ([boot.md](boot.md#rockbox-from-home))
+and shows only while the card has the Rockbox binary: `coverflow_home_layout` checks it at init and
+the status bar on each paint. The list's layout (`0x5ea3a4`) stacks hidden rows too, so a hidden
+Rockbox row is also restacked after Settings, where it leaves only blank space under the last
+row; the wheel skips hidden rows. **Settings** opens `settings_page`, a runtime page (as
+Shuffle's) with **Playback Settings** and **System Settings**, which open the stock
+`playset/playset_page` and `systemset/sysset_page` as Home's cards did.
 
 The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
 as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar
@@ -505,27 +509,26 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds four rows the same way: "Accent: Graphite" with
+pixels high). iPod runs the stock init, then adds three rows the same way: "Accent: Graphite" with
 the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
 mode icon (`playset_covermode`), "Battery: Icon" (Icon, Percent, Icon + Percent; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
-(`system_powermanager`) and "Shortcut: Streaming" (Streaming, Rockbox; see [Home](#home)) with
-the network service icon (`system_netservice`), all among the [settings icons](#settings-icons)
+(`system_powermanager`), all among the [settings icons](#settings-icons)
 the build pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
 chevron, since Centre or a tap changes them in place.
-The Shortcut row only appears when the Rockbox binary is a regular file; its saved value is retained when absent. Both variants also append **Boot to: Rockbox / Q2-Pod** to System settings when Rockbox is present; see [Boot](boot.md#rockbox).
+Both variants also append **Boot to: Rockbox / Q2-Pod** to System settings when Rockbox is present; see [Boot](boot.md#rockbox).
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`, `BATTERY` and `SHORTCUT`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME` and `BATTERY`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split, Icon and Streaming.
+one valid digit, is Graphite, Split and Icon.
 
 | Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |

@@ -39,7 +39,7 @@ def boot_check():
         script = script.replace('usleep 200000', ':')
         for d in ('mnt/data', 'mnt/mmc/.rockbox', 'tmp', 'usr/bin', 'release/bin'): (r/d).mkdir(parents=True)
         def exe(path, body): (r/path).write_text('#!/bin/sh\n' + body + '\n'); (r/path).chmod(0o755)
-        # demo takes Home's Rockbox shortcut (leaves the flag) as many times as the shortcuts file says
+        # demo takes Home's Rockbox row (leaves the flag) as many times as the shortcuts file says
         flag, shortcuts = f'{r}{ROCKBOX_FLAG}', r/'shortcuts'
         exe('release/bin/demo', f'echo demo >> {r}/ran; n=$(cat {shortcuts}); '
             f'[ "$n" -gt 0 ] && echo $((n - 1)) > {shortcuts} && : > {flag}; exit 137')
@@ -71,11 +71,11 @@ def boot_check():
             assert boot(False, False) == (['demo'], value.strip())
             assert boot(True, True, 81, 1) == (['demo', *rockbox], value.strip())
         target.unlink()
-        # Home's Rockbox shortcut: Rockbox, then Q2 Pod again, as often as it is taken; the flag is gone after
+        # Home's Rockbox row: Rockbox, then Q2 Pod again, as often as it is taken; the flag is gone after
         assert boot(True, True, 81, 1) == (['demo', *rockbox], False)
         assert boot(False, True, 81, 2) == (rockbox * 3, False) and not pathlib.Path(flag).exists()
         assert boot(True, False, 81, 1) == (['demo', 'demo'], False)  # no Rockbox on the card: Q2 Pod again
-    print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback and Home shortcut passed.')
+    print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback and Home Rockbox row passed.')
 boot_check()
 
 def validate_assets(directory):

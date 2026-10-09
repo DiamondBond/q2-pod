@@ -58,7 +58,7 @@ Flash the [official Shanling firmware](https://en.shanling.com/download/150) the
 
 Unzip [Rockbox's `rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root. Rockbox then starts at power-on. **Hold Play/Pause while powering on**, or choose Rockbox's **Boot stock OS**, to use Q2 Pod for that session.
 
-For Bluetooth, connect your headphones in Q2 Pod first, set **System settings → Display → Shortcut** to **Rockbox**, then select Home's Streaming row to launch it.
+For Bluetooth, connect your headphones in Q2 Pod first, then select **Rockbox** on Home (iPod UI) to launch it.
 
 See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases).
 
@@ -81,7 +81,7 @@ Needs Spotify Premium. Audio plays on the headphone jack only (no Bluetooth or U
 
 Run **Library → Update Local Music** after adding music; it adds up to 65,000 songs. Coverflow prepares artwork on its first open; cancelling keeps its progress.
 
-- **Personalise:** **System settings → Display** for accent, Home layout, battery display, shortcut and wheel sensitivity.
+- **Personalise:** **System settings → Display** for accent, Home layout, battery display and wheel sensitivity.
 - **Save battery:** **System settings → Power management** for Charge limit and Low power. Both are off by default; charge limit applies while the Q2 is on.
 - **Browse by Album Artist:** **Audio settings → Artists** keeps guest artists from splitting albums.
 - **Use EQ:** **Audio settings → Equalizer**. Select **Apply changes** after editing or choosing a preset, and turn **PEQ: ON**. Import preset `.txt` files from the card's `EQ/` folder.

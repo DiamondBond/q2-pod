@@ -210,12 +210,15 @@ def home_card(root):
     menu[0][3][1][3][1][2].update(LIBRARY)
 
 
-# iPod only. Home becomes a list of the stock cards' names, in stock order with Coverflow third.
+# iPod only. Home becomes a list of the stock cards' names, in stock order with Coverflow third,
+# Rockbox before Streaming and one Settings row for Playback and System settings.
 # home_page_init (0x523c84) looks up no widget: its widget_foreach visitor (0x5239b4) binds img_*
 # clicks and translates label_* by name, and only img_left/img_right, gone here, reach the
 # slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
-# tap and is the row's click target for the wheel.
-HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'stream', 'playset', 'sysset']
+# tap and is the row's click target for the wheel. The payload binds Coverflow, Rockbox (shown
+# only while the card has it) and Settings.
+HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'rockbox', 'stream', 'settings']
+HOME_LITERAL = {'coverflow': 'Coverflow', 'rockbox': 'Rockbox', 'settings': 'Settings'}
 
 
 # Stock list pages paint their list_view black inline; the theme default is a light rounded card.
@@ -225,14 +228,14 @@ LIST_BLACK = {f'style:{state}:{prop}': color for state in ('normal', 'disable', 
 
 def ipod_home(root):
     require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
-    require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in HOME_ROWS if r != 'coverflow'],
-            'Unexpected home cards')
+    require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
+            ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
     rows = []
     for i, name in enumerate(HOME_ROWS):
         # Translations longer than English's longest end in an ellipsis before the chevron.
         label = {'name': 'label_' + name, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
-        if name == 'coverflow':
-            label['text'] = 'Coverflow'
+        if name in HOME_LITERAL:
+            label['text'] = HOME_LITERAL[name]
         if name == 'localmusic':
             label.update(LIBRARY)
         rows.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + name}, [

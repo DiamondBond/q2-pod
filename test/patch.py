@@ -4440,10 +4440,10 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==4  # every key, once, on first use
+        assert len(m.config_reads)==3  # every key, once, on first use
         passed()
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','SHORTCUT')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -4576,8 +4576,8 @@ if variant=='ipod':
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
 
-    # Display settings: after the stock rows, Accent, Home, Battery and Shortcut rows in the native row
-    # widgets and styles, with the Display, cover mode, power manager and network service icons; Centre
+    # Display settings: after the stock rows, Accent, Home and Battery rows in the native row
+    # widgets and styles, with the Display, cover mode and power manager icons; Centre
     # or tap cycles and saves each; a new accent drops the image cache and repaints, a new Battery mode
     # repaints the bar.
     def display(config,card=True):
@@ -4587,11 +4587,11 @@ if variant=='ipod':
         m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
         assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         assert m.calls[0][:3]==('stock_display',m.top,5)
-        rows=m.nodes[view]['children'][3:7]
+        rows=m.nodes[view]['children'][3:6]
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
         return m,view,rows
     m,view,rows=display({})
-    assert len(rows)==4 and m.icons_set==['system_display','playset_covermode','system_powermanager','system_netservice','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert len(rows)==3 and m.icons_set==['system_display','playset_covermode','system_powermanager','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -4599,7 +4599,7 @@ if variant=='ipod':
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Shortcut: Streaming']; passed()
+    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -4617,63 +4617,35 @@ if variant=='ipod':
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
         assert ('widget_invalidate_force',bar) in [c[:2] for c in m.calls] and not [c for c in m.calls if c[0]=='image_manager_unload_all']
     passed()
-    for value,name in ((1,'Rockbox'),(0,'Streaming')):
-        writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'SHORTCUT')] and texts()[3]=='Shortcut: '+name
-        assert not [c for c in m.calls if c[0]=='image_manager_unload_all']
-    passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent','Shortcut: Rockbox']; passed()
-    # Home's Rockbox shortcut (docs/boot.md#rockbox-from-home): with Shortcut: Rockbox, a click on the
-    # Streaming row saves the queue as power-off does, stops the player, leaves S90play's flag and kills
-    # demo, instead of reaching Streaming; without Rockbox on the card it says so. Streaming as before.
-    class ShortcutMachine(Machine):
-        card=True
+    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent']; passed()
+    # Home's Rockbox row (docs/boot.md#rockbox-from-home): its click saves the queue as power-off does,
+    # stops the player, leaves S90play's flag and kills demo; without Rockbox on the card it says so.
+    class RockboxMachine(Machine):
         def hook(self,u,address,size,unused):
             name=self.handlers.get(address,'')
             if not name.startswith('r:'): return super().hook(u,address,size,unused)
             name=name[2:].split('@')[0]; a=u.reg_read(UC_MIPS_REG_A0); self.calls.append((name,a))
-            ret={'access':0 if self.card else -1,'fopen':0x2000000}.get(name,0)
-            u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
-    def shortcut(config,card=True,wheel=False):
-        CONFIG.clear(); CONFIG.update(config); m=ShortcutMachine(); m.card=card; m.rockbox_mode=0o100755 if card else 0
-        for n in ('access@GLIBC_2.0','fopen@GLIBC_2.2','fclose@GLIBC_2.2','system@GLIBC_2.0'): m.handlers[syms[n]]='r:'+n
+            u.reg_write(UC_MIPS_REG_V0,0x2000000 if name=='fopen' else 0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def rockbox(card):
+        m=RockboxMachine(); m.rockbox_mode=0o100755 if card else 0
+        for n in ('fopen@GLIBC_2.2','fclose@GLIBC_2.2','system@GLIBC_2.0'): m.handlers[syms[n]]='r:'+n
         m.mock('save_memoryplay_info','player_stop','switch_charge_enable','navigator_to_with_context')
-        view,imgs=home_list(m)
-        m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)
-        if card=='removed': m.rockbox_mode=0
-        if wheel:
-            click_target(m,imgs[2])  # the payload binds Coverflow's image at Home init
-            m.paint(view)
-            for _ in range(HOME_ROWS.index('stream')): m.call()
-            ret=m.confirm()
-        else: ret=m.click(imgs[HOME_ROWS.index('stream')])
-        return m,ret,[c[0] for c in m.calls if c[0]!='toolsReadConfig']
-    m,ret,names=shortcut({'SHORTCUT':'1'})
-    assert ret==11 and 'stock_dispatch' not in names
+        assert m.call(address=payload_syms['rockbox_open'],args=(0,m.event,0,0),gap=0)==0
+        return m,[c[0] for c in m.calls]
+    m,names=rockbox(True)
     texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
     assert texts=={'fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
                              'killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
-    # The wheel's centre takes the same shortcut as the tap. confirm_center dispatches the click
-    # itself, so the check has to sit there too (a centre press opened stock Streaming instead).
-    m,ret,names=shortcut({'SHORTCUT':'1'},wheel=True)
-    assert ret==11 and 'system' in names and 'stock_dispatch' not in names
-    texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
-    assert texts=={'fopen':'/tmp/q2pod-rockbox',
-                   'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
-                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID'}; passed()
-    m,ret,names=shortcut({'SHORTCUT':'1'},card='removed')
-    assert ret==11 and not {'stock_dispatch','fopen','player_stop','system'} & set(names)
+    m,names=rockbox(False)
+    assert not {'fopen','player_stop','system'} & set(names)
     assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to_with_context']==['dialog/msginfo_dialog']; passed()
-    m,ret,names=shortcut({})
-    assert 'stock_dispatch' in names and not {'access','player_stop','system'} & set(names); passed()
-    m,view,rows=display({'SHORTCUT':'1'},card=False)
-    assert len(m.nodes[view]['children'])==7 and m.config['SHORTCUT']=='1'
+    # ipod_home_rockbox follows the card.
+    m=Machine(); m.rockbox_mode=0
     assert m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)==0
     m.rockbox_mode=0o100755
-    assert m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)==1
-    m,ret,names=shortcut({'SHORTCUT':'1'},card=False)
-    assert 'stock_dispatch' in names and not {'fopen','player_stop','system'} & set(names); passed()
+    assert m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)==1; passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
     m,view,rows=display({})
     m.paint(view)
@@ -5185,6 +5157,28 @@ fk,ck=m.handler(page,O['EVT_KEY_UP'])
 ev=m.alloc(0x40); m.word(ev,O['EVT_KEY_UP']); m.word(ev+O['EVENT_KEY'],O['KEY_RETURN'])
 assert m.call(address=fk,args=(ck,ev,0,0),gap=0)==11 and [c[0] for c in m.calls].count('navigator_back')==1
 m.close(); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.top!=page and m.nodes[m.top]['name']=='shuffle_page'; passed()
+def home_settings():
+        # Home's Rockbox row shows only while the card has Rockbox: hidden, it moves after Settings, so the
+        # list's layout leaves no gap; it comes back after Folder once the card has it.
+        m=ShuffleMachine(); m.rockbox_mode=0; view,imgs=home_list(m)
+        assert m.call(address=home_hook[0],args=(m.top,0,0,0),gap=0)==0
+        btn=named(m,m.top,'btn_rockbox'); order=lambda: [m.nodes[r]['name'][4:] for r in m.nodes[view]['children']]
+        assert order()==['playing','localmusic','coverflow','folder','stream','settings','rockbox'] and not m.nodes[btn]['visible']
+        m.rockbox_mode=0o100755; m.call(address=payload_syms['coverflow_home_layout'],args=(0,0,0,0),gap=0)
+        assert order()==HOME_ROWS and m.nodes[btn]['visible']; passed()
+        # Its click and Settings' are bound at Home init. Settings opens a black settings_page with
+        # Playback Settings and System Settings, which open the stock pages Home's cards opened.
+        assert m.handler(named(m,m.top,'img_rockbox'),O['EVT_CLICK'])[0]==payload_syms['rockbox_open']
+        f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        page=m.page=m.top; assert m.nodes[page]['name']=='settings_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
+        rows=m.nodes[m.find('scroll_view')]['children']
+        assert m.texts()==['Settings','Playback Settings','System Settings']
+        for r,want in zip(rows,('playset/playset_page','systemset/sysset_page')):
+            m.calls=[]; f2,ctx2=m.handler(r,O['EVT_CLICK']); assert m.call(address=f2,args=(ctx2,m.event,0,0),gap=0)==0
+            assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==[want]
+        m.close(); passed()
+if variant=='ipod': home_settings()
 # Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
 # press while it is open does nothing. Its rows are the top PLAYS_TOP, most played first and, among
 # equal counts, the most recently counted (earlier slot) first; a row plays that ranked list as a

@@ -26,7 +26,7 @@ For a brand new Q2. You need the Q2, its microSD card, a computer and internet.
 - **Want the stock player (Q2 Pod) instead?** Hold Play/Pause while turning the Q2 on. It only lasts that time; the next start is Rockbox.
 - **To copy music over USB:** turn on with Play/Pause held, plug in, drag your files over.
 - **No card in it?** It starts Q2 Pod.
-- **Bluetooth headphones with Rockbox:** in Q2 Pod, set **System settings > Display > Shortcut** to **Rockbox** once. Then: shut Rockbox down (it goes to Q2 Pod), turn on Bluetooth and connect your headphones, and pick **Rockbox** on the Home menu (where Streaming was). Rockbox starts and plays through the headphones. When it shuts down, you are back in Q2 Pod.
+- **Bluetooth headphones with Rockbox:** shut Rockbox down (it goes to Q2 Pod), turn on Bluetooth and connect your headphones, and pick **Rockbox** on the Home menu (above Streaming). Rockbox starts and plays through the headphones. When it shuts down, you are back in Q2 Pod.
 
 ## If something goes wrong
 

@@ -41,9 +41,9 @@ When the saved choice is Rockbox and Play/Pause is not held, `S90play` waits up 
 
 ### Rockbox from Home
 
-iPod's **System settings → Display → Shortcut: Rockbox** turns Home's Streaming row into **Rockbox** (`IPOD`/`SHORTCUT` in `config.ini`). The Display shortcut row is shown only while the Rockbox binary is a regular file. Its saved preference survives card removal; Home shows Streaming while Rockbox is absent and restores Rockbox when available. Activation checks the file again in case the card was removed after the row appeared. This handover always launches Rockbox regardless of the saved boot choice. It is the way to Rockbox with Bluetooth: shut Rockbox down (Q2 Pod starts), connect the headphones in Q2 Pod, then pick **Rockbox** on Home, and Rockbox plays through them.
+iPod's Home has a **Rockbox** row between Folder and Streaming, shown only while the Rockbox binary is a regular file ([ipod.md](ipod.md#home)). Activation checks the file again in case the card was removed after the row appeared. This handover always launches Rockbox regardless of the saved boot choice. It is the way to Rockbox with Bluetooth: shut Rockbox down (Q2 Pod starts), connect the headphones in Q2 Pod, then pick **Rockbox** on Home, and Rockbox plays through them.
 
-demo cannot start Rockbox itself, as Rockbox takes the screen, the keys and ALSA, so it hands over to `S90play` (`rockbox_shortcut`, `patch/navigation.c`):
+demo cannot start Rockbox itself, as Rockbox takes the screen, the keys and ALSA, so it hands over to `S90play` (`rockbox_open`, `patch/navigation.c`):
 
 1. With no `/mnt/mmc/.rockbox/rockbox` it shows "Rockbox is not on the card" and stays.
 2. It creates `/tmp/q2pod-rockbox` (`ROCKBOX_FLAG`), saves Memory playback's queue and position with stock `save_memoryplay_info` (what power-off does), stops the player, and hands back charging (Charge limit) and the second core (Low power) as Rockbox finds them at power-on.

@@ -103,8 +103,8 @@ HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.
 # power-on default (missing or invalid retains Rockbox). ponytail: the card's mount is awaited (up to 3 s without a card)
 # unless Q2 Pod was asked for, as the card probe can't tell "no card" from "not yet". Rockbox runs
 # with the launcher contract in its tools/shanlingq2/README; demo starts when it exits, or when the
-# card has none. demo keeps its argv[0], which checkappprocess.sh pgreps for. iPod's Home shortcut
-# (navigation.c rockbox_shortcut) leaves ROCKBOX_FLAG and kills demo: Rockbox runs again, its
+# card has none. demo keeps its argv[0], which checkappprocess.sh pgreps for. iPod's Home Rockbox row
+# (navigation.c rockbox_open) leaves ROCKBOX_FLAG and kills demo: Rockbox runs again, its
 # watchdog stopped in case demo's kill was not reached, then demo once more. Any other end of demo
 # ends the loop, so the watchdog reboots as stock's would.
 BOOT = 'usr/bin/q2boot'
@@ -264,7 +264,6 @@ FUNCTIONS = {
  'widget_set_opacity': ('int', 'void *, unsigned'),
  'widget_set_enable': ('int', 'void *, int'),
  'widget_set_text_utf8': ('int', 'void *, const char *'),
- 'widget_set_tr_text': ('int', 'void *, const char *'),  # Home's Streaming row as Rockbox, or back
  'widget_use_style': ('int', 'void *, const char *'),
  'widget_set_name': ('int', 'void *, const char *'),
  'widget_set_sensitive': ('int', 'void *, int'),
@@ -489,7 +488,8 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
                 'pdeq_albumcoverlist': 4, 'aclist_mutex': 24}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'spotify_page'}
+PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'spotify_page',
+                   'settings_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
@@ -660,7 +660,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # iPod's image hook leaves the settings icons' category colours alone (navigation.c settings_icon).
     names = ''.join(n.removesuffix('.png') + '\\0' for n in SETTINGS_ICONS)
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
-    header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox shortcut, for S90play
+    header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox row, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
     header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')
