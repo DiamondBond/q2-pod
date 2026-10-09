@@ -82,7 +82,6 @@ static void response(const peq_engine *e, double f, double *l, double *r) {
     }
 }
 
-static double decibels(double power) { return 10 * log(power) / 2.302585092994046; }
 static float graph_y(double db) {
     if (db > PEQ_GRAPH_DB) db = PEQ_GRAPH_DB;
     if (db < -PEQ_GRAPH_DB) db = -PEQ_GRAPH_DB;

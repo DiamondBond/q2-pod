@@ -4646,7 +4646,7 @@ if variant=='ipod':
     texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
     assert texts=={'fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
-                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID'}
+                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot /tmp/q2-librespot.state; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
     m,names=rockbox(False)
     assert not {'fopen','player_stop','system'} & set(names)
@@ -5805,6 +5805,22 @@ m.advance(200); assert 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
 # Return goes back to Streaming.
 assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
+# SPOT_IDLE_MS (30 s) not playing after it has played stops librespot and its loop; never before the
+# first play, and playing again in time restarts the wait. The keys are local music's again, the
+# page says so, and the row starts it again.
+m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
+m.state('none'); m.poll(40000); assert len(m.systems)==1
+m.state('playing'); m.poll(); m.state('paused'); m.poll(20000); m.state('playing'); m.poll(); m.state('paused')
+m.poll(29000); assert len(m.systems)==1 and m.key(O['KEY_PLAY'])==11
+assert double() and m.key(O['KEY_NEXT'])==11  # a scrub the stop cuts short
+m.poll(1000); assert 'killall -9 librespot aplay' in m.systems[-1] and STATE in m.systems[-1]
+m.top=m.node('window','home_page'); assert m.key(O['KEY_PLAY'])!=11
+m.top=page; m.advance(250); assert texts(msg)==['Spotify stopped after a pause','Open Streaming, then Spotify']
+# One Return leaves, sending no seek; the wheel is stock's volume.
+assert m.key(O['KEY_NEXT'])!=11
+m.sent=[]; assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
+m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls] and not m.sent
+m.close(); spot_open(m,button); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.close(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

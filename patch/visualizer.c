@@ -55,8 +55,6 @@ static void fft(float *re, float *im, int n) {
     }
 }
 
-static float db(double power) { return (float)(10 * log(power) / 2.302585092994046); }
-
 static int band_bin(int b, unsigned rate) { return (int)(40 * pow(400, (double)b / VIS_HALO) * VIS_N / rate + 0.5); }
 
 /* level[VIS_HALO]: each band's loudest bin of the Hann-windowed mono mix of VIS_N frames at rate, 0
@@ -81,7 +79,7 @@ void vis_bands(const float (*pcm)[2], unsigned rate, float *level) {
             if (p > m) m = p;
         }
         /* A full-scale sine peaks at N / 4 under the Hann window. */
-        float v = m > 0 ? 1 + db(m * 16 / ((float)VIS_N * VIS_N)) / VIS_FLOOR_DB : 0;
+        float v = m > 0 ? 1 + (float)decibels(m * 16 / ((float)VIS_N * VIS_N)) / VIS_FLOOR_DB : 0;
         level[b] = v < 0 ? 0 : v > 1 ? 1 : v;
     }
 }
@@ -136,7 +134,7 @@ void vis_analyze(int style, unsigned rate, float dt, unsigned now) {
             sum += v * v;
             if (__builtin_fabsf(v) > peak) peak = __builtin_fabsf(v);
         }
-        float to = sum > 0 ? vu_at(db(sum / VIS_N) - VIS_VU_REF_DB) : 0;
+        float to = sum > 0 ? vu_at((float)decibels(sum / VIS_N) - VIS_VU_REF_DB) : 0;
         vz.vu[ch] += ((to > 1 ? 1 : to) - vz.vu[ch]) * dt / (dt + 0.065f);
         if (peak >= (float)pow(10, VIS_LED_DB / 20.0)) vz.lit[ch] = now + VIS_HOLD_MS;
     }

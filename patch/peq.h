@@ -65,6 +65,12 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames);
 #define VIS_RING 65536 /* a power of two: 1.5 s at 44.1 kHz, room for VIS_LATENCY_MS */
 typedef struct { unsigned seq, rate; long long stamp; unsigned want, pad; float ring[VIS_RING][2]; } vis_tap;
 long long now_ns(void);
+/* librespot (spotify.c) and its restart loop, whose pid its launcher left, stopped: Spotify's idle
+ * stop and Home's Rockbox row, which lets ALSA go too. */
+#define SPOT_KILL                                                                                  \
+    "kill -9 $(cat /tmp/q2-librespot); killall -9 librespot aplay; "                               \
+    "rm -f /tmp/q2-librespot /tmp/q2-librespot.state"
+double decibels(double power); /* 10 log10 */
 
 /* Audited against hciplayer 9c3f8c6d… and MPlayer 1.3.0 libaf/af.h: the filter peq_player.c opens. */
 typedef struct { void *audio; int len, rate, nch, format, bps; } af_data;

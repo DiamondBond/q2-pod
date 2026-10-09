@@ -331,6 +331,8 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames) {
     }
 }
 
+double decibels(double power) { return 10 * log(power) / 2.302585092994046; } /* no log10 in demo's GOT */
+
 long long now_ns(void) {
     struct { long s, ns; } t; /* struct timespec */
     clock_gettime(1, (void *)&t); /* CLOCK_MONOTONIC: the same clock in hciplayer and demo */

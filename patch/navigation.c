@@ -4040,9 +4040,7 @@ int rockbox_open(void *ctx, void *event) {
     player_stop();
     if (st.charge_held) switch_charge_enable(1);
     if (st.cpu_off) cpu1_write(1);
-    /* librespot (spotify.c) and its restart loop, whose pid its launcher left, let ALSA go too */
-    system("killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); "
-           "killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID");
+    system("killall checkappprocess.sh; killall -9 hciplayer; " SPOT_KILL "; sync; kill -9 $PPID");
     return 0;
 }
 #endif

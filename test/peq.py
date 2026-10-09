@@ -771,7 +771,7 @@ def player_check(tmp):
 
 def visualizer_check(tmp):
     """The visualizer's analysis (patch/visualizer.c vis_bands): a sine lands in its band at full scale."""
-    lib = compile_host(tmp, 'visualizer.so', ROOT/'patch/visualizer.c', '-DIPOD=1', '-I', ROOT/'patch')
+    lib = compile_host(tmp, 'visualizer.so', ROOT/'patch/visualizer.c', ROOT/'patch/peq.c', '-DIPOD=1', '-I', ROOT/'patch')
     rate, n, bands = 44100, 1024, 64
     def levels(pcm):
         out = (C.c_float * bands)()
@@ -829,7 +829,7 @@ void check_styles(void) {
     }
 }
 """)
-    checked = compile_host(tmp, 'visualizer_checks.so', harness, '-DIPOD=1', '-I', ROOT/'patch')
+    checked = compile_host(tmp, 'visualizer_checks.so', harness, ROOT/'patch/peq.c', '-DIPOD=1', '-I', ROOT/'patch')
     checked.check_styles()
     print('Visualizer: FFT bands, selected-style work, stereo scope/VU and pause decay passed.')
 

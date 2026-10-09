@@ -21,6 +21,7 @@
 #define SPOT_YIELD_MS 1500 /* local music waits at most this long for librespot to let the DAC go  \
                             */
 #define SPOT_STEP_MS 5000  /* a scrub tick, as Now Playing's */
+#define SPOT_IDLE_MS 30000 /* not playing this long after it has played: librespot is stopped */
 /* Now Playing's layout (tools/ipod.py NP_*): the art and the text 16px from the sides, 12 apart,
  * the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16
@@ -35,23 +36,14 @@
 #define SPOT_TIMES_Y 265
 #define SPOT_TIME_X 46
 #define SPOT_GREY 0xffaaaaaau
-#define SPOT_RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
 
-extern void *text(void *parent, int x, int y, int w, int h),
-    *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *));
-extern int thumb(const char *src, const char *dst, int w, int h),
-    image_show(void *img, const char *url, unsigned *size);
-extern void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms),
-    stop_timer(unsigned *timer);
-extern int center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing);
-#if IPOD
-extern unsigned accent_tone(int tone);
-#endif
+extern int image_show(void *img, const char *url, unsigned *size),
+    center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing);
 
 /* librespot as last read; kept for the life of demo. */
 static struct {
-    int launched, debug, sock, playing, paused, local, active;
-    unsigned polled, duration, position, cover;
+    int launched, debug, sock, playing, paused, local, active, played;
+    unsigned polled, idle_at, duration, position, cover;
     unsigned long long at;
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
@@ -179,6 +171,17 @@ static void scrub_commit(void) {
 
 static void spot_refresh(void);
 
+/* SPOT_IDLE_MS after playback ended: librespot and its restart loop killed, as Home's Rockbox row
+ * does, and the keys local music's. Streaming's Spotify row starts it again. */
+static void spot_stop(void) {
+    int sock = sp.sock;
+    spot_log("stop", 0, 0);
+    system(SPOT_KILL);
+    memset(&sp, 0, sizeof sp);
+    sp.sock = sock;
+    ui.scrub = 0; /* a scrub cut short: its Return (keyup) would commit it instead of leaving */
+}
+
 /* ringnav_sleep, every UI loop pass: nothing until Streaming's Spotify row started librespot; then,
  * paced to SPOT_POLL_MS, its state, and while it plays the standby and auto-power-off timers held
  * and the DAC kept on (check_dacoff_state). The screen's own timer runs, so the screen still turns
@@ -209,6 +212,10 @@ void spot_poll(void) {
     } else if (mclGetPlayStatus() == 2)
         sp.local = 1; /* local music plays: the keys are its again */
     sp.active = (playing || sp.paused) && !sp.local;
+    if (playing || !sp.played)
+        sp.played |= playing, sp.idle_at = now;
+    else if (now - sp.idle_at >= SPOT_IDLE_MS)
+        spot_stop();
     if (ui.scrub && now - ui.scrub_at >= SCRUB_MS) scrub_commit();
 }
 
@@ -288,14 +295,16 @@ static void times(unsigned ms) {
 /* The page from sp: the track, or why there is none. Labels are written only when they change. */
 static void spot_refresh(void) {
     int track = sp.track[0] && strcmp(sp.state, "none");
-    int installed = sp.launched || !access(SPOT_BIN, 0);
+    int installed = sp.launched || !access(SPOT_BIN, 0), stopped = !sp.launched && installed;
     widget_set_visible(ui.info, track, 0);
     widget_set_visible(ui.msg, !track, 0);
     if (!track) {
-        widget_set_text_utf8(ui.note, installed ? "Open Spotify on your phone"
-                                                : "Spotify isn't on the card");
-        widget_set_text_utf8(ui.sub,
-                             installed ? "and choose Q2" : "See the Q2 Pod guide to add it");
+        widget_set_text_utf8(ui.note, stopped     ? "Spotify stopped after a pause"
+                                      : installed ? "Open Spotify on your phone"
+                                                  : "Spotify isn't on the card");
+        widget_set_text_utf8(ui.sub, stopped     ? "Open Streaming, then Spotify"
+                                     : installed ? "and choose Q2"
+                                                 : "See the Q2 Pod guide to add it");
         return;
     }
     if (tk_strcmp(widget_get_prop_str(ui.title, "text", ""), sp.title)) {
@@ -345,14 +354,14 @@ void spot_paint(void *w, void *canvas) {
     if (!ui.page || !w || !P(canvas, CANVAS_LCD) || (w != ui.bar && w != ui.glyph)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
 #if IPOD
-    unsigned tone = SPOT_RGBA(accent_tone(2));
+    unsigned tone = rgba(accent_tone(2), 255);
 #else
-    unsigned tone = SPOT_RGBA(STOCK_RED);
+    unsigned tone = rgba(STOCK_RED, 255);
 #endif
     if (w == ui.bar) {
         unsigned ms = ui.scrub ? (unsigned)ui.scrub_ms : spot_position();
         int x = (int)((ms >> 4) * SPOT_BAR_W / ((sp.duration >> 4) | 1)); /* 32-bit to 57 h */
-        box(canvas, 0, 0, SPOT_BAR_W, SPOT_BAR_H, SPOT_RGBA(TRACK_COLOR), SPOT_BAR_H / 2);
+        box(canvas, 0, 0, SPOT_BAR_W, SPOT_BAR_H, rgba(TRACK_COLOR, 255), SPOT_BAR_H / 2);
         if (x)
             box(canvas, 0, 0, x < SPOT_BAR_H ? SPOT_BAR_H : x, SPOT_BAR_H,
                 ui.scrub ? 0xffffffffu : tone, SPOT_BAR_H / 2);
