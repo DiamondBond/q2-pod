@@ -788,6 +788,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
         videos='system_display.png').items()})
     icons['stream_spotify.png'] = ('list_tidal.png', (ROOT/'assets/icons/stream_spotify.png').read_bytes())  # Streaming's Spotify row
+    if ipod:  # Home's placeholder, drawn at the art panel's 290px
+        icons['default_album_home.png'] = ('default_album_big.png', (ROOT/'assets/icons/default_album_home.png').read_bytes())
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),

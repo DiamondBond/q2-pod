@@ -70,7 +70,7 @@ CHEVRON_W = inc('CHEVRON_W')
 # iPod page transition: the window anim_hint of the browsing, settings and equalizer pages. Stock's
 # htranslate animator slides a page in from the right and back out on Return; the duration is the
 # calibration knob.
-SLIDE = 'htranslate(duration=120)'
+SLIDE = f'htranslate(duration={inc("PAGE_SLIDE_MS")})'
 HOME_TOP = 8
 HOME_ROW = 39
 HOME_TEXT_X = max(MARGIN, corner_x(30 + HOME_TOP + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
@@ -258,7 +258,7 @@ def ipod_home(root):
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
     root[3] = [home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'}),
-               ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'fill'}, []]]
+               ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_home', 'draw_type': 'fill'}, []]]
 
 
 def style_props(data):
@@ -395,6 +395,8 @@ def playing_page(root):
     album = copy.deepcopy(artist)
     album[1] = [NP_TEXT_X, top + 56, text_w, 20]
     album[2].update(name='label_ipod_album', text='')
+    for key in artist[2]:
+        if key.endswith(':text_color'): artist[2][key] = f'#{inc("NP_ARTIST_RGB"):06X}'
     named['img_cover'][1] = [NP_MARGIN, art_y, NP_ART, NP_ART]
     named['img_playstate'][1] = [NP_MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
     named['view_album'][3] += [title, artist, album]

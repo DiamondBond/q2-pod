@@ -73,7 +73,7 @@ class Machine:
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
-        self.slides={}; self.slide_fail=False; self.slide_on_fail=False; self.slide_callbacks={}
+        self.props={}; self.slides={}; self.slide_fail=False; self.slide_on_fail=False; self.slide_callbacks={}
         self.canvas=0x1000200; self.lcd=0x1000300; self.now=1000
         self.word(self.canvas+O['CANVAS_LCD'],self.lcd)
         for off,v in zip(('LCD_FILL_COLOR','LCD_STROKE_COLOR'),LCD_COLORS): self.word(self.lcd+O[off],v)
@@ -307,6 +307,8 @@ class Machine:
             self.word(ret+0x24,c); n['animated']=self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16)); assert n['animated'] in ('opacity','x')
         elif name=='widget_animator_prop_set_params':
             assert self.get(u.reg_read(UC_MIPS_REG_SP)+16)==0 and self.get(u.reg_read(UC_MIPS_REG_SP)+20)==0
+            if self.nodes[self.get(a+4)].get('animated')=='x':
+                self.props[a]=(struct.unpack('<d',struct.pack('<II',c,d))[0],0)
             ret=0
         elif name=='window_manager': ret=self.wm
         elif name=='window_manager_get_top_window': ret=self.top
@@ -357,6 +359,9 @@ class Machine:
         elif name=='widget_animator_destroy':
             self.slides.pop(a,None); self.slide_callbacks.pop(a,None); ret=0
         elif name=='widget_animator_start':
+            if a in self.props and self.nodes[self.get(a+4)].get('animated')=='x':
+                origin,goal=self.props[a]
+                self.props[a]=(self.now,self.get(a+O['ANIM_DURATION']),self.get(a+4),origin,goal)
             if a in self.slide_callbacks:
                 w=self.get(a+4)
                 if self.nodes.get(w,{}).get('type')=='slide_menu':
@@ -485,6 +490,12 @@ class Machine:
             assert ret in (0,8) and (ret==0 or period>0)
             if ret==8 and tid not in self.timers: self.timers[tid]=(due+period,callback,ctx,period)
         self.now=end
+        for a,values in list(self.props.items()):
+            if len(values)!=5: continue
+            start,duration,w,origin,goal=values
+            elapsed=min(end-start,duration)
+            self.word(w+O['W_X'],round(origin+(goal-origin)*elapsed/duration))
+            if elapsed==duration: del self.props[a]
         for a,(start,duration,w,origin,goal) in list(self.slides.items()):
             elapsed=min(end-start,duration)
             self.word(w+O['SLIDE_OFFSET'],round(origin+(goal-origin)*elapsed/duration))
@@ -3254,7 +3265,7 @@ assert m.names(m.get(syms['p_deque_showlist']))==['Row 0'] and ('stock_localclas
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
-from ipod import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, HOME_TOP, decode
+from ipod import HOME_TEXT_X, HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, HOME_TOP, decode
 cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
 if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
@@ -3647,7 +3658,7 @@ if variant=='ipod':
     m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.node('view'),m.canvas,0,0)); assert m.clip==(0,0,375,320)
     m.image_size=None
     m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0'); m.byte(syms['g_playcover_type'],3)
-    art_after(m.home); assert m.nodes[m.art]['image']=='default_album_big' and geometry()==[HOME_LIST_W,0,PW,290]; passed()
+    art_after(m.home); assert m.nodes[m.art]['image']=='default_album_home' and geometry()==[HOME_LIST_W,0,PW,290]; passed()
 
     # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
     # value, in seconds) fill in; later paints rewrite a label only when its source changed.
@@ -4235,7 +4246,7 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
             assert m.text(syms['g_play_id3_info'])==old
             m.ui()
             if variant=='ipod':
-                assert m.nodes[m.albumlabel]['text']=='' and m.nodes[m.art]['image']=='default_album_big'
+                assert m.nodes[m.albumlabel]['text']=='' and m.nodes[m.art]['image']=='default_album_home'
         m.tick() # native auto-change, sibling traversal, queue reload, parsing and notification
         assert m.text(syms['g_play_id3_info'])==path
         assert m.text(syms['g_play_id3_info']+O['ID3_ALBUM'])==m.files[path][0]
@@ -4244,12 +4255,12 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
         m.ui()
         if variant=='ipod':
             assert m.nodes[m.albumlabel]['text']==m.files[path][0]
-            assert m.nodes[m.art]['image']=='default_album_big'
+            assert m.nodes[m.art]['image']=='default_album_home'
         m.artwork()
         assert m.text(syms['g_lastcover_url'])==path
         assert m.u.mem_read(syms['g_playcover_finishflag'],1)==b'\1'
         m.ui()
-        want='file:///tmp/coverpic.jpg' if m.files[path][1] else 'default_album_big'
+        want='file:///tmp/coverpic.jpg' if m.files[path][1] else 'default_album_home'
         assert m.nodes[m.cover]['image']==(want if m.files[path][1] else 'play_defaultcover'),(path,m.nodes[m.cover])
         assert m.nodes[m.songlabel]['text']==path.rsplit('/',1)[1]
         if variant=='ipod':
@@ -4402,6 +4413,9 @@ if variant=='ipod':
     for i,(top,bottom,light,tone,_) in enumerate(ACCENTS):
         assert ratio(0xffffff,top)>=4.5 and ratio(0xffffff,bottom)>=4.5 and ratio(light,O['TRACK_COLOR'])>=3,i
         assert i in (0,O['CRIMSON']) or ratio(0xffffff,tone)>=3,i
+    assert ACCENTS[0][:2] == (0x424242, 0x424242)
+    assert all(top==bottom for top,bottom,*_ in ACCENTS)
+    assert ratio(O['NP_ARTIST_RGB'], 0) > ratio(0xaaaaaa, 0) >= 7
     passed()
     def mapped(c,preset,tone=3): return Machine().call(address=ps['accent_map'],args=(c,preset,tone,0),gap=0)&0xffffffff
     def rgba(r,g,b,a=255): return r|g<<8|b<<16|a<<24
@@ -4618,10 +4632,27 @@ if variant=='ipod':
         writes=click(0)
         assert len(writes)==1 and writes[0][0]==value and m.text(writes[0][1])=='IPOD' and m.text(writes[0][2])=='ACCENT'
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
-        assert texts()[0]=='Accent: '+name; passed()
+        assert texts()[0]=='Accent: '+name
+        m.paint(view)
+        assert {b[4] for b in m.bands[:-1]}=={color_t(ACCENTS[value][0])}
+        assert m.bands[-1][4]==color_t(ACCENTS[value][4]); passed()
+    # Initialize the real Home asset on this machine, then toggle its cached setting in Display.
+    home=asset_tree(m,HOME_PAGE)
+    m.handlers[HOOKS['home_page_init'][0]+12]='stock_home'
+    m.call(address=HOOKS['home_page_init'][0],args=(home,0,0,0),gap=0)
+    def home_bounds(full):
+        for name in ('list_view_home','list_view_homeset'):
+            menu=named(m,home,name)
+            for row in m.nodes[m.nodes[menu]['children'][0]]['children']:
+                label=m.nodes[row]['children'][0]
+                x,y,width,height=cf_geometry(m,label)
+                assert x==HOME_TEXT_X and width>0
+                assert x+width==(O['HOME_FULL_ROW'] if full else HOME_LIST_W)-(O['CHEVRON_W']-10)
+    home_bounds(False)
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
+    home_bounds(True)
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
-    click(1); assert texts()[1]=='Home: Split'; passed()
+    click(1); assert texts()[1]=='Home: Split'; home_bounds(False); passed()
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
     for value,name in ((1,'Percent'),(2,'Icon + Percent'),(0,'Icon')):
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
@@ -5192,10 +5223,15 @@ def home_settings():
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible'] and m.nodes[sets]['animated']=='x'
         assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,HOME_LIST_W)]; passed()
+        assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==O['PAGE_SLIDE_MS']==120
+        m.advance(119); assert signed(m.get(sets+O['W_X']))>0
+        m.advance(1); assert m.get(sets+O['W_X'])==0 and not m.props
         m.paint(sview); assert m.selected(sview)==0 and m.call()==11 and m.selected(sview)==1; passed()
         m.calls=[]; assert m.call(O['KEY_RETURN'])==11
         assert m.nodes[lst]['visible'] and not m.nodes[sets]['visible'] and m.nodes[lst]['animated']=='x'
         assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-HOME_LIST_W&0xffffffff)]
+        assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==120
+        m.advance(120); assert m.get(lst+O['W_X'])==0 and not m.props
         m.paint(view); assert m.selected(view)==6; passed()
         # Return on Home's own list is stock's.
         m.calls=[]; assert m.call(O['KEY_RETURN'])==0 and m.nodes[lst]['visible']; passed()
@@ -5758,6 +5794,9 @@ m.state('playing',position=10000,at=m.now+500,cover=1); m.files[STATE+'.jpg']=by
 assert m.nodes[info]['visible'] and not m.nodes[msg]['visible']
 assert m.thumbs==[(STATE+'.jpg','/tmp/q2spot.jpg',166,166)] and 'file:///tmp/q2spot.jpg' in [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
 assert texts(info)==['Spotify','Song','A, B','LP','00:10','-03:10']
+for text, rgb in [('Song', 0xffffff), ('A, B', O['NP_ARTIST_RGB'] if variant=='ipod' else 0xaaaaaa), ('LP', 0xaaaaaa)]:
+    label=next(w for w in m.nodes if under(w,info) and m.nodes[w].get('text')==text)
+    assert m.nodes[label]['style:normal:text_color']==signed(color_t(rgb))
 m.advance(2500); assert texts(info)[4:]==['00:12','-03:08'] and len(m.thumbs)==1
 for w in [x for x in m.nodes if m.nodes[x]['type'] in ('hscroll_label','image','view') and under(x,info) and x!=info]:
     x,y,bw,bh=cf_geometry(m,w); inset=max(corner_inset(30+y),corner_inset(30+y+bh))  # the window starts at y 30

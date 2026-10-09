@@ -64,7 +64,7 @@ leaving the stock playing glyph to mark the current song; only list rows use the
 The album page's inline black grid buttons become transparent as well.
 
 With the rows transparent, the payload draws the selection bar behind them: a full-width
-gradient in the accent colour, or the tile's own rectangle in a grid (see
+flat fill in the accent colour, or the tile's own rectangle in a grid (see
 [internals.md](internals.md#drawing)). A touch hides it until the next wheel or centre input.
 
 ## Home
@@ -128,7 +128,7 @@ row; the wheel skips hidden rows. **Settings** works as an iPod submenu: a secon
 `list_view_homeset` in the list's place holds stock's own `btn_playset` and `btn_sysset` rows,
 which the stock visitor binds as it did the cards; their labels, renamed `label_playback` and
 `label_system` so the visitor skips them as it does `label_library`, say "Playback" and "System". `home_settings` hides the list, shows this one and slides it in from the right
-(`widget_animator_prop_create` on `x`, 200 ms, stock's scroll easing); Return on Home
+(`widget_animator_prop_create` on `x`, `PAGE_SLIDE_MS` (120 ms), stock's scroll easing); Return on Home
 (`coverflow_home_back`, from `ringnav` after stock's release) slides the list back in from the
 left. The art stays: both lists are clipped to the left pane while they paint (`coverflow_home_clip`),
 so a sliding list never covers it. The wheel drives whichever list is visible, and each keeps its
@@ -138,7 +138,8 @@ The Home setting (see [Display settings](#display-settings)) picks the layout. S
 as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar
 spans the screen, and the rows and their tap images to `HOME_FULL_ROW` (369, `patch/offsets.inc`)
 with `widget_move_resize` (`0x65ea44`, which also marks the children for relayout), and hides the
-art. The labels keep their width. The chevrons' glyphs then end 33 pixels from the right edge, as
+art. Labels in both Home menus grow from 106 to 288 pixels, ending before the chevron
+(`HOME_LABEL_END`); Split restores their narrower width. The chevrons' glyphs then end 33 pixels from the right edge, as
 the labels start 33 from the left: at the screen edge the last row's chevron would sit under the
 bottom-right corner. Split puts back the list's asset width, recorded at init. Home is
 opened once and never recreated, so the layout is applied at init and again when the setting
@@ -154,7 +155,7 @@ left out. Now Playing reads the same files by type and clears `g_playcover_finis
 so Home leaves the flag alone. Home uses the player's file only while
 `g_lastcover_url` is the path of the queue's current track (`*mcl_pdeqplaylist` at
 `MCL_POS`), so a track change never shows the previous cover; otherwise it shows that
-track's Coverflow thumbnail, then `default_album_big`. Each load uses Coverflow's
+track's Coverflow thumbnail, then `default_album_home` (stock's disc, drawn at 290px so it never upscales). Each load uses Coverflow's
 sequence (`widget_load_image`, `image_base_set_image`, `widget_unload_image`), so the
 same file name decodes again after a track change. The check runs when Home or the
 status bar paints (the bar at least once a second) and reloads only when the track's
@@ -410,8 +411,9 @@ pixels below it, the page dots 12 pixels under the art, the bar with the stock A
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
 placeholder cover at this size, so real art and the placeholder match. The payload paints them
 over the image in the page's black, with an anti-aliased edge pixel. The title is 22 pixels
-white (`NP_TITLE_PX`); artist, album, "3 of 12" and both times are the stock secondary grey
-`#AAAAAA`. Long lines scroll, as stock.
+white (`NP_TITLE_PX`); the artist is `#CCCCCC` (`NP_ARTIST_RGB`), while the album, "3 of 12"
+and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Stock
+keeps its existing artist color. Long lines scroll, as stock.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
 with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
@@ -537,17 +539,17 @@ missing key copies the default and returns -1. The default must not be null (sto
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
 one valid digit, is Graphite, Split and Icon.
 
-| Accent                | Selection bar          | White on top / bottom | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
+| Accent                | Selection bar          | White on fill | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
 | --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
-| Graphite (0, default) | solid `#424242`        | 10.0:1 / 10.0:1       | `#6E6E6E` (3.3:1)         | `#D8D8D8` (1.4:1)       |
-| Crimson (1)           | `#E8123F` to `#A60025` | 4.6:1 / 7.9:1         | `#EB2F56` (4.1:1)         | stock `#FF1448` (3.9:1) |
-| Tidal (2)             | `#13838D` to `#095158` | 4.5:1 / 9.0:1         | `#30929B` (4.6:1)         | `#30929B` (3.7:1)       |
-| Champagne (3)         | `#8C732C` to `#5D4A18` | 4.6:1 / 8.5:1         | `#9A8446` (4.7:1)         | `#9A8446` (3.6:1)       |
+| Graphite (0, default) | solid `#424242` | 10.0:1       | `#6E6E6E` (3.3:1)         | `#D8D8D8` (1.4:1)       |
+| Crimson (1)           | solid `#E8123F` | 4.6:1         | `#EB2F56` (4.1:1)         | stock `#FF1448` (3.9:1) |
+| Tidal (2)             | solid `#13838D` | 4.5:1         | `#30929B` (4.6:1)         | `#30929B` (3.7:1)       |
+| Champagne (3)         | solid `#8C732C` | 4.6:1         | `#9A8446` (4.7:1)         | `#9A8446` (3.6:1)       |
 
 The light tone is the top lightened 12% toward white (Graphite keeps `#6E6E6E`): the progress
-fill and, except on Graphite, the bar's one-pixel highlight; Graphite's bar is solid with a
-restrained `#555555` top edge. Tidal and Champagne tops are darkened in hue (and
-their bottoms by the same factor) so white text holds 4.5:1 at the top; their light tone also
+fill and, except on Graphite, the bar's one-pixel highlight; Graphite keeps a restrained
+`#555555` top edge. All four selections use solid fills to avoid visible banding on the Q2's
+panel. Tidal and Champagne fills are darkened in hue so white text holds 4.5:1; their light tone also
 serves as the red tone. One rule picks the tone for stock red: red text (`text_color`,
 `highlight_text_color`) and red marks in images take the red tone, and every red surface (fills,
 borders, slider and progress fills, gradient stops, and an image's red under white) takes the
@@ -558,4 +560,4 @@ a style or from a `btn_` image (the time and sleep pages' OK), are white on `#6E
 the download bar a
 `#6E6E6E` fill on its `#D8D8D8` track. The presets are `ACCENTS` in `patch/offsets.inc`; see [internals.md](internals.md#accent) for the recolouring.
 
-See [native-size comparisons](ui-refinement/README.md). Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the existing touch targets. Favourite keeps its outline/filled states; inactive dots are muted, and progress retains the chosen accent. Artwork, scrolling metadata and playback controls retain their existing behavior.
+Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the existing touch targets. Favourite keeps its outline/filled states; inactive dots are muted, and progress retains the chosen accent. Artwork, scrolling metadata and playback controls retain their existing behavior.

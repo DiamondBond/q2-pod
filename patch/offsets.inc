@@ -75,17 +75,18 @@
 #define OUTLINE_RGB 0xffffff
 #define OUTLINE_ALPHA 0xb3
 /* iPod accents, in the order of the Accent setting (IPOD/ACCENT in config.ini; 0 is the default):
- * { selection gradient top, bottom, light tone, red tone, highlight }, 0xRRGGBB. White text holds
+ * { selection top, bottom, light tone, red tone, highlight }, 0xRRGGBB. Equal stops keep
+ * selection flat on the Q2 panel; retain the fine top highlight. White text holds
  * 4.5:1 on every top. The light tone, the top lightened 12% toward white (Graphite keeps #6E6E6E),
  * is the Now Playing progress fill (3:1 or more on TRACK_COLOR). The highlight is the bar's one-pixel
- * top edge: the light tone, except Graphite's restrained #555555 over its solid bar. The red tone is what stock red #FF1448 becomes (switches, ticks, red text and
+ * top edge: the light tone, except Graphite's restrained #555555 over its flat bar. The red tone is what stock red #FF1448 becomes (switches, ticks, red text and
  * buttons): Graphite's is silver, so a lit switch reads against the grey off state; the others
  * reuse the light tone, 3:1 or more under white.
  * Crimson keeps every stock color. */
 #define ACCENTS { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }, /* Graphite */ \
-                { 0xe8123f, 0xa60025, 0xeb2f56, 0xff1448, 0xeb2f56 }, /* Crimson */ \
-                { 0x13838d, 0x095158, 0x30929b, 0x30929b, 0x30929b }, /* Tidal */ \
-                { 0x8c732c, 0x5d4a18, 0x9a8446, 0x9a8446, 0x9a8446 }  /* Champagne */
+                { 0xe8123f, 0xe8123f, 0xeb2f56, 0xff1448, 0xeb2f56 }, /* Crimson */ \
+                { 0x13838d, 0x13838d, 0x30929b, 0x30929b, 0x30929b }, /* Tidal */ \
+                { 0x8c732c, 0x8c732c, 0x9a8446, 0x9a8446, 0x9a8446 }  /* Champagne */
 #define CRIMSON 1
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
  * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
@@ -157,6 +158,9 @@
 /* iPod Home in Full: the rows end here, so the chevron's glyph (x 20 to 31 of list_into) ends as far
  * from the right edge as the labels start from the left (HOME_TEXT_X in tools/ipod.py). */
 #define HOME_FULL_ROW 369
+#define HOME_LABEL_END (CHEVRON_W - 10)
+#define PAGE_SLIDE_MS 120
+#define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
  * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
  * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a
@@ -341,7 +345,7 @@
 #define CF_BRIGHT1 192
 #define CF_BRIGHT2 128
 #define CF_REFLECT 24
-#define CF_REFLECT_TOP 64
+#define CF_REFLECT_TOP (IPOD ? 48 : 64)
 #define CF_STRIDE 110
 #define CF_TEXT_Y 212 /* the album caption's top, under the frame; the artist follows */
 /* Photos (patch/photos.c, docs/internals.md#photos): under a 48px title, PH_COLS columns of

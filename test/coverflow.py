@@ -974,7 +974,7 @@ int main(void) {
     coverflow_home_art(page);
     assert(!*art);
     coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_big") && !memcmp(geo, panel, sizeof panel)); /* no size: the panel */
+    assert(!strcmp(art, "default_album_home") && !memcmp(geo, panel, sizeof panel)); /* no size: the panel */
     queue.n = 2; queue.at[0] = records[0]; queue.at[1] = records[3]; /* "Cover" is cached, "None" is not */
     *(volatile int *)MCL_POS = 0;
     shim_covertype = 1;
@@ -1013,7 +1013,7 @@ int main(void) {
     assert(strstr(art, "/mnt/mmc/.coverflow/"));
     *(volatile int *)MCL_POS = 1; shim_covertype = 1; /* next track, the old cover still in place */
     coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_big"));
+    assert(!strcmp(art, "default_album_home"));
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
     coverflow_home_art(win);
     assert(!strcmp(art, player) && loads == unloads);
@@ -1025,7 +1025,7 @@ int main(void) {
     *(volatile int *)MCL_POS = 2; shim_covertype = 3;
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", "/mnt/mmc/Next/01.flac");
     coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_big"));
+    assert(!strcmp(art, "default_album_home"));
     snprintf(shim_id3, sizeof(shim_id3), "%s", "/mnt/mmc/Next/01.flac");
     snprintf(shim_id3 + ID3_ALBUM, 256, "%s", "Cover");
     snprintf(shim_id3 + ID3_ARTIST, 256, "%s", "Artist");
@@ -1037,25 +1037,26 @@ int main(void) {
     coverflow_home_art(win);
     assert(!strcmp(art, player) && loads == unloads);
     /* Home layout: Full widens the list to the screen and its rows and their tap targets to
-       HOME_FULL_ROW, never the labels, and hides the art; Split puts the asset's width back and
+       HOME_FULL_ROW, with labels ending before the chevron, and hides the art; Split puts the asset's width back and
        shows the art again. */
     extern void coverflow_home_layout(void);
     home_list = make(0, "list_view");
     widget *sv = make(home_list, "scroll_view"), *row = make(sv, "view"), *label = make(row, "hscroll_label"),
            *tap = make(row, "image"), *all[] = { home_list, sv, row, tap };
     for (int i = 0; i < 4; ++i) *(int *)(all[i]->raw + W_W) = 205;
-    *(int *)(label->raw + W_W) = 149;
+    *(int *)(label->raw + W_X) = 33;
+    *(int *)(label->raw + W_W) = 205 - 33 - HOME_LABEL_END;
     home_full = 1;
     coverflow_home(win, 0);
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
-    assert(*(int *)(label->raw + W_W) == 149 && !W(home_art)->visible);
+    assert(*(int *)(label->raw + W_W) == HOME_FULL_ROW - 33 - HOME_LABEL_END && !W(home_art)->visible);
     before = loads;
     coverflow_home_art(win); /* hidden: nothing loads */
     assert(loads == before);
     home_full = 0;
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 205);
-    assert(*(int *)(label->raw + W_W) == 149 && W(home_art)->visible);
+    assert(*(int *)(label->raw + W_W) == 205 - 33 - HOME_LABEL_END && W(home_art)->visible);
     coverflow_home_art(win);
     assert(loads == before + 1 && !strcmp(art, player));
 #endif
@@ -1081,7 +1082,7 @@ def main():
                             '-I', str(ROOT/'patch'), '-include', str(tmp/'shim.h'), str(ROOT/'patch/coverflow.c'),
                             str(tmp/'test.c'), '-o', str(binary)], check=True)
             env = dict(os.environ)
-            if a.captures and not ipod:  # the renderer is the same in both builds
+            if a.captures and ipod:  # capture the iPod reflection intensity
                 (tmp/'frames').mkdir()
                 env['CF_CAPTURES'] = str(tmp/'frames')
             subprocess.run([str(binary)], check=True, env=env)

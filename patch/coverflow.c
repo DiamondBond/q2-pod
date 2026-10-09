@@ -27,6 +27,7 @@
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
+#define HOME_PLACEHOLDER "default_album_home" /* Home's, drawn at the panel's 290px (stock's is 110) */
 #define CARDS 2 /* after the albums: Sort, then Refresh library */
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
@@ -1545,7 +1546,6 @@ const char *now_tag(void *r, int field) {
 
 #if IPOD
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
-#define HOME_SWAP_MS 200 /* the Settings list's slide, as navigation.c's HOME_SLIDE_MS */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
     unsigned key;
@@ -1600,7 +1600,7 @@ void coverflow_home_art(void *top) {
         art_path(url + 7, album, "");
         shown = image_show(home.art, url, size);
     }
-    if (!shown && !image_show(home.art, PLACEHOLDER, size)) image_base_set_image(home.art, PLACEHOLDER);
+    if (!shown && !image_show(home.art, HOME_PLACEHOLDER, size)) image_base_set_image(home.art, HOME_PLACEHOLDER);
     home_fit(size[0], size[1]);
     widget_invalidate_force(home.art, 0);
 }
@@ -1624,13 +1624,16 @@ void coverflow_home_clip(void *w, void *canvas, int begin) {
     home.clipped = 1;
 }
 
-/* A widget and its descendants other than labels take the width, the list and its scroll view
- * `outer` and the rows and their tap images `inner`; labels keep theirs. */
+/* Labels end before the chevron in both layouts; rows and tap targets share its right edge. */
 static void home_width(void *w, int outer, int inner, int depth) {
     widget_move_resize(w, I(w, W_X), I(w, W_Y), depth < 2 ? outer : inner, I(w, W_H));
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
         void *child = widget_get_child(w, i);
-        if (tk_strcmp(widget_get_type(child), "hscroll_label")) home_width(child, outer, inner, depth + 1);
+        if (!tk_strcmp(widget_get_type(child), "hscroll_label"))
+            widget_move_resize(child, I(child, W_X), I(child, W_Y),
+                                inner - I(child, W_X) - HOME_LABEL_END, I(child, W_H));
+        else
+            home_width(child, outer, inner, depth + 1);
     }
 }
 
@@ -1661,7 +1664,7 @@ static void home_swap(void *from, void *to, int dx) {
     widget_set_visible(from, 0, 0);
     widget_move_resize(to, dx, I(to, W_Y), I(to, W_W), I(to, W_H));
     widget_set_visible(to, 1, 0);
-    void *a = widget_animator_prop_create(to, HOME_SWAP_MS, 0, SLIDE_EASING, "x");
+    void *a = widget_animator_prop_create(to, PAGE_SLIDE_MS, 0, SLIDE_EASING, "x");
     if (!a) {
         widget_move_resize(to, 0, I(to, W_Y), I(to, W_W), I(to, W_H));
         return;

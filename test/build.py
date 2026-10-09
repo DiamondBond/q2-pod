@@ -401,6 +401,8 @@ def validate_assets(directory):
             # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
             assert [n[1] for n in album] == [[16, 10, 166, 166], [39, 33, 120, 120], [194, 55, 165, 28], [194, 87, 165, 20], [194, 111, 165, 20]]
             assert album[2][2]['style:normal:font_size'] == '22' and album[3][2]['style:normal:font_size'] == '16'
+            for node, color in ((album[3], '#CCCCCC'), (album[4], '#AAAAAA')):
+                assert {v for k, v in node[2].items() if k.endswith(':text_color')} == {color}
             assert pos[0] == album[0][1][0] == 16 and 375 - 16 == album[2][1][0] + album[2][1][2]
             # Distinct bands: top row, art, page dots, bar (A-B markers y 250 to 260), then the times.
             dots = named['slide_indicator1'][1]
