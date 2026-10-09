@@ -4702,7 +4702,7 @@ if variant=='ipod':
     texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
     assert texts=={'fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
-                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot /tmp/q2-librespot.state; sync; kill -9 $PPID'}
+                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot /tmp/q2-librespot.state /tmp/q2-librespot.out; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
     m,names=rockbox(False)
     assert not {'fopen','player_stop','system'} & set(names)
@@ -5813,6 +5813,12 @@ assert 'config_outputchannel' not in names and 'reset_poweroptions_timer' in nam
 # Bluetooth's way is left alone: a DAC check_dacoff_state powered off is only powered on.
 m.state('paused'); m.poll(); m.byte(syms['g_headset_output'],2); m.word(syms['g_dacoff_time'],0xffffffff); m.state('playing'); m.poll()
 assert 'config_outputchannel' not in [c[0] for c in m.calls] and ('mclSetDacPwr',1) in [c[:2] for c in m.calls]; passed()
+# The card's aplay.sh plays where Videos would: no SPOT_OUT on the headphone DAC; Bluetooth's
+# plug:bluealsa and the volume, rewritten when it changes, which a running q2video sink also gets.
+OUT='/tmp/q2-librespot.out'; assert OUT not in m.files
+m.way=1; m.byte(syms['g_volume'],42); m.poll(); assert m.files[OUT]==b'plug:bluealsa 42\n' and m.sent[-1][1::4]==('v*','/tmp/q2sink.sock')
+m.poll(); assert not m.sent; m.byte(syms['g_volume'],43); m.poll(); assert m.files[OUT]==b'plug:bluealsa 43\n'
+m.way=0; m.poll(); assert OUT not in m.files; passed()
 # The page: the art (librespot's cover sized by Coverflow's thumbnailer, once a track), title, artist
 # and album, the position moving on from at= and the remaining time, all clear of the glass.
 m.state('playing',position=10000,at=m.now+500,cover=1); m.files[STATE+'.jpg']=bytearray(b'cover'); m.poll(); m.advance(0)

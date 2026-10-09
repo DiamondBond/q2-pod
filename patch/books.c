@@ -722,22 +722,28 @@ int video_on(void) { return vid.pid; }
  * finds none (USB_MIXER -2) and tells hciplayer {mcl-softvolflag\1}. Otherwise the DAC applies it. */
 static int usb_soft(void) { return g_usbvol_mode && I(USB_MIXER, 0) == -2; }
 
-/* q2video on the output in use, for file or, with radio, Internet Radio's url (radio.c): its pid,
- * 0 when it did not start. The headphone DAC keeps the volume set. Bluetooth's is hciplayer's soft
- * volume, so the helper gets g_volume to apply it the same way, on hciplayer's own plug:bluealsa
- * (the device demo writes to /mnt/data/asound.conf). A USB DAC plays on hciplayer's hw:2,0
- * (plughw, for the 48 kHz stereo stream): with g_volume when its volume is soft, else "h" and the
- * volume, which the helper only shows. */
+/* The output in use for q2video (here, radio.c) and librespot's sink (spotify.c): 0 for the
+ * headphone DAC, which keeps the volume set. Bluetooth's is hciplayer's soft volume, so the helper
+ * gets g_volume in vol (5 bytes) to apply it the same way, on hciplayer's own plug:bluealsa (the
+ * device demo writes to /mnt/data/asound.conf). A USB DAC plays on hciplayer's hw:2,0 (plughw, for
+ * the helper's rate): with g_volume when its volume is soft, else "h" and the volume, which the
+ * helper only shows. */
+const char *output_device(char *vol) {
+    int way = mclGetOutputWay();
+    tk_snprintf(vol, 5, way == 2 && !usb_soft() ? "h%u" : "%u", g_volume);
+    return way == 1 ? "plug:bluealsa" : way == 2 ? "plughw:2,0" : 0;
+}
+
+/* q2video on output_device, else the headphone DAC's plughw:1,0, for file or, with radio, Internet
+ * Radio's url (radio.c): its pid, 0 when it did not start. */
 int video_start(const char *file, int radio) {
-    int way = mclGetOutputWay(), sound = way != 1 && way != 2;
     char vol[5];
-    tk_snprintf(vol, sizeof vol, way == 2 && !usb_soft() ? "h%u" : "%u", g_volume);
+    const char *out = output_device(vol);
     player_stop(); /* hciplayer holds the PCM even paused */
-    if (sound && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
+    if (!out && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
     int pid = fork();
     if (!pid) {
-        const char *dev = sound ? "plughw:1,0" : way == 1 ? "plug:bluealsa" : "plughw:2,0",
-                   *v = sound ? (char *)0 : vol;
+        const char *dev = out ? out : "plughw:1,0", *v = out ? vol : (char *)0;
         if (radio)
             execl(VIDEO_BIN, VIDEO_BIN, "-r", dev, file, v, (char *)0);
         else

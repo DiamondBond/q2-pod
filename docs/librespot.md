@@ -17,7 +17,7 @@ The port lives in [DiamondBond/q2-librespot](https://github.com/DiamondBond/q2-l
 - **Release:** [q2-librespot's releases](https://github.com/DiamondBond/q2-librespot/releases/latest) ship the prebuilt card files as `q2-librespot-*.zip`, unzipped to the card's root.
 - **On the card:** the binary, its launcher and its sink go in the card's `.spotify` folder, with the saved login in `.spotify/cache/`. Q2 Pod starts it; see the [guide](guide.md#spotify) to install it.
 - **Build:** librespot is built **static and soft-float (musl)**, so the firmware's `-mfp64`, NaN-2008 and glibc 2.28 don't matter. The kernel still requires the `nan2008` ELF flag, so the build sets it.
-- **Audio:** goes through the stock `aplay` to `plughw:0,0`, the CS43131 headphone DAC, started only while librespot plays (its subprocess backend), so local music can open the DAC whenever Spotify is paused.
+- **Audio:** goes through the stock `aplay` to `plughw:0,0`, the CS43131 headphone DAC, started only while librespot plays (its subprocess backend), so local music can open the DAC whenever Spotify is paused. With Bluetooth or a USB DAC as the output, Q2 Pod names the device and volume in `/tmp/q2-librespot.out` and `aplay.sh` runs Q2 Pod's `q2video -s` there instead, at hciplayer's soft volume ([internals](internals.md#spotify)).
 
 **It plays.** On the device, librespot appears in Spotify Connect, the phone's session authenticates, and audio comes out of the headphones at 160 kbit/s. Soft-float decoding keeps up, with no stutter heard.
 
