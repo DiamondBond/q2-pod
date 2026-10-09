@@ -5768,14 +5768,20 @@ names=start(); assert m.sent[0][1]=='s' and names[-1]=='stock_start_player' and 
 m.on_sleep=None; names=start(); assert not m.sent and names.count('sleep_ms')==0 and names[-1]=='stock_start_player'
 # A librespot that never answers holds local music back at most SPOT_YIELD_MS.
 m.state('playing'); m.play=1; m.poll(); t0=m.now; start(); assert 1500<=m.now-t0<=1540; passed()
-# On the page, Centre starts a scrub: the wheel moves it 5 s a tick (not the volume), shown on the
-# bar in white, and Centre or SCRUB_MS later seeks there. Without a scrub the wheel is stock's volume.
+# On the page, a double centre press starts a scrub: the wheel moves it 5 s a tick (not the volume),
+# shown on the bar in white, and a double press or SCRUB_MS later seeks there. A single press turns
+# the screen off, as on Now Playing. Without a scrub the wheel is stock's volume.
 m.state('paused',position=60000); m.poll(); m.top=page
 assert m.key(O['KEY_NEXT'])!=11
-assert m.key(O['KEY_CENTER'])==11 and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_PREV'])==11 and not m.sent
-m.advance(250); assert texts(info)[4]=='01:05'
+m.mock('on_wm_keyup_fun')  # stock's screen toggle
+def double(): return m.key(O['KEY_CENTER'])==11 and m.key(O['KEY_CENTER'])==11
+assert double() and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_PREV'])==11 and not m.sent
+m.advance(250); assert texts(info)[4]=='01:05' and 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
 m.poll(O['SCRUB_MS']-260); assert not m.sent; m.poll(); assert m.sent[0][1]=='S65000'  # 250 ms already passed
-assert m.key(O['KEY_CENTER'])==11 and m.key(O['KEY_PREV'])==11 and m.key(O['KEY_CENTER'])==11 and m.sent[0][1]=='S55000'
+assert double() and m.key(O['KEY_PREV'])==11 and double() and m.sent[0][1]=='S55000'
+assert m.key(O['KEY_CENTER'])==11; m.advance(200); assert 'on_wm_keyup_fun' in [c[0] for c in m.calls] and not m.sent
+assert double() and m.key(O['KEY_PREV'])==11 and m.key(O['KEY_CENTER'])==11; m.sent=[]
+m.advance(200); assert m.sent[0][1]=='S55000' and 'on_wm_keyup_fun' in [c[0] for c in m.calls]
 # Return goes back to Streaming.
 assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()

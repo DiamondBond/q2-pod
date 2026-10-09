@@ -23,6 +23,7 @@
 #define SPOT_YIELD_MS 1500 /* local music waits at most this long for librespot to let the DAC go  \
                             */
 #define SPOT_STEP_MS 5000  /* a scrub tick, as Now Playing's */
+#define SPOT_DOUBLE_MS 200 /* navigation.c's DOUBLE_CLICK_MS */
 /* Now Playing's layout (tools/ipod.py NP_*): the art and the text 16px from the sides, 12 apart,
  * the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16
@@ -62,7 +63,7 @@ static struct {
 static struct {
     void *page, *info, *msg, *art, *bar, *glyph, *title, *artist, *album, *elapsed, *remain, *note,
         *sub;
-    unsigned timer, leave, scrub_at, shown, playing;
+    unsigned timer, leave, scrub_at, shown, playing, press, press_at;
     int scrub, scrub_ms;
     char art_track[64];
 } ui __attribute__((section(".scratch")));
@@ -246,12 +247,35 @@ int spot_media(unsigned key) {
     return 1;
 }
 
-/* ringnav(), the page on top: Centre starts a scrub, the wheel then moves it SPOT_STEP_MS a tick,
- * and Centre again or SCRUB_MS without a tick seeks there (spot_poll). Otherwise the wheel stays
- * stock's volume. */
+/* A single centre press, SPOT_DOUBLE_MS on: it seeks any scrub, then replays the release to stock
+ * on_wm_keyup_fun, which turns the screen off, as Now Playing's np_single. */
+static int spot_single(const void *info) {
+    static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
+    (void)info;
+    ui.press = 0;
+    if (ui.scrub) scrub_commit(), spot_refresh();
+    if (g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
+    return 0;
+}
+
+/* ringnav(), the page on top, as Now Playing: a centre press waits SPOT_DOUBLE_MS; a second one
+ * starts a scrub or seeks it, else it turns the screen off. While scrubbing the wheel moves it
+ * SPOT_STEP_MS a tick, and SCRUB_MS without a tick seeks there (spot_poll). Otherwise the wheel
+ * stays stock's volume. */
 int spot_key(void *top, unsigned key) {
     if (!ui.page || top != ui.page || !sp.track[0] || !sp.duration) return 0;
     if (key == KEY_CENTER) {
+        unsigned now = time_now_ms();
+        if (!ui.press) {
+            ui.press_at = now;
+            rearm(&ui.press, spot_single, SPOT_DOUBLE_MS);
+            return 1;
+        }
+        stop_timer(&ui.press);
+        if (now - ui.press_at >= SPOT_DOUBLE_MS) {
+            spot_single(0); /* overdue: that press was a single one */
+            return 0;       /* and stock takes this one */
+        }
         if (ui.scrub)
             scrub_commit();
         else
@@ -379,6 +403,7 @@ static int closed(void *ctx, void *event) {
     (void)event;
     stop_timer(&ui.timer);
     stop_timer(&ui.leave);
+    stop_timer(&ui.press);
     if (ui.scrub) scrub_commit();
     memset(&ui, 0, sizeof ui);
     return 0;

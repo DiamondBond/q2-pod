@@ -89,12 +89,12 @@ Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops mea
 
 **Streaming → Spotify** plays Spotify on the Q2's headphone jack as a Spotify Connect speaker: pick **Q2** in the Spotify app on a phone on the same Wi-Fi, and browse and queue there. It needs Spotify Premium and isn't in the firmware: it runs from the microSD card ([install](#install-spotify)).
 
-| Control         | What it does                                                                           |
-| --------------- | -------------------------------------------------------------------------------------- |
-| **Play/Pause**  | Pauses or plays Spotify, on any page and with the screen off                           |
-| **Next / Prev** | Next or previous track                                                                 |
-| **Wheel**       | Volume, as everywhere: the Q2's volume is Spotify's                                    |
-| **Centre**      | On the Spotify page: turn the wheel to move 5 s a tick; Centre again or wait 3 s jumps |
+| Control         | What it does                                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Play/Pause**  | Pauses or plays Spotify, on any page and with the screen off                                                                                                    |
+| **Next / Prev** | Next or previous track                                                                                                                                          |
+| **Wheel**       | Volume, as everywhere: the Q2's volume is Spotify's                                                                                                             |
+| **Centre**      | On the Spotify page, as on Now Playing: press once to turn the screen off; double-press, turn the wheel 5 s a tick, then double-press again or wait 3 s to jump |
 
 Until you play local music again, the buttons stay Spotify's. Picking a song in the Library pauses Spotify and plays the song; casting from the phone again stops local music. Playback carries on with the screen off. Bluetooth and USB DACs aren't supported: Spotify always plays on the headphone jack.
 
