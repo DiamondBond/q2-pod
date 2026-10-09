@@ -424,10 +424,11 @@ is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` co
 while it lasts. Each wheel tick moves 5 seconds, times a ramp of one more step per 100 ms of spin
 (up to 40 seconds a tick; the lists' gentler ramp and overshoot filter do not apply), within the
 track. Both times and the bar follow the target at once;
-the track jumps there once, when the scrub ends. Another double press or Return ends it, as do a touch and
+the track jumps there once, when the scrub ends. A press of the centre button confirms it at once
+and leaves the screen on (a double press does too), as do Return, a touch and
 3 seconds without a tick, and each gives the wheel back to the volume; Return then stays on the
-page. Ending without having moved the target does not seek. A single press turns the screen off,
-ending any scrub, as on every other page. The jump is stock's key seek, which can pause the player briefly, but only once, when the
+page. Ending without having moved the target does not seek. Outside a scrub a single press turns
+the screen off, as on every other page. The jump is stock's key seek, which can pause the player briefly, but only once, when the
 scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 `patch/offsets.inc`; see [internals.md](internals.md#scrub-ipod).
 

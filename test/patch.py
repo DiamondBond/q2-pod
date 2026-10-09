@@ -3814,15 +3814,20 @@ if variant=='ipod':
         else: step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
         step(m,O['SCRUB_MS'],wait=True); ended(m,[105],end); passed()
     # A single press turns the screen off DOUBLE_CLICK_MS later, not a millisecond sooner, and
-    # leaves no toggle behind; scrubbing, it commits once first.
-    for scrubbing in (False,True):
-        m=scrub_page()
-        if scrubbing: centre(m); step(m); m.calls=[]
-        assert Machine.release(m)==11; m.advance(DC-1,clear=False); assert not m.screens
-        m.advance(1,clear=False); assert m.screens==[0] and not m.u.mem_read(syms['g_backlight_status'],1)[0]
-        keep(m); m.byte(syms['g_backlight_status'],1); step(m,1000+O['SCRUB_MS'],wait=True)
-        assert m.seeks==([105] if scrubbing else []) and not did(m,'playing_timer_clear')
-        assert not m.timers and m.call()==0; passed()
+    # leaves no toggle behind.
+    m=scrub_page()
+    assert Machine.release(m)==11; m.advance(DC-1,clear=False); assert not m.screens
+    m.advance(1,clear=False); assert m.screens==[0] and not m.u.mem_read(syms['g_backlight_status'],1)[0]
+    keep(m); m.byte(syms['g_backlight_status'],1); step(m,1000+O['SCRUB_MS'],wait=True)
+    assert m.seeks==[] and not did(m,'playing_timer_clear') and not m.timers and m.call()==0; passed()
+    # Scrubbing, a single press commits at once and the screen stays on; a second as quick (a
+    # double press) is swallowed too.
+    for presses in (1,2):
+        m=scrub_page(); centre(m); step(m)
+        assert step(m,O['KEY_CENTER'])==11 and m.seeks==[105] and m.starts==[m.win]
+        if presses==2: assert step(m,O['KEY_CENTER'],gap=100)==11
+        step(m,DC+O['SCRUB_MS'],wait=True); assert not m.screens and m.u.mem_read(syms['g_backlight_status'],1)[0]
+        ended(m,[105],presses); passed()
     # Another window on top ends it with the one commit; the page's destruction drops the target and
     # keeps the timer off.
     m=scrub_page(); centre(m); step(m)
@@ -5767,7 +5772,7 @@ m.on_sleep=None; names=start(); assert not m.sent and names.count('sleep_ms')==0
 # A librespot that never answers holds local music back at most SPOT_YIELD_MS.
 m.state('playing'); m.play=1; m.poll(); t0=m.now; start(); assert 1500<=m.now-t0<=1540; passed()
 # On the page, a double centre press starts a scrub: the wheel moves it 5 s a tick (not the volume),
-# shown on the bar in white, and a double press or SCRUB_MS later seeks there. A single press turns
+# shown on the bar in white, and a press or SCRUB_MS later seeks there. A single press otherwise turns
 # the screen off, as on Now Playing. Without a scrub the wheel is stock's volume.
 m.state('paused',position=60000); m.poll(); m.top=page
 assert m.key(O['KEY_NEXT'])!=11
@@ -5776,10 +5781,11 @@ def double(): return m.key(O['KEY_CENTER'])==11 and m.key(O['KEY_CENTER'])==11
 assert double() and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_PREV'])==11 and not m.sent
 m.advance(250); assert texts(info)[4]=='01:05' and 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
 m.poll(O['SCRUB_MS']-260); assert not m.sent; m.poll(); assert m.sent[0][1]=='S65000'  # 250 ms already passed
-assert double() and m.key(O['KEY_PREV'])==11 and double() and m.sent[0][1]=='S55000'
-assert m.key(O['KEY_CENTER'])==11; m.advance(200); assert 'on_wm_keyup_fun' in [c[0] for c in m.calls] and not m.sent
-assert double() and m.key(O['KEY_PREV'])==11 and m.key(O['KEY_CENTER'])==11; m.sent=[]
-m.advance(200); assert m.sent[0][1]=='S55000' and 'on_wm_keyup_fun' in [c[0] for c in m.calls]
+assert double() and m.key(O['KEY_PREV'])==11 and m.key(O['KEY_CENTER'])==11 and m.sent[0][1]=='S55000'
+m.advance(200); assert m.key(O['KEY_CENTER'])==11; m.advance(200); assert 'on_wm_keyup_fun' in [c[0] for c in m.calls] and not m.sent
+# Scrubbing, a single press seeks at once and the screen stays on.
+m.advance(200); assert double() and m.key(O['KEY_PREV'])==11; m.sent=[]; assert m.key(O['KEY_CENTER'])==11 and m.sent[0][1]=='S55000'
+m.advance(200); assert 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
 # Return goes back to Streaming.
 assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()

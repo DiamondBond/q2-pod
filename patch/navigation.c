@@ -363,6 +363,29 @@ void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms) {
     *timer = timer_add(fn, (void *)0, ms);
 }
 
+/* A centre press on a page telling single from double presses (Now Playing, Spotify's): 1 the
+ * first, whose single runs DOUBLE_CLICK_MS on unless a second comes; 2 that second; 0 a press
+ * after an overdue first, whose single runs now, and stock takes this one. Scrubbing, a press is
+ * 2 at once, and one within DOUBLE_CLICK_MS after it 1 with no single, so ending a scrub with one
+ * press or two never turns the screen off. */
+int center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing) {
+    unsigned now = (unsigned)time_now_ms();
+    if (scrubbing) {
+        *at = now;
+        return 2;
+    }
+    if (!*timer) {
+        if (now - *at < DOUBLE_CLICK_MS) return 1;
+        *at = now;
+        *timer = timer_add(single, (void *)0, DOUBLE_CLICK_MS);
+        return 1;
+    }
+    stop_timer(timer);
+    if (now - *at < DOUBLE_CLICK_MS) return 2;
+    single((void *)0);
+    return 0;
+}
+
 static void cancel_center(void) {
     stop_timer(&st.center_timer);
     st.center_top = st.center_surface = (void *)0;
@@ -1857,44 +1880,27 @@ static void np_cancel(void) {
     lyric_end();
 }
 
-/* A centre press on a page telling single from double presses (Now Playing, Spotify's): 1 the
- * first, whose single runs DOUBLE_CLICK_MS on unless a second comes; 2 that second; 0 a press
- * after an overdue first, whose single runs now, and stock takes this one. */
-int center_press(unsigned *timer, unsigned *at, int (*single)(const void *)) {
-    unsigned now = (unsigned)time_now_ms();
-    if (!*timer) {
-        *at = now;
-        *timer = timer_add(single, (void *)0, DOUBLE_CLICK_MS);
-        return 1;
-    }
-    stop_timer(timer);
-    if (now - *at < DOUBLE_CLICK_MS) return 2;
-    single((void *)0);
-    return 0;
-}
-
-/* A single centre press, DOUBLE_CLICK_MS on: it ends any scrub, then replays the release to stock
+/* A single centre press, DOUBLE_CLICK_MS on, never while scrubbing: it replays the release to stock
  * on_wm_keyup_fun, which turns the screen off (it reads only the event's key). */
 static int np_single(const void *info) {
     (void)info;
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     st.np_press = 0;
-    scrub_end();
     if (g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
     return 0;
 }
 
 /* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press waits
- * DOUBLE_CLICK_MS: a second one toggles scrub, else it turns the screen off as anywhere else. The
- * wheel moves the target SCRUB_STEP seconds times the WHEEL_RAMP_MS ramp, within the track, and
- * only previews it: the seek waits for the scrub to end. Neither the volume nor its dialog sees
- * the wheel. */
+ * DOUBLE_CLICK_MS: a second one starts scrub, else it turns the screen off as anywhere else; while
+ * scrubbing one press ends it at once (center_press). The wheel moves the target SCRUB_STEP
+ * seconds times the WHEEL_RAMP_MS ramp, within the track, and only previews it: the seek waits
+ * for the scrub to end. Neither the volume nor its dialog sees the wheel. */
 static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
-        int press = center_press(&st.np_press, &st.np_press_at, np_single);
+        int press = center_press(&st.np_press, &st.np_press_at, np_single, st.scrub);
         if (press != 2) return press ? STOP : 0;
-        if (st.scrub) /* a double press toggles scrub */
+        if (st.scrub) /* one press ends a scrub, a double press starts one */
             scrub_end();
         else if (st.np_slider) {
             lyric_end();

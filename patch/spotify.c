@@ -43,7 +43,7 @@ extern int thumb(const char *src, const char *dst, int w, int h),
     image_show(void *img, const char *url, unsigned *size);
 extern void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms),
     stop_timer(unsigned *timer);
-extern int center_press(unsigned *timer, unsigned *at, int (*single)(const void *));
+extern int center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing);
 #if IPOD
 extern unsigned accent_tone(int tone);
 #endif
@@ -243,25 +243,24 @@ int spot_media(unsigned key) {
     return 1;
 }
 
-/* A single centre press, DOUBLE_CLICK_MS on: it seeks any scrub, then replays the release to stock
+/* A single centre press, DOUBLE_CLICK_MS on, never while scrubbing: it replays the release to stock
  * on_wm_keyup_fun, which turns the screen off, as Now Playing's np_single. */
 static int spot_single(const void *info) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     (void)info;
     ui.press = 0;
-    if (ui.scrub) scrub_commit(), spot_refresh();
     if (g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
     return 0;
 }
 
 /* ringnav(), the page on top, as Now Playing: a centre press waits DOUBLE_CLICK_MS (center_press); a second one
- * starts a scrub or seeks it, else it turns the screen off. While scrubbing the wheel moves it
- * SPOT_STEP_MS a tick, and SCRUB_MS without a tick seeks there (spot_poll). Otherwise the wheel
+ * starts a scrub, else it turns the screen off. While scrubbing one press seeks it at once, the wheel moves
+ * it SPOT_STEP_MS a tick, and SCRUB_MS without a tick seeks there (spot_poll). Otherwise the wheel
  * stays stock's volume. */
 int spot_key(void *top, unsigned key) {
     if (!ui.page || top != ui.page || !sp.track[0] || !sp.duration) return 0;
     if (key == KEY_CENTER) {
-        int press = center_press(&ui.press, &ui.press_at, spot_single);
+        int press = center_press(&ui.press, &ui.press_at, spot_single, ui.scrub);
         if (press != 2) return press;
         if (ui.scrub)
             scrub_commit();
