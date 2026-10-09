@@ -98,7 +98,7 @@ Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops mea
 
 Until you play local music again, the buttons stay Spotify's. Picking a song in the Library pauses Spotify and plays the song; casting from the phone again stops local music. Playback carries on with the screen off. Bluetooth and USB DACs aren't supported: Spotify always plays on the headphone jack.
 
-The first time, open **Streaming → Spotify** and pick **Q2** in the Spotify app; the login is saved on the card. After that, the Q2 shows up in Spotify by itself shortly after every power-on.
+The first time, open **Streaming → Spotify** and pick **Q2** in the Spotify app; the login is saved on the card. After each power-on, open **Streaming → Spotify** once and the Q2 shows up in Spotify again; until then nothing Spotify runs.
 
 ### Install Spotify
 

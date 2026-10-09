@@ -25,7 +25,7 @@ The port lives in [DiamondBond/q2-librespot](https://github.com/DiamondBond/q2-l
 
 **Streaming → Spotify** opens a Now Playing page for it: the cover, title, artist and album, a moving progress bar and the play state, in Now Playing's layout in both builds. Q2 Pod treats librespot as a source of its own playback, as it treats Videos' q2video:
 
-- **Start:** once per boot, from the row, or at boot once the card holds a saved login.
+- **Start:** only from the row, once per boot; until then nothing Spotify runs or polls.
 - **Power:** while it plays, standby, auto power-off and the DAC's power-off are held off; the screen still turns off.
 - **DAC:** set up as stock's AirPlay receiver sets it (`config_outputchannel`, as a headset insert does, then PCM mode, unmuted and the Q2's volume).
 - **Keys:** Play/Pause and the side buttons control Spotify while it was the last thing played; the wheel is the Q2's volume, which is Spotify's.

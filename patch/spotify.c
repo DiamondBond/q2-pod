@@ -10,7 +10,6 @@
 
 #define SPOT_DIR "/mnt/mmc/.spotify"
 #define SPOT_BIN SPOT_DIR "/librespot"
-#define SPOT_LOGIN SPOT_DIR "/cache/credentials.json"
 #define SPOT_RUN "/bin/sh " SPOT_DIR "/run" /* backgrounds itself, once per boot */
 #define SPOT_DEBUG SPOT_DIR "/debug"        /* present: SPOT_LOG records every hand-over */
 #define SPOT_LOG SPOT_DIR "/q2pod.log"
@@ -19,11 +18,9 @@
 #define SPOT_SOCK "/tmp/q2-librespot.sock" /* its --control-socket */
 #define SPOT_ART "/tmp/q2spot.jpg"         /* the cover at the page's size */
 #define SPOT_POLL_MS 500
-#define SPOT_BOOT_MS 60000 /* how long after boot a login on the card still starts it */
 #define SPOT_YIELD_MS 1500 /* local music waits at most this long for librespot to let the DAC go  \
                             */
 #define SPOT_STEP_MS 5000  /* a scrub tick, as Now Playing's */
-#define SPOT_DOUBLE_MS 200 /* navigation.c's DOUBLE_CLICK_MS */
 /* Now Playing's layout (tools/ipod.py NP_*): the art and the text 16px from the sides, 12 apart,
  * the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16
@@ -46,6 +43,7 @@ extern int thumb(const char *src, const char *dst, int w, int h),
     image_show(void *img, const char *url, unsigned *size);
 extern void rearm(unsigned *timer, int (*fn)(const void *), unsigned ms),
     stop_timer(unsigned *timer);
+extern int center_press(unsigned *timer, unsigned *at, int (*single)(const void *));
 #if IPOD
 extern unsigned accent_tone(int tone);
 #endif
@@ -53,7 +51,7 @@ extern unsigned accent_tone(int tone);
 /* librespot as last read; kept for the life of demo. */
 static struct {
     int launched, debug, sock, playing, paused, local, active;
-    unsigned polled, booted, duration, position, cover;
+    unsigned polled, duration, position, cover;
     unsigned long long at;
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
@@ -181,17 +179,15 @@ static void scrub_commit(void) {
 
 static void spot_refresh(void);
 
-/* ringnav_sleep, every UI loop pass, paced to SPOT_POLL_MS: librespot's start (at boot when the
- * card has its login, for SPOT_BOOT_MS while the card mounts), its state, and while it plays the
- * standby and auto-power-off timers held and the DAC kept on (check_dacoff_state). The screen's own
- * timer runs, so the screen still turns off. */
+/* ringnav_sleep, every UI loop pass: nothing until Streaming's Spotify row started librespot; then,
+ * paced to SPOT_POLL_MS, its state, and while it plays the standby and auto-power-off timers held
+ * and the DAC kept on (check_dacoff_state). The screen's own timer runs, so the screen still turns
+ * off. */
 void spot_poll(void) {
+    if (!sp.launched) return;
     unsigned now = time_now_ms();
     if (now - sp.polled < SPOT_POLL_MS) return;
     sp.polled = now;
-    if (!sp.booted) sp.booted = now | 1;
-    if (!sp.launched && now - sp.booted < SPOT_BOOT_MS && !access(SPOT_LOGIN, 0)) spot_launch();
-    if (!sp.launched) return;
     char raw[sizeof sp.raw];
     if (spot_read(raw, sizeof raw)) {
         memcpy(sp.raw, raw, sizeof raw);
@@ -247,7 +243,7 @@ int spot_media(unsigned key) {
     return 1;
 }
 
-/* A single centre press, SPOT_DOUBLE_MS on: it seeks any scrub, then replays the release to stock
+/* A single centre press, DOUBLE_CLICK_MS on: it seeks any scrub, then replays the release to stock
  * on_wm_keyup_fun, which turns the screen off, as Now Playing's np_single. */
 static int spot_single(const void *info) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
@@ -258,24 +254,15 @@ static int spot_single(const void *info) {
     return 0;
 }
 
-/* ringnav(), the page on top, as Now Playing: a centre press waits SPOT_DOUBLE_MS; a second one
+/* ringnav(), the page on top, as Now Playing: a centre press waits DOUBLE_CLICK_MS (center_press); a second one
  * starts a scrub or seeks it, else it turns the screen off. While scrubbing the wheel moves it
  * SPOT_STEP_MS a tick, and SCRUB_MS without a tick seeks there (spot_poll). Otherwise the wheel
  * stays stock's volume. */
 int spot_key(void *top, unsigned key) {
     if (!ui.page || top != ui.page || !sp.track[0] || !sp.duration) return 0;
     if (key == KEY_CENTER) {
-        unsigned now = time_now_ms();
-        if (!ui.press) {
-            ui.press_at = now;
-            rearm(&ui.press, spot_single, SPOT_DOUBLE_MS);
-            return 1;
-        }
-        stop_timer(&ui.press);
-        if (now - ui.press_at >= SPOT_DOUBLE_MS) {
-            spot_single(0); /* overdue: that press was a single one */
-            return 0;       /* and stock takes this one */
-        }
+        int press = center_press(&ui.press, &ui.press_at, spot_single);
+        if (press != 2) return press;
         if (ui.scrub)
             scrub_commit();
         else

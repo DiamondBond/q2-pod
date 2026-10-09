@@ -192,6 +192,7 @@
 /* iPod Now Playing scrub: SCRUB_STEP seconds per detent times the list ramp, previewed until
  * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on volume. */
 #define SCRUB_STEP 5
+#define DOUBLE_CLICK_MS 200 /* a second centre press within this is a double press */
 #define SCRUB_MS 3000
 #define LYRIC_STEP 25 /* px per wheel tick on the lyrics page: one stock lyric row */
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys

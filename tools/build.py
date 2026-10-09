@@ -472,8 +472,9 @@ GLOBALS = ['g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_t
            'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
            'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
            'g_usbvol_mode',  # USB DAC volume: 0 fixed, else the volume (config_usbvolmode, device_set_volume)
-           'g_usbdac_chargeflag', 'g_memory_play', 'g_carmode',
-           'g_headset_output']  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth  # USB mode's charge choice, which switch_charge_enable gets there
+           'g_usbdac_chargeflag',  # USB mode's charge choice, which switch_charge_enable gets there
+           'g_memory_play', 'g_carmode',
+           'g_headset_output']  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.

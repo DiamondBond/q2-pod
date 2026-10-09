@@ -46,7 +46,6 @@ extern const char *track_name(char *buf, unsigned size, void *t);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
-#define DOUBLE_CLICK_MS 200
 #define HOME_FAST_WINDOW_MS 200
 #define HOME_SLIDE_MS 200
 #define HOME_FAST_SLIDE_MS 120
@@ -1868,6 +1867,22 @@ static void np_cancel(void) {
     lyric_end();
 }
 
+/* A centre press on a page telling single from double presses (Now Playing, Spotify's): 1 the
+ * first, whose single runs DOUBLE_CLICK_MS on unless a second comes; 2 that second; 0 a press
+ * after an overdue first, whose single runs now, and stock takes this one. */
+int center_press(unsigned *timer, unsigned *at, int (*single)(const void *)) {
+    unsigned now = (unsigned)time_now_ms();
+    if (!*timer) {
+        *at = now;
+        *timer = timer_add(single, (void *)0, DOUBLE_CLICK_MS);
+        return 1;
+    }
+    stop_timer(timer);
+    if (now - *at < DOUBLE_CLICK_MS) return 2;
+    single((void *)0);
+    return 0;
+}
+
 /* A single centre press, DOUBLE_CLICK_MS on: it ends any scrub, then replays the release to stock
  * on_wm_keyup_fun, which turns the screen off (it reads only the event's key). */
 static int np_single(const void *info) {
@@ -1887,28 +1902,20 @@ static int np_single(const void *info) {
 static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
-        if (st.np_press) {
-            stop_timer(&st.np_press);
-            if (now - st.np_press_at < DOUBLE_CLICK_MS) { /* a double press toggles scrub */
-                if (st.scrub)
-                    scrub_end();
-                else if (st.np_slider) {
-                    lyric_end();
-                    st.scrub = 1;
-                    st.scrub_moved = 0;
-                    st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
-                    st.scrub_track = np_track();
-                    playing_timer_clear(st.np_win);
-                    np_fill(1);
-                    rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
-                }
-                return STOP;
-            }
-            np_single((void *)0); /* overdue: that press was a single one */
-            return 0;             /* and stock takes this one */
+        int press = center_press(&st.np_press, &st.np_press_at, np_single);
+        if (press != 2) return press ? STOP : 0;
+        if (st.scrub) /* a double press toggles scrub */
+            scrub_end();
+        else if (st.np_slider) {
+            lyric_end();
+            st.scrub = 1;
+            st.scrub_moved = 0;
+            st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
+            st.scrub_track = np_track();
+            playing_timer_clear(st.np_win);
+            np_fill(1);
+            rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
         }
-        st.np_press_at = now;
-        st.np_press = timer_add(np_single, (void *)0, DOUBLE_CLICK_MS);
         return STOP;
     }
     if (np_track() != st.scrub_track) { /* a new track: scrub_end drops the last one's target */

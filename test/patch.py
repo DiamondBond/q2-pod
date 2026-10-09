@@ -20,7 +20,7 @@ v = VERSIONS.get(variant, '')
 assert v and manifest['version'] == (v[:-1] + v[-1].lower() if manifest.get('dev') else v), 'Wrong variant/version'
 assert (manifest.get('compact_code') != []) == (variant == 'ipod')
 from ipod import INC, O  # patch/offsets.inc and its integer #defines
-DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)$',(ROOT/'patch/navigation.c').read_text(),re.M)[1])  # centre double-press window
+DC=int(re.search(r'^#define DOUBLE_CLICK_MS (\d+)',(ROOT/'patch/offsets.inc').read_text(),re.M)[1])  # centre double-press window
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
@@ -5717,14 +5717,12 @@ m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button
 assert m.systems==['/bin/sh /mnt/mmc/.spotify/run'] and texts(msg)==['Open Spotify on your phone','and choose Q2']
 m.state('none',track=''); m.poll(); m.advance(250); assert m.nodes[msg]['visible'] and not m.nodes[info]['visible']
 m.close(); spot_open(m,button); assert len(m.systems)==1; m.close(); passed()
-# At boot it starts by itself once the card has a saved login, for a minute while the card mounts;
-# never without one.
-m=SpotMachine({BIN:bytearray()}); m.poll(); m.files['/mnt/mmc/.spotify/cache/credentials.json']=bytearray(); m.poll()
-assert m.systems==['/bin/sh /mnt/mmc/.spotify/run']; m.poll(); assert len(m.systems)==1
-m=SpotMachine({BIN:bytearray()}); m.poll(); m.poll(60000); m.files['/mnt/mmc/.spotify/cache/credentials.json']=bytearray(); m.poll()
-assert not m.systems; m=SpotMachine({BIN:bytearray()})
-for _ in range(3): m.poll()
-assert not m.systems and 'reset_poweroptions_timer' not in [c[0] for c in m.calls]; passed()
+# Until the row is opened nothing Spotify runs, a saved login on the card or not: no start, no
+# state read, no held timers.
+bare=SpotMachine({}); m=SpotMachine({BIN:bytearray(),'/mnt/mmc/.spotify/cache/credentials.json':bytearray()})
+m.state('playing')
+for _ in range(3): assert m.poll()==bare.poll()  # the same calls as a card without Spotify
+assert not m.systems; passed()
 # Playing: local music stops and the headphone output is set up as stock's AirPlay page does it,
 # once; meanwhile standby and auto power-off (not the screen's timer) are held and the DAC kept on.
 m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
