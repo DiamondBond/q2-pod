@@ -35,7 +35,7 @@ Stations come from favourites on the card plus the radio-browser.info directory 
 - **Resume:** the last station is remembered in `/mnt/mmc/Radio/.last` so the Now Playing row can reopen it. Auto-play at boot is skipped.
 
 ### Version 1.0
-- **Done in 1.0.1:** `VERSION` is plain `x.y.z` (About, tags, ZIPs, changelog headings), and the 5-character updater tag packs the digits (`TAG`, `V101I`); see [building.md](building.md).
+- **Done in 1.0.0:** `VERSION` is plain `x.y.z` (About, tags, ZIPs, changelog headings), and the 5-character updater tag packs the digits (`TAG`, `V100I`); see [building.md](building.md).
 - **Changelog:** a new top entry `- **<version>**:` (Internet Radio; no FM, because there's no tuner).
 
 ### Docs and tests
