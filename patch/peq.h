@@ -134,7 +134,14 @@ int video_start(const char *file, int radio); /* books.c */
 #define SPOT_BAR_X 21
 #define SPOT_BAR_Y 251
 #define SPOT_BAR_W 333
+#if IPOD
+#define SPOT_BAR_H 4
+int ipod_backdrop_set(int slot, void *widget, const char *url);
+void ipod_backdrop_paint(int slot, void *canvas, int y);
+void spot_background(void *w, void *canvas);
+#else
 #define SPOT_BAR_H 8
+#endif
 #define SPOT_TIMES_Y 265
 #define SPOT_TIME_X 46
 #define SPOT_GREY 0xffaaaaaau

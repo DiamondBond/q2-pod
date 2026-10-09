@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compose native-size review sheets; these are layout illustrations, not AWTK captures.
-Usage: python3 test/ui_preview.py BEFORE_BUILD AFTER_BUILD OUTPUT BEFORE_CF AFTER_CF
+Usage: python3 test/ui_preview.py BEFORE_BUILD AFTER_BUILD OUTPUT [BEFORE_CF AFTER_CF]
 Uses the existing ImageMagick dependency and the original firmware's native font/assets.
 """
 import hashlib
@@ -13,12 +13,14 @@ sys.path.insert(0, sys.path[0] + '/../tools')
 from ipod import (decode, walk, imagemagick, png_header, HOME_TEXT_X, HOME_LIST_W,
                   HOME_LABEL_END, HOME_ROW, HOME_TOP, inc)
 
-before, after, out, before_cf, after_cf = map(pathlib.Path, sys.argv[1:])
+before, after, out = map(pathlib.Path, sys.argv[1:4])
+cf_paths = list(map(pathlib.Path, sys.argv[4:]))
+assert len(cf_paths) in (0, 2)
 out.mkdir(parents=True, exist_ok=True)
 before_accents = [(0x424242, 0x424242, 0x6e6e6e), (0xe8123f, 0xa60025, 0xeb2f56),
            (0x13838d, 0x095158, 0x30929b), (0x8c732c, 0x5d4a18, 0x9a8446)]
 
-accents = [(top, top, light) for top, _, light in before_accents]
+accents = [(0xeeeeec, 0xeeeeec, light) for _, _, light in before_accents]
 
 with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     tmp = pathlib.Path(tmp)
@@ -68,42 +70,60 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         top, bottom, _ = palette
         args += ['(', '-size', f'{width}x{h}', f'gradient:#{top:06x}-#{bottom:06x}',
                  ')', '-gravity', 'NorthWest', '-geometry', f'+0+{y}', '-composite']
-        rect(args, 0, y, width, 1, '#555555' if palette[2]==0x6e6e6e else f'#{palette[2]:06x}')
+        rect(args, 0, y, width, 1, '#eeeeec' if top==0xeeeeec else ('#555555' if palette[2]==0x6e6e6e else f'#{palette[2]:06x}'))
     bright, dark = tmp/'bright.png', tmp/'dark.png'
     render(['-size','166x166','gradient:#FCE6AF-#2C7E93'], bright)
     render(['-size','166x166','gradient:#10131D-#423459'], dark)
-    cases = ['Home Split / bright art', 'Home Full / long labels / no Rockbox', 'Home Settings Full',
+    cases = ['Home Artwork / bright art', 'Home Plain / long labels / no Rockbox', 'Home Settings Plain',
              'Local Now Playing / paused / dark art', 'Spotify / missing art / scrub',
              'Library / added media', 'Folders / long labels', 'Display settings',
-             'Quick settings / active, inactive, disabled', 'Confirmation / Cancel focused']
+             'Quick settings / active, inactive, disabled', 'Confirmation / Cancel focused',
+             'Home Artwork / dark art', 'Home Artwork / missing art',
+             'Now Playing / bright art / seeking', 'PEQ / focus and untouched plot', 'Media browser / multilingual names']
     for accent, name in enumerate(('Graphite','Crimson','Tidal','Champagne')):
         tiles=[]
         for case, title in enumerate(cases):
             for old, build in ((True,before),(False,after)):
                 palette = (before_accents if old else accents)[accent]
                 a=['-size','375x320','xc:black']
-                if case<8:
-                    rect(a,0,0,375,30,'#161616')
+                if case<8 or case>=10:
+                    rect(a,0,0,375,30,'#242424' if old else '#000000')
                     text(a,'Ⅱ' if case==3 else '▶',54,5,22,20,16)
                     text(a,'12:59 PM',151,5,74,20,16)
                     text(a,'88%',280,5,40,20,16)
-                if case<3:
-                    full=case!=0; width=inc('HOME_FULL_ROW') if full else HOME_LIST_W
+                if case<3 or case in (10,11):
+                    full=case in (1,2); width=(369 if full else 187) if old else HOME_LIST_W
                     labels = ['Now Playing','Library','Coverflow','Folders','Rockbox','Streaming','Settings']
                     if case==1: labels=['Now Playing','Library — a very long music collection','Coverflow','音楽フォルダー','Streaming','Settings']
                     if case==2: labels=['Playback','System']
-                    if not full: image(a,bright,187,30,188,290)
+                    if not full and case!=11:
+                        source = dark if case==10 else bright
+                        if old: image(a,source,187,30,188,290)
+                        else:
+                            bg=tmp/'home-background.png'
+                            render([source,'-resize','375x290^','-gravity','Center','-extent','375x290',
+                                    '-channel','RGB','-evaluate','Multiply','0.2','+channel'],bg)
+                            image(a,bg,0,30,375,290)
+                    elif not full and old: image(a,asset(build,'images/xx/default_album_home.png'),187,30,188,290)
                     selected=1 if case!=2 else 0
                     for i,value in enumerate(labels):
                         y=30+HOME_TOP+i*HOME_ROW
-                        if i==selected: selection(a,y,HOME_ROW,375 if full else width,palette)
-                        label_width=(HOME_LIST_W if old else width)-HOME_TEXT_X-HOME_LABEL_END
-                        text(a,value,HOME_TEXT_X,y,label_width,HOME_ROW)
-                        if i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
-                elif case in (3,4):
+                        if i==selected:
+                            if old: selection(a,y,HOME_ROW,375 if full else width,palette)
+                            else: a+=['-fill','white','-draw',f'circle {inc("HOME_DOT_X")+3},{y+HOME_ROW//2} {inc("HOME_DOT_X")+6},{y+HOME_ROW//2}']
+                        label_width=width-HOME_TEXT_X-(40 if old else HOME_LABEL_END)
+                        text(a,value,HOME_TEXT_X,y,label_width,HOME_ROW,color='#FFFFFF' if old or i==selected else '#AAAAAA')
+                        if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
+                elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
                     text(a,'3 of 12' if case==3 else 'Spotify',16,30,180,40,16,'#AAAAAA')
-                    art=dark if case==3 else asset(build,'images/xx/default_album_big.png')
+                    art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_big.png'))
+                    if not old and case!=4:
+                        bg=tmp/'np-background.png'
+                        render([art,'-resize','375x290^','-gravity','Center','-extent','375x290',
+                                '-channel','RGB','-evaluate','Multiply','0.2','+channel',
+                                '-gravity','NorthWest','-crop','375x186+0+40','+repage'],bg)
+                        image(a,bg,0,70,375,186)
                     # The real art mask is rounded in the payload; compose the same 12px radius.
                     cover=tmp/'cover.png'
                     render([art,'-resize','166x166!','(', '-size','166x166','xc:black','-fill','white',
@@ -114,23 +134,38 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         text(a,value,x,y+70,w,h,int(n[2].get('style:normal:font_size',16)),n[2].get('style:normal:text_color','#FFFFFF'))
                     for i,icon in enumerate(('play_unfav.png','play_more.png','play_order.png') if case==3 else ()):
                         image(a,asset(build,'images/xx/'+icon),214+i*50,36,28,28)
-                    if case==3: text(a,'Ⅱ',82,146,34,44,30)
+                    if old and case==3: text(a,'Ⅱ',82,146,34,44,30)
                     if case==3: text(a,'•  ·  ·',168,258,70,12,12,'#AAAAAA')
                     else: text(a,'▶',337,43,14,14,12,'#AAAAAA')
-                    rect(a,21,281,333,8,'#1C1C1C'); rect(a,21,281,132,8,'#FFFFFF' if case==4 else f'#{palette[2]:06x}')
+                    rect(a,21,281 if old else 283,333,8 if old else 4,'#1C1C1C'); rect(a,21,281 if old else 283,132,8 if old else 4,'#FFFFFF' if case in (4,12) else f'#{palette[2]:06x}')
                     text(a,'01:23',46,295,80,16,14,'#AAAAAA'); text(a,'-02:34',249,295,80,16,14,'#AAAAAA')
                 elif case<8:
                     rows = [('Shuffle','local_shuffle'),('Most Played','local_frequentplay'),('Audiobooks','local_audiobooks'),('Podcasts','local_podcasts')]
                     if case==6: rows=[('Albums','list_folder'),('音楽 — 長いフォルダー名','list_folder'),('A very long track title','local_frequentplay'),('Live recordings','list_folder')]
-                    if case==7: rows=[('Backlight','display_backlight'),('Accent: '+name,'system_display'),('Home: Full','playset_covermode'),('Battery: Icon','system_powermanager')]
+                    if case==7: rows=[('Backlight','display_backlight'),('Accent: '+name,'system_display'),('Home: Full' if old else 'Home: Plain','playset_covermode'),('Battery: Icon','system_powermanager')]
                     for i,(label,icon) in enumerate(rows):
                         y=30+i*72
                         if i==1: selection(a,y,72,375,palette)
                         p=build/(icon+'.png')
                         if not p.exists():
                             p=asset(build,'images/xx/'+icon+'.png')
-                        image(a,p,16,y+14,40,40); text(a,label,72,y,245,68,24)
+                        image(a,p,16,y+14,40,40); text(a,label,72,y,245,68,24,'#171717' if not old and i==1 else '#FFFFFF')
                         if case!=7 or i==0: image(a,asset(build,'images/xx/list_into.png'),317,y+9,50,50)
+                elif case in (13,14):
+                    if case==13:
+                        text(a,'Parametric EQ',33,34,310,32,22)
+                        rect(a,24,76,327,70,'#111111')
+                        a+=['-stroke','#444444','-strokewidth','1','-draw','line 24,111 351,111',
+                            '-stroke',f'#{palette[2]:06x}','-draw','path "M24,111 C110,111 130,82 187,98 S270,116 351,111"','+stroke']
+                        rows=['Preamp              −3.0 dB','Band 1              100 Hz','Gain                  +2.0 dB']
+                        top=150; height=44
+                    else:
+                        rows=['Albums / アルバム','A long concert recording.mp4','夜の写真.jpg','Books / Reading list']
+                        top=38; height=68
+                    for i,label in enumerate(rows):
+                        y=top+i*height
+                        if i==1: selection(a,y,height,375,palette)
+                        text(a,label,33,y,309,height,20,'#171717' if not old and i==1 else '#FFFFFF')
                 else:
                     page='dialog/statusbar_dialog.bin' if case==8 else 'dialog/confirminfo_dialog.bin'
                     root=decode((build/'ui'/page).read_bytes())
@@ -157,6 +192,8 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         for c in children: controls(c,x,y)
                     root[1][:2]=[0,0]
                     controls(root)
+                a+=['(', '-size','375x320','xc:black','-fill','white','-draw','roundrectangle 0,0 374,319 80,80',')',
+                    '-alpha','off','-compose','CopyOpacity','-composite','-background','black','-alpha','remove','-compose','Over']
                 p=tmp/f'{case}-{old}.png'; assert render(a,p)==(375,320)
                 tile=tmp/f'tile-{case}-{old}.png'
                 assert render(['-size','375x354','xc:#202020',p,'-gravity','NorthWest','-geometry','+0+34','-composite',
@@ -166,19 +203,23 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         args=[]
         for i in range(0,len(tiles),2): args+=['(',tiles[i],tiles[i+1],'+append',')']
         render(args+['-append'],out/(name.lower()+'.png'))
-    frames=[]
-    for name in ('rest','quarter','half','three-quarter','one-album'):
-        row=tmp/(name+'.png')
-        a=['-size','750x238','xc:#202020','(',before_cf/(name+'.png'),after_cf/(name+'.png'),'+append',')',
-           '-gravity','NorthWest','-geometry','+0+28','-composite']
-        text(a,'Before renderer | '+name,5,0,365,28,12)
-        text(a,'After renderer | '+name,380,0,365,28,12)
-        assert render(a,row)==(750,238)
-        frames.append(row)
-    render(frames+['-append'],out/'coverflow-renderer.png')
+    if cf_paths:
+        before_cf, after_cf = cf_paths
+        frames=[]
+        for name in ('rest','quarter','half','three-quarter','one-album'):
+            row=tmp/(name+'.png')
+            a=['-size','750x238','xc:#202020','(',before_cf/(name+'.png'),after_cf/(name+'.png'),'+append',')',
+               '-gravity','NorthWest','-geometry','+0+28','-composite']
+            text(a,'Before renderer | '+name,5,0,365,28,12)
+            text(a,'After renderer | '+name,380,0,365,28,12)
+            assert render(a,row)==(750,238)
+            frames.append(row)
+        render(frames+['-append'],out/'coverflow-renderer.png')
     (out/'provenance.json').write_text(json.dumps({
         'font_sha256':hashlib.sha256(font.read_bytes()).hexdigest(),
         'before_source_sha256':json.loads((before/'manifest.json').read_text())['source_sha256'],
         'after_source_sha256':json.loads((after/'manifest.json').read_text())['source_sha256'],
-        'screen_size':[375,320], 'renderer_size':[375,210]},indent=2)+'\n')
-print('Composed sheets: native font and current assets; every screen is 375x320. Coverflow frames are actual host renderer output.')
+        'screen_size':[375,320], 'kind':'composed illustrations, not firmware captures',
+        'artwork':'synthetic bright/dark gradients; missing art uses packaged placeholder or black',
+        'cases':cases, 'renderer_size':[375,210] if cf_paths else None},indent=2)+'\n')
+print('Composed sheets: native font and packaged assets; every screen is 375x320. These are not firmware captures.')

@@ -112,9 +112,8 @@
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
-/* iPod status bar: a solid fill, darker than the selection so it reads as chrome, without a
- * highlight. TRACK_COLOR is the Now Playing progress track. */
-#define BAR_COLOR 0x242424
+/* iPod black status chrome; TRACK_COLOR is the Now Playing progress track. */
+#define BAR_COLOR 0x000000
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
 #define NP_ART_RADIUS 12 /* Now Playing's art corners (paint_cover), as stock's play_defaultcover scaled to the art */
@@ -155,10 +154,14 @@
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58
-/* iPod Home in Full: the rows end here, so the chevron's glyph (x 20 to 31 of list_into) ends as far
- * from the right edge as the labels start from the left (HOME_TEXT_X in tools/ipod.py). */
-#define HOME_FULL_ROW 369
-#define HOME_LABEL_END (CHEVRON_W - 10)
+/* iPod Home: full-width rows; labels end HOME_LABEL_END from the right edge. The selection dot
+ * (HOME_DOT px) sits at HOME_DOT_X, clear of the bottom row's corner, HOME_DOT_GAP before the labels
+ * (HOME_TEXT_X in tools/ipod.py). */
+#define HOME_FULL_ROW 375
+#define HOME_LABEL_END 33
+#define HOME_DOT_X 25
+#define HOME_DOT 6
+#define HOME_DOT_GAP 8
 #define PAGE_SLIDE_MS 120
 #define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and

@@ -49,118 +49,57 @@ the shared widget implementation nor album grids are hooked. The folder rebind's
 140/190-pixel resize call is disabled so recycled titles retain their computed
 width. Title styles and scrolling/ellipsis settings are untouched.
 
-## Flat rows and selection bar
+## Flat rows and selection
 
-Theme edits change values in place in the shared `styles/default.bin`, so they
-reach every page using these styles. The file holds a magic `0xFAFBFCFD`, a
-100-byte index entry (data offset, state, style, widget type) per style state,
-and typed properties. `ipod.json` pins its hash and lists each edit with its
-old value and the number of states holding it; a count mismatch fails the build.
-List buttons (`s_btn_listitem`) lose their grey fill and 14-pixel corners, keeping
-the pressed colour for touch feedback. Black list items, table rows and the black
-album grid buttons (`s_btn_listblack`, used only by the album and all-music grids)
-become transparent. The red playing-title styles (`s_scrlabel_red16l/20l/24l`) turn white,
-leaving the stock playing glyph to mark the current song; only list rows use them.
-The album page's inline black grid buttons become transparent as well.
+The iPod theme uses black surfaces, white titles and subdued secondary text with the stock
+multilingual font. The existing 72-pixel browsing pitch, 52-pixel covers and 68-pixel settings
+rows remain calibrated to the glass. Settings icons are resized as before, then desaturated;
+`list_into` keeps its original geometry with a neutral grey glyph visible on both row surfaces.
+The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
+feedback neutral grey. Playing titles keep the separate playing glyph.
 
-With the rows transparent, the payload draws the selection bar behind them: a full-width
-flat fill in the accent colour, or the tile's own rectangle in a grid (see
-[internals.md](internals.md#drawing)). A touch hides it until the next wheel or centre input.
+Wheel selection is consistently off-white (`#EEEEEC`), independent of Accent. The background
+hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
+`#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
+remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
+the selection. Touch hides wheel selection until wheel/centre input; the native pressed state
+remains visible. The same hooks cover settings, streaming, dialogs, PEQ rows and media browser
+chrome. Photos, video, book content, EQ plots and visualizers keep their own drawing.
 
 ## Home
 
-`home_page_init` (`0x523c84`) looks up no widget and reads no `slide_menu` state. After the
-guide and memory-play checks it runs `widget_foreach(win, 0x5239b4, win)`, whose visitor
-matches each widget's name (`+0x10`): `img_playing`, `img_localmusic`, `img_folder`,
-`img_stream`, `img_playset`, `img_sysset`, `img_left` and `img_right` get their stock click
-handlers, and `label_*` gets `widget_set_tr_text` with its `small_*` key. Missing names are
-skipped. Only the `img_left`/`img_right` handlers (`0x52391c`, `0x523968`) look up
-`slide_menu`, and nothing else in the executable names it or any card. `application_init`
-opens `home_page` once and it is never recreated, so the list keeps its own selection
-(`CTX_DYNAMIC` is enough) and needs no hidden `slide_menu` or arrow stubs. Its first paint at boot
-may come before the screen is usable and choose no row, so the status bar's first paint that finds
-the list repaints it once (`greeted`): Home starts with the bar on Now Playing. Touch mode
-([internals.md](internals.md#touch-mode)) does not hide Home's bar, so coming back shows the row last
-selected or tapped.
+Home uses a full-width menu over the current local track's subdued artwork. Artwork is
+centre-cropped, with black as the missing-art fallback. Selection is a small white dot and bright
+text; other destinations use `#AAAAAA`. There is no selection rectangle or chevron.
 
-iPod's `home_page.bin` is a `list_view` (39-pixel `item_height`, `HOME_ROW`) holding a
-`scroll_view` of seven 39-pixel rows (`btn_*` views): Now Playing, Library, Coverflow, Folder,
-Rockbox, Streaming, Settings. Stock's Playback Setting and System Setting cards become the one
-Settings row, so the Rockbox row fits. The list
-starts `HOME_TOP` (8) pixels below the status bar and ends 9 above the bottom, so the first row
-no longer touches the bar and the last clears the glass. Each row holds a white 20-pixel
-`label_*` (an ellipsis when too long) inset 33 pixels (see [Rounded corners](#rounded-corners)),
-under a full-row transparent `img_*` that takes the tap and is the wheel's click target, so
-the stock visitor binds and translates the rows as it did the cards. Coverflow's label is
-literal, and so is Library's (`label_library`, which the visitor skips), so both read the same
-in every language. The wheel moves through the rows with hard ends, and the selection bar spans the
-list. The scroll view sets `yslidable`: a `list_view`'s layout (`0x5ea3a4`) turns it on only
-for a list with a mobile scroll bar, which Home has none of, and the payload navigates vertical
-scroll views only. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
-the executable were checked; the inputs are SHA-pinned), so iPod removes them.
+The seven destinations remain Now Playing, Library, Coverflow, Folder, Rockbox, Streaming and
+Settings. Rockbox is visible only when its binary is on the card. Settings opens Playback and
+System; Return restores the menu's previous selection. The native stock handlers, translation
+keys, full-row tap targets, wheel hard ends and submenu animation remain intact.
 
-The list is 187 pixels wide, half the screen. Labels start 33 pixels in, where the last row's text
-clears the bottom-left corner, and end 10 pixels before the chevron's glyph, 106 pixels wide; a
-longer one (a long translation) ends in an ellipsis and scrolls while its row is selected. Every label shares that left edge and every chevron the
-column 58 pixels from the row's end. `img_homeart` fills the right panel edge to edge: x 187 to
-the screen edge and the whole window height under the status bar (188x290, `HOME_ART_RECT`). Sizes
-are `HOME_*` constants in `tools/ipod.py`.
+`HOME_ROW=39` and `HOME_TOP=8` retain corner clearance. The 6-pixel dot sits at x 25, clear of the
+bottom row's corner, and labels start 8 pixels after it (x 39) and end 33 pixels from the right. Both menus
+are 375 pixels wide. Long translated labels ellipsize and scroll using the stock font.
+The background view paints before the transparent menus, and both menus are clipped to the
+window while sliding.
 
-The art is cropped to fill the panel, never stretched. Stock's own `fill` draw type (`8`,
-`canvas_draw_image_fill` `0x63856c`) scales proportionally but anchors its crop at the image's
-top-left, so on its own a square cover would show only its left half. Each time the art changes,
-the payload sizes `img_homeart` to the decoded image's proportions, just covering the panel and
-centred on it (a square cover becomes 290x290 at x 136), so `fill` draws the whole image; the
-background hook narrows the canvas clip to the panel before the image paints and the border hook
-restores it, so the overflow is cropped evenly from both sides. An image whose size is unknown
-(the placeholder when it does not decode) fills the panel as it is. A fitted cover reaches under
-the list, so Home makes the art insensitive (`widget_set_sensitive`) and taps there still find
-the rows. The rounded glass hides the
-panel's two right-hand corners, like any background.
+Display settings offers **Home: Artwork / Plain**. Stored `IPOD/HOME=0` (formerly Split) means
+Artwork; `1` (formerly Full) means Plain. Plain uses the identical menu on black. No migration
+or new preference format is needed. Invalid or absent values still mean zero.
 
-Coverflow, Rockbox and Settings have literal labels and no stock handler; `coverflow_home` binds
-their images' clicks, so a tap and the wheel's centre (which dispatches a click to the row's
-image) behave alike. **Rockbox** leaves Q2 Pod for Rockbox ([boot.md](boot.md#rockbox-from-home))
-and shows only while the card has the Rockbox binary: `coverflow_home_layout` checks it at init and
-the status bar on each paint. The list's layout (`0x5ea3a4`) stacks hidden rows too, so a hidden
-Rockbox row is also restacked after Settings, where it leaves only blank space under the last
-row; the wheel skips hidden rows. **Settings** works as an iPod submenu: a second, hidden
-`list_view_homeset` in the list's place holds stock's own `btn_playset` and `btn_sysset` rows,
-which the stock visitor binds as it did the cards; their labels, renamed `label_playback` and
-`label_system` so the visitor skips them as it does `label_library`, say "Playback" and "System". `home_settings` hides the list, shows this one and slides it in from the right
-(`widget_animator_prop_create` on `x`, `PAGE_SLIDE_MS` (120 ms), stock's scroll easing); Return on Home
-(`coverflow_home_back`, from `ringnav` after stock's release) slides the list back in from the
-left. The art stays: both lists are clipped to the left pane while they paint (`coverflow_home_clip`),
-so a sliding list never covers it. The wheel drives whichever list is visible, and each keeps its
-own row, so Return comes back to Settings. Full widens both lists.
+Home and local Now Playing share one 94×73 RGBA backdrop; Spotify has a second. Together they
+use at most 54,896 pixel bytes plus bitmap headers. Each backdrop is centre-cropped from a
+validated 32-bit decoded image and composited over black at one-fifth brightness. Preparation
+runs only on artwork changes, with the original image manager pixels left untouched. Repeated
+paints only scale the prepared bitmap; there is no recurring decode, blur or pixel processing.
+Allocation or decode failure clears the previous image and falls back to black.
 
-The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
-as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar
-spans the screen, and the rows and their tap images to `HOME_FULL_ROW` (369, `patch/offsets.inc`)
-with `widget_move_resize` (`0x65ea44`, which also marks the children for relayout), and hides the
-art. Labels in both Home menus grow from 106 to 288 pixels, ending before the chevron
-(`HOME_LABEL_END`); Split restores their narrower width. The chevrons' glyphs then end 33 pixels from the right edge, as
-the labels start 33 from the left: at the screen edge the last row's chevron would sit under the
-bottom-right corner. Split puts back the list's asset width, recorded at init. Home is
-opened once and never recreated, so the layout is applied at init and again when the setting
-changes. The art is not loaded while it is hidden.
-
-The art follows the player. `player_get_id3info` hands the playing record's path
-(`REC_PATH`) to `player_set_coverinfo`, and `player_parsecover_thd` (`0x512ca4`) then
-writes that track's cover, sets `g_playcover_type` (`0xa3a332`) and copies the path to
-`g_lastcover_url` (`0xa39c30`). Types: 1 embedded (`/tmp/coverpic.jpg`, 320x320), 2
-folder image and 4 downloaded (`/tmp/externpic.jpg`), 3 none, 0 while it parses and
-after `player_stop`. Tidal (5, `/tmp/album_tidal.jpg`) is keyed by its online URL and
-left out. Now Playing reads the same files by type and clears `g_playcover_finishflag`,
-so Home leaves the flag alone. Home uses the player's file only while
-`g_lastcover_url` is the path of the queue's current track (`*mcl_pdeqplaylist` at
-`MCL_POS`), so a track change never shows the previous cover; otherwise it shows that
-track's Coverflow thumbnail, then `default_album_home` (stock's disc, drawn at 290px so it never upscales). Each load uses Coverflow's
-sequence (`widget_load_image`, `image_base_set_image`, `widget_unload_image`), so the
-same file name decodes again after a track change. The check runs when Home or the
-status bar paints (the bar at least once a second) and reloads only when the track's
-path or the usable cover type changes. The play queue is only changed on the UI
-thread, where this check runs.
+The local artwork key includes the queue path, usable player-cover type and parsed album tags.
+A player cover is accepted only when `g_lastcover_url` matches the current queue path; otherwise
+the current album's Coverflow thumbnail is tried. The previous track's player file is never used
+as a fallback. `g_playcover_finishflag` remains stock-owned. Home does not load art in Plain mode;
+local Now Playing still does. Streaming sources without a matching local cover use black;
+Spotify prepares its own backdrop when its foreground cover changes.
 
 ## Status bar and clock
 
@@ -195,7 +134,7 @@ widgets at the right end, and the layout skips the other two:
 
 Charging fills the icon solid green (`BATT_CHARGE_RGB`); low battery always uses
 `BATT_LOW_RGB` (`#FF1448`) under every accent. Saved Battery values keep their existing meanings.
-The bar surface is `#161616`. Every mode fits with ordinary Bluetooth and Wi-Fi, with at least
+The bar surface is black. Every mode fits with ordinary Bluetooth and Wi-Fi, with at least
 4 pixels (`CLOCK_GAP`) before the widest clock text (`BATT_ROOM`, 94 pixels from the margin).
 Wide codec badges temporarily show the icon alone until they fade.
 
@@ -313,7 +252,7 @@ to stock's 50-pixel status bar margins. `corner_inset(y)` gives the width hidden
 screen row `y`, and `corner_x` adds `CORNER_SLACK` (4). The status bar groups, the Home labels
 and Now Playing's top and bottom rows take their insets from it; settings notes moved under the
 hidden navbar end their text clear of the top-right corner. With the defaults: status bar 52
-pixels plus `STATUS_PAD` (2), the clock at least 57, Home text and Full's chevrons 33, "3 of 12" 16, Now Playing icons
+pixels plus `STATUS_PAD` (2), the clock at least 57, Home dot 25 and text 39, "3 of 12" 16, Now Playing icons
 ending at 353, the bar 21 and the times 46 pixels from the edges. The runtime layouts' values
 (`SET_*`, `CF_*`, `CLOCK_EDGE`, `HOME_FULL_ROW` in `patch/offsets.inc`) are checked against the
 same calibration by the tests.
@@ -385,7 +324,7 @@ other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`);
 
 `playing_page.bin` follows Rockbox's iVideo Now Playing in the 375x290 client area, below the
 status bar and its clock, with Apple's finish: rounded art, a larger title over grey artist and
-album, and a slim capsule bar:
+album, and a four-pixel progress line:
 
 ```
   0 +---------------------------------------------------------+
@@ -397,7 +336,7 @@ album, and a slim capsule bar:
     |  |  166x166  |  Album   (194,151 165x20, grey 16)       |
     |  '-----------'  (corners radius 12)                     |
 228 |                     . o .   (page dots)                 |
-251 |  (=========================------------------------)   |  capsule 21,251 333x8
+253 |  (=========================------------------------)   |  line 21,253 333x4
 265 |      01:23 (46 80x16)           -02:34 (249 80x16)      |  grey 14
 290 +---------------------------------------------------------+
 ```
@@ -406,7 +345,7 @@ The art and the metadata keep 16 pixels from the sides (`NP_MARGIN`) and 12 from
 art is 166 pixels, as large as that leaves while the text column keeps its 165 pixels, and
 "3 of 12" starts in line with it. Each band has its own space: the top row, then the art 10
 pixels below it, the page dots 12 pixels under the art, the bar with the stock A-B markers
-(y 250 to 260) and the times 6 pixels under the bar.
+(y 250 to 260) and the quiet time labels at y 265.
 
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
 placeholder cover at this size, so real art and the placeholder match. The payload paints them
@@ -417,12 +356,13 @@ keeps its existing artist color. Long lines scroll, as stock.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
 with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
-each lyric line 225 pixels wide. The big play/pause icon stays centred on the art and the loading
-spinner moves with it. The on-screen Return icon moves off-screen, as on the pages whose navbars are
+each lyric line 225 pixels wide. The play/pause overlay has zero opacity, retaining its original gesture target without
+a transport glyph; stock may update its visibility without making it appear. The loading
+spinner stays centred on the artwork. The on-screen Return icon moves off-screen, as on the pages whose navbars are
 hidden; the hardware Return does the same. Favourite, More and the play mode icon keep their stock
 images and handlers in the top row.
 
-The bar is a plain-colour capsule (radius half its height, track and fill): a `#1C1C1C` track
+The bar is a four-pixel plain-colour line inside the original 30-pixel seek target: a `#1C1C1C` track
 (`TRACK_COLOR`) and a fill in the accent's light tone (Graphite `#6E6E6E`, 3.3:1; see [Display settings](#display-settings)), with no thumb.
 The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or drag anywhere on it to seek, as stock. The elapsed time
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
@@ -487,8 +427,8 @@ gives `confirm_ok`, `confirm_cancel` and their pressed images a dark surface und
 accent, Crimson included: the same red-blend mapping with `CONFIRM_SURFACE` (`#2B2B2B`) as the
 tone, so the OK disc is `#2B2B2B` and Cancel's lighter tint `#595959`, while the glyphs stay
 white and near white (`#E5E5E5`): 14.2:1 and 5.6:1. Every confirm prompt uses these images through
-`s_img_confirmok`/`s_img_confirmcancel`, so all are covered. The wheel's focus is the accent tile
-behind the disc with a two-pixel white frame, visible on any accent. Callbacks, actions and the
+`s_img_confirmok`/`s_img_confirmcancel`, so all are covered. The wheel's focus is the off-white tile
+behind the dark disc, with a two-pixel white frame. Callbacks, actions and the
 initial Cancel are stock. Tidal's own confirm pop-up (cyan, black glyphs) keeps its look.
 
 | Dialog                                           | Buttons                                         |
@@ -519,7 +459,7 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
 pixels high). iPod runs the stock init, then adds three rows the same way: "Accent: Graphite" with
-the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
+the System settings Display icon (`system_display`), "Home: Artwork" with Play settings' cover
 mode icon (`playset_covermode`), "Battery: Icon" (Icon, Percent, Icon + Percent; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
 (`system_powermanager`), all among the [settings icons](#settings-icons)
@@ -537,27 +477,27 @@ calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split and Icon.
+one valid digit, is Graphite, Artwork and Icon.
 
-| Accent                | Selection bar          | White on fill | Light tone (on `#1C1C1C`) | Red tone (white on it)  |
-| --------------------- | ---------------------- | --------------------- | ------------------------- | ----------------------- |
-| Graphite (0, default) | solid `#424242` | 10.0:1       | `#6E6E6E` (3.3:1)         | `#D8D8D8` (1.4:1)       |
-| Crimson (1)           | solid `#E8123F` | 4.6:1         | `#EB2F56` (4.1:1)         | stock `#FF1448` (3.9:1) |
-| Tidal (2)             | solid `#13838D` | 4.5:1         | `#30929B` (4.6:1)         | `#30929B` (3.7:1)       |
-| Champagne (3)         | solid `#8C732C` | 4.6:1         | `#9A8446` (4.7:1)         | `#9A8446` (3.6:1)       |
+| Accent | Progress / active-control light tone | Red text / marks |
+| --- | --- | --- |
+| Graphite (0, default) | `#6E6E6E` | `#D8D8D8` |
+| Crimson (1) | `#EB2F56` | stock `#FF1448` |
+| Tidal (2) | `#30929B` | `#30929B` |
+| Champagne (3) | `#9A8446` | `#9A8446` |
 
-The light tone is the top lightened 12% toward white (Graphite keeps `#6E6E6E`): the progress
-fill and, except on Graphite, the bar's one-pixel highlight; Graphite keeps a restrained
-`#555555` top edge. All four selections use solid fills to avoid visible banding on the Q2's
-panel. Tidal and Champagne fills are darkened in hue so white text holds 4.5:1; their light tone also
-serves as the red tone. One rule picks the tone for stock red: red text (`text_color`,
-`highlight_text_color`) and red marks in images take the red tone, and every red surface (fills,
-borders, slider and progress fills, gradient stops, and an image's red under white) takes the
-light tone. Graphite's red tone is silver `#D8D8D8`, so ticks, radio marks and red text stand out
-(14.7:1 on black), while whatever carries white stays a mid grey: lit switches with their white
-knob, the − and + discs, the multi-select tick and stock's red buttons with white text, drawn from
-a style or from a `btn_` image (the time and sleep pages' OK), are white on `#6E6E6E` (5.1:1), and
-the download bar a
-`#6E6E6E` fill on its `#D8D8D8` track. The presets are `ACCENTS` in `patch/offsets.inc`; see [internals.md](internals.md#accent) for the recolouring.
+Accent remains available for progress and active controls. Navigation uses the same off-white
+selection for all four choices. Existing accent preference values and the red-tone mapping stay
+compatible; greys and artwork remain unchanged by the live accent mapper. See
+[internals.md](internals.md#accent) for the mapping.
 
 Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the existing touch targets. Favourite keeps its outline/filled states; inactive dots are muted, and progress retains the chosen accent. Artwork, scrolling metadata and playback controls retain their existing behavior.
+
+## Review and device acceptance
+
+The [review sheets](ui/sudo/README.md) are native-size **composed previews**, not firmware captures.
+Host and MIPS checks cover geometry, clipping, cached dimming, selection contrast, recycled rows,
+preferences, input and packaging. They do not establish panel readability or rendering speed.
+Before release, check the real Q2 with bright/dark/missing covers, long multilingual labels,
+all accents, Artwork/Plain, Rockbox present/absent, paused playback, seeking and streaming.
+Confirm wheel and touch behavior, transitions, frame responsiveness and the rounded-glass edges.

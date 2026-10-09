@@ -23,6 +23,7 @@ extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
+extern void ipod_backdrop_paint(int slot, void *canvas, int y);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern int coverflow_home_back(void *top);
@@ -148,8 +149,10 @@ typedef struct {
     unsigned charge_at, last_input, cpu_retry;
 #if IPOD
     void *pull_page, *pull_surface;
-    void *sel_w; /* the surface whose selection was last drawn: its row and centre, for Home's > */
+    void *sel_w; /* the surface whose selection was last drawn */
     int sel_row, sel_y;
+    void *paint_w, *sel_widget; /* paint-local color mapping, never stored on recycled widgets */
+    int sel_home;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
     unsigned clock_key; /* minute + 1 and format bit; 0 before the first, ~0 for --:-- */
@@ -1327,7 +1330,7 @@ static void paint_chevrons(void *w, void *canvas) {
     void *win = window_of(w);
     int home = win && !tk_strcmp(widget_get_prop_str(win, "name", ""), "home_page");
     if (g_navbar_status || !kind(w) || !P(canvas, CANVAS_LCD) || !drill(w) ||
-        (home && st.sel_w != w) || !load_rows(&g_menu, w) ||
+        home || !load_rows(&g_menu, w) ||
         widget_load_image(w, "list_into", bitmap) || !clip_surface(canvas, &g_menu, &old))
         return;
     for (int i = 0; i < g_menu.n; ++i) {
@@ -1411,7 +1414,7 @@ static void paint_cover(void *w, void *canvas) {
 #endif
 
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
- * in Stock, a full-width accent bar behind them in iPod.
+ * in Stock, an off-white bar behind them in iPod (a dot on Home).
  * The outline is one neutral white line seated on a dark shade line: the shade is the stock dark
  * surface at an alpha high enough to hold the white over bright album art, and being the same
  * color as the dark rows it vanishes on the stock theme. The translucent fill keeps the row
@@ -1419,7 +1422,7 @@ static void paint_cover(void *w, void *canvas) {
  * Small rows and degenerate geometry keep the square fallback. */
 static void paint_selection(void *w, void *canvas) {
 #if IPOD
-    if (w == st.sel_w) st.sel_w = (void *)0;
+    if (kind(w)) st.sel_w = st.sel_widget = (void *)0;
 #endif
     if (!w || !canvas || !kind(w)) return;
     void *top = window_manager_get_top_window(window_manager());
@@ -1464,8 +1467,12 @@ static void paint_selection(void *w, void *canvas) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
     }
-    const unsigned *a = accents[accent()];
-    gradient(canvas, r, a[0], a[1], a[4]);
+    st.sel_widget = home ? P(g_menu.at[i], W_PARENT) : g_menu.at[i];
+    st.sel_home = home;
+    if (home) {
+        rect_t dot = { HOME_DOT_X, r.y + (r.h - HOME_DOT) / 2, HOME_DOT, HOME_DOT };
+        fill_box(canvas, &dot, 0xffffffff, HOME_DOT / 2);
+    } else gradient(canvas, r, 0xeeeeec, 0xeeeeec, 0xeeeeec);
     st.sel_w = w;
     st.sel_row = i;
     st.sel_y = r.y + r.h / 2;
@@ -1544,6 +1551,7 @@ int ringnav_paint(void *w, void *canvas) {
     paint_letter(w, canvas);
     paint_cover(w, canvas);
     coverflow_home_clip(w, canvas, 0);
+    st.paint_w = w ? P(w, W_PARENT) : (void *)0;
 #else
     paint_selection(w, canvas);
 #endif
@@ -2060,10 +2068,14 @@ static void vol_paint(void *top, void *canvas) {
  * Home's art and Now Playing's labels current; Home's art is also checked when Home is painted
  * under another window. */
 int ringnav_paint_bg(void *w, void *canvas) {
+    st.paint_w = w;
     int result = stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
     paint_selection(w, canvas);
     coverflow_home_clip(w, canvas, 1);
+    spot_background(w, canvas);
+    if (w && st.np_cover && w == P(st.np_cover, W_PARENT))
+        ipod_backdrop_paint(0, canvas, -40);
     if (w && w == st.bar_slot) paint_battery(w, canvas);
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD)) {
@@ -2094,8 +2106,28 @@ int ringnav_paint_bg(void *w, void *canvas) {
 /* Live accent (docs/internals.md#accent). Colors are mapped as style_get_color returns them: text
  * (text_color, highlight_text_color) to the red tone, fills and borders to the light tone. The name
  * is only compared for a color that maps. */
+/* Resolve ancestry during painting: rebinding a pooled row never leaves a color override behind. */
+static int selected_ink(void) {
+    for (void *w = st.paint_w; w; w = P(w, W_PARENT)) {
+        if (w == st.sel_widget) return 1;
+        if (w == st.sel_w) break;
+    }
+    return 0;
+}
+
 unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, unsigned fallback) {
     stock_color_trampoline(color, style, name, fallback);
+    if (st.paint_w && name && tk_str_end_with(name, "text_color")) {
+        if (selected_ink()) {
+            unsigned alpha = *color & 0xff000000u;
+            *color = alpha | (st.sel_home ? 0xffffff : ((*color & 0xffffff) == 0xffffff ? 0x171717 : 0x484848));
+            return color;
+        }
+        if (st.sel_home && st.sel_w) {
+            for (void *w = st.paint_w; w; w = P(w, W_PARENT))
+                if (w == st.sel_w) { *color = (*color & 0xff000000u) | 0xaaaaaa; return color; }
+        }
+    }
     int a = accent();
     if (a == CRIMSON) return color;
     unsigned c = accent_map(*color, a, TONE_LIGHT);
@@ -2115,8 +2147,10 @@ void *ringnav_style_gradient(void *style, const char *name, void *out) {
         vt ? (void *(*)(void *, const char *, void *))P(vt, 0x18) : (void *)0;
     void *g = get ? get(style, name, out) : (void *)0;
     int own = __builtin_return_address(0) == (void *)STYLE_COLOR_GRADIENT_RET;
+    int selected_bg = name && !tk_strcmp(name, "bg_color") && selected_ink();
     for (int i = 0; !own && g && g == out && i < I(g, 8) && i < 8; ++i)
-        I(g, 0xc + 8 * i) = (int)accent_map((unsigned)I(g, 0xc + 8 * i), accent(), TONE_LIGHT);
+        I(g, 0xc + 8 * i) = selected_bg ? 0 :
+            (int)accent_map((unsigned)I(g, 0xc + 8 * i), accent(), TONE_LIGHT);
     return g;
 }
 
@@ -2191,7 +2225,7 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    static const char *const home[] = { "Home: Split", "Home: Full" },
+    static const char *const home[] = { "Home: Artwork", "Home: Plain" },
                              *const battery[] = { "Battery: Icon", "Battery: Percent",
                                                   "Battery: Icon + Percent" };
     const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };

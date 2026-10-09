@@ -154,8 +154,11 @@ def validate_assets(directory):
         try: settings_icon(name, old[:-1] + b'x')
         except ValueError: pass
         else: raise AssertionError(f'{name}: accepted a changed icon')
-        for bg in ('#000000', '#6e6e6e'):  # the list, and the Graphite selection bar
-            assert max(abs(a - b) for a, b in zip(mean(old, bg), mean(new, bg))) < 0.02, (name, bg)
+        grey = imagemagick('png:-', '-colorspace', 'Gray', '-colorspace', 'sRGB', '-define', 'png:color-type=6', 'png:-', data=old)
+        for bg in ('#000000', '#eeeeec'):  # the black list and monochrome selection
+            values = mean(new, bg)
+            if bg == '#000000': assert max(values) - min(values) < 0.001, name
+            assert max(abs(a - b) for a, b in zip(mean(grey, bg), values)) < 0.02, (name, bg)
     # Videos' player: an ELF with the stock binaries' ABI flags (nan2008, o32, mips32r2).
     helper = read('rootfs.squashfs', HELPER)
     assert sha(helper) == manifest['q2video_sha256'] and helper[:4] == b'\x7fELF'
@@ -299,7 +302,7 @@ def validate_assets(directory):
             name=rel.rsplit('/',1)[-1]
             if name in QUIET_ICONS:
                 assert sha(original)==QUIET_ICONS[name] and new==quiet_icon(name,original)
-                assert png_header(new)==(28,28,8,6)
+                assert png_header(new)==((50,50,8,6) if name == 'list_into.png' else (28,28,8,6))
             else: assert name in SETTINGS_ICONS and new==settings_icon(name,original)
             continue
         short = rel.split('/raw/ui/')[1]
@@ -345,7 +348,7 @@ def validate_assets(directory):
             assert root[3][0][3][1][3][1][2]['text'] == 'Library'  # literal: stock skips label_library
             continue
         if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
-            (lv, lg, _, [sv]), (sl, sg, sp, [ss]), art = root[3]
+            art, (lv, lg, _, [sv]), (sl, sg, sp, [ss]) = root[3]
             assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
             # The Settings list: stock's Playback and System setting rows (stock binds them; their
             # labels are literal), hidden in the list's place until Home's Settings row slides it in.
@@ -353,7 +356,8 @@ def validate_assets(directory):
             assert sg == [0, HOME_TOP, HOME_LIST_W, 2*HOME_ROW] and [r[2]['name'] for r in ss[3]] == ['btn_playset', 'btn_sysset']
             assert [r[3][1][2]['name'] for r in ss[3]] == ['img_playset', 'img_sysset'] and [r[3][0][2]['text'] for r in ss[3]] == ['Playback', 'System']
             # The art fills the right panel below the status bar; the payload fits and crops it.
-            assert art[1] == [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290] and abs(375 - 2*HOME_LIST_W) == 1 and art[2]['draw_type'] == 'fill'
+            assert art[0] == 'view' and art[1] == [0, 0, 375, 290] and HOME_LIST_W == 375
+            assert all(v == '#00000000' for k,v in root[3][1][2].items() if k.startswith('style:'))
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
                 assert label[2]['name'] == ('label_library' if name == 'localmusic' else 'label_'+name)
@@ -364,12 +368,11 @@ def validate_assets(directory):
             assert [r[3][0][2].get('text') for r in sv[3]] == [None, 'Library', 'Coverflow', None, 'Rockbox', None, 'Settings']
             assert lg == [0, HOME_TOP, HOME_LIST_W, 7*HOME_ROW] and HOME_TOP + 7*HOME_ROW <= BOTTOM - HOME_TOP
             assert b'menu_' not in new and b'slide_menu' not in new
-            # Full (coverflow_home_layout): rows end at HOME_FULL_ROW, so the chevron's glyph (x 20 to 31,
-            # y 16 to 34 of list_into, centred on the row) mirrors the labels' margin and, on the last
-            # row, clears the bottom-right corner as the label clears the bottom-left.
-            glyph_end = inc('HOME_FULL_ROW') - CHEVRON_W + 31
-            glyph_y = 30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
-            assert 375 - glyph_end == HOME_TEXT_X >= corner_x(glyph_y, 34 - 16)
+            dot = inc('HOME_DOT_X'), inc('HOME_DOT')
+            assert HOME_TEXT_X == sum(dot) + inc('HOME_DOT_GAP') and HOME_LABEL_END == 33
+            # The dot and the labels clear the bottom row's corner.
+            assert dot[0] >= corner_x(30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - dot[1])//2, dot[1])
+            assert HOME_TEXT_X >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
             left, right, *rest = root[3]
@@ -400,6 +403,7 @@ def validate_assets(directory):
             assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album']
             # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
             assert [n[1] for n in album] == [[16, 10, 166, 166], [39, 33, 120, 120], [194, 55, 165, 28], [194, 87, 165, 20], [194, 111, 165, 20]]
+            assert album[1][2]['opacity'] == '0'  # playback gestures retain their original target
             assert album[2][2]['style:normal:font_size'] == '22' and album[3][2]['style:normal:font_size'] == '16'
             for node, color in ((album[3], '#CCCCCC'), (album[4], '#AAAAAA')):
                 assert {v for k, v in node[2].items() if k.endswith(':text_color')} == {color}
@@ -409,10 +413,10 @@ def validate_assets(directory):
             assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
             assert named['slide_view'][1] == [0, 0, 375, 186] and named['view_lrc'][2]['self_layout'].startswith('default(x=75,')
             slider = named['slider_play']
-            assert slider[1] == [NP_BAR[0], 240, NP_BAR[2], 30] and slider[2]['bar_size'] == '8' and slider[2]['slide_with_bar'] == 'true'
+            assert slider[1] == [NP_BAR[0], 240, NP_BAR[2], 30] and slider[2]['bar_size'] == '4' and slider[2]['slide_with_bar'] == 'true'
             assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
             assert {v for k, v in slider[2].items() if k.endswith('_color')} == {'#1c1c1c', '#6e6e6e'}
-            assert {v for k, v in slider[2].items() if k.endswith(':round_radius')} == {'4'}  # a capsule
+            assert {v for k, v in slider[2].items() if k.endswith(':round_radius')} == {'2'}  # a slim line
             # No theme style of that name, so no thumb icon: stock fills exactly to the value.
             assert slider[2]['style'].encode() not in read('rootfs.squashfs', 'release/assets/default/raw/styles/default.bin')
             played, remain = (named[n][1] for n in ('label_playtime', 'label_ipod_remain'))

@@ -666,7 +666,7 @@ else:
     assert not m.rounded and not m.strokes and m.global_alpha==0
     # Full surface width, one band per row pixel of Graphite's solid fill, then its highlight.
     assert [b[:4] for b in m.bands]==[(0,y,240,1) for y in range(48)]+[(0,0,240,1)]
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[0][i]) for i in (0,1,4)]
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(0xeeeeec)]*3
     assert all(b[5]==(0,0,240,96) for b in m.bands)
     assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
     assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
@@ -3266,7 +3266,7 @@ assert m.names(m.get(syms['p_deque_showlist']))==['Row 0'] and ('stock_localclas
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
 from ipod import HOME_TEXT_X, HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, HOME_TOP, decode
-cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
+cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][1 if variant=='ipod' else 0]  # the carousel, or iPod's list_view
 if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
@@ -3337,7 +3337,7 @@ if variant=='ipod':
     assert m.selected(view)==0
     for i in range(1,7): assert m.call()==11 and m.selected(view)==i and m.get(view+O['SCROLL_Y'])==0
     for gap in (1000,50,1000): assert m.call(gap=gap)==11 and m.selected(view)==6
-    m.paint(view); assert m.sel()==(0,6*HOME_ROW,HOME_LIST_W,HOME_ROW)
+    m.paint(view); assert m.rounded[0]['rect']==(25,6*HOME_ROW+HOME_ROW//2-3,6,6)
     for i in range(5,-1,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
     for gap in (1000,50,1000): assert m.call(O['KEY_PREV'],gap=gap)==11 and m.selected(view)==0
     m.call(); m.call()
@@ -3351,7 +3351,7 @@ if variant=='ipod':
     paint_bar(); assert ('widget_invalidate_force',view) not in [c[:2] for c in m.calls]
     m.touch(); m.byte(syms['g_backlight_status'],1)
     paint_bar(); assert ('widget_invalidate_force',view) in [c[:2] for c in m.calls]
-    m.paint(view); assert m.selected(view)==0 and m.sel()==(0,0,HOME_LIST_W,HOME_ROW)
+    m.paint(view); assert m.selected(view)==0 and m.rounded[0]['rect']==(25,HOME_ROW//2-3,6,6)
     paint_bar(); assert ('widget_invalidate_force',view) not in [c[:2] for c in m.calls]; passed()
 
     # Chevrons: the stock list_into, where stock rows put img_into, on each visible row of a
@@ -3364,10 +3364,10 @@ if variant=='ipod':
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
     m.paint(view)
     half=O['CHEVRON_W']-25  # centre of the 50px image, as stock img_into
-    bar=lambda: [(HOME_LIST_W-half,m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
-    assert m.sel()==(0,0,HOME_LIST_W,HOME_ROW) and m.icons==bar()
-    assert loaded(m)==['list_into'] and m.clip==(0,0,375,320); passed()
-    m.call(); m.paint(view); assert m.selected(view)==1 and m.sel()[1]>0 and m.icons==bar(); passed()  # follows the bar
+    bar=lambda: []
+    assert m.rounded[0]['rect']==(25,HOME_ROW//2-3,6,6) and m.icons==bar()
+    assert loaded(m)==[] and m.clip==(0,0,375,320); passed()
+    m.call(); m.paint(view); assert m.selected(view)==1 and m.rounded[0]['rect'][1]>0 and m.icons==bar(); passed()  # follows the bar
     # Drawn in touch mode too, with Home's bar, which touch never hides; none while stock
     # multi-select hides its own.
     m.touch(); m.paint(view); assert m.icons==bar() and m.selected(view)==1; passed()
@@ -3609,56 +3609,25 @@ class CoverflowMachine(QueueMachine):
         ret=self.call(address=f,args=(ctx,ev,0,0),gap=0); self.advance(0); return ret
 
 if variant=='ipod':
-    # The art follows the playing track through the paint hook, when Home or the status bar paints:
-    # the Coverflow thumbnail of the queue's current album until the player has parsed this track
-    # (g_lastcover_url holds its path), then the player's embedded cover. The list keeps its width.
+    # Backdrop invalidation follows the queue path, never a previous track's player file.
+    # Pixel decoding and failure cleanup are exercised by the renderer fixture below.
     m=CoverflowMachine(); m.open(); m.top=m.home
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
     for w in (bar,m.home): m.word(w+O['W_PARENT'],m.wm)
     def art_after(w):
         m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
-        return m.nodes[m.art].get('image')
+        return [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
     m.byte(syms['g_playcover_type'],1)
-    assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==HOME_LIST_W
-    m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_after(bar)=='file:///tmp/coverpic.jpg'
-    m.nodes[m.art]['image']='unchanged'; assert art_after(m.home)=='unchanged'  # same track and cover
-    m.byte(syms['g_playcover_type'],3); assert art_after(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
-
-    # The art fills the right panel below the status bar: sized to the cover's proportions, just
-    # covering the panel and centred on it (native fill then draws it whole), and clipped to the
-    # panel from the background hook to the border hook, so it crops evenly and never stretches.
-    PW=375-HOME_LIST_W
-    assert m.nodes[m.art].get('sensitive')==0  # a fitted cover reaching under the list never takes its taps
-    def geometry(): return [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]
-    def cover(w,h):
-        m.image_size=(w,h)
-        m.u.mem_write(syms['g_lastcover_url'],b'/p/other\0')  # a new key: the art reloads
-        art_after(m.home); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); art_after(m.home)
-        return geometry()
-    # C division truncates: the extra pixel of an odd overflow is cropped on the right or bottom.
-    for (w,h),want in (((300,300),[HOME_LIST_W+int((PW-290)/2),0,290,290]),     # square: crop the sides
-                       ((2*PW,580),[HOME_LIST_W,0,PW,290]),                  # the panel's own shape
-                       ((600,400),[HOME_LIST_W+int((PW-435)/2),0,435,290]),      # landscape
-                       ((100,400),[HOME_LIST_W,int((290-4*PW)/2),PW,4*PW])):       # taller than the panel
-        assert cover(w,h)==want,((w,h),geometry(),want)
-        x,y,gw,gh=want; assert gw*h==w*gh or abs(gw/gh-w/h)<0.01  # proportional, never stretched
-    passed()
-    # The paint hooks clip it to the panel on screen (window at y 30) and restore the clip after.
-    m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],HOME_LIST_W); m.word(m.canvas+O['CANVAS_Y'],30+want[1])  # the last cover's offset
+    assert art_after(m.home)[0].startswith('file:///mnt/mmc/.coverflow/')
+    m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_after(bar)[0]=='file:///tmp/coverpic.jpg'
+    assert art_after(m.home)==[]
+    m.byte(syms['g_playcover_type'],3); assert art_after(m.home)[0].startswith('file:///mnt/mmc/.coverflow/')
+    assert m.nodes[m.art].get('sensitive')==0 and tuple(m.get(m.art+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==(0,0,375,290)
+    m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_Y'],30)
     m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.art,m.canvas,0,0))
-    assert m.clip==(HOME_LIST_W,30,PW,290),m.clip
+    assert m.clip==(0,30,375,290)
     m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0))
     assert m.clip==(0,0,375,320); passed()
-    # The list paints only left of the panel, so a sliding list never covers the art; other widgets
-    # keep the clip. The placeholder (no size) fills the panel.
-    m.word(m.canvas+O['CANVAS_X'],0); m.word(m.canvas+O['CANVAS_Y'],30+HOME_TOP)
-    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.list,m.canvas,0,0))
-    assert m.clip==(0,30+HOME_TOP,HOME_LIST_W,7*HOME_ROW),m.clip
-    m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.list,m.canvas,0,0)); assert m.clip==(0,0,375,320)
-    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.node('view'),m.canvas,0,0)); assert m.clip==(0,0,375,320)
-    m.image_size=None
-    m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0'); m.byte(syms['g_playcover_type'],3)
-    art_after(m.home); assert m.nodes[m.art]['image']=='default_album_home' and geometry()==[HOME_LIST_W,0,PW,290]; passed()
 
     # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
     # value, in seconds) fill in; later paints rewrite a label only when its source changed.
@@ -4171,6 +4140,8 @@ class RolloverMachine(CoverflowMachine):
         self.call(address=syms['mclStartPlayer'],args=(0,0,0,0),gap=0)
         self.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
     def hook(self,u,address,size,unused):
+        if variant=='ipod' and address==payload_syms['ipod_backdrop_set']:
+            self.backdrop_sources.append(self.text(u.reg_read(UC_MIPS_REG_A2)))
         if address in getattr(self,'native_trace',{}): self.trace.append((self.native_trace[address],None))
         name=self.handlers.get(address,'')
         if name=='widget_load_image':
@@ -4214,6 +4185,7 @@ class RolloverMachine(CoverflowMachine):
 
 
     def ui(self):
+        self.backdrop_sources=[]
         self.top=self.win
         self.call(address=0x52bffc,args=(self.info,0,0,0),gap=0) # stock playing_timer_start callback
         if variant=='ipod':
@@ -4246,7 +4218,7 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
             assert m.text(syms['g_play_id3_info'])==old
             m.ui()
             if variant=='ipod':
-                assert m.nodes[m.albumlabel]['text']=='' and m.nodes[m.art]['image']=='default_album_home'
+                assert m.nodes[m.albumlabel]['text']=='' and 'file:///tmp/coverpic.jpg' not in m.backdrop_sources
         m.tick() # native auto-change, sibling traversal, queue reload, parsing and notification
         assert m.text(syms['g_play_id3_info'])==path
         assert m.text(syms['g_play_id3_info']+O['ID3_ALBUM'])==m.files[path][0]
@@ -4255,7 +4227,7 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
         m.ui()
         if variant=='ipod':
             assert m.nodes[m.albumlabel]['text']==m.files[path][0]
-            assert m.nodes[m.art]['image']=='default_album_home'
+            assert 'file:///tmp/coverpic.jpg' not in m.backdrop_sources
         m.artwork()
         assert m.text(syms['g_lastcover_url'])==path
         assert m.u.mem_read(syms['g_playcover_finishflag'],1)==b'\1'
@@ -4264,7 +4236,7 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
         assert m.nodes[m.cover]['image']==(want if m.files[path][1] else 'play_defaultcover'),(path,m.nodes[m.cover])
         assert m.nodes[m.songlabel]['text']==path.rsplit('/',1)[1]
         if variant=='ipod':
-            assert m.nodes[m.art]['image']==want
+            assert ('file:///tmp/coverpic.jpg' in m.backdrop_sources)==m.files[path][1]
             assert m.nodes[m.poslabel]['text']==f"{m.mcl('MCL_POS')+1} of {len(m.names())}"
         queue=m.items(m.get(syms['mcl_pdeqplaylist']))
         assert all(not m.get(r+O['REC_ALBUM']) for r in queue) # tags came from parsing, not library rows
@@ -4401,6 +4373,33 @@ paint(m); assert not m.draws; passed()
 print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (decoding the covers in reach, then the frame), {turn_cost} for a frame a quarter turn on (payload only; stock drawing mocked)')
 
 if variant=='ipod':
+    class BackdropMachine(DepthMachine):
+        def hook(self,u,address,size,unused):
+            if self.handlers.get(address,'')=='canvas_draw_image':
+                a,b,c,d=[u.reg_read(r) for r in REGS]
+                assert (self.get(b),self.get(b+4),self.get(b+8))==(94,73,376)
+                assert [self.get(c+4*i) for i in range(4)]==[0,0,94,73]
+                self.backdrop=bytes(u.mem_read(self.get(b+0x14),94*73*4))
+                u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            return super().hook(u,address,size,unused)
+    m=BackdropMachine(); w=m.node('view'); url=m.string('file:///cover.jpg')
+    assert m.call(address=payload_syms['ipod_backdrop_set'],args=(0,w,url,0),gap=0)==1
+    original=bytes(m.u.mem_read(m.pixels['file:///cover.jpg'],160*160*4))
+    m.call(address=payload_syms['ipod_backdrop_paint'],args=(0,m.canvas,0,0),gap=0)
+    expected=bytearray()
+    for y in range(73):
+        for x in range(94):
+            i=(((160-123)//2+y*123//73)*160+x*160//94)*4
+            expected.extend([*(v*original[i+3]//1275 for v in original[i:i+3]),255])
+    assert m.backdrop==bytes(expected) and len(m.frames)==1
+    for _ in range(3):
+        m.call(address=payload_syms['ipod_backdrop_paint'],args=(0,m.canvas,0,0),gap=0)
+        assert not any(c[0] in ('widget_load_image','bitmap_lock_buffer_for_write') for c in m.calls)
+    assert bytes(m.u.mem_read(m.pixels['file:///cover.jpg'],160*160*4))==original
+    m.call(address=payload_syms['ipod_backdrop_set'],args=(0,w,0,0),gap=0)
+    assert m.destroyed==m.frames; passed()
+
+if variant=='ipod':
     # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
     # blend of the preset's red tone, alpha kept; greys, other hues and every Crimson color stay.
     ps=symbols(B/'patch.elf'); RED=(0xff,0x14,0x48)
@@ -4466,6 +4465,32 @@ if variant=='ipod':
         assert style_color(m,grey)[1]==grey
         assert len(m.config_reads)==3  # every key, once, on first use
         passed()
+    # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
+    # recycled text, touch hiding, Home siblings, and every accent.
+    def begin(m,w): m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0),gap=0)
+    def end(m,w): m.call(address=HOOKS['widget_on_paint_border'][0],args=(w,m.canvas,0,0),gap=0)
+    for preset in range(4):
+        m=Machine(); m.config['ACCENT']=str(preset); w,rows=m.page_list(3)
+        labels=[]
+        for row in rows:
+            l=m.node('hscroll_label'); m.nodes[row]['children'].append(l); m.word(l+O['W_PARENT'],row); labels.append(l)
+        begin(m,w); begin(m,rows[0]); begin(m,labels[0])
+        assert style_color(m,0xffffffff)[1]==0xff171717
+        assert style_color(m,0xffaaaaaa)[1]==0xff484848
+        assert style_color(m,0x66ffffff)[1]==0x66171717
+        end(m,labels[0]); end(m,rows[0]); begin(m,rows[1]); begin(m,labels[1])
+        assert style_color(m,0xffffffff)[1]==0xffffffff
+        end(m,labels[1]); end(m,rows[1]); end(m,w)
+        m.call(); begin(m,w); begin(m,labels[0]); assert style_color(m,0xffffffff)[1]==0xffffffff
+        begin(m,labels[1]); assert style_color(m,0xffffffff)[1]==0xff171717
+        end(m,labels[1]); end(m,w)
+        m.touch(); begin(m,w); begin(m,labels[1]); assert style_color(m,0xffffffff)[1]==0xffffffff
+    m=Machine(); view,imgs=home_list(m); begin(m,view)
+    labels=[m.nodes[m.get(img+O['W_PARENT'])]['children'][0] for img in imgs]
+    begin(m,labels[0]); assert style_color(m,0xffffffff)[1]==0xffffffff
+    end(m,labels[0]); begin(m,labels[1]); assert style_color(m,0xffffffff)[1]==0xffaaaaaa
+    end(m,labels[1]); end(m,view); passed()
+
     m=Machine(); style_color(m,red)
     assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY')]; passed()
 
@@ -4623,7 +4648,7 @@ if variant=='ipod':
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
-    assert texts()==['Accent: Graphite','Home: Split','Battery: Icon']; passed()
+    assert texts()==['Accent: Graphite','Home: Artwork','Battery: Icon']; passed()
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
@@ -4634,8 +4659,8 @@ if variant=='ipod':
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
         assert texts()[0]=='Accent: '+name
         m.paint(view)
-        assert {b[4] for b in m.bands[:-1]}=={color_t(ACCENTS[value][0])}
-        assert m.bands[-1][4]==color_t(ACCENTS[value][4]); passed()
+        assert {b[4] for b in m.bands[:-1]}=={color_t(0xeeeeec)}
+        assert m.bands[-1][4]==color_t(0xeeeeec); passed()
     # Initialize the real Home asset on this machine, then toggle its cached setting in Display.
     home=asset_tree(m,HOME_PAGE)
     m.handlers[HOOKS['home_page_init'][0]+12]='stock_home'
@@ -4647,18 +4672,18 @@ if variant=='ipod':
                 label=m.nodes[row]['children'][0]
                 x,y,width,height=cf_geometry(m,label)
                 assert x==HOME_TEXT_X and width>0
-                assert x+width==(O['HOME_FULL_ROW'] if full else HOME_LIST_W)-(O['CHEVRON_W']-10)
+                assert x+width==(O['HOME_FULL_ROW'] if full else HOME_LIST_W)-O['HOME_LABEL_END']
     home_bounds(False)
-    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
+    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Plain'
     home_bounds(True)
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
-    click(1); assert texts()[1]=='Home: Split'; home_bounds(False); passed()
+    click(1); assert texts()[1]=='Home: Artwork'; home_bounds(False); passed()
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
     for value,name in ((1,'Percent'),(2,'Icon + Percent'),(0,'Icon')):
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
         assert ('widget_invalidate_force',bar) in [c[:2] for c in m.calls] and not [c for c in m.calls if c[0]=='image_manager_unload_all']
     passed()
-    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Full','Battery: Icon + Percent']; passed()
+    m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Tidal','Home: Plain','Battery: Icon + Percent']; passed()
     # Home's Rockbox row (docs/boot.md#rockbox-from-home): its click saves the queue as power-off does,
     # stops the player, leaves S90play's flag and kills demo; without Rockbox on the card it says so.
     class RockboxMachine(Machine):
@@ -4813,9 +4838,9 @@ if variant=='ipod':
     # The payload's own accent drawing follows the preset, live: the bar, Now Playing's fill and
     # the fill a scrub restores.
     m,view,rows=display({'ACCENT':'2'}); m.paint(view)
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[2][i]) for i in (0,1,4)]; passed()
+    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(0xeeeeec)]*3; passed()
     f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[3][i]) for i in (0,1,4)]; passed()
+    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(0xeeeeec)]*3; passed()
     CONFIG.clear(); m=scrub_page()
     assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[0][2])); passed()
     CONFIG.update(ACCENT='3'); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
@@ -5802,10 +5827,11 @@ for w in [x for x in m.nodes if m.nodes[x]['type'] in ('hscroll_label','image','
     x,y,bw,bh=cf_geometry(m,w); inset=max(corner_inset(30+y),corner_inset(30+y+bh))  # the window starts at y 30
     assert inset<=x and x+bw<=375-inset,(m.nodes[w].get('text'),x,y,bw,bh)
 # The bar: a TRACK_COLOR capsule and the elapsed share in the accent (iPod) or stock red (Stock).
-bar=[w for w in m.nodes if m.nodes[w]['type']=='view' and cf_geometry(m,w)==(21,251,333,8)][0]
+bar_height=4 if variant=='ipod' else 8
+bar=[w for w in m.nodes if m.nodes[w]['type']=='view' and cf_geometry(m,w)==(21,251,333,bar_height)][0]
 m.rounded=[]; m.call(address=HOOKS['widget_on_paint_border'][0],args=(bar,m.canvas,0,0),gap=0,clear=False)
 track,fill=m.rounded
-assert track['rect']==(0,0,333,8) and track['color']==color_t(O['TRACK_COLOR']) and fill['rect']==(0,0,(12500>>4)*333//((200000>>4)|1),8)
+assert track['rect']==(0,0,333,bar_height) and track['color']==color_t(O['TRACK_COLOR']) and fill['rect']==(0,0,(12500>>4)*333//((200000>>4)|1),bar_height)
 assert fill['color']==color_t(ACCENTS[0][2] if variant=='ipod' else O['STOCK_RED']); passed()
 # Play/Pause and the side buttons are Spotify's, on any page, after stock's key-lock filter, while it
 # is the last thing played; stock's downstream handler never sees them.

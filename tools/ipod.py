@@ -53,11 +53,8 @@ STATUS_PAD = 2
 STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
 CLOCK_MIN = 105
 CLOCK_TEXT = 70
-# iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. Split
-# gives the list and the art half the screen each; the labels all start where the last row's clears
-# the bottom-left corner, and longer ones end in an ellipsis, scrolling when selected. The art fills the right panel, edge to edge below the status
-# bar; the payload fits it to each cover and crops it evenly (coverflow_home_art). In Full
-# the rows end at HOME_FULL_ROW (patch/offsets.inc), so the chevron's glyph mirrors the text margin.
+# Seven full-width Home rows share one left edge clear of the rounded glass.
+# Artwork and Plain keep identical geometry; only the cached backdrop's visibility changes.
 INC = (ROOT/'patch/offsets.inc').read_text()
 
 
@@ -73,13 +70,13 @@ CHEVRON_W = inc('CHEVRON_W')
 SLIDE = f'htranslate(duration={inc("PAGE_SLIDE_MS")})'
 HOME_TOP = 8
 HOME_ROW = 39
-HOME_TEXT_X = max(MARGIN, corner_x(30 + HOME_TOP + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
-HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
-HOME_LIST_W = 375 // 2  # half the screen; the art takes the other (odd) pixel
-HOME_ART_RECT = [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290]  # the whole right panel under the status bar
+HOME_TEXT_X = inc('HOME_DOT_X') + inc('HOME_DOT') + inc('HOME_DOT_GAP')  # labels after the selection dot
+HOME_LABEL_END = 33  # mirror the text inset, clear of the lower-right glass
+HOME_LIST_W = 375
+HOME_ART_RECT = [0, 0, 375, 290]  # full background below the status bar
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
-# with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
-# 251; their x follows NP_BAR through the np_bar_* immediates in ipod.json. The window starts
+# with the times under its ends. Stock draws the 3x10 A-B markers at y 250; the 4px line sits at
+# 253; their x follows NP_BAR through the np_bar_* immediates in ipod.json. The window starts
 # at screen y 30; the top and bottom rows take their insets from the corners. The bar is a capsule
 # (round_radius half its height) and the payload rounds the art's corners (paint_cover).
 # The art and the metadata keep NP_MARGIN from the sides, 12px apart; the art is as large as that
@@ -94,8 +91,8 @@ NP_TITLE_PX = 22                 # the title over the 16px artist and album, as 
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
 NP_BAR_X = max(MARGIN, corner_x(30 + 251, 8))
-NP_BAR = [NP_BAR_X, 251, 375 - 2 * NP_BAR_X, 8]
-NP_TIMES_Y = NP_BAR[1] + NP_BAR[3] + 6  # 14px text in a 16px label, clear of the 10px A-B markers
+NP_BAR = [NP_BAR_X, 253, 375 - 2 * NP_BAR_X, 4]
+NP_TIMES_Y = 265  # 14px text in a 16px label, clear of the 10px A-B markers
 NP_TIME_X = max(MARGIN, corner_x(30 + NP_TIMES_Y + 1, 14))
 NP_TEXT_X = NP_MARGIN + NP_ART + 12
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
@@ -236,7 +233,7 @@ def home_list(name, rows, extra=None):
     """A Home list_view of HOME_ROW rows: each a label under a full-row transparent tap image."""
     views = []
     for i, row in enumerate(rows):
-        # Translations longer than English's longest end in an ellipsis before the chevron.
+        # Long translations ellipsize and scroll inside the shared text margins.
         label = {'name': 'label_' + row, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
         if row in HOME_LITERAL:
             label['text'] = HOME_LITERAL[row]
@@ -250,15 +247,15 @@ def home_list(name, rows, extra=None):
     view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(views)],
             {'name': 'scroll_view_' + name, 'self_layout': 'default(x=0,y=0,w=100%,h=100%)', 'yslidable': 'true'}, views]
     return ['list_view', [0, HOME_TOP, HOME_LIST_W, HOME_ROW * len(views)],
-            {'name': 'list_view_' + name, 'item_height': str(HOME_ROW), **LIST_BLACK, **(extra or {})}, [view]]
+            {'name': 'list_view_' + name, 'item_height': str(HOME_ROW), **{k: '#00000000' for k in LIST_BLACK}, **(extra or {})}, [view]]
 
 
 def ipod_home(root):
     require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
-    root[3] = [home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'}),
-               ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_home', 'draw_type': 'fill'}, []]]
+    root[3] = [['view', HOME_ART_RECT, {'name': 'img_homeart'}, []],
+               home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'})]
 
 
 def style_props(data):
@@ -313,7 +310,7 @@ CLOCK_GAP = 4
 
 def status_bar(root):
     left, right = root[3]
-    root[2]['style:normal:bg_color'] = '#161616'
+    root[2]['style:normal:bg_color'] = '#000000'
     require([left[2].get('name'), right[2].get('name')] == ['view_left', 'view_right'], 'Unexpected status bar')
     widgets = {n[2]['name']: n for n in left[3] + right[3]}
     require(sorted([*widgets, 'view_battery']) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')
@@ -399,6 +396,7 @@ def playing_page(root):
         if key.endswith(':text_color'): artist[2][key] = f'#{inc("NP_ARTIST_RGB"):06X}'
     named['img_cover'][1] = [NP_MARGIN, art_y, NP_ART, NP_ART]
     named['img_playstate'][1] = [NP_MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
+    named['img_playstate'][2]['opacity'] = '0'  # retain stock gesture target without a transport glyph
     named['view_album'][3] += [title, artist, album]
     column = (375 - 225) // 2
     named['label_lyricmsg'][1][0] += column
@@ -417,9 +415,9 @@ def playing_page(root):
 
     slider = named['slider_play']
     x, y, w, h = NP_BAR
-    slider[1] = [x, y - 11, w, h + 22]
+    slider[1] = [x, 240, w, 30]
     slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
-    require(h // 2 > 3, 'Stock squares a slider radius of 3 or less')
+    # Stock draws small radii square; the four-pixel line deliberately has square ends.
     for key in slider[2]:
         if key.endswith(':round_radius'): slider[2][key] = str(h // 2)  # a capsule, track and fill
     for name in ('img_repeata', 'img_repeatb'):
@@ -541,6 +539,7 @@ def settings_icon(name, data):
     require(hashlib.sha256(data).hexdigest() == SETTINGS_ICONS.get(name), f'{name}: unaudited settings icon')
     require(png_header(data) == (SET_STOCK_ICON, SET_STOCK_ICON, 8, 6), f'{name}: unexpected stock icon format')
     out = imagemagick('png:-', '-alpha', 'on', '-filter', 'Lanczos', '-resize', f'{SET_ICON}x{SET_ICON}!',
+                      '-colorspace', 'Gray', '-colorspace', 'sRGB',
                       '-strip', '-define', 'png:exclude-chunks=date,time', '-define', 'png:color-type=6',
                       '-define', 'png:bit-depth=8', 'png:-', data=data)
     require(png_header(out) == (SET_ICON, SET_ICON, 8, 6), f'{name}: filtered icon is not {SET_ICON}px RGBA')
@@ -554,6 +553,10 @@ QUIET_ICONS = AUDIT['quiet_icons']
 
 def quiet_icon(name, data):
     require(hashlib.sha256(data).hexdigest() == QUIET_ICONS.get(name), f'{name}: unaudited control icon')
+    if name == 'list_into.png':
+        return imagemagick('png:-', '-channel', 'RGB', '-fill', '#777777', '-colorize', '100', '+channel',
+                          '-strip', '-define', 'png:exclude-chunks=date,time', '-define', 'png:color-type=6',
+                          '-define', 'png:bit-depth=8', 'png:-', data=data)
     return imagemagick('png:-', '-trim', '+repage', '-filter', 'Lanczos', '-resize', '24x24',
                       '-channel', 'RGB', '-fill', '#aaaaaa' if name == 'play_moredown.png' else '#eeeeee',
                       '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'none',

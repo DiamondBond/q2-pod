@@ -291,6 +291,7 @@
       "sha256": "3605aa963897e5686c9ca9fd89431992fe22ab326dbced846361f57a4d004f67",
       "edits": [
         ["button", "s_btn_listitem", "bg_color", "2b2b2bff", "00000000", 4],
+        ["button", "s_btn_listitem", "bg_color", "3d1920ff", "333333ff", 1],
         ["button", "s_btn_listitem", "round_radius", "0e000000", "00000000", 5],
         ["button", "s_btn_listblack", "bg_color", "000000ff", "00000000", 5],
         ["list_item", "s_listitem_black", "bg_color", "000000ff", "00000000", 5],
@@ -303,6 +304,7 @@
     }
   },
   "quiet_icons": {
+    "list_into.png": "0165f524909774347adc240466532b8219e540253933036efc86ee8d9c155957",
     "play_cycle.png": "b40c14b19a133a83a5f4057c558197ba81b73b3c9dd8b8d28e7fd8f249111e47",
     "play_cycle1.png": "9886fe03f8d5bc9bae0134afaa370060d40e9de65a64124c4086b8ed991b6609",
     "play_fav.png": "96a152d513e108810d25cd179ab7c8ce80e49cc9259c9270f12f496c1e75d029",

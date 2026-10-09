@@ -27,7 +27,6 @@
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
-#define HOME_PLACEHOLDER "default_album_home" /* Home's, drawn at the panel's 290px (stock's is 110) */
 #define CARDS 2 /* after the albums: Sort, then Refresh library */
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
@@ -1545,12 +1544,11 @@ const char *now_tag(void *r, int field) {
 }
 
 #if IPOD
-/* iPod Home (docs/ipod.md): the playing track's art beside the list. */
+/* iPod Home (docs/ipod.md): the playing track's dimmed art behind the list. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
     unsigned key;
-    int split_w;  /* the list's width in the asset */
-    int panel[4]; /* the art's x, y, w, h in the asset: the right panel it fills */
+    int panel[4]; /* background bounds from the asset */
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
@@ -1563,26 +1561,62 @@ static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpi
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg" };
 
-/* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on it, so
- * the native fill draws it whole and the clip crops it evenly; unknown sizes fill the panel. */
-static void home_fit(unsigned w, unsigned h) {
-    int pw = home.panel[2], ph = home.panel[3], fw = pw, fh = ph;
-    if (w && h && w <= 8192 && h <= 8192) {
-        if ((unsigned)pw * h > (unsigned)ph * w)
-            fh = (int)(((unsigned)pw * h + w - 1) / w);
-        else
-            fw = (int)(((unsigned)ph * w + h - 1) / h);
-    }
-    widget_move_resize(home.art, home.panel[0] + (pw - fw) / 2, home.panel[1] + (ph - fh) / 2, fw, fh);
+/* Two bounded, dimmed thumbnails: local playback/Home and Spotify. No decode or pixel work
+ * during repeated paints. The foreground covers and the image manager's pixels stay untouched. */
+static void *backdrops[2] __attribute__((section(".scratch")));
+int ipod_backdrop_set(int slot, void *widget, const char *url) {
+    if (backdrops[slot]) bitmap_destroy(backdrops[slot]);
+    backdrops[slot] = 0; /* failure and missing art must clear the previous track */
+    if (!url || !*url) return 0;
+    static const unsigned char at[4][4] = BITMAP_RGBA_AT;
+    unsigned bm[64];
+    if (widget_load_image(widget, url, bm)) return 0;
+    unsigned w = bm[0], h = bm[1], fmt = ((unsigned short *)bm)[7] - 1u;
+    const unsigned char *src = fmt < 4 && w && h && w <= 4096 && h <= 4096
+                                   ? bitmap_lock_buffer_for_read(bm) : 0;
+    void *frame = src ? bitmap_create_ex(94, 73, 94 * 4, 1) : 0;
+    unsigned *dst = frame ? (unsigned *)bitmap_lock_buffer_for_write(frame) : 0;
+    if (dst) {
+        unsigned stride = bitmap_get_line_length(bm), outstride = bitmap_get_line_length(frame) / 4;
+        unsigned cw = w, ch = h;
+        if (w * 290 > h * 375) cw = h * 375 / 290;
+        else ch = w * 290 / 375;
+        if (!cw) cw = 1;
+        if (!ch) ch = 1;
+        const unsigned char *o = at[fmt];
+        for (unsigned y = 0; y < 73; ++y) {
+            const unsigned char *line = src + ((h - ch) / 2 + y * ch / 73) * stride;
+            for (unsigned x = 0; x < 94; ++x) {
+                const unsigned char *px = line + ((w - cw) / 2 + x * cw / 94) * 4;
+                unsigned a = px[o[3]], r = px[o[0]] * a / 1275,
+                         g = px[o[1]] * a / 1275, b = px[o[2]] * a / 1275;
+                dst[y * outstride + x] = 0xff000000u | r | g << 8 | b << 16;
+            }
+        }
+        ((unsigned short *)frame)[6] |= 1; /* opaque */
+        bitmap_unlock_buffer(frame);
+        backdrops[slot] = frame;
+    } else if (frame) bitmap_destroy(frame);
+    if (src) bitmap_unlock_buffer(bm);
+    widget_unload_image(widget, bm);
+    return backdrops[slot] != 0;
+}
+
+void ipod_backdrop_paint(int slot, void *canvas, int y) {
+    if (!backdrops[slot] || !P(canvas, CANVAS_LCD)) return;
+    int src[4] = { 0, 0, 94, 73 }, dst[4] = { 0, y, 375, 290 };
+    canvas_draw_image(canvas, backdrops[slot], src, dst);
 }
 
 /* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
- * placeholder. The player's files belong to the track whose path it copies to g_lastcover_url
+ * black. The player's files belong to the track whose path it copies to g_lastcover_url
  * after writing them, so right after a track change they count only once that is this track. Runs
  * whenever Home or the status bar paints (at least once a second) and reloads only when the track,
  * the cover it can use or its parsed tags change. */
 void coverflow_home_art(void *top) {
-    if (!home.art || top != home.win || !widget_get_visible(home.art)) return;
+    if (!home.art || !top) return;
+    int playing = !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page");
+    if (!playing && (top != home.win || !widget_get_visible(home.art))) return;
     unsigned pos, n;
     void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
@@ -1593,22 +1627,18 @@ void coverflow_home_art(void *top) {
     if (key == home.key) return;
     home.key = key;
     const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
-    unsigned size[2] = { 0, 0 };
-    int shown = cover && image_show(home.art, cover, size);
+    int shown = ipod_backdrop_set(0, home.art, cover);
     if (!shown && r) {
         char url[600] = "file://";
         art_path(url + 7, album, "");
-        shown = image_show(home.art, url, size);
+        shown = ipod_backdrop_set(0, home.art, url);
     }
-    if (!shown && !image_show(home.art, HOME_PLACEHOLDER, size)) image_base_set_image(home.art, HOME_PLACEHOLDER);
-    home_fit(size[0], size[1]);
+
     widget_invalidate_force(home.art, 0);
+    if (playing) widget_invalidate_force(top, 0);
 }
 
-/* The art paints only inside the panel and the lists only left of it, so a sliding list never
- * covers the art: ringnav_paint_bg narrows the canvas clip (screen coordinates; the canvas origin
- * is the widget's) before stock draws it, and ringnav_paint puts the old clip back after its
- * children. */
+/* Clip the full-width artwork and sliding menus to Home; restore after their children. */
 void coverflow_home_clip(void *w, void *canvas, int begin) {
     if (!w || (w != home.art && w != home.list && w != home.sets)) return;
     if (!begin) {
@@ -1616,15 +1646,16 @@ void coverflow_home_clip(void *w, void *canvas, int begin) {
         home.clipped = 0;
         return;
     }
-    int clip[4], art = w == home.art, pane = widget_get_visible(home.art) ? home.panel[0] : 375;
+    int clip[4], art = w == home.art, pane = 375;
     clip_within(canvas, home.clip, clip, I(canvas, CANVAS_X) - I(w, W_X) + (art ? home.panel[0] : 0),
                 I(canvas, CANVAS_Y) - I(w, W_Y) + (art ? home.panel[1] : I(w, W_Y)),
                 art ? home.panel[2] : pane, art ? home.panel[3] : I(w, W_H));
     canvas_set_clip_rect(canvas, clip);
     home.clipped = 1;
+    if (art) ipod_backdrop_paint(0, canvas, 0);
 }
 
-/* Labels end before the chevron in both layouts; rows and tap targets share its right edge. */
+/* Both menus keep equal text margins and full-row tap targets. */
 static void home_width(void *w, int outer, int inner, int depth) {
     widget_move_resize(w, I(w, W_X), I(w, W_Y), depth < 2 ? outer : inner, I(w, W_H));
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
@@ -1637,11 +1668,8 @@ static void home_width(void *w, int outer, int inner, int depth) {
     }
 }
 
-/* The Home setting: Split keeps the asset's list and art; Full widens the list, so the selection
- * bar spans the window, and its rows and tap targets to HOME_FULL_ROW, so the chevrons mirror the
- * labels' margin clear of the corners, and hides the art. The Rockbox row shows only while the
- * card has Rockbox: the list's layout places hidden rows too, so a hidden one moves to the end,
- * after Settings, where it leaves only blank space below the last row. */
+/* Stored HOME=0/1 now means Artwork/Plain; both menus keep their geometry.
+ * Hidden Rockbox is restacked last because the native layout includes hidden rows. */
 void coverflow_home_layout(void) {
     if (!home.list) return;
     void *rockbox = widget_lookup(home.win, "btn_rockbox", 1);
@@ -1651,10 +1679,10 @@ void coverflow_home_layout(void) {
         widget_set_visible(rockbox, shown, 0);
     }
     int full = ipod_home_full();
-    home_width(home.list, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
-    if (home.sets) home_width(home.sets, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
+    home_width(home.list, 375, HOME_FULL_ROW, 0);
+    if (home.sets) home_width(home.sets, 375, HOME_FULL_ROW, 0);
     widget_set_visible(home.art, !full, 0);
-    home.key = ~0u; /* Split shows the current art again */
+    home.key = ~0u; /* Artwork shows the current cover again */
 }
 
 /* Home's Settings row, as an iPod's submenu: the Settings list (stock's Playback and System
@@ -1706,7 +1734,6 @@ int coverflow_home(void *win, void *ctx) {
     if (art) widget_set_sensitive(art, 0);
     void *list = widget_lookup(win, "list_view_home", 1);
     home.list = list; /* a new Home window's own, so still the asset's width */
-    home.split_w = list ? I(list, W_W) : 0;
     home.sets = widget_lookup(win, "list_view_homeset", 1);
     coverflow_home_layout();
 #endif

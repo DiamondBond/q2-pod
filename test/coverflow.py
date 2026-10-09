@@ -99,6 +99,7 @@ int image_base_set_image(void *x, const char *s) { snprintf(W(x)->image, 600, "%
 /* A zero-length "no art" marker does not decode. Every successful load is unloaded again and
    decodes to art_w x art_h (bitmap_t w @0, h @4). */
 static int loads, unloads;
+static char last_loaded[600];
 static unsigned art_w = 160, art_h = 160;
 /* Decoded art (bitmap_t w @0, h @4, line length @8, format @0xe, and here the pixels @0x14):
    RGBA8888, a pattern whose colour comes from the file's path, so every album looks different. */
@@ -123,6 +124,7 @@ int widget_load_image(void *x, const char *url, void *b) {
     int failed = strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
     loads += !failed;
     if (!failed) {
+        snprintf(last_loaded, sizeof last_loaded, "%s", url);
         unsigned *bm = b, seed = 0;
         for (const char *c = strrchr(url, '/'); *c; ++c) seed = seed * 31 + (unsigned char)*c; /* the key, not the scratch path */
         unsigned char *px = pixels[next_pixels++ % 16];
@@ -190,7 +192,7 @@ int slide_menu_item_width(void *x) { return *(int *)(W(x)->raw + W_H); }
 int slide_menu_set_spacer(void *x, int v) { *(int *)(W(x)->raw + SLIDE_SPACER) = v; return 0; }
 /* The frame bitmap (bitmap_t as above) and the canvas: canvas_draw_image keeps what it drew. */
 static int frames, frame_fail, tex_fail, locks, draws, drawn[4];
-static unsigned shown[CF_VIEW_H * CF_VIEW_W];
+static unsigned shown[CF_VIEW_H * CF_VIEW_W], backdrop[94 * 73];
 #undef calloc /* the payload's calloc is this shim; the tests' own is libc's */
 void *calloc(size_t, size_t);
 void *shim_calloc(size_t n, size_t size) { return tex_fail && size == 160 * 160 * 4 ? 0 : calloc(n, size); }
@@ -209,6 +211,11 @@ unsigned bitmap_get_line_length(void *b) { return ((unsigned *)b)[2]; }
 int canvas_draw_image(void *c, void *b, const void *src, const void *dst) {
     (void)c; ++draws;
     const int *r = dst, *q = src;
+    if (((unsigned *)b)[0] == 94) {
+        assert(q[2] == 94 && q[3] == 73 && r[2] == 375 && r[3] == 290);
+        memcpy(backdrop, *(void **)((char *)b + 0x14), sizeof backdrop);
+        return 0;
+    }
     assert(!memcmp(r, q, 16) && ((unsigned short *)b)[6] & 1); /* 1:1, and marked opaque */
     memcpy(drawn, r, sizeof drawn);
     for (int y = 0; y < CF_VIEW_H; ++y) memcpy(shown + y * CF_VIEW_W, *(unsigned char **)((char *)b + 0x14) + y * ((unsigned *)b)[2], CF_VIEW_W * 4);
@@ -962,103 +969,77 @@ int main(void) {
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
     deque queue = {0};
     shim_queue = &queue;
-    home_art = make(0, "image");
-    int *geo = (int *)W(home_art)->raw, panel[4] = { 230, 0, 145, 290 }; /* W_X, W_Y, W_W, W_H */
+    home_art = make(0, "view");
+    int *geo = (int *)W(home_art)->raw, panel[4] = { 0, 0, 375, 290 };
     memcpy(geo, panel, sizeof panel);
     widget *win = make(0, "window");
-    const char *art = W(home_art)->image, *player = "file://" PEQ_ROOT "/tmp/coverpic.jpg";
+    const char *player = "file://" PEQ_ROOT "/tmp/coverpic.jpg";
     mkdir(PEQ_ROOT "/tmp", 0755);
     FILE *f = fopen(PEQ_ROOT "/tmp/coverpic.jpg", "w"); fputs("jpg", f); fclose(f);
     coverflow_home(win, 0);
-    assert(&w[insensitive] == W(home_art)); /* taps under a fitted cover still find the list */
-    coverflow_home_art(page);
-    assert(!*art);
+    assert(&w[insensitive] == W(home_art));
+    coverflow_home_art(win); assert(frames == 0); /* missing art is black */
+    queue.n = 2; queue.at[0] = records[0]; queue.at[1] = records[3];
+    *(volatile int *)MCL_POS = 0; shim_covertype = 1;
     coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_home") && !memcmp(geo, panel, sizeof panel)); /* no size: the panel */
-    queue.n = 2; queue.at[0] = records[0]; queue.at[1] = records[3]; /* "Cover" is cached, "None" is not */
-    *(volatile int *)MCL_POS = 0;
-    shim_covertype = 1;
-    coverflow_home_art(win); /* the cover is still the previous track's */
-    assert(strstr(art, "/mnt/mmc/.coverflow/") && size("Cover") > 0);
+    assert(strstr(last_loaded, "/mnt/mmc/.coverflow/") && frames == 1);
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[0]);
-    coverflow_home_art(win);
-    assert(!strcmp(art, player));
-    /* Square, portrait and landscape covers keep their proportions, just cover the panel and are
-       centred on it; C division leaves an odd overflow's extra pixel on the right or bottom. */
-    static const unsigned covers[][6] = { { 160, 160, 158, 0, 290, 290 }, { 145, 290, 230, 0, 145, 290 },
-                                         { 300, 200, 85, 0, 435, 290 }, { 100, 400, 230, -145, 145, 580 } };
-    for (unsigned i = 0; i < 4; ++i) {
-        art_w = covers[i][0], art_h = covers[i][1];
-        *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
-        for (int k = 0; k < 4; ++k) assert(geo[k] == (int)covers[i][2 + k]);
+    coverflow_home_art(win); assert(!strcmp(last_loaded, player) && frames == 1);
+    int canvas[32] = {0}; canvas[CANVAS_LCD / 4] = 1;
+    int decoded = reads, prepared = locks;
+    for (int i = 0; i < 10; ++i) {
+        coverflow_home_art(win);
+        ipod_backdrop_paint(0, canvas, 0);
+    }
+    assert(reads == decoded && locks == prepared); /* recurring paints only draw the cache */
+    for (unsigned i = 0; i < 94 * 73; ++i) {
+        assert(backdrop[i] >> 24 == 255);
+        for (int k = 0; k < 3; ++k) assert((backdrop[i] >> (k * 8) & 255) <= 51);
+    }
+    /* Centred crop and dimming: compare every sample with the original decoded bitmap. */
+    for (unsigned shape = 0; shape < 3; ++shape) {
+        art_w = shape == 1 ? 80 : 160; art_h = shape == 2 ? 80 : 160;
+        assert(ipod_backdrop_set(0, home_art, player));
+        ipod_backdrop_paint(0, canvas, 0);
+        unsigned cw = art_w, ch = art_h;
+        if (cw * 290 > ch * 375) cw = ch * 375 / 290; else ch = cw * 290 / 375;
+        unsigned char *px = pixels[(next_pixels - 1) % 16];
+        for (unsigned y = 0; y < 73; ++y) for (unsigned x = 0; x < 94; ++x) {
+            unsigned at = (((art_h - ch) / 2 + y * ch / 73) * art_w + (art_w - cw) / 2 + x * cw / 94) * 4;
+            unsigned expected = 0xff000000u;
+            for (int k = 0; k < 3; ++k) expected |= (unsigned)(px[at+k] / 5) << (8*k);
+            assert(backdrop[y*94+x] == expected);
+        }
     }
     art_w = art_h = 160;
-    /* The art's paint is clipped to the panel on screen (canvas origin at the art, window at y 30)
-       from the background hook to the border hook; other widgets keep the clip. */
-    extern void coverflow_home_clip(void *, void *, int);
-    int canvas[2] = { geo[0], 30 + geo[1] }, full[4] = { 0, 0, 375, 320 }, want[4] = { 230, 30, 145, 290 };
-    coverflow_home_clip(home_art, canvas, 1);
-    assert(!memcmp(clip_rect, want, sizeof want));
-    coverflow_home_clip(win, canvas, 0);
-    assert(!memcmp(clip_rect, want, sizeof want));
-    coverflow_home_clip(home_art, canvas, 0);
-    assert(!memcmp(clip_rect, full, sizeof full));
-    coverflow_home_clip(win, canvas, 1);
-    assert(!memcmp(clip_rect, full, sizeof full));
-    before = loads;
-    coverflow_home_art(win);
-    assert(loads == before);
-    shim_covertype = 2; /* a folder image the player has not written: the cached thumbnail */
-    coverflow_home_art(win);
-    assert(strstr(art, "/mnt/mmc/.coverflow/"));
-    *(volatile int *)MCL_POS = 1; shim_covertype = 1; /* next track, the old cover still in place */
-    coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_home"));
+    frame_fail = 1; assert(!ipod_backdrop_set(0, home_art, player) && frames == 0); frame_fail = 0;
+    assert(ipod_backdrop_set(0, home_art, player) && frames == 1);
+    assert(!ipod_backdrop_set(0, home_art, 0) && frames == 0);
+    shim_covertype = 2; coverflow_home_art(win);
+    assert(strstr(last_loaded, "/mnt/mmc/.coverflow/"));
+    *(volatile int *)MCL_POS = 1; shim_covertype = 1;
+    coverflow_home_art(win); assert(frames == 0); /* old player art must not survive */
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
-    coverflow_home_art(win);
-    assert(!strcmp(art, player) && loads == unloads);
-    /* Issue #7: the next folder stock queues after a folder play carries no tags; with no player
-       cover the art is the placeholder until the player's parsed tags name the cached album. */
-    static char next[0x60];
-    *(const char **)(next + REC_PATH) = "/mnt/mmc/Next/01.flac";
-    queue.n = 3; queue.at[2] = next;
-    *(volatile int *)MCL_POS = 2; shim_covertype = 3;
-    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", "/mnt/mmc/Next/01.flac");
-    coverflow_home_art(win);
-    assert(!strcmp(art, "default_album_home"));
-    snprintf(shim_id3, sizeof(shim_id3), "%s", "/mnt/mmc/Next/01.flac");
-    snprintf(shim_id3 + ID3_ALBUM, 256, "%s", "Cover");
-    snprintf(shim_id3 + ID3_ARTIST, 256, "%s", "Artist");
-    coverflow_home_art(win);
-    assert(strstr(art, "/mnt/mmc/.coverflow/") && loads == unloads);
-    memset(shim_id3, 0, sizeof(shim_id3));
-    queue.n = 2; *(volatile int *)MCL_POS = 1; shim_covertype = 1;
-    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
-    coverflow_home_art(win);
-    assert(!strcmp(art, player) && loads == unloads);
-    /* Home layout: Full widens the list to the screen and its rows and their tap targets to
-       HOME_FULL_ROW, with labels ending before the chevron, and hides the art; Split puts the asset's width back and
-       shows the art again. */
-    extern void coverflow_home_layout(void);
+    coverflow_home_art(win); assert(!strcmp(last_loaded, player) && frames == 1 && loads == unloads);
+    extern void coverflow_home_clip(void *, void *, int), coverflow_home_layout(void);
+    canvas[CANVAS_Y / 4] = 30;
+    int full[4] = {0,0,375,320}, want[4] = {0,30,375,290};
+    coverflow_home_clip(home_art, canvas, 1); assert(!memcmp(clip_rect, want, sizeof want));
+    coverflow_home_clip(home_art, canvas, 0); assert(!memcmp(clip_rect, full, sizeof full));
     home_list = make(0, "list_view");
     widget *sv = make(home_list, "scroll_view"), *row = make(sv, "view"), *label = make(row, "hscroll_label"),
-           *tap = make(row, "image"), *all[] = { home_list, sv, row, tap };
-    for (int i = 0; i < 4; ++i) *(int *)(all[i]->raw + W_W) = 205;
-    *(int *)(label->raw + W_X) = 33;
-    *(int *)(label->raw + W_W) = 205 - 33 - HOME_LABEL_END;
-    home_full = 1;
-    coverflow_home(win, 0);
-    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
-    assert(*(int *)(label->raw + W_W) == HOME_FULL_ROW - 33 - HOME_LABEL_END && !W(home_art)->visible);
-    before = loads;
-    coverflow_home_art(win); /* hidden: nothing loads */
-    assert(loads == before);
-    home_full = 0;
-    coverflow_home_layout();
-    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 205);
-    assert(*(int *)(label->raw + W_W) == 205 - 33 - HOME_LABEL_END && W(home_art)->visible);
-    coverflow_home_art(win);
-    assert(loads == before + 1 && !strcmp(art, player));
+           *tap = make(row, "image"), *all[] = {home_list, sv, row, tap};
+    *(int *)(label->raw + W_X) = 39;
+    for (home_full = 1; home_full >= 0; --home_full) {
+        coverflow_home(win, 0);
+        for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 375);
+        assert(*(int *)(label->raw + W_W) == 375 - 39 - HOME_LABEL_END);
+        assert(W(home_art)->visible == !home_full);
+        before = loads; coverflow_home_art(win);
+        assert(loads == before + !home_full);
+    }
+    ipod_backdrop_set(0, home_art, 0); assert(frames == 0 && loads == unloads);
+
 #endif
     return 0;
 }
@@ -1097,7 +1078,7 @@ def main():
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
           ' Sort by artist, recently added and most played, kept across opens, passed;'
-          ' iPod Home art sources, fit, clip and Split/Full layout passed.')
+          ' iPod backdrop sources, crop, dimming, allocation failure, cache, clip and Artwork/Plain layout passed.')
 
 
 if __name__ == '__main__':
