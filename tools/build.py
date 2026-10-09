@@ -295,6 +295,8 @@ FUNCTIONS = {
  'pages_set_active_by_name': ('int', 'void *, const char *'),
  'widget_invalidate_force': ('int', 'void *, void *'),
  'widget_animator_start': ('int', 'void *'),
+ 'widget_animator_prop_create': ('void *', 'void *, unsigned, unsigned, int, const char *'),  # Home's Settings slide
+ 'widget_animator_prop_set_params': ('int', 'void *, double, double'),
  'widget_animator_scroll_set_params': ('int', 'void *, int, int, int, int'),
  'slide_menu_set_value': ('int', 'void *, int'),
  'slide_menu_item_width': ('int', 'void *'),
@@ -488,8 +490,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
                 'pdeq_albumcoverlist': 4, 'aclist_mutex': 24}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'spotify_page',
-                   'settings_page'}
+PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'spotify_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.

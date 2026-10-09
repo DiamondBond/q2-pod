@@ -25,7 +25,7 @@ Charge limit applies while the Q2 is on; charging while it's powered off is stoc
 
 ## iPod UI
 
-- **Home:** a list (Now Playing, Library, Coverflow, Folder, Rockbox when it's on the card, Streaming, Settings) beside the playing track's cover, instead of the carousel. **Settings** opens Playback Settings and System Settings.
+- **Home:** a list (Now Playing, Library, Coverflow, Folder, Rockbox when it's on the card, Streaming, Settings) beside the playing track's cover, instead of the carousel. **Settings** slides in Playback Setting and System Setting in the list's place, as an iPod's submenu, with the cover still beside it; Return goes back.
 - **Lists:** four rows per screen, full-width accent bar; **`>`** marks rows that open another list.
 - **Status bar:** play state, EQ, time, Bluetooth, Wi-Fi, battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.
 - **Bluetooth quality:** LDAC HQ is 990 kbps (909 for 44.1 kHz music), LDAC Standard 660 (606), and LDAC Connection (auto) adapts the bit rate to the connection. Rockbox uses the last choice made here.

@@ -216,8 +216,10 @@ def home_card(root):
 # clicks and translates label_* by name, and only img_left/img_right, gone here, reach the
 # slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
 # tap and is the row's click target for the wheel. The payload binds Coverflow, Rockbox (shown
-# only while the card has it) and Settings.
+# only while the card has it) and Settings, which slides list_view_homeset, hidden until then and
+# holding stock's own Playback and System setting rows, into the list's place.
 HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'rockbox', 'stream', 'settings']
+HOME_SETS = ['playset', 'sysset']
 HOME_LITERAL = {'coverflow': 'Coverflow', 'rockbox': 'Rockbox', 'settings': 'Settings'}
 
 
@@ -226,30 +228,34 @@ LIST_BLACK = {f'style:{state}:{prop}': color for state in ('normal', 'disable', 
               for prop, color in (('bg_color', '#000000'), ('border_color', '#00000000'))}
 
 
+def home_list(name, rows, extra=None):
+    """A Home list_view of HOME_ROW rows: each a label under a full-row transparent tap image."""
+    views = []
+    for i, row in enumerate(rows):
+        # Translations longer than English's longest end in an ellipsis before the chevron.
+        label = {'name': 'label_' + row, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
+        if row in HOME_LITERAL:
+            label['text'] = HOME_LITERAL[row]
+        if row == 'localmusic':
+            label.update(LIBRARY)
+        views.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + row}, [
+            ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - HOME_LABEL_END, HOME_ROW], label, []],
+            ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + row, 'clickable': 'true'}, []]]])
+    # The list_view's layout (0x5ea3a4) makes its scroll view vertical only for a mobile scroll bar,
+    # which Home has none of, and scroll_view_create leaves it off; the payload navigates only
+    # vertical scroll views.
+    view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(views)],
+            {'name': 'scroll_view_' + name, 'self_layout': 'default(x=0,y=0,w=100%,h=100%)', 'yslidable': 'true'}, views]
+    return ['list_view', [0, HOME_TOP, HOME_LIST_W, HOME_ROW * len(views)],
+            {'name': 'list_view_' + name, 'item_height': str(HOME_ROW), **LIST_BLACK, **(extra or {})}, [view]]
+
+
 def ipod_home(root):
     require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
-    rows = []
-    for i, name in enumerate(HOME_ROWS):
-        # Translations longer than English's longest end in an ellipsis before the chevron.
-        label = {'name': 'label_' + name, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
-        if name in HOME_LITERAL:
-            label['text'] = HOME_LITERAL[name]
-        if name == 'localmusic':
-            label.update(LIBRARY)
-        rows.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + name}, [
-            ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - HOME_LABEL_END, HOME_ROW], label, []],
-            ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + name, 'clickable': 'true'}, []]]])
-    # The list_view's layout (0x5ea3a4) makes its scroll view vertical only for a mobile scroll bar,
-    # which Home has none of, and scroll_view_create leaves it off; the payload navigates only
-    # vertical scroll views.
-    view = ['scroll_view', [0, 0, HOME_LIST_W, HOME_ROW * len(rows)],
-            {'name': 'scroll_view_home', 'self_layout': 'default(x=0,y=0,w=100%,h=100%)', 'yslidable': 'true'}, rows]
-    root[3] = [
-        ['list_view', [0, HOME_TOP, HOME_LIST_W, HOME_ROW * len(rows)],
-         {'name': 'list_view_home', 'item_height': str(HOME_ROW), **LIST_BLACK}, [view]],
-        ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'fill'}, []]]
+    root[3] = [home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'}),
+               ['image', HOME_ART_RECT, {'name': 'img_homeart', 'image': 'default_album_big', 'draw_type': 'fill'}, []]]
 
 
 def style_props(data):

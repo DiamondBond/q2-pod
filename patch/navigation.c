@@ -25,6 +25,7 @@ extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
+extern int coverflow_home_back(void *top);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
@@ -129,7 +130,6 @@ typedef struct {
     void *mp_page, *mp_list;
     unsigned mp_gen;
     void *sp_page; /* the Library Shuffle menu's page, kept across picks */
-    void *set_page; /* Home's Settings menu's page */
     int dark;      /* the backlight was off at the last UI loop pass */
     /* Power management's Charge limit and Low power (read once from config.ini's Q2POD), the value
      * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
@@ -3078,7 +3078,7 @@ static int page_keyup(void *ctx, void *event) {
 static int page_closed(void *ctx, void *event) {
     (void)ctx;
     (void)event;
-    st.mp_page = st.sp_page = st.set_page = 0;
+    st.mp_page = st.sp_page = 0;
     return 0;
 }
 
@@ -3108,25 +3108,6 @@ static int shuffle_menu(void *ctx, void *event) {
     widget_set_text_utf8(note, "Shuffling albums or folders may take a while");
     return 0;
 }
-
-#if IPOD
-/* Home's Settings row: Playback and System settings, the stock pages Home's cards opened. */
-static int set_pick(void *ctx, void *event) {
-    (void)event;
-    navigator_to(ctx ? "systemset/sysset_page" : "playset/playset_page");
-    return 0;
-}
-
-int settings_open(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    if (st.set_page || !(st.set_page = page_open("settings_page", page_closed, page_keyup))) return 0;
-    void *view = page_list(st.set_page, st.set_page, 0, "Settings", 2, 48);
-    page_row_detail(view, 0, "Playback Settings", 0, set_pick);
-    page_row_detail(view, 1, "System Settings", 0, set_pick);
-    return 0;
-}
-#endif
 
 #define RESUME_FILE "/mnt/data/ringnav-resume" /* coverflow.c's blob_io */
 #define PLAYS_FILE "/mnt/data/ringnav-plays"
@@ -4220,6 +4201,9 @@ int ringnav(void *ctx, void *event) {
         np_cancel();
         if (window_manager_get_top_window(window_manager()) == st.np_win) return STOP;
     }
+    /* Home's Settings list goes back to Home's list (coverflow_home_back). */
+    if (key == KEY_RETURN && coverflow_home_back(window_manager_get_top_window(window_manager())))
+        return STOP;
     /* Back by button: the page behind shows its row. A sliding page is painted once more, into its
      * closing snapshot, inside stock's handling of this release; it keeps hiding its own row until
      * that is done. */

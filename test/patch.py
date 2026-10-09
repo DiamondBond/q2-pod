@@ -304,7 +304,7 @@ class Machine:
             n['sensitive' if name=='widget_set_sensitive' else 'visible']=b; ret=0
         elif name=='widget_animator_prop_create':
             ret=self.alloc(0x80); self.word(ret+4,a); self.word(ret+O['ANIM_DURATION'],b)
-            self.word(ret+0x24,c); assert self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))=='opacity'
+            self.word(ret+0x24,c); n['animated']=self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16)); assert n['animated'] in ('opacity','x')
         elif name=='widget_animator_prop_set_params':
             assert self.get(u.reg_read(UC_MIPS_REG_SP)+16)==0 and self.get(u.reg_read(UC_MIPS_REG_SP)+20)==0
             ret=0
@@ -3254,7 +3254,7 @@ assert m.names(m.get(syms['p_deque_showlist']))==['Row 0'] and ('stock_localclas
 
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
-from ipod import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, decode
+from ipod import HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, HOME_TOP, decode
 cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][0]  # the carousel, or iPod's list_view
 if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
@@ -3638,8 +3638,13 @@ if variant=='ipod':
     assert m.clip==(HOME_LIST_W,30,PW,290),m.clip
     m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0))
     assert m.clip==(0,0,375,320); passed()
-    # Other widgets keep the clip; the placeholder (no size) fills the panel.
-    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.list,m.canvas,0,0)); assert m.clip==(0,0,375,320)
+    # The list paints only left of the panel, so a sliding list never covers the art; other widgets
+    # keep the clip. The placeholder (no size) fills the panel.
+    m.word(m.canvas+O['CANVAS_X'],0); m.word(m.canvas+O['CANVAS_Y'],30+HOME_TOP)
+    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.list,m.canvas,0,0))
+    assert m.clip==(0,30+HOME_TOP,HOME_LIST_W,7*HOME_ROW),m.clip
+    m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.list,m.canvas,0,0)); assert m.clip==(0,0,375,320)
+    m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.node('view'),m.canvas,0,0)); assert m.clip==(0,0,375,320)
     m.image_size=None
     m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0'); m.byte(syms['g_playcover_type'],3)
     art_after(m.home); assert m.nodes[m.art]['image']=='default_album_big' and geometry()==[HOME_LIST_W,0,PW,290]; passed()
@@ -5171,18 +5176,29 @@ def home_settings():
         assert order()==['playing','localmusic','coverflow','folder','stream','settings','rockbox'] and not m.nodes[btn]['visible']
         m.rockbox_mode=0o100755; m.call(address=payload_syms['coverflow_home_layout'],args=(0,0,0,0),gap=0)
         assert order()==HOME_ROWS and m.nodes[btn]['visible']; passed()
-        # Its click and Settings' are bound at Home init. Settings opens a black settings_page with
-        # Playback Settings and System Settings, which open the stock pages Home's cards opened.
+        # Its click and Settings' are bound at Home init. Settings slides the Settings list, stock's
+        # Playback and System setting rows (stock binds them), into the list's place from the right,
+        # the art staying; the wheel walks it, and Return slides the list back from the left with
+        # its row kept.
         assert m.handler(named(m,m.top,'img_rockbox'),O['EVT_CLICK'])[0]==payload_syms['rockbox_open']
-        f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
+        m.mock('widget_animator_prop_create','widget_animator_prop_set_params','widget_animator_start')
+        lst,sets,art=(named(m,m.top,n) for n in ('list_view_home','list_view_homeset','img_homeart'))
+        sview=named(m,m.top,'scroll_view_homeset'); assert not m.nodes[sets]['visible']
+        for img in (named(m,m.top,'img_playset'),named(m,m.top,'img_sysset')): click_target(m,img)
+        m.paint(view)
+        for _ in range(6): m.call()
+        assert m.selected(view)==6
+        m.calls=[]; f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
-        page=m.page=m.top; assert m.nodes[page]['name']=='settings_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
-        rows=m.nodes[m.find('scroll_view')]['children']
-        assert m.texts()==['Settings','Playback Settings','System Settings']
-        for r,want in zip(rows,('playset/playset_page','systemset/sysset_page')):
-            m.calls=[]; f2,ctx2=m.handler(r,O['EVT_CLICK']); assert m.call(address=f2,args=(ctx2,m.event,0,0),gap=0)==0
-            assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==[want]
-        m.close(); passed()
+        assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible'] and m.nodes[sets]['animated']=='x'
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,HOME_LIST_W)]; passed()
+        m.paint(sview); assert m.selected(sview)==0 and m.call()==11 and m.selected(sview)==1; passed()
+        m.calls=[]; assert m.call(O['KEY_RETURN'])==11
+        assert m.nodes[lst]['visible'] and not m.nodes[sets]['visible'] and m.nodes[lst]['animated']=='x'
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-HOME_LIST_W&0xffffffff)]
+        m.paint(view); assert m.selected(view)==6; passed()
+        # Return on Home's own list is stock's.
+        m.calls=[]; assert m.call(O['KEY_RETURN'])==0 and m.nodes[lst]['visible']; passed()
 if variant=='ipod': home_settings()
 # Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
 # press while it is open does nothing. Its rows are the top PLAYS_TOP, most played first and, among

@@ -124,9 +124,15 @@ image) behave alike. **Rockbox** leaves Q2 Pod for Rockbox ([boot.md](boot.md#ro
 and shows only while the card has the Rockbox binary: `coverflow_home_layout` checks it at init and
 the status bar on each paint. The list's layout (`0x5ea3a4`) stacks hidden rows too, so a hidden
 Rockbox row is also restacked after Settings, where it leaves only blank space under the last
-row; the wheel skips hidden rows. **Settings** opens `settings_page`, a runtime page (as
-Shuffle's) with **Playback Settings** and **System Settings**, which open the stock
-`playset/playset_page` and `systemset/sysset_page` as Home's cards did.
+row; the wheel skips hidden rows. **Settings** works as an iPod submenu: a second, hidden
+`list_view_homeset` in the list's place holds stock's own `btn_playset` and `btn_sysset` rows,
+which the stock visitor binds and translates ("Playback Setting", "System Setting") as it did the
+cards. `home_settings` hides the list, shows this one and slides it in from the right
+(`widget_animator_prop_create` on `x`, 200 ms, stock's scroll easing); Return on Home
+(`coverflow_home_back`, from `ringnav` after stock's release) slides the list back in from the
+left. The art stays: both lists are clipped to the left pane while they paint (`coverflow_home_clip`),
+so a sliding list never covers it. The wheel drives whichever list is visible, and each keeps its
+own row, so Return comes back to Settings. Full widens both lists.
 
 The Home setting (see [Display settings](#display-settings)) picks the layout. Split is the asset
 as built. Full resizes `list_view_home` and its scroll view to 375 pixels, so the selection bar

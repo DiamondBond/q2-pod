@@ -44,7 +44,7 @@ deque_assign deque_destroy deque_size deque_at window_create widget_factory
 widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
 slide_menu_set_value slide_menu_item_width list_view_create scroll_view_create list_item_create image_set_draw_type
 image_base_set_image widget_load_image widget_unload_image widget_set_name widget_use_style
-widget_set_text_utf8 widget_restack widget_set_visible widget_get_prop_int widget_set_prop_int
+widget_set_text_utf8 widget_restack widget_animator_prop_create widget_animator_prop_set_params widget_animator_start widget_set_visible widget_get_prop_int widget_set_prop_int
 widget_get_prop_str widget_on widget_destroy_children widget_invalidate_force
 widget_count_children widget_get_child widget_lookup widget_move_resize widget_get_visible
 canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
@@ -141,6 +141,9 @@ int widget_set_name(void *x, const char *s) { snprintf(W(x)->type, 32, "%s", s);
 int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
 int widget_set_text_utf8(void *x, const char *s) { snprintf(W(x)->text, 160, "%s", s); return 0; }
 int widget_restack(void *x, unsigned i) { (void)x; (void)i; return 0; }
+void *widget_animator_prop_create(void *x, unsigned d, unsigned l, int e, const char *p) { (void)x; (void)d; (void)l; (void)e; (void)p; return 0; }
+int widget_animator_prop_set_params(void *a, double f, double t) { (void)a; (void)f; (void)t; return 0; }
+int widget_animator_start(void *a) { (void)a; return 0; }
 int widget_set_visible(void *x, int v, int r) { (void)r; W(x)->visible = v; return 0; }
 int widget_get_prop_int(void *x, const char *k, int d) { (void)x; (void)k; return d; }
 int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:normal:bg_color")) W(x)->bg = v; return 0; }
@@ -167,7 +170,6 @@ static int home_full;
 int ipod_home_full(void) { return home_full; }
 int ipod_home_rockbox(void) { return 0; }
 int rockbox_open(void *x, void *e) { (void)x; (void)e; return 0; }
-int settings_open(void *x, void *e) { (void)x; (void)e; return 0; }
 int widget_move_resize(void *x, int left, int top, int ww, int h) {
     int *r = (int *)W(x)->raw; /* W_X, W_Y, W_W, W_H */
     r[0] = left; r[1] = top; r[2] = ww; r[3] = h;

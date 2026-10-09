@@ -1545,16 +1545,16 @@ const char *now_tag(void *r, int field) {
 
 #if IPOD
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
+#define HOME_SWAP_MS 200 /* the Settings list's slide, as navigation.c's HOME_SLIDE_MS */
 static struct {
-    void *win, *art, *list;
+    void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
     unsigned key;
     int split_w;  /* the list's width in the asset */
     int panel[4]; /* the art's x, y, w, h in the asset: the right panel it fills */
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
-extern int ipod_home_full(void), ipod_home_rockbox(void), rockbox_open(void *, void *),
-    settings_open(void *, void *);
+extern int ipod_home_full(void), ipod_home_rockbox(void), rockbox_open(void *, void *);
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
  * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
@@ -1605,19 +1605,21 @@ void coverflow_home_art(void *top) {
     widget_invalidate_force(home.art, 0);
 }
 
-/* The art paints only inside the panel: ringnav_paint_bg narrows the canvas clip (screen
- * coordinates; the canvas origin is the art's) before stock draws it, and ringnav_paint puts the
- * old clip back after. */
+/* The art paints only inside the panel and the lists only left of it, so a sliding list never
+ * covers the art: ringnav_paint_bg narrows the canvas clip (screen coordinates; the canvas origin
+ * is the widget's) before stock draws it, and ringnav_paint puts the old clip back after its
+ * children. */
 void coverflow_home_clip(void *w, void *canvas, int begin) {
-    if (!w || w != home.art) return;
+    if (!w || (w != home.art && w != home.list && w != home.sets)) return;
     if (!begin) {
         if (home.clipped) canvas_set_clip_rect(canvas, home.clip);
         home.clipped = 0;
         return;
     }
-    int clip[4];
-    clip_within(canvas, home.clip, clip, I(canvas, CANVAS_X) - I(w, W_X) + home.panel[0],
-                I(canvas, CANVAS_Y) - I(w, W_Y) + home.panel[1], home.panel[2], home.panel[3]);
+    int clip[4], art = w == home.art, pane = widget_get_visible(home.art) ? home.panel[0] : 375;
+    clip_within(canvas, home.clip, clip, I(canvas, CANVAS_X) - I(w, W_X) + (art ? home.panel[0] : 0),
+                I(canvas, CANVAS_Y) - I(w, W_Y) + (art ? home.panel[1] : I(w, W_Y)),
+                art ? home.panel[2] : pane, art ? home.panel[3] : I(w, W_H));
     canvas_set_clip_rect(canvas, clip);
     home.clipped = 1;
 }
@@ -1647,8 +1649,39 @@ void coverflow_home_layout(void) {
     }
     int full = ipod_home_full();
     home_width(home.list, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
+    if (home.sets) home_width(home.sets, full ? 375 : home.split_w, full ? HOME_FULL_ROW : home.split_w, 0);
     widget_set_visible(home.art, !full, 0);
     home.key = ~0u; /* Split shows the current art again */
+}
+
+/* Home's Settings row, as an iPod's submenu: the Settings list (stock's Playback and System
+ * setting rows, which stock binds) slides in from the right over the list's place, the art staying;
+ * Return (coverflow_home_back) slides the list back in from the left. Each list keeps its row. */
+static void home_swap(void *from, void *to, int dx) {
+    widget_set_visible(from, 0, 0);
+    widget_move_resize(to, dx, I(to, W_Y), I(to, W_W), I(to, W_H));
+    widget_set_visible(to, 1, 0);
+    void *a = widget_animator_prop_create(to, HOME_SWAP_MS, 0, SLIDE_EASING, "x");
+    if (!a) {
+        widget_move_resize(to, 0, I(to, W_Y), I(to, W_W), I(to, W_H));
+        return;
+    }
+    widget_animator_prop_set_params(a, dx, 0);
+    widget_animator_start(a);
+}
+
+static int home_settings(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    if (home.sets && !widget_get_visible(home.sets)) home_swap(home.list, home.sets, I(home.list, W_W));
+    return 0;
+}
+
+/* Return on Home with Settings open: 1 when it went back to the list. */
+int coverflow_home_back(void *top) {
+    if (!home.sets || top != home.win || !widget_get_visible(home.sets)) return 0;
+    home_swap(home.sets, home.list, -I(home.list, W_W));
+    return 1;
 }
 #endif
 
@@ -1660,7 +1693,7 @@ int coverflow_home(void *win, void *ctx) {
     widget_on(widget_lookup(win, "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
 #if IPOD
     widget_on(widget_lookup(win, "img_rockbox", 1), EVT_CLICK, rockbox_open, 0);
-    widget_on(widget_lookup(win, "img_settings", 1), EVT_CLICK, settings_open, 0);
+    widget_on(widget_lookup(win, "img_settings", 1), EVT_CLICK, home_settings, 0);
     home.win = win;
     void *art = widget_lookup(win, "img_homeart", 1);
     home.art = art;
@@ -1671,6 +1704,7 @@ int coverflow_home(void *win, void *ctx) {
     void *list = widget_lookup(win, "list_view_home", 1);
     home.list = list; /* a new Home window's own, so still the asset's width */
     home.split_w = list ? I(list, W_W) : 0;
+    home.sets = widget_lookup(win, "list_view_homeset", 1);
     coverflow_home_layout();
 #endif
     return result;
