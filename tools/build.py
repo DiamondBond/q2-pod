@@ -166,12 +166,12 @@ SCAN_LIMIT = (0x5c977c, 0x8fc2c354, 0x28424e20, 0x8fc4c354)  # lw $2/$4, -0x3cac
 # Library Albums' cover cache names (navigation.c art_key): the row renderer's snprintf of the name,
 # with a2 the row (addiu a2,"%s" becomes move a2,s3), the Albums page's albumcoverinfo_init calls
 # and the album page's big cover snprintf become jal to the payload; so do an artist page's albums
-# renderer (its row in s2) and albumcoverinfo_init calls.
+# renderer (its row in s2) and albumcoverinfo_init calls on tab entry, return and init.
 ALBUM_ART = ((0x4a388c, 'ringnav_art_name'), (0x4a421c, 'ringnav_albumcovers'), (0x4a42c0, 'ringnav_albumcovers'),
              (0x4a5718, 'ringnav_albumcovers'), (0x4a72a4, 'ringnav_art_header'),
-             (0x4ab804, 'ringnav_artist_art_name'), (0x4aebc0, 'ringnav_artist_covers'),
-             (0x4af7b8, 'ringnav_artist_covers'), (0x4b0460, 'ringnav_artist_covers'),
-             (0x4b0508, 'ringnav_artist_covers'))
+             (0x4ab804, 'ringnav_artist_art_name'), (0x4ac840, 'ringnav_artist_covers'),
+             (0x4ae860, 'ringnav_artist_covers'), (0x4ae968, 'ringnav_artist_covers'),
+             (0x4aebc0, 'ringnav_artist_covers'))
 ALBUM_ART_ROW = ((0x4a3890, 0x24c66c04, 0x02603025), (0x4ab808, 0x24c66c04, 0x02403025))
 # switchBtPriority sends LDAC quality 0x16 (SQ, 660 kbps) for both HQ (row 0) and Standard (row 1).
 # The dispatch keeps 0x15 + row in its free 0x14($sp) slot, so HQ sends 0x15 (990 kbps); see docs/internals.md.

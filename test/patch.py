@@ -3201,6 +3201,14 @@ class ArtistMachine(ClassMachine):
     tramp=int(manifest['patch_symbols']['stock_artist_trampoline'],16)
     def __init__(self,**kw): super().__init__(**kw); self.word(0xa2638c,0x1000010)  # free's GOT slot, as Coverflow's
     def hook(self,u,address,size,unused):
+        if address==syms['albumcoverinfo_init']:
+            covers=[]
+            for r in self.items(u.reg_read(REGS[0])):
+                c=self.alloc(0x60)
+                self.word(c+4,self.string(self.text(self.get(r+O['REC_ALBUM']))))
+                self.word(c+8,self.get(r+O['REC_PATH'])); covers.append(c)
+            self.word(syms['pdeq_albumcoverlist'],self.deque(covers))
+            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
         a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); libc={syms[n+'@GLIBC_2.0']:n for n in ('calloc','strdup')}|{0x1000010:'free'}
         if address not in libc: return super().hook(u,address,size,unused)
         u.reg_write(UC_MIPS_REG_V0,{'calloc':lambda:self.alloc(a*b+4),'strdup':lambda:self.string(self.text(a)),'free':lambda:0}[libc[address]]())
@@ -3211,8 +3219,24 @@ for path,artist,want in (('/p/x','Artist','Album\x1fBaroness'),('/z/x','STP','Al
     m.split=[m.song('Baroness'),m.song('STP')]; m.word(m.split[1]+O['REC_PATH'],m.string('/q/STP'))
     for e in m.split: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
     assert m.call(address=HOOKS['load_localartist_list'][0],args=(1,0,0,0),gap=0)==2
+    # Run the stock Album-tab and page-return call sites, not just the key helper: 9.8
+    # left these unhooked, so the worker wrote the old cache name the renderer never read.
+    m.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
+    for site in (0x4ac840,0x4ae860,0x4ae968,0x4aebc0):
+        m.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
+        m.u.reg_write(UC_MIPS_REG_V0,syms['p_deque_showlist'])
+        m.u.reg_write(UC_MIPS_REG_T9,syms['albumcoverinfo_init'])
+        m.u.emu_start(site,site+8,count=m.budget)
+        assert m.u.reg_read(UC_MIPS_REG_PC)==site+8
+        covers=m.items(m.get(syms['pdeq_albumcoverlist']))
+        assert [m.text(m.get(c+4)) for c in covers]==[want,'Other'], hex(site)
+        assert [m.text(m.get(c+8)) for c in covers]==[path,'/p/Row 1']
     for i,k in enumerate((want,'Other')):
-        m.call(address=art['ringnav_artist_art_name'],args=(buf,0x100,i,m.string(['Album','Other'][i])),gap=0)
+        m.u.reg_write(UC_MIPS_REG_GP,0xa26cc0)
+        m.u.reg_write(UC_MIPS_REG_S1,buf); m.u.reg_write(UC_MIPS_REG_S2,i)
+        m.u.reg_write(UC_MIPS_REG_V0,m.row(i)); m.u.reg_write(UC_MIPS_REG_A1,0x100)
+        m.u.emu_start(0x4ab7f4,0x4ab80c,count=m.budget)
+        assert m.u.reg_read(UC_MIPS_REG_PC)==0x4ab80c
         assert m.text(buf)==k, (path,artist,i,m.text(buf))
     m.call(address=HOOKS['load_localartist_list'][0],args=(0,0,0,0),gap=0)
     m.call(address=art['ringnav_artist_art_name'],args=(buf,0x100,0,m.string('Album')),gap=0); assert m.text(buf)=='Album'
