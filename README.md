@@ -63,14 +63,14 @@ See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes
 
 ## Everyday use
 
-| Control | Action |
-| --- | --- |
-| **Wheel** | Scroll; spin faster to speed up. Outside menus, adjust volume. |
-| **Centre** | Open the selected item. Double-press to turn the screen off; single press on Now Playing. |
-| **Hold Play/Pause** | Open track, queue, playlist and shuffle/repeat options. |
-| **Hold Return** (iPod UI) | Jump to Now Playing; Return takes you back. |
-| **Double-press centre, then turn** (iPod UI) | Scrub on Now Playing, 5 seconds per tick. |
-| **Pull down from the top edge** (iPod UI) | Open quick settings. |
+| Control                                      | Action                                                                                    |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Wheel**                                    | Scroll; spin faster to speed up. Outside menus, adjust volume.                            |
+| **Centre**                                   | Open the selected item. Double-press to turn the screen off; single press on Now Playing. |
+| **Hold Play/Pause**                          | Open track, queue, playlist and shuffle/repeat options.                                   |
+| **Hold Return** (iPod UI)                    | Jump to Now Playing; Return takes you back.                                               |
+| **Double-press centre, then turn** (iPod UI) | Scrub on Now Playing, 5 seconds per tick.                                                 |
+| **Pull down from the top edge** (iPod UI)    | Open quick settings.                                                                      |
 
 Run **Library → Update Local Music** after adding music; it adds up to 65,000 songs. Coverflow prepares artwork on its first open; cancelling keeps its progress.
 
@@ -85,13 +85,13 @@ The [user guide](docs/guide.md) covers [all controls](docs/guide.md#controls), [
 
 Put these folders at the microSD card's root; each adds a Library entry when present:
 
-| Folder | Contents |
-| --- | --- |
+| Folder                     | Contents                                                             |
+| -------------------------- | -------------------------------------------------------------------- |
 | `Podcasts/`, `Audiobooks/` | One folder per show or book; always resume and don't count as plays. |
-| `Photos/` | JPG or PNG; subfolders become albums. |
-| `Books/` | TXT or EPUB without DRM. |
-| `Videos/` | MP4, M4V, MKV, AVI, MOV or MPG. |
-| `EQ/` | AutoEQ / Equalizer APO `.txt` presets. |
+| `Photos/`                  | JPG or PNG; subfolders become albums.                                |
+| `Books/`                   | TXT or EPUB without DRM.                                             |
+| `Videos/`                  | MP4, M4V, MKV, AVI, MOV or MPG.                                      |
+| `EQ/`                      | AutoEQ / Equalizer APO `.txt` presets.                               |
 
 For format limits and cache details, see [microSD card](docs/guide.md#microsd-card). Settings, play counts and resume points live on the Q2, so they stay with the device.
 

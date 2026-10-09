@@ -4,10 +4,10 @@ Experimental Bluetooth volume fix for both Q2 Pod variants, based on [PR #3](htt
 
 Before installing, record:
 
-- AirPods model: __________
-- AirPods firmware version: __________
-- Current Q2 firmware / Q2 Pod version and edition: __________
-- Test ZIP filename and SHA-256: __________
+- AirPods model: \***\*\_\_\*\***
+- AirPods firmware version: \***\*\_\_\*\***
+- Current Q2 firmware / Q2 Pod version and edition: \***\*\_\_\*\***
+- Test ZIP filename and SHA-256: \***\*\_\_\*\***
 
 ## Install
 
@@ -22,12 +22,12 @@ The updater refuses the same version tag. If already running V9.3i/V9.3s, instal
 
 Select AAC in Bluetooth quality settings and start with Q2 volume around 5. Have a known playable track on the card. Record audible playback and volume response for each path:
 
-| Connection path | Audible? | Volume up/down and mute work? | Notes |
-| --- | --- | --- | --- |
-| Pair/connect from the Q2 | | | |
-| Put AirPods in the case, then reopen/reconnect | | | |
-| Turn Q2 Bluetooth off/on, then reconnect | | | |
-| Reboot Q2, then reconnect | | | |
+| Connection path                                | Audible? | Volume up/down and mute work? | Notes |
+| ---------------------------------------------- | -------- | ----------------------------- | ----- |
+| Pair/connect from the Q2                       |          |                               |       |
+| Put AirPods in the case, then reopen/reconnect |          |                               |       |
+| Turn Q2 Bluetooth off/on, then reconnect       |          |                               |       |
+| Reboot Q2, then reconnect                      |          |                               |       |
 
 After each connection, allow a few seconds for the audio transport to appear, start/resume playback, and try small volume changes including zero. Success means audible playback and working volume after every path. If silent, record whether playback time advances, whether changing volume helps, and whether reconnecting helps. Include model, firmware versions, edition, codec and the failing path when reporting results.
 
