@@ -64,7 +64,7 @@ See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes
 
 ### Spotify
 
-Spotify isn't in the firmware; it runs from the card. With the Q2 powered off, unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root, so it has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh` (the leading dot hides the folder; Cmd+Shift+. shows it in macOS Finder). Power on, open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card. After each power-on, and after 30 seconds paused, open the row once to make the Q2 appear in Spotify again; nothing Spotify runs until you do.
+Spotify isn't in the firmware; it runs from the card. Unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root, so it has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh` (the leading dot hides the folder; Cmd+Shift+. shows it in macOS Finder). Power on, open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card. After each power-on, and after 30 seconds paused, open the row once to make the Q2 appear in Spotify again; nothing Spotify runs until you do.
 
 Needs Spotify Premium. Audio plays on the headphone jack only (no Bluetooth or USB DAC). Play/Pause and Next/Prev control Spotify until you play local music; the wheel sets volume. Delete `.spotify` to remove it. See the [guide](docs/guide.md#spotify) for details.
 
