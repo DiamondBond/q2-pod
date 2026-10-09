@@ -324,10 +324,18 @@ int ringnav_load(void *q, int at, int type) {
     }
     return result;
 }
+/* config_init applies the saved mode before the Home page can restore the queue. */
+int ringnav_bootmode(int mode, int notify) {
+    s.restoring = 1;
+    int result = config_playmode(mode, notify);
+    s.restoring = 0;
+    return result;
+}
 int ringnav_mode(int mode) {
     /* player_initconfig re-applies the saved mode each time hciplayer connects, after a boot
      * resume too: not a choice, so advanced play stays. */
-    if (__builtin_return_address(0) == (void *)INITCONFIG_MODE_RET) return stock_mode_trampoline(mode);
+    if (s.restoring || __builtin_return_address(0) == (void *)INITCONFIG_MODE_RET)
+        return stock_mode_trampoline(mode);
     /* Stock keeps a preload when selecting List Play; an advanced repeat preload may wrap. */
     if (s.active) close_preload();
     s.active = 0;

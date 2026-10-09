@@ -520,7 +520,7 @@ def compile_payload(out, ipod=False):
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
-        f'--undefined={WM_PAINT_LEAF[2]}', f'--undefined={WHEEL_LEAF[2]}',
+        f'--undefined={WM_PAINT_LEAF[2]}', f'--undefined={WHEEL_LEAF[2]}', '--undefined=ringnav_bootmode',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -693,6 +693,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     ret = inc('INITCONFIG_MODE_RET')
     check(struct.unpack_from('<II', patched, fileoff(patched, ret - 12)) == (0x8f99b77c, 0x0320f809),
           'player_initconfig: unexpected mclSetPlayMode call')
+    patch_word(patched, 0x4f999c, 0x0411e992, 0x0c000000 | (ps['ringnav_bootmode'] >> 2),
+               'config_init preserves the saved queue when applying the boot play mode')
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq')

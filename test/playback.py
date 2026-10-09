@@ -428,15 +428,31 @@ for cls in (0xf001,0xff10,1):
         assert r.current()==6 and r.stops==1
         checks+=1
 
-# Shuffle Albums resumed after a reboot keeps its album order when hciplayer connects: stock
-# player_initconfig re-applies the saved play mode, which is not a user's mode choice.
-m=PlaybackMachine(); assert m.fn('playback_groups',m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist'])))),0)==1
-m.fn('playback_save'); want=m.sequence()
-r=PlaybackMachine(m.files); r.byte(syms['g_memory_play'],2); out=r.deque([])
-at=r.fn('ringnav_memory',out); r.fn('ringnav_load',out,at,0xf001)
-r.call(address=0x513374,args=(0,0,0,0),gap=0) # player_initconfig
-assert '/mnt/data/ringnav-queue' in r.files and r.sequence()==want
-checks+=1
+# Boot applies the saved stock mode before restoring the queue, then again when hciplayer
+# connects. Execute config_init's actual call site: neither startup call is a mode choice.
+for folder in (0,1):
+    for mode in range(4):
+        m=PlaybackMachine()
+        assert m.fn('playback_groups',m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist'])))),folder)==1
+        m.advance_song(); m.fn('ringnav_savequeue'); want=m.sequence()
+        r=PlaybackMachine(m.files); r.byte(syms['g_memory_play'],2); out=r.deque([])
+        r.handlers.pop(syms['config_playmode'],None)
+        r.u.reg_write(UC_MIPS_REG_GP,0xa26cc0)
+        r.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
+        r.u.reg_write(UC_MIPS_REG_V0,mode)
+        r.u.reg_write(UC_MIPS_REG_A1,0)
+        r.u.emu_start(0x4f9998,0x4f99a4,count=r.budget)
+        assert r.u.reg_read(UC_MIPS_REG_PC)==0x4f99a4
+        assert r.mcl('MCL_MODE')==mode
+        assert r.files['/mnt/data/ringnav-queue']==m.files['/mnt/data/ringnav-queue']
+        at=r.fn('ringnav_memory',out); assert at==want[0] and r.seek==37
+        r.fn('ringnav_load',out,at,0xf001)
+        r.call(address=0x513374,args=(0,0,0,0),gap=0) # player_initconfig
+        assert '/mnt/data/ringnav-queue' in r.files and r.sequence()==want
+        # A real mode choice still clears the snapshot after startup.
+        r.call(address=syms['config_playmode'],args=(mode,0,0,0),gap=0)
+        assert '/mnt/data/ringnav-queue' not in r.files
+        checks+=1
 
 # Empty replacement cannot resurrect the previous saved queue at the next boot.
 m=PlaybackMachine(); m.options(0,2,0); assert '/mnt/data/ringnav-queue' in m.files
