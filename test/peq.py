@@ -1217,6 +1217,17 @@ def radio_check(tmp):
     lib.url_escape(b'abc def', out, 6); assert out.value == b'abc'  # never a cut escape
     print('Internet Radio: m3u and pls favourites, the directory\'s m3u and CSV, URL escaping passed.')
 
+def tidal_check(tmp):
+    """Tidal cache (tidal.c): the cached file's extension comes from the stream URL's path."""
+    lib = compile_host(tmp, 'tidal.so', ROOT/'patch/tidal.c')
+    lib.tidal_ext.restype = C.c_char_p
+    ext = lambda url, n=8: lib.tidal_ext(url, C.create_string_buffer(n), n)
+    assert ext(b'https://sp-pr-fa.audio.tidal.com/mediatracks/AbC/0.flac?token=1.2') == b'.flac'
+    assert ext(b'https://x/a/b.mp4') == b'.mp4'
+    assert ext(b'https://x.y/a/b?f=c.flac') is None and ext(b'https://x/a.') is None  # no extension in the path
+    assert ext(b'https://x/a.longextension') is None and ext(b'https://x/a.flac', 5) is None  # too long for out
+    print('Tidal cache: stream file extensions passed.')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='q2-peq-check-') as directory:
         tmp = pathlib.Path(directory); lib = library(tmp)
@@ -1229,3 +1240,4 @@ if __name__ == '__main__':
         books_check(tmp)
         video_check(tmp)
         radio_check(tmp)
+        tidal_check(tmp)

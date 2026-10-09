@@ -47,7 +47,7 @@ LIBC = {
     'deque_destroy': ('void', 'void *'), 'send': ('int', 'int, const void *, unsigned, int'),
     # Coverflow's art thread (coverflow.c)
     'pthread_create': ('int', 'unsigned long *, const void *, void *(*)(void *), void *'),
-    'pthread_join': ('int', 'unsigned long, void **'), 'pthread_mutex_lock': ('int', 'void *'),
+    'pthread_join': ('int', 'unsigned long, void **'), 'pthread_detach': ('int', 'unsigned long'), 'pthread_mutex_lock': ('int', 'void *'),
     'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
     'strdup': ('char *', 'const char *'),
     'strrchr': ('char *', 'const char *, int'), 'strcasecmp': ('int', 'const char *, const char *'),
@@ -111,7 +111,7 @@ def compile_common(out, binary, player=False, ipod=False):
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
     if player: flags += ['-mnan=2008']
     objects = []
-    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'visualizer.c', 'playback.c', 'spotify.c', 'radio.c']:
+    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'visualizer.c', 'playback.c', 'spotify.c', 'radio.c', 'tidal.c']:
         obj = out/(name+'.o')
         run('clang', *flags, '-I', out, '-c', ROOT/'patch'/name, '-o', obj)
         objects.append(obj)

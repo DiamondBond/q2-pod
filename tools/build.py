@@ -63,6 +63,8 @@ HOOKS = {
     # Spotify (patch/spotify.c): Streaming's row, and local music letting librespot go first
     'stream_page_init': (0x52efdc, 'ringnav_stream'),
     'mclStartPlayer': (0x5ad6ac, 'ringnav_start_player'),
+    # Tidal cache (patch/tidal.c): the stream URL thread's player start, with its song id in $s2
+    'mcl_tidalStartPlayer': (0x5ad240, 'tidal_start'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist'),
@@ -84,7 +86,8 @@ TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'loa
                'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch',
                'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init',
                'change': 'player_change_music', 'detail': 'load_album_detaillist',
-               'artist': 'load_localartist_list', 'stream': 'stream_page_init', 'start_player': 'mclStartPlayer'}
+               'artist': 'load_localartist_list', 'stream': 'stream_page_init', 'start_player': 'mclStartPlayer',
+               'tidal': 'mcl_tidalStartPlayer'}
 # Every audited stock PIC prologue resolves this GOT base.
 GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
@@ -490,7 +493,8 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 # Artists' source (PLAYSET ARTISTTYPE, the artist page's switch: 1 album artist);
                 # the battery level (0-100) and the charger's state (1, 2 charging), get_battery_capacity's
                 'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
-                'pdeq_albumcoverlist': 4, 'aclist_mutex': 24}
+                'pdeq_albumcoverlist': 4, 'aclist_mutex': 24,
+                'tidalStreamingLevelNow': 4}  # the quality the Tidal URL thread asked for
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'spotify_page',
                    'radio_page', 'radionp_page'}
@@ -694,6 +698,11 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         ret = inc('STYLE_COLOR_GRADIENT_RET')
         check(struct.unpack_from('<I', patched, fileoff(patched, ret - 8))[0] == 0x04110000 | (IPOD_LEAF[1] - ret + 4) >> 2 & 0xffff,
               'style_get_color: unexpected gradient call')
+    # tidal_start reads the song id from $s2: set to the thread's own copy at 0x48647c, freed after
+    # its only mcl_tidalStartPlayer call (lw t9; jalr; move a0, s7).
+    check(struct.unpack_from('<I', patched, fileoff(patched, 0x48647c))[0] == 0x00409025 and
+          struct.unpack_from('<III', patched, fileoff(patched, 0x486d88)) == (0x8f99aaec, 0x0320f809, 0x02e02025),
+          'Tidal URL thread: unexpected song id register')
     # ringnav_mode leaves advanced play on for player_initconfig's call, which returns to INITCONFIG_MODE_RET.
     ret = inc('INITCONFIG_MODE_RET')
     check(struct.unpack_from('<II', patched, fileoff(patched, ret - 12)) == (0x8f99b77c, 0x0320f809),

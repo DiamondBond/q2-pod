@@ -197,6 +197,7 @@ Media folders go at the card's root, any capitalisation; each adds its **Library
 | `.sldp/`                   | Stock's own cover cache                                                       | Stock   |
 | `.spotify/`                | Spotify ([install](#install-spotify)); `cache/` is the saved login, plus logs | You     |
 | `Radio/`                   | [Internet Radio](#internet-radio) favourites, `.m3u` and `.pls`               | Both    |
+| `.tidal/`                  | Tidal tracks you've played, so they replay without streaming; up to 2 GB      | Q2 Pod  |
 
 ### Set up scrobbling
 
