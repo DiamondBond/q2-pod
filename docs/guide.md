@@ -168,7 +168,7 @@ Save a plain-text file named **`.scrobble.ini`** in the microSD card's root (nex
 
 Copy the entire example for the service you use, including the section heading and field names. Replace only the values after `=` with your own details; do not add quotes. GitHub's purple/red syntax colours are just highlighting, not instructions to remove text.
 
-**Last.fm only — completed example with made-up credentials:**
+**Last.fm only - completed example with made-up credentials:**
 
 ```ini
 [LASTFM]
@@ -180,7 +180,7 @@ API_SECRET=fedcba9876543210fedcba9876543210
 
 Use your Last.fm username and password. Get your own API key and shared secret from [Create API account](https://www.last.fm/api/account/create) (any application name works). These example credentials won't authenticate.
 
-**ListenBrainz only — completed example with a made-up token:**
+**ListenBrainz only - completed example with a made-up token:**
 
 ```ini
 [LISTENBRAINZ]

@@ -107,7 +107,7 @@ For format limits and cache details, see [microSD card](docs/guide.md#microsd-ca
 ## Known limitations
 
 - **Library size:** Update Local Music adds up to 65,000 songs; shuffle and advanced queues take up to 65,536.
-- **Albums with the same name:** a few stock features still find albums by name alone: the Albums list's now playing marker, multi-select actions such as Add to playlist, and deleting an album from the Albums list.
+- **Albums with the same name:** in **Library → Albums**, the playing marker, multi-select actions (such as Add to playlist) and Delete still treat them as one album.
 - **Bluetooth:** skipping tracks can stutter on some headphones (AAC and LDAC), and AirPods' tap controls don't reach the Q2.
 - **Spotify:** Premium only, headphone jack only, and the **Streaming → Spotify** row must be opened once after each power-on and after 30 seconds paused.
 - **Lock screen:** black until you add your own [images](docs/guide.md#lock-screen).
@@ -116,10 +116,10 @@ New to Q2 Pod? The guide's [tips](docs/guide.md#tips) cover features that are ea
 
 ## Documentation
 
-- [User guide](docs/guide.md) — settings, controls, playback, media and scrobbling
-- [Setup](docs/setup.md) — Q2 Pod, Rockbox and themes on a fresh Q2
-- [Changelog](docs/changelog.md) — what's changed in each release
-- [Building](docs/building.md) — both firmware variants and the MIPS test suite
+- [User guide](docs/guide.md) - settings, controls, playback, media and scrobbling
+- [Setup](docs/setup.md) - Q2 Pod, Rockbox and themes on a fresh Q2
+- [Changelog](docs/changelog.md) - what's changed in each release
+- [Building](docs/building.md) - both firmware variants and the MIPS test suite
 - [iPod UI](docs/ipod.md) · [Internals](docs/internals.md) · [Boot](docs/boot.md) · [Releasing](docs/releasing.md)
 
 ## Contributing
