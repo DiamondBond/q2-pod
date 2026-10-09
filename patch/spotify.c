@@ -16,6 +16,7 @@
 #define SPOT_STATE "/tmp/q2-librespot.state" /* the fork's --status-file */
 #define SPOT_COVER SPOT_STATE ".jpg"
 #define SPOT_SOCK "/tmp/q2-librespot.sock" /* its --control-socket */
+#define SPOT_SINK "/tmp/q2sink.sock"       /* q2video -s, its sink off the DAC: video.c SINK_SOCK */
 #define SPOT_ART "/tmp/q2spot.jpg"         /* the cover at the page's size */
 #define SPOT_POLL_MS 500
 #define SPOT_YIELD_MS 1500 /* local music waits at most this long for librespot to let the DAC go  \
@@ -33,6 +34,7 @@ static struct {
     unsigned long long at;
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
+    char out[24]; /* SPOT_OUT as last written */
 } sp __attribute__((section(".scratch")));
 
 /* The page, while open. */
@@ -63,12 +65,13 @@ static void spot_log(const char *what, int a, int b) {
     fclose(f);
 }
 
-static void spot_send(const char *c, unsigned n) {
+static void spot_send(const char *path, const char *c, unsigned n) {
     if (sp.sock <= 0) sp.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
     struct {
         unsigned short family;
         char path[108];
-    } to = { 1, SPOT_SOCK };
+    } to = { 1, { 0 } };
+    memcpy(to.path, path, strlen(path) + 1);
     sendto(sp.sock, c, n, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
     spot_log("send", c[0], (int)n);
 }
@@ -114,8 +117,8 @@ static unsigned spot_position(void) {
  * does for its receiver. Local music stops (hciplayer holds the PCM even paused), the headphone
  * output is set up as a headset insert sets it (config_outputchannel: the headset mode, the DAC
  * powered with its firmware, g_dacoff_time 0), the DAC is put in PCM mode and unmuted (player_stop
- * mutes it), and the volume applied. Bluetooth and USB outputs are left alone: librespot plays on
- * the headphone DAC only. */
+ * mutes it), and the volume applied. Bluetooth and USB outputs are left alone: librespot's sink
+ * plays on them itself (spot_output). */
 static void spot_take(void) {
     spot_log("take", g_headset_output, mclGetOutputWay());
     radio_stop(); /* Internet Radio's q2video holds the PCM */
@@ -127,6 +130,23 @@ static void spot_take(void) {
     mclSetPcmMode();
     mclSetMute(0);
     device_set_volume(g_volume, 1);
+}
+
+/* The output in use, which the card's aplay.sh reads each time librespot starts its sink: SPOT_OUT
+ * holds output_device's device and volume for Bluetooth or a USB DAC (q2video -s plays there), and
+ * is gone for the headphone DAC (aplay on plughw:0,0). Written aside and renamed, when it changes;
+ * a running q2video gets v and the volume, as radio's does. ponytail: a new device waits for the
+ * sink's next start (pause and play), as Videos and Internet Radio keep theirs till they end. */
+static void spot_output(void) {
+    char vol[5], out[sizeof sp.out] = "", v[2] = { 'v', (char)g_volume };
+    const char *dev = output_device(vol);
+    if (dev) tk_snprintf(out, sizeof out, "%s %s\n", dev, vol);
+    if (!strcmp(out, sp.out)) return;
+    memcpy(sp.out, out, sizeof out);
+    void *f = dev ? fopen(SPOT_OUT ".tmp", "w") : 0;
+    if (f) fwrite(out, 1, strlen(out), f), fclose(f), rename(SPOT_OUT ".tmp", SPOT_OUT);
+    if (!dev) unlink(SPOT_OUT);
+    spot_send(SPOT_SINK, v, 2);
 }
 
 static void spot_parse(void) {
@@ -153,7 +173,7 @@ static void scrub_commit(void) {
     char c[16];
     int n = tk_snprintf(c, sizeof c, "S%d", ui.scrub_ms);
     ui.scrub = 0;
-    spot_send(c, (unsigned)n);
+    spot_send(SPOT_SOCK, c, (unsigned)n);
 }
 
 static void spot_refresh(void);
@@ -170,14 +190,15 @@ static void spot_stop(void) {
 }
 
 /* ringnav_sleep, every UI loop pass: nothing until Streaming's Spotify row started librespot; then,
- * paced to SPOT_POLL_MS, its state, and while it plays the standby and auto-power-off timers held
- * and the DAC kept on (check_dacoff_state). The screen's own timer runs, so the screen still turns
- * off. */
+ * paced to SPOT_POLL_MS, the output (spot_output), its state, and while it plays the standby and
+ * auto-power-off timers held and the DAC kept on (check_dacoff_state). The screen's own timer runs,
+ * so the screen still turns off. */
 void spot_poll(void) {
     if (!sp.launched) return;
     unsigned now = time_now_ms();
     if (now - sp.polled < SPOT_POLL_MS) return;
     sp.polled = now;
+    spot_output();
     char raw[sizeof sp.raw];
     if (spot_read(raw, sizeof raw)) {
         memcpy(sp.raw, raw, sizeof raw);
@@ -213,7 +234,7 @@ void spot_yield(void) {
     if (!sp.playing) return;
     sp.local = 1;
     sp.active = 0;
-    spot_send("s", 1);
+    spot_send(SPOT_SOCK, "s", 1);
     char raw[sizeof sp.raw], state[12] = "playing";
     unsigned start = time_now_ms();
     while (!strcmp(state, "playing") && time_now_ms() - start < SPOT_YIELD_MS) {
@@ -233,7 +254,7 @@ int spot_media(unsigned key) {
                     : key == KEY_BACK_BTN ? "b"
                                           : 0;
     if (!c || !sp.active) return 0;
-    spot_send(c, 1);
+    spot_send(SPOT_SOCK, c, 1);
     return 1;
 }
 

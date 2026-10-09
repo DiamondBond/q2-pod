@@ -70,10 +70,11 @@ long long now_ns(void);
 #define XFADE_FILE PEQ_ROOT "/tmp/q2xfade"
 typedef struct { volatile int ms; } xfade_flag;
 /* librespot (spotify.c) and its restart loop, whose pid its launcher left, stopped: Spotify's idle
- * stop and Home's Rockbox row, which lets ALSA go too. */
+ * stop and Home's Rockbox row, which lets ALSA go too. A q2video sink ends with librespot's pipe. */
+#define SPOT_OUT "/tmp/q2-librespot.out" /* the output for the card's aplay.sh, none on the DAC */
 #define SPOT_KILL                                                                                  \
     "kill -9 $(cat /tmp/q2-librespot); killall -9 librespot aplay; "                               \
-    "rm -f /tmp/q2-librespot /tmp/q2-librespot.state"
+    "rm -f /tmp/q2-librespot /tmp/q2-librespot.state " SPOT_OUT
 double decibels(double power); /* 10 log10 */
 
 /* Audited against hciplayer 9c3f8c6d… and MPlayer 1.3.0 libaf/af.h: the filter peq_player.c opens. */
@@ -124,6 +125,7 @@ unsigned long long number(const char *raw, const char *key);
 void *label(void *parent, int x, int y, int w, int h, const char *style, int px, unsigned color);
 void spot_yield(void), radio_stop(void);
 int video_start(const char *file, int radio); /* books.c */
+const char *output_device(char *vol);         /* books.c */
 /* Spotify's and Internet Radio's Now Playing layout (tools/ipod.py NP_*): the art and the text
  * 16px from the sides, 12 apart, the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16

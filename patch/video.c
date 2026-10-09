@@ -9,8 +9,9 @@
  * the last four show a bar along the bottom for OVERLAY_MS, the position or the volume.
  * q2video -r DEVICE URL [VOLUME] plays Internet Radio (radio.c): the stream's sound alone, ffmpeg
  * restarted when it drops, and its report's ICY tags in RADIO_STATE; keys come on RADIO_SOCK, v
- * and q as above. No MIPS sysroot: the declarations below are glibc 2.28's and alsa-lib's, with
- * MIPS o32 constants. */
+ * and q as above. q2video -s DEVICE VOLUME is librespot's sink on Bluetooth or a USB DAC
+ * (spotify.c): stdin's 44.1 kHz sound, v and q on SINK_SOCK. No MIPS sysroot: the declarations
+ * below are glibc 2.28's and alsa-lib's, with MIPS o32 constants. */
 #define W 320 /* /dev/fb0: 320 x 375, 32 bpp, red at bit 16, two pages (docs/internals.md#videos) */
 #define H 375
 #define FPS 25
@@ -25,6 +26,7 @@
 #define BAR_H 8
 #define Q2VIDEO_SOCK "/tmp/q2video.sock"
 #define RADIO_SOCK "/tmp/q2radio.sock"
+#define SINK_SOCK "/tmp/q2sink.sock" /* spotify.c SPOT_SINK */
 #define RADIO_STATE "/tmp/q2radio.state" /* key=value lines, as spotify.c reads librespot's */
 #define RADIO_TRIES 5                       /* starts in a row without sound, then state=error */
 #define FFMPEG "/usr/bin/ffmpeg"
@@ -170,6 +172,7 @@ static void *writer(void *unused) {
         if (au.gain < 65536) scale(buf, 2 * CHUNK, au.gain);
         long r = snd_pcm_writei(au.pcm, buf, CHUNK);
         if (r < 0 && !snd_pcm_recover(au.pcm, (int)r, 1)) r = snd_pcm_writei(au.pcm, buf, CHUNK);
+        if (r < 0 && !au.fd) return au.done = 1, (void *)0; /* -s: a lost device ends the sink */
         if (r > 0) written += r;
         au.played = !snd_pcm_delay(au.pcm, &delay) && delay > 0 && delay < written ? written - delay
                                                                                  : written;
@@ -182,17 +185,17 @@ static long long now_ms(void) {
     return (long long)t.sec * 1000 + t.nsec / 1000000;
 }
 
-/* ALSA argv[1] ("-" for none) into au.pcm; Bluetooth or a USB DAC (argv[3]) have no headphone
- * DAC and get hciplayer's soft volume unless "h". Returns the DAC, readied, or -1. */
-static int sound_open(int argc, char **argv) {
+/* ALSA dev ("-" for none) into au.pcm at rate; Bluetooth or a USB DAC (a volume, vol) have no
+ * headphone DAC and get hciplayer's soft volume unless "h". Returns the DAC, readied, or -1. */
+static int sound_open(const char *dev, const char *vol, unsigned rate) {
     int dac = -1, off = 0;
-    au.gain = argc > 3 && argv[3][0] != 'h' ? bt_gain(atoi(argv[3])) : 65536;
-    if (strcmp(argv[1], "-")) {
+    au.gain = vol && vol[0] != 'h' ? bt_gain(atoi(vol)) : 65536;
+    if (strcmp(dev, "-")) {
         /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop */
-        for (int i = 0; i < 20 && snd_pcm_open(&au.pcm, argv[1], 0, 0); ++i) au.pcm = 0, usleep(100000);
-        if (au.pcm && snd_pcm_set_params(au.pcm, 2, 3, 2, RATE, 1, LATENCY)) /* S16_LE, RW_INTERLEAVED */
+        for (int i = 0; i < 20 && snd_pcm_open(&au.pcm, dev, 0, 0); ++i) au.pcm = 0, usleep(100000);
+        if (au.pcm && snd_pcm_set_params(au.pcm, 2, 3, 2, rate, 1, LATENCY)) /* S16_LE, RW_INTERLEAVED */
             snd_pcm_close(au.pcm), au.pcm = 0;
-        if (au.pcm && argc < 4 && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
+        if (au.pcm && !vol && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
             ioctl(dac, DAC_PCM, &off), ioctl(dac, DAC_MUTE, &off);
     }
     return dac;
@@ -228,7 +231,8 @@ static void radio_key(int sock, int soft, int *quit) {
  * sound. Its report (stderr) gives the codec, bitrate and each StreamTitle. q quits, unlinking
  * the state; giving up leaves state=error. */
 static int radio(int argc, char **argv) {
-    int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argc, argv), on = 1, quit = 0, tries = 0;
+    int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argv[1], argc > 3 ? argv[3] : 0, RATE);
+    int on = 1, quit = 0, tries = 0;
     int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
     struct sockaddr_un addr = { AF_UNIX, RADIO_SOCK };
     unlink(RADIO_SOCK);
@@ -298,11 +302,31 @@ static int radio(int argc, char **argv) {
     return 0;
 }
 
+/* -s DEVICE VOLUME: librespot's sink off the headphone DAC (spotify.c, the card's aplay.sh): its
+ * 44.1 kHz S16 stereo from stdin until it ends or the device fails, at the soft volume, with v and
+ * q on SINK_SOCK as radio's. */
+static int sink(char **argv) {
+    int soft = argv[2][0] != 'h', quit = 0, sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
+    struct sockaddr_un addr = { AF_UNIX, SINK_SOCK };
+    unsigned long thread = 0;
+    unlink(SINK_SOCK);
+    bind(sock, &addr, sizeof addr);
+    sound_open(argv[1], argv[2], 44100);
+    if (au.pcm && !pthread_create(&thread, 0, writer, 0)) /* au.fd 0: stdin */
+        while (!au.done && !quit) {
+            struct pollfd p = { sock, 1, 0 };
+            if (poll(&p, 1, 500) > 0) radio_key(sock, soft, &quit);
+        }
+    unlink(SINK_SOCK);
+    return !au.pcm;
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) return 2;
     for (int fd = 3; fd < 1024; ++fd) close(fd); /* demo's, inherited */
     signal(SIGCHLD, 0); /* SIG_DFL, so waitpid sees ffmpeg */
     if (argc > 3 && !strcmp(argv[1], "-r")) return radio(argc - 1, argv + 1);
+    if (argc > 3 && !strcmp(argv[1], "-s")) return sink(argv + 1);
     unsigned var[40], fix[17];
     int fb = open("/dev/fb0", O_RDWR | O_CLOEXEC);
     if (fb < 0 || ioctl(fb, FBIOGET_VSCREENINFO, var) || ioctl(fb, FBIOGET_FSCREENINFO, fix)) return 1;
@@ -317,7 +341,7 @@ int main(int argc, char **argv) {
     struct sockaddr_un addr = { AF_UNIX, Q2VIDEO_SOCK };
     unlink(Q2VIDEO_SOCK);
     bind(sock, &addr, sizeof addr);
-    int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argc, argv), on = 1;
+    int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argv[1], argc > 3 ? argv[3] : 0, RATE), on = 1;
     /* ffmpeg -i alone, meanwhile, for the length the position bar needs */
     char info[4096];
     int at = 0, audio = au.pcm != 0, first = 1, quit = 0, held = 0, pp[2] = { -1, -1 }, got = 0;
