@@ -1547,7 +1547,7 @@ const char *now_tag(void *r, int field) {
 /* iPod Home (docs/ipod.md): the playing track's dimmed art behind the list. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
-    unsigned key;
+    unsigned key, repaint; /* repaint: the timer of home_repaint */
     int panel[4]; /* background bounds from the asset */
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
@@ -1561,36 +1561,92 @@ static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpi
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg" };
 
-/* Two bounded, dimmed thumbnails: local playback/Home and Spotify. No decode or pixel work
- * during repeated paints. The foreground covers and the image manager's pixels stay untouched. */
+/* Two prepared backdrops, local playback/Home and Spotify, each the art's centre crop at the size
+ * painted below the status bar: area-averaged over black to a BD_GW x BD_GH grid, softened twice
+ * with [1 2 1] / 4 each way, dimmed to one-fifth, then scaled up once, bilinearly, with a 4x4
+ * ordered dither so the dark gradients do not band. A paint is a 1:1 blit (BGRA8888, the screen's
+ * order); there is no decode, blur or pixel work in a paint. The foreground covers and the image
+ * manager's pixels stay untouched. */
+#define BD_W 375
+#define BD_H 290
+#define BD_GW 20 /* about 19 px a cell: the blur's size, the calibration knob */
+#define BD_GH 16
 static void *backdrops[2] __attribute__((section(".scratch")));
+
+/* One [1 2 1] / 4 pass over n values step apart, the ends repeated. */
+static void soften(unsigned *v, int n, int step) {
+    unsigned prev = v[0];
+    for (int i = 0; i < n; ++i) {
+        unsigned cur = v[i * step], next = v[(i + 1 < n ? i + 1 : i) * step];
+        v[i * step] = (prev + 2 * cur + next + 2) / 4;
+        prev = cur;
+    }
+}
+
+/* The grid position of each output pixel's centre in 1/256 cells: cell in the high bits. */
+static unsigned grid_at(int i, int n, int cells) {
+    int p = (2 * i + 1) * cells * 128 / n - 128;
+    return p < 0 ? 0 : p > (cells - 1) * 256 ? (unsigned)(cells - 1) * 256 : (unsigned)p;
+}
+
 int ipod_backdrop_set(int slot, void *widget, const char *url) {
     if (backdrops[slot]) bitmap_destroy(backdrops[slot]);
     backdrops[slot] = 0; /* failure and missing art must clear the previous track */
     if (!url || !*url) return 0;
     static const unsigned char at[4][4] = BITMAP_RGBA_AT;
+    static const unsigned char bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
     unsigned bm[64];
     if (widget_load_image(widget, url, bm)) return 0;
     unsigned w = bm[0], h = bm[1], fmt = ((unsigned short *)bm)[7] - 1u;
     const unsigned char *src = fmt < 4 && w && h && w <= 4096 && h <= 4096
                                    ? bitmap_lock_buffer_for_read(bm) : 0;
-    void *frame = src ? bitmap_create_ex(94, 73, 94 * 4, 1) : 0;
+    void *frame = src ? bitmap_create_ex(BD_W, BD_H, BD_W * 4, 3) : 0; /* BGRA8888 */
     unsigned *dst = frame ? (unsigned *)bitmap_lock_buffer_for_write(frame) : 0;
     if (dst) {
         unsigned stride = bitmap_get_line_length(bm), outstride = bitmap_get_line_length(frame) / 4;
         unsigned cw = w, ch = h;
-        if (w * 290 > h * 375) cw = h * 375 / 290;
-        else ch = w * 290 / 375;
+        if (w * BD_H > h * BD_W) cw = h * BD_W / BD_H;
+        else ch = w * BD_H / BD_W;
         if (!cw) cw = 1;
         if (!ch) ch = 1;
         const unsigned char *o = at[fmt];
-        for (unsigned y = 0; y < 73; ++y) {
-            const unsigned char *line = src + ((h - ch) / 2 + y * ch / 73) * stride;
-            for (unsigned x = 0; x < 94; ++x) {
-                const unsigned char *px = line + ((w - cw) / 2 + x * cw / 94) * 4;
-                unsigned a = px[o[3]], r = px[o[0]] * a / 1275,
-                         g = px[o[1]] * a / 1275, b = px[o[2]] * a / 1275;
-                dst[y * outstride + x] = 0xff000000u | r | g << 8 | b << 16;
+        /* Each cell's mean over black, at one-fifth, in 1/256 levels (0..13056). */
+        unsigned grid[3][BD_GH][BD_GW];
+        for (unsigned gy = 0; gy < BD_GH; ++gy) {
+            unsigned y0 = gy * ch / BD_GH, y1 = (gy + 1) * ch / BD_GH;
+            if (y1 <= y0) y1 = y0 + 1;
+            for (unsigned gx = 0; gx < BD_GW; ++gx) {
+                unsigned x0 = gx * cw / BD_GW, x1 = (gx + 1) * cw / BD_GW, sum[3] = { 0 };
+                if (x1 <= x0) x1 = x0 + 1;
+                for (unsigned y = y0; y < y1; ++y) {
+                    const unsigned char *px = src + ((h - ch) / 2 + y) * stride + ((w - cw) / 2 + x0) * 4;
+                    for (unsigned x = x0; x < x1; ++x, px += 4)
+                        for (int k = 0; k < 3; ++k) sum[k] += px[o[k]] * px[o[3]] / 255;
+                }
+                unsigned n = (y1 - y0) * (x1 - x0);
+                for (int k = 0; k < 3; ++k)
+                    grid[k][gy][gx] = (sum[k] / n * 256 + sum[k] % n * 256 / n) / 5;
+            }
+        }
+        for (int k = 0; k < 3; ++k)
+            for (int pass = 0; pass < 2; ++pass) {
+                for (int gy = 0; gy < BD_GH; ++gy) soften(grid[k][gy], BD_GW, 1);
+                for (int gx = 0; gx < BD_GW; ++gx) soften(&grid[k][0][gx], BD_GH, BD_GW);
+            }
+        unsigned short xs[BD_W];
+        for (int x = 0; x < BD_W; ++x) xs[x] = (unsigned short)grid_at(x, BD_W, BD_GW);
+        for (int y = 0; y < BD_H; ++y) {
+            unsigned p = grid_at(y, BD_H, BD_GH), gy = p >> 8, fy = p & 255,
+                     gy1 = gy + 1 < BD_GH ? gy + 1 : gy, row[3][BD_GW];
+            for (int k = 0; k < 3; ++k) /* the row between grid rows, in 1/256 cells */
+                for (int gx = 0; gx < BD_GW; ++gx)
+                    row[k][gx] = grid[k][gy][gx] * (256 - fy) + grid[k][gy1][gx] * fy;
+            for (int x = 0; x < BD_W; ++x) {
+                unsigned gx = xs[x] >> 8, fx = xs[x] & 255, gx1 = gx + 1 < BD_GW ? gx + 1 : gx,
+                         t = bayer[(y & 3) * 4 + (x & 3)] * 16 + 8, c[3];
+                for (int k = 0; k < 3; ++k)
+                    c[k] = (((row[k][gx] * (256 - fx) + row[k][gx1] * fx) >> 16) + t) >> 8;
+                dst[y * outstride + x] = 0xff000000u | c[2] | c[1] << 8 | c[0] << 16;
             }
         }
         ((unsigned short *)frame)[6] |= 1; /* opaque */
@@ -1602,17 +1658,43 @@ int ipod_backdrop_set(int slot, void *widget, const char *url) {
     return backdrops[slot] != 0;
 }
 
-void ipod_backdrop_paint(int slot, void *canvas, int y) {
-    if (!backdrops[slot] || !P(canvas, CANVAS_LCD)) return;
-    int src[4] = { 0, 0, 94, 73 }, dst[4] = { 0, y, 375, 290 };
-    canvas_draw_image(canvas, backdrops[slot], src, dst);
+/* The backdrop over the window below the status bar, under its children; 0 when there is none. */
+int ipod_backdrop_paint(int slot, void *canvas) {
+    if (!backdrops[slot] || !P(canvas, CANVAS_LCD)) return 0;
+    int r[4] = { 0, 0, BD_W, BD_H };
+    canvas_draw_image(canvas, backdrops[slot], r, r);
+    return 1;
+}
+
+/* The backdrop's color (color_t, opaque bits clear) at window position x, y; black when there is
+ * none. The art's rounded corners (navigation.c paint_cover) take it. */
+unsigned ipod_backdrop_rgb(int slot, int x, int y) {
+    void *b = backdrops[slot];
+    const unsigned char *px = b ? bitmap_lock_buffer_for_read(b) : 0;
+    if (!px) return 0;
+    x = x < 0 ? 0 : x >= BD_W ? BD_W - 1 : x;
+    y = y < 0 ? 0 : y >= BD_H ? BD_H - 1 : y;
+    px += y * bitmap_get_line_length(b) + x * 4; /* B, G, R */
+    unsigned rgb = px[2] | px[1] << 8 | px[0] << 16;
+    bitmap_unlock_buffer(b);
+    return rgb;
+}
+
+/* Repaint every window once the paint that changed the backdrop is over: AWTK drops what a paint
+ * invalidates when the frame ends, so the new backdrop would reach only regions repainted later. */
+static int home_repaint(const void *unused) {
+    (void)unused;
+    home.repaint = 0;
+    widget_invalidate_force(window_manager(), 0);
+    return 0; /* RET_REMOVE */
 }
 
 /* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
  * black. The player's files belong to the track whose path it copies to g_lastcover_url
  * after writing them, so right after a track change they count only once that is this track. Runs
- * whenever Home or the status bar paints (at least once a second) and reloads only when the track,
- * the cover it can use or its parsed tags change. */
+ * whenever a window or the status bar paints (at least once a second), for Home in Artwork and for
+ * Now Playing, and reloads only when the track, the cover it can use or its parsed tags change;
+ * home_repaint then shows the new backdrop whole. */
 void coverflow_home_art(void *top) {
     if (!home.art || !top) return;
     int playing = !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page");
@@ -1627,15 +1709,12 @@ void coverflow_home_art(void *top) {
     if (key == home.key) return;
     home.key = key;
     const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
-    int shown = ipod_backdrop_set(0, home.art, cover);
-    if (!shown && r) {
+    if (!ipod_backdrop_set(0, home.art, cover) && r) {
         char url[600] = "file://";
         art_path(url + 7, album, "");
-        shown = ipod_backdrop_set(0, home.art, url);
+        ipod_backdrop_set(0, home.art, url);
     }
-
-    widget_invalidate_force(home.art, 0);
-    if (playing) widget_invalidate_force(top, 0);
+    rearm(&home.repaint, home_repaint, 0);
 }
 
 /* Clip the full-width artwork and sliding menus to Home; restore after their children. */
@@ -1652,7 +1731,7 @@ void coverflow_home_clip(void *w, void *canvas, int begin) {
                 art ? home.panel[2] : pane, art ? home.panel[3] : I(w, W_H));
     canvas_set_clip_rect(canvas, clip);
     home.clipped = 1;
-    if (art) ipod_backdrop_paint(0, canvas, 0);
+    if (art) ipod_backdrop_paint(0, canvas);
 }
 
 /* Both menus keep equal text margins and full-row tap targets. */

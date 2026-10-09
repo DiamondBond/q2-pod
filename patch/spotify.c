@@ -307,12 +307,14 @@ static void spot_refresh(void) {
         if (!shown) image_base_set_image(ui.art, "default_album_big");
 #if IPOD
         ipod_backdrop_set(1, ui.art, shown ? "file://" SPOT_ART : 0);
+        widget_invalidate_force(ui.page, 0); /* the backdrop is the whole page's */
 #endif
     } else if (!sp.cover && ui.art_track[0]) {
         ui.art_track[0] = 0;
         image_base_set_image(ui.art, "default_album_big");
 #if IPOD
         ipod_backdrop_set(1, ui.art, 0);
+        widget_invalidate_force(ui.page, 0);
 #endif
     }
     unsigned ms = ui.scrub ? (unsigned)ui.scrub_ms : spot_position();
@@ -452,7 +454,8 @@ int spot_open(void *ctx, void *event) {
 void *spot_art(void) { return ui.art; }
 
 #if IPOD
+/* ringnav_paint_bg: the backdrop over the whole page, under the track's widgets. */
 void spot_background(void *w, void *canvas) {
-    if (w && w == ui.info) ipod_backdrop_paint(1, canvas, 0);
+    if (w && w == ui.page && widget_get_visible(ui.info)) ipod_backdrop_paint(1, canvas);
 }
 #endif

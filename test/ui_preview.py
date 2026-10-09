@@ -71,6 +71,13 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         args += ['(', '-size', f'{width}x{h}', f'gradient:#{top:06x}-#{bottom:06x}',
                  ')', '-gravity', 'NorthWest', '-geometry', f'+0+{y}', '-composite']
         rect(args, 0, y, width, 1, '#eeeeec' if top==0xeeeeec else ('#555555' if palette[2]==0x6e6e6e else f'#{palette[2]:06x}'))
+    def backdrop(source, dest):
+        # coverflow.c ipod_backdrop_set: the centre crop averaged to a 20x16 grid, softened (two [1 2 1]
+        # passes, about a one-cell Gaussian), scaled up bilinearly and dimmed to one-fifth.
+        render([source,'-resize','375x290^','-gravity','Center','-extent','375x290','-filter','Box','-resize','20x16!',
+                '-virtual-pixel','Edge','-gaussian-blur','0x1','-filter','Triangle','-resize','375x290!',
+                '-channel','RGB','-evaluate','Multiply','0.2','+channel'],dest)
+        return dest
     bright, dark = tmp/'bright.png', tmp/'dark.png'
     render(['-size','166x166','gradient:#FCE6AF-#2C7E93'], bright)
     render(['-size','166x166','gradient:#10131D-#423459'], dark)
@@ -100,10 +107,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         source = dark if case==10 else bright
                         if old: image(a,source,187,30,188,290)
                         else:
-                            bg=tmp/'home-background.png'
-                            render([source,'-resize','375x290^','-gravity','Center','-extent','375x290',
-                                    '-channel','RGB','-evaluate','Multiply','0.2','+channel'],bg)
-                            image(a,bg,0,30,375,290)
+                            image(a,backdrop(source,tmp/'home-background.png'),0,30,375,290)
                     elif not full and old: image(a,asset(build,'images/xx/default_album_home.png'),187,30,188,290)
                     selected=1 if case!=2 else 0
                     for i,value in enumerate(labels):
@@ -116,14 +120,10 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
                 elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
-                    text(a,'3 of 12' if case==3 else 'Spotify',16,30,180,40,16,'#AAAAAA')
                     art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_big.png'))
-                    if not old and case!=4:
-                        bg=tmp/'np-background.png'
-                        render([art,'-resize','375x290^','-gravity','Center','-extent','375x290',
-                                '-channel','RGB','-evaluate','Multiply','0.2','+channel',
-                                '-gravity','NorthWest','-crop','375x186+0+40','+repage'],bg)
-                        image(a,bg,0,70,375,186)
+                    if not old and case!=4:  # the whole window under the status bar
+                        image(a,backdrop(art,tmp/'np-background.png'),0,30,375,290)
+                    text(a,'3 of 12' if case==3 else 'Spotify',16,30,180,40,16,'#AAAAAA')
                     # The real art mask is rounded in the payload; compose the same 12px radius.
                     cover=tmp/'cover.png'
                     render([art,'-resize','166x166!','(', '-size','166x166','xc:black','-fill','white',

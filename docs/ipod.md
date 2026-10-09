@@ -87,12 +87,25 @@ Display settings offers **Home: Artwork / Plain**. Stored `IPOD/HOME=0` (formerl
 Artwork; `1` (formerly Full) means Plain. Plain uses the identical menu on black. No migration
 or new preference format is needed. Invalid or absent values still mean zero.
 
-Home and local Now Playing share one 94×73 RGBA backdrop; Spotify has a second. Together they
-use at most 54,896 pixel bytes plus bitmap headers. Each backdrop is centre-cropped from a
-validated 32-bit decoded image and composited over black at one-fifth brightness. Preparation
-runs only on artwork changes, with the original image manager pixels left untouched. Repeated
-paints only scale the prepared bitmap; there is no recurring decode, blur or pixel processing.
-Allocation or decode failure clears the previous image and falls back to black.
+Home and local Now Playing share one backdrop; Spotify has a second. Each is a 375×290 BGRA
+bitmap, the size painted below the status bar, so 435,000 pixel bytes a slot and 870,000 for both,
+plus bitmap headers. It is prepared once per artwork change from a validated 32-bit decoded
+image: the centre crop is area-averaged over black to a 20×16 grid (`BD_GW`, `BD_GH`: about
+19 pixels a cell, the blur's size), softened with two [1 2 1] / 4 passes each way, dimmed to
+one-fifth and scaled up bilinearly with a 4×4 ordered dither, so it is a soft blur without blocks
+or dark-gradient banding. The image manager's pixels are left untouched. A paint is one 1:1 blit;
+there is no recurring decode, blur or pixel processing. Allocation or decode failure clears the
+previous image and falls back to black.
+
+Home paints it under its menus; Now Playing and Spotify's page paint it over the whole window,
+under their children (all transparent but the art), so it shows behind the top row, the page
+dots, the bar and the times, and behind the lyrics, info and visualizer pages too. Now Playing
+is found by its window name, not the last page opened. The art's rounded corners take the
+backdrop's color there instead of black. The reload runs from a paint hook, and AWTK drops what a
+paint invalidates when its frame ends, so a reload repaints the screen from a 0 ms timer
+afterwards (`home_repaint`); Spotify's page repaints when its backdrop changes. Without that, a
+new backdrop reached only the regions something else repainted, and the rest kept the old one or
+black until the page was left and entered again.
 
 The local artwork key includes the queue path, usable player-cover type and parsed album tags.
 A player cover is accepted only when `g_lastcover_url` matches the current queue path; otherwise
@@ -349,7 +362,8 @@ pixels below it, the page dots 12 pixels under the art, the bar with the stock A
 
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
 placeholder cover at this size, so real art and the placeholder match. The payload paints them
-over the image in the page's black, with an anti-aliased edge pixel. The title is 22 pixels
+over the image in the backdrop's color at each corner (black without one), with an anti-aliased
+edge pixel. The title is 22 pixels
 white (`NP_TITLE_PX`); the artist is `#CCCCCC` (`NP_ARTIST_RGB`), while the album, "3 of 12"
 and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Stock
 keeps its existing artist color. Long lines scroll, as stock.

@@ -50,7 +50,7 @@ widget_count_children widget_get_child widget_lookup widget_move_resize widget_g
 canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
 timer_add timer_remove navigator_back_to_home navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
-canvas_draw_image slide_menu_set_spacer
+canvas_draw_image slide_menu_set_spacer window_manager
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
@@ -105,6 +105,7 @@ static unsigned art_w = 160, art_h = 160;
    RGBA8888, a pattern whose colour comes from the file's path, so every album looks different. */
 static unsigned char pixels[16][160 * 160 * 4];
 static int next_pixels, reads;
+static void (*art_fill)(unsigned char *px); /* replaces the pattern when set */
 static void pattern(unsigned char *px, unsigned seed) {
     static const unsigned char hue[8][3] = { { 214, 68, 58 }, { 58, 140, 214 }, { 236, 180, 50 }, { 90, 176, 96 },
                                              { 150, 90, 200 }, { 230, 120, 170 }, { 60, 190, 190 }, { 200, 200, 200 } };
@@ -129,6 +130,7 @@ int widget_load_image(void *x, const char *url, void *b) {
         for (const char *c = strrchr(url, '/'); *c; ++c) seed = seed * 31 + (unsigned char)*c; /* the key, not the scratch path */
         unsigned char *px = pixels[next_pixels++ % 16];
         pattern(px, seed % 1000);
+        if (art_fill) art_fill(px);
         bm[0] = art_w, bm[1] = art_h, bm[2] = art_w * 4;
         ((unsigned short *)b)[7] = 1; /* RGBA8888 */
         *(unsigned char **)((char *)b + 0x14) = px;
@@ -159,7 +161,9 @@ unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     return 1;
 }
 int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
-int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
+static int wm_repaints; /* whole-screen invalidations, from outside a paint */
+void *window_manager(void) { return &wm_repaints; }
+int widget_invalidate_force(void *x, void *y) { (void)y; wm_repaints += x == &wm_repaints; return 0; }
 unsigned widget_count_children(void *x) { return W(x)->nkids; }
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
 static void *home_art, *home_list; /* iPod Home's art and list; none in the carousel tests */
@@ -192,7 +196,7 @@ int slide_menu_item_width(void *x) { return *(int *)(W(x)->raw + W_H); }
 int slide_menu_set_spacer(void *x, int v) { *(int *)(W(x)->raw + SLIDE_SPACER) = v; return 0; }
 /* The frame bitmap (bitmap_t as above) and the canvas: canvas_draw_image keeps what it drew. */
 static int frames, frame_fail, tex_fail, locks, draws, drawn[4];
-static unsigned shown[CF_VIEW_H * CF_VIEW_W], backdrop[94 * 73];
+static unsigned shown[CF_VIEW_H * CF_VIEW_W], backdrop[375 * 290];
 #undef calloc /* the payload's calloc is this shim; the tests' own is libc's */
 void *calloc(size_t, size_t);
 void *shim_calloc(size_t n, size_t size) { return tex_fail && size == 160 * 160 * 4 ? 0 : calloc(n, size); }
@@ -211,8 +215,9 @@ unsigned bitmap_get_line_length(void *b) { return ((unsigned *)b)[2]; }
 int canvas_draw_image(void *c, void *b, const void *src, const void *dst) {
     (void)c; ++draws;
     const int *r = dst, *q = src;
-    if (((unsigned *)b)[0] == 94) {
-        assert(q[2] == 94 && q[3] == 73 && r[2] == 375 && r[3] == 290);
+    if (((unsigned short *)b)[7] == 3) { /* the backdrop (BGRA8888): whole, 1:1 and opaque */
+        int whole[4] = { 0, 0, 375, 290 };
+        assert(!memcmp(q, whole, 16) && !memcmp(r, whole, 16) && ((unsigned short *)b)[6] & 1);
         memcpy(backdrop, *(void **)((char *)b + 0x14), sizeof backdrop);
         return 0;
     }
@@ -832,6 +837,20 @@ static void disc_folders(void) {
     rescan();
 }
 
+#if IPOD
+/* Backdrop art: a flat colour inside the centre crop, white outside it; half transparent when tall. */
+static unsigned shape;
+static void flat_art(unsigned char *px) {
+    unsigned cw = art_w, ch = art_h;
+    if (cw * 290 > ch * 375) cw = ch * 375 / 290; else ch = cw * 290 / 375;
+    for (unsigned y = 0; y < art_h; ++y) for (unsigned x = 0; x < art_w; ++x) {
+        int in = x >= (art_w - cw) / 2 && x < (art_w - cw) / 2 + cw && y >= (art_h - ch) / 2 && y < (art_h - ch) / 2 + ch;
+        unsigned char *q = px + (y * art_w + x) * 4;
+        q[0] = in ? 200 : 255; q[1] = in ? 100 : 255; q[2] = in ? 30 : 255; q[3] = shape == 2 ? 128 : 255;
+    }
+}
+#endif
+
 int main(void) {
     /* Titles come from tags, unchanged; missing tags retain filename/CUE fallbacks. */
     char track[0x60] = {0}, name[512];
@@ -986,31 +1005,44 @@ int main(void) {
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[0]);
     coverflow_home_art(win); assert(!strcmp(last_loaded, player) && frames == 1);
     int canvas[32] = {0}; canvas[CANVAS_LCD / 4] = 1;
+    assert(timer_fn && (run(), wm_repaints == 1)); /* repainted whole after the paint that loaded it */
     int decoded = reads, prepared = locks;
     for (int i = 0; i < 10; ++i) {
         coverflow_home_art(win);
-        ipod_backdrop_paint(0, canvas, 0);
+        assert(ipod_backdrop_paint(0, canvas));
     }
-    assert(reads == decoded && locks == prepared); /* recurring paints only draw the cache */
-    for (unsigned i = 0; i < 94 * 73; ++i) {
+    assert(reads == decoded && locks == prepared && !timer_fn); /* recurring paints only draw the cache */
+    for (unsigned i = 0; i < 375 * 290; ++i) {
         assert(backdrop[i] >> 24 == 255);
         for (int k = 0; k < 3; ++k) assert((backdrop[i] >> (k * 8) & 255) <= 51);
     }
-    /* Centred crop and dimming: compare every sample with the original decoded bitmap. */
-    for (unsigned shape = 0; shape < 3; ++shape) {
-        art_w = shape == 1 ? 80 : 160; art_h = shape == 2 ? 80 : 160;
-        assert(ipod_backdrop_set(0, home_art, player));
-        ipod_backdrop_paint(0, canvas, 0);
-        unsigned cw = art_w, ch = art_h;
-        if (cw * 290 > ch * 375) cw = ch * 375 / 290; else ch = cw * 290 / 375;
-        unsigned char *px = pixels[(next_pixels - 1) % 16];
-        for (unsigned y = 0; y < 73; ++y) for (unsigned x = 0; x < 94; ++x) {
-            unsigned at = (((art_h - ch) / 2 + y * ch / 73) * art_w + (art_w - cw) / 2 + x * cw / 94) * 4;
-            unsigned expected = 0xff000000u;
-            for (int k = 0; k < 3; ++k) expected |= (unsigned)(px[at+k] / 5) << (8*k);
-            assert(backdrop[y*94+x] == expected);
+    /* Smooth: no blocks or steps, a neighbour at most two levels away; yet the art still shows. */
+    unsigned lo = 255, hi = 0;
+    for (unsigned y = 0; y < 290; ++y) for (unsigned x = 0; x < 375; ++x) {
+        unsigned v = backdrop[y * 375 + x];
+        for (int k = 0; k < 24; k += 8) {
+            int c = v >> k & 255;
+            if (x) assert(abs(c - (int)(backdrop[y * 375 + x - 1] >> k & 255)) <= 2);
+            if (y) assert(abs(c - (int)(backdrop[(y - 1) * 375 + x] >> k & 255)) <= 2);
+            if (c < (int)lo) lo = c;
+            if (c > (int)hi) hi = c;
         }
     }
+    assert(hi - lo >= 8);
+    assert(ipod_backdrop_rgb(0, 10, 300) == ((backdrop[289 * 375 + 10] >> 16 & 255) | (backdrop[289 * 375 + 10] & 0xff00) |
+                                              (backdrop[289 * 375 + 10] & 255) << 16)); /* clamped, color_t */
+    /* Centred crop and dimming: a flat colour inside the crop, white outside it, is that colour at
+       one-fifth (within the dither) everywhere, for square, wide and tall art. */
+    art_fill = flat_art;
+    for (shape = 0; shape < 3; ++shape) {
+        art_w = shape == 1 ? 160 : shape ? 60 : 160; art_h = shape == 1 ? 80 : 160;
+        assert(ipod_backdrop_set(0, home_art, player));
+        ipod_backdrop_paint(0, canvas);
+        unsigned a = shape == 2 ? 128 : 255, want[3] = { 30 * a / 255, 100 * a / 255, 200 * a / 255 }; /* B, G, R */
+        for (unsigned i = 0; i < 375 * 290; ++i)
+            for (int k = 0; k < 3; ++k) assert(abs((int)(backdrop[i] >> (8 * k) & 255) - (int)want[k] / 5) <= 1);
+    }
+    art_fill = 0;
     art_w = art_h = 160;
     frame_fail = 1; assert(!ipod_backdrop_set(0, home_art, player) && frames == 0); frame_fail = 0;
     assert(ipod_backdrop_set(0, home_art, player) && frames == 1);
@@ -1078,7 +1110,7 @@ def main():
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
           ' Sort by artist, recently added and most played, kept across opens, passed;'
-          ' iPod backdrop sources, crop, dimming, allocation failure, cache, clip and Artwork/Plain layout passed.')
+          ' iPod backdrop sources, crop, dimming, smoothness, corner colour, deferred repaint, allocation failure, cache, clip and Artwork/Plain layout passed.')
 
 
 if __name__ == '__main__':

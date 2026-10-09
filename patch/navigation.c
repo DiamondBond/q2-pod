@@ -23,7 +23,6 @@ extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
-extern void ipod_backdrop_paint(int slot, void *canvas, int y);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern int coverflow_home_back(void *top);
@@ -1389,13 +1388,19 @@ static void paint_letter(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
-/* Now Playing's art, and Spotify's, gets NP_ART_RADIUS corners, painted over it in the page's
- * black: each corner row outside the arc, then its edge pixel at the alpha of its uncovered part
- * (1/16 px). */
+/* Now Playing's art, and Spotify's, gets NP_ART_RADIUS corners, painted over it in the backdrop's
+ * color there (black without one; the blurred backdrop is flat over a corner): each corner row
+ * outside the arc, then its edge pixel at the alpha of its uncovered part (1/16 px). */
 static void paint_cover(void *w, void *canvas) {
     if (!w || (w != st.np_cover && w != spot_art()) || !P(canvas, CANVAS_LCD)) return;
-    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), rgb[4];
     int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H);
+    void *win = w, *wm = window_manager();
+    while (P(win, W_PARENT) && P(win, W_PARENT) != wm) win = P(win, W_PARENT);
+    int ox = I(canvas, CANVAS_X) - I(win, W_X), oy = I(canvas, CANVAS_Y) - I(win, W_Y);
+    for (int c = 0; c < 4; ++c) /* c & 1 the bottom, c & 2 the right */
+        rgb[c] = ipod_backdrop_rgb(w != st.np_cover, ox + (c & 2 ? ww - 1 : 0),
+                                   oy + (c & 1 ? h - 1 : 0));
     for (int i = 0; i < r; ++i) {
         /* s is 16 sqrt(r * r - d * d / 4), the arc's half-width at this row's centre */
         int d = 2 * (r - i) - 1, v = (4 * r * r - d * d) * 64, s = 0;
@@ -1403,9 +1408,9 @@ static void paint_cover(void *w, void *canvas) {
         int out = 16 * r - s, n = out >> 4;
         for (int c = 0; c < 4; ++c) {
             int y = c & 1 ? h - 1 - i : i, left = !(c & 2);
-            canvas_set_fill_color(canvas, RGBA(0));
+            canvas_set_fill_color(canvas, 0xff000000u | rgb[c]);
             canvas_fill_rect(canvas, left ? 0 : ww - n, y, n, 1);
-            canvas_set_fill_color(canvas, (unsigned)(out & 15) * 17 << 24);
+            canvas_set_fill_color(canvas, (unsigned)(out & 15) * 17 << 24 | rgb[c]);
             canvas_fill_rect(canvas, left ? n : ww - n - 1, y, 1, 1);
         }
     }
@@ -2074,8 +2079,6 @@ int ringnav_paint_bg(void *w, void *canvas) {
     paint_selection(w, canvas);
     coverflow_home_clip(w, canvas, 1);
     spot_background(w, canvas);
-    if (w && st.np_cover && w == P(st.np_cover, W_PARENT))
-        ipod_backdrop_paint(0, canvas, -40);
     if (w && w == st.bar_slot) paint_battery(w, canvas);
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD)) {
@@ -2087,6 +2090,10 @@ int ringnav_paint_bg(void *w, void *canvas) {
     void *top = window_manager_get_top_window(wm);
     /* Any painted window, not only the top one: Home slides back in from a snapshot. */
     coverflow_home_art(w == bar ? top : w);
+    /* Now Playing's backdrop, the whole window under its transparent children; by name, so a
+     * Now Playing uncovered again has it too. */
+    if (!tk_strcmp(widget_get_prop_str(w, "name", ""), "playing_page"))
+        ipod_backdrop_paint(0, canvas);
     if (bar && (w == bar || w == top)) {
         clock_sync(bar);
         bar_sync(bar);

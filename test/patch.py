@@ -4372,32 +4372,67 @@ assert cf_geometry(m,s)==(0,24,375,160) and all(m.nodes[c].get('image') for c in
 paint(m); assert not m.draws; passed()
 print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (decoding the covers in reach, then the frame), {turn_cost} for a frame a quarter turn on (payload only; stock drawing mocked)')
 
+def backdrop_reference(px,w,h,dim=5,grid=(20,16),size=(375,290)):
+    """coverflow.c ipod_backdrop_set in Python: RGBA8888 in, BGRA8888 rows out."""
+    (GW,GH),(W,H)=grid,size
+    cw,ch=(h*W//H,h) if w*H>h*W else (w,w*H//W)
+    g=[[[0]*GW for _ in range(GH)] for _ in range(3)]
+    for gy in range(GH):
+        y0,y1=gy*ch//GH,max((gy+1)*ch//GH,gy*ch//GH+1)
+        for gx in range(GW):
+            x0,x1=gx*cw//GW,max((gx+1)*cw//GW,gx*cw//GW+1); t=[0,0,0]
+            for y in range(y0,y1):
+                for x in range(x0,x1):
+                    i=(((h-ch)//2+y)*w+(w-cw)//2+x)*4
+                    for k in range(3): t[k]+=px[i+k]*px[i+3]//255
+            n=(y1-y0)*(x1-x0)
+            for k in range(3): g[k][gy][gx]=(t[k]//n*256+t[k]%n*256//n)//dim
+    def soften(v):
+        out=[(a+2*b+c+2)//4 for a,b,c in zip([v[0]]+v[:-1],v,v[1:]+[v[-1]])]; v[:]=out
+    for k in range(3):
+        for _ in range(2):
+            for row in g[k]: soften(row)
+            for gx in range(GW):
+                col=[g[k][gy][gx] for gy in range(GH)]; soften(col)
+                for gy in range(GH): g[k][gy][gx]=col[gy]
+    at=lambda i,n,c:max(0,min((2*i+1)*c*128//n-128,(c-1)*256))
+    bayer=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5]; xs=[at(x,W,GW) for x in range(W)]; out=bytearray()
+    for y in range(H):
+        p=at(y,H,GH); gy,fy=p>>8,p&255; gy1=min(gy+1,GH-1)
+        row=[[g[k][gy][gx]*(256-fy)+g[k][gy1][gx]*fy for gx in range(GW)] for k in range(3)]
+        for x in range(W):
+            gx,fx=xs[x]>>8,xs[x]&255; gx1=min(gx+1,GW-1); t=bayer[(y&3)*4+(x&3)]*16+8
+            c=[(((row[k][gx]*(256-fx)+row[k][gx1]*fx)>>16)+t)>>8 for k in range(3)]
+            out+=bytes([c[2],c[1],c[0],255])
+    return bytes(out)
+
 if variant=='ipod':
+    # The backdrop on MIPS: what Python's reference makes of the decoded art, BGRA8888, drawn whole
+    # and 1:1 with no decode or pixel work on repaint; the cover's pixels untouched.
     class BackdropMachine(DepthMachine):
         def hook(self,u,address,size,unused):
             if self.handlers.get(address,'')=='canvas_draw_image':
                 a,b,c,d=[u.reg_read(r) for r in REGS]
-                assert (self.get(b),self.get(b+4),self.get(b+8))==(94,73,376)
-                assert [self.get(c+4*i) for i in range(4)]==[0,0,94,73]
-                self.backdrop=bytes(u.mem_read(self.get(b+0x14),94*73*4))
+                assert (self.get(b),self.get(b+4),self.get(b+8))==(375,290,1500)
+                assert struct.unpack_from('<HH',bytes(u.mem_read(b+0xc,4)))==(1,3)  # opaque, BGRA8888
+                assert [self.get(c+4*i) for i in range(4)]==[self.get(d+4*i) for i in range(4)]==[0,0,375,290]
+                self.backdrop=bytes(u.mem_read(self.get(b+0x14),375*290*4))
                 u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
             return super().hook(u,address,size,unused)
     m=BackdropMachine(); w=m.node('view'); url=m.string('file:///cover.jpg')
-    assert m.call(address=payload_syms['ipod_backdrop_set'],args=(0,w,url,0),gap=0)==1
+    assert m.call(address=payload_syms['ipod_backdrop_set'],args=(0,w,url,0),gap=0,count=200_000_000)==1
     original=bytes(m.u.mem_read(m.pixels['file:///cover.jpg'],160*160*4))
-    m.call(address=payload_syms['ipod_backdrop_paint'],args=(0,m.canvas,0,0),gap=0)
-    expected=bytearray()
-    for y in range(73):
-        for x in range(94):
-            i=(((160-123)//2+y*123//73)*160+x*160//94)*4
-            expected.extend([*(v*original[i+3]//1275 for v in original[i:i+3]),255])
-    assert m.backdrop==bytes(expected) and len(m.frames)==1
+    assert m.call(address=payload_syms['ipod_backdrop_paint'],args=(0,m.canvas,0,0),gap=0)==1
+    assert m.backdrop==backdrop_reference(original,160,160) and len(m.frames)==1
+    rgb=m.call(address=payload_syms['ipod_backdrop_rgb'],args=(0,374,-5,0),gap=0)
+    assert rgb==int.from_bytes(m.backdrop[374*4:374*4+3][::-1],'little')  # clamped, as color_t
     for _ in range(3):
         m.call(address=payload_syms['ipod_backdrop_paint'],args=(0,m.canvas,0,0),gap=0)
         assert not any(c[0] in ('widget_load_image','bitmap_lock_buffer_for_write') for c in m.calls)
     assert bytes(m.u.mem_read(m.pixels['file:///cover.jpg'],160*160*4))==original
     m.call(address=payload_syms['ipod_backdrop_set'],args=(0,w,0,0),gap=0)
-    assert m.destroyed==m.frames; passed()
+    assert m.destroyed==m.frames and m.call(address=payload_syms['ipod_backdrop_paint'],args=(0,m.canvas,0,0),gap=0)==0
+    assert m.call(address=payload_syms['ipod_backdrop_rgb'],args=(0,0,0,0),gap=0)==0; passed()
 
 if variant=='ipod':
     # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
