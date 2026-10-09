@@ -64,7 +64,7 @@ See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes
 
 ### Spotify
 
-Spotify isn't in the firmware: build the `.spotify` folder with [q2-librespot](https://github.com/DiamondBond/q2-librespot/blob/shanlingq2/contrib/shanlingq2/README)'s `contrib/shanlingq2/build.sh` and copy it to the card's root (the leading dot hides it on macOS and Linux). Power the Q2 off before swapping the card. Open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card, so afterwards the Q2 appears in Spotify shortly after each power-on.
+Spotify isn't in the firmware; it runs from the card. With the Q2 powered off, unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root, so it has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh` (the leading dot hides the folder; Cmd+Shift+. shows it in macOS Finder). Power on, open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card, so afterwards the Q2 appears in Spotify shortly after each power-on.
 
 Needs Spotify Premium. Audio plays on the headphone jack only (no Bluetooth or USB DAC). Play/Pause and Next/Prev control Spotify until you play local music; the wheel sets volume. Delete `.spotify` to remove it. See the [guide](docs/guide.md#spotify) for details.
 

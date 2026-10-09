@@ -102,11 +102,12 @@ The first time, open **Streaming → Spotify** and pick **Q2** in the Spotify ap
 
 ### Install Spotify
 
-1. Build it with [q2-librespot](https://github.com/DiamondBond/q2-librespot/blob/shanlingq2/contrib/shanlingq2/README)'s `contrib/shanlingq2/build.sh`, which stages a `.spotify` folder.
-2. Copy that folder to the root of the microSD card, so the card has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`. On macOS and Linux the leading dot hides it.
-3. Shut the Q2 down fully before taking the card out or putting it back, then power it on.
+1. Download `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest).
+2. Shut the Q2 down fully, then put its microSD card in your computer.
+3. Unzip the file to the card's root, so the card has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`. On macOS and Linux the leading dot hides the folder; Cmd+Shift+. shows it in Finder.
+4. Put the card back and power the Q2 on.
 
-To remove Spotify, delete the `.spotify` folder; its `cache/` holds the saved login.
+To update, unzip a newer release over it; its `cache/` keeps the saved login. To remove Spotify, delete the `.spotify` folder. To build it yourself, see [q2-librespot](https://github.com/DiamondBond/q2-librespot/blob/shanlingq2/contrib/shanlingq2/README).
 
 ## Parametric EQ
 
