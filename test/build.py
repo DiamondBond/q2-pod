@@ -348,13 +348,14 @@ def validate_assets(directory):
             (lv, lg, _, [sv]), art = root[3]
             assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
             # The art fills the right panel below the status bar; the payload fits and crops it.
-            assert art[1] == [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290] and art[2]['draw_type'] == 'fill'
+            assert art[1] == [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290] and abs(375 - 2*HOME_LIST_W) == 1 and art[2]['draw_type'] == 'fill'
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
                 assert label[2]['name'] == ('label_library' if name == 'localmusic' else 'label_'+name)
                 assert image[2] == {'name': 'img_'+name, 'clickable': 'true'}
-                # Whole English labels ("Playback Setting", 149px), ending before the chevron's glyph.
-                assert label[1][0] + label[1][2] == image[1][2] - HOME_LABEL_END and label[1][2] >= 149
+                # Labels end before the chevron's glyph; longer ones scroll (only_focus) or end in an ellipsis.
+                assert label[1][0] + label[1][2] == image[1][2] - HOME_LABEL_END and label[1][2] >= 100
+                assert label[2]['only_focus'] == 'true' and label[2]['ellipses'] == 'true'
             assert [r[3][0][2].get('text') for r in sv[3]][1:3] == ['Library', 'Coverflow']
             assert lg == [0, HOME_TOP, HOME_LIST_W, 7*HOME_ROW] and HOME_TOP + 7*HOME_ROW <= BOTTOM - HOME_TOP
             assert b'menu_' not in new and b'slide_menu' not in new

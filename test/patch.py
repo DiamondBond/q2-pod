@@ -3620,14 +3620,14 @@ if variant=='ipod':
         return geometry()
     # C division truncates: the extra pixel of an odd overflow is cropped on the right or bottom.
     for (w,h),want in (((300,300),[HOME_LIST_W+int((PW-290)/2),0,290,290]),     # square: crop the sides
-                       ((500,1000),[HOME_LIST_W,0,PW,290]),                  # the panel's own 1:2
+                       ((2*PW,580),[HOME_LIST_W,0,PW,290]),                  # the panel's own shape
                        ((600,400),[HOME_LIST_W+int((PW-435)/2),0,435,290]),      # landscape
-                       ((100,400),[HOME_LIST_W,int((290-580)/2),PW,580])):       # taller than the panel
+                       ((100,400),[HOME_LIST_W,int((290-4*PW)/2),PW,4*PW])):       # taller than the panel
         assert cover(w,h)==want,((w,h),geometry(),want)
         x,y,gw,gh=want; assert gw*h==w*gh or abs(gw/gh-w/h)<0.01  # proportional, never stretched
     passed()
     # The paint hooks clip it to the panel on screen (window at y 30) and restore the clip after.
-    m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],HOME_LIST_W); m.word(m.canvas+O['CANVAS_Y'],30-145)
+    m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],HOME_LIST_W); m.word(m.canvas+O['CANVAS_Y'],30+want[1])  # the last cover's offset
     m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.art,m.canvas,0,0))
     assert m.clip==(HOME_LIST_W,30,PW,290),m.clip
     m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0))

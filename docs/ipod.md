@@ -98,18 +98,18 @@ for a list with a mobile scroll bar, which Home has none of, and the payload nav
 scroll views only. The 14 `menu_*` images are named only by the stock `home_page.bin` (every UI asset and
 the executable were checked; the inputs are SHA-pinned), so iPod removes them.
 
-The list is 230 pixels wide. Labels start 33 pixels in, where the last row's text clears the
-bottom-left corner, and end 10 pixels before the chevron's glyph, 149 pixels wide, so the longest
-English label ("Playback Setting") fits. Every label shares that left edge and every chevron the
-column 58 pixels from the row's end. `img_homeart` fills the right panel edge to edge: x 230 to
-the screen edge and the whole window height under the status bar (145x290, `HOME_ART_RECT`). Sizes
+The list is 187 pixels wide, half the screen. Labels start 33 pixels in, where the last row's text
+clears the bottom-left corner, and end 10 pixels before the chevron's glyph, 106 pixels wide; a
+longer one ("Playback Setting") ends in an ellipsis and scrolls while its row is selected. Every label shares that left edge and every chevron the
+column 58 pixels from the row's end. `img_homeart` fills the right panel edge to edge: x 187 to
+the screen edge and the whole window height under the status bar (188x290, `HOME_ART_RECT`). Sizes
 are `HOME_*` constants in `tools/ipod.py`.
 
 The art is cropped to fill the panel, never stretched. Stock's own `fill` draw type (`8`,
 `canvas_draw_image_fill` `0x63856c`) scales proportionally but anchors its crop at the image's
 top-left, so on its own a square cover would show only its left half. Each time the art changes,
 the payload sizes `img_homeart` to the decoded image's proportions, just covering the panel and
-centred on it (a square cover becomes 290x290 at x 158), so `fill` draws the whole image; the
+centred on it (a square cover becomes 290x290 at x 136), so `fill` draws the whole image; the
 background hook narrows the canvas clip to the panel before the image paints and the border hook
 restores it, so the overflow is cropped evenly from both sides. An image whose size is unknown
 (the placeholder when it does not decode) fills the panel as it is. A fitted cover reaches under

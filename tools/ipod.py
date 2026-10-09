@@ -53,9 +53,9 @@ STATUS_PAD = 2
 STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
 CLOCK_MIN = 105
 CLOCK_TEXT = 70
-# iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. The
-# labels fit the longest English one ("Playback Setting", 149px at 20px) and all start where the last
-# row's clears the bottom-left corner. The art fills the right panel, edge to edge below the status
+# iPod Home: seven HOME_ROW rows from HOME_TOP below the status bar, with room above and below. Split
+# gives the list and the art half the screen each; the labels all start where the last row's clears
+# the bottom-left corner, and longer ones end in an ellipsis, scrolling when selected. The art fills the right panel, edge to edge below the status
 # bar; the payload fits it to each cover and crops it evenly (coverflow_home_art). In Full
 # the rows end at HOME_FULL_ROW (patch/offsets.inc), so the chevron's glyph mirrors the text margin.
 INC = (ROOT/'patch/offsets.inc').read_text()
@@ -75,7 +75,7 @@ HOME_TOP = 8
 HOME_ROW = 39
 HOME_TEXT_X = max(MARGIN, corner_x(30 + HOME_TOP + 6 * HOME_ROW + (HOME_ROW - 20) // 2, 20))
 HOME_LABEL_END = CHEVRON_W - 10  # label end to the row's right edge: 10px before the glyph (x 20 of 50)
-HOME_LIST_W = HOME_TEXT_X + 149 + HOME_LABEL_END
+HOME_LIST_W = 375 // 2  # half the screen; the art takes the other (odd) pixel
 HOME_ART_RECT = [HOME_LIST_W, 0, 375 - HOME_LIST_W, 290]  # the whole right panel under the status bar
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250, so the 8px bar sits on
