@@ -126,8 +126,8 @@ the status bar on each paint. The list's layout (`0x5ea3a4`) stacks hidden rows 
 Rockbox row is also restacked after Settings, where it leaves only blank space under the last
 row; the wheel skips hidden rows. **Settings** works as an iPod submenu: a second, hidden
 `list_view_homeset` in the list's place holds stock's own `btn_playset` and `btn_sysset` rows,
-which the stock visitor binds and translates ("Playback Setting", "System Setting") as it did the
-cards. `home_settings` hides the list, shows this one and slides it in from the right
+which the stock visitor binds as it did the cards; their labels, renamed `label_playback` and
+`label_system` so the visitor skips them as it does `label_library`, say "Playback" and "System". `home_settings` hides the list, shows this one and slides it in from the right
 (`widget_animator_prop_create` on `x`, 200 ms, stock's scroll easing); Return on Home
 (`coverflow_home_back`, from `ringnav` after stock's release) slides the list back in from the
 left. The art stays: both lists are clipped to the left pane while they paint (`coverflow_home_clip`),

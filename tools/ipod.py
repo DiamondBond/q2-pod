@@ -217,10 +217,14 @@ def home_card(root):
 # slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
 # tap and is the row's click target for the wheel. The payload binds Coverflow, Rockbox (shown
 # only while the card has it) and Settings, which slides list_view_homeset, hidden until then and
-# holding stock's own Playback and System setting rows, into the list's place.
+# holding stock's own Playback and System setting rows (labelled Playback and System), into the list's place.
 HOME_ROWS = ['playing', 'localmusic', 'coverflow', 'folder', 'rockbox', 'stream', 'settings']
 HOME_SETS = ['playset', 'sysset']
 HOME_LITERAL = {'coverflow': 'Coverflow', 'rockbox': 'Rockbox', 'settings': 'Settings'}
+# Stock's visitor translates label_localmusic, label_playset and label_sysset by name; renamed, they keep
+# these shorter literals.
+HOME_RENAMED = {'localmusic': LIBRARY, 'playset': {'name': 'label_playback', 'text': 'Playback'},
+                'sysset': {'name': 'label_system', 'text': 'System'}}
 
 
 # Stock list pages paint their list_view black inline; the theme default is a light rounded card.
@@ -236,8 +240,7 @@ def home_list(name, rows, extra=None):
         label = {'name': 'label_' + row, 'style': 's_scrlabel_white20l', 'only_focus': 'true', 'ellipses': 'true'}
         if row in HOME_LITERAL:
             label['text'] = HOME_LITERAL[row]
-        if row == 'localmusic':
-            label.update(LIBRARY)
+        label.update(HOME_RENAMED.get(row, {}))
         views.append(['view', [0, i * HOME_ROW, HOME_LIST_W, HOME_ROW], {'name': 'btn_' + row}, [
             ['hscroll_label', [HOME_TEXT_X, 0, HOME_LIST_W - HOME_TEXT_X - HOME_LABEL_END, HOME_ROW], label, []],
             ['image', [0, 0, HOME_LIST_W, HOME_ROW], {'name': 'img_' + row, 'clickable': 'true'}, []]]])
