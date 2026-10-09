@@ -33,6 +33,7 @@ Made for the **Shanling Q2**, with an iPod classic feel and a few extras:
 - **More ways to listen:** favourites, playlists, Most Played, and shuffle by song, album or folder. Hold Play/Pause for track and playback options.
 - **Parametric EQ:** up to 30 bands, per-channel adjustments, balance, a live curve and AutoEQ / Equalizer APO preset imports.
 - **Beyond music:** videos, photos, books, podcasts and audiobooks. Podcasts, audiobooks and long mixes resume where you left off.
+- **Spotify Connect:** **Streaming → Spotify** turns the Q2 into a Spotify Connect speaker with its own Now Playing page (Premium; runs from the microSD card).
 - **Scrobbling:** log listens and upload to Last.fm or ListenBrainz over Wi-Fi.
 - **Battery options:** an optional 80% charge limit and Low power mode.
 
@@ -60,6 +61,12 @@ Unzip [Rockbox's `rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releas
 For Bluetooth, connect your headphones in Q2 Pod first, set **System settings → Display → Shortcut** to **Rockbox**, then select Home's Streaming row to launch it.
 
 See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases).
+
+### Spotify
+
+Spotify isn't in the firmware: build the `.spotify` folder with [q2-librespot](https://github.com/DiamondBond/q2-librespot/blob/shanlingq2/contrib/shanlingq2/README)'s `contrib/shanlingq2/build.sh` and copy it to the card's root (the leading dot hides it on macOS and Linux). Power the Q2 off before swapping the card. Open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card, so afterwards the Q2 appears in Spotify shortly after each power-on.
+
+Needs Spotify Premium. Audio plays on the headphone jack only (no Bluetooth or USB DAC). Play/Pause and Next/Prev control Spotify until you play local music; the wheel sets volume. Delete `.spotify` to remove it. See the [guide](docs/guide.md#spotify) for details.
 
 ## Everyday use
 
