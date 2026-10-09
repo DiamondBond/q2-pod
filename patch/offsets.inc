@@ -42,6 +42,7 @@
 #define EVT_POINTER_UP_BEFORE 0x104
 #define EVT_POINTER_ABORT 0x107
 #define EVT_DESTROY 0x0c
+#define EVT_KEY_DOWN 0x110        /* widget_on_keydown @0x6627c4 (0x111 is its long press) */
 #define EVT_KEY_DOWN_BEFORE 0x112 /* wm keydown-before dispatch @0x523e6c */
 #define EVT_KEY_UP 0x114          /* wm keyup dispatch @0x523eb8 */
 #define EVT_KEY_UP_BEFORE 0x115   /* wm keyup-before dispatch @0x523e80 */
@@ -193,6 +194,7 @@
  * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on volume. */
 #define SCRUB_STEP 5
 #define DOUBLE_CLICK_MS 200 /* a second centre press within this is a double press */
+#define WAKE_MS 500 /* Wake: Double press, the screen-off double press; looser, done blind in a hand */
 #define SCRUB_MS 3000
 #define LYRIC_STEP 25 /* px per wheel tick on the lyrics page: one stock lyric row */
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms; screen-off keys

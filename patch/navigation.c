@@ -136,8 +136,10 @@ typedef struct {
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
      * the check, 1 usable, 2 refused by an earlier boot's stall, 3 refused by the kernel;
      * last_input times the screen-on idle. */
-    int pod_read, charge_limit, low_power, charge_held, cpu_off, cpu_bad, cpu_marked;
-    void *pod_label[3];
+    int pod_read, charge_limit, low_power, wake_double, wake_pass, charge_held, cpu_off, cpu_bad,
+        cpu_marked;
+    void *pod_label[4];
+    unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
     unsigned charge_at, last_input, cpu_retry;
 #if IPOD
     void *pull_page, *pull_surface;
@@ -1571,27 +1573,29 @@ static void *list_row(void *view, const char *icon, int (*click)(void *, void *)
     return list_row_core(view, icon, click, ctx, 260, 0);
 }
 
-/* Power management's Charge limit and Low power (docs/internals.md#charge-limit, #low-power), Q2POD
- * CHARGELIMIT and LOWPOWER in config.ini, and Audio settings' Artists, which is stock's own
- * PLAYSET ARTISTTYPE (artist_type, the artist page's switch; docs/internals.md#album-artists). */
+/* Power management's Charge limit, Low power and Wake (docs/internals.md#charge-limit, #low-power,
+ * #wake), Q2POD CHARGELIMIT, LOWPOWER and WAKEDOUBLE in config.ini, and Audio settings' Artists,
+ * which is stock's own PLAYSET ARTISTTYPE (artist_type, the artist page's switch;
+ * docs/internals.md#album-artists). */
 #define STR_(x) #x
 #define STR(x) STR_(x)
-enum { POD_CHARGE, POD_LOW, POD_ARTISTS };
+enum { POD_CHARGE, POD_LOW, POD_WAKE, POD_ARTISTS };
+static int *const pod_values[] = { &st.charge_limit, &st.low_power, &st.wake_double };
 static void pod_settings(void) {
     if (st.pod_read) return;
     st.charge_limit = config_value("Q2POD", "CHARGELIMIT", 2);
     st.low_power = config_value("Q2POD", "LOWPOWER", 2);
+    st.wake_double = config_value("Q2POD", "WAKEDOUBLE", 2);
     st.pod_read = 1;
 }
 static void pod_text(int i) {
     static const char *const names[][2] = {
         { "Charge limit: Off", "Charge limit: " STR(CHARGE_STOP) "%" },
         { "Low power: Off", "Low power: On" },
+        { "Wake: Single press", "Wake: Double press" },
         { "Artists: Artist", "Artists: Album Artist" },
     };
-    int v = i == POD_CHARGE ? st.charge_limit
-            : i == POD_LOW  ? st.low_power
-                            : I(artist_type, 0) == 1;
+    int v = i < POD_ARTISTS ? *pod_values[i] : I(artist_type, 0) == 1;
     widget_set_text_utf8(st.pod_label[i], names[i][v]);
 }
 /* Centre or tap toggles and saves. Charge limit and Low power take effect on the next UI loop pass
@@ -1605,9 +1609,10 @@ static int pod_click(void *ctx, void *event) {
         I(artist_type, 0) = v;
         write_int_config(v, "PLAYSET", "ARTISTTYPE");
     } else {
-        int *value = i == POD_LOW ? &st.low_power : &st.charge_limit;
+        static const char *const keys[] = { "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE" };
+        int *value = pod_values[i];
         *value = !*value;
-        write_int_config(*value, "Q2POD", i == POD_LOW ? "LOWPOWER" : "CHARGELIMIT");
+        write_int_config(*value, "Q2POD", keys[i]);
         st.charge_at = 0;
     }
     pod_text(i);
@@ -1625,9 +1630,10 @@ static void pod_rows(void *win, const char *view_name, int first, int n, const c
 /* systemset_powermanager_page_init and playset_playset_page_init: stock builds its rows, then
  * these follow in the same widgets and styles (list_row), with the value in the label. */
 int ringnav_powermanager(void *win, void *ctx) {
-    static const char *const icons[] = { "usb_chargeswitch", "system_powermanager" };
+    static const char *const icons[] = { "usb_chargeswitch", "system_powermanager",
+                                         "system_keylock" };
     int result = stock_power_trampoline(win, ctx);
-    pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 2, icons);
+    pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 3, icons);
     return result;
 }
 int ringnav_audioset(void *win, void *ctx) {
@@ -4118,9 +4124,28 @@ int ringnav_sleep(void *loop) {
     return stock_sleep_trampoline(loop);
 }
 
+/* Wake: Double press. With the screen off, a lone centre press (the power key, which wakes it)
+ * never reaches the UI, so a pocket bump stays dark; one within WAKE_MS after it passes, press and
+ * release, so holding that second press still powers off. Other keys pass: the wheel's volume and
+ * the media buttons work dark. Returns 1 to drop the event. */
+static int wake_gate(void *e) {
+    unsigned type = (unsigned)I(e, EVENT_TYPE), now = (unsigned)time_now_ms();
+    if ((type != EVT_KEY_DOWN && type != EVT_KEY_UP) || I(e, EVENT_KEY) != KEY_CENTER) return 0;
+    if (!st.wake_double || g_backlight_status) return st.wake_pass = 0; /* read by power_poll */
+    if (type == EVT_KEY_UP) {
+        int pass = st.wake_pass;
+        st.wake_pass = 0;
+        return !pass;
+    }
+    st.wake_pass = now - st.wake_at < WAKE_MS;
+    st.wake_at = st.wake_pass ? 0 : now;
+    return !st.wake_pass;
+}
+
 /* window_manager_dispatch_input_event: while q2video plays (books.c) no key or touch reaches the
  * UI; a key's release goes to the player instead. Every event times Low power's idle. */
 int ringnav_input(void *wm, void *e) {
+    if (e && wake_gate(e)) return 0;
     st.last_input = time_now_ms();
     if (!video_on()) return stock_input_trampoline(wm, e);
     if (e && I(e, EVENT_TYPE) == EVT_KEY_UP) video_key((unsigned)I(e, EVENT_KEY));

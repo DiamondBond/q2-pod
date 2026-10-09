@@ -35,11 +35,8 @@ Stations come from favourites on the card plus the radio-browser.info directory 
 - **Resume:** the last station is remembered in `/mnt/mmc/Radio/.last` so the Now Playing row can reopen it. Auto-play at boot is skipped.
 
 ### Version 1.0
-- **build.py:10:** `VERSION = '1.0'`.
-- **Updater tag:** it must stay 5 chars (build.py:740 replaces `V1.32\0` in place). Derive it as `'V' + (VERSION if len==3 else VERSION.replace('.',''))` + `I`/`S`, which gives `V1.0I` now and `V101I` for 1.0.1. Assert 5 chars.
-- **Callers that assume `VERSIONS[v] == f'V{VERSION}…'`:** `tools/release.py:44,53`, `test/patch.py:19-20`, `test/build.py:101` and `docs/building.md:37-39`. Point them at `VERSIONS`.
-- **Unchanged:** About still shows the full `V1.0.1 iPod`.
-- **Changelog:** a new top entry `- **V1.0**:` (versions restart; Internet Radio; no FM, because there's no tuner).
+- **Done in 1.0.1:** `VERSION` is plain `x.y.z` (About, tags, ZIPs, changelog headings), and the 5-character updater tag packs the digits (`TAG`, `V101I`); see [building.md](building.md).
+- **Changelog:** a new top entry `- **<version>**:` (Internet Radio; no FM, because there's no tuner).
 
 ### Docs and tests
 - **Docs:** `docs/guide.md` gets `### Internet Radio` (controls table, adding stations, Favourites file format) and a microSD table row. `docs/internals.md` gets `## Internet Radio` (the contract, as with Spotify's).

@@ -7,10 +7,12 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '1.0'
-# The updater's identity (firmware_v20.info and demo's version literal), 5 characters; About shows
-# the stock firmware version and a CFW. Version row with the edition instead (ringnav_about).
-VERSIONS = {'stock': f'V{VERSION}S', 'ipod': f'V{VERSION}I'}
+VERSION = '1.0.1'  # major.minor.patch, single digits, shown as is (About, release tag and ZIPs)
+# The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
+# differ from the installed one, so it packs the digits: 1.0.1 is V101I. About shows the stock
+# firmware version and a CFW. Version row with VERSION and the edition instead (ringnav_about).
+TAG = 'V' + VERSION.replace('.', '')
+VERSIONS = {'stock': TAG + 'S', 'ipod': TAG + 'I'}
 BASE = 0xb00000
 SCRATCH = 0xb40000
 RING_STEP = 48
@@ -663,7 +665,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
     header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox row, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
-    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "V{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
+    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()
@@ -739,7 +741,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # About's FW. Version row reads it too (0x4bc52c); ringnav_about shows STOCK_VERSION there instead.
     check(patched.count(b'V1.32\0') == 1, 'Version literal is not unique')
     check(len(version) + 1 == len(b'V1.32\0'),
-          'VERSION must stay 5 characters; a longer literal shifts every later file offset')
+          'VERSION must be three single digits (x.y.z): the 5-character tag would shift every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
     patched = patched.replace(*RTC_WRITE)
     check(re.search(r'\.pdr +PROGBITS +0+ +0*%x +0*%x ' % PDR, run('readelf', '-SW', demo)) and
@@ -867,7 +869,7 @@ if __name__ == '__main__':
                     help='320x375 JPEG boot splash (default: assets/boot-logo.jpg)')
     ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
-                    help=f'development build: lowercase version tag (V{VERSION}s/i); never a release input')
+                    help=f'development build: lowercase version tag ({TAG}s/i); never a release input')
     a=ap.parse_args()
     try:
         build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev)

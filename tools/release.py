@@ -16,13 +16,13 @@ from build import ROOT, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run,
 
 REPO = 'DiamondBond/q2-pod'
 # iPod is the main build; Stock keeps the stock UI.
-ASSETS = {'ipod': f'Q2.Firmware.V{VERSION}.zip', 'stock': f'Q2.Firmware.V{VERSION}-stock.zip'}
+ASSETS = {'ipod': f'Q2.Firmware.{VERSION}.zip', 'stock': f'Q2.Firmware.{VERSION}-stock.zip'}
 
 
 def notes():
     """This version's line from docs/changelog.md, so a release edits only VERSION and the changelog:
     its bold version heading, then one bullet a sentence."""
-    prefix = f'- **V{VERSION}**'  # entries up to V7.6 read **V7.6R / V7.6I**
+    prefix = f'- **{VERSION}**'  # entries up to V1.0 read **V1.0**, up to V7.6 **V7.6R / V7.6I**
     entry = next((l for l in (ROOT/'docs/changelog.md').read_text().splitlines() if l.startswith(prefix)), None)
     check(entry, f'docs/changelog.md has no {prefix} entry')
     title, text = entry[2:].split(': ', 1)

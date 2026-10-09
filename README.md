@@ -39,14 +39,14 @@ Made for the **Shanling Q2**, with an iPod classic feel and a few extras:
 
 Also fixes choppy AirPods AAC audio, the clock resetting after power-off, screen-off battery drain, slow library browsing, and startup/seeking on long VBR MP3s.
 
-**Prefer the stock look?** Download `Q2.Firmware.V*-stock.zip`: all the same features and fixes, except the iPod UI.
+**Prefer the stock look?** Download `Q2.Firmware.*-stock.zip`: all the same features and fixes, except the iPod UI.
 
 ## Install
 
 > [!IMPORTANT]
 > Charge the Q2 first, and leave the microSD card in until the update finishes.
 
-1. [Download the latest release](https://github.com/DiamondBond/q2-pod/releases/latest), unzip `Q2.Firmware.V*.zip` and copy `update.tar` to the microSD card's root.
+1. [Download the latest release](https://github.com/DiamondBond/q2-pod/releases/latest), unzip `Q2.Firmware.*.zip` and copy `update.tar` to the microSD card's root.
 2. On the Q2, open **System settings → System Update → TF card update**.
 3. After the restart, **System settings → About** shows FW V1.32 and your **CFW. Version**.
 
@@ -83,8 +83,9 @@ Run **Library → Update Local Music** after adding music; it adds up to 65,000 
 
 - **Personalise:** **System settings → Display** for accent, Home layout, battery display and wheel sensitivity.
 - **Save battery:** **System settings → Power management** for Charge limit and Low power. Both are off by default; charge limit applies while the Q2 is on.
+- **Pocket-proof:** **System settings → Power management → Wake: Double press** ignores a single centre press while the screen is off.
 - **Browse by Album Artist:** **Audio settings → Artists** keeps guest artists from splitting albums.
-- **Use EQ:** **Audio settings → Equalizer**. Select **Apply changes** after editing or choosing a preset, and turn **PEQ: ON**. Import preset `.txt` files from the card's `EQ/` folder.
+- **Use EQ:** **Audio settings → Equalizer**. Stock's genre curves are under **Presets → Stock presets**. Select **Apply changes** after editing or choosing a preset, and turn **PEQ: ON**. Import preset `.txt` files from the card's `EQ/` folder.
 
 The [user guide](docs/guide.md) covers [all controls](docs/guide.md#controls), [shuffle and repeat](docs/guide.md#shuffle-repeat-and-grouping), [resume behaviour](docs/guide.md#ipod-ui), [EQ](docs/guide.md#parametric-eq) and [Coverflow](docs/guide.md#coverflow).
 

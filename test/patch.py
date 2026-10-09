@@ -5843,7 +5843,7 @@ item=kids[2]; button=m.nodes[item]['children'][0]; title,value=m.nodes[button]['
 # Stock's row, title and value widgets alike.
 want=tree(m.nodes[rows[1]]['children'][0])
 assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==want
-assert m.nodes[title]['text']=='CFW. Version' and m.nodes[value]['text']==f"V{VERSION} {'iPod' if variant=='ipod' else 'Stock'}{' dev'*manifest['dev']}"
+assert m.nodes[title]['text']=='CFW. Version' and m.nodes[value]['text']==f"{VERSION} {'iPod' if variant=='ipod' else 'Stock'}{' dev'*manifest['dev']}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its
@@ -5974,13 +5974,29 @@ def settings_page(hook,view_name,config={},stock_rows=2):
         return [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
     return m,rows,lambda:[m.nodes[l]['text'] for l in labels],icons,click
 m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager')
-assert len(rows)==2 and icons==['usb_chargeswitch','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
-assert texts()==['Charge limit: Off','Low power: Off']
+assert len(rows)==3 and icons==['usb_chargeswitch','system_powermanager','system_keylock'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
+assert texts()==['Charge limit: Off','Low power: Off','Wake: Single press']
 assert click(0)==[(1,'Q2POD','CHARGELIMIT')] and texts()[0]==f"Charge limit: {O['CHARGE_STOP']}%"
 assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low power: On'
-assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge limit: Off','Low power: On']; passed()
-m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1'})
-assert texts()==[f"Charge limit: {O['CHARGE_STOP']}%",'Low power: On']; passed()
+assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge limit: Off','Low power: On','Wake: Single press']; passed()
+# Wake (docs/internals.md#wake): screen off, a lone centre press and its release never reach the UI;
+# a second press within WAKE_MS passes, press and release. Other keys, the screen on, or the
+# setting off pass untouched.
+inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'
+def wake(kind,key=O['KEY_CENTER'],gap=0):
+    m.calls=[]; assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=gap,clear=False)==0
+    return any(c[0]=='stock_input' for c in m.calls)
+DOWN,UP=O['EVT_KEY_DOWN'],O['EVT_KEY_UP']
+m.byte(syms['g_backlight_status'],0)
+assert wake(DOWN,gap=1000) and wake(UP)  # setting off: as stock
+assert click(2)==[(1,'Q2POD','WAKEDOUBLE')] and texts()[2]=='Wake: Double press'
+assert not wake(DOWN,gap=1000) and not wake(UP,gap=50)  # a pocket bump
+assert wake(DOWN,gap=100) and wake(UP,gap=50)  # the double press
+assert not wake(DOWN,gap=O['WAKE_MS']) and not wake(UP) and not wake(DOWN,gap=O['WAKE_MS']) and not wake(UP)  # too slow
+assert wake(DOWN,O['KEY_PLAY'],gap=1000) and wake(UP,O['KEY_PLAY']) and wake(UP,O['KEY_NEXT'])  # media and wheel work dark
+m.byte(syms['g_backlight_status'],1); assert wake(DOWN,gap=1000) and wake(UP); passed()
+m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1','WAKEDOUBLE':'1'})
+assert texts()==[f"Charge limit: {O['CHARGE_STOP']}%",'Low power: On','Wake: Double press']; passed()
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
 assert len(rows)==1 and icons==['playset_folderjump'] and texts()==['Artists: Artist']
 assert click(0)==[(1,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==1 and texts()==['Artists: Album Artist']

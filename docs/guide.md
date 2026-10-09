@@ -13,6 +13,9 @@ Things people often don't know are already there:
 - **Longer battery:** **System settings → Power management → Low power** and **Charge limit**.
 - **Guest artists splitting albums?** **Audio settings → Artists → Album Artist**.
 - **Coverflow order:** the **Sort** card, just before Refresh library, switches to Artist, Recently Added or Most Played.
+- **Screen waking in your pocket?** **System settings → Power management → Wake: Double press**; stock's **Buttons lock** also keeps the buttons and volume still while the screen is off.
+- **Want stock's EQ presets?** **Equalizer → Presets → Stock presets** has Pop, Rock, Jazz and the rest; the ten default bands work as a 10-band graphic EQ.
+- **Wheel click gone?** Key Tone is the Q2's own speaker, so it stays quiet while music plays or headphones, Bluetooth or a USB DAC are connected.
 - **Lock screen is black?** It shows your own images: see [Lock screen](#lock-screen).
 - **Importing an M3U playlist?** It has to be in `_explaylist_data/`: see [Playlists](#playlists).
 
@@ -20,20 +23,21 @@ Things people often don't know are already there:
 
 **System settings → Display**:
 
-| Setting               | Options                                                         |
-| --------------------- | --------------------------------------------------------------- |
-| **Accent**            | Graphite (default), Crimson (stock red), Tidal, Champagne       |
-| **Home**              | Split (list beside the cover) or Full (list only)               |
-| **Battery**           | Icon (default), Percent, Icon + Percent                         |
-| **Wheel sensitivity** | 50–200% in 10% steps; default 100%, in both builds              |
+| Setting               | Options                                                   |
+| --------------------- | --------------------------------------------------------- |
+| **Accent**            | Graphite (default), Crimson (stock red), Tidal, Champagne |
+| **Home**              | Split (list beside the cover) or Full (list only)         |
+| **Battery**           | Icon (default), Percent, Icon + Percent                   |
+| **Wheel sensitivity** | 50–200% in 10% steps; default 100%, in both builds        |
 
 ## Battery and library settings
 
-| Where                                  | Setting          | What it does                                                                                                                            |
-| -------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **System settings → Power management** | **Charge limit** | **80%** stops charging at 80% and starts again at 75%, so a Q2 left plugged in isn't held full. Off by default.                         |
-| **System settings → Power management** | **Low power**    | Longer battery: the second CPU core sleeps while the screen is off, and the screen-on UI idles when you don't touch it. Off by default. |
-| **Audio settings**                     | **Artists**      | **Artist** (default) or **Album Artist**: browse Artists by the Album Artist tag, so guest artists don't split albums.                  |
+| Where                                  | Setting          | What it does                                                                                                                                                                                                        |
+| -------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **System settings → Power management** | **Charge limit** | **80%** stops charging at 80% and starts again at 75%, so a Q2 left plugged in isn't held full. Off by default.                                                                                                     |
+| **System settings → Power management** | **Low power**    | Longer battery: the second CPU core sleeps while the screen is off, and the screen-on UI idles when you don't touch it. Off by default.                                                                             |
+| **System settings → Power management** | **Wake**         | **Double press**: with the screen off, a single centre press is ignored, so a pocket bump stays dark; press twice to wake. To power off from a dark screen, double-press, then hold. Off (Single press) by default. |
+| **Audio settings**                     | **Artists**      | **Artist** (default) or **Album Artist**: browse Artists by the Album Artist tag, so guest artists don't split albums.                                                                                              |
 
 Charge limit applies while the Q2 is on; charging while it's powered off is stock's. Low power never touches the sound, EQ, brightness or radios. Audio settings also has stock's DAC **Filter**.
 
@@ -131,6 +135,7 @@ To update, unzip a newer release over it; its `cache/` keeps the saved login. To
 - **Gain:** -24 to +24 dB on the wheel; picking one turns the band on, so the ten default bands (31 Hz to 16 kHz, Q 1.41) work as a graphic EQ.
 - **Frequency and Q:** tap the value (or press centre) to type one, or step with **Raise** / **Lower**.
 - **Balance:** L 12.0 dB to R 12.0 dB in 0.5 dB steps; **R 1.0 dB** plays the left 1 dB quieter.
+- **Stock presets:** **Presets → Stock presets** loads stock's Pop, Rock, Dance, Blues, Metal, Vocal, Classical or Jazz curve into the ten bands, built into the firmware; edit it, Apply it, or save it as your own.
 - **Apply changes:** edits and presets take effect only when chosen.
 - **PEQ: ON/OFF:** applies at once and persists; the status-bar **EQ** icon follows it.
 - **Preamp:** **Auto** cuts just enough that boosts don't clip. Or pick +12 to -24 dB; above Auto, loud boosts can clip.

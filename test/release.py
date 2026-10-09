@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # This version's changelog entry, in the format since V7.7; older entries are history.
     (pathlib.Path(tmp)/'docs').mkdir()
     (pathlib.Path(tmp)/'docs/changelog.md').write_text(
-        f'# Changelog\n\n- **V{release.VERSION}**: One. iPod: two.\n- **V7.6R / V7.6I**: Old.\n')
+        f'# Changelog\n\n- **{release.VERSION}**: One. iPod: two.\n- **V7.6R / V7.6I**: Old.\n')
     patch('release.ROOT', pathlib.Path(tmp)).start()
     def fail_ipod(stock, directory, logo, ipod=False):
         if ipod:
@@ -44,8 +44,8 @@ with tempfile.TemporaryDirectory() as tmp:
     (out/'release-notes.md').write_text(release.release_body(out, record))
     # The heading, then bullets, for this version only.
     body = (out/'release-notes.md').read_text()
-    assert body.startswith(f'**V{release.VERSION}**\n- One.\n- iPod: two.\n\nSHA-256:\n- {release.ASSETS["ipod"]}: ')
-    assert release.ASSETS['ipod'] == f'Q2.Firmware.V{release.VERSION}.zip'
+    assert body.startswith(f'**{release.VERSION}**\n- One.\n- iPod: two.\n\nSHA-256:\n- {release.ASSETS["ipod"]}: ')
+    assert release.ASSETS['ipod'] == f'Q2.Firmware.{release.VERSION}.zip'
     (out/'SHA256SUMS').write_text(''.join(f'{v}  {k}\n' for k, v in assets.items()))
     for failure in ('upload', 'download', 'corrupt', None):
         calls = []

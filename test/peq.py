@@ -509,6 +509,14 @@ def editor_check(lib, tmp):
     click('HD650.peq'); click('Delete HD650.peq? Confirm')
     assert not (saved/'HD650.peq').exists() and active.read_bytes() == before
     assert title() == 'Deleted HD650.peq; active EQ unchanged' and not ui.shim_click(b'HD650.peq', 0)
+    # Stock presets are built in: picking one loads stock's curve, writes nothing until Apply.
+    files, before = sorted(saved.iterdir()), active.read_bytes()
+    ui.shim_return(); click('Stock presets'); click('Rock')
+    assert title() == 'Preset loaded; choose Apply to activate' and active.read_bytes() == before
+    assert sorted(saved.iterdir()) == files
+    click('Apply changes'); p = read()
+    assert [p.bands[k].gain for k in range(10)] == [-2, 0, 2, 4, -2, -2, 0, 0, 4, 4]
+    assert [p.bands[k].enabled for k in range(10)] == [1, 0, 1, 1, 1, 1, 0, 0, 1, 1] and p.preamp < -4
     # Overlapping boosts add up (+6.5 and +6 dB at 1 kHz); cuts alone leave 0 dB.
     p = preset(enabled=1, gain=6.0); p.count = 2; p.bands[1] = p.bands[0]; p.preamp = -1
     assert lib.peq_save(bytes(active), C.byref(p), 1) == 1

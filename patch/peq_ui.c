@@ -22,10 +22,10 @@ void peq_attach(void) {
     if (active.bypass || (active.bypass = 1, peq_save(PEQ_ACTIVE, &active, 1) == 1)) peq_stock_eq(1);
 }
 
-enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST };
+enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST, STOCKS };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
        YES, CANCEL, DELETE, BALANCE, PREAMP, GAIN, /* these three open the picker, in picks[] order */
-       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD };
+       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD, STOCK };
 #define GRAPH_W (375 - 2 * PEQ_GRAPH_X)
 #if IPOD
 #define ROW_X CF_EDGE /* the text column clear of the rounded glass, as coverflow.c's */
@@ -178,6 +178,27 @@ static void list_files(const char *folder, const char *extension) {
 /* File name in ui.destination: sizeof skips PEQ_SAVED and its "/". */
 static const char *deleting(void) { return ui.destination + sizeof(PEQ_SAVED); }
 
+/* Stock's genre presets, built in: reset_user_eq's table (modes 4-11), in dB over the ten default
+ * bands. Picking one loads it into the editor as a saved preset does; nothing is written. */
+static const char stock_names[][10] = { "Pop", "Rock", "Dance", "Blues", "Metal", "Vocal", "Classical", "Jazz" };
+static const signed char stock_gains[][10] = {
+    { 3, 1, 0, -2, -4, -4, -2, 0, 1, 2 }, { -2, 0, 2, 4, -2, -2, 0, 0, 4, 4 },
+    { -2, 3, 4, 1, -2, -2, 0, 0, 4, 4 },  { -2, 0, 2, 1, 0, 0, 0, 0, -2, -4 },
+    { -6, 0, 0, 0, 0, 0, 2, 0, 2, 0 },    { -4, 0, 2, 1, 0, 0, 0, 0, -4, -6 },
+    { 0, 3, 3, 2, 0, 0, 0, 0, 1, 1 },     { 0, 0, 0, 2, 2, 2, 0, 1, 2, 2 },
+};
+#define STOCK_N (int)(sizeof(stock_names) / sizeof(*stock_names))
+
+/* Into the editor, not active: Apply is the activation step. */
+static void load_draft(peq_preset *p, const char *name, int length) {
+    p->bypass = ui.draft.bypass; /* ON/OFF is live state, not part of the edit */
+    ui.draft = *p;
+    ui.dirty = 1;
+    snprintf(ui.name, sizeof(ui.name), "%.*s", length, name);
+    ui.screen = HOME;
+    snprintf(ui.status, sizeof(ui.status), "Preset loaded; choose Apply to activate");
+}
+
 static void save_candidate(int replace) {
     mkdir(PEQ_SAVED, 0700);
     int result = peq_save(ui.destination, &ui.candidate, replace);
@@ -203,6 +224,7 @@ static int action(void *ctx, void *event) {
         else ui.screen = ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
+    else if (id == STOCK) ui.screen = STOCKS;
     else if (id == DELETE) ui.screen = DELETES;
     else if (id >= BALANCE && id <= GAIN) { ui.pick = id; ui.screen = PICK; }
     else if (id == FREQUENCY || id == QUALITY) { ui.adjust = id; ui.screen = ADJUST; }
@@ -253,6 +275,13 @@ static int action(void *ctx, void *event) {
             ui.dirty = 1;
             ui.screen = ui.pick == GAIN ? BAND : HOME;
         }
+        else if (ui.screen == STOCKS && id < STOCK_N) {
+            peq_preset p;
+            peq_default(&p);
+            for (int k = 0; k < 10; ++k) p.bands[k].enabled = (p.bands[k].gain = stock_gains[id][k]) != 0;
+            p.preamp = headroom(&p);
+            load_draft(&p, stock_names[id], sizeof(stock_names[id]));
+        }
         else if (ui.screen == SAVES && id < 10) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/Manual %02d.peq", id + 1);
             ui.candidate = ui.draft;
@@ -276,15 +305,8 @@ static int action(void *ctx, void *event) {
             char path[600];
             snprintf(path, sizeof(path), PEQ_SAVED "/%s", ui.names[id]);
             peq_preset p;
-            if (peq_load(path, &p)) {
-                /* Loading into the editor is deliberate; Apply is the activation step. */
-                p.bypass = ui.draft.bypass; /* ON/OFF is live state, not part of the edit */
-                ui.draft = p;
-                ui.dirty = 1;
-                snprintf(ui.name, sizeof(ui.name), "%.*s", (int)strlen(ui.names[id]) - 4, ui.names[id]);
-                ui.screen = HOME;
-                snprintf(ui.status, sizeof(ui.status), "Preset loaded; choose Apply to activate");
-            } else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
+            if (peq_load(path, &p)) load_draft(&p, ui.names[id], (int)strlen(ui.names[id]) - 4);
+            else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
     if (edit) { /* ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL and a picked gain */
@@ -408,12 +430,15 @@ static int render(const void *unused) {
     } else if (ui.screen == CONFIRM) {
         row(view, n++, "Replace existing preset? Confirm", YES);
         row(view, n++, "Cancel replacement", CANCEL);
+    } else if (ui.screen == STOCKS) {
+        for (int i = 0; i < STOCK_N; ++i) row(view, n++, stock_names[i], i);
     } else if (ui.screen == SAVES) {
         for (int i = 0; i < 10; ++i) {
             snprintf(text, sizeof(text), "Save as Manual %02d", i+1); row(view, n++, text, i);
         }
     } else {
         if (ui.screen == PRESETS) {
+            row(view, n++, "Stock presets", STOCK);
             row(view, n++, "Import from SD /EQ", IMPORT);
             row(view, n++, "Save editor preset", SAVE);
             row(view, n++, "Delete a preset", DELETE);
