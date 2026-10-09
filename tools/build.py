@@ -58,6 +58,9 @@ HOOKS = {
     'memeory_startplayer': (0x5164e0, 'ringnav_memory'),
     'systemset_powermanager_page_init': (0x4c72d0, 'ringnav_powermanager'),
     'playset_playset_page_init': (0x4b98d8, 'ringnav_audioset'),
+    # Spotify (patch/spotify.c): Streaming's row, and local music letting librespot go first
+    'stream_page_init': (0x52efdc, 'ringnav_stream'),
+    'mclStartPlayer': (0x5ad6ac, 'ringnav_start_player'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist'),
@@ -79,7 +82,7 @@ TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'loa
                'input': 'window_manager_dispatch_input_event', 'buzzer': 'buzzeer_switch',
                'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init',
                'change': 'player_change_music', 'detail': 'load_album_detaillist',
-               'artist': 'load_localartist_list'}
+               'artist': 'load_localartist_list', 'stream': 'stream_page_init', 'start_player': 'mclStartPlayer'}
 # Every audited stock PIC prologue resolves this GOT base.
 GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its
@@ -438,6 +441,10 @@ FUNCTIONS = {
  'btctl_transport_get_volume': ('int', 'void'),
  'btctl_transport_set_volume': ('int', 'int'),
  'device_set_volume': ('int', 'int, int'),  # volume, notify: the DAC's or hciplayer's, as the volume dialog
+ # Spotify (spotify.c): the headphone output as a headset insert sets it, then PCM mode and unmuted, as AirPlay's page
+ 'config_outputchannel': ('int', 'int, int'),  # g_headset_output, 2
+ 'mclSetPcmMode': ('int', 'void'),
+ 'mclSetMute': ('int', 'int'),
  'toolsTrimLeft': ('void', 'char *'),
  'switch_charge_enable': ('int', 'int'),  # 1 charges: the BQ25890's /CE on GPIO PE22 (usbmode_page_init)
  # Coverflow's Sort: another ORDER BY over getAllAlbum's grouping, filled by its own row callback
@@ -465,7 +472,8 @@ GLOBALS = ['g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_t
            'g_keytone_flag', 'g_folder_layer', 'g_delete_flag', 'g_volume', 'g_maxvolume',
            'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
            'g_usbvol_mode',  # USB DAC volume: 0 fixed, else the volume (config_usbvolmode, device_set_volume)
-           'g_usbdac_chargeflag', 'g_memory_play', 'g_carmode']  # USB mode's charge choice, which switch_charge_enable gets there
+           'g_usbdac_chargeflag', 'g_memory_play', 'g_carmode',
+           'g_headset_output']  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth  # USB mode's charge choice, which switch_charge_enable gets there
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.
@@ -480,7 +488,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
                 'pdeq_albumcoverlist': 4, 'aclist_mutex': 24}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page'}
+PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'spotify_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
@@ -763,7 +771,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     logo.write_bytes(logo_data)
     p = swap_inode(p, b'release/assets/default/raw/images/xx/logo.jpg', logo)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # the Local Music rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
+    # the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
     # (not the copies iPod pre-sizes for Settings), and q2video.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets/icons'/n).read_bytes()) for n in ICONS}
@@ -773,6 +781,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         shuffle='playset_playmode.png', scrobble='wifiset_wifi.png', podcasts='netservice_dlna.png',
         audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
         videos='system_display.png').items()})
+    icons['stream_spotify.png'] = ('list_tidal.png', (ROOT/'assets/icons/stream_spotify.png').read_bytes())  # Streaming's Spotify row
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),

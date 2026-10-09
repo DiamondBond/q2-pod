@@ -6,13 +6,13 @@ Controls, settings and media setup. For installation, see the [README](../README
 
 **System settings → Display**:
 
-| Setting      | Options                                                         |
-| ------------ | --------------------------------------------------------------- |
-| **Accent**   | Graphite (default), Crimson (stock red), Tidal, Champagne       |
-| **Home**     | Split (list beside the cover) or Full (list only)               |
-| **Battery**  | Icon (default), Percent, Icon + Percent                         |
-| **Shortcut** | Streaming (default) or Rockbox: what Home's Streaming row opens |
-| **Wheel sensitivity** | 50–200% in 10% steps; default 100%, in both builds |
+| Setting               | Options                                                         |
+| --------------------- | --------------------------------------------------------------- |
+| **Accent**            | Graphite (default), Crimson (stock red), Tidal, Champagne       |
+| **Home**              | Split (list beside the cover) or Full (list only)               |
+| **Battery**           | Icon (default), Percent, Icon + Percent                         |
+| **Shortcut**          | Streaming (default) or Rockbox: what Home's Streaming row opens |
+| **Wheel sensitivity** | 50–200% in 10% steps; default 100%, in both builds              |
 
 ## Battery and library settings
 
@@ -59,13 +59,13 @@ Charge limit applies while the Q2 is on; charging while it's powered off is stoc
 
 On **Now Playing**, hold **Play/Pause** for **Shuffle**, **Repeat** and **Group by: Album / Folder**, in both iPod and Stock builds. The wheel and touch select an option; the selected option has a check mark. Changes keep the playing track and its position.
 
-| Shuffle | Traversal of the current queue |
-| --- | --- |
-| **Off** | Groups in their first appearance order, tracks in group order |
-| **All** | Every queued song in random order |
-| **Songs** | Groups in order, songs shuffled within each group |
-| **Categories** | Groups shuffled, songs in group order |
-| **Songs/Categories** | Groups and their songs shuffled |
+| Shuffle              | Traversal of the current queue                                |
+| -------------------- | ------------------------------------------------------------- |
+| **Off**              | Groups in their first appearance order, tracks in group order |
+| **All**              | Every queued song in random order                             |
+| **Songs**            | Groups in order, songs shuffled within each group             |
+| **Categories**       | Groups shuffled, songs in group order                         |
+| **Songs/Categories** | Groups and their songs shuffled                               |
 
 **Play Single Song**, **Play Category** and **Play All Categories** stop after that song, group or queue. **Repeat Song**, **Repeat Category** and **Repeat All Categories** loop that scope, with a fresh shuffle cycle. Each shuffle cycle visits every eligible occurrence once, including duplicate entries. Manual Next bypasses single-song stop/repeat; category modes stay in the current category. Previous follows playback history (up to 4096 transitions).
 
@@ -84,6 +84,29 @@ Advanced queues, options, traversal and history restore after reboot from `/mnt/
 | **Video** | Volume                 | Toggles seek: 10 s per tick           | **Play/Pause** pauses, previous/next skip, **Return** exits |
 
 Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops meanwhile. Decoding is software, so encodes near the screen's 375 × 320 play smoothest.
+
+### Spotify
+
+**Streaming → Spotify** plays Spotify on the Q2's headphone jack as a Spotify Connect speaker: pick **Q2** in the Spotify app on a phone on the same Wi-Fi, and browse and queue there. It needs Spotify Premium and isn't in the firmware: it runs from the microSD card ([install](#install-spotify)).
+
+| Control         | What it does                                                                           |
+| --------------- | -------------------------------------------------------------------------------------- |
+| **Play/Pause**  | Pauses or plays Spotify, on any page and with the screen off                           |
+| **Next / Prev** | Next or previous track                                                                 |
+| **Wheel**       | Volume, as everywhere: the Q2's volume is Spotify's                                    |
+| **Centre**      | On the Spotify page: turn the wheel to move 5 s a tick; Centre again or wait 3 s jumps |
+
+Until you play local music again, the buttons stay Spotify's. Picking a song in the Library pauses Spotify and plays the song; casting from the phone again stops local music. Playback carries on with the screen off. Bluetooth and USB DACs aren't supported: Spotify always plays on the headphone jack.
+
+The first time, open **Streaming → Spotify** and pick **Q2** in the Spotify app; the login is saved on the card. After that, the Q2 shows up in Spotify by itself shortly after every power-on.
+
+### Install Spotify
+
+1. Build it with [q2-librespot](https://github.com/DiamondBond/q2-librespot/blob/shanlingq2/contrib/shanlingq2/README)'s `contrib/shanlingq2/build.sh`, which stages a `.spotify` folder.
+2. Copy that folder to the root of the microSD card, so the card has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`. On macOS and Linux the leading dot hides it.
+3. Shut the Q2 down fully before taking the card out or putting it back, then power it on.
+
+To remove Spotify, delete the `.spotify` folder; its `cache/` holds the saved login.
 
 ## Parametric EQ
 
@@ -123,6 +146,7 @@ Media folders go at the card's root, any capitalisation; each adds its **Library
 | `.photos/`                 | Photo thumbnails and screen-size copies                                       | Q2 Pod  |
 | `.books/`                  | EPUBs converted to text                                                       | Q2 Pod  |
 | `.sldp/`                   | Stock's own cover cache                                                       | Stock   |
+| `.spotify/`                | Spotify ([install](#install-spotify)); `cache/` is the saved login, plus logs | You     |
 
 ### Set up scrobbling
 
@@ -174,4 +198,3 @@ Settings, play counts, resume points and book pages live on the Q2 itself (`/mnt
 - **First open** prepares artwork once; **Cancel** keeps progress. Later opens add only new albums; **Refresh library**, the last card, rebuilds everything.
 - **Sort**, the card before it: press to switch between **Album**, **Artist** (then year), **Recently Added** and **Most Played**. The choice is kept.
 - **Artwork:** `cover.jpg`, `folder.jpg`, then embedded art; otherwise a placeholder.
-

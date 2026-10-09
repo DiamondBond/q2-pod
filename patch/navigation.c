@@ -13,9 +13,11 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
-    stock_localclass_trampoline(int), stock_detail_trampoline(int, void *), stock_artist_trampoline(int),
-    stock_power_trampoline(void *, void *), stock_systemset_trampoline(void *, void *),
-    stock_audioset_trampoline(void *, void *), stock_playlist_trampoline(void *);
+    stock_localclass_trampoline(int), stock_detail_trampoline(int, void *),
+    stock_artist_trampoline(int), stock_power_trampoline(void *, void *),
+    stock_systemset_trampoline(void *, void *), stock_audioset_trampoline(void *, void *),
+    stock_playlist_trampoline(void *), stock_stream_trampoline(void *, void *),
+    stock_start_player_trampoline(void);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -27,6 +29,9 @@ extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
 extern int books_key(void *top, unsigned key), video_on(void);
+extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas), *spot_art(void);
+extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
+    spot_open(void *ctx, void *event);
 extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
@@ -183,8 +188,9 @@ typedef struct {
      * is there, Back at that root leaves it. */
     int media_open;
     char media_root[32];
-    void *album; /* what an Albums row or Go to album opened (album_open), a one-record deque */
-    char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own (ringnav_artist_list) */
+    void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
+    char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own
+                        (ringnav_artist_list) */
     unsigned art_n;
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
@@ -1361,10 +1367,11 @@ static void paint_letter(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
-/* Now Playing's art gets NP_ART_RADIUS corners, painted over it in the page's black: each corner
- * row outside the arc, then its edge pixel at the alpha of its uncovered part (1/16 px). */
+/* Now Playing's art, and Spotify's, gets NP_ART_RADIUS corners, painted over it in the page's
+ * black: each corner row outside the arc, then its edge pixel at the alpha of its uncovered part
+ * (1/16 px). */
 static void paint_cover(void *w, void *canvas) {
-    if (!w || w != st.np_cover || !P(canvas, CANVAS_LCD)) return;
+    if (!w || (w != st.np_cover && w != spot_art()) || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H);
     for (int i = 0; i < r; ++i) {
@@ -1502,6 +1509,7 @@ int ringnav_paint(void *w, void *canvas) {
     }
     photos_paint(w, canvas);
     books_paint(w, canvas);
+    spot_paint(w, canvas);
     peq_paint(w, canvas);
 #if IPOD
     visualizer_paint(w, canvas);
@@ -1627,7 +1635,8 @@ static void clock_sync(void *bar) {
     const int *tm = now == -1 ? (void *)0 : localtime(&now);
     int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
     int full = g_time24h_flag != 0;
-    unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11 : ~0u; /* 0 before the first */
+    unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11
+                      : ~0u; /* 0 before the first */
     void *label = key == st.clock_key ? (void *)0 : widget_lookup(bar, "label_clock", 1);
     if (!label) return;
     st.clock_key = key;
@@ -2241,7 +2250,8 @@ static int wheel_open(const void *unused) {
     wheel_timer = 0;
     void *wm = window_manager(), *page = window_manager_get_top_window(wm);
     if (!wheel_label || wheel_dialog || !usable() || window_manager_is_animating(wm) ||
-        tk_strcmp(widget_get_prop_str(page, "name", ""), "display_page")) return 0;
+        tk_strcmp(widget_get_prop_str(page, "name", ""), "display_page"))
+        return 0;
     navigator_to("dialog/sortselect_dialog");
     void *dialog = window_manager_get_top_window(wm);
     if (dialog == page) return 0;
@@ -2888,7 +2898,8 @@ int ringnav_artist_list(int tab) {
 }
 static const char *artist_key(char *buf, void *list, unsigned i) {
     (void)buf;
-    return st.art_keys && list == P(p_deque_showlist, 0) && st.art_n == deque_size(list) && i < st.art_n
+    return st.art_keys && list == P(p_deque_showlist, 0) && st.art_n == deque_size(list) &&
+                   i < st.art_n
                ? st.art_keys[i]
                : 0;
 }
@@ -3009,8 +3020,7 @@ static int qm_apply(void *add, int next) {
     if (n && !size) { /* loads without starting playback; only a real folder is class 1 */
         if (album) album_memory(deque_at(add, 0));
         mclLoadPlayList(add, 0, st.qm_kind == QM_FOLDER ? 1 : album ? 0xff10 : (int)st.qm_cls);
-    }
-    else if (n)
+    } else if (n)
         qm_insert(queue, add, size, next);
     return n != 0;
 }
@@ -3376,6 +3386,21 @@ int ringnav_localmusic(void *win, void *ctx) {
         widget_restack(library_row(view, "local_scrobble", upload_scrobbles, 0, "Upload Scrobbles"),
                        n++);
     return result;
+}
+
+/* stream_page_init: stock's rows, then Spotify (spotify.c), which opens its Now Playing page. Its
+ * button has no name, so stock's row click never sees it. */
+int ringnav_stream(void *win, void *ctx) {
+    int result = stock_stream_trampoline(win, ctx);
+    void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;
+    if (view) library_into(view, "stream_spotify", spot_open, 0, "Spotify");
+    return result;
+}
+
+/* mclStartPlayer, every local track's start: a playing librespot lets the DAC's PCM go first. */
+int ringnav_start_player(void) {
+    spot_yield();
+    return stock_start_player_trampoline();
 }
 
 /* systemset_about_page_init: stock's seven rows (0x4bc274), each a s_listitem_black list_item
@@ -4019,7 +4044,9 @@ static int rockbox_shortcut(void *target) {
     player_stop();
     if (st.charge_held) switch_charge_enable(1);
     if (st.cpu_off) cpu1_write(1);
-    system("killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID");
+    /* librespot (spotify.c) and its restart loop, whose pid its launcher left, let ALSA go too */
+    system("killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); "
+           "killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID");
     return 1;
 }
 #endif
@@ -4078,6 +4105,7 @@ static void bt_volume_poll(void) {
 int ringnav_sleep(void *loop) {
     bt_volume_poll();
     video_poll();
+    spot_poll();
     playback_poll();
     resume_poll();
     power_poll();
@@ -4161,6 +4189,7 @@ int ringnav(void *ctx, void *event) {
     if (key != KEY_PREV && key != KEY_NEXT) st.wheel_tick = 0; /* a button ends the run */
     int result = stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
+    if (!result && spot_media(key)) return STOP; /* Spotify's while it was the last to play */
     if (result) {
         cancel_center();
         if (key == KEY_PREV || key == KEY_NEXT) drop_wheel();
@@ -4206,6 +4235,7 @@ int ringnav(void *ctx, void *event) {
         return result;
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+    if (spot_key(top, key)) return STOP; /* Spotify's page: Centre scrubs */
 
 #if IPOD
     if (top != st.np_win || window_manager_is_animating(wm) ||

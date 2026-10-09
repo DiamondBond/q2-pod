@@ -873,8 +873,8 @@ int blob_io(const char *path, const char *tmp, void *buf, unsigned size, int wri
 /* Stock pattern (album rows, Now Playing): load the file, set it, drop the load's reference, so the
  * next paint decodes the file again rather than a stale cached copy. Returns 0 when the load fails,
  * as for the empty "no art" marker. size, if given, gets the image's width and height (bitmap_t
- * w @0, h @4). */
-static int show(void *img, const char *url, unsigned *size) {
+ * w @0, h @4). Shared with spotify.c. */
+int image_show(void *img, const char *url, unsigned *size) {
     unsigned bitmap[64]; /* bitmap_t */
     if (widget_load_image(img, url, bitmap)) return 0;
     if (size) size[0] = bitmap[0], size[1] = bitmap[1];
@@ -1208,7 +1208,7 @@ static void cover(void *img, unsigned i, int near) {
     near = near && i < deque_size(cf.albums);
     if (near) art_path(url + 7, album_key(deque_at(cf.albums, i)), "");
     if (tk_strcmp(widget_get_prop_str(img, "image", ""), near ? url : PLACEHOLDER) &&
-        (!near || !show(img, url, 0)))
+        (!near || !image_show(img, url, 0)))
         image_base_set_image(img, PLACEHOLDER);
 }
 
@@ -1593,13 +1593,13 @@ void coverflow_home_art(void *top) {
     home.key = key;
     const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
     unsigned size[2] = { 0, 0 };
-    int shown = cover && show(home.art, cover, size);
+    int shown = cover && image_show(home.art, cover, size);
     if (!shown && r) {
         char url[600] = "file://";
         art_path(url + 7, album, "");
-        shown = show(home.art, url, size);
+        shown = image_show(home.art, url, size);
     }
-    if (!shown && !show(home.art, PLACEHOLDER, size)) image_base_set_image(home.art, PLACEHOLDER);
+    if (!shown && !image_show(home.art, PLACEHOLDER, size)) image_base_set_image(home.art, PLACEHOLDER);
     home_fit(size[0], size[1]);
     widget_invalidate_force(home.art, 0);
 }

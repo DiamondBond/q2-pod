@@ -254,8 +254,9 @@ output is not 40-pixel 8-bit RGBA with the same transparency; the manifest recor
 and the ImageMagick version under `changed_assets` and `tools`. `test/build.py` checks the
 packaged bytes, the sizes, and that each icon's average colour on black and on the Graphite
 selection grey matches the stock icon's. Other 52-pixel images that land in settings rows, such as
-Streaming's Tidal logo (`list_tidal`, which the folder root may also use), keep their stock bytes
-and still scale down. The Stock build keeps every icon stock. The recolouring of accent-red artwork
+Streaming's Tidal logo (`list_tidal`, which the folder root may also use) and the Spotify row's
+build-added icon ([internals.md](internals.md#spotify)), keep their bytes and still scale down. The
+Spotify row's Now Playing page uses Now Playing's layout (`NP_*`), rounded art included. The Stock build keeps every icon stock. The recolouring of accent-red artwork
 (`ringnav_image_add`) works on the decoded bitmap, so it applies at either size.
 
 ## Quick settings

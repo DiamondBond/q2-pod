@@ -92,7 +92,8 @@ class Machine:
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0',
                   'strlen@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
-                  'unlink@GLIBC_2.0','atoi@GLIBC_2.0','memcmp@GLIBC_2.0')
+                  'unlink@GLIBC_2.0','atoi@GLIBC_2.0','memcmp@GLIBC_2.0','access@GLIBC_2.0')
+        self.present=set()  # paths access finds (the UI loop's Spotify poll asks for its login)
         self.image_size=(50,50)  # what widget_load_image decodes
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
         self.rockbox_mode=0o100755
@@ -234,6 +235,7 @@ class Machine:
                     for kind,value in zip(re.findall(r'%\d*([sdxXu])',fmt),values)]
             result=(fmt % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
+        elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
         elif name=='rockbox_stat':
             assert a==3 and self.text(b)=='/mnt/mmc/.rockbox/rockbox'
             self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
@@ -4619,7 +4621,8 @@ if variant=='ipod':
     assert ret==11 and 'stock_dispatch' not in names
     texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
     assert texts=={'fopen':'/tmp/q2pod-rockbox',
-                   'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}
+                   'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
+                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
     # The wheel's centre takes the same shortcut as the tap. confirm_center dispatches the click
     # itself, so the check has to sit there too (a centre press opened stock Streaming instead).
@@ -4627,7 +4630,8 @@ if variant=='ipod':
     assert ret==11 and 'system' in names and 'stock_dispatch' not in names
     texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
     assert texts=={'fopen':'/tmp/q2pod-rockbox',
-                   'system':'killall checkappprocess.sh; killall -9 hciplayer; sync; kill -9 $PPID'}; passed()
+                   'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
+                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot; sync; kill -9 $PPID'}; passed()
     m,ret,names=shortcut({'SHORTCUT':'1'},card='removed')
     assert ret==11 and not {'stock_dispatch','fopen','player_stop','system'} & set(names)
     assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to_with_context']==['dialog/msginfo_dialog']; passed()
@@ -5615,6 +5619,142 @@ assert ('close',7) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.
 assert 'stock_input' in event(O['EVT_KEY_UP'],O['KEY_RETURN']) and not m.sent and wm_paint()==['wm_vt_paint']
 m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False); assert 'waitpid' not in [c[0] for c in m.calls]
 m.close(); passed()
+
+# Spotify (patch/spotify.c, docs/internals.md#spotify): librespot from the card's .spotify folder, its
+# state from the q2-librespot fork's --status-file, its commands to --control-socket.
+STATE,SOCK='/tmp/q2-librespot.state','/tmp/q2-librespot.sock'
+class SpotMachine(BooksMachine):
+    """BooksMachine's card and files, plus librespot's side: system() starts, the monotonic clock is
+    self.now, the player's status, and the thumbnailer (a .jpg it makes is a file)."""
+    def __init__(self,files):
+        super().__init__({},files)
+        for n in ('system@GLIBC_2.0','clock_gettime@GLIBC_2.2','toolsThumbSpecCover','pthread_mutex_lock@GLIBC_2.0',
+                  'pthread_mutex_unlock@GLIBC_2.0','sleep_ms','mclGetPlayStatus'):
+            self.handlers[syms[n]]='s:'+n
+        for x in ('stream','start_player'):
+            tramp=int(manifest['patch_symbols'][f'stock_{x}_trampoline'],16)
+            self.handlers[tramp]='stock_'+x; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
+        self.play=1; self.systems=[]; self.thumbs=[]; self.on_sleep=None
+        self.handlers.pop(syms['mclStartPlayer'])  # its hook runs, down to the trampoline
+        self.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('s:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='system': self.systems.append(self.text(a))
+        elif name=='clock_gettime': assert a==1; self.word(b,self.now//1000); self.word(b+4,self.now%1000*1000000)
+        elif name=='toolsThumbSpecCover':
+            self.thumbs.append((self.text(a),self.text(b),c,d)); ret=1 if self.text(a) in self.files else 0
+            if ret: self.files[self.text(b)]=bytearray(b'jpeg')
+        elif name=='sleep_ms':
+            self.now+=a
+            if self.on_sleep: self.on_sleep()
+        elif name=='mclGetPlayStatus': ret=self.play
+        self.calls.append((name,a,b,c))
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def state(self,state,position=0,at=None,cover=0,track='t1',title='Song',artist='A, B',album='LP',duration=200000):
+        self.files[STATE]=bytearray((f'state={state}\ntrack={track}\ntitle={title}\nartist={artist}\nalbum={album}\n'
+            f'duration={duration}\nposition={position}\nat={self.now if at is None else at}\ncover={cover}\n').encode())
+    def poll(self,ms=500):
+        self.now+=ms; self.calls=[]; self.sent=[]
+        self.call(address=HOOKS['main_loop_sleep_default'][0],args=(0x1234,0,0,0),gap=0,clear=False)
+        return [c[0] for c in self.calls]
+    def key(self,k):
+        self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
+def stream_page(m):
+    """Stock Streaming's one Tidal row, then the hook's row; returns the added row's button."""
+    view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
+    assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0 and m.calls[0][0]=='stock_stream'
+    assert len(m.nodes[view]['children'])==2
+    return m.nodes[m.nodes[view]['children'][-1]]['children'][0]
+def spot_open(m,button):
+    f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+    m.page=m.top; assert m.nodes[m.page]['name']=='spotify_page'; return m.page
+def texts(w): return [t for t in labels(w) if t is not None]
+# The row is Streaming's last, with its icon. Without librespot on the card the page says so and
+# nothing starts.
+m=SpotMachine({}); button=stream_page(m)
+icon,label=m.nodes[button]['children'][:2]
+assert m.nodes[icon]['image']=='stream_spotify' and m.nodes[label]['text']=='Spotify' and not m.nodes[button].get('name')
+page=spot_open(m,button); info,msg=m.nodes[page]['children']
+assert not m.nodes[info]['visible'] and m.nodes[msg]['visible'] and texts(msg)==["Spotify isn't on the card",'See the Q2 Pod guide to add it']
+m.poll(); assert not m.systems; m.close(); passed()
+# With it, the first open starts it once (its launcher backgrounds itself); with no state yet, or no
+# Connect session, the page asks for the phone.
+BIN='/mnt/mmc/.spotify/librespot'
+m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
+assert m.systems==['/bin/sh /mnt/mmc/.spotify/run'] and texts(msg)==['Open Spotify on your phone','and choose Q2']
+m.state('none',track=''); m.poll(); m.advance(250); assert m.nodes[msg]['visible'] and not m.nodes[info]['visible']
+m.close(); spot_open(m,button); assert len(m.systems)==1; m.close(); passed()
+# At boot it starts by itself once the card has a saved login, for a minute while the card mounts;
+# never without one.
+m=SpotMachine({BIN:bytearray()}); m.poll(); m.files['/mnt/mmc/.spotify/cache/credentials.json']=bytearray(); m.poll()
+assert m.systems==['/bin/sh /mnt/mmc/.spotify/run']; m.poll(); assert len(m.systems)==1
+m=SpotMachine({BIN:bytearray()}); m.poll(); m.poll(60000); m.files['/mnt/mmc/.spotify/cache/credentials.json']=bytearray(); m.poll()
+assert not m.systems; m=SpotMachine({BIN:bytearray()})
+for _ in range(3): m.poll()
+assert not m.systems and 'reset_poweroptions_timer' not in [c[0] for c in m.calls]; passed()
+# Playing: local music stops and the headphone output is set up as stock's AirPlay page does it,
+# once; meanwhile standby and auto power-off (not the screen's timer) are held and the DAC kept on.
+m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
+m.byte(syms['g_headset_output'],1); m.byte(syms['g_volume'],37); m.play=3; m.word(syms['g_dacoff_time'],5)
+m.state('playing',position=10000); names=m.poll()
+take=[(c[0],*c[1:3]) for c in m.calls if c[0] in ('player_stop','config_outputchannel','mclSetPcmMode','mclSetMute','device_set_volume','mclSetDacPwr')]
+assert [t[0] for t in take]==['player_stop','config_outputchannel','mclSetPcmMode','mclSetMute','device_set_volume']
+assert take[1][1:]==(1,2) and take[3][1]==0 and take[4][1:]==(37,1)
+assert ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls] and m.get(syms['g_dacoff_time'])==0
+m.play=1; m.word(syms['g_dacoff_time'],3); names=m.poll()
+assert 'config_outputchannel' not in names and 'reset_poweroptions_timer' in names and m.get(syms['g_dacoff_time'])==0
+# Bluetooth's way is left alone: a DAC check_dacoff_state powered off is only powered on.
+m.state('paused'); m.poll(); m.byte(syms['g_headset_output'],2); m.word(syms['g_dacoff_time'],0xffffffff); m.state('playing'); m.poll()
+assert 'config_outputchannel' not in [c[0] for c in m.calls] and ('mclSetDacPwr',1) in [c[:2] for c in m.calls]; passed()
+# The page: the art (librespot's cover sized by Coverflow's thumbnailer, once a track), title, artist
+# and album, the position moving on from at= and the remaining time, all clear of the glass.
+m.state('playing',position=10000,at=m.now+500,cover=1); m.files[STATE+'.jpg']=bytearray(b'cover'); m.poll(); m.advance(0)
+assert m.nodes[info]['visible'] and not m.nodes[msg]['visible']
+assert m.thumbs==[(STATE+'.jpg','/tmp/q2spot.jpg',166,166)] and 'file:///tmp/q2spot.jpg' in [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
+assert texts(info)==['Spotify','Song','A, B','LP','00:10','-03:10']
+m.advance(2500); assert texts(info)[4:]==['00:12','-03:08'] and len(m.thumbs)==1
+for w in [x for x in m.nodes if m.nodes[x]['type'] in ('hscroll_label','image','view') and under(x,info) and x!=info]:
+    x,y,bw,bh=cf_geometry(m,w); inset=max(corner_inset(30+y),corner_inset(30+y+bh))  # the window starts at y 30
+    assert inset<=x and x+bw<=375-inset,(m.nodes[w].get('text'),x,y,bw,bh)
+# The bar: a TRACK_COLOR capsule and the elapsed share in the accent (iPod) or stock red (Stock).
+bar=[w for w in m.nodes if m.nodes[w]['type']=='view' and cf_geometry(m,w)==(21,251,333,8)][0]
+m.rounded=[]; m.call(address=HOOKS['widget_on_paint_border'][0],args=(bar,m.canvas,0,0),gap=0,clear=False)
+track,fill=m.rounded
+assert track['rect']==(0,0,333,8) and track['color']==color_t(O['TRACK_COLOR']) and fill['rect']==(0,0,(12500>>4)*333//((200000>>4)|1),8)
+assert fill['color']==color_t(ACCENTS[0][2] if variant=='ipod' else O['STOCK_RED']); passed()
+# Play/Pause and the side buttons are Spotify's, on any page, after stock's key-lock filter, while it
+# is the last thing played; stock's downstream handler never sees them.
+m.top=m.node('window','home_page')
+for k,c in ((O['KEY_PLAY'],'p'),(O['KEY_FWD_BTN'],'n'),(O['KEY_BACK_BTN'],'b')):
+    assert m.key(k)==11 and m.sent==[(m.sent[0][0],c,1,0x40,1,SOCK,110)]
+m.state('paused'); m.poll(); assert m.key(O['KEY_PLAY'])==11 and m.sent[0][1]=='p'
+# Local music playing takes them back.
+m.play=2; m.poll(); assert m.key(O['KEY_PLAY'])!=11 and not m.sent; passed()
+# Local music starting (mclStartPlayer) while Spotify plays pauses it first and waits until
+# librespot's aplay is gone (it says paused); otherwise it starts at once.
+m.play=1; m.state('playing'); m.poll()
+def start():
+    m.calls=[]; m.sent=[]; m.call(address=HOOKS['mclStartPlayer'][0],args=(0,0,0,0),gap=0,clear=False,count=5_000_000)
+    return [c[0] for c in m.calls]
+m.on_sleep=lambda: m.state('paused') if m.now>=t0+60 else None; t0=m.now
+names=start(); assert m.sent[0][1]=='s' and names[-1]=='stock_start_player' and 60<=m.now-t0<=100
+m.on_sleep=None; names=start(); assert not m.sent and names.count('sleep_ms')==0 and names[-1]=='stock_start_player'
+# A librespot that never answers holds local music back at most SPOT_YIELD_MS.
+m.state('playing'); m.play=1; m.poll(); t0=m.now; start(); assert 1500<=m.now-t0<=1540; passed()
+# On the page, Centre starts a scrub: the wheel moves it 5 s a tick (not the volume), shown on the
+# bar in white, and Centre or SCRUB_MS later seeks there. Without a scrub the wheel is stock's volume.
+m.state('paused',position=60000); m.poll(); m.top=page
+assert m.key(O['KEY_NEXT'])!=11
+assert m.key(O['KEY_CENTER'])==11 and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_PREV'])==11 and not m.sent
+m.advance(250); assert texts(info)[4]=='01:05'
+m.poll(O['SCRUB_MS']-260); assert not m.sent; m.poll(); assert m.sent[0][1]=='S65000'  # 250 ms already passed
+assert m.key(O['KEY_CENTER'])==11 and m.key(O['KEY_PREV'])==11 and m.key(O['KEY_CENTER'])==11 and m.sent[0][1]=='S55000'
+# Return goes back to Streaming.
+assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
+m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
