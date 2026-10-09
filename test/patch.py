@@ -2977,8 +2977,14 @@ class BtVolumeMachine(Machine):
 
 for left,right,want in ((0,0,0),(1,1,1),(20,20,25),(40,30,51),(50,50,64),(100,100,127),
                         (-5,-1,0),(101,200,127)):
-    b=BtVolumeMachine(); assert b.volume(left,right)==[(100,100)] and b.writes()==[want]
-    assert b.volume(left,right)==[(100,100)] and not b.writes(); passed()
+    gain=(100,100) if want else (left,right)  # AVRCP 0 isn't silent on every headset: keep stock's mute
+    b=BtVolumeMachine(); assert b.volume(left,right)==[gain] and b.writes()==[want]
+    assert b.volume(left,right)==[gain] and not b.writes(); passed()
+# Volume 0 and back up: the headset gets 0 then 1, stock gain 0 then full.
+b=BtVolumeMachine(); assert b.volume(0,0)==[(0,0)] and b.writes()==[0]
+assert b.volume(1,1)==[(100,100)] and b.writes()==[1]; passed()
+b=BtVolumeMachine(); b.byte(syms['g_volume'],0); b.poll()
+assert b.writes()==[0] and [c[1:3] for c in b.calls if c[0]=='stock_btvol']==[(0,0)]; passed()
 for cur in (-1,128,255):
     b=BtVolumeMachine(); b.absolute=cur
     assert b.volume(20,30)==[(20,30)] and not b.writes(); passed()

@@ -4074,8 +4074,11 @@ static int bt_sync_volume(int left, int right) {
     return cur == (unsigned)want || btctl_transport_set_volume(want) == 0;
 }
 
+/* AVRCP 0 is the headset's lowest step, which many still play, so volume 0 keeps stock's gain:
+ * (0, 0) silences hciplayer's soft volume. The next step up restores full gain. */
 int ringnav_btvol(int left, int right) {
-    if (bt_audio_ready() && bt_sync_volume(left, right)) return stock_btvol_trampoline(100, 100);
+    if (bt_audio_ready() && bt_sync_volume(left, right) && (left > 0 || right > 0))
+        return stock_btvol_trampoline(100, 100);
     return stock_btvol_trampoline(left, right);
 }
 
@@ -4091,7 +4094,7 @@ static void bt_volume_poll(void) {
     if (!bt_audio_ready())
         btvol.ready = 0;
     else if (!btvol.ready && bt_sync_volume(g_volume, g_volume)) {
-        stock_btvol_trampoline(100, 100);
+        stock_btvol_trampoline(g_volume ? 100 : 0, g_volume ? 100 : 0);
         btvol.ready = 1;
     }
 }

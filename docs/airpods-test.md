@@ -33,7 +33,7 @@ After each connection, allow a few seconds for the audio transport to appear, st
 
 ## Implementation and local checks
 
-Both variants hook `mclSetBtVol`. An active Bluetooth output outside receiver mode reads absolute volume, maps the larger requested channel from 0–100 to 0–127 with rounding and clamping, and avoids redundant writes. Full software gain is used only when the headset value already matches or `btctl_transport_set_volume` returns 0. Unsupported readings and failed writes retain stock gain.
+Both variants hook `mclSetBtVol`. An active Bluetooth output outside receiver mode reads absolute volume, maps the larger requested channel from 0–100 to 0–127 with rounding and clamping, and avoids redundant writes. Full software gain is used only when the headset value already matches or `btctl_transport_set_volume` returns 0, and the volume is above 0: AVRCP 0 is the headset's lowest step, which some still play, so volume 0 keeps stock's gain of 0. Unsupported readings and failed writes retain stock gain.
 
 The main loop checks readiness every 400 ms and synchronizes the current Q2 volume once when a usable transport appears. Invalid readings and failed writes retry; disconnect, Bluetooth off, receiver mode, codec loss or a different audio output reset readiness. This changes no battery, ear detection, stem controls, cards or settings.
 
