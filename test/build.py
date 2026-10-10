@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
-from build import CAROUSEL, ICONS, QUEUE_LABEL, ROOT, STOCK_EQ, jpeg_size
+from build import CAROUSEL, ICONS, QUEUE_LABEL, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -26,6 +26,13 @@ for data in (b'', b'not a JPEG', frame, frame + bytes(8),
         continue
     raise AssertionError(f'Accepted malformed JPEG header: {data!r}')
 print('JPEG header regression checks passed.')
+
+# --dev tags: five characters, one per build number, never a release's.
+tags = [dev_tag(n, 'I') for n in range(1, 36**3)]
+assert tags[:2] == ['V001i', 'V002i'] and tags[35] == 'V010i' and tags[-1] == 'VZZZi'
+assert len(set(tags)) == len(tags) and all(len(t) == 5 for t in tags) and VERSIONS['ipod'] not in tags
+assert dev_tag(36**3, 'S') == 'V001s'
+print('Dev build tag checks passed.')
 
 def boot_check():
     """S90play's dual boot (build.py BOOT_HOOK) under the host sh, with stand-in programs."""

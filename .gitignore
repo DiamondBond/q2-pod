@@ -9,3 +9,4 @@ dist/*
 *.squashfs
 
 __pycache__/
+.build-number

@@ -13,6 +13,13 @@ VERSION = '1.0.2'  # major.minor.patch, single digits, shown as is (About, relea
 # firmware version and a CFW. Version row with VERSION and the edition instead (ringnav_about).
 TAG = 'V' + VERSION.replace('.', '')
 VERSIONS = {'stock': TAG + 'S', 'ipod': TAG + 'I'}
+
+def dev_tag(number, edition):
+    """--dev build number's tag: V and three base-36 digits, the edition lowercase (V00Ai), so no
+    two test builds share a tag, and none equals a release's, and the updater takes each."""
+    digits, n = '', (number - 1) % (36**3 - 1) + 1  # 1..ZZZ, then round again
+    for _ in range(3): n, d = divmod(n, 36); digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[d] + digits
+    return 'V' + digits + edition.lower()
 BASE = 0xb00000
 SCRATCH = 0xb40000
 RING_STEP = 48
@@ -615,10 +622,13 @@ def patch_watchdog(raw):
 def build(zip_path, out, logo, ipod=False, dev=False):
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
-    # --dev: lowercase tag, never equal to a release, so the updater accepts either over the other
-    if dev: version = version[:-1] + version[-1].lower()
     out.mkdir(parents=True, exist_ok=True)
     check(not (out/'update.tar').exists(), 'Output already exists; use a fresh --out directory')
+    if dev:  # the next number in the untracked .build-number
+        counter = ROOT/'.build-number'
+        dev = int(counter.read_text()) + 1 if counter.exists() else 1
+        counter.write_text(f'{dev}\n')
+        version = dev_tag(dev, version[-1])
     source = source_sha256()
     raw = zip_path.read_bytes()
     check(sha(raw) == ZIP_SHA, 'Unsupported ZIP: SHA-256 differs from audited original')
@@ -677,7 +687,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
     header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox row, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
-    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION} {"iPod" if ipod else "Stock"}{" dev" * dev}"']
+    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION} {"iPod" if ipod else "Stock"}{f" dev {dev}" if dev else ""}"']
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()
@@ -889,7 +899,7 @@ if __name__ == '__main__':
                     help='320x375 JPEG boot splash (default: assets/boot-logo.jpg)')
     ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
-                    help=f'development build: lowercase version tag ({TAG}s/i); never a release input')
+                    help='development build: tag from the next .build-number (V001i, V002i...); never a release input')
     a=ap.parse_args()
     try:
         build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev)
