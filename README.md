@@ -29,7 +29,7 @@
 Made for the **Shanling Q2**, with an iPod classic feel and a few extras:
 
 - **iPod UI:** Home, lists, Now Playing, Coverflow and four visualizers. Choose your accent, Home layout and battery display.
-- **Wheel navigation:** faster scrolling, adjustable sensitivity and menus that remember your place.
+- **Wheel navigation:** faster scrolling, adjustable sensitivity and menus that remember your place. The wheel also sets brightness, volume limits, balance, the date and time and the sleep timer.
 - **More ways to listen:** favourites, playlists, Most Played, and shuffle by song, album or folder. Hold Play/Pause for track and playback options.
 - **Parametric EQ:** up to 30 bands, per-channel adjustments, balance, a live curve and AutoEQ / Equalizer APO preset imports.
 - **Beyond music:** videos, photos, books, podcasts and audiobooks. Podcasts, audiobooks and long mixes resume where you left off.
@@ -71,14 +71,14 @@ Needs Spotify Premium. Audio plays on the headphone jack, Bluetooth or a USB DAC
 
 ## Everyday use
 
-| Control                                      | Action                                                                                    |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **Wheel**                                    | Scroll; spin faster to speed up. Outside menus, adjust volume.                            |
-| **Centre**                                   | Open the selected item. Double-press to turn the screen off; single press on Now Playing. |
-| **Hold Play/Pause**                          | Open track, queue, playlist and shuffle/repeat options.                                   |
-| **Hold Return** (iPod UI)                    | Jump to Now Playing; Return takes you back.                                               |
-| **Double-press centre, then turn** (iPod UI) | Scrub on Now Playing, 5 seconds per tick.                                                 |
-| **Pull down from the top edge** (iPod UI)    | Open quick settings.                                                                      |
+| Control                                      | Action                                                                                                                                       |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Wheel**                                    | Scroll; spin faster to speed up. In a slider or time setting, change it. Elsewhere, volume.                                                  |
+| **Centre**                                   | Open the selected item, or leave a slider and move to the next time field. Double-press to turn the screen off; single press on Now Playing. |
+| **Hold Play/Pause**                          | Open track, queue, playlist and shuffle/repeat options.                                                                                      |
+| **Hold Return** (iPod UI)                    | Jump to Now Playing; Return takes you back.                                                                                                  |
+| **Double-press centre, then turn** (iPod UI) | Scrub on Now Playing, 5 seconds per tick.                                                                                                    |
+| **Pull down from the top edge** (iPod UI)    | Open quick settings.                                                                                                                         |
 
 Run **Library → Update Local Music** after adding music; it adds up to 65,000 songs. Coverflow prepares artwork on its first open; cancelling keeps its progress.
 
