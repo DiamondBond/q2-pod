@@ -9,6 +9,7 @@ Things people often don't know are already there:
 - **Hold Play/Pause** on Now Playing for the queue, favourites, playlists, shuffle and repeat. During Shuffle Albums or Folders it also has **Next album / Previous album**.
 - **Double-press the centre button** to turn the screen off; on Now Playing a single press does it.
 - **Hold Return** (iPod) jumps to Now Playing from anywhere.
+- **Brightness, volume limits, balance, date and time and the sleep timer** take the wheel: turn to change, Centre to go back or move to the next field and then OK. In the pull-down, the wheel sets the brightness.
 - **Wheel too fast or slow?** **System settings → Display → Wheel sensitivity**.
 - **Longer battery:** **System settings → Power management → Low power** and **Charge limit**.
 - **Guest artists splitting albums?** **Audio settings → Artists → Album Artist**.

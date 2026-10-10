@@ -327,6 +327,8 @@ class Machine:
         elif name=='widget_count_children': ret=len(n['children'])
         elif name=='widget_get_child': ret=n['children'][b] if b<len(n['children']) else 0
         elif name=='widget_set_prop_int': n[self.text(b)]=signed(c); ret=0
+        elif name=='text_selector_count_options': ret=n.get('options',0)
+        elif name=='text_selector_set_selected_index': self.word(a+O['SELECTOR_INDEX'],b); ret=0
         elif name=='widget_restack' and getattr(self,'restack',False):  # AWTK clamps the index
             kids=next((v['children'] for v in self.nodes.values() if a in v.get('children',())),None)
             if kids is not None: kids.remove(a); kids.insert(min(b,len(kids)),a)
@@ -1352,6 +1354,72 @@ if variant=='ipod':
     m.paint(d); assert m.sel()==(0,220,375,80) and not m.strokes; passed()
 else:
     assert m.call()==0 and m.call(O['KEY_CENTER'])==0 and not m.moved(); passed()
+
+# USB mode's exit asks whether to scan before it leaves the mode: with the cable out, the prompt
+# takes the wheel (iPod: its buttons); with the cable in, input stays stock's.
+for cable in (0,1):
+    m=Machine(); d=m.node('dialog','confirminfo_dialog',[]); m.word(d+O['W_PARENT'],m.wm); m.top=d
+    m.nodes[d]['children']=[m.entry(d,220) for _ in range(2)]
+    m.byte(syms['g_usblink_status'],2); m.byte(syms['g_usbdet_value'],cable)
+    assert m.call()==(11 if variant=='ipod' and not cable else 0); passed()
+
+# Slider settings: the wheel presses the page's own +/-, Centre goes back once the double-press
+# window has passed, and a double Centre is stock's screen toggle instead.
+for name in ('backlight_page','maxvol_page','bootvol_page','balance_page'):
+    m=Machine(); add,dec=m.node('image','img_add'),m.node('image','img_dec')
+    m.top=m.node('window',name,[m.node('view','view_body',[dec,add])]); m.mock('on_wm_keyup_fun')
+    assert m.call()==11 and m.clicks==[add]
+    assert m.call(O['KEY_PREV'])==11 and m.clicks==[add,dec]
+    assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1
+    assert m.call(O['KEY_CENTER'])==11 and m.call(O['KEY_CENTER'],gap=50)==11
+    m.advance(300,clear=False); names=[c[0] for c in m.calls]
+    assert 'on_wm_keyup_fun' in names and 'navigator_back' not in names; passed()
+# Quick Settings: the wheel sets its brightness slider within its range; Centre stays stock's.
+m=Machine(); bright=m.node('slider','slider_backlight',value=99)
+m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
+assert m.call()==11 and m.nodes[bright]['value']==100
+assert m.call()==11 and m.nodes[bright]['value']==100
+assert m.call(O['KEY_PREV'])==11 and m.nodes[bright]['value']==99
+assert m.call(O['KEY_CENTER'])==0; passed()
+
+# Set date and time: the wheel turns the outlined field, Centre moves on (to the time page after
+# the day) and then to OK, which Centre presses; a turn on OK goes back to the fields.
+def time_page(name):
+    m=Machine(); names=['tselector_year','tselector_month','tselector_day','tselector_hour','tselector_min']
+    if name=='sleepshutdown_page': names=names[3:]
+    sels=[m.node('text_selector',n,options=12) for n in names]
+    for w in sels: m.word(w+O['SELECTOR_INDEX'],5); m.word(w+O['W_W'],80); m.word(w+O['W_H'],170)
+    ok=m.node('button','btn_enter'); slide=m.node('slide_view','slide_view',sels,value=0)
+    m.top=m.node('window',name,[slide,ok]); return m,sels,ok,slide
+m,sels,ok,slide=time_page('manualtime_page')
+assert m.call()==11 and m.get(sels[0]+O['SELECTOR_INDEX'])==6
+m.paint(sels[0]); assert [s[:4] for s in m.strokes]==[(0,0,80,170),(1,1,78,168)] and m.lcd_colors()==LCD_COLORS
+m.paint(sels[1]); assert not m.strokes
+for f in range(1,6): assert m.confirm()==11 and m.nodes[m.top]['_edit_field']==f
+assert m.nodes[slide]['value']==1 and not m.clicks
+assert m.confirm()==11 and m.clicks==[ok]
+assert m.call(O['KEY_PREV'])==11 and m.nodes[m.top]['_edit_field']==4
+for _ in range(9): m.call()
+assert m.get(sels[4]+O['SELECTOR_INDEX'])==11
+m.nodes[slide]['value']=0; assert m.call(O['KEY_PREV'])==11 and m.get(sels[0]+O['SELECTOR_INDEX'])==5; passed()
+m,sels,ok,slide=time_page('sleepshutdown_page')
+assert m.call()==11 and m.get(sels[0]+O['SELECTOR_INDEX'])==6
+assert m.confirm()==11 and m.confirm()==11 and m.confirm()==11 and m.clicks==[ok]; passed()
+
+# A picker opens on its checked option, not the row last chosen there.
+m=Machine(); w,es=m.page_list(4,name='playmode_page')
+m.nodes[es[2]]['children']=[m.node('image',image='select')]
+m.paint(w); assert m.selected(w)==2; passed()
+
+# iPod: a playlist's More page (Rename, Delete) is a BUTTONS page: the wheel moves between them.
+if variant=='ipod':
+    m=Machine(); top=m.node('window','playlistsmore_page'); m.word(top+O['W_PARENT'],m.wm); m.top=top
+    m.word(top+O['W_W'],375); m.word(top+O['W_H'],290)
+    rows=[m.node('list_item',children=[m.entry(0)]) for _ in range(2)]
+    for i,r in enumerate(rows): m.word(r+O['W_Y'],10+i*78); m.word(m.nodes[r]['children'][0]+O['W_PARENT'],r); m.word(r+O['W_PARENT'],top)
+    m.nodes[top]['children']=rows
+    assert m.call()==11 and m.selected(top)==1 and m.call()==11 and m.selected(top)==1
+    assert m.confirm()==11 and m.clicks==[m.nodes[rows[1]]['children'][0]]; passed()
 
 # An interrupted recall glide keeps the remembered row instead of adopting a visible one.
 m,w,es=walk(10,5); w2,es2=m.page_list(10,extent=1000); m.glide=False

@@ -89,6 +89,7 @@ typedef struct {
 typedef struct {
     unsigned last_center; /* release time of the pending selection press */
     unsigned center_timer, center_token, center_scope, center_hash, center_hash2;
+    unsigned edit_press, edit_at; /* a slider or time editor's pending Centre (edit_key) */
     int center_id, center_ctx, center_rows;
     unsigned cf_letter, cf_letter_at, cf_letter_timer;
     void *cf_letter_surface;
@@ -224,7 +225,7 @@ static menu_t g_menu __attribute__((section(".scratch")));
  * one of the audited local row lists that carry over at the ends. The index is remembered
  * instead of the name pointer: AWTK owns and frees the window's name string. */
 enum { CTX_DYNAMIC, CTX_FIXED, CTX_FOLDER, CTX_LOCAL };
-enum { RING = 1, DRILL = 2, BUTTONS = 4 };
+enum { RING = 1, DRILL = 2, BUTTONS = 4, CHOICE = 8 };
 typedef struct {
     const char *name;
     unsigned char kind, flags;
@@ -254,7 +255,7 @@ static int kind(void *w) {
     if (!tk_strcmp(t, "slide_menu")) return 3;
     if (!tk_strcmp(t, "table_client")) return 2;
 #if IPOD
-    if (!tk_strcmp(t, "dialog")) {
+    if (!tk_strcmp(t, "dialog") || !tk_strcmp(t, "window")) {
         int ctx = context_id(widget_get_prop_str(w, "name", (void *)0));
         return ctx >= 0 && (contexts[ctx].flags & BUTTONS) ? 4 : 0;
     }
@@ -538,8 +539,15 @@ static void home_step(void *w, int dir, unsigned now, int jump) {
 }
 
 static int usable(void) {
-    return g_backlight_status && !g_lockscreen_pageflag && !g_testmode_flag && !g_guideflag &&
-           !g_poweroff_state && g_usblink_status != 2 && !bt__recv_pageflag;
+    if (!g_backlight_status || g_lockscreen_pageflag || g_testmode_flag || g_guideflag ||
+        g_poweroff_state || bt__recv_pageflag)
+        return 0;
+    if (g_usblink_status != 2) return 1;
+    /* USB mode's exit asks whether to scan in a confirm dialog before it leaves the mode: once the
+     * cable is out, that prompt takes the wheel and Centre. */
+    void *top = window_manager_get_top_window(window_manager());
+    return !g_usbdet_value && top &&
+           !tk_strcmp(widget_get_prop_str(top, "name", ""), "confirminfo_dialog");
 }
 
 static int allowed_top(void *top) {
@@ -785,6 +793,24 @@ static int load_rows(menu_t *m, void *w) {
     return 1;
 }
 
+/* A row holding stock's "select" check image: a CHOICE picker's current option. */
+static int checked(void *w, int depth, int *budget) {
+    if (!w || depth == 16 || --*budget < 0 || !widget_get_visible(w)) return 0;
+    if (!tk_strcmp(widget_get_prop_str(w, "image", ""), "select")) return 1;
+    unsigned n = widget_count_children(w);
+    for (unsigned i = 0; i < n; ++i)
+        if (checked(widget_get_child(w, i), depth + 1, budget)) return 1;
+    return 0;
+}
+
+static int checked_row(menu_t *m) {
+    for (int i = 0; i < m->n; ++i) {
+        int budget = 256;
+        if (checked(m->at[i], 0, &budget)) return m->id[i];
+    }
+    return -1;
+}
+
 static int load(menu_t *m, void *w, int recall) {
     if (!load_rows(m, w)) return 0;
     m->ctx = context_now(&m->scope);
@@ -807,8 +833,12 @@ static int load(menu_t *m, void *w, int recall) {
      * remembered first text, breaks ties by the second text and then by the remembered index,
      * and falls back to the index when no text matches. */
     if (recall && m->kind != 3 && count < 0) {
-        int p = position(m);
-        int id = p < 0 ? -1 : st.pos[p].id - 1;
+        /* A picker opens on its current option rather than the row last chosen. */
+        void *top = window_manager_get_top_window(window_manager());
+        int ctx = top ? context_id(widget_get_prop_str(top, "name", (void *)0)) : -1;
+        int choice = ctx >= 0 && (contexts[ctx].flags & CHOICE) ? checked_row(m) : -1;
+        int p = choice >= 0 ? -1 : position(m);
+        int id = choice >= 0 ? choice : p < 0 ? -1 : st.pos[p].id - 1;
         unsigned hash = p < 0 ? 0 : st.pos[p].hash;
         unsigned hash2 = p < 0 ? 0 : st.pos[p].hash2;
         if (id >= 0 && m->kind == 1 && hash) {
@@ -1560,6 +1590,8 @@ static void paint_selection(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
+static void edit_paint(void *w, void *canvas);
+
 /* Stock paints children first and calls this with the surface's canvas origin restored. */
 int ringnav_paint(void *w, void *canvas) {
 #if IPOD
@@ -1577,6 +1609,7 @@ int ringnav_paint(void *w, void *canvas) {
         draw_centred(canvas, &st.cf_letter, 1, &box, LETTER_PX, 0xffffffff);
         canvas_set_fill_color(canvas, fill);
     }
+    edit_paint(w, canvas);
     photos_paint(w, canvas);
     books_paint(w, canvas);
     spot_paint(w, canvas);
@@ -4391,6 +4424,127 @@ int ringnav_keydown(void *ctx, void *event) {
 }
 #endif
 
+/* Stock's setting editors, which have no list. Brightness, maximum and startup volume and balance
+ * step with the wheel through their own +/- (limits and saving stay stock's), and Centre goes back.
+ * Quick Settings' brightness slider has no +/-: its value is set, firing stock's change callback.
+ * Set date and time and the sleep timer edit one text_selector field at a time, outlined by
+ * edit_paint: the wheel turns it, Centre moves to the next field and, after the last, to OK, which
+ * Centre presses; a turn on OK goes back to the fields. A double Centre turns the screen off. */
+static int slider_page(void *top) {
+    const char *name = top ? widget_get_prop_str(top, "name", "") : "";
+    return !tk_strcmp(name, "backlight_page") || !tk_strcmp(name, "maxvol_page") ||
+           !tk_strcmp(name, "bootvol_page") || !tk_strcmp(name, "balance_page");
+}
+
+static int fields(void *top) {
+    const char *name = top ? widget_get_prop_str(top, "name", "") : "";
+    return !tk_strcmp(name, "manualtime_page") ? 5 : !tk_strcmp(name, "sleepshutdown_page") ? 2 : 0;
+}
+
+static void *field_widget(void *top, int f) {
+    static const char *const names[] = { "tselector_year", "tselector_month", "tselector_day",
+                                         "tselector_hour", "tselector_min",   "btn_enter" };
+    int n = fields(top);
+    return n ? widget_lookup(top, names[f == n ? 5 : n == 2 ? f + 3 : f], 1) : (void *)0;
+}
+
+/* The field the wheel edits; a swipe between the date and time pages moves it to that page's first.
+ */
+static int field_at(void *top) {
+    int n = fields(top), f = clamp_step(widget_get_prop_int(top, "_edit_field", 0), n, 0);
+    void *slide = n == 5 && f < n ? widget_lookup(top, "slide_view", 1) : (void *)0;
+    int time = slide && widget_get_prop_int(slide, "value", 0) == 1;
+    if (slide && time != (f >= 3)) f = time ? 3 : 0;
+    return f;
+}
+
+static void field_set(void *top, int f) {
+    prop(top, "_edit_field", f);
+    void *slide = fields(top) == 5 && f < 5 ? widget_lookup(top, "slide_view", 1) : (void *)0;
+    if (slide) widget_set_prop_int(slide, "value", f >= 3);
+    widget_invalidate_force(top, (void *)0);
+}
+
+static int edit_single(const void *info) {
+    (void)info;
+    st.edit_press = 0;
+    void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+    if (!usable() || window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm))
+        return 0;
+    *(volatile unsigned char *)KEY_LOCKOUT = 0; /* stock's wheel lockout after the centre key */
+    int n = fields(top), f = field_at(top);
+    if (!n) {
+        if (slider_page(top)) navigator_back();
+    } else if (f < n)
+        field_set(top, f + 1);
+    else {
+        void *ok = field_widget(top, n);
+        char click[0x30];
+        if (ok) stock_dispatch_trampoline(ok, pointer_event_init(click, EVT_CLICK, ok, 0, 0));
+    }
+    return 0;
+}
+
+static int edit_key(void *top, unsigned key) {
+    static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
+    int quick = top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "statusbar_dialog");
+    int n = fields(top);
+    if (!quick && !n && !slider_page(top)) return 0;
+    if (key == KEY_CENTER) {
+        if (quick) return 0;
+        int press = center_press(&st.edit_press, &st.edit_at, edit_single, 0);
+        if (!press)
+            press = center_press(&st.edit_press, &st.edit_at, edit_single,
+                                 0); /* after an overdue one */
+        if (press == 2 && g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
+        return 1;
+    }
+    if (key != KEY_PREV && key != KEY_NEXT) return 0;
+    void *wm = window_manager();
+    if (window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm)) return 1;
+    int dir = key == KEY_NEXT ? 1 : -1;
+    if (quick) {
+        void *slider = widget_lookup(top, "slider_backlight", 1);
+        if (!slider || !widget_get_visible(slider)) return 1;
+        int value = widget_get_prop_int(slider, "value", 0);
+        int min = widget_get_prop_int(slider, "min", 0),
+            max = widget_get_prop_int(slider, "max", 100);
+        int next = min + clamp_step(value - min, max - min, dir);
+        if (next != value) widget_set_prop_int(slider, "value", next);
+    } else if (!n) {
+        void *button = widget_lookup(top, dir > 0 ? "img_add" : "img_dec", 1);
+        char click[0x30];
+        if (button && widget_get_prop_bool(button, "enable", 1))
+            stock_dispatch_trampoline(button, pointer_event_init(click, EVT_CLICK, button, 0, 0));
+    } else {
+        int f = field_at(top);
+        void *sel = field_widget(top, f);
+        unsigned options = f < n && sel ? text_selector_count_options(sel) : 0;
+        if (f == n)
+            field_set(top, dir > 0 ? 0 : n - 1);
+        else if (options && options <= 0x7fffffff) {
+            int index = I(sel, SELECTOR_INDEX), next = clamp_step(index, (int)options - 1, dir);
+            if (next != index) text_selector_set_selected_index(sel, (unsigned)next);
+            field_set(top, f);
+        }
+    }
+    return 1;
+}
+
+/* ringnav_paint, after the children: the field the wheel edits, framed in white. */
+static void edit_paint(void *w, void *canvas) {
+    void *top = window_manager_get_top_window(window_manager());
+    if (!w || !fields(top) || w != field_widget(top, field_at(top)) || !P(canvas, CANVAS_LCD))
+        return;
+    int ww = I(w, W_W), wh = I(w, W_H);
+    if (ww < 5 || wh < 5) return;
+    unsigned old = (unsigned)I(P(canvas, CANVAS_LCD), LCD_STROKE_COLOR);
+    canvas_set_stroke_color(canvas, 0xffffffff);
+    canvas_stroke_rect(canvas, 0, 0, ww, wh);
+    canvas_stroke_rect(canvas, 1, 1, ww - 2, wh - 2);
+    canvas_set_stroke_color(canvas, old);
+}
+
 int ringnav(void *ctx, void *event) {
     pull_cancel();
     /* The stock filter dereferences the event before returning. */
@@ -4458,7 +4612,12 @@ int ringnav(void *ctx, void *event) {
     }
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     if (spot_key(top, key)) return STOP; /* Spotify's page: Centre scrubs */
-    if (xfade_key(top, key)) return STOP; /* Crossfade's page: Centre toggles, the wheel sets the length */
+    if (xfade_key(top, key))
+        return STOP; /* Crossfade's page: Centre toggles, the wheel sets the length */
+    if (edit_key(top, key)) {
+        drop_input();
+        return STOP;
+    }
 
 #if IPOD
     if (top != st.np_win || window_manager_is_animating(wm) ||

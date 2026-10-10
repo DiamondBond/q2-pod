@@ -273,6 +273,8 @@ FUNCTIONS = {
  'slider_set_min': ('int', 'void *, double'), 'slider_set_max': ('int', 'void *, double'),
  'slider_set_step': ('int', 'void *, double'), 'slider_set_value': ('int', 'void *, double'),
  'widget_set_text_utf8': ('int', 'void *, const char *'),
+ 'text_selector_count_options': ('unsigned', 'void *'),
+ 'text_selector_set_selected_index': ('int', 'void *, unsigned'),
  'widget_use_style': ('int', 'void *, const char *'),
  'widget_set_name': ('int', 'void *, const char *'),
  'widget_set_sensitive': ('int', 'void *, int'),
@@ -484,7 +486,8 @@ GLOBALS = ['g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_t
            'g_usbvol_mode',  # USB DAC volume: 0 fixed, else the volume (config_usbvolmode, device_set_volume)
            'g_usbdac_chargeflag',  # USB mode's charge choice, which switch_charge_enable gets there
            'g_memory_play', 'g_carmode',
-           'g_headset_output']  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth
+           'g_headset_output',  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth
+           'g_usbdet_value']  # 1 while a USB cable is in (USB mode's scan prompt outlives it)
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.

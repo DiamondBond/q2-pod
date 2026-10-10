@@ -461,6 +461,7 @@ initial Cancel are stock. Tidal's own confirm pop-up (cyan, black glyphs) keeps 
 | ------------------------------------------------ | ----------------------------------------------- |
 | `confirminfo_dialog`, `tidal_confirminfo_dialog` | `img_cancel`, `img_enter` (80x80, side by side) |
 | `autoshutdown_dialog`                            | `btn_cancel`                                    |
+| `playlistsmore_page` (a page)                    | Rename, Delete                                  |
 | `tidal_quality_select_dialog`                    | four quality rows, `btn_ok`                     |
 | `tidal_sortmode_dialog`                          | three sort rows, `btn_cancel`                   |
 
@@ -468,7 +469,8 @@ initial Cancel are stock. Tidal's own confirm pop-up (cyan, black glyphs) keeps 
 wheel stays on the volume: the text-entry dialogs (`addplaylist`, `editwifi`, `kbwifiadd`,
 `kbwifipass`, `renameplaylist`, `searchbox`, `tidal_searchbox` and Baidu's `edit_dialog`), the Update
 Local Music progress (`updatemusic_dialog`, whose only button cancels a scan that can run for
-minutes), the pull-down quick settings (`statusbar_dialog`), and the dialogs without buttons
+minutes), the pull-down quick settings (`statusbar_dialog`, whose wheel sets the brightness: see
+[internals.md](internals.md#setting-editors)), and the dialogs without buttons
 (`volume_dialog`, `msginfo_dialog`, `checkfw_dialog`, `showsn_dialog`, `dialog_wifibt_test`).
 
 ## Boot
