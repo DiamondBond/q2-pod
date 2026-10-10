@@ -4747,7 +4747,7 @@ if variant=='ipod':
     # Display settings: after the stock rows, Theme, Accent, Home and Battery rows in the native row
     # widgets and styles, with the Display (Theme and Accent), cover mode and power manager icons;
     # Centre or tap cycles and saves each; a new theme or accent drops the image cache and repaints, a
-    # new Battery mode repaints the bar. The Accent row shows only in Classic; Minimal hides it last.
+    # new Battery mode repaints the bar. The Accent row, after Theme, shows only in Classic.
     def display(config,card=True):
         CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.restack=True; m.rockbox_mode=0o100755 if card else 0; m.handlers[tramp['display']]='stock_display'
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
@@ -4763,7 +4763,7 @@ if variant=='ipod':
         return [next(r for r in kids if lab(r).startswith(k)) for k in ('Accent','Home','Battery','Theme')]
     m,view,rows=display({})
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[1],rows[2],kids[3],rows[0]] and m.nodes[rows[0]]['visible']==0  # Theme, Home, Battery, Wheel, hidden Accent
+    assert kids==[rows[3],rows[0],rows[1],rows[2],kids[4]] and m.nodes[rows[0]]['visible']==0  # Theme, hidden Accent, Home, Battery, Wheel
     assert m.icons_set==['system_display','system_display','playset_covermode','system_powermanager','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
@@ -4817,7 +4817,7 @@ if variant=='ipod':
         assert m.bands[-1][4]==color_t(ACCENTS[value][4]); passed()
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal'
     kids=m.nodes[view]['children'][3:]
-    assert kids[-1]==rows[0] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Artwork'
+    assert kids[:4]==[rows[3],rows[0],rows[1],rows[2]] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Artwork'
     assert m.nodes[art].get('image')=='' ; home_bounds(False)
     m.paint(view); assert {b[4] for b in m.bands}=={color_t(0xeeeeec)}; passed()
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
@@ -4869,7 +4869,9 @@ if variant=='ipod':
     # Settings rows (docs/ipod.md#settings). The real stock builders create their rows; the build
     # points the list_view layouter's vtable slot at ipod_list_layout, which normalises stock 78px
     # items, runs the stock layout (stacking modelled here: item_height, else the item's own height,
-    # else default_item_height, as 0x5ea5c4 onward) and maps each row's children.
+    # else default_item_height, as 0x5ea5c4 onward) and maps each row's children. Stock's
+    # list_view(m=0,s=0) has no keep_invisible, so widget_get_children_for_layout (0x5ea1e4) drops a
+    # hidden row: it is neither placed nor sized.
     from ipod import corner_inset
     class SettingsMachine(Machine):
         def hook(self,u,address,size,x):
@@ -4879,6 +4881,7 @@ if variant=='ipod':
                 view=u.reg_read(UC_MIPS_REG_A1); lst=self.get(view+O['W_PARENT']); y=0
                 ih,dh=(self.get(lst+O[k]) for k in ('ROW_HEIGHT','LIST_DEFAULT_ITEM_HEIGHT'))
                 for c in self.nodes[view]['children']:
+                    if not self.nodes[c]['visible']: continue
                     if not self.get(c+O['W_W']): self.word(c+O['W_W'],self.get(view+O['W_W']))
                     h=ih or self.get(c+O['W_H']) or dh
                     self.word(c+O['W_Y'],y); self.word(c+O['W_H'],h); y+=h
@@ -4887,6 +4890,7 @@ if variant=='ipod':
             if name=='widget_on' and u.reg_read(UC_MIPS_REG_A1)==O['EVT_CLICK']:  # a clickable row
                 a=u.reg_read(UC_MIPS_REG_A0); em=self.alloc(4); it=self.alloc(0x28)
                 self.word(a+O['W_EMITTER'],em); self.word(em,it); self.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
+                self.nodes[a]['click']=(u.reg_read(UC_MIPS_REG_A2),u.reg_read(UC_MIPS_REG_A3))
             if name=='image_set_draw_type': self.nodes[u.reg_read(UC_MIPS_REG_A0)]['draw_type']=u.reg_read(UC_MIPS_REG_A1)
             return super().hook(u,address,size,x)
     SET={k:O['SET_'+k] for k in ('ROW','TOP','ROWS','ICON','ICON_X','GAP','TEXT_X','EDGE','STOCK_ROW')}
@@ -4942,7 +4946,7 @@ if variant=='ipod':
             if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
             if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
     for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
-        m,view=settings(builder); items=m.nodes[view]['children']
+        m,view=settings(builder); items=[i for i in m.nodes[view]['children'] if m.nodes[i]['visible']]
         before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
         assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
         assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
@@ -4957,6 +4961,26 @@ if variant=='ipod':
             assert geometry(m,label)[0]==SET['ICON_X']+SET['ICON']+SET['GAP']
             assert len(m.nodes[wheel]['children'])==1 and geometry(m,wheel)[3]==SET['ROW']
         passed()
+    # Display opened in Minimal: the hidden Accent row stays unsized and unmapped until Theme: Classic
+    # shows it; then the next layout places it right after Theme as a whole settings row (mapped at
+    # 0x0 it was an empty gap on the device), and hiding it again leaves no gap. However often Theme
+    # flips, the wheel and Centre reach the row after Theme, and a tap selects it.
+    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-5:-3]  # then Home, Battery, Wheel
+    button=lambda i: m.nodes[i]['children'][0]
+    for classic in (0,1,0,1,0,1):
+        if m.nodes[accent]['visible']!=classic:
+            f,ctx=m.nodes[button(theme)]['click']; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        assert lay(m,view)==0 and m.nodes[view]['children'][-5:-3]==[theme,accent] and m.nodes[accent]['visible']==classic
+        shown=[i for i in items if m.nodes[i]['visible']]; after=shown[shown.index(theme)+1]
+        assert (after==accent)==bool(classic)
+        assert [geometry(m,i)[1] for i in shown]==[SET['ROW']*k for k in range(len(shown))]
+        for i in shown: check_row(m,i,0)
+        for _ in range(len(shown)): m.call(O['KEY_PREV'])
+        for _ in range(shown.index(after)): m.call()
+        m.paint(view); assert m.selected(view)==shown.index(after)
+        assert m.confirm()==11 and m.dispatched()[0][1]==button(after)
+        m.click(button(shown[1])); m.click(button(after)); assert m.selected(view)==shown.index(after)
+    passed()
     # A list whose default_item_height is not SET_ROW (local pages, Home) keeps its rows as built.
     m,view=settings(0x4cbcc4,default=72); before=tree(m,view); lay(m,view); after=tree(m,view)
     assert [r[1] for r in after]==[r[1] for r in before] and all(r[0][3]==72 for r in after); passed()

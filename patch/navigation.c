@@ -2288,16 +2288,11 @@ static void setting_text(int i) {
     widget_set_text_utf8(st.setting_label[i], names[i]);
 }
 
-/* The Accent row shows only in Classic, right after Theme. A list places hidden rows too, so a
- * hidden one moves to the end, below the last row, like Home's Rockbox row. */
+/* The Accent row, right after Theme, shows only in Classic. The list's layout (list_view(m=0,s=0),
+ * no keep_invisible) skips a hidden row, so it leaves no gap, and the wheel skips it too. */
 static void accent_row(void) {
-    if (!st.setting_label[0] || !st.setting_label[3]) return;
-    void *item = P(P(st.setting_label[0], W_PARENT), W_PARENT),
-         *theme = P(P(st.setting_label[3], W_PARENT), W_PARENT), *view = P(item, W_PARENT);
-    unsigned at = 0, n = widget_count_children(view);
-    while (at < n && widget_get_child(view, at) != theme) ++at;
-    widget_restack(item, st.classic ? at + 1 : n - 1);
-    widget_set_visible(item, st.classic, 0);
+    if (st.setting_label[0])
+        widget_set_visible(P(P(st.setting_label[0], W_PARENT), W_PARENT), st.classic, 0);
 }
 
 /* Centre or tap cycles the row's value and saves it. A new accent or theme reaches the payload's
@@ -2723,7 +2718,12 @@ int ipod_list_layout(void *layout, void *view) {
         if (I(item, W_H) == SET_STOCK_ROW && set_button(item)) I(item, W_H) = SET_ROW;
     }
     int ret = ((int (*)(void *, void *))LIST_VIEW_LAYOUT)(layout, view);
-    for (unsigned i = 0; i < n; ++i) set_row(widget_get_child(view, i));
+    /* Stock neither places nor sizes a hidden row (no keep_invisible): mapped at 0x0 its button
+     * would stay empty once shown (Display's Accent), so it is mapped after its first layout. */
+    for (unsigned i = 0; i < n; ++i) {
+        void *item = widget_get_child(view, i);
+        if (widget_get_visible(item)) set_row(item);
+    }
     return ret;
 }
 

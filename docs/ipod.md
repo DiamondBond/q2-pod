@@ -199,8 +199,10 @@ owns the geometry:
   an item's own height over `default_item_height` (`0x5ea5c4` onward). The stock layout then
   stacks the rows and sizes the scroll view, so scrolling, the scroll bar and the payload's
   selection all see 68-pixel rows.
-- After it, each stock button (x 20, 335 wide) spans its row, 375 by 68, so the selection bar and
-  the tap target are the whole row. Its icon box shrinks to 40 pixels (`SET_ICON`, drawn
+- After it, each stock button (x 20, 335 wide) in a visible row spans its row, 375 by 68, so the
+  selection bar and the tap target are the whole row. The stock layout skips hidden rows
+  (`widget_get_children_for_layout` without `keep_invisible`, `0x5ea1e4`) and leaves them unsized,
+  so a hidden row is mapped once it is shown and laid out. Its icon box shrinks to 40 pixels (`SET_ICON`, drawn
   `scale_down`, value 5 in the stock draw type table at `0x9272c0`, which draws a bitmap that
   already fits 1:1; see [Settings icons](#settings-icons)), centred on the row at x 28
   (`SET_ICON_X`). Text starts 12 pixels (`SET_GAP`) after the icon, at x 80, or at x 20
@@ -530,8 +532,8 @@ full-width selection bar under white text, Home's Split/Full layout with the cov
 and the chevron on its bar, coloured settings icons and the stock `list_into`, a `#242424` status
 bar (`BAR_CLASSIC`), and Now Playing's 8-pixel capsule and play/pause glyph without a backdrop.
 
-Minimal has no accent: the Accent row hides (moved below the last row, since the list places
-hidden rows too) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,
+Minimal has no accent: the Accent row hides (the list's layout skips a hidden row, so it leaves
+no gap) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,
 whatever `ACCENT` holds, and its own fills (the progress bars, Spotify's, the PEQ curve and the
 visualizer) are `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure white. In Classic
 the Accent row follows Theme and every accent applies as before.
