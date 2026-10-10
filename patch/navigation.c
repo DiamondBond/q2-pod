@@ -2075,7 +2075,8 @@ static int np_gone(void *win, void *event) {
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
-        st.np_slider = st.np_elapsed = st.np_cover = st.np_slide = st.np_lrc = (void *)0;
+        st.np_pos = st.np_album = st.np_remain = st.np_slider = st.np_elapsed = st.np_cover =
+            st.np_slide = st.np_lrc = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
