@@ -3715,6 +3715,27 @@ if variant=='ipod':
     f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert repaint()==[] and shown()[0]==''; passed()
 
+    # The full-screen art: stock init runs first; the song name and its shade show BC_MS, then fade
+    # out together over BC_STEPS steps. Closing it mid-fade stops the fade.
+    big=IPOD_HOOKS['bigcover_page_init'][0]
+    assert struct.unpack_from('<I',demo,fileoff(demo,big))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_bigcover']>>2
+    def bigcover():
+        b=QueueMachine(queue=3,pos=1); b.handlers[big+12]='stock_bigcover'
+        title,shade=b.node('hscroll_label','scrlabel_title'),b.node('view','view_shade')
+        bw=b.node('window','bigcover_page',[shade,title])
+        for w in (title,shade): b.byte(w+0x34,255) # the asset's opacity
+        assert b.call(address=big,args=(bw,7,0,0),gap=0)==0 and b.calls[0][:3]==('stock_bigcover',bw,7)
+        return b,bw,lambda: [b.get(w+0x34)&255 for w in (title,shade)]
+    b,bw,alpha=bigcover()
+    b.advance(O['BC_MS']-1); assert alpha()==[255,255] and len(b.timers)==1
+    steps=[]
+    for _ in range(O['BC_STEPS']):
+        b.advance(O['BC_STEP_MS'] if steps else 1); steps.append(alpha()[0]); assert alpha()[0]==alpha()[1]
+    n=O['BC_STEPS']; assert steps==[255*(n-k)//n for k in range(1,n+1)] and not b.timers,steps; passed()
+    b,bw,alpha=bigcover(); b.advance(O['BC_MS']+O['BC_STEP_MS'])
+    f,ctx=b.handler(bw,O['EVT_DESTROY']); b.call(address=f,args=(ctx,b.event,0,0),gap=0)
+    assert not b.timers; passed()
+
     # Volume: with the stock volume dialog directly over Now Playing, the dialog's own paint draws
     # the band from the progress bar to the times: black, the track, a white fill to the volume and
     # "Volume N". Its slider and label hide, the slider moved onto the band so stock's invalidation

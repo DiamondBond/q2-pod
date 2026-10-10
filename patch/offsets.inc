@@ -151,6 +151,11 @@
 #define CODEC_MS 1000
 #define CODEC_STEP_MS 25
 #define CODEC_STEPS 6
+/* iPod: the full-screen art (stock's bigcover_page) shows the song name BC_MS, then it and its shade
+ * fade out in BC_STEPS steps, BC_STEP_MS apart. */
+#define BC_MS 3000
+#define BC_STEP_MS 50
+#define BC_STEPS 8
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58

@@ -7,6 +7,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
+    stock_bigcover_trampoline(void *, void *),
     stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
     stock_btvol_trampoline(int, int), stock_sleep_trampoline(void *),
     stock_color_trampoline(void *, void *, const char *, unsigned),
@@ -166,6 +167,10 @@ typedef struct {
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover;
     void *np_slide, *np_lrc; /* the art/lyrics/info pages and the lyric lines' scroll_view */
+    /* The full-screen art's song name and its shade, the fade's step and timer (ringnav_bigcover) */
+    void *bc[2];
+    int bc_step;
+    unsigned bc_timer;
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -2012,6 +2017,40 @@ int ringnav_playing(void *win, void *ctx) {
     widget_on(win, EVT_DESTROY, np_gone, win);
     np_sync(win);
     visualizer_attach(win);
+    return result;
+}
+
+/* The song name and its shade fade out together, BC_STEPS steps BC_STEP_MS apart. */
+static int bc_fade(const void *info) {
+    (void)info;
+    int n = ++st.bc_step;
+    if (n == 1) st.bc_timer = timer_add(bc_fade, (void *)0, BC_STEP_MS); /* this one ends */
+    for (int i = 0; i < 2; ++i)
+        if (st.bc[i]) widget_set_opacity(st.bc[i], 255u * (unsigned)(BC_STEPS - n) / BC_STEPS);
+    if (n < BC_STEPS) return n == 1 ? 0 : 8; /* RET_REPEAT */
+    st.bc_timer = 0;
+    return 0;
+}
+
+static int bc_gone(void *win, void *event) {
+    (void)win;
+    (void)event;
+    stop_timer(&st.bc_timer);
+    st.bc[0] = st.bc[1] = (void *)0;
+    return 0;
+}
+
+/* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
+ * shows the song name BC_MS, then bc_fade fades it out. */
+int ringnav_bigcover(void *win, void *ctx) {
+    int result = stock_bigcover_trampoline(win, ctx);
+    if (!win) return result;
+    stop_timer(&st.bc_timer);
+    st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
+    st.bc[1] = widget_lookup(win, "view_shade", 1);
+    st.bc_step = 0;
+    st.bc_timer = timer_add(bc_fade, (void *)0, BC_MS);
+    widget_on(win, EVT_DESTROY, bc_gone, win);
     return result;
 }
 

@@ -70,6 +70,7 @@ HOOKS = {
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist'),
               'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg'),
               'playing_page_init': (0x52ca88, 'ringnav_playing'),
+              'bigcover_page_init': (0x5200ec, 'ringnav_bigcover'),
               'style_get_color': (0x649f6c, 'ringnav_style_color'),
               'image_manager_add': (0x6445d4, 'ringnav_image_add'),
               'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown')}
@@ -87,7 +88,7 @@ TRAMPOLINES = {'btvol': 'mclSetBtVol', 'savequeue': 'save_memoryplay_info', 'loa
                'power': 'systemset_powermanager_page_init', 'audioset': 'playset_playset_page_init',
                'change': 'player_change_music', 'detail': 'load_album_detaillist',
                'artist': 'load_localartist_list', 'stream': 'stream_page_init', 'start_player': 'mclStartPlayer',
-               'tidal': 'mcl_tidalStartPlayer'}
+               'tidal': 'mcl_tidalStartPlayer', 'bigcover': 'bigcover_page_init'}
 # Every audited stock PIC prologue resolves this GOT base.
 GP = 0xa26cc0
 # iPod: style_get_gradient has no PIC prologue. It is a leaf that null-checks the style and its

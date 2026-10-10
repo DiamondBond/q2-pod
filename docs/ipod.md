@@ -379,6 +379,10 @@ The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or 
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/ipod.py`; see [internals.md](internals.md#now-playing-ipod).
 
+A tap on the art opens stock's full-screen art (`bigcover_page`; any tap closes it). Its song name
+and the shade band behind it show for `BC_MS` (3 s), then fade out together over `BC_STEPS` steps
+`BC_STEP_MS` apart (`ringnav_bigcover`, after stock's init).
+
 **Scrub.** A double press of the centre button starts scrubbing, as on an iPod classic, and the bar fill turns white
 while it lasts. Each wheel tick moves 5 seconds, times a ramp of one more step per 100 ms of spin
 (up to 40 seconds a tick; the lists' gentler ramp and overshoot filter do not apply), within the

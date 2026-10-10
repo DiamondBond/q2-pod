@@ -37,6 +37,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `window_manager_paint`                | `0x66d46c` | `WM_PAINT_LEAF`: no PIC prologue; no painting while a video plays                        |
 | `widget_on_paint_background`          | `0x65c77c` | iPod only: selection bar, status bar fill, clock, codec fade and battery                 |
 | `playing_page_init`                   | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                             |
+| `bigcover_page_init`                  | `0x5200ec` | iPod only: the full-screen art's song name and shade fade out after `BC_MS`              |
 | `systemset_display_page_init`         | `0x4c1d04` | iPod only: adds the Theme, Accent, Home and Battery rows                                 |
 | `on_wm_keydown_before_fun`            | `0x4e8424` | iPod only: Key Tone clicks on the row change, not the wheel press                        |
 | `style_get_color`                     | `0x649f6c` | iPod only: maps the returned color to the accent                                         |
