@@ -142,6 +142,12 @@ widgets at the right end, and the layout skips the other two:
 
 Charging fills the icon solid green (`BATT_CHARGE_RGB`); low battery always uses
 `BATT_LOW_RGB` (`#FF1448`) under every accent. Saved Battery values keep their existing meanings.
+**Wordmark.** In Minimal, as Sudo Music's bar, "Q2 POD" in 12-pixel (`MARK_PX`) spaced capitals
+(`#AAAAAA`, `draw_spaced`) stands at the left margin (`STATUS_EDGE`, which the build checks against
+`STATUS_MARGIN`) in place of the play state and EQ: `bar_sync` makes `view_left` transparent, since
+`systembar_showface` shows its widgets again each second. It ends within `BATT_ROOM` of the margin,
+clear of the clock. Classic keeps the play state and EQ.
+
 The bar surface is black. Every mode fits with ordinary Bluetooth and Wi-Fi, with at least
 4 pixels (`CLOCK_GAP`) before the widest clock text (`BATT_ROOM`, 94 pixels from the margin).
 Wide codec badges temporarily show the icon alone until they fade.

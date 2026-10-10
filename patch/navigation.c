@@ -160,7 +160,7 @@ typedef struct {
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
      * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
      * level, charge and low state. */
-    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon;
+    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon, *bar_left;
     int codec, codec_step;
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
@@ -1770,7 +1770,11 @@ static void bar_sync(void *bar) {
         st.bar_pct = widget_lookup(bar, "label_battery", 1);
         st.bar_slot = widget_lookup(bar, "view_battery", 1);
         st.bar_icon = widget_lookup(bar, "img_battery", 1);
+        st.bar_left = widget_lookup(bar, "view_left", 1);
     }
+    /* Minimal's wordmark (ringnav_paint_bg) takes the play state's and EQ's place; stock shows them
+     * again each second, so they go transparent instead of hidden. */
+    if (st.bar_left) widget_set_opacity(st.bar_left, ipod_classic() ? 255 : 0);
     if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon) return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
@@ -2187,6 +2191,11 @@ int ringnav_paint_bg(void *w, void *canvas) {
         canvas_set_fill_color(canvas, RGBA(ipod_classic() ? BAR_CLASSIC : BAR_COLOR));
         canvas_fill_rect(canvas, 0, 0, I(w, W_W), I(w, W_H));
         canvas_set_fill_color(canvas, fill);
+        if (!ipod_classic()) {
+            static const unsigned mark[] = { 'Q', '2', ' ', 'P', 'O', 'D' };
+            draw_spaced(canvas, mark, sizeof mark / sizeof *mark, STATUS_EDGE, (30 - MARK_PX) / 2,
+                        MARK_PX, RGBA(MARK_RGB), SUDO_TRACK, BATT_ROOM);
+        }
     }
     void *top = window_manager_get_top_window(wm);
     /* Any painted window, not only the top one: Home slides back in from a snapshot. */

@@ -3463,6 +3463,12 @@ if variant=='ipod':
             assert m.get(slot+O['W_W'])==O['BATT_BODY_W']+O['BATT_NUB_W']+(O['BATT_GAP']+O['BATT_PCT_W'] if mode==2 else 0)
             assert signed(m.get(views[1]+O['W_X']))+signed(m.get(slot+O['W_X']))+m.get(slot+O['W_W'])==375-STATUS_MARGIN
     passed()
+    # Minimal: the play state and EQ go transparent (stock shows them again each second) and the
+    # wordmark takes their place in spaced capitals, from the icons' margin and clear of the widest clock.
+    m.letters=[]; paint_live_bar()
+    assert ''.join(l['text'] for l in m.letters)=='Q2 POD' and m.font==('default',O['MARK_PX'])
+    assert m.letters[0]['x']==STATUS_MARGIN and m.letters[-1]['x']+10<=375/2-CLOCK_TEXT/2-CLOCK_GAP
+    assert {l['color'] for l in m.letters}=={color_t(O['MARK_RGB'])} and m.u.mem_read(views[0]+0x34,1)==b'\0'; passed()
 
 # Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
 # the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over

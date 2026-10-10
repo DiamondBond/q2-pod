@@ -193,6 +193,11 @@
 #define HOME_ART_X 110
 #define HOME_DIM 120
 #define HOME_FADE 90
+/* Minimal's status bar wordmark, in the left group's place: STATUS_EDGE is tools/ipod.py's
+ * STATUS_MARGIN, and it stays within the BATT_ROOM the right group has, clear of the clock. */
+#define STATUS_EDGE 54
+#define MARK_PX 12
+#define MARK_RGB 0xaaaaaa
 #define PAGE_SLIDE_MS 120
 #define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and

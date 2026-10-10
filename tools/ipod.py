@@ -335,6 +335,7 @@ def status_bar(root):
     room = int(375 - STATUS_MARGIN - (375 / 2 + CLOCK_TEXT / 2 + CLOCK_GAP))
     reach = BT_REACH + 5 + widgets['img_wifi'][1][2] + 5 + max(BATT_PCT_W, BATT_H_W)
     require(BATT_ROOM == room and reach <= room, f'Status bar battery needs {reach}px of {room}px')
+    require(inc('STATUS_EDGE') == STATUS_MARGIN, 'STATUS_EDGE must match STATUS_MARGIN')
     for name in STATUS_HIDDEN:
         g = widgets[name][1]
         g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen
