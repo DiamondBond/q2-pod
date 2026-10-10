@@ -3551,6 +3551,14 @@ if variant=='ipod':
     def paint_live_bar():
         m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(bar,m.canvas,0,0),gap=0)
     paint_live_bar()
+    idle=named(m,bar,'label_idle'); state=named(m,bar,'img_state'); eq=named(m,bar,'label_eq')
+    clock_box=tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))
+    for playing,equalizer,icon in ((0,0,''),(1,0,'bar_play'),(1,0,'bar_pause'),(0,1,''),(1,1,'bar_play'),(0,0,'')):
+        m.nodes[state].update(visible=playing,image=icon); m.nodes[eq]['visible']=equalizer
+        paint_live_bar()
+        assert m.nodes[idle]['visible']==int(not playing and not equalizer)
+        assert tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==clock_box
+    passed()
     for mode in (1,2,0,1,2,0):
         m.call(address=payload_syms['setting_click'],args=(2,m.event,0,0),gap=0)
         paint_live_bar()
@@ -4722,14 +4730,21 @@ if variant=='ipod':
     # The confirm pop-up's red discs take the dark CONFIRM_SURFACE under every accent, Crimson too:
     # the stock OK disc (#FF1448, white glyph) and Cancel's tint (#FF4871 with a #FFE4EA glyph) keep
     # their glyphs at 4.5:1 or more; the pressed images darken; other images keep the accent's tone.
-    def pixels(config,name,colors):
+    def rgba(config,name,pixels_,fmt=3):
         m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
-        bm=m.alloc(0x60); data=m.alloc(4*len(colors))
-        m.word(bm,len(colors)); m.word(bm+4,1); m.word(bm+8,4*len(colors)); m.u.mem_write(bm+0xe,struct.pack('<H',3)); m.word(bm+0x14,data)
-        m.u.mem_write(data,b''.join(bytes([c&255,c>>8&255,c>>16,255]) for c in colors))  # BGRA
+        bm=m.alloc(0x60); data=m.alloc(4*len(pixels_))
+        m.word(bm,len(pixels_)); m.word(bm+4,1); m.word(bm+8,4*len(pixels_)); m.u.mem_write(bm+0xe,struct.pack('<H',fmt)); m.word(bm+0x14,data)
+        at=((0,1,2,3),(3,2,1,0),(2,1,0,3),(1,2,3,0))[fmt-1]
+        def packed(c,a):
+            p=bytearray(4)
+            for offset,value in zip(at,(c>>16,c>>8&255,c&255,a)): p[offset]=value
+            return p
+        m.u.mem_write(data,b''.join(packed(c,a) for c,a in pixels_))
         m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
-        raw=bytes(m.u.mem_read(data,4*len(colors)))
-        return [raw[4*i+2]<<16|raw[4*i+1]<<8|raw[4*i] for i in range(len(colors))]
+        raw=bytes(m.u.mem_read(data,4*len(pixels_)))
+        return [(raw[4*i+at[0]]<<16|raw[4*i+at[1]]<<8|raw[4*i+at[2]],raw[4*i+at[3]]) for i in range(len(pixels_))]
+    def pixels(config,name,colors):
+        return [c for c,_ in rgba(config,name,[(c,255) for c in colors])]
     S=O['CONFIRM_SURFACE']
     for preset in range(len(ACCENTS)):
         config={'ACCENT':str(preset),'THEME':'1'}
@@ -4747,14 +4762,6 @@ if variant=='ipod':
     # it stays white. Glyph and edges keep 3:1 on the disc and transparent pixels are untouched.
     # Inactive (#444444) and disabled discs keep their stock greys, and an active disc reads clearly
     # apart from them. The brightness suns, on black rather than a disc, keep the accent's red tone.
-    def rgba(config,name,pixels_):
-        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
-        bm=m.alloc(0x60); data=m.alloc(4*len(pixels_))
-        m.word(bm,len(pixels_)); m.word(bm+4,1); m.word(bm+8,4*len(pixels_)); m.u.mem_write(bm+0xe,struct.pack('<H',3)); m.word(bm+0x14,data)
-        m.u.mem_write(data,b''.join(bytes([c&255,c>>8&255,c>>16&255,a]) for c,a in pixels_))  # BGRA
-        m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
-        raw=bytes(m.u.mem_read(data,4*len(pixels_)))
-        return [(raw[4*i+2]<<16|raw[4*i+1]<<8|raw[4*i],raw[4*i+3]) for i in range(len(pixels_))]
     ACTIVE=('drop_wifiopen','drop_btopen','drop_keylockopen','drop_highgain','drop_lo','drop_usbaudio','drop_usbdac')
     INACTIVE=('drop_wifi','drop_bt','drop_keylock','drop_lowgain','drop_po','drop_usbstorage','drop_playset','drop_sysset')
     disc=[(0xff1448,255),(0xffffff,255),(0xffc0d0,255),(0xff1448,0),(0x000000,0)]  # disc, glyph, glyph edge, transparent
@@ -4819,6 +4826,42 @@ if variant=='ipod':
         assert rgba({**config,'THEME':'1'},'img_flac',[(0xff1448,255)])!=[(O['SUDO_MUTED'],255)]
         assert rgba(config,'switch_on',disc[:2])==[(ACCENTS[0][2],255),(0xffffff,255)]
         assert rgba(config,'file:///mnt/mmc/system_netservice',px)==px
+        for name in ('navbar_add','home_stream','img_edit','stream_spotify','stream_radio','tidal_fav_add','play_fav','btn_blue'):
+            got=rgba(config,name,[(0x158bcd,255),(0xff1448,128),(0xffffff,0)])
+            assert all(c>>16 == (c>>8&255) == (c&255) for c,a in got), (name,got)
+            assert [a for c,a in got]==[255,128,0]
+        for name in ('local_album','local_shuffle','list_tidal','small_stream','player_playlist'):
+            assert rgba(config,name,px)==[(ink,255),(0xbcbcbc,255),(0xffffff,255),(ink,128),(0xffffff,0)],name
+            grey=[(0x777777,255),(0xffffff,255),(0xbcbcbc,128),(0xffffff,0)]
+            assert rgba(config,name,grey)==grey,name
+        for name in ('default_album_big','play_defaultcover','playlist_default','tidal_user','tidal_shanling',
+                     'bar_charge','bar_lowcharge','/mnt/mmc/local_photo.png','https://example.org/play_fav.png'):
+            colors=[(0x12a3ce,128),(0xffffff,0)]
+            assert rgba(config,name,colors)==colors,name
+    passed()
+
+    # Packaged icon pixels: monochrome, alpha preserved and existing grey glyphs unchanged.
+    for fmt in (1,2,3,4):
+        assert rgba({},'local_album',px,fmt)==rgba({},'local_album',px)
+        assert rgba({},'stream_spotify',px,fmt)==rgba({},'stream_spotify',px)
+    for name in ACTIVE:
+        active=rgba({},name,disc[:2]); inactive=rgba({},INACTIVE[0],[(0x444444,255),(0xffffff,255)])
+        assert active==[(0xd8d8d8,255),(S,255)] and inactive==[(0x444444,255),(0xffffff,255)]
+        assert ratio(active[0][0],active[1][0])>=3
+    passed()
+    import subprocess
+    from ipod import imagemagick
+    for name in ('local_album','local_photos','list_folder','list_tidal','player_playlist',
+                 'small_stream','stream_spotify','stream_radio','tidal_fav_add','play_fav'):
+        png=subprocess.check_output(['unsquashfs','-cat',str(B/'rootfs.squashfs'),
+                                     'release/assets/default/raw/images/xx/'+name+'.png'])
+        raw=imagemagick('png:-','-depth','8','rgba:-',data=png)
+        colors=list(dict.fromkeys((raw[i]<<16|raw[i+1]<<8|raw[i+2],raw[i+3]) for i in range(0,len(raw),4)))
+        sample=colors[::max(1,len(colors)//32)]
+        got=rgba({},name,sample)
+        assert all(c>>16==(c>>8&255)==(c&255) for c,a in got),name
+        assert [a for c,a in got]==[a for c,a in sample],name
+        if name in ('list_folder','list_tidal','player_playlist'): assert got==sample,name
     passed()
 
     # Display settings: after the stock rows, Theme, Accent, Home and Battery rows in the native row
@@ -6255,7 +6298,11 @@ m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' an
 m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']
 # The heart, at local Now Playing's place: Three is no favourite.
 heart=next(w for w in m.nodes[np]['children'] if m.nodes[w].get('image') in ('play_fav','play_unfav'))
-assert m.nodes[heart]['image']=='play_unfav' and [m.get(heart+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[320,176,50,50]; passed()
+heart_x=320
+if variant=='ipod':
+    from ipod import NP_ICONS_END, NP_ICON
+    heart_x=NP_ICONS_END-NP_ICON
+assert m.nodes[heart]['image']=='play_unfav' and [m.get(heart+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[heart_x,176,50,50]; passed()
 # Playing: its tags (the StreamTitle as artist - title), the stream and the time since the sound
 # started; standby and auto power-off held (not the screen's timer) and the DAC kept on.
 m.word(syms['g_dacoff_time'],5)
@@ -6640,19 +6687,22 @@ class BootMachine(ResumeMachine):
         return super().hook(u,address,size,unused)
 def boot_row(value=None,mode=0o100755):
     path='/mnt/data/boot-target'
-    m=BootMachine({} if value is None else {path:value}); m.rockbox_mode=mode
+    m=BootMachine({} if value is None else {path:value}); m.rockbox_mode=mode; m.restack=True
     m.handlers[syms['memcmp@GLIBC_2.0']]='boot_memcmp'
     m.handlers[int(manifest['patch_symbols']['stock_systemset_trampoline'],16)]='stock_systemset'
     m.mock('ferror@GLIBC_2.0','fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','navigator_to_with_context')
-    view=m.node('scroll_view','scroll_view_sysset',[m.entry(0) for _ in range(14)])
+    entries=[m.entry(0) for _ in range(12)]
+    view=m.node('scroll_view','scroll_view_sysset',entries.copy())
     m.top=m.node('window','sysset_page',[m.node('list_view','list_view_sysset',[view])])
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
     if mode!=0o100755:
-        assert len(m.nodes[view]['children'])==14
+        assert m.nodes[view]['children']==[entries[i] for i in (1,3,4,5,8,7,2,0,6,10,9,11)]
         return m,None,None
-    assert len(m.nodes[view]['children'])==15
-    button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]
+    kids=m.nodes[view]['children']
+    assert len(kids)==13
+    assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,10,9,11)]
+    button=m.nodes[kids[9]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label
 def toggle_boot(m,button):
@@ -6678,11 +6728,11 @@ for failure in ('fopen','fwrite','fflush','fsync','fclose','rename'):
     passed()
 m,button,label=boot_row(); m.rockbox_mode=0; toggle_boot(m,button)
 assert m.nodes[label]['text']=='Boot to: Rockbox' and '/mnt/data/boot-target' not in m.files; passed()
-# Wheel centre reaches the final row through the existing selection/dispatch path.
+# Wheel centre reaches Boot to through the existing selection/dispatch path.
 m,button,label=boot_row(); view=m.nodes[m.top]['children'][0]; view=m.nodes[view]['children'][0]
 m.paint(view)
-for _ in range(14): m.call()
+for _ in range(9): m.call()
 assert m.confirm()==11 and m.dispatched()[0][1]==button; passed()
-print('Boot settings: conditional final row, restart, card removal and failed atomic writes passed.')
+print('Boot settings: conditional row/order, restart, card removal and failed atomic writes passed.')
 
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

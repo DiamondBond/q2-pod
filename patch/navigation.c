@@ -161,7 +161,7 @@ typedef struct {
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
      * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
      * level, charge and low state. */
-    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon;
+    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon, *bar_idle, *bar_state, *bar_eq;
     int codec, codec_step;
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
@@ -1768,11 +1768,12 @@ static const unsigned char playset_order[] = {
     13 /* Folder art */, 14 /* Folder skip */, 12 /* Enlarged art */, 6 /* DSD Output */,
     7 /* USB Audio */,
 };
-/* System Setting: connections and display first, set-once items next, Reset last. */
+/* System Setting: connections and display first, boot/reset/update/about last. */
 static const unsigned char sysset_order[] = {
-    1 /* Wireless */,  3 /* Display */,  4 /* Idle */,   5 /* Date and time */, 8 /* Buttons lock */,
-    7 /* Key tone */,  2 /* Network */,  0 /* Language */, 6 /* In-Vehicle */, 12 /* Boot to */,
-    9 /* Update */,    11 /* About */,   10 /* Reset */,
+    1 /* Wireless */,     3 /* Display */,  4 /* Idle */,    5 /* Date and time */,
+    8 /* Buttons lock */, 7 /* Key tone */, 2 /* Network */, 0 /* Language */,
+    6 /* In-Vehicle */,   12 /* Boot to */, 10 /* Reset */,  9 /* Update */,
+    11 /* About */,
 };
 
 int ringnav_audioset(void *win, void *ctx) {
@@ -1840,7 +1841,13 @@ static void bar_sync(void *bar) {
         st.bar_pct = widget_lookup(bar, "label_battery", 1);
         st.bar_slot = widget_lookup(bar, "view_battery", 1);
         st.bar_icon = widget_lookup(bar, "img_battery", 1);
+        st.bar_idle = widget_lookup(bar, "label_idle", 1);
+        st.bar_state = widget_lookup(bar, "img_state", 1);
+        st.bar_eq = widget_lookup(bar, "label_eq", 1);
     }
+    if (st.bar_idle && st.bar_state && st.bar_eq)
+        widget_set_visible(st.bar_idle,
+                           !widget_get_visible(st.bar_state) && !widget_get_visible(st.bar_eq), 0);
     if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon) return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
@@ -2344,7 +2351,8 @@ static int settings_icon(const char *name) {
 }
 
 /* Decoded theme images are mapped once, before the image manager caches them. Only a plain asset
- * name is the theme's: covers by path or URL (a '/' or ':') never are, nor are the settings icons.
+ * name is the theme's: covers by path or URL (a '/' or ':') never are. Minimal also greys built-in
+ * navigation/control icons; category discs keep white glyphs, warning batteries keep their colours.
  * The confirm pop-up's discs (CONFIRM_IMAGE*) take the dark CONFIRM_SURFACE under every accent,
  * Crimson included, so their white glyphs stay legible. The quick settings' active controls
  * (DROPDOWN_IMAGE*, not the brightness suns) take the accent's red tone like everything else red,
@@ -2374,16 +2382,33 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
         tk_strcmp(name, "img_edit") && tk_strcmp(name, "img_morefolder") &&
         tk_strcmp(name, "img_path") && !dark && !ipod_classic())
         tone = SUDO_MUTED;
-    /* Minimal: the settings icons' coloured discs all turn MINIMAL_CHEVRON, like list_into's ink and
-     * stock's grey list discs. A pixel's saturation (max - min) against the disc's (the icon's
+    /* Minimal: the settings icons' coloured discs all turn MINIMAL_CHEVRON, like list_into's ink
+     * and stock's grey list discs. A pixel's saturation (max - min) against the disc's (the icon's
      * most saturated) says how far it blends towards the white glyph, so edges stay smooth; alpha
      * kept. */
-    int icon = s && !*s && settings_icon(name), into = s && !*s && !tk_strcmp(name, "list_into");
+    int into = s && !*s && !tk_strcmp(name, "list_into");
+    int icon = s && !*s &&
+               (settings_icon(name) || tk_str_start_with(name, "local_") ||
+                (tk_str_start_with(name, "list_") && !into) || tk_str_start_with(name, "small_") ||
+                tk_str_start_with(name, "player_"));
+    int mono = s && !*s && !ipod_classic() &&
+               (tk_str_start_with(name, "navbar_") || tk_str_start_with(name, "home_") ||
+                tk_str_start_with(name, "img_") || tk_str_start_with(name, "drop_") ||
+                tk_str_start_with(name, "play_") || tk_str_start_with(name, "playlist_") ||
+                tk_str_start_with(name, "stream_") || tk_str_start_with(name, "tidal_") ||
+                tk_str_start_with(name, "btn_") || tk_str_start_with(name, "bt_") ||
+                tk_str_start_with(name, "singer_") || tk_str_start_with(name, "song_") ||
+                tk_str_start_with(name, "album_") || tk_str_start_with(name, "search") ||
+                !tk_strcmp(name, "airplay") || !tk_strcmp(name, "dlna") ||
+                !tk_strcmp(name, "wifitransport")) &&
+               tk_strcmp(name, "play_defaultcover") && tk_strcmp(name, "playlist_default") &&
+               !tk_str_start_with(name, "tidal_shan") && tk_strcmp(name, "tidal_user");
     unsigned char *px = (icon || into) && format < 4 && !ipod_classic()
-                            ? bitmap_lock_buffer_for_write(bitmap) : (void *)0;
+                            ? bitmap_lock_buffer_for_write(bitmap)
+                            : (void *)0;
     if (px) {
         const unsigned char *o = at[format];
-        int disc = 1;
+        int disc = 0;
         for (int pass = 0; pass < 2; ++pass)
             for (int y = 0; y < I(bitmap, 4); ++y)
                 for (unsigned char *p = px + y * bitmap_get_line_length(bitmap),
@@ -2397,13 +2422,15 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
                         continue;
                     }
                     if (sat > disc) sat = disc;
+                    if (icon && !disc) continue; /* already grey: keep the disc/glyph contrast */
                     p[o[0]] = p[o[1]] = p[o[2]] =
                         (unsigned char)(icon ? 255 - (255 - (MINIMAL_CHEVRON & 255)) * sat / disc
                                              : MINIMAL_CHEVRON & 255);
                 }
         bitmap_unlock_buffer(bitmap);
     }
-    if ((preset != CRIMSON || dark) && format < 4 && s && !*s && !settings_icon(name))
+    if ((preset != CRIMSON || dark) && format < 4 && s && !*s && !settings_icon(name) &&
+        (ipod_classic() || (!icon && !into)))
         data = bitmap_lock_buffer_for_write(bitmap);
     if (data) {
         const unsigned char *o = at[format];
@@ -2429,6 +2456,11 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
             for (unsigned char *p = data + y * stride, *end = p + 4 * I(bitmap, 0); p < end;
                  p += 4) {
                 unsigned c = red_map(p[o[0]] | p[o[1]] << 8 | p[o[2]] << 16, tone, glyph);
+                if (mono) {
+                    unsigned grey =
+                        ((c & 255) * 299 + (c >> 8 & 255) * 587 + (c >> 16) * 114) / 1000;
+                    c = grey * 0x010101;
+                }
                 p[o[0]] = c;
                 p[o[1]] = c >> 8;
                 p[o[2]] = c >> 16;

@@ -13,8 +13,8 @@ import subprocess
 import sys
 import tempfile
 sys.path.insert(0, sys.path[0] + '/../tools')
-from ipod import (decode, walk, imagemagick, png_header, HOME_TEXT_X, HOME_LIST_W,
-                  HOME_LABEL_END, HOME_ROW, HOME_TOP, INC, inc)
+from ipod import (decode, walk, imagemagick, png_header, HOME_TEXT_X, HOME_LIST_W, STATUS_MARGIN,
+                  HOME_LABEL_END, HOME_ROW, HOME_TOP, INC, inc, SETTINGS_SLIDERS)
 
 argv = sys.argv[1:]
 themes = ['classic', 'minimal']
@@ -45,6 +45,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         w,h=png_header(p.read_bytes())[:2]
         pixels=bytearray(imagemagick(p,'-depth','8','rgba:-',data=b''))
         tone=0x2b2b2b if name.startswith('confirm_') else (0xd8d8d8,0xff1448,0x30929b,0x9a8446)[accent]
+        if name in ('add','dec'): tone=classic_accents[accent][2]
         glyph=0x2b2b2b if accent==0 and name=='drop_wifiopen' else 0xffffff
         red=(255,20,72); total=sum(red); delta=[3*c-total for c in red]; dd=sum(d*d for d in delta)
         for i in range(0,len(pixels),4):
@@ -59,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         dest.write_bytes(imagemagick('-size',f'{w}x{h}','-depth','8','rgba:-','png:-',data=bytes(pixels)))
         return dest
     def render(args, path):
-        data = imagemagick(*map(str, args), '-strip', '-define', 'png:exclude-chunks=date,time', 'png:-', data=b'')
+        data = imagemagick('-respect-parentheses', *map(str, args), '-strip', '-define', 'png:exclude-chunks=date,time', 'png:-', data=b'')
         path.write_bytes(data)
         return png_header(data)[:2]
     def text(args, value, x, y, width, height, size=20, color='#FFFFFF'):
@@ -72,17 +73,19 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                  ')', '-gravity', 'NorthWest', '-geometry', f'+{x}+{y}', '-composite']
     def rect(args, x, y, w, h, color):
         args += ['-fill', color, '-draw', f'rectangle {x},{y} {x+w-1},{y+h-1}']
-    def recolour(p, minimal_ink=None):
+    def recolour(p, minimal_ink=None, luminance=False):
         """Minimal's runtime image work (navigation.c ringnav_image_add): a settings icon's disc
         MINIMAL_CHEVRON (blended to its white glyph by saturation) or list_into's ink, alpha kept."""
-        dest=tmp/(('ink-' if minimal_ink else 'grey-')+p.parent.name+'-'+p.name)
+        dest=tmp/(('luma-' if luminance else 'ink-' if minimal_ink else 'grey-')+p.parent.name+'-'+p.name)
         if dest.exists(): return dest
         w,h=png_header(p.read_bytes())[:2]
         px=bytearray(imagemagick(p,'-depth','8','rgba:-',data=b''))
         sat=lambda i: max(px[i:i+3])-min(px[i:i+3])
-        disc=max([1]+[sat(i) for i in range(0,len(px),4)])
+        disc=max([0]+[sat(i) for i in range(0,len(px),4)])
+        if not disc and not minimal_ink and not luminance: return p
         for i in range(0,len(px),4):
-            px[i:i+3]=bytes([minimal_ink if minimal_ink else 255-(255-0x77)*min(sat(i),disc)//disc])*3
+            grey=(px[i]*299+px[i+1]*587+px[i+2]*114)//1000 if luminance else minimal_ink if minimal_ink else 255-(255-0x77)*min(sat(i),disc)//disc
+            px[i:i+3]=bytes([grey])*3
         dest.write_bytes(imagemagick('-size',f'{w}x{h}','-depth','8','rgba:-','-define','png:color-type=6','png:-',data=bytes(px)))
         return dest
     def selection(args, y, h, width, palette):
@@ -99,6 +102,9 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
              'Quick settings / active, inactive, disabled', 'Confirmation / Cancel focused',
              'Home Split / dark art', 'Home Split / missing art',
              'Now Playing / bright art / seeking', 'PEQ / focus and untouched plot', 'Media browser / multilingual names']
+    cases += [f'{label} / {value}%' for label in ('Brightness','Balance','Maximum volume','Default volume')
+              for value in (0,50,100)]
+    cases += ['System Settings / with Rockbox', 'System Settings / without Rockbox', 'Internet Radio / favourite']
     for accent, name in enumerate(('Graphite','Crimson','Tidal','Champagne')):
         tiles=[]
         for case, title in enumerate(cases):
@@ -109,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                 a=['-size','375x320','xc:black']
                 if case<8 or case>=10:
                     rect(a,0,0,375,30,f'#{inc("BAR_CLASSIC") if old else inc("BAR_COLOR"):06x}')
-                    text(a,'Ⅱ' if case==3 else '▶',54,5,22,20,16)
+                    text(a,'Ⅱ' if case==3 else 'Q2' if case in (1,2) or case>=15 else '▶',STATUS_MARGIN,7,28,16,16)
                     text(a,'12:59 PM',151,5,74,20,16)
                     text(a,'88%',280,5,40,20,16)
                 if case<3 or case in (10,11):
@@ -142,11 +148,12 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     for node,value in [('scrlabel_title','A long title — 夜の音楽'),('scrlabel_artist','Artist / アーティスト'),('label_ipod_album','Album / Collection')]:
                         n=nodes[node]; x,y,w,h=n[1]
                         text(a,value,x,y+70,w,h,int(n[2].get('style:normal:font_size',16)),n[2].get('style:normal:text_color','#FFFFFF'))
-                    for i,icon in enumerate(('play_unfav.png','play_more.png','play_order.png') if case==3 else ()):
-                        image(a,asset(build,'images/xx/'+icon),214+i*50,36,28,28)
-                    if old and case==3: text(a,'Ⅱ',82,146,34,44,30)
+                    for node,icon in [('img_fav','play_unfav'),('img_more','play_more'),('img_playmode','play_order')]:
+                        x,y,w,h=nodes[node][1]
+                        y+=30 if node=='img_more' else 70
+                        p=asset(build,'images/xx/'+icon+'.png'); iw,ih=png_header(p.read_bytes())[:2]
+                        image(a,p,x+(w-iw)//2,y+(h-ih)//2,iw,ih)
                     if case==3: text(a,'•  ·  ·',168,258,70,12,12,'#AAAAAA')
-                    else: text(a,'▶',337,43,14,14,12,'#AAAAAA')
                     bh=inc('NP_BAR_CLASSIC') if old else inc('NP_BAR_MINIMAL'); by=251 if case==4 else 270+(30-bh)//2
                     rect(a,21,by,333,bh,'#1C1C1C'); rect(a,21,by,132,bh,'#FFFFFF' if case in (4,12) else f'#{palette[2]:06x}')
                     text(a,'01:23',46,295,80,16,14,'#AAAAAA'); text(a,'-02:34',249,295,80,16,14,'#AAAAAA')
@@ -161,10 +168,48 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         p=build/(icon+'.png')
                         if not p.exists():
                             p=asset(build,'images/xx/'+icon+'.png')
-                            if not old and case==7: p=recolour(p)
+                        if not old: p=recolour(p)
                         image(a,p,16,y+14,40,40); text(a,label,72,y,245,68,24,'#171717' if not old and i==1 else '#FFFFFF')
                         into=asset(build,'images/xx/list_into.png')
                         if case!=7 or i==0: image(a,into if old else recolour(into,inc('MINIMAL_CHEVRON')&255),317,y+9,50,50)
+                elif 15 <= case < 27:
+                    root=decode((build/'ui'/SETTINGS_SLIDERS[(case-15)//3]).read_bytes())
+                    nodes={n[2].get('name'):n for n in walk(root)}
+                    value=(0,50,100)[(case-15)%3]
+                    text(a,str(value)+'%',100,45,175,40,32)
+                    back=asset(build,'images/xx/plan_back.png'); front=asset(build,'images/xx/plan_front.png')
+                    image(a,back,31,102,313,46)
+                    if value:
+                        width=313*value//100
+                        a+=['(',front,'-crop',f'{width}x46+0+0','+repage',')','-gravity','NorthWest','-geometry','+31+102','-composite']
+                    for n in nodes.values():
+                        if n[0]!='image': continue
+                        x,y,w,h=n[1]; y+=30
+                        icon=n[2].get('image') or n[2].get('style:normal:bg_image')
+                        if not icon: continue
+                        if bg:=n[2].get('style:disable:bg_color'):
+                            radius=int(n[2].get('style:disable:round_radius',0))
+                            a+=['-fill',bg,'-draw',f'roundrectangle {x},{y} {x+w-1},{y+h-1} {radius},{radius}']
+                        p=asset(build,'images/xx/'+icon+'.png')
+                        if icon.startswith('drop_') or icon in ('add','dec'): p=tinted(p,icon,tint)
+                        iw,ih=png_header(p.read_bytes())[:2]
+                        image(a,p,x+(w-iw)//2,y+(h-ih)//2,iw,ih)
+                elif case in (27,28):
+                    rows=[('Boot to: Q2-Pod','system_powermanager')] if case==27 else []
+                    rows += [('Reset Settings','system_reset'),('System Update','system_update'),('About','system_about')]
+                    for i,(label,icon) in enumerate(rows):
+                        y=38+i*68; p=asset(build,'images/xx/'+icon+'.png')
+                        image(a,p if old else recolour(p),16,y+14,40,40)
+                        text(a,label,72,y,245,68,24)
+                elif case==29:
+                    text(a,'Internet Radio',16,42,200,16,16)
+                    p=asset(build,'images/xx/stream_radio.png')
+                    image(a,p if old else recolour(p,luminance=True),16,80,166,166)
+                    text(a,'Station name',194,125,165,28,22)
+                    text(a,'Artist / Song',194,157,165,20,16,'#CCCCCC')
+                    nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
+                    x,y,w,h=nodes['img_fav'][1]; p=asset(build,'images/xx/play_fav.png'); iw,ih=png_header(p.read_bytes())[:2]
+                    image(a,p,x+(w-iw)//2,70+y+(h-ih)//2,iw,ih)
                 elif case in (13,14):
                     if case==13:
                         text(a,'Parametric EQ',33,34,310,32,22)
@@ -210,9 +255,9 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     '-alpha','off','-compose','CopyOpacity','-composite','-background','black','-alpha','remove','-compose','Over']
                 p=tmp/f'{case}-{side}.png'; assert render(a,p)==(375,320)
                 tile=tmp/f'tile-{case}-{side}.png'
-                assert render(['-size','375x354','xc:#202020',p,'-gravity','NorthWest','-geometry','+0+34','-composite',
+                assert render(['(', '-size','375x34','xc:#202020',
                                '-font',font,'-pointsize','12','-fill','white','-gravity','NorthWest',
-                               '-annotate','+5+8',('Before' if side==0 else 'After')+f' {theme.title()} (composed) | '+title],tile)==(375,354)
+                               '-annotate','+5+8',f'{theme.title()} (composed) | '+title, ')', p, '-append'],tile)==(375,354)
                 tiles.append(tile)
         args=[]
         for i in range(0,len(tiles),2): args+=['(',tiles[i],tiles[i+1],'+append',')']

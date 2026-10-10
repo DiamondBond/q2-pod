@@ -91,7 +91,7 @@ def validate_assets(directory):
     from ipod import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
-                      QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
+                      QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, imagemagick, inc, png_header, settings_icon, walk,
                       patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
@@ -138,7 +138,7 @@ def validate_assets(directory):
         import tempfile
         with tempfile.NamedTemporaryFile(suffix='.ttf') as font:
             font.write(read('stock.squashfs','release/assets/default/raw/fonts/default.ttf')); font.flush()
-            for text,size,room in [('12:59 PM',16,CLOCK_TEXT),('100%',inc('BATT_PCT_PX'),inc('BATT_PCT_W'))]:
+            for text,size,room in [('Q2',16,28),('12:59 PM',16,CLOCK_TEXT),('100%',inc('BATT_PCT_PX'),inc('BATT_PCT_W'))]:
                 rendered=imagemagick('-font',font.name,'-pointsize',str(size),'label:'+text,'png:-',data=b'')
                 assert png_header(rendered)[0]-1<=room,(text,size,room,png_header(rendered))
     # Now Playing's queue reads "Queue" (QUEUE_LABEL); nothing else in the string table moves.
@@ -321,6 +321,26 @@ def validate_assets(directory):
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
         root = decode(new)
+        if ipod and short in SETTINGS_SLIDERS:
+            before = {n[2].get('name'): n for n in walk(decode(original))}
+            endpoints = [n for n in walk(root) if n[0] == 'image' and n[2].get('image')]
+            assert len(endpoints) == 2
+            for n, x in zip(endpoints, (46,293)):
+                old = before[n[2]['name']]
+                assert n[1] == [x,77,36,36] and n[3] == old[3]
+                expected = dict(old[2], draw_type='center')
+                for state in ('normal','pressed','over','disable','focused'):
+                    expected.update({f'style:{state}:bg_color':'#2B2B2B', f'style:{state}:round_radius':'18'})
+                assert n[2] == expected
+                iw, ih = image_size(n[2]['image'])
+                assert iw+10 <= n[1][2] and ih+10 <= n[1][3]  # full glyph plus 5px padding
+                assert x >= corner_x(30+77,36) and x+36 <= 375-corner_x(30+77,36)
+            slider = next(n for n in walk(root) if n[0] == 'slider')
+            assert endpoints[0][1][0]-slider[1][0] == slider[1][0]+slider[1][2]-(endpoints[1][1][0]+36) == 15
+            assert all(n[1][1]+n[1][3]/2 == slider[1][1]+slider[1][3]/2 for n in endpoints)
+            for n in walk(root):
+                if n[0] == 'slider' or n[2].get('name') in ('img_add', 'img_dec'):
+                    assert n == before[n[2]['name']]  # ranges, touch and wheel controls stay stock
         if short == VOLUME:  # iPod only: no highlight, so nothing under it dims; otherwise stock
             plain = decode(original); del plain[2]['highlight']
             assert root == plain
@@ -408,6 +428,10 @@ def validate_assets(directory):
             assert inc('CLOCK_EDGE') >= corner_x((30 - 20) // 2, 20) and x >= inc('CLOCK_EDGE')
             assert title[2]['style:normal:font_size'] == '16'
             assert all(v[2]['children_layout'].endswith(f'xm={STATUS_MARGIN},s=5)') for v in (left, right))
+            idle = rest.pop()
+            assert idle[1] == [STATUS_MARGIN, 0, 28, 30] and idle[2]['text'] == 'Q2' and idle[2]['visible'] == 'false'
+            assert idle[2]['style:normal:font_size'] == '16' and STATUS_MARGIN >= corner_x(7, 16)
+            assert STATUS_MARGIN + 28 < x
             assert [n[2]['name'] for n in rest] == STATUS_HIDDEN and all(n[1][0] + n[1][2] < 0 for n in rest)
             # The Battery setting's percentage and payload battery start hidden (navigation.c bar_sync).
             pct, slot = right[3][2:4]
@@ -427,10 +451,11 @@ def validate_assets(directory):
             assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album',
                                                      'img_playmode', 'img_fav']
             # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
-            # Order and favourite at the page's foot, the favourite's glyph (x 11 to 39) ending at the text's edge.
+            # Order and favourite at the page's foot; favourite centred below More.
             assert [n[1] for n in album] == [[16, 10, 166, 166], [39, 33, 120, 120], [194, 35, 165, 28], [194, 67, 165, 20], [194, 91, 165, 20],
-                                             [270, 136, 50, 50], [320, 136, 50, 50]]
-            assert 320 + 39 == 375 - 16 and 91 + 20 < 136 + 13
+                                             [253, 136, 50, 50], [303, 136, 50, 50]]
+            assert album[-1][1][0] == named['img_more'][1][0] and album[-1][1][2] == named['img_more'][1][2] == 50
+            assert album[-1][1][0] - album[-2][1][0] == 50 and 91 + 20 < 136 + 13
             assert album[1][2]['opacity'] == '0'  # playback gestures retain their original target
             assert album[2][2]['style:normal:font_size'] == '22' and album[3][2]['style:normal:font_size'] == '16'
             for node, color in ((album[3], '#CCCCCC'), (album[4], '#AAAAAA')):

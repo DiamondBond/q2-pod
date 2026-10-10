@@ -86,7 +86,6 @@ NP_MARGIN = 16
 NP_POS_X = max(NP_MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16)) + 6  # "3 of 12", 16px text
 NP_ICONS_END = 375 - corner_x(30, NP_TOP)  # the 50px icon images fill the row's height
 NP_TEXT_W = 165
-NP_GLYPH_PAD = 11                # the stock icons' glyphs sit 11px inside their 50px images
 NP_TITLE_PX = 22                 # the title over the 16px artist and album, as Apple's hierarchy
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
@@ -339,6 +338,10 @@ def status_bar(root):
         g = widgets[name][1]
         g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen
         root[3].append(widgets[name])
+    root[3].append(['label', [STATUS_MARGIN, 0, 28, 30], {
+        'name': 'label_idle', 'text': 'Q2', 'visible': 'false',
+        'style:normal:font_size': '16', 'style:normal:text_color': '#FFFFFF',
+        'style:normal:text_align_h': 'left'}, []])
     # The payload writes the local time here (ringnav_paint_bg).
     root[3].append(['hscroll_label', [extent, 0, width, 30], {
         'name': 'label_clock', 'style': 's_scrlabel_white20c', 'style:normal:font_size': '16', 'only_focus': 'true'}, []])
@@ -383,11 +386,9 @@ def playing_page(root):
 
     art_y = (NP_SLIDE_H - NP_ART) // 2
     text_w = 375 - NP_MARGIN - NP_TEXT_X
-    # Shuffle/order and favourite sit under the text, at the page's foot; their glyphs (28px in
-    # the 50px images, NP_GLYPH_PAD each side) end at the text's right edge. The three lines centre
-    # on the art above them.
+    # Favourite centres beneath More; shuffle/order stays one touch target to its left.
     icons_y = NP_SLIDE_H - NP_ICON
-    fav_x = 375 - NP_MARGIN - NP_ICON + NP_GLYPH_PAD
+    fav_x = named['img_more'][1][0]
     for name, x in (('img_playmode', fav_x - NP_ICON), ('img_fav', fav_x)):
         buttons[3].remove(named[name])
         named[name][1] = [x, icons_y, NP_ICON, NP_ICON]
@@ -568,6 +569,8 @@ def settings_icon(name, data):
 
 
 QUIET_ICONS = AUDIT['quiet_icons']
+SETTINGS_SLIDERS = ('systemset/backlight_page.bin', 'playset/balance_page.bin',
+                    'playset/maxvol_page.bin', 'playset/bootvol_page.bin')
 
 
 def quiet_icon(name, data):
@@ -642,6 +645,20 @@ def patch_asset(path, data, ipod):
             if kind in ('label', 'hscroll_label') and corner_inset(30 + g[1]):
                 g[2] = min(g[2], 375 - g[0] - corner_x(30 + g[1], 0))
     if path in NAVBAR_ONLY:
+        if path in SETTINGS_SLIDERS:
+            endpoints = []
+            for n in walk(root):
+                if n[0] == 'image' and n[2].get('image') in (
+                        'drop_lighleft', 'drop_lightright', 'balance_left', 'balance_right', 'vol_left', 'vol_right'):
+                    endpoints.append(n)
+            require(len(endpoints) == 2, f'{path}: unexpected slider endpoints')
+            # Inset circular discs keep full-size glyphs legible over either track or fill.
+            for n, x in zip(endpoints, (46, 293)):
+                n[1] = [x, 77, 36, 36]
+                n[2]['draw_type'] = 'center'
+                for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
+                    n[2][f'style:{state}:bg_color'] = '#2B2B2B'
+                    n[2][f'style:{state}:round_radius'] = '18'
         return encode(root)
 
     def rows(n, in_row=False):

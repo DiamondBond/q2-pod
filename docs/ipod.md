@@ -57,7 +57,10 @@ rows remain calibrated to the glass. Settings icons are resized as before and ke
 **Theme: Minimal** turns every icon's coloured disc the same neutral grey (`MINIMAL_CHEVRON`, as
 stock's folder and song discs), keeping the white glyph and blending its edges by saturation, and
 inks `list_into`'s glyph that grey too, as the image manager loads them (`ringnav_image_add`), so
-it is visible on both row surfaces.
+it is visible on both row surfaces. Built-in library discs use the same mapping; navigation,
+streaming and control icons become monochrome while retaining their light/dark glyphs and active
+states. Alpha stays intact. Artwork, photos, external images and battery warning colours stay
+unchanged; Classic keeps its existing colour handling.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
@@ -119,7 +122,7 @@ so parents and order are free to change. Every tick it re-shows the volume,
 EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
 never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
 and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
-battery in `view_right`. The volume icon and number and SyncLink move to `x = -200`, where they
+battery in `view_right`. A 16 px `Q2` label at the left inset appears only when both playback state and EQ are hidden. `bar_sync` updates its visibility without moving the centred clock. The volume icon and number and SyncLink move to `x = -200`, where they
 draw off-screen. Both groups sit 54 pixels
 from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
 ([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass. A new
@@ -222,6 +225,13 @@ Streaming's Tidal logo (`list_tidal`, which the folder root may also use) and th
 build-added icon ([internals.md](internals.md#spotify)), keep their bytes and still scale down. The
 Spotify row's Now Playing page uses Now Playing's layout (`NP_*`), rounded art included. The Stock build keeps every icon stock. The recolouring of accent-red artwork
 (`ringnav_image_add`) works on the decoded bitmap, so it applies at either size.
+
+The Brightness, Balance, Maximum Volume and Default Volume editors keep their thick stock sliders,
+fill, ranges and wheel/touch controls. Their endpoint icons sit inside the bar, inset 15 pixels from each end, in 36 × 36 dark circular
+discs. Each full-size glyph has at least 5 pixels of padding and centres vertically on the track,
+so rays stay unclipped and the glyph stays readable over both track and fill. Both themes use the
+same geometry. The quick
+settings slider and custom volume overlay retain their layouts.
 
 ## Quick settings
 
@@ -380,9 +390,10 @@ a transport glyph; stock may update its visibility without making it appear. The
 spinner stays centred on the artwork. The on-screen Return icon moves off-screen, as on the pages whose navbars are
 hidden; the hardware Return does the same. More keeps its place at the top row's right. The play
 mode (shuffle/order) and Favourite icons sit at the foot of the art page under the text, the
-favourite's glyph (`NP_GLYPH_PAD`, 11 pixels inside its 50-pixel image) ending at the text's right
-edge; the three lines centre in the art's height above them. Both keep their stock images and
-handlers and swipe away with the art.
+favourite centred directly beneath More at x 303, with the play-mode control 50 pixels to its left;
+the three lines centre in the art's height above them. Both retain their 50 px touch targets and
+vertical position. Both keep their stock images and handlers and swipe away with the art.
+Internet Radio uses the same heart alignment in both iPod themes.
 
 The bar is a four-pixel plain-colour line inside the original 30-pixel seek target: a `#1C1C1C` track
 (`TRACK_COLOR`) and an off-white `MINIMAL_FILL` fill, with no thumb. **Theme: Classic** makes it an
