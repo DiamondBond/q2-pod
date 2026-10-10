@@ -29,6 +29,7 @@
 #define SINK_SOCK "/tmp/q2sink.sock" /* spotify.c SPOT_SINK */
 #define RADIO_STATE "/tmp/q2radio.state" /* key=value lines, as spotify.c reads librespot's */
 #define RADIO_TRIES 5                       /* starts in a row without sound, then state=error */
+#define RADIO_SILENT_MS 20000 /* a start without a sound written: the output is stuck, give up */
 #define FFMPEG "/usr/bin/ffmpeg"
 #define DAC "/dev/shanling_dac"
 #define DAC_PCM 0xc0044d1bu  /* hciplayer sets it to 0 for each PCM track: undoes a DSD one */
@@ -158,7 +159,8 @@ static struct {
     volatile int paused;   /* the main loop's; the writer holds back */
     volatile int done;     /* the sound ended: the rest goes on the monotonic clock */
     volatile long played;  /* frames heard since this ffmpeg started */
-    char error[64];        /* why sound_open found no device, for RADIO_STATE */
+    char error[64];        /* why sound_open found no device, or the writer stopped, for RADIO_STATE */
+    int video;             /* a failed write is dropped: the picture needs ffmpeg's sound read on */
 } au;
 
 static void *writer(void *unused) {
@@ -175,7 +177,9 @@ static void *writer(void *unused) {
         if (au.gain < 65536) scale(buf, 2 * CHUNK, au.gain);
         long r = snd_pcm_writei(au.pcm, buf, CHUNK);
         if (r < 0 && !snd_pcm_recover(au.pcm, (int)r, 1)) r = snd_pcm_writei(au.pcm, buf, CHUNK);
-        if (r < 0 && !au.fd) return au.done = 1, (void *)0; /* -s: a lost device ends the sink */
+        if (r < 0 && !au.video) /* a lost device ends the sink, or radio's run, which then says why */
+            return snprintf(au.error, sizeof au.error, "write: %s", snd_strerror((int)r)), au.done = 1,
+                   (void *)0;
         if (r > 0) written += r;
         au.played = !snd_pcm_delay(au.pcm, &delay) && delay > 0 && delay < written ? written - delay
                                                                                  : written;
@@ -222,7 +226,11 @@ static int sound_open(const char *dev, const char *vol, unsigned rate) {
         for (int i = 0; i < (vol ? 50 : 20) && (err = snd_pcm_open(&au.pcm, dev, 0, 0)); ++i)
             au.pcm = 0, usleep(100000);
         if (err) snprintf(au.error, sizeof au.error, "open: %s", snd_strerror(err));
-        if (au.pcm && (err = snd_pcm_set_params(au.pcm, 2, 3, 2, rate, 1, LATENCY))) /* S16_LE, RW_INTERLEAVED */
+        /* bluealsa claims its PCM here, not at open: busy (-EBUSY) while hciplayer holds it */
+        for (int i = 0; au.pcm && (err = snd_pcm_set_params(au.pcm, 2, 3, 2, rate, 1, LATENCY)) == -16 &&
+                        vol && i < 50; ++i) /* S16_LE, RW_INTERLEAVED */
+            usleep(100000);
+        if (au.pcm && err)
             snd_pcm_close(au.pcm), au.pcm = 0,
                 snprintf(au.error, sizeof au.error, "params: %s", snd_strerror(err));
         if (au.pcm && !vol && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
@@ -290,11 +298,20 @@ static int radio(int argc, char **argv) {
         au.played = au.done = 0;
         if (pid < 0 || pthread_create(&thread, 0, writer, 0)) thread = 0;
         char line[512], c;
-        while (thread && !quit) {
+        long long started = now_ms();
+        while (thread && !quit && !au.done) {
             struct pollfd p[2] = { { sock, 1, 0 }, { ep[0], 1, 0 } };
             poll(p, 2, 500);
             if (p[0].revents) radio_key(sock, soft, &quit);
             if (!rs.at && au.played > 0) rs.at = now_ms(), tries = 0, radio_state("playing");
+            if (!rs.at && now_ms() - started > RADIO_SILENT_MS && !au.played) {
+                /* the writer may be blocked in ALSA, past joining: say so and end here */
+                if (!au.error[0]) snprintf(au.error, sizeof au.error, "no sound from the output");
+                radio_state("error");
+                unlink(RADIO_SOCK);
+                if (pid > 0) kill(pid, SIGKILL);
+                _exit(1);
+            }
             if (!p[1].revents) continue;
             if (read(ep[0], &c, 1) <= 0) break; /* ffmpeg ended */
             if (c != '\n' && c != '\r') {
@@ -403,7 +420,7 @@ int main(int argc, char **argv) {
         if (audio) {
             close(ap[1]);
             au.fd = ap[0];
-            au.played = au.done = 0;
+            au.played = au.done = 0, au.video = 1;
             if (pthread_create(&thread, 0, writer, 0)) thread = 0;
         }
         int n = 0, seek = 0, ended = pid < 0, paced = audio;

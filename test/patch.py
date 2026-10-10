@@ -4802,13 +4802,21 @@ if variant=='ipod':
         # A cover whose file name starts like an asset stays unmapped.
         assert rgba(config,'file:///mnt/mmc/drop_bt.png',red)==red
         passed()
-    # Minimal: the settings icons turn grey (Rec. 709 luma in 1/256) and list_into's ink
-    # MINIMAL_CHEVRON, alpha kept; other images take Graphite whatever ACCENT holds.
-    luma=lambda c: ((c>>16)*54+(c>>8&255)*183+(c&255)*19)>>8
-    px=[(0xcf2f53,255),(0xff1448,128),(0xffffff,0)]
+    # Minimal: the settings icons' discs turn MINIMAL_CHEVRON, their glyphs stay white, edges blend
+    # by saturation against the disc's, and list_into's ink is MINIMAL_CHEVRON, alpha kept; other
+    # images take Graphite whatever ACCENT holds.
+    ink=O['MINIMAL_CHEVRON']
+    px=[(0xff1448,255),(0xff8aa4,255),(0xffffff,255),(0xff1448,128),(0xffffff,0)]
+    for icon in (px,[(0x00a0ff,255),(0xffffff,255)],[(0xc425ff,255),(0xffffff,255)]):
+        got=rgba({},'system_netservice',icon)
+        assert got[0]==(ink,255) and (0xffffff,255) in got,got
     for config in ({},{'ACCENT':'2'}):
-        assert rgba(config,'system_netservice',px)==[(luma(c)*0x10101,a) for c,a in px]
+        assert rgba(config,'system_netservice',px)==[(ink,255),(0xbcbcbc,255),(0xffffff,255),(ink,128),(0xffffff,0)]
         assert rgba(config,'list_into',px)==[(O['MINIMAL_CHEVRON'],a) for _,a in px]
+        # Codec badges take SUDO_MUTED, legible on black and on the selected card; other img_ art doesn't.
+        assert rgba(config,'img_flac',[(0xff1448,255),(0xff1448,0)])==[(O['SUDO_MUTED'],255),(O['SUDO_MUTED'],0)]
+        assert rgba(config,'img_delete',[(0xff1448,255)])!=[(O['SUDO_MUTED'],255)]
+        assert rgba({**config,'THEME':'1'},'img_flac',[(0xff1448,255)])!=[(O['SUDO_MUTED'],255)]
         assert rgba(config,'switch_on',disc[:2])==[(ACCENTS[0][2],255),(0xffffff,255)]
         assert rgba(config,'file:///mnt/mmc/system_netservice',px)==px
     passed()
@@ -6465,20 +6473,22 @@ playing(m,0,200,pos=0,n=110); assert counts(m)==[(fnv('/p/A'),1)]+full[:5]+full[
 # Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
 def settings_page(hook,view_name,config={},stock_rows=2):
-    m=QueueMachine(); m.config.update(config)
+    m=QueueMachine(); m.config.update(config); m.restack=True
     m.handlers[int(manifest['patch_symbols'][f'stock_{hook}_trampoline'],16)]='stock_'+hook
-    view=m.node('scroll_view',view_name,[m.entry(0) for _ in range(stock_rows)])
+    entries=[m.entry(0) for _ in range(stock_rows)]
+    view=m.node('scroll_view',view_name,list(entries))
     for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
     m.top=m.node('window','page',[m.node('list_view','list_view',[view])])
     target={'power':'systemset_powermanager_page_init','audioset':'playset_playset_page_init'}[hook]
     assert m.call(address=HOOKS[target][0],args=(m.top,5,0,0),gap=0)==0 and m.calls[0][:3]==('stock_'+hook,m.top,5)
-    rows=m.nodes[view]['children'][stock_rows:]
+    rows=sorted(set(m.nodes[view]['children'])-set(entries))  # ours, as made (the page may restack)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     icons=[m.nodes[m.nodes[b]['children'][0]]['image'] for b in buttons]
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         return [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
+    m.entries=entries
     return m,rows,lambda:[m.nodes[l]['text'] for l in labels],icons,click
 m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager')
 assert len(rows)==3 and icons==['usb_chargeswitch','system_powermanager','system_keylock'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
@@ -6508,6 +6518,9 @@ m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_ro
 assert len(rows)==2 and icons==['playset_folderjump','playset_gapless'] and texts()==['Artists: Artist','Crossfade: Off']
 assert click(0)==[(1,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==1 and texts()==['Artists: Album Artist','Crossfade: Off']
 assert click(0)==[(0,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==0; passed()
+# Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
+def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
+assert stacked(m,'scroll_view_playset')==[3,2,0,16,9,10,4,5,11,1,8,15,13,14,12,6,7]; passed()
 # Crossfade (crossfade.c): the row shows the saved length while on; an unreadable one is the default.
 for config,text in (({'XFADE':'1','XFADESEC':'7'},'Crossfade: 7 s'),({'XFADE':'1','XFADESEC':'11'},'Crossfade: 5 s'),({'XFADESEC':'7'},'Crossfade: Off')):
     m,rows,texts,*_=settings_page('audioset','scroll_view_playset',config,stock_rows=15)

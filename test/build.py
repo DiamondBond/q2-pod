@@ -147,7 +147,7 @@ def validate_assets(directory):
     assert new == old.replace(*QUEUE_LABEL) and new != old and len(new) == len(old)
     # iPod settings icons: the audited 52px artwork, packaged as SET_ICON RGBA with the same transparency
     # and, on a plain background, the same average colour; Stock keeps them stock. Minimal greys them
-    # as they load (navigation.c ringnav_image_add, Rec. 709 luma in 1/256), within ImageMagick's Gray.
+    # as they load (navigation.c ringnav_image_add: every disc MINIMAL_CHEVRON, glyphs white).
     def mean(png, bg):
         cmd = ['png:-', '-background', bg, '-flatten', '-format', '%[fx:mean.r],%[fx:mean.g],%[fx:mean.b]', 'info:']
         return [float(v) for v in imagemagick(*cmd, data=png).split(b',')]
@@ -165,13 +165,13 @@ def validate_assets(directory):
         for bg in ('#000000', '#6e6e6e'):  # the list, and Classic's Graphite selection bar
             assert max(abs(a - b) for a, b in zip(mean(old, bg), mean(new, bg))) < 0.02, (name, bg)
         px = bytearray(imagemagick('png:-', '-depth', '8', 'rgba:-', data=new))
-        for i in range(0, len(px), 4): px[i:i+3] = bytes([(px[i]*54 + px[i+1]*183 + px[i+2]*19) >> 8])*3
+        sat = lambda i: max(px[i:i+3]) - min(px[i:i+3])
+        disc = max([1] + [sat(i) for i in range(0, len(px), 4)])
+        assert disc > 100, name  # a coloured disc to grey
+        for i in range(0, len(px), 4): px[i:i+3] = bytes([255 - (255 - 0x77)*min(sat(i), disc)//disc])*3
         runtime = imagemagick('-size', f'{SET_ICON}x{SET_ICON}', '-depth', '8', 'rgba:-', '-define', 'png:color-type=6', 'png:-', data=bytes(px))
-        grey = imagemagick('png:-', '-colorspace', 'Gray', '-colorspace', 'sRGB', '-define', 'png:color-type=6', 'png:-', data=new)
-        for bg in ('#000000', '#eeeeec'):  # Minimal's black list and monochrome selection
-            values = mean(runtime, bg)
-            if bg == '#000000': assert max(values) - min(values) < 0.001, name
-            assert max(abs(a - b) for a, b in zip(mean(grey, bg), values)) < 0.02, (name, bg)
+        values = mean(runtime, '#000000')  # Minimal's black list: neutral grey
+        assert max(values) - min(values) < 0.001, name
     # Videos' player: an ELF with the stock binaries' ABI flags (nan2008, o32, mips32r2).
     helper = read('rootfs.squashfs', HELPER)
     assert sha(helper) == manifest['q2video_sha256'] and helper[:4] == b'\x7fELF'

@@ -54,8 +54,10 @@ width. Title styles and scrolling/ellipsis settings are untouched.
 The iPod theme uses black surfaces, white titles and subdued secondary text with the stock
 multilingual font. The existing 72-pixel browsing pitch, 52-pixel covers and 68-pixel settings
 rows remain calibrated to the glass. Settings icons are resized as before and keep their colours;
-**Theme: Minimal** greys them, and turns `list_into`'s glyph neutral grey (`MINIMAL_CHEVRON`), as
-the image manager loads them (`ringnav_image_add`), so it is visible on both row surfaces.
+**Theme: Minimal** turns every icon's coloured disc the same neutral grey (`MINIMAL_CHEVRON`, as
+stock's folder and song discs), keeping the white glyph and blending its edges by saturation, and
+inks `list_into`'s glyph that grey too, as the image manager loads them (`ringnav_image_add`), so
+it is visible on both row surfaces.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
@@ -150,7 +152,9 @@ The navbar is hidden, as on the local pages, on the settings pages
 (`systemset/*`, `playset/*`), `audiosetting_page` and `stream_page`, listed in
 `navbar_only` in `ipod.json` with their pinned hashes. Their native
 inits destroy the navbar's children and create an unnamed title `hscroll_label`,
-back, Home and Now Playing buttons; none has a control the keys lack. Lists hold
+back, Home and Now Playing buttons; none has a control the keys lack, except Startup volume's
+switch (`img_bootswitch`, which `playset_bootvol_page_init` puts in the navbar; Crossfade, on the
+same page, uses its slider's 0 for Off instead). Lists hold
 settings rows (see [Settings](#settings)); other panels move up 50 pixels and keep
 their size. The settings inits never move or resize
 these widgets. Left out: `wifitransport_page` (its image starts above the
@@ -213,8 +217,7 @@ place, keeping its inode metadata. The build fails if an input's hash or format 
 output is not 40-pixel 8-bit RGBA with the same transparency; the manifest records both hashes
 and the ImageMagick version under `changed_assets` and `tools`. `test/build.py` checks the
 packaged bytes, the sizes, and that each icon's average colour on black and on the Graphite
-selection grey matches the stock icon's, and that Minimal's runtime grey (Rec. 709 luma, in 1/256)
-matches ImageMagick's `Gray` on black and on the off-white selection. Other 52-pixel images that land in settings rows, such as
+selection grey matches the stock icon's, and that Minimal's runtime grey is neutral on black. Other 52-pixel images that land in settings rows, such as
 Streaming's Tidal logo (`list_tidal`, which the folder root may also use) and the Spotify row's
 build-added icon ([internals.md](internals.md#spotify)), keep their bytes and still scale down. The
 Spotify row's Now Playing page uses Now Playing's layout (`NP_*`), rounded art included. The Stock build keeps every icon stock. The recolouring of accent-red artwork
@@ -366,7 +369,7 @@ white (`NP_TITLE_PX`); the artist is `#CCCCCC` (`NP_ARTIST_RGB`), while the albu
 and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Stock
 keeps its existing artist color. Long lines scroll, as stock.
 
-**Theme: Minimal** draws the album in Sudo Music's small capitals (`NP_CAPS_PX`, 10 pixels,
+**Theme: Minimal** draws the album in Sudo Music's small capitals (`NP_CAPS_PX`, 13 pixels,
 `SUDO_MUTED`, `SUDO_TRACK` apart, `np_paint`) over its label's transparent ink; Classic shows
 the label. There is no on-screen transport row: the buttons play, pause and skip.
 

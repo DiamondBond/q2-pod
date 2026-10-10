@@ -1750,12 +1750,38 @@ int ringnav_powermanager(void *win, void *ctx) {
     pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 3, icons);
     return result;
 }
+/* A settings list's rows, stock's (ids 0.. in its table order, each button named by its id, which
+ * its click looks up, so order is free) and then ours, restacked into order; any other count is
+ * left as built. */
+static void reorder(void *view, const unsigned char *order, unsigned n) {
+    void *rows[24];
+    if (!view || n > sizeof rows / sizeof *rows || widget_count_children(view) != n) return;
+    for (unsigned i = 0; i < n; i++) rows[i] = widget_get_child(view, i);
+    for (unsigned i = 0; i < n; i++) widget_restack(rows[order[i]], i);
+}
+
+/* Playback Setting: what is changed while listening first, then library behaviour, then output. */
+static const unsigned char playset_order[] = {
+    3 /* Play Mode */,   2 /* EQ */,          0 /* Gain */,         16 /* Crossfade */,
+    9 /* Gapless */,     10 /* ReplayGain */, 4 /* Max Volume */,   5 /* Default Vol */,
+    11 /* Balance */,    1 /* Filters */,     8 /* Memory play */,  15 /* Artists */,
+    13 /* Folder art */, 14 /* Folder skip */, 12 /* Enlarged art */, 6 /* DSD Output */,
+    7 /* USB Audio */,
+};
+/* System Setting: connections and display first, set-once items next, Reset last. */
+static const unsigned char sysset_order[] = {
+    1 /* Wireless */,  3 /* Display */,  4 /* Idle */,   5 /* Date and time */, 8 /* Buttons lock */,
+    7 /* Key tone */,  2 /* Network */,  0 /* Language */, 6 /* In-Vehicle */, 12 /* Boot to */,
+    9 /* Update */,    11 /* About */,   10 /* Reset */,
+};
+
 int ringnav_audioset(void *win, void *ctx) {
     static const char *const icons[] = { "playset_folderjump" };
     int result = stock_audioset_trampoline(win, ctx);
     pod_rows(win, "scroll_view_playset", POD_ARTISTS, 1, icons);
     void *view = win ? widget_lookup(win, "scroll_view_playset", 1) : (void *)0;
     if (view) xfade_row(list_row(view, "playset_gapless", xfade_open, (void *)0)); /* crossfade.c */
+    reorder(view, playset_order, sizeof playset_order);
     return result;
 }
 
@@ -2342,20 +2368,39 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
                        GLYPH_LIGHT_MAX)
         glyph = CONFIRM_SURFACE;
     while (s && *s && *s != '/' && *s != ':') ++s;
-    /* Minimal: the settings icons turn grey (Rec. 709 luma) and list_into's ink MINIMAL_CHEVRON,
-     * alpha kept. */
+    /* Minimal: the codec badges (img_flac, img_mp3, ...: red with the name cut out) take the
+     * secondary text's grey, legible on the black list and on the selected row's off-white card. */
+    if (s && !*s && tk_str_start_with(name, "img_") && tk_strcmp(name, "img_delete") &&
+        tk_strcmp(name, "img_edit") && tk_strcmp(name, "img_morefolder") &&
+        tk_strcmp(name, "img_path") && !dark && !ipod_classic())
+        tone = SUDO_MUTED;
+    /* Minimal: the settings icons' coloured discs all turn MINIMAL_CHEVRON, like list_into's ink and
+     * stock's grey list discs. A pixel's saturation (max - min) against the disc's (the icon's
+     * most saturated) says how far it blends towards the white glyph, so edges stay smooth; alpha
+     * kept. */
     int icon = s && !*s && settings_icon(name), into = s && !*s && !tk_strcmp(name, "list_into");
     unsigned char *px = (icon || into) && format < 4 && !ipod_classic()
                             ? bitmap_lock_buffer_for_write(bitmap) : (void *)0;
     if (px) {
         const unsigned char *o = at[format];
-        for (int y = 0; y < I(bitmap, 4); ++y)
-            for (unsigned char *p = px + y * bitmap_get_line_length(bitmap),
-                               *end = p + 4 * I(bitmap, 0);
-                 p < end; p += 4)
-                p[o[0]] = p[o[1]] = p[o[2]] =
-                    (unsigned char)(icon ? (p[o[0]] * 54 + p[o[1]] * 183 + p[o[2]] * 19) >> 8
-                                         : MINIMAL_CHEVRON & 255);
+        int disc = 1;
+        for (int pass = 0; pass < 2; ++pass)
+            for (int y = 0; y < I(bitmap, 4); ++y)
+                for (unsigned char *p = px + y * bitmap_get_line_length(bitmap),
+                                   *end = p + 4 * I(bitmap, 0);
+                     p < end; p += 4) {
+                    int r = p[o[0]], g = p[o[1]], b = p[o[2]];
+                    int sat = (r > g ? (r > b ? r : b) : (g > b ? g : b)) -
+                              (r < g ? (r < b ? r : b) : (g < b ? g : b));
+                    if (!pass) {
+                        if (sat > disc) disc = sat;
+                        continue;
+                    }
+                    if (sat > disc) sat = disc;
+                    p[o[0]] = p[o[1]] = p[o[2]] =
+                        (unsigned char)(icon ? 255 - (255 - (MINIMAL_CHEVRON & 255)) * sat / disc
+                                             : MINIMAL_CHEVRON & 255);
+                }
         bitmap_unlock_buffer(bitmap);
     }
     if ((preset != CRIMSON || dark) && format < 4 && s && !*s && !settings_icon(name))
@@ -2615,6 +2660,12 @@ int ringnav_systemset(void *win, void *ctx) {
         widget_on(button, EVT_CLICK, boot_click, label);
         boot_text(label);
     }
+    /* Without Rockbox there is no Boot to (12): the order less it. */
+    unsigned char order[sizeof sysset_order];
+    unsigned n = 0, rows = view ? widget_count_children(view) : 0;
+    for (unsigned i = 0; i < sizeof sysset_order; i++)
+        if (sysset_order[i] < rows) order[n++] = sysset_order[i];
+    reorder(view, order, n);
     return result;
 }
 

@@ -73,14 +73,16 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     def rect(args, x, y, w, h, color):
         args += ['-fill', color, '-draw', f'rectangle {x},{y} {x+w-1},{y+h-1}']
     def recolour(p, minimal_ink=None):
-        """Minimal's runtime image work (navigation.c ringnav_image_add): a settings icon greyed
-        (Rec. 709 luma in 1/256) or list_into's ink set to MINIMAL_CHEVRON, alpha kept."""
+        """Minimal's runtime image work (navigation.c ringnav_image_add): a settings icon's disc
+        MINIMAL_CHEVRON (blended to its white glyph by saturation) or list_into's ink, alpha kept."""
         dest=tmp/(('ink-' if minimal_ink else 'grey-')+p.parent.name+'-'+p.name)
         if dest.exists(): return dest
         w,h=png_header(p.read_bytes())[:2]
         px=bytearray(imagemagick(p,'-depth','8','rgba:-',data=b''))
+        sat=lambda i: max(px[i:i+3])-min(px[i:i+3])
+        disc=max([1]+[sat(i) for i in range(0,len(px),4)])
         for i in range(0,len(px),4):
-            px[i:i+3]=bytes([minimal_ink if minimal_ink else (px[i]*54+px[i+1]*183+px[i+2]*19)>>8])*3
+            px[i:i+3]=bytes([minimal_ink if minimal_ink else 255-(255-0x77)*min(sat(i),disc)//disc])*3
         dest.write_bytes(imagemagick('-size',f'{w}x{h}','-depth','8','rgba:-','-define','png:color-type=6','png:-',data=bytes(px)))
         return dest
     def selection(args, y, h, width, palette):

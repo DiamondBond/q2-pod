@@ -196,7 +196,7 @@
 #define SEL_RADIUS 6
 #define EDIT_OK_PX 18 /* the date, time and sleep timer pages' OK label, on that card */
 /* Minimal's Now Playing album is NP_CAPS_PX capitals. */
-#define NP_CAPS_PX 10
+#define NP_CAPS_PX 13
 #define PAGE_SLIDE_MS 120
 #define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and

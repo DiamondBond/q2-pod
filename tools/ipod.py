@@ -505,10 +505,13 @@ def confirm_dialog(root):
     for i, n in enumerate(root[3]):
         n[0], n[1] = 'button', [0, CONFIRM_TOP + i * CONFIRM_ROW, 375, CONFIRM_ROW]
         n[2] = {'name': n[2]['name'], 'text': ('Cancel', 'OK')[i], 'focusable': 'false',
-                'style:normal:bg_color': '#00000000', 'style:pressed:bg_color': '#00000000',
-                'style:normal:border_color': '#00000000', 'style:normal:border_width': '0',
-                'style:normal:text_color': '#FFFFFF', 'style:pressed:text_color': '#FFFFFF',
                 'style:normal:font_size': '20', 'style:normal:text_align_h': 'center'}
+        # Every state, or AWTK's button/default shows its blue border (1px) and fill; a tap gets
+        # the lists' pressed grey, the wheel the selection.
+        for state in ('normal', 'pressed', 'over', 'focused'):
+            n[2].update({'style:%s:bg_color' % state: '#333333' if state == 'pressed' else '#00000000',
+                         'style:%s:border_color' % state: '#00000000', 'style:%s:border_width' % state: '0',
+                         'style:%s:text_color' % state: '#FFFFFF'})
 
 
 # iPod only. The volume dialog loses its highlight="default(alpha=200)", so the window manager

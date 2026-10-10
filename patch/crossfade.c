@@ -1,6 +1,7 @@
 /* Crossfade (docs/internals.md#crossfade): Audio settings' row, its page and the fade hciplayer's
- * filter applies (peq_player.c). The page is stock's Boot volume page re-dressed: its switch turns
- * Crossfade on, and the slider row under it, shown only while on, sets the length. */
+ * filter applies (peq_player.c). The page is stock's Boot volume page re-dressed: its slider runs
+ * Off (0) and XF_MIN..XF_MAX seconds, so it needs no switch (the iPod build hides the navbar that
+ * holds it); the switch, where shown, and Centre still turn it on and off. */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -47,6 +48,9 @@ void xfade_row(void *label) {
     row_text(label);
 }
 
+/* The slider's value: 0 for Off, else the length. */
+static int value(void) { return xf.on ? xf.seconds : 0; }
+
 /* The page and the row from xf, and the choice saved. */
 static void refresh(int save) {
     if (save) {
@@ -57,17 +61,17 @@ static void refresh(int save) {
     if (row) row_text(row);
     if (!xf.page) return;
     char t[16];
-    tk_snprintf(t, sizeof t, "%d s", xf.seconds);
+    tk_snprintf(t, sizeof t, xf.on ? "%d s" : "Off", xf.seconds);
     image_base_set_image(xf.sw, xf.on ? "switch_on" : "switch_off");
-    widget_set_visible(xf.view, xf.on, 0);
     widget_set_text_utf8(xf.label, t);
-    if (widget_get_prop_int(xf.slider, "value", 0) != xf.seconds) slider_set_value(xf.slider, xf.seconds);
+    if (widget_get_prop_int(xf.slider, "value", 0) != value()) slider_set_value(xf.slider, value());
 }
 
-static void set_seconds(int n) {
-    n = n < XF_MIN ? XF_MIN : n > XF_MAX ? XF_MAX : n;
-    if (n == xf.seconds) return;
-    xf.seconds = n;
+static void set_value(int n) {
+    n = n < 0 ? 0 : n > XF_MAX ? XF_MAX : n;
+    if (n == value()) return;
+    xf.on = n > 0;
+    if (n) xf.seconds = n < XF_MIN ? XF_MIN : n;
     refresh(1);
 }
 
@@ -79,12 +83,12 @@ static int toggle(void *ctx, void *event) {
 }
 static int step(void *ctx, void *event) {
     (void)event;
-    set_seconds(xf.seconds + (int)(long)ctx);
+    set_value(value() + (int)(long)ctx);
     return 0;
 }
 static int slid(void *ctx, void *event) {
     (void)ctx, (void)event;
-    set_seconds(widget_get_prop_int(xf.slider, "value", xf.seconds));
+    set_value(widget_get_prop_int(xf.slider, "value", value()));
     return 0;
 }
 static int gone(void *ctx, void *event) {
@@ -126,7 +130,8 @@ int xfade_open(void *ctx, void *event) {
     widget_on(xf.slider, EVT_VALUE_CHANGED, slid, 0);
     widget_on(page, EVT_DESTROY, gone, page);
     widget_set_text_utf8(title, "Crossfade");
-    slider_set_min(xf.slider, XF_MIN);
+    widget_set_visible(xf.view, 1, 0); /* stock shows it only while Boot volume's switch is on */
+    slider_set_min(xf.slider, 0);
     slider_set_max(xf.slider, XF_MAX);
     slider_set_step(xf.slider, 1);
     xf.page = page;
@@ -143,7 +148,7 @@ static int single(const void *info) {
 }
 
 /* ringnav(), the page on top: Centre toggles, a double press turns the screen off as on every
- * page, and while on the wheel sets the length; off, the wheel stays stock's volume. */
+ * page, and the wheel sets the length, down to Off. */
 int xfade_key(void *top, unsigned key) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     if (!xf.page || top != xf.page) return 0;
@@ -152,8 +157,8 @@ int xfade_key(void *top, unsigned key) {
         if (press == 2 && g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
         return press;
     }
-    if (!xf.on || (key != KEY_NEXT && key != KEY_PREV)) return 0;
-    set_seconds(xf.seconds + (key == KEY_NEXT ? 1 : -1));
+    if (key != KEY_NEXT && key != KEY_PREV) return 0;
+    set_value(value() + (key == KEY_NEXT ? 1 : -1));
     return 1;
 }
 
