@@ -83,7 +83,7 @@ def validate_assets(directory):
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, S90PLAY, RTC_WRITE, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_THRESHOLDS, PDR
     from ipod import (AUDIT, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
-                      NP_BAR, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
+                      NP_BAR, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, decode, imagemagick, inc, png_header, settings_icon, walk,
                       patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
@@ -422,7 +422,7 @@ def validate_assets(directory):
             assert album[2][2]['style:normal:font_size'] == '22' and album[3][2]['style:normal:font_size'] == '16'
             for node, color in ((album[3], '#CCCCCC'), (album[4], '#AAAAAA')):
                 assert {v for k, v in node[2].items() if k.endswith(':text_color')} == {color}
-            assert pos[0] == album[0][1][0] == 16 and 375 - 16 == album[2][1][0] + album[2][1][2]
+            assert pos[0] == NP_POS_X and album[0][1][0] == NP_MARGIN and 375 - 16 == album[2][1][0] + album[2][1][2]
             # Distinct bands: top row, art, page dots, bar (A-B markers y 250 to 260), then the times.
             dots = named['slide_indicator1'][1]
             assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
