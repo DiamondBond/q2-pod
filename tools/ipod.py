@@ -490,18 +490,25 @@ def quick_settings(root):
     slider[1], slider[2] = track, props
 
 
-# iPod only. The confirm pair (img_cancel, img_enter; 80px tiles around 60px discs) sits symmetrically,
-# each centred in its half of the screen. The discs themselves are recoloured dark with legible
-# glyphs for every accent by ringnav_image_add (patch/navigation.c).
+# iPod only. The confirm pair (img_cancel, img_enter; 80px tiles around 60px discs) becomes two
+# full-width text rows, Cancel and OK (after maks112v/qpod).
 CONFIRM = 'dialog/confirminfo_dialog.bin'
 CONFIRM_TILE = 80
+CONFIRM_TOP, CONFIRM_ROW = 208, 48  # Cancel and OK, under the prompt
 
 
 def confirm_dialog(root):
     require([n[2].get('name') for n in root[3]] == ['img_cancel', 'img_enter'] and
             all(n[1][2:] == [CONFIRM_TILE, CONFIRM_TILE] for n in root[3]), 'Unexpected confirm dialog')
-    x = (375 // 2 - CONFIRM_TILE) // 2
-    root[3][0][1][0], root[3][1][1][0] = x, 375 - x - CONFIRM_TILE
+    # Two full-width text rows under the prompt instead of the disc tiles, so the wheel's selection
+    # is the lists' own bar or card. Stock looks both up by name and binds the same callbacks.
+    for i, n in enumerate(root[3]):
+        n[0], n[1] = 'button', [0, CONFIRM_TOP + i * CONFIRM_ROW, 375, CONFIRM_ROW]
+        n[2] = {'name': n[2]['name'], 'text': ('Cancel', 'OK')[i], 'focusable': 'false',
+                'style:normal:bg_color': '#00000000', 'style:pressed:bg_color': '#00000000',
+                'style:normal:border_color': '#00000000', 'style:normal:border_width': '0',
+                'style:normal:text_color': '#FFFFFF', 'style:pressed:text_color': '#FFFFFF',
+                'style:normal:font_size': '20', 'style:normal:text_align_h': 'center'}
 
 
 # iPod only. The volume dialog loses its highlight="default(alpha=200)", so the window manager

@@ -351,9 +351,11 @@ def validate_assets(directory):
             assert dim[1][0] == QS_EDGE and bright[1][0] + bright[1][2] == 375 - QS_EDGE and dim[2]['image'] == 'drop_lighleft'
             assert dim[1][0] + QS_SUN < slider[1][0] and slider[1][0] + slider[1][2] < bright[1][0]
             continue
-        if short == CONFIRM:  # iPod only: the stock pair, symmetric about the centre
+        if short == CONFIRM:  # iPod only: the stock pair as two full-width text rows under the prompt
             cancel, enter = root[3]
-            assert cancel[1][0] == 375 - enter[1][0] - enter[1][2] and cancel[1][1:] == enter[1][1:] == decode(original)[3][0][1][1:]
+            assert [n[0] for n in root[3]] == ['button', 'button'] and [n[2]['name'] for n in root[3]] == ['img_cancel', 'img_enter']
+            assert cancel[1] == [0, 208, 375, 48] and enter[1] == [0, 256, 375, 48] and enter[1][1] + enter[1][3] <= 320
+            assert [n[2]['text'] for n in root[3]] == ['Cancel', 'OK']
             continue
         if short == HOME_PAGE and not ipod:  # only the Coverflow card is added
             cards = [n[2]['name'] for n in root[3][0][3]]

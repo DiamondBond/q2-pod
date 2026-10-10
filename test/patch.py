@@ -1336,7 +1336,7 @@ for name in ('searchbox_dialog','tidal_searchbox_dialog'):
 m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm)
 m.word(d+O['W_W'],375); m.word(d+O['W_H'],320); m.clip=(0,0,375,320); m.top=d
 buttons=[m.entry(d,220) for _ in range(2)]; m.nodes[d]['children']=buttons
-pair=(53,242) if variant=='ipod' else (56,240)  # iPod's confirminfo_dialog.bin centres each in its half
+pair=(53,242) if variant=='ipod' else (56,240)  # a pair of tiles side by side, as Tidal's confirm keeps
 for b,x in zip(buttons,pair): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.word(b+O['W_H'],80)
 if variant=='ipod':
     m.paint(d); assert m.selected(d)==0 and m.sel()==(53,220,80,80)
@@ -1352,6 +1352,14 @@ if variant=='ipod':
     # A wide button (autoshutdown's Cancel) gets the full-width bar.
     m.nodes[d]['name']='autoshutdown_dialog'; m.nodes[d]['children']=[buttons[0]]; m.word(buttons[0]+O['W_W'],287)
     m.paint(d); assert m.sel()==(0,220,375,80) and not m.strokes; passed()
+    # iPod's confirminfo_dialog.bin: Cancel and OK are full-width rows, so the bar is a list's, unframed.
+    m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm)
+    m.word(d+O['W_W'],375); m.word(d+O['W_H'],320); m.clip=(0,0,375,320); m.top=d
+    rows=[m.entry(d,208+48*i) for i in range(2)]; m.nodes[d]['children']=rows
+    for r in rows: m.word(r+O['W_W'],375)
+    m.paint(d); assert m.selected(d)==0 and m.sel()==(0,208,375,48) and not m.strokes
+    assert m.call()==11 and m.selected(d)==1; m.paint(d); assert m.sel()==(0,256,375,48)
+    assert m.confirm()==11 and m.clicks==[rows[1]]; passed()
 else:
     assert m.call()==0 and m.call(O['KEY_CENTER'])==0 and not m.moved(); passed()
 

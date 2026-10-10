@@ -446,20 +446,18 @@ bar is drawn in the dialog's background: the button's own rectangle for a button
 the dialog (the confirm pair), the full width otherwise. A new dialog starts on its first button,
 Cancel on the confirm pair.
 
-The confirm pair sits symmetrically, each 80-pixel tile centred in its half of the screen (x 53
-and 242). Its stock discs are Shanling red with white glyphs, which the red-tone mapping would
-turn light (Graphite's silver would leave the white check at 1.4:1), so the shared image hook
-gives `confirm_ok`, `confirm_cancel` and their pressed images a dark surface under every
-accent, Crimson included: the same red-blend mapping with `CONFIRM_SURFACE` (`#2B2B2B`) as the
-tone, so the OK disc is `#2B2B2B` and Cancel's lighter tint `#595959`, while the glyphs stay
-white and near white (`#E5E5E5`): 14.2:1 and 5.6:1. Every confirm prompt uses these images through
-`s_img_confirmok`/`s_img_confirmcancel`, so all are covered. The wheel's focus is the off-white tile
-behind the dark disc, with a two-pixel white frame. Callbacks, actions and the
-initial Cancel are stock. Tidal's own confirm pop-up (cyan, black glyphs) keeps its look.
+The confirm pair (`img_cancel`, `img_enter`) is two full-width 48-pixel text rows under the prompt,
+**Cancel** at y 208 and **OK** at y 256 (`tools/ipod.py`, after maks112v/qpod), instead of stock's
+80-pixel disc tiles: the wheel's selection is then the lists' own bar or card, with no frame. Stock
+still finds both by name and binds its callbacks; the initial Cancel is stock's. The image hook
+still gives the discs (`confirm_ok`, `confirm_cancel`) `CONFIRM_SURFACE` (`#2B2B2B`) under every
+accent should stock draw them. Tidal's own confirm pop-up (cyan, black glyphs) keeps its look and
+its tiles, framed in white when selected.
 
 | Dialog                                           | Buttons                                         |
 | ------------------------------------------------ | ----------------------------------------------- |
-| `confirminfo_dialog`, `tidal_confirminfo_dialog` | `img_cancel`, `img_enter` (80x80, side by side) |
+| `confirminfo_dialog`                             | Cancel, OK (full-width rows)                    |
+| `tidal_confirminfo_dialog`                       | `img_cancel`, `img_enter` (80x80, side by side) |
 | `autoshutdown_dialog`                            | `btn_cancel`                                    |
 | `playlistsmore_page` (a page)                    | Rename, Delete                                  |
 | `tidal_quality_select_dialog`                    | four quality rows, `btn_ok`                     |
