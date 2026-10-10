@@ -100,7 +100,9 @@ selection bar alone.
 The art is the player's cover once `g_lastcover_url` matches the current queue path, else the
 current album's Coverflow thumbnail, else the placeholder; the previous track's player file is
 never used as a fallback. It reloads only when its key (the queue path, usable player-cover type
-and parsed album tags) changes, and not at all in Full. `g_playcover_finishflag` remains
+and parsed album tags) changes, and not at all in Full. The reload runs inside a paint, and AWTK
+drops what a paint invalidates when the frame ends, so a 0 ms timer then repaints the whole screen;
+otherwise the new art and its fit would reach only the regions repainted later. `g_playcover_finishflag` remains
 stock-owned. Now Playing and Spotify's page keep their black background behind the art.
 
 ## Status bar and clock

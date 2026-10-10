@@ -50,7 +50,7 @@ widget_count_children widget_get_child widget_lookup widget_move_resize widget_g
 canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
 timer_add timer_remove navigator_back_to_home navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
-canvas_draw_image slide_menu_set_spacer
+canvas_draw_image slide_menu_set_spacer window_manager
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
@@ -157,7 +157,9 @@ unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     return 1;
 }
 int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
-int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
+static int wm_repaints; /* whole-screen invalidations, from outside a paint */
+void *window_manager(void) { return &wm_repaints; }
+int widget_invalidate_force(void *x, void *y) { (void)y; wm_repaints += x == &wm_repaints; return 0; }
 unsigned widget_count_children(void *x) { return W(x)->nkids; }
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
 static void *home_art, *home_list; /* iPod Home's art and list; none in the carousel tests */
@@ -983,8 +985,11 @@ int main(void) {
     coverflow_home_art(win); /* the cover is still the previous track's */
     assert(strstr(art, "/mnt/mmc/.coverflow/") && size("Cover") > 0);
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[0]);
+    timer_fn = 0;
     coverflow_home_art(win);
     assert(!strcmp(art, player));
+    /* a paint drops its own invalidations: the whole screen repaints after it */
+    assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
     /* Square, portrait and landscape covers keep their proportions, just cover the panel and are
        centred on it; C division leaves an odd overflow's extra pixel on the right or bottom. */
     static const int covers[][6] = { { 160, 160, 136, 0, 290, 290 }, { 188, 290, 187, 0, 188, 290 },

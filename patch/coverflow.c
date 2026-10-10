@@ -1548,7 +1548,7 @@ const char *now_tag(void *r, int field) {
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
-    unsigned key;
+    unsigned key, repaint; /* repaint: the timer of home_repaint */
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
@@ -1562,6 +1562,15 @@ static const int home_split[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 };
 static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpic.jpg",
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg" };
+
+/* Repaint every window once the paint that changed the art is over: AWTK drops what a paint
+ * invalidates when the frame ends, so the new art would reach only regions repainted later. */
+static int home_repaint(const void *unused) {
+    (void)unused;
+    home.repaint = 0;
+    widget_invalidate_force(window_manager(), 0);
+    return 0; /* RET_REMOVE */
+}
 
 /* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on
  * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
@@ -1581,7 +1590,8 @@ static void home_fit(unsigned w, unsigned h) {
  * placeholder. The player's files belong to the track whose path it copies to g_lastcover_url
  * after writing them, so right after a track change they count only once that is this track. Runs
  * whenever a window or the status bar paints (at least once a second), for Home in Split, and
- * reloads only when the track, the cover it can use or its parsed tags change. */
+ * reloads only when the track, the cover it can use or its parsed tags change; home_repaint then
+ * shows the new art whole. */
 void coverflow_home_art(void *top) {
     if (!home.art || top != home.win || !widget_get_visible(home.art)) return;
     unsigned pos, n;
@@ -1601,7 +1611,7 @@ void coverflow_home_art(void *top) {
         !image_show(home.art, HOME_PLACEHOLDER, size))
         image_base_set_image(home.art, HOME_PLACEHOLDER);
     home_fit(size[0], size[1]);
-    widget_invalidate_force(home.art, 0);
+    rearm(&home.repaint, home_repaint, 0);
 }
 
 /* The art paints only inside its panel and the lists only left of it, so a sliding list
