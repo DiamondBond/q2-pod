@@ -4024,6 +4024,9 @@ covers=m.nodes[m.slide]['children']; assert len(covers)==5
 assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
 assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']=='default_album_big'
 assert 'Album 0' in m.texts(); passed()
+for tag,shown in (('He\u2019s \u201cHere\u201d',"He's \"Here\""),('\u4f60\u597d\uff0c\u4e16\u754c','\u4f60\u597d\uff0c\u4e16\u754c')):
+    c=CoverflowMachine(); c.word(c.albums[0]+O['REC_ALBUM'],c.string(tag)); c.open()
+    assert shown in c.texts(); passed()
 m.press(3); assert m.hold()==11 and m.nodes[m.title]['text']=='Album 0'
 f,ctx=m.handler(m.back,O['EVT_CLICK']); m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.top==page and m.release()==0; passed()

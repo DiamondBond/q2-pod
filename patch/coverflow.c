@@ -782,6 +782,20 @@ void *text(void *parent, int x, int y, int w, int h) { /* shared with photos.c *
     return label;
 }
 
+/* Stock's font gives curly quotes a full-width advance, a gap inside words, so labels show their ASCII
+ * forms; the records themselves (and scrobbles) keep the tags as they are. */
+static void label_text(void *label, const char *caption) {
+    char buf[256], *o = buf;
+    const unsigned char *s = (const unsigned char *)(caption ? caption : "");
+    for (; *s && o < buf + sizeof buf - 1; ++s)
+        if (s[0] == 0xe2 && s[1] == 0x80 && s[2] >= 0x98 && s[2] <= 0x9d && s[2] != 0x9a && s[2] != 0x9b)
+            *o++ = s[2] < 0x9c ? '\'' : '"', s += 2;
+        else
+            *o++ = (char)*s;
+    *o = 0;
+    widget_set_text_utf8(label, *s ? caption : buf); /* longer than buf: as is */
+}
+
 /* A black page named name, with its destroy and Return handlers; 0 when none. Shared with photos.c
  * and books.c. */
 void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(void *, void *)) {
@@ -797,7 +811,7 @@ void *page_open(const char *name, int (*closed)(void *, void *), int (*keyup)(vo
 /* A page's 48px title bar; shared with photos.c. */
 void *page_title(void *body, const char *caption) {
     void *title = text(body, CF_X, 0, CF_W, 48);
-    widget_set_text_utf8(title, caption);
+    label_text(title, caption);
     return title;
 }
 
@@ -835,12 +849,12 @@ void page_row_detail(void *view, int index, const char *caption, const char *det
     void *item = list_item_create(view, 0, index * h, 375, h);
     widget_use_style(item, "s_listitem_black");
     void *label = text(item, CF_ROW_X, detail ? 4 : 0, CF_ROW_W, detail ? 32 : 48);
-    widget_set_text_utf8(label, caption ? caption : "");
+    label_text(label, caption);
     if (detail) {
         label = text(item, CF_ROW_X, 36, CF_ROW_W, 24);
         widget_set_prop_int(label, "style:normal:text_color", (int)0xffaaaaaau);
         widget_set_prop_int(label, "style:normal:font_size", 16);
-        widget_set_text_utf8(label, detail);
+        label_text(label, detail);
     }
     widget_on(item, EVT_CLICK, click, (void *)(long)index);
 }
@@ -1223,8 +1237,8 @@ static int changed(void *ctx, void *event) {
     }
     void *r = c + CARDS < n ? deque_at(cf.albums, c) : (void *)0;
     if (r) cf.saved_album = album_key(r);
-    widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM) : c + 1 < n ? sort_names[cf.sort] : "Refresh library");
-    widget_set_text_utf8(cf.artist, r && P(r, REC_ARTIST) ? P(r, REC_ARTIST) : "");
+    label_text(cf.name, r ? P(r, REC_ALBUM) : c + 1 < n ? sort_names[cf.sort] : "Refresh library");
+    label_text(cf.artist, r ? P(r, REC_ARTIST) : 0);
     return 0;
 }
 
