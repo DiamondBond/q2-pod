@@ -3727,6 +3727,38 @@ if variant=='ipod':
     assert repaint(m.top)==[] and repaint(bar)==[]; m.top=win
     f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert repaint()==[] and shown()[0]==''; passed()
+    # Minimal (docs/ipod.md#now-playing): the text column moves NP_SHIFT down under a NOW PLAYING
+    # caption, the album is drawn in capitals over its transparent label, and under the art page the
+    # output and the format stand either side of the dots. Classic leaves the asset's places.
+    def minimal_np(theme):
+        CONFIG.clear(); CONFIG.update(THEME=theme); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'; CONFIG.clear()
+        for i,r in enumerate(m.items(m.get(syms['mcl_pdeqplaylist']))):
+            m.word(r+O['REC_PATH'],m.string(('/p/a.mp3','/p/b.FLAC','/p/c')[i])); m.word(r+O['REC_ALBUM'],m.string('Kid A'))
+        title,artist=m.node('hscroll_label','scrlabel_title'),m.node('hscroll_label','scrlabel_artist')
+        album=m.node('label','label_ipod_album')
+        for w,y in ((title,55),(artist,87),(album,111)):
+            for k,v in (('W_X',194),('W_Y',y),('W_W',165),('W_H',20)): m.word(w+O[k],v)
+        page=m.node('view','view_album',[title,artist,album]); slide=m.node('slide_view','slide_view'); m.word(slide+O['W_H'],186)
+        box=m.node('view','slide_view_view',[slide,page]); m.word(box+O['W_Y'],40)
+        win=m.node('window','playing_page',[box,m.node('slider','slider_play',max=225,value=100),m.node('label','label_ipod_remain')])
+        for w,parent in ((title,page),(artist,page),(album,page),(page,box),(slide,box),(box,win),(win,m.wm)): m.word(w+O['W_PARENT'],parent)
+        m.handlers.pop(syms['mclGetOutputWay'],None); m.word(0xa3beb0,2)  # stock's leaf reads the output way: USB DAC
+        m.top=win; m.call(address=playing,args=(win,7,0,0),gap=0)
+        minimal=theme=='0'; dy=O['NP_SHIFT'] if minimal else 0
+        assert [m.get(w+O['W_Y']) for w in (title,artist,album)]==[55+dy,87+dy,111+dy],(theme,[m.get(w+O['W_Y']) for w in (title,artist,album)])
+        assert m.u.mem_read(album+0x34,1)==bytes([0 if minimal else 255])
+        def border(w): m.letters=[]; m.call(address=HOOKS['widget_on_paint_border'][0],args=(w,m.canvas,0,0),gap=0); return m.letters
+        letters=border(page)+border(win); lines={}
+        for l in letters: lines.setdefault(l['y'],[]).append(l)
+        if not minimal: assert not letters; passed(); return
+        caps=[''.join(l['text'] for l in v) for _,v in sorted(lines.items())]
+        assert caps==['NOW PLAYING','KID A','USB DACLOSSLESS'],caps
+        caption,alb,foot=(v for _,v in sorted(lines.items()))
+        assert caption[0]['x']==194 and caption[0]['y']==55+dy-O['NP_CAPTION_DY'] and alb[0]['x']==194
+        assert foot[0]['x']==O['NP_MARGIN'] and foot[0]['y']==40+186+O['NP_FOOT_DY']
+        assert foot[-1]['x']+10==375-O['NP_MARGIN']  # LOSSLESS ends at the margin (10px a glyph here)
+        assert {l['color'] for l in letters}=={color_t(O['SUDO_MUTED'])} and m.font==('default',O['NP_CAPS_PX']); passed()
+    for theme in ('0','1'): minimal_np(theme)
 
     # The full-screen art: stock init runs first; the song name and its shade show BC_MS, then fade
     # out together over BC_STEPS steps. Closing it mid-fade stops the fade.

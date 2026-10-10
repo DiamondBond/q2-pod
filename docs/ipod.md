@@ -375,6 +375,16 @@ white (`NP_TITLE_PX`); the artist is `#CCCCCC` (`NP_ARTIST_RGB`), while the albu
 and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Stock
 keeps its existing artist color. Long lines scroll, as stock.
 
+**Theme: Minimal** adds Sudo Music's small capitals (`NP_CAPS_PX`, 10 pixels, `SUDO_MUTED`,
+`draw_spaced`): a NOW PLAYING caption `NP_CAPTION_DY` (18) pixels above the title, which moves
+`NP_SHIFT` (9) down with the artist and album (`np_theme`, from the asset's places, so Classic gets
+them back) to keep the column centred on the art; the album itself, over its label's transparent
+ink; and, `NP_FOOT_DY` under the art page and either side of the page dots (`NP_DOTS_W`), the
+output at the left margin (Headphones, Balanced, Bluetooth or USB DAC, from `mclGetOutputWay` and
+the 4.4 mm jack) and the format at the right (Lossless for FLAC, WAV, APE, AIFF, WavPack and ALAC
+files, DSD for DSF, DFF and ISO, else the file's extension). There is no on-screen transport row:
+the buttons play, pause and skip, and the art page and visualizer keep their 186 pixels.
+
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
 with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
 each lyric line 225 pixels wide. The play/pause overlay has zero opacity, retaining its original gesture target without

@@ -199,6 +199,16 @@
 /* Minimal's selection is a card SEL_INSET px in from each side of the row, corners SEL_RADIUS. */
 #define SEL_INSET 6
 #define SEL_RADIUS 6
+/* Minimal's Now Playing: a NOW PLAYING caption NP_CAPTION_DY above the title, which moves NP_SHIFT
+ * down (with the artist and album) to centre the column on the art again; the caption, the album and
+ * the footer (output and format, NP_FOOT_DY under the art page, clear of the NP_DOTS_W page dots) are
+ * NP_CAPS_PX capitals. NP_MARGIN is tools/ipod.py's. */
+#define NP_CAPS_PX 10
+#define NP_CAPTION_DY 18
+#define NP_SHIFT 9
+#define NP_FOOT_DY 2
+#define NP_DOTS_W 60
+#define NP_MARGIN 16
 #define MARK_PX 12
 #define MARK_RGB 0xaaaaaa
 #define PAGE_SLIDE_MS 120
