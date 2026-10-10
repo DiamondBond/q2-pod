@@ -5774,12 +5774,12 @@ def play(i):
     return [c[0] for c in m.calls]
 m.forked=0; names=play(1)  # the child
 assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
-assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:1,0',R+'/a.mp4',0)]; passed()
+assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',R+'/a.mp4',0)]; passed()
 # A DAC check_dacoff_state powered off is powered on first. Bluetooth (way 1) plays on hciplayer's
 # plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on hciplayer's
 # hw:2,0, through plughw: with the volume marked h (the DAC's own control, or a fixed USB volume),
 # or plain when the USB volume is variable and the DAC has no control (USB_MIXER -2: hciplayer's soft volume).
-m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:5]==('plughw:1,0',R+'/b.MKV',0)
+m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:5]==('plughw:0,0',R+'/b.MKV',0)
 m.word(syms['g_dacoff_time'],5); m.byte(syms['g_volume'],42)
 m.way=1; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
 m.way=2; m.byte(syms['g_usbvol_mode'],0); m.word(O['USB_MIXER'],0xfffffffe)
@@ -6083,7 +6083,7 @@ m.row(0); assert m.labels()==['Favourites','One','http://two/b','Three']; passed
 # argv, Now Playing over the list, and the station kept as the last. The page says it connects.
 m.forked=0; m.row(2)  # the child
 names=[c[0] for c in m.calls]; assert names.index('player_stop')<names.index('fork')
-assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','-r','plughw:1,0',('https://three/c?x=1',0))]
+assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','-r','plughw:0,0',('https://three/c?x=1',0))]
 m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' and m.files[RDIR+'/.last']==b'#EXTM3U\n#EXTINF:-1,Three\nhttps://three/c?x=1\n'
 m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']; passed()
 # Playing: its tags (the StreamTitle as artist - title), the stream and the time since the sound

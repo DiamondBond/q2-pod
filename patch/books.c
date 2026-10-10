@@ -734,8 +734,8 @@ const char *output_device(char *vol) {
     return way == 1 ? "plug:bluealsa" : way == 2 ? "plughw:2,0" : 0;
 }
 
-/* q2video on output_device, else the headphone DAC's plughw:1,0, for file or, with radio, Internet
- * Radio's url (radio.c): its pid, 0 when it did not start. */
+/* q2video on output_device, else the headphone DAC's plughw:0,0 (the only card), for file or, with
+ * radio, Internet Radio's url (radio.c): its pid, 0 when it did not start. */
 int video_start(const char *file, int radio) {
     char vol[5];
     const char *out = output_device(vol);
@@ -743,7 +743,7 @@ int video_start(const char *file, int radio) {
     if (!out && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
     int pid = fork();
     if (!pid) {
-        const char *dev = out ? out : "plughw:1,0", *v = out ? vol : (char *)0;
+        const char *dev = out ? out : "plughw:0,0", *v = out ? vol : (char *)0;
         if (radio)
             execl(VIDEO_BIN, VIDEO_BIN, "-r", dev, file, v, (char *)0);
         else

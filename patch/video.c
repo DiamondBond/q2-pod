@@ -145,6 +145,7 @@ long snd_pcm_writei(void *, const void *, unsigned long);
 #define AF_UNIX 1
 #define SOCK_DGRAM 1 /* MIPS swaps it with SOCK_STREAM */
 #define F_SETPIPE_SZ 1031
+#define F_SETFD 2
 #define FBIOGET_VSCREENINFO 0x4600
 #define FBIOGET_FSCREENINFO 0x4602
 #define FBIOPAN_DISPLAY 0x4606
@@ -177,6 +178,13 @@ static void *writer(void *unused) {
         au.played = !snd_pcm_delay(au.pcm, &delay) && delay > 0 && delay < written ? written - delay
                                                                                  : written;
     }
+}
+
+/* fd onto at for ffmpeg: dup2 of an fd onto itself keeps O_CLOEXEC, so exec would close it (demo
+ * may start us without stdio, which puts a pipe on 4 already). */
+static void move_fd(int fd, int at) {
+    dup2(fd, at);
+    fcntl(at, F_SETFD, 0);
 }
 
 static long long now_ms(void) {
@@ -249,8 +257,8 @@ static int radio(int argc, char **argv) {
         radio_state("connecting");
         int pid = fork();
         if (!pid) {
-            dup2(ap[1], 4);
-            dup2(ep[1], 2);
+            move_fd(ap[1], 4);
+            move_fd(ep[1], 2);
             execv(FFMPEG, args);
             _exit(127);
         }
@@ -349,7 +357,7 @@ int main(int argc, char **argv) {
     long long until = 0;
     if (!probe) {
         const char *pa[] = { FFMPEG, "-nostdin", "-hide_banner", "-i", argv[2], 0 };
-        dup2(pp[1], 2);
+        move_fd(pp[1], 2);
         execv(FFMPEG, pa);
         _exit(127);
     }
@@ -363,8 +371,8 @@ int main(int argc, char **argv) {
         ffmpeg_argv(args, ss, at, argv[2], audio);
         int pid = fork();
         if (!pid) {
-            dup2(vp[1], 3);
-            if (audio) dup2(ap[1], 4);
+            move_fd(vp[1], 3);
+            if (audio) move_fd(ap[1], 4);
             execv(FFMPEG, args);
             _exit(127);
         }
