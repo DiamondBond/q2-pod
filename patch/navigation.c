@@ -26,7 +26,7 @@ extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
-extern int coverflow_home_back(void *top);
+extern int coverflow_home_back(void *top), coverflow_home_owns(void *w);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
@@ -1316,6 +1316,27 @@ void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, un
     canvas_set_text_color(canvas, text);
 }
 
+/* Minimal's small capitals (Sudo's): n characters of s from x, y (the text's top) in the default
+ * font at px, upper-cased (ASCII and Latin-1) and track pixels apart, stopping before x + max.
+ * Returns the width drawn. The text color is restored, the font is not. */
+int draw_spaced(void *canvas, const unsigned *s, unsigned n, int x, int y, unsigned px,
+                unsigned color, int track, int max) {
+    unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
+    canvas_set_font(canvas, (void *)0, px);
+    canvas_set_text_color(canvas, color);
+    int at = 0;
+    for (unsigned i = 0; i < n && s[i]; ++i) {
+        unsigned c = s[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 0xe0 && c <= 0xfe && c != 0xf7)) c -= 32;
+        int w = (int)(canvas_measure_text(canvas, &c, 1) + 0.5f);
+        if (at + w > max) break;
+        canvas_draw_text(canvas, &c, 1, x + at, y);
+        at += w + track;
+    }
+    canvas_set_text_color(canvas, text);
+    return at > track ? at - track : 0;
+}
+
 /* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas). */
 static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
     if (canvas_fill_rounded_rect(canvas, r, (void *)0, &color, radius)) {
@@ -1422,6 +1443,24 @@ static void paint_cover(void *w, void *canvas) {
         }
     }
     canvas_set_fill_color(canvas, fill);
+}
+#endif
+
+#if IPOD
+/* Minimal's Home labels are small capitals (draw_spaced) over the label's transparent stock ink
+ * (ringnav_style_color): white on the selected row, else SUDO_MUTED, centred on the label's
+ * height and clipped to its width. ponytail: long translations are cut off, not scrolled. */
+static void paint_home_label(void *w, void *canvas) {
+    if (!w || ipod_classic() || !P(canvas, CANVAS_LCD) ||
+        tk_strcmp(widget_get_type(w), "hscroll_label") || !coverflow_home_owns(w))
+        return;
+    const unsigned *s = widget_get_text(w);
+    unsigned n = 0, color = RGBA(SUDO_MUTED);
+    while (s && s[n]) ++n;
+    for (void *p = w; p; p = P(p, W_PARENT))
+        if (p == st.sel_widget) color = 0xffffffff;
+    draw_spaced(canvas, s, n, 0, (I(w, W_H) - HOME_CAPS_PX) / 2, HOME_CAPS_PX, color, SUDO_TRACK,
+                I(w, W_W));
 }
 #endif
 
@@ -1567,6 +1606,7 @@ int ringnav_paint(void *w, void *canvas) {
     paint_chevrons(w, canvas);
     paint_letter(w, canvas);
     paint_cover(w, canvas);
+    paint_home_label(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
 #else
@@ -2182,6 +2222,10 @@ static int selected_ink(void) {
 unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, unsigned fallback) {
     stock_color_trampoline(color, style, name, fallback);
     if (st.paint_w && name && tk_str_end_with(name, "text_color")) {
+        if (!ipod_classic() && coverflow_home_owns(st.paint_w)) { /* paint_home_label draws it */
+            *color &= 0xffffff;
+            return color;
+        }
         if (selected_ink()) {
             unsigned alpha = *color & 0xff000000u;
             *color = alpha | (st.sel_home ? 0xffffff : ((*color & 0xffffff) == 0xffffff ? 0x171717 : 0x484848));

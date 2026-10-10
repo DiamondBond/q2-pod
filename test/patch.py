@@ -418,6 +418,10 @@ class Machine:
             self.letters.append(dict(text=''.join(chr(self.get(b+4*j)) for j in range(c)),
                 rect=tuple(signed(self.get(d+4*j)) for j in range(4)),color=self.get(self.lcd+O['LCD_TEXT_COLOR']),font=self.font,
                 align=(self.get(a+O['CANVAS_ALIGN_H']),self.get(a+O['CANVAS_ALIGN_V'])),clip=self.clip)); ret=0
+        elif name=='canvas_measure_text': u.reg_write(UC_MIPS_REG_F0,struct.unpack('<I',struct.pack('<f',10.0*c))[0]); ret=0
+        elif name=='canvas_draw_text':
+            self.letters.append(dict(text=''.join(chr(self.get(b+4*j)) for j in range(c)),x=signed(d),
+                y=signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),color=self.get(self.lcd+O['LCD_TEXT_COLOR']),font=self.font)); ret=0
         elif name=='canvas_fill_rect':
             self.bands.append((signed(b),signed(c),signed(d),signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),
                                self.get(self.lcd+O['LCD_FILL_COLOR']),self.clip)); ret=0
@@ -3628,18 +3632,18 @@ class CoverflowMachine(QueueMachine):
 
 if variant=='ipod':
     # Both themes: the art itself follows the playing track, when Home or the status bar paints, in
-    # the right panel beside the Split list: the Coverflow thumbnail until the player has parsed this
+    # the right panel (Classic: beside the Split list; Minimal: under the full-width list, from HOME_ART_X): the Coverflow thumbnail until the player has parsed this
     # track, then the player's cover. Nothing loads or draws for Now Playing.
     for theme in ('0','1'):
       CONFIG.clear(); CONFIG.update(THEME=theme); m=CoverflowMachine(); m.open(); m.top=m.home; CONFIG.clear()
       bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
       for w in (bar,m.home): m.word(w+O['W_PARENT'],m.wm)
-      SPLIT=O['HOME_SPLIT_W']; PW=375-SPLIT
+      SPLIT=O['HOME_SPLIT_W'] if theme=='1' else O['HOME_ART_X']; PW=375-SPLIT; LISTW=SPLIT if theme=='1' else 375
       def art_image(w):
           m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
           return m.nodes[m.art].get('image')
       m.byte(syms['g_playcover_type'],1)
-      assert art_image(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==SPLIT
+      assert art_image(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==LISTW
       m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_image(bar)=='file:///tmp/coverpic.jpg'
       m.nodes[m.art]['image']='unchanged'; assert art_image(m.home)=='unchanged'  # same track and cover
       np=m.node('window','playing_page'); m.word(np+O['W_PARENT'],m.wm); m.top=np
@@ -3665,10 +3669,10 @@ if variant=='ipod':
       m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.art,m.canvas,0,0))
       assert m.clip==(SPLIT,30,PW,290),m.clip
       m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0)); assert m.clip==(0,0,375,320)
-      # The list paints only left of the panel; the placeholder (no size) fills the panel.
+      # Classic's list paints only left of the panel, Minimal's over it; the placeholder (no size) fills the panel.
       m.word(m.canvas+O['CANVAS_X'],0); m.word(m.canvas+O['CANVAS_Y'],30+HOME_TOP)
       m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.list,m.canvas,0,0))
-      assert m.clip==(0,30+HOME_TOP,SPLIT,7*HOME_ROW),m.clip
+      assert m.clip==(0,30+HOME_TOP,LISTW,7*HOME_ROW),m.clip
       m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.list,m.canvas,0,0)); assert m.clip==(0,0,375,320)
       m.image_size=None
       m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0')
@@ -4721,16 +4725,17 @@ if variant=='ipod':
     art=named(m,home,'img_homeart')
     def home_bounds(full,classic=False):
         x0,end=(O['HOME_CLASSIC_TEXT_X'],O['CHEVRON_W']-10) if classic else (HOME_TEXT_X,O['HOME_LABEL_END'])
-        row=(O['HOME_CLASSIC_ROW'] if classic else O['HOME_FULL_ROW']) if full else O['HOME_SPLIT_W']
+        row=(O['HOME_CLASSIC_ROW'] if classic else O['HOME_FULL_ROW']) if full or not classic else O['HOME_SPLIT_W']
         for name in ('list_view_home','list_view_homeset'):
             menu=named(m,home,name)
-            assert m.get(menu+O['W_W'])==(375 if full else O['HOME_SPLIT_W'])
+            assert m.get(menu+O['W_W'])==(375 if full or not classic else O['HOME_SPLIT_W'])
             for r in m.nodes[m.nodes[menu]['children'][0]]['children']:
                 label=m.nodes[r]['children'][0]
                 x,y,width,height=cf_geometry(m,label)
                 assert x==x0 and width>0 and x+width==row-end and m.get(r+O['W_W'])==row
         assert m.nodes[art]['visible']==(not full)
-        assert tuple(signed(m.get(art+O[k])) for k in ('W_X','W_Y','W_W','W_H'))==(O['HOME_SPLIT_W'],0,375-O['HOME_SPLIT_W'],290)
+        x=O['HOME_SPLIT_W'] if classic else O['HOME_ART_X']
+        assert tuple(signed(m.get(art+O[k])) for k in ('W_X','W_Y','W_W','W_H'))==(x,0,375-x,290)
     home_bounds(False)
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
     home_bounds(True)
@@ -4957,13 +4962,22 @@ if variant=='ipod':
     assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); centre(m)
     assert m.nodes[m.slider][FG]==-1; centre(m,50); assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); passed()
 
-    # Home at init: Split halves the screen in both themes and shows the art; Full widens the list
-    # to the screen and its rows' tap targets to HOME_FULL_ROW (Classic: HOME_CLASSIC_ROW) and hides it.
-    for config,listw,roww,shown in (({'HOME':'1'},375,O['HOME_FULL_ROW'],0),({},O['HOME_SPLIT_W'],O['HOME_SPLIT_W'],1),
+    # Home at init: Split shows the art, beside the list in Classic and under it in Minimal; Full hides it
+    # and widens the list to the screen and its rows' tap targets to HOME_FULL_ROW (Classic: HOME_CLASSIC_ROW).
+    for config,listw,roww,shown in (({'HOME':'1'},375,O['HOME_FULL_ROW'],0),({},375,O['HOME_FULL_ROW'],1),
                                     ({'HOME':'1','THEME':'1'},375,O['HOME_CLASSIC_ROW'],0),({'THEME':'1'},O['HOME_SPLIT_W'],O['HOME_SPLIT_W'],1)):
         CONFIG.clear(); CONFIG.update(config); m=CoverflowMachine(); m.open()
         rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
         assert rowsw==[listw]+[roww]*7 and m.nodes[m.art].get('visible',1)==shown,(config,rowsw); passed()
+        # Minimal draws the labels as small capitals (10px a glyph here, SUDO_TRACK apart) over their
+        # transparent stock ink; Classic leaves the stock label alone.
+        label=named(m,m.home,'label_coverflow'); m.nodes[label]['text']='Coverflow'; m.letters=[]
+        m.call(address=HOOKS['widget_on_paint_border'][0],args=(label,m.canvas,0,0))
+        caps=[(l['text'],l['x']) for l in m.letters]
+        if 'THEME' in config: assert not caps; passed(); continue
+        assert caps==[(c,i*(10+O['SUDO_TRACK'])) for i,c in enumerate('COVERFLOW')],caps
+        assert {l['y'] for l in m.letters}=={(HOME_ROW-O['HOME_CAPS_PX'])//2} and m.font==('default',O['HOME_CAPS_PX'])
+        assert {l['color'] for l in m.letters}=={color_t(O['SUDO_MUTED'])}; passed()
     Machine.hook=orig_hook; CONFIG.clear()
 
 # Wheel precision (docs/internals.md, Wheel movement): iPod's overshoot filter (the second tick of a
@@ -5355,14 +5369,14 @@ def home_settings():
         m.calls=[]; f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible'] and m.nodes[sets]['animated']=='x'
-        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,O['HOME_SPLIT_W'])]; passed()
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,375)]; passed()
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==O['PAGE_SLIDE_MS']==120
         m.advance(119); assert signed(m.get(sets+O['W_X']))>0
         m.advance(1); assert m.get(sets+O['W_X'])==0 and not m.props
         m.paint(sview); assert m.selected(sview)==0 and m.call()==11 and m.selected(sview)==1; passed()
         m.calls=[]; assert m.call(O['KEY_RETURN'])==11
         assert m.nodes[lst]['visible'] and not m.nodes[sets]['visible'] and m.nodes[lst]['animated']=='x'
-        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-O['HOME_SPLIT_W']&0xffffffff)]
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-375&0xffffffff)]
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==120
         m.advance(120); assert m.get(lst+O['W_X'])==0 and not m.props
         m.paint(view); assert m.selected(view)==6; passed()

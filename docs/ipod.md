@@ -70,10 +70,13 @@ chrome. Photos, video, book content, EQ plots and visualizers keep their own dra
 
 ## Home
 
-Home splits the screen: the menu on the left, the current local track's art in the right panel.
-Selection is a small white dot and bright text; other destinations use `#AAAAAA`. There is no
-selection rectangle or chevron. **Theme: Classic** styles the menu as before 1.0.1 instead
-(below).
+Home lays the menu over the current local track's art, as Sudo Music does: the art fills the screen
+right of `HOME_ART_X` (110), dimmed by `HOME_DIM` and fading in from black over its first `HOME_FADE`
+pixels, so the labels stay legible where they cross it. Labels are small capitals, `HOME_CAPS_PX`
+(18) with `SUDO_TRACK` (2) pixels between letters, drawn by the payload (`draw_spaced`) over the
+stock label's transparent ink. Selection is a small white dot and white text; other destinations
+are `SUDO_MUTED` (`#8C8C8C`). There is no selection rectangle or chevron. **Theme: Classic** styles
+the menu as before 1.0.1 instead (below).
 
 The seven destinations remain Now Playing, Library, Coverflow, Folder, Rockbox, Streaming and
 Settings. Rockbox is visible only when its binary is on the card. Settings opens Playback and
@@ -88,12 +91,13 @@ The background view paints before the transparent menus, and both menus are clip
 window while sliding.
 
 Display settings offers **Home: Split / Full**, stored as `IPOD/HOME` 0 or 1; invalid or absent
-values mean Split. `coverflow_home_layout` moves the asset's widgets at runtime, in both themes:
-Split narrows both menus to `HOME_SPLIT_W` (187) and shows the cover itself in the right 188×290
-panel (`img_homeart` is an `image` for this, fitted to the cover's proportions and clipped to the
-panel, the menus clipped left of it; `default_album_home` without a cover); Full hides the art and
-widens the menus to the screen, their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369)
-in Classic. Minimal's labels keep x 39 and the 33-pixel end, 115 pixels wide in Split. Classic's
+values mean Split. `coverflow_home_layout` moves the asset's widgets at runtime. Split shows the
+cover itself (`img_homeart` is an `image` for this, fitted to the cover's proportions and clipped to
+its panel; `default_album_home` without a cover): in Minimal the 265×290 panel from `HOME_ART_X`
+under the full-width menus, in Classic the right 188×290 panel beside menus narrowed to
+`HOME_SPLIT_W` (187) and clipped left of it. Full hides the art and widens the menus to the screen,
+their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369) in Classic. Minimal's labels keep
+x 39 and the 33-pixel end; long translations are cut off at it rather than scrolled. Classic's
 start at `HOME_CLASSIC_TEXT_X` (33) and end 10 pixels before the chevron, which rides the accent's
 selection bar alone.
 

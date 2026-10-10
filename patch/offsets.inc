@@ -183,6 +183,16 @@
 #define NP_BAR_MINIMAL 4
 #define MINIMAL_FILL 0xeeeeec
 #define MINIMAL_CHEVRON 0x777777
+/* Minimal's Sudo look (docs/ipod.md#home): small capitals SUDO_TRACK px apart (draw_spaced). Home's
+ * labels are HOME_CAPS_PX, white selected, else SUDO_MUTED; the art fills the screen right of
+ * HOME_ART_X under the menu, dimmed by HOME_DIM (alpha of 255) and fading in from black over
+ * HOME_FADE px at its left edge. */
+#define SUDO_TRACK 2
+#define SUDO_MUTED 0x8c8c8c
+#define HOME_CAPS_PX 18
+#define HOME_ART_X 110
+#define HOME_DIM 120
+#define HOME_FADE 90
 #define PAGE_SLIDE_MS 120
 #define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
