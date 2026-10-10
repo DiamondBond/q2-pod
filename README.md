@@ -30,11 +30,11 @@ Made for the **Shanling Q2**, with an iPod classic feel and a few extras:
 
 - **iPod UI:** Home, lists, Now Playing, Coverflow and four visualizers. Choose your accent, Home layout and battery display.
 - **Wheel navigation:** faster scrolling, adjustable sensitivity and menus that remember your place. The wheel also sets brightness, volume limits, balance, the date and time and the sleep timer.
-- **More ways to listen:** favourites, playlists, Most Played, and shuffle by song, album or folder. Hold Play/Pause for track and playback options.
+- **More ways to listen:** favourites, playlists, Most Played, shuffle by song, album or folder, and Crossfade between albums. Hold Play/Pause for track and playback options.
 - **Parametric EQ:** up to 30 bands, per-channel adjustments, balance, a live curve and AutoEQ / Equalizer APO preset imports.
 - **Beyond music:** videos, photos, books, podcasts and audiobooks. Podcasts, audiobooks and long mixes resume where you left off.
-- **Spotify Connect:** **Streaming → Spotify** turns the Q2 into a Spotify Connect speaker with its own Now Playing page (Premium; runs from the microSD card).
-- **Internet Radio:** **Streaming → Internet Radio** plays favourites from the card's `Radio` folder and the [radio-browser.info](https://www.radio-browser.info) directory's stations, on the headphone jack, Bluetooth or a USB DAC ([guide](docs/guide.md#internet-radio)).
+- **Spotify Connect:** the Q2 becomes a Spotify Connect speaker (Premium; [set up](#spotify) from the microSD card).
+- **Internet Radio:** your own stations and the [radio-browser.info](https://www.radio-browser.info) directory, with search ([guide](docs/guide.md#internet-radio)).
 - **Scrobbling:** log listens and upload to Last.fm or ListenBrainz over Wi-Fi.
 - **Battery options:** an optional 80% charge limit and Low power mode.
 
@@ -45,11 +45,13 @@ Also fixes choppy AirPods AAC audio, the clock resetting after power-off, screen
 ## Install
 
 > [!IMPORTANT]
-> Charge the Q2 first, and leave the microSD card in until the update finishes.
+> Charge the Q2 first, and leave the microSD card in until the update finishes. Only remove or insert the card with the Q2 fully shut down (not asleep), or it can corrupt the card.
 
 1. [Download the latest release](https://github.com/DiamondBond/q2-pod/releases/latest), unzip `Q2.Firmware.*.zip` and copy `update.tar` to the microSD card's root.
 2. On the Q2, open **System settings → System Update → TF card update**.
 3. After the restart, **System settings → About** shows FW V1.32 and your **CFW. Version**.
+
+The updater skips a build whose version is already installed ("latest firmware installed"); updating to a newer release always works.
 
 ### Restore stock
 
@@ -65,9 +67,13 @@ See the [setup guide](docs/setup.md) for the full walkthrough and [ported themes
 
 ### Spotify
 
-Spotify isn't in the firmware; it runs from the card. Unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root, so it has `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh` (the leading dot hides the folder; Cmd+Shift+. shows it in macOS Finder). Power on, open **Streaming → Spotify** and pick **Q2** in the Spotify app on a phone on the same Wi-Fi; the login is saved on the card. After each power-on, and after 30 seconds paused, open the row once to make the Q2 appear in Spotify again; nothing Spotify runs until you do.
+Spotify runs from the card, not the firmware, and needs Premium.
 
-Needs Spotify Premium. Audio plays on the headphone jack, Bluetooth or a USB DAC, whichever is in use when playback starts (Bluetooth and USB need a current `.spotify/aplay.sh`; an older one plays on the headphone jack). Play/Pause and Next/Prev control Spotify until you play local music; the wheel sets volume. Delete `.spotify` to remove it. See the [guide](docs/guide.md#spotify) for details.
+1. Unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) to the card's root. It makes a hidden `.spotify` folder (Cmd+Shift+. shows it in macOS Finder).
+2. On the Q2, open **Streaming → Spotify**, then pick **Q2** in the Spotify app on a phone on the same Wi-Fi. The login is saved on the card.
+3. After each power-on, and after 30 seconds paused, open the row again so the Q2 shows up in Spotify.
+
+It plays on the headphone jack, Bluetooth or a USB DAC; Play/Pause and Next/Prev control Spotify until you play local music. Delete `.spotify` to remove it. More in the [guide](docs/guide.md#spotify).
 
 ## Everyday use
 
@@ -111,7 +117,8 @@ For format limits and cache details, see [microSD card](docs/guide.md#microsd-ca
 - **Library size:** Update Local Music adds up to 65,000 songs; shuffle and advanced queues take up to 65,536.
 - **Albums with the same name:** in **Library → Albums**, the playing marker, multi-select actions (such as Add to playlist) and Delete still treat them as one album.
 - **Bluetooth:** skipping tracks can stutter on some headphones (AAC and LDAC), and AirPods' tap controls don't reach the Q2.
-- **Spotify:** Premium only; an output switched while it plays takes over at the next pause and play; and the **Streaming → Spotify** row must be opened once after each power-on and after 30 seconds paused.
+- **Spotify:** switching the output while it plays takes effect at the next pause and play.
+- **Crossfade:** only between songs from different albums (albums stay gapless), with **Gapless** on; not with **Play Mode** set to shuffle or repeat one.
 - **Lock screen:** black until you add your own [images](docs/guide.md#lock-screen).
 
 New to Q2 Pod? The guide's [tips](docs/guide.md#tips) cover features that are easy to miss.
