@@ -1211,9 +1211,10 @@ static int rockbox_available(void) {
     return !__xstat(3, ROCKBOX_BIN, info) && (info[5] & 0170000) == 0100000;
 }
 
-#if IPOD
 /* 0xRRGGBB to an opaque color_t, whose bytes are r, g, b, a. */
 #define RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
+
+#if IPOD
 
 /* The 0xRRGGBB j/n of the way from one color to another, per channel. Shared with visualizer.c. */
 unsigned mix(unsigned from, unsigned to, int j, int n) {
@@ -1592,6 +1593,28 @@ static void paint_selection(void *w, void *canvas) {
 
 static void edit_paint(void *w, void *canvas);
 
+#if IPOD
+/* Minimal: stock's white radio images (select, unselect: a 26 px ring, a 12 px dot when checked)
+ * vanish on the selected row's off-white card, so they are drawn again over it in the card's ink. */
+static void paint_radio(void *w, void *canvas) {
+    if (!w || !st.sel_widget || st.sel_home || ipod_classic() || !P(canvas, CANVAS_LCD)) return;
+    const char *image = widget_get_prop_str(w, "image", "");
+    int dot = !tk_strcmp(image, "select");
+    if (!dot && tk_strcmp(image, "unselect")) return;
+    void *row = P(w, W_PARENT);
+    for (int depth = 0; row && row != st.sel_widget && depth < 8; ++depth) row = P(row, W_PARENT);
+    if (row != st.sel_widget) return;
+    int x = I(w, W_W) / 2, y = I(w, W_H) / 2;
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    rect_t ring = { x - 13, y - 13, 26, 26 }, hole = { x - 11, y - 11, 22, 22 },
+           in = { x - 6, y - 6, 12, 12 };
+    fill_box(canvas, &ring, RGBA(0x171717), 13);
+    fill_box(canvas, &hole, RGBA(MINIMAL_FILL), 11);
+    if (dot) fill_box(canvas, &in, RGBA(0x171717), 6);
+    canvas_set_fill_color(canvas, fill);
+}
+#endif
+
 /* Stock paints children first and calls this with the surface's canvas origin restored. */
 int ringnav_paint(void *w, void *canvas) {
 #if IPOD
@@ -1625,6 +1648,7 @@ int ringnav_paint(void *w, void *canvas) {
     }
 #if IPOD
     paint_chevrons(w, canvas);
+    paint_radio(w, canvas);
     paint_letter(w, canvas);
     paint_cover(w, canvas);
     np_paint(w, canvas);
@@ -4531,13 +4555,24 @@ static int edit_key(void *top, unsigned key) {
     return 1;
 }
 
-/* ringnav_paint, after the children: the field the wheel edits, framed in white. */
+/* ringnav_paint, after the children: the field the wheel edits, framed in white; OK, when it is
+ * next, as a selected row: Minimal's off-white card with its label dark. */
 static void edit_paint(void *w, void *canvas) {
     void *top = window_manager_get_top_window(window_manager());
-    if (!w || !fields(top) || w != field_widget(top, field_at(top)) || !P(canvas, CANVAS_LCD))
-        return;
+    int n = fields(top), f = n ? field_at(top) : 0;
+    if (!w || !n || w != field_widget(top, f) || !P(canvas, CANVAS_LCD)) return;
     int ww = I(w, W_W), wh = I(w, W_H);
     if (ww < 5 || wh < 5) return;
+    if (f == n) {
+        unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), k = 0;
+        rect_t r = { 0, 0, ww, wh };
+        const unsigned *text = widget_get_text(w);
+        while (text && k < 16 && text[k]) ++k;
+        fill_box(canvas, &r, RGBA(MINIMAL_FILL), SEL_RADIUS);
+        draw_centred(canvas, text, k, &r, EDIT_OK_PX, RGBA(0x171717));
+        canvas_set_fill_color(canvas, fill);
+        return;
+    }
     unsigned old = (unsigned)I(P(canvas, CANVAS_LCD), LCD_STROKE_COLOR);
     canvas_set_stroke_color(canvas, 0xffffffff);
     canvas_stroke_rect(canvas, 0, 0, ww, wh);

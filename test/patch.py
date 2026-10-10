@@ -1405,6 +1405,10 @@ m.paint(sels[0]); assert [s[:4] for s in m.strokes]==[(0,0,80,170),(1,1,78,168)]
 m.paint(sels[1]); assert not m.strokes
 for f in range(1,6): assert m.confirm()==11 and m.nodes[m.top]['_edit_field']==f
 assert m.nodes[slide]['value']==1 and not m.clicks
+# OK, when next, is a selected row: the off-white card with its label dark, not a frame.
+m.word(ok+O['W_W'],287); m.word(ok+O['W_H'],40); m.nodes[ok]['text']='OK'; m.paint(ok)
+assert not m.strokes and [(r['rect'],r['radius']) for r in m.rounded]==[((0,0,287,40),O['SEL_RADIUS'])]
+assert [l['text'] for l in m.letters]==['OK'] and m.lcd_colors()==LCD_COLORS
 assert m.confirm()==11 and m.clicks==[ok]
 assert m.call(O['KEY_PREV'])==11 and m.nodes[m.top]['_edit_field']==4
 for _ in range(9): m.call()
@@ -1418,6 +1422,17 @@ assert m.confirm()==11 and m.confirm()==11 and m.confirm()==11 and m.clicks==[ok
 m=Machine(); w,es=m.page_list(4,name='playmode_page')
 m.nodes[es[2]]['children']=[m.node('image',image='select')]
 m.paint(w); assert m.selected(w)==2; passed()
+# iPod Minimal: the selected row's white radio is drawn again dark on the off-white card: a ring,
+# and its dot when checked. Other rows keep stock's.
+if variant=='ipod':
+    for row,image,fills in ((2,'select',3),(0,'unselect',0)):
+        m=Machine(); w,es=m.page_list(4,name='playmode_page')
+        radio=m.node('image',image=image); m.nodes[es[row]]['children']=[radio]
+        m.word(radio+O['W_PARENT'],es[row]); m.word(radio+O['W_W'],26); m.word(radio+O['W_H'],70)
+        if row==0: m.nodes[es[2]]['children']=[m.node('image',image='select')]
+        m.paint(w); m.paint(radio)
+        assert [r['rect'] for r in m.rounded]==[(0,22,26,26),(2,24,22,22),(7,29,12,12)][:fills] and m.lcd_colors()==LCD_COLORS
+        passed()
 
 # iPod: a playlist's More page (Rename, Delete) is a BUTTONS page: the wheel moves between them.
 if variant=='ipod':

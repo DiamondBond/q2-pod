@@ -193,6 +193,7 @@
 /* Minimal's selection is a card SEL_INSET px in from each side of the row, corners SEL_RADIUS. */
 #define SEL_INSET 6
 #define SEL_RADIUS 6
+#define EDIT_OK_PX 18 /* the date, time and sleep timer pages' OK label, on that card */
 /* Minimal's Now Playing album is NP_CAPS_PX capitals. */
 #define NP_CAPS_PX 10
 #define PAGE_SLIDE_MS 120
