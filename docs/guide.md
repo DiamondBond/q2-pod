@@ -116,7 +116,7 @@ Video sound plays on the headphone jack, Bluetooth or a USB DAC. Music stops mea
 | **Wheel**       | Volume, as everywhere: the Q2's volume is Spotify's                                                                                                             |
 | **Centre**      | On the Spotify page, as on Now Playing: press once to turn the screen off; double-press, turn the wheel 5 s a tick, then double-press again or wait 3 s to jump |
 
-Until you play local music again, the buttons stay Spotify's. Picking a song in the Library pauses Spotify and plays the song; casting from the phone again stops local music. Playback carries on with the screen off. Spotify plays on the headphone jack, Bluetooth or a USB DAC, as Videos and Internet Radio do: whichever is in use when playback starts. If you switch output while it plays, pause and play again to move it. Bluetooth and USB need a current `.spotify/aplay.sh`; an older one always plays on the headphone jack.
+Until you play local music again, the buttons stay Spotify's, except on the local Now Playing page, where Play resumes your music. Picking a song in the Library pauses Spotify and plays the song; casting from the phone again stops local music. Playback carries on with the screen off. Spotify plays on the headphone jack, Bluetooth or a USB DAC, as Videos and Internet Radio do: whichever is in use when playback starts. If you switch output while it plays, pause and play again to move it. Bluetooth and USB need a current `.spotify/aplay.sh`; an older one always plays on the headphone jack.
 
 The first time, open **Streaming → Spotify** and pick **Q2** in the Spotify app; the login is saved on the card. After each power-on, open **Streaming → Spotify** once and the Q2 shows up in Spotify again; until then nothing Spotify runs. To save battery, Spotify stops itself after 30 seconds paused or stopped; open the row again to bring it back.
 
@@ -133,7 +133,9 @@ To update, unzip a newer release over it; its `cache/` keeps the saved login. To
 
 **Streaming → Internet Radio** plays radio stations over Wi-Fi: your favourites, or stations from the [radio-browser.info](https://www.radio-browser.info) directory.
 
-- **Favourites:** the stations in the card's `Radio` folder. The first time you open Internet Radio, it creates `Radio/favourites.m3u` with six stations to start with.
+- **Search:** tap the box (or press Centre on it), type part of a station's name and press OK: the directory's 100 most-voted matches.
+- **Favourites:** the stations you've saved, plus any playlists in the card's `Radio` folder. It starts empty.
+- **Featured:** six well-known stations to start with, built in.
 - **Top Stations:** the directory's 100 most-voted stations.
 - **By Country** and **By Genre:** the 60 biggest countries or genres, then each one's 100 most-voted stations.
 - **Now Playing:** opens the station that's playing, or plays the last one again after a restart.
@@ -141,13 +143,13 @@ To update, unzip a newer release over it; its `cache/` keeps the saved login. To
 | Control             | What it does                                                                     |
 | ------------------- | -------------------------------------------------------------------------------- |
 | **Centre**          | On a station, plays it and opens its Now Playing page                            |
-| **Hold Play/Pause** | On a station, adds it to `favourites.m3u`, or removes it when it's already there |
+| **Hold Play/Pause** | On a station or its Now Playing page, saves it to Favourites, or removes it when it's already there |
 | **Play/Pause**      | Stops the station or starts it again, on any page and with the screen off        |
 | **Next / Prev**     | The next or previous station in the list you played it from                      |
 | **Wheel**           | Volume, as everywhere                                                            |
 | **Return**          | Goes back a level                                                                |
 
-Now Playing shows the station, the artist and song when the station sends them, the format and bitrate, and how long it has played. Until you play local music again, the buttons stay the radio's. Picking a song in the Library, playing a video or casting Spotify stops the radio. It plays on the headphone jack, Bluetooth or a USB DAC, and carries on with the screen off. If the stream drops, it reconnects; after five failed tries it shows **Can't play this station**.
+Now Playing shows the station, the artist and song when the station sends them, the format and bitrate, and how long it has played. Until you play local music again, the buttons stay the radio's, except on the local Now Playing page, where Play resumes your music. Picking a song in the Library, playing a video or casting Spotify stops the radio. It plays on the headphone jack, Bluetooth or a USB DAC, and carries on with the screen off. If the stream drops, it reconnects; after five failed tries it shows **Can't play this station**. If the output itself can't be opened, it shows **Can't play:** and the reason; please send that text with a bug report.
 
 To add your own stations, put `.m3u` or `.pls` playlists in the card's `Radio` folder: they all appear under **Favourites**. An `.m3u` lists each station as a name line, then its address:
 

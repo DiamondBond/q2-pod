@@ -5906,13 +5906,17 @@ def play(i):
 m.forked=0; names=play(1)  # the child
 assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',R+'/a.mp4',0)]; passed()
-# A DAC check_dacoff_state powered off is powered on first. Bluetooth (way 1) plays on hciplayer's
+# The headphone output is readied as stock's player_start readies it (config_outputchannel, PCM
+# mode, unmuted, the volume) before q2video starts; a DAC check_dacoff_state powered off comes on with it. Bluetooth (way 1) plays on hciplayer's
 # plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on "usb" (q2video
 # finds its card), through plughw: with the volume marked h (the DAC's own control, or a fixed USB volume),
 # or plain when the USB volume is variable and the DAC has no control (USB_MIXER -2: hciplayer's soft volume).
-m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:5]==('plughw:0,0',R+'/b.MKV',0)
+m.word(syms['g_dacoff_time'],0xffffffff); m.byte(syms['g_headset_output'],1); names=play(2)
+take=[n for n in names if n in ('player_stop','config_outputchannel','mclSetPcmMode','mclSetMute','device_set_volume','fork')]
+assert take==['player_stop','config_outputchannel','mclSetPcmMode','mclSetMute','device_set_volume','fork'] and m.execs[-1][2:5]==('plughw:0,0',R+'/b.MKV',0)
+assert ('config_outputchannel',1,2) in [c[:3] for c in m.calls]
 m.word(syms['g_dacoff_time'],5); m.byte(syms['g_volume'],42)
-m.way=1; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
+m.way=1; names=play(0); assert 'mclSetDacPwr' not in names and 'config_outputchannel' not in names and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
 m.way=2; m.byte(syms['g_usbvol_mode'],0); m.word(O['USB_MIXER'],0xfffffffe)
 assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
 m.byte(syms['g_usbvol_mode'],1); m.word(O['USB_MIXER'],0); play(0); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
@@ -6196,27 +6200,44 @@ def radio_open(m):
     button=m.stream(); icon,label=m.nodes[button]['children'][:2]
     assert m.nodes[icon]['image']=='stream_radio' and m.nodes[label]['text']=='Internet Radio' and not m.nodes[button].get('name')
     m.click(button); m.page=m.top; assert m.nodes[m.page]['name']=='radio_page'; return m.page
-# The row is Streaming's last. The first open fills the card's Radio folder with a few stations; the
-# menu has no Now Playing until something has played.
+# The row is Streaming's last. The first open makes the card's Radio folder but leaves Favourites
+# empty, the user's to fill; the starter stations are Featured. The menu leads with the Search edit
+# and has no Now Playing until something has played.
 m=RadioMachine(); page=radio_open(m)
-favs=m.files[RDIR+'/favourites.m3u'].decode()
-assert favs.startswith('#EXTM3U\n#EXTINF:-1,Radio Paradise\nhttp://stream.radioparadise.com/mp3-128\n') and favs.count('#EXTINF')==6
-assert m.labels()==['Internet Radio','Favourites','Top Stations','By Country','By Genre'] and m.nodes[m.find('scroll_view')]['_ringnav_index']==0
-m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'); radio_open(m)
-assert m.files[RDIR+'/favourites.m3u']==b'#EXTM3U\n'; passed()  # seeded once: an emptied file stays empty
+assert RDIR in m.tree and RDIR+'/favourites.m3u' not in m.files
+assert m.labels()==['Internet Radio','Favourites','Featured','Top Stations','By Country','By Genre'] and m.nodes[m.find('scroll_view')]['_ringnav_index']==0
+edit=m.nodes[m.rows()[0]]['children'][0]; assert m.nodes[edit]['type']=='edit'
+m.row(1); assert m.labels()==['Hold ▶❙❙ on a station to save it']; m.back()
+m.row(2); featured=m.labels(); assert len(featured)==7 and featured[:3]==['Featured','Radio Paradise','SomaFM Groove Salad']; m.back()
+# 1.0.1 seeded favourites.m3u with them: a copy never changed goes, an edited one stays.
+starters=b''.join(b'#EXTINF:-1,%s\n%s\n'%(n.encode(),u.encode()) for n,u in (
+    ('Radio Paradise','http://stream.radioparadise.com/mp3-128'),('SomaFM Groove Salad','http://ice1.somafm.com/groovesalad-128-mp3'),
+    ('BBC World Service','http://stream.live.vc.bbcmedia.co.uk/bbc_world_service'),('KEXP','https://kexp-mp3-128.streamguys1.com/kexp128.mp3'),
+    ('FIP','http://icecast.radiofrance.fr/fip-midfi.mp3'),('NTS 1','https://stream-relay-geo.ntslive.net/stream')))
+m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'+starters); radio_open(m); assert RDIR+'/favourites.m3u' not in m.files
+m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'+starters[:-1]); radio_open(m); assert RDIR+'/favourites.m3u' in m.files
+# Search: the keyboard's text, %-encoded, is the directory's byname query; Return goes back to the menu.
+edit=m.nodes[m.rows()[0]]['children'][0]; m.nodes[edit]['text']='jazz fm'; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
+assert m.labels()==['Loading…']; m.reply=b'#EXTM3U\n#EXTINF:1,Jazz FM\nhttp://jazz/fm\n'; m.worker()
+assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/byname/jazz%20fm?order=votes&reverse=true&limit=100&hidebroken=true'
+assert m.labels()==['jazz fm','Jazz FM']; m.back(); assert m.labels()[0]=='Internet Radio'
+m.nodes[m.nodes[m.rows()[0]]['children'][0]]['text']='zzz'; edit=m.nodes[m.rows()[0]]['children'][0]
+f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED']); m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000); m.advance(0,clear=False)
+m.reply=b'#EXTM3U\n'; m.worker(); assert m.labels()==['No stations']; m.close(); passed()
 # Favourites: favourites.m3u, then the folder's other .m3u and .pls files (a .pls's TitleN names its FileN).
 m=RadioMachine({RDIR+'/favourites.m3u':bytearray(b'#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/a\r\nhttp://two/b\r\n'),
                 RDIR+'/x.pls':bytearray(b'[playlist]\nFile1=https://three/c?x=1\nTitle1=Three\nNumberOfEntries=1\n'),
                 RDIR+'/notes.txt':bytearray(b'http://no/')})
 m.tree[RDIR]=[('favourites.m3u',8),('x.pls',8),('notes.txt',8),('._x.pls',8)]; page=radio_open(m)
-m.row(0); assert m.labels()==['Favourites','One','http://two/b','Three']; passed()
+m.row(1); assert m.labels()==['Favourites','One','http://two/b','Three']; passed()
 # A station: local music stops, then q2video -r on the headphone DAC's PCM with the URL as plain
 # argv, Now Playing over the list, and the station kept as the last. The page says it connects.
 m.forked=0; m.row(2)  # the child
-names=[c[0] for c in m.calls]; assert names.index('player_stop')<names.index('fork')
+names=[c[0] for c in m.calls]; assert names.index('player_stop')<names.index('config_outputchannel')<names.index('mclSetMute')<names.index('fork')
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','-r','plughw:0,0',('https://three/c?x=1',0))]
 m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' and m.files[RDIR+'/.last']==b'#EXTM3U\n#EXTINF:-1,Three\nhttps://three/c?x=1\n'
-m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']; passed()
+m.advance(500); assert m.labels(np)==['Internet Radio','Three','Hold ▶❙❙ to save','','Connecting…','']; passed()
 # Playing: its tags (the StreamTitle as artist - title), the stream and the time since the sound
 # started; standby and auto power-off held (not the screen's timer) and the DAC kept on.
 m.word(syms['g_dacoff_time'],5)
@@ -6234,6 +6255,11 @@ assert m.key(O['KEY_PLAY'])==11 and m.sent[0][1]=='q' and RSTATE not in m.files 
 assert m.key(O['KEY_PLAY'])==11 and forks()==1 and last()=='https://three/c?x=1'
 assert m.key(O['KEY_FWD_BTN'])==11 and m.sent[0][1]=='q' and forks()==1 and last()=='http://one/a'
 assert m.key(O['KEY_BACK_BTN'])==11 and last()=='https://three/c?x=1'; passed()
+# On local Now Playing the media keys stay local music's while the radio has them elsewhere: stock's
+# play_pause restarts the track player_stop left, and its start takes the keys back.
+m.top=m.node('window','playing_page')
+for k in ('KEY_PLAY','KEY_FWD_BTN','KEY_BACK_BTN'): assert m.key(O[k])!=11 and not m.sent and not forks()
+m.top=m.node('window','home_page'); passed()
 # Local music starting takes the output: q2video quits first, and the keys are local music's again.
 names=start(); assert m.sent[0][1]=='q' and names.index('waitpid')<names.index('stock_start_player')
 assert m.key(O['KEY_PLAY'])!=11 and not forks(); passed()
@@ -6244,7 +6270,15 @@ t0=m.now; assert m.key(O['KEY_PLAY'])==11 and 1500<=m.now-t0<=1540 and m.systems
 m.handlers[syms['waitpid@GLIBC_2.0']]='b:waitpid@GLIBC_2.0'; passed()
 # One that gives up says so.
 assert m.key(O['KEY_PLAY'])==11; m.files[RSTATE]=bytearray(b'state=error\n'); m.waited=4343; m.poll()
-m.advance(500); assert m.labels(np)[4]=="Can't play this station" and 'reset_poweroptions_timer' not in [c[0] for c in m.calls]; passed()
+m.advance(500); assert m.labels(np)[4]=="Can't play this station" and 'reset_poweroptions_timer' not in [c[0] for c in m.calls]
+# Its ALSA reason, when it had no device, is shown.
+assert m.key(O['KEY_PLAY'])==11; m.files[RSTATE]=bytearray(b'state=error\nerror=open: Device or resource busy\n'); m.waited=4343; m.poll()
+m.advance(500); assert m.labels(np)[4]=="Can't play: open: Device or resource busy"
+# Holding Play/Pause on Now Playing saves the station playing, and again takes it out.
+m.top=np; m.status=m.alloc(0x200); m.press(77)
+playing=last().encode(); before=bytes(m.files[RDIR+'/favourites.m3u']); assert playing in before  # http://two/b, a favourite
+assert m.hold()==11 and m.toasts[-1][3]=='Removed from Favourites' and playing not in m.files[RDIR+'/favourites.m3u']
+m.press(77); assert m.hold()==11 and m.toasts[-1][3]=='Added to Favourites' and m.files[RDIR+'/favourites.m3u'].endswith(playing+b'\n'); passed()
 # Holding Play/Pause on a station takes it out of favourites.m3u, or adds it; the release is
 # swallowed, the list follows, and elsewhere the hold is stock's.
 m.back(np); assert 'navigator_back' in [c[0] for c in m.calls]; m.destroy(np); m.top=page
@@ -6257,21 +6291,21 @@ assert m.call(O['KEY_PLAY'],gap=0)==11 and not m.sent; passed()
 # Top Stations: the directory's m3u, fetched on the worker over verified TLS, "Loading…" meanwhile.
 # Return goes up a level at a time, then back to Streaming. Without Wi-Fi it says so.
 m.back(); assert m.labels()[0]=='Internet Radio' and m.labels()[1]=='Now Playing'
-m.row(2); assert m.labels()==['Loading…'] and len(m.threads)==1
+m.row(4); assert m.labels()==['Loading…'] and len(m.threads)==1
 m.reply=b'#EXTM3U\n#RADIOBROWSERUUID:7\n#EXTINF:1,MANGORADIO\nhttps://mango/r\n\n#EXTINF:1,Dance Wave!\nhttps://dance/w.mp3\n'
 m.worker(); assert m.labels()==['Top Stations','MANGORADIO','Dance Wave!']
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/topvote/100?hidebroken=true'
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
 m.back(); assert m.labels()[0]=='Internet Radio'
-m.wifi=-1; m.row(2); assert m.labels()==['No Wi-Fi'] and len(m.threads)==1; m.back(); m.wifi=3; passed()
+m.wifi=-1; m.row(4); assert m.labels()==['No Wi-Fi'] and len(m.threads)==1; m.back(); m.wifi=3; passed()
 # By Genre: the tags' CSV, then a tag's stations by its name, %-encoded.
-m.row(4); m.reply=b'name,stationcount\npop,6387\nclassic rock,3312\n'; m.worker()
+m.row(6); m.reply=b'name,stationcount\npop,6387\nclassic rock,3312\n'; m.worker()
 assert m.labels()==['Genres','pop','classic rock']
 m.row(1); m.reply=b'#EXTM3U\n#EXTINF:1,Rock FM\nhttp://rock/fm\n'; m.worker()
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/bytagexact/classic%20rock?order=votes&reverse=true&limit=100&hidebroken=true'
 assert m.labels()==['classic rock','Rock FM']
 # By Country: by code; a name may be quoted. A failed fetch says so; Return leaves the note.
-m.back(); m.back(); m.row(3); m.reply=b'name,iso_3166_1,stationcount\n"Taiwan, Republic Of China",TW,214\nGermany,DE,6496\n'; m.worker()
+m.back(); m.back(); m.row(5); m.reply=b'name,iso_3166_1,stationcount\n"Taiwan, Republic Of China",TW,214\nGermany,DE,6496\n'; m.worker()
 assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.row(0); m.code=0; m.worker(); assert m.labels()==['Directory unavailable'] and 'bycountrycodeexact/TW?' in m.opts[10002]
 m.back(); assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']

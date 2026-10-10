@@ -862,7 +862,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     newsq = out/'rootfs.squashfs'
     epoch = struct.unpack_from('<I',sq.read_bytes(),8)[0]
     run('mksquashfs',out/'empty',newsq,'-pf',pseudo,'-noappend','-comp','lzo',
-        '-b','131072','-Xcompression-level','9','-mkfs-time',epoch,*rootargs,'-processors','1','-no-progress')
+        '-b','131072','-Xcompression-level','9','-tailends','-mkfs-time',epoch,*rootargs,'-processors','1','-no-progress')
     # All inodes, including demo and the logo, keep name/type/mtime/mode/uid/gid (sizes/offsets shift).
     def inodes(image):
         text = subprocess.check_output(['unsquashfs','-pf','-',str(image)]).split(b'\n# START OF DATA')[0]

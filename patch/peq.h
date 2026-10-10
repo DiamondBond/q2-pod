@@ -124,7 +124,9 @@ unsigned long long number(const char *raw, const char *key);
 void *label(void *parent, int x, int y, int w, int h, const char *style, int px, unsigned color);
 void spot_yield(void), radio_stop(void);
 int video_start(const char *file, int radio); /* books.c */
+void *edit_create(void *item, const char *input_type); /* peq_ui.c */
 const char *output_device(char *vol);         /* books.c */
+void dac_take(void);                          /* books.c */
 /* Spotify's and Internet Radio's Now Playing layout (tools/ipod.py NP_*): the art and the text
  * 16px from the sides, 12 apart, the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16

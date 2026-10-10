@@ -4596,8 +4596,10 @@ int ringnav(void *ctx, void *event) {
     if (key != KEY_PREV && key != KEY_NEXT) st.wheel_tick = 0; /* a button ends the run */
     int result = stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
-    if (!result && (spot_media(key) || radio_media(key)))
-        return STOP; /* Spotify's or the radio's while it was the last to play */
+    /* Spotify's or the radio's while it was the last to play; on local Now Playing they are local
+     * music's, so stock's play_pause restarts the track player_stop left and its start
+     * (ringnav_start_player) takes the output and the keys back. */
+    if (!result && !now_playing() && (spot_media(key) || radio_media(key))) return STOP;
     if (result) {
         cancel_center();
         if (key == KEY_PREV || key == KEY_NEXT) drop_wheel();

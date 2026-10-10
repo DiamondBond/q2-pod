@@ -734,13 +734,25 @@ const char *output_device(char *vol) {
     return way == 1 ? "plug:bluealsa" : way == 2 ? "usb" : 0;
 }
 
-/* q2video on output_device, else the headphone DAC's plughw:0,0 (the only card), for file or, with
- * radio, Internet Radio's url (radio.c): its pid, 0 when it did not start. */
+/* The headphone output readied as stock's player_start readies it before each track (headset mode,
+ * DAC powered, PCM mode, unmuted, the volume); Bluetooth's way left alone. Shared with spotify.c. */
+void dac_take(void) {
+    if (g_headset_output < 2)
+        config_outputchannel(g_headset_output, 2);
+    else if (I(g_dacoff_time, 0) < 0)
+        mclSetDacPwr(1);
+    mclSetPcmMode();
+    mclSetMute(0);
+    device_set_volume(g_volume, 1);
+}
+
+/* q2video on output_device, else the headphone DAC's plughw:0,0 (the only card), readied first, for
+ * file or, with radio, Internet Radio's url (radio.c): its pid, 0 when it did not start. */
 int video_start(const char *file, int radio) {
     char vol[5];
     const char *out = output_device(vol);
     player_stop(); /* hciplayer holds the PCM even paused */
-    if (!out && I(g_dacoff_time, 0) < 0) mclSetDacPwr(1); /* check_dacoff_state turned it off */
+    if (!out) dac_take(); /* without it the PCM takes the sound and the jack stays silent */
     int pid = fork();
     if (!pid) {
         const char *dev = out ? out : "plughw:0,0", *v = out ? vol : (char *)0;

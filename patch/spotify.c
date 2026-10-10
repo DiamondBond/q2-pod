@@ -114,22 +114,14 @@ static unsigned spot_position(void) {
 }
 
 /* librespot starts playing: what stock's AirPlay page (airplay_page_init, on_airplayset_onclick)
- * does for its receiver. Local music stops (hciplayer holds the PCM even paused), the headphone
- * output is set up as a headset insert sets it (config_outputchannel: the headset mode, the DAC
- * powered with its firmware, g_dacoff_time 0), the DAC is put in PCM mode and unmuted (player_stop
- * mutes it), and the volume applied. Bluetooth and USB outputs are left alone: librespot's sink
- * plays on them itself (spot_output). */
+ * does for its receiver. Local music stops (hciplayer holds the PCM even paused), then dac_take
+ * (books.c). Bluetooth and USB outputs are left alone: librespot's sink plays on them itself
+ * (spot_output). */
 static void spot_take(void) {
     spot_log("take", g_headset_output, mclGetOutputWay());
     radio_stop(); /* Internet Radio's q2video holds the PCM */
     if (mclGetPlayStatus() != 1) player_stop(); /* 1 stopped */
-    if (g_headset_output < 2)
-        config_outputchannel(g_headset_output, 2);
-    else if (I(g_dacoff_time, 0) < 0)
-        mclSetDacPwr(1);
-    mclSetPcmMode();
-    mclSetMute(0);
-    device_set_volume(g_volume, 1);
+    dac_take();
 }
 
 /* The output in use, which the card's aplay.sh reads each time librespot starts its sink: SPOT_OUT

@@ -133,6 +133,7 @@ int pthread_create(unsigned long *, const void *, void *(*)(void *), void *), pt
 int snd_pcm_open(void **, const char *, int, int), snd_pcm_close(void *), snd_pcm_drop(void *);
 int snd_pcm_set_params(void *, int, int, unsigned, unsigned, int, unsigned), snd_pcm_prepare(void *);
 int snd_pcm_recover(void *, int, int), snd_pcm_delay(void *, long *);
+const char *snd_strerror(int);
 long snd_pcm_writei(void *, const void *, unsigned long);
 
 #define O_RDWR 2
@@ -157,6 +158,7 @@ static struct {
     volatile int paused;   /* the main loop's; the writer holds back */
     volatile int done;     /* the sound ended: the rest goes on the monotonic clock */
     volatile long played;  /* frames heard since this ffmpeg started */
+    char error[64];        /* why sound_open found no device, for RADIO_STATE */
 } au;
 
 static void *writer(void *unused) {
@@ -208,17 +210,21 @@ static const char *usb_device(char *out) {
 
 /* ALSA dev ("-" for none, "usb" for usb_device) into au.pcm at rate; Bluetooth or a USB DAC (a
  * volume, vol) have no headphone DAC and get hciplayer's soft volume unless "h". Returns the DAC,
- * readied, or -1. */
+ * readied, or -1; without a device, au.error says which step failed and ALSA's reason. */
 static int sound_open(const char *dev, const char *vol, unsigned rate) {
-    int dac = -1, off = 0;
+    int dac = -1, off = 0, err = 0;
     char usb[16];
     if (!strcmp(dev, "usb")) dev = usb_device(usb);
     au.gain = vol && vol[0] != 'h' ? bt_gain(atoi(vol)) : 65536;
     if (strcmp(dev, "-")) {
-        /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop */
-        for (int i = 0; i < 20 && snd_pcm_open(&au.pcm, dev, 0, 0); ++i) au.pcm = 0, usleep(100000);
-        if (au.pcm && snd_pcm_set_params(au.pcm, 2, 3, 2, rate, 1, LATENCY)) /* S16_LE, RW_INTERLEAVED */
-            snd_pcm_close(au.pcm), au.pcm = 0;
+        /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop; bluealsa
+         * (one client a PCM) can take longer, so Bluetooth and USB get 5 s */
+        for (int i = 0; i < (vol ? 50 : 20) && (err = snd_pcm_open(&au.pcm, dev, 0, 0)); ++i)
+            au.pcm = 0, usleep(100000);
+        if (err) snprintf(au.error, sizeof au.error, "open: %s", snd_strerror(err));
+        if (au.pcm && (err = snd_pcm_set_params(au.pcm, 2, 3, 2, rate, 1, LATENCY))) /* S16_LE, RW_INTERLEAVED */
+            snd_pcm_close(au.pcm), au.pcm = 0,
+                snprintf(au.error, sizeof au.error, "params: %s", snd_strerror(err));
         if (au.pcm && !vol && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
             ioctl(dac, DAC_PCM, &off), ioctl(dac, DAC_MUTE, &off);
     }
@@ -232,9 +238,9 @@ static struct {
 
 /* RADIO_STATE, whole: written aside and renamed, so demo never reads half of it. */
 static void radio_state(const char *state) {
-    char s[400];
-    int n = snprintf(s, sizeof s, "state=%s\ntitle=%s\ncodec=%s\nbitrate=%s\nat=%lld\n", state, rs.title,
-                     rs.codec, rs.bitrate, rs.at),
+    char s[480];
+    int n = snprintf(s, sizeof s, "state=%s\ntitle=%s\ncodec=%s\nbitrate=%s\nat=%lld\nerror=%s\n", state,
+                     rs.title, rs.codec, rs.bitrate, rs.at, au.error),
         fd = open(RADIO_STATE ".tmp", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) return;
     write(fd, s, (unsigned)n < sizeof s ? (unsigned)n : sizeof s - 1);
