@@ -155,9 +155,9 @@
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58
 /* iPod Home: Split, in both themes, halves the screen at HOME_SPLIT_W, the art panel right of it;
- * Minimal's Full rows are full width. Labels end HOME_LABEL_END from the row's edge. The selection dot
- * (HOME_DOT px) sits at HOME_DOT_X, clear of the bottom row's corner, HOME_DOT_GAP before the labels
- * (HOME_TEXT_X in tools/ipod.py). */
+ * Minimal's Full rows are full width. Labels end HOME_LABEL_END from the row's edge. The selection
+ * dot (HOME_DOT px) sits at HOME_DOT_X, clear of the bottom row's corner, HOME_DOT_GAP before the
+ * labels (HOME_TEXT_X in tools/ipod.py). */
 #define HOME_FULL_ROW 375
 #define HOME_LABEL_END 33
 #define HOME_DOT_X 25
@@ -165,9 +165,8 @@
 #define HOME_DOT_GAP 8
 /* iPod Theme: Classic (IPOD/THEME 1, docs/ipod.md#display-settings) puts the pre-1.0.1 look back
  * over the Minimal assets at runtime. In Home's Full the rows end at HOME_CLASSIC_ROW, so the
- * chevron's glyph (x 20 to 31 of
- * list_into) mirrors the labels' margin. Labels start at HOME_CLASSIC_TEXT_X and end 10px before
- * the glyph. The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
+ * chevron's glyph (x 20 to 31 of list_into) mirrors the labels' margin. Labels start at
+ * HOME_CLASSIC_TEXT_X and end 10px before the glyph. The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
  * (Minimal's NP_BAR_MINIMAL line). Minimal has no accent: its fills are MINIMAL_FILL, its
  * settings icons grey and list_into MINIMAL_CHEVRON. */
 #define HOME_SPLIT_W 187
