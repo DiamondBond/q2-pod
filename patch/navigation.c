@@ -1528,7 +1528,10 @@ static void paint_selection(void *w, void *canvas) {
     } else if (home) {
         rect_t dot = { HOME_DOT_X, r.y + (r.h - HOME_DOT) / 2, HOME_DOT, HOME_DOT };
         fill_box(canvas, &dot, 0xffffffff, HOME_DOT / 2);
-    } else gradient(canvas, r, MINIMAL_FILL, MINIMAL_FILL, MINIMAL_FILL);
+    } else { /* Sudo's card: inset from the glass's edges, its corners rounded */
+        rect_t card = { r.x + SEL_INSET, r.y, r.w - 2 * SEL_INSET, r.h };
+        fill_box(canvas, &card, RGBA(MINIMAL_FILL), SEL_RADIUS);
+    }
     st.sel_w = w;
     st.sel_row = i;
     st.sel_y = r.y + r.h / 2;
@@ -2244,6 +2247,8 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
             for (void *w = st.paint_w; w; w = P(w, W_PARENT))
                 if (w == st.sel_w) { *color = (*color & 0xff000000u) | 0xaaaaaa; return color; }
         }
+        /* Minimal's secondary text is Sudo's quieter grey. */
+        if (!ipod_classic() && (*color & 0xffffff) == 0xaaaaaa) *color = (*color & 0xff000000u) | SUDO_MUTED;
     }
     int a = accent();
     if (a == CRIMSON) return color;

@@ -59,7 +59,10 @@ the image manager loads them (`ringnav_image_add`), so it is visible on both row
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
-In Minimal, wheel selection is consistently off-white (`#EEEEEC`), with no accent. **Theme:
+In Minimal, wheel selection is consistently off-white (`#EEEEEC`), with no accent: a card inset
+`SEL_INSET` (6) pixels from each side of the row with `SEL_RADIUS` (6) corners, as Sudo Music's,
+drawn with the anti-aliased rounded fill (square without a vgcanvas). Minimal's unselected
+secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
 Classic** draws the accent's full-width bar instead and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can

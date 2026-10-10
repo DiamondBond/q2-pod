@@ -180,6 +180,8 @@ class Machine:
     def sel(self):
         """The selected row's rectangle, from the outline (inset 1) or the bar's bands."""
         if variant=='ipod':
+            if self.rounded and self.rounded[0]['kind']=='fill' and self.rounded[0]['color']==color_t(0xeeeeec):
+                x,y,w,h=self.rounded[0]['rect']; return (x-O['SEL_INSET'],y,w+2*O['SEL_INSET'],h)  # Minimal's card
             ys=[b[1] for b in self.bands]
             return (self.bands[0][0],min(ys),self.bands[0][2],max(ys)-min(ys)+1)
         x,y,w,h=self.rounded[0]['rect'] if self.rounded else self.strokes[0][:4]
@@ -670,12 +672,12 @@ else:
     # The bar is painted behind the rows: every band precedes the border hook, which draws nothing.
     names=[c[0] for c in m.calls]
     bg,border=names.index('stock_paint_bg'),names.index('stock_paint')
-    assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rect')
-    assert not m.rounded and not m.strokes and m.global_alpha==0
-    # Full surface width, one band per row pixel of Graphite's solid fill, then its highlight.
-    assert [b[:4] for b in m.bands]==[(0,y,240,1) for y in range(48)]+[(0,0,240,1)]
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(0xeeeeec)]*3
-    assert all(b[5]==(0,0,240,96) for b in m.bands)
+    assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rounded_rect')
+    assert not m.bands and not m.strokes and m.global_alpha==0
+    # Minimal: one off-white card over the full surface width, SEL_INSET in from each side, rounded.
+    [card]=m.rounded; inset=O['SEL_INSET']
+    assert card['kind']=='fill' and card['rect']==(inset,0,240-2*inset,48) and card['radius']==O['SEL_RADIUS']
+    assert card['color']==color_t(0xeeeeec) and card['clip']==(0,0,240,96)
     assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
     assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
     # Theme: Classic draws the accent's bar (Graphite's flat fill, then its highlight) instead.
@@ -1773,8 +1775,9 @@ assert m.call(O['KEY_NEXT'])==11 and m.selected(w)==1
 m.click(deep); assert m.selected(w)==0
 m.click(m.node('button')); assert m.selected(w)==0; passed()
 # Real canvas ABI, translation and clip code execute; only the LCD rectangle sink is mocked.
-# A 20px row at canvas origin (7,20) under a (10,30)-(229,199) clip.
+# A 20px row at canvas origin (7,20) under a (10,30)-(229,199) clip; iPod in Classic, whose bar is bands.
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
+if variant=='ipod': m.config['THEME']='1'
 e=m.entry(w,0); m.word(e+O['W_H'],20); m.nodes[w]['children']=[e]
 sink='lcd_stroke_rect' if variant=='stock' else 'lcd_fill_rect'
 for name in ('canvas_get_clip_rect','canvas_set_clip_rect',
@@ -3498,7 +3501,7 @@ for virtual in (False,True):
         assert not m.letters and not m.timers and not any(c[0]=='canvas_set_font' for c in m.calls); passed(); continue
     assert m.letters==[dict(text='R',rect=box,color=0xffffffff,font=('default',O['LETTER_PX']),align=(1,1),
                             clip=(0,0,240,96))]
-    fills=[r for r in m.rounded if r['kind']=='fill']
+    fills=[r for r in m.rounded if r['kind']=='fill' and r['color']!=color_t(0xeeeeec)]  # not Minimal's selection card
     assert fills==[dict(kind='fill',rect=box,bg=0,color=O['LETTER_ALPHA']<<24|O['FILL_RGB'],
                         radius=O['LETTER_RADIUS'],width=None,clip=(0,0,240,96))]
     assert canvas_state(m)==before; passed()
@@ -4538,6 +4541,10 @@ if variant=='ipod':
         begin(m,labels[1]); assert style_color(m,0xffffffff)[1]==0xff171717
         end(m,labels[1]); end(m,w)
         m.touch(); begin(m,w); begin(m,labels[1]); assert style_color(m,0xffffffff)[1]==0xffffffff
+        # Unselected metadata takes Minimal's quieter grey; Classic keeps stock's.
+        assert style_color(m,0xffaaaaaa)[1]==0xff000000|O['SUDO_MUTED']
+        k=Machine(); k.config.update(ACCENT=str(preset),THEME='1'); kw,_=k.page_list(3); k.touch(); begin(k,kw)
+        assert style_color(k,0xffaaaaaa)[1]==0xffaaaaaa
     m=Machine(); view,imgs=home_list(m); begin(m,view)
     labels=[m.nodes[m.get(img+O['W_PARENT'])]['children'][0] for img in imgs]
     begin(m,labels[0]); assert style_color(m,0xffffffff)[1]==0xffffffff
@@ -4767,7 +4774,7 @@ if variant=='ipod':
     kids=m.nodes[view]['children'][3:]
     assert kids[:4]==[rows[3],rows[0],rows[1],rows[2]] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Split'
     home_bounds(False)
-    m.paint(view); assert {b[4] for b in m.bands}=={color_t(0xeeeeec)}; passed()
+    m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
     for value,name in ((1,'Percent'),(2,'Icon + Percent'),(0,'Icon')):
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
@@ -4947,14 +4954,14 @@ if variant=='ipod':
         m.call(); m.paint(view); i=min(k,len(items)-1); assert m.selected(view)==i
         y=geometry(m,items[i])[1]-signed(m.get(view+O['SCROLL_Y']))
         assert 0<=y and y+SET['ROW']<=SET['ROWS']*SET['ROW'], (k,y)
-        assert len(m.bands)==SET['ROW']+1 and {b[2] for b in m.bands}=={375}
+        assert not m.bands and m.sel()[2:]==(375,SET['ROW'])
     assert m.confirm()==11 and m.dispatched()[0][1]==buttons[-1]; passed()
     m.click(buttons[2]); assert m.selected(view)==2; passed()
 
     # The payload's own accent drawing follows the preset, live: the bar, Now Playing's fill and
     # the fill a scrub restores.
     m,view,rows=display({'ACCENT':'2'}); m.paint(view)
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(0xeeeeec)]*3; passed()
+    assert not m.bands and m.rounded[-1]['color']==color_t(0xeeeeec); passed()
     m,view,rows=display({'ACCENT':'2','THEME':'1'}); m.paint(view)
     assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[2][i]) for i in (0,1,4)]; passed()
     f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)

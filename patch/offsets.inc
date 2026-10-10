@@ -196,6 +196,9 @@
 /* Minimal's status bar wordmark, in the left group's place: STATUS_EDGE is tools/ipod.py's
  * STATUS_MARGIN, and it stays within the BATT_ROOM the right group has, clear of the clock. */
 #define STATUS_EDGE 54
+/* Minimal's selection is a card SEL_INSET px in from each side of the row, corners SEL_RADIUS. */
+#define SEL_INSET 6
+#define SEL_RADIUS 6
 #define MARK_PX 12
 #define MARK_RGB 0xaaaaaa
 #define PAGE_SLIDE_MS 120
