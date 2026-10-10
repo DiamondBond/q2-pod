@@ -2461,26 +2461,28 @@ assert wm_event_type(0x523eb8)==O['EVT_KEY_UP']==0x114
 assert wm_event_type(0x523e80)==O['EVT_KEY_UP_BEFORE']==0x115
 passed()
 
-for page_name in ('folder_page','localmusic_page','allmusic_page'):
+for page_name in ('folder_page','localmusic_page','allmusic_page','radio_page'):
     for empty in (False,True):
         for distance in (0,7,8,47,48,49):
-            m=PullMachine()
+            m=PullMachine(); m.handlers[payload_syms['radio_search']]='stock_radio_search'  # a payload call: no t9
             if page_name=='folder_page':
                 w,rows,es=m.table_page(name=page_name)
                 if empty:m.word(w+O['TABLE_ROWS'],0);m.nodes[w]['children']=[]
             else:w,es=m.page_list(0 if empty else 5,name=page_name)
             page=m.top;m.start_pull(page,w)
             m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=60+distance)
-            enabled=variant=='ipod' and page_name=='localmusic_page'
+            # Local Songs' stock search is iPod's; Internet Radio's own search is in both.
+            enabled=page_name=='radio_page' or (variant=='ipod' and page_name=='localmusic_page')
             assert bool(m.prompt(page)['visible'])==(enabled and distance>=8)
             if enabled and distance>=8:
                 assert m.prompt(page)['text']==('Release to search' if distance>=48 else 'Pull to search')
                 assert m.click(es[0])==11 if es else True
             # click() normally uses a one-second gap; gesture state still belongs to the page.
             m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=60+distance)
-            assert len(m.searches())==(1 if enabled and distance>=48 else 0)
+            radio=lambda: [c for c in m.calls if c[0]=='stock_radio_search']
+            assert len(m.searches()+radio())==(1 if enabled and distance>=48 else 0) and not (radio() and page_name!='radio_page')
             m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=120)
-            assert len(m.searches())==(1 if enabled and distance>=48 else 0)
+            assert len(m.searches()+radio())==(1 if enabled and distance>=48 else 0)
             assert not m.prompt(page)['visible']
             passed()
 
@@ -6201,14 +6203,13 @@ def radio_open(m):
     assert m.nodes[icon]['image']=='stream_radio' and m.nodes[label]['text']=='Internet Radio' and not m.nodes[button].get('name')
     m.click(button); m.page=m.top; assert m.nodes[m.page]['name']=='radio_page'; return m.page
 # The row is Streaming's last. The first open makes the card's Radio folder but leaves Favourites
-# empty, the user's to fill; the starter stations are Featured. The menu leads with the Search edit
-# and has no Now Playing until something has played.
+# empty, the user's to fill; the starter stations are Featured. The menu has no Now Playing until
+# something has played.
 m=RadioMachine(); page=radio_open(m)
 assert RDIR in m.tree and RDIR+'/favourites.m3u' not in m.files
 assert m.labels()==['Internet Radio','Favourites','Featured','Top Stations','By Country','By Genre'] and m.nodes[m.find('scroll_view')]['_ringnav_index']==0
-edit=m.nodes[m.rows()[0]]['children'][0]; assert m.nodes[edit]['type']=='edit'
-m.row(1); assert m.labels()==['Hold ▶❙❙ on a station to save it']; m.back()
-m.row(2); featured=m.labels(); assert len(featured)==7 and featured[:3]==['Featured','Radio Paradise','SomaFM Groove Salad']; m.back()
+m.row(0); assert m.labels()==['No favourites']; m.back()
+m.row(1); featured=m.labels(); assert len(featured)==7 and featured[:3]==['Featured','Radio Paradise','SomaFM Groove Salad']; m.back()
 # 1.0.1 seeded favourites.m3u with them: a copy never changed goes, an edited one stays.
 starters=b''.join(b'#EXTINF:-1,%s\n%s\n'%(n.encode(),u.encode()) for n,u in (
     ('Radio Paradise','http://stream.radioparadise.com/mp3-128'),('SomaFM Groove Salad','http://ice1.somafm.com/groovesalad-128-mp3'),
@@ -6216,28 +6217,37 @@ starters=b''.join(b'#EXTINF:-1,%s\n%s\n'%(n.encode(),u.encode()) for n,u in (
     ('FIP','http://icecast.radiofrance.fr/fip-midfi.mp3'),('NTS 1','https://stream-relay-geo.ntslive.net/stream')))
 m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'+starters); radio_open(m); assert RDIR+'/favourites.m3u' not in m.files
 m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'+starters[:-1]); radio_open(m); assert RDIR+'/favourites.m3u' in m.files
-# Search: the keyboard's text, %-encoded, is the directory's byname query; Return goes back to the menu.
-edit=m.nodes[m.rows()[0]]['children'][0]; m.nodes[edit]['text']='jazz fm'; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED'])
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
-assert m.labels()==['Loading…']; m.reply=b'#EXTM3U\n#EXTINF:1,Jazz FM\nhttp://jazz/fm\n'; m.worker()
+# Search, from the page's pull-down (radio_search): a T9 box over the title, focused for its keyboard.
+# Its text, %-encoded, is the directory's byname query; Return goes back to the menu. Left empty,
+# or without a search, the page is as it was.
+def search(text,event='EVT_VALUE_CHANGED'):
+    assert m.call(address=payload_syms['radio_search'],gap=0,count=5_000_000)==0
+    edit=m.find('edit'); assert m.nodes[edit]['focused']==1
+    m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O[event])
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
+search('jazz fm'); assert m.labels()==['Loading…'] and not m.find('edit')
+m.reply=b'#EXTM3U\n#EXTINF:1,Jazz FM\nhttp://jazz/fm\n'; m.worker()
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/byname/jazz%20fm?order=votes&reverse=true&limit=100&hidebroken=true'
 assert m.labels()==['jazz fm','Jazz FM']; m.back(); assert m.labels()[0]=='Internet Radio'
-m.nodes[m.nodes[m.rows()[0]]['children'][0]]['text']='zzz'; edit=m.nodes[m.rows()[0]]['children'][0]
-f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED']); m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000); m.advance(0,clear=False)
-m.reply=b'#EXTM3U\n'; m.worker(); assert m.labels()==['No stations']; m.close(); passed()
+for text,event in (('','EVT_VALUE_CHANGED'),('abc','EVT_BLUR')):
+    search(text,event); assert m.labels()[:2]==['Internet Radio','Favourites'] and not m.find('edit')
+search('zzz'); m.reply=b'#EXTM3U\n'; m.worker(); assert m.labels()==['No stations']; m.close(); passed()
 # Favourites: favourites.m3u, then the folder's other .m3u and .pls files (a .pls's TitleN names its FileN).
 m=RadioMachine({RDIR+'/favourites.m3u':bytearray(b'#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/a\r\nhttp://two/b\r\n'),
                 RDIR+'/x.pls':bytearray(b'[playlist]\nFile1=https://three/c?x=1\nTitle1=Three\nNumberOfEntries=1\n'),
                 RDIR+'/notes.txt':bytearray(b'http://no/')})
 m.tree[RDIR]=[('favourites.m3u',8),('x.pls',8),('notes.txt',8),('._x.pls',8)]; page=radio_open(m)
-m.row(1); assert m.labels()==['Favourites','One','http://two/b','Three']; passed()
+m.row(0); assert m.labels()==['Favourites','One','http://two/b','Three']; passed()
 # A station: local music stops, then q2video -r on the headphone DAC's PCM with the URL as plain
 # argv, Now Playing over the list, and the station kept as the last. The page says it connects.
 m.forked=0; m.row(2)  # the child
 names=[c[0] for c in m.calls]; assert names.index('player_stop')<names.index('config_outputchannel')<names.index('mclSetMute')<names.index('fork')
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','-r','plughw:0,0',('https://three/c?x=1',0))]
 m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' and m.files[RDIR+'/.last']==b'#EXTM3U\n#EXTINF:-1,Three\nhttps://three/c?x=1\n'
-m.advance(500); assert m.labels(np)==['Internet Radio','Three','Hold ▶❙❙ to save','','Connecting…','']; passed()
+m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']
+# The heart, at local Now Playing's place: Three is no favourite.
+heart=next(w for w in m.nodes[np]['children'] if m.nodes[w].get('image') in ('play_fav','play_unfav'))
+assert m.nodes[heart]['image']=='play_unfav' and [m.get(heart+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[320,176,50,50]; passed()
 # Playing: its tags (the StreamTitle as artist - title), the stream and the time since the sound
 # started; standby and auto power-off held (not the screen's timer) and the DAC kept on.
 m.word(syms['g_dacoff_time'],5)
@@ -6278,7 +6288,15 @@ m.advance(500); assert m.labels(np)[4]=="Can't play: open: Device or resource bu
 m.top=np; m.status=m.alloc(0x200); m.press(77)
 playing=last().encode(); before=bytes(m.files[RDIR+'/favourites.m3u']); assert playing in before  # http://two/b, a favourite
 assert m.hold()==11 and m.toasts[-1][3]=='Removed from Favourites' and playing not in m.files[RDIR+'/favourites.m3u']
-m.press(77); assert m.hold()==11 and m.toasts[-1][3]=='Added to Favourites' and m.files[RDIR+'/favourites.m3u'].endswith(playing+b'\n'); passed()
+m.press(77); assert m.hold()==11 and m.toasts[-1][3]=='Added to Favourites' and m.files[RDIR+'/favourites.m3u'].endswith(playing+b'\n')
+# Tapping the heart toggles it too, and the heart follows the file.
+heart=next(w for w in m.nodes[np]['children'] if m.nodes[w].get('image') in ('play_fav','play_unfav'))
+m.advance(500); assert m.nodes[heart]['image']=='play_fav'
+f,ctx=m.handler(heart,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+assert m.toasts[-1][3]=='Removed from Favourites' and playing not in m.files[RDIR+'/favourites.m3u']
+m.advance(500); assert m.nodes[heart]['image']=='play_unfav'
+m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000); m.advance(500)
+assert m.toasts[-1][3]=='Added to Favourites' and m.nodes[heart]['image']=='play_fav'; passed()
 # Holding Play/Pause on a station takes it out of favourites.m3u, or adds it; the release is
 # swallowed, the list follows, and elsewhere the hold is stock's.
 m.back(np); assert 'navigator_back' in [c[0] for c in m.calls]; m.destroy(np); m.top=page
@@ -6291,21 +6309,21 @@ assert m.call(O['KEY_PLAY'],gap=0)==11 and not m.sent; passed()
 # Top Stations: the directory's m3u, fetched on the worker over verified TLS, "Loading…" meanwhile.
 # Return goes up a level at a time, then back to Streaming. Without Wi-Fi it says so.
 m.back(); assert m.labels()[0]=='Internet Radio' and m.labels()[1]=='Now Playing'
-m.row(4); assert m.labels()==['Loading…'] and len(m.threads)==1
+m.row(3); assert m.labels()==['Loading…'] and len(m.threads)==1
 m.reply=b'#EXTM3U\n#RADIOBROWSERUUID:7\n#EXTINF:1,MANGORADIO\nhttps://mango/r\n\n#EXTINF:1,Dance Wave!\nhttps://dance/w.mp3\n'
 m.worker(); assert m.labels()==['Top Stations','MANGORADIO','Dance Wave!']
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/topvote/100?hidebroken=true'
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
 m.back(); assert m.labels()[0]=='Internet Radio'
-m.wifi=-1; m.row(4); assert m.labels()==['No Wi-Fi'] and len(m.threads)==1; m.back(); m.wifi=3; passed()
+m.wifi=-1; m.row(3); assert m.labels()==['No Wi-Fi'] and len(m.threads)==1; m.back(); m.wifi=3; passed()
 # By Genre: the tags' CSV, then a tag's stations by its name, %-encoded.
-m.row(6); m.reply=b'name,stationcount\npop,6387\nclassic rock,3312\n'; m.worker()
+m.row(5); m.reply=b'name,stationcount\npop,6387\nclassic rock,3312\n'; m.worker()
 assert m.labels()==['Genres','pop','classic rock']
 m.row(1); m.reply=b'#EXTM3U\n#EXTINF:1,Rock FM\nhttp://rock/fm\n'; m.worker()
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/bytagexact/classic%20rock?order=votes&reverse=true&limit=100&hidebroken=true'
 assert m.labels()==['classic rock','Rock FM']
 # By Country: by code; a name may be quoted. A failed fetch says so; Return leaves the note.
-m.back(); m.back(); m.row(5); m.reply=b'name,iso_3166_1,stationcount\n"Taiwan, Republic Of China",TW,214\nGermany,DE,6496\n'; m.worker()
+m.back(); m.back(); m.row(4); m.reply=b'name,iso_3166_1,stationcount\n"Taiwan, Republic Of China",TW,214\nGermany,DE,6496\n'; m.worker()
 assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.row(0); m.code=0; m.worker(); assert m.labels()==['Directory unavailable'] and 'bycountrycodeexact/TW?' in m.opts[10002]
 m.back(); assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']

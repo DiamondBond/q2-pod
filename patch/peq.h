@@ -147,5 +147,7 @@ int ipod_classic(void); /* navigation.c: Theme: Classic */
 #define SPOT_TIMES_Y 265
 #define SPOT_TIME_X 46
 #define SPOT_GREY 0xffaaaaaau
+void radio_search(void);       /* radio.c */
+void toast(const char *text); /* navigation.c */
 
 #endif

@@ -114,6 +114,7 @@ static struct {
     list_t list;             /* the list played from, side buttons step through it */
     char state[12], title[256], codec[16], bitrate[16], error[64]; /* error: q2video's ALSA reason */
     unsigned long long since; /* q2video's at=: when the sound started, 0 before */
+    unsigned serial;          /* bumped by each start and favourites change: Now Playing's heart */
 } rd __attribute__((section(".scratch")));
 
 /* The directory fetch, on its pthread. */
@@ -128,21 +129,21 @@ static struct {
 } fx __attribute__((section(".scratch")));
 
 enum { MENU, PICK, STATIONS };
-enum { R_PLAYING, R_SEARCH, R_FAVS, R_FEATURED, R_TOP, R_COUNTRY, R_GENRE };
+enum { R_PLAYING, R_FAVS, R_FEATURED, R_TOP, R_COUNTRY, R_GENRE, A_PICK, A_SEARCH, A_SHOW };
 
 /* The lists page and the Now Playing page, while open. note: a caption over no rows (loading or a
  * failed fetch) stands in for level's list; want is the level a fetch fills. */
 static struct {
-    void *page, *view, *edit; /* edit: the menu's Search row */
+    void *page, *view, *edit; /* edit: the pull-down's search box */
     unsigned timer, go, leave;
-    int level, next, arg, want, note, genre, favs, from, rows[7], sel[3];
+    int level, next, arg, want, note, genre, favs, from, rows[6], sel[3];
     list_t pick, list;
     char caption[64];
 } ui __attribute__((section(".scratch")));
 
 static struct {
-    void *page, *station, *artist, *song, *info, *elapsed;
-    unsigned timer, leave;
+    void *page, *station, *artist, *song, *info, *elapsed, *heart;
+    unsigned timer, leave, seen; /* seen: rd.serial the heart shows */
 } np __attribute__((section(".scratch")));
 
 static void list_free(list_t *l) {
@@ -275,6 +276,7 @@ static void radio_play(int i) {
     rd.volume = g_volume + 1u;
     rd.since = 0;
     rd.title[0] = rd.codec[0] = rd.bitrate[0] = rd.error[0] = 0;
+    ++rd.serial;
     tk_snprintf(rd.state, sizeof rd.state, rd.pid ? "connecting" : "error");
     list_t none = { 0 };
     m3u_write(RADIO_LAST, &none, -1, &rd.list, rd.at);
@@ -332,8 +334,31 @@ static void set(void *w, const char *s) {
     if (tk_strcmp(widget_get_prop_str(w, "text", ""), s)) widget_set_text_utf8(w, s);
 }
 
-/* The Now Playing page from rd: the station, the StreamTitle as artist - title (till one comes, how
- * to save the station), and the stream. */
+static void later(int next, int arg);
+
+/* url's index in favs, else -1. */
+static int fav_index(const list_t *favs, const char *url) {
+    for (int k = 0; k < favs->n; ++k)
+        if (!tk_strcmp(url_of(favs, k), url)) return k;
+    return -1;
+}
+
+/* l's station i out of favourites.m3u when it is there, else appended; the toast's text. */
+static const char *fav_toggle(const list_t *l, int i) {
+    list_t favs = { 0 };
+    int ok = favs_read(&favs, 0), found = fav_index(&favs, url_of(l, i));
+    if (found < 0 && favs.n == RADIO_MAX) ok = 0; /* a longer file is never rewritten short */
+    ok = ok && m3u_write(RADIO_FAVS, &favs, found, found < 0 ? l : 0, i);
+    list_free(&favs);
+    ++rd.serial;
+    if (ok && ui.favs) later(R_FAVS, 0);
+    return !ok         ? "Could not save Favourites"
+           : found < 0 ? "Added to Favourites"
+                       : "Removed from Favourites";
+}
+
+/* The Now Playing page from rd: the station, the StreamTitle as artist - title, the stream, and the
+ * heart, favourites.m3u read only when rd.serial says the station or the file changed. */
 static void np_refresh(void) {
     char artist[256], t[96];
     const char *dash = strstr(rd.title, " - "), *song = dash ? dash + 3 : rd.title;
@@ -341,7 +366,15 @@ static void np_refresh(void) {
     memcpy(artist, rd.title, a);
     artist[a] = 0;
     set(np.station, rd.list.n ? name_of(&rd.list, rd.at) : "");
-    set(np.artist, rd.title[0] || !rd.pid ? artist : "Hold ▶❙❙ to save");
+    set(np.artist, artist);
+    if (np.seen != rd.serial && rd.list.n) {
+        list_t favs = { 0 };
+        favs_read(&favs, 0);
+        np.seen = rd.serial;
+        image_base_set_image(np.heart, fav_index(&favs, url_of(&rd.list, rd.at)) < 0 ? "play_unfav"
+                                                                                     : "play_fav");
+        list_free(&favs);
+    }
     set(np.song, song);
     if (!rd.pid)
         tk_snprintf(t, sizeof t,
@@ -389,7 +422,14 @@ static int np_closed(void *ctx, void *event) {
     return 0;
 }
 
-/* Spotify's Now Playing layout, the radio's icon for the art. The wheel and Centre stay stock's:
+/* The heart: the station playing in or out of favourites.m3u. */
+static int np_heart(void *ctx, void *event) {
+    (void)ctx, (void)event;
+    if (rd.list.n) toast(fav_toggle(&rd.list, rd.at));
+    return 0;
+}
+
+/* Spotify's Now Playing layout, the radio's icon for the art, and local Now Playing's heart. The wheel and Centre stay stock's:
  * the volume, and the screen. */
 static void np_open(void) {
     if (np.page || !(np.page = page_open("radionp_page", np_closed, np_keyup))) return;
@@ -407,45 +447,55 @@ static void np_open(void) {
     np.info = label(page, SPOT_TIME_X, SPOT_TIMES_Y, 375 - 2 * SPOT_TIME_X - 80, 16, "s_scrlabel_white20l", 14, SPOT_GREY);
     np.elapsed = label(page, 375 - SPOT_TIME_X - 80, SPOT_TIMES_Y, 80, 16, "s_scrlabel_white20r",
                        14, SPOT_GREY);
+    np.heart = image_create(page, 320, 176, 50, 50); /* local Now Playing's heart (tools/ipod.py img_fav) */
+    image_set_draw_type(np.heart, IMAGE_DRAW_CENTER);
+    widget_set_prop_str(np.heart, "clickable", "true");
+    widget_on(np.heart, EVT_CLICK, np_heart, 0);
+    np.seen = ~rd.serial;
     np.timer = timer_add(np_tick, 0, 500);
     np_refresh();
 }
 
 static void *fetch_worker(void *unused);
-static void later(int next, int arg);
 static int menu_click(void *ctx, void *event), pick_click(void *ctx, void *event),
     station_click(void *ctx, void *event);
 
-/* The Search row's keyboard closed: its text searched for (narrowed, as the EQ editor's value). */
+/* The search box's keyboard closed with text: the directory searched by name, Return then going
+ * back to the menu or the country or genre list. */
 static int searched(void *ctx, void *event) {
     (void)ctx, (void)event;
-    const unsigned *t = widget_get_text(ui.edit); /* wchar_t */
+    const unsigned *t = widget_get_text(ui.edit); /* wchar_t, narrowed as the EQ editor's value */
     unsigned n = 0;
-    while (t && t[n] && n < sizeof ui.caption - 1) ui.caption[n] = (char)t[n], ++n;
+    if (!t || !t[0]) return later(A_SHOW, 0), 0;
+    while (t[n] && n < sizeof ui.caption - 1) ui.caption[n] = (char)t[n], ++n;
     ui.caption[n] = 0;
-    if (n) ui.favs = 0, ui.from = MENU, ui.sel[STATIONS] = 0, later(R_SEARCH, 0);
+    ui.favs = 0, ui.sel[STATIONS] = 0;
+    if (ui.level != STATIONS) ui.from = ui.level;
+    later(A_SEARCH, 0);
     return 0;
 }
 
-static int search_click(void *ctx, void *event) {
+/* The box left without a search: the page as it was. */
+static int search_left(void *ctx, void *event) {
     (void)ctx, (void)event;
-    widget_set_focused(ui.edit, 1);
+    if (!ui.go) later(A_SHOW, 0);
     return 0;
 }
 
-/* The menu's Search row at index: peq_ui.c's T9 edit; a tap or Centre opens the keyboard. */
-static void search_row(void *view, int index) {
-    void *item = list_item_create(view, 0, index * 48, 375, 48);
-    widget_use_style(item, "s_listitem_black");
-    widget_on(item, EVT_CLICK, search_click, 0);
-    ui.edit = edit_create(item, "text");
+/* navigation.c's pull-to-search, released on the radio page: peq_ui.c's T9 edit over the title,
+ * its keyboard open. */
+void radio_search(void) {
+    if (!ui.page || ui.note || ui.edit) return;
+    ui.edit = edit_create(ui.page, "text");
     widget_set_prop_str(ui.edit, "tips", "Search stations");
     widget_on(ui.edit, EVT_VALUE_CHANGED, searched, 0);
+    widget_on(ui.edit, EVT_BLUR, search_left, 0);
+    widget_set_focused(ui.edit, 1);
 }
 
 /* The page shows level's list, its row last chosen selected. */
 static void show(int level) {
-    static const char *const menu[] = { "Now Playing", "Search",       "Favourites", "Featured",
+    static const char *const menu[] = { "Now Playing", "Favourites", "Featured",
                                         "Top Stations", "By Country", "By Genre" };
     if (ui.view && !ui.note) ui.sel[ui.level] = widget_get_prop_int(ui.view, "_ringnav_index", 0);
     ui.level = level;
@@ -453,14 +503,10 @@ static void show(int level) {
     ui.edit = 0;
     int n = 0;
     if (level == MENU) {
-        for (int r = rd.list.n || !access(RADIO_LAST, 0) ? R_PLAYING : R_SEARCH; r <= R_GENRE; ++r)
+        for (int r = rd.list.n || !access(RADIO_LAST, 0) ? R_PLAYING : R_FAVS; r <= R_GENRE; ++r)
             ui.rows[n++] = r;
         ui.view = page_list(ui.page, ui.page, 0, "Internet Radio", n, 48);
-        for (int i = 0; i < n; ++i)
-            if (ui.rows[i] == R_SEARCH)
-                search_row(ui.view, i);
-            else
-                page_row_detail(ui.view, i, menu[ui.rows[i]], 0, menu_click);
+        for (int i = 0; i < n; ++i) page_row_detail(ui.view, i, menu[ui.rows[i]], 0, menu_click);
     } else {
         const list_t *l = level == PICK ? &ui.pick : &ui.list;
         n = l->n;
@@ -558,8 +604,6 @@ static int tick(const void *unused) {
     return 8;
 }
 
-enum { A_PICK = R_GENRE + 1 };
-
 /* A row's choice, on a timer: a row's click may not rebuild the list it is in. */
 static int go(const void *unused) {
     (void)unused;
@@ -569,13 +613,15 @@ static int go(const void *unused) {
     if (ui.next == R_FAVS) {
         favs_read(&ui.list, 1);
         tk_snprintf(ui.caption, sizeof ui.caption,
-                    ui.list.n ? "Favourites" : "Hold ▶❙❙ on a station to save it");
+                    ui.list.n ? "Favourites" : "No favourites");
         show(STATIONS);
     } else if (ui.next == R_FEATURED) {
         list_set(&ui.list, STARTERS, sizeof STARTERS - 1, 0, 0);
         tk_snprintf(ui.caption, sizeof ui.caption, "Featured");
         show(STATIONS);
-    } else if (ui.next == R_SEARCH) {
+    } else if (ui.next == A_SHOW) {
+        show(ui.level);
+    } else if (ui.next == A_SEARCH) {
         url_escape(ui.caption, key, sizeof key);
         tk_snprintf(path, sizeof path, "/m3u/stations/byname/%s" RADIO_QUERY, key);
         fetch(path, STATIONS);
@@ -649,17 +695,7 @@ const char *radio_hold(void *top) {
     else if (ui.page && top == ui.page && !ui.note && ui.level == STATIONS && ui.view)
         i = widget_get_prop_int(ui.view, "_ringnav_index", -1);
     if (i < 0 || i >= l->n) return 0;
-    list_t favs = { 0 };
-    int found = -1, ok = favs_read(&favs, 0);
-    for (int k = 0; k < favs.n && found < 0; ++k)
-        if (!tk_strcmp(url_of(&favs, k), url_of(l, i))) found = k;
-    if (found < 0 && favs.n == RADIO_MAX) ok = 0; /* a longer file is never rewritten short */
-    ok = ok && m3u_write(RADIO_FAVS, &favs, found, found < 0 ? l : 0, i);
-    list_free(&favs);
-    if (ok && ui.favs) later(R_FAVS, 0);
-    return !ok         ? "Could not save Favourites"
-           : found < 0 ? "Added to Favourites"
-                       : "Removed from Favourites";
+    return fav_toggle(l, i);
 }
 
 static int leave(const void *unused) {

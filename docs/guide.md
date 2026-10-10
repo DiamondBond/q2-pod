@@ -133,7 +133,7 @@ To update, unzip a newer release over it; its `cache/` keeps the saved login. To
 
 **Streaming → Internet Radio** plays radio stations over Wi-Fi: your favourites, or stations from the [radio-browser.info](https://www.radio-browser.info) directory.
 
-- **Search:** tap the box (or press Centre on it), type part of a station's name and press OK: the directory's 100 most-voted matches.
+- **Search:** pull the list down from the top, type part of a station's name and press OK: the directory's 100 most-voted matches.
 - **Favourites:** the stations you've saved, plus any playlists in the card's `Radio` folder. It starts empty.
 - **Featured:** six well-known stations to start with, built in.
 - **Top Stations:** the directory's 100 most-voted stations.
@@ -143,7 +143,7 @@ To update, unzip a newer release over it; its `cache/` keeps the saved login. To
 | Control             | What it does                                                                     |
 | ------------------- | -------------------------------------------------------------------------------- |
 | **Centre**          | On a station, plays it and opens its Now Playing page                            |
-| **Hold Play/Pause** | On a station or its Now Playing page, saves it to Favourites, or removes it when it's already there |
+| **Hold Play/Pause** | On a station or its Now Playing page, saves it to Favourites, or removes it when it's already there; on Now Playing, tapping the heart does the same |
 | **Play/Pause**      | Stops the station or starts it again, on any page and with the screen off        |
 | **Next / Prev**     | The next or previous station in the list you played it from                      |
 | **Wheel**           | Volume, as everywhere                                                            |

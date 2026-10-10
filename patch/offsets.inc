@@ -54,6 +54,7 @@
 #define QUICK_EDGE_PX 31        /* stock on_wm_tsmove_fun @0x4e8d10 */
 #define EVT_CLICK 0x10c
 #define EVT_FOCUS 0x10e /* widget_set_focused_internal @0x65fdf4 */
+#define EVT_BLUR 0x10f  /* widget_set_focused_internal @0x65fe40 */
 #define EVT_SCROLL_END 0x14f /* stock lists queue their visible covers on this (album page registers @0x4a43d0) */
 #define CANVAS_X 0x00
 #define CANVAS_Y 0x04
@@ -224,6 +225,7 @@
 #define LIST_VIEW_LAYOUT 0x5e9eb4      /* children_layouter_list_view's layout */
 #define LIST_VIEW_LAYOUT_SLOT 0x926930 /* its vtable slot (vtable 0x926928 + 8) */
 #define IMAGE_DRAW_SCALE_DOWN 5        /* "scale_down" in the stock draw type table @0x9272c0 */
+#define IMAGE_DRAW_CENTER 1            /* "center", the same table */
 /* iPod fast-scroll letter: the selected row's first character in white, LETTER_PX high, on a
  * LETTER_BOX square of the stock dark surface at LETTER_ALPHA, centred over the list. */
 #define LETTER_BOX 80

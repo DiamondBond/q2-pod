@@ -148,14 +148,14 @@ typedef struct {
     void *pod_label[4];
     unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
     unsigned charge_at, last_input, cpu_retry;
-#if IPOD
     void *pull_page, *pull_surface;
+    int pull_x, pull_y, pull_claimed;
+    unsigned pull_scope;
+#if IPOD
     void *sel_w; /* the surface whose selection was last drawn */
     int sel_row, sel_y;
     void *paint_w, *sel_widget; /* paint-local color mapping, never stored on recycled widgets */
     int sel_home;
-    int pull_x, pull_y, pull_claimed;
-    unsigned pull_scope;
     unsigned clock_key; /* minute + 1 and format bit; 0 before the first, ~0 for --:-- */
     /* The status bar's Bluetooth, Wi-Fi and battery widgets, looked up once (the bar is never
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
@@ -1079,7 +1079,6 @@ static void native_scrollbar(menu_t *m) {
     }
 }
 
-#if IPOD
 #define PULL_BOUND "_pull_bound"
 #define PULL_SUPPRESS "_pull_suppress"
 #define PULL_PROMPT "_pull_prompt"
@@ -1133,7 +1132,12 @@ static int pull_event(void *page, void *event) {
     int ready = dy >= PULL_SEARCH_PX && dy > dx;
     if (release) {
         pull_cancel(); /* clear before stock search can navigate or destroy anything */
-        if (ready) stock_search(page, event);
+        if (ready) {
+            if (!IPOD || !tk_strcmp(widget_get_prop_str(page, "name", ""), "radio_page"))
+                radio_search();
+            else
+                stock_search(page, event);
+        }
         return STOP;
     }
     void *prompt = widget_lookup(page, PULL_PROMPT, 1);
@@ -1161,8 +1165,9 @@ static void pull_begin(void *event) {
     if (!event || I(event, EVENT_Y) < QUICK_EDGE_PX) return;
     void *page = window_manager_get_top_window(window_manager());
     if (!page) return;
+    /* Local Songs' stock search is iPod's; Internet Radio's search is its own, in both. */
     const char *name = widget_get_prop_str(page, "name", "");
-    if (tk_strcmp(name, "localmusic_page")) return;
+    if (tk_strcmp(name, "radio_page") && (!IPOD || tk_strcmp(name, "localmusic_page"))) return;
     void *w = surface((void *)0, (void *)0);
     if (!w) return;
     prop(w, PULL_SUPPRESS, 0);
@@ -1191,10 +1196,6 @@ static void pull_begin(void *event) {
     st.pull_y = I(event, EVENT_Y);
     context_now(&st.pull_scope);
 }
-#else
-#define pull_cancel() ((void)0)
-#define pull_begin(event) ((void)0)
-#endif
 
 /* A one-digit setting under section in the stock config.ini, 0 to n - 1, else 0:
  * toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
@@ -1617,9 +1618,7 @@ static void paint_radio(void *w, void *canvas) {
 
 /* Stock paints children first and calls this with the surface's canvas origin restored. */
 int ringnav_paint(void *w, void *canvas) {
-#if IPOD
     if (st.pull_page && !pull_live()) pull_cancel();
-#endif
     int result = stock_paint_trampoline(w, canvas);
     coverflow_paint(w, canvas);
     if (w == st.cf_letter_surface && st.cf_letter &&
@@ -2564,7 +2563,7 @@ int ringnav_display(void *win, void *ctx) {
     return result;
 }
 
-static void toast(const char *text);
+void toast(const char *text);
 #define BOOT_TARGET "/mnt/data/boot-target"
 static int boot_rockbox __attribute__((section(".scratch")));
 static void boot_text(void *label) {
@@ -2670,7 +2669,6 @@ static int selects(menu_t *m, void *target) {
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
-#if IPOD
     if (st.pull_page && (!event || !pull_live() || I(event, EVENT_TYPE) == EVT_KEY_DOWN_BEFORE))
         pull_cancel();
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
@@ -2678,7 +2676,6 @@ int ringnav_dispatch(void *target, void *event) {
             if (widget_get_prop_int(w, PULL_SUPPRESS, 0)) return STOP;
         pull_cancel();
     }
-#endif
     if (target && event && I(event, EVENT_TYPE) == EVT_CLICK) {
         hide_outline();
         cancel_center(); /* A native activation supersedes confirmation, even without touch. */
@@ -3265,7 +3262,7 @@ static int qm_apply(void *add, int next) {
     return n != 0;
 }
 
-static void toast(const char *text) {
+void toast(const char *text) {
     struct {
         int kind, ms;
         char text[0x400];
