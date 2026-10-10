@@ -140,10 +140,6 @@ const char *output_device(char *vol);         /* books.c */
 #if IPOD
 int ipod_classic(void); /* navigation.c: Theme: Classic */
 #define np_bar_h() (ipod_classic() ? NP_BAR_CLASSIC : NP_BAR_MINIMAL)
-int ipod_backdrop_set(int slot, void *widget, const char *url);
-int ipod_backdrop_paint(int slot, void *canvas);
-unsigned ipod_backdrop_rgb(int slot, int x, int y);
-void spot_background(void *w, void *canvas);
 #else
 #define np_bar_h() SPOT_BAR_H
 #endif

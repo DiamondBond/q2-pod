@@ -323,20 +323,12 @@ static void spot_refresh(void) {
     /* ponytail: the cover is sized on the UI thread, one decode a track; a worker if it stutters */
     if (sp.cover && tk_strcmp(ui.art_track, sp.track)) {
         tk_snprintf(ui.art_track, sizeof ui.art_track, "%s", sp.track);
-        int shown = thumb(SPOT_COVER, SPOT_ART, SPOT_ART_PX, SPOT_ART_PX) &&
-                    image_show(ui.art, "file://" SPOT_ART, 0);
-        if (!shown) image_base_set_image(ui.art, "default_album_big");
-#if IPOD
-        ipod_backdrop_set(1, ui.art, shown ? "file://" SPOT_ART : 0);
-        widget_invalidate_force(ui.page, 0); /* the backdrop is the whole page's */
-#endif
+        if (!thumb(SPOT_COVER, SPOT_ART, SPOT_ART_PX, SPOT_ART_PX) ||
+            !image_show(ui.art, "file://" SPOT_ART, 0))
+            image_base_set_image(ui.art, "default_album_big");
     } else if (!sp.cover && ui.art_track[0]) {
         ui.art_track[0] = 0;
         image_base_set_image(ui.art, "default_album_big");
-#if IPOD
-        ipod_backdrop_set(1, ui.art, 0);
-        widget_invalidate_force(ui.page, 0);
-#endif
     }
     unsigned ms = ui.scrub ? (unsigned)ui.scrub_ms : spot_position();
     if (ms / 1000 + 1 != ui.shown) {
@@ -415,9 +407,6 @@ static int closed(void *ctx, void *event) {
     stop_timer(&ui.leave);
     stop_timer(&ui.press);
     if (ui.scrub) scrub_commit();
-#if IPOD
-    ipod_backdrop_set(1, ui.art, 0);
-#endif
     memset(&ui, 0, sizeof ui);
     return 0;
 }
@@ -472,10 +461,3 @@ int spot_open(void *ctx, void *event) {
 
 /* iPod's Now Playing corners (navigation.c paint_cover) round the art too. */
 void *spot_art(void) { return ui.art; }
-
-#if IPOD
-/* ringnav_paint_bg: the backdrop over the whole page, under the track's widgets. */
-void spot_background(void *w, void *canvas) {
-    if (w && w == ui.page && widget_get_visible(ui.info)) ipod_backdrop_paint(1, canvas);
-}
-#endif

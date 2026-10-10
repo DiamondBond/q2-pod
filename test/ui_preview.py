@@ -88,21 +88,14 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         args += ['(', '-size', f'{width}x{h}', f'gradient:#{top:06x}-#{bottom:06x}',
                  ')', '-gravity', 'NorthWest', '-geometry', f'+0+{y}', '-composite']
         rect(args, 0, y, width, 1, '#eeeeec' if top==0xeeeeec else ('#555555' if palette[2]==0x6e6e6e else f'#{palette[2]:06x}'))
-    def backdrop(source, dest):
-        # coverflow.c ipod_backdrop_set: the centre crop averaged to a 20x16 grid, softened (two [1 2 1]
-        # passes, about a one-cell Gaussian), scaled up bilinearly and dimmed to one-fifth.
-        render([source,'-resize','375x290^','-gravity','Center','-extent','375x290','-filter','Box','-resize','20x16!',
-                '-virtual-pixel','Edge','-gaussian-blur','0x1','-filter','Triangle','-resize','375x290!',
-                '-channel','RGB','-evaluate','Multiply','0.2','+channel'],dest)
-        return dest
     bright, dark = tmp/'bright.png', tmp/'dark.png'
     render(['-size','166x166','gradient:#FCE6AF-#2C7E93'], bright)
     render(['-size','166x166','gradient:#10131D-#423459'], dark)
-    cases = ['Home Artwork / bright art', 'Home Plain / long labels / no Rockbox', 'Home Settings Plain',
+    cases = ['Home Split / bright art', 'Home Full / long labels / no Rockbox', 'Home Settings Full',
              'Local Now Playing / paused / dark art', 'Spotify / missing art / scrub',
              'Library / added media', 'Folders / long labels', 'Display settings',
              'Quick settings / active, inactive, disabled', 'Confirmation / Cancel focused',
-             'Home Artwork / dark art', 'Home Artwork / missing art',
+             'Home Split / dark art', 'Home Split / missing art',
              'Now Playing / bright art / seeking', 'PEQ / focus and untouched plot', 'Media browser / multilingual names']
     for accent, name in enumerate(('Graphite','Crimson','Tidal','Champagne')):
         tiles=[]
@@ -118,16 +111,13 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     text(a,'12:59 PM',151,5,74,20,16)
                     text(a,'88%',280,5,40,20,16)
                 if case<3 or case in (10,11):
-                    full=case in (1,2); width=(inc('HOME_CLASSIC_ROW') if full else inc('HOME_SPLIT_W')) if old else HOME_LIST_W
+                    full=case in (1,2); width=(inc('HOME_CLASSIC_ROW') if old else HOME_LIST_W) if full else inc('HOME_SPLIT_W')
                     labels = ['Now Playing','Library','Coverflow','Folders','Rockbox','Streaming','Settings']
                     if case==1: labels=['Now Playing','Library — a very long music collection','Coverflow','音楽フォルダー','Streaming','Settings']
                     if case==2: labels=['Playback','System']
                     if not full and case!=11:
-                        source = dark if case==10 else bright
-                        if old: image(a,source,inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
-                        else:
-                            image(a,backdrop(source,tmp/'home-background.png'),0,30,375,290)
-                    elif not full and old: image(a,asset(build,'images/xx/default_album_home.png'),inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
+                        image(a,dark if case==10 else bright,inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
+                    elif not full: image(a,asset(build,'images/xx/default_album_home.png'),inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
                     selected=1 if case!=2 else 0
                     for i,value in enumerate(labels):
                         y=30+HOME_TOP+i*HOME_ROW
@@ -141,8 +131,6 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                 elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
                     art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_big.png'))
-                    if not old and case!=4:  # the whole window under the status bar
-                        image(a,backdrop(art,tmp/'np-background.png'),0,30,375,290)
                     text(a,'3 of 12' if case==3 else 'Spotify',16,30,180,40,16,'#AAAAAA')
                     # The real art mask is rounded in the payload; compose the same 12px radius.
                     cover=tmp/'cover.png'
@@ -164,7 +152,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     rows = [('Shuffle','local_shuffle'),('Most Played','local_frequentplay'),('Audiobooks','local_audiobooks'),('Podcasts','local_podcasts')]
                     if case==6: rows=[('Albums','list_folder'),('音楽 — 長いフォルダー名','list_folder'),('A very long track title','local_frequentplay'),('Live recordings','list_folder')]
                     if case==7: rows=[('Backlight','display_backlight'),('Theme: Classic','system_display'),('Accent: '+name,'system_display'),('Home: Full','playset_covermode')] if old else \
-                        [('Backlight','display_backlight'),('Theme: Minimal','system_display'),('Home: Plain','playset_covermode'),('Battery: Icon','system_powermanager')]
+                        [('Backlight','display_backlight'),('Theme: Minimal','system_display'),('Home: Split','playset_covermode'),('Battery: Icon','system_powermanager')]
                     for i,(label,icon) in enumerate(rows):
                         y=30+i*72
                         if i==1: selection(a,y,72,375,palette)

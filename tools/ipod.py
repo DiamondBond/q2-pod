@@ -53,8 +53,8 @@ STATUS_PAD = 2
 STATUS_MARGIN = corner_x(7, 16) + STATUS_PAD
 CLOCK_MIN = 105
 CLOCK_TEXT = 70
-# Seven full-width Home rows share one left edge clear of the rounded glass.
-# Artwork and Plain keep identical geometry; only the cached backdrop's visibility changes.
+# Seven full-width Home rows share one left edge clear of the rounded glass. The payload lays them out
+# at runtime (coverflow_home_layout): Split narrows the list to HOME_SPLIT_W, the art right of it.
 INC = (ROOT/'patch/offsets.inc').read_text()
 
 
@@ -73,7 +73,7 @@ HOME_ROW = 39
 HOME_TEXT_X = inc('HOME_DOT_X') + inc('HOME_DOT') + inc('HOME_DOT_GAP')  # labels after the selection dot
 HOME_LABEL_END = 33  # mirror the text inset, clear of the lower-right glass
 HOME_LIST_W = 375
-HOME_ART_RECT = [0, 0, 375, 290]  # full background below the status bar
+HOME_ART_RECT = [0, 0, 375, 290]  # the payload moves it to the right panel
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250; the 4px line sits at
 # 253; their x follows NP_BAR through the np_bar_* immediates in ipod.json. The window starts
@@ -254,7 +254,7 @@ def ipod_home(root):
     require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
-    # An image, for Classic's art (coverflow_home_art); Minimal paints its backdrop there instead.
+    # An image for the playing track's art, moved to the right panel and fitted by coverflow_home_art.
     root[3] = [['image', HOME_ART_RECT, {'name': 'img_homeart', 'draw_type': 'fill'}, []],
                home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'})]
 
