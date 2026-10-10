@@ -6697,11 +6697,11 @@ def boot_row(value=None,mode=0o100755):
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
     if mode!=0o100755:
-        assert m.nodes[view]['children']==[entries[i] for i in (1,3,4,5,8,7,2,0,6,10,9,11)]
+        assert m.nodes[view]['children']==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,10,11)]
         return m,None,None
     kids=m.nodes[view]['children']
     assert len(kids)==13
-    assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,10,9,11)]
+    assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,10,11)]
     button=m.nodes[kids[9]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label

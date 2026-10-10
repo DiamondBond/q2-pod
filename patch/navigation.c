@@ -1768,11 +1768,11 @@ static const unsigned char playset_order[] = {
     13 /* Folder art */, 14 /* Folder skip */, 12 /* Enlarged art */, 6 /* DSD Output */,
     7 /* USB Audio */,
 };
-/* System Setting: connections and display first, boot/reset/update/about last. */
+/* System Setting: connections and display first, boot/update/reset/about last. */
 static const unsigned char sysset_order[] = {
     1 /* Wireless */,     3 /* Display */,  4 /* Idle */,    5 /* Date and time */,
     8 /* Buttons lock */, 7 /* Key tone */, 2 /* Network */, 0 /* Language */,
-    6 /* In-Vehicle */,   12 /* Boot to */, 10 /* Reset */,  9 /* Update */,
+    6 /* In-Vehicle */,   12 /* Boot to */, 9 /* Update */,  10 /* Reset */,
     11 /* About */,
 };
 

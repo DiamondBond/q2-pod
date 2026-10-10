@@ -128,6 +128,7 @@ int fork(void), execv(const char *, const char *const *), waitpid(int, int *, in
 int dup2(int, int), pipe2(int *, int), fcntl(int, int, ...), poll(struct pollfd *, unsigned, int);
 int socket(int, int, int), bind(int, const void *, unsigned), recv(int, void *, unsigned, int);
 int atoi(const char *), unlink(const char *), rename(const char *, const char *), write(int, const void *, unsigned), usleep(unsigned), clock_gettime(int, struct timespec *), strcmp(const char *, const char *);
+int setenv(const char *, const char *, int);
 void *mmap(void *, unsigned, int, int, int, long), *malloc(unsigned), (*signal(int, void (*)(int)))(int);
 void _exit(int) __attribute__((noreturn));
 int pthread_create(unsigned long *, const void *, void *(*)(void *), void *), pthread_join(unsigned long, void **);
@@ -163,6 +164,7 @@ static struct {
     int video;             /* a failed write is dropped: the picture needs ffmpeg's sound read on */
 } au;
 
+static long long now_ms(void);
 static void *writer(void *unused) {
     (void)unused;
     short buf[2 * CHUNK];
@@ -175,12 +177,22 @@ static void *writer(void *unused) {
         }
         while (au.paused) usleep(20000);
         if (au.gain < 65536) scale(buf, 2 * CHUNK, au.gain);
-        long r = snd_pcm_writei(au.pcm, buf, CHUNK);
-        if (r < 0 && !snd_pcm_recover(au.pcm, (int)r, 1)) r = snd_pcm_writei(au.pcm, buf, CHUNK);
-        if (r < 0 && !au.video) /* a lost device ends the sink, or radio's run, which then says why */
-            return snprintf(au.error, sizeof au.error, "write: %s", snd_strerror((int)r)), au.done = 1,
-                   (void *)0;
-        if (r > 0) written += r;
+        int recovered = 0;
+        for (unsigned sent = 0; sent < CHUNK;) {
+            long r = snd_pcm_writei(au.pcm, buf + 2 * sent, CHUNK - sent);
+            if (r < 0) {
+                int err = recovered ? (int)r : snd_pcm_recover(au.pcm, (int)r, 1);
+                if (!err) { recovered = 1; continue; }
+                if (!au.video) /* a lost device ends the sink, or radio's run, which then says why */
+                    return snprintf(au.error, sizeof au.error, "write: %s", snd_strerror(err)),
+                           au.done = 1, (void *)0;
+                break;
+            }
+            if (!r) { usleep(1000); continue; }
+            sent += (unsigned)r;
+            written += r;
+            recovered = 0;
+        }
         au.played = !snd_pcm_delay(au.pcm, &delay) && delay > 0 && delay < written ? written - delay
                                                                                  : written;
     }
@@ -269,6 +281,7 @@ static void radio_key(int sock, int soft, int *quit) {
  * sound. Its report (stderr) gives the codec, bitrate and each StreamTitle. q quits, unlinking
  * the state; giving up leaves state=error. */
 static int radio(int argc, char **argv) {
+    radio_state("connecting");
     int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argv[1], argc > 3 ? argv[3] : 0, RATE);
     int on = 1, quit = 0, tries = 0;
     int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
@@ -313,7 +326,9 @@ static int radio(int argc, char **argv) {
                 _exit(1);
             }
             if (!p[1].revents) continue;
-            if (read(ep[0], &c, 1) <= 0) break; /* ffmpeg ended */
+            if (read(ep[0], &c, 1) <= 0) {
+                break;
+            }
             if (c != '\n' && c != '\r') {
                 if (len < (int)sizeof line - 1) line[len++] = c;
                 continue;
@@ -370,6 +385,8 @@ static int sink(char **argv) {
 
 int main(int argc, char **argv) {
     if (argc < 3) return 2;
+    /* Stock ALSA's plug/prepare leaves a slave lock held; our PCM calls never overlap. */
+    if (setenv("LIBASOUND_THREAD_SAFE", "0", 1)) return 1;
     for (int fd = 3; fd < 1024; ++fd) close(fd); /* demo's, inherited */
     signal(SIGCHLD, 0); /* SIG_DFL, so waitpid sees ffmpeg */
     if (argc > 3 && !strcmp(argv[1], "-r")) return radio(argc - 1, argv + 1);

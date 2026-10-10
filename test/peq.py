@@ -1307,6 +1307,66 @@ def video_check(tmp):
     assert meta(b'StreamTitle: a long title past the buffer', b'StreamTitle', 8) == 'a long '
     print('Videos: ffmpeg argv, frame pacing, Bluetooth volume, length and bar passed; radio tags passed.')
 
+
+def audio_writer_check(tmp):
+    """Exercise the actual shared writer with partial writes, underruns and lost outputs."""
+    source = tmp/'writer_test.c'
+    source.write_text(r'''#define main video_main
+#define read mock_read
+#define snd_pcm_writei mock_write
+#define snd_pcm_recover mock_recover
+#define snd_pcm_delay mock_delay
+#define usleep mock_sleep
+#include "video.c"
+#undef main
+extern void abort(void);
+#define CHECK(x) do { if (!(x)) abort(); } while (0)
+static int reads, calls, recoveries, sleeps, mode;
+static const short *base;
+int mock_read(int fd, void *b, unsigned n) {
+    (void)fd; CHECK(n==2048);
+    if (reads++) return 0;
+    for (unsigned i=0; i<n/2; ++i) ((short *)b)[i]=(short)i;
+    return (int)n;
+}
+long mock_write(void *pcm, const void *b, unsigned long n) {
+    (void)pcm;
+    if (!calls) base=b;
+    ++calls;
+    if (mode==1) return -32;
+    if (mode==2) return -19;
+    if (calls==1) { CHECK(n==512); return 128; }
+    CHECK(b==base+256 && n==384 && *(const short *)b==256);
+    if (calls==2) return -32;
+    if (calls==3) return 0;
+    return 384;
+}
+int mock_recover(void *pcm, int err, int silent) {
+    (void)pcm; (void)silent; ++recoveries;
+    return err==-19 ? err : 0;
+}
+int mock_delay(void *pcm, long *delay) { (void)pcm; *delay=0; return 0; }
+const char *snd_strerror(int err) { (void)err; return "mock error"; }
+int mock_sleep(unsigned n) { CHECK(n==1000); ++sleeps; return 0; }
+int main(void) {
+    au.gain=65536;
+    writer(0);
+    CHECK(au.done && au.played==512 && calls==4 && recoveries==1 && sleeps==1);
+    for (mode=1; mode<=2; ++mode) {
+        reads=calls=recoveries=0; au.done=0;
+        writer(0);
+        CHECK(au.done && recoveries==1 && calls==(mode==1 ? 2 : 1));
+        CHECK(au.error[0]);
+    }
+    return 0;
+}
+''')
+    binary=tmp/'writer_test'
+    subprocess.run(['cc','-m32','-fno-builtin','-ffunction-sections','-fdata-sections',
+                    '-I',str(ROOT/'patch'),str(source),'-Wl,--gc-sections','-o',str(binary)],check=True)
+    subprocess.run([str(binary)],check=True)
+    print('Audio writer: partial frames retained, underrun retry, zero progress and output failures passed.')
+
 def radio_check(tmp):
     """Internet Radio (radio.c): .m3u and .pls favourites, radio-browser's m3u and CSV, URL escaping."""
     lib = compile_host(tmp, 'radio.so', ROOT/'patch/radio.c')
@@ -1355,5 +1415,6 @@ if __name__ == '__main__':
         scrobble_check(tmp)
         books_check(tmp)
         video_check(tmp)
+        audio_writer_check(tmp)
         radio_check(tmp)
         tidal_check(tmp)

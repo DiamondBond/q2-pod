@@ -6,6 +6,7 @@
 #include "stock.h"
 #define M(a) (*(volatile int *)(a))
 #define QUEUE_FILE "/mnt/data/ringnav-queue"
+#define CHECKPOINT_FILE QUEUE_FILE "-elapsed"
 #define QUEUE_LIMIT 65536
 #define HISTORY_LIMIT 4096
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
@@ -23,7 +24,9 @@ typedef struct {
     int active, shuffle, repeat, folder, restoring, dirty;
     unsigned n, cursor, forced, force_end, hn, stamp;
     int saved_elapsed, save_failed, resume_pending, resume_elapsed, resume_wait;
-    unsigned saved_pos;
+    unsigned saved_pos, identity[4];
+    int next_valid, next_value;
+    unsigned next_pos;
     unsigned resume_key, resume_pos;
     entry *order, *cycle;
     unsigned *groups, *seen, *history;
@@ -71,6 +74,7 @@ static void close_preload(void) {
     M(MCL_PREPOS) = -1;
 }
 static void release(void) {
+    s.next_valid = 0;
     if (s.order) free(s.order);
     if (s.cycle) free(s.cycle);
     if (s.groups) free(s.groups);
@@ -142,6 +146,7 @@ static void history(unsigned at) {
     s.history[s.hn++] = at;
 }
 static int rebuild(int keep) {
+    s.next_valid = 0;
     unsigned n = queue() ? deque_size(queue()) : 0;
     unsigned *oldseen = s.seen, *oldhistory = s.history;
     unsigned oldn = s.n, oldhn = s.hn;
@@ -222,6 +227,7 @@ static int rebuild(int keep) {
     }
     /* Generate the following cycle on commit, never in the preload/peek path. */
     make_order(cycle);
+    s.next_valid = 0;
     s.dirty = 1;
     return 1;
 }
@@ -263,7 +269,7 @@ int playback_groups(void *all, int folder) {
     return 1;
 }
 /* Peek has no side effects, RNG or history writes. Manual next bypasses single-song rules. */
-int playback_successor(int automatic) {
+static int successor(int automatic) {
     unsigned at = (unsigned)M(MCL_POS);
     if (!s.active || at >= s.n) return -1;
     if (automatic && s.repeat == 0) return -1;
@@ -278,6 +284,16 @@ int playback_successor(int automatic) {
     for (unsigned i = 0; i < s.n; ++i)
         if (!category || s.groups[s.cycle[i].index] == s.groups[at]) return (int)s.cycle[i].index;
     return -1;
+}
+int playback_successor(int automatic) {
+    if (!automatic) return successor(0);
+    unsigned at = (unsigned)M(MCL_POS);
+    if (!s.next_valid || s.next_pos != at) {
+        s.next_value = successor(1);
+        s.next_pos = at;
+        s.next_valid = 1;
+    }
+    return s.next_value;
 }
 static void commit(unsigned next) {
     s.resume_key = s.resume_pending = 0;
@@ -303,6 +319,7 @@ static void commit(unsigned next) {
     if (i < s.n) s.cursor = i;
     s.seen[next] = 1;
     history(next);
+    s.next_valid = 0;
     s.dirty = 1;
 }
 int ringnav_load(void *q, int at, int type) {
@@ -384,6 +401,7 @@ int ringnav_prev(void) {
             s.cursor = i;
             break;
         }
+    s.next_valid = 0;
     s.dirty = 1;
     return mclStartPlayer();
 }
@@ -447,6 +465,7 @@ int playback_group_skip(int forward) {
         history(next);
         s.seen[next] = 1;
         s.forced = s.force_end = s.resume_key = s.resume_pending = 0;
+        s.next_valid = 0;
         s.dirty = 1;
     }
     close_preload();
@@ -490,9 +509,18 @@ void playback_insert(unsigned at, unsigned n, int next) {
 /* Snapshot fields are little-endian uint32 on this MIPS target, no pointers. */
 typedef struct {
     unsigned magic, version, size, checksum, n, pos, elapsed, shuffle, repeat, folder, cursor, hn,
-        forced, force_end, type;
+        forced, force_end, type, identity[4];
 } snapshot;
 static unsigned checksum(void *buf, unsigned size) { return hash_bytes(FNV_SEED, buf, size); }
+typedef struct {
+    unsigned magic, version, size, checksum, identity[4], pos, elapsed;
+} checkpoint;
+static int save_elapsed(int sec) {
+    checkpoint c = { 0x5132454c, 1, sizeof c, 0, { 0 }, s.saved_pos, (unsigned)sec };
+    memcpy(c.identity, s.identity, sizeof c.identity);
+    c.checksum = checksum(&c, sizeof c);
+    return BLOB_IO(CHECKPOINT_FILE, c, 1);
+}
 void playback_save(void) {
     if (!s.active) return;
     if (!s.n) {
@@ -506,10 +534,20 @@ void playback_save(void) {
     else if (sec > 0)
         s.resume_wait = 0;
     if (sec < 0) sec = 0;
-    if (!s.dirty && sec == s.saved_elapsed && (unsigned)M(MCL_POS) == s.saved_pos) return;
+    if (!s.dirty && !s.save_failed && sec == s.saved_elapsed && (unsigned)M(MCL_POS) == s.saved_pos) return;
     /* Failed checkpoints stay pending, but the UI loop retries at most every five seconds. */
-    s.dirty = s.save_failed = 1;
+    s.save_failed = 1;
     s.stamp = time_now_ms();
+    if (!s.dirty && (unsigned)M(MCL_POS) == s.saved_pos) {
+        if (save_elapsed(sec)) s.saved_elapsed = sec, s.save_failed = 0;
+        return;
+    }
+    s.dirty = 1;
+    unsigned identity[4];
+    void *random = fopen("/dev/urandom", "rb");
+    if (!random) return;
+    int random_ok = fread(identity, sizeof identity, 1, random) == 1;
+    if (fclose(random) || !random_ok) return;
     unsigned size = sizeof(snapshot) + (s.n * 3 + s.hn) * 4;
     for (unsigned i = 0; i < s.n; ++i) {
         const char *path = P(deque_at(queue(), i), REC_PATH);
@@ -520,7 +558,7 @@ void playback_save(void) {
     unsigned char *buf = calloc(size, 1);
     if (!buf) return;
     snapshot h = { 0x5132524e,
-                   2,
+                   3,
                    size,
                    0,
                    s.n,
@@ -533,7 +571,8 @@ void playback_save(void) {
                    s.hn,
                    s.forced,
                    s.force_end,
-                   (unsigned)M(MCL_TYPE) };
+                   (unsigned)M(MCL_TYPE), { 0 } };
+    memcpy(h.identity, identity, sizeof identity);
     memcpy(buf, &h, sizeof h);
     unsigned char *p = buf + sizeof h;
     for (unsigned i = 0; i < s.n * 3 + s.hn; ++i) {
@@ -560,7 +599,9 @@ void playback_save(void) {
     if (ok) {
         s.saved_elapsed = sec;
         s.saved_pos = (unsigned)M(MCL_POS);
-        s.dirty = s.save_failed = 0;
+        memcpy(s.identity, identity, sizeof identity);
+        s.dirty = 0;
+        s.save_failed = !save_elapsed(sec);
     }
 }
 static int library(void *unused) {
@@ -582,13 +623,17 @@ int ringnav_memory(void *out) {
     /* V1 omitted queue provenance. Treat those queues as local lists rather than allowing
      * Folder Skip to escape the saved queue after the user selects a stock play mode. */
     snapshot h = { 0 };
-    unsigned header_size = sizeof h - sizeof h.type;
+    unsigned header_size = 14 * 4;
     int ok = fread(&h, header_size, 1, f) == 1 && h.magic == 0x5132524e &&
-             (h.version == 1 || h.version == 2);
+             (h.version >= 1 && h.version <= 3);
     h.type = 0xf001;
-    if (ok && h.version == 2) {
+    if (ok && h.version >= 2) {
         ok = fread(&h.type, sizeof h.type, 1, f) == 1;
-        header_size = sizeof h;
+        header_size = 15 * 4;
+        if (ok && h.version == 3) {
+            ok = fread(h.identity, sizeof h.identity, 1, f) == 1;
+            header_size = sizeof h;
+        }
     }
     ok = ok && (h.type == 1 || (h.type & 0xf000) == 0xf000) && h.type <= 0xffff && h.n &&
          h.n <= QUEUE_LIMIT && h.pos < h.n && h.cursor < h.n && h.hn <= HISTORY_LIMIT &&
@@ -607,6 +652,21 @@ int ringnav_memory(void *out) {
     } else
         ok = 0;
     if (fclose(f)) ok = 0;
+    if (ok && h.version == 3) {
+        checkpoint c = { 0 };
+        void *cf = fopen(CHECKPOINT_FILE, "rb");
+        if (cf) {
+            unsigned char extra;
+            int valid = fread(&c, sizeof c, 1, cf) == 1;
+            if (fread(&extra, 1, 1, cf)) valid = 0;
+            if (fclose(cf)) valid = 0;
+            unsigned sum = c.checksum;
+            c.checksum = 0;
+            if (valid && c.magic == 0x5132454c && c.version == 1 && c.size == sizeof c &&
+                checksum(&c, sizeof c) == sum && !memcmp(c.identity, h.identity, sizeof c.identity) &&
+                c.pos == h.pos && c.elapsed <= 0x7fffffff) h.elapsed = c.elapsed;
+        }
+    }
     /* Validate the entire snapshot before queries or mutations. */
     unsigned *indices = (unsigned *)(buf ? buf + header_size : 0);
     unsigned char *p = buf ? buf + header_size + (h.n * 3 + h.hn) * 4 : 0;

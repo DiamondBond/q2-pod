@@ -51,3 +51,40 @@ A MIPS instruction-count regression check verifies that filling the position tab
 Two fresh builds must produce identical `update.tar` files. Packaging verifies MD5 entries, unchanged kernel and rootfs metadata (the Stock build's Coverflow card icons are the only added inodes, with `menu_music`'s metadata; the stock EQ preset page and the images only the stock EQ pages show are removed, and in iPod also the 14 Home carousel images; iPod's 40-pixel settings icons replace the stock files in place, see [ipod.md](ipod.md#settings-icons)), and a rootfs no larger than stock. The icons are 32-colour palette PNGs and the payload is built with `-Oz` because of that limit, and demo's `.pdr` section (MIPS procedure descriptors, 423 KB past every LOAD segment, never read at run time; `PDR` in `tools/build.py`) ships zeroed, which packs to almost nothing. mksquashfs packs files' tail ends into fragments (`-tailends`; stock's image leaves them as partial blocks), which saves about 26 KB: Stock has about 25 KB of rootfs space left, iPod about 250 KB (its 40-pixel settings icons are Lanczos-filtered RGBA, about 14 KB more than the stock 52-pixel ones).
 
 UI refinement checks cover native-font clock/percentage widths, battery charge levels and charging, codec fallback, conditional Rockbox rows, Home fallback, boot persistence and failed saves in both variants. The boot script checks missing/corrupt preferences, held Play/Pause, missing Rockbox, exit/crash fallback and explicit Home handover. Hardware verification precedes release.
+
+Advanced queue saves use snapshot v3 with a fresh 128-bit `/dev/urandom` identity.
+Queue/traversal changes commit the full snapshot first; elapsed-only changes atomically
+replace the 40-byte `ringnav-queue-elapsed` checkpoint every five seconds. Its checksum,
+identity and position must match the full snapshot. Missing, corrupt or stale checkpoints
+fall back to the full snapshot's elapsed time. Failed writes retain committed files and
+retry; shutdown still explicitly saves. V1/V2 snapshots remain readable. **Older firmware
+cannot restore v3 custom queues.** Select a fresh queue after downgrading.
+
+`connecting` is published before ALSA initialization.
+
+The stock ALSA 1.1.6 library can deadlock with an ioplug behind `plug`: preparation
+locks the wrapper while the ioplug callback unlocks/relocks its slave, leaving a slave mutex
+owned by the setup thread. The writer then blocks at its first write. `q2video` sets
+`LIBASOUND_THREAD_SAFE=0` in its own process before opening ALSA. Its PCM calls are sequential:
+setup precedes the writer, and drop/prepare/close follow joining it. BlueALSA's own locks,
+the local player, codecs and services are unchanged. To reproduce the old hang and verify
+the fix with the actual stock MIPS library, run `python test/alsa.py BUILD QEMU_MIPSEL`.
+The regression covers one/two plug layers and rate conversion.
+
+The shared audio writer retains partial ALSA writes and retries the remaining frames after
+an underrun, instead of discarding unwritten samples. Native tests exercise partial writes,
+zero progress, recovery and lost outputs. This corrects sample loss independently of the
+ALSA startup lock workaround.
+
+Battery comparison still requires matched volume, output, playlist, screen, wireless and
+Low power settings and measured discharge; emulator counts do not establish battery gains.
+
+| Queue entries | Uncached successor instructions (exhausted category / category repeat) | Cached instructions | Traversal reads before → after | Elapsed-save bytes, v2 full → checkpoint |
+| --- | --- | --- | --- | --- |
+| 8 | 213 / 221 | 29 | 7–8 → 0 | 296 → 40 |
+| 128 | 2,733 / 2,501 | 29 | 127–128 → 0 | 3,922 → 40 |
+
+Counts execute the actual MIPS payload with mocked services. The unchanged manual
+lookup supplies the uncached comparison for these repeat modes; it follows the same
+lookup rules there. Repeated UI polling also reads no traversal entries. These counts
+measure work and bytes, not hardware timing, card write amplification or battery life.

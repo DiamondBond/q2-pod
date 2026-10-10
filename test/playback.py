@@ -3,6 +3,7 @@
 Run: python3 test/playback.py BUILD_DIRECTORY
 """
 import pathlib
+from unicorn import UC_HOOK_MEM_READ
 from functools import cmp_to_key
 # Load only fixture definitions; the full UI suite remains independently runnable.
 source = pathlib.Path(__file__).with_name('patch.py').read_text()
@@ -13,8 +14,8 @@ ps = symbols(B/'patch.elf')
 class PlaybackMachine(QueueMachine):
     def __init__(self, files=None):
         super().__init__()
-        self.files = dict(files or {}); self.handles = {}; self.fd = 100
-        self.fail = ''; self.elapsed = 37; self.random_calls = 0; self.rng = 71
+        self.files = dict(files or {}); self.files['/dev/urandom'] = bytes(range(16)); self.handles = {}; self.fd = 100
+        self.entropy = 0; self.fail = ''; self.elapsed = 37; self.random_calls = 0; self.rng = 71
         self.allocations = 0; self.write_opens = 0
         self.missing = set(); self.starts = []; self.stops = 0; self.seek = None; self.stock_resume = None
         self.handlers.pop(syms['mclLoadPlayList'], None)
@@ -66,6 +67,8 @@ class PlaybackMachine(QueueMachine):
             for r,v in zip(regs,saved): u.reg_write(r,v)
         elif name=='fopen':
             path,mode=self.text(a),self.text(b)
+            if path=='/dev/urandom' and len(self.files.get(path,b''))==16:
+                self.entropy+=1; self.files[path]=self.entropy.to_bytes(16,'little')
             if mode=='wb': self.write_opens+=1
             if self.fail!='open' and (mode=='wb' or path in self.files):
                 self.fd+=1; ret=self.fd; self.handles[ret]=[path,0]
@@ -80,7 +83,7 @@ class PlaybackMachine(QueueMachine):
                 self.files[path]+=chunk if ret else chunk[:1]
         elif name=='fclose': ret=-1 if self.fail=='close' else 0; del self.handles[a]
         elif name=='rename':
-            if self.fail=='rename': ret=-1
+            if self.fail=='rename' or (self.fail=='checkpoint-rename' and self.text(b).endswith('-elapsed')): ret=-1
             else: self.files[self.text(b)]=self.files.pop(self.text(a))
         elif name=='unlink': self.files.pop(self.text(a),None)
         elif name=='access': ret=-1 if self.text(a) in self.missing else 0
@@ -229,7 +232,7 @@ assert r.fn('playback_resumed',record)==1 and r.fn('playback_resumed',record)==0
 r.elapsed=0; r.fn('playback_save')
 assert struct.unpack_from('<I',r.files['/mnt/data/ringnav-queue'],24)[0]==37
 r.elapsed=38; r.fn('playback_save'); r.elapsed=0; r.fn('playback_save')
-assert struct.unpack_from('<I',r.files['/mnt/data/ringnav-queue'],24)[0]==0
+assert struct.unpack_from('<I',r.files['/mnt/data/ringnav-queue-elapsed'],36)[0]==0
 assert r.fn('ringnav_prev')==1 and r.current()!=want
 # Skip missing files; both CUE occurrences and duplicate files remain distinct.
 r=PlaybackMachine(files); r.byte(syms['g_memory_play'],2); r.missing={'/B/01.flac'}
@@ -286,7 +289,7 @@ assert (m.allocations,m.write_opens)==state[1:3]
 m.elapsed+=1; m.now+=5000; m.fn('playback_poll')
 assert m.write_opens==state[2]+1
 m.advance_song(0); m.fn('playback_poll')
-assert m.write_opens==state[2]+2
+assert m.write_opens==state[2]+3
 checks+=1
 
 # Failed writes preserve the prior snapshot and retry even if playback has since paused.
@@ -303,7 +306,7 @@ for failure in ('alloc','open','write','close','rename'):
     m.fail=''; m.now+=1; m.fn('playback_poll')
     assert m.files['/mnt/data/ringnav-queue']!=previous
     assert struct.unpack_from('<I',m.files['/mnt/data/ringnav-queue'],20)[0]==m.current()
-    assert m.allocations==attempts[0]+1 and m.write_opens==attempts[1]+1
+    assert m.allocations==attempts[0]+1 and m.write_opens==attempts[1]+2
     m.fn('playback_save'); assert m.allocations==attempts[0]+1
     checks+=1
 
@@ -336,7 +339,7 @@ def snapshot_checksum(data):
     value=2166136261
     for b in data: value=((value^b)*16777619)&0xffffffff
     struct.pack_into('<I',data,12,value)
-legacy=bytearray(files['/mnt/data/ringnav-queue']); del legacy[56:60]
+legacy=bytearray(files['/mnt/data/ringnav-queue']); del legacy[56:76]
 struct.pack_into('<I',legacy,4,1); struct.pack_into('<I',legacy,8,len(legacy)); snapshot_checksum(legacy)
 r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(legacy)}); r.byte(syms['g_memory_play'],2)
 assert r.fn('ringnav_memory',r.deque([]))==want and r.mcl('MCL_TYPE')==0xf001
@@ -584,3 +587,83 @@ for nxt,pos,wrap,folder in ((1,6,0,'toolsLoadNextDir'),(0,0,6,'toolsLoadPrevDir'
             checks+=1
 
 print(f'{checks} advanced playback/wheel MIPS checks passed ({variant})')
+
+# Elapsed checkpoints are fixed-size, atomic, and tied to both snapshot and position.
+m=PlaybackMachine(); m.options(0,5,0)
+full=m.files['/mnt/data/ringnav-queue']; m.elapsed=52; m.fn('playback_save')
+checkpoint=m.files['/mnt/data/ringnav-queue-elapsed']
+assert len(checkpoint)==40 and m.files['/mnt/data/ringnav-queue']==full
+for failure in ('open','write','close','rename'):
+    m.fail=failure; m.elapsed=53; m.fn('playback_save')
+    assert m.files['/mnt/data/ringnav-queue-elapsed']==checkpoint
+m.fail=''; m.fn('playback_save')
+for kind in ('valid','truncated','extra','checksum','identity','position','version','size'):
+    c=bytearray(checkpoint)
+    if kind=='truncated': c=c[:-1]
+    elif kind=='extra': c+=b'x'
+    elif kind=='checksum': c[-1]^=1
+    elif kind in ('identity','position','version','size'):
+        offset={'identity':16,'position':32,'version':4,'size':8}[kind]
+        struct.pack_into('<I',c,offset,999); snapshot_checksum(c)
+    r=PlaybackMachine({'/mnt/data/ringnav-queue':full,'/mnt/data/ringnav-queue-elapsed':bytes(c)})
+    r.byte(syms['g_memory_play'],2)
+    assert r.fn('ringnav_memory',r.deque([]))>=0 and r.seek==(52 if kind=='valid' else 37),kind
+# Interrupted full-snapshot publication leaves an old checkpoint harmless.
+stale=bytearray(checkpoint); stale[16]^=1; snapshot_checksum(stale)
+r=PlaybackMachine({'/mnt/data/ringnav-queue':full,'/mnt/data/ringnav-queue-elapsed':bytes(stale)})
+r.byte(syms['g_memory_play'],2); assert r.fn('ringnav_memory',r.deque([]))>=0 and r.seek==37
+# Identity generation failure leaves the previous snapshot committed and retries later.
+m=PlaybackMachine(); m.options(0,5,0); previous=m.files['/mnt/data/ringnav-queue']
+m.files['/dev/urandom']=b''; m.advance_song(); m.fn('playback_save')
+assert m.files['/mnt/data/ringnav-queue']==previous
+m.files['/dev/urandom']=bytes(range(16)); m.fn('playback_save')
+assert m.files['/mnt/data/ringnav-queue']!=previous
+# V2 remains readable too.
+v2=bytearray(full); del v2[60:76]
+struct.pack_into('<I',v2,4,2); struct.pack_into('<I',v2,8,len(v2)); snapshot_checksum(v2)
+r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(v2)}); r.byte(syms['g_memory_play'],2)
+assert r.fn('ringnav_memory',r.deque([]))>=0 and r.seek==37
+# Measure actual payload instructions: even exhausted/category-repeat scans occur only once.
+for n in (8,128):
+    for repeat in (1,4):
+        m=PlaybackMachine(); m.budget=2000000
+        m.install([(str(i),'/a/'+str(i),'A' if i==0 else 'B',0,i,0,0) for i in range(n)],0)
+        m.options(0,repeat,0)
+        cost=[0]; visits=[0]
+        # playback's private o32 layout: order/cycle pointers follow 27 words of scalar state.
+        tables=[m.get(ps['s']+108),m.get(ps['s']+112)]
+        def count_traversal(u,access,address,size,value,unused):
+            if any(start<=address<start+n*12 for start in tables): visits[0]+=1
+        read_hook=m.u.hook_add(UC_HOOK_MEM_READ,count_traversal)
+        def count_payload(*args): cost[0]+=1
+        hook=m.u.hook_add(UC_HOOK_CODE,count_payload,begin=BASE,end=SCRATCH-1)
+        expected=m.fn('playback_successor',0); uncached=cost[0]; scanned=visits[0]; cost[0]=0
+        assert m.fn('playback_successor',1)==expected
+        cold=cost[0]; cost[0]=0; visits[0]=0
+        for _ in range(10): m.fn('playback_successor',1)
+        warm=cost[0]//10; m.u.hook_del(hook)
+        for _ in range(10): m.fn('playback_poll')
+        m.u.hook_del(read_hook)
+        assert scanned>=n-1 and visits[0]==0
+        assert warm<100 and cold>=warm
+        full_bytes=len(m.files['/mnt/data/ringnav-queue']); m.elapsed+=5; m.fn('playback_save')
+        assert len(m.files['/mnt/data/ringnav-queue-elapsed'])==40
+        print(f'queue={n} repeat={repeat}: successor uncached={uncached}, cold={cold}, cached={warm} instructions, traversal reads {scanned} -> 0; elapsed save {full_bytes-16} (v2 full) -> 40 bytes')
+print('Checkpoint and polling performance checks passed')
+
+# A checkpoint publication failure after full commit retries without rewriting the queue.
+m=PlaybackMachine(); m.options(0,5,0)
+old_checkpoint=m.files['/mnt/data/ringnav-queue-elapsed']
+m.advance_song(); m.elapsed=49; m.fail='checkpoint-rename'; m.fn('playback_save')
+committed=m.files['/mnt/data/ringnav-queue']; writes=m.write_opens
+assert m.files['/mnt/data/ringnav-queue-elapsed']==old_checkpoint
+r=PlaybackMachine(m.files); r.byte(syms['g_memory_play'],2)
+assert r.fn('ringnav_memory',r.deque([]))==m.current() and r.seek==49
+m.fail=''; m.fn('playback_save')
+assert m.files['/mnt/data/ringnav-queue']==committed and m.write_opens==writes+1
+assert m.files['/mnt/data/ringnav-queue-elapsed']!=old_checkpoint
+
+# Uncommitted checkpoint temporaries never override the committed full snapshot.
+r=PlaybackMachine({'/mnt/data/ringnav-queue':full,'/mnt/data/ringnav-queue-elapsed.tmp':checkpoint})
+r.byte(syms['g_memory_play'],2)
+assert r.fn('ringnav_memory',r.deque([]))>=0 and r.seek==37
