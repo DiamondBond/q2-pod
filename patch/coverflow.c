@@ -27,6 +27,7 @@
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define PLACEHOLDER "default_album_big"
+#define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
 #define CARDS 2 /* after the albums: Sort, then Refresh library */
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
@@ -1544,15 +1545,18 @@ const char *now_tag(void *r, int field) {
 }
 
 #if IPOD
-/* iPod Home (docs/ipod.md): the playing track's dimmed art behind the list. */
+/* iPod Home (docs/ipod.md): the playing track's dimmed art behind the list, or Classic's art
+ * beside it. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
     unsigned key, repaint; /* repaint: the timer of home_repaint */
-    int panel[4]; /* background bounds from the asset */
+    int panel[4]; /* the art's x, y, w, h: the asset's whole background, or Classic's right panel */
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
 extern int ipod_home_full(void), ipod_home_rockbox(void), rockbox_open(void *, void *);
+static const int home_bg[4] = { 0, 0, 375, 290 }, /* as tools/ipod.py HOME_ART_RECT */
+                 home_split[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 };
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
  * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
@@ -1658,18 +1662,19 @@ int ipod_backdrop_set(int slot, void *widget, const char *url) {
     return backdrops[slot] != 0;
 }
 
-/* The backdrop over the window below the status bar, under its children; 0 when there is none. */
+/* The backdrop over the window below the status bar, under its children; 0 when there is none,
+ * as in Classic. */
 int ipod_backdrop_paint(int slot, void *canvas) {
-    if (!backdrops[slot] || !P(canvas, CANVAS_LCD)) return 0;
+    if (!backdrops[slot] || !P(canvas, CANVAS_LCD) || ipod_classic()) return 0;
     int r[4] = { 0, 0, BD_W, BD_H };
     canvas_draw_image(canvas, backdrops[slot], r, r);
     return 1;
 }
 
 /* The backdrop's color (color_t, opaque bits clear) at window position x, y; black when there is
- * none. The art's rounded corners (navigation.c paint_cover) take it. */
+ * none or in Classic. The art's rounded corners (navigation.c paint_cover) take it. */
 unsigned ipod_backdrop_rgb(int slot, int x, int y) {
-    void *b = backdrops[slot];
+    void *b = ipod_classic() ? (void *)0 : backdrops[slot];
     const unsigned char *px = b ? bitmap_lock_buffer_for_read(b) : 0;
     if (!px) return 0;
     x = x < 0 ? 0 : x >= BD_W ? BD_W - 1 : x;
@@ -1689,16 +1694,32 @@ static int home_repaint(const void *unused) {
     return 0; /* RET_REMOVE */
 }
 
-/* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
- * black. The player's files belong to the track whose path it copies to g_lastcover_url
- * after writing them, so right after a track change they count only once that is this track. Runs
- * whenever a window or the status bar paints (at least once a second), for Home in Artwork and for
- * Now Playing, and reloads only when the track, the cover it can use or its parsed tags change;
- * home_repaint then shows the new backdrop whole. */
+/* Classic: sizes the art to a w x h bitmap's proportions, just covering the panel and centred on
+ * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
+ * panel. */
+static void home_fit(unsigned w, unsigned h) {
+    int pw = home.panel[2], ph = home.panel[3], fw = pw, fh = ph;
+    if (w && h && w <= 8192 && h <= 8192) {
+        if ((unsigned)pw * h > (unsigned)ph * w)
+            fh = (int)(((unsigned)pw * h + w - 1) / w);
+        else
+            fw = (int)(((unsigned)ph * w + h - 1) / h);
+    }
+    widget_move_resize(home.art, home.panel[0] + (pw - fw) / 2, home.panel[1] + (ph - fh) / 2, fw, fh);
+}
+
+/* The player's cover, else the Coverflow cache of the track's album (now_tag), else black
+ * (Classic: the placeholder). The player's files belong to the track whose path it copies to
+ * g_lastcover_url after writing them, so right after a track change they count only once that is
+ * this track. Runs whenever a window or the status bar paints (at least once a second), for Home
+ * in Artwork or Split and for Minimal's Now Playing, and reloads only when the track, the cover it
+ * can use or its parsed tags change; home_repaint then shows the new backdrop whole, Classic its
+ * art in the panel. */
 void coverflow_home_art(void *top) {
     if (!home.art || !top) return;
-    int playing = !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page");
-    if (!playing && (top != home.win || !widget_get_visible(home.art))) return;
+    int playing = !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page"),
+        classic = ipod_classic();
+    if ((!playing || classic) && (top != home.win || !widget_get_visible(home.art))) return;
     unsigned pos, n;
     void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
@@ -1709,15 +1730,26 @@ void coverflow_home_art(void *top) {
     if (key == home.key) return;
     home.key = key;
     const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
-    if (!ipod_backdrop_set(0, home.art, cover) && r) {
-        char url[600] = "file://";
-        art_path(url + 7, album, "");
-        ipod_backdrop_set(0, home.art, url);
+    char url[600] = "file://";
+    if (r) art_path(url + 7, album, "");
+    if (classic) {
+        unsigned size[2] = { 0, 0 };
+        if (!(cover && image_show(home.art, cover, size)) &&
+            !(r && image_show(home.art, url, size)) &&
+            !image_show(home.art, HOME_PLACEHOLDER, size))
+            image_base_set_image(home.art, HOME_PLACEHOLDER);
+        home_fit(size[0], size[1]);
+        widget_invalidate_force(home.art, 0);
+        return;
     }
+    if (!ipod_backdrop_set(0, home.art, cover) && r) ipod_backdrop_set(0, home.art, url);
     rearm(&home.repaint, home_repaint, 0);
 }
 
-/* Clip the full-width artwork and sliding menus to Home; restore after their children. */
+/* The art paints only inside its panel and the lists only left of Classic's, so a sliding list
+ * never covers the art: ringnav_paint_bg narrows the canvas clip (screen coordinates; the canvas
+ * origin is the widget's) before stock draws it, and ringnav_paint puts the old clip back after its
+ * children. */
 void coverflow_home_clip(void *w, void *canvas, int begin) {
     if (!w || (w != home.art && w != home.list && w != home.sets)) return;
     if (!begin) {
@@ -1725,7 +1757,8 @@ void coverflow_home_clip(void *w, void *canvas, int begin) {
         home.clipped = 0;
         return;
     }
-    int clip[4], art = w == home.art, pane = 375;
+    int clip[4], art = w == home.art,
+        pane = ipod_classic() && widget_get_visible(home.art) ? home.panel[0] : 375;
     clip_within(canvas, home.clip, clip, I(canvas, CANVAS_X) - I(w, W_X) + (art ? home.panel[0] : 0),
                 I(canvas, CANVAS_Y) - I(w, W_Y) + (art ? home.panel[1] : I(w, W_Y)),
                 art ? home.panel[2] : pane, art ? home.panel[3] : I(w, W_H));
@@ -1734,22 +1767,26 @@ void coverflow_home_clip(void *w, void *canvas, int begin) {
     if (art) ipod_backdrop_paint(0, canvas);
 }
 
-/* Both menus keep equal text margins and full-row tap targets. */
-static void home_width(void *w, int outer, int inner, int depth) {
+/* Both menus' lists span outer, their rows and tap targets inner; labels start at x and end end
+ * before the row's edge (Classic: before the chevron). */
+static void home_width(void *w, int outer, int inner, int x, int end, int depth) {
     widget_move_resize(w, I(w, W_X), I(w, W_Y), depth < 2 ? outer : inner, I(w, W_H));
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
         void *child = widget_get_child(w, i);
         if (!tk_strcmp(widget_get_type(child), "hscroll_label"))
-            widget_move_resize(child, I(child, W_X), I(child, W_Y),
-                                inner - I(child, W_X) - HOME_LABEL_END, I(child, W_H));
+            widget_move_resize(child, x, I(child, W_Y), inner - x - end, I(child, W_H));
         else
-            home_width(child, outer, inner, depth + 1);
+            home_width(child, outer, inner, x, end, depth + 1);
     }
 }
 
-/* Stored HOME=0/1 now means Artwork/Plain; both menus keep their geometry.
- * Hidden Rockbox is restacked last because the native layout includes hidden rows. */
+/* Stored HOME=0/1 is Artwork/Plain in Minimal, whose menus keep the asset's full-width geometry,
+ * and Split/Full in Classic: Split halves the screen, the art in the right panel; Full widens the
+ * list and its rows to HOME_CLASSIC_ROW. Plain and Full hide the art. Hidden Rockbox is restacked
+ * last because the native layout includes hidden rows. */
 void coverflow_home_layout(void) {
+    int full = ipod_home_full(), classic = ipod_classic();
+    for (int i = 0; i < 4; ++i) home.panel[i] = classic ? home_split[i] : home_bg[i];
     if (!home.list) return;
     void *rockbox = widget_lookup(home.win, "btn_rockbox", 1);
     if (rockbox) {
@@ -1757,11 +1794,16 @@ void coverflow_home_layout(void) {
         widget_restack(rockbox, shown ? 4 : 6); /* after Folder, else last */
         widget_set_visible(rockbox, shown, 0);
     }
-    int full = ipod_home_full();
-    home_width(home.list, 375, HOME_FULL_ROW, 0);
-    if (home.sets) home_width(home.sets, 375, HOME_FULL_ROW, 0);
+    int outer = classic && !full ? HOME_SPLIT_W : 375,
+        inner = !classic ? HOME_FULL_ROW : full ? HOME_CLASSIC_ROW : HOME_SPLIT_W,
+        x = classic ? HOME_CLASSIC_TEXT_X : HOME_DOT_X + HOME_DOT + HOME_DOT_GAP,
+        end = classic ? HOME_CLASSIC_LABEL_END : HOME_LABEL_END;
+    home_width(home.list, outer, inner, x, end, 0);
+    if (home.sets) home_width(home.sets, outer, inner, x, end, 0);
+    widget_move_resize(home.art, home.panel[0], home.panel[1], home.panel[2], home.panel[3]);
+    if (!classic) image_base_set_image(home.art, ""); /* Minimal's backdrop paints there instead */
     widget_set_visible(home.art, !full, 0);
-    home.key = ~0u; /* Artwork shows the current cover again */
+    home.key = ~0u; /* Artwork or Split shows the current cover again */
 }
 
 /* Home's Settings row, as an iPod's submenu: the Settings list (stock's Playback and System
@@ -1808,8 +1850,7 @@ int coverflow_home(void *win, void *ctx) {
     void *art = widget_lookup(win, "img_homeart", 1);
     home.art = art;
     home.clipped = 0;
-    for (int i = 0; art && i < 4; ++i) home.panel[i] = I(art, W_X + 4 * i); /* x, y, w, h */
-    /* A fitted cover reaches under the list; taps there must still find the rows. */
+    /* Classic's fitted cover reaches under the list; taps there must still find the rows. */
     if (art) widget_set_sensitive(art, 0);
     void *list = widget_lookup(win, "list_view_home", 1);
     home.list = list; /* a new Home window's own, so still the asset's width */

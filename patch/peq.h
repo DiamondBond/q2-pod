@@ -114,7 +114,7 @@ int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
 void play_folder(void *dq, int idx, int cls);
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
-unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column, 0xRRGGBB */
+unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal: MINIMAL_FILL) */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
 void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color);
 void peq_paint(void *w, void *canvas);
@@ -136,14 +136,16 @@ const char *output_device(char *vol);         /* books.c */
 #define SPOT_BAR_X 21
 #define SPOT_BAR_Y 251
 #define SPOT_BAR_W 333
+#define SPOT_BAR_H 8 /* the bar's view; iPod's Minimal paints its 4px line at the top (np_bar_h) */
 #if IPOD
-#define SPOT_BAR_H 4
+int ipod_classic(void); /* navigation.c: Theme: Classic */
+#define np_bar_h() (ipod_classic() ? NP_BAR_CLASSIC : NP_BAR_MINIMAL)
 int ipod_backdrop_set(int slot, void *widget, const char *url);
 int ipod_backdrop_paint(int slot, void *canvas);
 unsigned ipod_backdrop_rgb(int slot, int x, int y);
 void spot_background(void *w, void *canvas);
 #else
-#define SPOT_BAR_H 8
+#define np_bar_h() SPOT_BAR_H
 #endif
 #define SPOT_TIMES_Y 265
 #define SPOT_TIME_X 46

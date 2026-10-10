@@ -53,12 +53,14 @@ width. Title styles and scrolling/ellipsis settings are untouched.
 
 The iPod theme uses black surfaces, white titles and subdued secondary text with the stock
 multilingual font. The existing 72-pixel browsing pitch, 52-pixel covers and 68-pixel settings
-rows remain calibrated to the glass. Settings icons are resized as before, then desaturated;
-`list_into` keeps its original geometry with a neutral grey glyph visible on both row surfaces.
+rows remain calibrated to the glass. Settings icons are resized as before and keep their colours;
+**Theme: Minimal** greys them, and turns `list_into`'s glyph neutral grey (`MINIMAL_CHEVRON`), as
+the image manager loads them (`ringnav_image_add`), so it is visible on both row surfaces.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
-Wheel selection is consistently off-white (`#EEEEEC`), independent of Accent. The background
+In Minimal, wheel selection is consistently off-white (`#EEEEEC`), with no accent. **Theme:
+Classic** draws the accent's full-width bar instead and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
@@ -70,7 +72,8 @@ chrome. Photos, video, book content, EQ plots and visualizers keep their own dra
 
 Home uses a full-width menu over the current local track's subdued artwork. Artwork is
 centre-cropped, with black as the missing-art fallback. Selection is a small white dot and bright
-text; other destinations use `#AAAAAA`. There is no selection rectangle or chevron.
+text; other destinations use `#AAAAAA`. There is no selection rectangle or chevron. **Theme:
+Classic** lays Home out as before 1.0.1 instead (below).
 
 The seven destinations remain Now Playing, Library, Coverflow, Folder, Rockbox, Streaming and
 Settings. Rockbox is visible only when its binary is on the card. Settings opens Playback and
@@ -86,6 +89,14 @@ window while sliding.
 Display settings offers **Home: Artwork / Plain**. Stored `IPOD/HOME=0` (formerly Split) means
 Artwork; `1` (formerly Full) means Plain. Plain uses the identical menu on black. No migration
 or new preference format is needed. Invalid or absent values still mean zero.
+
+Classic reads the same value as **Home: Split / Full**, and `coverflow_home_layout` moves the
+asset's widgets at runtime: Split narrows both menus to `HOME_SPLIT_W` (187) and shows the cover
+itself, undimmed, in the right 188×290 panel (`img_homeart` is an `image` for this, fitted to the
+cover's proportions and clipped to the panel, the menus clipped left of it; `default_album_home`
+without a cover); Full widens the menus to the screen, their rows to `HOME_CLASSIC_ROW` (369), and
+hides the art. Labels start at `HOME_CLASSIC_TEXT_X` (33) and end 10 pixels before the chevron,
+which rides the accent's selection bar alone. No backdrop is prepared or painted in Classic.
 
 Home and local Now Playing share one backdrop; Spotify has a second. Each is a 375×290 BGRA
 bitmap, the size painted below the status bar, so 435,000 pixel bytes a slot and 870,000 for both,
@@ -216,7 +227,8 @@ place, keeping its inode metadata. The build fails if an input's hash or format 
 output is not 40-pixel 8-bit RGBA with the same transparency; the manifest records both hashes
 and the ImageMagick version under `changed_assets` and `tools`. `test/build.py` checks the
 packaged bytes, the sizes, and that each icon's average colour on black and on the Graphite
-selection grey matches the stock icon's. Other 52-pixel images that land in settings rows, such as
+selection grey matches the stock icon's, and that Minimal's runtime grey (Rec. 709 luma, in 1/256)
+matches ImageMagick's `Gray` on black and on the off-white selection. Other 52-pixel images that land in settings rows, such as
 Streaming's Tidal logo (`list_tidal`, which the folder root may also use) and the Spotify row's
 build-added icon ([internals.md](internals.md#spotify)), keep their bytes and still scale down. The
 Spotify row's Now Playing page uses Now Playing's layout (`NP_*`), rounded art included. The Stock build keeps every icon stock. The recolouring of accent-red artwork
@@ -316,8 +328,8 @@ drops every key and touch while a page slides; none is queued
 Stock draws `list_into` on Local Music's categories, the `localclass_page` rows (artists, genres,
 composers), the album list and folder rows that are not songs, hidden in multi-select. iPod adds
 it, aligned with those (see [internals.md](internals.md#drawing)), only on the `DRILL` windows in
-`patch/contexts.inc`: Home and the playlist list, whose rows open their tracks. Home draws only
-the highlighted row's, so it moves with the selection bar. Tiles narrower
+`patch/contexts.inc`: Home and the playlist list, whose rows open their tracks. Classic's Home
+draws only the highlighted row's, so it moves with the selection bar; Minimal's Home has none. Tiles narrower
 than half the list (playlist Import/Export) get none. The artist page's Albums tab drills but has
 no stock chevron or payload row layouter, so it has none.
 
@@ -377,7 +389,11 @@ hidden; the hardware Return does the same. Favourite, More and the play mode ico
 images and handlers in the top row.
 
 The bar is a four-pixel plain-colour line inside the original 30-pixel seek target: a `#1C1C1C` track
-(`TRACK_COLOR`) and a fill in the accent's light tone (Graphite `#6E6E6E`, 3.3:1; see [Display settings](#display-settings)), with no thumb.
+(`TRACK_COLOR`) and an off-white `MINIMAL_FILL` fill, with no thumb. **Theme: Classic** makes it an
+8-pixel capsule (`NP_BAR_CLASSIC`; `bar_size` and `round_radius` set on the slider at runtime,
+`np_theme`) filled in the accent's light tone (Graphite `#6E6E6E`, 3.3:1; see [Display
+settings](#display-settings)), shows stock's play/pause glyph on the art again, and paints no
+backdrop. Spotify's bar follows the same theme.
 The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or drag anywhere on it to seek, as stock. The elapsed time
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/ipod.py`; see [internals.md](internals.md#now-playing-ipod).
@@ -472,8 +488,8 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds three rows the same way: "Accent: Graphite" with
-the System settings Display icon (`system_display`), "Home: Artwork" with Play settings' cover
+pixels high). iPod runs the stock init, then adds four rows the same way: "Theme: Minimal" and
+"Accent: Graphite" with the System settings Display icon (`system_display`), "Home: Artwork" with Play settings' cover
 mode icon (`playset_covermode`), "Battery: Icon" (Icon, Percent, Icon + Percent; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
 (`system_powermanager`), all among the [settings icons](#settings-icons)
@@ -484,14 +500,15 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME` and `BATTERY`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`, `BATTERY` and `THEME`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Artwork and Icon.
+one valid digit, is Graphite, Artwork, Icon and Minimal: a card from 1.0.1 or earlier, which has
+no `THEME`, keeps 1.0.1's look.
 
 | Accent | Progress / active-control light tone | Red text / marks |
 | --- | --- | --- |
@@ -500,12 +517,33 @@ one valid digit, is Graphite, Artwork and Icon.
 | Tidal (2) | `#30929B` | `#30929B` |
 | Champagne (3) | `#9A8446` | `#9A8446` |
 
-Accent remains available for progress and active controls. Navigation uses the same off-white
-selection for all four choices. Existing accent preference values and the red-tone mapping stay
-compatible; greys and artwork remain unchanged by the live accent mapper. See
-[internals.md](internals.md#accent) for the mapping.
+Existing accent preference values and the red-tone mapping stay compatible; greys and artwork
+remain unchanged by the live accent mapper. See [internals.md](internals.md#accent) for the mapping.
 
-Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the existing touch targets. Favourite keeps its outline/filled states; inactive dots are muted, and progress retains the chosen accent. Artwork, scrolling metadata and playback controls retain their existing behavior.
+Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the existing touch targets. Favourite keeps its outline/filled states; inactive dots are muted. Artwork, scrolling metadata and playback controls retain their existing behavior.
+
+### Theme
+
+**Theme: Minimal** (`THEME=0`, the default) is the look described above. **Theme: Classic**
+(`1`) is the iPod look before 1.0.1, drawn at runtime over the same assets: the accent's
+full-width selection bar under white text, Home's Split/Full layout with the cover beside the menu
+and the chevron on its bar, coloured settings icons and the stock `list_into`, a `#242424` status
+bar (`BAR_CLASSIC`), and Now Playing's 8-pixel capsule and play/pause glyph without a backdrop.
+
+Minimal has no accent: the Accent row hides (moved below the last row, since the list places
+hidden rows too) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,
+whatever `ACCENT` holds, and its own fills (the progress bars, Spotify's, the PEQ curve and the
+visualizer) are `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure white. In Classic
+the Accent row follows Theme and every accent applies as before.
+
+A change applies at once, as Accent does: the image cache is dropped and the screen repaints
+(icons and chevrons reload in the new theme's colours), Home re-lays its menus and art, an open
+Now Playing gets its bar and glyph, and the Display page shows or hides the Accent row and renames
+the Home row. Nothing needs a restart.
+
+What Classic does not restore: the pinned theme edit of `s_btn_listitem`'s pressed colour
+(`#3D1920` to `#333333`), so a touched row flashes grey rather than an accent tint, and the
+status bar asset's own background (`#000000`, not `#161616`), which the payload's fill covers.
 
 ## Review and device acceptance
 
@@ -513,5 +551,6 @@ The [review sheets](ui/sudo/README.md) are native-size **composed previews**, no
 Host and MIPS checks cover geometry, clipping, cached dimming, selection contrast, recycled rows,
 preferences, input and packaging. They do not establish panel readability or rendering speed.
 Before release, check the real Q2 with bright/dark/missing covers, long multilingual labels,
-all accents, Artwork/Plain, Rockbox present/absent, paused playback, seeking and streaming.
+all accents, both themes, Artwork/Plain and Split/Full, Rockbox present/absent, paused playback,
+seeking and streaming. Switch Theme with Now Playing and Spotify open underneath.
 Confirm wheel and touch behavior, transitions, frame responsiveness and the rounded-glass edges.

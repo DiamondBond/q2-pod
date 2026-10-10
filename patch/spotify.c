@@ -377,10 +377,9 @@ void spot_paint(void *w, void *canvas) {
     if (w == ui.bar) {
         unsigned ms = ui.scrub ? (unsigned)ui.scrub_ms : spot_position();
         int x = (int)((ms >> 4) * SPOT_BAR_W / ((sp.duration >> 4) | 1)); /* 32-bit to 57 h */
-        box(canvas, 0, 0, SPOT_BAR_W, SPOT_BAR_H, rgba(TRACK_COLOR, 255), SPOT_BAR_H / 2);
-        if (x)
-            box(canvas, 0, 0, x < SPOT_BAR_H ? SPOT_BAR_H : x, SPOT_BAR_H,
-                ui.scrub ? 0xffffffffu : tone, SPOT_BAR_H / 2);
+        int h = np_bar_h();
+        box(canvas, 0, 0, SPOT_BAR_W, h, rgba(TRACK_COLOR, 255), h / 2);
+        if (x) box(canvas, 0, 0, x < h ? h : x, h, ui.scrub ? 0xffffffffu : tone, h / 2);
     } else { /* a triangle playing, two bars otherwise */
         canvas_set_fill_color(canvas, 0xffffffffu);
         if (sp.playing)

@@ -139,7 +139,8 @@ def validate_assets(directory):
     old, new = read('stock.squashfs', strings), read('rootfs.squashfs', strings)
     assert new == old.replace(*QUEUE_LABEL) and new != old and len(new) == len(old)
     # iPod settings icons: the audited 52px artwork, packaged as SET_ICON RGBA with the same transparency
-    # and, on a plain background, the same average colour; Stock keeps them stock.
+    # and, on a plain background, the same average colour; Stock keeps them stock. Minimal greys them
+    # as they load (navigation.c ringnav_image_add, Rec. 709 luma in 1/256), within ImageMagick's Gray.
     def mean(png, bg):
         cmd = ['png:-', '-background', bg, '-flatten', '-format', '%[fx:mean.r],%[fx:mean.g],%[fx:mean.b]', 'info:']
         return [float(v) for v in imagemagick(*cmd, data=png).split(b',')]
@@ -154,9 +155,14 @@ def validate_assets(directory):
         try: settings_icon(name, old[:-1] + b'x')
         except ValueError: pass
         else: raise AssertionError(f'{name}: accepted a changed icon')
-        grey = imagemagick('png:-', '-colorspace', 'Gray', '-colorspace', 'sRGB', '-define', 'png:color-type=6', 'png:-', data=old)
-        for bg in ('#000000', '#eeeeec'):  # the black list and monochrome selection
-            values = mean(new, bg)
+        for bg in ('#000000', '#6e6e6e'):  # the list, and Classic's Graphite selection bar
+            assert max(abs(a - b) for a, b in zip(mean(old, bg), mean(new, bg))) < 0.02, (name, bg)
+        px = bytearray(imagemagick('png:-', '-depth', '8', 'rgba:-', data=new))
+        for i in range(0, len(px), 4): px[i:i+3] = bytes([(px[i]*54 + px[i+1]*183 + px[i+2]*19) >> 8])*3
+        runtime = imagemagick('-size', f'{SET_ICON}x{SET_ICON}', '-depth', '8', 'rgba:-', '-define', 'png:color-type=6', 'png:-', data=bytes(px))
+        grey = imagemagick('png:-', '-colorspace', 'Gray', '-colorspace', 'sRGB', '-define', 'png:color-type=6', 'png:-', data=new)
+        for bg in ('#000000', '#eeeeec'):  # Minimal's black list and monochrome selection
+            values = mean(runtime, bg)
             if bg == '#000000': assert max(values) - min(values) < 0.001, name
             assert max(abs(a - b) for a, b in zip(mean(grey, bg), values)) < 0.02, (name, bg)
     # Videos' player: an ELF with the stock binaries' ABI flags (nan2008, o32, mips32r2).
@@ -302,7 +308,7 @@ def validate_assets(directory):
             name=rel.rsplit('/',1)[-1]
             if name in QUIET_ICONS:
                 assert sha(original)==QUIET_ICONS[name] and new==quiet_icon(name,original)
-                assert png_header(new)==((50,50,8,6) if name == 'list_into.png' else (28,28,8,6))
+                assert png_header(new)==(28,28,8,6)
             else: assert name in SETTINGS_ICONS and new==settings_icon(name,original)
             continue
         short = rel.split('/raw/ui/')[1]
@@ -356,7 +362,7 @@ def validate_assets(directory):
             assert sg == [0, HOME_TOP, HOME_LIST_W, 2*HOME_ROW] and [r[2]['name'] for r in ss[3]] == ['btn_playset', 'btn_sysset']
             assert [r[3][1][2]['name'] for r in ss[3]] == ['img_playset', 'img_sysset'] and [r[3][0][2]['text'] for r in ss[3]] == ['Playback', 'System']
             # The art fills the right panel below the status bar; the payload fits and crops it.
-            assert art[0] == 'view' and art[1] == [0, 0, 375, 290] and HOME_LIST_W == 375
+            assert art[0] == 'image' and art[1] == [0, 0, 375, 290] and art[2]['draw_type'] == 'fill' and HOME_LIST_W == 375
             assert all(v == '#00000000' for k,v in root[3][1][2].items() if k.startswith('style:'))
             assert [r[2]['name'] for r in sv[3]] == ['btn_'+n for n in HOME_ROWS] and HOME_ROWS[2] == 'coverflow'
             for name, (_, _, _, (label, image)) in zip(HOME_ROWS, sv[3]):
@@ -373,6 +379,15 @@ def validate_assets(directory):
             # The dot and the labels clear the bottom row's corner.
             assert dot[0] >= corner_x(30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - dot[1])//2, dot[1])
             assert HOME_TEXT_X >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
+            # Classic (coverflow_home_layout): Split halves the screen, the art taking the odd pixel;
+            # Full's rows end at HOME_CLASSIC_ROW, so the chevron's glyph (x 20 to 31, y 16 to 34 of
+            # list_into, centred on the row) mirrors the labels' margin and, on the last row, clears
+            # the bottom-right corner as the label clears the bottom-left.
+            assert inc('HOME_SPLIT_W') == 375 // 2
+            glyph_end = inc('HOME_CLASSIC_ROW') - CHEVRON_W + 31
+            glyph_y = 30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
+            assert 375 - glyph_end == inc('HOME_CLASSIC_TEXT_X') >= corner_x(glyph_y, 34 - 16)
+            assert inc('HOME_CLASSIC_TEXT_X') >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
             left, right, *rest = root[3]

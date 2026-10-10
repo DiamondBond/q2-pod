@@ -254,7 +254,8 @@ def ipod_home(root):
     require([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
-    root[3] = [['view', HOME_ART_RECT, {'name': 'img_homeart'}, []],
+    # An image, for Classic's art (coverflow_home_art); Minimal paints its backdrop there instead.
+    root[3] = [['image', HOME_ART_RECT, {'name': 'img_homeart', 'draw_type': 'fill'}, []],
                home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'})]
 
 
@@ -517,7 +518,8 @@ SET_ROW, SET_TOP, SET_ROWS, SET_STOCK_ROW = (inc(n) for n in ('SET_ROW', 'SET_TO
 # is pre-sized to SET_ICON at build time so the rows draw it 1:1 instead of scaling it on the device.
 # ImageMagick's Lanczos resize weights colour by alpha, so edges keep their colour and transparency;
 # -strip and the excluded date chunks keep the bytes reproducible. Only native settings code names
-# these images, so no other screen sees the smaller size.
+# these images, so no other screen sees the smaller size. They keep their colours for Classic; Minimal
+# greys them as they load (navigation.c ringnav_image_add), as it does list_into's ink.
 SETTINGS_ICONS = AUDIT['settings_icons']
 SET_ICON, SET_STOCK_ICON = inc('SET_ICON'), inc('SET_STOCK_ICON')
 
@@ -539,7 +541,6 @@ def settings_icon(name, data):
     require(hashlib.sha256(data).hexdigest() == SETTINGS_ICONS.get(name), f'{name}: unaudited settings icon')
     require(png_header(data) == (SET_STOCK_ICON, SET_STOCK_ICON, 8, 6), f'{name}: unexpected stock icon format')
     out = imagemagick('png:-', '-alpha', 'on', '-filter', 'Lanczos', '-resize', f'{SET_ICON}x{SET_ICON}!',
-                      '-colorspace', 'Gray', '-colorspace', 'sRGB',
                       '-strip', '-define', 'png:exclude-chunks=date,time', '-define', 'png:color-type=6',
                       '-define', 'png:bit-depth=8', 'png:-', data=data)
     require(png_header(out) == (SET_ICON, SET_ICON, 8, 6), f'{name}: filtered icon is not {SET_ICON}px RGBA')
@@ -553,10 +554,6 @@ QUIET_ICONS = AUDIT['quiet_icons']
 
 def quiet_icon(name, data):
     require(hashlib.sha256(data).hexdigest() == QUIET_ICONS.get(name), f'{name}: unaudited control icon')
-    if name == 'list_into.png':
-        return imagemagick('png:-', '-channel', 'RGB', '-fill', '#777777', '-colorize', '100', '+channel',
-                          '-strip', '-define', 'png:exclude-chunks=date,time', '-define', 'png:color-type=6',
-                          '-define', 'png:bit-depth=8', 'png:-', data=data)
     return imagemagick('png:-', '-trim', '+repage', '-filter', 'Lanczos', '-resize', '24x24',
                       '-channel', 'RGB', '-fill', '#aaaaaa' if name == 'play_moredown.png' else '#eeeeee',
                       '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'none',

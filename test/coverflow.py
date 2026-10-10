@@ -172,8 +172,9 @@ void *widget_lookup(void *x, const char *n, int r) {
     return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
            !strcmp(n, "list_view_home") ? home_list : 0;
 }
-static int home_full;
+static int home_full, classic;
 int ipod_home_full(void) { return home_full; }
+int ipod_classic(void) { return classic; }
 int ipod_home_rockbox(void) { return 0; }
 int rockbox_open(void *x, void *e) { (void)x; (void)e; return 0; }
 int widget_move_resize(void *x, int left, int top, int ww, int h) {
@@ -1071,6 +1072,41 @@ int main(void) {
         assert(loads == before + !home_full);
     }
     ipod_backdrop_set(0, home_art, 0); assert(frames == 0 && loads == unloads);
+    /* Theme: Classic. Split halves the screen: the art itself, no backdrop, in the right panel,
+       sized to the cover's proportions, just covering the panel and centred on it (C division
+       leaves an odd overflow's extra pixel on the right or bottom), clipped to it; the placeholder
+       without a cover. Full widens the list to the screen and its rows to HOME_CLASSIC_ROW, labels
+       ending before the chevron, and hides the art. Minimal then clears the art back to the panel. */
+    const char *art = W(home_art)->image;
+    classic = 1; home_full = 0;
+    coverflow_home(win, 0);
+    int split[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 };
+    assert(!memcmp(geo, split, sizeof split) && W(home_art)->visible);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
+    assert(*(int *)(label->raw + W_X) == HOME_CLASSIC_TEXT_X &&
+           *(int *)(label->raw + W_W) == HOME_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
+    coverflow_home_art(win); assert(!strcmp(art, player) && frames == 0);
+    static const int covers[][6] = { { 160, 160, 136, 0, 290, 290 }, { 188, 290, 187, 0, 188, 290 },
+                                     { 300, 200, 64, 0, 435, 290 }, { 100, 400, 187, -231, 188, 752 } };
+    for (unsigned i = 0; i < 4; ++i) {
+        art_w = covers[i][0], art_h = covers[i][1];
+        *(volatile int *)MCL_POS = 0; coverflow_home_art(win); *(volatile int *)MCL_POS = 1; coverflow_home_art(win);
+        for (int k = 0; k < 4; ++k) assert(geo[k] == covers[i][2 + k]);
+    }
+    art_w = art_h = 160;
+    canvas[CANVAS_X / 4] = geo[0]; canvas[CANVAS_Y / 4] = 30 + geo[1];
+    int panel_clip[4] = { HOME_SPLIT_W, 30, 375 - HOME_SPLIT_W, 290 };
+    coverflow_home_clip(home_art, canvas, 1); assert(!memcmp(clip_rect, panel_clip, sizeof panel_clip) && frames == 0);
+    coverflow_home_clip(home_art, canvas, 0); assert(!memcmp(clip_rect, full, sizeof full));
+    snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[0]); /* not this track's cover */
+    coverflow_home_art(win); assert(!strcmp(art, "default_album_home") && !memcmp(geo, split, sizeof split));
+    home_full = 1; coverflow_home_layout();
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_CLASSIC_ROW));
+    assert(*(int *)(label->raw + W_W) == HOME_CLASSIC_ROW - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END && !W(home_art)->visible);
+    classic = 0; home_full = 0; coverflow_home_layout();
+    assert(!*art && !memcmp(geo, panel, sizeof panel) && *(int *)(label->raw + W_X) == 39);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == 375);
+    ipod_backdrop_set(0, home_art, 0); assert(loads == unloads);
 
 #endif
     return 0;
@@ -1110,7 +1146,7 @@ def main():
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
           ' Sort by artist, recently added and most played, kept across opens, passed;'
-          ' iPod backdrop sources, crop, dimming, smoothness, corner colour, deferred repaint, allocation failure, cache, clip and Artwork/Plain layout passed.')
+          ' iPod backdrop sources, crop, dimming, smoothness, corner colour, deferred repaint, allocation failure, cache, clip and Artwork/Plain layout, Classic Split/Full art and layout passed.')
 
 
 if __name__ == '__main__':

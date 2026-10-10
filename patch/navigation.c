@@ -179,8 +179,8 @@ typedef struct {
     unsigned lyric_timer; /* runs while the wheel holds the lyrics and stock's timer is stopped */
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, battery, home_rockbox;
-    void *setting_label[3];
+    int settings_read, accent, home_full, battery, home_rockbox, classic;
+    void *setting_label[4];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1188,9 +1188,10 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent, Home and Battery settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME and
- * BATTERY in the stock config.ini: toolsReadConfig(path, section, key, out,
- * default) copies the value, or the default. */
+/* The Accent, Home, Battery and Theme settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME,
+ * BATTERY and THEME in the stock config.ini: toolsReadConfig(path, section, key, out,
+ * default) copies the value, or the default. A card without THEME is Minimal (0), which has no
+ * accent: its drawing takes Graphite's greys and its fills MINIMAL_FILL; Classic (1) the accent. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
@@ -1204,9 +1205,14 @@ static int accent(void) {
         st.accent = config_digit("ACCENT", ACCENT_N);
         st.home_full = config_digit("HOME", 2);
         st.battery = config_digit("BATTERY", 3);
+        st.classic = config_digit("THEME", 2);
         st.settings_read = 1;
     }
-    return st.accent;
+    return st.classic ? st.accent : 0; /* Graphite */
+}
+int ipod_classic(void) {
+    accent();
+    return st.classic;
 }
 int ipod_home_full(void) {
     accent();
@@ -1216,7 +1222,10 @@ int ipod_home_full(void) {
 int ipod_home_rockbox(void) {
     return st.home_rockbox = rockbox_available();
 }
-unsigned accent_tone(int tone) { return accents[accent()][tone]; }
+enum { TONE_LIGHT = 2, TONE_RED = 3 }; /* columns of ACCENTS */
+unsigned accent_tone(int tone) {
+    return tone == TONE_LIGHT && !ipod_classic() ? MINIMAL_FILL : accents[accent()][tone];
+}
 
 /* A color_t (bytes r, g, b, a) that is stock red blended with a neutral, t * red + k * white per
  * channel within RED_TOLERANCE, becomes the same blend of one of the preset's tones (TONE_RED for
@@ -1226,7 +1235,6 @@ unsigned accent_tone(int tone) { return accents[accent()][tone]; }
  * part (k) becomes that share of glyph: white keeps a blend's light part as it is. With another
  * glyph, neutral pixels (the glyph itself) map too, so pass it only for an image that holds red.
  * Crimson is the identity. */
-enum { TONE_LIGHT = 2, TONE_RED = 3 }; /* columns of ACCENTS */
 static unsigned red_map(unsigned c, unsigned tone, unsigned glyph) {
     static const int red[3] = { STOCK_RED >> 16, STOCK_RED >> 8 & 255, STOCK_RED & 255 };
     const int sum = red[0] + red[1] + red[2];
@@ -1321,15 +1329,15 @@ static int drill(void *w) {
 }
 
 /* The iPod `>` of each drill row, where stock rows place img_into, as stock hides its own
- * list_into: not in multi-select, and not on grid tiles. Home's rides its selection bar alone,
- * nudge included. The image manager caches the bitmap. */
+ * list_into: not in multi-select, and not on grid tiles. Home has none, except Classic's, which
+ * rides its selection bar alone, nudge included. The image manager caches the bitmap. */
 static void paint_chevrons(void *w, void *canvas) {
     unsigned bitmap[64]; /* bitmap_t */
     rect_t old;
     void *win = window_of(w);
     int home = win && !tk_strcmp(widget_get_prop_str(win, "name", ""), "home_page");
     if (g_navbar_status || !kind(w) || !P(canvas, CANVAS_LCD) || !drill(w) ||
-        home || !load_rows(&g_menu, w) ||
+        (home && (!ipod_classic() || st.sel_w != w)) || !load_rows(&g_menu, w) ||
         widget_load_image(w, "list_into", bitmap) || !clip_surface(canvas, &g_menu, &old))
         return;
     for (int i = 0; i < g_menu.n; ++i) {
@@ -1419,9 +1427,9 @@ static void paint_cover(void *w, void *canvas) {
 #endif
 
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
- * in Stock, an off-white bar behind them in iPod (a dot on Home).
- * The outline is one neutral white line seated on a dark shade line: the shade is the stock dark
- * surface at an alpha high enough to hold the white over bright album art, and being the same
+ * in Stock, an off-white bar behind them in iPod (a dot on Home), or Classic's full-width accent
+ * bar. The outline is one neutral white line seated on a dark shade line: the shade is the stock
+ * dark surface at an alpha high enough to hold the white over bright album art, and being the same
  * color as the dark rows it vanishes on the stock theme. The translucent fill keeps the row
  * readable over artwork without borrowing the red "playing" language or the native focus flag.
  * Small rows and degenerate geometry keep the square fallback. */
@@ -1472,12 +1480,17 @@ static void paint_selection(void *w, void *canvas) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
     }
-    st.sel_widget = home ? P(g_menu.at[i], W_PARENT) : g_menu.at[i];
-    st.sel_home = home;
-    if (home) {
+    /* Classic: the accent's bar under the rows' own ink. */
+    int classic = ipod_classic();
+    st.sel_widget = classic ? (void *)0 : home ? P(g_menu.at[i], W_PARENT) : g_menu.at[i];
+    st.sel_home = home && !classic;
+    if (classic) {
+        const unsigned *a = accents[accent()];
+        gradient(canvas, r, a[0], a[1], a[4]);
+    } else if (home) {
         rect_t dot = { HOME_DOT_X, r.y + (r.h - HOME_DOT) / 2, HOME_DOT, HOME_DOT };
         fill_box(canvas, &dot, 0xffffffff, HOME_DOT / 2);
-    } else gradient(canvas, r, 0xeeeeec, 0xeeeeec, 0xeeeeec);
+    } else gradient(canvas, r, MINIMAL_FILL, MINIMAL_FILL, MINIMAL_FILL);
     st.sel_w = w;
     st.sel_row = i;
     st.sel_y = r.y + r.h / 2;
@@ -1839,12 +1852,27 @@ static unsigned np_track(void) {
     return r ? fnv(hash_bytes(FNV_SEED, (const unsigned char *)&at, sizeof at), P(r, REC_PATH)) : 0;
 }
 
-/* The accent's light tone fills the progress bar; a white fill marks the scrub. */
+/* The accent's light tone (Minimal's MINIMAL_FILL) fills the progress bar; a white fill marks the
+ * scrub. */
 static void np_fill(int scrub) {
     if (!st.np_slider) return;
-    unsigned color = scrub ? 0xffffffff : RGBA(accents[accent()][TONE_LIGHT]);
+    unsigned color = scrub ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
     widget_invalidate_force(st.np_slider, (void *)0);
+}
+
+/* The Theme's progress bar over the asset's (Minimal's square 4px line): Classic's NP_BAR_CLASSIC
+ * capsule, and stock's play-state glyph, which Minimal hides. */
+static void np_theme(void) {
+    static const char *const radius[] = { "style:normal:round_radius", "style:pressed:round_radius",
+                                          "style:over:round_radius", "style:disable:round_radius",
+                                          "style:focused:round_radius" };
+    void *glyph = st.np_win ? widget_lookup(st.np_win, "img_playstate", 1) : (void *)0;
+    int h = np_bar_h();
+    for (unsigned i = 0; st.np_slider && i < sizeof radius / sizeof *radius; ++i)
+        widget_set_prop_int(st.np_slider, radius[i], h / 2);
+    if (st.np_slider) widget_set_prop_int(st.np_slider, "bar_size", h);
+    if (glyph) widget_set_opacity(glyph, ipod_classic() ? 255 : 0);
 }
 
 /* Commits a target the wheel moved, unless the playing track changed since the scrub began; the
@@ -1986,6 +2014,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
+    np_theme();
     widget_on(win, EVT_DESTROY, np_gone, win);
     np_sync(win);
     visualizer_attach(win);
@@ -2083,7 +2112,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-        canvas_set_fill_color(canvas, RGBA(BAR_COLOR));
+        canvas_set_fill_color(canvas, RGBA(ipod_classic() ? BAR_CLASSIC : BAR_COLOR));
         canvas_fill_rect(canvas, 0, 0, I(w, W_W), I(w, W_H));
         canvas_set_fill_color(canvas, fill);
     }
@@ -2196,6 +2225,22 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
                        GLYPH_LIGHT_MAX)
         glyph = CONFIRM_SURFACE;
     while (s && *s && *s != '/' && *s != ':') ++s;
+    /* Minimal: the settings icons turn grey (Rec. 709 luma) and list_into's ink MINIMAL_CHEVRON,
+     * alpha kept. */
+    int icon = s && !*s && settings_icon(name), into = s && !*s && !tk_strcmp(name, "list_into");
+    unsigned char *px = (icon || into) && format < 4 && !ipod_classic()
+                            ? bitmap_lock_buffer_for_write(bitmap) : (void *)0;
+    if (px) {
+        const unsigned char *o = at[format];
+        for (int y = 0; y < I(bitmap, 4); ++y)
+            for (unsigned char *p = px + y * bitmap_get_line_length(bitmap),
+                               *end = p + 4 * I(bitmap, 0);
+                 p < end; p += 4)
+                p[o[0]] = p[o[1]] = p[o[2]] =
+                    (unsigned char)(icon ? (p[o[0]] * 54 + p[o[1]] * 183 + p[o[2]] * 19) >> 8
+                                         : MINIMAL_CHEVRON & 255);
+        bitmap_unlock_buffer(bitmap);
+    }
     if ((preset != CRIMSON || dark) && format < 4 && s && !*s && !settings_icon(name))
         data = bitmap_lock_buffer_for_write(bitmap);
     if (data) {
@@ -2232,22 +2277,39 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    static const char *const home[] = { "Home: Artwork", "Home: Plain" },
+    static const char *const home[][2] = { { "Home: Artwork", "Home: Plain" },
+                                           { "Home: Split", "Home: Full" } },
                              *const battery[] = { "Battery: Icon", "Battery: Percent",
-                                                  "Battery: Icon + Percent" };
-    const char *const names[] = { accent_names[accent()], home[st.home_full], battery[st.battery] };
+                                                  "Battery: Icon + Percent" },
+                             *const theme[] = { "Theme: Minimal", "Theme: Classic" };
+    accent(); /* reads the settings */
+    const char *const names[] = { accent_names[st.accent], home[st.classic][st.home_full],
+                                  battery[st.battery], theme[st.classic] };
     widget_set_text_utf8(st.setting_label[i], names[i]);
 }
 
-/* Centre or tap cycles the row's value and saves it. A new accent reaches the payload's drawing on
- * the next paint, and the theme's colors and images once every cached image is dropped and the
- * screen repaints; Home takes its new layout and Streaming label at once (never recreated). */
+/* The Accent row shows only in Classic, right after Theme. A list places hidden rows too, so a
+ * hidden one moves to the end, below the last row, like Home's Rockbox row. */
+static void accent_row(void) {
+    if (!st.setting_label[0] || !st.setting_label[3]) return;
+    void *item = P(P(st.setting_label[0], W_PARENT), W_PARENT),
+         *theme = P(P(st.setting_label[3], W_PARENT), W_PARENT), *view = P(item, W_PARENT);
+    unsigned at = 0, n = widget_count_children(view);
+    while (at < n && widget_get_child(view, at) != theme) ++at;
+    widget_restack(item, st.classic ? at + 1 : n - 1);
+    widget_set_visible(item, st.classic, 0);
+}
+
+/* Centre or tap cycles the row's value and saves it. A new accent or theme reaches the payload's
+ * drawing on the next paint, and the theme's colors and images once every cached image is dropped
+ * and the screen repaints; Home takes its new layout and Streaming label at once (never
+ * recreated), and an open Now Playing its progress bar. */
 static int setting_click(void *ctx, void *event) {
     (void)event;
-    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY" };
-    static const int counts[] = { ACCENT_N, 2, 3 };
-    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery */
-    int *const values[] = { &st.accent, &st.home_full, &st.battery },
+    static const char *const keys[] = { "ACCENT", "HOME", "BATTERY", "THEME" };
+    static const int counts[] = { ACCENT_N, 2, 3, 2 };
+    int i = (int)(long)ctx; /* read by ringnav_display: 0 Accent, 1 Home, 2 Battery, 3 Theme */
+    int *const values[] = { &st.accent, &st.home_full, &st.battery, &st.classic },
                *value = values[i];
     *value = (*value + 1) % counts[i];
     write_int_config(*value, "IPOD", keys[i]);
@@ -2255,7 +2317,13 @@ static int setting_click(void *ctx, void *event) {
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
     else if (i == 1)
         coverflow_home_layout();
-    else if (!i) {
+    else {
+        if (i == 3) {
+            coverflow_home_layout();
+            np_theme();
+            accent_row();
+            setting_text(1);
+        }
         np_fill(0);
         image_manager_unload_all(image_manager());
         widget_invalidate_force(window_manager(), (void *)0);
@@ -2363,21 +2431,25 @@ static void wheel_row(void *view) {
 
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Accent, Home and Battery rows follow with the same widgets and styles, borrowing the Display,
- * cover mode and power manager icons, the value in the label and no chevron, since they change in
- * place. */
+ * Theme, Accent, Home and Battery rows follow with the same widgets and styles, borrowing the
+ * Display (Theme and Accent), cover mode and power manager icons, the value in the label and no
+ * chevron, since they change in place. */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
 #if IPOD
     static const char *const icons[] = { "system_display", "playset_covermode",
-                                         "system_powermanager" };
-    for (int i = 0; view && i < 3; ++i) {
+                                         "system_powermanager", "system_display" };
+    for (int k = 0; view && k < 4; ++k) {
+        int i = (k + 3) % 4; /* Theme first */
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
 #endif
     if (view) wheel_row(view);
+#if IPOD
+    if (view) accent_row();
+#endif
     return result;
 }
 

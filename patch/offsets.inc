@@ -112,7 +112,7 @@
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
-/* iPod black status chrome; TRACK_COLOR is the Now Playing progress track. */
+/* iPod black status chrome (Classic: BAR_CLASSIC); TRACK_COLOR is Now Playing's progress track. */
 #define BAR_COLOR 0x000000
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
@@ -162,6 +162,22 @@
 #define HOME_DOT_X 25
 #define HOME_DOT 6
 #define HOME_DOT_GAP 8
+/* iPod Theme: Classic (IPOD/THEME 1, docs/ipod.md#display-settings) puts the pre-1.0.1 look back
+ * over the Minimal assets at runtime. Its Home splits the screen at HOME_SPLIT_W, the art panel
+ * right of it; in Full the rows end at HOME_CLASSIC_ROW, so the chevron's glyph (x 20 to 31 of
+ * list_into) mirrors the labels' margin. Labels start at HOME_CLASSIC_TEXT_X and end 10px before
+ * the glyph. The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
+ * (Minimal's NP_BAR_MINIMAL line). Minimal has no accent: its fills are MINIMAL_FILL, its
+ * settings icons grey and list_into MINIMAL_CHEVRON. */
+#define HOME_SPLIT_W 187
+#define HOME_CLASSIC_ROW 369
+#define HOME_CLASSIC_TEXT_X 33
+#define HOME_CLASSIC_LABEL_END (CHEVRON_W - 10)
+#define BAR_CLASSIC 0x242424
+#define NP_BAR_CLASSIC 8
+#define NP_BAR_MINIMAL 4
+#define MINIMAL_FILL 0xeeeeec
+#define MINIMAL_CHEVRON 0x777777
 #define PAGE_SLIDE_MS 120
 #define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and

@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
 """Compose native-size review sheets; these are layout illustrations, not AWTK captures.
-Usage: python3 test/ui_preview.py BEFORE_BUILD AFTER_BUILD OUTPUT [BEFORE_CF AFTER_CF]
-Uses the existing ImageMagick dependency and the original firmware's native font/assets.
+Usage: python3 test/ui_preview.py [--themes BEFORE,AFTER] BEFORE_BUILD AFTER_BUILD OUTPUT [BEFORE_CF AFTER_CF]
+Each side is drawn in an iPod Theme, classic or minimal (default classic,minimal); one build passed
+twice compares its two themes. Uses the existing ImageMagick dependency and the original firmware's
+native font/assets.
 """
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 sys.path.insert(0, sys.path[0] + '/../tools')
 from ipod import (decode, walk, imagemagick, png_header, HOME_TEXT_X, HOME_LIST_W,
-                  HOME_LABEL_END, HOME_ROW, HOME_TOP, inc)
+                  HOME_LABEL_END, HOME_ROW, HOME_TOP, INC, inc)
 
-before, after, out = map(pathlib.Path, sys.argv[1:4])
-cf_paths = list(map(pathlib.Path, sys.argv[4:]))
+argv = sys.argv[1:]
+themes = ['classic', 'minimal']
+if argv[:1] == ['--themes']: themes, argv = argv[1].split(','), argv[2:]
+assert len(themes) == 2 and set(themes) <= {'classic', 'minimal'}
+before, after, out = map(pathlib.Path, argv[:3])
+cf_paths = list(map(pathlib.Path, argv[3:]))
 assert len(cf_paths) in (0, 2)
 out.mkdir(parents=True, exist_ok=True)
-before_accents = [(0x424242, 0x424242, 0x6e6e6e), (0xe8123f, 0xa60025, 0xeb2f56),
-           (0x13838d, 0x095158, 0x30929b), (0x8c732c, 0x5d4a18, 0x9a8446)]
-
-accents = [(0xeeeeec, 0xeeeeec, light) for _, _, light in before_accents]
+# Classic: patch/offsets.inc ACCENTS (top, bottom, light); Minimal has no accent.
+classic_accents = [tuple(int(v, 16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x\w+, 0x\w+ \}', INC)]
+minimal = (0xeeeeec, 0xeeeeec, inc('MINIMAL_FILL'))
 
 with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     tmp = pathlib.Path(tmp)
@@ -66,6 +72,17 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                  ')', '-gravity', 'NorthWest', '-geometry', f'+{x}+{y}', '-composite']
     def rect(args, x, y, w, h, color):
         args += ['-fill', color, '-draw', f'rectangle {x},{y} {x+w-1},{y+h-1}']
+    def recolour(p, minimal_ink=None):
+        """Minimal's runtime image work (navigation.c ringnav_image_add): a settings icon greyed
+        (Rec. 709 luma in 1/256) or list_into's ink set to MINIMAL_CHEVRON, alpha kept."""
+        dest=tmp/(('ink-' if minimal_ink else 'grey-')+p.parent.name+'-'+p.name)
+        if dest.exists(): return dest
+        w,h=png_header(p.read_bytes())[:2]
+        px=bytearray(imagemagick(p,'-depth','8','rgba:-',data=b''))
+        for i in range(0,len(px),4):
+            px[i:i+3]=bytes([minimal_ink if minimal_ink else (px[i]*54+px[i+1]*183+px[i+2]*19)>>8])*3
+        dest.write_bytes(imagemagick('-size',f'{w}x{h}','-depth','8','rgba:-','-define','png:color-type=6','png:-',data=bytes(px)))
+        return dest
     def selection(args, y, h, width, palette):
         top, bottom, _ = palette
         args += ['(', '-size', f'{width}x{h}', f'gradient:#{top:06x}-#{bottom:06x}',
@@ -90,33 +107,36 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     for accent, name in enumerate(('Graphite','Crimson','Tidal','Champagne')):
         tiles=[]
         for case, title in enumerate(cases):
-            for old, build in ((True,before),(False,after)):
-                palette = (before_accents if old else accents)[accent]
+            for side, (theme, build) in enumerate(zip(themes, (before, after))):
+                old = theme == 'classic'  # Classic draws the pre-1.0.1 look
+                palette = classic_accents[accent] if old else minimal
+                tint = accent if old else 0  # Minimal's images take Graphite's greys
                 a=['-size','375x320','xc:black']
                 if case<8 or case>=10:
-                    rect(a,0,0,375,30,'#242424' if old else '#000000')
+                    rect(a,0,0,375,30,f'#{inc("BAR_CLASSIC") if old else inc("BAR_COLOR"):06x}')
                     text(a,'Ⅱ' if case==3 else '▶',54,5,22,20,16)
                     text(a,'12:59 PM',151,5,74,20,16)
                     text(a,'88%',280,5,40,20,16)
                 if case<3 or case in (10,11):
-                    full=case in (1,2); width=(369 if full else 187) if old else HOME_LIST_W
+                    full=case in (1,2); width=(inc('HOME_CLASSIC_ROW') if full else inc('HOME_SPLIT_W')) if old else HOME_LIST_W
                     labels = ['Now Playing','Library','Coverflow','Folders','Rockbox','Streaming','Settings']
                     if case==1: labels=['Now Playing','Library — a very long music collection','Coverflow','音楽フォルダー','Streaming','Settings']
                     if case==2: labels=['Playback','System']
                     if not full and case!=11:
                         source = dark if case==10 else bright
-                        if old: image(a,source,187,30,188,290)
+                        if old: image(a,source,inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
                         else:
                             image(a,backdrop(source,tmp/'home-background.png'),0,30,375,290)
-                    elif not full and old: image(a,asset(build,'images/xx/default_album_home.png'),187,30,188,290)
+                    elif not full and old: image(a,asset(build,'images/xx/default_album_home.png'),inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
                     selected=1 if case!=2 else 0
                     for i,value in enumerate(labels):
                         y=30+HOME_TOP+i*HOME_ROW
                         if i==selected:
                             if old: selection(a,y,HOME_ROW,375 if full else width,palette)
                             else: a+=['-fill','white','-draw',f'circle {inc("HOME_DOT_X")+3},{y+HOME_ROW//2} {inc("HOME_DOT_X")+6},{y+HOME_ROW//2}']
-                        label_width=width-HOME_TEXT_X-(40 if old else HOME_LABEL_END)
-                        text(a,value,HOME_TEXT_X,y,label_width,HOME_ROW,color='#FFFFFF' if old or i==selected else '#AAAAAA')
+                        x0=inc('HOME_CLASSIC_TEXT_X') if old else HOME_TEXT_X
+                        label_width=width-x0-(inc('CHEVRON_W')-10 if old else HOME_LABEL_END)
+                        text(a,value,x0,y,label_width,HOME_ROW,color='#FFFFFF' if old or i==selected else '#AAAAAA')
                         if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
                 elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
@@ -137,20 +157,24 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     if old and case==3: text(a,'Ⅱ',82,146,34,44,30)
                     if case==3: text(a,'•  ·  ·',168,258,70,12,12,'#AAAAAA')
                     else: text(a,'▶',337,43,14,14,12,'#AAAAAA')
-                    rect(a,21,281 if old else 283,333,8 if old else 4,'#1C1C1C'); rect(a,21,281 if old else 283,132,8 if old else 4,'#FFFFFF' if case in (4,12) else f'#{palette[2]:06x}')
+                    bh=inc('NP_BAR_CLASSIC') if old else inc('NP_BAR_MINIMAL'); by=251 if case==4 else 270+(30-bh)//2
+                    rect(a,21,by,333,bh,'#1C1C1C'); rect(a,21,by,132,bh,'#FFFFFF' if case in (4,12) else f'#{palette[2]:06x}')
                     text(a,'01:23',46,295,80,16,14,'#AAAAAA'); text(a,'-02:34',249,295,80,16,14,'#AAAAAA')
                 elif case<8:
                     rows = [('Shuffle','local_shuffle'),('Most Played','local_frequentplay'),('Audiobooks','local_audiobooks'),('Podcasts','local_podcasts')]
                     if case==6: rows=[('Albums','list_folder'),('音楽 — 長いフォルダー名','list_folder'),('A very long track title','local_frequentplay'),('Live recordings','list_folder')]
-                    if case==7: rows=[('Backlight','display_backlight'),('Accent: '+name,'system_display'),('Home: Full' if old else 'Home: Plain','playset_covermode'),('Battery: Icon','system_powermanager')]
+                    if case==7: rows=[('Backlight','display_backlight'),('Theme: Classic','system_display'),('Accent: '+name,'system_display'),('Home: Full','playset_covermode')] if old else \
+                        [('Backlight','display_backlight'),('Theme: Minimal','system_display'),('Home: Plain','playset_covermode'),('Battery: Icon','system_powermanager')]
                     for i,(label,icon) in enumerate(rows):
                         y=30+i*72
                         if i==1: selection(a,y,72,375,palette)
                         p=build/(icon+'.png')
                         if not p.exists():
                             p=asset(build,'images/xx/'+icon+'.png')
+                            if not old and case==7: p=recolour(p)
                         image(a,p,16,y+14,40,40); text(a,label,72,y,245,68,24,'#171717' if not old and i==1 else '#FFFFFF')
-                        if case!=7 or i==0: image(a,asset(build,'images/xx/list_into.png'),317,y+9,50,50)
+                        into=asset(build,'images/xx/list_into.png')
+                        if case!=7 or i==0: image(a,into if old else recolour(into,inc('MINIMAL_CHEVRON')&255),317,y+9,50,50)
                 elif case in (13,14):
                     if case==13:
                         text(a,'Parametric EQ',33,34,310,32,22)
@@ -185,7 +209,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                             icon={'drop_wifi':'drop_wifiopen','drop_lowgain':'drop_lowgaindisable'}.get(icon,icon)
                             if icon:
                                 p=asset(build,'images/xx/'+icon+'.png')
-                                if icon.startswith(('confirm_','drop_')): p=tinted(p,icon,accent)
+                                if icon.startswith(('confirm_','drop_')): p=tinted(p,icon,tint)
                                 iw,ih=png_header(p.read_bytes())[:2]
                                 image(a,p,x+(w-iw)//2,y+(h-ih)//2,iw,ih)
                         if kind=='label': text(a,props.get('text') or props.get('tr_text',''),x,y,w,h,16)
@@ -194,11 +218,11 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     controls(root)
                 a+=['(', '-size','375x320','xc:black','-fill','white','-draw','roundrectangle 0,0 374,319 80,80',')',
                     '-alpha','off','-compose','CopyOpacity','-composite','-background','black','-alpha','remove','-compose','Over']
-                p=tmp/f'{case}-{old}.png'; assert render(a,p)==(375,320)
-                tile=tmp/f'tile-{case}-{old}.png'
+                p=tmp/f'{case}-{side}.png'; assert render(a,p)==(375,320)
+                tile=tmp/f'tile-{case}-{side}.png'
                 assert render(['-size','375x354','xc:#202020',p,'-gravity','NorthWest','-geometry','+0+34','-composite',
                                '-font',font,'-pointsize','12','-fill','white','-gravity','NorthWest',
-                               '-annotate','+5+8',('Before' if old else 'After')+' (composed) | '+title],tile)==(375,354)
+                               '-annotate','+5+8',('Before' if side==0 else 'After')+f' {theme.title()} (composed) | '+title],tile)==(375,354)
                 tiles.append(tile)
         args=[]
         for i in range(0,len(tiles),2): args+=['(',tiles[i],tiles[i+1],'+append',')']
@@ -221,5 +245,5 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         'after_source_sha256':json.loads((after/'manifest.json').read_text())['source_sha256'],
         'screen_size':[375,320], 'kind':'composed illustrations, not firmware captures',
         'artwork':'synthetic bright/dark gradients; missing art uses packaged placeholder or black',
-        'cases':cases, 'renderer_size':[375,210] if cf_paths else None},indent=2)+'\n')
+        'themes':themes, 'cases':cases, 'renderer_size':[375,210] if cf_paths else None},indent=2)+'\n')
 print('Composed sheets: native font and packaged assets; every screen is 375x320. These are not firmware captures.')
