@@ -71,9 +71,8 @@ SLIDE = f'htranslate(duration={inc("PAGE_SLIDE_MS")})'
 HOME_TOP = 8
 HOME_ROW = 39
 HOME_TEXT_X = inc('HOME_DOT_X') + inc('HOME_DOT') + inc('HOME_DOT_GAP')  # labels after the selection dot
-HOME_LABEL_END = 33  # mirror the text inset, clear of the lower-right glass
+HOME_LABEL_END = inc('HOME_LABEL_END')  # mirror the text inset, clear of the lower-right glass
 HOME_LIST_W = 375
-HOME_ART_RECT = [0, 0, 375, 290]  # the payload moves it to the right panel
 # iPod Now Playing (Rockbox iVideo): a 40px top row, the art band below it, then the progress bar
 # with the times under its ends. Stock draws the 3x10 A-B markers at y 250; the 4px line sits at
 # 253; their x follows NP_BAR through the np_bar_* immediates in ipod.json. The window starts
@@ -87,6 +86,7 @@ NP_MARGIN = 16
 NP_POS_X = max(NP_MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16)) + 6  # "3 of 12", 16px text
 NP_ICONS_END = 375 - corner_x(30, NP_TOP)  # the 50px icon images fill the row's height
 NP_TEXT_W = 165
+NP_GLYPH_PAD = 11                # the stock icons' glyphs sit 11px inside their 50px images
 NP_TITLE_PX = 22                 # the title over the 16px artist and album, as Apple's hierarchy
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
@@ -255,7 +255,7 @@ def ipod_home(root):
     require([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
     # An image for the playing track's art, moved to the right panel and fitted by coverflow_home_art.
-    root[3] = [['image', HOME_ART_RECT, {'name': 'img_homeart', 'draw_type': 'fill'}, []],
+    root[3] = [['image', [0, 0, 375, 290], {'name': 'img_homeart', 'draw_type': 'fill'}, []],
                home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'})]
 
 
@@ -335,7 +335,6 @@ def status_bar(root):
     room = int(375 - STATUS_MARGIN - (375 / 2 + CLOCK_TEXT / 2 + CLOCK_GAP))
     reach = BT_REACH + 5 + widgets['img_wifi'][1][2] + 5 + max(BATT_PCT_W, BATT_H_W)
     require(BATT_ROOM == room and reach <= room, f'Status bar battery needs {reach}px of {room}px')
-    require(inc('STATUS_EDGE') == STATUS_MARGIN, 'STATUS_EDGE must match STATUS_MARGIN')
     for name in STATUS_HIDDEN:
         g = widgets[name][1]
         g[0], g[3] = -200, 30  # still updated by stock, drawn off-screen
@@ -372,19 +371,27 @@ def playing_page(root):
     buttons, title, artist = root[3][:3]
     buttons[1] = [0, 0, 375, NP_TOP]
     named['img_return'][1][0] = -200  # the hardware Return, as on the pages whose navbars are hidden
-    for i, name in enumerate(['img_fav', 'img_more', 'img_playmode']):
+    for name in ('img_fav', 'img_more', 'img_playmode'):
         n = named[name]
-        n[1] = [NP_ICONS_END - (3 - i) * NP_ICON, 0, NP_ICON, NP_TOP]
         n[2] = {k: v for k, v in n[2].items() if not k.endswith(('_offset', 'text_align_h'))}
         if 'image' in n[2]:
             n[2]['draw_type'] = 'center'
-    buttons[3].append(['label', [NP_POS_X, 0, NP_ICONS_END - 3 * NP_ICON - NP_POS_X, NP_TOP], {
+    named['img_more'][1] = [NP_ICONS_END - NP_ICON, 0, NP_ICON, NP_TOP]
+    buttons[3].append(['label', [NP_POS_X, 0, NP_ICONS_END - NP_ICON - NP_POS_X, NP_TOP], {
         'name': 'label_ipod_pos', 'style:normal:font_size': '16', 'style:normal:text_color': NP_GREY,
         'style:normal:text_align_h': 'left'}, []])
 
     art_y = (NP_SLIDE_H - NP_ART) // 2
     text_w = 375 - NP_MARGIN - NP_TEXT_X
-    top = art_y + NP_ART // 2 - (28 + 4 + 20 + 4 + 20) // 2  # the three lines centre on the art
+    # Shuffle/order and favourite sit under the text, at the page's foot; their glyphs (28px in
+    # the 50px images, NP_GLYPH_PAD each side) end at the text's right edge. The three lines centre
+    # on the art above them.
+    icons_y = NP_SLIDE_H - NP_ICON
+    fav_x = 375 - NP_MARGIN - NP_ICON + NP_GLYPH_PAD
+    for name, x in (('img_playmode', fav_x - NP_ICON), ('img_fav', fav_x)):
+        buttons[3].remove(named[name])
+        named[name][1] = [x, icons_y, NP_ICON, NP_ICON]
+    top = art_y + (icons_y - art_y - (28 + 4 + 20 + 4 + 20)) // 2
     title[1] = [NP_TEXT_X, top, text_w, 28]
     title[2].update({'style': 's_scrlabel_white20l', 'style:normal:font_size': str(NP_TITLE_PX)})
     artist[1] = [NP_TEXT_X, top + 32, text_w, 20]
@@ -399,7 +406,7 @@ def playing_page(root):
     named['img_cover'][1] = [NP_MARGIN, art_y, NP_ART, NP_ART]
     named['img_playstate'][1] = [NP_MARGIN + (NP_ART - 120) // 2, art_y + (NP_ART - 120) // 2, 120, 120]
     named['img_playstate'][2]['opacity'] = '0'  # retain stock gesture target without a transport glyph
-    named['view_album'][3] += [title, artist, album]
+    named['view_album'][3] += [title, artist, album, named['img_playmode'], named['img_fav']]
     column = (375 - 225) // 2
     named['label_lyricmsg'][1][0] += column
     named['view_lrc'][2]['self_layout'] = f'default(x={column},y=0,w=225,h=178)'

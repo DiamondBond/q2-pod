@@ -375,15 +375,15 @@ def validate_assets(directory):
             assert lg == [0, HOME_TOP, HOME_LIST_W, 7*HOME_ROW] and HOME_TOP + 7*HOME_ROW <= BOTTOM - HOME_TOP
             assert b'menu_' not in new and b'slide_menu' not in new
             dot = inc('HOME_DOT_X'), inc('HOME_DOT')
-            assert HOME_TEXT_X == sum(dot) + inc('HOME_DOT_GAP') and HOME_LABEL_END == 33
+            assert HOME_TEXT_X == sum(dot) + inc('HOME_DOT_GAP')
             # The dot and the labels clear the bottom row's corner.
             assert dot[0] >= corner_x(30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - dot[1])//2, dot[1])
             assert HOME_TEXT_X >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
-            # Classic (coverflow_home_layout): Split halves the screen, the art taking the odd pixel;
+            # Split (coverflow_home_layout) gives Minimal's menu 45% of the screen, Classic's half, the art the rest;
             # Full's rows end at HOME_CLASSIC_ROW, so the chevron's glyph (x 20 to 31, y 16 to 34 of
             # list_into, centred on the row) mirrors the labels' margin and, on the last row, clears
             # the bottom-right corner as the label clears the bottom-left.
-            assert inc('HOME_SPLIT_W') == 375 // 2
+            assert inc('HOME_SPLIT_W') == round(375 * 0.45) and inc('HOME_CLASSIC_SPLIT_W') == 375 // 2
             glyph_end = inc('HOME_CLASSIC_ROW') - CHEVRON_W + 31
             glyph_y = 30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
             assert 375 - glyph_end == inc('HOME_CLASSIC_TEXT_X') >= corner_x(glyph_y, 34 - 16)
@@ -411,13 +411,17 @@ def validate_assets(directory):
             assert [n[2].get('name') for n in root[3]] == ['view_buttons', 'label_playtime', 'label_playlen', 'label_ipod_remain',
                                                            'slide_view_view', 'slider_play', 'img_repeata', 'img_repeatb', 'image_wait']
             pos = named['label_ipod_pos'][1]
-            assert pos[0] + pos[2] == named['img_fav'][1][0] and named['img_return'][1][0] < 0
-            icons = [named[n][1] for n in ('img_fav', 'img_more', 'img_playmode')]
-            assert [g[1:] for g in icons] == [[0, 50, 40]]*3 and [b[0] - a[0] for a, b in zip(icons, icons[1:])] == [50, 50]
+            assert pos[0] + pos[2] == named['img_more'][1][0] and named['img_return'][1][0] < 0
+            assert not {'img_fav', 'img_playmode'} & {n[2].get('name') for n in named['view_buttons'][3]}
+            assert named['img_more'][1][1:] == [0, 50, 40]
             album = named['view_album'][3]
-            assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album']
+            assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album',
+                                                     'img_playmode', 'img_fav']
             # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
-            assert [n[1] for n in album] == [[16, 10, 166, 166], [39, 33, 120, 120], [194, 55, 165, 28], [194, 87, 165, 20], [194, 111, 165, 20]]
+            # Order and favourite at the page's foot, the favourite's glyph (x 11 to 39) ending at the text's edge.
+            assert [n[1] for n in album] == [[16, 10, 166, 166], [39, 33, 120, 120], [194, 35, 165, 28], [194, 67, 165, 20], [194, 91, 165, 20],
+                                             [270, 136, 50, 50], [320, 136, 50, 50]]
+            assert 320 + 39 == 375 - 16 and 91 + 20 < 136 + 13
             assert album[1][2]['opacity'] == '0'  # playback gestures retain their original target
             assert album[2][2]['style:normal:font_size'] == '22' and album[3][2]['style:normal:font_size'] == '16'
             for node, color in ((album[3], '#CCCCCC'), (album[4], '#AAAAAA')):

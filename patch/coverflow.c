@@ -1553,9 +1553,8 @@ static struct {
     int clipped;
 } home __attribute__((section(".scratch")));
 extern int ipod_home_full(void), ipod_home_rockbox(void), rockbox_open(void *, void *);
-/* The art's panel, right of x and the full height: Classic's right half, or Minimal's wider
- * panel under the menu. */
-static int home_x(void) { return ipod_classic() ? HOME_SPLIT_W : HOME_ART_X; }
+/* Split's menu width; the art fills the rest. */
+static int split_w(void) { return ipod_classic() ? HOME_CLASSIC_SPLIT_W : HOME_SPLIT_W; }
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
  * Playing reads it: 1 embedded, 2 folder image, 4 downloaded; 0 while parsing or stopped, 3 none.
@@ -1577,7 +1576,7 @@ static int home_repaint(const void *unused) {
  * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
  * panel. */
 static void home_fit(unsigned w, unsigned h) {
-    int x = home_x(), pw = 375 - x, ph = 290, fw = pw, fh = ph;
+    int x = split_w(), pw = 375 - x, ph = 290, fw = pw, fh = ph;
     if (w && h && w <= 8192 && h <= 8192) {
         if ((unsigned)pw * h > (unsigned)ph * w)
             fh = (int)(((unsigned)pw * h + w - 1) / w);
@@ -1615,47 +1614,23 @@ void coverflow_home_art(void *top) {
     rearm(&home.repaint, home_repaint, 0);
 }
 
-/* Minimal dims the art under the menu, HOME_DIM black over the panel, and fades it in from black
- * over HOME_FADE px at its left edge; x is the panel's left edge in the art's coordinates. */
-static void home_dim(void *canvas, int x) {
-    canvas_set_fill_color(canvas, (unsigned)HOME_DIM << 24);
-    canvas_fill_rect(canvas, x, 0, 375, I(home.art, W_H));
-    for (int i = 0; i < HOME_FADE; ++i) {
-        canvas_set_fill_color(canvas, (unsigned)(255 - HOME_DIM) * (HOME_FADE - i) / HOME_FADE << 24);
-        canvas_fill_rect(canvas, x + i, 0, 1, I(home.art, W_H));
-    }
-}
-
-/* The art paints only inside its panel, so a sliding list never covers it, and in Classic the lists
- * only left of it: ringnav_paint_bg narrows the canvas clip (screen coordinates; the canvas origin
- * is the widget's) before stock draws it, and ringnav_paint puts the old clip back after its
- * children (Minimal dims the art first). Minimal's lists span the screen over the art. */
+/* The art paints only inside its panel and the lists only left of it, so a sliding list
+ * never covers the art: ringnav_paint_bg narrows the canvas clip (screen coordinates; the canvas
+ * origin is the widget's) before stock draws it, and ringnav_paint puts the old clip back after its
+ * children. */
 void coverflow_home_clip(void *w, void *canvas, int begin) {
     if (!w || (w != home.art && w != home.list && w != home.sets)) return;
-    int art = w == home.art, x = home_x();
     if (!begin) {
-        if (art && home.clipped && !ipod_classic() && P(canvas, CANVAS_LCD)) {
-            unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-            home_dim(canvas, x - I(w, W_X));
-            canvas_set_fill_color(canvas, fill);
-        }
         if (home.clipped) canvas_set_clip_rect(canvas, home.clip);
         home.clipped = 0;
         return;
     }
-    int clip[4], pane = widget_get_visible(home.art) && ipod_classic() ? x : 375;
+    int clip[4], art = w == home.art, x = split_w(), pane = widget_get_visible(home.art) ? x : 375;
     clip_within(canvas, home.clip, clip, I(canvas, CANVAS_X) - I(w, W_X) + (art ? x : 0),
-                I(canvas, CANVAS_Y) - I(w, W_Y) + (art ? 0 : I(w, W_Y)),
-                art ? 375 - x : pane, art ? 290 : I(w, W_H));
+                I(canvas, CANVAS_Y) - I(w, W_Y) + (art ? 0 : I(w, W_Y)), art ? 375 - x : pane,
+                art ? 290 : I(w, W_H));
     canvas_set_clip_rect(canvas, clip);
     home.clipped = 1;
-}
-
-/* Whether w is in one of Home's menus (Minimal draws their labels, draw_spaced). */
-int coverflow_home_owns(void *w) {
-    for (; w && home.list; w = P(w, W_PARENT))
-        if (w == home.list || w == home.sets) return 1;
-    return 0;
 }
 
 /* Both menus' lists span outer, their rows and tap targets inner; labels start at x and end end
@@ -1684,13 +1659,13 @@ void coverflow_home_layout(void) {
         widget_restack(rockbox, shown ? 4 : 6); /* after Folder, else last */
         widget_set_visible(rockbox, shown, 0);
     }
-    int outer = full || !classic ? 375 : HOME_SPLIT_W,
-        inner = !full && classic ? HOME_SPLIT_W : classic ? HOME_CLASSIC_ROW : HOME_FULL_ROW,
+    int split = split_w(), outer = full ? 375 : split,
+        inner = !full ? split : classic ? HOME_CLASSIC_ROW : HOME_FULL_ROW,
         x = classic ? HOME_CLASSIC_TEXT_X : HOME_DOT_X + HOME_DOT + HOME_DOT_GAP,
-        end = classic ? HOME_CLASSIC_LABEL_END : HOME_LABEL_END;
+        end = classic ? HOME_CLASSIC_LABEL_END : full ? HOME_LABEL_END : HOME_SPLIT_LABEL_END;
     home_width(home.list, outer, inner, x, end, 0);
     if (home.sets) home_width(home.sets, outer, inner, x, end, 0);
-    widget_move_resize(home.art, home_x(), 0, 375 - home_x(), 290);
+    widget_move_resize(home.art, split, 0, 375 - split, 290);
     widget_set_visible(home.art, !full, 0);
     home.key = ~0u; /* Split shows the current cover again */
 }

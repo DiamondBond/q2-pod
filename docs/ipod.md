@@ -73,13 +73,10 @@ chrome. Photos, video, book content, EQ plots and visualizers keep their own dra
 
 ## Home
 
-Home lays the menu over the current local track's art, as Sudo Music does: the art fills the screen
-right of `HOME_ART_X` (110), dimmed by `HOME_DIM` and fading in from black over its first `HOME_FADE`
-pixels, so the labels stay legible where they cross it. Labels are small capitals, `HOME_CAPS_PX`
-(18) with `SUDO_TRACK` (2) pixels between letters, drawn by the payload (`draw_spaced`) over the
-stock label's transparent ink. Selection is a small white dot and white text; other destinations
-are `SUDO_MUTED` (`#8C8C8C`). There is no selection rectangle or chevron. **Theme: Classic** styles
-the menu as before 1.0.1 instead (below).
+Home splits the screen: the menu on the left, the current local track's art in the right panel.
+Selection is a small white dot and bright text; other destinations use `#AAAAAA`. There is no
+selection rectangle or chevron. **Theme: Classic** styles the menu as before 1.0.1 instead
+(below).
 
 The seven destinations remain Now Playing, Library, Coverflow, Folder, Rockbox, Streaming and
 Settings. Rockbox is visible only when its binary is on the card. Settings opens Playback and
@@ -94,13 +91,13 @@ The background view paints before the transparent menus, and both menus are clip
 window while sliding.
 
 Display settings offers **Home: Split / Full**, stored as `IPOD/HOME` 0 or 1; invalid or absent
-values mean Split. `coverflow_home_layout` moves the asset's widgets at runtime. Split shows the
-cover itself (`img_homeart` is an `image` for this, fitted to the cover's proportions and clipped to
-its panel; `default_album_home` without a cover): in Minimal the 265×290 panel from `HOME_ART_X`
-under the full-width menus, in Classic the right 188×290 panel beside menus narrowed to
-`HOME_SPLIT_W` (187) and clipped left of it. Full hides the art and widens the menus to the screen,
-their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369) in Classic. Minimal's labels keep
-x 39 and the 33-pixel end; long translations are cut off at it rather than scrolled. Classic's
+values mean Split. `coverflow_home_layout` moves the asset's widgets at runtime, in both themes:
+Split narrows both menus to `HOME_SPLIT_W` (169, 45%; Classic halves the screen at
+`HOME_CLASSIC_SPLIT_W`, 187) and shows the cover itself in the 290-pixel-high panel right of them
+(`img_homeart` is an `image` for this, fitted to the cover's proportions and clipped to the panel,
+the menus clipped left of it; `default_album_home` without a cover); Full hides the art and
+widens the menus to the screen, their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369)
+in Classic. Minimal's labels keep x 39 and end 33 pixels from the screen edge in Full, `HOME_SPLIT_LABEL_END` (8) before the art in Split, where no corner needs clearing (122 pixels wide). Classic's
 start at `HOME_CLASSIC_TEXT_X` (33) and end 10 pixels before the chevron, which rides the accent's
 selection bar alone.
 
@@ -145,12 +142,6 @@ widgets at the right end, and the layout skips the other two:
 
 Charging fills the icon solid green (`BATT_CHARGE_RGB`); low battery always uses
 `BATT_LOW_RGB` (`#FF1448`) under every accent. Saved Battery values keep their existing meanings.
-**Wordmark.** In Minimal, as Sudo Music's bar, "Q2 POD" in 12-pixel (`MARK_PX`) spaced capitals
-(`#AAAAAA`, `draw_spaced`) stands at the left margin (`STATUS_EDGE`, which the build checks against
-`STATUS_MARGIN`) in place of the play state and EQ: `bar_sync` makes `view_left` transparent, since
-`systembar_showface` shows its widgets again each second. It ends within `BATT_ROOM` of the margin,
-clear of the clock. Classic keeps the play state and EQ.
-
 The bar surface is black. Every mode fits with ordinary Bluetooth and Wi-Fi, with at least
 4 pixels (`CLOCK_GAP`) before the widest clock text (`BATT_ROOM`, 94 pixels from the margin).
 Wide codec badges temporarily show the icon alone until they fade.
@@ -348,13 +339,13 @@ album, and a four-pixel progress line:
 
 ```
   0 +---------------------------------------------------------+
-    | 3 of 12 (16,0 187x40)         fav 203  more 253  mode 303|  icons 50x40
+    | 3 of 12 (16,0 287x40)                          more 303 |  icon 50x40
  40 +---------------------------------------------------------+
     |  .-----------.                                          |  slide_view 0,40 375x186
-    |  |    art    |  Title   (194,95 165x28, white 22)       |
-    |  |   16,50   |  Artist  (194,127 165x20, grey 16)       |
-    |  |  166x166  |  Album   (194,151 165x20, grey 16)       |
-    |  '-----------'  (corners radius 12)                     |
+    |  |    art    |  Title   (194,75 165x28, white 22)       |
+    |  |   16,50   |  Artist  (194,107 165x20, grey 16)       |
+    |  |  166x166  |  Album   (194,131 165x20, grey 16)       |
+    |  '-----------'              mode 270  fav 320 (y 176)   |  icons 50x50
 228 |                     . o .   (page dots)                 |
 253 |  (=========================------------------------)   |  line 21,253 333x4
 265 |      01:23 (46 80x16)           -02:34 (249 80x16)      |  grey 14
@@ -375,23 +366,20 @@ white (`NP_TITLE_PX`); the artist is `#CCCCCC` (`NP_ARTIST_RGB`), while the albu
 and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Stock
 keeps its existing artist color. Long lines scroll, as stock.
 
-**Theme: Minimal** adds Sudo Music's small capitals (`NP_CAPS_PX`, 10 pixels, `SUDO_MUTED`,
-`draw_spaced`): a NOW PLAYING caption `NP_CAPTION_DY` (18) pixels above the title, which moves
-`NP_SHIFT` (9) down with the artist and album (`np_theme`, from the asset's places, so Classic gets
-them back) to keep the column centred on the art; the album itself, over its label's transparent
-ink; and, `NP_FOOT_DY` under the art page and either side of the page dots (`NP_DOTS_W`), the
-output at the left margin (Headphones, Balanced, Bluetooth or USB DAC, from `mclGetOutputWay` and
-the 4.4 mm jack) and the format at the right (Lossless for FLAC, WAV, APE, AIFF, WavPack and ALAC
-files, DSD for DSF, DFF and ISO, else the file's extension). There is no on-screen transport row:
-the buttons play, pause and skip, and the art page and visualizer keep their 186 pixels.
+**Theme: Minimal** draws the album in Sudo Music's small capitals (`NP_CAPS_PX`, 10 pixels,
+`SUDO_MUTED`, `SUDO_TRACK` apart, `np_paint`) over its label's transparent ink; Classic shows
+the label. There is no on-screen transport row: the buttons play, pause and skip.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
 with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
 each lyric line 225 pixels wide. The play/pause overlay has zero opacity, retaining its original gesture target without
 a transport glyph; stock may update its visibility without making it appear. The loading
 spinner stays centred on the artwork. The on-screen Return icon moves off-screen, as on the pages whose navbars are
-hidden; the hardware Return does the same. Favourite, More and the play mode icon keep their stock
-images and handlers in the top row.
+hidden; the hardware Return does the same. More keeps its place at the top row's right. The play
+mode (shuffle/order) and Favourite icons sit at the foot of the art page under the text, the
+favourite's glyph (`NP_GLYPH_PAD`, 11 pixels inside its 50-pixel image) ending at the text's right
+edge; the three lines centre in the art's height above them. Both keep their stock images and
+handlers and swipe away with the art.
 
 The bar is a four-pixel plain-colour line inside the original 30-pixel seek target: a `#1C1C1C` track
 (`TRACK_COLOR`) and an off-white `MINIMAL_FILL` fill, with no thumb. **Theme: Classic** makes it an

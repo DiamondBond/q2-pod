@@ -26,7 +26,7 @@ extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
 extern void coverflow_home_clip(void *w, void *canvas, int begin);
-extern int coverflow_home_back(void *top), coverflow_home_owns(void *w);
+extern int coverflow_home_back(void *top);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
@@ -160,15 +160,13 @@ typedef struct {
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
      * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
      * level, charge and low state. */
-    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon, *bar_left;
+    void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon;
     int codec, codec_step;
     unsigned codec_timer, batt_key;
     unsigned letter_timer; /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover;
     void *np_slide, *np_lrc; /* the art/lyrics/info pages and the lyric lines' scroll_view */
-    void *np_title, *np_artist;
-    int np_text_y; /* the title's asset y; Minimal moves the text NP_SHIFT down for its caption */
     /* The full-screen art's song name and its shade, the fade's step and timer (ringnav_bigcover) */
     void *bc[2];
     int bc_step;
@@ -1318,31 +1316,6 @@ void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, un
     canvas_set_text_color(canvas, text);
 }
 
-/* Minimal's small capitals (Sudo's): n characters of s from x, y (the text's top) in the default
- * font at px, upper-cased (ASCII and Latin-1) and track pixels apart, stopping before x + max.
- * Returns the width drawn. The text color is restored, the font is not. */
-static int spaced(void *canvas, const unsigned *s, unsigned n, int x, int y, unsigned px,
-                  unsigned color, int track, int max, int draw) {
-    unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
-    canvas_set_font(canvas, (void *)0, px);
-    canvas_set_text_color(canvas, color);
-    int at = 0;
-    for (unsigned i = 0; s && i < n && s[i]; ++i) {
-        unsigned c = s[i];
-        if ((c >= 'a' && c <= 'z') || (c >= 0xe0 && c <= 0xfe && c != 0xf7)) c -= 32;
-        int w = (int)(canvas_measure_text(canvas, &c, 1) + 0.5f);
-        if (at + w > max) break;
-        if (draw) canvas_draw_text(canvas, &c, 1, x + at, y);
-        at += w + track;
-    }
-    canvas_set_text_color(canvas, text);
-    return at > track ? at - track : 0;
-}
-int draw_spaced(void *canvas, const unsigned *s, unsigned n, int x, int y, unsigned px,
-                unsigned color, int track, int max) {
-    return spaced(canvas, s, n, x, y, px, color, track, max, 1);
-}
-
 /* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas). */
 static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
     if (canvas_fill_rounded_rect(canvas, r, (void *)0, &color, radius)) {
@@ -1453,82 +1426,26 @@ static void paint_cover(void *w, void *canvas) {
 #endif
 
 #if IPOD
-/* Minimal's Home labels are small capitals (draw_spaced) over the label's transparent stock ink
- * (ringnav_style_color): white on the selected row, else SUDO_MUTED, centred on the label's
- * height and clipped to its width. ponytail: long translations are cut off, not scrolled. */
-static void paint_home_label(void *w, void *canvas) {
-    if (!w || ipod_classic() || !P(canvas, CANVAS_LCD) ||
-        tk_strcmp(widget_get_type(w), "hscroll_label") || !coverflow_home_owns(w))
-        return;
-    const unsigned *s = widget_get_text(w);
-    unsigned n = 0, color = RGBA(SUDO_MUTED);
-    while (s && s[n]) ++n;
-    for (void *p = w; p; p = P(p, W_PARENT))
-        if (p == st.sel_widget) color = 0xffffffff;
-    draw_spaced(canvas, s, n, 0, (I(w, W_H) - HOME_CAPS_PX) / 2, HOME_CAPS_PX, color, SUDO_TRACK,
-                I(w, W_W));
-}
-#endif
-
-#if IPOD
-/* Minimal's Now Playing (docs/ipod.md#now-playing), in small capitals: over the text column (on its
- * page, view_album) a NOW PLAYING caption and the album, whose label is transparent; under the art
- * page (on the window) the output at the left and the format at the right, either side of the dots. */
-static int utf32(unsigned *out, const char *s, unsigned size) {
-    unsigned n = 0;
-    while (s && *s && n < size) out[n++] = (unsigned char)*s++;
-    return (int)n;
-}
-
-static const char *np_format(void) {
-    unsigned at, n;
-    void *r = queue_now(&at, &n);
-    const char *path = r ? P(r, REC_PATH) : (void *)0, *dot = 0;
-    for (const char *c = path; c && *c; ++c)
-        if (*c == '.') dot = c + 1;
-        else if (*c == '/') dot = 0;
-    if (!dot) return "";
-    char ext[8];
-    unsigned k = 0;
-    for (; dot[k] && k < sizeof ext - 1; ++k) ext[k] = dot[k] >= 'A' && dot[k] <= 'Z' ? dot[k] + 32 : dot[k];
-    ext[k] = 0;
-    static const char *const lossless[] = { "flac", "wav", "ape", "aif", "aiff", "wv", "alac" },
-                             *const dsd[] = { "dsf", "dff", "iso" };
-    for (unsigned i = 0; i < sizeof lossless / sizeof *lossless; ++i)
-        if (!tk_strcmp(ext, lossless[i])) return "Lossless";
-    for (unsigned i = 0; i < sizeof dsd / sizeof *dsd; ++i)
-        if (!tk_strcmp(ext, dsd[i])) return "DSD";
-    return dot;
-}
-
+/* Minimal's Now Playing album (docs/ipod.md#now-playing) is small capitals over its label's
+ * transparent ink, painted on its page (view_album): NP_CAPS_PX, upper-cased (ASCII and Latin-1),
+ * SUDO_TRACK px apart, cut off at the label's end. The text color is restored, the font is not. */
 static void np_paint(void *w, void *canvas) {
-    if (!w || !st.np_title || ipod_classic() || !P(canvas, CANVAS_LCD)) return;
-    unsigned s[40], muted = RGBA(SUDO_MUTED);
-    int n;
-    if (w == P(st.np_title, W_PARENT)) {
-        int x = I(st.np_title, W_X), max = I(st.np_title, W_W);
-        n = utf32(s, "Now Playing", 40);
-        draw_spaced(canvas, s, (unsigned)n, x, I(st.np_title, W_Y) - NP_CAPTION_DY, NP_CAPS_PX, muted,
-                    SUDO_TRACK, max);
-        if (st.np_album) {
-            const unsigned *album = widget_get_text(st.np_album);
-            unsigned k = 0;
-            while (album && album[k]) ++k;
-            draw_spaced(canvas, album, k, I(st.np_album, W_X),
-                        I(st.np_album, W_Y) + (I(st.np_album, W_H) - NP_CAPS_PX) / 2, NP_CAPS_PX, muted,
-                        SUDO_TRACK, I(st.np_album, W_W));
-        }
+    if (!w || !st.np_album || w != P(st.np_album, W_PARENT) || ipod_classic() || !P(canvas, CANVAS_LCD))
         return;
+    const unsigned *s = widget_get_text(st.np_album);
+    unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
+    int x = I(st.np_album, W_X), y = I(st.np_album, W_Y) + (I(st.np_album, W_H) - NP_CAPS_PX) / 2, at = 0;
+    canvas_set_font(canvas, (void *)0, NP_CAPS_PX);
+    canvas_set_text_color(canvas, RGBA(SUDO_MUTED));
+    for (unsigned i = 0; s && s[i]; ++i) {
+        unsigned c = s[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 0xe0 && c <= 0xfe && c != 0xf7)) c -= 32;
+        int cw = (int)(canvas_measure_text(canvas, &c, 1) + 0.5f);
+        if (at + cw > I(st.np_album, W_W)) break;
+        canvas_draw_text(canvas, &c, 1, x + at, y);
+        at += cw + SUDO_TRACK;
     }
-    if (w != st.np_win || !st.np_slide || !P(st.np_slide, W_PARENT)) return;
-    int y = I(P(st.np_slide, W_PARENT), W_Y) + I(st.np_slide, W_H) + NP_FOOT_DY,
-        half = 375 / 2 - NP_MARGIN - NP_DOTS_W / 2;
-    int way = mclGetOutputWay();
-    n = utf32(s, way == 1 ? "Bluetooth" : way == 2 ? "USB DAC" : g_bal_status == 1 ? "Balanced" : "Headphones", 40);
-    draw_spaced(canvas, s, (unsigned)n, NP_MARGIN, y, NP_CAPS_PX, muted, SUDO_TRACK, half);
-    n = utf32(s, np_format(), 8);
-    int width = spaced(canvas, s, (unsigned)n, 0, y, NP_CAPS_PX, muted, SUDO_TRACK, half, 0);
-    draw_spaced(canvas, s, (unsigned)n, 375 - NP_MARGIN - width, y, NP_CAPS_PX, muted, SUDO_TRACK, half);
+    canvas_set_text_color(canvas, text);
 }
 #endif
 
@@ -1677,7 +1594,6 @@ int ringnav_paint(void *w, void *canvas) {
     paint_chevrons(w, canvas);
     paint_letter(w, canvas);
     paint_cover(w, canvas);
-    paint_home_label(w, canvas);
     np_paint(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
@@ -1842,11 +1758,7 @@ static void bar_sync(void *bar) {
         st.bar_pct = widget_lookup(bar, "label_battery", 1);
         st.bar_slot = widget_lookup(bar, "view_battery", 1);
         st.bar_icon = widget_lookup(bar, "img_battery", 1);
-        st.bar_left = widget_lookup(bar, "view_left", 1);
     }
-    /* Minimal's wordmark (ringnav_paint_bg) takes the play state's and EQ's place; stock shows them
-     * again each second, so they go transparent instead of hidden. */
-    if (st.bar_left) widget_set_opacity(st.bar_left, ipod_classic() ? 255 : 0);
     if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon) return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
@@ -1988,16 +1900,7 @@ static void np_theme(void) {
         widget_set_prop_int(st.np_slider, radius[i], h / 2);
     if (st.np_slider) widget_set_prop_int(st.np_slider, "bar_size", h);
     if (glyph) widget_set_opacity(glyph, ipod_classic() ? 255 : 0);
-    /* Minimal: the album is np_paint's capitals and the text column moves down for the caption. */
-    int dy = ipod_classic() ? 0 : NP_SHIFT;
-    void *text[] = { st.np_title, st.np_artist, st.np_album };
-    int off[3] = { 0 }; /* each line's place under the title */
-    for (int i = 0; st.np_title && i < 3; ++i)
-        if (text[i]) off[i] = I(text[i], W_Y) - I(st.np_title, W_Y);
-    for (int i = 0; st.np_title && i < 3; ++i)
-        if (text[i])
-            widget_move_resize(text[i], I(text[i], W_X), st.np_text_y + dy + off[i], I(text[i], W_W),
-                               I(text[i], W_H));
+    /* Minimal: the album is np_paint's capitals. */
     if (st.np_album) widget_set_opacity(st.np_album, ipod_classic() ? 255 : 0);
 }
 
@@ -2117,7 +2020,6 @@ static int np_gone(void *win, void *event) {
         st.np_win = (void *)0;
         st.np_hash = 0;
         st.np_slider = st.np_elapsed = st.np_cover = st.np_slide = st.np_lrc = (void *)0;
-        st.np_title = st.np_artist = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         np_cancel();
     }
@@ -2136,9 +2038,6 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_cover = widget_lookup(win, "img_cover", 1);
-    st.np_title = widget_lookup(win, "scrlabel_title", 1);
-    st.np_artist = widget_lookup(win, "scrlabel_artist", 1);
-    st.np_text_y = st.np_title ? I(st.np_title, W_Y) : 0;
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.np_hash = 0;
@@ -2278,11 +2177,6 @@ int ringnav_paint_bg(void *w, void *canvas) {
         canvas_set_fill_color(canvas, RGBA(ipod_classic() ? BAR_CLASSIC : BAR_COLOR));
         canvas_fill_rect(canvas, 0, 0, I(w, W_W), I(w, W_H));
         canvas_set_fill_color(canvas, fill);
-        if (!ipod_classic()) {
-            static const unsigned mark[] = { 'Q', '2', ' ', 'P', 'O', 'D' };
-            draw_spaced(canvas, mark, sizeof mark / sizeof *mark, STATUS_EDGE, (30 - MARK_PX) / 2,
-                        MARK_PX, RGBA(MARK_RGB), SUDO_TRACK, BATT_ROOM);
-        }
     }
     void *top = window_manager_get_top_window(wm);
     /* Any painted window, not only the top one: Home slides back in from a snapshot. */
@@ -2318,10 +2212,6 @@ static int selected_ink(void) {
 unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, unsigned fallback) {
     stock_color_trampoline(color, style, name, fallback);
     if (st.paint_w && name && tk_str_end_with(name, "text_color")) {
-        if (!ipod_classic() && coverflow_home_owns(st.paint_w)) { /* paint_home_label draws it */
-            *color &= 0xffffff;
-            return color;
-        }
         if (selected_ink()) {
             unsigned alpha = *color & 0xff000000u;
             *color = alpha | (st.sel_home ? 0xffffff : ((*color & 0xffffff) == 0xffffff ? 0x171717 : 0x484848));

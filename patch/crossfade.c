@@ -17,7 +17,7 @@ extern int album_cmp(void *, void *);
 
 static struct {
     int read, on, seconds, attached, done, key[4];
-    xfade_flag *flag;
+    volatile int *flag;
     void *page, *sw, *view, *slider, *dec, *add, *label;
     unsigned press, press_at;
 } xf __attribute__((section(".scratch")));
@@ -60,8 +60,6 @@ static void refresh(int save) {
     tk_snprintf(t, sizeof t, "%d s", xf.seconds);
     image_base_set_image(xf.sw, xf.on ? "switch_on" : "switch_off");
     widget_set_visible(xf.view, xf.on, 0);
-    void *const parts[] = { xf.view, xf.slider, xf.dec, xf.add };
-    for (unsigned i = 0; i < sizeof parts / sizeof *parts; ++i) widget_set_enable(parts[i], xf.on);
     widget_set_text_utf8(xf.label, t);
     if (widget_get_prop_int(xf.slider, "value", 0) != xf.seconds) slider_set_value(xf.slider, xf.seconds);
 }
@@ -178,14 +176,14 @@ void xfade_poll(int next) {
     if (!xf.flag && ms) {
         int fd = open(XFADE_FILE ".tmp", 0x302, 0644); /* O_RDWR | O_CREAT | O_TRUNC (MIPS) */
         if (fd < 0) return;
-        if (!ftruncate(fd, sizeof(xfade_flag)) && !rename(XFADE_FILE ".tmp", XFADE_FILE)) {
-            void *p = mmap(0, sizeof(xfade_flag), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
+        if (!ftruncate(fd, sizeof *xf.flag) && !rename(XFADE_FILE ".tmp", XFADE_FILE)) {
+            void *p = mmap(0, sizeof *xf.flag, 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
             if (p != (void *)-1) xf.flag = p;
         }
         close(fd);
         if (!xf.flag) return;
     }
-    if (xf.flag) xf.flag->ms = ms;
+    if (xf.flag) *xf.flag = ms;
     xf.done = 1;
     /* The fade runs in the PEQ filter, which boot leaves out of the chain while PEQ is off. */
     if (ms && !xf.attached && !g_equalizer_flag) peq_attach();

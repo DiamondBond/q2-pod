@@ -757,7 +757,7 @@ int playback_resumed(void *r) {
 }
 /* The track gapless preloads after this one, or -1: Crossfade's next (crossfade.c). Stock preloads
  * pos+1 only in order and repeat-all (mclSetPlayMode's modes 0 and 3). */
-int playback_next(void) {
+static int playback_next(void) {
     if (s.active) return playback_successor(1);
     unsigned at = (unsigned)M(MCL_POS);
     int mode = M(MCL_MODE);

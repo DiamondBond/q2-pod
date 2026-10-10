@@ -47,7 +47,7 @@ image_base_set_image widget_load_image widget_unload_image widget_set_name widge
 widget_set_text_utf8 widget_restack widget_animator_prop_create widget_animator_prop_set_params widget_animator_start widget_set_visible widget_get_prop_int widget_set_prop_int
 widget_get_prop_str widget_on widget_destroy_children widget_invalidate_force
 widget_count_children widget_get_child widget_lookup widget_move_resize widget_get_visible
-canvas_get_clip_rect canvas_set_clip_rect canvas_set_fill_color canvas_fill_rect widget_set_sensitive widget_get_type tk_strcmp
+canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
 timer_add timer_remove navigator_back_to_home navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
 canvas_draw_image slide_menu_set_spacer window_manager
@@ -183,10 +183,6 @@ int widget_set_sensitive(void *x, int v) { if (!v) insensitive = W(x) - w; retur
 static int clip_rect[4] = { 0, 0, 375, 320 }; /* the canvas clip, screen x, y, w, h */
 int canvas_get_clip_rect(void *c, void *r) { (void)c; memcpy(r, clip_rect, sizeof clip_rect); return 0; }
 int canvas_set_clip_rect(void *c, const void *r) { (void)c; memcpy(clip_rect, r, sizeof clip_rect); return 0; }
-static unsigned fill_color;
-static int fills; /* rects filled (Minimal Home's dim and fade) */
-int canvas_set_fill_color(void *c, unsigned v) { (void)c; fill_color = v; return 0; }
-int canvas_fill_rect(void *c, int x, int y, int ww, int h) { (void)c; (void)x; (void)y; (void)ww; (void)h; ++fills; return 0; }
 const char *widget_get_type(void *x) { return W(x)->type; }
 int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
@@ -963,8 +959,7 @@ int main(void) {
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
        placeholder; reloaded only when the track or the usable cover changes, and only while Home
-       is the painted top window. The art fills the right panel: from HOME_ART_X under Minimal's list,
-       Classic's right half beside its list. */
+       is the painted top window. Both themes split the screen, the art itself in the right panel. */
     extern void coverflow_home_art(void *);
     assert(mmap((void *)(MCL_POS & ~4095), 4096, PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
@@ -972,7 +967,7 @@ int main(void) {
     shim_queue = &queue;
     home_art = make(0, "image");
     int *geo = (int *)W(home_art)->raw, asset[4] = { 0, 0, 375, 290 }, /* W_X, W_Y, W_W, W_H */
-        split[4] = { HOME_ART_X, 0, 375 - HOME_ART_X, 290 };
+        split[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 };
     memcpy(geo, asset, sizeof asset);
     widget *win = make(0, "window");
     const char *art = W(home_art)->image, *player = "file://" PEQ_ROOT "/tmp/coverpic.jpg";
@@ -997,8 +992,8 @@ int main(void) {
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
     /* Square, portrait and landscape covers keep their proportions, just cover the panel and are
        centred on it; C division leaves an odd overflow's extra pixel on the right or bottom. */
-    static const int covers[][6] = { { 160, 160, 98, 0, 290, 290 }, { 265, 290, 110, 0, 265, 290 },
-                                     { 300, 200, 25, 0, 435, 290 }, { 100, 400, 110, -385, 265, 1060 } };
+    static const int covers[][6] = { { 160, 160, 127, 0, 290, 290 }, { 206, 290, 169, 0, 206, 290 },
+                                     { 300, 200, 55, 0, 435, 290 }, { 100, 400, 169, -267, 206, 824 } };
     for (unsigned i = 0; i < 4; ++i) {
         art_w = covers[i][0], art_h = covers[i][1];
         *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
@@ -1006,18 +1001,15 @@ int main(void) {
     }
     art_w = art_h = 160;
     /* The art's paint is clipped to the panel on screen (canvas origin at the art, window at y 30)
-       from the background hook to the border hook, where Minimal dims it; other widgets keep the clip. */
+       from the background hook to the border hook; other widgets keep the clip. */
     extern void coverflow_home_clip(void *, void *, int);
-    static char lcd[0x100];
-    int canvas[16] = { geo[0], 30 + geo[1] }, full[4] = { 0, 0, 375, 320 }, want[4] = { HOME_ART_X, 30, 375 - HOME_ART_X, 290 };
-    *(char **)((char *)canvas + CANVAS_LCD) = lcd;
+    int canvas[2] = { geo[0], 30 + geo[1] }, full[4] = { 0, 0, 375, 320 }, want[4] = { HOME_SPLIT_W, 30, 375 - HOME_SPLIT_W, 290 };
     coverflow_home_clip(home_art, canvas, 1);
     assert(!memcmp(clip_rect, want, sizeof want));
     coverflow_home_clip(win, canvas, 0);
     assert(!memcmp(clip_rect, want, sizeof want));
-    fills = 0;
     coverflow_home_clip(home_art, canvas, 0);
-    assert(!memcmp(clip_rect, full, sizeof full) && fills == 1 + HOME_FADE);
+    assert(!memcmp(clip_rect, full, sizeof full));
     coverflow_home_clip(win, canvas, 1);
     assert(!memcmp(clip_rect, full, sizeof full));
     before = loads;
@@ -1051,10 +1043,10 @@ int main(void) {
     snprintf(shim_lastcover, sizeof(shim_lastcover), "%s", paths[3]);
     coverflow_home_art(win);
     assert(!strcmp(art, player) && loads == unloads);
-    /* Home layout from the asset's full-width list: Split shows the art, and Classic's narrows the
-       list, its rows and their tap targets to HOME_SPLIT_W; Full hides the art and widens them (rows
-       to HOME_FULL_ROW in Minimal, as its Split, HOME_CLASSIC_ROW in Classic, labels ending before
-       the chevron). Minimal's labels start after the dot, Classic's at HOME_CLASSIC_TEXT_X. */
+    /* Home layout from the asset's full-width list: Split narrows the list, its rows and their tap
+       targets to HOME_SPLIT_W and shows the art; Full widens them (rows to HOME_FULL_ROW in Minimal,
+       HOME_CLASSIC_ROW in Classic, labels ending before the chevron) and hides the art. Minimal's
+       labels start after the dot, Classic's at HOME_CLASSIC_TEXT_X. */
     extern void coverflow_home_layout(void);
     home_list = make(0, "list_view");
     widget *sv = make(home_list, "scroll_view"), *row = make(sv, "view"), *label = make(row, "hscroll_label"),
@@ -1071,18 +1063,18 @@ int main(void) {
     assert(loads == before);
     home_full = 0;
     coverflow_home_layout();
-    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
-    assert(*(int *)(label->raw + W_W) == HOME_FULL_ROW - dot_x - HOME_LABEL_END && W(home_art)->visible);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
+    assert(*(int *)(label->raw + W_W) == HOME_SPLIT_W - dot_x - HOME_SPLIT_LABEL_END && W(home_art)->visible);
     coverflow_home_art(win);
     assert(loads == before + 1 && !strcmp(art, player));
-    classic = 1;
+    classic = 1; /* Classic halves the screen: the 160px cover fills 290px from 187 + (188 - 290) / 2 */
     coverflow_home_layout();
-    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
+    for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_CLASSIC_SPLIT_W);
     assert(*(int *)(label->raw + W_X) == HOME_CLASSIC_TEXT_X &&
-           *(int *)(label->raw + W_W) == HOME_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
+           *(int *)(label->raw + W_W) == HOME_CLASSIC_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
     coverflow_home_art(win);
-    static const int classic_fit[4] = { HOME_SPLIT_W + (375 - HOME_SPLIT_W - 290) / 2, 0, 290, 290 };
-    assert(loads == before + 2 && !strcmp(art, player) && !memcmp(geo, classic_fit, sizeof split));
+    static const int classic_geo[4] = { 136, 0, 290, 290 };
+    assert(loads == before + 2 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
     home_full = 1;
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_CLASSIC_ROW));

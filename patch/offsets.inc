@@ -159,12 +159,14 @@
 /* iPod drill rows: the stock list_into image sits where stock rows put their own img_into, its left
  * edge CHEVRON_W from the row's right edge (8 px margin + 50 px image), so every `>` lines up. */
 #define CHEVRON_W 58
-/* iPod Home: Split, in both themes, halves the screen at HOME_SPLIT_W, the art panel right of it;
+/* iPod Home: Split gives the menu 45% of the screen (HOME_SPLIT_W; Classic's halves it,
+ * HOME_CLASSIC_SPLIT_W), the art the rest right of it;
  * Minimal's Full rows are full width. Labels end HOME_LABEL_END from the row's edge. The selection
  * dot (HOME_DOT px) sits at HOME_DOT_X, clear of the bottom row's corner, HOME_DOT_GAP before the
  * labels (HOME_TEXT_X in tools/ipod.py). */
 #define HOME_FULL_ROW 375
 #define HOME_LABEL_END 33
+#define HOME_SPLIT_LABEL_END 8 /* Split: the art, not a corner, is beside the labels */
 #define HOME_DOT_X 25
 #define HOME_DOT 6
 #define HOME_DOT_GAP 8
@@ -174,7 +176,8 @@
  * HOME_CLASSIC_TEXT_X and end 10px before the glyph. The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
  * (Minimal's NP_BAR_MINIMAL line). Minimal has no accent: its fills are MINIMAL_FILL, its
  * settings icons grey and list_into MINIMAL_CHEVRON. */
-#define HOME_SPLIT_W 187
+#define HOME_SPLIT_W 169
+#define HOME_CLASSIC_SPLIT_W 187
 #define HOME_CLASSIC_ROW 369
 #define HOME_CLASSIC_TEXT_X 33
 #define HOME_CLASSIC_LABEL_END (CHEVRON_W - 10)
@@ -183,34 +186,14 @@
 #define NP_BAR_MINIMAL 4
 #define MINIMAL_FILL 0xeeeeec
 #define MINIMAL_CHEVRON 0x777777
-/* Minimal's Sudo look (docs/ipod.md#home): small capitals SUDO_TRACK px apart (draw_spaced). Home's
- * labels are HOME_CAPS_PX, white selected, else SUDO_MUTED; the art fills the screen right of
- * HOME_ART_X under the menu, dimmed by HOME_DIM (alpha of 255) and fading in from black over
- * HOME_FADE px at its left edge. */
+/* Minimal's small capitals are SUDO_TRACK px apart (np_paint); secondary text is SUDO_MUTED. */
 #define SUDO_TRACK 2
 #define SUDO_MUTED 0x8c8c8c
-#define HOME_CAPS_PX 18
-#define HOME_ART_X 110
-#define HOME_DIM 120
-#define HOME_FADE 90
-/* Minimal's status bar wordmark, in the left group's place: STATUS_EDGE is tools/ipod.py's
- * STATUS_MARGIN, and it stays within the BATT_ROOM the right group has, clear of the clock. */
-#define STATUS_EDGE 54
 /* Minimal's selection is a card SEL_INSET px in from each side of the row, corners SEL_RADIUS. */
 #define SEL_INSET 6
 #define SEL_RADIUS 6
-/* Minimal's Now Playing: a NOW PLAYING caption NP_CAPTION_DY above the title, which moves NP_SHIFT
- * down (with the artist and album) to centre the column on the art again; the caption, the album and
- * the footer (output and format, NP_FOOT_DY under the art page, clear of the NP_DOTS_W page dots) are
- * NP_CAPS_PX capitals. NP_MARGIN is tools/ipod.py's. */
+/* Minimal's Now Playing album is NP_CAPS_PX capitals. */
 #define NP_CAPS_PX 10
-#define NP_CAPTION_DY 18
-#define NP_SHIFT 9
-#define NP_FOOT_DY 2
-#define NP_DOTS_W 60
-#define NP_MARGIN 16
-#define MARK_PX 12
-#define MARK_RGB 0xaaaaaa
 #define PAGE_SLIDE_MS 120
 #define NP_ARTIST_RGB 0xcccccc
 /* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and

@@ -111,13 +111,13 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     text(a,'12:59 PM',151,5,74,20,16)
                     text(a,'88%',280,5,40,20,16)
                 if case<3 or case in (10,11):
-                    full=case in (1,2); width=(inc('HOME_CLASSIC_ROW') if old else HOME_LIST_W) if full else inc('HOME_SPLIT_W')
+                    full=case in (1,2); width=(inc('HOME_CLASSIC_ROW') if old else HOME_LIST_W) if full else inc('HOME_CLASSIC_SPLIT_W' if old else 'HOME_SPLIT_W')
                     labels = ['Now Playing','Library','Coverflow','Folders','Rockbox','Streaming','Settings']
                     if case==1: labels=['Now Playing','Library — a very long music collection','Coverflow','音楽フォルダー','Streaming','Settings']
                     if case==2: labels=['Playback','System']
                     if not full and case!=11:
-                        image(a,dark if case==10 else bright,inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
-                    elif not full: image(a,asset(build,'images/xx/default_album_home.png'),inc('HOME_SPLIT_W'),30,375-inc('HOME_SPLIT_W'),290)
+                        image(a,dark if case==10 else bright,width,30,375-width,290)
+                    elif not full: image(a,asset(build,'images/xx/default_album_home.png'),width,30,375-width,290)
                     selected=1 if case!=2 else 0
                     for i,value in enumerate(labels):
                         y=30+HOME_TOP+i*HOME_ROW
@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                             if old: selection(a,y,HOME_ROW,375 if full else width,palette)
                             else: a+=['-fill','white','-draw',f'circle {inc("HOME_DOT_X")+3},{y+HOME_ROW//2} {inc("HOME_DOT_X")+6},{y+HOME_ROW//2}']
                         x0=inc('HOME_CLASSIC_TEXT_X') if old else HOME_TEXT_X
-                        label_width=width-x0-(inc('CHEVRON_W')-10 if old else HOME_LABEL_END)
+                        label_width=width-x0-(inc('CHEVRON_W')-10 if old else HOME_LABEL_END if full else inc('HOME_SPLIT_LABEL_END'))
                         text(a,value,x0,y,label_width,HOME_ROW,color='#FFFFFF' if old or i==selected else '#AAAAAA')
                         if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
                 elif case in (3,4,12):

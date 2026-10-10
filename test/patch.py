@@ -3466,12 +3466,6 @@ if variant=='ipod':
             assert m.get(slot+O['W_W'])==O['BATT_BODY_W']+O['BATT_NUB_W']+(O['BATT_GAP']+O['BATT_PCT_W'] if mode==2 else 0)
             assert signed(m.get(views[1]+O['W_X']))+signed(m.get(slot+O['W_X']))+m.get(slot+O['W_W'])==375-STATUS_MARGIN
     passed()
-    # Minimal: the play state and EQ go transparent (stock shows them again each second) and the
-    # wordmark takes their place in spaced capitals, from the icons' margin and clear of the widest clock.
-    m.letters=[]; paint_live_bar()
-    assert ''.join(l['text'] for l in m.letters)=='Q2 POD' and m.font==('default',O['MARK_PX'])
-    assert m.letters[0]['x']==STATUS_MARGIN and m.letters[-1]['x']+10<=375/2-CLOCK_TEXT/2-CLOCK_GAP
-    assert {l['color'] for l in m.letters}=={color_t(O['MARK_RGB'])} and m.u.mem_read(views[0]+0x34,1)==b'\0'; passed()
 
 # Fast-scroll letter (iPod): once the wheel ramp moves more than one row per detent on a long list,
 # the selected row's first character (a-z upper-cased, leading spaces skipped) is drawn centred over
@@ -3641,18 +3635,18 @@ class CoverflowMachine(QueueMachine):
 
 if variant=='ipod':
     # Both themes: the art itself follows the playing track, when Home or the status bar paints, in
-    # the right panel (Classic: beside the Split list; Minimal: under the full-width list, from HOME_ART_X): the Coverflow thumbnail until the player has parsed this
+    # the right panel beside the Split list: the Coverflow thumbnail until the player has parsed this
     # track, then the player's cover. Nothing loads or draws for Now Playing.
     for theme in ('0','1'):
       CONFIG.clear(); CONFIG.update(THEME=theme); m=CoverflowMachine(); m.open(); m.top=m.home; CONFIG.clear()
       bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
       for w in (bar,m.home): m.word(w+O['W_PARENT'],m.wm)
-      SPLIT=O['HOME_SPLIT_W'] if theme=='1' else O['HOME_ART_X']; PW=375-SPLIT; LISTW=SPLIT if theme=='1' else 375
+      SPLIT=O['HOME_CLASSIC_SPLIT_W' if theme=='1' else 'HOME_SPLIT_W']; PW=375-SPLIT
       def art_image(w):
           m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0))
           return m.nodes[m.art].get('image')
       m.byte(syms['g_playcover_type'],1)
-      assert art_image(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==LISTW
+      assert art_image(m.home).startswith('file:///mnt/mmc/.coverflow/') and m.get(m.list+O['W_W'])==SPLIT
       m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); assert art_image(bar)=='file:///tmp/coverpic.jpg'
       m.nodes[m.art]['image']='unchanged'; assert art_image(m.home)=='unchanged'  # same track and cover
       np=m.node('window','playing_page'); m.word(np+O['W_PARENT'],m.wm); m.top=np
@@ -3678,10 +3672,10 @@ if variant=='ipod':
       m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.art,m.canvas,0,0))
       assert m.clip==(SPLIT,30,PW,290),m.clip
       m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0)); assert m.clip==(0,0,375,320)
-      # Classic's list paints only left of the panel, Minimal's over it; the placeholder (no size) fills the panel.
+      # The list paints only left of the panel; the placeholder (no size) fills the panel.
       m.word(m.canvas+O['CANVAS_X'],0); m.word(m.canvas+O['CANVAS_Y'],30+HOME_TOP)
       m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.list,m.canvas,0,0))
-      assert m.clip==(0,30+HOME_TOP,LISTW,7*HOME_ROW),m.clip
+      assert m.clip==(0,30+HOME_TOP,SPLIT,7*HOME_ROW),m.clip
       m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.list,m.canvas,0,0)); assert m.clip==(0,0,375,320)
       m.image_size=None
       m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0')
@@ -3727,9 +3721,8 @@ if variant=='ipod':
     assert repaint(m.top)==[] and repaint(bar)==[]; m.top=win
     f,ctx=m.handler(win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert repaint()==[] and shown()[0]==''; passed()
-    # Minimal (docs/ipod.md#now-playing): the text column moves NP_SHIFT down under a NOW PLAYING
-    # caption, the album is drawn in capitals over its transparent label, and under the art page the
-    # output and the format stand either side of the dots. Classic leaves the asset's places.
+    # Minimal (docs/ipod.md#now-playing): the album is drawn in capitals over its transparent label;
+    # nothing else is drawn and the text keeps the asset's places. Classic draws nothing.
     def minimal_np(theme):
         CONFIG.clear(); CONFIG.update(THEME=theme); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'; CONFIG.clear()
         for i,r in enumerate(m.items(m.get(syms['mcl_pdeqplaylist']))):
@@ -3742,21 +3735,15 @@ if variant=='ipod':
         box=m.node('view','slide_view_view',[slide,page]); m.word(box+O['W_Y'],40)
         win=m.node('window','playing_page',[box,m.node('slider','slider_play',max=225,value=100),m.node('label','label_ipod_remain')])
         for w,parent in ((title,page),(artist,page),(album,page),(page,box),(slide,box),(box,win),(win,m.wm)): m.word(w+O['W_PARENT'],parent)
-        m.handlers.pop(syms['mclGetOutputWay'],None); m.word(0xa3beb0,2)  # stock's leaf reads the output way: USB DAC
         m.top=win; m.call(address=playing,args=(win,7,0,0),gap=0)
-        minimal=theme=='0'; dy=O['NP_SHIFT'] if minimal else 0
-        assert [m.get(w+O['W_Y']) for w in (title,artist,album)]==[55+dy,87+dy,111+dy],(theme,[m.get(w+O['W_Y']) for w in (title,artist,album)])
+        minimal=theme=='0'
+        assert [m.get(w+O['W_Y']) for w in (title,artist,album)]==[55,87,111]
         assert m.u.mem_read(album+0x34,1)==bytes([0 if minimal else 255])
         def border(w): m.letters=[]; m.call(address=HOOKS['widget_on_paint_border'][0],args=(w,m.canvas,0,0),gap=0); return m.letters
-        letters=border(page)+border(win); lines={}
-        for l in letters: lines.setdefault(l['y'],[]).append(l)
+        letters=border(page)+border(win)
         if not minimal: assert not letters; passed(); return
-        caps=[''.join(l['text'] for l in v) for _,v in sorted(lines.items())]
-        assert caps==['NOW PLAYING','KID A','USB DACLOSSLESS'],caps
-        caption,alb,foot=(v for _,v in sorted(lines.items()))
-        assert caption[0]['x']==194 and caption[0]['y']==55+dy-O['NP_CAPTION_DY'] and alb[0]['x']==194
-        assert foot[0]['x']==O['NP_MARGIN'] and foot[0]['y']==40+186+O['NP_FOOT_DY']
-        assert foot[-1]['x']+10==375-O['NP_MARGIN']  # LOSSLESS ends at the margin (10px a glyph here)
+        assert ''.join(l['text'] for l in letters)=='KID A' and len({l['y'] for l in letters})==1
+        assert letters[0]['x']==194
         assert {l['color'] for l in letters}=={color_t(O['SUDO_MUTED'])} and m.font==('default',O['NP_CAPS_PX']); passed()
     for theme in ('0','1'): minimal_np(theme)
 
@@ -4769,18 +4756,18 @@ if variant=='ipod':
     m.call(address=HOOKS['home_page_init'][0],args=(home,0,0,0),gap=0)
     art=named(m,home,'img_homeart')
     def home_bounds(full,classic=False):
-        x0,end=(O['HOME_CLASSIC_TEXT_X'],O['CHEVRON_W']-10) if classic else (HOME_TEXT_X,O['HOME_LABEL_END'])
-        row=(O['HOME_CLASSIC_ROW'] if classic else O['HOME_FULL_ROW']) if full or not classic else O['HOME_SPLIT_W']
+        x0,end=(O['HOME_CLASSIC_TEXT_X'],O['CHEVRON_W']-10) if classic else (HOME_TEXT_X,O['HOME_LABEL_END' if full else 'HOME_SPLIT_LABEL_END'])
+        split=O['HOME_CLASSIC_SPLIT_W' if classic else 'HOME_SPLIT_W']
+        row=(O['HOME_CLASSIC_ROW'] if classic else O['HOME_FULL_ROW']) if full else split
         for name in ('list_view_home','list_view_homeset'):
             menu=named(m,home,name)
-            assert m.get(menu+O['W_W'])==(375 if full or not classic else O['HOME_SPLIT_W'])
+            assert m.get(menu+O['W_W'])==(375 if full else split)
             for r in m.nodes[m.nodes[menu]['children'][0]]['children']:
                 label=m.nodes[r]['children'][0]
                 x,y,width,height=cf_geometry(m,label)
                 assert x==x0 and width>0 and x+width==row-end and m.get(r+O['W_W'])==row
         assert m.nodes[art]['visible']==(not full)
-        x=O['HOME_SPLIT_W'] if classic else O['HOME_ART_X']
-        assert tuple(signed(m.get(art+O[k])) for k in ('W_X','W_Y','W_W','W_H'))==(x,0,375-x,290)
+        assert tuple(signed(m.get(art+O[k])) for k in ('W_X','W_Y','W_W','W_H'))==(split,0,375-split,290)
     home_bounds(False)
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
     home_bounds(True)
@@ -5007,22 +4994,13 @@ if variant=='ipod':
     assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); centre(m)
     assert m.nodes[m.slider][FG]==-1; centre(m,50); assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); passed()
 
-    # Home at init: Split shows the art, beside the list in Classic and under it in Minimal; Full hides it
-    # and widens the list to the screen and its rows' tap targets to HOME_FULL_ROW (Classic: HOME_CLASSIC_ROW).
-    for config,listw,roww,shown in (({'HOME':'1'},375,O['HOME_FULL_ROW'],0),({},375,O['HOME_FULL_ROW'],1),
-                                    ({'HOME':'1','THEME':'1'},375,O['HOME_CLASSIC_ROW'],0),({'THEME':'1'},O['HOME_SPLIT_W'],O['HOME_SPLIT_W'],1)):
+    # Home at init: Split halves the screen in both themes and shows the art; Full widens the list
+    # to the screen and its rows' tap targets to HOME_FULL_ROW (Classic: HOME_CLASSIC_ROW) and hides it.
+    for config,listw,roww,shown in (({'HOME':'1'},375,O['HOME_FULL_ROW'],0),({},O['HOME_SPLIT_W'],O['HOME_SPLIT_W'],1),
+                                    ({'HOME':'1','THEME':'1'},375,O['HOME_CLASSIC_ROW'],0),({'THEME':'1'},O['HOME_CLASSIC_SPLIT_W'],O['HOME_CLASSIC_SPLIT_W'],1)):
         CONFIG.clear(); CONFIG.update(config); m=CoverflowMachine(); m.open()
         rowsw=[m.get(w+O['W_W']) for w in [m.list,*m.imgs]]
         assert rowsw==[listw]+[roww]*7 and m.nodes[m.art].get('visible',1)==shown,(config,rowsw); passed()
-        # Minimal draws the labels as small capitals (10px a glyph here, SUDO_TRACK apart) over their
-        # transparent stock ink; Classic leaves the stock label alone.
-        label=named(m,m.home,'label_coverflow'); m.nodes[label]['text']='Coverflow'; m.letters=[]
-        m.call(address=HOOKS['widget_on_paint_border'][0],args=(label,m.canvas,0,0))
-        caps=[(l['text'],l['x']) for l in m.letters]
-        if 'THEME' in config: assert not caps; passed(); continue
-        assert caps==[(c,i*(10+O['SUDO_TRACK'])) for i,c in enumerate('COVERFLOW')],caps
-        assert {l['y'] for l in m.letters}=={(HOME_ROW-O['HOME_CAPS_PX'])//2} and m.font==('default',O['HOME_CAPS_PX'])
-        assert {l['color'] for l in m.letters}=={color_t(O['SUDO_MUTED'])}; passed()
     Machine.hook=orig_hook; CONFIG.clear()
 
 # Wheel precision (docs/internals.md, Wheel movement): iPod's overshoot filter (the second tick of a
@@ -5414,14 +5392,14 @@ def home_settings():
         m.calls=[]; f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible'] and m.nodes[sets]['animated']=='x'
-        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,375)]; passed()
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,O['HOME_SPLIT_W'])]; passed()
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==O['PAGE_SLIDE_MS']==120
         m.advance(119); assert signed(m.get(sets+O['W_X']))>0
         m.advance(1); assert m.get(sets+O['W_X'])==0 and not m.props
         m.paint(sview); assert m.selected(sview)==0 and m.call()==11 and m.selected(sview)==1; passed()
         m.calls=[]; assert m.call(O['KEY_RETURN'])==11
         assert m.nodes[lst]['visible'] and not m.nodes[sets]['visible'] and m.nodes[lst]['animated']=='x'
-        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-375&0xffffffff)]
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-O['HOME_SPLIT_W']&0xffffffff)]
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==120
         m.advance(120); assert m.get(lst+O['W_X'])==0 and not m.props
         m.paint(view); assert m.selected(view)==6; passed()

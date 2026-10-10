@@ -126,7 +126,7 @@ static int xf_ids;
 
 /* demo's fade for the next change, looked for once a second of audio until the file appears. */
 static int xfade_ms(int rate, unsigned frames) {
-    static xfade_flag *f;
+    static volatile int *f;
     static unsigned wait = ~0u;
     if (!f && wait < (unsigned)rate) {
         wait += frames;
@@ -134,12 +134,12 @@ static int xfade_ms(int rate, unsigned frames) {
         wait = 0;
         int fd = open(XFADE_FILE, 0); /* O_RDONLY */
         if (fd >= 0) {
-            void *p = mmap64(0, sizeof(xfade_flag), 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
+            void *p = mmap64(0, sizeof *f, 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
             close(fd);
             if (p != (void *)-1) f = p;
         }
     }
-    return f && f->ms > 0 ? f->ms : 0;
+    return f && *f > 0 ? *f : 0;
 }
 
 /* Frames of a (interleaved, nch) put out in place: all of them, or fewer while the hold fills. */

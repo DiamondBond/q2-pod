@@ -623,15 +623,15 @@ static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
 }
 
 /* Crossfade (peq_player.c crossfade): demo's flag, one filter instance per track. */
-static xfade_flag *xfade_view(int ms) {
-    static xfade_flag *f;
+static volatile int *xfade_view(int ms) {
+    static volatile int *f;
     if (!f) {
         int fd = open(XFADE_FILE, O_RDWR | O_CREAT, 0644);
-        assert(fd >= 0 && !ftruncate(fd, sizeof(xfade_flag)));
-        f = mmap(0, sizeof(xfade_flag), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        assert(fd >= 0 && !ftruncate(fd, sizeof *f));
+        f = mmap(0, sizeof *f, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         assert(f != MAP_FAILED && !close(fd));
     }
-    f->ms = ms;
+    *f = ms;
     return f;
 }
 static af_instance *track(af_instance *af, int rate) {
