@@ -193,10 +193,26 @@ static long long now_ms(void) {
     return (long long)t.sec * 1000 + t.nsec / 1000000;
 }
 
-/* ALSA dev ("-" for none) into au.pcm at rate; Bluetooth or a USB DAC (a volume, vol) have no
- * headphone DAC and get hciplayer's soft volume unless "h". Returns the DAC, readied, or -1. */
+/* "usb", the USB DAC, as plughw:N,0: its card is the one /proc/asound/cards lists as "N [id]:
+ * USB-Audio - name", 1 behind the headphone DAC's 0 (stock sets its volume on "hw:1"). */
+static const char *usb_device(char *out) {
+    char b[1024], *u;
+    int fd = open("/proc/asound/cards", O_CLOEXEC), n = fd >= 0 ? read(fd, b, sizeof b - 1) : 0;
+    if (fd >= 0) close(fd);
+    b[n > 0 ? n : 0] = 0;
+    if (!(u = strstr(b, ": USB-Audio - "))) return "plughw:1,0";
+    while (u > b && u[-1] != '\n') --u;
+    snprintf(out, 16, "plughw:%d,0", atoi(u));
+    return out;
+}
+
+/* ALSA dev ("-" for none, "usb" for usb_device) into au.pcm at rate; Bluetooth or a USB DAC (a
+ * volume, vol) have no headphone DAC and get hciplayer's soft volume unless "h". Returns the DAC,
+ * readied, or -1. */
 static int sound_open(const char *dev, const char *vol, unsigned rate) {
     int dac = -1, off = 0;
+    char usb[16];
+    if (!strcmp(dev, "usb")) dev = usb_device(usb);
     au.gain = vol && vol[0] != 'h' ? bt_gain(atoi(vol)) : 65536;
     if (strcmp(dev, "-")) {
         /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop */

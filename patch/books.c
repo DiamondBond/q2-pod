@@ -725,13 +725,13 @@ static int usb_soft(void) { return g_usbvol_mode && I(USB_MIXER, 0) == -2; }
 /* The output in use for q2video (here, radio.c) and librespot's sink (spotify.c): 0 for the
  * headphone DAC, which keeps the volume set. Bluetooth's is hciplayer's soft volume, so the helper
  * gets g_volume in vol (5 bytes) to apply it the same way, on hciplayer's own plug:bluealsa (the
- * device demo writes to /mnt/data/asound.conf). A USB DAC plays on hciplayer's hw:2,0 (plughw, for
- * the helper's rate): with g_volume when its volume is soft, else "h" and the volume, which the
- * helper only shows. */
+ * device demo writes to /mnt/data/asound.conf). A USB DAC is "usb", which the helper finds in
+ * /proc/asound/cards (plughw, for its rate): with g_volume when its volume is soft, else "h" and
+ * the volume, which the helper only shows. */
 const char *output_device(char *vol) {
     int way = mclGetOutputWay();
     tk_snprintf(vol, 5, way == 2 && !usb_soft() ? "h%u" : "%u", g_volume);
-    return way == 1 ? "plug:bluealsa" : way == 2 ? "plughw:2,0" : 0;
+    return way == 1 ? "plug:bluealsa" : way == 2 ? "usb" : 0;
 }
 
 /* q2video on output_device, else the headphone DAC's plughw:0,0 (the only card), for file or, with

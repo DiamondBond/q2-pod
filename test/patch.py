@@ -5776,16 +5776,16 @@ m.forked=0; names=play(1)  # the child
 assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',R+'/a.mp4',0)]; passed()
 # A DAC check_dacoff_state powered off is powered on first. Bluetooth (way 1) plays on hciplayer's
-# plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on hciplayer's
-# hw:2,0, through plughw: with the volume marked h (the DAC's own control, or a fixed USB volume),
+# plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on "usb" (q2video
+# finds its card), through plughw: with the volume marked h (the DAC's own control, or a fixed USB volume),
 # or plain when the USB volume is variable and the DAC has no control (USB_MIXER -2: hciplayer's soft volume).
 m.word(syms['g_dacoff_time'],0xffffffff); assert 'mclSetDacPwr' in play(2) and m.execs[-1][2:5]==('plughw:0,0',R+'/b.MKV',0)
 m.word(syms['g_dacoff_time'],5); m.byte(syms['g_volume'],42)
 m.way=1; assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
 m.way=2; m.byte(syms['g_usbvol_mode'],0); m.word(O['USB_MIXER'],0xfffffffe)
-assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('plughw:2,0',R+'/Trip/c.avi',('h42',0))
-m.byte(syms['g_usbvol_mode'],1); m.word(O['USB_MIXER'],0); play(0); assert m.execs[-1][2:]==('plughw:2,0',R+'/Trip/c.avi',('h42',0))
-m.word(O['USB_MIXER'],0xfffffffe); play(0); assert m.execs[-1][2:]==('plughw:2,0',R+'/Trip/c.avi',('42',0))
+assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
+m.byte(syms['g_usbvol_mode'],1); m.word(O['USB_MIXER'],0); play(0); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
+m.word(O['USB_MIXER'],0xfffffffe); play(0); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('42',0))
 passed()
 # Playing: no key or touch reaches the UI; a key's release goes to the player's socket as a datagram:
 # Play/Pause pauses, the side buttons seek, Return quits.
