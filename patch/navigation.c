@@ -256,9 +256,9 @@ typedef struct {
     void *qm_dialog, *qm_queue, *qm_playlist;
     unsigned qm_queue_hash;
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
-    /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set (else at the card,
-     * /mnt/mmc, with a card and no drive; otherwise the storage selector stays); while the page is
-     * there, Back at that root leaves it. */
+    /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set (else at the
+     * card, /mnt/mmc, with a card and no drive; otherwise the storage selector stays); while the
+     * page is there, Back at that root leaves it. */
     int media_open;
     char media_root[32];
     void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
@@ -1508,7 +1508,8 @@ static void paint_chevrons(void *w, void *canvas) {
         rect_t r = bounds(&g_menu, i);
         if (2 * r.w >= I(w, W_W) && (!home || i == st.sel_row))
             canvas_draw_icon(canvas, bitmap,
-                             r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 + (home ? HOME_CHEVRON_SHIFT : 0),
+                             r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 +
+                                 (home ? HOME_CHEVRON_SHIFT : 0),
                              home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);
@@ -1908,8 +1909,8 @@ int ringnav_keylock_rows(void *win) {
     if (!view) return 0;
     widget_destroy_children(view);
     for (int i = 0; i < 3; ++i) {
-        void *label = list_row(view, i == lock_choice() ? "select" : "unselect",
-                               lock_pick, (void *)(long)i);
+        void *label =
+            list_row(view, i == lock_choice() ? "select" : "unselect", lock_pick, (void *)(long)i);
         widget_set_text_utf8(label, lock_names[i]);
     }
     return 0;
@@ -2885,8 +2886,8 @@ static void round_corners(unsigned char *px, int w, int h, int stride, int alpha
         for (int x = 0; x <= out / 16; ++x) {
             unsigned coverage = x < out / 16 ? 0 : (unsigned)(16 - (out & 15)) * 255 / 16;
             for (int c = 0; c < 4; ++c) {
-                unsigned char *a = px + (c & 1 ? h - 1 - y : y) * stride +
-                                   (c & 2 ? w - 1 - x : x) * 4 + alpha;
+                unsigned char *a =
+                    px + (c & 1 ? h - 1 - y : y) * stride + (c & 2 ? w - 1 - x : x) * 4 + alpha;
                 if (*a > coverage) *a = (unsigned char)coverage;
             }
         }
@@ -2901,8 +2902,10 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     /* Before the manager copies bitmap_t: cached flags must agree with the new alpha. These
      * paths are stock's album/artist thumbnails and its three local/online playing covers. */
     if (format < 4 && name &&
-        (tk_str_start_with(name, "file:///mnt/mmc/.sldp/") || !tk_strcmp(name, "file:///tmp/coverpic.jpg") ||
-         !tk_strcmp(name, "file:///tmp/externpic.jpg") || !tk_strcmp(name, "file:///tmp/album_tidal.jpg"))) {
+        (tk_str_start_with(name, "file:///mnt/mmc/.sldp/") ||
+         !tk_strcmp(name, "file:///tmp/coverpic.jpg") ||
+         !tk_strcmp(name, "file:///tmp/externpic.jpg") ||
+         !tk_strcmp(name, "file:///tmp/album_tidal.jpg"))) {
         int w = I(bitmap, 0), h = I(bitmap, 4), stride = bitmap_get_line_length(bitmap);
         if (w > 0 && h > 0 && w <= 4096 && h <= 4096 && stride >= w * 4) {
             unsigned char *px = bitmap_lock_buffer_for_write(bitmap);
@@ -5656,7 +5659,7 @@ static void resume_poll(void) {
     int sec = 0, total = 0;
     void *r = queue_now(&at, &n);
     if (!r || player_playtime_and_length(&sec, &total) < 0 || total <= 0) return;
-    unsigned key = listen_key(r); /* a CUE image's tracks share one path */
+    unsigned key = listen_key(r);                   /* a CUE image's tracks share one path */
     if (now - st.rs_go_at > 8000) st.rs_go_key = 0; /* a Resume row's chapter never came */
     if (key != st.rs_key) {
         if (st.rs_long && !st.rs_pending) spot_save(st.rs_sec);
@@ -5826,7 +5829,8 @@ static unsigned jpeg_size(const unsigned char *b, unsigned n) {
         if (m == 1 || (m >= 0xd0 && m <= 0xd7)) continue;
         if (i + 2 > n || (size = b[i] << 8 | b[i + 1]) < 2 || i + size > n) return 0;
         if (m >= 0xc0 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc) {
-            if (size < 8 || size != 8 + 3u * b[i + 7] || m != 0xc0 || b[i + 2] != 8 || b[i + 7] != 3)
+            if (size < 8 || size != 8 + 3u * b[i + 7] || m != 0xc0 || b[i + 2] != 8 ||
+                b[i + 7] != 3)
                 return 0;
             unsigned h = b[i + 3] << 8 | b[i + 4], w = b[i + 5] << 8 | b[i + 6];
             return w && h ? w << 16 | h : 0;
@@ -5855,7 +5859,8 @@ static void *logo_sync(void *unused) {
     if (access(LOGO_SRC, 0))
         unlink(LOGO_DST), err = 0;
     else if ((b = logo_read(LOGO_SRC, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
-        free(b), b = 0; /* landscape: ffmpeg turns it a quarter clockwise (coverflow.c's ff_thumb) */
+        free(b),
+            b = 0; /* landscape: ffmpeg turns it a quarter clockwise (coverflow.c's ff_thumb) */
         int status, pid = fork();
         if (!pid) {
             execl("/usr/bin/ffmpeg", "/usr/bin/ffmpeg", "-nostdin", "-v", "quiet", "-i", LOGO_SRC,
@@ -5868,7 +5873,8 @@ static void *logo_sync(void *unused) {
     }
     if (b && jpeg_size(b, n) == (320u << 16 | 375)) {
         old = logo_read(LOGO_DST, &old_n);
-        if ((old && old_n == n && !memcmp(old, b, n)) || blob_io(LOGO_DST, LOGO_DST ".tmp", b, n, 1))
+        if ((old && old_n == n && !memcmp(old, b, n)) ||
+            blob_io(LOGO_DST, LOGO_DST ".tmp", b, n, 1))
             err = 0; /* the same bytes are not written again each boot */
         else
             unlink(LOGO_DST ".tmp"), err = "Could not save boot logo";

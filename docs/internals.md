@@ -26,7 +26,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                              |
 | `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                            |
 | `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md)) |
-| `folder_page_init`                    | `0x523330` | Opens at the SD root (card, no OTG), or at Podcasts/Audiobooks for their shortcuts |
+| `folder_page_init`                    | `0x523330` | Opens at the SD root (card, no OTG), or at Podcasts/Audiobooks for their shortcuts    |
 | `folder_back`                         | `0x507ac8` | Back at a bypassed SD root or shortcut root leaves the page                           |
 | `window_manager_dispatch_input_event` | `0x66d49c` | No input while a video plays ([Videos](#videos)); [Wake](#wake)'s screen-off gate     |
 | `buzzeer_switch`                      | `0x4f3cc8` | No buzzer while headphones, BT or USB listen ([Key Tone](#key-tone))                  |
