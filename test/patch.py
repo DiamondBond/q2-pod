@@ -7444,6 +7444,8 @@ class BrowseMachine(RadioMachine):
         self.serve=None; self.requests=[]; self.wire=[]; self.out=b''; self.pending=b''; self.stalled=False
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
+        if name=='widget_set_prop_int' and self.text(u.reg_read(REGS[1]))=='virtual_h':
+            self.word(u.reg_read(REGS[0])+O['VIEW_CONTENT_H'],u.reg_read(REGS[2]))
         if not name.startswith('x:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
         if name=='socket': assert a==1 and b in (1,2); ret=9 if b==2 else 7; self.out=b''; self.pending=b''
@@ -7603,6 +7605,12 @@ m.destroy(m.page); m.poll(29500); assert len(m.systems)==1; m.poll(500); assert 
 m.serve=None; m.open(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.worker(); assert m.labels()==['Loading…']
 m.advance(500); m.answer(*ME); assert m.labels()==MENU; passed()
 
+# Back reveals the saved More row, and paint keeps it selected.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)
+m.answer('ok','','next',[track('spotify:track:'+str(i),str(i)) for i in range(50)])
+m.pick(50); m.answer(*OK,[]); m.back(); view=m.find('scroll_view')
+assert m.nodes[view]['_ringnav_index']==50 and m.get(view+O['SCROLL_Y'])>3000
+m.paint(view); assert m.nodes[view]['_ringnav_index']==50; passed()
 # More beyond the history limit keeps the operation, context and title while recycling a level.
 m=BrowseMachine(); m.open(); m.answer(*ME); m.row(2)
 m.answer(*OK,[('album','spotify:album:a','Album A','Artist','','')]); m.row(0)

@@ -670,12 +670,6 @@ static void prop(void *w, const char *name, int value) {
     if (widget_get_prop_int(w, name, -1) != value) widget_set_prop_int(w, name, value);
 }
 
-/* A payload page's own choice of row (photos.c: the photo last viewed), kept as a step would. */
-void ringnav_select(void *w, int id, int rows) {
-    prop(w, COUNT, rows);
-    prop(w, SEL, id);
-}
-
 /* The bump timer repaints at 120 ms; the second-detent arm survives independently. */
 static void fx_cancel(void) {
     stop_timer(&st.fx_timer);
@@ -1053,6 +1047,14 @@ static void reveal(menu_t *m, int id, int immediate) {
         table_client_scroll_to(m->w, want);
     } else
         scroll_view_scroll_delta_to(m->w, 0, want - top, GLIDE_MS);
+}
+
+/* A payload page's own row: establish its scope and viewport before paint can recall another. */
+void ringnav_select(void *w, int id, int rows) {
+    int loaded = load(&g_menu, w, 0);
+    prop(w, COUNT, rows);
+    prop(w, SEL, id);
+    if (loaded) reveal(&g_menu, id, 1);
 }
 
 /* Keep selection during native momentum and recall glides. Once settled, repair an offscreen
