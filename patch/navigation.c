@@ -1539,7 +1539,8 @@ static int letter_expire(const void *info) {
 static void paint_letter(void *w, void *canvas) {
     rect_t old;
     if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= LIST_FIRST_MS ||
-        st.touch_mode || !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w))
+        st.touch_mode || !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w) ||
+        (g_menu.ctx >= 0 && contexts[g_menu.ctx].kind == CTX_FIXED)) /* menus are not alphabetical */
         return;
     int i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
     const unsigned *s = i < 0 ? (void *)0 : row_id(g_menu.at[i]).title;
@@ -6560,7 +6561,7 @@ int ringnav(void *ctx, void *event) {
                 widget_invalidate_force(w, (void *)0); /* a wheel wake still clears touch hiding */
                 return STOP;
             }
-            if (!home && !edge_wraps(&g_menu, id, dir, now)) {
+            if (!edge_wraps(&g_menu, id, dir, now)) {
                 st.edge_id = id;
                 st.edge_dir = dir;
                 st.edge_time = now;

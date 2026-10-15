@@ -3862,16 +3862,18 @@ if variant=='ipod':
     assert m.paint(w2)==0 and m.selected(w2)==5 and m.get(w2+O['SCROLL_Y'])==204
     assert [c[0] for c in m.moved()]==['scroll_view_set_offset']; passed()
 
-    # Home is an ordinary list: the wheel walks the seven rows one by one, wraps at once at both ends
-    # (no bump first), Return opens Now Playing, the bar spans the list's width and centre
+    # Home is an ordinary list: the wheel walks the seven rows one by one, bumps at both ends and
+    # wraps after a pause, Return opens Now Playing, the bar spans the list's width and centre
     # clicks the image.
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2])
     m.paint(view)
     assert m.selected(view)==0
     for i in range(1,7): assert m.call()==11 and m.selected(view)==i and m.get(view+O['SCROLL_Y'])==0
     m.paint(view); assert m.rounded[0]['rect']==(25,6*HOME_ROW+HOME_ROW//2-3,6,6)
-    assert m.call(gap=50)==11 and m.selected(view)==0
-    assert m.call(O['KEY_PREV'],gap=50)==11 and m.selected(view)==6
+    assert m.call(gap=50)==11 and m.selected(view)==6   # bumped
+    assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(view)==0
+    assert m.call(O['KEY_PREV'],gap=50)==11 and m.selected(view)==0   # bumped
+    assert m.call(O['KEY_PREV'],gap=O['EDGE_PAUSE_MS'])==11 and m.selected(view)==6
     for i in range(5,2,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
     assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==3
     dest=destinations(m); assert len(dest)==1 and m.text(dest[0][1])=='playing_page'
@@ -4054,6 +4056,11 @@ if variant=='ipod':
     for e in es: m.nodes[e]['text']='The Cure'
     for _ in range(5): m.call(gap=100)
     m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['T']; passed()
+    # A settings menu is not alphabetical: no letter however long.
+    m=Machine(); w,es=m.page_list(40,extent=40*48,name='playset_page')
+    for e in es: m.nodes[e]['text']='row'
+    for _ in range(5): m.call(gap=100)
+    m.paint(w,gap=0); assert not m.letters; passed()
 
 WRITERS={'scanAllMusicFile':'stock_scan_all','scanSpecFolder':'stock_scan_folder','deleteMusicFromMusicDb':'stock_delete_song'}
 class CoverflowMachine(QueueMachine):
@@ -5975,10 +5982,10 @@ if variant=='ipod':
                 else: w,es=m.page_list(count,extent=count*48)
                 m.paint(w); assert turn(m,w,gaps)==list(range(1,len(gaps)+1)),(table,count,gaps)
                 passed()
-    # Home as built: the same, its ends wrap at once, and Centre opens the row that is highlighted.
+    # Home as built: the same, its ends bump then wrap after a pause, and Centre opens the row that is highlighted.
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2]); m.paint(view)
-    assert turn(m,view,(1000,100,100,1000,100,100,100))==[1,2,3,4,5,6,0]
-    assert m.get(view+O['SCROLL_Y'])==0 and turn(m,view,(1000,100,100),PREV)==[6,5,4]
+    assert turn(m,view,(1000,100,100,1000,100,100,100,400))==[1,2,3,4,5,6,6,0]
+    assert m.get(view+O['SCROLL_Y'])==0 and turn(m,view,(1000,400,100,100),PREV)==[0,6,5,4]
     assert m.confirm()==11 and m.dispatched()[0][1]==imgs[4]; passed()
     # A BUTTONS dialog: the same between its buttons, and nothing scrolls.
     m=Machine(); d=m.node('dialog','confirminfo_dialog'); m.word(d+O['W_PARENT'],m.wm); m.top=d
@@ -6005,7 +6012,7 @@ if variant=='ipod':
     assert m.call(PREV,gap=100)==11 and m.selected(w)==0
     m.paint(w,gap=0); assert m.sel()==(0,6,240,48)   # bumped down at the top, on the first tick
     assert m.call(PREV,gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5; passed()
-    # Settings and Home keep hard ends: no bump and no wrap, however long the pause.
+    # Settings keep hard ends: no bump and no wrap, however long the pause.
     m,w,es=ring('sysset_page')
     for gap in (100,O['EDGE_PAUSE_MS'],1000):
         assert m.call(gap=gap)==11 and m.selected(w)==5
@@ -6025,11 +6032,11 @@ if variant=='ipod':
         n=press(m,gap=gap); assert n==0 and m.down==0 and m.u.mem_read(SOUND_LATCH,1)==b'\x01'
         got.append((n+lift(m),m.selected(view))); assert m.ret==11
     assert got==[(1,1),(1,2),(1,3),(1,4)],got; passed()
-    # Slow ticks click on every row, wrapping past Home's end included; a repaint and a long wait
-    # add nothing.
+    # Slow ticks click on every row; Home's end bumps silently, then the wrap after a pause clicks;
+    # a repaint and a long wait add nothing.
     m,view=home_machine()
     assert [tick(m) for _ in range(6)]==[1]*6 and m.selected(view)==6
-    assert [tick(m,gap=gap) for gap in (1000,50,400)]==[1,1,1] and m.selected(view)==2
+    assert [tick(m,gap=gap) for gap in (1000,50,400,100)]==[0,0,1,1] and m.selected(view)==1
     m.paint(view); assert not buzzes(m)
     m.advance(10000); assert not buzzes(m); passed()
     # buzzeer_switch also runs when it is silent, so its calls are not the count: stock always calls

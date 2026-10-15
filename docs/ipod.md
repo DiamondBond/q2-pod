@@ -90,7 +90,7 @@ The seven destinations remain Now Playing, Library, Coverflow, Folder, Rockbox, 
 Settings. Rockbox is visible only when its binary is on the card, unless Display's **Shortcut**
 (`IPOD/SHORTCUT` 0-4) turns that row into Artists, Albums, Favorites or Rated Albums (`home_shortcut_open`; Rated Albums is Ratings → Albums, `rated_albums`); with no key it is Rockbox when the card has it, else Favorites. Centre cycles Rockbox, Favorites, Rated Albums, Artists, Albums. Settings opens Playback and
 System; Return restores the menu's previous selection, and a short Return on the main menu opens
-Now Playing without changing playback. Return there goes back to Home. The wheel wraps straight past either end of both lists (no bump first).
+Now Playing without changing playback. Return there goes back to Home. The wheel bumps at either end of both lists and wraps after a pause, as ring lists do ([internals.md](internals.md#wheel-movement)).
 Folder opens directly at the SD root when a card is in and no OTG drive is connected; Back at that root returns
 to Home. With OTG connected or no card in on entry, Folder keeps the storage selector. Nested folders and
 Library’s Podcasts/Audiobooks shortcuts keep their usual Back navigation.
@@ -360,8 +360,8 @@ once a step moves more than one row, from 300 ms of continuous spin
 ([internals.md](internals.md#wheel-movement)), and disappears 400 ms after the last such step, or
 at once on a slow tick, a touch or the end of the list. Latin letters show in
 capitals; leading spaces are skipped, as is a leading "The", "A" or "An" in library lists
-([internals.md](internals.md#sorting)), and any other character shows as it is. Home, settings and
-other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`); see
+([internals.md](internals.md#sorting)), and any other character shows as it is. Home, settings menus
+(`CTX_FIXED` windows, which are not alphabetical) and other short lists never show it. Values are in `patch/offsets.inc` (`LETTER_*`); see
 [internals.md](internals.md#drawing).
 
 ## Now Playing
