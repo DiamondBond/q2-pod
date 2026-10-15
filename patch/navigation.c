@@ -1489,7 +1489,8 @@ static void paint_chevrons(void *w, void *canvas) {
     for (int i = 0; i < g_menu.n; ++i) {
         rect_t r = bounds(&g_menu, i);
         if (2 * r.w >= I(w, W_W) && (!home || i == st.sel_row))
-            canvas_draw_icon(canvas, bitmap, r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2,
+            canvas_draw_icon(canvas, bitmap,
+                             r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 + (home ? 6 : 0),
                              home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);
@@ -2799,11 +2800,44 @@ static int settings_icon(const char *name) {
  * and takes the light tone, which keeps the white legible; red marks on their own keep the red
  * tone. bitmap_t: w @0, h @4, format @0xe; the 32-bit formats 1-4 hold r, g, b at these byte
  * offsets. */
+/* Clamp straight alpha to the arc coverage: reusing an already rounded bitmap is harmless. */
+static void round_corners(unsigned char *px, int w, int h, int stride, int alpha) {
+    int r = (w < h ? w : h) * NP_ART_RADIUS / 166;
+    for (int y = 0; y < r; ++y) {
+        int d = 2 * (r - y) - 1, v = (4 * r * r - d * d) * 64, s = 0;
+        while ((s + 1) * (s + 1) <= v) ++s;
+        int out = 16 * r - s;
+        for (int x = 0; x <= out / 16; ++x) {
+            unsigned coverage = x < out / 16 ? 0 : (unsigned)(16 - (out & 15)) * 255 / 16;
+            for (int c = 0; c < 4; ++c) {
+                unsigned char *a = px + (c & 1 ? h - 1 - y : y) * stride +
+                                   (c & 2 ? w - 1 - x : x) * 4 + alpha;
+                if (*a > coverage) *a = (unsigned char)coverage;
+            }
+        }
+    }
+}
+
 int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned format = bitmap ? *(unsigned short *)((char *)bitmap + 0xe) - 1u : 4,
              preset = accent();
     unsigned char *data = (void *)0;
+    /* Before the manager copies bitmap_t: cached flags must agree with the new alpha. These
+     * paths are stock's album/artist thumbnails and its three local/online playing covers. */
+    if (format < 4 && name &&
+        (tk_str_start_with(name, "file:///mnt/mmc/.sldp/") || !tk_strcmp(name, "file:///tmp/coverpic.jpg") ||
+         !tk_strcmp(name, "file:///tmp/externpic.jpg") || !tk_strcmp(name, "file:///tmp/album_tidal.jpg"))) {
+        int w = I(bitmap, 0), h = I(bitmap, 4), stride = bitmap_get_line_length(bitmap);
+        if (w > 0 && h > 0 && w <= 4096 && h <= 4096 && stride >= w * 4) {
+            unsigned char *px = bitmap_lock_buffer_for_write(bitmap);
+            if (px) {
+                round_corners(px, w, h, stride, at[format][3]);
+                *(unsigned short *)((char *)bitmap + 0xc) &= ~1u;
+                bitmap_unlock_buffer(bitmap);
+            }
+        }
+    }
     const char *s = name;
     int dark = s && tk_str_start_with(s, CONFIRM_IMAGE);
     int control = s && tk_str_start_with(s, DROPDOWN_IMAGE) && !tk_str_start_with(s, DROPDOWN_SUN);
@@ -2953,6 +2987,23 @@ static void accent_row(void) {
         widget_set_visible(P(P(st.setting_label[0], W_PARENT), W_PARENT), st.classic, 0);
 }
 
+static int settings_list(void *w) {
+    return w && !tk_strcmp(widget_get_type(w), "list_view") && !I(w, ROW_HEIGHT) &&
+           I(w, LIST_DEFAULT_ITEM_HEIGHT) == SET_ROW;
+}
+
+/* Cached pages behind Display must take the new inset before their return transition. */
+static void settings_layout(void *w) {
+    if (!w) return;
+    if (settings_list(w)) {
+        int y = ipod_classic() ? 0 : SET_TOP;
+        if (I(w, W_Y) != y) widget_move_resize(w, I(w, W_X), y, I(w, W_W), I(w, W_H));
+        return;
+    }
+    for (unsigned i = 0, n = widget_count_children(w); i < n; ++i)
+        settings_layout(widget_get_child(w, i));
+}
+
 /* Centre or tap cycles the row's value and saves it. A new accent or theme reaches the payload's
  * drawing on the next paint, and the theme's colors and images once every cached image is dropped
  * and the screen repaints; Home takes its new layout and Streaming label at once (never
@@ -2970,6 +3021,7 @@ static int setting_click(void *ctx, void *event) {
     else {
         if (i == 3) {
             coverflow_home_layout();
+            settings_layout(window_manager());
             np_theme();
             accent_row();
             keep_selected(st.setting_label[3]);
@@ -3335,8 +3387,8 @@ static void set_row(void *item) {
  * code never moves, resizes or scrolls its rows afterwards (docs/ipod.md#settings). */
 int ipod_list_layout(void *layout, void *view) {
     void *list = view ? P(view, W_PARENT) : (void *)0;
-    int rows = list && !tk_strcmp(widget_get_type(list), "list_view") && !I(list, ROW_HEIGHT) &&
-               I(list, LIST_DEFAULT_ITEM_HEIGHT) == SET_ROW;
+    int rows = settings_list(list);
+    if (rows) settings_layout(list);
     unsigned n = rows ? widget_count_children(view) : 0;
     for (unsigned i = 0; i < n; ++i) {
         void *item = widget_get_child(view, i);

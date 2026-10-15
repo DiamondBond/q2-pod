@@ -16,6 +16,7 @@ for name,key in (('demo','demo_sha256'),('stock-demo','stock_demo_sha256'),('pat
     if sha((B/name).read_bytes()) != manifest.get(key):
         raise SystemExit(f'{B/name} does not match manifest.json; rebuild into a fresh directory')
 variant = manifest.get('variant')
+CF_PLACEHOLDER = 'default_album_flow' if variant=='ipod' else 'default_album_big'
 # iPod writes times as 0:02 and -1:02:05; Legacy keeps stock's 00:02 and -01:02:05.
 def mmss(t): return t if variant=='ipod' else re.sub(r'^(-?)(\d):',r'\g<1>0\2:',t)
 v = VERSIONS.get(variant, '')
@@ -3870,7 +3871,7 @@ if variant=='ipod':
     # Classic: Home's accent bar spans the list and the chevron rides it alone.
     m=Machine(); m.config['THEME']='1'; view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
     m.paint(view)
-    cbar=lambda: [(HOME_LIST_W-half,m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
+    cbar=lambda: [(HOME_LIST_W-half+6,m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
     assert m.sel()==(0,0,HOME_LIST_W,HOME_ROW) and m.icons==cbar() and not m.rounded
     assert m.bands[0][4]==color_t(ACCENTS[0][0]) and loaded(m)==['list_into'] and m.clip==(0,0,375,320)
     m.call(); m.paint(view); assert m.selected(view)==1 and m.sel()[1]>0 and m.icons==cbar(); passed()
@@ -4621,7 +4622,7 @@ m=CoverflowMachine(); page=m.open()
 assert m.nodes[page]['name']=='coverflow_page' and m.slide and not m.threads
 covers=m.nodes[m.slide]['children']; assert len(covers)==5
 assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
-assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']=='default_album_big'
+assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']==CF_PLACEHOLDER
 assert 'Album 0' in m.texts(); passed()
 m.press(3); assert m.hold()==11 and m.nodes[m.title]['text']=='Album 0'
 f,ctx=m.handler(m.back,O['EVT_CLICK']); m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)
@@ -5211,9 +5212,9 @@ assert len(m.draws)==1 and m.draws[0][1]==m.frames[0] and m.draws[0][2]==m.draws
 assert m.draws[0][4]&1  # BITMAP_FLAG_OPAQUE
 # The placeholder first (fx_open), then the ring from -3 round album 0 of three and the Sort and
 # Refresh cards: album 2, Sort and Refresh (the placeholder, no load), 0, 1, then 2 and Sort again.
-assert len(m.loads)==4 and m.loads[0]=='default_album_big' and all(u.startswith('file://') for u in m.loads[1:]) and m.unloads==3
+assert len(m.loads)==4 and m.loads[0]==CF_PLACEHOLDER and all(u.startswith('file://') for u in m.loads[1:]) and m.unloads==3
 tex_of={u:bytes(m.u.mem_read(m.pixels[u],160*160*4)) for u in m.pixels}
-ring_tex=[tex_of[m.loads[1]],tex_of['default_album_big'],tex_of['default_album_big'],tex_of[m.loads[2]],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of['default_album_big']]
+ring_tex=[tex_of[m.loads[1]],tex_of[CF_PLACEHOLDER],tex_of[CF_PLACEHOLDER],tex_of[m.loads[2]],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of[CF_PLACEHOLDER]]
 assert host_render(ring_tex,[(0,127)])[0]==m.draws[0][5]; passed()
 # A repaint in place draws again without rendering; a quarter turn renders from the live offset.
 instructions[0]=0; paint(m); assert len(m.draws)==2 and instructions[0]<rest_cost//20
@@ -5388,6 +5389,34 @@ if variant=='ipod':
                             ({},'https://resources.tidal.com/images/a/320x320.jpg',3),({},'switch_on',5)):
         assert image(config,name,fmt)==[stock,stock],(config,name,fmt); passed()
 
+    # Artwork is rounded before caching, including the cached opacity flag. Straight RGB and row
+    # padding survive; every byte order and an already transparent source corner are supported.
+    for name in ('file:///mnt/mmc/.sldp/album0.jpg', 'file:///tmp/coverpic.jpg',
+                 'file:///tmp/externpic.jpg', 'file:///tmp/album_tidal.jpg', 'file:///mnt/mmc/photo.jpg'):
+        for fmt in range(1,5):
+            m=Machine(); m.handlers[tramp['image']]='stock_image'
+            w,h,stride=60,52,248; bm=m.alloc(0x60); data=m.alloc(stride*h)
+            m.word(bm,w); m.word(bm+4,h); m.word(bm+8,stride)
+            m.u.mem_write(bm+0xc,struct.pack('<HH',3,fmt)); m.word(bm+0x14,data)
+            alpha=(3,0,3,0)[fmt-1]
+            pixel=bytearray([47]*4); pixel[alpha]=255
+            source=bytearray((pixel*w+b'\xee'*8)*h); source[alpha]=0
+            m.u.mem_write(data,bytes(source))
+            args=(0x1000500,m.string(name),bm,0)
+            m.call(address=IPOD_HOOKS['image_manager_add'][0],args=args,gap=0)
+            rounded=bytes(m.u.mem_read(data,stride*h))
+            if name.endswith('photo.jpg'):
+                assert rounded==source and m.get(bm+0xc)&1
+            else:
+                assert not m.get(bm+0xc)&1 and m.get(bm+0xc)&2
+                assert all(rounded[y*stride+4*x+alpha]==0 for x,y in ((0,0),(w-1,0),(0,h-1),(w-1,h-1)))
+                assert rounded[4*(w//2)+alpha]==rounded[(h//2)*stride+alpha]==255
+                assert all(rounded[i]==value for i,value in enumerate(source) if i%stride>=w*4 or i%4!=alpha)
+                assert any(0<rounded[y*stride+4*x+alpha]<255 for y in range(4) for x in range(4))
+                m.call(address=IPOD_HOOKS['image_manager_add'][0],args=args,gap=0)
+                assert bytes(m.u.mem_read(data,stride*h))==rounded
+            passed()
+
     # The confirm pop-up's red discs take the dark CONFIRM_SURFACE under every accent, Crimson too:
     # the stock OK disc (#FF1448, white glyph) and Cancel's tint (#FF4871 with a #FFE4EA glyph) keep
     # their glyphs at 4.5:1 or more; the pressed images darken; other images keep the accent's tone.
@@ -5534,6 +5563,7 @@ if variant=='ipod':
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
         for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
         m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
+        m.nodes[m.wm]={'type':'window_manager','children':[m.top]}
         assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         assert m.calls[0][:3]==('stock_display',m.top,5)
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
@@ -5585,6 +5615,7 @@ if variant=='ipod':
         for name in ('list_view_home','list_view_homeset'):
             menu=named(m,home,name)
             assert m.get(menu+O['W_W'])==(375 if full else split)
+            assert m.get(menu+O['W_Y'])==(0 if classic else O['HOME_TOP'])
             for r in m.nodes[m.nodes[menu]['children'][0]]['children']:
                 label=m.nodes[r]['children'][0]
                 x,y,width,height=cf_geometry(m,label)
@@ -5626,6 +5657,7 @@ if variant=='ipod':
     assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,wheel] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
+    click(3); home_bounds(False,True); click(3); home_bounds(False); passed()
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
     for value,name in ((1,'Percent'),(2,'Icon + Percent'),(3,'Percent Inside'),(0,'Icon')):
         writes=click(2); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'BATTERY')] and texts()[2]=='Battery: '+name
@@ -5714,6 +5746,8 @@ if variant=='ipod':
         view=m.node('scroll_view'); lst=m.node('list_view','list_view',[view]); m.top=m.node('window','sysset_page',[lst])
         m.word(view+O['W_PARENT'],lst); m.word(lst+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
         m.word(lst+O['ROW_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
+        m.word(lst+O['W_Y'],SET['TOP']); m.word(lst+O['W_H'],SET['ROWS']*SET['ROW'])
+        m.nodes[m.wm]={'type':'window_manager','children':[m.top]}
         m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
         if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
             m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
@@ -5731,7 +5765,7 @@ if variant=='ipod':
     # bitmaps' ink (switch_off/on span 0..50 x 13..38 of their 50px square; list_into and ticks fit
     # inside) stay clear of the rounded glass, and nothing overlaps.
     def check_row(m,item,slot):
-        top=30+SET['TOP']+slot*SET['ROW']
+        top=30+m.get(m.get(m.get(item+O['W_PARENT'])+O['W_PARENT'])+O['W_Y'])+slot*SET['ROW']
         for b in m.nodes[item]['children']:
             bx,by,bw,bh=geometry(m,b)
             assert (bx,by,bw,bh)==(0,0,375,geometry(m,item)[3])
@@ -5752,25 +5786,36 @@ if variant=='ipod':
             elif label: assert label[0]==SET['TEXT_X']
             if label and not trail: assert label[0]+label[1]==375-SET['TEXT_X']
             if label and trail: assert label[0]+label[1]<=trail+30  # the chevron's glyph starts 20px in
-    for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
-        m,view=settings(builder); items=[i for i in m.nodes[view]['children'] if m.nodes[i]['visible']]
-        before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
-        assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
-        assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
-        for item in items: check_row(m,item,0); check_row(m,item,SET['ROWS']-1)
-        after=tree(m,view); assert after!=before
-        assert lay(m,view)==0 and tree(m,view)==after, builder  # a later layout changes nothing
-        passed()
+    for classic in (0,1):
+        CONFIG['THEME']=str(classic)
+        for builder in (0x4c43e4, 0x4c0f6c, 0x4cbcc4, 0x4ccc70, 'display'):  # language, BT quality, System settings, Wi-Fi, Display
+            m,view=settings(builder); items=[i for i in m.nodes[view]['children'] if m.nodes[i]['visible']]
+            before=tree(m,view); assert lay(m,view)==0 and m.layouts==1
+            assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
+            assert [geometry(m,i)[1] for i in items]==[SET['ROW']*k for k in range(len(items))], builder  # 78px items too
+            assert all(geometry(m,i)[3]==SET['ROW'] for i in items)
+            for item in items: check_row(m,item,0); check_row(m,item,SET['ROWS']-1)
+            after=tree(m,view); assert after!=before
+            assert lay(m,view)==0 and tree(m,view)==after, builder  # a later layout changes nothing
+            passed()
     # Display opened in Minimal: the hidden Accent row stays unsized and unmapped until Theme: Classic
     # shows it; then the next layout places it right after Theme as a whole settings row (mapped at
     # 0x0 it was an empty gap on the device), and hiding it again leaves no gap. However often Theme
     # flips, the wheel and Centre reach the row after Theme, and a tap selects it.
     CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-7:-5]  # then Artist albums, Home, Battery, Shortcut, Wheel sensitivity
     button=lambda i: m.nodes[i]['children'][0]
+    cached=m.node('list_view'); library=m.node('list_view')
+    m.word(cached+O['LIST_DEFAULT_ITEM_HEIGHT'],SET['ROW']); m.word(cached+O['ROW_HEIGHT'],0); m.word(cached+O['W_Y'],SET['TOP'])
+    m.word(library+O['W_Y'],0); m.word(library+O['LIST_DEFAULT_ITEM_HEIGHT'],72)
+    previous=m.node('window','sysset_page',[cached,library]); m.nodes[m.wm]['children'].insert(0,previous)
     for classic in (0,1,0,1,0,1):
         if m.nodes[accent]['visible']!=classic:
             f,ctx=m.nodes[button(theme)]['click']; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+        assert m.get(cached+O['W_Y'])==(0 if classic else SET['TOP'])  # cached page, before any layout
+        assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
+        assert m.get(library+O['W_Y'])==0
         assert lay(m,view)==0 and m.nodes[view]['children'][-7:-5]==[theme,accent] and m.nodes[accent]['visible']==classic
+        assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         shown=[i for i in items if m.nodes[i]['visible']]; after=shown[shown.index(theme)+1]
         assert (after==accent)==bool(classic)
         assert [geometry(m,i)[1] for i in shown]==[SET['ROW']*k for k in range(len(shown))]
@@ -6175,10 +6220,10 @@ fk,ck=m.handler(page,O['EVT_KEY_UP'])
 ev=m.alloc(0x40); m.word(ev,O['EVT_KEY_UP']); m.word(ev+O['EVENT_KEY'],O['KEY_RETURN'])
 assert m.call(address=fk,args=(ck,ev,0,0),gap=0)==11 and [c[0] for c in m.calls].count('navigator_back')==1
 m.close(); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.top!=page and m.nodes[m.top]['name']=='shuffle_page'; passed()
-def home_settings(full):
+def home_settings(full,classic=0):
         # Home's Rockbox row shows only while the card has Rockbox: hidden, it moves after Settings, so the
         # list's layout leaves no gap; it comes back after Folder once the card has it.
-        CONFIG['SHORTCUT']='0'; CONFIG['HOME']=str(full); m=ShuffleMachine(); del CONFIG['SHORTCUT']; del CONFIG['HOME']; m.rockbox_mode=0; view,imgs=home_list(m)
+        CONFIG['THEME']=str(classic); CONFIG['SHORTCUT']='0'; CONFIG['HOME']=str(full); m=ShuffleMachine(); del CONFIG['THEME']; del CONFIG['SHORTCUT']; del CONFIG['HOME']; m.rockbox_mode=0; view,imgs=home_list(m)
         assert m.call(address=home_hook[0],args=(m.top,0,0,0),gap=0)==0
         btn=named(m,m.top,'btn_rockbox'); order=lambda: [m.nodes[r]['name'][4:] for r in m.nodes[view]['children']]
         assert order()==['playing','localmusic','coverflow','folder','stream','settings','rockbox'] and not m.nodes[btn]['visible']
@@ -6192,11 +6237,29 @@ def home_settings(full):
         m.mock('widget_animator_prop_create','widget_animator_prop_set_params','widget_animator_start')
         lst,sets,art=(named(m,m.top,n) for n in ('list_view_home','list_view_homeset','img_homeart'))
         sview=named(m,m.top,'scroll_view_homeset'); assert not m.nodes[sets]['visible']
+        assert m.get(lst+O['W_Y'])==m.get(sets+O['W_Y'])==(0 if classic else O['HOME_TOP'])
+        if classic:
+            png=subprocess.check_output(['unsquashfs','-cat',str(B/'rootfs.squashfs'),
+                                         'release/assets/default/raw/images/xx/list_into.png'])
+            rgba=imagemagick('png:-','-depth','8','rgba:-',data=png)
+            ink=[(i//4%50,i//4//50) for i in range(0,len(rgba),4) if rgba[i+3]]
+        def arrow(v):
+            if not classic: return
+            m.clip=(0,0,375,320); m.paint(v)
+            roww=O['HOME_CLASSIC_ROW'] if full else O['HOME_SPLIT_W']
+            x,y,_=m.icons[0]
+            assert x==roww-O['CHEVRON_W']+25+6 and y==m.sel()[1]+HOME_ROW//2
+            # Check the shipped glyph's ink, including its tapered ends, against the glass.
+            for ix,iy in ink:
+                inset=corner_inset(30+y-25+iy)
+                assert inset<=x-25+ix<375-inset
+        arrow(view)
         assert m.nodes[sets].get('sensitive')==0  # hidden rows take no taps on the top level
         for img in (named(m,m.top,'img_playset'),named(m,m.top,'img_sysset')): click_target(m,img)
         m.paint(view)
         for _ in range(6): m.call()
         assert m.selected(view)==6
+        arrow(view)
         m.calls=[]; f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible']==(not full) and m.nodes[sets]['animated']=='x'
@@ -6205,7 +6268,7 @@ def home_settings(full):
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==O['PAGE_SLIDE_MS']==120
         m.advance(119); assert signed(m.get(sets+O['W_X']))>0
         m.advance(1); assert m.get(sets+O['W_X'])==0 and not m.props
-        m.paint(sview); assert m.selected(sview)==0 and m.call()==11 and m.selected(sview)==1; passed()
+        m.paint(sview); arrow(sview); assert m.selected(sview)==0 and m.call()==11 and m.selected(sview)==1; arrow(sview); passed()
         m.calls=[]; assert m.call(O['KEY_RETURN'])==11
         assert m.nodes[lst]['visible'] and not m.nodes[sets]['visible'] and m.nodes[lst]['animated']=='x'
         assert m.nodes[lst]['sensitive']==1 and m.nodes[sets]['sensitive']==0
@@ -6237,7 +6300,7 @@ def home_back(full):
     assert not destinations(m); passed()
 if variant=='ipod':
     for full in (0,1):
-        home_settings(full); home_back(full)
+        home_settings(full); home_settings(full,1); home_back(full)
 # Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
 # press while it is open does nothing. Its rows are the top PLAYS_TOP, most played first and, among
 # equal counts, the most recently counted (earlier slot) first; a row plays that ranked list as a

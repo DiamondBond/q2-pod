@@ -511,7 +511,9 @@ static void renderer(void) {
     const unsigned *rest[7] = { flat[0], flat[1], flat[2], art, flat[4], flat[5], flat[6] };
     render(0, rest);
     for (int y = 0; y < 160; ++y)
-        for (int x = 0; x < 160; ++x) assert(px(CF_CX - 80 + x, CF_TOP + y) == art[y * 160 + x]);
+        for (int x = 0; x < 160; ++x)
+            if (!IPOD || (x >= 12 && x < 148) || (y >= 12 && y < 148))
+                assert(px(CF_CX - 80 + x, CF_TOP + y) == art[y * 160 + x]);
     assert(px(CF_CX - 81, CF_TOP + 80) != art[80 * 160] && px(CF_CX, CF_TOP - 1) == 0xff000000u);
     /* Each neighbour's visible run on the horizon, sampled in its middle: its colour at its
        brightness, two a side, each run a real slice of cover. */
@@ -546,10 +548,15 @@ static void renderer(void) {
     /* No seam where a body ends mid-row: down any column from a cover's middle, brightness never
        dips between the body, the row they share and the reflection. */
     const unsigned *alone[7] = { 0, 0, 0, flat[3], 0, 0, 0 };
+    render(0, alone);
+    assert(px(CF_CX, CF_TOP + 80) == colours[3]);
+    assert(px(CF_CX - 80, CF_TOP) == (IPOD ? 0xff000000u : colours[3]));
+    assert(px(CF_CX - 80, CF_TOP + 160) == (IPOD ? 0xff000000u : px(CF_CX, CF_TOP + 160)));
     for (int frac = -ONE / 2; frac < ONE / 2; frac += ONE / 16 + 77) {
         render(frac, alone);
         for (int x = 0; x < CF_VIEW_W; ++x) {
             if (slot_of(px(x, CF_TOP + 80)) != 3) continue;
+            if (IPOD && x != CF_CX) continue; /* rounded edges leave a gap before their reflection */
             int body = 256, dipped = 0;
             for (int y = CF_TOP + 80; y < CF_VIEW_H; ++y) {
                 int v = ch(px(x, y), 0);
@@ -1072,10 +1079,10 @@ int main(void) {
     int with_art = 0, bare = 0;
     for (int i = 0; i < 4; ++i) {
         if (!strncmp(w[s->kids[i]].image, "file://", 7)) ++with_art;
-        else if (!strcmp(w[s->kids[i]].image, "default_album_big")) ++bare;
+        else if (!strcmp(w[s->kids[i]].image, (IPOD ? "default_album_flow" : "default_album_big"))) ++bare;
     }
     assert(with_art == 2 && bare == 2);
-    assert(!strcmp(w[s->kids[4]].image, "default_album_big") && !strcmp(w[s->kids[5]].image, "default_album_big")); /* Sort, Refresh */
+    assert(!strcmp(w[s->kids[4]].image, (IPOD ? "default_album_flow" : "default_album_big")) && !strcmp(w[s->kids[5]].image, (IPOD ? "default_album_flow" : "default_album_big"))); /* Sort, Refresh */
     close_page();
 
     /* A later open builds only the albums with no cache file; the marker is not retried. */
@@ -1135,7 +1142,7 @@ int main(void) {
     free_blocks = 4000; /* under 16 MB of 4 KB blocks */
     before = calls;
     open_page();
-    assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, "default_album_big"));
+    assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, (IPOD ? "default_album_flow" : "default_album_big")));
     close_page();
     assert(loads == unloads);
     depth();

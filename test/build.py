@@ -102,7 +102,7 @@ logo_check()
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, RTC_WRITE, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_TS_READ, PDR
-    from ipod import (AUDIT, TOOLBAR_SWITCHES, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
+    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
@@ -154,9 +154,20 @@ def validate_assets(directory):
     xx = 'release/assets/default/raw/images/xx/'
     assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
         'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
-        xx+n for n in (SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C}
+        xx+n for n in (SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
+    master = (ROOT/'assets/icons/default_album_home.png').read_bytes()
+    for name, size in ART_PLACEHOLDERS.items():
+        old, new = read('stock.squashfs', xx+name), read('rootfs.squashfs', xx+name)
+        assert png_header(old)[:2] == (size, size), name
+        assert new == (sized_art(master, size) if ipod else old), name
+        if ipod:
+            assert changed[xx+name] == dict(original_sha256=sha(old), sha256=sha(new))
+    if ipod:
+        flow = read('rootfs.squashfs', xx+'default_album_flow.png')
+        assert flow == sized_art(master, 160) and png_header(flow) == (160, 160, 8, 6)
+        assert read('rootfs.squashfs', xx+'default_album_home.png') == master
     tag_old, tag_new = read('stock.squashfs', TAG_C), read('rootfs.squashfs', TAG_C)
     assert tag_new == patch_m4b_cover(tag_old)
     assert changed[TAG_C] == dict(original_sha256=sha(tag_old), sha256=sha(tag_new))

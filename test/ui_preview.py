@@ -138,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
                 elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
-                    art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_big.png'))
+                    art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_flow.png'))
                     text(a,'3 of 12' if case==3 else 'Spotify',16,30,180,40,16,'#AAAAAA')
                     # The real art mask is rounded in the payload; compose the same 12px radius.
                     cover=tmp/'cover.png'

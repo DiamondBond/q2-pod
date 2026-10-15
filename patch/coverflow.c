@@ -26,7 +26,11 @@
 #endif
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
+#if IPOD
+#define PLACEHOLDER "default_album_flow"
+#else
 #define PLACEHOLDER "default_album_big"
+#endif
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
 enum { ARTIST_ALBUMS = 1, RATED_ALBUMS }; /* cf.scoped */
 /* after the albums: Sort, then Refresh library; an artist's none, the rated albums' Sort alone */
@@ -1126,12 +1130,13 @@ HOT void put(unsigned *px, unsigned colour, unsigned cov) {
 
 /* One texture column (texels ART_SIZE apart) h high (1/256 px) on the horizon at frame column col,
  * its partial end rows by coverage, then its reflection fading out below. */
-static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) {
+static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, int inset) {
     if (h < 16) return;
     unsigned *d = f->d + col;
     int top = CF_MID256 - h / 2, bottom = top + h, step = (ART_SIZE << 20) / (h >> 4);
+    int ins = h * inset / (ART_SIZE * 256), clipped_top = top + ins, clipped_bottom = bottom - ins;
     int solid_top = f->solid_top[col], solid_bottom = f->solid_bottom[col];
-    int y = top >> 8, end = (bottom + 255) >> 8, last = end < CF_VIEW_H ? end : CF_VIEW_H;
+    int y = clipped_top >> 8, end = (clipped_bottom + 255) >> 8, last = end < CF_VIEW_H ? end : CF_VIEW_H;
     int first = y, final = end - 1; /* the rows the edges cross */
     int v = (((y << 8) + 128 - top) >> 4) * step >> 4, pitch = f->pitch; /* v: 16.16 texel row */
     if (y < 0) v -= y * step, y = 0;
@@ -1147,7 +1152,8 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) 
             int row = v < 0 ? 0 : v >> 16 >= ART_SIZE ? ART_SIZE - 1 : v >> 16;
             unsigned cov = 256;
             if (y == first || y == final) {
-                int from = y << 8 > top ? y << 8 : top, to = (y + 1) << 8 < bottom ? (y + 1) << 8 : bottom;
+                int from = y << 8 > clipped_top ? y << 8 : clipped_top,
+                    to = (y + 1) << 8 < clipped_bottom ? (y + 1) << 8 : clipped_bottom;
                 cov = (unsigned)(to - from);
             }
             put(px, shade(tex[row * ART_SIZE], (unsigned)bright), cov);
@@ -1158,8 +1164,9 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) 
     int fade = (256 << 16) / reflect; /* fading per 1/256 px, 16.16 */
     unsigned dim = (unsigned)bright * CF_REFLECT_TOP >> 8;
     if (stop > CF_VIEW_H) stop = CF_VIEW_H;
-    for (y = bottom >> 8, px = d + y * pitch; y < stop; ++y, px += pitch) {
-        int from = y << 8 > bottom ? y << 8 : bottom, dist = ((from + ((y + 1) << 8)) >> 1) - bottom;
+    for (y = (bottom + ins) >> 8, px = d + y * pitch; y < stop; ++y, px += pitch) {
+        int from = y << 8 > bottom + ins ? y << 8 : bottom + ins,
+            dist = ((from + ((y + 1) << 8)) >> 1) - bottom;
         if (dist >= reflect) break;
         if (y < 0 || (y >= solid_top && y < solid_bottom)) continue;
         int mirrored = dist * step >> 8 >> 16; /* texel rows up from the bottom edge */
@@ -1169,7 +1176,7 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) 
     }
     /* The rows this body covers whole are opaque now: join them to the known span, or keep the
      * longer of the two. */
-    int s0 = (top + 255) >> 8, s1 = bottom >> 8;
+    int s0 = (clipped_top + 255) >> 8, s1 = clipped_bottom >> 8;
     s0 = s0 < 0 ? 0 : s0, s1 = s1 > CF_VIEW_H ? CF_VIEW_H : s1;
     if (s1 <= s0) return;
     if (solid_bottom > solid_top && s0 <= solid_bottom && s1 >= solid_top) {
@@ -1181,6 +1188,8 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright) 
 }
 
 /* The cover t (16.16, signed) turns from the visual position, under what is drawn. */
+static unsigned short cf_inset[ART_SIZE]; /* 1/256 texel, symmetric; zero in Legacy */
+
 static void draw_cover(shelf_t *f, int t, const unsigned *tex) {
     pose_t p;
     int side = t < 0 ? -1 : 1;
@@ -1192,7 +1201,7 @@ static void draw_cover(shelf_t *f, int t, const unsigned *tex) {
         int col = side > 0 ? v : 2 * CF_CX - 1 - v, u, h;
         if (col < 0 || col >= CF_VIEW_W || !unproject(&p, (2 * v + 1 - 2 * CF_CX) * 8, &u, &h)) continue;
         int k = (u + CF_HALF16) >> 4;
-        column(f, col, tex + (side > 0 ? k : ART_SIZE - 1 - k), h, p.bright);
+        column(f, col, tex + (side > 0 ? k : ART_SIZE - 1 - k), h, p.bright, cf_inset[k]);
     }
 }
 
@@ -1206,6 +1215,16 @@ static int slot(int frac, int k, int i) {
  * texture of the cover j - CF_REACH from the centre, or 0 to leave it out. Nearest first; nearer
  * covers and their reflections overlap farther ones. */
 void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ring[CF_RING]) {
+#if IPOD
+    if (!cf_inset[0]) { /* once, including callers which render without opening the page */
+        int r = ART_SIZE * NP_ART_RADIUS / 166;
+        for (int k = 0; k < r; ++k) {
+            int delta = 2 * (r - k) - 1, v = (4 * r * r - delta * delta) * 64, s = 0;
+            while ((s + 1) * (s + 1) <= v) ++s;
+            cf_inset[k] = cf_inset[ART_SIZE - 1 - k] = (unsigned short)((16 * r - s) * 16);
+        }
+    }
+#endif
     shelf_t f;
     f.d = d, f.pitch = pitch;
     for (int x = 0; x < CF_VIEW_W; ++x) f.solid_top[x] = f.solid_bottom[x] = 0;
@@ -1925,6 +1944,11 @@ void coverflow_home_layout(void) {
         end = classic ? HOME_CLASSIC_LABEL_END : full ? HOME_LABEL_END : HOME_SPLIT_LABEL_END;
     home_width(home.list, outer, inner, x, end, 0);
     if (home.sets) home_width(home.sets, outer, inner, x, end, 0);
+    widget_move_resize(home.list, I(home.list, W_X), classic ? 0 : HOME_TOP, outer,
+                       I(home.list, W_H));
+    if (home.sets)
+        widget_move_resize(home.sets, I(home.sets, W_X), classic ? 0 : HOME_TOP, outer,
+                           I(home.sets, W_H));
     widget_move_resize(home.art, split, 0, 375 - split, 290);
     widget_set_visible(home.art, !full, 0);
     home.key = ~0u; /* Split shows the current cover again */

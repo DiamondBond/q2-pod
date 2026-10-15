@@ -810,7 +810,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, jal, branch, settings_icon,
-                      STATUS_ICONS, status_icon, row_icon)
+                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows = set()
@@ -1009,7 +1009,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
             like, data = icons[f'stream_{n}.png']
             icons[f'stream_{n}.png'] = (like, row_icon(data))
     if ipod:  # Home's placeholder, drawn at the art panel's 290px
-        icons['default_album_home.png'] = ('default_album_big.png', (ROOT/'assets/icons/default_album_home.png').read_bytes())
+        art = (ROOT/'assets/icons/default_album_home.png').read_bytes()
+        icons['default_album_home.png'] = ('default_album_big.png', art)
+        icons['default_album_flow.png'] = ('default_album_big.png', sized_art(art, 160))
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
@@ -1043,13 +1045,15 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         assets += ['styles/'+rel for rel in AUDIT['styles']]
         # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
         assets += ['images/'+name for name in SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS]
+        assets += ['images/'+name for name in ART_PLACEHOLDERS]
     for rel in assets:
         kind, name = rel.split('/', 1)
         path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)
         original = cat(path)
         data = (relabel(original) if kind == 'strings' else
                 patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
-                (status_icon(name, original) if name in STATUS_ICONS else quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else patch_asset(name, original, ipod))
+                (sized_art(art, ART_PLACEHOLDERS[name]) if name in ART_PLACEHOLDERS else
+                 status_icon(name, original) if name in STATUS_ICONS else quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else patch_asset(name, original, ipod))
         target = out/rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)

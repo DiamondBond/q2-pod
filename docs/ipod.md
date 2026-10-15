@@ -96,7 +96,8 @@ to Home. With OTG connected or no card in on entry, Folder keeps the storage sel
 Library’s Podcasts/Audiobooks shortcuts keep their usual Back navigation.
 The native stock handlers, translation keys, full-row tap targets and submenu animation remain intact.
 
-`HOME_ROW=39` and `HOME_TOP=8` retain corner clearance. The 6-pixel dot sits at x 25, clear of the
+`HOME_ROW=39` stays the same in both themes. Minimal retains `HOME_TOP=8`; Classic starts
+both Home menus directly below the status bar, matching Library. The 6-pixel dot sits at x 25, clear of the
 bottom row's corner, and labels start 8 pixels after it (x 39) and end 33 pixels before the row's
 edge. Both menus are 375 pixels wide in the asset; the payload lays them out (below). Long
 translated labels ellipsize and scroll using the stock font.
@@ -110,8 +111,8 @@ Split narrows both menus to `HOME_SPLIT_W` (187, half the screen) and shows the 
 the menus clipped left of it; `default_album_home` without a cover); Full hides the art and
 widens the menus to the screen, their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369)
 in Classic. Minimal's labels keep x 39 and end 33 pixels from the screen edge in Full, `HOME_SPLIT_LABEL_END` (8) before the art in Split, where no corner needs clearing (122 pixels wide). Classic's
-start at `HOME_CLASSIC_TEXT_X` (33) and end 10 pixels before the chevron, which rides the accent's
-selection bar alone.
+start at `HOME_CLASSIC_TEXT_X` (33) with their existing widths. The chevron moves 6 pixels
+right (16 pixels after the label), on both Home menus, and rides the accent's selection bar alone.
 
 The art is the player's cover once `g_lastcover_url` matches the current queue path, else the
 current album's Coverflow thumbnail, else the placeholder; the previous track's player file is
@@ -185,8 +186,9 @@ buttons. A page with a visible navbar keeps its own title.
 ## Settings
 
 Settings, Playback, Audio settings and Streaming lists hold four complete 68-pixel rows
-(`SET_ROW`, `SET_ROWS`), starting 8 pixels (`SET_TOP`) below the status bar: the list is
-272 pixels high at y 8 and ends 10 pixels above the bottom. The `navbar_only` assets set their
+(`SET_ROW`, `SET_ROWS`). Minimal starts 8 pixels (`SET_TOP`) below the status bar; Classic
+starts directly below it. The list stays 272 pixels high in both themes, preserving scrolling
+and full-row tap targets. The `navbar_only` assets set their
 `list_view`'s `default_item_height` from 78 to 68, which no stock asset uses, and nothing else.
 Constants are `SET_*` in `patch/offsets.inc`.
 
@@ -569,7 +571,8 @@ visualizer) are `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure 
 the Accent row follows Theme and every accent applies as before.
 
 A change applies at once, as Accent does: the image cache is dropped and the screen repaints
-(icons and chevrons reload in the new theme's colours), Home re-lays its menus and art, an open
+(icons and chevrons reload in the new theme's colours), Home re-lays its menus and art, and all
+open settings lists (including cached pages behind Display) take the new top inset. An open
 Now Playing gets its bar and glyph, and the Display page shows or hides the Accent row, the
 selection staying on Theme. Nothing needs a restart.
 

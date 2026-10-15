@@ -184,12 +184,13 @@
 #define HOME_DOT_GAP 8
 /* iPod Theme: Classic (IPOD/THEME 1, docs/ipod.md#display-settings) puts the pre-1.0.1 look back
  * over the Minimal assets at runtime. In Home's Full the rows end at HOME_CLASSIC_ROW, so the
- * chevron's glyph (x 20 to 31 of list_into) mirrors the labels' margin. Labels start at
- * HOME_CLASSIC_TEXT_X and end 10px before the glyph. The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
+ * chevron's glyph (x 20 to 31 of list_into) moves 6px right of its old column. Labels start at
+ * HOME_CLASSIC_TEXT_X and end 16px before the glyph. The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
  * (Minimal's NP_BAR_MINIMAL line). Minimal has no accent: its fills are MINIMAL_FILL, its
  * settings icons grey and list_into MINIMAL_CHEVRON. */
 #define HOME_SPLIT_W 187
 #define HOME_CLASSIC_ROW 369
+#define HOME_TOP 8 /* Minimal's decorative inset; Classic starts below the status bar. */
 #define HOME_CLASSIC_TEXT_X 33
 #define HOME_CLASSIC_LABEL_END (CHEVRON_W - 10)
 #define BAR_CLASSIC 0x242424
@@ -232,7 +233,7 @@
 #define SPOT_BAR_H 8 /* the bar's view; iPod's Minimal paints its 4px line at the top (np_bar_h) */
 #define SPOT_TIMES_Y 265
 #define SPOT_TIME_X 46
-/* iPod settings rows (docs/ipod.md#settings): the list starts SET_TOP below the status bar and
+/* iPod settings rows (docs/ipod.md#settings): Minimal starts SET_TOP below the status bar, Classic flush, and
  * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
  * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a
  * 50px trailing image (chevron, tick or switch); items made SET_STOCK_ROW high are normalised to

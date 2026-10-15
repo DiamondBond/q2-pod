@@ -67,7 +67,7 @@ CHEVRON_W = inc('CHEVRON_W')
 # htranslate animator slides a page in from the right and back out on Return; the duration is the
 # calibration knob.
 SLIDE = f'htranslate(duration={inc("PAGE_SLIDE_MS")})'
-HOME_TOP = 8
+HOME_TOP = inc('HOME_TOP')
 HOME_ROW = 39
 HOME_TEXT_X = inc('HOME_DOT_X') + inc('HOME_DOT') + inc('HOME_DOT_GAP')  # labels after the selection dot
 HOME_LABEL_END = inc('HOME_LABEL_END')  # mirror the text inset, clear of the lower-right glass
@@ -607,6 +607,15 @@ def row_icon(data):
     scaling it on the device with hard edges."""
     return imagemagick('png:-', '-alpha', 'on', '-filter', 'Lanczos', '-resize', f'{SET_ICON}x{SET_ICON}!',
                        *PNG_OUT, data=data)
+
+
+ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
+                    'play_defaultcover.png': 188, 'scrsaver_playcover.png': 60,
+                    'default_smallcover.png': 140}
+
+
+def sized_art(data, px):
+    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', *PNG_OUT, data=data)
 
 
 def settings_icon(name, data):
