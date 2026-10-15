@@ -1329,14 +1329,14 @@ int config_digit(const char *key, int n) {
 } /* and visualizer.c's */
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 4 };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 5 };
 static int *const setting_values[] = { &st.accent, &st.home_full, &st.battery, &st.classic,
                                        &st.shortcut };
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
             *setting_values[i] = config_digit(setting_keys[i], setting_counts[i]);
-        st.shortcut = config_or("IPOD", "SHORTCUT", 4, 4); /* 4: no key, see shortcut() */
+        st.shortcut = config_or("IPOD", "SHORTCUT", 5, 5); /* 5: no key, see shortcut() */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : 0; /* Graphite */
@@ -1345,7 +1345,7 @@ static int accent(void) {
  * card may mount after the first read. */
 static int shortcut(void) {
     accent();
-    return st.shortcut < 4 ? st.shortcut : rockbox_available() ? 0 : 3;
+    return st.shortcut < 5 ? st.shortcut : rockbox_available() ? 0 : 3;
 }
 int ipod_classic(void) {
     accent();
@@ -1365,13 +1365,16 @@ int ipod_home_rockbox(void) {
     return shortcut() || st.home_rockbox;
 }
 const char *ipod_home_shortcut(void) {
-    static const char *const names[] = { "Rockbox", "Artists", "Albums", "Favorites" };
+    static const char *const names[] = { "Rockbox", "Artists", "Albums", "Favorites",
+                                         "Rated Albums" };
     return names[shortcut()];
 }
 extern int rockbox_open(void *, void *);
+static int rated_albums(void *, void *);
 int home_shortcut_open(void *ctx, void *event) {
     int s = shortcut();
     if (!s) return rockbox_open(ctx, event);
+    if (s == 4) return rated_albums(ctx, event);
     if (s == 2) {
         struct {
             int cls;
@@ -3083,7 +3086,8 @@ static void settings_layout(void *w) {
 static int setting_click(void *ctx, void *event) {
     (void)event;
     int i = (int)(long)ctx, *value = setting_values[i];
-    static const int shortcut_next[] = { 3, 2, 0, 1 }; /* Rockbox, Favorites, Artists, Albums */
+    /* Rockbox, Favorites, Rated Albums, Artists, Albums */
+    static const int shortcut_next[] = { 3, 2, 0, 4, 1 };
     *value = i == 4 ? shortcut_next[shortcut()] : (*value + 1) % setting_counts[i];
     write_int_config(*value, "IPOD", setting_keys[i]);
     if (i == 2)
