@@ -7420,6 +7420,32 @@ m.word(r+O['REC_PATH'],m.string('/mnt/mmc/audiobooks/Book/01.mp3')); playing(m,0
 assert m.places()==[(fnv('/mnt/mmc/audiobooks/Book/01.mp3'),61)] and '/mnt/data/ringnav-plays' not in m.files
 assert '/mnt/mmc/.scrobbler.log' not in m.files; passed()
 
+# A spoken CUE book: a chapter keeps its file's place (CUE start + seconds) and never jumps by itself;
+# a chapter row's hold menu starts with Resume, which plays the list's songs from the chapter holding
+# the place and seeks into it. Within RESUME_EDGE_S of the file's start or end the place is forgotten.
+# A music CUE image gets neither.
+book='/mnt/mmc/Book/book.m4b'
+def chapter(m,r,start,end,path=book):
+    m.word(r+O['REC_PATH'],m.string(path)); m.word(r+O['REC_CUE_START'],start); m.word(r+O['REC_CUE_END'],end)
+def place(sec,path=book): return {'/mnt/data/ringnav-resume':struct.pack('<II',fnv(path),sec)+bytes(8*O['RESUME_SLOTS']-8)}
+m=ResumeMachine(); chapter(m,m.items(m.get(syms['mcl_pdeqplaylist']))[0],600,1200)
+playing(m,0,600,pos=0,n=70); assert m.places()==[(fnv(book),661)] and '/mnt/data/ringnav-plays' not in m.files
+m=ResumeMachine(m.files); chapter(m,m.items(m.get(syms['mcl_pdeqplaylist']))[0],600,1200)
+m.poll(0,600,pos=0,n=2); playing(m,1,600,n=3); assert not m.seeks; passed()  # picking a chapter plays it
+for start,end,sec in ((0,600,10),(1200,0,590)):  # the book's first or last 30 s: forgotten
+    m=ResumeMachine(place(700)); chapter(m,m.items(m.get(syms['mcl_pdeqplaylist']))[0],start,end)
+    playing(m,sec-5,600,pos=0,n=6); m.poll(0,pos=1,n=2); assert not m.places(); passed()
+m=ResumeMachine(place(700)); rows=m.items(m.get(syms['p_deque_showlist']))
+for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)
+m.run(0); assert m.labels()[0]=='Resume' and m.opened[-1][2:]==(1,0xf001,2) and len(m.opened[-1][1])==20
+q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,600,1200)  # the chapter at 600 starts
+m.poll(0,600,pos=0,n=2); playing(m,1,600,n=2); assert m.seeks==[100]; passed()
+m=ResumeMachine(place(700,'/p/album.flac'))
+for r,(s0,s1) in zip(m.items(m.get(syms['p_deque_showlist'])),((0,600),(600,0))): chapter(m,r,s0,s1,'/p/album.flac')
+m.run(0); assert 'Resume' not in m.labels()
+m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,r,600,1200,'/p/album.flac')
+playing(m,0,600,pos=0,n=70); assert not m.places(); passed()
+
 # Play counts: a track over LISTEN_MIN_S counts once half of it, or LISTEN_MAX_S, has been heard,
 # seeks aside; a repeat counts again. Counts are written whole to /mnt/data, most recent first, the
 # least recently played of the lowest counts replaced when full.
@@ -7944,7 +7970,7 @@ for path in ('/mnt/mmc/Novel.m4b','/mnt/mmc/Music/Novel.M4B','/mnt/mmc/Novel.m4B
     passed()
 m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
 m.word(r+O['REC_PATH'],m.string('/mnt/mmc/cue.m4b')); m.word(r+O['REC_CUE_START'],200)
-playing(m,0,200,pos=0,n=110); assert not m.places(); passed()
+playing(m,0,200,pos=0,n=110); assert m.places()==[(fnv('/mnt/mmc/cue.m4b'),261)] and not m.seeks; passed()  # its file's place
 
 # Mock only player endpoints, exercising the actual routing and ear/AVRCP state machine.
 class HeadsetMachine(Machine):

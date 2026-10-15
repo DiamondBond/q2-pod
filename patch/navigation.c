@@ -122,15 +122,17 @@ typedef struct {
     void *fx_surface;
     int fx_token, bump_dir, edge_dir, edge_id;
     unsigned fx_timer, edge_time;
-    /* Resume: the saved places, most recent first; the track polled (rs_key, 0 none) and whether
-     * it is long, its last seconds, the seconds last saved and how many polls they stood still;
-     * rs_pending is the place to restore once it plays, rs_settle a track change one poll old. */
+    /* Resume: the saved places, file seconds by path hash, most recent first; the track polled
+     * (rs_key, listen_key's, 0 none) and whether it is long, its last seconds, the seconds last
+     * saved and how many polls they stood still; rs_pending is the place to restore once it plays,
+     * rs_settle a track change one poll old. rs_file is its path's hash, rs_cue and rs_end its CUE
+     * start and end; rs_go is the seconds into rs_go_key's chapter a Resume row asked for. */
     struct {
         unsigned key;
         int sec;
     } spots[RESUME_SLOTS];
-    unsigned spots_read, rs_at, rs_key;
-    int rs_long, rs_settle, rs_sec, rs_total, rs_saved, rs_still, rs_pending;
+    unsigned spots_read, rs_at, rs_key, rs_file, rs_go_key;
+    int rs_long, rs_settle, rs_sec, rs_total, rs_saved, rs_still, rs_pending, rs_cue, rs_end, rs_go;
     int rs_spoken; /* under Podcasts or Audiobooks: resumed at any length, never counted */
     /* Play counts by path hash (plays_read once loaded); the playing track's last second, the
      * seconds of it heard and whether this play has counted. */
@@ -3414,7 +3416,8 @@ enum {
     QA_GROUP,
     QA_NEXT_GROUP,
     QA_PREV_GROUP,
-    QA_RATE
+    QA_RATE,
+    QA_RESUME
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -4052,6 +4055,17 @@ static int shuffle_menu(void *ctx, void *event) {
 
 #define RESUME_FILE "/mnt/data/ringnav-resume" /* coverflow.c's blob_io */
 #define PLAYS_FILE "/mnt/data/ringnav-plays"
+
+/* key's saved place, 0 for none. */
+static int spot_at(unsigned key) {
+    if (!st.spots_read) {
+        st.spots_read = 1;
+        BLOB_IO(RESUME_FILE, st.spots, 0);
+    }
+    for (int i = 0; i < RESUME_SLOTS; i++)
+        if (st.spots[i].key == key) return st.spots[i].sec;
+    return 0;
+}
 
 static void plays_load(void) {
     if (!st.plays_read) {
@@ -4755,6 +4769,27 @@ static int spoken(const char *path) {
            (path && tk_str_start_with(path, "/mnt/mmc/") && media_kind(path + 9) - 1u < AUDIOBOOKS);
 }
 
+/* A spoken CUE track's book: the chapter of list (r's file's, the last starting at or before the
+ * saved place) to resume, its index among list's songs (*at) and the seconds into it (*off); 0
+ * without a saved place. */
+static void *book_place(void *list, void *r, int *at, int *off) {
+    if (!list || !r || !(I(r, REC_CUE_START) || I(r, REC_CUE_END)) || !spoken(P(r, REC_PATH)))
+        return 0;
+    unsigned key = fnv(FNV_SEED, P(r, REC_PATH));
+    int place = spot_at(key), j = 0;
+    void *best = 0;
+    for (unsigned i = 0, n = deque_size(list); place && i < n; i++) {
+        void *t = deque_at(list, i);
+        if (I(t, REC_TYPE) != 8) continue;
+        if (fnv(FNV_SEED, P(t, REC_PATH)) == key && I(t, REC_CUE_START) <= place &&
+            (!best || I(t, REC_CUE_START) > I(best, REC_CUE_START)))
+            best = t, *at = j;
+        j++;
+    }
+    if (best) *off = place - I(best, REC_CUE_START);
+    return best;
+}
+
 /* The card's folder for kind into path (sizeof st.media_root, which a MEDIA name always fits); 0
  * when there is none. */
 static int media_find(int kind, char *path) {
@@ -5085,6 +5120,19 @@ static int qm_run(const void *unused) {
                 widget_on(top, EVT_DESTROY, qm_playlist_gone, top);
             }
         }
+    } else if (r && a == QA_RESUME) { /* the list's songs from the chapter; the poll seeks */
+        int at = 0, off = 0;
+        void *list = qm_list(), *t = book_place(list, r, &at, &off), *songs;
+        if (t && (songs = _create_deque("stSongInfo"))) {
+            deque_init(songs);
+            for (unsigned i = 0; i < deque_size(list); i++)
+                if (I(deque_at(list, i), REC_TYPE) == 8) _deque_push_back(songs, deque_at(list, i));
+            st.rs_go_key = listen_key(t);
+            st.rs_go = off;
+            st.rs_key = 0; /* a change, even to the chapter playing */
+            play_folder(songs, at, 0xf001);
+            deque_destroy(songs);
+        }
     } else if (r && a >= QA_ALBUM)
         qm_goto(r, a == QA_ALBUM);
     else {
@@ -5197,6 +5245,8 @@ static int qm_open(const void *unused) {
     /* Rate (the heart's hold) follows Next/Previous album */
     if (group_first) acts[n++] = QA_NEXT_GROUP, acts[n++] = QA_PREV_GROUP;
     if (group_first && st.rate_win) acts[n++] = QA_RATE;
+    int at, off; /* a spoken CUE book's saved place, from any of its tracks */
+    if (st.qm_kind == QM_SONG && book_place(qm_list(), r, &at, &off)) acts[n++] = QA_RESUME;
     acts[n++] = QA_NEXT;
     acts[n++] = QA_ADD;
     if (!song) acts[n++] = QA_SHUFFLE;
@@ -5231,7 +5281,8 @@ static int qm_open(const void *unused) {
                                         "Group by",
                                         "Next Album",
                                         "Previous Album",
-                                        "Rate" };
+                                        "Rate",
+                                        "Resume" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {
@@ -5454,8 +5505,15 @@ static void scrobble(void *r, int total, int heard) {
     scrobble_append(line, (unsigned)(o - line));
 }
 
+/* The polled track's place at sec: its file's seconds, forgotten near the file's end only from
+ * its last CUE track (the one without an end). */
+static void spot_save(int sec) {
+    spot_keep(st.rs_file, st.rs_cue + sec, st.rs_end ? 0x7fffffff : st.rs_cue + st.rs_total);
+}
+
 /* Once a second from the UI loop: a long track saves its place and, when it starts playing near
- * its beginning, jumps to the saved one. A track change waits a poll, so the previous track's
+ * its beginning, jumps to the saved one. A spoken CUE track saves its file's place but jumps only
+ * when a Resume row (book_place) started it. A track change waits a poll, so the previous track's
  * time never counts for the new one. */
 static void resume_poll(void) {
     unsigned now = (unsigned)time_now_ms(), at, n;
@@ -5464,9 +5522,9 @@ static void resume_poll(void) {
     int sec = 0, total = 0;
     void *r = queue_now(&at, &n);
     if (!r || player_playtime_and_length(&sec, &total) < 0 || total <= 0) return;
-    unsigned key = fnv(FNV_SEED, P(r, REC_PATH));
+    unsigned key = listen_key(r); /* a CUE image's tracks share one path */
     if (key != st.rs_key) {
-        if (st.rs_long && !st.rs_pending) spot_keep(st.rs_key, st.rs_sec, st.rs_total);
+        if (st.rs_long && !st.rs_pending) spot_save(st.rs_sec);
         st.rs_key = key;
         st.rs_long = 0;
         st.rs_settle = 1;
@@ -5475,15 +5533,14 @@ static void resume_poll(void) {
     if (st.rs_settle) {
         st.rs_settle = 0;
         st.rs_spoken = spoken(P(r, REC_PATH));
-        st.rs_long =
-            (total >= RESUME_MIN_S || st.rs_spoken) && !I(r, REC_CUE_START) && !I(r, REC_CUE_END);
-        st.rs_pending = 0;
-        if (st.rs_long && !st.spots_read) {
-            st.spots_read = 1;
-            BLOB_IO(RESUME_FILE, st.spots, 0);
-        }
-        for (int i = 0; st.rs_long && i < RESUME_SLOTS; i++)
-            if (st.spots[i].key == key) st.rs_pending = st.spots[i].sec;
+        st.rs_file = fnv(FNV_SEED, P(r, REC_PATH));
+        st.rs_cue = I(r, REC_CUE_START);
+        st.rs_end = I(r, REC_CUE_END);
+        int cue = st.rs_cue || st.rs_end; /* music CUE images are left alone */
+        st.rs_long = cue ? st.rs_spoken : total >= RESUME_MIN_S || st.rs_spoken;
+        int saved = st.rs_long ? spot_at(st.rs_file) : 0; /* reads the ring spot_keep writes */
+        st.rs_pending = !cue ? saved : saved && key == st.rs_go_key ? st.rs_go : 0;
+        st.rs_go_key = 0;
         if (playback_resumed(r)) st.rs_pending = 0;
         st.rs_sec = st.rs_saved = sec;
         st.rs_still = 0;
@@ -5524,7 +5581,7 @@ static void resume_poll(void) {
     int moved = sec - st.rs_saved;
     if (moved && (st.rs_still >= 2 || moved >= RESUME_SAVE_S || moved <= -RESUME_SAVE_S)) {
         st.rs_saved = sec;
-        spot_keep(key, sec, total);
+        spot_save(sec);
     }
 }
 

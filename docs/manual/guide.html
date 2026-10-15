@@ -213,7 +213,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
     <li>Send your listens to Last.fm or ListenBrainz over Wi-Fi</li>
     <li>Rate songs and albums 0–5 hearts, then browse Top Rated, Loved and rated albums</li>
     <li>Use favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder</li>
-    <li>Resume <code>.m4b</code> audiobooks and podcasts where you stopped, with per-folder playback speed</li>
+    <li>Resume <code>.m4b</code> audiobooks (also split by a CUE sheet) and podcasts where you stopped, with per-folder playback speed</li>
     <li>Use AirPods stem controls, ear detection, two-way volume sync and smoother AAC audio</li>
     <li>Look after the battery with an optional 80% charge limit, Low Power mode and a sleep timer</li>
   </ul>
@@ -597,7 +597,9 @@ http://stream.radioparadise.com/mp3-128</pre>
   <div class="sub">
   <h3>M4B audiobooks</h3>
   <p>Unprotected <code>.m4b</code> files play as they are: copy the original files onto the card, with no renaming or conversion needed. Extensions are case-insensitive. M4B files anywhere on the card resume at any duration and don’t count toward Most Played or scrobbles. <code>Audiobooks/</code> adds a Library shortcut, but is optional for M4B. Embedded artwork uses the MP4 cover reader, with folder artwork as the fallback. M4B audiobooks stay out of Coverflow.</p>
-  <div class="note"><p><span class="label">Note:</span> DRM-protected files and chapter navigation aren’t supported. CUE tracks don’t resume. As with stock resume, the number of saved positions is limited and the last 30 seconds of a file aren’t resumed.</p></div>
+  <h3>Books with a CUE sheet</h3>
+  <p>A book split into chapters by a <code>.cue</code> sheet remembers one place for the whole book, if it’s an <code>.m4b</code> or sits in <code>Podcasts/</code> or <code>Audiobooks/</code>. Picking a chapter plays that chapter from its start. To continue where you stopped, open the book’s chapters and hold Play/Pause on any of them: <b>Resume</b>, at the top of the menu, plays from the right chapter and position. Music albums with a CUE sheet don’t resume.</p>
+  <div class="note"><p><span class="label">Note:</span> DRM-protected files and chapter navigation aren’t supported. As with stock resume, the number of saved positions is limited and the last 30 seconds of a file aren’t resumed.</p></div>
 
   </div>
   </div>
