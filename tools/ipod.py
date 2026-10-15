@@ -609,13 +609,18 @@ def row_icon(data):
                        *PNG_OUT, data=data)
 
 
+# Each stock placeholder's replacement size: stock's own, but Now Playing's at the art it fills (stock's
+# 188 scaled down there on the device, jagged), and the full-screen art's the disc centred on black.
 ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
-                    'play_defaultcover.png': 188, 'scrsaver_playcover.png': 60,
-                    'default_smallcover.png': 140}
+                    'play_defaultcover.png': NP_ART, 'scrsaver_playcover.png': 60,
+                    'default_smallcover.png': 140, 'default_bigcover.png': (375, 320)}
 
 
-def sized_art(data, px):
-    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', *PNG_OUT, data=data)
+def sized_art(data, size):
+    w, h = size if isinstance(size, tuple) else (size, size)
+    px = min(w, h)
+    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', '-background', 'none',
+                       '-gravity', 'center', '-extent', f'{w}x{h}', *PNG_OUT, data=data)
 
 
 def settings_icon(name, data):

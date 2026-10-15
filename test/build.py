@@ -160,7 +160,7 @@ def validate_assets(directory):
     master = (ROOT/'assets/icons/default_album_home.png').read_bytes()
     for name, size in ART_PLACEHOLDERS.items():
         old, new = read('stock.squashfs', xx+name), read('rootfs.squashfs', xx+name)
-        assert png_header(old)[:2] == (size, size), name
+        if ipod: assert png_header(new)[:2] == (size if isinstance(size, tuple) else (size, size)), name
         assert new == (sized_art(master, size) if ipod else old), name
         if ipod:
             assert changed[xx+name] == dict(original_sha256=sha(old), sha256=sha(new))
