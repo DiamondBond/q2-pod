@@ -170,7 +170,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
     <li><span class="n">{{p:eqimport}}</span><a href="#eqimport">Importing a preset</a></li>
 
     <li class="chap"><span class="n">{{p:c5}}</span><a href="#c5">Chapter 5: Streaming</a></li>
-    <li><span class="n">{{p:spotify}}</span><a href="#spotify">Spotify Connect</a></li>
+    <li><span class="n">{{p:spotify}}</span><a href="#spotify">Spotify</a></li>
     <li><span class="n">{{p:spinstall}}</span><a href="#spinstall">Installing Spotify</a></li>
     <li><span class="n">{{p:radio}}</span><a href="#radio">Internet Radio</a></li>
     <li><span class="n">{{p:airplay}}</span><a href="#airplay">AirPlay</a></li>
@@ -204,12 +204,12 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
 <section class="chapter" style="page: ch1">
   <div class="opener"><h1 id="c1">Getting Started</h1><div class="num">1</div></div>
   <p class="lead">Read this chapter to learn what Q2 Pod is, how to install it, and how to use its controls.</p>
-  <p>Q2 Pod brings the iPod classic experience to the Shanling Q2: wheel navigation, Coverflow, a parametric EQ and, optionally, Spotify Connect and Rockbox, all built on top of the stock firmware. With Q2 Pod you can:</p>
+  <p>Q2 Pod brings the iPod classic experience to the Shanling Q2: wheel navigation, Coverflow, a parametric EQ and, optionally, Spotify and Rockbox, all built on top of the stock firmware. With Q2 Pod you can:</p>
   <ul>
     <li>Browse with an iPod-style Home, menus, Now Playing, Coverflow and four visualizers, in your choice of accent colour, Home layout and battery display</li>
     <li>Scroll with a wheel that follows your finger, in menus that remember where you were</li>
     <li>Shape the sound with three simple tone sliders, or up to 30 EQ bands with a live curve and AutoEQ and Equalizer APO presets</li>
-    <li>Stream with Spotify Connect (Premium), AirPlay from your iPhone, and Internet Radio</li>
+    <li>Stream Spotify (Premium), AirPlay from your iPhone, and Internet Radio</li>
     <li>Send your listens to Last.fm or ListenBrainz over Wi-Fi</li>
     <li>Rate songs and albums 0–5 hearts, then browse Top Rated, Loved and rated albums</li>
     <li>Use favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder</li>
@@ -513,8 +513,10 @@ ALBUM_ARTIST=1</pre>
   <p class="lead">Play Spotify, AirPlay and Internet Radio over Wi-Fi from the Streaming menu.</p>
 
   <div class="sec">
-  <h2 id="spotify"><img class="hicon" src="../../assets/icons/stream_spotify.png" alt="">Spotify Connect</h2>
-  <p><b>Streaming → Spotify</b> turns the Q2 into a Spotify Connect speaker: pick <b>Q2</b> in the Spotify app on a phone on the same Wi-Fi, and browse and queue there. It needs Spotify Premium and isn’t in the firmware: it runs from the microSD card (see “Installing Spotify”, below).</p>
+  <h2 id="spotify"><img class="hicon" src="../../assets/icons/stream_spotify.png" alt="">Spotify</h2>
+  <p><b>Streaming → Spotify</b> browses and plays Spotify on the Q2 over Wi-Fi: Liked Songs, your playlists, saved albums and followed artists, Search, the queue and shuffle and repeat. It needs Spotify Premium and isn’t in the firmware: it runs from the microSD card (see “Installing Spotify”, below). The Q2 is also a Spotify Connect speaker, so the phone can still pick it and control it.</p>
+  <p><b>Pairing, once:</b> the first time, the page says “Open Spotify on your phone and choose Q2”. With the phone on the same Wi-Fi, pick <b>Q2</b> in the Spotify app’s device list; the page turns into the menu, and the login is saved on the card. From then on the Q2 needs no phone. <b>Account</b> shows who is signed in and signs out.</p>
+  <p><b>Browsing:</b> pick a song to play it in its playlist or album; Now Playing opens, and Return goes back to the list. <b>More…</b> at the end of a list loads the next part. <b>Search</b> asks for the words first, then Tracks, Albums, Artists or Playlists. Hold Play/Pause on a song to add it to the queue. Queue and Playback Settings appear while something plays.</p>
   <table>
     <thead><tr><th>Control</th><th>What it does</th></tr></thead>
     <tbody>
@@ -524,7 +526,7 @@ ALBUM_ARTIST=1</pre>
       <tr><td>Centre</td><td>As on Now Playing: press once to turn the screen off; double-press, turn the wheel 5 s a tick, then double-press again or wait 3 s to jump</td></tr>
     </tbody>
   </table>
-  <p>The first time, open <b>Streaming → Spotify</b> and pick <b>Q2</b> in the Spotify app; the login is saved on the card. After each power-on, open <b>Streaming → Spotify</b> once and the Q2 shows up in Spotify again; until then nothing Spotify runs. To save battery, Spotify stops itself after 30 seconds paused or stopped; open the row again to bring it back.</p>
+  <p>After each power-on, open <b>Streaming → Spotify</b> once and the Q2 shows up in Spotify again; until then nothing Spotify runs. To save battery, Spotify stops itself after 30 seconds paused or stopped once you have left its menu; open the row again to bring it back. An older Spotify add-on still plays from the phone, and the page asks you to update it to browse on the Q2.</p>
   <p>Until you play local music again, the playback buttons control Spotify from any page, including local Now Playing. Picking a song in the Library pauses Spotify and plays the song; casting from the phone again stops local music. Playback carries on with the screen off.</p>
   <p>Spotify plays on the headphone jack, Bluetooth or a USB DAC: whichever is in use when playback starts. If you switch output while it plays, pause and play again to move it. Bluetooth and USB need a current <code>.spotify/aplay.sh</code>; an older one always plays on the headphone jack.</p>
 
@@ -537,7 +539,7 @@ ALBUM_ARTIST=1</pre>
     <li>Unzip the file to the card’s root, so the card has <code>.spotify/librespot</code>, <code>.spotify/run</code> and <code>.spotify/aplay.sh</code>. On macOS and Linux the leading dot hides the folder; Cmd+Shift+. shows it in Finder.</li>
     <li>Eject and unplug the Q2.</li>
   </ol>
-  <p>To update, unzip a newer release over it; its <code>cache/</code> keeps the saved login. To remove Spotify, delete the <code>.spotify</code> folder.</p>
+  <p>Browsing on the Q2 needs q2-librespot v1.3 or later. To update, unzip a newer release over it; its <code>cache/</code> keeps the saved login. To remove Spotify, delete the <code>.spotify</code> folder.</p>
 
   </div>
   <div class="sec">
