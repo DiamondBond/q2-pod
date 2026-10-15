@@ -6,7 +6,7 @@
   - Audiobooks with a CUE sheet: chapters of an `.m4b`, or of any file under Podcasts or Audiobooks, remember the book's place. Hold Play/Pause on any of its chapters and pick **Resume** to continue there. Music CUE albums are unchanged.
   - The guide now covers custom boot logos and navigation, and corrects Rockbox recovery to Play/Pause. Logo synchronization requires Q2 Pod to run before the next boot.
   - Artists: Audio settings' **Artists** defaults to **Album Artist**, so guest artists ("Artist feat. Guest") no longer split an album across the Artists list. A saved Artist choice stays.
-  - iPod: a double press of the centre button has 300 ms instead of 200 to turn the screen off, so it is easier to hit; a single press opens a row 100 ms later.
+  - iPod: a double press of the centre button has 250 ms instead of 200 to turn the screen off, so it is easier to hit; a single press opens a row 50 ms later.
 
 - **1.1.9**:
   - DSD: DSF, DFF and SACD ISO files play again, and no longer leave the player slow and choppy afterwards.

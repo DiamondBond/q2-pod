@@ -278,7 +278,7 @@ static inline int arc_out(int r, int y) {
 /* iPod Now Playing scrub: SCRUB_STEP seconds per detent times the list ramp, previewed until
  * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on volume. */
 #define SCRUB_STEP 5
-#define DOUBLE_CLICK_MS 300 /* a second centre press within this is a double press */
+#define DOUBLE_CLICK_MS 250 /* a second centre press within this is a double press */
 #define WAKE_MS 500 /* Wake: Double press, the screen-off double press; looser, done blind in a hand */
 #define SCRUB_MS 3000
 #define LYRIC_STEP 25 /* px per wheel tick on the lyrics page: one stock lyric row */
