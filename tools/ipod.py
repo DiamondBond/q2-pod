@@ -657,7 +657,7 @@ def quiet_icon(name, data):
     check(sha(data) == QUIET_ICONS.get(name), f'{name}: unaudited control icon')
     return imagemagick('png:-', '-trim', '+repage', '-filter', 'Lanczos', '-resize', '24x24',
                       '-channel', 'RGB', '-fill', '#aaaaaa' if name == 'play_moredown.png' else '#eeeeee',
-                      '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'black',
+                      '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'none',
                       '-extent', '28x28', *PNG_OUT, data=data)
 
 
