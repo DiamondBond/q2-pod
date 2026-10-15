@@ -37,7 +37,7 @@
 - **AirPods:** stem controls, ear detection and two-way volume sync.
 - **Battery:** an optional 80% charge limit and Low Power mode.
 
-<details>
+<details open>
 <summary><h2>Screenshots</h2></summary>
 
 <p align="center">
