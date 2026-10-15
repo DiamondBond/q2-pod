@@ -1183,8 +1183,7 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, 
 }
 
 /* The cover t (16.16, signed) turns from the visual position, under what is drawn. */
-/* 1/256 texel, symmetric; zero in Legacy. Scratch state, so it sits inside the image's memsz. */
-static unsigned short cf_inset[ART_SIZE] __attribute__((section(".scratch")));
+static unsigned short cf_inset[ART_SIZE]; /* 1/256 texel, symmetric; zero in Legacy */
 
 static void draw_cover(shelf_t *f, int t, const unsigned *tex) {
     pose_t p;
