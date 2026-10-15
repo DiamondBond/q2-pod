@@ -7445,6 +7445,13 @@ for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)  # 
 q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,0,600); playing(m,0,600,pos=0,n=11); m.poll(10,600,n=3)
 assert m.places()==[(fnv(book),700)]; m.run(0); m.poll(10,600,n=2); assert not m.seeks
 chapter(m,q,600,1200); m.poll(0,600,n=2); playing(m,1,600,n=2); assert m.seeks==[100]; passed()
+m=ResumeMachine(place(700)); q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,2400,3000)  # chapter 5
+playing(m,0,600,pos=0,n=11); m.poll(10,600,n=3); assert m.places()==[(fnv(book),700)]  # paused at 10 s: kept
+playing(m,11,600,n=30); m.poll(40,600,n=3); assert m.places()==[(fnv(book),2440)]; passed()  # past 30 s: moved
+m=ResumeMachine(place(700)); rows=m.items(m.get(syms['p_deque_showlist']))  # the chapter never comes: no seek
+for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)
+q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,0,600); playing(m,40,600,pos=0,n=3)
+m.run(0); m.poll(43,600,n=9); chapter(m,q,600,1200); m.poll(0,600,n=2); playing(m,1,600,n=2); assert not m.seeks; passed()
 m=ResumeMachine(place(700)); rows=m.items(m.get(syms['p_deque_showlist']))  # Resume onto the chapter playing
 for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)
 q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,600,1200); playing(m,40,600,pos=0,n=3)

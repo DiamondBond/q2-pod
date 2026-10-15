@@ -125,15 +125,15 @@ typedef struct {
     /* Resume: the saved places, file seconds by path hash, most recent first; the track polled
      * (rs_key, listen_key's, 0 none) and whether it is long, its last seconds, the seconds last
      * saved and how many polls they stood still; rs_pending is the place to restore once it plays,
-     * rs_settle a track change one poll old. rs_file is its path's hash, rs_cue its CUE start,
-     * rs_end the file's end (INT_MAX unknown), rs_book set for a CUE track; rs_go is the seconds
-     * into rs_go_key's chapter a Resume row asked for at rs_go_at. */
+     * rs_settle a track change one poll old. rs_file is its path's hash, rs_cue and rs_end its CUE
+     * start and end, rs_total its seconds; rs_go is the seconds into rs_go_key's chapter a Resume
+     * row asked for at rs_go_at. */
     struct {
         unsigned key;
         int sec;
     } spots[RESUME_SLOTS];
     unsigned spots_read, rs_at, rs_key, rs_file, rs_go_key, rs_go_at;
-    int rs_long, rs_settle, rs_sec, rs_saved, rs_still, rs_pending, rs_cue, rs_end, rs_book, rs_go;
+    int rs_long, rs_settle, rs_sec, rs_saved, rs_still, rs_pending, rs_cue, rs_end, rs_total, rs_go;
     int rs_spoken; /* under Podcasts or Audiobooks: resumed at any length, never counted */
     /* Play counts by path hash (plays_read once loaded); the playing track's last second, the
      * seconds of it heard and whether this play has counted. */
@@ -5507,12 +5507,12 @@ static void scrobble(void *r, int total, int heard) {
     scrobble_append(line, (unsigned)(o - line));
 }
 
-/* The polled track's place at sec, its file's seconds. A CUE track near the file's start keeps
- * the book's place (a chapter played becomes it past RESUME_EDGE_S); only the last one (no CUE
- * end) knows the file's end, where the book is finished and forgotten. */
+/* The polled track's place at sec, its file's seconds. A CUE track becomes the book's place only
+ * past its own first RESUME_EDGE_S; only the last one (no CUE end) knows the file's end, where the
+ * book is finished and forgotten. */
 static void spot_save(int sec) {
-    if (!st.rs_book || st.rs_cue + sec >= RESUME_EDGE_S)
-        spot_keep(st.rs_file, st.rs_cue + sec, st.rs_end);
+    if (!(st.rs_cue || st.rs_end) || sec >= RESUME_EDGE_S)
+        spot_keep(st.rs_file, st.rs_cue + sec, st.rs_end ? 0x7fffffff : st.rs_cue + st.rs_total);
 }
 
 /* Once a second from the UI loop: a long track saves its place and, when it starts playing near
@@ -5540,11 +5540,11 @@ static void resume_poll(void) {
         st.rs_spoken = spoken(P(r, REC_PATH));
         st.rs_file = fnv(FNV_SEED, P(r, REC_PATH));
         st.rs_cue = I(r, REC_CUE_START);
-        st.rs_end = I(r, REC_CUE_END) ? 0x7fffffff : st.rs_cue + total;
-        st.rs_book = st.rs_cue || I(r, REC_CUE_END); /* music CUE images are left alone */
-        st.rs_long = st.rs_book ? st.rs_spoken : total >= RESUME_MIN_S || st.rs_spoken;
+        st.rs_end = I(r, REC_CUE_END);
+        int book = st.rs_cue || st.rs_end; /* music CUE images are left alone */
+        st.rs_long = book ? st.rs_spoken : total >= RESUME_MIN_S || st.rs_spoken;
         int saved = st.rs_long ? spot_at(st.rs_file) : 0; /* reads the ring spot_keep writes */
-        st.rs_pending = st.rs_book ? 0 : saved;
+        st.rs_pending = book ? 0 : saved;
         if (playback_resumed(r)) st.rs_pending = 0;
         st.rs_sec = st.rs_saved = sec;
         st.rs_still = 0;
@@ -5569,6 +5569,7 @@ static void resume_poll(void) {
         }
     }
     if (!st.rs_long) return;
+    st.rs_total = total;
     if (key == st.rs_go_key) { /* a Resume row's chapter, the playing one too, once it starts */
         if (sec < 1 || sec >= RESUME_START_S) return; /* the old position until it does */
         st.rs_go_key = 0;
