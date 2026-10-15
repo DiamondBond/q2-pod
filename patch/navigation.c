@@ -240,7 +240,7 @@ typedef struct {
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
     /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set; while the page
      * is there, Back at that root leaves it. */
-    int media_open;
+    int media_open, folder_direct;
     char media_root[32];
     void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
     char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own
@@ -3355,7 +3355,7 @@ void ringnav_boot(const char *page, const int *ctx) {
 }
 #endif
 
-/* Called only by stock long Return (both builds), after its power/lock gates and release guard.
+/* Called by stock long Return (both builds) and short Return on iPod Home, after their gates.
  * Elsewhere it opens Now Playing over the page, remembered as np_origin; on Now Playing it goes
  * back to that page while it lies right under it, else Home. */
 int compact_now_playing(void) {
@@ -4784,14 +4784,24 @@ static int media_click(void *ctx, void *event) {
  * (its name, folder_reinit_navbarname) and entering all treat it as one. */
 int ringnav_folder(void *win, void *ctx) {
     int result = stock_folder_trampoline(win, ctx);
+    st.folder_direct = 0;
     if (st.media_open && win) {
         memcpy((char *)g_folder_path, st.media_root, sizeof st.media_root);
         g_folder_layer = 3;
         folder_reload_data();
         folder_reinit_navbarname();
         folder_refresh(win);
-    } else
+    } else {
         st.media_root[0] = 0;
+        if (win && !g_otg_status) {
+            st.folder_direct = 1;
+            memcpy((char *)g_folder_path, "/mnt/mmc", 9);
+            g_folder_layer = 2;
+            folder_reload_data();
+            folder_reinit_navbarname();
+            folder_refresh(win);
+        }
+    }
     st.media_open = 0;
     return result;
 }
@@ -4804,12 +4814,14 @@ void ringnav_folder_top(void) {
     if (!g_otg_status && deque_size(roots) == 2) deque_pop_back(roots);
 }
 
-/* Back at the media root leaves the page (stock's layer 0) instead of climbing to the card. */
+/* Back at a shortcut or bypassed SD root leaves the page (stock's layer 0). */
 int ringnav_folder_back(void *yoffset, void *index) {
-    if (st.media_root[0] && g_folder_layer == 3 &&
-        !tk_strcmp((const char *)g_folder_path, st.media_root)) {
+    if ((st.folder_direct && g_folder_layer == 2) ||
+        (st.media_root[0] && g_folder_layer == 3 &&
+         !tk_strcmp((const char *)g_folder_path, st.media_root))) {
         g_folder_layer = 1;
         st.media_root[0] = 0;
+        st.folder_direct = 0;
     }
     return stock_folder_back_trampoline(yoffset, index);
 }
@@ -6179,18 +6191,15 @@ int ringnav(void *ctx, void *event) {
     /* Home's Settings list goes back to Home's list (coverflow_home_back). */
     if (key == KEY_RETURN && coverflow_home_back(window_manager_get_top_window(window_manager())))
         return STOP;
-    /* Return on Home's list: back to its first row, Now Playing. */
+    /* Return on Home's main list opens Now Playing with the current queue untouched. */
     if (key == KEY_RETURN && usable()) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
         void *w = home_menu(top) && !window_manager_is_animating(wm)
                       ? surface_under(top, (void *)0, (void *)0, 1)
                       : (void *)0;
         if (w && load(&g_menu, w, 1) && g_menu.n) {
-            drop_input();
             st.touch_mode = 0;
-            select(&g_menu, 0);
-            reveal(&g_menu, 0, 1);
-            widget_invalidate_force(w, (void *)0);
+            compact_now_playing();
             return STOP;
         }
     }

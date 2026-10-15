@@ -281,7 +281,8 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   <h2 id="ui">Finding your way around</h2>
   <img class="shot" src="../../assets/screenshots/home-split.png" alt="Home in the Split layout: Now Playing, Library, Coverflow, Folder, Favorites, Streaming and Settings on the left, the playing album’s cover on the right">
   <ul>
-    <li><b>Home:</b> a list (Now Playing, Library, Coverflow, Folder, a shortcut, Streaming, Settings) beside the playing track’s cover. The shortcut is Rockbox when it’s on the card, otherwise Favorites; <b>System settings → Display → Shortcut</b> changes it, and <b>Home: Full</b> drops the cover and widens the list. <b>Settings</b> slides in <b>Playback</b> and <b>System</b> in the list’s place, as an iPod’s submenu, with the cover still beside it; Return goes back.</li>
+    <li><b>Home:</b> a list (Now Playing, Library, Coverflow, Folder, a shortcut, Streaming, Settings) beside the playing track’s cover. The shortcut is Rockbox when it’s on the card, otherwise Favorites; <b>System settings → Display → Shortcut</b> changes it, and <b>Home: Full</b> drops the cover and widens the list. <b>Settings</b> slides in <b>Playback</b> and <b>System</b> in the list’s place, as an iPod’s submenu, with the cover still beside it; Return goes back. Both Home lists wrap immediately at either end. A short Return on Home’s main list opens Now Playing without changing playback; Return there goes back to Home.</li>
+    <li><b>Folder:</b> opens the SD card directly when no OTG drive is connected. Return at the SD root goes back to Home; inside a folder it goes up one level. With OTG connected when Folder opens, choose SD or OTG first.</li>
     <li><b>Lists:</b> four rows per screen with a full-width accent bar; <b>&gt;</b> marks rows that open another list.</li>
     <li><b>Status bar:</b> play state, EQ, time, Bluetooth, Wi-Fi and battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.</li>
     <li><b>Page slides:</b> pages slide in from the right and back out on Return.</li>
@@ -735,6 +736,12 @@ http://stream.radioparadise.com/mp3-128</pre>
 
   </div>
   <div class="sec">
+  <h2 id="custom-logo">Custom boot logo</h2>
+  <p>Put <code>boot-logo.jpg</code> in <code>/Q2Pod/boot/</code> on the microSD card. Use an 8-bit, three-component baseline JPEG (RGB/YCbCr), at most 512 KB (524,288 bytes): upright at 375×320 pixels, or 320×375 pixels with the artwork turned 90° clockwise. PNG, progressive JPEG, grayscale and CMYK are not supported.</p>
+  <p>Start Q2 Pod with the card inserted, or leave USB storage mode, to synchronize the logo. It appears at the following power-on. Booting directly into Rockbox does not import it. To restore the built-in logo, delete the card file and run Q2 Pod with the card mounted once; the following power-on uses the built-in logo.</p>
+
+  </div>
+  <div class="sec">
   <h2 id="restore">Restoring stock firmware</h2>
   <ul>
     <li><b>Back to Shanling’s firmware:</b> install the official Shanling firmware (en.shanling.com/download/150), such as stock V1.32, the same way as Q2 Pod.</li>
@@ -768,7 +775,7 @@ http://stream.radioparadise.com/mp3-128</pre>
   <div class="sub">
   <h3>If something goes wrong</h3>
   <ul>
-    <li><b>Rockbox is stuck:</b> hold Return while turning the Q2 on. It goes to Q2 Pod.</li>
+    <li><b>Rockbox is stuck:</b> hold Play/Pause while turning the Q2 on. It goes to Q2 Pod.</li>
     <li><b>Rockbox doesn’t start:</b> the card must be exFAT or FAT32, and the <code>.rockbox</code> folder must be in the card’s root.</li>
   </ul>
   </div>

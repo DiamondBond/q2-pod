@@ -89,8 +89,11 @@ selection rectangle or chevron. **Theme: Classic** styles the menu as before 1.0
 The seven destinations remain Now Playing, Library, Coverflow, Folder, Rockbox, Streaming and
 Settings. Rockbox is visible only when its binary is on the card, unless Display's **Shortcut**
 (`IPOD/SHORTCUT` 0-3) turns that row into Artists, Albums or Favorites (`home_shortcut_open`); with no key it is Rockbox when the card has it, else Favorites. Centre cycles Rockbox, Favorites, Artists, Albums. Settings opens Playback and
-System; Return restores the menu's previous selection, and Return on the menu itself goes back to
-its first row, Now Playing. The wheel wraps straight past either end of both lists (no bump first).
+System; Return restores the menu's previous selection, and a short Return on the main menu opens
+Now Playing without changing playback. Return there goes back to Home. The wheel wraps straight past either end of both lists (no bump first).
+Folder opens directly at the SD root when no OTG drive is connected; Back at that root returns
+to Home. With OTG connected on entry, Folder keeps the SD/OTG selector. Nested folders and
+Library’s Podcasts/Audiobooks shortcuts keep their usual Back navigation.
 The native stock handlers, translation keys, full-row tap targets and submenu animation remain intact.
 
 `HOME_ROW=39` and `HOME_TOP=8` retain corner clearance. The 6-pixel dot sits at x 25, clear of the

@@ -26,8 +26,8 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                              |
 | `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                            |
 | `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md)) |
-| `folder_page_init`                    | `0x523330` | Opens at Podcasts or Audiobooks ([Podcasts and Audiobooks](#podcasts-and-audiobooks)) |
-| `folder_back`                         | `0x507ac8` | Back at that folder leaves the page                                                   |
+| `folder_page_init`                    | `0x523330` | Opens at the SD root without OTG, or at Podcasts/Audiobooks for their shortcuts |
+| `folder_back`                         | `0x507ac8` | Back at a bypassed SD root or shortcut root leaves the page                           |
 | `window_manager_dispatch_input_event` | `0x66d49c` | No input while a video plays ([Videos](#videos)); [Wake](#wake)'s screen-off gate     |
 | `buzzeer_switch`                      | `0x4f3cc8` | No buzzer while headphones, BT or USB listen ([Key Tone](#key-tone))                  |
 | `systemset_powermanager_page_init`    | `0x4c72d0` | Adds Charge Limit, Low Power and Wake ([Low Power](#low-power), [Wake](#wake))        |
@@ -440,6 +440,10 @@ Checks in `test/peq.py` (host build of the filter): the hold window, half-rate e
 ## Resume
 
 `ringnav_sleep` (both variants, the UI thread) polls at most once a second. It reads the queue's playing record (`queue_now`) and `player_playtime_and_length` (`0x514128`): elapsed and total track seconds, CUE-relative, and -1 while nothing plays. A track is long when its total is at least `RESUME_MIN_S` (20 minutes), or its extension is `.m4b` (case-insensitive) anywhere on the card, or it is under [Podcasts or Audiobooks](#podcasts-and-audiobooks), and its record has no CUE start or end (`+0x48`, `+0x4c`). Places are kept by the path's FNV-1a hash in a ring of `RESUME_SLOTS` (32), most recent first. The ring is read from `/mnt/data/ringnav-resume` on the first long track and written whole, to a `.tmp` then renamed. That happens every `RESUME_SAVE_S` (60) seconds of movement, once the time stands still for two polls (a pause), and on a track change. A place within `RESUME_EDGE_S` (30 s) of either end is forgotten. A track change waits one poll before it counts, so the previous track's time never belongs to the new one. When a long track with a saved place first plays (elapsed at least 1 s) with under `RESUME_START_S` (5 s) elapsed, `player_seek_time` jumps there, as Scrub commits. A track paused at 0 waits for Play, so Memory Playback's paused boot does not seek, and its Location restore, already under way, is left alone. A hash collision only means a wrong resume point.
+
+## Folder entry
+
+Both editions open Folder directly at `/mnt/mmc`, layer 2, when `g_otg_status` is clear on entry. After stock initializes the page, `ringnav_folder` sets the path and runs the existing reload, title and refresh functions. `folder_direct` remembers that the selector was bypassed for this visit: Back at layer 2 sets layer 1 before stock Back decrements it to 0 and leaves the page, even if OTG was connected meanwhile. With OTG connected on entry, the SD/OTG selector and stock navigation remain. Nested folders and playback use the existing handlers. Podcasts/Audiobooks shortcuts take precedence and retain their own root exit.
 
 ## Podcasts and Audiobooks
 

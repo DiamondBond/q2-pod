@@ -3822,7 +3822,7 @@ if variant=='ipod':
     assert [c[0] for c in m.moved()]==['scroll_view_set_offset']; passed()
 
     # Home is an ordinary list: the wheel walks the seven rows one by one, wraps at once at both ends
-    # (no bump first), Return goes back to the first row, the bar spans the list's width and centre
+    # (no bump first), Return opens Now Playing, the bar spans the list's width and centre
     # clicks the image.
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2])
     m.paint(view)
@@ -3832,8 +3832,8 @@ if variant=='ipod':
     assert m.call(gap=50)==11 and m.selected(view)==0
     assert m.call(O['KEY_PREV'],gap=50)==11 and m.selected(view)==6
     for i in range(5,2,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
-    assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==0
-    m.call(gap=1000); m.call()
+    assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==3 and len(destinations(m))==1
+    m.call(O['KEY_PREV'],gap=1000)
     assert not m.slides and m.confirm()==11 and m.dispatched()[0][1]==imgs[2]; passed()
 
     # Boot: if Home's first paint comes before the screen is usable, no row is chosen or drawn. The
@@ -6173,10 +6173,10 @@ fk,ck=m.handler(page,O['EVT_KEY_UP'])
 ev=m.alloc(0x40); m.word(ev,O['EVT_KEY_UP']); m.word(ev+O['EVENT_KEY'],O['KEY_RETURN'])
 assert m.call(address=fk,args=(ck,ev,0,0),gap=0)==11 and [c[0] for c in m.calls].count('navigator_back')==1
 m.close(); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.top!=page and m.nodes[m.top]['name']=='shuffle_page'; passed()
-def home_settings():
+def home_settings(full):
         # Home's Rockbox row shows only while the card has Rockbox: hidden, it moves after Settings, so the
         # list's layout leaves no gap; it comes back after Folder once the card has it.
-        CONFIG['SHORTCUT']='0'; m=ShuffleMachine(); del CONFIG['SHORTCUT']; m.rockbox_mode=0; view,imgs=home_list(m)
+        CONFIG['SHORTCUT']='0'; CONFIG['HOME']=str(full); m=ShuffleMachine(); del CONFIG['SHORTCUT']; del CONFIG['HOME']; m.rockbox_mode=0; view,imgs=home_list(m)
         assert m.call(address=home_hook[0],args=(m.top,0,0,0),gap=0)==0
         btn=named(m,m.top,'btn_rockbox'); order=lambda: [m.nodes[r]['name'][4:] for r in m.nodes[view]['children']]
         assert order()==['playing','localmusic','coverflow','folder','stream','settings','rockbox'] and not m.nodes[btn]['visible']
@@ -6197,9 +6197,9 @@ def home_settings():
         assert m.selected(view)==6
         m.calls=[]; f,ctx=m.handler(named(m,m.top,'img_settings'),O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
-        assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible'] and m.nodes[sets]['animated']=='x'
+        assert m.nodes[sets]['visible'] and not m.nodes[lst]['visible'] and m.nodes[art]['visible']==(not full) and m.nodes[sets]['animated']=='x'
         assert m.nodes[sets]['sensitive']==1 and m.nodes[lst]['sensitive']==0
-        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,O['HOME_SPLIT_W'])]; passed()
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(sets,375 if full else O['HOME_SPLIT_W'])]; passed()
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==O['PAGE_SLIDE_MS']==120
         m.advance(119); assert signed(m.get(sets+O['W_X']))>0
         m.advance(1); assert m.get(sets+O['W_X'])==0 and not m.props
@@ -6207,13 +6207,35 @@ def home_settings():
         m.calls=[]; assert m.call(O['KEY_RETURN'])==11
         assert m.nodes[lst]['visible'] and not m.nodes[sets]['visible'] and m.nodes[lst]['animated']=='x'
         assert m.nodes[lst]['sensitive']==1 and m.nodes[sets]['sensitive']==0
-        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-O['HOME_SPLIT_W']&0xffffffff)]
+        assert [c[1:3] for c in m.calls if c[0]=='widget_move_resize'][:1]==[(lst,-(375 if full else O['HOME_SPLIT_W'])&0xffffffff)]
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==120
         m.advance(120); assert m.get(lst+O['W_X'])==0 and not m.props
         m.paint(view); assert m.selected(view)==6; passed()
-        # Return on Home's own list goes back to its first row.
-        m.calls=[]; assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==0 and m.nodes[lst]['visible']; passed()
-if variant=='ipod': home_settings()
+        # Return on Home's main list opens Now Playing without moving its selection or starting a track.
+        m.calls=[]; assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==6
+        dest=destinations(m); assert len(dest)==1 and m.text(dest[0][1])=='playing_page'
+        assert [m.get(dest[0][2]+4*i) for i in range(4)]==[0,0,255,2]
+        assert not any(c[0]=='player_start' for c in m.calls); passed()
+def home_back(full):
+    CONFIG['HOME']=str(full); m=NavigationMachine(); del CONFIG['HOME']
+    view,imgs=home_list(m); home=m.top; m.order=[home]; m.sync_order(); m.paint(view)
+    assert m.call(O['KEY_RETURN'])==11 and m.nodes[m.top]['name']=='playing_page'
+    assert not any(c[0]=='player_start' for c in m.calls)
+    m.call(O['KEY_RETURN'],address=0x52c248,args=(m.top,m.event,0,0),gap=0)
+    assert m.top==home; passed()
+    # Screen, lock and held-release gates still precede the shortcut; animation also blocks it.
+    for flag,value in GATES+[(None,1)]:
+        m=Machine(); view,imgs=home_list(m); m.paint(view)
+        if flag: m.byte(syms[flag],value)
+        else: m.animating=value
+        m.call(O['KEY_RETURN'])
+        assert not destinations(m), flag
+    m=long_machine(); view,imgs=home_list(m); m.paint(view)
+    long_return(m); m.call(O['KEY_RETURN'],gap=0)
+    assert not destinations(m); passed()
+if variant=='ipod':
+    for full in (0,1):
+        home_settings(full); home_back(full)
 # Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
 # press while it is open does nothing. Its rows are the top PLAYS_TOP, most played first and, among
 # equal counts, the most recently counted (earlier slot) first; a row plays that ranked list as a
@@ -6457,6 +6479,50 @@ assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1; passed()
 m.byte(syms['g_folder_layer'],3); assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0  # the Folder view
 m.byte(syms['g_folder_layer'],3); m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==3; passed()
+
+# Audiobooks uses the same shortcut path, even with OTG connected; a nested Back stays in Folder.
+m=ShuffleMachine(); m.card=[('Audiobooks',4)]; m.byte(syms['g_otg_status'],1)
+m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
+m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
+view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)])
+m.top=m.node('window','localmusic_page',[view])
+m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
+button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]
+f,ctx=m.handler(button,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+win=m.node('window','folder_page'); m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
+assert m.text(syms['g_folder_path'])=='/mnt/mmc/Audiobooks' and m.u.mem_read(syms['g_folder_layer'],1)[0]==3
+m.folder('/mnt/mmc/Audiobooks/Author'); m.byte(syms['g_folder_layer'],4)
+m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+assert m.u.mem_read(syms['g_folder_layer'],1)[0]==4
+m.folder('/mnt/mmc/Audiobooks'); m.byte(syms['g_folder_layer'],3)
+m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1; passed()
+
+# Folder visits bypass the storage selector only when OTG was absent on entry.
+for otg in (0,1):
+    m=Machine()
+    m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
+    m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
+    win=m.node('window','folder_page'); m.byte(syms['g_otg_status'],otg); m.byte(syms['g_folder_layer'],1)
+    assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0
+    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(1 if otg else 2)
+    if not otg:
+        assert m.text(syms['g_folder_path'])=='/mnt/mmc'
+        assert [c[0] for c in m.calls]==['stock_folder','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh']
+    else: assert [c[0] for c in m.calls]==['stock_folder']
+    # Nested Back stays stock. Plugging/unplugging OTG mid-visit does not change root Back.
+    m.folder('/mnt/mmc/Music'); m.byte(syms['g_folder_layer'],3)
+    m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==3
+    m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2); m.byte(syms['g_otg_status'],not otg)
+    m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(2 if otg else 1)
+    # A new selector visit clears the prior direct-entry state.
+    m.byte(syms['g_otg_status'],1); m.byte(syms['g_folder_layer'],1)
+    m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
+    m.byte(syms['g_folder_layer'],2)
+    m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==2; passed()
 
 # Photos (patch/photos.c): the helpers first. Names: .jpg, .jpeg and .png, case aside, not hidden.
 m=Machine(); m.mock('memcmp@GLIBC_2.0',prefix='cmp:')
