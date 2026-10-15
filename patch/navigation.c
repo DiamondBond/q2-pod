@@ -3553,7 +3553,8 @@ enum {
     QA_NEXT_GROUP,
     QA_PREV_GROUP,
     QA_RATE,
-    QA_RESUME
+    QA_RESUME,
+    QA_QUEUE
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -5224,6 +5225,8 @@ static int qm_run(const void *unused) {
     if (r && a >= 100) {
         if (!playback_set(st.qm_choice - 1, a - 100)) toast("Queue unchanged");
         st.qm_choice = 0;
+    } else if (r && a == QA_QUEUE) {
+        navigator_to("playerqueue_page");
     } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
         if (!playback_group_skip(a == QA_NEXT_GROUP)) toast("No other group");
     } else if (aid && a == QA_RATE) {
@@ -5378,7 +5381,7 @@ static int qm_open(const void *unused) {
     /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
      * Go to is left out where its single-instance page is already open, or the album is the page.
      */
-    unsigned char acts[12], n = 0;
+    unsigned char acts[13], n = 0;
     /* Shuffle Albums/Folders only: skipping the group comes first */
     int group_first = st.qm_kind == QM_PLAYING && playback_option(0) >= 3;
     /* Rate (the heart's hold) follows Next/Previous album */
@@ -5388,6 +5391,7 @@ static int qm_open(const void *unused) {
     if (st.qm_kind == QM_SONG && book_place(qm_list(), r, &at, &off)) acts[n++] = QA_RESUME;
     acts[n++] = QA_NEXT;
     acts[n++] = QA_ADD;
+    if (st.qm_kind == QM_PLAYING) acts[n++] = QA_QUEUE;
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
     /* an album's own hearts, 5 its favourite */
@@ -5421,7 +5425,8 @@ static int qm_open(const void *unused) {
                                         "Next Album",
                                         "Previous Album",
                                         "Rate",
-                                        "Resume" };
+                                        "Resume",
+                                        "View Queue" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {

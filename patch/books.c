@@ -457,6 +457,11 @@ unsigned book_back(const unsigned char *t, unsigned n, unsigned pos, int rows, i
 #define BOOK_X 24  /* the text's left edge, and its margin on the right */
 #define BOOK_Y 6   /* the first line's top: ten lines clear the glass's corners */
 #define BOOK_ROWS 10
+#if IPOD
+#define BOOK_TONE accent_tone(2)
+#else
+#define BOOK_TONE 0xaaaaaa
+#endif
 #define BOOKS_MAX 500 /* ponytail: ringnav navigates at most MAX_ENTRIES (512) rows */
 #define MARKS_N 64    /* books whose page is kept, the most recently read first */
 
@@ -704,6 +709,16 @@ void books_paint(void *w, void *canvas) {
     bk.prev =
         bk.base + book_back(bk.buf, bk.len, bk.pos - bk.base, BOOK_ROWS, width, measure, canvas);
     canvas_set_text_color(canvas, color);
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    int y = BOOK_Y + BOOK_ROWS * BOOK_LH + 6, span = 375 - 16;
+    unsigned end = bk.end, size = bk.size;
+    while (size > ~0u / (unsigned)span) end >>= 1, size >>= 1;
+    int done = size ? (int)(end * (unsigned)span / size) : 0;
+    canvas_set_fill_color(canvas, rgba(0x2b2b2b, 255));
+    canvas_fill_rect(canvas, 8, y, span, 2);
+    canvas_set_fill_color(canvas, rgba(BOOK_TONE, 255));
+    canvas_fill_rect(canvas, 8, y, done > span ? span : done, 2);
+    canvas_set_fill_color(canvas, fill);
 }
 
 /* Videos (docs/internals.md#videos): patch/video.c draws on /dev/fb0 and plays the sound while

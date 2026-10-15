@@ -2985,7 +2985,7 @@ def playing_menu(**kw):
 for state in (3,2):  # paused and playing both expose the same actions
     m=playing_menu(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,state)
     m.press(5000); assert m.release()==1
-    m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU+["Shuffle","Repeat","Group by: Album"]
+    m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU[:2]+['View Queue']+SONG_MENU[2:]+["Shuffle","Repeat","Group by: Album"]
     assert m.nodes[m.title]['text']=='B' and m.release()==0
     m.press(7000); assert m.release()==1 and m.get(0xa3beac)==state; passed()
 # A tagged song's menu is titled by its tag, not its file name.
@@ -2994,19 +2994,20 @@ m.press(6000); assert m.hold()==11 and m.nodes[m.title]['text']=='Bee'; passed()
 # A folder play's untagged record: the player's parsed title once it has parsed that file.
 m=playing_menu(); id3=syms['g_play_id3_info']; m.u.mem_write(id3,b'/p/B\0'); m.u.mem_write(id3+O['ID3_TITLE'],b'Parsed\0')
 m.press(6000); assert m.hold()==11 and m.nodes[m.title]['text']=='Parsed'; passed()
+m=playing_menu(); assert m.run(2) is None and m.opened[-1][0]=='playerqueue_page' and m.names()==['A','B','C'] and not m.playback(); passed()
 for action,expected,said in ((0,['A','B','B','C'],'Playing Next'),(1,['A','B','C','B'],'Added to Queue')):
     m=playing_menu(); assert m.run(action)==said and m.names()==expected and not m.playback(); passed()
-m=playing_menu(); assert m.run(2)=='Added to Favourites'
+m=playing_menu(); assert m.run(3)=='Added to Favourites'
 assert [c[2:] for c in m.calls if c[0]=='batch_add_file']==[(0xf00a,m.get(syms['mcl_pdeqplaylist']))]
 assert sel(m)[:2]==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]; passed()
-m=playing_menu(); m.favs.add('B'); assert m.run(2)=='Removed from Favourites'
+m=playing_menu(); m.favs.add('B'); assert m.run(3)=='Removed from Favourites'
 assert [c[1] for c in m.calls if c[0]=='deleteMusicFromFav']==[m.items(m.get(syms['mcl_pdeqplaylist']))[1]]; passed()
-m=playing_menu(); m.run(3)
+m=playing_menu(); m.run(4)
 assert m.opened[-1]==('localmusic/playlist_page',0x2f001)
 assert sel(m)==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]; passed()
-for action,page in ((4,'playerjumpinfo_page'),(5,'localmusic/artistinfo_page')):
+for action,page in ((5,'playerjumpinfo_page'),(6,'localmusic/artistinfo_page')):
     m=playing_menu(); m.run(action); assert m.opened[-1][0]==page
-    if action==5: assert m.opened[-1][2]==m.items(m.get(syms['mcl_pdeqplaylist']))[1]
+    if action==6: assert m.opened[-1][2]==m.items(m.get(syms['mcl_pdeqplaylist']))[1]
     passed()
 for stage in ('open','action'):
     for change in ('advance','replace','resize','other','song','cue','stream'):
@@ -3053,7 +3054,7 @@ class PlayingPlaylistMachine(QueueMachine):
                 self.word(row+O['W_EMITTER'],em); self.word(em,it)
                 self.word(it,row); self.word(it+O['EMIT_TYPE'],O['EVT_CLICK']); self.word(it+12,self.STOCK_PICK)
 for stale in (False,True):
-    m=PlayingPlaylistMachine(); m.run(3)
+    m=PlayingPlaylistMachine(); m.run(4)
     assert m.nodes[m.top]['name']=='playlist_page'
     for row in m.playlist_rows:
         f,ctx=m.handler(row,O['EVT_CLICK']); assert f!=m.STOCK_PICK and ctx==row
@@ -3132,7 +3133,7 @@ if variant=='ipod':
     for stale in (False,True):
         m=PlaylistMachine(3,2)
         # Open through Now Playing so the picker is tracked, then rebuild as creation does.
-        m.top=m.stack[0]; m.run(3); page=m.top
+        m.top=m.stack[0]; m.run(4); page=m.top
         m.view=m.nodes[page]['children'][0]; m.nodes[m.view]['name']='scroll_view'
         m.word(syms['p_deque_playlist'],m.deque([m.song('Created')]))
         kids=m.rebuild(); button=m.nodes[kids[0]]['children'][0]

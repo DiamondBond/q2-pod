@@ -74,12 +74,12 @@
 
 ## Controls
 
-| Control             | Action                                                             |
-| ------------------- | ------------------------------------------------------------------ |
-| **Wheel**           | Scroll. Spin faster to speed up. Adjust a slider when one is open. |
-| **Centre**          | Open the selected item. Double-press to turn the screen off.       |
-| **Hold Play/Pause** | Track, queue, playlist and shuffle/repeat options.                 |
-| **Hold Return**     | Jump to Now Playing; hold again to go back.                        |
+| Control             | Action                                                                      |
+| ------------------- | --------------------------------------------------------------------------- |
+| **Wheel**           | Scroll. Spin faster to speed up. Adjust a slider when one is open.          |
+| **Centre**          | Open the selected item. Double-press to turn the screen off.                |
+| **Hold Play/Pause** | View the playing queue, or open track, playlist and shuffle/repeat options. |
+| **Hold Return**     | Jump to Now Playing; hold again to go back.                                 |
 
 The user guide covers every control, EQ, Coverflow and more tips.
 
