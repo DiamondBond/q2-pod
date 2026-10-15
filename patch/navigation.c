@@ -2507,8 +2507,14 @@ int ringnav_playing(void *win, void *ctx) {
     np_fill(0);
     np_theme();
     widget_on(win, EVT_DESTROY, np_gone, win);
-    int sec = -1, total;
+    int sec = -1, total = 0;
     player_playtime_and_length(&sec, &total);
+    /* Stock's first update sets the value before the max, so the asset's max clamps it and the
+     * bar sits short until the next tick: set them again, max first. */
+    if (st.np_slider && total > 0) {
+        widget_set_prop_int(st.np_slider, "max", total);
+        widget_set_prop_int(st.np_slider, "value", sec);
+    }
     /* A paused seek still waiting for Play, the player's second unmoved: the bar shows its target
      * again, held as scrub_end holds it (settle_poll). Resumed or another track drops it. */
     if (st.held_sec && st.held_sec == sec + 1 && np_track() == st.scrub_track &&

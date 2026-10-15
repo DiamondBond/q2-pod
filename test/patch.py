@@ -4431,7 +4431,7 @@ if variant=='ipod':
     reopen(m); assert m.nodes[m.slider]['value']==105 and m.nodes[m.elapsed]['text']=='1:45'
     assert did(m,'playing_timer_clear')==[m.win]; step(m,5000,wait=True); assert not m.starts
     centre(m); step(m); assert m.nodes[m.slider]['value']==110; passed()
-    centre(m,50); m.playtime=111; reopen(m); assert m.nodes[m.slider]['value']==100 and m.starts==[]
+    centre(m,50); m.playtime=111; reopen(m); assert m.nodes[m.slider]['value']==111 and m.starts==[]
     m.playtime=100; reopen(m); assert m.nodes[m.slider]['value']==100; passed()
     # SCRUB_MS without input commits once and gives the wheel back to the volume, not a tick sooner.
     m=scrub_page(); centre(m); step(m)
