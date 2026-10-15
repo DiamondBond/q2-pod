@@ -1551,10 +1551,7 @@ static void paint_cover(void *w, void *canvas) {
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H);
     for (int i = 0; i < r; ++i) {
-        /* s is 16 sqrt(r * r - d * d / 4), the arc's half-width at this row's centre */
-        int d = 2 * (r - i) - 1, v = (4 * r * r - d * d) * 64, s = 0;
-        while ((s + 1) * (s + 1) <= v) ++s;
-        int out = 16 * r - s, n = out >> 4;
+        int out = arc_out(r, i), n = out >> 4;
         for (int c = 0; c < 4; ++c) {
             int y = c & 1 ? h - 1 - i : i, left = !(c & 2);
             canvas_set_fill_color(canvas, RGBA(0));
