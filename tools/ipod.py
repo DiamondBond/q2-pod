@@ -611,6 +611,7 @@ def row_icon(data):
 
 # Each stock placeholder's replacement size: stock's own, but Now Playing's at the art it fills (stock's
 # 188 scaled down there on the device, jagged), and the full-screen art's the disc centred on black.
+# The square ones keep the disc's transparent corners, so a selected row's bar shows through them.
 ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
                     'play_defaultcover.png': NP_ART, 'scrsaver_playcover.png': 60,
                     'default_smallcover.png': 140, 'default_bigcover.png': (375, 320)}
@@ -619,7 +620,7 @@ ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
 def sized_art(data, size):
     w, h = size if isinstance(size, tuple) else (size, size)
     px = min(w, h)
-    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', '-background', 'black',
+    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', '-background', 'black' if w != h else 'none',
                        '-gravity', 'center', '-extent', f'{w}x{h}', *PNG_OUT, data=data)
 
 

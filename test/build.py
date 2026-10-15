@@ -164,6 +164,8 @@ def validate_assets(directory):
         assert new == (sized_art(master, size) if ipod else old), name
         if ipod:
             assert changed[xx+name] == dict(original_sha256=sha(old), sha256=sha(new))
+            if not isinstance(size, tuple):  # transparent corners, not black, over a selected row
+                assert imagemagick('png:-', '-format', '%[fx:p{0,0}.a]', 'info:', data=new) == b'0', name
     if ipod:
         flow = read('rootfs.squashfs', xx+'default_album_flow.png')
         assert flow == sized_art(master, 160) and png_header(flow) == (160, 160, 8, 6)
