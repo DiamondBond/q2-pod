@@ -7422,8 +7422,8 @@ assert '/mnt/mmc/.scrobbler.log' not in m.files; passed()
 
 # A spoken CUE book: a chapter keeps its file's place (CUE start + seconds) and never jumps by itself;
 # a chapter row's hold menu starts with Resume, which plays the list's songs from the chapter holding
-# the place and seeks into it. Within RESUME_EDGE_S of the file's start or end the place is forgotten.
-# A music CUE image gets neither.
+# the place and seeks into it once that chapter starts. A chapter within RESUME_EDGE_S of the file's
+# start keeps the book's place; the last chapter's end forgets it. A music CUE image gets neither.
 book='/mnt/mmc/Book/book.m4b'
 def chapter(m,r,start,end,path=book):
     m.word(r+O['REC_PATH'],m.string(path)); m.word(r+O['REC_CUE_START'],start); m.word(r+O['REC_CUE_END'],end)
@@ -7432,14 +7432,24 @@ m=ResumeMachine(); chapter(m,m.items(m.get(syms['mcl_pdeqplaylist']))[0],600,120
 playing(m,0,600,pos=0,n=70); assert m.places()==[(fnv(book),661)] and '/mnt/data/ringnav-plays' not in m.files
 m=ResumeMachine(m.files); chapter(m,m.items(m.get(syms['mcl_pdeqplaylist']))[0],600,1200)
 m.poll(0,600,pos=0,n=2); playing(m,1,600,n=3); assert not m.seeks; passed()  # picking a chapter plays it
-for start,end,sec in ((0,600,10),(1200,0,590)):  # the book's first or last 30 s: forgotten
+for start,end,sec,kept in ((0,600,10,[(fnv(book),700)]),(1200,0,590,[])):  # the book's first or last 30 s
     m=ResumeMachine(place(700)); chapter(m,m.items(m.get(syms['mcl_pdeqplaylist']))[0],start,end)
-    playing(m,sec-5,600,pos=0,n=6); m.poll(0,pos=1,n=2); assert not m.places(); passed()
+    playing(m,sec-5,600,pos=0,n=6); m.poll(0,pos=1,n=2); assert m.places()==kept; passed()
 m=ResumeMachine(place(700)); rows=m.items(m.get(syms['p_deque_showlist']))
 for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)
 m.run(0); assert m.labels()[0]=='Resume' and m.opened[-1][2:]==(1,0xf001,2) and len(m.opened[-1][1])==20
 q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,600,1200)  # the chapter at 600 starts
 m.poll(0,600,pos=0,n=2); playing(m,1,600,n=2); assert m.seeks==[100]; passed()
+m=ResumeMachine(place(700)); rows=m.items(m.get(syms['p_deque_showlist']))  # chapter 1 paused at 10 s,
+for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)  # the queue switching late
+q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,0,600); playing(m,0,600,pos=0,n=11); m.poll(10,600,n=3)
+assert m.places()==[(fnv(book),700)]; m.run(0); m.poll(10,600,n=2); assert not m.seeks
+chapter(m,q,600,1200); m.poll(0,600,n=2); playing(m,1,600,n=2); assert m.seeks==[100]; passed()
+m=ResumeMachine(place(700)); rows=m.items(m.get(syms['p_deque_showlist']))  # Resume onto the chapter playing
+for r,(s0,s1) in zip(rows,((0,600),(600,1200),(1200,0))): chapter(m,r,s0,s1)
+q=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; chapter(m,q,600,1200); playing(m,40,600,pos=0,n=3)
+m.run(0); m.poll(43,600); assert not m.seeks  # still the old position
+m.poll(0,600); playing(m,1,600,n=1); assert m.seeks==[100]; passed()
 m=ResumeMachine(place(700,'/p/album.flac'))
 for r,(s0,s1) in zip(m.items(m.get(syms['p_deque_showlist'])),((0,600),(600,0))): chapter(m,r,s0,s1,'/p/album.flac')
 m.run(0); assert 'Resume' not in m.labels()
