@@ -1733,6 +1733,29 @@ def radio_check(tmp):
     lib.url_escape(b'abc def', out, 6); assert out.value == b'abc'  # never a cut escape
     print('Internet Radio: m3u and pls favourites, the directory\'s m3u and CSV, URL escaping passed.')
 
+def spotify_check(tmp):
+    """Spotify's browser (spotify.c): Q2SPOT/1 replies cut in place and fields escaped."""
+    lib = compile_host(tmp, 'spotify.so', ROOT/'patch/spotify.c')
+    def reply(text, max=50):
+        buf, f = C.create_string_buffer(text), (C.c_char_p * (4 + 6 * max))()
+        n = lib.spot_reply(buf, len(text), f, max)
+        return n if n < 0 else (f[:4], [f[4 + 6 * i:10 + 6 * i] for i in range(n)])
+    # The header, then rows; %25, %09, %0A and %0D (any case) are the bytes, UTF-8 literal.
+    assert reply(b'Q2SPOT/1\n7\tok\t\tCg4%25x\ntrack\tspotify:track:1\tA%09B%0a%0D\t\xc3\xa9\tspotify:user:a:collection\t0\n') == \
+        ([b'7', b'ok', b'', b'Cg4%x'], [[b'track', b'spotify:track:1', b'A\tB\n\r', b'\xc3\xa9', b'spotify:user:a:collection', b'0']])
+    assert reply(b'Q2SPOT/1\n3\tlogin\tOpen Spotify\t') == ([b'3', b'login', b'Open Spotify', b''], [])
+    # Malformed: no version, a bad or cut escape, %00, a NUL, a line of the wrong width, too many rows.
+    for bad in (b'Q2SPOT/2\n1\tok\t\t\n', b'', b'Q2SPOT/1\n', b'Q2SPOT/1\n1\tok\t%zz\t\n', b'Q2SPOT/1\n1\tok\t\t%2',
+                b'Q2SPOT/1\n1\tok\t%00\t\n', b'Q2SPOT/1\n1\tok\t\0\t\n', b'Q2SPOT/1\n1\tok\t\n',
+                b'Q2SPOT/1\n1\tok\t\t\t\n', b'Q2SPOT/1\n1\tok\t\t\ntrack\tu\tt\ts\tc\n'):
+        assert reply(bad) == -1, bad
+    two = b'Q2SPOT/1\n1\tok\t\t\n' + b'album\tu\tt\ts\t\t\n' * 2
+    assert len(reply(two, 2)[1]) == 2 and reply(two, 1) == -1
+    out = C.create_string_buffer(20)
+    assert lib.spot_escape(b'a%b\tc\nd\re\xc3\xa9', out, 20) == 19 and out.value == b'a%25b%09c%0Ad%0De\xc3\xa9'
+    assert lib.spot_escape(b'abc', out, 3) == -1 and lib.spot_escape(b'%', out, 3) == -1 and lib.spot_escape(b'%', out, 4) == 3
+    print('Spotify: Q2SPOT/1 replies, escapes and malformed input passed.')
+
 def tidal_check(tmp):
     """Tidal cache (tidal.c): the cached file's extension comes from the stream URL's path."""
     lib = compile_host(tmp, 'tidal.so', ROOT/'patch/tidal.c')
@@ -1795,6 +1818,7 @@ if __name__ == '__main__':
         video_check(tmp)
         audio_writer_check(tmp)
         radio_check(tmp)
+        spotify_check(tmp)
         tidal_check(tmp)
         if args.captures:
             args.captures.mkdir(parents=True, exist_ok=True)

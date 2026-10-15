@@ -1,12 +1,70 @@
 /* Spotify (docs/internals.md#spotify): librespot, built from the q2-librespot fork, runs from the
  * card's SPOT_DIR as a Spotify Connect receiver beside the stock player. It writes its state, the
- * track and position to SPOT_STATE (and the cover to SPOT_COVER) and takes commands on SPOT_SOCK;
- * this file is the other end. Like Videos' q2video, while it plays it holds the standby timers and
- * the DAC, which it sets up as stock's AirPlay receiver does, and it hands the DAC over with local
- * music both ways. Streaming's Spotify row opens a Now Playing page for it. */
+ * track and position to SPOT_STATE (and the cover to SPOT_COVER), takes commands on SPOT_SOCK and
+ * answers the browser on SPOT_BROWSE; this file is the other end. Like Videos' q2video, while it
+ * plays it holds the standby timers and the DAC, which it sets up as stock's AirPlay receiver does,
+ * and it hands the DAC over with local music both ways. Streaming's Spotify row opens the browser,
+ * whose Now Playing is the page for it. */
 #include "offsets.inc"
 #include "peq.h"
+#ifndef PEQ_HOST
 #include "stock.h"
+#endif
+
+/* s into out (size bytes) with %, tab, LF and CR as %25, %09, %0A and %0D (Q2SPOT/1, docs/librespot.md);
+ * its length, or -1 when it doesn't fit. */
+int spot_escape(const char *s, char *out, unsigned size) {
+    unsigned k = 0;
+    for (; *s; ++s) {
+        unsigned char c = (unsigned char)*s;
+        int esc = c == '%' || c == '\t' || c == '\n' || c == '\r';
+        if (k + (esc ? 3u : 1u) >= size) return -1;
+        if (esc)
+            out[k++] = '%', out[k++] = "0123456789ABCDEF"[c >> 4], out[k++] = "0123456789ABCDEF"[c & 15];
+        else
+            out[k++] = (char)c;
+    }
+    if (k >= size) return -1;
+    out[k] = 0;
+    return (int)k;
+}
+
+static int hex(char c) {
+    return c >= '0' && c <= '9' ? c - '0' : (c | 32) >= 'a' && (c | 32) <= 'f' ? (c | 32) - 'a' + 10 : -1;
+}
+
+/* A Q2SPOT/1 reply in buf (len bytes, a NUL after them) cut in place: f the header's 4 fields, then
+ * each row's 6, unescaped. The rows' count; -1 when it is malformed (a bad escape, a NUL, a line of
+ * the wrong width) or holds more than max rows. */
+int spot_reply(char *buf, unsigned len, char **f, int max) {
+    char *s = buf + 9, *end = buf + len;
+    int k = 0;
+    if (len < 9 || memcmp(buf, "Q2SPOT/1\n", 9) || strlen(buf) != len) return -1;
+    while (s < end) {
+        int width = k ? 6 : 4, got = 0;
+        if (k + width > 4 + 6 * max) return -1;
+        for (char c = 0; c != '\n';) {
+            char *o = s;
+            if (got == width) return -1;
+            f[k + got++] = s;
+            for (; s < end && *s != '\t' && *s != '\n'; ++o) {
+                int v = *s != '%' ? (unsigned char)*s : s + 2 < end && hex(s[1]) >= 0 && hex(s[2]) >= 0
+                                                          ? hex(s[1]) << 4 | hex(s[2])
+                                                          : 0;
+                if (!v) return -1; /* a NUL would cut the field */
+                s += *s == '%' ? 3 : 1; /* before o, which may be s, is written */
+                *o = (char)v;
+            }
+            c = s < end ? *s++ : '\n';
+            *o = 0;
+        }
+        if (got != width) return -1;
+        k += width;
+    }
+    return k ? (k - 4) / 6 : -1;
+}
+
+#ifndef PEQ_HOST
 
 #define SPOT_DIR "/mnt/mmc/.spotify"
 #define SPOT_BIN SPOT_DIR "/librespot"
@@ -20,12 +78,22 @@
 #define SPOT_YIELD_MS 1500 /* local music waits at most this long for librespot to let the DAC go  \
                             */
 #define SPOT_STEP_MS 5000  /* a scrub tick, as Now Playing's */
-#define SPOT_IDLE_MS 30000 /* not playing this long after it has played: librespot is stopped */
+#define SPOT_IDLE_MS 30000 /* not playing this long after it has played, the browser shut: librespot is stopped */
+#define SPOT_BROWSE "/tmp/q2-librespot.browse.sock" /* its --browse-socket, Q2SPOT/1 */
+#define SPOT_REPLY_MAX (64 << 10)
+#define SPOT_REQ_MAX (8 << 10)
+#define SPOT_ROWS 50
+#define SPOT_DEPTH 8 /* levels Back goes through; a deeper one drops the oldest past the menu */
+#define SPOT_KEEP 3  /* the top ones keep their rows; Back to an older one fetches it again */
+#define SPOT_WAIT_MS 15000 /* a request's deadline */
+#define SPOT_PAIR_MS 2000  /* pairing, or an old add-on: account asked again this often */
+#define SPOT_OLD_MS 3000   /* no browse socket this long after the start, but a state file: an old add-on */
+#define SPOT_SIGNOUT_MS 15000 /* librespot exits on signout; its launcher restarts it within this */
 
 /* librespot as last read; kept for the life of demo. */
 static struct {
     int launched, sock, playing, paused, local, active, played;
-    unsigned polled, idle_at, duration, position, cover;
+    unsigned polled, idle_at, duration, position, cover, launch_at;
     unsigned long long at;
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
@@ -145,6 +213,7 @@ static void spot_parse(void) {
 static void spot_launch(void) {
     if (sp.launched || access(SPOT_BIN, 0)) return;
     sp.launched = 1;
+    sp.launch_at = time_now_ms();
     system(SPOT_RUN);
 }
 
@@ -156,15 +225,15 @@ static void scrub_commit(void) {
 }
 
 static void spot_refresh(void);
+static int browsing(void);
 
-/* SPOT_IDLE_MS after playback ended: librespot and its restart loop killed, as Home's Rockbox row
- * does, and the keys local music's. Streaming's Spotify row starts it again. */
+/* SPOT_IDLE_MS after playback ended with the browser shut: librespot and its restart loop killed,
+ * as Home's Rockbox row does, and the keys local music's. Streaming's Spotify row starts it again. */
 static void spot_stop(void) {
     int sock = sp.sock;
     system(SPOT_KILL);
     memset(&sp, 0, sizeof sp);
     sp.sock = sock;
-    ui.scrub = 0; /* a scrub cut short: its Return (keyup) would commit it instead of leaving */
 }
 
 /* ringnav_sleep, every UI loop pass: nothing until Streaming's Spotify row started librespot; then,
@@ -196,7 +265,7 @@ void spot_poll(void) {
     } else if (mclGetPlayStatus() == 2)
         sp.local = 1; /* local music plays: the keys are its again */
     sp.active = (playing || sp.paused) && !sp.local;
-    if (playing || !sp.played)
+    if (playing || !sp.played || browsing())
         sp.played |= playing, sp.idle_at = now;
     else if (now - sp.idle_at >= SPOT_IDLE_MS)
         spot_stop();
@@ -278,17 +347,12 @@ static void times(unsigned ms) {
 
 /* The page from sp: the track, or why there is none. Labels are written only when they change. */
 static void spot_refresh(void) {
-    int track = sp.track[0] && strcmp(sp.state, "none");
-    int installed = sp.launched || !access(SPOT_BIN, 0), stopped = !sp.launched && installed;
+    int track = sp.track[0] && strcmp(sp.state, "none"), installed = sp.launched;
     widget_set_visible(ui.info, track, 0);
     widget_set_visible(ui.msg, !track, 0);
     if (!track) {
-        widget_set_text_utf8(ui.note, stopped     ? "Spotify stopped after a pause"
-                                      : installed ? "Open Spotify on your phone"
-                                                  : "Spotify isn't on the card");
-        widget_set_text_utf8(ui.sub, stopped     ? "Open Streaming, then Spotify"
-                                     : installed ? "and choose Q2"
-                                                 : "See the Q2 Pod guide to add it");
+        widget_set_text_utf8(ui.note, installed ? "Open Spotify on your phone" : "Spotify isn't on the card");
+        widget_set_text_utf8(ui.sub, installed ? "and choose Q2" : "See the Q2 Pod guide to add it");
         return;
     }
     if (tk_strcmp(widget_get_prop_str(ui.title, "text", ""), sp.title)) {
@@ -365,7 +429,7 @@ static int leave(const void *unused) {
     return 0;
 }
 
-/* Return: a scrub seeks first, as on Now Playing; then back to Streaming. */
+/* Return: a scrub seeks first, as on Now Playing; then back to the browser. */
 static int keyup(void *ctx, void *event) {
     (void)ctx;
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
@@ -395,13 +459,9 @@ void *label(void *parent, int x, int y, int w, int h, const char *style, int px,
     return l;
 }
 
-/* Streaming's Spotify row (navigation.c ringnav_stream): librespot started if it is not, and its
- * Now Playing page. */
-int spot_open(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    spot_launch();
-    if (ui.page || !(ui.page = page_open("spotify_page", closed, keyup))) return 0;
+/* The Now Playing page: the browser's row, a track it started, or without librespot on the card. */
+static void spot_np(void) {
+    if (ui.page || !(ui.page = page_open("spotify_page", closed, keyup))) return;
     void *f = widget_factory(), *page = ui.page;
     int h = widget_get_prop_int(page, "h", 290);
     ui.info = widget_factory_create_widget(f, "view", page, 0, 0, 375, h);
@@ -432,7 +492,457 @@ int spot_open(void *ctx, void *event) {
         label(ui.msg, CF_EDGE, 134, 375 - 2 * CF_EDGE, 24, "s_scrlabel_white20c", 16, SPOT_GREY);
     ui.timer = timer_add(tick, 0, 250);
     spot_refresh();
+}
+
+/* The browser (docs/internals.md#spotify): spotbrowse_page, one page_list rebuilt per level, each
+ * level a Q2SPOT/1 request to librespot's SPOT_BROWSE and its reply, cut in place. lv[0] is the
+ * base: "account" asked first, then the menu, the pairing prompt or an old add-on's rows. */
+enum { L_BASE, L_LIST, L_CATS, L_CONFIRM };
+enum { S_LOAD, S_READY, S_ERROR, S_PAIR, S_OLD, S_WAIT }; /* S_WAIT: no socket yet, asked again */
+enum { A_FETCH, A_PLAY, A_ENQUEUE, A_SET, A_SIGNOUT };
+enum { M_PLAYING, M_LIKED, M_PLAYLISTS, M_ALBUMS, M_ARTISTS, M_SEARCH, M_QUEUE, M_SETTINGS, M_ACCOUNT };
+enum { G_ROW, G_SHOW, G_SEARCH };
+
+typedef struct {
+    int kind, state, n, sel, retry;
+    unsigned id; /* the fetch whose reply this level takes */
+    char *buf;   /* the reply; 0 before it came, or once evicted */
+    char *f[4 + 6 * SPOT_ROWS];
+    char title[256], note[128], op[12], args[320], cursor[1100]; /* args, cursor: "\t" and escaped */
+} level_t;
+
+/* The request in flight, on its pthread: written from buf, the reply then read into it. */
+static struct {
+    unsigned long thread;
+    int running, fail; /* fail: W_* */
+    volatile int cancel, done;
+    unsigned id, n, len; /* id: the latest request's, never reused */
+    char *buf;
+} wk __attribute__((section(".scratch")));
+enum { W_OK, W_NOSOCK, W_FAIL };
+
+/* The page, while open. act: what the request in flight is for (A_*). */
+static struct {
+    void *page, *view, *edit;
+    unsigned timer, go, leave, poll_at, until; /* until: no socket before it is librespot starting */
+    int depth, act, next, arg, playing, rows[9];
+    char term[64];
+    level_t *lv; /* SPOT_DEPTH of them, calloc'd */
+} br __attribute__((section(".scratch")));
+
+static int browsing(void) { return br.page != 0; }
+
+static level_t *top(void) { return &br.lv[br.depth - 1]; }
+static const char *cell(const level_t *l, int i, int k) { return l->f[4 + 6 * i + k]; }
+static int has_track(void) { return sp.track[0] && strcmp(sp.state, "none"); }
+static const char *const MENU[] = { "Now Playing", "Liked Songs", "Playlists", "Albums", "Artists",
+                                    "Search", "Queue", "Playback Settings", "Account" };
+static const char *const CATS[] = { "Tracks", "Albums", "Artists", "Playlists" };
+
+/* "\t" and s escaped appended to out (size bytes); 0 when it doesn't fit. */
+static int put(char *out, unsigned size, const char *s) {
+    unsigned k = strlen(out);
+    return k + 1 < size && (out[k] = '\t', spot_escape(s, out + k + 1, size - k - 1) >= 0);
+}
+
+static void fetch_cancel(void) {
+    unsigned none = 0;
+    worker_stop(wk.thread, &wk.running, &wk.cancel, &none);
+    free(wk.buf);
+    wk.buf = 0;
+    wk.done = 0;
+}
+
+/* shutdown(fd, SHUT_WR): demo imports no shutdown(), so the o32 syscall itself. */
+__asm__(".globl spot_shut\nspot_shut:\nli $a1, 1\nli $v0, 4182\nsyscall\njr $ra\n");
+void spot_shut(int fd);
+
+/* One connection a request: written, shut for writing, and read to EOF within SPOT_WAIT_MS, 100 ms
+ * at a time so a cancel is joined at once. */
+static void *worker(void *unused) {
+    (void)unused;
+    struct {
+        unsigned short family;
+        char path[108];
+    } to = { 1, SPOT_BROWSE };
+    unsigned long long end = now_ms() + SPOT_WAIT_MS;
+    unsigned sent = 0;
+    int fd = socket(1, 2, 0), k = 1; /* AF_UNIX, SOCK_STREAM (MIPS numbering) */
+    wk.fail = W_NOSOCK;
+    if (fd >= 0 && !connect(fd, &to, sizeof to)) {
+        wk.fail = W_FAIL;
+        while (sent < wk.len && (k = send(fd, wk.buf + sent, wk.len - sent, 0x4000)) > 0) sent += k; /* MSG_NOSIGNAL */
+        if (sent == wk.len) spot_shut(fd);
+        while (sent == wk.len && !wk.cancel && now_ms() < end) {
+            unsigned set[32] = { 0 }; /* fd_set */
+            int tv[2] = { 0, 100000 };
+            set[fd / 32] = 1u << fd % 32;
+            if ((k = select(fd + 1, set, 0, 0, tv)) <= 0) {
+                if (k) break; /* not a timeout */
+                continue;
+            }
+            if ((k = recv(fd, wk.buf + wk.n, SPOT_REPLY_MAX + 1 - wk.n, 0)) <= 0 ||
+                (wk.n += (unsigned)k) > SPOT_REPLY_MAX) {
+                wk.fail = k ? W_FAIL : W_OK;
+                break;
+            }
+        }
+    }
+    if (fd >= 0) close(fd);
+    if (wk.n <= SPOT_REPLY_MAX) wk.buf[wk.n] = 0; /* past the reply, the request's bytes */
+    wk.done = 1;
     return 0;
+}
+
+/* op and tail (its arguments: "\t" and escaped each) asked on wk's pthread, for act or (A_FETCH)
+ * the top level. The one before is dropped: one request at a time. */
+static void request(const char *op, const char *tail, int act) {
+    fetch_cancel();
+    br.act = act;
+    ++wk.id;
+    if (act == A_FETCH) top()->id = wk.id;
+    wk.cancel = 0;
+    wk.n = 0;
+    wk.fail = W_FAIL;
+    int n = (wk.buf = calloc(SPOT_REPLY_MAX + 2, 1))
+                ? tk_snprintf(wk.buf, SPOT_REQ_MAX, "Q2SPOT/1\n%u\t%s%s\n", wk.id, op, tail)
+                : 0;
+    wk.len = n > 0 && n < SPOT_REQ_MAX ? (unsigned)n : 0;
+    wk.running = wk.len && !pthread_create(&wk.thread, 0, worker, 0);
+    wk.done = !wk.running; /* the tick reports it */
+}
+
+static void fetch(level_t *l) {
+    char tail[sizeof l->args + sizeof l->cursor];
+    tk_snprintf(tail, sizeof tail, "%s%s", l->args, l->cursor);
+    request(l->op, tail, A_FETCH);
+}
+
+static int clicked(void *ctx, void *event);
+
+static void row(int i, const char *caption, const char *detail) {
+    page_row_detail(br.view, i, caption, detail, clicked);
+}
+
+/* The top level: its rows, or "Loading…", its error, the pairing prompt or the menu. */
+static void show(void) {
+    level_t *l = top();
+    int n = 0;
+    br.view = br.edit = 0;
+    if (l->state == S_LOAD && !((wk.running || wk.done) && br.act == A_FETCH && wk.id == l->id))
+        fetch(l);
+    if (l->state == S_LOAD || l->state == S_WAIT) {
+        page_list(br.page, br.page, 0, "Loading…", 0, 48);
+        return;
+    }
+    if (l->state == S_ERROR) {
+        br.view = page_list(br.page, br.page, 0, l->note, n = l->retry, 48);
+        if (n) row(0, "Retry", 0);
+    } else if (l->state == S_PAIR) {
+        br.view = page_list(br.page, br.page, 0, "Spotify", n = 1, 64);
+        row(0, "Open Spotify on your phone and choose Q2", "Both on the same Wi-Fi");
+    } else if (l->state == S_OLD) {
+        br.view = page_list(br.page, br.page, 0, "Spotify", n = 2, 64);
+        row(0, "Now Playing", "");
+        row(1, "Update Spotify on the card", "to browse on the Q2");
+    } else if (l->kind == L_BASE) {
+        br.playing = has_track();
+        for (int r = M_PLAYING; r <= M_ACCOUNT; ++r)
+            if ((r != M_PLAYING && r != M_QUEUE && r != M_SETTINGS) || br.playing) br.rows[n++] = r;
+        br.view = page_list(br.page, br.page, 0, "Spotify", n, 48);
+        for (int i = 0; i < n; ++i) /* Now Playing and Search open no list */
+            if (br.rows[i] == M_PLAYING || br.rows[i] == M_SEARCH)
+                row(i, MENU[br.rows[i]], 0);
+            else
+                page_row_into(br.view, i, MENU[br.rows[i]], clicked);
+    } else if (l->kind == L_CATS) {
+        br.view = page_list(br.page, br.page, 0, l->title, n = 4, 48);
+        for (int i = 0; i < n; ++i) page_row_into(br.view, i, CATS[i], clicked);
+    } else if (l->kind == L_CONFIRM) {
+        br.view = page_list(br.page, br.page, 0, "Sign Out of Spotify?", n = 2, 48);
+        row(0, "Cancel", 0);
+        row(1, "Sign Out", 0);
+    } else {
+        int more = l->f[3][0] || !strcmp(l->op, "account"); /* More…, or Sign out */
+        if (!(n = l->n + more)) {
+            page_list(br.page, br.page, 0, "Nothing here", 0, 48);
+            return;
+        }
+        br.view = page_list(br.page, br.page, 0, l->title, n, 64);
+        for (int i = 0; i < l->n; ++i) {
+            const char *v = cell(l, i, 2);
+            if (strcmp(cell(l, i, 0), "setting"))
+                row(i, v, cell(l, i, 3));
+            else
+                row(i, strcmp(cell(l, i, 1), "shuffle") ? "Repeat" : "Shuffle",
+                    !strcmp(v, "on") ? "On" : !strcmp(v, "context") ? "All" : !strcmp(v, "track") ? "One" : "Off");
+        }
+        if (more) row(l->n, l->f[3][0] ? "More…" : "Sign Out", "");
+    }
+    if (n) ringnav_select(br.view, l->sel < n ? l->sel : n - 1, n);
+}
+
+static void drop(level_t *l) {
+    free(l->buf);
+    memset(l, 0, sizeof *l);
+}
+
+/* The base alone, in state; the pairing prompt and an old add-on's rows ask again from the tick. */
+static void base(int state) {
+    br.poll_at = time_now_ms() + SPOT_PAIR_MS;
+    if (br.depth == 1 && top()->state == state) return; /* as shown */
+    while (br.depth > 1) drop(&br.lv[--br.depth]);
+    top()->state = state;
+    show();
+}
+
+/* A level over the top one, which keeps its selected row; the one SPOT_KEEP down lets its rows go. */
+static void push(int kind, const char *op, const char *args, const char *cursor, const char *title) {
+    level_t *l;
+    if (br.view) top()->sel = widget_get_prop_int(br.view, "_ringnav_index", 0);
+    if (br.depth == SPOT_DEPTH) { /* the oldest past the base forgotten */
+        drop(&br.lv[1]);
+        for (int i = 1; i < SPOT_DEPTH - 1; ++i) br.lv[i] = br.lv[i + 1];
+        --br.depth;
+    }
+    if (br.depth >= SPOT_KEEP && (l = &br.lv[br.depth - SPOT_KEEP])->kind == L_LIST && l->buf) {
+        free(l->buf);
+        l->buf = 0;
+        l->n = 0;
+        l->state = S_LOAD;
+    }
+    l = &br.lv[br.depth++];
+    memset(l, 0, sizeof *l);
+    l->kind = kind;
+    l->state = kind == L_LIST ? S_LOAD : S_READY;
+    tk_snprintf(l->op, sizeof l->op, "%s", op);
+    tk_snprintf(l->args, sizeof l->args, "%s", args);
+    tk_snprintf(l->cursor, sizeof l->cursor, "%s", cursor);
+    tk_snprintf(l->title, sizeof l->title, "%s", title);
+    show();
+}
+
+/* Back a level; its fetch, if in flight, dropped. */
+static void pop(void) {
+    if (br.act == A_FETCH && wk.id == top()->id) fetch_cancel();
+    drop(top());
+    --br.depth;
+    show();
+}
+
+/* The finished request: an action's outcome, or the top level's rows, error or pairing prompt. A
+ * reply without the request's id, or for a level since left, is dropped. */
+static void got(void) {
+    level_t *l = top();
+    char id[12], *head[4], **f = br.act ? head : l->f, *reply = wk.buf; /* ours: a request below takes wk */
+    int act = br.act, n = wk.fail == W_OK ? spot_reply(reply, wk.n, f, act ? 0 : SPOT_ROWS) : -1;
+    wk.buf = 0;
+    tk_snprintf(id, sizeof id, "%u", wk.id);
+    if (n >= 0 && strcmp(f[0], id)) n = -1;
+    const char *status = n < 0 ? "error" : f[1];
+    const char *msg = wk.fail == W_NOSOCK      ? "Spotify isn't running"
+                      : n >= 0 && f[2][0] ? f[2]
+                                               : "Spotify didn't answer";
+    int ok = !strcmp(status, "ok"), login = !strcmp(status, "login");
+    br.act = A_FETCH;
+    if (act) { /* never sent again: play, enqueue, shuffle, repeat and signout change things */
+        if (ok && act == A_SIGNOUT) br.until = time_now_ms() + SPOT_SIGNOUT_MS;
+        if (login || (ok && act == A_SIGNOUT))
+            base(S_PAIR);
+        else if (ok && act == A_SET)
+            l->state = S_LOAD, show();
+        else if (ok && act == A_PLAY)
+            spot_np();
+        else if (!ok || act == A_ENQUEUE)
+            toast(ok ? "Added to Queue" : msg);
+    } else if (l->id != wk.id) {
+    } else if (wk.fail == W_NOSOCK && (int)(br.until - time_now_ms()) > 0) {
+        if (l->state != S_PAIR) l->state = S_WAIT, show(); /* librespot starting */
+        br.poll_at = time_now_ms() + 500;
+    } else if (wk.fail == W_NOSOCK && !access(SPOT_STATE, 0))
+        base(S_OLD);
+    else if (login)
+        base(S_PAIR);
+    else if (ok) {
+        if (l->kind == L_LIST) l->buf = reply, reply = 0, l->n = n;
+        l->state = S_READY;
+        show();
+    } else {
+        l->state = S_ERROR;
+        l->retry = n < 0 || !strcmp(status, "offline") || !strcmp(status, "throttled") || !strcmp(status, "error");
+        tk_snprintf(l->note, sizeof l->note, "%s", msg);
+        show();
+    }
+    free(reply);
+}
+
+static int go(const void *unused);
+
+static void later(int next, int arg) {
+    br.next = next, br.arg = arg;
+    rearm(&br.go, go, 0);
+}
+
+static int clicked(void *ctx, void *event) {
+    (void)event;
+    later(G_ROW, (int)(long)ctx);
+    return 0;
+}
+
+/* The search box's keyboard closed with text: its categories, Return going back to the menu. */
+static int searched(void *ctx, void *event) {
+    (void)ctx; (void)event;
+    if (widget_get_text_utf8(br.edit, br.term, sizeof br.term)) br.term[0] = 0;
+    later(br.term[0] ? G_SEARCH : G_SHOW, 0);
+    return 0;
+}
+
+/* The box left without a search: the menu as it was. */
+static int search_left(void *ctx, void *event) {
+    (void)ctx; (void)event;
+    if (!br.go) later(G_SHOW, 0);
+    return 0;
+}
+
+/* A row's choice, on a timer: a row's click may not rebuild the list it is in. */
+static int go(const void *unused) {
+    (void)unused;
+    static const char *const ops[] = { 0, "liked", "playlists", "albums", "artists", 0, "queue", "settings", "account" };
+    static const char *const cats[] = { "tracks", "albums", "artists", "playlists" };
+    level_t *l = top();
+    int i = br.arg;
+    char a[sizeof l->args] = "";
+    br.go = 0;
+    if (br.next == G_SHOW)
+        show();
+    else if (br.next == G_SEARCH)
+        push(L_CATS, "", "", "", br.term);
+    else if (l->state == S_ERROR) /* Retry */
+        l->state = S_LOAD, show();
+    else if (l->state == S_OLD || l->state == S_PAIR) {
+        if (l->state == S_OLD && !i) spot_np();
+    } else if (l->kind == L_BASE) {
+        int r = br.rows[i];
+        if (r == M_PLAYING)
+            spot_np();
+        else if (r != M_SEARCH)
+            push(L_LIST, ops[r], "", "", MENU[r]);
+        else { /* peq_ui.c's T9 edit over the title, its keyboard open */
+            l->sel = widget_get_prop_int(br.view, "_ringnav_index", 0);
+            br.edit = edit_create(br.page, "text");
+            widget_set_prop_str(br.edit, "tips", "Search Spotify");
+            widget_on(br.edit, EVT_VALUE_CHANGED, searched, 0);
+            widget_on(br.edit, EVT_BLUR, search_left, 0);
+            widget_set_focused(br.edit, 1);
+        }
+    } else if (l->kind == L_CATS) {
+        if (put(a, sizeof a, cats[i]) && put(a, sizeof a, br.term)) push(L_LIST, "search", a, "", CATS[i]);
+    } else if (l->kind == L_CONFIRM) {
+        if (i)
+            request("signout", "", A_SIGNOUT);
+        else
+            pop();
+    } else if (i == l->n) { /* More…, or Sign out */
+        char c[sizeof l->cursor] = "";
+        if (!l->f[3][0])
+            push(L_CONFIRM, "", "", "", "");
+        else if (put(c, sizeof c, l->f[3]))
+            push(L_LIST, l->op, l->args, c, l->title);
+    } else {
+        const char *kind = cell(l, i, 0), *uri = cell(l, i, 1), *v = cell(l, i, 2), *ctx = cell(l, i, 4);
+        int queue = !strcmp(l->op, "queue"), shuffle = !strcmp(uri, "shuffle");
+        if (!strcmp(kind, "track")) { /* in its context, or alone; a queue row by its place */
+            if (queue ? put(a, sizeof a, cell(l, i, 5)) && put(a, sizeof a, uri)
+                : ctx[0] ? put(a, sizeof a, ctx) && put(a, sizeof a, cell(l, i, 5)) && put(a, sizeof a, uri)
+                         : put(a, sizeof a, uri))
+                request(queue ? "skip" : "play", a, A_PLAY); /* Now Playing once it plays */
+        } else if (!strcmp(kind, "setting"))
+            request(shuffle ? "shuffle" : "repeat",
+                    shuffle              ? strcmp(v, "on") ? "\ton" : "\toff"
+                    : !strcmp(v, "off")     ? "\tcontext"
+                    : !strcmp(v, "context") ? "\ttrack"
+                                            : "\toff",
+                    A_SET);
+        else if ((!strcmp(kind, "album") || !strcmp(kind, "playlist") || !strcmp(kind, "artist")) &&
+                 put(a, sizeof a, uri))
+            push(L_LIST, kind, a, "", v);
+    }
+    return 0;
+}
+
+/* The page's timer: a finished request taken, the pairing prompt asking again, and the menu
+ * following Now Playing. */
+static int br_tick(const void *unused) {
+    (void)unused;
+    level_t *l = top();
+    if (wk.done) {
+        if (wk.running) pthread_join(wk.thread, 0);
+        wk.running = wk.done = 0;
+        got();
+    } else if (!wk.running && (l->state == S_PAIR || l->state == S_OLD || l->state == S_WAIT) &&
+               (int)(time_now_ms() - br.poll_at) >= 0)
+        fetch(l);
+    else if (br.depth == 1 && l->state == S_READY && !br.edit && has_track() != br.playing)
+        l->sel = widget_get_prop_int(br.view, "_ringnav_index", 0), show();
+    return 8; /* RET_REPEAT */
+}
+
+static int br_leave(const void *unused) {
+    (void)unused;
+    br.leave = 0;
+    if (br.depth > 1)
+        pop();
+    else
+        navigator_back();
+    return 0;
+}
+
+/* Return: a level back, the base back to Streaming. */
+static int br_keyup(void *ctx, void *event) {
+    (void)ctx;
+    return return_key(event, &br.leave, br_leave);
+}
+
+static int br_closed(void *ctx, void *event) {
+    (void)ctx; (void)event;
+    fetch_cancel();
+    stop_timer(&br.timer);
+    stop_timer(&br.go);
+    stop_timer(&br.leave);
+    while (br.depth) drop(&br.lv[--br.depth]);
+    free(br.lv);
+    memset(&br, 0, sizeof br);
+    return 0;
+}
+
+/* Streaming's Spotify row (navigation.c ringnav_stream): librespot started if it is not, and the
+ * browser; without librespot on the card, Now Playing says so. */
+int spot_open(void *ctx, void *event) {
+    (void)ctx;
+    (void)event;
+    if (access(SPOT_BIN, 0) && !sp.launched) return spot_np(), 0;
+    spot_launch();
+    if (br.page || !(br.lv = calloc(SPOT_DEPTH, sizeof *br.lv))) return 0;
+    if (!(br.page = page_open("spotbrowse_page", br_closed, br_keyup))) return free(br.lv), br.lv = 0, 0;
+    br.depth = 1;
+    br.until = sp.launch_at + SPOT_OLD_MS;
+    tk_snprintf(br.lv[0].op, sizeof br.lv[0].op, "account");
+    br.timer = timer_add(br_tick, 0, 250);
+    show();
+    return 0;
+}
+
+/* ringnav_keylong: Play/Pause held on a track row adds it to Spotify's queue, the reply toasted;
+ * 1 when it was one. */
+int spot_hold(void *w) {
+    level_t *l = br.page && w == br.page ? top() : 0;
+    int i = l && l->kind == L_LIST && l->state == S_READY && br.view
+                ? widget_get_prop_int(br.view, "_ringnav_index", -1)
+                : -1;
+    char a[sizeof l->args] = "";
+    if (i < 0 || i >= l->n || strcmp(cell(l, i, 0), "track") || !put(a, sizeof a, cell(l, i, 1))) return 0;
+    request("enqueue", a, A_ENQUEUE);
+    return 1;
 }
 
 /* iPod's Now Playing corners (navigation.c paint_cover) round the art too. */
@@ -455,3 +965,5 @@ void spot_set_playing(int playing) {
         control.playing = playing;
     }
 }
+
+#endif

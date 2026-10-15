@@ -21,6 +21,7 @@
 { "rated_page", CTX_FIXED, 0 },      /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "longsongs_page", CTX_FIXED, 0 },  /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "radio_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/radio.c) */
+{ "spotbrowse_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/spotify.c) */
 { "album_page", CTX_LOCAL, 0 },
 { "albuminfo_page", CTX_LOCAL, RING },
 { "allmusic_page", CTX_LOCAL, RING },

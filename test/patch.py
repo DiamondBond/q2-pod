@@ -7109,9 +7109,14 @@ def stream_page(m):
     assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['systemset/netservice_page']; m.top=top
     return m.nodes[m.nodes[view]['children'][1]]['children'][0]
 def spot_open(m,button):
+    """The row, then (librespot on the card: the browser) its Now Playing page."""
     f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+    if BIN in m.files:
+        if m.nodes[m.top]['name']=='spotbrowse_page': m.browser=m.top  # once: the row brings it back
+        assert m.call(address=payload_syms['spot_np'],args=(0,0,0,0),gap=0,count=5_000_000)==0
     m.page=m.top; assert m.nodes[m.page]['name']=='spotify_page'; return m.page
 def texts(w): return [t for t in labels(w) if t is not None]
+BIN='/mnt/mmc/.spotify/librespot'
 # The row follows stock's, with its icon. Without librespot on the card the page says so and
 # nothing starts.
 m=SpotMachine({}); button=stream_page(m)
@@ -7122,7 +7127,6 @@ assert not m.nodes[info]['visible'] and m.nodes[msg]['visible'] and texts(msg)==
 m.poll(); assert not m.systems; m.close(); passed()
 # With it, the first open starts it once (its launcher backgrounds itself); with no state yet, or no
 # Connect session, the page asks for the phone.
-BIN='/mnt/mmc/.spotify/librespot'
 m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
 assert m.systems==['/bin/sh /mnt/mmc/.spotify/run'] and texts(msg)==['Open Spotify on your phone','and choose Q2']
 m.state('none',track=''); m.poll(); m.advance(250); assert m.nodes[msg]['visible'] and not m.nodes[info]['visible']
@@ -7210,22 +7214,18 @@ m.advance(O['DOUBLE_CLICK_MS']); assert 'on_wm_keyup_fun' not in [c[0] for c in 
 # Return goes back to Streaming.
 assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
-# SPOT_IDLE_MS (30 s) not playing after it has played stops librespot and its loop; never before the
-# first play, and playing again in time restarts the wait. The keys are local music's again, the
-# page says so, and the row starts it again.
-m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
+# SPOT_IDLE_MS (30 s) not playing after it has played, the browser shut, stops librespot and its
+# loop; never before the first play nor while the browser is open (Now Playing is on it), and playing
+# again in time restarts the wait. The keys are local music's again, and the row starts it again.
+m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button)
 m.state('none'); m.poll(40000); assert len(m.systems)==1
+m.state('playing'); m.poll(); m.state('paused'); m.poll(60000); assert len(m.systems)==1
+m.close(); m.page=m.browser; m.close(); m.top=m.node('window','home_page')
 m.state('playing'); m.poll(); m.state('paused'); m.poll(20000); m.state('playing'); m.poll(); m.state('paused')
 m.poll(29000); assert len(m.systems)==1 and m.key(O['KEY_PLAY'])==11
-assert double() and m.key(O['KEY_NEXT'])==11  # a scrub the stop cuts short
 m.poll(1000); assert 'killall -9 librespot aplay' in m.systems[-1] and STATE in m.systems[-1]
-m.top=m.node('window','home_page'); assert m.key(O['KEY_PLAY'])!=11
-m.top=page; m.advance(250); assert texts(msg)==['Spotify stopped after a pause','Open Streaming, then Spotify']
-# One Return leaves, sending no seek; the wheel is stock's volume.
-assert m.key(O['KEY_NEXT'])!=11
-m.sent=[]; assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
-m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls] and not m.sent
-m.close(); spot_open(m,button); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.close(); passed()
+assert m.key(O['KEY_PLAY'])!=11
+spot_open(m,button); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.close(); passed()
 
 # Internet Radio (patch/radio.c, docs/internals.md#internet-radio): favourites on the card and
 # radio-browser.info's directory, a station played by q2video -r, its tags from RADIO_STATE.
@@ -7429,6 +7429,174 @@ assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.row(0); m.code=0; m.worker(); assert m.labels()==['Directory unavailable'] and 'bycountrycodeexact/TW?' in m.opts[10002]
 m.back(); assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.back(); m.calls=[]; m.back(); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
+
+# Spotify's browser (patch/spotify.c, docs/librespot.md's Q2SPOT/1): the row opens spotbrowse_page,
+# each level a request on the fork's --browse-socket, sent and read on a pthread.
+BROWSE='/tmp/q2-librespot.browse.sock'
+class BrowseMachine(RadioMachine):
+    """RadioMachine's helpers, librespot on the card and a fake backend on its browse socket: serve(op,
+    args) answers (status, message, cursor, rows), or raw bytes; no serve, no socket."""
+    def __init__(self,files=None):
+        super().__init__({BIN:bytearray(),**(files or {})})
+        for n in ('socket@GLIBC_2.0','connect@GLIBC_2.0','send@GLIBC_2.0','select@GLIBC_2.0','recv@GLIBC_2.0'):
+            self.handlers[syms[n]]='x:'+n
+        shut=payload_syms['spot_shut']; self.handlers[shut]='x:spot_shut'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=shut,end=shut)  # fast(): payload hooks are per address
+        self.serve=None; self.requests=[]; self.wire=[]; self.out=b''; self.pending=b''
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('x:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='socket': assert a==1 and b in (1,2); ret=9 if b==2 else 7; self.out=b''; self.pending=b''
+        elif name=='connect': assert a==9 and self.text(b+2)==BROWSE; ret=0 if self.serve else -1
+        elif name=='send':
+            if a==9: self.out+=bytes(u.mem_read(b,c))
+            else: self.sent.append((a,bytes(u.mem_read(b,c)),c,d))  # QueueMachine's
+            ret=c
+        elif name=='spot_shut':  # the request is whole: answered
+            self.wire.append(self.out); head,line,end=self.out.decode().split('\n'); assert head=='Q2SPOT/1' and end==''
+            rid,op,*args=line.split('\t'); self.requests.append((op,*args))
+            got=self.serve(op,args)
+            if isinstance(got,bytes): self.pending=got.replace(b'{id}',rid.encode())
+            else:
+                status,msg,cursor,rows=got
+                self.pending=f'Q2SPOT/1\n{rid}\t{status}\t{msg}\t{cursor}\n'.encode()+b''.join(('\t'.join(r)+'\n').encode() for r in rows)
+        elif name=='select': ret=1
+        elif name=='recv': chunk=self.pending[:min(c,1000)]; self.pending=self.pending[len(chunk):]; u.mem_write(b,chunk); ret=len(chunk)
+        self.calls.append((name,a,b,c))
+        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
+        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def open(self):
+        if not getattr(self,'button',0):  # Streaming, as RadioMachine.stream: Spotify's row
+            view=self.node('scroll_view','scroll_view_streamsset',[self.node('list_item')]); self.top=self.node('window','stream_page',[view])
+            assert self.call(address=HOOKS['stream_page_init'][0],args=(self.top,5,0,0),gap=0,count=5_000_000)==0
+            self.button=self.nodes[self.nodes[view]['children'][1]]['children'][0]
+        self.click(self.button); self.page=self.top; assert self.nodes[self.page]['name']=='spotbrowse_page'
+    def asked(self):
+        """The request the worker is about to send (spotify.c's wk: buf at 32, len at 28), split."""
+        wk=payload_syms['wk']; head,line,_=bytes(self.u.mem_read(self.get(wk+32),self.get(wk+28))).decode().split('\n')
+        assert head=='Q2SPOT/1'; return tuple(line.split('\t')[1:])
+    def answer(self,*reply):
+        """The request in flight answered with reply, and the page's tick."""
+        self.serve=(lambda op,args: reply[0]) if len(reply)==1 else (lambda op,args: reply); self.worker()
+    def pick(self,i):
+        self.nodes[self.find('scroll_view')]['_ringnav_index']=i; self.row(i)
+OK=('ok','','')
+ME=OK+([('account','spotify:user:alice','Alice','Premium','','')],)
+def track(uri,title,ctx='',pos=''): return ('track',uri,title,'An Artist',ctx,pos)
+# The row opens the browser and asks for the account, written, shut for writing and read on the worker;
+# signed in, the menu: Now Playing, Queue and Playback settings only with a track.
+m=BrowseMachine(); m.open(); assert m.labels()==['Loading…'] and m.systems==['/bin/sh /mnt/mmc/.spotify/run']
+m.answer(*ME); assert m.wire==[b'Q2SPOT/1\n1\taccount\n']
+MENU=['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account']
+assert m.labels()==MENU
+m.state('playing'); m.poll(); m.advance(250)
+assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account']
+m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.state('none',track=''); m.poll(); m.advance(250); assert m.labels()==MENU; passed()
+# Loading, an error with Retry (offline, throttled, error, or no answer), one without, and empty.
+m.row(0); assert m.labels()==['Loading…'] and m.asked()==('liked',)
+m.answer('offline',"Spotify can't be reached",'',[]); assert m.labels()==["Spotify can't be reached",'Retry']
+m.row(0); assert m.labels()==['Loading…']; m.answer('premium','Spotify Premium is needed','',[]); assert m.labels()==['Spotify Premium is needed']
+m.back(); m.row(0); m.answer(*OK,[]); assert m.labels()==['Nothing here']
+# A short or empty page with a cursor (the backend's paging cap) still offers More….
+m.back(); m.row(0); m.answer('ok','','c%251',[]); assert m.labels()==['Liked Songs','More…','']
+m.row(0); assert m.asked()==('liked','c%251'); m.answer(*OK,[track('spotify:track:9','Nine','spotify:user:alice:collection','50')])
+assert m.labels()==['Liked Songs','Nine','An Artist']; passed()
+# A reply without the request's id (a late one, or id 0 from a backend that couldn't read it) is
+# dropped: its rows never show.
+m.back(); m.back(); m.row(0); m.answer(b'Q2SPOT/1\n0\tok\t\t\ntrack\tspotify:track:1\tOne\tA\t\t\n')
+assert m.labels()==["Spotify didn't answer",'Retry']
+# Malformed or oversized ones too.
+m.row(0); m.answer(b'Q2SPOT/1\n{id}\tok\t%zz\t\n'); assert m.labels()==["Spotify didn't answer",'Retry']
+m.row(0); m.answer(b'x'*(65537)); assert m.labels()==["Spotify didn't answer",'Retry']; m.back(); passed()
+# Playlists, a playlist's tracks by its URI exactly as received, More… by the cursor, and Back
+# through them to the row each was left on. A track plays in its context at its position (and its
+# URI), and once it plays Now Playing opens; a failure is toasted. Alone (empty context), by its URI.
+m.row(1); assert m.asked()==('playlists',)
+m.answer('ok','','next%09page',[('playlist','spotify:playlist:a','Mix A','alice','',''),('playlist','spotify:playlist:b%25','Mix B','bob','','')])
+assert m.labels()==['Playlists','Mix A','alice','Mix B','bob','More…','']
+m.pick(1); assert m.asked()==('playlist','spotify:playlist:b%25')
+m.answer(*OK,[track('spotify:track:1','One','spotify:playlist:b%25','0'),track('spotify:track:1','One','spotify:playlist:b%25','1'),track('spotify:track:3','Three')])
+assert m.labels()==['Mix B','One','An Artist','One','An Artist','Three','An Artist']
+m.pick(1); assert m.asked()==('play','spotify:playlist:b%25','1','spotify:track:1')
+m.answer('unavailable','This track is unavailable','',[]); assert m.toasts[-1][3]=='This track is unavailable' and m.top==m.page
+m.pick(2); assert m.asked()==('play','spotify:track:3'); n=len(m.toasts); m.answer(*OK,[])
+assert len(m.toasts)==n and m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page
+m.back(); assert m.labels()[:2]==['Playlists','Mix A'] and m.nodes[m.find('scroll_view')]['_ringnav_index']==1
+m.pick(2); assert m.asked()==('playlists','next%09page'); m.answer(*OK,[('playlist','spotify:playlist:c','Mix C','carol','','')])
+m.back(); assert m.nodes[m.find('scroll_view')]['_ringnav_index']==2; passed()
+# Back while loading stays usable: the fetch is dropped, and a late answer touches nothing.
+m.pick(0); assert m.labels()==['Loading…']; t=len(m.threads); m.back(); assert m.labels()[:2]==['Playlists','Mix A']
+assert len(m.threads)==t and ('pthread_join' in [c[0] for c in m.calls]); passed()
+# Artists open an artist: top tracks, then albums; an album opens its tracks. The history keeps the
+# top SPOT_KEEP levels' rows; Back to an older one fetches it again.
+m.back(); m.row(3); m.answer(*OK,[('artist','spotify:artist:x','X','','','')]); m.pick(0); assert m.asked()==('artist','spotify:artist:x')
+m.answer(*OK,[track('spotify:track:t','Top'),('album','spotify:album:y','Y','X','','')]); assert m.labels()==['X','Top','An Artist','Y','X']
+m.pick(1); assert m.asked()==('album','spotify:album:y'); m.answer('ok','','p2',[track('spotify:track:z','Z','spotify:album:y','0')])
+m.pick(0); assert m.asked()==('play','spotify:album:y','0','spotify:track:z'); m.answer(*OK,[]); m.destroy(m.top); m.top=m.page
+m.pick(1); assert m.asked()==('album','spotify:album:y','p2'); m.answer(*OK,[])
+asked=len(m.threads); m.back(); m.back(); assert len(m.threads)==asked and m.labels()[:2]==['X','Top']
+m.back(); assert m.labels()==['Loading…'] and m.asked()==('artists',)
+m.answer(*OK,[('artist','spotify:artist:x','X','','','')]); assert m.labels()==['Artists','X',''] and m.nodes[m.find('scroll_view')]['_ringnav_index']==0
+m.back(); assert m.labels()==MENU; passed()
+# No saved login: the pairing prompt, asking again every 2 s while it is open, so a pairing from the
+# phone opens the menu in place.
+m=BrowseMachine(); m.open(); m.answer('login','Open Spotify on your phone','',[])
+PAIR=['Spotify','Open Spotify on your phone and choose Q2','Both on the same Wi-Fi']
+assert m.labels()==PAIR; t=len(m.threads); m.advance(1500); assert len(m.threads)==t
+m.advance(750); assert len(m.threads)==t+1 and m.asked()==('account',); m.answer('login','','',[]); assert m.labels()==PAIR
+m.advance(2000); m.answer(*ME); assert m.labels()==MENU; passed()
+# An old add-on: librespot runs (its state file) but no browse socket after SPOT_OLD_MS. Now Playing
+# still works, and the page asks for the update; until then it waits. No state file either: not running.
+m=BrowseMachine({STATE:bytearray(b'state=none\n')}); m.open(); m.worker(); assert m.labels()==['Loading…']
+m.advance(500); m.worker(); assert m.labels()==['Loading…']
+m.advance(2500); m.worker(); assert m.labels()==['Spotify','Now Playing','','Update Spotify on the card','to browse on the Q2']
+m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; passed()
+m=BrowseMachine(); m.open(); m.advance(3000); m.worker(); assert m.labels()==["Spotify isn't running",'Retry']
+m.row(0); m.answer(*ME); assert m.labels()==MENU; passed()
+# Search: the T9 box over the title, run on its OK only. Empty, or left, the menu as it was; else
+# the term's categories, each searched by its name and the term, escaped.
+def search(text,event='EVT_VALUE_CHANGED'):
+    m.row(4); edit=m.find('edit'); assert m.nodes[edit]['focused']==1 and m.nodes[edit]['tips']=='Search Spotify'
+    m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O[event])
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
+asked=len(m.threads)
+for text,event in (('','EVT_VALUE_CHANGED'),('abc','EVT_BLUR')): search(text,event); assert m.labels()==MENU and not m.find('edit')
+search('50%\toff'); assert len(m.threads)==asked and m.labels()==['50%\toff','Tracks','Albums','Artists','Playlists']
+m.row(1); assert m.asked()==('search','albums','50%25%09off'); m.answer(*OK,[('album','spotify:album:q','Q','R','','')])
+assert m.labels()==['Albums','Q','R']; m.back(); m.back(); assert m.labels()==MENU; passed()
+# Holding Play/Pause on a track row adds it to the queue, its reply toasted; on another row, or
+# another page, the hold is stock's.
+m.row(0); m.answer(*OK,[track('spotify:track:1','One','c','0'),('album','spotify:album:a','A','B','','')])
+m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=0; m.press(77)
+assert m.hold()==11 and m.asked()==('enqueue','spotify:track:1'); m.answer(*OK,[]); assert m.toasts[-1][3]=='Added to Queue'
+m.press(78); assert m.hold()==11; m.answer('unavailable','Nothing is playing on Q2','',[]); assert m.toasts[-1][3]=='Nothing is playing on Q2'
+m.nodes[m.find('scroll_view')]['_ringnav_index']=1; m.press(79); asked=len(m.threads); m.hold(); assert len(m.threads)==asked; m.back(); passed()
+# Playing: Queue's rows play by their place and URI, then Now Playing. Playback settings: shuffle and
+# repeat as they are, a press setting the next and reading them again; never sent again on failure.
+m.state('playing'); m.poll(); m.advance(250); m.row(6); assert m.asked()==('queue',)
+m.answer(*OK,[track('spotify:track:q','Q',pos='3')]); m.row(0); assert m.asked()==('skip','3','spotify:track:q')
+m.answer(*OK,[]); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.back()
+m.row(7); m.answer(*OK,[('setting','shuffle','off','','',''),('setting','repeat','context','','','')])
+assert m.labels()==['Playback Settings','Shuffle','Off','Repeat','All']
+m.row(0); assert m.asked()==('shuffle','on'); m.answer(*OK,[]); assert m.labels()==['Loading…'] and m.asked()==('settings',)
+m.answer(*OK,[('setting','shuffle','on','','',''),('setting','repeat','track','','','')]); assert m.labels()==['Playback Settings','Shuffle','On','Repeat','One']
+m.row(1); assert m.asked()==('repeat','off'); t=len(m.threads); m.answer('offline',"Spotify didn't answer in time",'',[]); m.advance(1000)
+assert m.toasts[-1][3]=="Spotify didn't answer in time" and len(m.threads)==t and m.labels()[1]=='Shuffle'; m.back(); passed()
+# Account: the name, Premium, and Sign out after a confirmation; then the pairing prompt.
+m.row(8); assert m.asked()==('account',); m.answer(*ME); assert m.labels()==['Account','Alice','Premium','Sign Out','']
+m.row(1); assert m.labels()==['Sign Out of Spotify?','Cancel','Sign Out']; m.row(0); assert m.labels()[:2]==['Account','Alice']
+t=len(m.threads); m.row(1); m.row(1); assert m.asked()==('signout',) and len(m.threads)==t+1
+m.answer(*OK,[]); assert m.labels()==PAIR
+# librespot exits on signout and its launcher restarts it: meanwhile no socket is no old add-on.
+m.serve=None; m.advance(2000); m.worker(); assert m.labels()==PAIR; m.advance(5000); m.worker(); assert m.labels()==PAIR
+# A login lost while browsing goes to pairing too.
+m.advance(2000); m.answer(*ME); m.row(1); m.answer('login','','',[]); assert m.labels()==PAIR; passed()
+# Browsing keeps librespot: paused past SPOT_IDLE_MS with the browser open, it runs on; once the
+# browser is shut the wait starts, and the row starts it again, waiting for its socket.
+m.state('playing'); m.poll(); m.state('paused'); m.poll(60000); assert len(m.systems)==1
+m.destroy(m.page); m.poll(29500); assert len(m.systems)==1; m.poll(500); assert 'killall -9 librespot aplay' in m.systems[-1]
+m.serve=None; m.open(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.worker(); assert m.labels()==['Loading…']
+m.advance(500); m.answer(*ME); assert m.labels()==MENU; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

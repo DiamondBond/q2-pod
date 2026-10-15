@@ -50,7 +50,7 @@ extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *
 extern int books_key(void *top, unsigned key), video_on(void);
 extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas), *spot_art(void);
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
-    spot_open(void *ctx, void *event);
+    spot_open(void *ctx, void *event), spot_hold(void *top);
 extern void radio_poll(void);
 extern void xfade_row(void *label), wheel_row(void *label);
 extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key);
@@ -5530,15 +5530,18 @@ static int qm_hold(void) {
 }
 
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. On an
- * Internet Radio station it is the favourite toggle, its release latched as the queue menu's. */
+ * Internet Radio station it is the favourite toggle, on a Spotify track Add to Queue (its reply
+ * toasts), the release latched as the queue menu's. */
 int ringnav_keylong(void *ctx, void *event) {
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
-    const char *fav = radio_hold(window_manager_get_top_window(window_manager()));
-    char *key = fav ? play_key() : (char *)0;
-    if (fav) {
+    void *top = window_manager_get_top_window(window_manager());
+    const char *fav = radio_hold(top);
+    int taken = fav || spot_hold(top);
+    char *key = taken ? play_key() : (char *)0;
+    if (taken) {
         if (key) st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
         drop_input();
-        toast(fav);
+        if (fav) toast(fav);
         return STOP;
     }
     if (qm_hold()) return STOP;
