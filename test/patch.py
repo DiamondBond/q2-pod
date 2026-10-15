@@ -7438,16 +7438,17 @@ class BrowseMachine(RadioMachine):
     args) answers (status, message, cursor, rows), or raw bytes; no serve, no socket."""
     def __init__(self,files=None):
         super().__init__({BIN:bytearray(),**(files or {})})
-        for n in ('socket@GLIBC_2.0','connect@GLIBC_2.0','send@GLIBC_2.0','select@GLIBC_2.0','recv@GLIBC_2.0'):
+        for n in ('socket@GLIBC_2.0','connect@GLIBC_2.0','send@GLIBC_2.0','select@GLIBC_2.0','recv@GLIBC_2.0','fcntl@GLIBC_2.28'):
             self.handlers[syms[n]]='x:'+n
         shut=payload_syms['spot_shut']; self.handlers[shut]='x:spot_shut'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=shut,end=shut)  # fast(): payload hooks are per address
-        self.serve=None; self.requests=[]; self.wire=[]; self.out=b''; self.pending=b''
+        self.serve=None; self.requests=[]; self.wire=[]; self.out=b''; self.pending=b''; self.stalled=False
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('x:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
         if name=='socket': assert a==1 and b in (1,2); ret=9 if b==2 else 7; self.out=b''; self.pending=b''
         elif name=='connect': assert a==9 and self.text(b+2)==BROWSE; ret=0 if self.serve else -1
+        elif name=='fcntl': assert (a,b,c)==(9,4,0x80)  # nonblocking before connect
         elif name=='send':
             if a==9: self.out+=bytes(u.mem_read(b,c))
             else: self.sent.append((a,bytes(u.mem_read(b,c)),c,d))  # QueueMachine's
@@ -7460,7 +7461,10 @@ class BrowseMachine(RadioMachine):
             else:
                 status,msg,cursor,rows=got
                 self.pending=f'Q2SPOT/1\n{rid}\t{status}\t{msg}\t{cursor}\n'.encode()+b''.join(('\t'.join(r)+'\n').encode() for r in rows)
-        elif name=='select': ret=1
+        elif name=='select':
+            assert a==10 and bool(b)!=bool(c)
+            if self.stalled: self.now+=100; ret=0
+            else: ret=1
         elif name=='recv': chunk=self.pending[:min(c,1000)]; self.pending=self.pending[len(chunk):]; u.mem_write(b,chunk); ret=len(chunk)
         self.calls.append((name,a,b,c))
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
@@ -7579,7 +7583,8 @@ m.answer(*OK,[]); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top
 m.row(7); m.answer(*OK,[('setting','shuffle','off','','',''),('setting','repeat','context','','','')])
 assert m.labels()==['Playback Settings','Shuffle','Off','Repeat','All']
 m.row(0); assert m.asked()==('shuffle','on'); m.answer(*OK,[]); assert m.labels()==['Loading…'] and m.asked()==('settings',)
-m.answer(*OK,[('setting','shuffle','on','','',''),('setting','repeat','track','','','')]); assert m.labels()==['Playback Settings','Shuffle','On','Repeat','One']
+freed=m.freed
+m.answer(*OK,[('setting','shuffle','on','','',''),('setting','repeat','track','','','')]); assert m.labels()==['Playback Settings','Shuffle','On','Repeat','One'] and m.freed==freed+1
 m.row(1); assert m.asked()==('repeat','off'); t=len(m.threads); m.answer('offline',"Spotify didn't answer in time",'',[]); m.advance(1000)
 assert m.toasts[-1][3]=="Spotify didn't answer in time" and len(m.threads)==t and m.labels()[1]=='Shuffle'; m.back(); passed()
 # Account: the name, Premium, and Sign out after a confirmation; then the pairing prompt.
@@ -7597,6 +7602,22 @@ m.state('playing'); m.poll(); m.state('paused'); m.poll(60000); assert len(m.sys
 m.destroy(m.page); m.poll(29500); assert len(m.systems)==1; m.poll(500); assert 'killall -9 librespot aplay' in m.systems[-1]
 m.serve=None; m.open(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.worker(); assert m.labels()==['Loading…']
 m.advance(500); m.answer(*ME); assert m.labels()==MENU; passed()
+
+# More beyond the history limit keeps the operation, context and title while recycling a level.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.row(2)
+m.answer(*OK,[('album','spotify:album:a','Album A','Artist','','')]); m.row(0)
+for i in range(12):
+    assert m.asked()==(('album','spotify:album:a') if not i else ('album','spotify:album:a',str(i)))
+    m.answer('ok','',str(i+1),[track('spotify:track:1','One','spotify:album:a',str(i*50))])
+    assert m.labels()[0]=='Album A'
+    m.pick(1)
+m.answer(*OK,[]); m.back(); assert m.labels()[0]=='Album A'; passed()
+# A stalled write times out without sending the operation; Back also abandons a pending play.
+m=BrowseMachine(); m.open(); m.stalled=True; start=m.now; m.answer(*ME)
+assert m.now-start>=15000 and not m.wire and m.labels()==["Spotify didn't answer",'Retry']
+m.stalled=False; m.row(0); m.answer(*ME); m.row(0); m.answer(*OK,[track('spotify:track:1','One')])
+m.row(0); assert m.asked()==('play','spotify:track:1'); m.back(); assert m.labels()==MENU
+assert m.get(payload_syms['wk']+32)==0; m.advance(1000); assert m.top==m.page; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

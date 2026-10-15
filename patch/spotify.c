@@ -569,16 +569,21 @@ static void *worker(void *unused) {
     unsigned sent = 0;
     int fd = socket(1, 2, 0), k = 1; /* AF_UNIX, SOCK_STREAM (MIPS numbering) */
     wk.fail = W_NOSOCK;
-    if (fd >= 0 && !connect(fd, &to, sizeof to)) {
+    if (fd >= 0 && fd < 1024 && !fcntl(fd, 4, 0x80) && !connect(fd, &to, sizeof to)) { /* F_SETFL, O_NONBLOCK (MIPS) */
         wk.fail = W_FAIL;
-        while (sent < wk.len && (k = send(fd, wk.buf + sent, wk.len - sent, 0x4000)) > 0) sent += k; /* MSG_NOSIGNAL */
-        if (sent == wk.len) spot_shut(fd);
-        while (sent == wk.len && !wk.cancel && now_ms() < end) {
+        while (!wk.cancel && now_ms() < end) {
             unsigned set[32] = { 0 }; /* fd_set */
             int tv[2] = { 0, 100000 };
             set[fd / 32] = 1u << fd % 32;
-            if ((k = select(fd + 1, set, 0, 0, tv)) <= 0) {
+            int writing = sent < wk.len;
+            if ((k = select(fd + 1, writing ? 0 : set, writing ? set : 0, 0, tv)) <= 0) {
                 if (k) break; /* not a timeout */
+                continue;
+            }
+            if (writing) {
+                k = send(fd, wk.buf + sent, wk.len - sent, 0x4000); /* MSG_NOSIGNAL */
+                if (k <= 0) break;
+                if ((sent += (unsigned)k) == wk.len) spot_shut(fd);
                 continue;
             }
             if ((k = recv(fd, wk.buf + wk.n, SPOT_REPLY_MAX + 1 - wk.n, 0)) <= 0 ||
@@ -699,6 +704,14 @@ static void base(int state) {
 /* A level over the top one, which keeps its selected row; the one SPOT_KEEP down lets its rows go. */
 static void push(int kind, const char *op, const char *args, const char *cursor, const char *title) {
     level_t *l;
+    /* The arguments may point into the top level, including the slot reused at the depth limit. */
+    level_t next = { 0 };
+    next.kind = kind;
+    next.state = kind == L_LIST ? S_LOAD : S_READY;
+    tk_snprintf(next.op, sizeof next.op, "%s", op);
+    tk_snprintf(next.args, sizeof next.args, "%s", args);
+    tk_snprintf(next.cursor, sizeof next.cursor, "%s", cursor);
+    tk_snprintf(next.title, sizeof next.title, "%s", title);
     if (br.view) top()->sel = widget_get_prop_int(br.view, "_ringnav_index", 0);
     if (br.depth == SPOT_DEPTH) { /* the oldest past the base forgotten */
         drop(&br.lv[1]);
@@ -712,19 +725,14 @@ static void push(int kind, const char *op, const char *args, const char *cursor,
         l->state = S_LOAD;
     }
     l = &br.lv[br.depth++];
-    memset(l, 0, sizeof *l);
-    l->kind = kind;
-    l->state = kind == L_LIST ? S_LOAD : S_READY;
-    tk_snprintf(l->op, sizeof l->op, "%s", op);
-    tk_snprintf(l->args, sizeof l->args, "%s", args);
-    tk_snprintf(l->cursor, sizeof l->cursor, "%s", cursor);
-    tk_snprintf(l->title, sizeof l->title, "%s", title);
+    *l = next;
     show();
 }
 
 /* Back a level; its fetch, if in flight, dropped. */
 static void pop(void) {
-    if (br.act == A_FETCH && wk.id == top()->id) fetch_cancel();
+    fetch_cancel();
+    br.act = A_FETCH;
     drop(top());
     --br.depth;
     show();
@@ -764,7 +772,7 @@ static void got(void) {
     else if (login)
         base(S_PAIR);
     else if (ok) {
-        if (l->kind == L_LIST) l->buf = reply, reply = 0, l->n = n;
+        if (l->kind == L_LIST) free(l->buf), l->buf = reply, reply = 0, l->n = n;
         l->state = S_READY;
         show();
     } else {

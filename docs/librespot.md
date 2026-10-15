@@ -29,6 +29,8 @@ The fork adds three options for this: `--status-file`, the player's state, track
 
 The fork's `--browse-socket /tmp/q2-librespot.browse.sock` serves Q2 Pod's Spotify browser. Older backends lack it; Q2 Pod then keeps the Connect Now Playing page and asks for the add-on to be updated.
 
+The browser integration was checked against q2-librespot `shanlingq2` revision `18d8cf2` (`q2-v1.3`, Q2SPOT/1). Card updates replace `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`; preserve `.spotify/cache` to keep the paired login.
+
 **Transport.** A Unix stream socket. One request per connection: the client writes the request and shuts down its write side; the backend answers and closes. Requests are at most 8 KiB, responses at most 64 KiB. The client gives up after 15 s.
 
 **Framing.** Text lines ending in `\n`, fields separated by tabs. The first line of a request and of a response is `Q2SPOT/1`. In every field, the bytes `%`, tab, LF and CR are written as `%25`, `%09`, `%0A` and `%0D`; any other byte, UTF-8 included, is literal. A `%` not followed by two hex digits is malformed. Fields are opaque: IDs, URIs and cursors are passed back exactly as received, never rebuilt from displayed text.
