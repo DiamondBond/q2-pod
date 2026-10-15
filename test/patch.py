@@ -7455,8 +7455,9 @@ playing(m,0,200,pos=0,n=110); assert counts(m)==[(fnv('/p/A'),1)]+full[:5]+full[
 # Settings rows (docs/internals.md#charge-limit, #low-power, #album-artists): Power management gains
 # Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
-def settings_page(hook,view_name,config={},stock_rows=2,bt=1):
+def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False):
     m=QueueMachine(); m.config.update(config); m.restack=True
+    if boot: m.call(address=payload_syms['ringnav_bootmode'],args=(3,0,0,0),gap=0)  # config_init's play mode
     if hook=='btrows': m.byte(syms['g_bluetoothflag'],bt)
     m.handlers[int(manifest['patch_symbols'][f'stock_{hook}_trampoline'],16)]='stock_'+hook
     entries=[m.entry(0) for _ in range(stock_rows)]
@@ -7523,6 +7524,11 @@ for config,want in (({},1),({'ARTISTTYPE':'0'},0),({'ARTISTTYPE':'1'},1)):
     a=Machine(); a.config.update(config); a.word(syms['artist_type'],7)
     a.call(address=HOOKS['read_artistype_value'][0],args=(0,0,0,0),gap=0)
     assert a.get(syms['artist_type'])==want and a.config_reads[-1][1:3]==('PLAYSET','ARTISTTYPE'),config
+passed()
+# Boot reads it too (ringnav_bootmode), so Audio settings shows it before any Library page has opened.
+for config,text in (({},'Artists: Album Artist'),({'ARTISTTYPE':'0'},'Artists: Artist')):
+    shown=settings_page('audioset','scroll_view_playset',config,stock_rows=15,boot=True)[2]
+    assert shown()[1]==text,config
 passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
