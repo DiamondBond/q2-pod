@@ -1,5 +1,6 @@
 # Changelog
 
+- **1.2.1**: iPod: Library Artists, Album Artists and Albums leave out audiobooks, as Coverflow does, so audiobooks appear only under Audiobooks. Buttons Lock gets a **Volume only** mode that locks the capacitive wheel's volume and leaves the scroll-wheel buttons working; the quick-settings lock tile cycles Off, Everything and Volume only. Display's **Shortcut** gains **Rated Albums**, which opens Ratings → Albums; Centre cycles it after Favorites. Shuffle Albums or Folders ends when a normal library or folder queue loads, so Next Album and Previous Album leave the Now Playing hold menu.
 - **1.2.0**:
   - Folder opens directly at the SD root when a card is in and no OTG drive is connected; Back at the root leaves Folder. With OTG connected on entry, the SD/OTG selector remains available.
   - iPod: short Back on Home opens Now Playing without changing playback. Back in Home’s Settings submenu still returns to the main list; both lists keep immediate wrapping.
