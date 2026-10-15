@@ -393,6 +393,7 @@ static inline int arc_out(int r, int y) {
 #define ID3_ARTIST 0x504
 #define ID3_TITLE 0x684
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
+#define MUSIC_WHERE "fileurl not like '/mnt/mmc/audiobooks/%' and fileurl not like '%.m4b'"
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
 #define ALBUMINFO_ROW 0xa27200  /* the albums row localmusic_albuminfo_page_init opened (0x4a7ab4) */
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */

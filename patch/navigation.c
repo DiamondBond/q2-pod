@@ -4,6 +4,21 @@
 #include "playback.h"
 #include "stock.h"
 #undef select /* the UI selection helper below; headset.c uses libc select */
+extern int stock_dbquery_trampoline(const char *, const char *, void *, int);
+extern int stock_quicksettings_trampoline(void *, void *);
+static int library_music __attribute__((section(".scratch")));
+
+/* Restrict the Library's category queries, including Unknown and split albums, before grouping.
+ * Coverflow and folder queries keep their own scope. */
+int ringnav_library_query(const char *db, const char *sql, void *row, int sort) {
+    const char *from = library_music && sql ? strstr(sql, " from songtable") : 0;
+    if (!from) return stock_dbquery_trampoline(db, sql, row, sort);
+    char filtered[2048];
+    int n = tk_snprintf(filtered, sizeof filtered, "%.*s from (select * from songtable where %s)%s",
+                        (int)(from - sql), sql, MUSIC_WHERE, from + 15);
+    if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
+    return stock_dbquery_trampoline(db, filtered, row, sort);
+}
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
@@ -1855,6 +1870,62 @@ static void *list_row_core(void *view, const char *icon, int (*click)(void *, vo
 
 void *list_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
     return list_row_core(view, icon, click, ctx, 260, 0);
+}
+
+/* Stock modes: 1 locks volume, 3 locks volume and playback buttons, only with the screen off.
+ * KEY_LOCKOUT is the separate, temporary debounce after a button press. */
+static const char *const lock_names[] = { "Off", "Everything", "Volume only" };
+static int lock_choice(void) {
+    if (g_keylock_flag && g_keylock_mode != 1 && g_keylock_mode != 3) {
+        g_keylock_mode = 3; /* migrate stock's buttons-only choice to Everything */
+        write_int_config(3, "SYSSET", "LOCKMODE");
+    }
+    return !g_keylock_flag ? 0 : g_keylock_mode == 1 ? 2 : 1;
+}
+static void lock_set(int choice) {
+    g_keylock_mode = choice == 2 ? 1 : 3;
+    g_keylock_flag = choice != 0;
+    write_int_config(g_keylock_mode, "SYSSET", "LOCKMODE");
+    write_int_config(g_keylock_flag, "SYSSET", "LOCKFLAG");
+}
+static int lock_pick(void *ctx, void *event) {
+    (void)event;
+    lock_set((int)(long)ctx);
+    void *win = window_manager_get_top_window(window_manager());
+    void *view = widget_lookup(win, "scroll_view_keylock", 1);
+    for (unsigned i = 0; view && i < widget_count_children(view); ++i) {
+        void *button = widget_get_child(widget_get_child(view, i), 0);
+        image_base_set_image(widget_get_child(button, 0),
+                             (int)i == lock_choice() ? "select" : "unselect");
+    }
+    return 0;
+}
+int ringnav_keylock_rows(void *win) {
+    void *view = win ? widget_lookup(win, "scroll_view_keylock", 1) : 0;
+    if (!view) return 0;
+    widget_destroy_children(view);
+    for (int i = 0; i < 3; ++i) {
+        void *label = list_row(view, i == lock_choice() ? "select" : "unselect",
+                               lock_pick, (void *)(long)i);
+        widget_set_text_utf8(label, lock_names[i]);
+    }
+    return 0;
+}
+static void quick_lock_text(void *win) {
+    widget_set_text_utf8(widget_lookup(win, "label_lock", 1), lock_names[lock_choice()]);
+    image_base_set_image(widget_lookup(win, "img_lock", 1),
+                         g_keylock_flag ? "drop_keylockopen" : "drop_keylock");
+}
+int ringnav_quick_lock(void *win, void *event) {
+    (void)event;
+    lock_set((lock_choice() + 1) % 3);
+    quick_lock_text(win);
+    return 0;
+}
+int ringnav_quick_settings(void *win, void *ctx) {
+    int result = stock_quicksettings_trampoline(win, ctx);
+    if (win) quick_lock_text(win);
+    return result;
 }
 
 /* Power's Charge limit, Low power and Wake (docs/internals.md#charge-limit, #low-power,
@@ -3899,6 +3970,7 @@ int ringnav_badge(const char *path, char *out, int size) {
 }
 int ringnav_localclass(int cls) {
     I(g_artist_type, 0) = I(artist_type, 0) == 1;
+    library_music = cls == CLASS_ALBUMS || cls == 0xf004;
     int n = stock_localclass_trampoline(cls);
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
@@ -3919,6 +3991,7 @@ int ringnav_localclass(int cls) {
         deque_clear(dir);
         if (empty) deque_pop_back(list), n--;
     }
+    library_music = 0;
     if (n <= 0) { /* say so, not a black page; once the page that loads it is up */
         st.empty_kind = cls - CLASS_ALBUMS;
         timer_add(empty_toast, (void *)0, 0);

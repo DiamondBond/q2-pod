@@ -1302,11 +1302,11 @@ def main():
     ap.add_argument('--captures', type=pathlib.Path,
                     help='write the renderer\'s frames (rest, quarter, half, three-quarter turns, one album) as PNGs here')
     a = ap.parse_args()
-    source = (ROOT/'patch/coverflow.c').read_text().replace('\\\n', '')
+    source = ((ROOT/'patch/offsets.inc').read_text() + (ROOT/'patch/coverflow.c').read_text()).replace('\\\n', '')
     def macro(name):
         line = re.search(r'^#define ' + name + r' (.*)$', source, re.M)[1]
         return ''.join(ast.literal_eval(x) for x in re.findall(r'"(?:[^"\\]|\\.)*"', line))
-    sql = macro('MUSIC_ALBUM_SQL') + macro('ALBUM_GROUP')
+    sql = macro('MUSIC_ALBUM_SQL') + macro('MUSIC_WHERE') + macro('ALBUM_GROUP')
     with sqlite3.connect(':memory:') as db:
         db.execute('create table songtable(id,album,songer,fileurl,albumsonger)')
         paths = ['/mnt/mmc/Audiobooks/Book/01.mp3', '/mnt/mmc/aUdIoBoOkS/02.flac',

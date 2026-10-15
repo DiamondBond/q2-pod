@@ -352,7 +352,7 @@ static const unsigned char all_sorts[] = { SORT_ALBUM, SORT_ARTIST, SORT_YEAR, S
 #define MUSIC_ALBUM_SQL "select case when ifnull(album,'')='' then -1 else id end," \
     "case when ifnull(album,'')='' then 'Unknown Album' else album end," \
     "songer,fileurl,albumsonger from songtable where " \
-    "fileurl not like '/mnt/mmc/audiobooks/%' and fileurl not like '%.m4b'" ALBUM_GROUP
+    MUSIC_WHERE ALBUM_GROUP
 #define SORT_SQL ALBUM_SQL " order by "
 extern int ringnav_year_old(void);
 /* Albums by year, Playback settings' Year order (navigation.c): newest or oldest first, undated last. */
@@ -758,7 +758,7 @@ static int split_row(void *a, int n, char **v, char **c) {
 static int rank_query(void *sql) { return toolsQueryDbTable("/mnt/data/database.db", sql, split_row, 0); }
 
 /* list's albums with music, in a new deque (list goes), using a music track for their art even when
- * tags are shared with an audiobook. The library's own lists and the card's files stay untouched. */
+ * tags are shared with an audiobook. The card's files stay untouched. */
 static void *music_albums(void *list) {
     int n;
     void *rows = staged(rank_query, MUSIC_ALBUM_SQL, &n), *out = _create_deque("stSongInfo");
@@ -1183,7 +1183,7 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, 
 }
 
 /* The cover t (16.16, signed) turns from the visual position, under what is drawn. */
-static unsigned short cf_inset[ART_SIZE]; /* 1/256 texel, symmetric; zero in Legacy */
+static unsigned short cf_inset[ART_SIZE] __attribute__((section(".scratch"))); /* 1/256 texel, symmetric; zero in Legacy */
 
 static void draw_cover(shelf_t *f, int t, const unsigned *tex) {
     pose_t p;

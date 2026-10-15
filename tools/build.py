@@ -36,6 +36,10 @@ HOOKS = {
     'localmusic_page_init': (0x524424, 'ringnav_localmusic', 'localmusic'),
     # Library lists: an Unknown row with no songs is dropped
     'load_localclass_list': (0x5088cc, 'ringnav_localclass', 'localclass'),
+    'toolsQueryDbTable': (0x5c8044, 'ringnav_library_query', 'dbquery'),
+    'keylock_rows': (0x4c3cb4, 'ringnav_keylock_rows', None),
+    'quick_lock': (0x4a0170, 'ringnav_quick_lock', None),
+    'dialog_statusbar_dialog_init': (0x4a0d88, 'ringnav_quick_settings', 'quicksettings'),
     # An Albums row: the album it opens keeps only that album's songs
     'load_album_detaillist': (0x508efc, 'ringnav_album_detail', 'detail'),
     # An artist's tabs: its albums' art keys (navigation.c ringnav_artist_list)
@@ -607,6 +611,8 @@ FUNCTIONS = {
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
+    'keylock_rows': HOOKS['keylock_rows'][0],
+    'quick_lock': HOOKS['quick_lock'][0],
     "playlist_rebuild": IPOD_HOOKS['playlist_rebuild'][0],  # picker init and re-entry rebuild all rows
     "stock_search": 0x5241c4,
     "slide_menu_item_width": 0x5f3040,
@@ -623,6 +629,7 @@ PRIVATE_FUNCTIONS = {
     "np_info": 0x52a508,  # Now Playing's info page labels, from the track (NP_INFO_CALL)
 }
 GLOBALS = ['g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
+           'g_keylock_flag', 'g_keylock_mode',
            'g_bluetoothflag', 'bt_linkstatus', 'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
            'g_keytone_flag', 'g_folder_layer', 'g_otg_status', 'g_delete_flag', 'g_volume', 'g_maxvolume',

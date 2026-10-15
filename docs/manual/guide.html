@@ -454,7 +454,7 @@ ALBUM_ARTIST=1</pre>
     <li><b>First open</b> prepares artwork once; <b>Cancel</b> keeps progress. Later opens add only new albums; <b>Refresh Library</b>, the last card, rebuilds everything.</li>
     <li><b>Sort</b>, the card before it: press to switch between <b>Album</b>, <b>Artist</b> (then year), <b>Year</b> (newest or oldest first, as <b>Year Order</b>), <b>Recently Added</b>, <b>Most Played</b> and <b>Random</b>. The choice is kept; Random reshuffles each time you pick it.</li>
     <li><b>An artist’s albums as Coverflow:</b> <b>System settings → Display → Artist Albums: Coverflow</b> switches <b>Library → Artists → artist → Albums</b> from the default Grid to Coverflow; <b>List</b> shows the album names alone. It contains only that artist’s albums, also when Artists is set to Album Artist. Return goes straight back to the Artists list.</li>
-    <li><b>Audiobooks</b> stay out of Coverflow: an album whose tracks are all <code>.m4b</code> files or sit under the card’s <code>Audiobooks/</code> folder. The Library’s own lists keep them.</li>
+    <li><b>Audiobooks</b> stay out of Coverflow: an album whose tracks are all <code>.m4b</code> files or sit under the card’s <code>Audiobooks/</code> folder. Library Artists and Albums exclude them too; Podcasts keep their current listings.</li>
     <li><b>Artwork:</b> embedded art first, then <code>cover.jpg</code> and <code>folder.jpg</code>; otherwise a placeholder. A folder shared by several albums skips its <code>cover.jpg</code> and <code>folder.jpg</code>, since they’d be another album’s art.</li>
   </ul>
   </div>
@@ -596,7 +596,7 @@ http://stream.radioparadise.com/mp3-128</pre>
   <p>Put one folder per show or book in <code>Podcasts/</code> or <code>Audiobooks/</code> at the card’s root. They always resume where you stopped and never count as plays. Playback speed is set per folder (see Chapter 3).</p>
   <div class="sub">
   <h3>M4B audiobooks</h3>
-  <p>Unprotected <code>.m4b</code> files play as they are: copy the original files onto the card, with no renaming or conversion needed. Extensions are case-insensitive. M4B files anywhere on the card resume at any duration and don’t count toward Most Played or scrobbles. <code>Audiobooks/</code> adds a Library shortcut, but is optional for M4B. Embedded artwork uses the MP4 cover reader, with folder artwork as the fallback. M4B audiobooks stay out of Coverflow.</p>
+  <p>Unprotected <code>.m4b</code> files play as they are: copy the original files onto the card, with no renaming or conversion needed. Extensions are case-insensitive. M4B files anywhere on the card resume at any duration and don’t count toward Most Played or scrobbles. <code>Audiobooks/</code> adds a Library shortcut, but is optional for M4B. Embedded artwork uses the MP4 cover reader, with folder artwork as the fallback. M4B audiobooks stay out of Coverflow and Library Artists and Albums.</p>
   <h3>Books with a CUE sheet</h3>
   <p>A book split into chapters by a <code>.cue</code> sheet remembers one place for the whole book, if it’s an <code>.m4b</code> or sits in <code>Podcasts/</code> or <code>Audiobooks/</code>. Picking a chapter plays that chapter from its start, and it becomes the book’s place once you’re past its first 30 seconds. To continue where you stopped, open the book’s chapters and hold Play/Pause on any of them: <b>Resume</b>, at the top of the menu, plays from the right chapter and position. Music albums with a CUE sheet don’t resume.</p>
   <div class="note"><p><span class="label">Note:</span> DRM-protected files and chapter navigation aren’t supported. As with stock resume, the number of saved positions is limited and the last 30 seconds of a file aren’t resumed.</p></div>
@@ -661,7 +661,7 @@ http://stream.radioparadise.com/mp3-128</pre>
       <tr><td>Wake</td><td><b>Double Press:</b> with the screen off, or after Standby, a single Centre press is ignored, so a pocket bump stays dark; press twice to wake. Play/Pause and the volume work without waking it. To power off from a dark screen, double-press, then hold. Off (Single Press) by default.</td></tr>
     </tbody>
   </table>
-  <p>Either way, Return does nothing while the screen is off, and a key that resumes from Standby (Play/Pause, the volume) leaves it dark. Stock’s <b>Buttons Lock</b> also keeps the buttons and volume still while the screen is off. The sleep timer is set with the wheel, like brightness.</p>
+  <p>Either way, Return does nothing while the screen is off, and a key that resumes from Standby (Play/Pause, the volume) leaves it dark. <b>Settings → Buttons Lock</b> offers <b>Off</b>, <b>Everything</b> and <b>Volume only</b>. With the screen off, Everything locks the wheel volume and playback buttons; Volume only locks wheel volume while skip and Play/Pause keep working. The quick-settings lock tile cycles through the same three choices. The sleep timer is set with the wheel, like brightness.</p>
 
   </div>
   <div class="sec">

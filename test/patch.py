@@ -2,7 +2,7 @@
 """Execute the actual patched MIPS callback with stock filter and mocked UI services.
 Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 """
-import json, math, pathlib, re, struct, sys
+import json, math, pathlib, re, sqlite3, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
 sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first
@@ -3508,6 +3508,7 @@ class ClassMachine(QueueMachine):
             u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
         if address!=self.tramp: return super().hook(u,address,size,unused)
         self.calls.append(('stock_localclass',u.reg_read(REGS[0]),0,0))
+        assert self.get(payload_syms['library_music']) == int(u.reg_read(REGS[0]) in (0xf003,0xf004))
         u.reg_write(UC_MIPS_REG_V0,len(self.items(self.get(syms['p_deque_showlist']))))
         u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 def unknown(cls,found,last=-1,artist=0,rows=3):
@@ -3515,6 +3516,7 @@ def unknown(cls,found,last=-1,artist=0,rows=3):
     m.word(syms['artist_type'],artist); m.word(syms['g_artist_type'],1-artist)
     if rows: m.word(m.row(rows-1)+O['REC_ID'],last)
     n=m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+    assert m.get(payload_syms['library_music']) == 0
     shown=m.names(m.get(syms['p_deque_showlist']))
     # Artists follow the artist page's own switch (artist_type), which stock never copied to g_artist_type
     assert n==len(shown) and m.calls[0][:2]==('stock_localclass',cls) and m.get(syms['g_artist_type'])==artist
@@ -3542,6 +3544,44 @@ m=ClassMachine(page='localclass_page',cls=0xf001,rows=2); m.word(m.row(1)+O['REC
 m.split=[m.song('Baroness'),m.song('STP')]; m.word(m.split[1]+O['REC_PATH'],m.string('/q/STP'))
 assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf003,0,0,0),gap=0)==3
 assert m.names(m.get(syms['p_deque_showlist']))==['Baroness','STP','Row 1']; passed()
+# Run the actual Library query wrapper against SQLite, with mixed music/book tags and Unknowns.
+# The flag is scoped by ringnav_localclass above; outside it (Coverflow, folders, Podcasts) SQL stays intact.
+class LibraryQueryMachine(Machine):
+    def __init__(self):
+        super().__init__(); self.mock('strstr@GLIBC_2.0'); self.handlers.pop(syms['toolsQueryDbTable'])
+        self.db=sqlite3.connect(':memory:')
+        self.db.execute('create table songtable(id,album,songer,albumsonger,fileurl)')
+        self.db.executemany('insert into songtable values(?,?,?,?,?)',[
+            (1,'Shared','Shared','Shared','/mnt/mmc/Audiobooks/chapter.mp3'),
+            (2,'Shared','Shared','Shared','/mnt/mmc/Music/track.flac'),
+            (3,'Book','Narrator','Author','/mnt/mmc/elsewhere/BOOK.M4B'),
+            (4,'Folder book','Reader','Writer','/mnt/mmc/AUDIOBOOKS/book.flac'),
+            (5,'Podcast','Host','Host','/mnt/mmc/Podcasts/show/episode.mp3'),
+            (6,'','','','/mnt/mmc/Audiobooks/untagged.mp3'),
+        ])
+    def hook(self,u,address,size,unused):
+        if address != int(manifest['patch_symbols']['stock_dbquery_trampoline'],16):
+            return super().hook(u,address,size,unused)
+        a,b,c,d=[u.reg_read(r) for r in REGS]; self.sql=self.text(b)
+        assert self.text(a)=='/mnt/data/database.db' and (c,d)==(123,1)
+        self.results=self.db.execute(self.sql).fetchall()
+        u.reg_write(UC_MIPS_REG_V0,len(self.results)); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+lm=LibraryQueryMachine()
+for query in ('select id,songer from songtable group by songer COLLATE NOCASE',
+              'select id,albumsonger from songtable group by albumsonger COLLATE NOCASE',
+              'select id,album,songer,fileurl from songtable group by album COLLATE NOCASE',
+              "select id,album,songer,fileurl,albumsonger from songtable group by album COLLATE NOCASE,ifnull(albumsonger,'') COLLATE NOCASE,case ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end",
+              "select * from songtable where ifnull(songer,'')='' order by id"):
+    for scoped in (0,1,0):
+        lm.word(payload_syms['library_music'],scoped)
+        lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
+        assert (lm.sql==query) == (not scoped)
+        assert {r[0] for r in lm.results} == ({2,5} if scoped and 'group by' in query else set() if scoped else
+                                             {1,3,4,5,6} if 'group by' in query else {6}),lm.results
+lm.word(payload_syms['library_music'],1); lm.sql=None
+assert lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select * from songtable'+' '*2048),123,1),gap=0)==-1
+assert lm.sql is None
+lm.db.close(); passed()
 # Their stock art cache names (/mnt/mmc/.sldp/<md5>0.jpg): a shared name adds the album artist,
 # a name alone stays; the album page's big cover follows its row's cover task name.
 for e in m.items(m.get(syms['p_deque_showlist']))[:2]: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
@@ -7557,6 +7597,44 @@ playing(m,0,200,pos=0,n=26); m.word(r+O['REC_CUE_START'],300); playing(m,0,200,n
 full=[(i+1,1 if i==5 else 2) for i in range(O['PLAYS_SLOTS'])]
 m=ResumeMachine({'/mnt/data/ringnav-plays':b''.join(struct.pack('<II',*e) for e in full)})
 playing(m,0,200,pos=0,n=110); assert counts(m)==[(fnv('/p/A'),1)]+full[:5]+full[6:]; passed()
+
+# Both lock UIs use stock's persistent flag/mode, and the existing key gates enforce each choice.
+m=QueueMachine(); view=m.node('scroll_view','scroll_view_keylock')
+m.top=m.node('window','keylock_page',[view])
+assert m.call(address=HOOKS['keylock_rows'][0],args=(m.top,0,0,0),gap=0)==0
+rows=m.nodes[view]['children']; buttons=[m.nodes[r]['children'][0] for r in rows]
+labels=[m.nodes[b]['children'][-1] for b in buttons]; icons=[m.nodes[b]['children'][0] for b in buttons]
+assert [m.nodes[l]['text'] for l in labels]==['Off','Everything','Volume only']
+for choice in (1,2,0):
+    f,ctx=m.handler(buttons[choice],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    assert [m.nodes[i]['image'] for i in icons]==['select' if j==choice else 'unselect' for j in range(3)]
+    assert [c[1:2]+(m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[
+        (1 if choice==2 else 3,'SYSSET','LOCKMODE'),(int(choice!=0),'SYSSET','LOCKFLAG')]
+passed()
+for old_mode in (0,2,4):
+    m.byte(syms['g_keylock_flag'],1); m.byte(syms['g_keylock_mode'],old_mode)
+    m.call(address=HOOKS['keylock_rows'][0],args=(m.top,0,0,0),gap=0)
+    assert m.u.mem_read(syms['g_keylock_mode'],1)==b'\x03'
+    assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(3,'SYSSET','LOCKMODE')]
+m.byte(syms['g_keylock_flag'],0)
+img=m.node('image','img_lock'); label=m.node('label','label_lock')
+m.top=m.node('window','statusbar_dialog',[img,label])
+m.handlers[int(manifest['patch_symbols']['stock_quicksettings_trampoline'],16)]='stock_quicksettings'
+for choice in (1,2,0):
+    assert m.call(address=HOOKS['quick_lock'][0],args=(m.top,m.event,0,0),gap=0)==0
+    assert m.nodes[label]['text']==['Off','Everything','Volume only'][choice]
+    assert m.nodes[img]['image']==('drop_keylockopen' if choice else 'drop_keylock')
+    # Reopening quick settings keeps the saved choice and paints its label immediately.
+    m.call(address=HOOKS['dialog_statusbar_dialog_init'][0],args=(m.top,0,0,0),gap=0)
+    assert m.nodes[label]['text']==['Off','Everything','Volume only'][choice]
+    for light in (0,1):
+        for key in (O['KEY_PREV'],O['KEY_NEXT'],O['KEY_PLAY'],O['KEY_BACK_BTN'],O['KEY_FWD_BTN']):
+            gate=Machine(); gate.byte(syms['g_backlight_status'],light)
+            gate.byte(syms['g_keylock_flag'],choice!=0); gate.byte(syms['g_keylock_mode'],1 if choice==2 else 3)
+            blocked=not light and choice!=0 and (choice==1 or key in (O['KEY_PREV'],O['KEY_NEXT']))
+            for address in (HOOKS['on_wm_keydown_before_fun'][0],HOOKS['on_wm_keyup_before_fun'][0]):
+                assert (gate.call(key,address=address)==11)==blocked,(choice,light,key,address)
+passed()
 
 # Settings rows (docs/internals.md#charge-limit, #low-power, #album-artists): Power management gains
 # Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
