@@ -1490,7 +1490,7 @@ static void paint_chevrons(void *w, void *canvas) {
         rect_t r = bounds(&g_menu, i);
         if (2 * r.w >= I(w, W_W) && (!home || i == st.sel_row))
             canvas_draw_icon(canvas, bitmap,
-                             r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 + (home ? 6 : 0),
+                             r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 + (home ? HOME_CHEVRON_SHIFT : 0),
                              home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);

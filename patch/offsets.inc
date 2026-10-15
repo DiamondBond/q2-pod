@@ -198,6 +198,7 @@ static inline int arc_out(int r, int y) {
 #define HOME_SPLIT_W 187
 #define HOME_CLASSIC_ROW 369
 #define HOME_TOP 8 /* Minimal's decorative inset; Classic starts below the status bar. */
+#define HOME_CHEVRON_SHIFT 6
 #define HOME_CLASSIC_TEXT_X 33
 #define HOME_CLASSIC_LABEL_END (CHEVRON_W - 10)
 #define BAR_CLASSIC 0x242424

@@ -1906,7 +1906,8 @@ int coverflow_home_owns(void *w) {
 /* Both menus' lists span outer, their rows and tap targets inner; labels start at x and end end
  * before the row's edge (Classic: before the chevron). */
 static void home_width(void *w, int outer, int inner, int x, int end, int depth) {
-    widget_move_resize(w, I(w, W_X), I(w, W_Y), depth < 2 ? outer : inner, I(w, W_H));
+    widget_move_resize(w, I(w, W_X), depth ? I(w, W_Y) : ipod_classic() ? 0 : HOME_TOP,
+                       depth < 2 ? outer : inner, I(w, W_H));
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
         void *child = widget_get_child(w, i);
         if (!tk_strcmp(widget_get_type(child), "hscroll_label"))
@@ -1934,12 +1935,8 @@ void coverflow_home_layout(void) {
         inner = !full ? split : classic ? HOME_CLASSIC_ROW : HOME_FULL_ROW,
         x = classic ? HOME_CLASSIC_TEXT_X : HOME_DOT_X + HOME_DOT + HOME_DOT_GAP,
         end = classic ? HOME_CLASSIC_LABEL_END : full ? HOME_LABEL_END : HOME_SPLIT_LABEL_END;
-    void *ls[] = { home.list, home.sets };
-    for (int i = 0; i < 2; ++i)
-        if (ls[i]) {
-            home_width(ls[i], outer, inner, x, end, 0);
-            widget_move_resize(ls[i], I(ls[i], W_X), classic ? 0 : HOME_TOP, outer, I(ls[i], W_H));
-        }
+    home_width(home.list, outer, inner, x, end, 0);
+    if (home.sets) home_width(home.sets, outer, inner, x, end, 0);
     widget_move_resize(home.art, split, 0, 375 - split, 290);
     widget_set_visible(home.art, !full, 0);
     home.key = ~0u; /* Split shows the current cover again */
