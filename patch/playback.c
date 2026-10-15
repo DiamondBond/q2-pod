@@ -21,7 +21,7 @@ typedef struct {
     unsigned index, group, rank;
 } entry;
 typedef struct {
-    int active, shuffle, repeat, folder, restoring, dirty;
+    int active, shuffle, repeat, folder, restoring, dirty, grouping;
     unsigned n, cursor, forced, force_end, hn, stamp;
     int saved_elapsed, save_failed, resume_pending, resume_elapsed, resume_wait;
     unsigned saved_pos, saved_sum;
@@ -407,7 +407,9 @@ int playback_groups(void *all, int folder) {
     if (!s.active) return 0;
     make_order(s.order);
     int at = (int)s.order[0].index;
+    s.grouping = 1; /* the load play_folder starts must not end the groups it was started for */
     play_folder(all, at, 0xf001);
+    s.grouping = 0;
     playback_save();
     return 1;
 }
@@ -475,7 +477,8 @@ int ringnav_load(void *q, int at, int type) {
     else if (!s.restoring) {
         s.resume_key = s.resume_pending = 0;
         s.forced = s.force_end = 0;
-        if (s.active && (type == 1 || (type & 0xf000) == 0xf000))
+        /* Shuffle Albums/Folders end with any other queue; a repeat or Shuffle track mode carries on */
+        if (s.active && (type == 1 || (type & 0xf000) == 0xf000) && (s.shuffle < 3 || s.grouping))
             s.active = rebuild(0);
         else {
             s.active = 0;

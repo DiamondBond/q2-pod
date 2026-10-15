@@ -489,6 +489,18 @@ left=m.current(); assert m.fn('ringnav_prev')==1 and m.current()!=left
 m.fn('ringnav_next',0); assert m.current()==left
 checks+=1
 
+# Shuffle Albums/Folders end with a library queue (its hold menu gate follows them); Shuffle Tracks
+# and repeat carry on, and the groups a shuffle starts survive the load it makes.
+for shuffle,kept in ((3,0),(4,0),(2,2),(1,1)):
+    m=PlaybackMachine(); m.options(shuffle,5,0); m.advance_song(0)
+    m.fn('ringnav_load',m.deque([m.song('library')]),0,0xf001)
+    assert m.fn('playback_option',0)==kept
+    assert ('/mnt/data/ringnav-queue' in m.files)==(kept!=0)
+m=PlaybackMachine(); m.options(3,5,0); m.advance_song(0)
+assert m.fn('playback_groups',m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist'])))),0)==1
+assert m.fn('playback_option',0)==3
+checks+=1
+
 # Empty replacement cannot resurrect the previous saved queue at the next boot.
 m=PlaybackMachine(); m.options(0,2,0); assert '/mnt/data/ringnav-queue' in m.files
 m.fn('ringnav_load',m.deque([]),0,1); m.fn('playback_save')
