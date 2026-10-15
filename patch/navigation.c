@@ -159,6 +159,7 @@ typedef struct {
     unsigned rate_hold, rate_tick, rate_album;
     void *rt_menu, *rt_page, *rt_list;
     int dark; /* the backlight was off at the last UI loop pass */
+    int animating; /* a window animation was running at the last UI loop pass */
     /* Power's Charge limit and Low power (read once from config.ini's Q2POD), the value
      * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
@@ -5978,6 +5979,11 @@ static void bt_volume_poll(void) {
  * pass idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except
  * while Now Playing animates. */
 int ringnav_sleep(void *loop) {
+    /* surface() paints no selection while a window animates, so the page under it repaints once
+     * the animation has ended, as after a dark period. */
+    int anim = window_manager_is_animating(window_manager());
+    if (st.animating && !anim) widget_invalidate_force(window_manager(), (void *)0);
+    st.animating = anim;
     headset_poll();
     bt_volume_poll();
     video_poll();

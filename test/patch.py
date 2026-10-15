@@ -3867,6 +3867,14 @@ if variant=='ipod':
     # Drawn in touch mode too, with Home's bar, which touch never hides; none while stock
     # multi-select hides its own.
     m.touch(); m.paint(view); assert m.icons==bar() and m.selected(view)==1; passed()
+    # A window animation paints no selection; the page under it repaints once it ends, as after a dark period.
+    ma=Machine(); view,imgs=home_list(ma); click_target(ma,imgs[2]); ma.clip=(0,0,375,320)
+    sleep_hook=HOOKS['main_loop_sleep_default'][0]; ma.handlers[sleep_hook+12]='stock_sleep'
+    ma.paint(view); assert ma.drawn(); ma.animating=1; ma.call(address=sleep_hook,args=(ma.wm,0,0,0),gap=0)
+    ma.paint(view); assert not ma.drawn()
+    ma.animating=0; ma.calls=[]; ma.call(address=sleep_hook,args=(ma.wm,0,0,0),gap=0)
+    assert ('widget_invalidate_force',ma.wm) in [c[:2] for c in ma.calls]
+    ma.paint(view); assert ma.rounded[0]['rect'][0]==25; passed()
     m.byte(syms['g_navbar_status'],1); m.paint(view); assert not m.icons and not loaded(m); passed()
     # Classic: Home's accent bar spans the list and the chevron rides it alone.
     m=Machine(); m.config['THEME']='1'; view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
