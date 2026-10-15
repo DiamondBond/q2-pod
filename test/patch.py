@@ -6522,13 +6522,21 @@ for otg,card in ((0,1),(1,1),(0,0)):
     m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2); m.byte(syms['g_otg_status'],not otg)
     m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
     assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(1 if direct else 2)
-    # A new selector visit clears the prior direct-entry state.
-    if direct: m.folder('/mnt/mmc'); m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
-    m.byte(syms['g_otg_status'],1); m.byte(syms['g_folder_layer'],1)
-    m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
-    m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2)
-    m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
-    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==2; passed()
+    passed()
+# A direct visit left without Back (as by Home), then a selector visit with OTG: the old root is gone, so
+# Back at the card's root on the selector stays stock.
+m=Machine(); m.present.add('/tmp/mmc_add')
+m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
+m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
+win=m.node('window','folder_page'); m.byte(syms['g_otg_status'],0); m.byte(syms['g_folder_layer'],1)
+m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
+assert m.text(syms['g_folder_path'])=='/mnt/mmc' and m.u.mem_read(syms['g_folder_layer'],1)[0]==2
+m.byte(syms['g_otg_status'],1); m.byte(syms['g_folder_layer'],1)
+m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
+assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1
+m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2)
+m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+assert m.u.mem_read(syms['g_folder_layer'],1)[0]==2; passed()
 
 # Photos (patch/photos.c): the helpers first. Names: .jpg, .jpeg and .png, case aside, not hidden.
 m=Machine(); m.mock('memcmp@GLIBC_2.0',prefix='cmp:')

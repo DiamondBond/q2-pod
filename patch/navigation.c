@@ -239,7 +239,8 @@ typedef struct {
     unsigned qm_queue_hash;
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
     /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set (else at the card,
-     * /mnt/mmc, without a drive); while the page is there, Back at that root leaves it. */
+     * /mnt/mmc, with a card and no drive; otherwise the storage selector stays); while the page is
+     * there, Back at that root leaves it. */
     int media_open;
     char media_root[32];
     void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
@@ -4787,7 +4788,7 @@ int ringnav_folder(void *win, void *ctx) {
     if (!st.media_open || !win) {
         st.media_root[0] = 0;
         /* No drive and a card (stock's check_tfstatus): the card is the only root, so open it. */
-        if (win && !g_otg_status && !access("/tmp/mmc_add", 4))
+        if (win && !g_otg_status && !access("/tmp/mmc_add", 0))
             memcpy(st.media_root, "/mnt/mmc", 9), layer = 2;
     }
     if (st.media_root[0]) {

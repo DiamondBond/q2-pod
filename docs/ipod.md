@@ -92,7 +92,7 @@ Settings. Rockbox is visible only when its binary is on the card, unless Display
 System; Return restores the menu's previous selection, and a short Return on the main menu opens
 Now Playing without changing playback. Return there goes back to Home. The wheel wraps straight past either end of both lists (no bump first).
 Folder opens directly at the SD root when a card is in and no OTG drive is connected; Back at that root returns
-to Home. With OTG connected on entry, Folder keeps the SD/OTG selector. Nested folders and
+to Home. With OTG connected or no card in on entry, Folder keeps the storage selector. Nested folders and
 Library’s Podcasts/Audiobooks shortcuts keep their usual Back navigation.
 The native stock handlers, translation keys, full-row tap targets and submenu animation remain intact.
 
