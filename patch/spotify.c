@@ -16,11 +16,6 @@
 #define SPOT_SOCK "/tmp/q2-librespot.sock" /* its --control-socket */
 #define SPOT_SINK "/tmp/q2sink.sock"       /* q2video -s, its sink off the DAC: video.c SINK_SOCK */
 #define SPOT_ART "/tmp/q2spot.jpg"         /* the cover at the page's size */
-#if IPOD
-#define SPOT_PLACEHOLDER "default_album_flow"
-#else
-#define SPOT_PLACEHOLDER "default_album_big"
-#endif
 #define SPOT_POLL_MS 500
 #define SPOT_YIELD_MS 1500 /* local music waits at most this long for librespot to let the DAC go  \
                             */
@@ -306,10 +301,10 @@ static void spot_refresh(void) {
         tk_snprintf(ui.art_track, sizeof ui.art_track, "%s", sp.track);
         if (!thumb(SPOT_COVER, SPOT_ART, SPOT_ART_PX, SPOT_ART_PX) ||
             !image_show(ui.art, "file://" SPOT_ART, 0))
-            image_base_set_image(ui.art, SPOT_PLACEHOLDER);
+            image_base_set_image(ui.art, PLACEHOLDER);
     } else if (!sp.cover && ui.art_track[0]) {
         ui.art_track[0] = 0;
-        image_base_set_image(ui.art, SPOT_PLACEHOLDER);
+        image_base_set_image(ui.art, PLACEHOLDER);
     }
     unsigned ms = ui.scrub ? (unsigned)ui.scrub_ms : spot_position();
     if (ms / 1000 + 1 != ui.shown) {
@@ -416,7 +411,7 @@ int spot_open(void *ctx, void *event) {
     ui.glyph = widget_factory_create_widget(f, "view", ui.info, 337, 13, 14, 14); /* NP's top row */
     ui.art = image_create(ui.info, SPOT_ART_X, SPOT_ART_Y, SPOT_ART_PX, SPOT_ART_PX);
     image_set_draw_type(ui.art, 4); /* as Coverflow's covers */
-    image_base_set_image(ui.art, SPOT_PLACEHOLDER);
+    image_base_set_image(ui.art, PLACEHOLDER);
     ui.title =
         label(ui.info, SPOT_TEXT_X, SPOT_ART_Y + 41, SPOT_TEXT_W, 28, "s_scrlabel_white20l", NP_TITLE_PX, 0xffffffffu);
     ui.artist =

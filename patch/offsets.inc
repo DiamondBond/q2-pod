@@ -121,6 +121,13 @@
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
 #define NP_ART_RADIUS 12 /* Now Playing's art corners (paint_cover), as stock's play_defaultcover scaled to the art */
+/* A radius-r corner's arc at row y (0 the outermost): how far in it starts, in 1/16 pixels. */
+static inline int arc_out(int r, int y) {
+    int d = 2 * (r - y) - 1, v = (4 * r * r - d * d) * 64, s = 0;
+    while ((s + 1) * (s + 1) <= v) ++s;
+    return 16 * r - s;
+}
+#define PLACEHOLDER (IPOD ? "default_album_flow" : "default_album_big") /* Cover Flow's and Spotify's missing art */
 #define VOL_POLL_MS 50 /* how often the volume indicator checks for a change */
 /* The volume panel off Now Playing (vol_paint): exactly over Quick Settings' brightness row
  * (tools/ipod.py checks it), its rounded corners clear of the 80px glass corners. */

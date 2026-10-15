@@ -26,11 +26,6 @@
 #endif
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
-#if IPOD
-#define PLACEHOLDER "default_album_flow"
-#else
-#define PLACEHOLDER "default_album_big"
-#endif
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
 enum { ARTIST_ALBUMS = 1, RATED_ALBUMS }; /* cf.scoped */
 /* after the albums: Sort, then Refresh library; an artist's none, the rated albums' Sort alone */
@@ -1218,11 +1213,8 @@ void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ri
 #if IPOD
     if (!cf_inset[0]) { /* once, including callers which render without opening the page */
         int r = ART_SIZE * NP_ART_RADIUS / 166;
-        for (int k = 0; k < r; ++k) {
-            int delta = 2 * (r - k) - 1, v = (4 * r * r - delta * delta) * 64, s = 0;
-            while ((s + 1) * (s + 1) <= v) ++s;
-            cf_inset[k] = cf_inset[ART_SIZE - 1 - k] = (unsigned short)((16 * r - s) * 16);
-        }
+        for (int k = 0; k < r; ++k)
+            cf_inset[k] = cf_inset[ART_SIZE - 1 - k] = (unsigned short)(arc_out(r, k) * 16);
     }
 #endif
     shelf_t f;
@@ -1942,13 +1934,12 @@ void coverflow_home_layout(void) {
         inner = !full ? split : classic ? HOME_CLASSIC_ROW : HOME_FULL_ROW,
         x = classic ? HOME_CLASSIC_TEXT_X : HOME_DOT_X + HOME_DOT + HOME_DOT_GAP,
         end = classic ? HOME_CLASSIC_LABEL_END : full ? HOME_LABEL_END : HOME_SPLIT_LABEL_END;
-    home_width(home.list, outer, inner, x, end, 0);
-    if (home.sets) home_width(home.sets, outer, inner, x, end, 0);
-    widget_move_resize(home.list, I(home.list, W_X), classic ? 0 : HOME_TOP, outer,
-                       I(home.list, W_H));
-    if (home.sets)
-        widget_move_resize(home.sets, I(home.sets, W_X), classic ? 0 : HOME_TOP, outer,
-                           I(home.sets, W_H));
+    void *ls[] = { home.list, home.sets };
+    for (int i = 0; i < 2; ++i)
+        if (ls[i]) {
+            home_width(ls[i], outer, inner, x, end, 0);
+            widget_move_resize(ls[i], I(ls[i], W_X), classic ? 0 : HOME_TOP, outer, I(ls[i], W_H));
+        }
     widget_move_resize(home.art, split, 0, 375 - split, 290);
     widget_set_visible(home.art, !full, 0);
     home.key = ~0u; /* Split shows the current cover again */

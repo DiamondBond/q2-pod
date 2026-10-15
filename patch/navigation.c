@@ -2804,9 +2804,7 @@ static int settings_icon(const char *name) {
 static void round_corners(unsigned char *px, int w, int h, int stride, int alpha) {
     int r = (w < h ? w : h) * NP_ART_RADIUS / 166;
     for (int y = 0; y < r; ++y) {
-        int d = 2 * (r - y) - 1, v = (4 * r * r - d * d) * 64, s = 0;
-        while ((s + 1) * (s + 1) <= v) ++s;
-        int out = 16 * r - s;
+        int out = arc_out(r, y);
         for (int x = 0; x <= out / 16; ++x) {
             unsigned coverage = x < out / 16 ? 0 : (unsigned)(16 - (out & 15)) * 255 / 16;
             for (int c = 0; c < 4; ++c) {

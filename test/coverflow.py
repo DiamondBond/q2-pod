@@ -1079,10 +1079,10 @@ int main(void) {
     int with_art = 0, bare = 0;
     for (int i = 0; i < 4; ++i) {
         if (!strncmp(w[s->kids[i]].image, "file://", 7)) ++with_art;
-        else if (!strcmp(w[s->kids[i]].image, (IPOD ? "default_album_flow" : "default_album_big"))) ++bare;
+        else if (!strcmp(w[s->kids[i]].image, PLACEHOLDER)) ++bare;
     }
     assert(with_art == 2 && bare == 2);
-    assert(!strcmp(w[s->kids[4]].image, (IPOD ? "default_album_flow" : "default_album_big")) && !strcmp(w[s->kids[5]].image, (IPOD ? "default_album_flow" : "default_album_big"))); /* Sort, Refresh */
+    assert(!strcmp(w[s->kids[4]].image, PLACEHOLDER) && !strcmp(w[s->kids[5]].image, PLACEHOLDER)); /* Sort, Refresh */
     close_page();
 
     /* A later open builds only the albums with no cache file; the marker is not retried. */
@@ -1142,7 +1142,7 @@ int main(void) {
     free_blocks = 4000; /* under 16 MB of 4 KB blocks */
     before = calls;
     open_page();
-    assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, (IPOD ? "default_album_flow" : "default_album_big")));
+    assert(calls == before && size("Tight") == -1 && slide() && !strcmp(w[slide()->kids[albums - 1]].image, PLACEHOLDER));
     close_page();
     assert(loads == unloads);
     depth();
