@@ -1911,6 +1911,9 @@ int ringnav_bt_resume(void) {
     pod_settings();
     return st.resume;
 }
+/* read_artistype_value: Artists as stock reads it, PLAYSET ARTISTTYPE, but Album Artist when no
+ * choice is saved; stock writes the key only when Artists or the artist page's switch toggles. */
+void ringnav_read_artistype(void) { I(artist_type, 0) = config_or("PLAYSET", "ARTISTTYPE", 2, 1); }
 /* checkBluetoothStatus' player_save_start(0) once a headset's A2DP comes up (tools/build.py
  * BT_CONNECT_START): player_save_stop stopped the local or Tidal queue, and stock restarts it
  * unpaused, so a paused queue plays, and a stopped one starts over whatever owns playback

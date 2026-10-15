@@ -57,6 +57,8 @@ HOOKS = {
     'window_manager_dispatch_input_event': (0x66d49c, 'ringnav_input', 'input'),
     # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
     'buzzeer_switch': (0x4f3cc8, 'ringnav_buzzer', 'buzzer'),
+    # Artists (PLAYSET ARTISTTYPE) without a saved choice is Album Artist
+    'read_artistype_value': (0x4f4724, 'ringnav_read_artistype', None),
     # Power gains Charge limit and Low power; Audio settings gains Artists (Album Artist)
     'systemset_sysset_page_init': (0x4cc4cc, 'ringnav_systemset', 'systemset'),
     'systemset_display_page_init': (0x4c1d04, 'ringnav_display', 'display'),

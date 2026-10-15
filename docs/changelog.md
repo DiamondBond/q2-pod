@@ -4,6 +4,7 @@
   - Folder opens directly at the SD root when a card is in and no OTG drive is connected; Back at the root leaves Folder. With OTG connected on entry, the SD/OTG selector remains available.
   - iPod: short Back on Home opens Now Playing without changing playback. Back in Home’s Settings submenu still returns to the main list; both lists keep immediate wrapping.
   - The guide now covers custom boot logos and navigation, and corrects Rockbox recovery to Play/Pause. Logo synchronization requires Q2 Pod to run before the next boot.
+  - Artists: Audio settings' **Artists** defaults to **Album Artist**, so guest artists ("Artist feat. Guest") no longer split an album across the Artists list. A saved Artist choice stays.
 
 - **1.1.9**:
   - DSD: DSF, DFF and SACD ISO files play again, and no longer leave the player slow and choppy afterwards.

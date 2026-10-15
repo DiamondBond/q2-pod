@@ -7518,6 +7518,12 @@ assert click(0)==[(1,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Oldest Fir
 assert click(0)==[(0,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Newest First'
 assert click(1)==[(1,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==1 and texts()[1]=='Artists: Album Artist'
 assert click(1)==[(0,'PLAYSET','ARTISTTYPE')] and m.get(syms['artist_type'])==0; passed()
+# Artists is Album Artist until a choice is saved (read_artistype_value); a saved Artist stays.
+for config,want in (({},1),({'ARTISTTYPE':'0'},0),({'ARTISTTYPE':'1'},1)):
+    a=Machine(); a.config.update(config); a.word(syms['artist_type'],7)
+    a.call(address=HOOKS['read_artistype_value'][0],args=(0,0,0,0),gap=0)
+    assert a.get(syms['artist_type'])==want and a.config_reads[-1][1:3]==('PLAYSET','ARTISTTYPE'),config
+passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
 assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,1,8,16,15,17,13,14,12,6,7]; passed()
