@@ -1,7 +1,7 @@
 # Changelog
 
 - **1.2.0**:
-  - Folder opens directly at the SD root when no OTG drive is connected; Back at the root leaves Folder. With OTG connected on entry, the SD/OTG selector remains available.
+  - Folder opens directly at the SD root when a card is in and no OTG drive is connected; Back at the root leaves Folder. With OTG connected on entry, the SD/OTG selector remains available.
   - iPod: short Back on Home opens Now Playing without changing playback. Back in Home’s Settings submenu still returns to the main list; both lists keep immediate wrapping.
   - The guide now covers custom boot logos and navigation, and corrects Rockbox recovery to Play/Pause. Logo synchronization requires Q2 Pod to run before the next boot.
 

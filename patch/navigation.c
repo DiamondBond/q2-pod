@@ -238,9 +238,9 @@ typedef struct {
     void *qm_dialog, *qm_queue, *qm_playlist;
     unsigned qm_queue_hash;
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
-    /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set; while the page
-     * is there, Back at that root leaves it. */
-    int media_open, folder_direct;
+    /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set (else at the card,
+     * /mnt/mmc, without a drive); while the page is there, Back at that root leaves it. */
+    int media_open;
     char media_root[32];
     void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
     char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own
@@ -4783,24 +4783,19 @@ static int media_click(void *ctx, void *event) {
  * folders at 3 on (folder_enter). A media root becomes a layer-3 folder, so stock's reload, title
  * (its name, folder_reinit_navbarname) and entering all treat it as one. */
 int ringnav_folder(void *win, void *ctx) {
-    int result = stock_folder_trampoline(win, ctx);
-    st.folder_direct = 0;
-    if (st.media_open && win) {
+    int result = stock_folder_trampoline(win, ctx), layer = 3;
+    if (!st.media_open || !win) {
+        st.media_root[0] = 0;
+        /* No drive and a card (stock's check_tfstatus): the card is the only root, so open it. */
+        if (win && !g_otg_status && !access("/tmp/mmc_add", 4))
+            memcpy(st.media_root, "/mnt/mmc", 9), layer = 2;
+    }
+    if (st.media_root[0]) {
         memcpy((char *)g_folder_path, st.media_root, sizeof st.media_root);
-        g_folder_layer = 3;
+        g_folder_layer = layer;
         folder_reload_data();
         folder_reinit_navbarname();
         folder_refresh(win);
-    } else {
-        st.media_root[0] = 0;
-        if (win && !g_otg_status) {
-            st.folder_direct = 1;
-            memcpy((char *)g_folder_path, "/mnt/mmc", 9);
-            g_folder_layer = 2;
-            folder_reload_data();
-            folder_reinit_navbarname();
-            folder_refresh(win);
-        }
     }
     st.media_open = 0;
     return result;
@@ -4814,14 +4809,12 @@ void ringnav_folder_top(void) {
     if (!g_otg_status && deque_size(roots) == 2) deque_pop_back(roots);
 }
 
-/* Back at a shortcut or bypassed SD root leaves the page (stock's layer 0). */
+/* Back at a shortcut or bypassed SD root (media_root, each its own layer) leaves the page (stock's
+ * layer 0). */
 int ringnav_folder_back(void *yoffset, void *index) {
-    if ((st.folder_direct && g_folder_layer == 2) ||
-        (st.media_root[0] && g_folder_layer == 3 &&
-         !tk_strcmp((const char *)g_folder_path, st.media_root))) {
+    if (st.media_root[0] && !tk_strcmp((const char *)g_folder_path, st.media_root)) {
         g_folder_layer = 1;
         st.media_root[0] = 0;
-        st.folder_direct = 0;
     }
     return stock_folder_back_trampoline(yoffset, index);
 }

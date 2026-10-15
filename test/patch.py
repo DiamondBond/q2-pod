@@ -3832,7 +3832,9 @@ if variant=='ipod':
     assert m.call(gap=50)==11 and m.selected(view)==0
     assert m.call(O['KEY_PREV'],gap=50)==11 and m.selected(view)==6
     for i in range(5,2,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
-    assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==3 and len(destinations(m))==1
+    assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==3
+    dest=destinations(m); assert len(dest)==1 and m.text(dest[0][1])=='playing_page'
+    assert [m.get(dest[0][2]+4*i) for i in range(4)]==[0,0,255,2]
     m.call(O['KEY_PREV'],gap=1000)
     assert not m.slides and m.confirm()==11 and m.dispatched()[0][1]==imgs[2]; passed()
 
@@ -6477,7 +6479,7 @@ assert [c[0] for c in m.calls]==['stock_folder','memcpy','folder_reload_data','f
 assert m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)==0 and m.calls[-1][0]=='stock_folder_back'
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1; passed()
 m.byte(syms['g_folder_layer'],3); assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0  # the Folder view
-m.byte(syms['g_folder_layer'],3); m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
+m.folder('/mnt/mmc/PODCASTS'); m.byte(syms['g_folder_layer'],3); m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==3; passed()
 
 # Audiobooks uses the same shortcut path, even with OTG connected; a nested Back stays in Folder.
@@ -6498,29 +6500,33 @@ m.folder('/mnt/mmc/Audiobooks'); m.byte(syms['g_folder_layer'],3)
 m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1; passed()
 
-# Folder visits bypass the storage selector only when OTG was absent on entry.
-for otg in (0,1):
+# Folder visits bypass the storage selector only when OTG was absent and the card present on entry
+# (stock's check_tfstatus: /tmp/mmc_add).
+for otg,card in ((0,1),(1,1),(0,0)):
     m=Machine()
+    if card: m.present.add('/tmp/mmc_add')
     m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
     m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
     win=m.node('window','folder_page'); m.byte(syms['g_otg_status'],otg); m.byte(syms['g_folder_layer'],1)
     assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0
-    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(1 if otg else 2)
-    if not otg:
+    direct=card and not otg; calls=[c[0] for c in m.calls if not c[0].startswith('access')]
+    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(2 if direct else 1)
+    if direct:
         assert m.text(syms['g_folder_path'])=='/mnt/mmc'
-        assert [c[0] for c in m.calls]==['stock_folder','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh']
-    else: assert [c[0] for c in m.calls]==['stock_folder']
+        assert calls==['stock_folder','memcpy','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh']
+    else: assert calls==['stock_folder']
     # Nested Back stays stock. Plugging/unplugging OTG mid-visit does not change root Back.
     m.folder('/mnt/mmc/Music'); m.byte(syms['g_folder_layer'],3)
     m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
     assert m.u.mem_read(syms['g_folder_layer'],1)[0]==3
     m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2); m.byte(syms['g_otg_status'],not otg)
     m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
-    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(2 if otg else 1)
+    assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(1 if direct else 2)
     # A new selector visit clears the prior direct-entry state.
+    if direct: m.folder('/mnt/mmc'); m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
     m.byte(syms['g_otg_status'],1); m.byte(syms['g_folder_layer'],1)
     m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
-    m.byte(syms['g_folder_layer'],2)
+    m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2)
     m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
     assert m.u.mem_read(syms['g_folder_layer'],1)[0]==2; passed()
 
