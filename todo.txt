@@ -1,0 +1,12 @@
+- library: keep audiobooks out of Artists and Albums
+  Audiobooks (.m4b, and anything under Audiobooks) show under Artists and Albums in the Library.
+  - Coverflow's music_albums already drops them (MUSIC_ALBUM_SQL in patch/coverflow.c); the Library's own lists don't.
+  - Filter the Library Artists and Albums lists the same way, so audiobooks only appear under Audiobooks.
+  - Check Podcasts too, and that Coverflow's album list stays unchanged.
+
+- buttons lock: volume-only option
+  The capacitive wheel gets touched in a pocket and changes the volume while the screen is off.
+  - Buttons Lock gets two modes: everything, and volume only.
+  - Quick settings' lock tile cycles Off, Everything, Volume only.
+  - Volume only locks the capacitive wheel's volume control and leaves the scroll-wheel buttons (skip, play) working.
+  - Check the stock lock (system_keylock, KEY_LOCKOUT in patch/navigation.c) before changing it.
