@@ -525,7 +525,7 @@ class Machine:
     def confirm(self):
         """Single centre release followed by its full confirmation delay."""
         ret=self.call(O['KEY_CENTER'])
-        self.advance(200,clear=False)
+        self.advance(O['DOUBLE_CLICK_MS'],clear=False)
         return ret
     def release(self,gap=0):
         """Execute both the hook and the real stock downstream screen-toggle handler."""
@@ -1838,7 +1838,7 @@ for failure in ('slide_fail','slide_on_fail'):
 # Centre arms the intended final icon while its slide is still unfinished.
 m=Machine(); w=m.page('home_page','slide_menu')
 for _ in range(5): m.call(gap=20)
-m.release(0); m.advance(75); m.advance(125)
+m.release(0); m.advance(75); m.advance(O['DOUBLE_CLICK_MS']-75)
 assert m.clicks==[m.nodes[w]['children'][5]] and not m.slides, (m.clicks,m.get(w+O['SLIDE_INDEX']),m.timers,m.slides); passed()
 m=Machine(); w=m.page('home_page','slide_menu'); m.release(0); m.call(gap=20)
 m.advance(300); assert not m.clicks; passed()
@@ -1846,7 +1846,7 @@ m.advance(300); assert not m.clicks; passed()
 m=Machine(); m.page('sysset_page','slide_menu')
 assert m.call(gap=0)==11 and m.call(gap=1)==11 and m.moved(); passed()
 # Even if the UI services a release before an overdue timer, both singles confirm once.
-m=Machine(); w,es=m.page_list(3); m.release(); m.now+=201
+m=Machine(); w,es=m.page_list(3); m.release(); m.now+=O['DOUBLE_CLICK_MS']+1
 assert m.release()==11 and m.clicks==[es[0]] and len(m.timers)==1
 m.advance(300); assert m.clicks==[es[0],es[0]] and not m.screens; passed()
 # Deadline expiry may navigate: the following release must resolve the new menu.
@@ -1855,7 +1855,7 @@ def navigate(a,b):
     m.on_click=None
     m.page_list(3,name='display_page')
 m.on_click=navigate; m.release(); old=m.top
-assert m.release(201)==11 and m.top!=old and len(m.clicks)==1
+assert m.release(O['DOUBLE_CLICK_MS']+1)==11 and m.top!=old and len(m.clicks)==1
 m.advance(300); assert len(m.clicks)==2 and m.clicks[0]!=m.clicks[1] and not m.screens; passed()
 # The downstream stock cleanup still owns long-press and boot-key releases.
 for addr in (syms['g_power_longkey'],syms['g_ingore_bootkey_flag'],O['BOOT_KEY_GUARD']):
@@ -2277,7 +2277,7 @@ if variant=='stock':
 for flag in ('g_backlight_status','g_power_longkey','g_ingore_bootkey_flag'):
     m=Machine(); w,es=m.page_list(3)
     m.on_click=lambda a,b: m.byte(syms[flag],0 if flag=='g_backlight_status' else 1)
-    m.release(); m.now+=201
+    m.release(); m.now+=O['DOUBLE_CLICK_MS']+1
     assert m.call(O['KEY_CENTER'],gap=0)==0,flag
     assert m.clicks==[es[0]] and not m.timers
     passed()
@@ -6033,7 +6033,7 @@ if variant=='ipod':
     # Centre is a button: its press clicks as stock, and the delayed confirmation adds nothing.
     m,w,es=long_list(8,audible(Machine()))
     assert press(m,CENTER)==1 and lift(m,CENTER)==0 and m.ret==11
-    m.advance(200); assert m.clicks==[es[0]] and not buzzes(m); passed()
+    m.advance(O['DOUBLE_CLICK_MS']); assert m.clicks==[es[0]] and not buzzes(m); passed()
 
     # 6. The Key Tone setting. Off: everything above is silent and the rows still move. The click
     # uses the setting at the moment of the step, and the byte is never left changed: press() and
@@ -7164,10 +7164,10 @@ assert double() and m.key(O['KEY_NEXT'])==11 and m.key(O['KEY_NEXT'])==11 and m.
 m.advance(250); assert texts(info)[4]==mmss('1:05') and 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
 m.poll(O['SCRUB_MS']-260); assert not m.sent; m.poll(); assert m.sent[0][1]=='S65000'  # 250 ms already passed
 assert double() and m.key(O['KEY_PREV'])==11 and m.key(O['KEY_CENTER'])==11 and m.sent[0][1]=='S55000'
-m.advance(200); assert m.key(O['KEY_CENTER'])==11; m.advance(200); assert 'on_wm_keyup_fun' in [c[0] for c in m.calls] and not m.sent
+m.advance(O['DOUBLE_CLICK_MS']); assert m.key(O['KEY_CENTER'])==11; m.advance(O['DOUBLE_CLICK_MS']); assert 'on_wm_keyup_fun' in [c[0] for c in m.calls] and not m.sent
 # Scrubbing, a single press seeks at once and the screen stays on.
 m.advance(200); assert double() and m.key(O['KEY_PREV'])==11; m.sent=[]; assert m.key(O['KEY_CENTER'])==11 and m.sent[0][1]=='S55000'
-m.advance(200); assert 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
+m.advance(O['DOUBLE_CLICK_MS']); assert 'on_wm_keyup_fun' not in [c[0] for c in m.calls]
 # Return goes back to Streaming.
 assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()

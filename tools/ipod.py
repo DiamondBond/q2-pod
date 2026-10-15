@@ -619,7 +619,7 @@ ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
 def sized_art(data, size):
     w, h = size if isinstance(size, tuple) else (size, size)
     px = min(w, h)
-    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', '-background', 'none',
+    return imagemagick('png:-', '-filter', 'Lanczos', '-resize', f'{px}x{px}!', '-background', 'black',
                        '-gravity', 'center', '-extent', f'{w}x{h}', *PNG_OUT, data=data)
 
 
@@ -657,7 +657,7 @@ def quiet_icon(name, data):
     check(sha(data) == QUIET_ICONS.get(name), f'{name}: unaudited control icon')
     return imagemagick('png:-', '-trim', '+repage', '-filter', 'Lanczos', '-resize', '24x24',
                       '-channel', 'RGB', '-fill', '#aaaaaa' if name == 'play_moredown.png' else '#eeeeee',
-                      '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'none',
+                      '-colorize', '100', '+channel', '-gravity', 'center', '-background', 'black',
                       '-extent', '28x28', *PNG_OUT, data=data)
 
 
