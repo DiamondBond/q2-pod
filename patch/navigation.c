@@ -4326,7 +4326,10 @@ static int most_played(void *ctx, void *event) {
 /* Tidal Downloads (docs/internals.md#tidal-cache): Streaming's row lists tidal.c's complete
  * downloads, newest first, and plays them from the card as a folder queue, without Wi-Fi.
  * ponytail: newest download first, not last played; demo imports no utime to touch a replay. */
-typedef struct { long mtime; void *r; } td_row;
+typedef struct {
+    long mtime;
+    void *r;
+} td_row;
 static int td_newer(const void *a, const void *b) {
     long x = ((const td_row *)a)->mtime, y = ((const td_row *)b)->mtime;
     return (y > x) - (y < x);
@@ -4339,7 +4342,8 @@ static int td_play(void *ctx, void *event) {
 }
 static int tidal_downloads(void *ctx, void *event) {
     (void)ctx, (void)event;
-    if (st.td_page || !(st.td_page = page_open("tidal_downloads", page_closed, page_keyup))) return 0;
+    if (st.td_page || !(st.td_page = page_open("tidal_downloads", page_closed, page_keyup)))
+        return 0;
     int n = 0;
     void *rows = staged(directory, TIDAL_DIR, &n);
     unsigned size = deque_size(rows), info[36];
@@ -4356,10 +4360,13 @@ static int tidal_downloads(void *ctx, void *event) {
     for (int i = 0; i < n; i++) _deque_push_back(st.td_list, v[i].r);
     free(v);
     deque_destroy(rows);
-    void *view = page_list(st.td_page, st.td_page, 0, n ? "Tidal Downloads" : "No downloads yet", n, 48);
+    void *view =
+        page_list(st.td_page, st.td_page, 0, n ? "Tidal Downloads" : "No downloads yet", n, 48);
     char name[256];
-    for (int i = 0; i < n; i++) { /* tidal_name's label: the name after "<id>-<quality> ", less its extension */
-        const char *f = P(deque_at(st.td_list, (unsigned)i), REC_NAME), *sp = f ? strstr(f, " ") : 0;
+    for (int i = 0; i < n;
+         i++) { /* tidal_name's label: the name after "<id>-<quality> ", less its extension */
+        const char *f = P(deque_at(st.td_list, (unsigned)i), REC_NAME),
+                   *sp = f ? strstr(f, " ") : 0;
         tk_snprintf(name, sizeof name, "%s", sp ? sp + 1 : f ? f : "");
         char *dot = strrchr(name, '.');
         if (dot && dot != name) *dot = 0;
