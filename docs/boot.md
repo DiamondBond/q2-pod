@@ -81,10 +81,11 @@ Flash `/tmp/q2-logo/update.tar` the normal way: copy it to the root of the micro
 - **Format: 8-bit, three-component baseline JPEG (RGB/YCbCr).** No PNG, alpha, grayscale or CMYK. The stock renderer assumes three decoded bytes per pixel; the builder rejects incompatible frame headers.
 - **Keep it small.** On the card, at most 512 KB. In a build, JPEG data barely compresses and the repacked rootfs must stay within the stock image size (50,442,240 bytes). The stock splash is 47.8 KB and a rebuilt Stock rootfs with `assets/boot-logo.jpg` leaves about 12 KB of slack (iPod, without the Home carousel images, about 272 KB), so keep a Stock-build logo under about 28 KB (this file plus that slack); re-save at lower quality if the build fails with `Repacked rootfs exceeds stock size`. `assets/boot-logo.jpg` is about 6 KB.
 
-The shared default for both firmware variants is a small monoline mark on black: a circular Q with a short 45-degree tail and a geometric 2, both drawn with the same 10-pixel stroke and flat terminals in warm off-white (#F2F2F0), about 140x70 pixels. Below it, a thin, widely spaced POD in light grey (#D4D4D0) sits between two dark grey hairlines that run out to the edges of the mark. The group is centred at about 47% of the screen height, because perfect centring looks low. There are no gradients or glows. The mark is drawn entirely from strokes, so no fonts are required to render it. Its upright source is `assets/boot-logo.svg` (375x320). To reproduce the firmware JPEG with ImageMagick:
+The shared default for both firmware variants is an outlined URW Gothic Book wordmark on black, in warm off-white (#F2F2F0), about 140x72 pixels. The Q keeps its sweeping tail, while the 2 is widened for a balanced base. Below it, widely spaced POD in muted warm grey (#BDBDB8) has a tiny centre button inside the O, a subtle reference to the Q2's click wheel. The group is centred at about 47% of the screen height, because perfect centring looks low. There are no gradients or glows. All lettering is converted to paths, so no fonts are required to render it. Its upright source is `assets/boot-logo.svg` (375x320). To reproduce the firmware JPEG with librsvg and ImageMagick:
 
 ```sh
-magick -background black -density 384 assets/boot-logo.svg -resize 375x320 \
+rsvg-convert -w 1500 -h 1280 assets/boot-logo.svg | \
+  magick png:- -resize 375x320 \
   -rotate 90 -colorspace sRGB -type TrueColor -strip -interlace none \
   -sampling-factor 4:4:4 -quality 92 assets/boot-logo.jpg
 ```
