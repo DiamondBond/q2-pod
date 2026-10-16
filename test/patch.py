@@ -7937,7 +7937,7 @@ class TagMachine(BooksMachine):
     def __init__(self,files):
         super().__init__({},files); self.stock_artist=b''
         tramp=int(manifest['patch_symbols']['stock_music_info_trampoline'],16)
-        self.handlers[tramp]='stock_music_info'
+        self.handlers[tramp]='stock_music_info'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
     def hook(self,u,address,size,unused):
         if self.handlers.get(address)!='stock_music_info': return super().hook(u,address,size,unused)
         u.mem_write(u.reg_read(UC_MIPS_REG_A1)+0x580,self.stock_artist+b'\0')
