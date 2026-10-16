@@ -437,16 +437,21 @@ static const char *title(void) {
     for (int i = nw; i > page - w; --i) if (!strcmp(w[i].type, "hscroll_label") && w[w[i].parent].parent == page - w) return w[i].text;
     return "";
 }
+/* The cache file of Artist's album_name. */
+static char *art_file(char *path, const char *album_name) {
+    unsigned h = 2166136261u;
+    for (const unsigned char *s = (const unsigned char *)"Artist"; *s; ++s) h = (h ^ *s) * 16777619u;
+    h *= 16777619u;
+    for (const unsigned char *s = (const unsigned char *)album_name; *s; ++s) h = (h ^ *s) * 16777619u;
+    h *= 16777619u;
+    snprintf(path, 600, PEQ_ROOT "/mnt/mmc/.coverflow/%08x.jpg", h);
+    return path;
+}
 static long size(const char *album_name) {
     char path[600];
     for (int i = 0; i < albums; ++i) {
         if (strcmp(names[i], album_name)) continue;
-        unsigned h = 2166136261u;
-        for (const unsigned char *s = (const unsigned char *)"Artist"; *s; ++s) h = (h ^ *s) * 16777619u;
-        h *= 16777619u;
-        for (const unsigned char *s = (const unsigned char *)names[i]; *s; ++s) h = (h ^ *s) * 16777619u;
-        h *= 16777619u;
-        snprintf(path, sizeof(path), PEQ_ROOT "/mnt/mmc/.coverflow/%08x.jpg", h);
+        art_file(path, names[i]);
         struct stat s;
         return stat(path, &s) ? -1 : s.st_size;
     }
@@ -1047,6 +1052,40 @@ static void player_cover(void) {
         assert(cases[i].want ? !strcmp(got, cases[i].want) : !f);
     }
     extern_found = 0;
+    /* Once the player has parsed the track, an album Coverflow marked empty skips ffmpeg; a
+       missing marker, or a real cover, still goes to it. */
+    char track[600], marker[600];
+    snprintf(track, sizeof track, PEQ_ROOT "/music/Ffok/01.flac");
+    snprintf(shim_id3, sizeof(shim_id3), "%s", track);
+    snprintf(shim_id3 + ID3_ALBUM, 256, "%s", "Ffok");
+    snprintf(shim_id3 + ID3_ARTIST, 256, "%s", "Artist");
+    art_file(marker, "Ffok");
+    for (int i = 0; i < 3; ++i) {
+        FILE *f = i == 1 ? 0 : fopen(marker, "w");
+        if (f) fprintf(f, "%s", i ? "ffmpeg" : ""), fclose(f);
+        if (i == 1) unlink(marker);
+        unlink(dst);
+        int ok = coverflow_player_cover(track, dst, 320, 320);
+        assert(ok == !!i && access(dst, 0) == (i ? 0 : -1));
+    }
+    /* The marker skips only the embedded probe: with it, Webp's cover.webp still shows (a shared
+       folder, or a disc Coverflow did not look at), and a track the player has not parsed probes. */
+    FILE *f = fopen(art_file(marker, "Webp"), "w");
+    fclose(f);
+    snprintf(track, sizeof track, PEQ_ROOT "/music/Webp/01.flac");
+    snprintf(shim_id3, sizeof(shim_id3), "%s", track);
+    snprintf(shim_id3 + ID3_ALBUM, 256, "%s", "Webp");
+    unlink(dst);
+    assert(coverflow_player_cover(track, dst, 320, 320) && !access(dst, 0));
+    f = fopen(marker, "w"); /* Webp's art back, as ffmpeg_art left it */
+    fputs("ffmpeg", f), fclose(f);
+    f = fopen(art_file(marker, "Ffok"), "w");
+    fclose(f);
+    snprintf(track, sizeof track, PEQ_ROOT "/music/Ffok/01.flac");
+    unlink(dst);
+    assert(coverflow_player_cover(track, dst, 320, 320) && !access(dst, 0));
+    fputs("ffmpeg", f = fopen(marker, "w")), fclose(f);
+    memset(shim_id3, 0, sizeof(shim_id3));
 }
 
 int main(void) {

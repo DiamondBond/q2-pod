@@ -161,8 +161,7 @@ static int folder_shared(unsigned key, const char *track) {
 }
 
 /* The cover and folder images beside track through fit (none when shared: a folder shared with
- * other albums, whose cover.jpg would be theirs too), then ffmpeg's read of its embedded art, last
- * as it costs a process for every track without art. */
+ * other albums, whose cover.jpg would be theirs too). */
 static int beside_art(const char *track, const char *dst, int w, int h, int shared,
                       int (*fit)(const char *, const char *, int, int)) {
     char src[1024];
@@ -174,19 +173,36 @@ static int beside_art(const char *track, const char *dst, int w, int h, int shar
         snprintf(src, sizeof(src), "%.*s/%s", folder, track, names[i]);
         ok = !access(src, 4) && fit(src, dst, w, h);
     }
-    return ok || ff_thumb(track, dst, w, h);
+    return ok;
+}
+
+/* Whether Coverflow marked the album of the track the player parsed (g_play_id3_info, keyed as
+ * Home's art is) empty: its build found no art for the album's track. */
+static int marked_empty(const char *track) {
+    const char *id3 = (const char *)g_play_id3_info;
+    if (tk_strcmp(id3, track)) return 0;
+    char art[512];
+    void *f = fopen(art_path(art, tags_key(id3 + ID3_ARTIST, id3 + ID3_ALBUM), ""), "rb");
+    long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
+    if (f) fclose(f);
+    return !size;
 }
 
 /* player_parsecover_thd's folder-image call, after its embedded art failed, under
  * g_playcover_mutex: what stock refuses (a PNG over 1 MB or palette/greyscale, WebP) goes to
  * ffmpeg, so Now Playing gets the art Coverflow shows. ff_thumb takes no lock, so Coverflow's
- * parse-then-play order cannot deadlock with it. ponytail: a track with no art at all costs an
- * ffmpeg probe on every play; skip albums Coverflow marked empty if skips feel slow. */
+ * parse-then-play order cannot deadlock with it. The folder images cost a process only when one
+ * exists; the embedded probe, a process for every track without art, is skipped for an album
+ * Coverflow marked empty. ponytail: the marker is one track's verdict, so another disc's or a
+ * same-named album's embedded-only WebP or large PNG shows no art here; a per-track probe cache
+ * if that matters. */
 int coverflow_player_cover(const char *track, const char *dst, int w, int h) {
-    return toolsGetExternCover(track, dst, w, h) == 1 || beside_art(track, dst, w, h, 0, ff_thumb);
+    return toolsGetExternCover(track, dst, w, h) == 1 || beside_art(track, dst, w, h, 0, ff_thumb) ||
+           (!marked_empty(track) && ff_thumb(track, dst, w, h));
 }
 
-/* One album: embedded art, then beside_art; written to .tmp and renamed. An empty file marks
+/* One album: embedded art, then beside_art, then ffmpeg's read of the embedded art, last as it
+ * costs a process for every album without art; written to .tmp and renamed. An empty file marks
  * "no art", so the placeholder shows and the album is not retried until Refresh. */
 static void build_art(const job_t *j) {
     char dst[512], tmp[512];
@@ -201,7 +217,8 @@ static void build_art(const job_t *j) {
     int ok = toolsGetAlbumCover(j->track, tmp, ART_SIZE, ART_SIZE) == 1;
     pthread_mutex_unlock((void *)g_playcover_mutex);
     pthread_mutex_unlock((void *)parse_cover_mutex);
-    ok = ok || beside_art(j->track, tmp, ART_SIZE, ART_SIZE, j->shared, thumb);
+    ok = ok || beside_art(j->track, tmp, ART_SIZE, ART_SIZE, j->shared, thumb) ||
+         ff_thumb(j->track, tmp, ART_SIZE, ART_SIZE);
     if (ok && !rename(tmp, dst)) return;
     unlink(tmp);
     if (access(j->track, 0)) return;
