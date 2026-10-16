@@ -4917,19 +4917,37 @@ m=AlbumRateMachine(); dq=m.deque(m.albums[:2]); m.top=m.node('window','artistinf
 assert m.call(address=payload_syms['coverflow_artist'],args=(dq,0,0,0),gap=0)==1; m.page=m.top; m.slide=m.find('slide_menu')
 assert m.menu()==[*COVER_ALBUM,'Go to Artist'] and m.rate(5)=='Album rated  ♥♥♥♥♥' and m.kept()==[(m.aid(m.albums[0])&~7)|5]
 assert m.run(4) is None and m.call(O['KEY_RETURN'])==11 and m.panel() is None and m.top==m.page; passed()
-# An artist's covers stop at both ends: a step past kicks the end cover and springs it back, never wrapping.
+# An artist's covers stop at both ends (All albums the last): a step past kicks the end and springs it back, never wrapping.
 w=m.slide; index=lambda: m.get(w+O['SLIDE_INDEX'])
 assert m.call(O['KEY_PREV'],gap=500)==11; _,kick,goal,_=slide(m,w); assert kick>0 and goal==0
 m.advance(300); assert index()==0 and not m.slides
-m.call(O['KEY_NEXT'],gap=500); m.advance(300); assert index()==1
+for i in (1,2): m.call(O['KEY_NEXT'],gap=500); m.advance(300); assert index()==i
 m.call(O['KEY_NEXT'],gap=500); assert slide(m,w)[1:3]==(-kick,0)
-m.advance(300); assert index()==1 and not m.slides and m.get(w+O['SLIDE_OFFSET'])==0; passed()
+m.advance(300); assert index()==2 and not m.slides and m.get(w+O['SLIDE_OFFSET'])==0; passed()
 # The covers' Return closes the unseen artist page under them first, so the Artists list is next.
 artist=m.stack[0]; m.stack.insert(0,m.node('window','localclass_page')); m.nodes[m.wm]={'children':m.stack}; m.mock('navigator_back','window_manager_close_window_force')
 f,ctx=m.handler(m.page,O['EVT_KEY_UP'])
 assert m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)==11
 calls=[c for c in m.calls if c[0] in ('window_manager_close_window_force','navigator_back')]
 assert [c[0] for c in calls]==['window_manager_close_window_force','navigator_back'] and calls[0][1:3]==(m.wm,artist); passed()
+# An artist's All albums card, after the covers, plays every album from the first song as a library queue: the
+# covers' order, each album's songs in album order. A Play/Pause hold on it opens nothing; one album has no card.
+class AllAlbums(CoverflowMachine):
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)=='q:getMusicByAlbum': self.found=self.by_album[self.text(u.reg_read(REGS[0]))]
+        return super().hook(u,address,size,unused)
+for albums,want in (([1,0],['c','d','a','b']),([0],None)):
+    m=AllAlbums(); m.by_album={'Album 0':[track(m,'b','/p/b',1,2),track(m,'a','/p/a',1,1)],
+                               'Album 1':[track(m,'d','/p/d',2,1),track(m,'c','/p/c',1,1)]}
+    m.top=m.node('window','artistinfo_page'); m.stack=[m.top]
+    assert m.call(address=payload_syms['coverflow_artist'],args=(m.deque([m.albums[i] for i in albums]),0,0,0),gap=0)==1
+    m.page=m.top; m.slide=m.find('slide_menu'); cards=m.nodes[m.slide]['children']
+    assert len(cards)==len(albums)+(want is not None)
+    if want:
+        m.word(m.slide+O['SLIDE_INDEX'],2); m.press(100); assert m.hold()==0 and m.top==m.page
+        f,ctx=m.handler(cards[2],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
+        assert m.plays[-1][2:]==(0,0xf001,2) and m.play_names==want,(m.plays,m.play_names)
+    passed()
 # Library Albums rows rate as covers do, their album split as Coverflow's.
 m=AlbumRateMachine(page='album_page',cls=O['CLASS_ALBUMS']); m.page=m.top; a0=m.aid(m.row(0))
 assert m.menu()==[*COVER_ALBUM,'Add to Playlist','Go to Artist']

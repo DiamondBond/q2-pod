@@ -818,8 +818,8 @@ static void sorting(void) {
     rescan();
 }
 
-/* Artist albums: Coverflow (navigation.c): an artist's albums alone, in their order, no Sort or
-   Refresh card; the library's list is back once the page closes. */
+/* Artist albums: Coverflow (navigation.c): an artist's albums alone, in their order, then All
+   albums, no Sort or Refresh card; the library's list is back once the page closes. */
 int coverflow_artist(void *albums);
 static void artist_only(void) {
     rescan();
@@ -831,7 +831,7 @@ static void artist_only(void) {
     page = &w[nw + 1];
     assert(coverflow_artist(d));
     run();
-    assert(slide()->nkids == 2);
+    assert(slide()->nkids == 3);
     order_is((const char *const[]){ "B", "Tight", 0 });
     deque *again = _create_deque(0);
     again->at[again->n++] = records[0];

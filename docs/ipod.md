@@ -524,7 +524,7 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
 pixels high). iPod runs the stock init, then adds six rows the same way: "Theme: Minimal" and
 "Accent: Graphite" with the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
-mode icon (`playset_covermode`), "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon, see [internals.md](internals.md#artist-albums-in-coverflow)),
+mode icon (`playset_covermode`), "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon; Coverflow ends with an All albums card, see [internals.md](internals.md#artist-albums-in-coverflow)),
 "Battery: Icon" (Icon, Percent, Icon + Percent, Percent Inside; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
 (`system_powermanager`), then "Shortcut: Rockbox", all among the [settings icons](#settings-icons)

@@ -28,8 +28,9 @@
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
 enum { ARTIST_ALBUMS = 1, RATED_ALBUMS }; /* cf.scoped */
-/* after the albums: Sort, then Refresh library; an artist's none, the rated albums' Sort alone */
-#define CARDS (cf.scoped == ARTIST_ALBUMS ? 0 : cf.scoped ? 1 : 2)
+/* after the albums: Sort, then Refresh library; an artist's All albums (two or more), the rated
+ * albums' Sort alone */
+#define CARDS (cf.scoped == ARTIST_ALBUMS ? deque_size(cf.albums) > 1 : cf.scoped ? 1 : 2)
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
     stock_scan_folder_trampoline(void *, void *), stock_delete_song_trampoline(void *, void *);
@@ -1425,7 +1426,9 @@ static int changed(void *ctx, void *event) {
     }
     void *r = c + CARDS < n ? deque_at(cf.albums, c) : (void *)0;
     if (r && !cf.scoped) cf.saved_album = album_key(r);
-    widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM) : c + CARDS == n ? sort_names[cf.sort] : "Refresh library");
+    widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM)
+                                  : c + CARDS != n ? "Refresh library"
+                                  : cf.scoped == ARTIST_ALBUMS ? "All albums" : sort_names[cf.sort]);
     widget_set_text_utf8(cf.artist, r ? P(r, REC_ARTIST) : ""); /* NULL leaves the old one */
     /* Stock draws even a centred caption at -xoffset: a long one's scroll would shift the next left. */
     widget_set_prop_int(cf.name, "xoffset", 0);
@@ -1433,7 +1436,7 @@ static int changed(void *ctx, void *event) {
     return 0;
 }
 
-/* One child per album plus the Sort and Refresh cards, moved by the wheel only: the slide_menu takes no
+/* One child per album plus the cards (CARDS), moved by the wheel only: the slide_menu takes no
  * touch. With depth it spans the frame, so every step repaints all of it, and its CF_VIEW_H square
  * items with a negative spacer move one album per CF_STRIDE px; the children stay empty under the
  * frame. The flat fallback is the stock images, 160 px, as before. ponytail: one child per album;
@@ -1686,6 +1689,27 @@ static int to_tracks(const void *unused) {
     return 0;
 }
 
+/* The All albums card: every album's tracks, the covers' order and each album's in album order,
+ * from the first, as a library queue (0xff10 would resume one album of the name). ponytail: a
+ * query per album; one artist query split back into albums if a large artist drags. */
+static int play_all(const void *unused) {
+    (void)unused;
+    cf.timer = 0;
+    void *all = _create_deque("stSongInfo");
+    deque_init(all);
+    for (unsigned i = 0; i < deque_size(cf.albums); ++i) {
+        void *t = coverflow_album_tracks(deque_at(cf.albums, i));
+        for (unsigned j = 0; j < deque_size(t); ++j) _deque_push_back(all, deque_at(t, j));
+        deque_destroy(t);
+    }
+    if (deque_size(all) && !access(P(deque_at(all, 0), REC_PATH), 0))
+        play_folder(all, 0, 0xf001);
+    else
+        widget_set_text_utf8(cf.name, "Storage unavailable");
+    deque_destroy(all);
+    return 0;
+}
+
 static int refresh(const void *unused) {
     (void)unused;
     cf.timer = 0;
@@ -1720,7 +1744,9 @@ static int resort(const void *unused) {
 static int pick(void *ctx, void *event) {
     (void)event;
     int i = (int)(long)ctx, n = (int)deque_size(cf.albums);
-    if (i == n + 1)
+    if (i == n && cf.scoped == ARTIST_ALBUMS)
+        rearm(&cf.timer, play_all, 0);
+    else if (i == n + 1)
         rearm(&cf.timer, refresh, 0);
     else if (i == n)
         rearm(&cf.timer, resort, 0);
