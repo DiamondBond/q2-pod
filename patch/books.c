@@ -540,7 +540,10 @@ static void info(void) {
                     bk.state == BAD ? "Can't open this book" : "Preparing\xe2\x80\xa6");
     else
         tk_snprintf(caption, sizeof caption, "%u%%  %s", pct, title(bk.path[bk.current], name));
-    widget_set_text_utf8(bk.info, caption);
+    if (tk_strcmp(widget_get_prop_str(bk.info, "text", ""), caption)) {
+        widget_set_text_utf8(bk.info, caption);
+        widget_set_prop_int(bk.info, "xoffset", 0); /* a long caption's scroll would shift this one left */
+    }
     widget_set_visible(bk.info, bk.info_on || bk.state, 0);
 }
 

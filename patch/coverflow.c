@@ -1427,6 +1427,9 @@ static int changed(void *ctx, void *event) {
     if (r && !cf.scoped) cf.saved_album = album_key(r);
     widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM) : c + CARDS == n ? sort_names[cf.sort] : "Refresh library");
     widget_set_text_utf8(cf.artist, r ? P(r, REC_ARTIST) : ""); /* NULL leaves the old one */
+    /* Stock draws even a centred caption at -xoffset: a long one's scroll would shift the next left. */
+    widget_set_prop_int(cf.name, "xoffset", 0);
+    widget_set_prop_int(cf.artist, "xoffset", 0);
     return 0;
 }
 
