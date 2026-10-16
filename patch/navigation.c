@@ -159,7 +159,7 @@ typedef struct {
     int ls_sec, ls_heard, ls_done;
     /* Most Played's page and its tracks: the last ranking plus the songs counted since, kept across
      * opens while the library is at mp_gen (~library_gen once stale). */
-    void *mp_page, *mp_list;
+    void *mp_page, *mp_list, *td_page, *td_list;
     unsigned mp_gen;
     void *sp_page; /* the Library Shuffle menu's page, kept across picks */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
@@ -2209,6 +2209,16 @@ static void bar_sync(void *bar) {
         st.bar_state = widget_lookup(bar, "img_state", 1);
         st.bar_eq = widget_lookup(bar, "label_eq", 1);
     }
+    if (st.bar_state) {
+        int status = media_owner() == 1 ? mclGetPlayStatus() :
+                     video_status() ?: radio_status() ?: spot_status();
+        widget_set_visible(st.bar_state, status == 2 || status == 3, 0);
+        if (status == 2 || status == 3) {
+            const char *icon = status == 2 ? "bar_play" : "bar_pause";
+            if (tk_strcmp(widget_get_prop_str(st.bar_state, "image", ""), icon))
+                image_base_set_image(st.bar_state, icon);
+        }
+    }
     if (st.bar_idle && st.bar_state && st.bar_eq)
         widget_set_visible(st.bar_idle,
                            !widget_get_visible(st.bar_state) && !widget_get_visible(st.bar_eq), 0);
@@ -4161,6 +4171,11 @@ static int page_closed(void *ctx, void *event) {
     }
     if (ctx == st.rt_menu) st.rt_menu = 0;
     if (ctx == st.mp_page) st.mp_page = 0;
+    if (ctx == st.td_page) {
+        st.td_page = 0;
+        if (st.td_list) deque_destroy(st.td_list);
+        st.td_list = 0;
+    }
     if (ctx == st.sp_page) st.sp_page = 0;
     return 0;
 }
@@ -4304,6 +4319,51 @@ static int most_played(void *ctx, void *event) {
         tk_snprintf(detail, sizeof detail, a ? "%s · %u play%s" : "%s%u play%s", a ? artist : "",
                     plays, plays == 1 ? "" : "s");
         page_row_detail(view, i, track_name(name, sizeof name, t), detail, mp_play);
+    }
+    return 0;
+}
+
+/* Tidal Downloads (docs/internals.md#tidal-cache): Streaming's row lists tidal.c's complete
+ * downloads, newest first, and plays them from the card as a folder queue, without Wi-Fi.
+ * ponytail: newest download first, not last played; demo imports no utime to touch a replay. */
+typedef struct { long mtime; void *r; } td_row;
+static int td_newer(const void *a, const void *b) {
+    long x = ((const td_row *)a)->mtime, y = ((const td_row *)b)->mtime;
+    return (y > x) - (y < x);
+}
+static int td_play(void *ctx, void *event) {
+    (void)event;
+    void *t = deque_at(st.td_list, (unsigned)(long)ctx);
+    if (t && !access(P(t, REC_PATH), 0)) play_folder(st.td_list, (int)(long)ctx, 0xf001);
+    return 0;
+}
+static int tidal_downloads(void *ctx, void *event) {
+    (void)ctx, (void)event;
+    if (st.td_page || !(st.td_page = page_open("tidal_downloads", page_closed, page_keyup))) return 0;
+    int n = 0;
+    void *rows = staged(directory, TIDAL_DIR, &n);
+    unsigned size = deque_size(rows), info[36];
+    td_row *v = calloc(size + 1, sizeof *v);
+    n = 0;
+    for (unsigned i = 0; v && i < size; i++) { /* songs only: .tmp and folders aren't audio */
+        void *r = deque_at(rows, i);
+        if (I(r, REC_TYPE) == 8 && P(r, REC_PATH) && !__xstat(3, P(r, REC_PATH), info))
+            v[n++] = (td_row){ (long)info[16], r };
+    }
+    if (n) qsort(v, (unsigned)n, sizeof *v, td_newer);
+    st.td_list = _create_deque("stSongInfo");
+    deque_init(st.td_list);
+    for (int i = 0; i < n; i++) _deque_push_back(st.td_list, v[i].r);
+    free(v);
+    deque_destroy(rows);
+    void *view = page_list(st.td_page, st.td_page, 0, n ? "Tidal Downloads" : "No downloads yet", n, 48);
+    char name[256];
+    for (int i = 0; i < n; i++) { /* tidal_name's label: the name after "<id>-<quality> ", less its extension */
+        const char *f = P(deque_at(st.td_list, (unsigned)i), REC_NAME), *sp = f ? strstr(f, " ") : 0;
+        tk_snprintf(name, sizeof name, "%s", sp ? sp + 1 : f ? f : "");
+        char *dot = strrchr(name, '.');
+        if (dot && dot != name) *dot = 0;
+        page_row_detail(view, i, name, 0, td_play);
     }
     return 0;
 }
@@ -5088,6 +5148,7 @@ int ringnav_stream(void *win, void *ctx) {
     void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;
     if (view) {
         library_into(view, "stream_spotify", spot_open, 0, "Spotify");
+        library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads");
         library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
         library_into(view, "stream_airplay", airplay_open, 0, "AirPlay");
     }
@@ -6383,7 +6444,7 @@ int ringnav(void *ctx, void *event) {
     int result = stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
     /* Media controls follow the active source, including when local Now Playing is visible. */
-    if (!result && media_owner() != 1 &&
+    if (!result && (media_focused() || media_owner() != 1) &&
         (key == KEY_PLAY || key == KEY_FWD_BTN || key == KEY_BACK_BTN)) {
         media_key(key);
         return STOP;

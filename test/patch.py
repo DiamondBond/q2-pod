@@ -242,8 +242,9 @@ class Machine:
         elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
         elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
         elif name=='rockbox_stat':
-            assert a==3 and self.text(b)=='/mnt/mmc/.rockbox/rockbox'
-            self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
+            assert a==3
+            if self.text(b)!='/mnt/mmc/.rockbox/rockbox': ret=-1  # Tidal Downloads' rows: no such files here
+            else: self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
         elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
         elif name=='strrchr@GLIBC_2.0': i=self.text(a).encode().rfind(bytes([b&255])); ret=a+i if i>=0 else 0
         elif name=='memcmp@GLIBC_2.0': x,y=bytes(u.mem_read(a,c)),bytes(u.mem_read(b,c)); ret=(x>y)-(x<y)
@@ -3981,9 +3982,12 @@ if variant=='ipod':
     paint_live_bar()
     idle=named(m,bar,'label_idle'); state=named(m,bar,'img_state'); eq=named(m,bar,'label_eq')
     clock_box=tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))
-    for playing,equalizer,icon in ((0,0,''),(1,0,'bar_play'),(1,0,'bar_pause'),(0,1,''),(1,1,'bar_play'),(0,0,'')):
-        m.nodes[state].update(visible=playing,image=icon); m.nodes[eq]['visible']=equalizer
-        paint_live_bar()
+    # bar_sync shows the play state (here local's, mclGetPlayStatus: 2 playing, 3 paused) itself.
+    m.handlers.pop(syms['mclGetPlayStatus'],None)
+    for status,equalizer,icon in ((0,0,''),(2,0,'bar_play'),(3,0,'bar_pause'),(0,1,''),(2,1,'bar_play'),(0,0,'')):
+        m.word(0xa3beac,status); m.nodes[eq]['visible']=equalizer
+        paint_live_bar(); playing=int(bool(icon))
+        assert m.nodes[state]['visible']==playing and (not playing or m.nodes[state]['image']==icon)
         assert m.nodes[idle]['visible']==int(not playing and not equalizer)
         assert tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==clock_box
     passed()
@@ -7099,12 +7103,20 @@ class SpotMachine(BooksMachine):
     def key(self,k):
         self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
 def stream_page(m):
-    """Stock Streaming's one Tidal row, then the hook's Spotify, Internet Radio and AirPlay rows; returns Spotify's button."""
+    """Stock Streaming's one Tidal row, then the hook's Spotify, Tidal Downloads, Internet Radio and AirPlay
+    rows; returns Spotify's button."""
     view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
     assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0 and m.calls[0][0]=='stock_stream'
-    assert len(m.nodes[view]['children'])==4
+    assert len(m.nodes[view]['children'])==5
+    # Tidal Downloads, after Spotify: the card's cached Tidal tracks, here none.
+    tidal=m.nodes[m.nodes[view]['children'][2]]['children'][0]; icon,label=m.nodes[tidal]['children'][:2]
+    assert m.nodes[icon]['image']=='list_tidal' and m.nodes[label]['text']=='Tidal Downloads'
+    top=m.top; f,ctx=m.handler(tidal,O['EVT_CLICK']); m.calls=[]; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+    assert [m.text(c[1]) for c in m.calls if c[0]=='toolsLoadDirectory']==['/mnt/mmc/.tidal']
+    assert m.nodes[m.top]['name']=='tidal_downloads' and 'No downloads yet' in [n.get('text') for n in m.nodes.values()]
+    f,ctx=m.handler(m.top,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.top=top
     # AirPlay, last: stock's own receiver, its switch on System settings' Network service page, one press away.
-    airplay=m.nodes[m.nodes[view]['children'][3]]['children'][0]; icon,label=m.nodes[airplay]['children'][:2]
+    airplay=m.nodes[m.nodes[view]['children'][4]]['children'][0]; icon,label=m.nodes[airplay]['children'][:2]
     assert m.nodes[icon]['image']=='stream_airplay' and m.nodes[label]['text']=='AirPlay'
     top=m.top; f,ctx=m.handler(airplay,O['EVT_CLICK']); m.calls=[]; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
     assert [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['systemset/netservice_page']; m.top=top
@@ -7263,7 +7275,7 @@ class RadioMachine(SpotMachine):
     def stream(self):
         view=self.node('scroll_view','scroll_view_streamsset',[self.node('list_item')]); self.top=self.node('window','stream_page',[view])
         assert self.call(address=HOOKS['stream_page_init'][0],args=(self.top,5,0,0),gap=0,count=5_000_000)==0
-        return self.nodes[self.nodes[view]['children'][2]]['children'][0]
+        return self.nodes[self.nodes[view]['children'][3]]['children'][0]
     def click(self,w):
         f,ctx=self.handler(w,O['EVT_CLICK']); assert self.call(address=f,args=(ctx,self.event,0,0),gap=0,count=5_000_000)==0
         self.advance(0,clear=False)
@@ -7494,11 +7506,17 @@ def track(uri,title,ctx='',pos=''): return ('track',uri,title,'An Artist',ctx,po
 # signed in, the menu: Now Playing, Queue and Playback settings only with a track.
 m=BrowseMachine(); m.open(); assert m.labels()==['Loading…'] and m.systems==['/bin/sh /mnt/mmc/.spotify/run']
 m.answer(*ME); assert m.wire==[b'Q2SPOT/1\n1\taccount\n']
-MENU=['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account']
+MENU=['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account','Downloaded Tracks']
 assert m.labels()==MENU
 m.state('playing'); m.poll(); m.advance(250)
-assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account']
+assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account','Downloaded Tracks']
 m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.state('none',track=''); m.poll(); m.advance(250); assert m.labels()==MENU; passed()
+# Downloaded tracks stay reachable while the service cannot answer catalogue requests, and a row
+# uses the cache-only play operation.
+m.row(6); assert m.asked()==('downloaded',)
+m.answer(*OK,[track('spotify:track:cached','Cached')])
+m.row(0); assert m.asked()==('playdownload','spotify:track:cached')
+m.answer(*OK,[]); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.back(); passed()
 # Loading, an error with Retry (offline, throttled, error, or no answer), one without, and empty.
 m.row(0); assert m.labels()==['Loading…'] and m.asked()==('liked',)
 m.answer('offline',"Spotify can't be reached",'',[]); assert m.labels()==["Spotify can't be reached",'Retry']
@@ -8357,7 +8375,7 @@ class HeadsetMachine(Machine):
         elif name.endswith('_session'): ret=self.session
         elif name.endswith('_set_playing'): self.playing=bool(a); self.actions.append((owner,'play' if a else 'pause'))
         elif name=='local_toggle': self.playing=not self.playing; self.actions.append((1,'play' if self.playing else 'pause'))
-        else: self.actions.append((owner,a if owner!=1 else name))
+        else: self.actions.append((owner,a if owner!=1 else name)); ret=int(name.endswith('_media') and self.owner==owner)
         u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
     def fn(self,name,value=0,gap=0): return self.call(address=payload_syms[name],args=(value,0,0,0),gap=gap)
     def ears(self,mask,gap=100): return self.fn('headset_ears',4|mask,gap)
@@ -8456,6 +8474,11 @@ passed()
 # Stock Tidal shares the native queue controls and session cancellation.
 m=HeadsetMachine(); m.word(O['MCL_TYPE'],2); m.ears(3); m.ears(1); assert not m.playing
 m.ears(3); assert m.playing; m.command(163); assert m.actions[-1]==(1,'local_next'); passed()
+# A focused streaming page owns the keys: Spotify's while it runs, else the owner's; Tidal's are local's.
+for owner,page,want in ((2,'spotbrowse_page',[(2,O['KEY_PLAY'])]),(1,'spotify_page',[(2,O['KEY_PLAY']),(1,'pause')]),
+                        (3,'radionp_page',[(3,O['KEY_PLAY'])]),(2,'tidal_downloads',[(1,'pause')]),(2,'home_page',[(2,O['KEY_PLAY'])])):
+    m=HeadsetMachine(owner); m.top=m.node('window',page,[])
+    m.fn('media_key',O['KEY_PLAY']); assert m.actions==want,(page,m.actions); passed()
 # Resume on connect (docs/internals.md#resume-on-connect), local music and Spotify. Off (default): a
 # headset's PLAY within CONNECT_HOLD_MS (5 s) of the link starts nothing, a later one plays. On: it plays.
 for owner in (1,2):

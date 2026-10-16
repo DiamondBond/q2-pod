@@ -52,13 +52,26 @@ void media_set_playing(int playing) {
         player_play_pause();
     hs.automatic = 0;
 }
+/* The streaming page on top, which owns the playback keys: 1 Spotify, 2 radio, 3 Tidal; 0 none. */
+static int focus(void) {
+    void *top = window_manager_get_top_window(window_manager());
+    const char *name = top ? widget_get_prop_str(top, "name", "") : "";
+    return !tk_strcmp(name, "spotify_page") || !tk_strcmp(name, "spotbrowse_page") ? 1
+           : !tk_strcmp(name, "radio_page") || !tk_strcmp(name, "radionp_page") ? 2
+           : tk_str_start_with(name, "tidal_")                                  ? 3
+                                                                                : 0;
+}
+int media_focused(void) { return focus() != 0; }
 void media_key(unsigned key) {
     headset_manual();
-    if (video_status())
+    int f = focus(); /* a focused Spotify or radio that isn't running leaves them to the owner */
+    if ((f == 1 && spot_media(key)) || (f == 2 && radio_media(key)))
+        return;
+    if (f != 3 && video_status())
         video_key(key);
-    else if (radio_status())
+    else if (f != 3 && radio_status())
         radio_media(key);
-    else if (spot_status())
+    else if (f != 3 && spot_status())
         spot_media(key);
     else if (key == KEY_PLAY)
         player_play_pause();

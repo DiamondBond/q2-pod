@@ -106,7 +106,8 @@ static struct {
         *sub;
     unsigned timer, leave, scrub_at, shown, playing, press, press_at;
     int scrub, scrub_ms;
-    char art_track[64];
+    char art_track[64], art_tried[64]; /* art_tried: the track whose cover failed, tried art_tries times */
+    int art_tries;
 } ui __attribute__((section(".scratch")));
 
 unsigned long long now_ms(void) { /* shared with radio.c; not now_ns() / 1e6: no __udivdi3 here */
@@ -361,11 +362,17 @@ static void spot_refresh(void) {
         widget_set_text_utf8(ui.album, sp.album);
     }
     /* ponytail: the cover is sized on the UI thread, one decode a track; a worker if it stutters */
-    if (sp.cover && tk_strcmp(ui.art_track, sp.track)) {
-        tk_snprintf(ui.art_track, sizeof ui.art_track, "%s", sp.track);
-        if (!thumb(SPOT_COVER, SPOT_ART, SPOT_ART_PX, SPOT_ART_PX) ||
-            !image_show(ui.art, "file://" SPOT_ART, 0))
+    /* A cover that fails (written after its state line, or bad) is tried again on the next 3 ticks. */
+    if (tk_strcmp(ui.art_tried, sp.track)) ui.art_tries = 0;
+    if (sp.cover && tk_strcmp(ui.art_track, sp.track) && ui.art_tries < 4) {
+        if (thumb(SPOT_COVER, SPOT_ART, SPOT_ART_PX, SPOT_ART_PX) &&
+            image_show(ui.art, "file://" SPOT_ART, 0))
+            tk_snprintf(ui.art_track, sizeof ui.art_track, "%s", sp.track);
+        else {
+            tk_snprintf(ui.art_tried, sizeof ui.art_tried, "%s", sp.track);
+            ui.art_tries++;
             image_base_set_image(ui.art, PLACEHOLDER);
+        }
     } else if (!sp.cover && ui.art_track[0]) {
         ui.art_track[0] = 0;
         image_base_set_image(ui.art, PLACEHOLDER);
@@ -500,7 +507,7 @@ static void spot_np(void) {
 enum { L_BASE, L_LIST, L_CATS, L_CONFIRM };
 enum { S_LOAD, S_READY, S_ERROR, S_PAIR, S_OLD, S_WAIT }; /* S_WAIT: no socket yet, asked again */
 enum { A_FETCH, A_PLAY, A_ENQUEUE, A_SET, A_SIGNOUT };
-enum { M_PLAYING, M_LIKED, M_PLAYLISTS, M_ALBUMS, M_ARTISTS, M_SEARCH, M_QUEUE, M_SETTINGS, M_ACCOUNT };
+enum { M_PLAYING, M_LIKED, M_PLAYLISTS, M_ALBUMS, M_ARTISTS, M_SEARCH, M_QUEUE, M_SETTINGS, M_ACCOUNT, M_DOWNLOADED };
 enum { G_ROW, G_SHOW, G_SEARCH };
 
 typedef struct {
@@ -525,7 +532,7 @@ enum { W_OK, W_NOSOCK, W_FAIL };
 static struct {
     void *page, *view, *edit;
     unsigned timer, go, leave, poll_at, until; /* until: no socket before it is librespot starting */
-    int depth, act, next, arg, playing, rows[9];
+    int depth, act, next, arg, playing, rows[10];
     char term[64];
     level_t *lv; /* SPOT_DEPTH of them, calloc'd */
 } br __attribute__((section(".scratch")));
@@ -536,7 +543,7 @@ static level_t *top(void) { return &br.lv[br.depth - 1]; }
 static const char *cell(const level_t *l, int i, int k) { return l->f[4 + 6 * i + k]; }
 static int has_track(void) { return sp.track[0] && strcmp(sp.state, "none"); }
 static const char *const MENU[] = { "Now Playing", "Liked Songs", "Playlists", "Albums", "Artists",
-                                    "Search", "Queue", "Playback Settings", "Account" };
+                                    "Search", "Queue", "Playback Settings", "Account", "Downloaded Tracks" };
 static const char *const CATS[] = { "Tracks", "Albums", "Artists", "Playlists" };
 
 /* "\t" and s escaped appended to out (size bytes); 0 when it doesn't fit. */
@@ -652,7 +659,7 @@ static void show(void) {
         row(1, "Update Spotify on the card", "to browse on the Q2");
     } else if (l->kind == L_BASE) {
         br.playing = has_track();
-        for (int r = M_PLAYING; r <= M_ACCOUNT; ++r)
+        for (int r = M_PLAYING; r <= M_DOWNLOADED; ++r)
             if ((r != M_PLAYING && r != M_QUEUE && r != M_SETTINGS) || br.playing) br.rows[n++] = r;
         br.view = page_list(br.page, br.page, 0, "Spotify", n, 48);
         for (int i = 0; i < n; ++i) /* Now Playing and Search open no list */
@@ -815,7 +822,7 @@ static int search_left(void *ctx, void *event) {
 /* A row's choice, on a timer: a row's click may not rebuild the list it is in. */
 static int go(const void *unused) {
     (void)unused;
-    static const char *const ops[] = { 0, "liked", "playlists", "albums", "artists", 0, "queue", "settings", "account" };
+    static const char *const ops[] = { 0, "liked", "playlists", "albums", "artists", 0, "queue", "settings", "account", "downloaded" };
     static const char *const cats[] = { "tracks", "albums", "artists", "playlists" };
     level_t *l = top();
     int i = br.arg;
@@ -858,12 +865,12 @@ static int go(const void *unused) {
             push(L_LIST, l->op, l->args, c, l->title);
     } else {
         const char *kind = cell(l, i, 0), *uri = cell(l, i, 1), *v = cell(l, i, 2), *ctx = cell(l, i, 4);
-        int queue = !strcmp(l->op, "queue"), shuffle = !strcmp(uri, "shuffle");
-        if (!strcmp(kind, "track")) { /* in its context, or alone; a queue row by its place */
+        int queue = !strcmp(l->op, "queue"), dl = !strcmp(l->op, "downloaded"), shuffle = !strcmp(uri, "shuffle");
+        if (!strcmp(kind, "track")) { /* in its context, or alone; a queue row by its place; a download has no context */
             if (queue ? put(a, sizeof a, cell(l, i, 5)) && put(a, sizeof a, uri)
                 : ctx[0] ? put(a, sizeof a, ctx) && put(a, sizeof a, cell(l, i, 5)) && put(a, sizeof a, uri)
                          : put(a, sizeof a, uri))
-                request(queue ? "skip" : "play", a, A_PLAY); /* Now Playing once it plays */
+                request(dl ? "playdownload" : queue ? "skip" : "play", a, A_PLAY); /* Now Playing once it plays */
         } else if (!strcmp(kind, "setting"))
             request(shuffle ? "shuffle" : "repeat",
                     shuffle              ? strcmp(v, "on") ? "\ton" : "\toff"

@@ -127,6 +127,8 @@ int blob_io(const char *path, const char *tmp, void *buf, unsigned size, int wri
 #define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", &(buf), sizeof(buf), write)
 int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
 void play_folder(void *dq, int idx, int cls);
+int directory(void *path); /* playback.c: toolsLoadDirectory, for staged */
+#define TIDAL_DIR "/mnt/mmc/.tidal" /* tidal.c's cache, Tidal Downloads' list */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal: MINIMAL_FILL) */
@@ -143,7 +145,7 @@ void *label(void *parent, int x, int y, int w, int h, const char *style, int px,
 void spot_yield(void), radio_stop(void);
 void headset_volume_reset(void);
 void headset_poll(void), headset_manual(void);
-int media_owner(void), media_playing(void);
+int media_owner(void), media_playing(void), media_focused(void);
 void media_set_playing(int playing), media_key(unsigned key);
 void video_key(unsigned key);
 int radio_media(unsigned key), spot_media(unsigned key);

@@ -1765,6 +1765,13 @@ def tidal_check(tmp):
     assert ext(b'https://x/a/b.mp4') == b'.mp4'
     assert ext(b'https://x.y/a/b?f=c.flac') is None and ext(b'https://x/a.') is None  # no extension in the path
     assert ext(b'https://x/a.longextension') is None and ext(b'https://x/a.flac', 5) is None  # too long for out
+    lib.tidal_name.restype = C.c_char_p
+    name = lambda n, artist, title, ext=b'.flac': lib.tidal_name(C.create_string_buffer(n), n, b'42-3', artist, title, ext)
+    assert name(64, b'A/B', b'Song: "1"?') == b'42-3 A_B - Song_ _1__.flac'
+    assert name(64, None, b'Solo') == b'42-3 Solo.flac' and name(64, b'A', b'') == b'42-3.flac'
+    assert name(16, b'Artist', b'Title') == b'42-3 Artis.flac'  # cut to fit
+    assert name(16, b'', '\u00e9\u00e9\u00e9'.encode()) == '42-3 \u00e9\u00e9.flac'.encode()  # never mid-character
+    assert name(9, b'A', b'T') is None
     # Run the actual eviction loop with a synthetic directory, including a failed unlink.
     trim = (ROOT/'patch/tidal.c').read_text().split('static void trim(void) {', 1)[1].split('static unsigned save', 1)[0]
     source = tmp/'tidal_trim.c'

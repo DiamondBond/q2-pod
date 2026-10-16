@@ -377,6 +377,7 @@ static inline int arc_out(int r, int y) {
 #define INPUT_KEY_TIME 0x08
 /* stSongInfo rows of p_deque_showlist and the mcl queue. */
 #define REC_ID 0x00             /* -1/-2: unknown album/artist */
+#define REC_TIDAL_ID 0x04       /* a Tidal queue row's song id (get_tidal_trackurl 0x48323c) */
 #define REC_NAME 0x08           /* the file name; REC_TITLE is the tag's, empty when untagged */
 #define REC_PATH 0x0c
 #define REC_TITLE 0x10

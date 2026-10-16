@@ -785,7 +785,7 @@ static int resume_before(const void *a, const void *b) {
     int cmp = resume_cmp(x->record, P(r, REC_PATH), I(r, REC_CUE_START), I(r, REC_CUE_END));
     return cmp ? cmp : (x->ordinal > y->ordinal) - (x->ordinal < y->ordinal);
 }
-static int directory(void *path) { return toolsLoadDirectory(path); }
+int directory(void *path) { return toolsLoadDirectory(path); }
 /* Stock resume rebuilds an album queue (0xff10) from every album of its name (getMusicByAlbum):
  * the playing track's album alone. */
 static int stock_memory(void *out) {
