@@ -3537,6 +3537,13 @@ m=ClassMachine(page='localclass_page',cls=0xf001,rows=2); m.word(m.row(1)+O['REC
 m.word(m.row(0)+O['REC_NAME'],m.string('a.flac')); m.word(m.row(0)+O['REC_PATH'],m.string('/p/a.flac'))
 m.call(address=HOOKS['load_localclass_list'][0],args=(0xf001,0,0,0),gap=0)
 assert variant!='ipod' or [m.text(m.get(m.row(i)+O['REC_TITLE'])) for i in (0,1)]==['a','Tagged']; passed()
+# Favorites: a row stock copied without its title takes the library's, by path, not its file name.
+m=ClassMachine(page='localclass_page',cls=0xf001,rows=2)
+m.word(m.row(0)+O['REC_NAME'],m.string('05-song.flac')); m.word(m.row(0)+O['REC_PATH'],m.string('/p/05-song.flac'))
+m.handlers.pop(syms['getAllMusic']); m.split=[m.song('Row 0'),m.song('05-song.flac')]; m.word(m.split[1]+O['REC_TITLE'],m.string('Song'))
+m.call(address=HOOKS['load_localclass_list'][0],args=(0xf00a,0,0,0),gap=0)
+t=m.get(m.row(1)+O['REC_TITLE'])  # no library title: as before
+assert m.text(m.get(m.row(0)+O['REC_TITLE']))=='Song' and (m.text(t)=='Row 1' if variant=='ipod' else not t); passed()
 # An empty category list says so once its page is up, instead of a black page.
 m=ClassMachine(page='localclass_page',cls=0xf001,rows=0)
 assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf006,0,0,0),gap=0)==0 and not m.toasts

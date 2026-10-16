@@ -4042,6 +4042,29 @@ int ringnav_badge(const char *path, char *out, int size) {
     tk_snprintf(out, (unsigned)size, "null");
     return 0;
 }
+/* My Fav's rows are stock's copies of the songs as added, some with an empty title though the
+ * library has the tag: an empty one takes the library's, by path, so it reads as every other
+ * list's instead of falling back to its file name. */
+static int songs_unsorted(void *);
+static void fav_titles(void *list, int n) {
+    void *songs = 0;
+    for (int i = 0; i < n; ++i) {
+        void *r = deque_at(list, (unsigned)i);
+        char **title = (char **)((char *)r + REC_TITLE), *t;
+        if (I(r, REC_TYPE) != 8 || (*title && **title) || !P(r, REC_PATH)) continue;
+        int k;
+        if (!songs) songs = staged(songs_unsorted, 0, &k);
+        for (unsigned j = 0; j < deque_size(songs); ++j) {
+            void *s = deque_at(songs, j);
+            const char *lib = P(s, REC_TITLE), *path = P(s, REC_PATH);
+            if (!path || strcmp(path, P(r, REC_PATH)) || I(s, REC_CUE_START) != I(r, REC_CUE_START))
+                continue;
+            if (lib && *lib && (t = strdup(lib))) free(*title), *title = t;
+            break;
+        }
+    }
+    if (songs) deque_destroy(songs);
+}
 int ringnav_localclass(int cls) {
     I(g_artist_type, 0) = I(artist_type, 0) == 1;
     library_music = cls == CLASS_ALBUMS || cls == 0xf004;
@@ -4049,6 +4072,7 @@ int ringnav_localclass(int cls) {
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
+    if (n > 0 && cls == 0xf00a) fav_titles(list, n);
     if (IPOD) /* an untagged song's row reads its file name without the extension (track_name) */
         for (int i = 0; i < n; ++i) {
             void *r = deque_at(list, (unsigned)i);
