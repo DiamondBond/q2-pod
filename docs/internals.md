@@ -457,7 +457,7 @@ Library Artists (both Artist and Album Artist) and Albums exclude `.m4b` and `/m
 
 ## Buttons lock
 
-Settings' Buttons Lock rows and the quick-settings lock tile offer Off, Everything and Volume only. They save stock's `SYSSET LOCKFLAG` and `LOCKMODE`: 3 for Everything, 1 for Volume only. Stock's key-down and key-up filters already apply these modes only while the screen is off: mode 1 rejects wheel keys 172/173; mode 3 also rejects Return, Play/Pause and skip keys 222/223. Centre remains the wake key. `KEY_LOCKOUT` is independent, the short debounce after a button press. `ringnav_keylock_rows` replaces the stock row builder; `ringnav_quick_lock` replaces the lock tile callback, and `ringnav_quick_settings` labels the current choice on open.
+Settings' Buttons Lock rows and the quick-settings lock tile offer Off, Everything, Buttons only and Volume only. They save stock's `SYSSET LOCKFLAG` and `LOCKMODE`: 3 for Everything, 2 for Buttons only, 1 for Volume only. Stock's key-down and key-up filters already apply these modes only while the screen is off: mode 1 rejects wheel keys 172/173; mode 2 rejects Return, Play/Pause and skip keys 222/223; mode 3 rejects both sets. A mode outside 1–3 is saved as 3. Centre remains the wake key. `KEY_LOCKOUT` is independent, the short debounce after a button press. `ringnav_keylock_rows` replaces the stock row builder; `ringnav_quick_lock` replaces the lock tile callback, and `ringnav_quick_settings` labels the current choice on open.
 
 ## Photos
 

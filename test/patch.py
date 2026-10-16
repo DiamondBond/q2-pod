@@ -7886,19 +7886,23 @@ m=ResumeMachine({'/mnt/data/ringnav-plays':b''.join(struct.pack('<II',*e) for e 
 playing(m,0,200,pos=0,n=110); assert counts(m)==[(fnv('/p/A'),1)]+full[:5]+full[6:]; passed()
 
 # Both lock UIs use stock's persistent flag/mode, and the existing key gates enforce each choice.
+LOCK_NAMES=['Off','Everything','Buttons only','Volume only']
 m=QueueMachine(); view=m.node('scroll_view','scroll_view_keylock')
+m.byte(syms['g_keylock_flag'],1); m.byte(syms['g_keylock_mode'],2)  # stock's buttons-only is kept
 m.top=m.node('window','keylock_page',[view])
 assert m.call(address=HOOKS['keylock_rows'][0],args=(m.top,0,0,0),gap=0)==0
 rows=m.nodes[view]['children']; buttons=[m.nodes[r]['children'][0] for r in rows]
 labels=[m.nodes[b]['children'][-1] for b in buttons]; icons=[m.nodes[b]['children'][0] for b in buttons]
-assert [m.nodes[l]['text'] for l in labels]==['Off','Everything','Volume only']
-for choice in (1,2,0):
+assert [m.nodes[l]['text'] for l in labels]==LOCK_NAMES
+assert [m.nodes[i]['image'] for i in icons]==['unselect','unselect','select','unselect']
+assert not [c for c in m.calls if c[0]=='write_int_config']
+for choice in (1,2,3,0):
     f,ctx=m.handler(buttons[choice],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    assert [m.nodes[i]['image'] for i in icons]==['select' if j==choice else 'unselect' for j in range(3)]
+    assert [m.nodes[i]['image'] for i in icons]==['select' if j==choice else 'unselect' for j in range(4)]
     assert [c[1:2]+(m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[
-        (1 if choice==2 else 3,'SYSSET','LOCKMODE'),(int(choice!=0),'SYSSET','LOCKFLAG')]
+        (4-choice if choice else 3,'SYSSET','LOCKMODE'),(int(choice!=0),'SYSSET','LOCKFLAG')]
 passed()
-for old_mode in (0,2,4):
+for old_mode in (0,4):
     m.byte(syms['g_keylock_flag'],1); m.byte(syms['g_keylock_mode'],old_mode)
     m.call(address=HOOKS['keylock_rows'][0],args=(m.top,0,0,0),gap=0)
     assert m.u.mem_read(syms['g_keylock_mode'],1)==b'\x03'
@@ -7907,18 +7911,19 @@ m.byte(syms['g_keylock_flag'],0)
 img=m.node('image','img_lock'); label=m.node('label','label_lock')
 m.top=m.node('window','statusbar_dialog',[img,label])
 m.handlers[int(manifest['patch_symbols']['stock_quicksettings_trampoline'],16)]='stock_quicksettings'
-for choice in (1,2,0):
+for choice in (1,2,3,0):
     assert m.call(address=HOOKS['quick_lock'][0],args=(m.top,m.event,0,0),gap=0)==0
-    assert m.nodes[label]['text']==['Off','Everything','Volume only'][choice]
+    assert m.nodes[label]['text']==LOCK_NAMES[choice]
     assert m.nodes[img]['image']==('drop_keylockopen' if choice else 'drop_keylock')
     # Reopening quick settings keeps the saved choice and paints its label immediately.
     m.call(address=HOOKS['dialog_statusbar_dialog_init'][0],args=(m.top,0,0,0),gap=0)
-    assert m.nodes[label]['text']==['Off','Everything','Volume only'][choice]
+    assert m.nodes[label]['text']==LOCK_NAMES[choice]
     for light in (0,1):
         for key in (O['KEY_PREV'],O['KEY_NEXT'],O['KEY_PLAY'],O['KEY_BACK_BTN'],O['KEY_FWD_BTN']):
             gate=Machine(); gate.byte(syms['g_backlight_status'],light)
-            gate.byte(syms['g_keylock_flag'],choice!=0); gate.byte(syms['g_keylock_mode'],1 if choice==2 else 3)
-            blocked=not light and choice!=0 and (choice==1 or key in (O['KEY_PREV'],O['KEY_NEXT']))
+            gate.byte(syms['g_keylock_flag'],choice!=0); gate.byte(syms['g_keylock_mode'],4-choice if choice else 3)
+            wheel=key in (O['KEY_PREV'],O['KEY_NEXT'])
+            blocked=not light and (choice==1 or choice==2 and not wheel or choice==3 and wheel)
             for address in (HOOKS['on_wm_keydown_before_fun'][0],HOOKS['on_wm_keyup_before_fun'][0]):
                 assert (gate.call(key,address=address)==11)==blocked,(choice,light,key,address)
 passed()

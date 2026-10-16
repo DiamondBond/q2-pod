@@ -1883,18 +1883,18 @@ void *list_row(void *view, const char *icon, int (*click)(void *, void *), void 
     return list_row_core(view, icon, click, ctx, 260, 0);
 }
 
-/* Stock modes: 1 locks volume, 3 locks volume and playback buttons, only with the screen off.
+/* Stock modes, only with the screen off: 1 locks wheel volume, 2 the buttons, 3 both.
  * KEY_LOCKOUT is the separate, temporary debounce after a button press. */
-static const char *const lock_names[] = { "Off", "Everything", "Volume only" };
+static const char *const lock_names[] = { "Off", "Everything", "Buttons only", "Volume only" };
 static int lock_choice(void) {
-    if (g_keylock_flag && g_keylock_mode != 1 && g_keylock_mode != 3) {
-        g_keylock_mode = 3; /* migrate stock's buttons-only choice to Everything */
+    if (g_keylock_flag && (g_keylock_mode < 1 || g_keylock_mode > 3)) {
+        g_keylock_mode = 3; /* an unknown mode locks Everything */
         write_int_config(3, "SYSSET", "LOCKMODE");
     }
-    return !g_keylock_flag ? 0 : g_keylock_mode == 1 ? 2 : 1;
+    return g_keylock_flag ? 4 - g_keylock_mode : 0;
 }
 static void lock_set(int choice) {
-    g_keylock_mode = choice == 2 ? 1 : 3;
+    g_keylock_mode = choice ? 4 - choice : 3;
     g_keylock_flag = choice != 0;
     write_int_config(g_keylock_mode, "SYSSET", "LOCKMODE");
     write_int_config(g_keylock_flag, "SYSSET", "LOCKFLAG");
@@ -1904,10 +1904,10 @@ static int lock_pick(void *ctx, void *event) {
     lock_set((int)(long)ctx);
     void *win = window_manager_get_top_window(window_manager());
     void *view = widget_lookup(win, "scroll_view_keylock", 1);
+    int choice = lock_choice();
     for (unsigned i = 0; view && i < widget_count_children(view); ++i) {
         void *button = widget_get_child(widget_get_child(view, i), 0);
-        image_base_set_image(widget_get_child(button, 0),
-                             (int)i == lock_choice() ? "select" : "unselect");
+        image_base_set_image(widget_get_child(button, 0), (int)i == choice ? "select" : "unselect");
     }
     return 0;
 }
@@ -1915,9 +1915,10 @@ int ringnav_keylock_rows(void *win) {
     void *view = win ? widget_lookup(win, "scroll_view_keylock", 1) : 0;
     if (!view) return 0;
     widget_destroy_children(view);
-    for (int i = 0; i < 3; ++i) {
+    int choice = lock_choice();
+    for (int i = 0; i < 4; ++i) {
         void *label =
-            list_row(view, i == lock_choice() ? "select" : "unselect", lock_pick, (void *)(long)i);
+            list_row(view, i == choice ? "select" : "unselect", lock_pick, (void *)(long)i);
         widget_set_text_utf8(label, lock_names[i]);
     }
     return 0;
@@ -1929,7 +1930,7 @@ static void quick_lock_text(void *win) {
 }
 int ringnav_quick_lock(void *win, void *event) {
     (void)event;
-    lock_set((lock_choice() + 1) % 3);
+    lock_set((lock_choice() + 1) % 4);
     quick_lock_text(win);
     return 0;
 }
