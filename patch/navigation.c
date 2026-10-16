@@ -1370,8 +1370,8 @@ int ipod_home_rockbox(void) {
     return shortcut() || st.home_rockbox;
 }
 const char *ipod_home_shortcut(void) {
-    static const char *const names[] = { "Rockbox", "Artists", "Albums", "Favorites",
-                                         "Rated Albums", "Shuffle" };
+    static const char *const names[] = { "Rockbox",   "Artists",      "Albums",
+                                         "Favorites", "Rated Albums", "Shuffle" };
     return names[shortcut()];
 }
 extern int rockbox_open(void *, void *);

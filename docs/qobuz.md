@@ -25,18 +25,18 @@ Qobuz has no public API. q2-qobuz uses the web player's, as other third-party pl
 
 **Calls.**
 
-| Use                     | Endpoint                                                          |
-| ----------------------- | ----------------------------------------------------------------- |
-| Account                 | `user/get`                                                        |
-| Favourite tracks        | `favorite/getUserFavorites?type=tracks`                           |
-| Favourite albums        | `favorite/getUserFavorites?type=albums`                           |
-| Favourite artists       | `favorite/getUserFavorites?type=artists`                          |
-| Playlists               | `playlist/getUserPlaylists`                                       |
-| A playlist              | `playlist/get?extra=tracks`                                       |
-| An album                | `album/get`                                                       |
-| An artist               | `artist/get?extra=albums`                                          |
-| Search                  | `track/search`, `album/search`, `artist/search`, `playlist/search` |
-| Stream URL              | `track/getFileUrl`                                                |
+| Use               | Endpoint                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| Account           | `user/get`                                                         |
+| Favourite tracks  | `favorite/getUserFavorites?type=tracks`                            |
+| Favourite albums  | `favorite/getUserFavorites?type=albums`                            |
+| Favourite artists | `favorite/getUserFavorites?type=artists`                           |
+| Playlists         | `playlist/getUserPlaylists`                                        |
+| A playlist        | `playlist/get?extra=tracks`                                        |
+| An album          | `album/get`                                                        |
+| An artist         | `artist/get?extra=albums`                                          |
+| Search            | `track/search`, `album/search`, `artist/search`, `playlist/search` |
+| Stream URL        | `track/getFileUrl`                                                 |
 
 **Stream URL.** `track/getFileUrl` takes `track_id`, `format_id`, `intent=stream`, `request_ts` (Unix seconds) and `request_sig`, which is the MD5 of `trackgetFileUrlformat_id<f>intentstreamtrack_id<id><ts><secret>`. The format ids are 6 (FLAC 16-bit 44.1 kHz), 7 (FLAC 24-bit up to 96 kHz) and 27 (FLAC 24-bit up to 192 kHz). The answer gives `url`, `format_id`, `bit_depth` and `sampling_rate`. These can be lower than asked for when an album has no hi-res master, and the cache and status file name what was given. The URL expires, so it is fetched again for each download or resume and never stored.
 
@@ -78,20 +78,20 @@ All three follow librespot's contract ([internals](internals.md#spotify)), with 
 
 URIs are `qobuz:track:<id>`, `qobuz:album:<id>`, `qobuz:artist:<id>`, `qobuz:playlist:<id>` and `qobuz:favorites:tracks`. `caps`' message is the daemon's version, e.g. `q2q-v1.0`. Cursors are the API's `offset`, as text.
 
-| Op             | On Qobuz                                                                              |
-| -------------- | ------------------------------------------------------------------------------------- |
-| `account`      | the user's display name and plan; `login` without `token` (message: "Put your Qobuz login in .qobuz/login on the card") |
-| `liked`        | favourite tracks, context `qobuz:favorites:tracks`                                    |
-| `albums`       | favourite albums                                                                      |
-| `artists`      | favourite artists                                                                     |
-| `playlists`, `playlist`, `album`, `artist`, `search` | as Spotify's                                    |
-| `play`, `queue`, `skip`, `enqueue` | as Spotify's, on the daemon's queue                               |
-| `settings`     | `shuffle`, `repeat` and `quality` (`cd`/`hires96`/`hires192`) as title                |
-| `shuffle`, `repeat` | as Spotify's                                                                     |
-| `quality`      | `cd\|hires96\|hires192`: none; applies to the next download                           |
-| `signout`      | playback stops; `token` and the whole `cache/` are removed                            |
-| `downloaded`   | complete cached tracks, most recently played first; works without Wi-Fi               |
-| `playdownload` | plays a cached track without asking Qobuz                                             |
+| Op                                                   | On Qobuz                                                                                                                |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `account`                                            | the user's display name and plan; `login` without `token` (message: "Put your Qobuz login in .qobuz/login on the card") |
+| `liked`                                              | favourite tracks, context `qobuz:favorites:tracks`                                                                      |
+| `albums`                                             | favourite albums                                                                                                        |
+| `artists`                                            | favourite artists                                                                                                       |
+| `playlists`, `playlist`, `album`, `artist`, `search` | as Spotify's                                                                                                            |
+| `play`, `queue`, `skip`, `enqueue`                   | as Spotify's, on the daemon's queue                                                                                     |
+| `settings`                                           | `shuffle`, `repeat` and `quality` (`cd`/`hires96`/`hires192`) as title                                                  |
+| `shuffle`, `repeat`                                  | as Spotify's                                                                                                            |
+| `quality`                                            | `cd\|hires96\|hires192`: none; applies to the next download                                                             |
+| `signout`                                            | playback stops; `token` and the whole `cache/` are removed                                                              |
+| `downloaded`                                         | complete cached tracks, most recently played first; works without Wi-Fi                                                 |
+| `playdownload`                                       | plays a cached track without asking Qobuz                                                                               |
 
 A track row's subtitle ends in ` · Hi-Res` when its `maximum_bit_depth` is 24.
 
