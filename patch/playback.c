@@ -413,28 +413,42 @@ int playback_groups(void *all, int folder) {
     playback_save();
     return 1;
 }
-/* Peek has no side effects, RNG or history writes. Manual next bypasses single-song rules. */
-static int successor(int automatic) {
-    unsigned at = (unsigned)M(MCL_POS);
-    if (!s.active || at >= s.n) return -1;
-    if (automatic && s.repeat == 0) return -1;
-    if (automatic && s.repeat == 3) return (int)at;
+/* The indices that play after this track, in order, ignoring the single-song rules. Peek has no
+ * side effects, RNG or history writes. */
+static unsigned upcoming(unsigned *out, unsigned max) {
+    unsigned at = (unsigned)M(MCL_POS), k = 0;
+    if (!s.active || at >= s.n) return 0;
     int category = s.repeat == 1 || s.repeat == 4;
-    if (s.forced && s.forced <= s.n && (!category || s.groups[s.forced - 1] == s.groups[at]))
-        return (int)s.forced - 1;
-    for (unsigned i = s.cursor + 1; i < s.n; ++i)
-        if (!s.seen[s.order[i].index] && (!category || s.groups[s.order[i].index] == s.groups[at]))
-            return (int)s.order[i].index;
-    if (s.repeat < 3) return -1;
-    for (unsigned i = 0; i < s.n; ++i)
-        if (!category || s.groups[s.cycle[i].index] == s.groups[at]) return (int)s.cycle[i].index;
-    return -1;
+    unsigned forced = s.forced && s.forced <= s.n && (!category || s.groups[s.forced - 1] == s.groups[at])
+                          ? s.forced - 1
+                          : s.n;
+    if (forced < s.n) out[k++] = forced;
+    for (unsigned i = s.cursor + 1; i < s.n && k < max; ++i) {
+        unsigned x = s.order[i].index;
+        if (!s.seen[x] && x != forced && (!category || s.groups[x] == s.groups[at])) out[k++] = x;
+    }
+    if (s.repeat < 3) return k;
+    /* the next pass after the order runs out: the cycle, wrapped */
+    for (unsigned i = 0; i < s.n && k < max; ++i) {
+        unsigned x = s.cycle[i].index;
+        if (!category || s.groups[x] == s.groups[at]) out[k++] = x;
+    }
+    return k;
 }
+/* Up Next: what an automatic next plays after this track. Repeat Song and Play One Song have none,
+ * as a natural end has none. */
+unsigned playback_upcoming(unsigned *out, unsigned max) {
+    return s.repeat == 0 || s.repeat == 3 ? 0 : upcoming(out, max);
+}
+/* Manual next bypasses single-song rules. */
 int playback_successor(int automatic) {
-    if (!automatic) return successor(0);
-    unsigned at = (unsigned)M(MCL_POS);
+    unsigned at = (unsigned)M(MCL_POS), x;
+    if (!automatic) return upcoming(&x, 1) ? (int)x : -1;
     if (!s.next_valid || s.next_pos != at) {
-        s.next_value = successor(1);
+        s.next_value = s.repeat == 0                           ? -1
+                       : s.repeat == 3 && s.active && at < s.n ? (int)at
+                       : upcoming(&x, 1)                       ? (int)x
+                                                               : -1;
         s.next_pos = at;
         s.next_valid = 1;
     }

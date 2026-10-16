@@ -163,6 +163,7 @@ typedef struct {
     void *mp_page, *mp_list, *td_page, *td_list;
     unsigned mp_gen;
     void *sp_page; /* the Library Shuffle menu's page, kept across picks */
+    void *un_page; /* Up Next's page, one at a time */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
      * is up on (0 when down), the hearts picked, the heart's hold timer (rate_held once it fired),
@@ -3613,7 +3614,8 @@ enum {
     QA_PREV_GROUP,
     QA_RATE,
     QA_RESUME,
-    QA_QUEUE
+    QA_QUEUE,
+    QA_UP_NEXT
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -4226,6 +4228,7 @@ static int page_closed(void *ctx, void *event) {
         st.td_list = 0;
     }
     if (ctx == st.sp_page) st.sp_page = 0;
+    if (ctx == st.un_page) st.un_page = 0;
     return 0;
 }
 
@@ -4370,6 +4373,23 @@ static int most_played(void *ctx, void *event) {
         page_row_detail(view, i, track_name(name, sizeof name, t), detail, mp_play);
     }
     return 0;
+}
+
+/* Up Next: the tracks after the playing one in the order they play, which a shuffle's order differs
+ * from the queue's. Rows are a view only. ponytail: a snapshot taken on open, capped at
+ * UP_NEXT_ROWS; the page does not follow the playing track. */
+#define UP_NEXT_ROWS 100
+static void up_next(void) {
+    if (st.un_page || !(st.un_page = page_open("upnext_page", page_closed, page_keyup))) return;
+    void *q = P(mcl_pdeqplaylist, 0);
+    unsigned idx[UP_NEXT_ROWS], n = playback_upcoming(idx, UP_NEXT_ROWS);
+    void *view = page_list(st.un_page, st.un_page, 0, n ? "Up Next" : "Nothing Up Next", n, 64);
+    char name[512];
+    for (unsigned i = 0; i < n; i++) { /* the title over the artist, if tagged */
+        void *t = deque_at(q, idx[i]);
+        const char *artist = P(t, REC_ARTIST);
+        page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", 0);
+    }
 }
 
 /* Tidal Downloads (docs/internals.md#tidal-cache): Streaming's row lists tidal.c's complete
@@ -5344,6 +5364,8 @@ static int qm_run(const void *unused) {
         st.qm_choice = 0;
     } else if (r && a == QA_QUEUE) {
         navigator_to("playerqueue_page");
+    } else if (r && a == QA_UP_NEXT) {
+        up_next();
     } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
         if (!playback_group_skip(a == QA_NEXT_GROUP)) toast("No other group");
     } else if (aid && a == QA_RATE) {
@@ -5498,7 +5520,7 @@ static int qm_open(const void *unused) {
     /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
      * Go to is left out where its single-instance page is already open, or the album is the page.
      */
-    unsigned char acts[13], n = 0;
+    unsigned char acts[14], n = 0;
     /* Shuffle Albums/Folders only: skipping the group comes first */
     int group_first = st.qm_kind == QM_PLAYING && playback_option(0) >= 3;
     /* Rate (the heart's hold) follows Next/Previous album */
@@ -5508,7 +5530,10 @@ static int qm_open(const void *unused) {
     if (st.qm_kind == QM_SONG && book_place(qm_list(), r, &at, &off)) acts[n++] = QA_RESUME;
     acts[n++] = QA_NEXT;
     acts[n++] = QA_ADD;
-    if (st.qm_kind == QM_PLAYING) acts[n++] = QA_QUEUE;
+    if (st.qm_kind == QM_PLAYING) {
+        acts[n++] = QA_QUEUE;
+        if (playback_option(0)) acts[n++] = QA_UP_NEXT; /* a shuffle's order is not the list's */
+    }
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
     /* an album's own hearts, 5 its favourite */
@@ -5543,7 +5568,8 @@ static int qm_open(const void *unused) {
                                         "Previous Album",
                                         "Rate",
                                         "Resume",
-                                        "View Queue" };
+                                        "View Queue",
+                                        "Up Next" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {

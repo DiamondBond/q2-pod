@@ -12,8 +12,8 @@ exec(compile(source[source.index('class QueueMachine'):source.index('sel=lambda 
 ps = symbols(B/'patch.elf')
 
 class PlaybackMachine(QueueMachine):
-    def __init__(self, files=None):
-        super().__init__()
+    def __init__(self, files=None, **kw):
+        super().__init__(**kw)
         self.files = dict(files or {}); self.handles = {}; self.fd = 100
         self.fail = ''; self.elapsed = 37; self.random_calls = 0; self.rng = 71
         self.allocations = 0; self.write_opens = 0
@@ -154,6 +154,30 @@ for grouping in (0,1):
             if repeat in (0,3): assert m.advance_song(0)==1 and m.current()!=2
             if repeat in (1,4): assert set(m.sequence(0,10))<={0,2,6}
             checks+=1
+
+# Up Next lists exactly the tracks the following advances play, in order, and listing draws nothing.
+for grouping in (0,1):
+    for shuffle in range(5):
+        for repeat in range(6):
+            m=PlaybackMachine(); m.options(shuffle,repeat,grouping)
+            out=m.alloc(24*4); calls=m.random_calls
+            n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i in range(n)]
+            assert m.random_calls==calls and m.fn('playback_upcoming',out,24)==n
+            if repeat in (0,3): assert n==0
+            else: assert m.sequence(limit=n)[1:]==up, (shuffle,repeat,grouping)
+            checks+=1
+
+# The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
+# order, and opens nothing else.
+def now_playing():
+    m=PlaybackMachine(page='playing_page',pos=1); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2); return m
+m=now_playing(); m.options(0,2,0); m.press(5000); assert m.release()==1
+m.press(6000); assert m.hold()==11 and 'Up Next' not in m.labels() and m.release()==0
+m.press(7000); assert m.release()==1; checks+=1
+m=now_playing(); m.options(1,2,0); calls=m.random_calls
+m.press(6000); assert m.hold()==11 and m.release()==0 and 'Up Next' in m.labels()
+m.pick(m.labels().index('Up Next')); m.advance(0)
+assert 'window_create' in [c[0] for c in m.calls] and m.random_calls==calls and not m.playback(); checks+=1
 
 # Album identity (name, then album artist, else folder) crosses folders with an album artist;
 # folder grouping does not. Disc/track and CUE order differ from source order, and categories keep
