@@ -8041,7 +8041,10 @@ RET,LONG=O['KEY_RETURN'],O['EVT_KEY_LONG']
 def back_dark(): return not any(wake(t,RET,gap=1000) for t in (DOWN,LONG,UP))  # Back does nothing dark (#28)
 assert back_dark()
 m.byte(O['BOOT_KEY_GUARD'],1); assert wake(DOWN,gap=1000) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP)  # Single press wakes after Standby
-def eaten(): m.byte(syms['g_backlight_status'],1); r=not wake(DOWN,gap=100) and wake(LONG,gap=50) and not wake(UP); m.byte(syms['g_backlight_status'],0); return r
+def eaten():  # dropped with its release; held, its long press and release pass, so stock clears its latches
+    m.byte(syms['g_backlight_status'],1)
+    r=not wake(DOWN,gap=100) and not wake(UP,gap=50) and not wake(DOWN,gap=50) and wake(LONG,gap=50) and wake(UP)
+    m.byte(syms['g_backlight_status'],0); return r
 assert eaten() and wake(DOWN,gap=O['WAKE_MS']) and wake(UP)  # a blind double press only wakes; holding it still powers off
 assert click(2)==[(1,'Q2POD','WAKEDOUBLE')] and texts()[2]=='Wake: Double Press' and back_dark()
 assert not wake(DOWN,gap=1000) and not wake(UP,gap=50)  # a pocket bump

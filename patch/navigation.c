@@ -6370,14 +6370,19 @@ int ringnav_sleep(void *loop) {
  * release, so holding that second press still powers off. With Single press it passes at once.
  * Either way a passing press clears Standby's resume guard, so its release is not dropped, and
  * another centre press within WAKE_MS of it is dropped with its release (wake_eat): a blind double
- * press only wakes, without clicking the selected row or turning the screen off again. Other
- * keys pass: the wheel's volume and the media buttons work dark. Returns 1 to drop the event. */
+ * press only wakes, without clicking the selected row or turning the screen off again; held, its
+ * long press and release pass. Other keys pass: the wheel's volume and the media buttons work
+ * dark. Returns 1 to drop the event. */
 static int wake_gate(void *e) {
     unsigned type = (unsigned)I(e, EVENT_TYPE), now = (unsigned)time_now_ms();
     if (type != EVT_KEY_DOWN && type != EVT_KEY_LONG && type != EVT_KEY_UP) return 0;
     unsigned key = (unsigned)I(e, EVENT_KEY);
     if (!g_backlight_status && key == KEY_RETURN) return 1;
-    if (type == EVT_KEY_LONG || key != KEY_CENTER) return 0;
+    if (type == EVT_KEY_LONG) { /* stock's long press clears its latches on the release: pass it */
+        if (key == KEY_CENTER) st.wake_eat = 0;
+        return 0;
+    }
+    if (key != KEY_CENTER) return 0;
     if (type == EVT_KEY_UP && st.wake_eat) {
         st.wake_eat = 0;
         return 1;
