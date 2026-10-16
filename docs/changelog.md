@@ -1,6 +1,6 @@
 # Changelog
 
-- **1.2.4**: **Streaming → Configuration** sets the Tidal and Spotify download caches from 512 MB to 8 GB (2 GB by default; Spotify's needs q2-librespot v1.5), and **Stop Streaming Services** stops Spotify, Internet Radio and Tidal at once, so local music plays normally again. iPod: a short Return on Home first moves the selection to Now Playing; a second Return opens it.
+- **1.2.4**: **Streaming → Configuration** sets the Tidal and Spotify download caches from 512 MB to 8 GB (2 GB by default; Spotify's needs q2-librespot v1.5), and **Stop Streaming Services** stops Spotify, Internet Radio and Tidal at once, so local music plays normally again. iPod: a short Return on Home first moves the selection to Now Playing; a second Return opens it. Shuffle Songs and a collection's Shuffle now play in a fixed shuffled order, so the hold menu's **Up Next** lists what follows. Coverflow, Photos and Books keep a short caption centred after a long one has scrolled. iPod: Display's **Shortcut** offers **Shuffle**, which opens the Library's Shuffle page.
 
 - **1.2.3**: While a shuffle is on, the Now Playing hold menu's **Up Next** lists the tracks that follow in the order they will play. Buttons Lock and the quick-settings lock tile bring back stock's **Buttons only** mode, which locks the buttons while the screen is off and leaves the wheel's volume working, alongside Everything and Volume only. Favorites shows each song by its title tag, as every other list does, instead of sometimes falling back to its file name (with its track number).
 
