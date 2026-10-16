@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the shipped LDAC encoder's intermediate rates and bluealsa's Auto dispatch."""
-import pathlib, struct, subprocess, sys
+import pathlib, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'tools'))
 from build import machine, read, word
 from unicorn import UC_HOOK_CODE
