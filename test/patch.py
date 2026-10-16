@@ -8005,7 +8005,7 @@ assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low Power: On'
 assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit: Off','Low Power: On','Wake: Single Press']; passed()
 # Wake (docs/internals.md#wake): screen off, a lone centre press and its release never reach the UI;
 # a second press within WAKE_MS passes, press and release. Other keys, the screen on, or the
-# setting off pass untouched.
+# setting off pass untouched, except one more centre press within WAKE_MS of the waking one (#45).
 inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'
 def wake(kind,key=O['KEY_CENTER'],gap=0):
     m.calls=[]; assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=gap,clear=False)==0
@@ -8017,9 +8017,11 @@ RET,LONG=O['KEY_RETURN'],O['EVT_KEY_LONG']
 def back_dark(): return not any(wake(t,RET,gap=1000) for t in (DOWN,LONG,UP))  # Back does nothing dark (#28)
 assert back_dark()
 m.byte(O['BOOT_KEY_GUARD'],1); assert wake(DOWN,gap=1000) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP)  # Single press wakes after Standby
+def eaten(): m.byte(syms['g_backlight_status'],1); r=not wake(DOWN,gap=100) and wake(LONG,gap=50) and not wake(UP); m.byte(syms['g_backlight_status'],0); return r
+assert eaten() and wake(DOWN,gap=O['WAKE_MS']) and wake(UP)  # a blind double press only wakes; holding it still powers off
 assert click(2)==[(1,'Q2POD','WAKEDOUBLE')] and texts()[2]=='Wake: Double Press' and back_dark()
 assert not wake(DOWN,gap=1000) and not wake(UP,gap=50)  # a pocket bump
-assert wake(DOWN,gap=100) and wake(UP,gap=50)  # the double press
+assert wake(DOWN,gap=100) and wake(UP,gap=50) and eaten()  # the double press; a third only wakes
 assert not wake(DOWN,gap=O['WAKE_MS']) and not wake(UP) and not wake(DOWN,gap=O['WAKE_MS']) and not wake(UP)  # too slow
 assert wake(DOWN,O['KEY_PLAY'],gap=1000) and wake(UP,O['KEY_PLAY']) and wake(UP,O['KEY_NEXT'])  # media and wheel work dark
 m.byte(syms['g_backlight_status'],1); assert wake(DOWN,gap=1000) and wake(UP) and all(wake(t,RET,gap=1000) for t in (DOWN,LONG,UP)); passed()
