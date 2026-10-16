@@ -633,6 +633,35 @@ assert wheel([(10,1),(10+U-1,1),fast,(10+U,1),(9+U+U//2,1)])[0]==[P] and wheel([
 for more,want in ((1,[]),(2,[P]),(-1,[])):
     assert wheel([(10,1),(23,1),slow,(23+more,1)],sensitivity('100')[0])[0]==want,more
 checks+=1
+# Volume guard on (Q2POD VOLGUARD, #46), screen off: a touch's first WHEEL_DARK_GUARD units one way
+# tick nothing and are dropped; then it ticks as lit, reversals and new touches too, until WHEEL_DARK_IDLE_MS without travel. A
+# reversal, lift or pause under the guard starts it again; travel is units, so sensitivity aside.
+D,IDLE=O['WHEEL_DARK_GUARD'],O['WHEEL_DARK_IDLE_MS']
+lit=lambda m: m.byte(syms['g_backlight_status'],1)
+def dark(m,on=1): m.byte(syms['g_backlight_status'],0); m.word(ps['wheel_guard'],on)
+def later(ms): return lambda m: setattr(m,'now',m.now+ms)
+def turn(x,n,step=1): return [((x+step*k-1)%200+1,1) for k in range(1,n+1)]  # a unit per sample from x
+X=10+D-1  # where D-1 units up from 10 stop
+assert D==100 and wheel([dark,(10,1)]+turn(10,D-1))[0]==[]           # a brush under half a turn
+assert wheel([dark,(10,1)]+turn(10,D-1),sensitivity('200')[0])[0]==[]  # at any sensitivity
+assert wheel([dark,(10,1)]+turn(10,D+2*U-1))[0]==[P]                  # past it: every U ticks
+assert wheel([dark,(10,1)]+turn(10,D+2*U))[0]==[P,P]
+assert wheel([dark,(150,1)]+turn(150,D+U,-1))[0]==[N]                 # either way, over the seam
+assert wheel([dark,(10,1)]+turn(10,D+U//4),sensitivity('200')[0])[0]==[P]
+assert wheel([dark,(10,1)]+turn(10,D-1)+turn(X,D+U-1,-1))[0]==[]      # a reversal starts it again
+assert wheel([dark,(10,1)]+turn(10,D-1)+turn(X,D+U,-1))[0]==[N]
+assert wheel([dark,(10,1)]+turn(10,D-1)+[(X,0),(X,1)]+turn(X,D-1))[0]==[]  # so does a lift
+assert wheel([dark,(10,1)]+turn(10,D-1)+[later(IDLE)]+turn(X,U))[0]==[]    # and a pause
+assert wheel([dark,(10,1)]+turn(10,D-1)+[later(IDLE-1)]+turn(X,1+U))[0]==[P]
+Y=10+D  # open: a new touch and a reversal tick at once, until the wheel idles
+assert wheel([dark,(10,1)]+turn(10,D)+[(Y,0),later(IDLE-1),(Y,1)]+turn(Y,U))[0]==[P]
+assert wheel([dark,(10,1)]+turn(10,D)+turn(Y,U,-1))[0]==[N]
+assert wheel([dark,(10,1)]+turn(10,D)+[(Y,0),later(IDLE),(Y,1)]+turn(Y,D))[0]==[]
+assert wheel([(10,1)]+turn(10,U))[0]==[P]                               # lit: as before
+assert wheel([lambda m: dark(m,0),(10,1)]+turn(10,U))[0]==[P]           # the guard off (default): as before
+assert wheel([dark,(10,1)]+turn(10,D-1)+[lit]+turn(X,U))[0]==[P]       # lit mid-turn ticks at once
+assert wheel([dark,(10,1)]+turn(10,D)+[lit]+turn(Y,1)+[dark]+turn(Y+1,U))[0]==[]  # and dark again arms
+checks+=1
 # UI wiring in both variants: stock-style choice menu, selected marker, touch and wheel slider.
 m=PlaybackMachine(); m.top=m.node('window','playing_page'); m.stack=[m.top]; m.word(m.top+O['W_PARENT'],m.wm)
 m.press(100); assert m.hold()==11

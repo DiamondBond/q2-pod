@@ -214,7 +214,7 @@ typedef struct {
      * Bluetooth's Resume on connect on. */
     int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat, charge_held, cpu_off,
         cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock, artist_az;
-    void *pod_label[9];
+    void *pod_label[10];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
     void *art_cf_veil;              /* the artist page unseen until they show, and its anim_hint */
     char art_cf_hint[64];
@@ -1982,7 +1982,8 @@ int ringnav_quick_settings(void *win, void *ctx) {
  * is stock's own PLAYSET ARTISTTYPE (artist_type, the artist page's switch;
  * docs/internals.md#album-artists), and Bluetooth's Resume on connect (RESUME, so a missing key
  * holds playback; docs/internals.md#resume-on-connect), and the Lock screen's Clock (LOCKCLOCK,
- * lockscreen.c; docs/internals.md#lock-screen), and Playback's Artist album order (ARTISTAZ). */
+ * lockscreen.c; docs/internals.md#lock-screen), and Playback's Artist album order (ARTISTAZ), and
+ * Power's Volume guard (VOLGUARD, playback.c's wheel_guard; docs/internals.md#volume-guard). */
 #define STR_(x) #x
 #define STR(x) STR_(x)
 enum {
@@ -1994,15 +1995,18 @@ enum {
     POD_ARTISTS,
     POD_RESUME,
     POD_LOCKCLOCK,
-    POD_ARTIST_AZ
+    POD_ARTIST_AZ,
+    POD_VOL_GUARD
 };
 static int *const pod_values[] = { &st.charge_limit, &st.low_power,  &st.wake_double,
                                    &st.artist_cf,    &st.year_old,   0,
-                                   &st.resume,       &st.lock_clock, &st.artist_az };
+                                   &st.resume,       &st.lock_clock, &st.artist_az,
+                                   &wheel_guard };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 static const char *const pod_keys[] = { "CHARGELIMIT", "LOWPOWER",  "WAKEDOUBLE",
                                         "ARTISTCF",    "YEAROLD",   0,
-                                        "RESUME",      "LOCKCLOCK", "ARTISTAZ" };
+                                        "RESUME",      "LOCKCLOCK", "ARTISTAZ",
+                                        "VOLGUARD" };
 static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
@@ -2103,6 +2107,7 @@ static void pod_text(int i) {
         { "Resume on Connect: Off", "Resume on Connect: On" },
         { "Clock: Standard", "Clock: Large" },
         { "Artist Album Order: Year", "Artist Album Order: A–Z" },
+        { "Volume Guard: Off", "Volume Guard: On" },
     };
     int v = i != POD_ARTISTS ? *pod_values[i] : I(artist_type, 0) == 1;
     widget_set_text_utf8(st.pod_label[i], names[i][v]);
@@ -2142,6 +2147,7 @@ int ringnav_powermanager(void *win, void *ctx) {
                                          "system_keylock" };
     int result = stock_power_trampoline(win, ctx);
     pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 3, icons);
+    pod_rows(win, "scroll_view_powermanager", POD_VOL_GUARD, 1, icons + 2);
     return result;
 }
 /* The Bluetooth page's list (stock's local builder, btmenu_rows), rebuilt whole on every search and

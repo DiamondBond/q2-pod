@@ -355,6 +355,11 @@ static inline int arc_out(int r, int y) {
 #define WHEEL_POST 0x6257f0
 #define WHEEL_INFO_EVENT 0x20 /* event type: 0x110 key down, 0x114 key up */
 #define WHEEL_INFO_KEY 0x38   /* the event's key (EVENT_KEY) */
+/* With the screen off (the wheel is the volume), WHEEL_DARK_GUARD units of one touch's travel one
+ * way (100, half a turn, whatever the sensitivity) tick nothing; the wheel then ticks until it has
+ * been still WHEEL_DARK_IDLE_MS, which also restarts an unfinished guard. Calibration knobs. */
+#define WHEEL_DARK_GUARD 100
+#define WHEEL_DARK_IDLE_MS 1500
 #define BOOT_KEY_GUARD 0xa37c8a /* no symbol: set after a Standby resume, on_wm_keyup_fun drops the next centre release */
 #define RETURN_RELEASE_LATCH 0xa37c8b /* stock long Return arms it; the key-up filter consumes it */
 
