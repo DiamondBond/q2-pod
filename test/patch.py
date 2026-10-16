@@ -7142,9 +7142,9 @@ page=spot_open(m,button); info,msg=m.nodes[page]['children']
 assert not m.nodes[info]['visible'] and m.nodes[msg]['visible'] and texts(msg)==["Spotify isn't on the card",'See the Q2 Pod guide to add it']
 m.poll(); assert not m.systems; m.close(); passed()
 # With it, the first open starts it once (its launcher backgrounds itself); with no state yet, or no
-# Connect session, the page asks for the phone.
+# Connect session, the page waits for a confirmed authentication response.
 m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); info,msg=m.nodes[page]['children']
-assert m.systems==['/bin/sh /mnt/mmc/.spotify/run'] and texts(msg)==['Open Spotify on your phone','and choose Q2']
+assert m.systems==['/bin/sh /mnt/mmc/.spotify/run'] and texts(msg)==['Loading…','Waiting for Spotify']
 m.state('none',track=''); m.poll(); m.advance(250); assert m.nodes[msg]['visible'] and not m.nodes[info]['visible']
 m.close(); spot_open(m,button); assert len(m.systems)==1; m.close(); passed()
 # Until the row is opened nothing Spotify runs, a saved login on the card or not: no start, no
@@ -7179,6 +7179,9 @@ m.state('playing',position=10000,at=m.now+500,cover=1); m.files[STATE+'.jpg']=by
 assert m.nodes[info]['visible'] and not m.nodes[msg]['visible']
 assert m.thumbs==[(STATE+'.jpg','/tmp/q2spot.jpg',166,166)] and 'file:///tmp/q2spot.jpg' in [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
 assert texts(info)==['Spotify','Song','A, B','LP',mmss('0:10'),mmss('-3:10')]
+for value in ('Song','A, B','LP'):
+    w=next(w for w in m.nodes if under(w,info) and m.nodes[w].get('text')==value)
+    assert m.nodes[w]['hscroll_label_set_only_focus']==0 and m.nodes[w]['hscroll_label_set_ellipses']==0
 for text, rgb in [('Song', 0xffffff), ('A, B', O['NP_ARTIST_RGB'] if variant=='ipod' else 0xaaaaaa), ('LP', O['NP_ALBUM_RGB'] if variant=='ipod' else 0xaaaaaa)]:
     label=next(w for w in m.nodes if under(w,info) and m.nodes[w].get('text')==text)
     assert m.nodes[label]['style:normal:text_color']==signed(color_t(rgb))
@@ -7648,6 +7651,64 @@ assert m.now-start>=15000 and not m.wire and m.labels()==["Spotify didn't answer
 m.stalled=False; m.row(0); m.answer(*ME); m.row(0); m.answer(*OK,[track('spotify:track:1','One')])
 m.row(0); assert m.asked()==('play','spotify:track:1'); m.back(); assert m.labels()==MENU
 assert m.get(payload_syms['wk']+32)==0; m.advance(1000); assert m.top==m.page; passed()
+
+# A successful play waits for the requested track, including offline playback. Missing metadata
+# and another track's position updates cannot flash pairing or reveal the previous track.
+for size in (1, 2, 3, 4, 255, 256):
+    m=SpotMachine({}); out=m.alloc(300); title='A汉字é'*80
+    m.call(address=payload_syms['field'],args=(m.string('\ntitle='+title+'\n'),m.string('title'),out,size),gap=0)
+    assert m.text(out)==title.encode()[:size-1].decode('utf-8',errors='ignore')
+passed()
+for op in ('liked','downloaded'):
+    m=BrowseMachine(); m.open(); m.answer(*ME)
+    m.state('paused',track='old'); m.poll(); m.advance(250)
+    m.row(1 if op=='liked' else 9)
+    m.answer(*OK,[track('spotify:track:new','New')]); m.row(0); m.answer(*OK,[])
+    np=m.top; info,msg=m.nodes[np]['children']
+    assert texts(msg)==['Loading…','Starting playback'] and not m.nodes[info]['visible']
+    m.state('playing',track='old',position=2000); m.poll(); m.advance(250)
+    assert m.nodes[msg]['visible'] and texts(msg)[0]=='Loading…'
+    m.state('none',track=''); m.poll(); m.advance(250)
+    assert texts(msg)[0]=='Loading…'
+    m.state('playing',track='new',title='相同的标题 Long title '*6,artist='Long artist 艺术家 '*6,album='Long album 专辑 '*6)
+    m.poll(); m.advance(250)
+    assert m.nodes[info]['visible'] and not m.nodes[msg]['visible']
+    assert texts(info)[1:4]==['相同的标题 Long title '*6,'Long artist 艺术家 '*6,'Long album 专辑 '*6]
+    # Same title, different artist and album: all three fields have their own change detection.
+    m.state('paused',track='next',title='相同的标题 Long title '*6,artist='Other 艺术家',album='Other 专辑')
+    m.poll(); m.advance(250); assert texts(info)[2:4]==['Other 艺术家','Other 专辑']
+    fields=[w for w in m.nodes if under(w,info) and m.nodes[w].get('text') in texts(info)[1:4]]
+    assert all(m.nodes[w]['xoffset']==0 for w in fields)
+    m.state('stopped',track=''); m.poll(); m.advance(250)
+    assert texts(msg)==['Nothing playing','Choose music in Spotify']
+    m.state('none',track=''); m.poll(); m.advance(250)
+    assert 'Open Spotify on your phone' not in texts(msg)
+    passed()
+
+# Metadata can also precede the acknowledgement: do not wait for a second state change.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)
+m.answer(*OK,[track('spotify:track:early','Early')]); m.row(0)
+m.state('playing',track='early',title='Early'); m.poll(); m.answer(*OK,[])
+info,msg=m.nodes[m.top]['children']; assert m.nodes[info]['visible'] and texts(info)[1]=='Early'
+passed()
+# A relinked track (another id than asked for) is the play's too.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)
+m.answer(*OK,[track('spotify:track:asked','Asked')]); m.row(0); m.answer(*OK,[])
+m.state('playing',track='relinked',title='Asked'); m.poll(); m.advance(250)
+info,msg=m.nodes[m.top]['children']; assert m.nodes[info]['visible'] and texts(info)[1]=='Asked'
+passed()
+
+# The loading wait is bounded, does not repeat play, and accepts late metadata after a timeout.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)
+m.answer(*OK,[track('spotify:track:late','Late')]); m.row(0); m.answer(*OK,[])
+np=m.top; info,msg=m.nodes[np]['children']; requests=len(m.requests)
+m.advance(15250)
+assert texts(msg)==["Playback didn't start",'Go back and try again'] and len(m.requests)==requests
+m.state('playing',track='late'); m.poll(); m.advance(250); assert m.nodes[info]['visible']
+m.destroy(np); m.top=m.page; m.back(); m.row(8); m.answer(*ME); m.row(1); m.row(1); m.answer(*OK,[])
+m.call(address=payload_syms['spot_np'],args=(0,0,0,0),gap=0,count=5_000_000)
+info,msg=m.nodes[m.top]['children']; assert texts(msg)==['Open Spotify on your phone','and choose Q2']
+passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

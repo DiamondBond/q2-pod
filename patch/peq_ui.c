@@ -632,8 +632,7 @@ static int closed(void *ctx, void *event) {
     if (eq_load(&s) && s.hold && (s.hold = 0, eq_save(&s))) peq_stock_eq(1);
     memset(&e3, 0, sizeof e3);
     ui.bar = 0;
-    if (ui.timer) timer_remove(ui.timer);
-    ui.timer = 0;
+    stop_timer(&ui.timer);
     ui.page = 0;
     ui.view = 0;
     ui.graph = 0;

@@ -216,6 +216,6 @@ def main(argv):
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
-    except (ValueError, PermissionError, TimeoutError, ConnectionError, OSError) as e:
+    except (ValueError, OSError) as e:
         print(f"q2remote: {e}", file=sys.stderr)
         sys.exit(2)

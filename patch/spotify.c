@@ -98,6 +98,9 @@ static struct {
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
     char out[24]; /* SPOT_OUT as last written */
+    int auth, loading, old; /* auth: 0 unknown, 1 authenticated, -1 pairing; loading: 1 waiting, 2 timeout */
+    unsigned load_at;
+    char wanted[64], from[64]; /* the track asked for, and the one there when it was */
 } sp __attribute__((section(".scratch")));
 
 /* The page, while open. */
@@ -135,6 +138,7 @@ void field(const char *raw, const char *key, char *out, unsigned n) {
     unsigned len = 0;
     if (v)
         for (v += strlen(k), e = v; *e && *e != '\n' && len + 1 < n; ++e) ++len;
+    while (len && ((unsigned char)v[len] & 0xc0) == 0x80) --len;
     if (len) memcpy(out, v, len);
     out[len] = 0;
 }
@@ -199,6 +203,8 @@ static void spot_output(void) {
     dgram_send(&sp.sock, SPOT_SINK, v, 2);
 }
 
+static int spot_started(void);
+
 static void spot_parse(void) {
     field(sp.raw, "state", sp.state, sizeof sp.state);
     field(sp.raw, "track", sp.track, sizeof sp.track);
@@ -209,6 +215,16 @@ static void spot_parse(void) {
     sp.position = (unsigned)number(sp.raw, "position");
     sp.at = number(sp.raw, "at");
     sp.cover = (unsigned)number(sp.raw, "cover");
+    if (sp.auth > 0 && (!sp.state[0] || !strcmp(sp.state, "none"))) sp.auth = 0;
+    if (sp.track[0] && (!strcmp(sp.state, "playing") || !strcmp(sp.state, "paused"))) sp.auth = 1;
+    if (sp.loading && spot_started()) sp.loading = 0;
+}
+
+/* The play asked for has a track: the one asked for, or any other than before (a relinked id), or
+ * anything at all once the wait timed out. */
+static int spot_started(void) {
+    return (!strcmp(sp.state, "playing") || !strcmp(sp.state, "paused")) && sp.track[0] &&
+           (sp.loading == 2 || !strcmp(sp.track, sp.wanted) || strcmp(sp.track, sp.from));
 }
 
 static void spot_launch(void) {
@@ -319,7 +335,7 @@ static int spot_single(const void *info) {
  * it SPOT_STEP_MS a tick, and SCRUB_MS without a tick seeks there (spot_poll). Otherwise the wheel
  * stays stock's volume. */
 int spot_key(void *top, unsigned key) {
-    if (!ui.page || top != ui.page || !sp.track[0] || !sp.duration) return 0;
+    if (!ui.page || top != ui.page || sp.loading || sp.auth < 0 || !sp.track[0] || !sp.duration) return 0;
     if (key == KEY_CENTER) {
         int press = center_press(&ui.press, &ui.press_at, spot_single, ui.scrub);
         if (press != 2) return press;
@@ -348,19 +364,30 @@ static void times(unsigned ms) {
 
 /* The page from sp: the track, or why there is none. Labels are written only when they change. */
 static void spot_refresh(void) {
-    int track = sp.track[0] && strcmp(sp.state, "none"), installed = sp.launched;
+    if (sp.loading == 1 && time_now_ms() - sp.load_at >= SPOT_WAIT_MS) sp.loading = 2;
+    if (sp.loading == 2 && spot_started()) sp.loading = 0; /* a paused track writes no new state */
+    int track = sp.auth >= 0 && !sp.loading && sp.track[0] && strcmp(sp.state, "none"), installed = sp.launched;
     widget_set_visible(ui.info, track, 0);
     widget_set_visible(ui.msg, !track, 0);
     if (!track) {
-        widget_set_text_utf8(ui.note, installed ? "Open Spotify on your phone" : "Spotify isn't on the card");
-        widget_set_text_utf8(ui.sub, installed ? "and choose Q2" : "See the Q2 Pod guide to add it");
+        const char *note = "Loading…", *sub = "Waiting for Spotify";
+        if (!installed) note = "Spotify isn't on the card", sub = "See the Q2 Pod guide to add it";
+        else if (sp.auth < 0) note = "Open Spotify on your phone", sub = "and choose Q2";
+        else if (sp.loading == 2) note = "Playback didn't start", sub = "Go back and try again";
+        else if (sp.loading) sub = "Starting playback";
+        else if (sp.old) note = "Update Spotify on the card", sub = "See the Q2 Pod guide";
+        else if (sp.auth > 0) note = "Nothing playing", sub = "Choose music in Spotify";
+        widget_set_text_utf8(ui.note, note);
+        widget_set_text_utf8(ui.sub, sub);
         return;
     }
-    if (tk_strcmp(widget_get_prop_str(ui.title, "text", ""), sp.title)) {
-        widget_set_text_utf8(ui.title, sp.title);
-        widget_set_text_utf8(ui.artist, sp.artist);
-        widget_set_text_utf8(ui.album, sp.album);
-    }
+    void *fields[] = { ui.title, ui.artist, ui.album };
+    const char *values[] = { sp.title, sp.artist, sp.album };
+    for (unsigned i = 0; i < 3; ++i)
+        if (tk_strcmp(widget_get_prop_str(fields[i], "text", ""), values[i])) {
+            widget_set_text_utf8(fields[i], values[i]);
+            widget_set_prop_int(fields[i], "xoffset", 0);
+        }
     /* ponytail: the cover is sized on the UI thread, one decode a track; a worker if it stutters */
     /* A cover that fails (written after its state line, or bad) is tried again on the next 3 ticks. */
     if (tk_strcmp(ui.art_tried, sp.track)) ui.art_tries = 0;
@@ -487,6 +514,11 @@ static void spot_np(void) {
     ui.album =
         label(ui.info, SPOT_TEXT_X, SPOT_ART_Y + 103, SPOT_TEXT_W, 22, "s_scrlabel_white20l", NP_META_PX,
               IPOD ? (0xff000000u | NP_ALBUM_RGB) : SPOT_GREY);
+    void *fields[] = { ui.title, ui.artist, ui.album };
+    for (unsigned i = 0; i < 3; ++i) {
+        hscroll_label_set_only_focus(fields[i], 0);
+        hscroll_label_set_ellipses(fields[i], 0);
+    }
     ui.bar = widget_factory_create_widget(f, "view", ui.info, SPOT_BAR_X, SPOT_BAR_Y, SPOT_BAR_W,
                                           SPOT_BAR_H);
     ui.elapsed =
@@ -611,6 +643,11 @@ static void *worker(void *unused) {
 static void request(const char *op, const char *tail, int act) {
     fetch_cancel();
     br.act = act;
+    if (act == A_PLAY) {
+        const char *uri = strrchr(tail, '\t');
+        tk_snprintf(sp.wanted, sizeof sp.wanted, "%s", uri && strstr(uri + 1, "spotify:track:") == uri + 1 ? uri + 15 : "");
+        tk_snprintf(sp.from, sizeof sp.from, "%s", sp.track);
+    }
     ++wk.id;
     if (act == A_FETCH) top()->id = wk.id;
     wk.cancel = 0;
@@ -759,6 +796,15 @@ static void got(void) {
                       : n >= 0 && f[2][0] ? f[2]
                                                : "Spotify didn't answer";
     int ok = !strcmp(status, "ok"), login = !strcmp(status, "login");
+    if (login || (ok && act == A_SIGNOUT)) {
+        sp.auth = -1;
+        sp.loading = 0;
+        sp.active = sp.playing = sp.paused = 0;
+        sp.track[0] = 0;
+    } else if (ok) {
+        sp.auth = 1;
+        sp.old = 0;
+    }
     br.act = A_FETCH;
     if (act) { /* never sent again: play, enqueue, shuffle, repeat and signout change things */
         if (ok && act == A_SIGNOUT) br.until = time_now_ms() + SPOT_SIGNOUT_MS;
@@ -766,8 +812,12 @@ static void got(void) {
             base(S_PAIR);
         else if (ok && act == A_SET)
             l->state = S_LOAD, show();
-        else if (ok && act == A_PLAY)
+        else if (ok && act == A_PLAY) {
+            sp.loading = 1; /* not a timed-out play's 2, which spot_started takes as any track */
+            sp.loading = !spot_started();
+            sp.load_at = time_now_ms();
             spot_np();
+        }
         else if (!ok || act == A_ENQUEUE)
             toast(ok ? "Added to Queue" : msg);
     } else if (l->id != wk.id) {
@@ -775,7 +825,7 @@ static void got(void) {
         if (l->state != S_PAIR) l->state = S_WAIT, show(); /* librespot starting */
         br.poll_at = time_now_ms() + 500;
     } else if (wk.fail == W_NOSOCK && !access(SPOT_STATE, 0))
-        base(S_OLD);
+        sp.old = 1, base(S_OLD);
     else if (login)
         base(S_PAIR);
     else if (ok) {
