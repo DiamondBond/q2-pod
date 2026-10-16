@@ -6373,6 +6373,10 @@ int ringnav_sleep(void *loop) {
  * press only wakes, without clicking the selected row or turning the screen off again; held, its
  * long press and release pass. Other keys pass: the wheel's volume and the media buttons work
  * dark. Returns 1 to drop the event. */
+static void woke(unsigned now) { /* a passing dark press: not Standby's resume key */
+    *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
+    st.woke_at = now;
+}
 static int wake_gate(void *e) {
     unsigned type = (unsigned)I(e, EVENT_TYPE), now = (unsigned)time_now_ms();
     if (type != EVT_KEY_DOWN && type != EVT_KEY_LONG && type != EVT_KEY_UP) return 0;
@@ -6390,10 +6394,7 @@ static int wake_gate(void *e) {
     /* every press sets it, so one whose release never came (Standby while held) leaves none */
     if (type == EVT_KEY_DOWN && (st.wake_eat = now - st.woke_at < WAKE_MS)) return 1;
     if (!st.wake_double || g_backlight_status) { /* wake_pass is read by power_poll */
-        if (!g_backlight_status && type == EVT_KEY_DOWN) {
-            *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
-            st.woke_at = now;
-        }
+        if (!g_backlight_status && type == EVT_KEY_DOWN) woke(now);
         return st.wake_pass = 0;
     }
     if (type == EVT_KEY_UP) {
@@ -6403,10 +6404,7 @@ static int wake_gate(void *e) {
     }
     st.wake_pass = now - st.wake_at < WAKE_MS;
     st.wake_at = st.wake_pass ? 0 : now;
-    if (st.wake_pass) {
-        *(volatile unsigned char *)BOOT_KEY_GUARD = 0; /* not Standby's resume key */
-        st.woke_at = now;
-    }
+    if (st.wake_pass) woke(now);
     return !st.wake_pass;
 }
 
