@@ -7849,7 +7849,10 @@ playing(m,0,pos=0,n=70); assert not m.places() and not m.renames; passed()
 m=ResumeMachine()
 for i in range(O['RESUME_SLOTS']+2):  # the last is saved by no later change
     m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[0]+O['REC_PATH'],m.string(f'/p/long{i}')); m.poll(100+i,pos=0,n=3)
-assert len(m.places())==O['RESUME_SLOTS'] and m.places()[0][1]==100+O['RESUME_SLOTS'] and m.places()[-1][1]==101; passed()
+assert len(m.places())==O['RESUME_SLOTS']>=512 and m.places()[0][1]==100+O['RESUME_SLOTS'] and m.places()[-1][1]==101; passed()
+old32=struct.pack('<II',fnv('/p/old'),700)+bytes(8*31)  # an earlier release's 32-slot file keeps its places
+m=ResumeMachine({'/mnt/data/ringnav-resume':old32}); m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[0]+O['REC_PATH'],m.string('/p/old'))
+m.poll(0,pos=0,n=2); playing(m,1,n=3); assert m.seeks==[700]; passed()
 
 m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]  # Podcasts/Audiobooks: any length, never counted
 m.word(r+O['REC_PATH'],m.string('/mnt/mmc/audiobooks/Book/01.mp3')); playing(m,0,200,pos=0,n=110)

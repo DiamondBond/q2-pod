@@ -4313,7 +4313,8 @@ static int shuffle_menu(void *ctx, void *event) {
 static int spot_at(unsigned key) {
     if (!st.spots_read) {
         st.spots_read = 1;
-        BLOB_IO(RESUME_FILE, st.spots, 0);
+        if (!BLOB_IO(RESUME_FILE, st.spots, 0)) /* earlier releases kept 32 */
+            blob_io(RESUME_FILE, RESUME_FILE, st.spots, 32 * sizeof *st.spots, 0);
     }
     for (int i = 0; i < RESUME_SLOTS; i++)
         if (st.spots[i].key == key) return st.spots[i].sec;

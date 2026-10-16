@@ -306,7 +306,7 @@ static inline int arc_out(int r, int y) {
  * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less
  * than RESUME_START_S when first seen playing. */
 #define RESUME_MIN_S 1200
-#define RESUME_SLOTS 32
+#define RESUME_SLOTS 512
 #define RESUME_EDGE_S 30
 #define RESUME_SAVE_S 60
 #define RESUME_START_S 5
