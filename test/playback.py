@@ -174,6 +174,11 @@ assert [m.fn('playback_option',k) for k in range(3)]==[1,5,0]
 out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i in range(n)]
 seq=m.sequence(limit=20); assert n==13 and seq[1:14]==up and len(seq)==21 and sorted(seq[:7])==list(range(7)) and seq[0]==2; checks+=1
 
+# Over SAVE_LIMIT (999) tracks nothing is saved, and an older snapshot goes.
+for n,kept in ((999,True),(1000,False)):
+    m=PlaybackMachine({'/mnt/data/ringnav-queue':b'old'}); m.budget=100000000; m.install([(f't{i}',f'/L/{i}.flac','L',1,i,0,0) for i in range(n)])
+    assert m.fn('playback_shuffle')==1 and ('/mnt/data/ringnav-queue' in m.files)==kept and m.files.get('/mnt/data/ringnav-queue')!=b'old'; checks+=1
+
 # The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
 # order, and opens nothing else.
 def now_playing():

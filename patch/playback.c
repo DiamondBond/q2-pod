@@ -9,6 +9,9 @@
 #define CHECKPOINT_FILE QUEUE_FILE "-elapsed"
 #define QUEUE_LIMIT 65536
 #define HISTORY_LIMIT 4096
+/* ponytail: a larger queue is not kept across a reboot, as the snapshot is the whole queue, rewritten
+ * each track change; save the order once and positions after to lift it. */
+#define SAVE_LIMIT 999
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_prev_trampoline(void), stock_mode_trampoline(int), stock_preload_trampoline(void),
     stock_memory_trampoline(void *), stock_savequeue_trampoline(void), stock_change_trampoline(int),
@@ -715,8 +718,9 @@ static int save_elapsed(int sec) {
 }
 void playback_save(void) {
     if (!s.active) return;
-    if (!s.n) {
+    if (!s.n || s.n > SAVE_LIMIT) {
         unlink(QUEUE_FILE);
+        s.dirty = 0;
         return;
     }
     int sec = 0, total = 0;

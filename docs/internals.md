@@ -633,7 +633,7 @@ To reproduce the old hang and verify the fix against the stock MIPS library, run
 
 The shared audio writer keeps partial ALSA writes and retries the remaining frames after an underrun, instead of discarding unwritten samples. Native tests exercise partial writes, zero progress, recovery and lost outputs. This is independent of the ALSA startup lock workaround.
 
-Queue and traversal changes commit the full queue snapshot. Elapsed-only changes atomically replace the 16-byte `ringnav-queue-elapsed` checkpoint, which applies only when it matches the snapshot's checksum and position.
+Queue and traversal changes commit the full queue snapshot, for queues up to `SAVE_LIMIT` (999) tracks; a larger one keeps no snapshot (it would be rewritten whole on every track change), so a reboot resumes it as stock does. Elapsed-only changes atomically replace the 16-byte `ringnav-queue-elapsed` checkpoint, which applies only when it matches the snapshot's checksum and position.
 
 ## M4B recognition and audit
 
