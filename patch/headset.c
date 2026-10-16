@@ -189,11 +189,6 @@ static void *headset_worker(void *arg) {
     hs.running = 0;
     return 0;
 }
-static int hex(char c) {
-    return c >= '0' && c <= '9'                 ? c - '0'
-           : (c | 32) >= 'a' && (c | 32) <= 'f' ? (c | 32) - 'a' + 10
-                                                : -1;
-}
 static void headset_start(void) {
     char mac[64] = { 0 };
     int n = getBtLinkSize(), status = 0;

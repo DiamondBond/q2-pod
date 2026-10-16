@@ -7,18 +7,16 @@ import pathlib, struct, subprocess, sys
 from unicorn import UC_HOOK_CODE
 from unicorn.mips_const import *
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'tools'))
-from build import BLUEALSA, BT_DROP, BT_DROP_HANDLER, BT_PCM_CALLERS, machine
+from build import BLUEALSA, BT_DROP, BT_DROP_HANDLER, BT_PCM_CALLERS, machine, read, word
 
 
 def check_drop(raw, queued, caller=None):
     u = machine(raw, 0x1000000)
     pcm, transport, state, stop = 0x1000000, 0x1000200, 0x1000400, 0x1000600
-    def word(address, value): u.mem_write(address, struct.pack('<I', value))
-    def read(address): return struct.unpack('<I', u.mem_read(address, 4))[0]
-    word(pcm, transport)
-    word(pcm + 4, transport + 0x50)
-    word(state + 0x1c, 48000 * 300)  # the previous track's pacing clock
-    word(state + 0x30, 100)
+    word(u, pcm, transport)
+    word(u, pcm + 4, transport + 0x50)
+    word(u, state + 0x1c, 48000 * 300)  # the previous track's pacing clock
+    word(u, state + 0x30, 100)
     fifo = [queued]
     locked = [False]
     signals, flushes = [], []
@@ -66,18 +64,18 @@ def check_drop(raw, queued, caller=None):
     u.reg_write(UC_MIPS_REG_S2, state)
     if caller:
         address, offset = caller
-        word(stack + 0x54, address)
+        word(u, stack + 0x54, address)
         buffer = 0x1001000
         if offset is not None:
             ffb = state + offset
             for off, value in ((0, buffer), (4, buffer+128), (8, 1024), (12, 2)):
-                word(ffb+off, value)
+                word(u, ffb+off, value)
             u.reg_write(UC_MIPS_REG_S6, buffer+128)
             u.reg_write(UC_MIPS_REG_S5, 960)
         else:
-            word(stack+0x40, 0)  # caller's base offset, saved s4
-            word(stack+0x4c, 128)  # caller's partial byte offset, saved s7
-            word(stack+0x48, 224)  # caller's remaining samples, saved s6
+            word(u, stack+0x40, 0)  # caller's base offset, saved s4
+            word(u, stack+0x4c, 128)  # caller's partial byte offset, saved s7
+            word(u, stack+0x48, 224)  # caller's remaining samples, saved s6
             u.reg_write(UC_MIPS_REG_S6, buffer+128)
             u.reg_write(UC_MIPS_REG_S5, 224)
     u.emu_start(BT_DROP_HANDLER, 0x41463c, count=1000)
@@ -85,12 +83,12 @@ def check_drop(raw, queued, caller=None):
     if caller:
         rewound = u.reg_read(UC_MIPS_REG_S6) == buffer
         if offset is not None:
-            rewound &= read(ffb+4)==buffer and u.reg_read(UC_MIPS_REG_S5)==1024
-            rewound &= read(ffb)==buffer and read(ffb+8)==1024 and read(ffb+12)==2
+            rewound &= read(u, ffb+4)==buffer and u.reg_read(UC_MIPS_REG_S5)==1024
+            rewound &= read(u, ffb)==buffer and read(u, ffb+8)==1024 and read(u, ffb+12)==2
         else:
-            rewound &= read(stack+0x4c)==0 and read(stack+0x48)==256 and u.reg_read(UC_MIPS_REG_S5)==256
+            rewound &= read(u, stack+0x4c)==0 and read(u, stack+0x48)==256 and u.reg_read(UC_MIPS_REG_S5)==256
     # Stock repolls at 0x414640; stop before the imported cancellation function.
-    return empty_at_ack and fifo[0] == 4096 and len(flushes) == flush_count and read(state + 0x1c) == 0 and read(state + 0x30) == 0xffffffff and rewound
+    return empty_at_ack and fifo[0] == 4096 and len(flushes) == flush_count and read(u, state + 0x1c) == 0 and read(u, state + 0x30) == 0xffffffff and rewound
 
 
 def check(directory):

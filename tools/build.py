@@ -387,6 +387,8 @@ def machine(raw, scratch, load=0):
     load_elf(u, raw, load)
     u.mem_map(scratch, 0x10000)
     return u
+def word(u, address, value): u.mem_write(address, struct.pack('<I', value & 0xffffffff))
+def read(u, address): return struct.unpack('<I', u.mem_read(address, 4))[0]
 def fileoff(b, a):
     for _, (t, o, v, _, f, _, _, _) in segments(b):
         if t == 1 and v <= a < v+f: return o+a-v

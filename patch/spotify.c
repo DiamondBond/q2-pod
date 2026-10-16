@@ -29,7 +29,7 @@ int spot_escape(const char *s, char *out, unsigned size) {
     return (int)k;
 }
 
-static int hex(char c) {
+int hex(char c) {
     return c >= '0' && c <= '9' ? c - '0' : (c | 32) >= 'a' && (c | 32) <= 'f' ? (c | 32) - 'a' + 10 : -1;
 }
 

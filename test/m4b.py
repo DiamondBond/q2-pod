@@ -2,7 +2,7 @@
 """Exercise the installed TagLib's native MP4 dispatch, without decoding audio or flashing."""
 import pathlib, struct, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]/'tools'))
-from build import machine, fileoff, segments, TAG_C, patch_m4b_cover
+from build import machine, fileoff, segments, TAG_C, patch_m4b_cover, read
 from unicorn import UC_HOOK_CODE
 from unicorn.mips_const import *
 raw = subprocess.check_output(['unsquashfs','-cat',str(pathlib.Path(sys.argv[1])/'stock.squashfs'),'usr/lib/libtag.so.2.0.1'])
@@ -10,9 +10,8 @@ raw = subprocess.check_output(['unsquashfs','-cat',str(pathlib.Path(sys.argv[1])
 assert raw[fileoff(raw,0x115130):fileoff(raw,0x115130)+4] == b'M4B\0'
 for ext in ('M4A','M4B','m4b','M4b','m4B','MP4'):
     u=machine(raw,0x2000000)
-    def word(addr): return struct.unpack('<I',u.mem_read(addr,4))[0]
     gp=0x158590
-    eq,alloc,mp4=[word(gp+n) for n in (-0x7c10,-0x69ac,-0x6e90)]
+    eq,alloc,mp4=[read(u,gp+n) for n in (-0x7c10,-0x69ac,-0x6e90)]
     assert eq==0xa44e8 and mp4==0xdcc9c
     seen=[]
     def hook(u,addr,size,_):

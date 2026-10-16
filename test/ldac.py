@@ -2,19 +2,13 @@
 """Exercise the shipped LDAC encoder's intermediate rates and bluealsa's Auto dispatch."""
 import pathlib, struct, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'tools'))
-from build import machine
+from build import machine, read, word
 from unicorn import UC_HOOK_CODE
 from unicorn.mips_const import *
 
 directory = pathlib.Path(sys.argv[1])
 def image(name):
     return subprocess.check_output(['unsquashfs', '-cat', str(directory/'rootfs.squashfs'), name])
-
-def word(u, address, value):
-    u.mem_write(address, struct.pack('<I', value))
-
-def read(u, address):
-    return struct.unpack('<I', u.mem_read(address, 4))[0]
 
 def call(u, address, *args):
     for register, value in zip((UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2, UC_MIPS_REG_A3), args):

@@ -141,6 +141,7 @@ void field(const char *raw, const char *key, char *out, unsigned n);
 unsigned long long number(const char *raw, const char *key);
 unsigned state_read(const char *path, char *raw, unsigned size);
 void dgram_send(int *sock, const char *path, const char *c, unsigned n);
+int hex(char c); /* a hex digit's value, -1 for any other character; headset.c's too */
 void *label(void *parent, int x, int y, int w, int h, const char *style, int px, unsigned color);
 void spot_yield(void), radio_stop(void);
 void headset_volume_reset(void);
