@@ -291,6 +291,14 @@ def validate_assets(directory):
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
     names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
     assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
+    # The Library's rows, stock's and list_row_core's alike, draw each local_* icon centred in one 52px
+    # box at x 10: every disc's alpha-weighted centre must sit on its image's, or the icon column wobbles.
+    for rel in sorted(n.removeprefix('squashfs-root/') for n in names if n.startswith('squashfs-root/'+xx+'local_')):
+        png = read('rootfs.squashfs', rel)
+        w, h = png_header(png)[:2]
+        alpha = imagemagick('png:-', '-alpha', 'extract', '-depth', '8', 'gray:-', data=png)
+        off = [sum(a*(i % w if axis else i // w) for i, a in enumerate(alpha))/sum(alpha) - ((w if axis else h)-1)/2 for axis in (1, 0)]
+        assert max(map(abs, off)) < 0.5, (rel, off)
     # iPod drops the carousel images and adds no Coverflow icons; Stock keeps both.
     icons = {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS}
     carousel = {'squashfs-root/'+rel for rel in CAROUSEL}
