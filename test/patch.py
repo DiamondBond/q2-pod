@@ -5039,14 +5039,14 @@ class RolloverMachine(CoverflowMachine):
         super().__init__(queue=0,cls=1)
         self.native_trace={syms[n]:n for n in ('mclAutoChange','mclNextSong','on_player_autochange','toolsLoadNextDir',
                           'player_refresh_playqueue','mclLoadPlayList','player_get_id3info','player_set_coverinfo','mclClearChangeFlag')}
-        self.trace=[]; self.files={}; self.dirs={}; self.artfiles=set(); self.worker=False
+        self.trace=[]; self.files={}; self.dirs={}; self.artfiles=set(); self.worker=False; self.forks=0
         self.handlers[0x5c29bc]='r:directory'; self.handlers[0x5c2c8c]='r:directory'
         self.handlers[0x5ace14]='r:decoder_start'
         # Lazy-bound malloc, as used by stock player_refresh_playqueue.
         self.word(0xa26cc0-0xabc,0x1000014); self.handlers[0x1000014]='r:malloc'
         for name in ('strcpy@GLIBC_2.0','strncmp@GLIBC_2.0','strstr@GLIBC_2.0','strchr@GLIBC_2.0',
                      'toolsGetMusicInfo','toolsGetFileSize','toolsGetAlbumCover','toolsGetExternCover',
-                     'access@GLIBC_2.0','remove@GLIBC_2.0','usleep@GLIBC_2.0'):
+                     'access@GLIBC_2.0','remove@GLIBC_2.0','usleep@GLIBC_2.0','fork@GLIBC_2.0'):
             self.handlers[syms[name]]='r:'+name.split('@')[0]
         self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0','toolsFreeStSongInfo',
                   'mclLoadExLyric','sendBtHeadsetPlayStatus','notifyPlayInfo','notifyPlayStatus','notifyRefreshLyric',
@@ -5098,6 +5098,7 @@ class RolloverMachine(CoverflowMachine):
             if ret: self.artfiles.add(self.text(b))
         elif name=='access': ret=0 if self.text(a) in self.artfiles else -1
         elif name=='remove': self.artfiles.discard(self.text(a))
+        elif name=='fork': self.forks+=1; ret=-1  # coverflow_player_cover's ffmpeg, refused
         elif name=='usleep' and self.worker:
             u.reg_write(UC_MIPS_REG_PC,0x1000000); u.emu_stop(); return
         for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
@@ -5133,6 +5134,8 @@ class RolloverMachine(CoverflowMachine):
             self.call(address=playing,args=(self.win,0,0,0),gap=0)
         self.byte(syms['g_forcerefresh_flag'],1)
 
+from build import PLAYER_COVER
+assert struct.unpack_from('<I',demo,fileoff(demo,PLAYER_COVER[0]))[0]==0x0c000000|payload_syms['coverflow_player_cover']>>2
 for sizes in ((2,2,1,1),(1,1,1,1)):
     m=RolloverMachine(sizes); m.setup_ui(); m.artwork(); m.ui()
     paths=[path for path in m.files]
@@ -5155,10 +5158,12 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
         if variant=='ipod':
             assert m.nodes[m.albumlabel]['text']==m.files[path][0]
             assert m.nodes[m.art]['image']=='default_album_home'
-        m.artwork()
+        forks=m.forks; m.artwork()
         assert m.text(syms['g_lastcover_url'])==path
         assert m.u.mem_read(syms['g_playcover_finishflag'],1)==b'\1'
         m.ui()
+        # No art: the folder-image call went through coverflow_player_cover to ffmpeg (refused here).
+        assert (m.forks>forks)!=m.files[path][1]
         want='file:///tmp/coverpic.jpg' if m.files[path][1] else 'default_album_home'
         assert m.nodes[m.cover]['image']==(want if m.files[path][1] else 'play_defaultcover'),(path,m.nodes[m.cover])
         assert m.nodes[m.songlabel]['text']==path.rsplit('/',1)[1]

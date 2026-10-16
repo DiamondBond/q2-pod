@@ -199,6 +199,9 @@ STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
 # checkBluetoothStatus' jalr player_save_start once a headset's A2DP comes up (a0 0: the queue restarts
 # unpaused, whatever it was doing). It becomes jal ringnav_bt_connect_start (docs/internals.md#resume-on-connect).
 BT_CONNECT_START = (0x4f358c, 0x0320f809)
+# player_parsecover_thd's jalr toolsGetExternCover (lw $t9 at 0x51300c; Now Playing's folder art, after its
+# embedded art failed) becomes jal coverflow_player_cover, which gives ffmpeg what stock's decoder refuses.
+PLAYER_COVER = (0x51301c, 0x0320f809)
 # The bal toolsTrimLeft on each name copy in the two library name comparators (0x5b9d40, 0x5ba658, the
 # Chinese and other-language sorts); they become jal ringnav_sort_key, which also drops a leading article.
 AUDIO_EXTENSION_CALLS = (0x5c2054, 0x5c3da4)  # toolsLoadDirectory and recursive scan
@@ -540,6 +543,7 @@ FUNCTIONS = {
  'widget_restack': ('int', 'void *, unsigned'),
  'toolsThumbSpecCover': ('int', 'const char *, const char *, int, int'),
  'toolsGetAlbumCover': ('int', 'const char *, const char *, int, int'),
+ 'toolsGetExternCover': ('int', 'const char *, const char *, int, int'),
  'window_create': ('void *', 'void *, int, int, int, int'),
  'widget_factory': ('void *', 'void'),
  'widget_factory_create_widget': ('void *', 'void *, const char *, void *, int, int, int, int'),
@@ -700,6 +704,7 @@ def compile_payload(out, ipod=False):
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=ringnav_ts_read',
+        '--undefined=coverflow_player_cover',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -908,6 +913,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, *HOLD_RETURN, jal(ps['compact_now_playing']),
                'long Return destination after stock input gates')
     patch_word(patched, *STANDBY_WAKE, 'Standby resume stays dark')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x51300c))[0] == 0x8f99b6e4,
+          'player cover: expected toolsGetExternCover import')
+    patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')
     patch_word(patched, *BT_CONNECT_START, jal(ps['ringnav_bt_connect_start']),
                'Bluetooth: Resume on connect')
     scan, load, limit, count = SCAN_LIMIT

@@ -160,12 +160,36 @@ static int folder_shared(unsigned key, const char *track) {
     return 0;
 }
 
-/* One album: embedded art, then cover and folder images (not from a folder shared with other
- * albums, whose cover.jpg would be theirs too), then ffmpeg's read of the embedded art, last as it
- * costs a process for every album without art; written to .tmp and renamed. An empty file marks
+/* The cover and folder images beside track through fit (none when shared: a folder shared with
+ * other albums, whose cover.jpg would be theirs too), then ffmpeg's read of its embedded art, last
+ * as it costs a process for every track without art. */
+static int beside_art(const char *track, const char *dst, int w, int h, int shared,
+                      int (*fit)(const char *, const char *, int, int)) {
+    char src[1024];
+    const char *slash = strrchr(track, '/');
+    int folder = slash ? (int)(slash - track) : 0, ok = 0;
+    static const char *const names[] = { "cover.jpg",  "folder.jpg",  "cover.png",
+                                          "folder.png", "cover.webp", "folder.webp" };
+    for (unsigned i = 0; i < sizeof(names) / sizeof(*names) && !ok && !shared; ++i) {
+        snprintf(src, sizeof(src), "%.*s/%s", folder, track, names[i]);
+        ok = !access(src, 4) && fit(src, dst, w, h);
+    }
+    return ok || ff_thumb(track, dst, w, h);
+}
+
+/* player_parsecover_thd's folder-image call, after its embedded art failed, under
+ * g_playcover_mutex: what stock refuses (a PNG over 1 MB or palette/greyscale, WebP) goes to
+ * ffmpeg, so Now Playing gets the art Coverflow shows. ff_thumb takes no lock, so Coverflow's
+ * parse-then-play order cannot deadlock with it. ponytail: a track with no art at all costs an
+ * ffmpeg probe on every play; skip albums Coverflow marked empty if skips feel slow. */
+int coverflow_player_cover(const char *track, const char *dst, int w, int h) {
+    return toolsGetExternCover(track, dst, w, h) == 1 || beside_art(track, dst, w, h, 0, ff_thumb);
+}
+
+/* One album: embedded art, then beside_art; written to .tmp and renamed. An empty file marks
  * "no art", so the placeholder shows and the album is not retried until Refresh. */
 static void build_art(const job_t *j) {
-    char dst[512], tmp[512], src[1024];
+    char dst[512], tmp[512];
     if (access(j->track, 0)) return; /* storage gone: no marker, the next open retries */
     art_path(dst, j->key, "");
     art_path(tmp, j->key, ".tmp");
@@ -177,15 +201,7 @@ static void build_art(const job_t *j) {
     int ok = toolsGetAlbumCover(j->track, tmp, ART_SIZE, ART_SIZE) == 1;
     pthread_mutex_unlock((void *)g_playcover_mutex);
     pthread_mutex_unlock((void *)parse_cover_mutex);
-    const char *slash = strrchr(j->track, '/');
-    int folder = slash ? (int)(slash - j->track) : 0;
-    static const char *const names[] = { "cover.jpg",  "folder.jpg",  "cover.png",
-                                          "folder.png", "cover.webp", "folder.webp" };
-    for (unsigned i = 0; i < sizeof(names) / sizeof(*names) && !ok && !j->shared; ++i) {
-        snprintf(src, sizeof(src), "%.*s/%s", folder, j->track, names[i]);
-        ok = !access(src, 4) && thumb(src, tmp, ART_SIZE, ART_SIZE);
-    }
-    ok = ok || ff_thumb(j->track, tmp, ART_SIZE, ART_SIZE);
+    ok = ok || beside_art(j->track, tmp, ART_SIZE, ART_SIZE, j->shared, thumb);
     if (ok && !rename(tmp, dst)) return;
     unlink(tmp);
     if (access(j->track, 0)) return;

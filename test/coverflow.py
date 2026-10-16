@@ -40,7 +40,7 @@ extern unsigned char shim_memory[0x800];
 #define g_memory_info shim_memory
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
-getAllAlbum getMusicByAlbum toolsQueryDbTable album_row toolsThumbSpecCover toolsGetAlbumCover _create_deque deque_init_copy deque_clear
+getAllAlbum getMusicByAlbum toolsQueryDbTable album_row toolsThumbSpecCover toolsGetAlbumCover toolsGetExternCover _create_deque deque_init_copy deque_clear
 deque_init _deque_push_back deque_pop_back
 deque_assign deque_destroy deque_size deque_at window_create widget_factory
 widget_factory_create_widget image_create hscroll_label_create set_hscroll_label_attribute
@@ -67,7 +67,7 @@ TEST = r"""
 #include <stdint.h>
 #undef pthread_mutex_lock /* the stubs below record, then take the real lock */
 #undef pthread_mutex_unlock
-int coverflow_home(void *, void *);
+int coverflow_home(void *, void *), coverflow_player_cover(const char *, const char *, int, int);
 const char *track_name(char *, unsigned, void *);
 
 /* Widgets: raw memory first, so the payload's field reads (SLIDE_INDEX) land in it. */
@@ -389,6 +389,12 @@ int toolsGetAlbumCover(const char *src, const char *dst, int ww, int h) {
     (void)src;
     assert(ww == 160 && h == 160 && held[0] && held[1] && strstr(dst, ".jpg.tmp"));
     return embedded_fails ? 0 : write_art(dst, "embedded");
+}
+static int extern_found;
+int toolsGetExternCover(const char *src, const char *dst, int ww, int h) {
+    (void)src;
+    assert(ww == 320 && h == 320 && !held[0] && !held[1]);
+    return extern_found ? write_art(dst, "extern") : 0;
 }
 static unsigned free_blocks = 1 << 20;
 int shim_statfs(const char *p, void *out) {
@@ -1019,6 +1025,30 @@ static void ffmpeg_art(void) {
     close_page();
 }
 
+static void player_cover(void) {
+    /* Now Playing's folder art (coverflow_player_cover): stock's, else ffmpeg alone on a folder image
+       (stock already refused it), then on the embedded picture. No stock thumbnailer: its parse lock
+       would nest under the player's. */
+    const char *dst = PEQ_ROOT "/externpic.jpg";
+    char got[16];
+    struct { const char *album, *want; int found; } cases[] = {
+        { "Webp", "ffmpeg", 0 }, { "Ffok", "ffmpeg", 0 }, { "Cover", 0, 0 }, { "Cover", "extern", 1 } };
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); ++i) {
+        char track[600];
+        snprintf(track, sizeof track, PEQ_ROOT "/music/%s/01.flac", cases[i].album);
+        unlink(dst);
+        extern_found = cases[i].found;
+        int before = calls, ok = coverflow_player_cover(track, dst, 320, 320);
+        FILE *f = fopen(dst, "r");
+        size_t n = f ? fread(got, 1, sizeof(got) - 1, f) : 0;
+        if (f) fclose(f);
+        got[n] = 0;
+        assert(ok == !!cases[i].want && calls == before + cases[i].found);
+        assert(cases[i].want ? !strcmp(got, cases[i].want) : !f);
+    }
+    extern_found = 0;
+}
+
 int main(void) {
     /* Titles come from tags, unchanged; missing tags retain filename/CUE fallbacks. */
     char track[0x60] = {0}, name[512];
@@ -1153,6 +1183,7 @@ int main(void) {
     disc_folders();
     audiobooks();
     ffmpeg_art();
+    player_cover();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
