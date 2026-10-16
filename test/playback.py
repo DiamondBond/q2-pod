@@ -233,6 +233,15 @@ m.byte(0xa3be54,1); want=m.fn('playback_successor',1); starts=len(m.starts)
 assert m.advance_song()==1 and m.current()==want and len(m.starts)==starts
 checks+=1
 
+# Up Next lists a multi-track Play Next back to back, as it plays.
+m=PlaybackMachine(); m.options(1,5,0)
+q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
+m.deqs[q][1][old+1:old+1]=[m.song('next%d'%i) for i in range(3)]
+m.fn('playback_insert',old+1,3,1)
+out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i in range(n)]
+assert up[:3]==[old+1,old+2,old+3] and m.sequence(limit=n)[1:]==up, up
+checks+=1
+
 # Add and Play next remap history and occurrences, including multiple priority tracks.
 m=PlaybackMachine(); m.options(1,5,0)
 q=m.get(syms['mcl_pdeqplaylist']); old=m.current()

@@ -419,13 +419,13 @@ static unsigned upcoming(unsigned *out, unsigned max) {
     unsigned at = (unsigned)M(MCL_POS), k = 0;
     if (!s.active || at >= s.n) return 0;
     int category = s.repeat == 1 || s.repeat == 4;
-    unsigned forced = s.forced && s.forced <= s.n && (!category || s.groups[s.forced - 1] == s.groups[at])
-                          ? s.forced - 1
-                          : s.n;
-    if (forced < s.n) out[k++] = forced;
+    /* Play Next's tracks [forced-1, force_end) play back to back first (commit moves forced on) */
+    unsigned f = s.forced ? s.forced - 1 : s.n, fe = f;
+    while (fe < s.force_end && fe < s.n && k < max && (!category || s.groups[fe] == s.groups[at]))
+        out[k++] = fe++;
     for (unsigned i = s.cursor + 1; i < s.n && k < max; ++i) {
         unsigned x = s.order[i].index;
-        if (!s.seen[x] && x != forced && (!category || s.groups[x] == s.groups[at])) out[k++] = x;
+        if (!s.seen[x] && (x < f || x >= fe) && (!category || s.groups[x] == s.groups[at])) out[k++] = x;
     }
     if (s.repeat < 3) return k;
     /* the next pass after the order runs out: the cycle, wrapped */
