@@ -430,6 +430,28 @@ static int successor(int automatic) {
         if (!category || s.groups[s.cycle[i].index] == s.groups[at]) return (int)s.cycle[i].index;
     return -1;
 }
+/* The indices successor(1) would play after this track, in order, without side effects: Up Next.
+ * Repeat Song and Play One Song have none, as a natural end has none. */
+unsigned playback_upcoming(unsigned *out, unsigned max) {
+    unsigned at = (unsigned)M(MCL_POS), k = 0;
+    if (!s.active || at >= s.n || s.repeat == 0 || s.repeat == 3) return 0;
+    int category = s.repeat == 1 || s.repeat == 4;
+    unsigned forced = s.forced && s.forced <= s.n && (!category || s.groups[s.forced - 1] == s.groups[at])
+                          ? s.forced - 1
+                          : s.n;
+    if (forced < s.n) out[k++] = forced;
+    for (unsigned i = s.cursor + 1; i < s.n && k < max; ++i) {
+        unsigned x = s.order[i].index;
+        if (!s.seen[x] && x != forced && (!category || s.groups[x] == s.groups[at])) out[k++] = x;
+    }
+    if (s.repeat < 3) return k;
+    /* the next pass after the order runs out: the cycle, wrapped */
+    for (unsigned i = 0; i < s.n && k < max; ++i) {
+        unsigned x = s.cycle[i].index;
+        if (!category || s.groups[x] == s.groups[at]) out[k++] = x;
+    }
+    return k;
+}
 int playback_successor(int automatic) {
     if (!automatic) return successor(0);
     unsigned at = (unsigned)M(MCL_POS);
