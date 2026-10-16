@@ -3559,6 +3559,7 @@ assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf003,0,0,0),gap=0
 assert m.names(m.get(syms['p_deque_showlist']))==['Baroness','STP','Row 1']; passed()
 # Run the actual Library query wrapper against SQLite, with mixed music/book tags and Unknowns.
 # The flag is scoped by ringnav_localclass above; outside it (Coverflow, folders, Podcasts) SQL stays intact.
+class QueryDone(Exception): pass
 class LibraryQueryMachine(Machine):
     def __init__(self):
         super().__init__(); self.mock('strstr@GLIBC_2.0'); self.handlers.pop(syms['toolsQueryDbTable'])
@@ -3572,12 +3573,18 @@ class LibraryQueryMachine(Machine):
             (5,'Podcast','Host','Host','/mnt/mmc/Podcasts/show/episode.mp3'),
             (6,'','','','/mnt/mmc/Audiobooks/untagged.mp3'),
         ])
+    tramps={int(manifest['patch_symbols'][f'stock_{x}_trampoline'],16):x for x in ('dbquery','content_query')}
     def hook(self,u,address,size,unused):
-        if address != int(manifest['patch_symbols']['stock_dbquery_trampoline'],16):
-            return super().hook(u,address,size,unused)
+        if address in (syms['strcpy@GLIBC_2.0'],syms['sprintf@GLIBC_2.0']):  # getAlbumByAlbumArtist's SQL: %s only
+            a,b,*v=[u.reg_read(r) for r in REGS]; v=iter(v)
+            u.mem_write(a,re.sub('%s',lambda _:self.text(next(v)),self.text(b)).encode()+b'\0')
+            u.reg_write(UC_MIPS_REG_V0,a); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+        if address not in self.tramps: return super().hook(u,address,size,unused)
         a,b,c,d=[u.reg_read(r) for r in REGS]; self.sql=self.text(b)
-        assert self.text(a)=='/mnt/data/database.db' and (c,d)==(123,1)
+        if self.tramps[address]=='content_query': self.content=(c,self.text(d),self.get(u.reg_read(UC_MIPS_REG_SP)+16))
+        else: assert self.text(a)=='/mnt/data/database.db' and (c,d)==(123,1)
         self.results=self.db.execute(self.sql).fetchall()
+        if self.tramps[address]=='content_query': raise QueryDone  # stock's row handling after it isn't emulated
         u.reg_write(UC_MIPS_REG_V0,len(self.results)); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
 lm=LibraryQueryMachine(); AA="ifnull(nullif(albumsonger,''),songer)"
 for query in ('select id,songer from songtable group by songer COLLATE NOCASE',
@@ -3604,6 +3611,13 @@ for query,want in (("select id,album,songer,fileurl,albumsonger from songtable w
     assert {r[0] for r in lm.results}==want and (lm.sql==query)==('ifnull(albumsonger' in query),(query,lm.sql,lm.results)
 lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select id,albumsonger from songtable group by albumsonger COLLATE NOCASE'),123,1),gap=0)
 assert sorted(r[1] for r in lm.results)==['','Author','Host','Other','Shared','The Cure','Writer'],lm.results
+# An artist's albums tab: getAlbumByAlbumArtist runs its two queries through toolsQueryContentDbTable,
+# rewritten and scoped the same way: Unknown Artist's albums are its songs' (neither tag).
+for scoped,artist,want in ((0,'The Cure',{7,8}),(0,'',{6}),(1,'The Cure',{7,8}),(1,'',set())):
+    lm.word(payload_syms['library_music'],scoped)
+    try: lm.call(address=syms['getAlbumByAlbumArtist'],args=(lm.string(artist),),gap=0)
+    except QueryDone: pass
+    assert lm.content[1:]==(artist,1) and AA in lm.sql and {r[0] for r in lm.results}==want,(artist,lm.sql,lm.results)
 lm.word(payload_syms['library_music'],1); lm.sql=None
 assert lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select * from songtable'+' '*2048),123,1),gap=0)==-1
 assert lm.sql is None

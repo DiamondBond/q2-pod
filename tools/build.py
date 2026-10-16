@@ -37,6 +37,8 @@ HOOKS = {
     # Library lists: an Unknown row with no songs is dropped
     'load_localclass_list': (0x5088cc, 'ringnav_localclass', 'localclass'),
     'toolsQueryDbTable': (0x5c8044, 'ringnav_library_query', 'dbquery'),
+    # An artist's albums tab (getAlbumByAlbumArtist): the same album-artist rewrite
+    'toolsQueryContentDbTable': (0x5c863c, 'ringnav_content_query', 'content_query'),
     'keylock_rows': (0x4c3cb4, 'ringnav_keylock_rows', None),
     'quick_lock': (0x4a0170, 'ringnav_quick_lock', None),
     'dialog_statusbar_dialog_init': (0x4a0d88, 'ringnav_quick_settings', 'quicksettings'),

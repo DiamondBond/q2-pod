@@ -4,7 +4,8 @@
 #include "playback.h"
 #include "stock.h"
 #undef select /* the UI selection helper below; headset.c uses libc select */
-extern int stock_dbquery_trampoline(const char *, const char *, void *, int);
+extern int stock_dbquery_trampoline(const char *, const char *, void *, int),
+    stock_content_query_trampoline(const char *, const char *, void *, void *, int);
 extern int stock_quicksettings_trampoline(void *, void *);
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
@@ -15,25 +16,38 @@ static int library_music __attribute__((section(".scratch")));
  * queries, including Unknown and split albums, before grouping. Coverflow and folder queries keep
  * their own scope. */
 #define ALBUM_ARTIST_OR_ARTIST "ifnull(nullif(albumsonger,''),songer)"
-int ringnav_library_query(const char *db, const char *sql, void *row, int sort) {
-    char aa[2048];
+/* toolsQueryDbTable, or (content) toolsQueryContentDbTable, which an artist's albums tab
+ * (getAlbumByAlbumArtist) runs with its row's arg and the name sort on the stack. */
+static int library_query(int content, const char *db, const char *sql, void *row, void *arg,
+                         int sort) {
+    char aa[2048], filtered[2048];
     const char *s = sql ? strstr(sql, "albumsonger") : 0, *p = sql;
     if (s && !strstr(sql, "ifnull(albumsonger")) {
         unsigned n = 0;
         for (; s && n < sizeof aa; p = s + 11, s = strstr(p, "albumsonger"))
             n += (unsigned)tk_snprintf(aa + n, sizeof aa - n, "%.*s" ALBUM_ARTIST_OR_ARTIST,
                                        (int)(s - p), p);
-        if (n >= sizeof aa || n + (unsigned)tk_snprintf(aa + n, sizeof aa - n, "%s", p) >= sizeof aa)
+        if (n >= sizeof aa ||
+            n + (unsigned)tk_snprintf(aa + n, sizeof aa - n, "%s", p) >= sizeof aa)
             return -1;
         sql = aa;
     }
     const char *from = library_music && sql ? strstr(sql, " from songtable") : 0;
-    if (!from) return stock_dbquery_trampoline(db, sql, row, sort);
-    char filtered[2048];
-    int n = tk_snprintf(filtered, sizeof filtered, "%.*s from (select * from songtable where %s)%s",
+    if (from) {
+        int n =
+            tk_snprintf(filtered, sizeof filtered, "%.*s from (select * from songtable where %s)%s",
                         (int)(from - sql), sql, MUSIC_WHERE, from + 15);
-    if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
-    return stock_dbquery_trampoline(db, filtered, row, sort);
+        if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
+        sql = filtered;
+    }
+    return content ? stock_content_query_trampoline(db, sql, row, arg, sort)
+                   : stock_dbquery_trampoline(db, sql, row, (int)arg);
+}
+int ringnav_library_query(const char *db, const char *sql, void *row, int sort) {
+    return library_query(0, db, sql, row, (void *)sort, 0);
+}
+int ringnav_content_query(const char *db, const char *sql, void *row, void *arg, int sort) {
+    return library_query(1, db, sql, row, arg, sort);
 }
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
