@@ -413,6 +413,18 @@ int playback_groups(void *all, int folder) {
     playback_save();
     return 1;
 }
+/* Shuffle Songs: stock's shuffle draws each next at random, so it has no order for Up Next. Take
+ * the loaded queue over as advanced Shuffle Songs, Repeat All, as stock's never ends. */
+int playback_shuffle(void) {
+    s.shuffle = 1;
+    s.repeat = 5;
+    s.folder = 0;
+    s.forced = s.force_end = 0;
+    close_preload();
+    s.active = rebuild(0);
+    playback_save();
+    return s.active;
+}
 /* The indices that play after this track, in order, ignoring the single-song rules. Peek has no
  * side effects, RNG or history writes. */
 static unsigned upcoming(unsigned *out, unsigned max) {

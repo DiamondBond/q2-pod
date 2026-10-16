@@ -167,6 +167,13 @@ for grouping in (0,1):
             else: assert m.sequence(limit=n)[1:]==up, (shuffle,repeat,grouping)
             checks+=1
 
+# Shuffle Songs takes the loaded queue over as Shuffle Songs, Repeat All: an order Up Next lists,
+# every track once a pass from the playing one, then the next pass, without end.
+m=PlaybackMachine(); assert m.fn('playback_shuffle')==1
+assert [m.fn('playback_option',k) for k in range(3)]==[1,5,0]
+out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i in range(n)]
+seq=m.sequence(limit=20); assert n==13 and seq[1:14]==up and len(seq)==21 and sorted(seq[:7])==list(range(7)) and seq[0]==2; checks+=1
+
 # The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
 # order, and opens nothing else.
 def now_playing():

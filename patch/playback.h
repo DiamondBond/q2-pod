@@ -4,6 +4,7 @@ int playback_option(int kind); /* 0 shuffle, 1 repeat, 2 grouping */
 unsigned rand_below(unsigned n);
 int playback_set(int kind, int value);
 int playback_groups(void *all, int folder);
+int playback_shuffle(void); /* the loaded queue as Shuffle Songs, Repeat All */
 int playback_group_skip(int forward);
 int playback_back(void); /* the track stock Shuffle's Previous left, once; else -1 */
 unsigned playback_upcoming(unsigned *out, unsigned max); /* Up Next: queue indices, in play order */

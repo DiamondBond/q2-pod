@@ -4199,13 +4199,14 @@ static int songs_unsorted(void *unused) {
     return getAllMusic(3);
 }
 
-/* Collection Shuffle keeps stock shuffle-all behavior. */
+/* Collection Shuffle is Shuffle Songs over the collection. */
 static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
         playback_clear(); /* stock Shuffle keeps Shuffle Albums/Folders otherwise */
         config_playmode(2, 1);
         play_folder(all, (int)rand_below((unsigned)size), 0xf001);
+        playback_shuffle(); /* an order Up Next can list; stock's shuffle stays the fallback */
     }
     return size;
 }
