@@ -6278,6 +6278,13 @@ assert m.nodes[icon]['image']=='local_fav' and m.nodes[label]['text']=='Ratings'
 button=m.nodes[row]['children'][0]; icon,label,into=m.nodes[button]['children']
 assert m.nodes[button]['style']=='s_btn_listitem' and [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
 assert m.nodes[icon]['image']=='local_shuffle' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
+# Every added row's icon matches stock's row builder: image_create(button, 10, 0, 52, 70) at 0x524938-0x524948,
+# then image_set_draw_type(image, 1, centre) at 0x524970; the default (icon) draws it 2 px right of stock's.
+stock_demo=(B/'stock-demo').read_bytes()
+assert [struct.unpack_from('<I',stock_demo,fileoff(stock_demo,a))[0] for a in (0x524938,0x524944,0x524970)]==[0x24070034,0x2405000a,0x24050001]
+for k in (row,rated,top,long):
+    icon=m.nodes[m.nodes[k]['children'][0]]['children'][0]
+    assert [m.get(icon+O[f]) for f in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70] and m.nodes[icon]['draw_type']==O['IMAGE_DRAW_CENTER']==1
 assert m.nodes[label]['style']=='s_scrlabel_white24l' and m.nodes[label]['text']=='Shuffle' and not m.nodes[button].get('name')
 assert m.nodes[into]['image']=='list_into' and [m.get(into+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[282,0,50,70]
 f,ctx=m.handler(button,O['EVT_CLICK'])

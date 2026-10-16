@@ -1889,7 +1889,11 @@ static void *list_row_core(void *view, const char *icon, int (*click)(void *, vo
                            int w, int into) {
     void *button = list_button(view);
     if (click) widget_on(button, EVT_CLICK, click, ctx);
-    if (icon) image_base_set_image(image_create(button, 10, 0, SET_STOCK_ICON, 70), icon);
+    if (icon) { /* centred, as stock's rows (0x524978); the default (icon) draws 2 px right */
+        void *image = image_create(button, 10, 0, SET_STOCK_ICON, 70);
+        image_base_set_image(image, icon);
+        image_set_draw_type(image, IMAGE_DRAW_CENTER);
+    }
     void *label = hscroll_label_create(button, icon ? 72 : 10, 0, w, 70);
     widget_use_style(label, "s_scrlabel_white24l");
     set_hscroll_label_attribute(label);
