@@ -6387,7 +6387,8 @@ static int wake_gate(void *e) {
         st.wake_eat = 0;
         return 1;
     }
-    if (type == EVT_KEY_DOWN && now - st.woke_at < WAKE_MS) return st.wake_eat = 1;
+    /* every press sets it, so one whose release never came (Standby while held) leaves none */
+    if (type == EVT_KEY_DOWN && (st.wake_eat = now - st.woke_at < WAKE_MS)) return 1;
     if (!st.wake_double || g_backlight_status) { /* wake_pass is read by power_poll */
         if (!g_backlight_status && type == EVT_KEY_DOWN) {
             *(volatile unsigned char *)BOOT_KEY_GUARD = 0;

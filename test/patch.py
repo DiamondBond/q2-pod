@@ -8046,6 +8046,8 @@ def eaten():  # dropped with its release; held, its long press and release pass,
     r=not wake(DOWN,gap=100) and not wake(UP,gap=50) and not wake(DOWN,gap=50) and wake(LONG,gap=50) and wake(UP)
     m.byte(syms['g_backlight_status'],0); return r
 assert eaten() and wake(DOWN,gap=O['WAKE_MS']) and wake(UP)  # a blind double press only wakes; holding it still powers off
+m.byte(syms['g_backlight_status'],1); assert not wake(DOWN,gap=100); m.byte(syms['g_backlight_status'],0)
+assert wake(DOWN,gap=1000) and wake(UP)  # an eaten press whose release never came (Standby) leaves no flag
 assert click(2)==[(1,'Q2POD','WAKEDOUBLE')] and texts()[2]=='Wake: Double Press' and back_dark()
 assert not wake(DOWN,gap=1000) and not wake(UP,gap=50)  # a pocket bump
 assert wake(DOWN,gap=100) and wake(UP,gap=50) and eaten()  # the double press; a third only wakes
