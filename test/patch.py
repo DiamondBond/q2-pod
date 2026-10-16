@@ -967,7 +967,7 @@ def check_title_bounds(m, button, drill=False):
                     name=m.nodes[c]['name']
                     m.nodes[c]['visible']=choice if name.startswith('img_choice') else controls if c in children[children.index(text)+1:] else artwork
                 # Rebind the same row with different strings, then repeat layout (scroll/reuse).
-                for label in ('Short','A very long title '*12,'日本語の長い曲名と歌手 — සිංහල — العربية'):
+                for label in ('Short','A very long title '*12,'日本語の長い曲名と歌手 - සිංහල - العربية'):
                     m.nodes[title]['text']=label
                     native_row_layout(m,button)
                     before=children[:children.index(text)]
@@ -3915,7 +3915,7 @@ if variant=='ipod':
     # Classic: Home's accent bar spans the list and the chevron rides it alone.
     m=Machine(); m.config['THEME']='1'; view,imgs=home_list(m); click_target(m,imgs[2]); m.clip=(0,0,375,320)
     m.paint(view)
-    cbar=lambda: [(HOME_LIST_W-half+6,m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
+    cbar=lambda: [(HOME_LIST_W-half+O['HOME_CHEVRON_SHIFT'],m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
     assert m.sel()==(0,0,HOME_LIST_W,HOME_ROW) and m.icons==cbar() and not m.rounded
     assert m.bands[0][4]==color_t(ACCENTS[0][0]) and loaded(m)==['list_into'] and m.clip==(0,0,375,320)
     m.call(); m.paint(view); assert m.selected(view)==1 and m.sel()[1]>0 and m.icons==cbar(); passed()
@@ -4576,7 +4576,7 @@ def cf_jump(m,at,direction):
     steps=m.call(address=symbols(B/'patch.elf')['coverflow_jump'],args=(m.slide,at,direction,letter),gap=0)
     return steps,m.get(letter)
 m=CoverflowMachine(albums=8)
-for r,name in zip(m.albums,['Apple One','The Apple','Dawn','Dusk','Zulu','9 Lives','—Noise','Été']):
+for r,name in zip(m.albums,['Apple One','The Apple','Dawn','Dusk','Zulu','9 Lives','-Noise','Été']):
     m.word(r+O['REC_ALBUM'],m.string(name))
 m.open()
 assert cf_jump(m,0,1)==(2,ord('D')) and cf_jump(m,3,-1)==(3,ord('A'))
@@ -4585,7 +4585,7 @@ assert cf_jump(m,5,1)==(2,ord('É')) and cf_jump(m,7,1)==(1,0)
 assert cf_jump(m,0,-1)==(1,0) and cf_jump(m,1,-1)==(2,0)
 assert cf_jump(m,8,1)==(1,0) and cf_jump(m,9,1)==(1,0); passed()
 # Unicode punctuation/numbers and missing names share #; letters retain their codepoints.
-for name,want in (('١ Song',ord('#')),('० Song',ord('#')),('—Song',ord('#')),('',ord('#')),
+for name,want in (('١ Song',ord('#')),('० Song',ord('#')),('-Song',ord('#')),('',ord('#')),
                   ('Жизнь',ord('Ж')),('東京',ord('東')),('Ａ Song',ord('Ａ')),('Ｂ Song',ord('Ｂ')),
                   ('Ⰰ Song',ord('Ⰰ'))):
     m=CoverflowMachine(albums=2)
@@ -6302,7 +6302,8 @@ def home_settings(full,classic=0):
             m.clip=(0,0,375,320); m.paint(v)
             roww=O['HOME_CLASSIC_ROW'] if full else O['HOME_SPLIT_W']
             x,y,_=m.icons[0]
-            assert x==roww-O['CHEVRON_W']+25+6 and y==m.sel()[1]+HOME_ROW//2
+            shift=O['HOME_FULL_CHEVRON_SHIFT'] if full else O['HOME_CHEVRON_SHIFT']
+            assert x==roww-O['CHEVRON_W']+25+shift and y==m.sel()[1]+HOME_ROW//2
             # Check the shipped glyph's ink, including its tapered ends, against the glass.
             for ix,iy in ink:
                 inset=corner_inset(30+y-25+iy)

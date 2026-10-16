@@ -1510,10 +1510,11 @@ static void paint_chevrons(void *w, void *canvas) {
     for (int i = 0; i < g_menu.n; ++i) {
         rect_t r = bounds(&g_menu, i);
         if (2 * r.w >= I(w, W_W) && (!home || i == st.sel_row))
-            canvas_draw_icon(canvas, bitmap,
-                             r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 +
-                                 (home ? HOME_CHEVRON_SHIFT : 0),
-                             home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
+            canvas_draw_icon(
+                canvas, bitmap,
+                r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 +
+                    (home ? (ipod_home_full() ? HOME_FULL_CHEVRON_SHIFT : HOME_CHEVRON_SHIFT) : 0),
+                home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);
 }

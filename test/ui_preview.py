@@ -121,21 +121,21 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                 if case<3 or case in (10,11):
                     full=case in (1,2); width=(inc('HOME_CLASSIC_ROW') if old else HOME_LIST_W) if full else inc('HOME_SPLIT_W')
                     labels = ['Now Playing','Library','Coverflow','Folders','Rockbox','Streaming','Settings']
-                    if case==1: labels=['Now Playing','Library — a very long music collection','Coverflow','音楽フォルダー','Streaming','Settings']
+                    if case==1: labels=['Now Playing','Library - a very long music collection','Coverflow','音楽フォルダー','Streaming','Settings']
                     if case==2: labels=['Playback','System']
                     if not full and case!=11:
                         image(a,dark if case==10 else bright,width,30,375-width,290)
                     elif not full: image(a,asset(build,'images/xx/default_album_home.png'),width,30,375-width,290)
                     selected=1 if case!=2 else 0
                     for i,value in enumerate(labels):
-                        y=30+HOME_TOP+i*HOME_ROW
+                        y=30+(0 if old else HOME_TOP)+i*HOME_ROW
                         if i==selected:
                             if old: selection(a,y,HOME_ROW,375 if full else width,palette)
                             else: a+=['-fill','white','-draw',f'circle {inc("HOME_DOT_X")+3},{y+HOME_ROW//2} {inc("HOME_DOT_X")+6},{y+HOME_ROW//2}']
                         x0=inc('HOME_CLASSIC_TEXT_X') if old else HOME_TEXT_X
                         label_width=width-x0-(inc('CHEVRON_W')-10 if old else HOME_LABEL_END if full else inc('HOME_SPLIT_LABEL_END'))
                         text(a,value,x0,y,label_width,HOME_ROW,color='#FFFFFF' if old or i==selected else '#AAAAAA')
-                        if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W'),y+(HOME_ROW-50)//2,50,50)
+                        if old and i==selected: image(a,asset(build,'images/xx/list_into.png'),width-inc('CHEVRON_W')+inc('HOME_FULL_CHEVRON_SHIFT' if full else 'HOME_CHEVRON_SHIFT'),y+(HOME_ROW-50)//2,50,50)
                 elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
                     art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_flow.png'))
@@ -145,7 +145,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     render([art,'-resize','166x166!','(', '-size','166x166','xc:black','-fill','white',
                             '-draw','roundrectangle 0,0 165,165 12,12',')','-alpha','off','-compose','CopyOpacity','-composite'],cover)
                     image(a,cover,16,80,166,166)
-                    for node,value in [('scrlabel_title','A long title — 夜の音楽'),('scrlabel_artist','Artist / アーティスト'),('label_ipod_album','Album / Collection')]:
+                    for node,value in [('scrlabel_title','A long title - 夜の音楽'),('scrlabel_artist','Artist / アーティスト'),('label_ipod_album','Album / Collection')]:
                         n=nodes[node]; x,y,w,h=n[1]
                         text(a,value,x,y+70,w,h,int(n[2].get('style:normal:font_size',16)),n[2].get('style:normal:text_color','#FFFFFF'))
                     for node,icon in [('img_fav','play_unfav'),('img_more','play_more'),('img_playmode','play_order')]:
@@ -159,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                     text(a,'1:23',46,295,80,16,14,'#AAAAAA'); text(a,'-2:34',249,295,80,16,14,'#AAAAAA')
                 elif case<8:
                     rows = [('Shuffle','local_shuffle'),('Most Played','local_frequentplay'),('Audiobooks','local_audiobooks'),('Podcasts','local_podcasts')]
-                    if case==6: rows=[('Albums','list_folder'),('音楽 — 長いフォルダー名','list_folder'),('A very long track title','local_frequentplay'),('Live recordings','list_folder')]
+                    if case==6: rows=[('Albums','list_folder'),('音楽 - 長いフォルダー名','list_folder'),('A very long track title','local_frequentplay'),('Live recordings','list_folder')]
                     if case==7: rows=[('Backlight','display_backlight'),('Theme: Classic','system_display'),('Accent: '+name,'system_display'),('Home: Full','playset_covermode')] if old else \
                         [('Backlight','display_backlight'),('Theme: Minimal','system_display'),('Home: Split','playset_covermode'),('Battery: Icon','system_powermanager')]
                     for i,(label,icon) in enumerate(rows):

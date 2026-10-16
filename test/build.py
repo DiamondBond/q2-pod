@@ -474,13 +474,13 @@ def validate_assets(directory):
             assert dot[0] >= corner_x(30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - dot[1])//2, dot[1])
             assert HOME_TEXT_X >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
             # Split (coverflow_home_layout) gives Minimal's menu 45% of the screen, Classic's half, the art the rest;
-            # Full's rows end at HOME_CLASSIC_ROW, so the chevron's glyph (x 20 to 31, y 16 to 34 of
-            # list_into, centred on the row) mirrors the labels' margin and, on the last row, clears
-            # the bottom-right corner as the label clears the bottom-left.
+            # Full's last chevron leaves the same glass clearance as the label on the left.
+            # Split's glyph ends 13px before the art, as in the Home concept.
             assert inc('HOME_SPLIT_W') == 375 // 2
-            glyph_end = inc('HOME_CLASSIC_ROW') - CHEVRON_W + 31
-            glyph_y = 30 + HOME_TOP + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
-            assert 375 - glyph_end == inc('HOME_CLASSIC_TEXT_X') >= corner_x(glyph_y, 34 - 16)
+            assert CHEVRON_W - 30 - inc('HOME_CHEVRON_SHIFT') == 13
+            glyph_end = inc('HOME_CLASSIC_ROW') - CHEVRON_W + 30 + inc('HOME_FULL_CHEVRON_SHIFT')
+            glyph_y = 30 + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
+            assert 375 - glyph_end >= corner_x(glyph_y, 34 - 16)
             assert inc('HOME_CLASSIC_TEXT_X') >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
