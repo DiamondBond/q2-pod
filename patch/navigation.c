@@ -2018,7 +2018,7 @@ static void flac_album_artist(const char *path, char *out) {
                 break;
             /* vendor length and string, the comment count, then each comment's length and bytes */
             unsigned at = le32(b) <= len - 8 ? 8 + le32(b) : len,
-                     n = at <= len ? le32(b + at - 4) : 0;
+                     n = le32(b + at - 4);
             while (n-- && at <= len - 4) {
                 unsigned c = le32(b + at);
                 at += 4;
