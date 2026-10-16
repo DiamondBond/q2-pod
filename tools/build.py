@@ -256,6 +256,7 @@ LABELS = tuple((k.encode(), o.encode(), n.encode()) for k, o, n in (
     ('playset_covermode', 'Enlarged album art(10s wait)', 'Enlarged Album Art'),
     ('playset_filter', 'Digital filters', 'Digital Filters'),
     ('playset_memplay', 'Memory playback', 'Memory Playback'),
+    ('replaygain_track', 'Audio', 'Song'),
     ('small_playset', 'Playback Setting', 'Playback'), ('small_sysset', 'System Setting', 'System'),
     ('system_wifiset', 'Wireless Setting', 'Wireless'), ('system_display', 'Display setting', 'Display'),
     ('system_netservice', 'Network Service', 'Network'), ('system_time', 'Date and time', 'Date & Time'),
@@ -273,7 +274,8 @@ LABELS = tuple((k.encode(), o.encode(), n.encode()) for k, o, n in (
     ('screenlock_info3', '3.Maximum of 5 images in folder.', '3. Up to 5 pictures.'),
     ('about_sn', 'Serial number', 'Serial Number'), ('about_version', 'FW. Version', 'Version'),
     ('list_baidu', 'Baidu Netdisk(BETA)', 'Baidu Netdisk'), ('msg_poweroff', 'Confirm Shutdown?', 'Shut Down?'),
-    ('genre', 'Genres', 'Genre'), ('player_era', 'Era', 'Year'), ('batch_addplaylist', 'Add to playlist', 'Add to Playlist')))
+    ('genre', 'Genres', 'Genre'), ('player_era', 'Era', 'Year'), ('batch_addplaylist', 'Add to playlist', 'Add to Playlist'),
+    ('scan_startscan', 'Scanning', 'Scan')))  # Scan specified folders' button; wifi_scan keeps its "Scanning"
 
 # The stock font (Arial merged with a CJK font) gives curly quotes the CJK em advance, a wide gap
 # inside words wherever a tag has one; its cmaps map them to the straight glyphs instead. Its hearts
