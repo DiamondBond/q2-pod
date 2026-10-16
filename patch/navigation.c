@@ -4044,7 +4044,9 @@ int ringnav_badge(const char *path, char *out, int size) {
 }
 /* My Fav's rows are stock's copies of the songs as added, some with an empty title though the
  * library has the tag: an empty one takes the library's, by path, so it reads as every other
- * list's instead of falling back to its file name. */
+ * list's instead of falling back to its file name.
+ * ponytail: each untitled row scans the library, as rate_all does; a sorted index
+ * (ringnav_memory's) if that shows. */
 static int songs_unsorted(void *);
 static void fav_titles(void *list, int n) {
     void *songs = 0;
