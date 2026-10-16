@@ -3873,7 +3873,7 @@ if variant=='ipod':
     assert [c[0] for c in m.moved()]==['scroll_view_set_offset']; passed()
 
     # Home is an ordinary list: the wheel walks the seven rows one by one, bumps at both ends and
-    # wraps after a pause, Return opens Now Playing, the bar spans the list's width and centre
+    # wraps after a pause, Return selects Now Playing, the bar spans the list's width and centre
     # clicks the image.
     m=Machine(); view,imgs=home_list(m); click_target(m,imgs[2])
     m.paint(view)
@@ -3885,10 +3885,8 @@ if variant=='ipod':
     assert m.call(O['KEY_PREV'],gap=50)==11 and m.selected(view)==0   # bumped
     assert m.call(O['KEY_PREV'],gap=O['EDGE_PAUSE_MS'])==11 and m.selected(view)==6
     for i in range(5,2,-1): assert m.call(O['KEY_PREV'])==11 and m.selected(view)==i
-    assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==3
-    dest=destinations(m); assert len(dest)==1 and m.text(dest[0][1])=='playing_page'
-    assert [m.get(dest[0][2]+4*i) for i in range(4)]==[0,0,255,2]
-    m.call(O['KEY_PREV'],gap=1000)
+    assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==0 and not destinations(m)
+    for i in (1,2): assert m.call(gap=1000)==11 and m.selected(view)==i
     assert not m.slides and m.confirm()==11 and m.dispatched()[0][1]==imgs[2]; passed()
 
     # Boot: if Home's first paint comes before the screen is usable, no row is chosen or drawn. The
@@ -6344,8 +6342,9 @@ def home_settings(full,classic=0):
         assert next(c[2] for c in m.calls if c[0]=='widget_animator_prop_create')==120
         m.advance(120); assert m.get(lst+O['W_X'])==0 and not m.props
         m.paint(view); assert m.selected(view)==6; passed()
-        # Return on Home's main list opens Now Playing without moving its selection or starting a track.
-        m.calls=[]; assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==6
+        # Return on Home's main list selects Now Playing; Return there opens it without starting a track.
+        m.calls=[]; assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==0 and not destinations(m)
+        m.calls=[]; assert m.call(O['KEY_RETURN'])==11 and m.selected(view)==0
         dest=destinations(m); assert len(dest)==1 and m.text(dest[0][1])=='playing_page'
         assert [m.get(dest[0][2]+4*i) for i in range(4)]==[0,0,255,2]
         assert not any(c[0]=='player_start' for c in m.calls); passed()

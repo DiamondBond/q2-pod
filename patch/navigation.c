@@ -6637,7 +6637,8 @@ int ringnav(void *ctx, void *event) {
     /* Home's Settings list goes back to Home's list (coverflow_home_back). */
     if (key == KEY_RETURN && coverflow_home_back(window_manager_get_top_window(window_manager())))
         return STOP;
-    /* Return on Home's main list opens Now Playing with the current queue untouched. */
+    /* Return on Home's main list selects Now Playing (its first row); on that row it opens Now
+     * Playing with the current queue untouched. */
     if (key == KEY_RETURN && usable()) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
         void *w = home_menu(top) && !window_manager_is_animating(wm)
@@ -6645,7 +6646,12 @@ int ringnav(void *ctx, void *event) {
                       : (void *)0;
         if (w && load(&g_menu, w, 1) && g_menu.n) {
             st.touch_mode = 0;
-            compact_now_playing();
+            if (widget_get_prop_int(w, SEL, -1) != 0) {
+                select(&g_menu, 0);
+                reveal(&g_menu, 0, 1);
+                widget_invalidate_force(w, (void *)0);
+            } else
+                compact_now_playing();
             return STOP;
         }
     }
