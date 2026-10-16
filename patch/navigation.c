@@ -6,6 +6,7 @@
 #undef select /* the UI selection helper below; headset.c uses libc select */
 extern int stock_dbquery_trampoline(const char *, const char *, void *, int);
 extern int stock_quicksettings_trampoline(void *, void *);
+extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
 
 /* Restrict the Library's category queries, including Unknown and split albums, before grouping.
@@ -1995,6 +1996,54 @@ int ringnav_bt_resume(void) {
  * ringnav_bootmode): Artists as stock reads it, PLAYSET ARTISTTYPE, but Album Artist when no choice
  * is saved; stock writes the key only when Artists or the artist page's switch toggles. */
 void ringnav_read_artistype(void) { I(artist_type, 0) = config_or("PLAYSET", "ARTISTTYPE", 2, 1); }
+static unsigned le32(const unsigned char *p) {
+    return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24;
+}
+/* A FLAC's "ALBUM ARTIST" Vorbis comment (foobar2000's spelling) into out (0x100 bytes); stock's
+ * libtag reads only ALBUMARTIST. ponytail: FLAC only; Ogg/Opus would need page reassembly. */
+static void flac_album_artist(const char *path, char *out) {
+    const char *ext = strrchr(path, '.');
+    if (!ext || strcasecmp(ext, ".flac")) return;
+    void *f = fopen(path, "rb");
+    unsigned char h[4], *b = 0;
+    if (!f) return;
+    if (fread(h, 4, 1, f) == 1 && !memcmp(h, "fLaC", 4))
+        while (fread(h, 4, 1, f) == 1) {
+            unsigned len = (unsigned)h[1] << 16 | h[2] << 8 | h[3];
+            if ((h[0] & 0x7f) != 4) {
+                if (h[0] & 0x80 || fseek(f, (long)len, 1)) break;
+                continue;
+            }
+            if (len < 8 || len > 0x10000 || !(b = calloc(len, 1)) || fread(b, len, 1, f) != 1)
+                break;
+            /* vendor length and string, the comment count, then each comment's length and bytes */
+            unsigned at = le32(b) <= len - 8 ? 8 + le32(b) : len,
+                     n = at <= len ? le32(b + at - 4) : 0;
+            while (n-- && at <= len - 4) {
+                unsigned c = le32(b + at);
+                at += 4;
+                if (c > len - at) break;
+                if (c > 13 && !strncasecmp((char *)b + at, "ALBUM ARTIST=", 13)) {
+                    c = c - 13 > 0xff ? 0xff : c - 13;
+                    memcpy(out, b + at + 13, c);
+                    out[c] = 0;
+                    break;
+                }
+                at += c;
+            }
+            break;
+        }
+    free(b);
+    fclose(f);
+}
+/* toolsGetMusicInfo (the library scan and the player's tag reads): an empty album artist falls back
+ * to flac_album_artist. */
+int ringnav_music_info(int a, char *info, const char *path) {
+    int r = stock_music_info_trampoline(a, info, path);
+    if (path && !info[MUSIC_INFO_ALBUM_ARTIST])
+        flac_album_artist(path, info + MUSIC_INFO_ALBUM_ARTIST);
+    return r;
+}
 /* checkBluetoothStatus' player_save_start(0) once a headset's A2DP comes up (tools/build.py
  * BT_CONNECT_START): player_save_stop stopped the local or Tidal queue, and stock restarts it
  * unpaused, so a paused queue plays, and a stopped one starts over whatever owns playback

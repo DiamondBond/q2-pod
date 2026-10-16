@@ -7932,6 +7932,34 @@ for config,want in (({},1),({'ARTISTTYPE':'0'},0),({'ARTISTTYPE':'1'},1)):
     a.call(address=HOOKS['read_artistype_value'][0],args=(0,0,0,0),gap=0)
     assert a.get(syms['artist_type'])==want and a.config_reads[-1][1:3]==('PLAYSET','ARTISTTYPE'),config
 passed()
+# A FLAC's "ALBUM ARTIST" comment (foobar2000's spelling) when stock's libtag found no ALBUMARTIST (ringnav_music_info).
+class TagMachine(BooksMachine):
+    def __init__(self,files):
+        super().__init__({},files); self.stock_artist=b''
+        tramp=int(manifest['patch_symbols']['stock_music_info_trampoline'],16)
+        self.handlers[tramp]='stock_music_info'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)!='stock_music_info': return super().hook(u,address,size,unused)
+        u.mem_write(u.reg_read(UC_MIPS_REG_A1)+0x580,self.stock_artist+b'\0')
+        u.reg_write(UC_MIPS_REG_V0,1); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def album_artist(self,path,stock=b''):
+        self.stock_artist=stock; info=self.alloc(0x6a0); p=self.alloc(256); self.u.mem_write(p,path.encode()+b'\0')
+        assert self.call(address=HOOKS['toolsGetMusicInfo'][0],args=(0,info,p,0),gap=0)==1
+        return self.text(info+0x580)
+def flac(*comments,picture=0):
+    vc=struct.pack('<I',6)+b'vendor'+struct.pack('<I',len(comments))+b''.join(struct.pack('<I',len(c))+c for c in comments)
+    blocks=[(0,bytes(34))]+([(6,bytes(picture))] if picture else [])+[(4,vc)]
+    return bytearray(b'fLaC'+b''.join(bytes([t|(0x80 if i==len(blocks)-1 else 0)])+len(d).to_bytes(3,'big')+d
+                                      for i,(t,d) in enumerate(blocks))+b'audio')
+t=TagMachine({'/mnt/mmc/a.flac':flac(b'ARTIST=Chikoi The Maid',b'Album Artist=Chikoi The Maid',picture=70000),
+              '/mnt/mmc/b.flac':flac(b'ARTIST=Evan Call'),'/mnt/mmc/c.FLAC':flac(b'ALBUM ARTIST='+b'x'*300),
+              '/mnt/mmc/d.mp3':flac(b'ALBUM ARTIST=No')})
+assert t.album_artist('/mnt/mmc/a.flac')=='Chikoi The Maid'
+assert t.album_artist('/mnt/mmc/a.flac',b'Stock')=='Stock'  # stock's ALBUMARTIST wins
+assert t.album_artist('/mnt/mmc/b.flac')=='' and t.album_artist('/mnt/mmc/c.FLAC')=='x'*255
+assert t.album_artist('/mnt/mmc/d.mp3')=='' and t.album_artist('/mnt/mmc/none.flac')==''
+assert not t.handles  # every file closed
+passed()
 # Boot reads it too (ringnav_bootmode), so Audio settings shows it before any Library page has opened.
 for config,text in (({},'Artists: Album Artist'),({'ARTISTTYPE':'0'},'Artists: Artist')):
     shown=settings_page('audioset','scroll_view_playset',config,stock_rows=15,boot=True)[2]
