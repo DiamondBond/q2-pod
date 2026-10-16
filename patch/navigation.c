@@ -2017,8 +2017,7 @@ static void flac_album_artist(const char *path, char *out) {
             if (len < 8 || len > 0x10000 || !(b = calloc(len, 1)) || fread(b, len, 1, f) != 1)
                 break;
             /* vendor length and string, the comment count, then each comment's length and bytes */
-            unsigned at = le32(b) <= len - 8 ? 8 + le32(b) : len,
-                     n = le32(b + at - 4);
+            unsigned at = le32(b) <= len - 8 ? 8 + le32(b) : len, n = le32(b + at - 4);
             while (n-- && at <= len - 4) {
                 unsigned c = le32(b + at);
                 at += 4;
