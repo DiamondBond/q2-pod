@@ -3579,7 +3579,7 @@ class LibraryQueryMachine(Machine):
         assert self.text(a)=='/mnt/data/database.db' and (c,d)==(123,1)
         self.results=self.db.execute(self.sql).fetchall()
         u.reg_write(UC_MIPS_REG_V0,len(self.results)); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
-lm=LibraryQueryMachine()
+lm=LibraryQueryMachine(); AA="ifnull(nullif(albumsonger,''),songer)"
 for query in ('select id,songer from songtable group by songer COLLATE NOCASE',
               'select id,albumsonger from songtable group by albumsonger COLLATE NOCASE',
               'select id,album,songer,fileurl from songtable group by album COLLATE NOCASE',
@@ -3588,9 +3588,22 @@ for query in ('select id,songer from songtable group by songer COLLATE NOCASE',
     for scoped in (0,1,0):
         lm.word(payload_syms['library_music'],scoped)
         lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
-        assert (lm.sql==query) == (not scoped)
+        assert (lm.sql==(query.replace('albumsonger',AA) if 'by albumsonger' in query else query)) == (not scoped)
         assert {r[0] for r in lm.results} == ({2,5} if scoped and 'group by' in query else set() if scoped else
                                              {1,3,4,5,6} if 'group by' in query else {6}),lm.results
+# Album Artist: an album without the tag lists under its artist (stock's albumsonger queries), a
+# tagged one under its album artist; Coverflow's own grouping keeps the tag as it is.
+lm.db.executemany('insert into songtable values(?,?,?,?,?)',[(7,'Disintegration','The Cure','','/mnt/mmc/Music/D/CD1/1.flac'),
+                  (8,'Wish','The Cure','The Cure','/mnt/mmc/Music/W/1.flac'),(9,'Guest','The Cure','Other','/mnt/mmc/Music/G/1.flac')])
+lm.word(payload_syms['library_music'],0)
+for query,want in (("select id,album,songer,fileurl,albumsonger from songtable where albumsonger like 'the cure' group by album COLLATE NOCASE",{7,8}),
+                   ("select * from songtable where album like 'Disintegration' and albumsonger like 'The Cure'",{7}),
+                   ('select * from songtable where albumsonger=""',{6}),
+                   ("select id,album,songer,fileurl,albumsonger from songtable group by album COLLATE NOCASE,ifnull(albumsonger,'') COLLATE NOCASE,case ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end having album like 'Disintegration'",{7})):
+    lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
+    assert {r[0] for r in lm.results}==want and (lm.sql==query)==('ifnull(albumsonger' in query),(query,lm.sql,lm.results)
+lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select id,albumsonger from songtable group by albumsonger COLLATE NOCASE'),123,1),gap=0)
+assert sorted(r[1] for r in lm.results)==['','Author','Host','Other','Shared','The Cure','Writer'],lm.results
 lm.word(payload_syms['library_music'],1); lm.sql=None
 assert lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select * from songtable'+' '*2048),123,1),gap=0)==-1
 assert lm.sql is None

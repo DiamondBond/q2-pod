@@ -9,9 +9,24 @@ extern int stock_quicksettings_trampoline(void *, void *);
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
 
-/* Restrict the Library's category queries, including Unknown and split albums, before grouping.
- * Coverflow and folder queries keep their own scope. */
+/* Stock's album-artist queries (Artists, an artist's albums and songs, search) take a song without
+ * an album artist by its artist, so an untagged album stays under its artist, not Unknown.
+ * Coverflow's grouping (ifnull(albumsonger,'')) keeps the tag. Then restrict the Library's category
+ * queries, including Unknown and split albums, before grouping. Coverflow and folder queries keep
+ * their own scope. */
+#define ALBUM_ARTIST_OR_ARTIST "ifnull(nullif(albumsonger,''),songer)"
 int ringnav_library_query(const char *db, const char *sql, void *row, int sort) {
+    char aa[2048];
+    const char *s = sql ? strstr(sql, "albumsonger") : 0, *p = sql;
+    if (s && !strstr(sql, "ifnull(albumsonger")) {
+        unsigned n = 0;
+        for (; s && n < sizeof aa; p = s + 11, s = strstr(p, "albumsonger"))
+            n += (unsigned)tk_snprintf(aa + n, sizeof aa - n, "%.*s" ALBUM_ARTIST_OR_ARTIST,
+                                       (int)(s - p), p);
+        if (n >= sizeof aa || n + (unsigned)tk_snprintf(aa + n, sizeof aa - n, "%s", p) >= sizeof aa)
+            return -1;
+        sql = aa;
+    }
     const char *from = library_music && sql ? strstr(sql, " from songtable") : 0;
     if (!from) return stock_dbquery_trampoline(db, sql, row, sort);
     char filtered[2048];
