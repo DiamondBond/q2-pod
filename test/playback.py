@@ -169,12 +169,12 @@ for grouping in (0,1):
 
 # The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
 # order, and opens nothing else.
-m=PlaybackMachine(page='playing_page',pos=1); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2)
-m.options(0,2,0); m.press(5000); assert m.release()==1
+def now_playing():
+    m=PlaybackMachine(page='playing_page',pos=1); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2); return m
+m=now_playing(); m.options(0,2,0); m.press(5000); assert m.release()==1
 m.press(6000); assert m.hold()==11 and 'Up Next' not in m.labels() and m.release()==0
 m.press(7000); assert m.release()==1; checks+=1
-m=PlaybackMachine(page='playing_page',pos=1); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2)
-m.options(1,2,0); calls=m.random_calls
+m=now_playing(); m.options(1,2,0); calls=m.random_calls
 m.press(6000); assert m.hold()==11 and m.release()==0 and 'Up Next' in m.labels()
 m.pick(m.labels().index('Up Next')); m.advance(0)
 assert 'window_create' in [c[0] for c in m.calls] and m.random_calls==calls and not m.playback(); checks+=1

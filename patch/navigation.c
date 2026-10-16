@@ -4376,15 +4376,9 @@ static int most_played(void *ctx, void *event) {
 }
 
 /* Up Next: the tracks after the playing one in the order they play, which a shuffle's order differs
- * from the queue's. Rows are a view only. ponytail: a snapshot taken on open, capped at UP_NEXT_ROWS;
- * the page does not follow the playing track. */
+ * from the queue's. Rows are a view only. ponytail: a snapshot taken on open, capped at
+ * UP_NEXT_ROWS; the page does not follow the playing track. */
 #define UP_NEXT_ROWS 100
-static int up_next_tap(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
-    return 0;
-}
-
 static void up_next(void) {
     if (st.un_page || !(st.un_page = page_open("upnext_page", page_closed, page_keyup))) return;
     void *q = P(mcl_pdeqplaylist, 0);
@@ -4394,7 +4388,7 @@ static void up_next(void) {
     for (unsigned i = 0; i < n; i++) { /* the title over the artist, if tagged */
         void *t = deque_at(q, idx[i]);
         const char *artist = P(t, REC_ARTIST);
-        page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", up_next_tap);
+        page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", 0);
     }
 }
 
