@@ -306,6 +306,7 @@ static int rebuild(int keep) {
         free(groups);
         free(seen);
         free(hist);
+        playback_clear(); /* every caller ends advanced play: no older queue's snapshot stays */
         return 0;
     }
     if (s.order) free(s.order);

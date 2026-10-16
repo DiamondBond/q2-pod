@@ -179,6 +179,11 @@ for n,kept in ((999,True),(1000,False)):
     m=PlaybackMachine({'/mnt/data/ringnav-queue':b'old'}); m.budget=100000000; m.install([(f't{i}',f'/L/{i}.flac','L',1,i,0,0) for i in range(n)])
     assert m.fn('playback_shuffle')==1 and ('/mnt/data/ringnav-queue' in m.files)==kept and m.files.get('/mnt/data/ringnav-queue')!=b'old'; checks+=1
 
+# A failed rebuild ends advanced play and drops the older queue's snapshot, so a reboot cannot
+# restore it.
+m=PlaybackMachine(); assert m.fn('playback_shuffle')==1 and '/mnt/data/ringnav-queue' in m.files
+m.fail='alloc'; assert m.fn('playback_shuffle')==0 and '/mnt/data/ringnav-queue' not in m.files and m.fn('playback_option',0)==0; checks+=1
+
 # The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
 # order, and opens nothing else.
 def now_playing():
