@@ -460,8 +460,9 @@ static void *fetch_worker(void *unused);
 static int menu_click(void *ctx, void *event), pick_click(void *ctx, void *event),
     station_click(void *ctx, void *event);
 
-/* The search box's keyboard closed with text: the directory searched by name, Return then going
- * back to the menu or the country or genre list. */
+/* The search box's OK, or its keyboard closed with text: the directory searched by name, Return then
+ * going back to the menu or the country or genre list. An empty OK closes the keyboard with no other
+ * event, so it is taken here too. */
 static int searched(void *ctx, void *event) {
     (void)ctx; (void)event;
     const unsigned *t = widget_get_text(ui.edit); /* wchar_t, narrowed as the EQ editor's value */
@@ -489,6 +490,7 @@ void radio_search(void) {
     ui.edit = edit_create(ui.page, "text");
     widget_set_prop_str(ui.edit, "tips", "Search stations");
     widget_on(ui.edit, EVT_VALUE_CHANGED, searched, 0);
+    widget_on(ui.edit, EVT_IM_ACTION, searched, 0);
     widget_on(ui.edit, EVT_BLUR, search_left, 0);
     widget_set_focused(ui.edit, 1);
 }
@@ -653,7 +655,7 @@ static int go(const void *unused) {
 
 static void later(int next, int arg) {
     ui.next = next, ui.arg = arg;
-    rearm(&ui.go, go, 0);
+    if (ui.page) rearm(&ui.go, go, 0); /* not once closed: the box's blur can come after */
 }
 
 static int menu_click(void *ctx, void *event) {
@@ -707,7 +709,9 @@ const char *radio_hold(void *top) {
 static int leave(const void *unused) {
     (void)unused;
     ui.leave = 0;
-    if (ui.note)
+    if (ui.edit) /* the search box emptied, so no search; its blur shuts the keyboard, then the box */
+        widget_set_text_utf8(ui.edit, ""), widget_set_focused(ui.edit, 0);
+    else if (ui.note)
         fetch_cancel(), show(ui.level);
     else if (ui.level != MENU)
         show(ui.level == STATIONS ? ui.from : MENU);
@@ -716,7 +720,7 @@ static int leave(const void *unused) {
     return 0;
 }
 
-/* Return: a list goes up a level, the menu back to Streaming. */
+/* Return: the search box shut, else a list goes up a level, the menu back to Streaming. */
 static int keyup(void *ctx, void *event) {
     (void)ctx;
     return return_key(event, &ui.leave, leave);

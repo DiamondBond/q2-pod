@@ -845,7 +845,7 @@ static int go(const void *unused);
 
 static void later(int next, int arg) {
     br.next = next, br.arg = arg;
-    rearm(&br.go, go, 0);
+    if (br.page) rearm(&br.go, go, 0); /* not once closed: the box's blur can come after */
 }
 
 static int clicked(void *ctx, void *event) {
@@ -854,7 +854,8 @@ static int clicked(void *ctx, void *event) {
     return 0;
 }
 
-/* The search box's keyboard closed with text: its categories, Return going back to the menu. */
+/* The search box's OK, or its keyboard closed with text: its categories, Return going back to the
+ * menu. An empty OK closes the keyboard with no other event, so it is taken here too. */
 static int searched(void *ctx, void *event) {
     (void)ctx; (void)event;
     if (widget_get_text_utf8(br.edit, br.term, sizeof br.term)) br.term[0] = 0;
@@ -897,6 +898,7 @@ static int go(const void *unused) {
             br.edit = edit_create(br.page, "text");
             widget_set_prop_str(br.edit, "tips", "Search Spotify");
             widget_on(br.edit, EVT_VALUE_CHANGED, searched, 0);
+            widget_on(br.edit, EVT_IM_ACTION, searched, 0);
             widget_on(br.edit, EVT_BLUR, search_left, 0);
             widget_set_focused(br.edit, 1);
         }
@@ -955,14 +957,16 @@ static int br_tick(const void *unused) {
 static int br_leave(const void *unused) {
     (void)unused;
     br.leave = 0;
-    if (br.depth > 1)
+    if (br.edit) /* the search box emptied, so no search; its blur shuts the keyboard, then the box */
+        widget_set_text_utf8(br.edit, ""), widget_set_focused(br.edit, 0);
+    else if (br.depth > 1)
         pop();
     else
         navigator_back();
     return 0;
 }
 
-/* Return: a level back, the base back to Streaming. */
+/* Return: the search box shut, else a level back, the base back to Streaming. */
 static int br_keyup(void *ctx, void *event) {
     (void)ctx;
     return return_key(event, &br.leave, br_leave);

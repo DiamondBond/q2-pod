@@ -7399,8 +7399,13 @@ search('jazz fm'); assert m.labels()==['Loading…'] and not m.find('edit')
 m.reply=b'#EXTM3U\n#EXTINF:1,Jazz FM\nhttp://jazz/fm\n'; m.worker()
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/byname/jazz%20fm?order=votes&reverse=true&limit=100&hidebroken=true'
 assert m.labels()==['jazz fm','Jazz FM']; m.back(); assert m.labels()[0]=='Internet Radio'
-for text,event in (('','EVT_VALUE_CHANGED'),('abc','EVT_BLUR')):
+for text,event in (('','EVT_VALUE_CHANGED'),('','EVT_IM_ACTION'),('abc','EVT_BLUR')):
     search(text,event); assert m.labels()[:2]==['Internet Radio','Favourites'] and not m.find('edit')
+# Return with the keyboard open empties and blurs the box, never destroying it under its keyboard; the blur shuts it.
+assert m.call(address=payload_syms['radio_search'],gap=0,count=5_000_000)==0; edit=m.find('edit'); m.nodes[edit]['text']='jazz'
+m.back(); assert m.nodes[edit]['focused']==0 and m.nodes[edit]['text']==''; f,ctx=m.handler(edit,O['EVT_BLUR'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
+assert m.labels()[:2]==['Internet Radio','Favourites'] and not m.find('edit')
 search('zzz'); m.reply=b'#EXTM3U\n'; m.worker(); assert m.labels()==['No stations']; m.close(); passed()
 # Favourites: favourites.m3u, then the folder's other .m3u and .pls files (a .pls's TitleN names its FileN).
 m=RadioMachine({RDIR+'/favourites.m3u':bytearray(b'#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/a\r\nhttp://two/b\r\n'),
@@ -7651,14 +7656,18 @@ m.advance(2500); m.worker(); assert m.labels()==['Spotify','Now Playing','','Upd
 m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; passed()
 m=BrowseMachine(); m.open(); m.advance(3000); m.worker(); assert m.labels()==["Spotify isn't running",'Retry']
 m.row(0); m.answer(*ME); assert m.labels()==MENU; passed()
-# Search: the T9 box over the title, run on its OK only. Empty, or left, the menu as it was; else
+# Search: the T9 box over the title, run on its OK only. Empty, left or Returned from, the menu as it was; else
 # the term's categories, each searched by its name and the term, escaped.
 def search(text,event='EVT_VALUE_CHANGED'):
     m.row(4); edit=m.find('edit'); assert m.nodes[edit]['focused']==1 and m.nodes[edit]['tips']=='Search Spotify'
     m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O[event])
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 asked=len(m.threads)
-for text,event in (('','EVT_VALUE_CHANGED'),('abc','EVT_BLUR')): search(text,event); assert m.labels()==MENU and not m.find('edit')
+for text,event in (('','EVT_VALUE_CHANGED'),('','EVT_IM_ACTION'),('abc','EVT_BLUR')): search(text,event); assert m.labels()==MENU and not m.find('edit')
+m.row(4); edit=m.find('edit'); m.nodes[edit]['text']='abc'  # Return: emptied, no search; blurred, its keyboard shut first
+m.back(); assert m.nodes[edit]['focused']==0 and m.nodes[edit]['text']==''
+f,ctx=m.handler(edit,O['EVT_BLUR']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+m.advance(0,clear=False); assert m.labels()==MENU and not m.find('edit')
 search('50%\toff'); assert len(m.threads)==asked and m.labels()==['50%\toff','Tracks','Albums','Artists','Playlists']
 m.row(1); assert m.asked()==('search','albums','50%25%09off'); m.answer(*OK,[('album','spotify:album:q','Q','R','','')])
 assert m.labels()==['Albums','Q','R']; m.back(); m.back(); assert m.labels()==MENU; passed()

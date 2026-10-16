@@ -55,6 +55,7 @@
 #define EVT_CLICK 0x10c
 #define EVT_FOCUS 0x10e /* widget_set_focused_internal @0x65fdf4 */
 #define EVT_BLUR 0x10f  /* widget_set_focused_internal @0x65fe40 */
+#define EVT_IM_ACTION 0x13a /* the keyboard's OK, input_method_dispatch_action @0x645e20 */
 #define EVT_SCROLL 0x14e /* stock scroll_view on_scroll @0x5efa40; table setter emits this too */
 #define EVT_SCROLL_END 0x14f /* stock lists queue their visible covers on this (album page registers @0x4a43d0) */
 #define VIEW_ON_SCROLL 0x100 /* scroll_view callback installed by list_view, called by touch @0x5efa5c */
