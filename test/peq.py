@@ -1779,10 +1779,10 @@ def tidal_check(tmp):
 #include <stdio.h>
 #include <string.h>
 #define TIDAL_DIR "/cache"
-#define TIDAL_CAP_MB 2048
 #define tk_snprintf snprintf
 struct dirent { char d_name[16]; };
-static int fail, left, cursor, attempts;
+static int fail, left, cursor, attempts, choice = 2;
+static int stream_cache(int spotify) { assert(!spotify); return choice; } /* 512 << choice MB */
 static void *opendir(const char *p) { (void)p; cursor=0; return (void *)1; }
 static struct dirent *readdir(void *d) {
     static struct dirent e; (void)d;
@@ -1798,13 +1798,15 @@ static void trim(void) {''' + trim + r'''
 int main(void) {
     left=3; trim(); assert(left==1 && attempts==2);
     fail=1; left=3; attempts=0; trim(); assert(left==3 && attempts==1);
+    fail=0; choice=3; attempts=0; trim(); assert(left==3 && !attempts); /* 4 GB holds 3600 MB */
+    choice=0; trim(); assert(left==0 && attempts==3); /* 512 MB holds none of 1200 */
     return 0;
 }
 ''')
     binary = tmp/'tidal_trim'
     subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=5)
-    print('Tidal cache: stream file extensions, eviction and failed deletion passed.')
+    print('Tidal cache: stream file extensions, eviction at the chosen cap and failed deletion passed.')
 
 if __name__ == '__main__':
     import argparse

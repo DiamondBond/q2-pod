@@ -331,7 +331,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
       <tr><td><code>.books/</code></td><td>EPUBs converted to text</td><td>Q2 Pod</td></tr>
       <tr><td><code>.sldp/</code></td><td>Stock’s own cover cache</td><td>Stock</td></tr>
       <tr><td><code>.spotify/</code></td><td>Spotify; <code>cache/</code> is the saved login, plus logs</td><td>You</td></tr>
-      <tr><td><code>.tidal/</code></td><td>Tidal tracks you’ve played, so they replay without streaming or Wi-Fi (Streaming → Tidal Downloads); up to 2 GB</td><td>Q2 Pod</td></tr>
+      <tr><td><code>.tidal/</code></td><td>Tidal tracks you’ve played, so they replay without streaming or Wi-Fi (Streaming → Tidal Downloads); up to 2 GB, set in Streaming → Configuration</td><td>Q2 Pod</td></tr>
     </tbody>
   </table>
 
@@ -518,7 +518,7 @@ ALBUM_ARTIST=1</pre>
   <p><b>Pairing, once:</b> the first time, the page says “Open Spotify on your phone and choose Q2”. With the phone on the same Wi-Fi, pick <b>Q2</b> in the Spotify app’s device list; the page turns into the menu, and the login is saved on the card. From then on the Q2 needs no phone. <b>Account</b> shows who is signed in and signs out.</p>
   <p><b>Browsing:</b> pick a song to play it in its playlist or album; Now Playing opens, and Return goes back to the list. <b>More…</b> at the end of a list loads the next part. <b>Search</b> asks for the words first, then Tracks, Albums, Artists or Playlists. Hold Play/Pause on a song to add it to the queue. Queue and Playback Settings appear while something plays.</p>
   <p>Now Playing shows <b>Loading…</b> while a song starts, including a downloaded song. If no track arrives within 15 seconds, it says “Playback didn’t start”; go back to try again. The phone instructions appear when Spotify confirms that pairing is needed. Long titles, artists and albums scroll so you can read them.</p>
-  <p><b>Downloaded Tracks</b> lists the songs you’ve played whose download finished, newest first, and plays them without Wi-Fi. Spotify keeps up to 2 GB of them on the card; signing out deletes them. It needs q2-librespot v1.4. Tidal’s are under <b>Streaming → Tidal Downloads</b>, which plays them as local music.</p>
+  <p><b>Downloaded Tracks</b> lists the songs you’ve played whose download finished, newest first, and plays them without Wi-Fi. Spotify keeps up to 2 GB of them on the card (see Configuration, below); signing out deletes them. It needs q2-librespot v1.4. Tidal’s are under <b>Streaming → Tidal Downloads</b>, which plays them as local music.</p>
   <table>
     <thead><tr><th>Control</th><th>What it does</th></tr></thead>
     <tbody>
@@ -581,6 +581,14 @@ http://stream.radioparadise.com/mp3-128</pre>
   <div class="sec">
   <h2 id="airplay">AirPlay</h2>
   <p><b>Streaming → AirPlay</b> opens <b>Network service</b>, where the Q2’s own AirPlay receiver is switched on. Then pick the Q2 from your iPhone’s AirPlay menu. It is AirPlay 1 (audio from one device; Apple Music works), not AirPlay 2 multiroom.</p>
+  </div>
+  <div class="sec">
+  <h2 id="stream-config">Configuration</h2>
+  <p><b>Streaming → Configuration</b> holds three rows:</p>
+  <ul>
+    <li><b>Tidal Cache</b> and <b>Spotify Cache:</b> how much of the card each service’s downloads may use: 512 MB, 1 GB, 2 GB (the default), 4 GB or 8 GB; press to step to the next. When Tidal’s folder is over the new size, its oldest downloads are deleted after the next download. Spotify’s takes effect the next time Spotify starts (after <b>Stop Streaming Services</b>, or the next power-on), with q2-librespot v1.5 or later.</li>
+    <li><b>Stop Streaming Services:</b> stops Spotify, Internet Radio and a playing Tidal queue at once, so the playback buttons and the output are free for local music; pick something in your library to play. Use it when local music misbehaves after streaming. Open Streaming → Spotify to start Spotify again.</li>
+  </ul>
   </div>
 </section>
 

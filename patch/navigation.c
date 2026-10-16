@@ -162,8 +162,9 @@ typedef struct {
      * opens while the library is at mp_gen (~library_gen once stale). */
     void *mp_page, *mp_list, *td_page, *td_list;
     unsigned mp_gen;
-    void *sp_page; /* the Library Shuffle menu's page, kept across picks */
-    void *un_page; /* Up Next's page, one at a time */
+    void *sp_page;             /* the Library Shuffle menu's page, kept across picks */
+    void *un_page;             /* Up Next's page, one at a time */
+    void *sc_page, *sc_row[2]; /* Streaming's Configuration page and its two cache rows */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
      * is up on (0 when down), the hearts picked, the heart's hold timer (rate_held once it fired),
@@ -4256,6 +4257,7 @@ static int page_closed(void *ctx, void *event) {
     }
     if (ctx == st.sp_page) st.sp_page = 0;
     if (ctx == st.un_page) st.un_page = 0;
+    if (ctx == st.sc_page) st.sc_page = 0;
     return 0;
 }
 
@@ -4468,6 +4470,67 @@ static int tidal_downloads(void *ctx, void *event) {
         if (dot && dot != name) *dot = 0;
         page_row_detail(view, i, name, 0, td_play);
     }
+    return 0;
+}
+
+/* Streaming's Configuration (docs/internals.md#streaming-configuration): Tidal's and Spotify's
+ * cache caps, 512 MB to 8 GB, each kept in its folder's .cache-size as "<MB>M", librespot's
+ * --cache-size-limit form, which the card's Spotify launcher reads when it starts librespot. Files,
+ * not config.ini: tidal.c's trim reads Tidal's on its download thread, and blob_io renames it into
+ * place, so a half-written one is never read. And a row that stops every stream. */
+static const char *const sc_dirs[] = { TIDAL_DIR, SPOT_DIR };
+
+/* The choice i, the cap being 512 << i MB: 2 (2 GB) when the file is missing or holds another. */
+int stream_cache(int spotify) {
+    char path[48], s[12];
+    tk_snprintf(path, sizeof path, "%s/.cache-size", sc_dirs[spotify]);
+    state_read(path, s, sizeof s);
+    unsigned mb = (unsigned)atoi(s + 1);
+    for (int i = 0; i < 5; ++i)
+        if (mb == 512u << i) return i;
+    return 2;
+}
+
+static void sc_text(int i) {
+    static const char *const sizes[] = { "512 MB", "1 GB", "2 GB", "4 GB", "8 GB" };
+    char s[40];
+    tk_snprintf(s, sizeof s, "%s Cache: %s", i ? "Spotify" : "Tidal", sizes[stream_cache(i)]);
+    widget_set_text_utf8(widget_get_child(st.sc_row[i], 0), s);
+}
+
+/* A cache row steps to the next size and saves it: Tidal's applies at the next download's trim,
+ * Spotify's when librespot next starts. Stop Streaming Services ends librespot and its restart
+ * loop, a radio station and a stock stream (Tidal's) queue, so the keys and the output are local
+ * music's again; local music already stopped is left as it is. */
+static int sc_click(void *ctx, void *event) {
+    (void)event;
+    int i = (int)(long)ctx;
+    if (i == 2) {
+        unsigned type = (unsigned)MCL(MCL_TYPE);
+        spot_stop();
+        radio_stop();
+        if (type != 1 && (type & 0xf000) != 0xf000 && mclGetPlayStatus() != 1) player_stop();
+        toast("Streaming stopped");
+        return 0;
+    }
+    char path[48], tmp[52], s[8];
+    int n = tk_snprintf(s, sizeof s, "%uM", 512u << (stream_cache(i) + 1) % 5);
+    tk_snprintf(path, sizeof path, "%s/.cache-size", sc_dirs[i]);
+    tk_snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    mkdir(sc_dirs[i], 0755);
+    if (!blob_io(path, tmp, s, (unsigned)n, 1)) toast("Could not save setting");
+    sc_text(i);
+    return 0;
+}
+
+static int stream_config(void *ctx, void *event) {
+    (void)ctx, (void)event;
+    if (st.sc_page || !(st.sc_page = page_open("streamconf_page", page_closed, page_keyup)))
+        return 0;
+    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 3, 48);
+    for (int i = 0; i < 2; ++i)
+        st.sc_row[i] = page_row_detail(view, i, "", 0, sc_click), sc_text(i);
+    page_row_detail(view, 2, "Stop Streaming Services", 0, sc_click);
     return 0;
 }
 
@@ -5244,8 +5307,8 @@ static int airplay_open(void *ctx, void *event) {
 }
 
 /* stream_page_init: stock's rows, then Spotify (spotify.c), which opens its Now Playing page,
- * Internet Radio (radio.c) and AirPlay. Their buttons have no name, so stock's row click never
- * sees them. */
+ * Tidal Downloads, Internet Radio (radio.c), AirPlay and Configuration. Their buttons have no
+ * name, so stock's row click never sees them. */
 int ringnav_stream(void *win, void *ctx) {
     int result = stock_stream_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;
@@ -5254,6 +5317,7 @@ int ringnav_stream(void *win, void *ctx) {
         library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads");
         library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
         library_into(view, "stream_airplay", airplay_open, 0, "AirPlay");
+        library_into(view, "stream_config", stream_config, 0, "Configuration");
     }
     return result;
 }

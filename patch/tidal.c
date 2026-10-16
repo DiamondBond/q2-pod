@@ -34,8 +34,6 @@ char *tidal_name(char *out, unsigned n, const char *key, const char *artist, con
 #include "offsets.inc"
 #include "stock.h"
 
-#define TIDAL_CAP_MB 2048 /* ponytail: fixed cap, oldest download goes first; a setting if asked */
-
 extern int stock_tidal_trampoline(const char *url);
 
 static struct {
@@ -49,9 +47,11 @@ static struct {
  * already rewritten tidalsongid can't file one track's stream under another's id. */
 __asm__(".globl tidal_start\ntidal_start:\nmove $a1, $s2\nj tidal_play\n");
 
-/* Deletes the oldest finished downloads until the rest fit TIDAL_CAP_MB. stat is o32's: st_size
- * word 12, st_mtime word 16. ponytail: a directory pass per deletion, fine for a few hundred files. */
+/* Deletes the oldest finished downloads until the rest fit Streaming's Configuration cap (stream_cache,
+ * 2 GB unless changed). stat is o32's: st_size word 12, st_mtime word 16. ponytail: a directory pass per
+ * deletion, fine for a few hundred files. */
 static void trim(void) {
+    unsigned long long cap = (unsigned long long)(512u << stream_cache(0)) << 20;
     for (;;) {
         unsigned long long total = 0;
         long oldest = 0;
@@ -66,7 +66,7 @@ static void trim(void) {
             if (!*victim || (long)st[16] < oldest) oldest = (long)st[16], tk_snprintf(victim, sizeof victim, "%s", path);
         }
         if (d) closedir(d);
-        if (total <= (unsigned long long)TIDAL_CAP_MB << 20 || !*victim) return;
+        if (total <= cap || !*victim) return;
         if (unlink(victim)) return; /* a read-only card must not trap the download worker */
     }
 }

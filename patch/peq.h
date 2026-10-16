@@ -129,6 +129,8 @@ int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
 void play_folder(void *dq, int idx, int cls);
 int directory(void *path); /* playback.c: toolsLoadDirectory, for staged */
 #define TIDAL_DIR "/mnt/mmc/.tidal" /* tidal.c's cache, Tidal Downloads' list */
+#define SPOT_DIR "/mnt/mmc/.spotify" /* librespot and its launcher, spotify.c's */
+int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal: MINIMAL_FILL) */
@@ -143,7 +145,7 @@ unsigned state_read(const char *path, char *raw, unsigned size);
 void dgram_send(int *sock, const char *path, const char *c, unsigned n);
 int hex(char c); /* a hex digit's value, -1 for any other character; headset.c's too */
 void *label(void *parent, int x, int y, int w, int h, const char *style, int px, unsigned color);
-void spot_yield(void), radio_stop(void);
+void spot_yield(void), spot_stop(void), radio_stop(void);
 void headset_volume_reset(void);
 void headset_poll(void), headset_manual(void);
 int media_owner(void), media_playing(void), media_focused(void);

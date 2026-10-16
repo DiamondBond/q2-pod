@@ -66,7 +66,6 @@ int spot_reply(char *buf, unsigned len, char **f, int max) {
 
 #ifndef PEQ_HOST
 
-#define SPOT_DIR "/mnt/mmc/.spotify"
 #define SPOT_BIN SPOT_DIR "/librespot"
 #define SPOT_RUN "/bin/sh " SPOT_DIR "/run" /* backgrounds itself, once per boot */
 #define SPOT_STATE "/tmp/q2-librespot.state" /* the fork's --status-file */
@@ -244,9 +243,10 @@ static void scrub_commit(void) {
 static void spot_refresh(void);
 static int browsing(void);
 
-/* SPOT_IDLE_MS after playback ended with the browser shut: librespot and its restart loop killed,
- * as Home's Rockbox row does, and the keys local music's. Streaming's Spotify row starts it again. */
-static void spot_stop(void) {
+/* SPOT_IDLE_MS after playback ended with the browser shut, or Streaming's Stop Streaming Services
+ * row: librespot and its restart loop killed, as Home's Rockbox row does, and the keys local
+ * music's. Streaming's Spotify row starts it again. */
+void spot_stop(void) {
     int sock = sp.sock;
     system(SPOT_KILL);
     memset(&sp, 0, sizeof sp);

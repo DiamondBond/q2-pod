@@ -7123,7 +7123,7 @@ def stream_page(m):
     rows; returns Spotify's button."""
     view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
     assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0 and m.calls[0][0]=='stock_stream'
-    assert len(m.nodes[view]['children'])==5
+    assert len(m.nodes[view]['children'])==6
     # Tidal Downloads, after Spotify: the card's cached Tidal tracks, here none.
     tidal=m.nodes[m.nodes[view]['children'][2]]['children'][0]; icon,label=m.nodes[tidal]['children'][:2]
     assert m.nodes[icon]['image']=='list_tidal' and m.nodes[label]['text']=='Tidal Downloads'
@@ -8562,6 +8562,27 @@ endpoint(m,'media_set_playing',1); assert endpoint(m,'radio_status')==2
 ready_gain(m,1,32); m.sent=[]; m.now+=500; endpoint(m,'radio_poll'); assert m.sent[-1][1]=='v'+chr(100)
 ready_gain(m,0,32); m.sent=[]; m.now+=500; endpoint(m,'radio_poll'); assert m.sent[-1][1]=='v'+chr(32)
 passed()
+# Streaming's Configuration (docs/internals.md#streaming-configuration), after AirPlay: Tidal's and
+# Spotify's cache caps cycle 512 MB to 8 GB from 2 GB, kept in their folders' .cache-size in
+# librespot's form, which tidal.c's trim and the Spotify launcher read. Stop Streaming Services ends
+# librespot and its loop, a station and a stock stream, and the keys are local music's again.
+TCAP,SCAP='/mnt/mmc/.tidal/.cache-size','/mnt/mmc/.spotify/.cache-size'
+m=RadioMachine({BIN:bytearray()}); spot_open(m,stream_page(m)); m.state('paused'); m.poll()
+radio_open(m); m.row(1); m.row(0); assert endpoint(m,'radio_status')==2
+m.top=m.node('window','home_page'); m.stream(); view=m.nodes[m.top]['children'][0]
+conf=m.nodes[m.nodes[view]['children'][5]]['children'][0]; icon,label=m.nodes[conf]['children'][:2]
+assert m.nodes[icon]['image']=='stream_config' and m.nodes[label]['text']=='Configuration'
+m.click(conf); m.page=m.top; assert m.nodes[m.page]['name']=='streamconf_page'
+assert m.labels()==['Configuration','Tidal Cache: 2 GB','Spotify Cache: 2 GB','Stop Streaming Services']
+m.row(0); assert m.files[TCAP]==b'4096M' and m.labels()[1]=='Tidal Cache: 4 GB' and endpoint(m,'stream_cache',0)==3
+m.row(0); m.row(0); assert m.files[TCAP]==b'512M' and m.labels()[1]=='Tidal Cache: 512 MB'
+m.row(1); assert m.files[SCAP]==b'4096M' and m.labels()[2]=='Spotify Cache: 4 GB' and endpoint(m,'stream_cache',1)==3
+m.files[SCAP]=bytearray(b'9G'); assert endpoint(m,'stream_cache',1)==2  # not a choice: 2 GB
+m.word(O['MCL_TYPE'],5); m.play=2; m.waited=m.forked
+m.row(2); m.top=m.node('window','home_page')
+assert 'killall -9 librespot aplay' in m.systems[-1] and 'player_stop' in [c[0] for c in m.calls]
+assert [m.text(c[2]+8) for c in m.calls if c[0]=='navigator_to_with_context']==['Streaming stopped']
+assert endpoint(m,'radio_status')==0 and endpoint(m,'spot_status')==0 and m.key(O['KEY_PLAY'])!=11; m.close(); passed()
 m=BooksMachine({},{}); vid=payload_syms['vid']; m.word(vid+12,4242); m.word(vid+16,7)
 for playing,command in ((0,'a'),(1,'r')):
     m.sent=[]; endpoint(m,'video_set_playing',playing); endpoint(m,'video_set_playing',playing)

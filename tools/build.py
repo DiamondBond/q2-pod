@@ -1023,9 +1023,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     for n in ('spotify', 'radio'):  # Streaming's Spotify and Internet Radio rows
         icons[f'stream_{n}.png'] = ('list_tidal.png', (ROOT/'assets/icons'/f'stream_{n}.png').read_bytes())
     icons['stream_airplay.png'] = ('list_tidal.png', cat(xx+'netservice_airplay.png'))  # iPod resizes stock's
+    icons['stream_config.png'] = ('list_tidal.png', cat(xx+'system_netservice.png'))  # Configuration's
     art = (ROOT/'assets/icons/default_album_home.png').read_bytes() if ipod else None
     if ipod:  # Streaming's rows draw them at SET_ICON; Home's placeholder at the art panel's 290px
-        for n in ('spotify', 'radio', 'airplay'):
+        for n in ('spotify', 'radio', 'airplay', 'config'):
             like, data = icons[f'stream_{n}.png']
             icons[f'stream_{n}.png'] = (like, row_icon(data))
         icons['default_album_home.png'] = ('default_album_big.png', art)
