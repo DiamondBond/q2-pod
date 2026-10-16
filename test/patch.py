@@ -8076,6 +8076,20 @@ m.byte(syms['g_backlight_status'],0)
 m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\1'
 assert wake(DOWN,gap=100) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP,gap=50)
 assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
+# Lighting the screen stalls the UI loop about WAKE_MS (stock's on_wm_keyup_fun, the paint), so a
+# blind double press's last press is dispatched only after the first lit loop pass: still dropped.
+for double in ('0','1'):
+    w=Machine(); w.config['WAKEDOUBLE']=double; w.handlers[inp+12]='stock_input'; w.handlers[sleep_hook+12]='stock_sleep'
+    def press(kind,gap):
+        w.calls=[]; assert w.call(O['KEY_CENTER'],address=inp,args=(w.wm,w.event,0,0),event_type=kind,gap=gap,clear=False)==0
+        return any(c[0]=='stock_input' for c in w.calls)
+    def loop_pass(): w.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False)
+    w.byte(syms['g_backlight_status'],0); loop_pass()
+    assert double=='0' or not press(DOWN,1000) and not press(UP,50)
+    assert press(DOWN,100) and press(UP,50)  # it wakes the screen, the loop stalls, then its first lit pass
+    w.byte(syms['g_backlight_status'],1); w.now+=O['WAKE_MS']; loop_pass()
+    assert not press(DOWN,0) and not press(UP,50) and press(DOWN,O['WAKE_MS']) and press(UP,50),double
+passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1','WAKEDOUBLE':'1','VOLGUARD':'1'})
 assert texts()==[f"Charge Limit: {O['CHARGE_STOP']}%",'Low Power: On','Wake: Double Press','Volume Guard: On']
 assert m.get(payload_syms['wheel_guard'])==1; passed()

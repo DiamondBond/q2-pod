@@ -205,7 +205,7 @@ typedef struct {
     int rate_pick, rate_held;
     unsigned rate_hold, rate_tick, rate_album;
     void *rt_menu, *rt_page, *rt_list;
-    int dark; /* the backlight was off at the last UI loop pass */
+    int dark; /* 1: the backlight was off at the last UI loop pass; 2: a centre press woke it */
     /* Power's Charge limit and Low power (read once from config.ini's Q2POD), the value
      * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
@@ -220,7 +220,7 @@ typedef struct {
     char art_cf_hint[64];
     unsigned art_cf_timer;
     unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
-    unsigned woke_at; /* the centre press that woke the screen, eating one more within WAKE_MS */
+    unsigned woke_at; /* the centre press that woke the screen, then its first lit loop pass */
     void *np_origin;  /* the page Hold Return opened Now Playing over */
     void *dc_top;     /* the page of the last centre press no list click took, and its time */
     unsigned dc_at;
@@ -6343,9 +6343,10 @@ static void bt_volume_poll(void) {
  * off it first idles SCREEN_OFF_SLEEP_MS (DARK_IDLE_SLEEP_MS once nothing plays and the DAC is
  * off, unless Wake's second press may be coming); stock then finds its 8 ms gone, sleeps 0 and
  * keeps its own bookkeeping. The first pass with it back on repaints every window once, so nothing
- * drawn while dark, or only partly, stays on screen until the next input. With the screen on, a
- * pass idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except
- * while Now Playing animates. */
+ * drawn while dark, or only partly, stays on screen until the next input; after a centre press woke
+ * it, it also restarts Wake's window for a dropped press (woke_at). With the screen on, a pass
+ * idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except while
+ * Now Playing animates. */
 int ringnav_sleep(void *loop) {
     headset_poll();
     bt_volume_poll();
@@ -6356,12 +6357,13 @@ int ringnav_sleep(void *loop) {
     resume_poll();
     power_poll();
     if (!g_backlight_status) {
-        st.dark = 1;
+        st.dark |= 1;
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
                     airplayGetFlag() != 2 && (signed char)bt__recv_pageflag != 2 &&
                     time_now_ms() - st.wake_at >= WAKE_MS;
         sleep_ms(quiet ? DARK_IDLE_SLEEP_MS : SCREEN_OFF_SLEEP_MS);
     } else if (st.dark) {
+        if (st.dark & 2) st.woke_at = (unsigned)time_now_ms();
         st.dark = 0;
         widget_invalidate_force(window_manager(), (void *)0);
     } else if (time_now_ms() - st.last_input >= IDLE_MS &&
@@ -6375,13 +6377,16 @@ int ringnav_sleep(void *loop) {
  * never reaches the UI, so a pocket bump stays dark; one within WAKE_MS after it passes, press and
  * release, so holding that second press still powers off. With Single press it passes at once.
  * Either way a passing press clears Standby's resume guard, so its release is not dropped, and
- * another centre press within WAKE_MS of it is dropped with its release (wake_eat): a blind double
- * press only wakes, without clicking the selected row or turning the screen off again; held, its
- * long press and release pass. Other keys pass: the wheel's volume and the media buttons work
+ * another centre press within WAKE_MS of it, or of the first UI loop pass with the screen lit, is
+ * dropped with its release (wake_eat): turning the screen on (on_wm_keyup_fun) and that pass's
+ * paint stall the loop about that long, so a blind second press is dispatched only after. A blind
+ * double press only wakes, without clicking the selected row or turning the screen off again; held,
+ * its long press and release pass. Other keys pass: the wheel's volume and the media buttons work
  * dark. Returns 1 to drop the event. */
 static void woke(unsigned now) { /* a passing dark press: not Standby's resume key */
     *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
     st.woke_at = now;
+    st.dark |= 2; /* ringnav_sleep restarts woke_at once the screen is lit */
 }
 static int wake_gate(void *e) {
     unsigned type = (unsigned)I(e, EVENT_TYPE), now = (unsigned)time_now_ms();
