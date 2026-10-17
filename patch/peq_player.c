@@ -128,27 +128,28 @@ static struct {
 } xf;
 static int xf_ids;
 
-/* demo's fade for the next change, looked for once a second of audio until the file appears. */
-static int xfade_ms(int rate, unsigned frames) {
-    static volatile int *f;
+/* demo's file (peq.h), looked for once a second of audio until it appears. */
+static volatile xfade_flag *xfade_file(int rate, unsigned frames) {
+    static volatile xfade_flag *f;
     static unsigned wait = ~0u;
     if (!f && wait < (unsigned)rate) {
         wait += frames;
     } else if (!f) {
         wait = 0;
-        int fd = open(XFADE_FILE, 0); /* O_RDONLY */
+        int fd = open(XFADE_FILE, 2); /* O_RDWR */
         if (fd >= 0) {
-            void *p = mmap64(0, sizeof *f, 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
+            void *p = mmap64(0, sizeof *f, 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
             close(fd);
             if (p != (void *)-1) f = p;
         }
     }
-    return f && *f > 0 ? *f : 0;
+    return f;
 }
 
 /* Frames of a (interleaved, nch) put out in place: all of them, or fewer while the hold fills. */
 static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, int rate) {
-    int ms = xfade_ms(rate, frames);
+    volatile xfade_flag *f = xfade_file(rate, frames);
+    int skip = f && f->skip > 0 ? f->skip : 0, ms = skip ? skip : f && f->ms > 0 ? f->ms : 0;
     if (!ms && !xf.len) return frames; /* no fade or held tail: skip clock and position queries */
     unsigned cap = XF_FLOATS / (unsigned)nch;
     long long now = now_ns();
@@ -158,6 +159,8 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
     int mine = xf.len && xf.owner == s->id,
         restart = mine && xf.pts >= xf.length - XF_SEEK_S && pts >= 0 && pts < XF_SEEK_S;
     if (xf.len && (xf.total || !mine || restart)) {
+        if (!xf.total && skip) /* the tail taken (or dropped below): a manual skip is done */
+            f->skip = f->held = skip = 0, ms = f->ms > 0 ? f->ms : 0;
         if (now - xf.last > XF_STALE_NS || rate != xf.rate || nch != xf.nch) {
             xf.len = xf.total = 0; /* ponytail: a new rate or channel count drops the tail */
         } else {
@@ -174,14 +177,19 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
             return frames;
         }
     }
-    int length = mine ? xf.length : LENGTH;
+    /* A manual skip holds from here, as if the track ended a fade and the lead on: the window is
+     * open, and only a position near 0 once the tail is whole looks like the next track. */
+    int length = mine ? xf.length : skip ? (int)(pts + XF_LEAD_S) + skip / 1000 : LENGTH;
     unsigned want = (unsigned)ms * (unsigned)(rate / 10) / 100; /* 32-bit: no __divdi3 here */
     if (want > cap - XF_SLACK / (unsigned)nch) want = cap - XF_SLACK / (unsigned)nch;
     int ending = want && length > 0 && pts >= 0 && pts > length - 2.0 * want / rate - XF_LEAD_S;
     mine = xf.len && xf.owner == s->id;
-    if (mine && (!ending || __builtin_fabs(pts - xf.pts) > XF_SEEK_S || xf.len + frames > cap))
-        xf.len = 0; /* a seek, or no fade any more: the held audio was left behind */
-    if (!ending || frames > cap - want || (!xf.ring && !(xf.ring = calloc(XF_FLOATS, sizeof(float)))))
+    if (mine && (__builtin_fabs(pts - xf.pts) > XF_SEEK_S || xf.len + frames > cap))
+        xf.len = 0; /* a seek: the held audio was left behind */
+    /* No fade any more (a manual skip dropped, or made with no new file; Crossfade off): what is held
+     * plays on in order, still held back, as many frames out as in, and fades into the next track.
+     * ponytail: even a gapless one; a drain needs a block longer than the one given. */
+    if (!(ending || xf.len) || frames > cap - want || (!xf.ring && !(xf.ring = calloc(XF_FLOATS, sizeof(float)))))
         return frames;
     if (!xf.len) xf.head = 0, xf.owner = s->id, xf.rate = rate, xf.nch = nch, xf.length = length;
     for (unsigned i = 0; i < frames; ++i)
@@ -195,6 +203,7 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
     xf.len -= k;
     xf.last = now;
     xf.pts = pts;
+    if (skip) f->held = xf.len >= want ? 2 : 1;
     return k;
 }
 

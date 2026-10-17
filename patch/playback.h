@@ -12,6 +12,9 @@ void playback_insert(unsigned at, unsigned n, int next);
 void playback_poll(void);
 void playback_speed_start(void);
 void xfade_poll(int next); /* crossfade.c */
+int xfade_skip(int next);
+int playback_change(int next); /* manual Next (1) or Prev (0), now */
+int playback_moves(int next);
 int playback_resumed(void *r);
 void playback_save(void);
 void playback_clear(void);

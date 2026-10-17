@@ -17,7 +17,10 @@
 static struct {
     int read, on, seconds, attached, done, key[4];
     int wheel; /* the page is Wheel sensitivity's */
-    volatile int *flag;
+    int dir;   /* a manual skip waiting for its tail: Next 2, Prev 1 */
+    void *track; /* the record it waits on */
+    unsigned at; /* when it was asked for, or made */
+    volatile xfade_flag *flag;
     void *page, *sw, *view, *slider, *dec, *add, *label;
     unsigned press, press_at;
 } xf __attribute__((section(".scratch")));
@@ -189,12 +192,69 @@ int xfade_key(void *top, unsigned key) {
     return 1;
 }
 
-/* playback_poll, each UI pass: the next change's fade into XFADE_FILE, made whole under another
- * name first as the visualizer's tap is. A fade only when Crossfade and stock's Gapless are on and
- * the next track is another album's (album_cmp), so albums stay gapless. */
+/* XFADE_FILE mapped, made whole under another name first as the visualizer's tap is. */
+static int mapped(void) {
+    if (xf.flag) return 1;
+    int fd = open(XFADE_FILE ".tmp", 0x302, 0644); /* O_RDWR | O_CREAT | O_TRUNC (MIPS) */
+    if (fd < 0) return 0;
+    if (!ftruncate(fd, sizeof *xf.flag) && !rename(XFADE_FILE ".tmp", XFADE_FILE)) {
+        void *p = mmap(0, sizeof *xf.flag, 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
+        if (p != (void *)-1) xf.flag = p;
+    }
+    close(fd);
+    return xf.flag != 0;
+}
+
+/* The fade runs in the PEQ filter, which boot leaves out of the chain while PEQ is off. */
+static void attach(void) {
+    if (!xf.attached && !g_equalizer_flag) peq_attach();
+    xf.attached = 1;
+}
+
+/* The waiting skip made: the filter, should it hold any tail, clears skip once the next track
+ * takes it (xfade_poll clears it should none come). */
+static void commit(void) {
+    int next = xf.dir - 1;
+    xf.dir = 0;
+    if (!xf.flag->held) xf.flag->skip = 0;
+    xf.at = time_now_ms();
+    playback_change(next);
+}
+
+/* ringnav_change (playback.c), a manual Next (1) or Prev (0): 1 when Crossfade takes it, to hold
+ * the playing track's last fade first (the filter runs the decoder ahead to fill it, so the change
+ * comes a fade later); xfade_poll makes it. A press while one waits, or within a fade of the last
+ * change, goes through at once: quick presses skip without fading. ponytail: a press at the very
+ * start of a natural fade's mix gets its skip cleared by it and goes through after 2 s unfaded;
+ * a sequence number in xfade_flag if that shows. */
+int xfade_skip(int next) {
+    if (xf.dir) return commit(), 0;
+    void *q = P(mcl_pdeqplaylist, 0);
+    unsigned pos = (unsigned)I(MCL_POS, 0);
+    settings();
+    if (!xf.on || time_now_ms() - xf.at < xf.seconds * 1000u || mclGetPlayStatus() != 2 || !q ||
+        pos >= deque_size(q) || !playback_moves(next) || !mapped())
+        return 0;
+    xf.flag->held = 0;
+    xf.flag->skip = xf.seconds * 1000;
+    xf.dir = next + 1, xf.track = deque_at(q, pos), xf.at = time_now_ms();
+    attach();
+    return 1;
+}
+
+/* playback_poll, each UI pass: a waiting skip made once its tail is held, or a filter that never
+ * starts holding (DSD, no filter) or never fills it given 2 s more; dropped on a pause, stop or
+ * other change. Then the next change's fade into XFADE_FILE: only when Crossfade and stock's
+ * Gapless are on and the next track is another album's (album_cmp), so albums stay gapless. */
 void xfade_poll(int next) {
     void *q = P(mcl_pdeqplaylist, 0);
-    unsigned pos = (unsigned)I(MCL_POS, 0), n = q ? deque_size(q) : 0;
+    unsigned pos = (unsigned)I(MCL_POS, 0), n = q ? deque_size(q) : 0, held = xf.flag ? xf.flag->held : 0;
+    if (xf.dir && (mclGetPlayStatus() != 2 || pos >= n || deque_at(q, pos) != xf.track))
+        xf.dir = 0, xf.flag->skip = xf.flag->held = 0;
+    else if (xf.dir && (held == 2 || time_now_ms() - xf.at > (held ? xf.seconds * 1000u : 0) + 2000))
+        commit();
+    else if (!xf.dir && xf.flag && xf.flag->skip && time_now_ms() - xf.at > 3000)
+        xf.flag->skip = xf.flag->held = 0; /* ponytail: the filter's XF_STALE_NS; no next track took the tail */
     if (!xf.flag && (next < 0 || pos >= n)) return; /* nothing playing on: no config read yet */
     settings();
     int in = next >= 0 && pos < n && (unsigned)next < n; /* records, not positions: a new queue */
@@ -206,19 +266,8 @@ void xfade_poll(int next) {
                  ? key[0] * 1000
                  : 0;
     xf.done = 0; /* until the player is told: a file that cannot be made yet is tried next pass */
-    if (!xf.flag && ms) {
-        int fd = open(XFADE_FILE ".tmp", 0x302, 0644); /* O_RDWR | O_CREAT | O_TRUNC (MIPS) */
-        if (fd < 0) return;
-        if (!ftruncate(fd, sizeof *xf.flag) && !rename(XFADE_FILE ".tmp", XFADE_FILE)) {
-            void *p = mmap(0, sizeof *xf.flag, 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
-            if (p != (void *)-1) xf.flag = p;
-        }
-        close(fd);
-        if (!xf.flag) return;
-    }
-    if (xf.flag) *xf.flag = ms;
+    if (ms && !mapped()) return;
+    if (xf.flag) xf.flag->ms = ms;
     xf.done = 1;
-    /* The fade runs in the PEQ filter, which boot leaves out of the chain while PEQ is off. */
-    if (ms && !xf.attached && !g_equalizer_flag) peq_attach();
-    xf.attached |= ms != 0;
+    if (ms) attach();
 }
