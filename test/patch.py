@@ -4,11 +4,10 @@ Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 """
 import json, math, pathlib, re, sqlite3, struct, sys
 from functools import cmp_to_key
-from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
+from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK, UC_HOOK_INTR
 from unicorn.mips_const import *
 sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first
-from ipod import jal
-from build import j, segments, load_elf, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION, dev_tag
+from build import jal, j, segments, load_elf, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION, dev_tag
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 payload_syms=symbols(B/'patch.elf')
 manifest=json.loads((B/'manifest.json').read_text())
@@ -329,7 +328,11 @@ class Machine:
             ret=0 if self.text(b)=='text' else self.string(n.get(self.text(b),''))
         elif name=='widget_get_text': ret=self.wide_string(n.get('text',''))
         elif name=='player_playtime_and_length' and hasattr(self,'playtime'): self.word(a,self.playtime); self.word(b,225); ret=0
-        elif name=='widget_get_text_utf8': self.u.mem_write(b,n.get('text','').encode()[:c-1]+b'\0'); ret=0
+        elif name=='widget_get_text_utf8':
+            text=n.get('text','').encode()
+            self.u.mem_write(b,bytes(c))  # stock's wide-string conversion writes nothing unless all bytes fit
+            if len(text)<c: self.u.mem_write(b,text+b'\0')
+            ret=0
         elif name in ('widget_get_prop_bool','widget_get_prop_int'): ret=n.get(self.text(b),c)
         elif name=='mclGetLyricSize': ret=getattr(self,'lyric_size',0)
         elif name=='widget_count_children': ret=len(n['children'])
@@ -475,7 +478,7 @@ class Machine:
         pair=self.alloc(2*size)
         def cmp(x,y): self.u.mem_write(pair,x); self.u.mem_write(pair+size,y); return self.nested(compare,pair,pair+size)
         for i,v in enumerate(sorted([bytes(self.u.mem_read(base+size*i,size)) for i in range(n)],key=cmp_to_key(cmp))): self.u.mem_write(base+size*i,v)
-    def returns(self,ret=0,clobber=False):
+    def returns(self,ret,clobber=False):
         """Return ret from a mocked call; clobber caller-saved registers to catch accidental ABI assumptions."""
         if clobber:
             for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T0,UC_MIPS_REG_T1,UC_MIPS_REG_T2,
@@ -594,6 +597,15 @@ checks=0
 def passed():
     global checks
     checks+=1
+
+# The failed-exec path exits through the kernel, without libc's copied buffers or handlers.
+m=Machine(); exited=[]
+def child_syscall(u,number,unused):
+    exited.append((u.reg_read(UC_MIPS_REG_V0),u.reg_read(UC_MIPS_REG_A0)))
+    u.reg_write(UC_MIPS_REG_PC,0x1000000)
+m.u.hook_add(UC_HOOK_INTR,child_syscall)
+m.call(address=payload_syms['child_exit'],args=(127,0,0,0),gap=0)
+assert exited==[(4001,127)];passed()
 
 # Execute the stock offset setter after cancelling an animator headed to either boundary.
 # Cover selected rows and the pixel-scroll fallback.
@@ -2621,6 +2633,13 @@ if variant=='ipod':
 
 # Pull-to-search observes the page's native before-children callbacks and stock dispatch.
 class PullMachine(Machine):
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,''); a,b,c,d=[u.reg_read(r) for r in REGS]
+        if name=='widget_on' and b==getattr(self,'pull_bind_fail',None):
+            self.returns(0); return
+        if name=='widget_off_by_func':
+            self.nodes[a]['handlers']=[h for h in self.nodes[a].get('handlers',[]) if h!=(b,c,d)]
+        return super().hook(u,address,size,unused)
     def child(self,page,name):
         def walk(w):
             if self.nodes[w]['name']==name:return w
@@ -2690,6 +2709,19 @@ for page_name in ('folder_page','localmusic_page','allmusic_page','radio_page'):
             assert len(m.searches()+radio())==(1 if enabled and distance>=48 else 0)
             assert not m.prompt(page)['visible']
             passed()
+
+# A failed registration leaves no partial page callbacks; retry binds each event once.
+for fail in ('EVT_WINDOW_BACKGROUND','EVT_POINTER_UP_BEFORE'):
+    m=PullMachine();m.handlers[payload_syms['radio_search']]='stock_radio_search'
+    w,es=m.page_list(5,name='radio_page');page=m.top
+    before=list(m.nodes[page].get('handlers',[]));m.pull_bind_fail=O[fail]
+    m.start_pull(page,w)
+    assert m.nodes[page].get('handlers',[])==before and not m.nodes[page].get('_pull_bound',0)
+    m.pull_bind_fail=None;m.start_pull(page,w)
+    handlers=m.nodes[page]['handlers'];assert len(handlers)==len(before)+6 and len(handlers)==len(set(handlers))
+    m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=120);m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=120)
+    assert len([c for c in m.calls if c[0]=='stock_radio_search'])==1
+    passed()
 
 if variant=='ipod':
     # Local Songs' virtual table keeps its rows and top offset across a search.
@@ -5361,7 +5393,7 @@ want=host_render(textures,cases)
 m=DepthMachine(); tex=m.big_alloc(7*160*160*4); m.u.mem_write(tex,b''.join(textures))
 ring=m.big_alloc(28); frame=m.big_alloc(4*O['CF_VIEW_W']*O['CF_VIEW_H'])
 for (frac,mask),host in zip(cases,want):
-    for j in range(7): m.word(ring+4*j,tex+j*160*160*4 if mask>>j&1 else 0)
+    for k in range(7): m.word(ring+4*k,tex+k*160*160*4 if mask>>k&1 else 0)
     m.call(address=ps['coverflow_render'],args=(frame,O['CF_VIEW_W'],frac,ring),gap=0,count=50_000_000)
     assert bytes(m.u.mem_read(frame,len(host)))==host,(frac,mask)
     passed()
@@ -6977,6 +7009,8 @@ class BooksMachine(DepthMachine):
                   'sendto@GLIBC_2.0','close@GLIBC_2.0'):
             self.handlers[syms[n]]='b:'+n
         self.handlers[syms['mclGetOutputWay']]='b:mclGetOutputWay'
+        self.handlers[payload_syms['child_exit']]='b:exit'
+        self.u.hook_add(UC_HOOK_CODE,self.hook,begin=payload_syms['child_exit'],end=payload_syms['child_exit'])
         self.forked=4242; self.waited=0; self.way=0; self.execs=[]; self.sent=[]
         tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
         self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
@@ -7029,6 +7063,9 @@ class BooksMachine(DepthMachine):
             self.lines.append((''.join(chr(self.get(b+4*j)) for j in range(c)),signed(d),signed(self.get(sp+16)),
                                self.get(self.lcd+O['LCD_TEXT_COLOR']),self.font))
         self.calls.append((name,a,b,c))
+        if name=='exit':
+            for i,r in enumerate(SAVED): u.reg_write(r,0x12340000+i)
+            u.reg_write(UC_MIPS_REG_V0,0);u.reg_write(UC_MIPS_REG_SP,0x7000f000);u.reg_write(UC_MIPS_REG_PC,0x1000000);return
         self.returns(ret,clobber=True)
 
 # Books (patch/books.c): Local Music's last row opens the card's Books folder (case aside): its own
@@ -7460,6 +7497,17 @@ assert m.call(address=payload_syms['radio_search'],gap=0,count=5_000_000)==0; ed
 m.back(); assert m.nodes[edit]['focused']==0 and m.nodes[edit]['text']==''; f,ctx=m.handler(edit,O['EVT_BLUR'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 assert m.labels()[:2]==['Internet Radio','Favourites'] and not m.find('edit')
+search('é'*31); m.worker(); assert m.labels()[0]=='é'*31; m.back()  # 62 UTF-8 bytes fit
+m.row(1); assert m.labels()==featured
+for event in ('EVT_VALUE_CHANGED','EVT_IM_ACTION'):
+    before=len(m.toasts)
+    search('',event); assert m.labels()==featured and not m.find('edit') and len(m.toasts)==before
+for query in ('x'*64,'é'*32):
+    before=len(m.toasts); workers=len(m.threads)
+    search(query)
+    assert m.labels()==featured and not m.find('edit') and len(m.threads)==workers
+    assert len(m.toasts)==before+1 and m.toasts[-1][3]=='Search is too long'
+m.back()
 search('zzz'); m.reply=b'#EXTM3U\n'; m.worker(); assert m.labels()==['No stations']; m.close(); passed()
 # Favourites: favourites.m3u, then the folder's other .m3u and .pls files (a .pls's TitleN names its FileN).
 m=RadioMachine({RDIR+'/favourites.m3u':bytearray(b'#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/a\r\nhttp://two/b\r\n'),
@@ -8527,6 +8575,7 @@ class LogoMachine(PowerMachine):
     failure=''
     def __init__(self,files=None):
         super().__init__(files=files); self.threads=[]; self.execs=[]; self.toasts=[]; self.rotated=None; self.child=False; self.exits=[]
+        self.handlers[payload_syms['child_exit']]='l:exit'
         self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='l:free'  # free's GOT slot, as Coverflow's
         for n in ('fseek@GLIBC_2.0','ftell@GLIBC_2.0','memcmp@GLIBC_2.0','strstr@GLIBC_2.0','pthread_create@GLIBC_2.2',
                   'fork@GLIBC_2.0','execl@GLIBC_2.0','exit@GLIBC_2.0','waitpid@GLIBC_2.0','navigator_to_with_context'): self.handlers[syms[n]]='l:'+n

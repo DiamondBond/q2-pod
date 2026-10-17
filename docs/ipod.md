@@ -110,7 +110,7 @@ Split narrows both menus to `HOME_SPLIT_W` (187, half the screen) and shows the 
 (`img_homeart` is an `image` for this, fitted to the cover's proportions and clipped to the panel,
 the menus clipped left of it; `default_album_home` without a cover); Full hides the art and
 widens the menus to the screen, their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369)
-in Classic. Minimal's labels keep x 39 and end 33 pixels from the screen edge in Full, `HOME_SPLIT_LABEL_END` (8) before the art in Split, where no corner needs clearing (122 pixels wide). Classic's
+in Classic. Minimal's labels keep x 39 and end 33 pixels from the screen edge in Full, `HOME_SPLIT_LABEL_END` (8) before the art in Split, where no corner needs clearing (140 pixels wide). Classic's
 start at `HOME_CLASSIC_TEXT_X` (33) with their existing widths. The chevron moves 15 pixels
 right in Split and 10 in Full, staying clear of the rounded glass, and rides the accent's selection bar alone.
 

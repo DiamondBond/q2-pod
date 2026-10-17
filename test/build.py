@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import io, sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
-from build import j, CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
-from ipod import jal
+from build import jal, j, CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -99,6 +98,25 @@ def logo_check():
         assert shown() == str(user)
     print('Boot logo: the saved card logo, else the built-in splash, passed.')
 logo_check()
+
+def preview_cache_check():
+    """Different builds with the same basename must not share cached preview assets."""
+    import pathlib, subprocess, tempfile
+    with tempfile.TemporaryDirectory(prefix='q2-preview-cache-') as tmp:
+        tmp = pathlib.Path(tmp)
+        builds = []
+        for side in ('before', 'after'):
+            source = tmp/side/'assets'
+            font = source/'release/assets/default/raw/fonts/default.ttf'
+            font.parent.mkdir(parents=True); font.write_text(side)
+            build = tmp/side/'build'; build.mkdir(); builds.append(str(build))
+            subprocess.run(['mksquashfs', str(source), str(build/'rootfs.squashfs'),
+                            '-noappend', '-no-progress', '-processors', '1'], check=True, stdout=subprocess.DEVNULL)
+        result = subprocess.run([sys.executable, str(ROOT/'test/ui_preview.py'), *builds, str(tmp/'out')],
+                                capture_output=True, text=True)
+        assert result.returncode and 'AssertionError: Build fonts differ' in result.stderr, result.stderr
+    print('Preview cache: same-basename builds keep separate assets.')
+preview_cache_check()
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess

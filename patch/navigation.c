@@ -10,6 +10,9 @@ extern int stock_quicksettings_trampoline(void *, void *);
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
 
+/* Failed exec in a forked child must not flush demo's copied stdio or run its exit handlers. */
+__asm__(".globl child_exit\nchild_exit:\nli $v0, 4001\nsyscall\n");
+
 /* Stock's album-artist queries (Artists, an artist's albums and songs, search) take a song without
  * an album artist by its artist, so an untagged album stays under its artist, not Unknown.
  * Coverflow's grouping (ifnull(albumsonger,'')) keeps the tag. Then restrict the Library's category
@@ -1301,13 +1304,14 @@ static void pull_begin(void *event) {
         I(w, kind(w) == 2 ? TABLE_TOP : SCROLL_Y) > 0)
         return;
     if (!widget_get_prop_int(page, PULL_BOUND, 0)) {
-        if (!widget_on(page, EVT_DESTROY, pull_event, page) ||
-            !widget_on(page, EVT_WINDOW_BACKGROUND, pull_event, page) ||
-            !widget_on(page, EVT_WINDOW_CLOSE, pull_event, page) ||
-            !widget_on(page, EVT_POINTER_ABORT, pull_event, page) ||
-            !widget_on(page, EVT_POINTER_MOVE_BEFORE, pull_event, page) ||
-            !widget_on(page, EVT_POINTER_UP_BEFORE, pull_event, page))
-            return;
+        const unsigned types[] = { EVT_DESTROY, EVT_WINDOW_BACKGROUND, EVT_WINDOW_CLOSE,
+                                   EVT_POINTER_ABORT, EVT_POINTER_MOVE_BEFORE, EVT_POINTER_UP_BEFORE };
+        for (unsigned i = 0; i < sizeof types / sizeof *types; ++i)
+            if (!widget_on(page, types[i], pull_event, page)) {
+                /* Retry must not duplicate the callbacks already installed. */
+                while (i) widget_off_by_func(page, types[--i], pull_event, page);
+                return;
+            }
         prop(page, PULL_BOUND, 1);
     }
     if (!widget_get_prop_int(w, PULL_BOUND, 0)) {
@@ -6238,7 +6242,7 @@ static void *logo_sync(void *unused) {
             execl("/usr/bin/ffmpeg", "/usr/bin/ffmpeg", "-nostdin", "-v", "quiet", "-i", LOGO_SRC,
                   "-vf", "transpose=1", "-pix_fmt", "yuvj444p", "-q:v", "2", "-f", "mjpeg", "-y",
                   LOGO_ROT, (char *)0);
-            exit(127);
+            child_exit(127);
         }
         if (pid > 0 && waitpid(pid, &status, 0) == pid && !status) b = logo_read(LOGO_ROT, &n);
         unlink(LOGO_ROT);

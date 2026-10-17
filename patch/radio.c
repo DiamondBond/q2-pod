@@ -470,8 +470,13 @@ static int menu_click(void *ctx, void *event), pick_click(void *ctx, void *event
  * event, so it is taken here too. */
 static int searched(void *ctx, void *event) {
     (void)ctx; (void)event;
-    if (widget_get_text_utf8(ui.edit, ui.caption, sizeof ui.caption) || !ui.caption[0])
-        return ui.caption[0] = 0, later(A_SHOW, 0), 0;
+    char q[sizeof ui.caption];
+    if (widget_get_text_utf8(ui.edit, q, sizeof q) || !q[0]) {
+        const unsigned *text = widget_get_text(ui.edit);
+        if (text && text[0]) toast("Search is too long");
+        return later(A_SHOW, 0), 0;
+    }
+    snprintf(ui.caption, sizeof ui.caption, "%s", q);
     ui.favs = 0, ui.sel[STATIONS] = 0;
     if (ui.level != STATIONS) ui.from = ui.level;
     later(A_SEARCH, 0);

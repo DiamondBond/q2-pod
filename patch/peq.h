@@ -13,9 +13,11 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
+#define child_exit _exit
 #else
 #include "peq_platform.h"
 #define PEQ_ROOT "" /* host tests pass a scratch directory */
+void child_exit(int status) __attribute__((noreturn));
 #endif
 
 #define PEQ_BANDS 30 /* 10 per side plus 10 shared, as L/R APO files use */

@@ -188,7 +188,7 @@ def main(argv):
     cmd, a = argv[0], argv[1:]
     if cmd == "sh" and len(a) == 1:
         if not a[0]: raise ValueError("sh requires a non-empty command")
-        sys.stdout.buffer.write(shell("sh", a[0].encode())); return 0  # as a script on stdin: newlines and over 4 KB
+        sys.stdout.buffer.write(shell('q2remote_script=$(cat); eval "$q2remote_script" </dev/null', a[0].encode())); return 0  # as a script on stdin: newlines and over 4 KB
     if cmd == "shot" and len(a) == 1:
         screenshot(a[0]); return 0
     if cmd == "devices" and not a:

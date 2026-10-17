@@ -338,6 +338,7 @@ def source_sha256():
     return h.hexdigest()
 
 def j(addr): return 0x08000000 | addr >> 2  # MIPS j
+def jal(addr): return 0x0c000000 | addr >> 2  # MIPS jal
 def check(condition, message):
     if not condition: raise ValueError(message)
 def jpeg_size(b):
@@ -838,7 +839,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     # property of the UI asset, not the asset path, so check the stock rootfs assets directly:
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
-                      QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, jal, branch, settings_icon,
+                      QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
                       STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')

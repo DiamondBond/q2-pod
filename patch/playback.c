@@ -226,6 +226,7 @@ int ringnav_speed(int mode) {
     speed_file(path, saved.folder);
     tk_snprintf(tmp, sizeof tmp, "%s.tmp", path);
     if (!blob_io(path, tmp, &saved, sizeof saved, 1)) {
+        unlink(tmp);
         playback_speed_start();
         toast("Could not save folder speed");
         return stock_speed_trampoline(g_playspeed_mode);

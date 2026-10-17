@@ -158,11 +158,8 @@ static double *picked(void) {
 /* The value menu's edit closed with new text: apply it if it is a number (clamped like Raise/Lower), else restore it. */
 static int typed(void *ctx, void *event) {
     (void)ctx; (void)event;
-    const unsigned *t = ui.edit ? widget_get_text(ui.edit) : 0; /* wchar_t */
     char s[16];
-    unsigned n = 0;
-    while (t && t[n] && n < sizeof(s) - 1) { s[n] = (char)t[n]; ++n; }
-    s[n] = 0;
+    if (!ui.edit || widget_get_text_utf8(ui.edit, s, sizeof s)) s[0] = 0;
     if (peq_number(s, &ui.typed)) action((void *)(long)TYPED, 0);
     else if (!ui.timer) ui.timer = timer_add(render, 0, 1); /* show the value again */
     return 0;

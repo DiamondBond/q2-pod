@@ -61,7 +61,7 @@ python3 test/ldac.py /tmp/q2-build         # shipped LDAC intermediate rates and
 python3 test/headset_io.py /tmp/q2-build   # real MIPS headset worker with simulated kernel I/O
 python3 test/bluealsa.py /tmp/q2-build     # the patched bluealsa's DROP paths against stock's, delayed encoder signal
 python3 test/alsa.py BUILD QEMU_MIPSEL     # ALSA startup lock regression (see internals.md)
-python3 test/ui_preview.py BEFORE AFTER OUT.png  # not a test: side-by-side iPod layout review sheet of two builds (or one build's two themes; --themes, ImageMagick)
+python3 test/ui_preview.py BEFORE AFTER OUT_DIR  # not a test: side-by-side iPod layout review sheets of two builds (or one build's two themes; --themes, ImageMagick)
 ```
 
 - **MIPS suite:** `test/patch.py` executes the actual patched payload and the stock key and touch filters under Unicorn. UI services are mocked; the one other mocked boundary is the `system()` call that Key Tone uses to click the speaker. Case coverage lives in `test/patch.py`. Run the payload, headset worker, metadata dispatch and packaging checks for both Stock and iPod builds.

@@ -5,9 +5,8 @@ Stock code runs: the vendor's frame walker, FFmpeg's dictionary and ff_replaygai
 the stream's buffer refill and the fd are modelled. Usage: test/id3.py BUILD_DIR"""
 import pathlib, struct, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]/'tools'))
-from build import machine, symbols
+from build import jal, machine, symbols
 from peq import ID3_CALLS, STOCK_ID3
-from ipod import jal
 from unicorn import UC_HOOK_CODE
 from unicorn.mips_const import *
 

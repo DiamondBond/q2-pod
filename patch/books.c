@@ -791,7 +791,7 @@ int video_start(const char *file, int radio) {
             execl(VIDEO_BIN, VIDEO_BIN, "-r", dev, file, v, (char *)0);
         else
             execl(VIDEO_BIN, VIDEO_BIN, dev, file, v, (char *)0);
-        exit(127);
+        child_exit(127);
     }
     return pid > 0 ? pid : 0;
 }

@@ -845,6 +845,7 @@ for failure in ('write','close','rename'):
     m.fn('ringnav_speed',1)
     assert m.sent_speed==(0 if failure=='close' else 2) and m.toasts==['Could not save folder speed']
     assert not [k for k,v in before.items() if m.files[k]!=v]
+    assert not any(k.endswith(".tmp") for k in m.files)
 # Truncated, invalid and wrong-folder records cannot change a track's speed.
 path=next(k for k,v in fresh.files.items() if v.startswith(b'/A/\0'))
 for data in (b'broken',b'/B/\0'+bytes(1020)+struct.pack('<I',2),fresh.files[path][:-4]+struct.pack('<I',99)):
