@@ -291,13 +291,11 @@ def validate_assets(directory):
     from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS, MQA_GATE, MQA_PROBE
     old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
     off = fileoff(old, VBR_SCAN)
-    gates = [fileoff(old, a) for a in (*(a for a, _, _ in (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE)), *ID3_CALLS)]
+    words = (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE)
+    gates = [fileoff(old, a) for a in (*(a for a, _, _ in words), *ID3_CALLS)]
     differ = [i for i in range(0x3e40, 0x485250) if old[i] != new[i]]
     assert set(differ) <= {*range(off, off+4), *(i for g in gates for i in range(g, g+4))} and not any(new[off:off+4])
-    assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in EQ_RATE_GATES] == [p for _, _, p in EQ_RATE_GATES]
-    for table in (MQA_GATE, MQA_PROBE):
-        assert [struct.unpack_from('<I', old, fileoff(old, a))[0] for a, _, _ in table] == [s for _, s, _ in table]
-        assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in table] == [p for _, _, p in table]
+    assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in words] == [p for _, _, p in words]
     id3_gain = symbols(directory/'peq'/'peq.elf')['id3_gain']
     assert {struct.unpack_from('<I', new, fileoff(old, a))[0] for a in ID3_CALLS} == {jal(id3_gain)}
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.

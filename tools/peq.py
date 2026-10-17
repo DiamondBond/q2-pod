@@ -25,10 +25,13 @@ MQA_GATE = ((0x42f8b0, 0x34620040, 0x3c0200b1),   # ori $v0, $v1, 0x40    -> lui
             (0x42f8b8, 0x8c420000, 0x2442fffe),   # lw $v0, 0($v0)        -> addiu $v0, $v0, -2
             (0x42f8bc, 0x8c420c54, 0),            # lw $v0, 0xc54($v0)    -> nop
             (0x42f8c0, 0x1840000a, 0x1440000a))   # blez $v0, 0x42f8ec    -> bnez $v0, 0x42f8ec
-# So MQA is found by the start-of-track probe alone, which reads 0x60000 bytes instead of 0xc00 (0x20000 on
-# output way 2).
-MQA_PROBE = ((0x42eaf4, 0x3c020002, 0x3c020006),  # lui $v0, 0x2           -> lui $v0, 0x6
-             (0x42eafc, 0x00e3100b, 0))           # movn $v0, $a3, $v1     -> nop
+# So MQA is found by the start-of-track probe alone. The detector gives up after 96000 frames, so the probe
+# reads 0x300000 >> (codec ^ 15) bytes instead of 0xc00 (0x20000 on output way 2): FLAC (13, decoded to 8-byte
+# frames at 24 bit) 0xc0000, past 96000 frames for every eligible format; PCM (11) 0x30000, ad_pcm's a_buffer
+# (0x30800) holding no more. $t3 is the codec type here and $v1 is dead.
+MQA_PROBE = ((0x42eaf4, 0x3c020002, 0x3c020030),  # lui $v0, 0x2           -> lui $v0, 0x30
+             (0x42eaf8, 0x38630002, 0x3963000f),  # xori $v1, $v1, 2       -> xori $v1, $t3, 15
+             (0x42eafc, 0x00e3100b, 0x00621006))  # movn $v0, $a3, $v1     -> srlv $v0, $v0, $v1
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
