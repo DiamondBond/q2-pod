@@ -96,15 +96,22 @@ void wheel_set_pct(int n) {
 int wheel_guard __attribute__((section(".scratch")));
 static int wh_guard __attribute__((section(".scratch")));
 static unsigned wh_dark_at __attribute__((section(".scratch"))); /* the last dark travel */
-static int dark_held(int d) {
+void wheel_guard_reset(void) { wh_guard = 0; }
+static int dark_held(int *delta) {
+    int d = *delta;
     if (g_backlight_status || !wheel_guard) return wh_guard = 0;
     unsigned now = (unsigned)time_now_ms();
-    if (now - wh_dark_at >= WHEEL_DARK_IDLE_MS || (wh_guard != DARK_OPEN && (d ^ wh_guard) < 0))
+    if (now - wh_dark_at >= WHEEL_DARK_IDLE_MS || (d && wh_guard != DARK_OPEN && (d ^ wh_guard) < 0))
         wh_guard = 0;
     if (d) wh_dark_at = now;
     if (wh_guard == DARK_OPEN) return 0;
+    wh_acc = 0;
     wh_guard += d;
-    if (wh_guard >= DARK_OPEN || wh_guard <= -DARK_OPEN) wh_guard = DARK_OPEN;
+    if (wh_guard >= DARK_OPEN || wh_guard <= -DARK_OPEN) {
+        *delta = wh_guard > 0 ? wh_guard - DARK_OPEN : wh_guard + DARK_OPEN;
+        wh_guard = DARK_OPEN;
+        return 0;
+    }
     return 1;
 }
 
@@ -139,8 +146,8 @@ void wheel_sample(int *s, int ret, char *info) {
         wh_acc = wh_units ? wh_acc * units / wh_units : 0;
         wh_units = units;
     }
-    if ((d ^ wh_acc) < 0) wh_acc = 0; /* reversed */
-    wh_acc = dark_held(d) ? 0 : wh_acc + d;
+    if (d && (d ^ wh_acc) < 0) wh_acc = 0; /* reversed */
+    wh_acc = dark_held(&d) ? 0 : wh_acc + d;
     while (wh_acc >= units || wh_acc <= -units) {
         int dir = wh_acc > 0 ? 1 : -1;
         wh_acc -= dir * units;
