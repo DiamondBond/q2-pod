@@ -4842,11 +4842,12 @@ static void rate_close(int save) {
     rate_badge();
 }
 
+/* Returns 0 as rate_fav_click does: a STOP skips the window's own release, leaving it pressed. */
 static int rate_tap(void *ctx, void *event) {
     (void)event;
     st.rate_pick = (int)(long)ctx;
     rate_close(1);
-    return STOP;
+    return 0;
 }
 
 /* The picker over win on pick hearts, for the queue menu's album album or, with 0, the playing
