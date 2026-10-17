@@ -2,6 +2,7 @@
 """JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import io, sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
 from build import CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
+from ipod import jal
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -274,7 +275,7 @@ def validate_assets(directory):
     # The encoder thread's ts_read call goes through ringnav_ts_read (playback.c wheel_sample).
     off = fileoff(stock, WHEEL_TS_READ[0])
     assert struct.unpack_from('<I', stock, off)[0] == WHEEL_TS_READ[1]
-    assert struct.unpack_from('<I', demo, off)[0] == 0x0c000000 | symbols(directory/'patch.elf')['ringnav_ts_read'] >> 2
+    assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')['ringnav_ts_read'])
     # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop, the 48 kHz EQ gates
     # and the ID3v2 walker calls, now id3_gain (MP3 ReplayGain).
     from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS
@@ -285,7 +286,7 @@ def validate_assets(directory):
     assert set(differ) <= {*range(off, off+4), *(i for g in gates for i in range(g, g+4))} and not any(new[off:off+4])
     assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in EQ_RATE_GATES] == [p for _, _, p in EQ_RATE_GATES]
     id3_gain = symbols(directory/'peq'/'peq.elf')['id3_gain']
-    assert {struct.unpack_from('<I', new, fileoff(old, a))[0] for a in ID3_CALLS} == {0x0c000000 | id3_gain >> 2}
+    assert {struct.unpack_from('<I', new, fileoff(old, a))[0] for a in ID3_CALLS} == {jal(id3_gain)}
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]

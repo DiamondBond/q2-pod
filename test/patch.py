@@ -6,6 +6,7 @@ import json, math, pathlib, re, sqlite3, struct, sys
 from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
 from unicorn.mips_const import *
 sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first
+from ipod import jal
 from build import segments, load_elf, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION, dev_tag
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 payload_syms=symbols(B/'patch.elf')
@@ -3265,7 +3266,7 @@ for row,pos,closed in ((0,0,True),(1,0,False),(1,2,True)):
     passed()
 # Shuffle: the patched mclNextSong call runs the stock pick, then plays the Play next track once.
 demo=(B/'demo').read_bytes()
-assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_shuffle']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==jal(payload_syms['ringnav_shuffle'])
 m=QueueMachine(mode=2); m.run(0,steps=5); assert m.names()==['A','Row 5','B','C']
 # LDAC: stock switchBtPriority sends quality 0x16 for both HQ and Standard; patched HQ sends 0x15.
 for patched,want in ((True,(0x15,0x16,0x18)),(False,(0x16,0x16,0x18))):
@@ -3378,7 +3379,7 @@ passed()
 # Update Local Music: the stock scanner, nested folders and all, checks ringnav_scan_room (65,000
 # songs; stock 20,000) before each entry. Only the folder listing, paths and database insert are mocked.
 from build import SCAN_LIMIT
-assert struct.unpack_from('<2I',demo,fileoff(demo,SCAN_LIMIT[0]))==(0x0c000000|payload_syms['ringnav_scan_room']>>2,SCAN_LIMIT[3])
+assert struct.unpack_from('<2I',demo,fileoff(demo,SCAN_LIMIT[0]))==(jal(payload_syms['ringnav_scan_room']),SCAN_LIMIT[3])
 SONGS,STOP,LISTING=0xa3c354,0xa3c358,0xa3bf48  # toolsGetMusicNum's count, toolsStopUpdateMusic's flag, the listing deque
 class ScanMachine(Machine):
     def __init__(self,tree,songs,patched=True,stop_at=None):
@@ -3419,7 +3420,7 @@ assert scan(0,{'/m':['a','b','c']},stop_at=1)==(0,['/m/a'],1,1); passed()
 # A folder rescan refreshes existing tags in place, including quoted paths/tags and CUE rows.
 # Run the actual recursive scanner and refresh wrapper against SQLite; full scans still add songs.
 from build import SCAN_REFRESH
-assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_REFRESH[0]))[0]==0x0c000000|payload_syms['ringnav_scan_refresh']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_REFRESH[0]))[0]==jal(payload_syms['ringnav_scan_refresh'])
 class FolderTagsMachine(ScanMachine):
     def __init__(self,patched=True,cue=False,valid=True,songs=1,title="New artist's tags"):
         super().__init__({'/m':["it's.flac"]},songs,patched=patched)
@@ -3479,17 +3480,17 @@ passed()
 # Library Artists rows hide the head picture (CLASS_ICON); Composers and Genres, sharing the rebound
 # rows, show theirs again through stock's setter.
 from build import CLASS_ICON
-assert struct.unpack_from('<I',demo,fileoff(demo,CLASS_ICON))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_class_icon']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,CLASS_ICON))[0]==jal(payload_syms['ringnav_class_icon'])
 m=Machine(); m.mock('class_icon'); icon=m.node('image','img_icon'); row=m.node('view','',[icon])
 for cls,shown in ((0xf004,0),(0xf006,1),(0xf005,1),(0xf004,0)):
     m.word(syms['g_class_type'],cls); m.calls=[]
-    m.call(address=symbols(B/'patch.elf')['ringnav_class_icon'],args=(row,3,0,0),gap=0)
+    m.call(address=payload_syms['ringnav_class_icon'],args=(row,3,0,0),gap=0)
     assert m.nodes[icon]['visible']==shown and [c[1:3] for c in m.calls if c[0]=='class_icon']==([(row,3)] if shown else [])
 passed()
 # Library sorts: both stock name comparators, on the patched trim calls, skip a leading article.
 from build import SORT_TRIMS
 from functools import cmp_to_key
-for a in SORT_TRIMS: assert struct.unpack_from('<I',demo,fileoff(demo,a))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_sort_key']>>2
+for a in SORT_TRIMS: assert struct.unpack_from('<I',demo,fileoff(demo,a))[0]==jal(payload_syms['ringnav_sort_key'])
 class SortMachine(Machine):
     def __init__(self):
         super().__init__(); self.handlers.pop(syms['toolsTrimLeft']); self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0')
@@ -3523,14 +3524,14 @@ names=['Daft Punk','The Cure','Coldplay','Them Crooked Vultures','A Tribe Called
 for cmp in (0x5ba658,0x5b9d40):
     assert ordered(names,cmp)==['Anthrax','Coldplay','The Cure','Daft Punk','an Orchestra','The','Them Crooked Vultures','Toto','A Tribe Called Quest'],ordered(names,cmp)
     passed()
-key=lambda t: (m.u.mem_write(0x1100000,t.encode()+b'\0'), m.call(address=symbols(B/'patch.elf')['ringnav_sort_key'],args=(0x1100000,0,0,0),gap=0), m.text(0x1100000))[2]
+key=lambda t: (m.u.mem_write(0x1100000,t.encode()+b'\0'), m.call(address=payload_syms['ringnav_sort_key'],args=(0x1100000,0,0,0),gap=0), m.text(0x1100000))[2]
 assert [key(t) for t in ('  The Cure','THE CURE','The ','The  Cure','A','An ','Ant','周杰伦','The 周杰伦')]==['Cure','CURE','The ','The  Cure','A','An ','Ant','周杰伦','周杰伦']; passed()
 # iPod boots to Home: home_page_init's memory-play resume, run from its stock context build, starts
 # the restored queue paused (mode 3) through player_start as playing_page_init would, and opens no
 # page; a 0xff class starts nothing, as the page's init. Car mode (mode 2) opens Now Playing as stock.
 if variant=='ipod':
-    boot=symbols(B/'patch.elf')['ringnav_boot']
-    assert struct.unpack_from('<I',demo,fileoff(demo,0x523de0))[0]==0x0c000000|boot>>2
+    boot=payload_syms['ringnav_boot']
+    assert struct.unpack_from('<I',demo,fileoff(demo,0x523de0))[0]==jal(boot)
     for car,cls,want in ((0,1,[(0x5550,4,1,3)]),(0,0xff,[]),(1,0xf003,[])):
         m=Machine(); m.word(syms['g_memory_info'],cls); m.byte(syms['g_carmode'],car)
         m.u.reg_write(UC_MIPS_REG_GP,0xa26cc0); m.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
@@ -3685,7 +3686,7 @@ lm.db.close(); passed()
 # Their stock art cache names (/mnt/mmc/.sldp/<md5>0.jpg): a shared name adds the album artist,
 # a name alone stays; the album page's big cover follows its row's cover task name.
 for e in m.items(m.get(syms['p_deque_showlist']))[:2]: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
-art=symbols(B/'patch.elf'); buf=m.alloc(0x100)
+art=payload_syms; buf=m.alloc(0x100)
 keys=['Album\x1fBaroness','Album\x1fSTP','Other']
 for i,want in enumerate(keys):
     m.call(address=art['ringnav_art_name'],args=(buf,0x100,i,0),gap=0); assert m.text(buf)==want
@@ -3903,7 +3904,7 @@ if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
-assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|payload_syms['coverflow_home']>>2
 passed()
 def asset_tree(m,path):
     """A built UI asset as mock widgets, the window's parent the window manager, with what the payload
@@ -4322,7 +4323,7 @@ if variant=='ipod':
     # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
     # value, in seconds) fill in; later paints rewrite a label only when its source changed.
     playing=HOOKS['playing_page_init'][0]
-    assert struct.unpack_from('<I',demo,fileoff(demo,playing))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_playing']>>2
+    assert struct.unpack_from('<I',demo,fileoff(demo,playing))[0]==0x08000000|payload_syms['ringnav_playing']>>2
     m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
     for i,r in enumerate(m.items(m.get(syms['mcl_pdeqplaylist']))): m.word(r+O['REC_ALBUM'],m.string(f'Album {i}'))
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
@@ -4424,7 +4425,7 @@ if variant=='ipod':
     # The full-screen art: stock init runs first; the song name and its shade show BC_MS, then fade
     # out together over BC_STEPS steps. Closing it mid-fade stops the fade.
     big=IPOD_HOOKS['bigcover_page_init'][0]
-    assert struct.unpack_from('<I',demo,fileoff(demo,big))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_bigcover']>>2
+    assert struct.unpack_from('<I',demo,fileoff(demo,big))[0]==0x08000000|payload_syms['ringnav_bigcover']>>2
     def bigcover():
         b=QueueMachine(queue=3,pos=1); b.handlers[big+12]='stock_bigcover'
         title,shade=b.node('hscroll_label','scrlabel_title'),b.node('view','view_shade')
@@ -4669,7 +4670,7 @@ if variant=='ipod':
 # and wrap edges. Album and Artist share article handling; nonalphabetical sorts stay single-step.
 def cf_jump(m,at,direction):
     letter=m.alloc(4)
-    steps=m.call(address=symbols(B/'patch.elf')['coverflow_jump'],args=(m.slide,at,direction,letter),gap=0)
+    steps=m.call(address=payload_syms['coverflow_jump'],args=(m.slide,at,direction,letter),gap=0)
     return steps,m.get(letter)
 m=CoverflowMachine(albums=8)
 for r,name in zip(m.albums,['Apple One','The Apple','Dawn','Dusk','Zulu','9 Lives','-Noise','Été']):
@@ -5241,7 +5242,7 @@ class RolloverMachine(CoverflowMachine):
         self.byte(syms['g_forcerefresh_flag'],1)
 
 from build import PLAYER_COVER
-assert struct.unpack_from('<I',demo,fileoff(demo,PLAYER_COVER[0]))[0]==0x0c000000|payload_syms['coverflow_player_cover']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,PLAYER_COVER[0]))[0]==jal(payload_syms['coverflow_player_cover'])
 for sizes in ((2,2,1,1),(1,1,1,1)):
     m=RolloverMachine(sizes); m.setup_ui(); m.artwork(); m.ui()
     paths=[path for path in m.files]
@@ -5356,7 +5357,7 @@ int main(void) {
     size=4*O['CF_VIEW_W']*O['CF_VIEW_H']
     return [out[i*size:(i+1)*size] for i in range(len(cases))]
 
-ps=symbols(B/'patch.elf')
+ps=payload_syms
 textures=[cover_pixels(100+j) for j in range(7)]
 cases=[(0,127),(16384,127),(-16384,127),(32767,127),(-32768,127),(5000,0b0111110),(0,0)]
 want=host_render(textures,cases)
@@ -5413,7 +5414,7 @@ print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (d
 if variant=='ipod':
     # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
     # blend of the preset's red tone, alpha kept; greys, other hues and every Crimson color stay.
-    ps=symbols(B/'patch.elf'); RED=(0xff,0x14,0x48)
+    ps=payload_syms; RED=(0xff,0x14,0x48)
     # WCAG contrast of each preset: white text on the bar's top, the progress fill on its track, and
     # white on the red tone (Graphite's silver is chosen for its lit look instead; Crimson is stock).
     def lum(c):
@@ -8854,7 +8855,7 @@ for owner in (1,2):
 # Stock's restart once A2DP comes up (BT_CONNECT_START): on, player_save_start(0) as stock. Off (default): a
 # playing queue goes on, a paused one comes back paused, a stopped one or a stream's turn starts nothing.
 from build import BT_CONNECT_START
-assert struct.unpack_from('<I',demo,fileoff(demo,BT_CONNECT_START[0]))[0]==0x0c000000|payload_syms['ringnav_bt_connect_start']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_CONNECT_START[0]))[0]==jal(payload_syms['ringnav_bt_connect_start'])
 for off,owner,saved,want in ((0,1,3,[0]),(0,2,0,[0]),(1,1,2,[0]),(1,1,3,[1]),(1,1,0,[]),(1,2,3,[])):
     m=HeadsetMachine(owner); m.saved=saved
     if not off: m.config['RESUME']='1'
@@ -8866,7 +8867,7 @@ print('Real Spotify/radio/video play-state APIs, helper gain updates and stock T
 # writes "Label:value" and the bare folder: ": " after each label, units spaced, the folder labelled
 # from player_location, en_US's first unknown ("Unknown Artist") plain "Unknown"; a second pass changes nothing.
 from build import NP_INFO_CALL
-assert struct.unpack_from('<I',demo,fileoff(demo,NP_INFO_CALL))[0]==0x0c000000|payload_syms['ringnav_np_info']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,NP_INFO_CALL))[0]==jal(payload_syms['ringnav_np_info'])
 class InfoMachine(Machine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address)=='i:format':

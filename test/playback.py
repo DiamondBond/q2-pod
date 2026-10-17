@@ -9,7 +9,7 @@ from functools import cmp_to_key
 source = pathlib.Path(__file__).with_name('patch.py').read_text()
 exec(compile(source[:source.index('checks=0')], 'test/patch.py', 'exec'))
 exec(compile(source[source.index('class QueueMachine'):source.index('sel=lambda m:')], 'test/patch.py', 'exec'))
-ps = symbols(B/'patch.elf')
+ps = payload_syms
 
 class PlaybackMachine(QueueMachine):
     def __init__(self, files=None, **kw):
@@ -831,7 +831,7 @@ m=PlaybackMachine(fresh.files); m.word(O['MCL_POS'],0)
 m.u.mem_write(syms['g_playspeed_mode'],b'\x03')
 # A MIPS jal to the hook gives it player_initconfig's audited return address.
 pc=0x513394
-m.u.mem_write(pc,struct.pack('<II',0x0c000000 | (ps['ringnav_speed']>>2),0))
+m.u.mem_write(pc,struct.pack('<II',jal(ps['ringnav_speed']),0))
 m.u.mem_write(pc+8,struct.pack('<II',0x08000000 | (0x1000000>>2),0))
 before=dict(m.files)
 m.call(address=pc,args=(3,0,0,0),gap=0)

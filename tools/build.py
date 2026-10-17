@@ -701,7 +701,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
 
 def hooks(ipod): return HOOKS | IPOD_HOOKS if ipod else HOOKS
 
-def compile_payload(out, ipod=False):
+def compile_payload(out, ipod):
     """Compile and link the payload."""
     from peq import compile_common
     extra = compile_common(out, out/'stock-demo', ipod=ipod)  # also writes the libc/libcstl imports navigation.c uses
