@@ -8115,9 +8115,69 @@ RET,LONG=O['KEY_RETURN'],O['EVT_KEY_LONG']
 def back_dark(): return not any(wake(t,RET,gap=1000) for t in (DOWN,LONG,UP))  # Back does nothing dark (#28)
 assert back_dark()
 m.byte(O['BOOT_KEY_GUARD'],1); assert wake(DOWN,gap=1000) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP)  # Single press wakes after Standby
-def eaten():  # dropped with its release; held, its long press and release pass, so stock clears its latches
+# md-gpio-keys repeats DOWN at ~258 ms, then every 50 ms. AWTK generates LONG downstream
+# of ringnav_input from the first DOWN it receives, never through wake_gate itself.
+class WakeMachine(Machine):
+    def __init__(self,double=False):
+        super().__init__(); self.config['WAKEDOUBLE']=str(int(double)); self.held_at=None
+        self.handlers[inp+12]='stock_input'; self.handlers[sleep_hook+12]='stock_sleep'
+        self.mock('awake_screen','getFormatString','navigator_to_with_context')
+        self.byte(syms['g_backlight_status'],0)
+        self.call(address=sleep_hook,args=(0,0,0,0),gap=0)
+    def key(self,kind,gap=0):
+        self.calls=[]
+        self.call(O['KEY_CENTER'],address=inp,args=(self.wm,self.event,0,0),event_type=kind,gap=gap,clear=False)
+        passed=any(c[0]=='stock_input' for c in self.calls)
+        if passed and kind==DOWN and self.held_at is None: self.held_at=self.now
+        if kind==UP: self.held_at=None
+        return passed
+    def long(self):
+        # Stock's default long timer is 1000 ms after an accepted down. Its callback bypasses inp.
+        assert self.held_at is not None and self.now-self.held_at>=1000
+        self.calls=[]
+        self.call(O['KEY_CENTER'],address=syms['on_wm_keylong_fun'],event_type=LONG,gap=0,clear=False)
+        assert any(c[0]=='awake_screen' for c in self.calls) and any(c[0]=='navigator_to_with_context' for c in self.calls)
+for double in (False,True):
+    for duration in (258,458,708):
+        w=WakeMachine(double)
+        if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
+        assert w.key(DOWN,100)
+        assert w.key(DOWN,258), 'a waking hold must keep its first repeat'
+        for _ in range(258,duration,50): assert w.key(DOWN,50)
+        assert w.key(UP,10), 'a waking hold must keep the release that lights the screen'
+    # A fresh Standby guard identifies an accepted down whose release never arrived.
+    w=WakeMachine(double)
+    if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
+    assert w.key(DOWN,100) and w.key(DOWN,258)
+    w.byte(O['BOOT_KEY_GUARD'],1)
+    assert w.key(DOWN,1000)==(not double) and w.key(UP,50)==(not double)
+    assert w.u.mem_read(O['BOOT_KEY_GUARD'],1)==bytes([int(double)])
+    # An extended blind second press stays blocked with its repeats and release below WAKE_MS.
+    w=WakeMachine(double)
+    if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
+    assert w.key(DOWN,100) and w.key(UP,50)
+    w.byte(syms['g_backlight_status'],1)
+    assert not w.key(DOWN,100) and not w.key(DOWN,258) and not w.key(DOWN,50) and not w.key(UP,50)
+    # Either a lone dark hold or the dropped blind second hold can still reach stock power-off.
+    for dropped in (False,True):
+        w=WakeMachine(double)
+        if dropped:
+            if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
+            assert w.key(DOWN,100) and w.key(UP,50)
+            w.byte(syms['g_backlight_status'],1)
+        initial=w.key(DOWN,100)
+        assert initial==(not double and not dropped)
+        assert w.key(DOWN,258)==initial
+        for _ in range(5): w.key(DOWN,50)
+        assert w.held_at is not None
+        for _ in range(20): assert w.key(DOWN,50)
+        w.long()
+        assert w.key(UP,10)
+passed()
+def eaten():  # quick blind presses stay dropped; a held one eventually reaches stock's long timer
     m.byte(syms['g_backlight_status'],1)
-    r=not wake(DOWN,gap=100) and not wake(UP,gap=50) and not wake(DOWN,gap=50) and wake(LONG,gap=50) and wake(UP)
+    r=not wake(DOWN,gap=100) and not wake(UP,gap=50) and not wake(DOWN,gap=50) and not wake(DOWN,gap=258)
+    r=r and wake(DOWN,gap=250) and wake(UP)
     m.byte(syms['g_backlight_status'],0); return r
 assert eaten() and wake(DOWN,gap=O['WAKE_MS']) and wake(UP)  # a blind double press only wakes; holding it still powers off
 m.byte(syms['g_backlight_status'],1); assert not wake(DOWN,gap=100); m.byte(syms['g_backlight_status'],0)
@@ -8133,7 +8193,7 @@ m.byte(syms['g_backlight_status'],1); assert wake(DOWN,gap=1000) and wake(UP) an
 from build import STANDBY_WAKE
 assert struct.unpack_from('<I',demo,fileoff(demo,STANDBY_WAKE[0]))[0]==STANDBY_WAKE[2]
 m.byte(syms['g_backlight_status'],0)
-m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\1'
+m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and not wake(UP,gap=50) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\1'
 assert wake(DOWN,gap=100) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP,gap=50)
 assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
 # Lighting the screen stalls the UI loop about WAKE_MS (stock's on_wm_keyup_fun, the paint), so a

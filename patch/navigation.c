@@ -212,7 +212,7 @@ typedef struct {
      * the check, 1 usable, 2 refused by an earlier boot's stall, 3 refused by the kernel;
      * last_input times the screen-on idle. year_old: Year order, oldest first. resume:
      * Bluetooth's Resume on connect on. */
-    int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat, charge_held, cpu_off,
+    int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat, wake_down, charge_held, cpu_off,
         cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock, artist_az;
     void *pod_label[10];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
@@ -221,6 +221,7 @@ typedef struct {
     unsigned art_cf_timer;
     unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
     unsigned woke_at; /* the centre press that woke the screen, then its first lit loop pass */
+    unsigned wake_down_at; /* held Centre: wake_down is 1 passing, 2 dropped until WAKE_MS */
     void *np_origin;  /* the page Hold Return opened Now Playing over */
     void *dc_top;     /* the page of the last centre press no list click took, and its time */
     unsigned dc_at;
@@ -6444,8 +6445,9 @@ int ringnav_sleep(void *loop) {
  * another centre press within WAKE_MS of it, or of the first UI loop pass with the screen lit, is
  * dropped with its release (wake_eat): turning the screen on (on_wm_keyup_fun) and that pass's
  * paint stall the loop about that long, so a blind second press is dispatched only after. A blind
- * double press only wakes, without clicking the selected row or turning the screen off again; held,
- * its long press and release pass. Other keys pass: the wheel's volume and the media buttons work
+ * double press only wakes, without clicking the selected row or turning the screen off again.
+ * Repeated downs share their press's fate; after WAKE_MS a dropped hold passes to stock so its
+ * downstream long-press timer can still reach power-off. Other keys pass: the wheel and media work
  * dark. Returns 1 to drop the event. */
 static void woke(unsigned now) { /* a passing dark press: not Standby's resume key */
     *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
@@ -6457,17 +6459,35 @@ static int wake_gate(void *e) {
     if (type != EVT_KEY_DOWN && type != EVT_KEY_LONG && type != EVT_KEY_UP) return 0;
     unsigned key = (unsigned)I(e, EVENT_KEY);
     if (!g_backlight_status && key == KEY_RETURN) return 1;
-    if (type == EVT_KEY_LONG) { /* stock's long press clears its latches on the release: pass it */
-        if (key == KEY_CENTER) st.wake_eat = 0;
-        return 0;
-    }
+    if (type == EVT_KEY_LONG) return 0; /* stock generates this downstream of the input hook */
     if (key != KEY_CENTER) return 0;
+    /* Standby may lose a held key's release; an accepted dark press cleared this guard. */
+    if (type == EVT_KEY_DOWN && st.wake_down == 1 && !g_backlight_status &&
+        *(volatile unsigned char *)BOOT_KEY_GUARD)
+        st.wake_down = 0;
+    if (type == EVT_KEY_UP) st.wake_down = 0;
+    else {
+        if (st.wake_down) {
+            if (st.wake_down == 1) return 0;
+            if (now - st.wake_down_at < WAKE_MS) return 1;
+            st.wake_down = 1;
+            st.wake_eat = 0;
+            st.wake_pass = 1;
+            if (!g_backlight_status) woke(now);
+            return 0;
+        }
+        st.wake_down = 1;
+        st.wake_down_at = now;
+    }
     if (type == EVT_KEY_UP && st.wake_eat) {
         st.wake_eat = 0;
         return 1;
     }
     /* every press sets it, so one whose release never came (Standby while held) leaves none */
-    if (type == EVT_KEY_DOWN && (st.wake_eat = now - st.woke_at < WAKE_MS)) return 1;
+    if (type == EVT_KEY_DOWN && (st.wake_eat = now - st.woke_at < WAKE_MS)) {
+        st.wake_down = 2;
+        return 1;
+    }
     if (!st.wake_double || g_backlight_status) { /* wake_pass is read by power_poll */
         if (!g_backlight_status && type == EVT_KEY_DOWN) woke(now);
         return st.wake_pass = 0;
@@ -6480,6 +6500,7 @@ static int wake_gate(void *e) {
     st.wake_pass = now - st.wake_at < WAKE_MS;
     st.wake_at = st.wake_pass ? 0 : now;
     if (st.wake_pass) woke(now);
+    else st.wake_down = 2;
     return !st.wake_pass;
 }
 
