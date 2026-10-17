@@ -355,6 +355,16 @@ int book_convert(const char *src, const char *out, volatile int *cancel) {
             continue;      /* not in the manifest, or a picture (a cover) */
         unsigned at = dir; /* the OPF's folder, then the href, %XX decoded, up to any #fragment */
         for (const char *h = q, *end = q + len; h < end && *h != '#' && at < sizeof path - 1; ++h) {
+            if ((!at || path[at - 1] == '/') && end - h >= 2 && !memcmp(h, "./", 2)) {
+                ++h; /* a ./ segment */
+                continue;
+            }
+            if ((!at || path[at - 1] == '/') && end - h >= 3 && !memcmp(h, "../", 3)) {
+                if (at) --at; /* a ../ segment drops the folder before it */
+                while (at && path[at - 1] != '/') --at;
+                h += 2;
+                continue;
+            }
             unsigned hi = h + 2 < end ? digit(h[1]) : 16, lo = hi < 16 ? digit(h[2]) : 16;
             unsigned x = lo < 16 ? hi * 16 + lo : 256;
             path[at++] = *h == '%' && x < 256 ? (h += 2, (char)x) : *h;
@@ -803,7 +813,7 @@ static int play_video(void *ctx, void *event) {
     vid.volume = g_volume; /* the helper starts at output_device's level: nothing to send, no bar */
     vid.gain = headset_gain();
     unlink("/tmp/q2video.state");
-    vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
+    if (vid.pid) vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
     return 0;
 }
 

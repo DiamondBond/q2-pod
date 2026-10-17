@@ -3171,7 +3171,7 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
                     }
                     if (sat > disc) sat = disc;
                     if (icon && !disc) continue; /* already grey: keep the disc/glyph contrast */
-                    int ink = (255 - (MINIMAL_CHEVRON & 255)) * sat / disc;
+                    int ink = disc ? (255 - (MINIMAL_CHEVRON & 255)) * sat / disc : 0;
                     p[o[0]] = p[o[1]] = p[o[2]] =
                         (unsigned char)(!icon    ? MINIMAL_CHEVRON & 255
                                         : square ? (MINIMAL_CHEVRON & 255) + ink
@@ -4298,7 +4298,7 @@ void toast(const char *text) {
         int kind, ms;
         char text[0x400];
     } info = { 1, 2000, { 0 } };
-    for (unsigned i = 0; text[i]; ++i) info.text[i] = text[i];
+    for (unsigned i = 0; text[i] && i < sizeof info.text - 1; ++i) info.text[i] = text[i];
     navigator_to_with_context("dialog/msginfo_dialog", &info);
 }
 

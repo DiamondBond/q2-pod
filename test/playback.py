@@ -215,6 +215,14 @@ for folder,want in ((0,[1,0]),(1,[1])):
     assert m.sequence()==want
 m=PlaybackMachine(); m.install([('a','/a/1','A',0,0,0,0),('b','/b/1','B',0,0,0,0),('c','/c/1','C',0,0,0,0)],1)
 m.options(0,2,0); assert m.sequence()==[1,2]
+# Play Next of an album track the order sorts before the cursor plays next, then the album goes on;
+# a second Play Next before the first plays goes first and keeps the first.
+album=[(f't{k}',f'/a/0{k}','A',1,k,0,0) for k in range(1,7)]
+for copies,want in (((1,),[4,5,6]),((1,2),[4,5,6,7])):
+    m=PlaybackMachine(); m.install(album,4); m.options(0,2,0); q=m.get(syms['mcl_pdeqplaylist'])
+    for k in copies:
+        m.items(q).insert(5,m.copy('stSongInfo',m.items(q)[k])); m.fn('playback_insert',5,1,1)
+    seq=m.sequence(); assert seq==want and m.names()[5]=='t%d'%(copies[-1]+1), (copies,seq)
 m=PlaybackMachine(); m.options(1,2,0); q=m.get(syms['mcl_pdeqplaylist'])
 m.items(q).append(m.song('appended')); m.fn('playback_insert',7,1,0)
 assert set(m.sequence())==set(range(8))

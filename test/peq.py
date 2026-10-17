@@ -1536,6 +1536,9 @@ def books_check(tmp):
     want = '\n\n'.join(['Hello caf\u00e9'] * 50) + '\f\nSecond'
     for method in (zipfile.ZIP_DEFLATED, zipfile.ZIP_STORED):
         epub(tmp/'a.epub', files, method); assert run(tmp/'a.epub') == 1 and dst.read_text() == want
+    # ../ and ./ in an href resolve against the OPF's folder
+    epub(tmp/'r.epub', {**files, 'OEBPS/content.opf': opf.replace("'Text/one.xhtml'", "'../OEBPS/./Text/one.xhtml'")})
+    assert run(tmp/'r.epub') == 1 and dst.read_text() == want
     epub(tmp/'f.epub', {**files, 'META-INF/encryption.xml': '<CipherReference URI="OEBPS/Fonts/a.otf"/>'})
     assert run(tmp/'f.epub') == 1  # obfuscated fonts alone
     epub(tmp/'d.epub', {**files, 'META-INF/encryption.xml': '<CipherReference URI="OEBPS/Text/one.xhtml"/>'})
