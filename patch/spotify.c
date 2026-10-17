@@ -672,6 +672,9 @@ static void fetch(level_t *l) {
 
 static int clicked(void *ctx, void *event);
 
+/* A list's row after its items: More…, or Sign out. */
+static int more(const level_t *l) { return l->f[3][0] || !strcmp(l->op, "account"); }
+
 static void row(int i, const char *caption, const char *detail) {
     page_row_detail(br.view, i, caption, detail, clicked);
 }
@@ -715,9 +718,8 @@ static void show(void) {
         row(0, "Cancel", 0);
         row(1, "Sign Out", 0);
     } else {
-        int more = l->f[3][0] || !strcmp(l->op, "account"); /* More…, or Sign out */
         int download = !strcmp(l->op, "playlist");
-        if (!(n = l->n + more + download)) {
+        if (!(n = l->n + more(l) + download)) {
             page_list(br.page, br.page, 0, "Nothing here", 0, 48);
             return;
         }
@@ -730,7 +732,7 @@ static void show(void) {
                 row(i, strcmp(cell(l, i, 1), "shuffle") ? "Repeat" : "Shuffle",
                     !strcmp(v, "on") ? "On" : !strcmp(v, "context") ? "All" : !strcmp(v, "track") ? "One" : "Off");
         }
-        if (more) row(l->n, l->f[3][0] ? "More…" : "Sign Out", "");
+        if (more(l)) row(l->n, l->f[3][0] ? "More…" : "Sign Out", "");
         if (download) row(n - 1, "Download Playlist", "For offline listening");
     }
     if (n) ringnav_select(br.view, l->sel < n ? l->sel : n - 1, n);
@@ -917,7 +919,7 @@ static int go(const void *unused) {
             request("signout", "", A_SIGNOUT);
         else
             pop();
-    } else if (!strcmp(l->op, "playlist") && i == l->n + !!l->f[3][0])
+    } else if (!strcmp(l->op, "playlist") && i == l->n + more(l))
         request("download", l->args, A_DOWNLOAD);
     else if (i == l->n) { /* More…, or Sign out */
         char c[sizeof l->cursor] = "";

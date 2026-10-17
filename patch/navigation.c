@@ -12,8 +12,7 @@ extern int stock_timezone_trampoline(void);
 int ringnav_timezone(void) {
     static const char *const extra[] = EXTRA_TIMEZONE_NAMES;
     unsigned n = g_time_zone;
-    if (n < 27) return stock_timezone_trampoline();
-    return n - 27 < sizeof extra / sizeof *extra ? toolsSetTimeZone(extra[n - 27]) : stock_timezone_trampoline();
+    return n >= 27 && n - 27 < sizeof extra / sizeof *extra ? toolsSetTimeZone(extra[n - 27]) : stock_timezone_trampoline();
 }
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));

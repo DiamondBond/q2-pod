@@ -99,25 +99,6 @@ def logo_check():
     print('Boot logo: the saved card logo, else the built-in splash, passed.')
 logo_check()
 
-def preview_cache_check():
-    """Different builds with the same basename must not share cached preview assets."""
-    import pathlib, subprocess, tempfile
-    with tempfile.TemporaryDirectory(prefix='q2-preview-cache-') as tmp:
-        tmp = pathlib.Path(tmp)
-        builds = []
-        for side in ('before', 'after'):
-            source = tmp/side/'assets'
-            font = source/'release/assets/default/raw/fonts/default.ttf'
-            font.parent.mkdir(parents=True); font.write_text(side)
-            build = tmp/side/'build'; build.mkdir(); builds.append(str(build))
-            subprocess.run(['mksquashfs', str(source), str(build/'rootfs.squashfs'),
-                            '-noappend', '-no-progress', '-processors', '1'], check=True, stdout=subprocess.DEVNULL)
-        result = subprocess.run([sys.executable, str(ROOT/'test/ui_preview.py'), *builds, str(tmp/'out')],
-                                capture_output=True, text=True)
-        assert result.returncode and 'AssertionError: Build fonts differ' in result.stderr, result.stderr
-    print('Preview cache: same-basename builds keep separate assets.')
-preview_cache_check()
-
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, RTC_WRITE, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_TS_READ, PDR

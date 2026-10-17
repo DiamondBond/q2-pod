@@ -355,11 +355,12 @@ int book_convert(const char *src, const char *out, volatile int *cancel) {
             continue;      /* not in the manifest, or a picture (a cover) */
         unsigned at = dir; /* the OPF's folder, then the href, %XX decoded, up to any #fragment */
         for (const char *h = q, *end = q + len; h < end && *h != '#' && at < sizeof path - 1; ++h) {
-            if ((!at || path[at - 1] == '/') && end - h >= 2 && !memcmp(h, "./", 2)) {
+            int seg = !at || path[at - 1] == '/'; /* at a segment's start */
+            if (seg && end - h >= 2 && !memcmp(h, "./", 2)) {
                 ++h; /* a ./ segment */
                 continue;
             }
-            if ((!at || path[at - 1] == '/') && end - h >= 3 && !memcmp(h, "../", 3)) {
+            if (seg && end - h >= 3 && !memcmp(h, "../", 3)) {
                 if (at) --at; /* a ../ segment drops the folder before it */
                 while (at && path[at - 1] != '/') --at;
                 h += 2;
