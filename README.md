@@ -87,7 +87,7 @@ The user guide covers every control, EQ, Coverflow and more tips.
 
 Copy your music to the card over USB-C, then run **Library → Update Local Music** on the Q2.
 
-These folders at the card's root each add their own Library entry: `Podcasts/`, `Audiobooks/`, `Photos/`, `Books/`, `Videos/`, and `EQ/` for EQ presets. See the user guide for supported formats.
+These folders at the card's root each add their own Library entry: `Podcasts/`, `Audiobooks/`, `Photos/`, `Books/` and `Videos/`; `EQ/` holds EQ presets to import. See the user guide for supported formats.
 
 Settings, play counts, ratings and resume points are stored on the Q2 itself, so they stay put when you swap cards.
 

@@ -456,14 +456,15 @@ int main(int argc, char **argv) {
         }
         close(vp[1]);
         unsigned long thread = 0;
+        au.paused = held; /* before the writer starts, so a paused seek plays nothing */
         if (audio) {
             close(ap[1]);
             au.fd = ap[0];
             au.played = au.done = 0, au.video = 1;
-            if (pthread_create(&thread, 0, writer, 0)) thread = 0;
+            if (pthread_create(&thread, 0, writer, 0)) /* no reader: ffmpeg's sound write fails and it ends */
+                thread = 0, close(ap[0]), ap[0] = -1;
         }
-        int n = 0, seek = 0, ended = pid < 0, paced = audio;
-        au.paused = held;
+        int n = 0, seek = 0, ended = pid < 0, paced = audio && thread;
         unsigned have = 0, size = row * H;
         long long wall = 0, last = now_ms(), seek_at = 0;
         while (!ended && !quit) {

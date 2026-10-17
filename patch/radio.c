@@ -255,7 +255,12 @@ static void radio_halt(void) {
     send_key("q", 1);
     while (!(done = waitpid(rd.pid, &status, 1)) && time_now_ms() - start < RADIO_QUIT_MS)
         sleep_ms(20);
-    if (!done) system("killall -9 q2video"), waitpid(rd.pid, &status, 0);
+    if (!done) {
+        char kill[24]; /* this helper only: librespot's sink is a q2video too (demo imports no kill) */
+        tk_snprintf(kill, sizeof kill, "kill -9 %d", rd.pid);
+        system(kill);
+        waitpid(rd.pid, &status, 0);
+    }
     rd.pid = 0;
     unlink(RADIO_STATE);
     tk_snprintf(rd.state, sizeof rd.state, "stopped");
@@ -465,11 +470,8 @@ static int menu_click(void *ctx, void *event), pick_click(void *ctx, void *event
  * event, so it is taken here too. */
 static int searched(void *ctx, void *event) {
     (void)ctx; (void)event;
-    const unsigned *t = widget_get_text(ui.edit); /* wchar_t, narrowed as the EQ editor's value */
-    unsigned n = 0;
-    if (!t || !t[0]) return later(A_SHOW, 0), 0;
-    while (t[n] && n < sizeof ui.caption - 1) ui.caption[n] = (char)t[n], ++n;
-    ui.caption[n] = 0;
+    if (widget_get_text_utf8(ui.edit, ui.caption, sizeof ui.caption) || !ui.caption[0])
+        return ui.caption[0] = 0, later(A_SHOW, 0), 0;
     ui.favs = 0, ui.sel[STATIONS] = 0;
     if (ui.level != STATIONS) ui.from = ui.level;
     later(A_SEARCH, 0);

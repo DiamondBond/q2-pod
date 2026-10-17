@@ -4,7 +4,6 @@ Run: python3 test/playback.py BUILD_DIRECTORY
 """
 import pathlib
 from unicorn import UC_HOOK_MEM_READ, UC_HOOK_CODE
-from functools import cmp_to_key
 # Load only fixture definitions; the full UI suite remains independently runnable.
 source = pathlib.Path(__file__).with_name('patch.py').read_text()
 exec(compile(source[:source.index('checks=0')], 'test/patch.py', 'exec'))
@@ -63,16 +62,7 @@ class PlaybackMachine(QueueMachine):
         elif name=='strcmp':
             x,y=self.text(a),self.text(b); ret=(x>y)-(x<y)
             self.path_comparisons += x.startswith('/') and y.startswith('/')
-        elif name=='qsort':
-            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]
-            saved=[u.reg_read(r) for r in regs]; pair=self.alloc(2*c); sp=u.reg_read(UC_MIPS_REG_SP)
-            def compare(x,y):
-                u.mem_write(pair,x); u.mem_write(pair+c,y)
-                for r,v in ((UC_MIPS_REG_SP,sp-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,d),(REGS[0],pair),(REGS[1],pair+c)): u.reg_write(r,v)
-                u.emu_start(d,0x1000000,count=self.budget); return signed(u.reg_read(UC_MIPS_REG_V0))
-            values=sorted([bytes(u.mem_read(a+c*i,c)) for i in range(b)],key=cmp_to_key(compare))
-            for i,v in enumerate(values): u.mem_write(a+c*i,v)
-            for r,v in zip(regs,saved): u.reg_write(r,v)
+        elif name=='qsort': self.qsort(a,b,c,d)
         elif name=='fopen':
             path,mode=self.text(a),self.text(b)
             if mode=='wb': self.write_opens+=1
@@ -109,8 +99,7 @@ class PlaybackMachine(QueueMachine):
         elif name=='fallback':  # stock resume: stock_resume's (class, rows, index) into out, else none
             cls,rows,ret=self.stock_resume or (0,[],-1)
             self.deqs[a][1]=[self.copy('stSongInfo',e) for e in rows]; self.word(syms['g_memory_info'],cls)
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def fn(self,name,*args): return signed(self.call(address=ps[name],args=tuple(args)+(0,)*(4-len(args)),gap=0))
     def options(self,shuffle,repeat,folder):
         for kind,value in ((2,folder),(0,shuffle),(1,repeat)): assert self.fn('playback_set',kind,value)==1
@@ -726,8 +715,7 @@ class ChangeMachine(PlaybackMachine):
         if not name.startswith('x:'): return super().hook(u,address,size,unused)
         name=name[2:]; a=u.reg_read(REGS[0]); self.seen.append((name,a) if name=='mclSetPlayPos' else name)
         ret=1 if name in ('toolsCheckMount','toolsLoadNextDir','toolsLoadPrevDir','player_refresh_playqueue') else 0
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
 for nxt,pos,wrap,folder in ((1,6,0,'toolsLoadNextDir'),(0,0,6,'toolsLoadPrevDir')):
     for active in (0,1):
         for cls in (1,0xff10,0xf001):
@@ -840,7 +828,7 @@ m.u.mem_write(syms['g_playspeed_mode'],b'\x03')
 # A MIPS jal to the hook gives it player_initconfig's audited return address.
 pc=0x513394
 m.u.mem_write(pc,struct.pack('<II',jal(ps['ringnav_speed']),0))
-m.u.mem_write(pc+8,struct.pack('<II',0x08000000 | (0x1000000>>2),0))
+m.u.mem_write(pc+8,struct.pack('<II',j(0x1000000),0))
 before=dict(m.files)
 m.call(address=pc,args=(3,0,0,0),gap=0)
 assert m.sent_speed==2 and m.files==before

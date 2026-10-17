@@ -36,7 +36,7 @@ Both variants replace the stock equalizer page with a 30-band PEQ editor (bands,
 
 The updater refuses only a firmware whose version literal is identical to the installed one (`update_firmware`, `0x4f8440`; the online check `check_otginfo`, `0x4f8968`). So each build carries a 5-character tag, `VERSION` (`x.y.z`, single digits) packed as `V<xyz>S` (Legacy) or `V<xyz>I` (iPod). For example, 1.0.0 is `V100I`. The mod installs over stock and over any other build, and stock V1.32 installs back over it.
 
-About's **FW. Version** row reads the same literal, so it shows the stock firmware's version (`STOCK_VERSION`, from the stock `firmware_v20.info`). A **CFW. Version** row below it shows `<version> Pod`, or just `<version>` in Legacy. Release tags and ZIPs use the plain version (`Q2.Firmware.1.0.0.zip`); releases up to 1.0 were `V`-prefixed.
+About's **FW. Version** row reads the same literal, so it shows the stock firmware's version (`STOCK_VERSION`, from the stock `firmware_v20.info`). A **CFW. Version** row below it shows `<version> Pod`, or just `<version>` in Legacy, plus ` dev N` in `--dev` builds. Release tags and ZIPs use the plain version (`Q2.Firmware.1.0.0.zip`); releases up to 1.0 were `V`-prefixed.
 
 `--dev` numbers each test build from the untracked `.build-number` and tags it `V` plus that number in three base-36 digits, then the edition in lowercase (`V001i`, `V002i` … `VZZZi`; `s` for Legacy). No two test builds share a tag, and none equals a release's, so the updater installs each test build over the last and the release over any of them. `--dev` applies to that build only: the release procedure never passes it, and the manifest records the build number as `dev` (`false` otherwise).
 
@@ -59,6 +59,7 @@ python3 test/m4b.py /tmp/q2-build          # native TagLib M4B/MP4 metadata disp
 python3 test/id3.py /tmp/q2-build          # the built player's MP3 ReplayGain on ID3v2.3/2.4 tags
 python3 test/ldac.py /tmp/q2-build         # shipped LDAC intermediate rates and native adaptive controller
 python3 test/headset_io.py /tmp/q2-build   # real MIPS headset worker with simulated kernel I/O
+python3 test/bluealsa.py /tmp/q2-build     # the patched bluealsa's DROP paths against stock's, delayed encoder signal
 python3 test/alsa.py BUILD QEMU_MIPSEL     # ALSA startup lock regression (see internals.md)
 python3 test/ui_preview.py BEFORE AFTER OUT.png  # not a test: side-by-side iPod layout review sheet of two builds (or one build's two themes; --themes, ImageMagick)
 ```

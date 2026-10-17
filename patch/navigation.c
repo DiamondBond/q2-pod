@@ -2054,34 +2054,39 @@ static void flac_album_artist(const char *path, char *out) {
     const char *ext = strrchr(path, '.');
     if (!ext || strcasecmp(ext, ".flac")) return;
     void *f = fopen(path, "rb");
-    unsigned char h[4], *b = 0;
+    unsigned char h[13];
     if (!f) return;
     if (fread(h, 4, 1, f) == 1 && !memcmp(h, "fLaC", 4))
         while (fread(h, 4, 1, f) == 1) {
-            unsigned len = (unsigned)h[1] << 16 | h[2] << 8 | h[3];
+            unsigned left = (unsigned)h[1] << 16 | h[2] << 8 | h[3], c;
             if ((h[0] & 0x7f) != 4) {
-                if (h[0] & 0x80 || fseek(f, (long)len, 1)) break;
+                if (h[0] & 0x80 || fseek(f, (long)left, 1)) break;
                 continue;
             }
-            if (len < 8 || len > 0x10000 || !(b = calloc(len, 1)) || fread(b, len, 1, f) != 1)
+            /* vendor length and string, the comment count, then each comment's length and bytes,
+             * read a field at a time: a cover kept in the comments can make the block megabytes */
+            if (left < 8 || fread(h, 4, 1, f) != 1 || (c = le32(h)) > left - 8 || fseek(f, (long)c, 1) ||
+                fread(h, 4, 1, f) != 1)
                 break;
-            /* vendor length and string, the comment count, then each comment's length and bytes */
-            unsigned at = le32(b) <= len - 8 ? 8 + le32(b) : len, n = le32(b + at - 4);
-            while (n-- && at <= len - 4) {
-                unsigned c = le32(b + at);
-                at += 4;
-                if (c > len - at) break;
-                if (c > 13 && !strncasecmp((char *)b + at, "ALBUM ARTIST=", 13)) {
-                    c = c - 13 > 0xff ? 0xff : c - 13;
-                    memcpy(out, b + at + 13, c);
-                    out[c] = 0;
-                    break;
+            left -= 8 + c;
+            for (unsigned n = le32(h); n-- && left >= 4 && fread(h, 4, 1, f) == 1;) {
+                c = le32(h);
+                left -= 4;
+                if (c > left) break;
+                left -= c;
+                if (c > 13) {
+                    if (fread(h, 13, 1, f) != 1) break;
+                    if (!strncasecmp((char *)h, "ALBUM ARTIST=", 13)) {
+                        c = c - 13 > 0xff ? 0xff : c - 13;
+                        out[fread(out, c, 1, f) == 1 ? c : 0] = 0;
+                        break;
+                    }
+                    c -= 13;
                 }
-                at += c;
+                if (fseek(f, (long)c, 1)) break;
             }
             break;
         }
-    free(b);
     fclose(f);
 }
 /* toolsGetMusicInfo (the library scan and the player's tag reads): an empty album artist falls back

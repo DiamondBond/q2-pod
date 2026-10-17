@@ -337,6 +337,7 @@ def source_sha256():
         h.update(path.read_bytes())
     return h.hexdigest()
 
+def j(addr): return 0x08000000 | addr >> 2  # MIPS j
 def check(condition, message):
     if not condition: raise ValueError(message)
 def jpeg_size(b):
@@ -722,7 +723,7 @@ def compile_payload(out, ipod):
     return symbols(out/'patch.elf')
 
 def compile_helper(out, cat, src, name, rels):
-    """Link patch/src (and start.c) as name against the stock rootfs's libraries rels."""
+    """Link patch/{src}.c and start.c as name against the stock rootfs's libraries rels."""
     libs = []
     for rel in rels:
         libs.append(out/rel.rsplit('/', 1)[-1])
@@ -803,9 +804,9 @@ def patch_bluealsa(raw):
     payload = struct.pack(f'<{len(words)}I', *words)
     append_payload(image, payload, BT_DROP_PAYLOAD, len(payload), 'bluealsa')
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP),
-                     0x08000000 | BT_DROP_PAYLOAD >> 2, 0)
+                     j(BT_DROP_PAYLOAD), 0)
     # Never flush the new track's FIFO from this asynchronously handled signal.
-    struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), 0x08000000 | reset >> 2, 0)
+    struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
 def build(zip_path, out, logo, ipod=False, dev=False):
@@ -881,7 +882,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
     patched = bytearray(raw_demo)
-    def jump(off, name): patched[off:off+8] = struct.pack('<II', 0x08000000 | (ps[name] >> 2), 0)
+    def jump(off, name): patched[off:off+8] = struct.pack('<II', j(ps[name]), 0)
     for name, (address, replacement, _) in hooks(ipod).items():
         check(syms[name] == address, f'{name}: callback address mismatch')
         off = fileoff(patched, address)

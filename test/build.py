@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import io, sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
-from build import CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
+from build import j, CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
 from ipod import jal
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
@@ -103,7 +103,7 @@ logo_check()
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, RTC_WRITE, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_TS_READ, PDR
-    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
+    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
@@ -139,11 +139,11 @@ def validate_assets(directory):
     for address, name in [*(h[:2] for h in IPOD_HOOKS.values()), IPOD_LEAF[1:3]]:
         off = fileoff(stock, address)
         want = stock[off:off+8]
-        if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)
+        if ipod: want = j(symbols(directory/'patch.elf')[name]).to_bytes(4, 'little') + bytes(4)
         assert demo[off:off+8] == want
     # Both jump from window_manager_paint (Videos).
     off = fileoff(stock, WM_PAINT_LEAF[1])
-    assert demo[off:off+8] == (0x08000000 | symbols(directory/'patch.elf')[WM_PAINT_LEAF[2]] >> 2).to_bytes(4, 'little') + bytes(4)
+    assert demo[off:off+8] == j(symbols(directory/'patch.elf')[WM_PAINT_LEAF[2]]).to_bytes(4, 'little') + bytes(4)
     from build import AUDIO_EXTENSION_CALLS
     for entry, address in zip(manifest['audio_extension_calls'], AUDIO_EXTENSION_CALLS, strict=True):
         off = fileoff(stock, address)
@@ -486,8 +486,8 @@ def validate_assets(directory):
             # Full's last chevron leaves the same glass clearance as the label on the left.
             # Split's glyph ends 13px before the art, as in the Home concept.
             assert inc('HOME_SPLIT_W') == 375 // 2
-            assert CHEVRON_W - 30 - inc('HOME_CHEVRON_SHIFT') == 13
-            glyph_end = inc('HOME_CLASSIC_ROW') - CHEVRON_W + 30 + inc('HOME_FULL_CHEVRON_SHIFT')
+            assert inc('CHEVRON_W') - 30 - inc('HOME_CHEVRON_SHIFT') == 13
+            glyph_end = inc('HOME_CLASSIC_ROW') - inc('CHEVRON_W') + 30 + inc('HOME_FULL_CHEVRON_SHIFT')
             glyph_y = 30 + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
             assert 375 - glyph_end >= corner_x(glyph_y, 34 - 16)
             assert inc('HOME_CLASSIC_TEXT_X') >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)

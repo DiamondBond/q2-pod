@@ -23,6 +23,14 @@ with tempfile.TemporaryDirectory() as tmp:
     (pathlib.Path(tmp)/'docs/changelog.md').write_text(
         f'# Changelog\n\n- **{release.VERSION}**: One. iPod: two.\n- **V7.6R / V7.6I**: Old.\n')
     patch('release.ROOT', pathlib.Path(tmp)).start()
+    with patch('release.run', return_value=' M tools/build.py\n'):
+        try:
+            release.package(pathlib.Path('stock.zip'), out)
+        except ValueError as e:
+            assert 'Commit' in str(e)
+        else:
+            raise AssertionError('Packaged uncommitted build inputs')
+    assert not out.exists()
     # Fail the second variant, so the first one's build succeeds before the failure.
     def fail_stock(stock, directory, logo, ipod=False):
         if not ipod:
