@@ -4337,10 +4337,13 @@ static int all_songs(void *unused) {
     return getAllMusic(0);
 }
 
-/* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves. */
-static int songs_unsorted(void *unused) {
-    (void)unused;
-    return getAllMusic(3);
+/* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
+ * Non-zero music leaves audiobooks out, as the Library's Artists and Albums (MUSIC_WHERE). */
+static int songs_unsorted(void *music) {
+    library_music = music != 0;
+    int n = getAllMusic(3);
+    library_music = 0;
+    return n;
 }
 
 /* Collection Shuffle is Shuffle Songs over the collection. */
@@ -4360,7 +4363,7 @@ static int shuffle_songs(void *ctx, void *event) {
     (void)ctx;
     (void)event;
     int n;
-    void *all = staged(songs_unsorted, 0, &n);
+    void *all = staged(songs_unsorted, (void *)1, &n);
     if (!shuffle_play(all)) toast("Update Local Music first");
     deque_destroy(all);
     return 0;
@@ -4369,7 +4372,7 @@ static int shuffle_songs(void *ctx, void *event) {
 static int shuffle_groups(void *ctx, void *event) {
     (void)event;
     int n;
-    void *all = staged(songs_unsorted, 0, &n);
+    void *all = staged(songs_unsorted, (void *)1, &n);
     if (!playback_groups(all, (int)(long)ctx))
         toast(deque_size(all) ? "Too many songs to shuffle" : "Update Local Music first");
     deque_destroy(all);

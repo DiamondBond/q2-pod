@@ -6383,6 +6383,7 @@ class ShuffleMachine(CoverflowMachine):
         elif name=='fread': self.u.mem_write(a,self.counts); ret=1
         elif name=='getAllMusic':
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=len(self.found)
+            self.calls[-1]=(name,a,self.get(payload_syms['library_music']))  # scoped to music (MUSIC_WHERE)
         elif name=='toolsRandnum': ret=a-1  # stock: rand() % a
         elif name=='memcmp':
             n=u.reg_read(UC_MIPS_REG_A2); x,y=bytes(self.u.mem_read(a,n)),bytes(self.u.mem_read(b,n)); ret=(x>y)-(x<y)
@@ -6443,7 +6444,7 @@ def called(n): return [c[1:3] for c in m.calls if c[0]==n]
 f0,ctx0=m.handler(rows[0],O['EVT_CLICK']); m.handlers[payload_syms['playback_shuffle']]='stock_playback_shuffle'  # a payload call: no t9
 assert m.call(address=f0,args=(ctx0,m.event,0,0),gap=0)==0
 assert called('config_playmode')==[(2,1)] and called('stock_playback_shuffle') and len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][2] in (0,1) and m.plays[0][3:]==(0xf001,2)
-assert [c[1] for c in m.calls if c[0]=='getAllMusic']==[3]
+assert called('getAllMusic')==[(3,1)] and m.get(payload_syms['library_music'])==0
 assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts and m.top==page; passed()
 m.found=[]; m.plays=[]; m.calls=[]
 assert m.call(address=f0,args=(ctx0,m.event,0,0),gap=0)==0
@@ -6455,7 +6456,7 @@ for i in (1,2):
     m.plays=[]; m.calls=[]
     f2,ctx2=m.handler(rows[i],O['EVT_CLICK']); assert f2==f0 and ctx2==i
     assert m.call(address=f2,args=(ctx2,m.event,0,0),gap=0)==0 and m.top==page
-    assert [c[1] for c in m.calls if c[0]=='getAllMusic']==[3]
+    assert called('getAllMusic')==[(3,1)] and m.get(payload_syms['library_music'])==0
     assert m.plays and m.plays[-1][0]=='playing_page' and signed(m.plays[-1][3])==0xf001 and not m.toasts; passed()
 # Return leaves the menu; a later press opens a fresh one. (key()'s advance clears calls, so the
 # navigator_back check drives the page's own handler.)
