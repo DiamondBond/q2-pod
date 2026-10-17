@@ -229,19 +229,20 @@ static void load_draft(peq_preset *p, const char *name, int length) {
     snprintf(ui.status, sizeof(ui.status), "Preset loaded; choose Apply to activate");
 }
 
-/* A 48px row's T9 edit, the stock playlist dialogs' look, for input_type; shared with radio.c's Search. */
-void *edit_create(void *item, const char *input_type) {
-    void *edit = widget_factory_create_widget(widget_factory(), "edit", item, 12, 4, 351, 40);
+/* Search fits above T9's screen y=60 (page y=30), so opening the keyboard won't shift the page. */
+void *edit_create(void *item, const char *input_type, int y, int h) {
+    void *edit = widget_factory_create_widget(widget_factory(), "edit", item, 12, y, 351, h);
     static const char *const props[][2] = {{"keyboard", "kb_default_t9"}, {"input_type", 0}, {"action_text", "done"},
-        {"bg_color", "#2B2B2B"}, {"border_color", "#2B2B2B00"}, {"text_color", "#FFFFFF"}, {"round_radius", "20"},
+        {"bg_color", "#2B2B2B"}, {"border_color", "#2B2B2B00"}, {"text_color", "#FFFFFF"}, {"round_radius", 0},
         {"margin_left", "12"}, {"font_size", "22"}};
     static const char *const states[] = {"normal", "focused", "empty", "empty_focus", "changed", "error", "over", "empty_over"};
-    char name[48];
+    char name[48], radius[12];
+    snprintf(radius, sizeof(radius), "%d", h / 2);
     for (unsigned i = 0; i < sizeof(props) / sizeof(props[0]); ++i) {
         if (i < 3) { widget_set_prop_str(edit, props[i][0], i == 1 ? input_type : props[i][1]); continue; }
         for (unsigned j = 0; j < sizeof(states) / sizeof(states[0]); ++j) {
             snprintf(name, sizeof(name), "style:%s:%s", states[j], props[i][0]);
-            widget_set_prop_str(edit, name, props[i][1]);
+            widget_set_prop_str(edit, name, props[i][1] ? props[i][1] : radius);
         }
     }
     return edit;
@@ -456,7 +457,7 @@ static int render(const void *unused) {
         void *item = list_item_create(view, 0, 0, 375, 48);
         widget_use_style(item, "s_listitem_black");
         widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
-        ui.edit = edit_create(item, "ufloat");
+        ui.edit = edit_create(item, "ufloat", 4, 40);
         peq_band *b = &ui.draft.bands[ui.band];
         snprintf(text, sizeof(text), ui.adjust == QUALITY ? "%.2f" : "%.0f", ui.adjust == QUALITY ? b->q : b->frequency);
         widget_set_text_utf8(ui.edit, text);

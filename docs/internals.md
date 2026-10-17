@@ -391,6 +391,8 @@ Manual skips also call ALSA DROP. Stock acknowledges it after sending signal 6, 
 
 ## Clock
 
+The timezone picker keeps stock's saved indices and appends the missing offsets, including Asia/Colombo (+05:30), Asia/Kathmandu (+05:45), Australia/Eucla (+08:45) and Pacific/Chatham (+12:45). `tools/build.py` compacts the existing label table into 32-byte slots and extends the row counts and boot validation; `ringnav_timezone` delegates existing indices to stock and applies the additions through `toolsSetTimeZone`, using the rootfs's IANA timezone data.
+
 Stock loses the time zone across a power-off. Setting the time, by hand or from the network (`toolsSetRtcTime`, `0x5bc760`), runs `date -s` and then `hwclock -w`. BusyBox 1.31.1's `hwclock` writes local time unless `/var/lib/hwclock/adjtime` says `UTC`, and the rootfs has no such file, so the RTC gets the wall time of the `TZ` the player exported (`toolsSetTimeZone`). At boot the kernel (`hctosys`) reads the RTC as UTC and the player adds the time zone again, so the clock comes back off by the zone's UTC offset until the next network sync. The build changes the literal at `0x777928`, `hwclock -w` and two NULs, to `hwclock -wu`, so the RTC holds UTC as the kernel expects. An RTC last written by stock still holds local time, so the time has to be set once after updating.
 
 ## Lock screen

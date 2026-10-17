@@ -3321,6 +3321,24 @@ for patched,want in ((True,(0x15,0x16,0x18)),(False,(0x16,0x16,0x18))):
         assert bt.call(address=syms['switchBtPriority'],args=(row,0,0,0),gap=0)==1
         assert [c[1] for c in bt.calls if c[0]=='btctl_set_ldac_quality']==[quality], (patched,row)
     passed()
+# A boot reconnect can arrive at radio power-up, before stock's late callback registration.
+from build import BT_POWER
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_POWER[0]))[0]==jal(payload_syms['headset_bt_power'])
+class BtPowerMachine(Machine):
+    def hook(self,u,addr,size,_):
+        if self.handlers.get(addr)=='toolsGpioSetValue':
+            self.calls.append(('toolsGpioSetValue',*[u.reg_read(r) for r in REGS]))
+            self.returns(-7,clobber=True)
+            return
+        super().hook(u,addr,size,_)
+bt_power=BtPowerMachine(); gpio=bt_power.string('bt_power')
+assert bt_power.call(address=payload_syms['headset_bt_power'],args=(gpio,1,0,0),gap=0)==-7
+assert [c[:3] for c in bt_power.calls]==[
+    ('btctl_set_prompt_callback',0x4ef600,0),
+    ('btctl_device_status_callback',0x4f1a50,0),
+    ('btctl_set_a2dp_callback',syms['btrecvA2dpFunc'],0x01020304),
+    ('toolsGpioSetValue',gpio,1)]
+passed()
 # Bluetooth volume runs through the shared hook in both variants. Mock only headset I/O
 # and stock gain; device_set_volume itself executes its native output routing.
 class BtVolumeMachine(Machine):
@@ -4118,6 +4136,8 @@ if variant=='ipod':
         m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(bar,m.canvas,0,0),gap=0)
     paint_live_bar()
     idle=named(m,bar,'label_idle'); state=named(m,bar,'img_state'); eq=named(m,bar,'label_eq')
+    assert m.get(eq+O['W_W'])==28
+    assert all(m.nodes[eq]['asset'][f'style:{s}:font_size']=='16' for s in ('normal','disable','focused'))
     clock_box=tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))
     # bar_sync shows the play state (here local's, mclGetPlayStatus: 2 playing, 3 paused) itself.
     m.handlers.pop(syms['mclGetPlayStatus'],None)
@@ -5888,7 +5908,7 @@ if variant=='ipod':
     texts={c[0]:m.text(c[1]) for c in m.calls if c[0] in ('fopen','system')}
     assert texts=={'fopen':'/tmp/q2pod-rockbox',
                    'system':'killall checkappprocess.sh; killall -9 hciplayer; kill -9 $(cat /tmp/q2-librespot); '
-                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot /tmp/q2-librespot.state /tmp/q2-librespot.out; sync; kill -9 $PPID'}
+                             'killall -9 librespot aplay; rm -f /tmp/q2-librespot /tmp/q2-librespot.state /tmp/q2-librespot.out /tmp/q2-librespot.download; sync; kill -9 $PPID'}
     assert [n for n in names if n in ('fclose','save_memoryplay_info','player_stop','system')]==['fclose','save_memoryplay_info','player_stop','system']; passed()
     m,names=rockbox(False)
     assert not {'fopen','player_stop','system'} & set(names)
@@ -7269,6 +7289,23 @@ class SpotMachine(BooksMachine):
         return [c[0] for c in self.calls]
     def key(self,k):
         self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
+
+# Added timezone indices apply their IANA name; existing saved indices keep stock's mapping.
+from build import EXTRA_TIMEZONES
+class TimezoneMachine(Machine):
+    def __init__(self):
+        super().__init__()
+        self.mock('strcpy@GLIBC_2.0')
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)!='strcpy@GLIBC_2.0': return super().hook(u,address,size,unused)
+        a,b=[u.reg_read(r) for r in REGS[:2]]
+        self.u.mem_write(a,self.text(b).encode()+b'\0'); self.returns(a,clobber=True)
+zones=TimezoneMachine()
+for index, name in [(22,'Asia/Shanghai'), *[(27+i,name) for i,(_,name) in enumerate(EXTRA_TIMEZONES)]]:
+    zones.byte(syms['g_time_zone'],index)
+    zones.call(address=HOOKS['select_timezone'][0],args=(0,0,0,0),gap=0)
+    assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[name]
+passed()
 def stream_page(m):
     """Stock Streaming's one Tidal row, then the hook's Spotify, Tidal Downloads, Internet Radio and AirPlay
     rows; returns Spotify's button."""
@@ -7342,6 +7379,8 @@ m.way=0; m.poll(); assert OUT not in m.files; passed()
 m.state('playing',position=10000,at=m.now+500,cover=1); m.files[STATE+'.jpg']=bytearray(b'cover'); m.poll(); m.advance(0)
 assert m.nodes[info]['visible'] and not m.nodes[msg]['visible']
 assert m.thumbs==[(STATE+'.jpg','/tmp/q2spot.jpg',166,166)] and 'file:///tmp/q2spot.jpg' in [m.text(c[2]) for c in m.calls if c[0]=='widget_load_image']
+art=next(w for w in m.nodes if under(w,info) and m.nodes[w]['type']=='image')
+assert ('widget_invalidate_force',art) in [c[:2] for c in m.calls]
 assert texts(info)==['Spotify','Song','A, B','LP',mmss('0:10'),mmss('-3:10')]
 for value in ('Song','A, B','LP'):
     w=next(w for w in m.nodes if under(w,info) and m.nodes[w].get('text')==value)
@@ -7350,6 +7389,12 @@ for text, rgb in [('Song', 0xffffff), ('A, B', O['NP_ARTIST_RGB'] if variant=='i
     label=next(w for w in m.nodes if under(w,info) and m.nodes[w].get('text')==text)
     assert m.nodes[label]['style:normal:text_color']==signed(color_t(rgb))
 m.advance(2500); assert texts(info)[4:]==[mmss('0:12'),mmss('-3:08')] and len(m.thumbs)==1
+# Every replacement at the same file URL repaints the entire image, even if the URL is unchanged.
+for track in ('t2','t3'):
+    m.state('playing',position=12500,at=m.now+500,cover=1,track=track); m.poll()
+    m.call(address=payload_syms['spot_refresh'],args=(0,0,0,0),gap=0)
+    assert ('widget_invalidate_force',art) in [c[:2] for c in m.calls]
+assert len(m.thumbs)==3
 for w in [x for x in m.nodes if m.nodes[x]['type'] in ('hscroll_label','image','view') and under(x,info) and x!=info]:
     x,y,bw,bh=cf_geometry(m,w); inset=max(corner_inset(30+y),corner_inset(30+y+bh))  # the window starts at y 30
     assert inset<=x and x+bw<=375-inset,(m.nodes[w].get('text'),x,y,bw,bh)
@@ -7485,6 +7530,7 @@ m.close(); m.files[RDIR+'/favourites.m3u']=bytearray(b'#EXTM3U\n'); radio_open(m
 def search(text,event='EVT_VALUE_CHANGED'):
     assert m.call(address=payload_syms['radio_search'],gap=0,count=5_000_000)==0
     edit=m.find('edit'); assert m.nodes[edit]['focused']==1
+    assert m.get(edit+O['W_Y'])+m.get(edit+O['W_H'])<=30 and not m.find('scroll_view')  # above the keyboard, alone
     m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O[event])
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 search('jazz fm'); assert m.labels()==['Loading…'] and not m.find('edit')
@@ -7687,11 +7733,14 @@ def track(uri,title,ctx='',pos=''): return ('track',uri,title,'An Artist',ctx,po
 # signed in, the menu: Now Playing, Queue and Playback settings only with a track.
 m=BrowseMachine(); m.open(); assert m.labels()==['Loading…'] and m.systems==['/bin/sh /mnt/mmc/.spotify/run']
 m.answer(*ME); assert m.wire==[b'Q2SPOT/1\n1\taccount\n']
-MENU=['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account','Downloaded Tracks']
+MENU=['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account','Downloaded Tracks','Downloads']
 assert m.labels()==MENU
 m.state('playing'); m.poll(); m.advance(250)
-assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account','Downloaded Tracks']
+assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account','Downloaded Tracks','Downloads']
 m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.state('none',track=''); m.poll(); m.advance(250); assert m.labels()==MENU; passed()
+m.row(7); assert m.asked()==('downloadstatus',)
+m.answer('ok','Downloaded 2 of 5 tracks','',[])
+assert m.labels()==MENU and m.toasts[-1][3]=='Downloaded 2 of 5 tracks'; passed()
 # Downloaded tracks stay reachable while the service cannot answer catalogue requests, and a row
 # uses the cache-only play operation.
 m.row(6); assert m.asked()==('downloaded',)
@@ -7722,7 +7771,12 @@ m.answer('ok','','next%09page',[('playlist','spotify:playlist:a','Mix A','alice'
 assert m.labels()==['Playlists','Mix A','alice','Mix B','bob','More…','']
 m.pick(1); assert m.asked()==('playlist','spotify:playlist:b%25')
 m.answer(*OK,[track('spotify:track:1','One','spotify:playlist:b%25','0'),track('spotify:track:1','One','spotify:playlist:b%25','1'),track('spotify:track:3','Three')])
-assert m.labels()==['Mix B','One','An Artist','One','An Artist','Three','An Artist']
+assert m.labels()==['Mix B','One','An Artist','One','An Artist','Three','An Artist','Download Playlist','For offline listening']
+m.pick(3); assert m.asked()==('download','spotify:playlist:b%25')
+m.answer('ok','Playlist download started','',[])
+assert m.toasts[-1][3]=='Playlist download started' and m.top==m.page
+m.pick(3); m.answer('offline','Connect to Wi-Fi to download playlists','',[])
+assert m.toasts[-1][3]=='Connect to Wi-Fi to download playlists' and m.labels()[0]=='Mix B'
 m.pick(1); assert m.asked()==('play','spotify:playlist:b%25','1','spotify:track:1')
 m.answer('unavailable','This track is unavailable','',[]); assert m.toasts[-1][3]=='This track is unavailable' and m.top==m.page
 m.pick(2); assert m.asked()==('play','spotify:track:3'); n=len(m.toasts); m.answer(*OK,[])
@@ -7763,6 +7817,7 @@ m.row(0); m.answer(*ME); assert m.labels()==MENU; passed()
 # the term's categories, each searched by its name and the term, escaped.
 def search(text,event='EVT_VALUE_CHANGED'):
     m.row(4); edit=m.find('edit'); assert m.nodes[edit]['focused']==1 and m.nodes[edit]['tips']=='Search Spotify'
+    assert m.get(edit+O['W_Y'])+m.get(edit+O['W_H'])<=30 and not m.find('scroll_view')  # above the keyboard, alone
     m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O[event])
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 asked=len(m.threads)
@@ -7808,6 +7863,16 @@ m.state('playing'); m.poll(); m.state('paused'); m.poll(60000); assert len(m.sys
 m.destroy(m.page); m.poll(29500); assert len(m.systems)==1; m.poll(500); assert 'killall -9 librespot aplay' in m.systems[-1]
 m.serve=None; m.open(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.worker(); assert m.labels()==['Loading…']
 m.advance(500); m.answer(*ME); assert m.labels()==MENU; passed()
+
+# Downloads outlive the browser without taking the audio output or stopping local playback.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.state('playing'); m.poll()
+m.state('paused'); m.poll(); m.destroy(m.page)
+m.files['/tmp/q2-librespot.download']=bytearray(b'downloading=1\n')
+m.play=2; names=m.poll(60000)
+assert len(m.systems)==1 and 'reset_poweroptions_timer' in names and 'player_stop' not in names
+assert not m.call(address=payload_syms['spot_status'],gap=0)
+m.files['/tmp/q2-librespot.download']=bytearray(b'downloading=0\n')
+m.poll(500); m.poll(30000); assert 'killall -9 librespot aplay' in m.systems[-1]; passed()
 
 # Back reveals the saved More row, and paint keeps it selected.
 m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)

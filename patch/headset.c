@@ -5,6 +5,13 @@
 
 extern int stock_pause_trampoline(void);
 extern int ringnav_bt_resume(void);
+/* Stock registers these after starting bluetoothd; a fast boot reconnect loses its events. */
+int headset_bt_power(const char *gpio, int value) {
+    btctl_set_prompt_callback((void *)0x4ef600, 0);
+    btctl_device_status_callback((void *)0x4f1a50, 0);
+    btctl_set_a2dp_callback((void *)btrecvA2dpFunc, (void *)0x01020304);
+    return toolsGpioSetValue(gpio, value);
+}
 static struct {
     volatile unsigned generation, running, head, tail, report;
     volatile int keys[16];

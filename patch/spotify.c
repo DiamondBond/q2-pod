@@ -268,6 +268,8 @@ void spot_poll(void) {
         memcpy(sp.raw, raw, sizeof raw);
         spot_parse();
     }
+    state_read(SPOT_DOWNLOAD, raw, sizeof raw);
+    int downloading = number(raw, "downloading") == 1;
     int playing = !strcmp(sp.state, "playing");
     if (playing && !sp.playing) {
         sp.playing = 1;
@@ -275,14 +277,15 @@ void spot_poll(void) {
     }
     sp.playing = playing;
     sp.paused = !strcmp(sp.state, "paused");
-    if (playing) {
+    if (playing || downloading)
         reset_poweroptions_timer(1, 1, 0); /* standby, auto power-off; not the screen's */
+    if (playing) {
         if (I(g_dacoff_time, 0) > 0) I(g_dacoff_time, 0) = 0;
         sp.local = 0;
     } else if (mclGetPlayStatus() == 2)
         sp.local = 1; /* local music plays: the keys are its again */
     sp.active = (playing || sp.paused) && !sp.local;
-    if (playing || !sp.played || browsing())
+    if (playing || downloading || !sp.played || browsing())
         sp.played |= playing, sp.idle_at = now;
     else if (now - sp.idle_at >= SPOT_IDLE_MS)
         spot_stop();
@@ -538,8 +541,8 @@ static void spot_np(void) {
  * base: "account" asked first, then the menu, the pairing prompt or an old add-on's rows. */
 enum { L_BASE, L_LIST, L_CATS, L_CONFIRM };
 enum { S_LOAD, S_READY, S_ERROR, S_PAIR, S_OLD, S_WAIT }; /* S_WAIT: no socket yet, asked again */
-enum { A_FETCH, A_PLAY, A_ENQUEUE, A_SET, A_SIGNOUT };
-enum { M_PLAYING, M_LIKED, M_PLAYLISTS, M_ALBUMS, M_ARTISTS, M_SEARCH, M_QUEUE, M_SETTINGS, M_ACCOUNT, M_DOWNLOADED };
+enum { A_FETCH, A_PLAY, A_ENQUEUE, A_SET, A_SIGNOUT, A_DOWNLOAD };
+enum { M_PLAYING, M_LIKED, M_PLAYLISTS, M_ALBUMS, M_ARTISTS, M_SEARCH, M_QUEUE, M_SETTINGS, M_ACCOUNT, M_DOWNLOADED, M_DOWNLOADS };
 enum { G_ROW, G_SHOW, G_SEARCH };
 
 typedef struct {
@@ -547,7 +550,7 @@ typedef struct {
     unsigned id; /* the fetch whose reply this level takes */
     char *buf;   /* the reply; 0 before it came, or once evicted */
     char *f[4 + 6 * SPOT_ROWS];
-    char title[256], note[128], op[12], args[320], cursor[1100]; /* args, cursor: "\t" and escaped */
+    char title[256], note[128], op[16], args[320], cursor[1100]; /* args, cursor: "\t" and escaped */
 } level_t;
 
 /* The request in flight, on its pthread: written from buf, the reply then read into it. */
@@ -564,7 +567,7 @@ enum { W_OK, W_NOSOCK, W_FAIL };
 static struct {
     void *page, *view, *edit;
     unsigned timer, go, leave, poll_at, until; /* until: no socket before it is librespot starting */
-    int depth, act, next, arg, playing, rows[10];
+    int depth, act, next, arg, playing, rows[11];
     char term[64];
     level_t *lv; /* SPOT_DEPTH of them, calloc'd */
 } br __attribute__((section(".scratch")));
@@ -575,7 +578,7 @@ static level_t *top(void) { return &br.lv[br.depth - 1]; }
 static const char *cell(const level_t *l, int i, int k) { return l->f[4 + 6 * i + k]; }
 static int has_track(void) { return sp.track[0] && strcmp(sp.state, "none"); }
 static const char *const MENU[] = { "Now Playing", "Liked Songs", "Playlists", "Albums", "Artists",
-                                    "Search", "Queue", "Playback Settings", "Account", "Downloaded Tracks" };
+                                    "Search", "Queue", "Playback Settings", "Account", "Downloaded Tracks", "Downloads" };
 static const char *const CATS[] = { "Tracks", "Albums", "Artists", "Playlists" };
 
 /* "\t" and s escaped appended to out (size bytes); 0 when it doesn't fit. */
@@ -696,11 +699,11 @@ static void show(void) {
         row(1, "Update Spotify on the card", "to browse on the Q2");
     } else if (l->kind == L_BASE) {
         br.playing = has_track();
-        for (int r = M_PLAYING; r <= M_DOWNLOADED; ++r)
+        for (int r = M_PLAYING; r <= M_DOWNLOADS; ++r)
             if ((r != M_PLAYING && r != M_QUEUE && r != M_SETTINGS) || br.playing) br.rows[n++] = r;
         br.view = page_list(br.page, br.page, 0, "Spotify", n, 48);
         for (int i = 0; i < n; ++i) /* Now Playing and Search open no list */
-            if (br.rows[i] == M_PLAYING || br.rows[i] == M_SEARCH)
+            if (br.rows[i] == M_PLAYING || br.rows[i] == M_SEARCH || br.rows[i] == M_DOWNLOADS)
                 row(i, MENU[br.rows[i]], 0);
             else
                 page_row_into(br.view, i, MENU[br.rows[i]], clicked);
@@ -713,7 +716,8 @@ static void show(void) {
         row(1, "Sign Out", 0);
     } else {
         int more = l->f[3][0] || !strcmp(l->op, "account"); /* More…, or Sign out */
-        if (!(n = l->n + more)) {
+        int download = !strcmp(l->op, "playlist");
+        if (!(n = l->n + more + download)) {
             page_list(br.page, br.page, 0, "Nothing here", 0, 48);
             return;
         }
@@ -727,6 +731,7 @@ static void show(void) {
                     !strcmp(v, "on") ? "On" : !strcmp(v, "context") ? "All" : !strcmp(v, "track") ? "One" : "Off");
         }
         if (more) row(l->n, l->f[3][0] ? "More…" : "Sign Out", "");
+        if (download) row(n - 1, "Download Playlist", "For offline listening");
     }
     if (n) ringnav_select(br.view, l->sel < n ? l->sel : n - 1, n);
 }
@@ -818,8 +823,8 @@ static void got(void) {
             sp.load_at = time_now_ms();
             spot_np();
         }
-        else if (!ok || act == A_ENQUEUE)
-            toast(ok ? "Added to Queue" : msg);
+        else if (!ok || act == A_ENQUEUE || act == A_DOWNLOAD)
+            toast(ok && act == A_ENQUEUE ? "Added to Queue" : msg);
     } else if (l->id != wk.id) {
     } else if (wk.fail == W_NOSOCK && (int)(br.until - time_now_ms()) > 0) {
         if (l->state != S_PAIR) l->state = S_WAIT, show(); /* librespot starting */
@@ -891,11 +896,14 @@ static int go(const void *unused) {
         int r = br.rows[i];
         if (r == M_PLAYING)
             spot_np();
+        else if (r == M_DOWNLOADS)
+            request("downloadstatus", "", A_DOWNLOAD);
         else if (r != M_SEARCH)
             push(L_LIST, ops[r], "", "", MENU[r]);
         else { /* peq_ui.c's T9 edit over the title, its keyboard open */
             l->sel = widget_get_prop_int(br.view, "_ringnav_index", 0);
-            br.edit = edit_create(br.page, "text");
+            widget_destroy_children(br.page), br.view = 0; /* the box alone: the keyboard leaves no room for the rows */
+            br.edit = edit_create(br.page, "text", 2, 26);
             widget_set_prop_str(br.edit, "tips", "Search Spotify");
             widget_on(br.edit, EVT_VALUE_CHANGED, searched, 0);
             widget_on(br.edit, EVT_IM_ACTION, searched, 0);
@@ -909,7 +917,9 @@ static int go(const void *unused) {
             request("signout", "", A_SIGNOUT);
         else
             pop();
-    } else if (i == l->n) { /* More…, or Sign out */
+    } else if (!strcmp(l->op, "playlist") && i == l->n + !!l->f[3][0])
+        request("download", l->args, A_DOWNLOAD);
+    else if (i == l->n) { /* More…, or Sign out */
         char c[sizeof l->cursor] = "";
         if (!l->f[3][0])
             push(L_CONFIRM, "", "", "", "");

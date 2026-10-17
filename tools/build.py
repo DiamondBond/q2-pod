@@ -32,6 +32,7 @@ HOOKS = {
     'on_wm_keylong_fun': (0x4e873c, 'ringnav_keylong', 'keylong'),
     'playset_equalizer_page_init': (0x4b642c, 'peq_page_init', None),
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq', 'eq'),
+    'select_timezone': (0x4f93b0, 'ringnav_timezone', 'timezone'),
     'home_page_init': (0x523c84, 'coverflow_home', 'home'),
     'localmusic_page_init': (0x524424, 'ringnav_localmusic', 'localmusic'),
     # Library lists: an Unknown row with no songs is dropped
@@ -201,6 +202,8 @@ STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
 # checkBluetoothStatus' jalr player_save_start once a headset's A2DP comes up (a0 0: the queue restarts
 # unpaused, whatever it was doing). It becomes jal ringnav_bt_connect_start (docs/internals.md#resume-on-connect).
 BT_CONNECT_START = (0x4f358c, 0x0320f809)
+# openBluetooth's first GPIO write: install callbacks before powering the radio.
+BT_POWER = (0x4efcbc, 0x0320f809)
 # player_parsecover_thd's jalr toolsGetExternCover (lw $t9 at 0x51300c; Now Playing's folder art, after its
 # embedded art failed) becomes jal coverflow_player_cover, which gives ffmpeg what stock's decoder refuses.
 PLAYER_COVER = (0x51301c, 0x0320f809)
@@ -404,7 +407,41 @@ def fileoff(b, a):
         if t == 1 and v <= a < v+f: return o+a-v
     raise ValueError(f'Unmapped address {a:x}')
 
+EXTRA_TIMEZONES = (
+    ('GMT-09:30 Marquesas', 'Pacific/Marquesas'),
+    ('GMT-02:00 South Georgia', 'Atlantic/South_Georgia'),
+    ('GMT+05:30 Asia/Colombo', 'Asia/Colombo'),
+    ('GMT+05:45 Asia/Kathmandu', 'Asia/Kathmandu'),
+    ('GMT+06:30 Asia/Yangon', 'Asia/Yangon'),
+    ('GMT+08:45 Australia/Eucla', 'Australia/Eucla'),
+    ('GMT+10:30 Lord Howe', 'Australia/Lord_Howe'),
+    ('GMT+11:00 Noumea', 'Pacific/Noumea'),
+    ('GMT+12:45 Chatham', 'Pacific/Chatham'),
+    ('GMT+13:00 Tongatapu', 'Pacific/Tongatapu'),
+    ('GMT+14:00 Kiritimati', 'Pacific/Kiritimati'),
+)
+
+def patch_timezones(demo):
+    # Keep the stock indices so saved zones survive; fit the extra rows in the existing table.
+    start = fileoff(demo, 0x76b5d0)
+    original = demo[start:start+28*64]
+    labels = [original[i:i+64].split(b'\0')[0] for i in range(0, len(original), 64)]
+    check(labels[0] == b'timedate_auto' and labels[-1] == b'timezone_gmt+12', 'Unexpected timezone labels')
+    labels += [label.encode() for label, _ in EXTRA_TIMEZONES]
+    check(len(labels)*32 <= len(original) and all(len(label) < 32 for label in labels), 'Timezone labels exceed stock table')
+    demo[start:start+len(original)] = b''.join(label.ljust(32, b'\0') for label in labels).ljust(len(original), b'\0')
+    for address, old, new in (
+        (0x4bce34, 0x00102980, 0x00102940),  # label stride: 64 -> 32
+        (0x4bd090, 0x2402001c, 0x24020000 | len(labels)),
+        (0x4bd4d0, 0x2402001c, 0x24020000 | (len(labels)-1)),
+        (0x4fa5dc, 0x2c43001b, 0x2c430000 | (len(labels)-1)),  # boot accepts saved additions
+    ):
+        off = fileoff(demo, address)
+        check(struct.unpack_from('<I', demo, off)[0] == old, f'Unexpected timezone code at {address:x}')
+        struct.pack_into('<I', demo, off, new)
+
 FUNCTIONS = {
+ 'toolsSetTimeZone': ('int', 'const char *'),
  'widget_on': ('unsigned', 'void *, unsigned, int (*)(void *, void *), void *'),
  'widget_set_visible': ('int', 'void *, int, int'),
  'widget_set_opacity': ('int', 'void *, unsigned'),
@@ -606,6 +643,11 @@ FUNCTIONS = {
  'player_play_pause': ('int', 'void'),
  'player_next_music': ('int', 'void'), 'player_prev_music': ('int', 'void'),
  'getBtLinkSize': ('int', 'void'), 'getBtLinkItem': ('int', 'int, int *, char *'),
+ 'toolsGpioSetValue': ('int', 'const char *, int'),
+ 'btctl_set_prompt_callback': ('void', 'void *, void *'),
+ 'btctl_device_status_callback': ('void', 'void *, void *'),
+ 'btctl_set_a2dp_callback': ('void', 'void *, void *'),
+ 'btrecvA2dpFunc': ('int', 'int, void *, void *'),
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
  'player_stop': ('int', 'void'),
  'player_save_start': ('int', 'int'),  # pause: mclStartPlayer at the saved seek, then paused if set
@@ -650,7 +692,7 @@ PRIVATE_FUNCTIONS = {
     "saver_cover": HOOKS['saver_cover'][0],  # the lock window's img_playcover from the playing track
     "np_info": 0x52a508,  # Now Playing's info page labels, from the track (NP_INFO_CALL)
 }
-GLOBALS = ['g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
+GLOBALS = ['g_time_zone', 'g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_keylock_flag', 'g_keylock_mode',
            'g_bluetoothflag', 'bt_linkstatus', 'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
@@ -718,7 +760,7 @@ def compile_payload(out, ipod):
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=ringnav_ts_read',
-        '--undefined=coverflow_player_cover',
+        '--undefined=coverflow_player_cover', '--undefined=headset_bt_power',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -863,6 +905,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     syms = symbols(demo, symbol_table)
     syms.update(PRIVATE_FUNCTIONS)
     header = [f'#define RING_STEP {RING_STEP}']
+    header.append('#define EXTRA_TIMEZONE_NAMES {' + ','.join(json.dumps(zone) for _, zone in EXTRA_TIMEZONES) + '}')
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: byte global size mismatch')
@@ -883,6 +926,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
     patched = bytearray(raw_demo)
+    patch_timezones(patched)
     def jump(off, name): patched[off:off+8] = struct.pack('<II', j(ps[name]), 0)
     for name, (address, replacement, _) in hooks(ipod).items():
         check(syms[name] == address, f'{name}: callback address mismatch')
@@ -932,6 +976,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')
     patch_word(patched, *BT_CONNECT_START, jal(ps['ringnav_bt_connect_start']),
                'Bluetooth: Resume on connect')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, BT_POWER[0] - 12))[0] == 0x8f99ad10,
+          'Bluetooth power: expected toolsGpioSetValue import')
+    patch_word(patched, *BT_POWER, jal(ps['headset_bt_power']), 'Bluetooth callbacks before radio power')
     patch_word(patched, *SCAN_REFRESH, jal(ps['ringnav_scan_refresh']), 'folder scan refreshes existing tags')
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')

@@ -1065,6 +1065,7 @@ int image_show(void *img, const char *url, unsigned *size) {
     if (size) size[0] = bitmap[0], size[1] = bitmap[1];
     image_base_set_image(img, url);
     widget_unload_image(img, bitmap);
+    widget_invalidate_force(img, 0); /* A reused file URL still contains new pixels. */
     return 1;
 }
 

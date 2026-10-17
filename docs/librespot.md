@@ -26,11 +26,13 @@ The port lives in [DiamondBond/q2-librespot](https://github.com/DiamondBond/q2-l
 
 The fork adds three options for this: `--status-file`, the player's state, track, position and cover for the page, `--control-socket`, the commands from the keys, and `--browse-socket`, the browser's requests (below). How they fit together is in [internals.md](internals.md#spotify).
 
+In a playlist, **Download Playlist** saves its tracks in the background without interrupting playback. **Downloads** on Spotify's menu shows progress; **Downloaded Tracks** plays completed tracks offline. These actions require q2-librespot v1.6 or later and the matching updated Q2 Pod firmware. Downloads use the selected cache limit, so a playlist larger than the cache may evict its earlier tracks. Keep the cache folder when updating. A saved login also opens the offline menu when the cache is empty.
+
 ## Browsing protocol (Q2SPOT/1)
 
 The fork's `--browse-socket /tmp/q2-librespot.browse.sock` serves Q2 Pod's Spotify browser. Older backends lack it; Q2 Pod then keeps the Connect Now Playing page and asks for the add-on to be updated.
 
-The browser integration uses q2-librespot `shanlingq2` (`q2-v1.5`, Q2SPOT/1). Card updates replace `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`; preserve `.spotify/cache` to keep the paired login and complete downloads, and `.spotify/.cache-size` to keep the chosen cache size. Signing out deletes that account's saved audio, keys and artwork.
+The browser integration uses q2-librespot `shanlingq2` (`q2-v1.6`, Q2SPOT/1). Card updates replace `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`; preserve `.spotify/cache` to keep the paired login and complete downloads, and `.spotify/.cache-size` to keep the chosen cache size. Signing out deletes that account's saved audio, keys and artwork.
 
 **Transport.** A Unix stream socket. One request per connection: the client writes the request and shuts down its write side; the backend answers and closes. Requests are at most 8 KiB, responses at most 64 KiB. The client gives up after 15 s.
 
@@ -46,7 +48,7 @@ Request, after the version line, one line:
     <kind>	<uri>	<title>	<subtitle>	<context>	<position>
     …
 
-The header is followed by 0 to 50 rows. `message` is empty on `ok`, and otherwise one line of English for the screen (at most 120 bytes). `cursor`, when not empty, fetches the next page when passed as the op's last argument; it is at most 1 KiB. A page may hold fewer than 50 rows to stay within 64 KiB; its cursor then continues after the last row sent. `title` and `subtitle` are display text, at most 255 bytes each, cut on a character boundary; URIs and cursors are never cut.
+The header is followed by 0 to 50 rows. `message` is one line of English for the screen (at most 120 bytes), usually empty on `ok`; capabilities and downloads use it for version or progress. `cursor`, when not empty, fetches the next page when passed as the op's last argument; it is at most 1 KiB. A page may hold fewer than 50 rows to stay within 64 KiB; its cursor then continues after the last row sent. `title` and `subtitle` are display text, at most 255 bytes each, cut on a character boundary; URIs and cursors are never cut.
 
 Row fields:
 
@@ -81,6 +83,10 @@ Ops (`[cursor]` is optional):
 | `signout`      |                            | none: playback stops, the saved login is removed, and the backend waits for pairing   |
 | `downloaded`   | `[cursor]`                 | complete cached `track` rows, most recently played first; works without Wi-Fi         |
 | `playdownload` | `uri`                      | none: starts that cached track without requesting its stream URL                      |
+| `download`     | `uri`                      | none: starts one background playlist download; message reports acceptance or failure |
+| `downloadstatus` |                          | none: message reports progress or the completed job's result                          |
+
+Playlist downloads publish `/tmp/q2-librespot.download` atomically, with `downloading=1` while active and `0` when finished. Q2 Pod keeps the service and power timers alive during the job, without claiming the audio output. Stop Streaming Services or signing out stops the job.
 
 Example, Liked Songs' first page:
 

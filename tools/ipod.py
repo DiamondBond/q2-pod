@@ -316,6 +316,10 @@ def status_bar(root):
     widgets = {n[2]['name']: n for n in left[3] + right[3]}
     check(sorted([*widgets, 'view_battery']) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')
     widgets['img_wifi'][1][2] = 14
+    eq = widgets['label_eq']
+    eq[1][2] = 28
+    for s in ('normal', 'disable', 'focused'):
+        eq[2][f'style:{s}:font_size'] = '16'
     pct = widgets['label_battery']
     pct[1][2] = BATT_PCT_W
     for s in ('normal', 'disable', 'focused'):

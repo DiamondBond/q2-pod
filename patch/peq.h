@@ -85,9 +85,10 @@ typedef struct { int ms, skip, held; } xfade_flag;
 /* librespot (spotify.c) and its restart loop, whose pid its launcher left, stopped: Spotify's idle
  * stop and Home's Rockbox row, which lets ALSA go too. A q2video sink ends with librespot's pipe. */
 #define SPOT_OUT "/tmp/q2-librespot.out" /* the output for the card's aplay.sh, none on the DAC */
+#define SPOT_DOWNLOAD "/tmp/q2-librespot.download" /* backend download progress, independent of playback */
 #define SPOT_KILL                                                                                  \
     "kill -9 $(cat /tmp/q2-librespot); killall -9 librespot aplay; "                               \
-    "rm -f /tmp/q2-librespot /tmp/q2-librespot.state " SPOT_OUT
+    "rm -f /tmp/q2-librespot /tmp/q2-librespot.state " SPOT_OUT " " SPOT_DOWNLOAD
 double decibels(double power); /* 10 log10 */
 
 /* Audited against hciplayer 9c3f8c6d… and MPlayer 1.3.0 libaf/af.h: the filter peq_player.c opens. */
@@ -162,7 +163,7 @@ int spot_status(void), radio_status(void), video_status(void);
 unsigned spot_session(void), radio_session(void), video_session(void);
 void spot_set_playing(int playing), radio_set_playing(int playing), video_set_playing(int playing);
 int video_start(const char *file, int radio); /* books.c */
-void *edit_create(void *item, const char *input_type); /* peq_ui.c */
+void *edit_create(void *item, const char *input_type, int y, int h); /* peq_ui.c */
 const char *output_device(char *vol);         /* books.c */
 void dac_take(void);                          /* books.c */
 #if IPOD
