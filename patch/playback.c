@@ -116,6 +116,10 @@ static int dark_held(int *delta) {
 }
 
 static void wheel_post(char *info, int key) {
+    /* Read unlocked: off by one at worst, and the headroom covers it. */
+    unsigned short *q = *(unsigned short **)(*(char **)(info + WHEEL_INFO_LOOP) + LOOP_QUEUE);
+    int used = q[2] ? q[3] : (q[1] - q[0] + q[3]) % q[3];
+    if (q[3] - used < WHEEL_QUEUE_FREE + 2) return;
     for (int type = 0x110; type <= 0x114; type += 4) { /* key down, then up */
         *(int *)(info + WHEEL_INFO_KEY) = key;
         *(int *)(info + WHEEL_INFO_EVENT) = type;

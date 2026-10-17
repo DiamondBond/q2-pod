@@ -355,6 +355,13 @@ static inline int arc_out(int r, int y) {
 #define WHEEL_POST 0x6257f0
 #define WHEEL_INFO_EVENT 0x20 /* event type: 0x110 key down, 0x114 key up */
 #define WHEEL_INFO_KEY 0x38   /* the event's key (EVENT_KEY) */
+/* The poster's target is the info's main loop, whose input queue (stock event_queue_t: u16 r, w,
+ * full, capacity) holds 20 events and drops its oldest when full. A tick is two events, so a fast
+ * turn while the UI is busy evicted a touch's release and left the pointer pressed, which stops the
+ * wheel until the next tap. wheel_post drops ticks that would leave under WHEEL_QUEUE_FREE slots. */
+#define WHEEL_INFO_LOOP 0x10
+#define LOOP_QUEUE 0x38
+#define WHEEL_QUEUE_FREE 8
 /* With the screen off (the wheel is the volume), WHEEL_DARK_GUARD units of one touch's travel one
  * way (100, half a turn, whatever the sensitivity) tick nothing; the wheel then ticks until it has
  * been still WHEEL_DARK_IDLE_MS, which also restarts an unfinished guard. Calibration knobs. */

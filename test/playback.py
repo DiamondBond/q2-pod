@@ -570,10 +570,13 @@ assert m.fn('playback_set',0,1)==0 and m.fn('playback_successor',1)==-1; checks+
 
 # The wheel's ticks (wheel_sample): one per WHEEL_TICK_UNITS of travel, the rest carried; a reversal
 # starts again; the 200 -> 1 seam wraps; stock is handed the touch-down x, so its own logic sees a
-# still finger. Ticks go to stock's poster as key down, then up.
-def wheel(samples,m=None):
+# still finger. Ticks go to stock's poster as key down, then up, while the main loop's 20-event
+# queue (u16 r, w, full, capacity) keeps WHEEL_QUEUE_FREE slots for a touch's release.
+def wheel(samples,m=None,used=0):
     m=m or PlaybackMachine(); m.handlers[O['WHEEL_POST']]='wheel_post'
-    info,s=m.alloc(0x60),m.alloc(20); posted=[]; seen=[]
+    info,s,loop,q=m.alloc(0x60),m.alloc(20),m.alloc(0x60),m.alloc(8); posted=[]; seen=[]
+    m.word(info+O['WHEEL_INFO_LOOP'],loop); m.word(loop+O['LOOP_QUEUE'],q)
+    m.u.mem_write(q,struct.pack('<4H',15,(15+used)%20,used==20,20))
     m.u.hook_add(UC_HOOK_CODE,lambda u,a,n,_: posted.append((m.get(info+O['WHEEL_INFO_EVENT']),
                  m.get(info+O['WHEEL_INFO_KEY']))),begin=O['WHEEL_POST'],end=O['WHEEL_POST'])
     for sample in samples:
@@ -588,6 +591,8 @@ assert wheel([(195,1),((195+U)%200,1)])[0]==[P] and wheel([((195+U)%200,1),(195,
 assert wheel([(10,1),(10+2*U,1)])[0]==[P,P]                          # one sample, two ticks
 assert wheel([(10,1),(9+U,1)])[0]==[] and wheel([(10,1),(10+U,1)])[0]==[P]  # one tick is U of travel
 assert wheel([(50,1),(52+U,1),(52+U,0),(52+U,1),(51+2*U,1)])[0]==[P]  # a lift drops the carry
+F=O['WHEEL_QUEUE_FREE']  # a busy UI: a tick that would leave fewer free slots is dropped, not queued
+assert [len(wheel([(10,1),(10+U,1)],used=n)[0]) for n in (20-F-2,20-F-1,20)]==[1,0,0]
 checks+=1
 # Wheel sensitivity (Q2POD WHEELSENSITIVITY, 50-200% in tens, 1.0.6's key and scale): the travel
 # per tick is 50/pct of U, in sixteenths of a unit, so 50% is exactly U (28), the wheel before the
