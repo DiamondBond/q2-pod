@@ -17,6 +17,18 @@ EQ_DESC, EQ_OPEN_SLOT = 0x893df8, 0x893e0c
 # Stock skips the equalizer above 48 kHz (address, stock word, patched word); see docs/internals.md.
 EQ_RATE_GATES = ((0x42ced0, 0x10400098, 0),            # beqz $v0 to "setequalizer off" -> nop
                  (0x42fd84, 0x1440003b, 0x1000003b))   # bnez $v0 to the insert -> b
+# The MQA side chain (docs/internals.md#mqa-detection): fill_audio_out_buffers runs every probed stream
+# through the MQA decoder while isMQA (0xb10c54) > 0 but plays its output only when isMQA == 2, so the gate
+# becomes isMQA == 2 (address, stock word, patched word).
+MQA_GATE = ((0x42f8b0, 0x34620040, 0x3c0200b1),   # ori $v0, $v1, 0x40    -> lui $v0, 0xb1
+            (0x42f8b4, 0x005d1021, 0x8c420c54),   # addu $v0, $v0, $sp    -> lw $v0, 0xc54($v0)
+            (0x42f8b8, 0x8c420000, 0x2442fffe),   # lw $v0, 0($v0)        -> addiu $v0, $v0, -2
+            (0x42f8bc, 0x8c420c54, 0),            # lw $v0, 0xc54($v0)    -> nop
+            (0x42f8c0, 0x1840000a, 0x1440000a))   # blez $v0, 0x42f8ec    -> bnez $v0, 0x42f8ec
+# So MQA is found by the start-of-track probe alone, which reads 0x60000 bytes instead of 0xc00 (0x20000 on
+# output way 2).
+MQA_PROBE = ((0x42eaf4, 0x3c020002, 0x3c020006),  # lui $v0, 0x2           -> lui $v0, 0x6
+             (0x42eafc, 0x00e3100b, 0))           # movn $v0, $a3, $v1     -> nop
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
@@ -152,6 +164,8 @@ def patch_player(raw, out):
     patch_word(data, VBR_SCAN, 0x144008a8, 0, 'VBR scan')  # bnez $v0, 0x491de0 -> nop
     for address, stock, patched in EQ_RATE_GATES:
         patch_word(data, address, stock, patched, 'Equalizer rate gate')
+    for address, stock, patched in (*MQA_GATE, *MQA_PROBE):
+        patch_word(data, address, stock, patched, 'MQA side chain')
     patch_word(data, SEEK_SLOT, STOCK_SEEK, ps['mp3_seek'], 'Audio demuxer seek slot')
     for address in ID3_CALLS:
         patch_word(data, address, jal(STOCK_ID3), jal(ps['id3_gain']), 'MP3 ReplayGain')
