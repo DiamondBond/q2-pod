@@ -3431,6 +3431,16 @@ for light,want in ((1,[]),(0,[O['SCREEN_OFF_SLEEP_MS']])):
         s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)
         assert [c[1] for c in s.calls if c[0]=='widget_invalidate_force']==([s.wm] if wake else [])
     passed()
+# Screen off, the window manager does not paint: stock blanks the framebuffer but paints on. A window
+# animation still paints.
+for light,animating in ((1,0),(0,0),(0,1)):
+    s=Machine(); s.handlers[sleep_hook+12]='stock_sleep'
+    vt=s.alloc(16); s.word(s.wm+0x94,vt); s.word(vt+0xc,0x400100); s.handlers[0x400100]='wm_vt_paint'
+    s.byte(syms['g_backlight_status'],light); s.animating=animating
+    s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)  # the pass that sees the screen go off
+    s.calls=[]; s.call(address=WM_PAINT_LEAF[1],args=(s.wm,0,0,0),gap=0,clear=False)
+    assert ('wm_vt_paint' in [c[0] for c in s.calls])==bool(light or animating), (light,animating)
+passed()
 for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)
