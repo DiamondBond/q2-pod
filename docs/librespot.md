@@ -61,30 +61,30 @@ Statuses: `ok`; `login` (no saved login: pair from the phone); `offline` (Spotif
 
 Ops (`[cursor]` is optional):
 
-| Op             | Arguments                  | Rows                                                                                  |
-| -------------- | -------------------------- | ------------------------------------------------------------------------------------- |
-| `caps`         |                            | `op` rows, one per supported op; `message` is the backend's version, e.g. `q2-v1.3`   |
-| `account`      |                            | one `account` row: the user's URI, display name, `Premium`; or status `login`         |
-| `playlists`    | `[cursor]`                 | the user's `playlist` rows                                                            |
-| `playlist`     | `uri [cursor]`             | its `track` rows                                                                      |
-| `liked`        | `[cursor]`                 | Liked Songs' `track` rows                                                             |
-| `albums`       | `[cursor]`                 | saved `album` rows                                                                    |
-| `artists`      | `[cursor]`                 | followed `artist` rows                                                                |
-| `album`        | `uri [cursor]`             | its `track` rows                                                                      |
-| `artist`       | `uri`                      | its top `track` rows, then its `album` rows                                           |
-| `search`       | `category term [cursor]`   | `category` is `tracks`, `albums`, `artists` or `playlists`                            |
-| `play`         | `context [position [uri]]` | none: Q2 becomes the active device and plays                                          |
-| `queue`        |                            | the next `track` rows, `position` its index in this list                              |
-| `skip`         | `position uri`             | none: plays that queue row; `unavailable` if the queue changed                        |
-| `enqueue`      | `uri`                      | none: the track is added to the queue                                                 |
-| `settings`     |                            | `setting` rows `shuffle` (`on`/`off`) and `repeat` (`off`/`context`/`track`) as title |
-| `shuffle`      | `on\|off`                  | none                                                                                  |
-| `repeat`       | `off\|context\|track`      | none                                                                                  |
-| `signout`      |                            | none: playback stops, the saved login is removed, and the backend waits for pairing   |
-| `downloaded`   | `[cursor]`                 | complete cached `track` rows, most recently played first; works without Wi-Fi         |
-| `playdownload` | `uri`                      | none: starts that cached track without requesting its stream URL                      |
-| `download`     | `uri`                      | none: starts one background playlist download; message reports acceptance or failure |
-| `downloadstatus` |                          | none: message reports progress or the completed job's result                          |
+| Op               | Arguments                  | Rows                                                                                  |
+| ---------------- | -------------------------- | ------------------------------------------------------------------------------------- |
+| `caps`           |                            | `op` rows, one per supported op; `message` is the backend's version, e.g. `q2-v1.3`   |
+| `account`        |                            | one `account` row: the user's URI, display name, `Premium`; or status `login`         |
+| `playlists`      | `[cursor]`                 | the user's `playlist` rows                                                            |
+| `playlist`       | `uri [cursor]`             | its `track` rows                                                                      |
+| `liked`          | `[cursor]`                 | Liked Songs' `track` rows                                                             |
+| `albums`         | `[cursor]`                 | saved `album` rows                                                                    |
+| `artists`        | `[cursor]`                 | followed `artist` rows                                                                |
+| `album`          | `uri [cursor]`             | its `track` rows                                                                      |
+| `artist`         | `uri`                      | its top `track` rows, then its `album` rows                                           |
+| `search`         | `category term [cursor]`   | `category` is `tracks`, `albums`, `artists` or `playlists`                            |
+| `play`           | `context [position [uri]]` | none: Q2 becomes the active device and plays                                          |
+| `queue`          |                            | the next `track` rows, `position` its index in this list                              |
+| `skip`           | `position uri`             | none: plays that queue row; `unavailable` if the queue changed                        |
+| `enqueue`        | `uri`                      | none: the track is added to the queue                                                 |
+| `settings`       |                            | `setting` rows `shuffle` (`on`/`off`) and `repeat` (`off`/`context`/`track`) as title |
+| `shuffle`        | `on\|off`                  | none                                                                                  |
+| `repeat`         | `off\|context\|track`      | none                                                                                  |
+| `signout`        |                            | none: playback stops, the saved login is removed, and the backend waits for pairing   |
+| `downloaded`     | `[cursor]`                 | complete cached `track` rows, most recently played first; works without Wi-Fi         |
+| `playdownload`   | `uri`                      | none: starts that cached track without requesting its stream URL                      |
+| `download`       | `uri`                      | none: starts one background playlist download; message reports acceptance or failure  |
+| `downloadstatus` |                            | none: message reports progress or the completed job's result                          |
 
 Playlist downloads publish `/tmp/q2-librespot.download` atomically, with `downloading=1` while active and `0` when finished. Q2 Pod keeps the service and power timers alive during the job, without claiming the audio output. Stop Streaming Services or signing out stops the job.
 
