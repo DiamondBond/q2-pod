@@ -39,6 +39,9 @@ static playback s __attribute__((section(".scratch")));
  * so stock's Next draws a random one instead: ringnav_shuffle returns to it (playback_back).
  * back_to is that index + 1, back_at where Previous landed. */
 static int back_to __attribute__((section(".scratch"))), back_at __attribute__((section(".scratch")));
+/* Shuffle Songs is one-shot: the stock mode it replaced + 1, which the next other queue restores.
+ * ponytail: RAM only, so a reboot mid-shuffle keeps Shuffle; a queue-file header field fixes it. */
+static int unshuffle __attribute__((section(".scratch")));
 /* The wheel's ticks. Stock's encoder thread looks at the wheel once per 80 ms (200 ms after
  * touching) and ticks at most once a look, dropping any travel past its threshold: on the device
  * a tick took 27 units of travel against a threshold of 12, a fast half turn gave a single tick,
@@ -452,9 +455,17 @@ int playback_groups(void *all, int folder) {
     playback_save();
     return 1;
 }
+/* The mode Shuffle Songs replaces: the one it already would restore, else the current one. Taken
+ * before its own mode change and load, so neither forgets nor restores it. */
+int playback_unshuffle(void) {
+    int mode = unshuffle ? unshuffle - 1 : M(MCL_MODE);
+    unshuffle = 0;
+    return mode;
+}
 /* Shuffle Songs: stock's shuffle draws each next at random, so it has no order for Up Next. Take
  * the loaded queue over as advanced Shuffle Songs, Repeat All, as stock's never ends. */
-int playback_shuffle(void) {
+int playback_shuffle(int mode) {
+    unshuffle = mode == 2 ? 0 : mode + 1;
     s.shuffle = 1;
     s.repeat = 5;
     s.folder = 0;
@@ -542,6 +553,8 @@ static void commit(unsigned next) {
 int ringnav_load(void *q, int at, int type) {
     if (s.restoring == 2) type = M(MCL_TYPE);
     close_preload();
+    /* After Shuffle Songs, before stock loads; ringnav_mode's playback_clear ends its shuffle. */
+    if (unshuffle && !s.restoring) config_playmode(playback_unshuffle(), 1);
     int result = stock_load_trampoline(q, at, type);
     back_to = 0;
     if (s.restoring == 2)
@@ -582,6 +595,7 @@ int ringnav_mode(int mode) {
      * resume too: not a choice, so advanced play stays. */
     if (s.restoring || __builtin_return_address(0) == (void *)INITCONFIG_MODE_RET)
         return stock_mode_trampoline(mode);
+    unshuffle = 0; /* a mode choice outlasts Shuffle Songs */
     /* Stock Shuffle (2) on Shuffle Albums/Folders keeps the groups; any other mode ends them. */
     if (!(s.active && s.shuffle >= 3 && mode == 2)) playback_clear();
     return stock_mode_trampoline(mode);

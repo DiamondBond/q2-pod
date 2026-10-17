@@ -4347,10 +4347,11 @@ static int songs_unsorted(void *unused) {
 static int shuffle_play(void *all) {
     int size = (int)deque_size(all);
     if (size) {
+        int mode = playback_unshuffle();
         playback_clear(); /* stock Shuffle keeps Shuffle Albums/Folders otherwise */
         config_playmode(2, 1);
         play_folder(all, (int)rand_below((unsigned)size), 0xf001);
-        playback_shuffle(); /* an order Up Next can list; stock's shuffle stays the fallback */
+        playback_shuffle(mode); /* an order Up Next can list; stock's shuffle stays the fallback */
     }
     return size;
 }
@@ -6564,8 +6565,7 @@ int ringnav_input(void *wm, void *e) {
  * screen is off, unless a window animates (AWTK steps it from the paint); the first lit pass
  * repaints the whole screen (ringnav_sleep; docs/internals.md Battery). */
 int ringnav_wm_paint(void *wm) {
-    if (wm && !g_backlight_status && !window_manager_is_animating(wm))
-        return 0; /* RET_OK */
+    if (wm && !g_backlight_status && !window_manager_is_animating(wm)) return 0; /* RET_OK */
     void *vt = wm && !video_on() ? P(wm, 0x94) : (void *)0;
     int (*paint)(void *) = vt ? (int (*)(void *))P(vt, 0xc) : (int (*)(void *))0;
     return paint ? paint(wm) : video_on() ? 0 : 0x10; /* RET_BAD_PARAMS, as stock */
