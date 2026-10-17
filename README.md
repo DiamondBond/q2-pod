@@ -33,7 +33,7 @@
 - **Scrobbling:** send your listens to Last.fm or ListenBrainz over Wi-Fi.
 - **Ratings:** rate songs and albums 0–5 hearts, then browse Top Rated, Loved and rated albums.
 - **Browsing and playback:** favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder.
-- **Podcasts and audiobooks:** `.m4b` audiobooks (including ones split by a CUE sheet) and podcasts resume where you stopped, with per-folder playback speed.
+- **Podcasts and audiobooks:** `.m4b` audiobooks (including ones split by a CUE sheet) and podcasts resume where you stopped, with per-folder playback speed, and audiobooks stay out of Library shuffle.
 - **AirPods:** stem controls, ear detection and two-way volume sync.
 - **Battery:** an optional 80% charge limit and Low Power mode.
 
