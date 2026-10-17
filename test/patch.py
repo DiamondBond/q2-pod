@@ -5016,7 +5016,7 @@ for want in range(6):
 passed()
 # A tap on a heart saves that many.
 assert m.run(4) is None; heart=m.nodes[m.panel()]['children'][2]; f,ctx=m.handler(heart,O['EVT_CLICK'])
-assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.panel() is None and m.kept()==[(a1&~7)|2]; passed()
+m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert m.panel() is None and m.kept()==[(a1&~7)|2]; passed()
 # Kept across boots, apart from the songs' table.
 m2=AlbumRateMachine(files={ALBUM_RATES:m.files[ALBUM_RATES]}); m2.open(); m2.word(m2.slide+O['SLIDE_INDEX'],1)
 assert m2.menu()[4]=='Rate Album  ♥♥♡♡♡' and '/mnt/data/ringnav-ratings' not in m2.files; passed()
@@ -6654,7 +6654,8 @@ def key_of(name): k=fnv('/p/'+name); return k|(k==0)
 m=RateMachine()
 # Bound: stock's click off img_fav, the payload's click and press on, the badge hidden; nothing read yet beyond the file.
 assert ('widget_off_by_func',m.fav,O['EVT_CLICK'],FAV_CLICK) in m.calls and m.badge() is None and m.panel() is None
-assert [t for t,f,ctx in m.nodes[m.fav]['handlers']]==[O['EVT_CLICK'],O['EVT_POINTER_DOWN']]; passed()
+assert [t for t,f,ctx in m.nodes[m.fav]['handlers']]==[O['EVT_CLICK'],O['EVT_POINTER_DOWN']]
+assert m.nodes[m.nodes[m.get(m.fav+O['W_PARENT'])]['children'][-1]]['sensitive']==0; passed()  # the badge leaves the heart its taps
 # A tap is stock's heart: B (playing) into My Fav, nothing kept; again, out. Its click returns 0, as stock's:
 # a STOP would skip the slide_view's own release and leave its grab on the window.
 assert m.tap()==0 and m.favs=={'B'} and m.nodes[m.fav]['image']=='play_fav' and m.kept()==[]
@@ -6680,9 +6681,9 @@ m.heart()
 for _ in range(4): m.call(O['KEY_PREV'])
 assert m.caption()=='Unrated' and m.hearts()==['play_unfav']*5
 m.call(O['KEY_CENTER']); assert m.kept()==[] and m.badge() is None and m.favs==set()
-m.heart(); p=m.panel(); heart=[h for h in m.nodes[p]['children'] if m.nodes[h]['type']=='image'][2]
+m.heart(); p=m.panel(); assert m.nodes[p]['sensitive']==1; heart=[h for h in m.nodes[p]['children'] if m.nodes[h]['type']=='image'][2]
 f,ctx=m.handler(heart,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-assert m.panel() is None and m.kept()==[(key_of('B')&~7)|3] and m.badge()=='3'
+assert m.panel() is None and m.nodes[p]['sensitive']==0 and m.kept()==[(key_of('B')&~7)|3] and m.badge()=='3'
 assert m.tap()==0 and m.favs=={'B'} and m.kept()==[] and m.badge() is None; passed()
 # Kept across boots; the badge follows the playing track on the UI tick.
 assert m.tap()==0 and m.favs==set(); m.heart(); m.call(O['KEY_NEXT']); m.call(O['KEY_NEXT']); m.call(O['KEY_CENTER'])

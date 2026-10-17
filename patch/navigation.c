@@ -4821,7 +4821,9 @@ static void rate_close(int save) {
     void *win = st.rate_on;
     if (!win) return;
     st.rate_on = (void *)0;
-    widget_set_visible(rate_panel(win), 0, 0);
+    void *panel = rate_panel(win);
+    widget_set_visible(panel, 0, 0);
+    widget_set_sensitive(panel, 0); /* stock's hit test skips only the insensitive, hidden or not */
     int n = st.rate_pick;
     char hs[16], done[40];
     if (save && st.rate_album) { /* the menu's album, still on its page */
@@ -4842,12 +4844,11 @@ static void rate_close(int save) {
     rate_badge();
 }
 
-/* Returns 0 as rate_fav_click does: a STOP skips the window's own release, leaving it pressed. */
 static int rate_tap(void *ctx, void *event) {
     (void)event;
     st.rate_pick = (int)(long)ctx;
     rate_close(1);
-    return 0;
+    return STOP;
 }
 
 /* The picker over win on pick hearts, for the queue menu's album album or, with 0, the playing
@@ -4859,7 +4860,9 @@ static int rate_show(void *win, int pick, unsigned album) {
     st.rate_pick = pick;
     st.rate_album = album;
     rate_paint();
-    widget_set_visible(rate_panel(win), 1, 0);
+    void *panel = rate_panel(win);
+    widget_set_visible(panel, 1, 0);
+    widget_set_sensitive(panel, 1);
     return 1;
 }
 /* Now Playing's, on the playing track's rating. */
@@ -4946,6 +4949,7 @@ static void rate_bind(void *win) {
     widget_on(fav, EVT_POINTER_DOWN, rate_down, (void *)0);
     st.rate_badge = label(P(fav, W_PARENT), I(fav, W_X) + I(fav, W_W) - 18, I(fav, W_Y) + 6, 16, 16,
                           "s_scrlabel_white20c", 12, 0xffffffffu);
+    widget_set_sensitive(st.rate_badge, 0); /* the heart's corner stays the heart's */
     widget_on(win, EVT_DESTROY, rate_gone, win);
     st.rate_tick = timer_add(rate_tick, (void *)0, 500);
     rate_badge();
