@@ -1534,6 +1534,20 @@ static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
     }
 }
 
+/* A two-pixel frame in color, two concentric one-pixel rounded strokes, or a square one when the
+ * box is too small to round or the canvas declines to (no vgcanvas). Leaves the stroke color set.
+ */
+static void frame_box(void *canvas, const rect_t *r, unsigned color, unsigned radius) {
+    rect_t in = { r->x + 1, r->y + 1, r->w - 2, r->h - 2 };
+    if (r->w > 2 * (int)radius && r->h > 2 * (int)radius &&
+        !canvas_stroke_rounded_rect(canvas, r, (void *)0, &color, radius, 1) &&
+        !canvas_stroke_rounded_rect(canvas, &in, (void *)0, &color, radius - 1, 1))
+        return;
+    canvas_set_stroke_color(canvas, color);
+    canvas_stroke_rect(canvas, r->x, r->y, r->w, r->h);
+    canvas_stroke_rect(canvas, in.x, in.y, in.w, in.h);
+}
+
 #if IPOD
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
@@ -1793,11 +1807,8 @@ static void paint_selection(void *w, void *canvas) {
     st.sel_row = i;
     st.sel_y = r.y + r.h / 2;
     if (g_menu.kind == 4 &&
-        r.w < I(g_menu.w, W_W)) { /* a pop-up button's tile: framed white on any accent */
-        canvas_set_stroke_color(canvas, 0xffffffff);
-        canvas_stroke_rect(canvas, r.x, r.y, r.w, r.h);
-        canvas_stroke_rect(canvas, r.x + 1, r.y + 1, r.w - 2, r.h - 2);
-    }
+        r.w < I(g_menu.w, W_W)) /* a pop-up button's tile: framed white on any accent */
+        frame_box(canvas, &r, 0xffffffff, SEL_RADIUS);
 #else
     rect_t outer = { r.x + 1, r.y + 1, r.w - 2, r.h - 2 };
     rect_t inner = { outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2 };
@@ -6724,9 +6735,8 @@ static void edit_paint(void *w, void *canvas) {
         return;
     }
     unsigned old = (unsigned)I(P(canvas, CANVAS_LCD), LCD_STROKE_COLOR);
-    canvas_set_stroke_color(canvas, 0xffffffff);
-    canvas_stroke_rect(canvas, 0, 0, ww, wh);
-    canvas_stroke_rect(canvas, 1, 1, ww - 2, wh - 2);
+    rect_t r = { 0, 0, ww, wh };
+    frame_box(canvas, &r, 0xffffffff, SEL_RADIUS);
     canvas_set_stroke_color(canvas, old);
 }
 

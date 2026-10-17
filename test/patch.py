@@ -1508,11 +1508,12 @@ for b,x in zip(buttons,pair): m.word(b+O['W_X'],x); m.word(b+O['W_W'],80); m.wor
 if variant=='ipod':
     m.paint(d); assert m.selected(d)==0 and m.sel()==(53,220,80,80)
     # The focused tile is framed in constant white (no accent lookup), over the bar; stroke color restored.
-    assert [s[:4] for s in m.strokes]==[(53,220,80,80),(54,221,78,78)] and {s[5] for s in m.strokes}=={0xffffffff}
+    frame=[r for r in m.rounded if r['kind']=='stroke']
+    assert not m.strokes and [(r['rect'],r['radius'],r['color']) for r in frame]==[((53,220,80,80),O['SEL_RADIUS'],0xffffffff),((54,221,78,78),O['SEL_RADIUS']-1,0xffffffff)]
     assert m.lcd_colors()==LCD_COLORS
     assert m.call()==11 and m.selected(d)==1 and not m.moved()
     m.paint(d); assert m.sel()==(242,220,80,80) and m.clip==(0,0,375,320)
-    assert [s[:4] for s in m.strokes]==[(242,220,80,80),(243,221,78,78)]
+    assert not m.strokes and [r['rect'] for r in m.rounded if r['kind']=='stroke']==[(242,220,80,80),(243,221,78,78)]
     assert m.call()==11 and m.selected(d)==1 and not m.moved()
     assert m.call(O['KEY_PREV'])==11 and m.selected(d)==0
     assert m.confirm()==11 and m.dispatched()[0][1]==buttons[0]; passed()
@@ -1571,8 +1572,10 @@ def time_page(name):
     m.top=m.node('window',name,[slide,ok]); return m,sels,ok,slide
 m,sels,ok,slide=time_page('manualtime_page')
 assert m.call()==11 and m.get(sels[0]+O['SELECTOR_INDEX'])==6
-m.paint(sels[0]); assert [s[:4] for s in m.strokes]==[(0,0,80,170),(1,1,78,168)] and m.lcd_colors()==LCD_COLORS
-m.paint(sels[1]); assert not m.strokes
+m.paint(sels[0]); assert not m.strokes and m.lcd_colors()==LCD_COLORS
+assert [(r['kind'],r['rect'],r['radius'],r['color']) for r in m.rounded]==[('stroke',(0,0,80,170),O['SEL_RADIUS'],0xffffffff),('stroke',(1,1,78,168),O['SEL_RADIUS']-1,0xffffffff)]
+m.rounded_fail=True; m.paint(sels[0]); assert [s[:4] for s in m.strokes]==[(0,0,80,170),(1,1,78,168)] and m.lcd_colors()==LCD_COLORS
+m.rounded_fail=None; m.paint(sels[1]); assert not m.strokes and not m.rounded
 for f in range(1,6): assert m.confirm()==11 and m.nodes[m.top]['_edit_field']==f
 assert m.nodes[slide]['value']==1 and not m.clicks
 # OK, when next, is a selected row: the off-white card with its label dark, not a frame.
