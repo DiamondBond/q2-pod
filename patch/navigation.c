@@ -214,8 +214,8 @@ typedef struct {
      * Bluetooth's Resume on connect on. */
     int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat,
         wake_down, /* 1: the held Centre press passes; 2: it is dropped */
-        charge_held, cpu_off,
-        cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock, artist_az;
+        charge_held, cpu_off, cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock,
+        artist_az;
     void *pod_label[10];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
     void *art_cf_veil;              /* the artist page unseen until they show, and its anim_hint */
@@ -2005,10 +2005,9 @@ static int *const pod_values[] = { &st.charge_limit, &st.low_power,  &st.wake_do
                                    &st.resume,       &st.lock_clock, &st.artist_az,
                                    &wheel_guard };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
-static const char *const pod_keys[] = { "CHARGELIMIT", "LOWPOWER",  "WAKEDOUBLE",
-                                        "ARTISTCF",    "YEAROLD",   0,
-                                        "RESUME",      "LOCKCLOCK", "ARTISTAZ",
-                                        "VOLGUARD" };
+static const char *const pod_keys[] = { "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",
+                                        "YEAROLD",     0,          "RESUME",     "LOCKCLOCK",
+                                        "ARTISTAZ",    "VOLGUARD" };
 static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
@@ -2109,7 +2108,7 @@ int ringnav_scan_refresh(void *row, const char *table, int type) {
     if (!exists) return toolsGetMusicNum() >= 65000;
     const char *path = P(row, REC_PATH), *name = P(row, REC_NAME);
     if (!path || !name) return exists;
-    char info[0x698] = {0}, sql[8192];
+    char info[0x698] = { 0 }, sql[8192];
     int cue = I(row, REC_CUE_START) || I(row, REC_CUE_END);
     if (!cue) {
         /* Stock returns success even when TagLib cannot open/read a tag; keep the old tags then. */
@@ -2118,31 +2117,40 @@ int ringnav_scan_refresh(void *row, const char *table, int type) {
         if (file) taglib_file_free(file);
         if (!valid || toolsGetMusicInfo(1, info, path) != 1) return exists;
     }
-    static const char *const fields[] = { "album", "songer", "style", "name", "composer", "albumsonger" };
+    static const char *const fields[] = { "album", "songer",   "style",
+                                          "name",  "composer", "albumsonger" };
     static const unsigned offsets[] = { 0, 0x100, 0x200, 0x280, 0x480, 0x580 };
-    static const unsigned records[] = { REC_ALBUM, REC_ARTIST, 0x1c, REC_TITLE, 0x20, REC_ALBUM_ARTIST };
+    static const unsigned records[] = { REC_ALBUM, REC_ARTIST, 0x1c,
+                                        REC_TITLE, 0x20,       REC_ALBUM_ARTIST };
     unsigned n = tk_snprintf(sql, sizeof sql, "update songtable set ");
     for (unsigned i = 0; i < sizeof fields / sizeof *fields; ++i) {
         n += tk_snprintf(sql + n, sizeof sql - n, "%s%s=", i ? "," : "", fields[i]);
-        if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, cue ? P(row, records[i]) : info + offsets[i])) return exists;
+        if (n >= sizeof sql ||
+            !scan_quote(sql, sizeof sql, &n, cue ? P(row, records[i]) : info + offsets[i]))
+            return exists;
     }
     /* Stock indexes the trimmed title's pinyin initial, falling back to the filename. */
     char title[128] = "", key[128] = "";
-    tk_snprintf(title, 31, "%s", cue && P(row, REC_TITLE) ? (char *)P(row, REC_TITLE) : info + 0x280);
+    tk_snprintf(title, 31, "%s",
+                cue && P(row, REC_TITLE) ? (char *)P(row, REC_TITLE) : info + 0x280);
     toolsTrimLeft(title);
     toolsTrimRight(title);
     if (!*title || !strcmp(title, "(null)")) tk_snprintf(title, 31, "%s", name);
     toolsHanziToPinyin(title, key);
     unsigned initial = (unsigned char)*key;
     if (initial >= 'a' && initial <= 'z') initial -= 'a' - 'A';
-    initial = initial >= 'A' && initial <= 'Z' ? initial : initial >= '0' && initial <= '9' ? '*' : '#';
-    n += tk_snprintf(sql + n, sizeof sql - n, ",Initial=%u,year=%d,track=%d,cd_num=%d where filename=", initial,
+    initial = initial >= 'A' && initial <= 'Z'   ? initial
+              : initial >= '0' && initial <= '9' ? '*'
+                                                 : '#';
+    n += tk_snprintf(sql + n, sizeof sql - n,
+                     ",Initial=%u,year=%d,track=%d,cd_num=%d where filename=", initial,
                      cue ? I(row, 0x30) : I(info, 0x680), cue ? I(row, REC_TRACK) : I(info, 0x684),
                      cue ? I(row, REC_DISC) : I(info, 0x688));
     if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, name)) return exists;
     n += tk_snprintf(sql + n, sizeof sql - n, " and fileurl=");
     if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, path)) return exists;
-    n += tk_snprintf(sql + n, sizeof sql - n, " and time=%d and time_end=%d", I(row, REC_CUE_START), I(row, REC_CUE_END));
+    n += tk_snprintf(sql + n, sizeof sql - n, " and time=%d and time_end=%d", I(row, REC_CUE_START),
+                     I(row, REC_CUE_END));
     if (n < sizeof sql) toolsUpdateDbTable("/mnt/data/database.db", sql);
     return exists;
 }
@@ -6463,12 +6471,12 @@ static int wake_gate(void *e) {
     if (type == EVT_KEY_LONG) return 0; /* stock generates this downstream of the input hook */
     if (key != KEY_CENTER) return 0;
     /* Consume Standby's release guard once; our dropped press already drops its release. */
-    if (type == EVT_KEY_DOWN && !g_backlight_status &&
-        *(volatile unsigned char *)BOOT_KEY_GUARD) {
+    if (type == EVT_KEY_DOWN && !g_backlight_status && *(volatile unsigned char *)BOOT_KEY_GUARD) {
         st.wake_down = 0;
         *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
     }
-    if (type == EVT_KEY_UP) st.wake_down = 0;
+    if (type == EVT_KEY_UP)
+        st.wake_down = 0;
     else {
         if (st.wake_down) return st.wake_down == 2;
         st.wake_down = 1;
@@ -6493,8 +6501,10 @@ static int wake_gate(void *e) {
     }
     st.wake_pass = now - st.wake_at < WAKE_MS;
     st.wake_at = st.wake_pass ? 0 : now;
-    if (st.wake_pass) woke(now);
-    else st.wake_down = 2;
+    if (st.wake_pass)
+        woke(now);
+    else
+        st.wake_down = 2;
     return !st.wake_pass;
 }
 

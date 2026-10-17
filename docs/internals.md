@@ -10,43 +10,43 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 
 `HOOKS` and the `WM_PAINT_LEAF` in `tools/build.py` are hooked in both variants; `IPOD_HOOKS` and the `IPOD_LEAF` only in iPod, so the Legacy build keeps those entry points stock.
 
-| Stock callback                        | Address    | Purpose                                                                               |
-| ------------------------------------- | ---------- | ------------------------------------------------------------------------------------- |
-| `on_wm_keyup_before_fun`              | `0x4e85c8` | Stock lock filter first, then wheel/centre navigation (and iPod scrub)                |
-| `on_wm_tsdown_before_fun`             | `0x4e8bd0` | Preserve stock touch processing, interrupt wheel glide (and iPod pull-to-search)      |
-| `widget_on_paint_border`              | `0x6596a0` | Outline (Stock); chevrons and letter (iPod) after children                            |
-| `widget_dispatch`                     | `0x65e0ec` | Observe a native click before its app callback changes the UI                         |
-| `on_wm_keylong_fun`                   | `0x4e873c` | Play/Pause hold opens the queue menu, or toggles a radio favourite                    |
-| `playset_equalizer_page_init`         | `0x4b642c` | The EQ page, Simple and Advanced tabs ([3EQ](#3eq))                                   |
-| `set_equalizer_value`                 | `0x4f9230` | Keeps the stock filter and ties the EQ icon to 3EQ or PEQ being on                    |
-| `home_page_init`                      | `0x523c84` | Binds the Coverflow card (iPod: row), then iPod Home art and layout                   |
-| `load_localclass_list`                | `0x5088cc` | Drops an empty Unknown row ([Unknown rows](#unknown-rows))                            |
-| `scanAllMusicFile`                    | `0x4fc788` | Marks Coverflow's album list stale, before and after stock runs                       |
-| `scanSpecFolder`                      | `0x4fc964` | The same                                                                              |
-| `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                              |
-| `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                            |
-| `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md)) |
-| `folder_page_init`                    | `0x523330` | Opens at the SD root (card, no OTG), or at Podcasts/Audiobooks for their shortcuts    |
-| `folder_back`                         | `0x507ac8` | Back at a bypassed SD root or shortcut root leaves the page                           |
-| `window_manager_dispatch_input_event` | `0x66d49c` | No input while a video plays ([Videos](#videos)); [Wake](#wake)'s screen-off gate     |
-| `buzzeer_switch`                      | `0x4f3cc8` | No buzzer while headphones, BT or USB listen ([Key Tone](#key-tone))                  |
+| Stock callback                        | Address    | Purpose                                                                                            |
+| ------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| `on_wm_keyup_before_fun`              | `0x4e85c8` | Stock lock filter first, then wheel/centre navigation (and iPod scrub)                             |
+| `on_wm_tsdown_before_fun`             | `0x4e8bd0` | Preserve stock touch processing, interrupt wheel glide (and iPod pull-to-search)                   |
+| `widget_on_paint_border`              | `0x6596a0` | Outline (Stock); chevrons and letter (iPod) after children                                         |
+| `widget_dispatch`                     | `0x65e0ec` | Observe a native click before its app callback changes the UI                                      |
+| `on_wm_keylong_fun`                   | `0x4e873c` | Play/Pause hold opens the queue menu, or toggles a radio favourite                                 |
+| `playset_equalizer_page_init`         | `0x4b642c` | The EQ page, Simple and Advanced tabs ([3EQ](#3eq))                                                |
+| `set_equalizer_value`                 | `0x4f9230` | Keeps the stock filter and ties the EQ icon to 3EQ or PEQ being on                                 |
+| `home_page_init`                      | `0x523c84` | Binds the Coverflow card (iPod: row), then iPod Home art and layout                                |
+| `load_localclass_list`                | `0x5088cc` | Drops an empty Unknown row ([Unknown rows](#unknown-rows))                                         |
+| `scanAllMusicFile`                    | `0x4fc788` | Marks Coverflow's album list stale, before and after stock runs                                    |
+| `scanSpecFolder`                      | `0x4fc964` | The same                                                                                           |
+| `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                                           |
+| `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                                         |
+| `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md))              |
+| `folder_page_init`                    | `0x523330` | Opens at the SD root (card, no OTG), or at Podcasts/Audiobooks for their shortcuts                 |
+| `folder_back`                         | `0x507ac8` | Back at a bypassed SD root or shortcut root leaves the page                                        |
+| `window_manager_dispatch_input_event` | `0x66d49c` | No input while a video plays ([Videos](#videos)); [Wake](#wake)'s screen-off gate                  |
+| `buzzeer_switch`                      | `0x4f3cc8` | No buzzer while headphones, BT or USB listen ([Key Tone](#key-tone))                               |
 | `systemset_powermanager_page_init`    | `0x4c72d0` | Adds Charge Limit, Low Power, Wake and Volume Guard ([Wake](#wake), [Volume guard](#volume-guard)) |
-| `playset_playset_page_init`           | `0x4b98d8` | Adds Artists to Audio settings ([Album artists](#album-artists))                      |
-| `stream_page_init`                    | `0x52efdc` | Adds the Spotify and Internet Radio rows to Streaming                                 |
-| `mclStartPlayer`                      | `0x5ad6ac` | A local track's start pauses librespot and stops the radio first                      |
-| `window_manager_paint`                | `0x66d46c` | `WM_PAINT_LEAF`: no PIC prologue; no painting while a video plays                     |
-| `widget_on_paint_background`          | `0x65c77c` | iPod only: selection bar, status bar fill, clock, codec fade and battery              |
-| `playing_page_init`                   | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                          |
-| `bigcover_page_init`                  | `0x5200ec` | iPod only: the full-screen art's song name and shade fade out after `BC_MS`           |
-| `get_screensaver_image`               | `0x4facd4` | Lists the built-in wallpapers, keeps one picked ([Lock screen](#lock-screen))         |
-| `screensaver_rows` (unnamed)          | `0x4c9134` | Lock screen page: the Clock row and the built-ins' thumbnails                         |
-| `saverscreen_page_init`               | `0x52db70` | The lock window's wallpaper and Large clock                                           |
-| `saver_cover` (unnamed)               | `0x52d844` | The lock window's cover repaints when it changes                                      |
-| `systemset_display_page_init`         | `0x4c1d04` | iPod only: adds the Theme, Accent, Home and Battery rows                              |
-| `on_wm_keydown_before_fun`            | `0x4e8424` | iPod only: Key Tone clicks on the row change, not the wheel press                     |
-| `style_get_color`                     | `0x649f6c` | iPod only: maps the returned color to the accent                                      |
-| `style_get_gradient`                  | `0x649f3c` | iPod only (`IPOD_LEAF`): no PIC prologue; maps the gradient's stops                   |
-| `image_manager_add`                   | `0x6445d4` | iPod only: maps a decoded image before it is cached (confirm discs dark)              |
+| `playset_playset_page_init`           | `0x4b98d8` | Adds Artists to Audio settings ([Album artists](#album-artists))                                   |
+| `stream_page_init`                    | `0x52efdc` | Adds the Spotify and Internet Radio rows to Streaming                                              |
+| `mclStartPlayer`                      | `0x5ad6ac` | A local track's start pauses librespot and stops the radio first                                   |
+| `window_manager_paint`                | `0x66d46c` | `WM_PAINT_LEAF`: no PIC prologue; no painting while a video plays                                  |
+| `widget_on_paint_background`          | `0x65c77c` | iPod only: selection bar, status bar fill, clock, codec fade and battery                           |
+| `playing_page_init`                   | `0x52ca88` | iPod only: binds Now Playing's position, album and remaining                                       |
+| `bigcover_page_init`                  | `0x5200ec` | iPod only: the full-screen art's song name and shade fade out after `BC_MS`                        |
+| `get_screensaver_image`               | `0x4facd4` | Lists the built-in wallpapers, keeps one picked ([Lock screen](#lock-screen))                      |
+| `screensaver_rows` (unnamed)          | `0x4c9134` | Lock screen page: the Clock row and the built-ins' thumbnails                                      |
+| `saverscreen_page_init`               | `0x52db70` | The lock window's wallpaper and Large clock                                                        |
+| `saver_cover` (unnamed)               | `0x52d844` | The lock window's cover repaints when it changes                                                   |
+| `systemset_display_page_init`         | `0x4c1d04` | iPod only: adds the Theme, Accent, Home and Battery rows                                           |
+| `on_wm_keydown_before_fun`            | `0x4e8424` | iPod only: Key Tone clicks on the row change, not the wheel press                                  |
+| `style_get_color`                     | `0x649f6c` | iPod only: maps the returned color to the accent                                                   |
+| `style_get_gradient`                  | `0x649f3c` | iPod only (`IPOD_LEAF`): no PIC prologue; maps the gradient's stops                                |
+| `image_manager_add`                   | `0x6445d4` | iPod only: maps a decoded image before it is cached (confirm discs dark)                           |
 
 Single checked instruction words are patched as well. Both variants: `mclNextSong`'s shuffle pick (`0x5addf0`, [Queue menu](#queue-menu)), the long-Return Home call (`0x4e8924`, [ipod.md](ipod.md#hold-return)), `check_mem_thd`'s drop_caches write (`0x5120a8`, [Battery](#battery)) and `device_standby`'s screen wake (`0x4f7d24`, [Wake](#wake)). iPod, from `tools/ipod.py`: the row pitch, artwork and Now Playing bar immediates and the row-layouter calls listed in `patch/ipod.json`, the folder rebind's resize call (`0x522410`, removed), the boot resume call (`0x523de0`, [Boot resume](#boot-resume-ipod)) and one data word, the `list_view` children layouter's layout slot (`0x926930`, stock `0x5e9eb4`), which becomes `ipod_list_layout` for the settings rows ([ipod.md](ipod.md#settings)). The manifest's `compact_code` lists every changed word.
 
