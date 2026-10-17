@@ -3421,16 +3421,16 @@ assert scan(0,{'/m':['a','b','c']},stop_at=1)==(0,['/m/a'],1,1); passed()
 from build import SCAN_REFRESH
 assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_REFRESH[0]))[0]==0x0c000000|payload_syms['ringnav_scan_refresh']>>2
 class FolderTagsMachine(ScanMachine):
-    def __init__(self,patched=True,cue=False,valid=True):
-        super().__init__({'/m':["it's.flac"]},1,patched=patched)
-        self.valid=valid; self.cue=cue; self.reads=0; self.updates=[]
+    def __init__(self,patched=True,cue=False,valid=True,songs=1,title="New artist's tags"):
+        super().__init__({'/m':["it's.flac"]},songs,patched=patched)
+        self.valid=valid; self.cue=cue; self.title=title; self.reads=0; self.updates=[]
         self.db=sqlite3.connect(':memory:')
-        self.db.execute('create table songtable(id primary key,filename,fileurl,album,songer,style,name,composer,albumsonger,year,track,cd_num,time,time_end,time_create)')
-        self.old=(7,"it's.flac","/m/it's.flac",'Old album','Old artist','Old genre','Old title','Old composer','Old album artist',1990,1,1,10 if cue else 0,20 if cue else 0,123)
-        self.db.execute('insert into songtable values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',self.old)
+        self.db.execute('create table songtable(id primary key,filename,fileurl,album,songer,style,name,composer,albumsonger,year,track,cd_num,time,time_end,time_create,Initial)')
+        self.old=(7,"it's.flac","/m/it's.flac",'Old album','Old artist','Old genre','Old title','Old composer','Old album artist',1990,1,1,10 if cue else 0,20 if cue else 0,123,ord('O'))
+        self.db.execute('insert into songtable values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',self.old)
         # Another CUE segment in the same file must keep its own tags.
-        self.db.execute('insert into songtable values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(8,*self.old[1:12],30,40,456))
-        for n in ('taglib_file_new','taglib_file_tag','taglib_file_free','toolsGetMusicInfo','toolsUpdateDbTable'):
+        self.db.execute('insert into songtable values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(8,*self.old[1:12],30,40,456,ord('O')))
+        for n in ('taglib_file_new','taglib_file_tag','taglib_file_free','toolsGetMusicInfo','toolsUpdateDbTable','toolsTrimLeft','toolsTrimRight','toolsHanziToPinyin','toolsGetMusicNum'):
             self.handlers[syms[n]]='refresh:'+n
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
@@ -3441,14 +3441,17 @@ class FolderTagsMachine(ScanMachine):
             if self.cue:
                 for off,v in ((0x48,10),(0x4c,20),(0x30,2026),(0x3c,3),(0x40,2)): self.word(a+off,v)
                 for off in (0x14,0x18,0x1c,0x10,0x20,0x24): self.word(a+off,self.string("CUE's tags"))
-            ret=1
+            ret=self.text(self.get(a+O['REC_NAME']))!="new.flac"
         elif name.startswith('refresh:'):
             name=name[8:]; ret=0
-            if name=='taglib_file_new': ret=123 if self.valid else 0
+            if name=='toolsGetMusicNum': ret=self.get(SONGS)
+            elif name=='taglib_file_new': ret=123 if self.valid else 0
             elif name=='taglib_file_tag': assert a==123; ret=456
+            elif name in ('toolsTrimLeft','toolsTrimRight'): u.mem_write(a,self.text(a).strip().encode()+b'\0')
+            elif name=='toolsHanziToPinyin': u.mem_write(b,self.text(a).encode()+b'\0')
             elif name=='toolsGetMusicInfo':
                 self.reads+=1; assert (a,self.text(c))==(1,"/m/it's.flac"); ret=1
-                for off in (0,0x100,0x200,0x280,0x480,0x580): u.mem_write(b+off,"New artist's tags".encode()+b'\0')
+                for off in (0,0x100,0x200,0x280,0x480,0x580): u.mem_write(b+off,(self.title if off==0x280 else "New artist's tags").encode()+b'\0')
                 for off,v in ((0x680,2026),(0x684,3),(0x688,2)): self.word(b+off,v)
             elif name=='toolsUpdateDbTable':
                 assert self.text(a)=='/mnt/data/database.db'; self.updates.append(self.text(b)); self.db.execute(self.text(b)); ret=1
@@ -3462,9 +3465,17 @@ for patched in (False,True):
             m=FolderTagsMachine(patched,cue,valid); assert m.rescan()==1 and not m.added and m.get(SONGS)==1
             row=m.db.execute('select * from songtable where id=7').fetchone()
             changed=patched and (cue or valid)
-            assert row==((7,*m.old[1:3],*(["CUE's tags" if cue else "New artist's tags"]*6),2026,3,2,*m.old[12:]) if changed else m.old)
-            assert m.db.execute('select * from songtable where id=8').fetchone()==(8,*m.old[1:12],30,40,456)
+            assert row==((7,*m.old[1:3],*(["CUE's tags" if cue else "New artist's tags"]*6),2026,3,2,*m.old[12:15],ord('C' if cue else 'N')) if changed else m.old)
+            assert m.db.execute('select * from songtable where id=8').fetchone()==(8,*m.old[1:12],30,40,456,ord('O'))
             assert len(m.updates)==changed and m.reads==(patched and not cue and valid); passed()
+for title,letter in (("  lower title  ",'L'),('7 songs','*'),('!song','#'),('','I'),('(null)','I')):
+    m=FolderTagsMachine(title=title); assert m.rescan()==1
+    assert m.db.execute('select Initial from songtable where id=7').fetchone()==(ord(letter),); passed()
+m=FolderTagsMachine(songs=65000)
+m.tree['/m']=['new.flac',"it's.flac"]
+assert m.rescan()==1 and not m.added and m.get(SONGS)==65000 and not m.u.mem_read(STOP,1)[0]
+assert m.db.execute('select albumsonger from songtable where id=7').fetchone()==("New artist's tags",)
+passed()
 # Library Artists rows hide the head picture (CLASS_ICON); Composers and Genres, sharing the rebound
 # rows, show theirs again through stock's setter.
 from build import CLASS_ICON

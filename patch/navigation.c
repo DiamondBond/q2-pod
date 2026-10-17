@@ -2103,7 +2103,8 @@ static int scan_quote(char *sql, unsigned cap, unsigned *n, const char *s) {
  * creation time and library count, so saved queues/favourites still refer to the same song. */
 int ringnav_scan_refresh(void *row, const char *table, int type) {
     int exists = toolsCheckItemExist(row, table, type);
-    if (!exists || !table || strcmp(table, "songtable")) return exists;
+    if (!table || strcmp(table, "songtable")) return exists;
+    if (!exists) return toolsGetMusicNum() >= 65000;
     const char *path = P(row, REC_PATH), *name = P(row, REC_NAME);
     if (!path || !name) return exists;
     char info[0x698] = {0}, sql[8192];
@@ -2123,7 +2124,17 @@ int ringnav_scan_refresh(void *row, const char *table, int type) {
         n += tk_snprintf(sql + n, sizeof sql - n, "%s%s=", i ? "," : "", fields[i]);
         if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, cue ? P(row, records[i]) : info + offsets[i])) return exists;
     }
-    n += tk_snprintf(sql + n, sizeof sql - n, ",year=%d,track=%d,cd_num=%d where filename=",
+    /* Stock indexes the trimmed title's pinyin initial, falling back to the filename. */
+    char title[128] = "", key[128] = "";
+    tk_snprintf(title, 31, "%s", cue && P(row, REC_TITLE) ? (char *)P(row, REC_TITLE) : info + 0x280);
+    toolsTrimLeft(title);
+    toolsTrimRight(title);
+    if (!*title || !strcmp(title, "(null)")) tk_snprintf(title, 31, "%s", name);
+    toolsHanziToPinyin(title, key);
+    unsigned initial = (unsigned char)*key;
+    if (initial >= 'a' && initial <= 'z') initial -= 'a' - 'A';
+    initial = initial >= 'A' && initial <= 'Z' ? initial : initial >= '0' && initial <= '9' ? '*' : '#';
+    n += tk_snprintf(sql + n, sizeof sql - n, ",Initial=%u,year=%d,track=%d,cd_num=%d where filename=", initial,
                      cue ? I(row, 0x30) : I(info, 0x680), cue ? I(row, REC_TRACK) : I(info, 0x684),
                      cue ? I(row, REC_DISC) : I(info, 0x688));
     if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, name)) return exists;
@@ -5904,7 +5915,12 @@ void ringnav_sort_key(char *s) {
 
 /* Replaces toolsLoadAllFile's 20,000-song check (SCAN_LIMIT): the scan goes on while it holds.
  * A leaf: the scanner reuses its gp after the call without reloading it. */
-int ringnav_scan_room(int songs) { return songs < 65000; }
+int ringnav_scan_room(int songs) {
+    int folder;
+    /* This fixed call site keeps toolsLoadAllFile's third argument (folder scan) in $s5. */
+    __asm__("move %0,$21" : "=r"(folder));
+    return songs < 65000 || folder; /* at capacity, scan_refresh skips new rows but refreshes old */
+}
 
 /* Moves key's place to the front of the ring at sec, or forgets it near either end. */
 static void spot_keep(unsigned key, int sec, int total) {
