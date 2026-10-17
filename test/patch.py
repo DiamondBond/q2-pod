@@ -8242,6 +8242,7 @@ passed()
 class TagMachine(BooksMachine):
     def __init__(self,files):
         super().__init__({},files); self.stock_artist=b''
+        self.handlers.pop(syms['toolsGetMusicInfo'],None)  # run the hook; only stock's body is mocked
         tramp=int(manifest['patch_symbols']['stock_music_info_trampoline'],16)
         self.handlers[tramp]='stock_music_info'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
     def hook(self,u,address,size,unused):
