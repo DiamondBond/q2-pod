@@ -1304,8 +1304,10 @@ static void pull_begin(void *event) {
         I(w, kind(w) == 2 ? TABLE_TOP : SCROLL_Y) > 0)
         return;
     if (!widget_get_prop_int(page, PULL_BOUND, 0)) {
-        const unsigned types[] = { EVT_DESTROY, EVT_WINDOW_BACKGROUND, EVT_WINDOW_CLOSE,
-                                   EVT_POINTER_ABORT, EVT_POINTER_MOVE_BEFORE, EVT_POINTER_UP_BEFORE };
+        const unsigned types[] = {
+            EVT_DESTROY,       EVT_WINDOW_BACKGROUND,   EVT_WINDOW_CLOSE,
+            EVT_POINTER_ABORT, EVT_POINTER_MOVE_BEFORE, EVT_POINTER_UP_BEFORE
+        };
         for (unsigned i = 0; i < sizeof types / sizeof *types; ++i)
             if (!widget_on(page, types[i], pull_event, page)) {
                 /* Retry must not duplicate the callbacks already installed. */
@@ -2069,8 +2071,8 @@ static void flac_album_artist(const char *path, char *out) {
             }
             /* vendor length and string, the comment count, then each comment's length and bytes,
              * read a field at a time: a cover kept in the comments can make the block megabytes */
-            if (left < 8 || fread(h, 4, 1, f) != 1 || (c = le32(h)) > left - 8 || fseek(f, (long)c, 1) ||
-                fread(h, 4, 1, f) != 1)
+            if (left < 8 || fread(h, 4, 1, f) != 1 || (c = le32(h)) > left - 8 ||
+                fseek(f, (long)c, 1) || fread(h, 4, 1, f) != 1)
                 break;
             left -= 8 + c;
             for (unsigned n = le32(h); n-- && left >= 4 && fread(h, 4, 1, f) == 1;) {
@@ -4857,11 +4859,16 @@ static int rate_key(void *top, unsigned key) {
 }
 
 /* Holding the heart RATE_HOLD_MS opens the picker; a tap is stock's, a full heart then keeping
- * nothing here, so taking it away leaves the song unrated. */
+ * nothing here, so taking it away leaves the song unrated. The picker aborts the press, so the
+ * slide_view under the heart lets go of its grab and the picker takes the next touch. */
 static int rate_long(const void *unused) {
     (void)unused;
     st.rate_hold = 0;
-    if (window_manager_get_pointer_pressed(window_manager())) st.rate_held = rate_open();
+    if (!window_manager_get_pointer_pressed(window_manager()) || !(st.rate_held = rate_open()))
+        return 0;
+    unsigned abort_event[12];
+    pointer_event_init(abort_event, EVT_POINTER_ABORT, st.rate_win, 0, 0);
+    widget_dispatch_event_to_target_recursive(st.rate_win, abort_event);
     return 0;
 }
 static int rate_down(void *ctx, void *event) {
@@ -4870,17 +4877,18 @@ static int rate_down(void *ctx, void *event) {
     rearm(&st.rate_hold, rate_long, RATE_HOLD_MS);
     return 0;
 }
+/* Returns 0 as stock's does: a STOP skips the slide_view's own release, and it keeps its grab. */
 static int rate_fav_click(void *ctx, void *event) {
     stop_timer(&st.rate_hold);
     if (st.rate_held || st.rate_on) {
         st.rate_held = 0;
-        return STOP;
+        return 0;
     }
     FAV_CLICK(ctx, event);
     void *r = rate_track();
     if (r) rate_keep(0, listen_key(r), 0);
     rate_badge();
-    return STOP;
+    return 0;
 }
 
 static int rate_gone(void *win, void *event) {
@@ -5529,7 +5537,7 @@ static void qm_select(void) {
 static int qm_playlist_pick(void *ctx, void *event) {
     if (!qm_record()) {
         toast("Queue unchanged");
-        return STOP;
+        return 0; /* a STOP would leave the list's scroll_view holding its grab */
     }
     qm_select();
     return PLAYLIST_PICK(ctx, event);

@@ -3108,7 +3108,7 @@ for stale in (False,True):
         f,ctx=m.handler(row,O['EVT_CLICK']); assert f!=m.STOCK_PICK and ctx==row
     if stale: m.word(O['MCL_POS'],2)
     f,ctx=m.handler(m.playlist_rows[2],O['EVT_CLICK'])
-    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==(11 if stale else 0)
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0  # a STOP would leave the scroll_view its grab
     assert m.added==([] if stale else ['B'])
     if not stale: assert sel(m)==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]
     f,ctx=m.handler(m.top,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
@@ -3187,7 +3187,7 @@ if variant=='ipod':
         kids=m.rebuild(); button=m.nodes[kids[0]]['children'][0]
         f,ctx=m.handler(button,O['EVT_CLICK']); assert f!=m.STOCK_PICK
         if stale: m.word(O['MCL_POS'],2)
-        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==(11 if stale else 0)
+        assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         assert m.added==([] if stale else ['B']); passed()
 
 # Short press toggles once; a hold opens one menu titled by its row, its release is swallowed and
@@ -6621,14 +6621,16 @@ m=RateMachine()
 # Bound: stock's click off img_fav, the payload's click and press on, the badge hidden; nothing read yet beyond the file.
 assert ('widget_off_by_func',m.fav,O['EVT_CLICK'],FAV_CLICK) in m.calls and m.badge() is None and m.panel() is None
 assert [t for t,f,ctx in m.nodes[m.fav]['handlers']]==[O['EVT_CLICK'],O['EVT_POINTER_DOWN']]; passed()
-# A tap is stock's heart: B (playing) into My Fav, nothing kept; again, out.
-assert m.tap()==11 and m.favs=={'B'} and m.nodes[m.fav]['image']=='play_fav' and m.kept()==[]
-assert m.tap()==11 and m.favs==set(); passed()
+# A tap is stock's heart: B (playing) into My Fav, nothing kept; again, out. Its click returns 0, as stock's:
+# a STOP would skip the slide_view's own release and leave its grab on the window.
+assert m.tap()==0 and m.favs=={'B'} and m.nodes[m.fav]['image']=='play_fav' and m.kept()==[]
+assert m.tap()==0 and m.favs==set(); passed()
 # A press shorter than the hold, then its click: still the tap.
-m.heart(O['RATE_HOLD_MS']-1); assert m.panel() is None and m.tap(press=False)==11 and m.favs=={'B'}; passed()
-# A hold opens the picker on 5 (My Fav); its release's click does nothing.
-m.heart(); assert m.hearts()==['play_fav']*5 and m.caption()=='5 of 5'
-assert m.tap(press=False)==11 and m.favs=={'B'}; passed()
+def aborts(): return [c for c in m.calls if c[0]=='widget_dispatch_event_to_target_recursive' and m.get(c[2])==O['EVT_POINTER_ABORT']]
+m.calls=[]; m.heart(O['RATE_HOLD_MS']-1); assert m.panel() is None and not aborts() and m.tap(press=False)==0 and m.favs=={'B'}; passed()
+# A hold opens the picker on 5 (My Fav), aborting the press so the slide_view drops its grab; its release's click does nothing.
+m.calls=[]; m.heart(); assert m.hearts()==['play_fav']*5 and m.caption()=='5 of 5' and [c[1] for c in aborts()]==[m.np]
+assert m.tap(press=False)==0 and m.favs=={'B'}; passed()
 # The wheel moves the rating within 0-5; Return leaves it as it was.
 m.top=m.np
 for k,want in ((O['KEY_NEXT'],5),(O['KEY_PREV'],4),(O['KEY_PREV'],3)): assert m.call(k)==11
@@ -6647,9 +6649,9 @@ m.call(O['KEY_CENTER']); assert m.kept()==[] and m.badge() is None and m.favs==s
 m.heart(); p=m.panel(); heart=[h for h in m.nodes[p]['children'] if m.nodes[h]['type']=='image'][2]
 f,ctx=m.handler(heart,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.panel() is None and m.kept()==[(key_of('B')&~7)|3] and m.badge()=='3'
-assert m.tap()==11 and m.favs=={'B'} and m.kept()==[] and m.badge() is None; passed()
+assert m.tap()==0 and m.favs=={'B'} and m.kept()==[] and m.badge() is None; passed()
 # Kept across boots; the badge follows the playing track on the UI tick.
-assert m.tap()==11 and m.favs==set(); m.heart(); m.call(O['KEY_NEXT']); m.call(O['KEY_NEXT']); m.call(O['KEY_CENTER'])
+assert m.tap()==0 and m.favs==set(); m.heart(); m.call(O['KEY_NEXT']); m.call(O['KEY_NEXT']); m.call(O['KEY_CENTER'])
 m2=RateMachine(m.files['/mnt/data/ringnav-ratings']); assert m2.badge()=='2'
 m2.word(O['MCL_POS'],0); m2.advance(500); assert m2.badge() is None; passed()
 # Hold Play/Pause on Now Playing: Rate last, with the hearts, and no Next/Previous album outside Shuffle Albums/Folders; its row opens the same picker.
