@@ -46,7 +46,7 @@ int main(void) {
 with tempfile.TemporaryDirectory() as tmp:
     src, exe = Path(tmp) / 'mp3.c', Path(tmp) / 'mp3'
     src.write_text('#include <string.h>\n' + parser + check)
-    subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', '-fsanitize=undefined',
+    subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', '-fsanitize=undefined', '-fno-sanitize-recover=undefined',
                     str(src), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
 print('Xing seek bounds, nonfinite input, CRC and truncated headers; TXXX encodings: OK')

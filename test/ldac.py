@@ -25,11 +25,9 @@ handle = 0x2001000
 # An initialized stereo encoder. alter_eqmid changes the next frame's size without allocation.
 for offset, value in ((4, 1), (0x14, 2), (0x28, 5), (0x58, 0)):
     word(encoder, handle+offset, value)
-down = [0]
 for expected in (1, 3, 4, 2):
     assert call(encoder, 0x217c, handle, -1) == 0
-    down.append(read(encoder, handle+0x58))
-    assert down[-1] == expected
+    assert read(encoder, handle+0x58) == expected
     # Each channel's bytes per 128 samples, including the three-byte frame header.
     assert (read(encoder, handle+0x60)+3)*48000*8//128//1000 == {1:660, 3:492, 4:396, 2:330}[expected]
 assert call(encoder, 0x217c, handle, -1) == 0xffffffff

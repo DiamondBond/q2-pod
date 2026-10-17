@@ -129,6 +129,7 @@ def compile_common(out, binary, player=False, ipod=False):
     return [*objects, obj]
 
 def patch_player(raw, out):
+    check(sha(raw) == PLAYER_SHA, 'Unexpected hciplayer')
     out.mkdir(exist_ok=True)
     binary = out/'stock-hciplayer'
     binary.write_bytes(raw)

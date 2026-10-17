@@ -531,7 +531,7 @@ mode icon (`playset_covermode`), "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, t
 (`system_powermanager`), then "Shortcut: Rockbox", all among the [settings icons](#settings-icons)
 the build pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
 chevron, since Centre or a tap changes them in place.
-Both variants also append **Boot to: Rockbox / Q2-Pod** to System settings when Rockbox is present; see [Boot](boot.md#rockbox).
+Both variants also append **Boot to: Rockbox / Q2 Pod** to System settings when Rockbox is present; see [Boot](boot.md#rockbox).
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):

@@ -1092,7 +1092,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         p = swap_inode(p, path.encode(), target)
         changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
     pseudo.write_bytes(p)
-    (out/'empty').mkdir()
+    (out/'empty').mkdir(exist_ok=True)
     newsq = out/'rootfs.squashfs'
     epoch = struct.unpack_from('<I',sq.read_bytes(),8)[0]
     run('mksquashfs',out/'empty',newsq,'-pf',pseudo,'-noappend','-comp','lzo',

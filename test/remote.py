@@ -106,14 +106,18 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         try: q.shell("printf removed")
         except PermissionError: pass
         else: raise AssertionError("missing key accepted")
-        # Partial and malformed request lines are rejected without running the command.
+        keyfile.write_text("fedcba9876543210\n")
+        # Partial and malformed request lines are rejected without running the command; split reads still work.
         with socket.create_connection(("127.0.0.1", port), 2) as s:
             s.sendall(b"fedcba98")
         with socket.create_connection(("127.0.0.1", port), 2) as s:
             for part in (b"fedcba98", b"76543210\n", b"\n"):
                 s.sendall(part); time.sleep(.01)
             assert s.recv(16) == b"ERR\n"
-        keyfile.write_text("fedcba9876543210\n")
+        with socket.create_connection(("127.0.0.1", port), 2) as s:
+            for part in (b"fedcba98", b"76543210\n", b"true\n"):
+                s.sendall(part); time.sleep(.01)
+            assert s.recv(16).startswith(b"OK\n")
         # Shared over USB storage the card is unmounted: the last key read from it still works, until
         # the card is back without its key.
         assert q.shell("printf cached") == b"cached" and cache.read_text() == "fedcba9876543210\n"
