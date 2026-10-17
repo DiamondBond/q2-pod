@@ -638,7 +638,9 @@ checks+=1
 # reversal, lift or pause under the guard starts it again; travel is units, so sensitivity aside.
 D,IDLE=O['WHEEL_DARK_GUARD'],O['WHEEL_DARK_IDLE_MS']
 lit=lambda m: m.byte(syms['g_backlight_status'],1)
-def dark(m,on=1): m.byte(syms['g_backlight_status'],0); m.word(ps['wheel_guard'],on)
+def dark(m,on=1):
+    m.config['VOLGUARD']=str(on)
+    m.byte(syms['g_backlight_status'],0); m.word(ps['wheel_guard'],on)
 def later(ms): return lambda m: setattr(m,'now',m.now+ms)
 def turn(x,n,step=1): return [((x+step*k-1)%200+1,1) for k in range(1,n+1)]  # a unit per sample from x
 X=10+D-1  # where D-1 units up from 10 stop
