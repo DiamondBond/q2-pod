@@ -29,7 +29,7 @@
 - **iPod UI:** Home, menus, Now Playing, Coverflow and four visualizers. Choose your accent colour, Home layout and battery display.
 - **Wheel navigation:** smooth scrolling, and menus remember your place.
 - **EQ:** Simple's Low, Mid and High sliders, or Advanced's parametric EQ with up to 30 bands and a live curve. Import AutoEQ and Equalizer APO presets.
-- **Streaming:** Spotify (Premium): browse your library, search and play on the Q2 after a one-time pairing from your phone; AirPlay from your iPhone, and Internet Radio.
+- **Streaming:** Spotify (Premium): browse your library, search, play and download playlists on the Q2 after a one-time pairing from your phone; AirPlay from your iPhone, and Internet Radio.
 - **Scrobbling:** send your listens to Last.fm or ListenBrainz over Wi-Fi.
 - **Ratings:** rate songs and albums 0–5 hearts, then browse Top Rated, Loved and rated albums.
 - **Browsing and playback:** favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder.
@@ -66,7 +66,7 @@
 
 ## Extras
 
-- **Spotify:** unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2) to the card's root. Then open **Streaming → Spotify** on the Q2 and, the first time, pick it in the Spotify app on your phone. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
+- **Spotify:** unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2, v1.6 to download playlists) to the card's root. Then open **Streaming → Spotify** on the Q2 and, the first time, pick it in the Spotify app on your phone. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Scrobbling:** connect Last.fm or ListenBrainz with the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Lock screen:** six built-in wallpapers, a large clock, or your own images ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
 - **Boot logo:** put your own JPEG at `/Q2Pod/boot/boot-logo.jpg` on the card. It shows from the next power-on ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
