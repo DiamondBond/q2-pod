@@ -10,6 +10,9 @@ extern int stock_quicksettings_trampoline(void *, void *);
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
 
+/* Failed exec in a forked child must not flush demo's copied stdio or run its exit handlers. */
+__asm__(".globl child_exit\nchild_exit:\nli $v0, 4001\nsyscall\n");
+
 /* Stock's album-artist queries (Artists, an artist's albums and songs, search) take a song without
  * an album artist by its artist, so an untagged album stays under its artist, not Unknown.
  * Coverflow's grouping (ifnull(albumsonger,'')) keeps the tag. Then restrict the Library's category
@@ -1301,13 +1304,14 @@ static void pull_begin(void *event) {
         I(w, kind(w) == 2 ? TABLE_TOP : SCROLL_Y) > 0)
         return;
     if (!widget_get_prop_int(page, PULL_BOUND, 0)) {
-        if (!widget_on(page, EVT_DESTROY, pull_event, page) ||
-            !widget_on(page, EVT_WINDOW_BACKGROUND, pull_event, page) ||
-            !widget_on(page, EVT_WINDOW_CLOSE, pull_event, page) ||
-            !widget_on(page, EVT_POINTER_ABORT, pull_event, page) ||
-            !widget_on(page, EVT_POINTER_MOVE_BEFORE, pull_event, page) ||
-            !widget_on(page, EVT_POINTER_UP_BEFORE, pull_event, page))
-            return;
+        const unsigned types[] = { EVT_DESTROY, EVT_WINDOW_BACKGROUND, EVT_WINDOW_CLOSE,
+                                   EVT_POINTER_ABORT, EVT_POINTER_MOVE_BEFORE, EVT_POINTER_UP_BEFORE };
+        for (unsigned i = 0; i < sizeof types / sizeof *types; ++i)
+            if (!widget_on(page, types[i], pull_event, page)) {
+                /* Retry must not duplicate the callbacks already installed. */
+                while (i) widget_off_by_func(page, types[--i], pull_event, page);
+                return;
+            }
         prop(page, PULL_BOUND, 1);
     }
     if (!widget_get_prop_int(w, PULL_BOUND, 0)) {
@@ -2054,34 +2058,39 @@ static void flac_album_artist(const char *path, char *out) {
     const char *ext = strrchr(path, '.');
     if (!ext || strcasecmp(ext, ".flac")) return;
     void *f = fopen(path, "rb");
-    unsigned char h[4], *b = 0;
+    unsigned char h[13];
     if (!f) return;
     if (fread(h, 4, 1, f) == 1 && !memcmp(h, "fLaC", 4))
         while (fread(h, 4, 1, f) == 1) {
-            unsigned len = (unsigned)h[1] << 16 | h[2] << 8 | h[3];
+            unsigned left = (unsigned)h[1] << 16 | h[2] << 8 | h[3], c;
             if ((h[0] & 0x7f) != 4) {
-                if (h[0] & 0x80 || fseek(f, (long)len, 1)) break;
+                if (h[0] & 0x80 || fseek(f, (long)left, 1)) break;
                 continue;
             }
-            if (len < 8 || len > 0x10000 || !(b = calloc(len, 1)) || fread(b, len, 1, f) != 1)
+            /* vendor length and string, the comment count, then each comment's length and bytes,
+             * read a field at a time: a cover kept in the comments can make the block megabytes */
+            if (left < 8 || fread(h, 4, 1, f) != 1 || (c = le32(h)) > left - 8 || fseek(f, (long)c, 1) ||
+                fread(h, 4, 1, f) != 1)
                 break;
-            /* vendor length and string, the comment count, then each comment's length and bytes */
-            unsigned at = le32(b) <= len - 8 ? 8 + le32(b) : len, n = le32(b + at - 4);
-            while (n-- && at <= len - 4) {
-                unsigned c = le32(b + at);
-                at += 4;
-                if (c > len - at) break;
-                if (c > 13 && !strncasecmp((char *)b + at, "ALBUM ARTIST=", 13)) {
-                    c = c - 13 > 0xff ? 0xff : c - 13;
-                    memcpy(out, b + at + 13, c);
-                    out[c] = 0;
-                    break;
+            left -= 8 + c;
+            for (unsigned n = le32(h); n-- && left >= 4 && fread(h, 4, 1, f) == 1;) {
+                c = le32(h);
+                left -= 4;
+                if (c > left) break;
+                left -= c;
+                if (c > 13) {
+                    if (fread(h, 13, 1, f) != 1) break;
+                    if (!strncasecmp((char *)h, "ALBUM ARTIST=", 13)) {
+                        c = c - 13 > 0xff ? 0xff : c - 13;
+                        out[fread(out, c, 1, f) == 1 ? c : 0] = 0;
+                        break;
+                    }
+                    c -= 13;
                 }
-                at += c;
+                if (fseek(f, (long)c, 1)) break;
             }
             break;
         }
-    free(b);
     fclose(f);
 }
 /* toolsGetMusicInfo (the library scan and the player's tag reads): an empty album artist falls back
@@ -3171,7 +3180,7 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
                     }
                     if (sat > disc) sat = disc;
                     if (icon && !disc) continue; /* already grey: keep the disc/glyph contrast */
-                    int ink = (255 - (MINIMAL_CHEVRON & 255)) * sat / disc;
+                    int ink = disc ? (255 - (MINIMAL_CHEVRON & 255)) * sat / disc : 0;
                     p[o[0]] = p[o[1]] = p[o[2]] =
                         (unsigned char)(!icon    ? MINIMAL_CHEVRON & 255
                                         : square ? (MINIMAL_CHEVRON & 255) + ink
@@ -4298,7 +4307,7 @@ void toast(const char *text) {
         int kind, ms;
         char text[0x400];
     } info = { 1, 2000, { 0 } };
-    for (unsigned i = 0; text[i]; ++i) info.text[i] = text[i];
+    for (unsigned i = 0; text[i] && i < sizeof info.text - 1; ++i) info.text[i] = text[i];
     navigator_to_with_context("dialog/msginfo_dialog", &info);
 }
 
@@ -6233,7 +6242,7 @@ static void *logo_sync(void *unused) {
             execl("/usr/bin/ffmpeg", "/usr/bin/ffmpeg", "-nostdin", "-v", "quiet", "-i", LOGO_SRC,
                   "-vf", "transpose=1", "-pix_fmt", "yuvj444p", "-q:v", "2", "-f", "mjpeg", "-y",
                   LOGO_ROT, (char *)0);
-            exit(127);
+            child_exit(127);
         }
         if (pid > 0 && waitpid(pid, &status, 0) == pid && !status) b = logo_read(LOGO_ROT, &n);
         unlink(LOGO_ROT);

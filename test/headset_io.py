@@ -60,7 +60,7 @@ class KernelMachine(Machine):
             self.reads+=1
         elif name=='usleep': self.now+=a//1000
         elif name=='close': self.closed.append(a)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
 for stale in (False,True):
     m=KernelMachine(stale); m.call(address=payload_syms['headset_poll'],args=(0,0,0,0),gap=0)
     assert len(m.started)==1

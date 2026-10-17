@@ -226,6 +226,7 @@ int ringnav_speed(int mode) {
     speed_file(path, saved.folder);
     tk_snprintf(tmp, sizeof tmp, "%s.tmp", path);
     if (!blob_io(path, tmp, &saved, sizeof saved, 1)) {
+        unlink(tmp);
         playback_speed_start();
         toast("Could not save folder speed");
         return stock_speed_trampoline(g_playspeed_mode);
@@ -504,14 +505,21 @@ static void commit(unsigned next) {
     s.resume_key = s.resume_pending = 0;
     if (s.forced && next == s.forced - 1) {
         s.forced = next + 1 < s.force_end ? next + 2 : 0;
-        /* Move the priority occurrence immediately after the cursor, leaving other order intact. */
+        /* Move the priority occurrence immediately after the cursor, leaving other order intact,
+         * even when the order sorted it before the cursor (already marked seen). */
         unsigned i = 0;
         while (i < s.n && s.order[i].index != next) ++i;
-        if (i > s.cursor && i < s.n) {
+        if (i < s.cursor) {
+            entry t = s.order[i];
+            for (; i < s.cursor; ++i) s.order[i] = s.order[i + 1];
+            s.order[i] = t;
+            --s.cursor;
+        } else if (i > s.cursor && i < s.n) {
             entry t = s.order[i];
             for (; i > s.cursor + 1; --i) s.order[i] = s.order[i - 1];
             s.order[i] = t;
         }
+        s.seen[next] = 0;
     }
     unsigned i = s.cursor + 1;
     while (i < s.n && s.order[i].index != next) ++i;
@@ -726,9 +734,14 @@ void playback_insert(unsigned at, unsigned n, int next) {
     for (unsigned i = 0; i < s.hn; ++i)
         if (s.history[i] >= at) s.history[i] += n;
     s.active = rebuild(1);
+    if (s.forced && s.forced - 1 >= at) {
+        s.forced += n;
+        s.force_end += n;
+    }
     if (next) {
+        /* Play Next again before the last one finished: the new tracks, then what is left of it */
+        s.force_end = s.forced == at + n + 1 ? s.force_end : at + n;
         s.forced = at + 1;
-        s.force_end = at + n;
     }
     playback_save();
 }

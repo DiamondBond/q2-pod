@@ -1,8 +1,8 @@
 """Checked Q2 V1.32 PEQ hooks and target ABI imports; no vendor code is distributed."""
 import re
 import struct
-from build import ROOT, FLAGS, GP, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_payload, check, fileoff, run, sha, symbols
-from ipod import jal, patch_word
+from build import ROOT, FLAGS, GP, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_payload, check, fileoff, run, sha, symbols, jal
+from ipod import patch_word
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
@@ -129,6 +129,7 @@ def compile_common(out, binary, player=False, ipod=False):
     return [*objects, obj]
 
 def patch_player(raw, out):
+    check(sha(raw) == PLAYER_SHA, 'Unexpected hciplayer')
     out.mkdir(exist_ok=True)
     binary = out/'stock-hciplayer'
     binary.write_bytes(raw)

@@ -7,7 +7,7 @@ It listens on TCP port 2302 and sends the key and every command **unencrypted**.
 ## Setup
 
 1. Install a `--dev` update on the Q2 and join it to the same Wi-Fi network as your PC.
-2. Put a key on the card: 16-127 characters from `A-Z a-z 0-9 _ -`, one line. With the Q2 connected over USB storage:
+2. Put a key on the card: 16-126 characters from `A-Z a-z 0-9 _ -`, one line. With the Q2 connected over USB storage:
 
    ```sh
    openssl rand -hex 16 > /run/media/$USER/<card>/q2remote.key

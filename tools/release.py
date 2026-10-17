@@ -62,7 +62,8 @@ def validate(directory, variant):
             data = t.extractfile(name).read()
             check(line.split() == [hashlib.md5(data).hexdigest(), name] and sha(data) == m[key], 'Update payload mismatch')
     for test, *args in (('peq',), ('build', '--build', directory), ('patch', directory),
-                        ('playback', directory), ('m4b', directory), ('ldac', directory)):
+                        ('playback', directory), ('m4b', directory), ('ldac', directory),
+                        ('id3', directory), ('headset_io', directory), ('bluealsa', directory)):
         subprocess.run([sys.executable, ROOT/f'test/{test}.py', *map(str, args)], check=True)
 
 
@@ -79,6 +80,8 @@ def archive_bytes(directory):
 
 def package(stock, out):
     check(not out.exists(), 'Release output must be a fresh directory')
+    check(not run('git', '-C', ROOT, 'status', '--porcelain', '--', 'patch', 'tools', 'assets', 'docs', 'test', 'requirements.txt').strip(),
+          'Commit the build inputs before packaging')
     out.mkdir(parents=True)
     source = source_sha256()
     revision = run('git', '-C', ROOT, 'rev-parse', 'HEAD').strip()

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Host transport and pure q2remote protocol checks."""
 import os
+import contextlib
+import io
 import pathlib
 import socket
 import struct
@@ -85,6 +87,14 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         os.environ.update(Q2_HOST="127.0.0.1", Q2_KEY="0123456789abcdef")
         assert q.shell("cat", b"\x00binary\xff") == b"\x00binary\xff"
         for _ in range(3): assert q.shell("printf repeated") == b"repeated"
+        # The CLI transports long/multiline scripts without sharing script text as command stdin.
+        for command, expected in (("printf first; read x; printf done", b"firstdone"),
+                                  ("read x\nprintf done", b"done"),
+                                  ("#" + "x" * 5000 + "\nprintf long", b"long")):
+            output = io.TextIOWrapper(io.BytesIO())
+            with contextlib.redirect_stdout(output): assert q.main(["sh", command]) == 0
+            assert output.buffer.getvalue() == expected
+
         os.environ["Q2_KEY"] = "ffffffffffffffff"
         try: q.shell("printf should-not-run")
         except PermissionError: pass
@@ -106,14 +116,18 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         try: q.shell("printf removed")
         except PermissionError: pass
         else: raise AssertionError("missing key accepted")
-        # Partial and malformed request lines are rejected without running the command.
+        keyfile.write_text("fedcba9876543210\n")
+        # Partial and malformed request lines are rejected without running the command; split reads still work.
         with socket.create_connection(("127.0.0.1", port), 2) as s:
             s.sendall(b"fedcba98")
         with socket.create_connection(("127.0.0.1", port), 2) as s:
             for part in (b"fedcba98", b"76543210\n", b"\n"):
                 s.sendall(part); time.sleep(.01)
             assert s.recv(16) == b"ERR\n"
-        keyfile.write_text("fedcba9876543210\n")
+        with socket.create_connection(("127.0.0.1", port), 2) as s:
+            for part in (b"fedcba98", b"76543210\n", b"true\n"):
+                s.sendall(part); time.sleep(.01)
+            assert s.recv(16).startswith(b"OK\n")
         # Shared over USB storage the card is unmounted: the last key read from it still works, until
         # the card is back without its key.
         assert q.shell("printf cached") == b"cached" and cache.read_text() == "fedcba9876543210\n"

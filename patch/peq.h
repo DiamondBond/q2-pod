@@ -13,9 +13,11 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
+#define child_exit _exit
 #else
 #include "peq_platform.h"
 #define PEQ_ROOT "" /* host tests pass a scratch directory */
+void child_exit(int status) __attribute__((noreturn));
 #endif
 
 #define PEQ_BANDS 30 /* 10 per side plus 10 shared, as L/R APO files use */
@@ -65,7 +67,7 @@ void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p);
 int peq_update(peq_dsp *d, const peq_preset *p);
 void peq_process(peq_dsp *d, float *audio, unsigned frames);
 
-/* The visualizer's PCM tap (docs/internals.md#visualizer): hciplayer's filter writes what plays, its
+/* The visualizer's PCM tap (docs/internals.md#visualizer-ipod): hciplayer's filter writes what plays, its
  * first two channels and above 48 kHz every rate / 44100th frame, to ring[seq % VIS_RING], then sets
  * rate (of the ring), stamp (CLOCK_MONOTONIC ns of that write) and seq, the frames written. demo
  * creates the file, sized, under another name and renames it, so it never maps a short one, and bumps

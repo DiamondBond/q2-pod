@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import io, sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
-from build import CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
+from build import jal, j, CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -99,10 +99,29 @@ def logo_check():
     print('Boot logo: the saved card logo, else the built-in splash, passed.')
 logo_check()
 
+def preview_cache_check():
+    """Different builds with the same basename must not share cached preview assets."""
+    import pathlib, subprocess, tempfile
+    with tempfile.TemporaryDirectory(prefix='q2-preview-cache-') as tmp:
+        tmp = pathlib.Path(tmp)
+        builds = []
+        for side in ('before', 'after'):
+            source = tmp/side/'assets'
+            font = source/'release/assets/default/raw/fonts/default.ttf'
+            font.parent.mkdir(parents=True); font.write_text(side)
+            build = tmp/side/'build'; build.mkdir(); builds.append(str(build))
+            subprocess.run(['mksquashfs', str(source), str(build/'rootfs.squashfs'),
+                            '-noappend', '-no-progress', '-processors', '1'], check=True, stdout=subprocess.DEVNULL)
+        result = subprocess.run([sys.executable, str(ROOT/'test/ui_preview.py'), *builds, str(tmp/'out')],
+                                capture_output=True, text=True)
+        assert result.returncode and 'AssertionError: Build fonts differ' in result.stderr, result.stderr
+    print('Preview cache: same-basename builds keep separate assets.')
+preview_cache_check()
+
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, RTC_WRITE, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_TS_READ, PDR
-    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CHEVRON_W, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
+    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
@@ -138,11 +157,11 @@ def validate_assets(directory):
     for address, name in [*(h[:2] for h in IPOD_HOOKS.values()), IPOD_LEAF[1:3]]:
         off = fileoff(stock, address)
         want = stock[off:off+8]
-        if ipod: want = (0x08000000 | symbols(directory/'patch.elf')[name] >> 2).to_bytes(4, 'little') + bytes(4)
+        if ipod: want = j(symbols(directory/'patch.elf')[name]).to_bytes(4, 'little') + bytes(4)
         assert demo[off:off+8] == want
     # Both jump from window_manager_paint (Videos).
     off = fileoff(stock, WM_PAINT_LEAF[1])
-    assert demo[off:off+8] == (0x08000000 | symbols(directory/'patch.elf')[WM_PAINT_LEAF[2]] >> 2).to_bytes(4, 'little') + bytes(4)
+    assert demo[off:off+8] == j(symbols(directory/'patch.elf')[WM_PAINT_LEAF[2]]).to_bytes(4, 'little') + bytes(4)
     from build import AUDIO_EXTENSION_CALLS
     for entry, address in zip(manifest['audio_extension_calls'], AUDIO_EXTENSION_CALLS, strict=True):
         off = fileoff(stock, address)
@@ -274,7 +293,7 @@ def validate_assets(directory):
     # The encoder thread's ts_read call goes through ringnav_ts_read (playback.c wheel_sample).
     off = fileoff(stock, WHEEL_TS_READ[0])
     assert struct.unpack_from('<I', stock, off)[0] == WHEEL_TS_READ[1]
-    assert struct.unpack_from('<I', demo, off)[0] == 0x0c000000 | symbols(directory/'patch.elf')['ringnav_ts_read'] >> 2
+    assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')['ringnav_ts_read'])
     # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop, the 48 kHz EQ gates
     # and the ID3v2 walker calls, now id3_gain (MP3 ReplayGain).
     from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS
@@ -285,7 +304,7 @@ def validate_assets(directory):
     assert set(differ) <= {*range(off, off+4), *(i for g in gates for i in range(g, g+4))} and not any(new[off:off+4])
     assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in EQ_RATE_GATES] == [p for _, _, p in EQ_RATE_GATES]
     id3_gain = symbols(directory/'peq'/'peq.elf')['id3_gain']
-    assert {struct.unpack_from('<I', new, fileoff(old, a))[0] for a in ID3_CALLS} == {0x0c000000 | id3_gain >> 2}
+    assert {struct.unpack_from('<I', new, fileoff(old, a))[0] for a in ID3_CALLS} == {jal(id3_gain)}
     # Include every excluded UI screen and saved-preference defaults in byte parity checks.
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
@@ -485,8 +504,8 @@ def validate_assets(directory):
             # Full's last chevron leaves the same glass clearance as the label on the left.
             # Split's glyph ends 13px before the art, as in the Home concept.
             assert inc('HOME_SPLIT_W') == 375 // 2
-            assert CHEVRON_W - 30 - inc('HOME_CHEVRON_SHIFT') == 13
-            glyph_end = inc('HOME_CLASSIC_ROW') - CHEVRON_W + 30 + inc('HOME_FULL_CHEVRON_SHIFT')
+            assert inc('CHEVRON_W') - 30 - inc('HOME_CHEVRON_SHIFT') == 13
+            glyph_end = inc('HOME_CLASSIC_ROW') - inc('CHEVRON_W') + 30 + inc('HOME_FULL_CHEVRON_SHIFT')
             glyph_y = 30 + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
             assert 375 - glyph_end >= corner_x(glyph_y, 34 - 16)
             assert inc('HOME_CLASSIC_TEXT_X') >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)

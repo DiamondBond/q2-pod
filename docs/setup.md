@@ -23,13 +23,13 @@ For a brand new Q2. You need the Q2, its microSD card, a computer and internet.
 
 ## How to use it
 
-- **Want Q2 Pod instead of Rockbox?** Hold Play/Pause while turning the Q2 on. It only lasts that time; the next start is Rockbox. To always start Q2 Pod, set **System settings → Boot to: Q2-Pod**.
+- **Want Q2 Pod instead of Rockbox?** Hold Play/Pause while turning the Q2 on. It only lasts that time; the next start is Rockbox. To always start Q2 Pod, set **System settings → Boot to: Q2 Pod**.
 - **To copy music over USB:** turn on with Play/Pause held, plug in, drag your files over.
 - **No card in it?** It starts Q2 Pod.
 - **Bluetooth headphones with Rockbox:** shut Rockbox down (it goes to Q2 Pod), turn on Bluetooth and connect your headphones, and pick **Rockbox** on the Home menu (above Streaming). Rockbox starts and plays through the headphones. When it shuts down, you are back in Q2 Pod.
 
 ## If something goes wrong
 
-- **Rockbox is stuck:** hold Return while turning the Q2 on. It goes to Q2 Pod.
+- **Rockbox is stuck:** hold Play/Pause while turning the Q2 on. It goes to Q2 Pod.
 - **Rockbox does not start:** the card must be exFAT or FAT32, and the `.rockbox` folder must be in the card's main folder.
 - **Want the normal Shanling player back:** flash Shanling's stock V1.32 file the same way as step 1.

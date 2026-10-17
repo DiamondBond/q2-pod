@@ -3,10 +3,11 @@
 Requires unicorn==2.1.4. Does not emulate the entire device or flash hardware.
 """
 import json, math, pathlib, re, sqlite3, struct, sys
-from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK
+from functools import cmp_to_key
+from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN, UC_HOOK_CODE, UC_HOOK_BLOCK, UC_HOOK_INTR
 from unicorn.mips_const import *
 sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first
-from build import segments, load_elf, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION, dev_tag
+from build import jal, j, segments, load_elf, symbols, BASE, SCRATCH, HOOKS, IPOD_HOOKS, WM_PAINT_LEAF, FUNCTIONS, GLOBALS, CONTEXT_DATA, ROOT, source_sha256, sha, PRIVATE_FUNCTIONS, VERSIONS, VERSION, dev_tag
 B=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'build')
 payload_syms=symbols(B/'patch.elf')
 manifest=json.loads((B/'manifest.json').read_text())
@@ -327,7 +328,11 @@ class Machine:
             ret=0 if self.text(b)=='text' else self.string(n.get(self.text(b),''))
         elif name=='widget_get_text': ret=self.wide_string(n.get('text',''))
         elif name=='player_playtime_and_length' and hasattr(self,'playtime'): self.word(a,self.playtime); self.word(b,225); ret=0
-        elif name=='widget_get_text_utf8': self.u.mem_write(b,n.get('text','').encode()[:c-1]+b'\0'); ret=0
+        elif name=='widget_get_text_utf8':
+            text=n.get('text','').encode()
+            self.u.mem_write(b,bytes(c))  # stock's wide-string conversion writes nothing unless all bytes fit
+            if len(text)<c: self.u.mem_write(b,text+b'\0')
+            ret=0
         elif name in ('widget_get_prop_bool','widget_get_prop_int'): ret=n.get(self.text(b),c)
         elif name=='mclGetLyricSize': ret=getattr(self,'lyric_size',0)
         elif name=='widget_count_children': ret=len(n['children'])
@@ -460,13 +465,28 @@ class Machine:
             else:
                 self.allocs.pop(a,None); ret=0
         else: ret=0
-        # Clobber caller-saved registers to catch accidental ABI assumptions.
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T0,UC_MIPS_REG_T1,UC_MIPS_REG_T2,
-                  UC_MIPS_REG_T3,UC_MIPS_REG_T4,UC_MIPS_REG_T5,UC_MIPS_REG_T6,
-                  UC_MIPS_REG_T7,UC_MIPS_REG_T8,UC_MIPS_REG_T9]:
-            u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff)
-        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
+    def nested(self,f,*args):
+        """Run guest f(*args) from inside a mock, on a stack below the caller's, and keep the caller's registers."""
+        regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[self.u.reg_read(r) for r in regs]
+        for r,v in ((UC_MIPS_REG_SP,self.u.reg_read(UC_MIPS_REG_SP)-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,f),*zip(REGS,args)):
+            self.u.reg_write(r,v)
+        self.u.emu_start(f,0x1000000,count=self.budget); ret=signed(self.u.reg_read(UC_MIPS_REG_V0))
+        for r,v in zip(regs,saved): self.u.reg_write(r,v)
+        return ret
+    def qsort(self,base,n,size,compare):
+        pair=self.alloc(2*size)
+        def cmp(x,y): self.u.mem_write(pair,x); self.u.mem_write(pair+size,y); return self.nested(compare,pair,pair+size)
+        for i,v in enumerate(sorted([bytes(self.u.mem_read(base+size*i,size)) for i in range(n)],key=cmp_to_key(cmp))): self.u.mem_write(base+size*i,v)
+    def returns(self,ret,clobber=False):
+        """Return ret from a mocked call; clobber caller-saved registers to catch accidental ABI assumptions."""
+        if clobber:
+            for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T0,UC_MIPS_REG_T1,UC_MIPS_REG_T2,
+                      UC_MIPS_REG_T3,UC_MIPS_REG_T4,UC_MIPS_REG_T5,UC_MIPS_REG_T6,
+                      UC_MIPS_REG_T7,UC_MIPS_REG_T8,UC_MIPS_REG_T9]:
+                self.u.reg_write(r,0xdeadbeef)
+        self.u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff)
+        self.u.reg_write(UC_MIPS_REG_PC,self.u.reg_read(UC_MIPS_REG_RA))
     def fast(self):
         """Hook stock code and the payload's trampolines only, so the payload's own loops (the
         Coverflow renderer) run at native emulator speed."""
@@ -577,6 +597,15 @@ checks=0
 def passed():
     global checks
     checks+=1
+
+# The failed-exec path exits through the kernel, without libc's copied buffers or handlers.
+m=Machine(); exited=[]
+def child_syscall(u,number,unused):
+    exited.append((u.reg_read(UC_MIPS_REG_V0),u.reg_read(UC_MIPS_REG_A0)))
+    u.reg_write(UC_MIPS_REG_PC,0x1000000)
+m.u.hook_add(UC_HOOK_INTR,child_syscall)
+m.call(address=payload_syms['child_exit'],args=(127,0,0,0),gap=0)
+assert exited==[(4001,127)];passed()
 
 # Execute the stock offset setter after cancelling an animator headed to either boundary.
 # Cover selected rows and the pixel-scroll fallback.
@@ -2572,7 +2601,7 @@ class NavigationMachine(Machine):
         elif name=='0x6885c0': ret=1  # stock no-window-animation completion branch
         elif name=='0x6861d4':ret=self.top
         elif name=='access@GLIBC_2.0':ret=-1
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
 
 if variant=='ipod':
     for existing in (False,True):
@@ -2604,6 +2633,13 @@ if variant=='ipod':
 
 # Pull-to-search observes the page's native before-children callbacks and stock dispatch.
 class PullMachine(Machine):
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,''); a,b,c,d=[u.reg_read(r) for r in REGS]
+        if name=='widget_on' and b==getattr(self,'pull_bind_fail',None):
+            self.returns(0); return
+        if name=='widget_off_by_func':
+            self.nodes[a]['handlers']=[h for h in self.nodes[a].get('handlers',[]) if h!=(b,c,d)]
+        return super().hook(u,address,size,unused)
     def child(self,page,name):
         def walk(w):
             if self.nodes[w]['name']==name:return w
@@ -2674,6 +2710,19 @@ for page_name in ('folder_page','localmusic_page','allmusic_page','radio_page'):
             assert not m.prompt(page)['visible']
             passed()
 
+# A failed registration leaves no partial page callbacks; retry binds each event once.
+for fail in ('EVT_WINDOW_BACKGROUND','EVT_POINTER_UP_BEFORE'):
+    m=PullMachine();m.handlers[payload_syms['radio_search']]='stock_radio_search'
+    w,es=m.page_list(5,name='radio_page');page=m.top
+    before=list(m.nodes[page].get('handlers',[]));m.pull_bind_fail=O[fail]
+    m.start_pull(page,w)
+    assert m.nodes[page].get('handlers',[])==before and not m.nodes[page].get('_pull_bound',0)
+    m.pull_bind_fail=None;m.start_pull(page,w)
+    handlers=m.nodes[page]['handlers'];assert len(handlers)==len(before)+6 and len(handlers)==len(set(handlers))
+    m.emit(page,O['EVT_POINTER_MOVE_BEFORE'],y=120);m.emit(page,O['EVT_POINTER_UP_BEFORE'],y=120)
+    assert len([c for c in m.calls if c[0]=='stock_radio_search'])==1
+    passed()
+
 if variant=='ipod':
     # Local Songs' virtual table keeps its rows and top offset across a search.
     m=PullMachine();w,rows,es=m.table_page(name='localmusic_page');page=m.top
@@ -2728,7 +2777,7 @@ class PullDispatchMachine(PullMachine):
             if matches:
                 cb,ctx=matches[0];u.reg_write(UC_MIPS_REG_A0,ctx)
                 u.reg_write(UC_MIPS_REG_T9,cb);u.reg_write(UC_MIPS_REG_PC,cb);return
-        u.reg_write(UC_MIPS_REG_V0,0);u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(0)
 
 if variant=='ipod':
     for distance in (7,48):
@@ -2888,8 +2937,7 @@ class QueueMachine(Machine):
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=3
             if name=='getMusicByAlbum' and a:  # songs of that album name
                 for e in self.items(self.get(syms['tools_pdeq_directory'])): self.word(e+O['REC_ALBUM'],a)
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def press(self,t):
         self.word(self.status+O['INPUT_KEYS'],O['KEY_PLAY']); self.word(self.status+O['INPUT_KEYS']+O['INPUT_KEY_TIME'],t)
     def hold(self):
@@ -2957,8 +3005,7 @@ class LookupMachine(QueueMachine):
             assert self.text(b)==f'Row {self.selected}'
             self.deqs[a][1]=[self.copy('stSongInfo',e) for e in self.items(self.get(syms['p_deque_showlist']))]
             ret=self.selected
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
 
 for callback,button,pages in (
     (0x4ad0b4,'track', ['artistinfo_page']),
@@ -3043,7 +3090,7 @@ class PlayingPlaylistMachine(QueueMachine):
     def hook(self,u,address,size,unused):
         if address==self.STOCK_PICK:
             self.added.append(self.names()[1])
-            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0); return
         opening=self.handlers.get(address)=='q:navigator_to_with_context' and self.text(u.reg_read(UC_MIPS_REG_A0))=='localmusic/playlist_page'
         super().hook(u,address,size,unused)
         if opening:
@@ -3110,7 +3157,7 @@ class PlaylistMachine(PlayingPlaylistMachine):
             else:
                 assert self.text(a)=='dialog/addplaylist_dialog'
                 ret=0
-            u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(ret); return
         if name=='widget_off_by_func':
             self.nodes[a]['handlers']=[h for h in self.nodes[a].get('handlers',[]) if h!=(b,c,d)]
         super().hook(u,address,size,unused)
@@ -3265,7 +3312,7 @@ for row,pos,closed in ((0,0,True),(1,0,False),(1,2,True)):
     passed()
 # Shuffle: the patched mclNextSong call runs the stock pick, then plays the Play next track once.
 demo=(B/'demo').read_bytes()
-assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_shuffle']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,SHUFFLE_CALL[0]))[0]==jal(payload_syms['ringnav_shuffle'])
 m=QueueMachine(mode=2); m.run(0,steps=5); assert m.names()==['A','Row 5','B','C']
 # LDAC: stock switchBtPriority sends quality 0x16 for both HQ and Standard; patched HQ sends 0x15.
 for patched,want in ((True,(0x15,0x16,0x18)),(False,(0x16,0x16,0x18))):
@@ -3295,8 +3342,7 @@ class BtVolumeMachine(Machine):
         else:
             ret=self.write_result
             if ret==0: self.absolute=a
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff)
-        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
     def volume(self,left,right):
         self.call(address=HOOKS['mclSetBtVol'][0],args=(left,right,0,0),gap=0)
         return [(signed(c[1]),signed(c[2])) for c in self.calls if c[0]=='stock_btvol']
@@ -3378,7 +3424,7 @@ passed()
 # Update Local Music: the stock scanner, nested folders and all, checks ringnav_scan_room (65,000
 # songs; stock 20,000) before each entry. Only the folder listing, paths and database insert are mocked.
 from build import SCAN_LIMIT
-assert struct.unpack_from('<2I',demo,fileoff(demo,SCAN_LIMIT[0]))==(0x0c000000|payload_syms['ringnav_scan_room']>>2,SCAN_LIMIT[3])
+assert struct.unpack_from('<2I',demo,fileoff(demo,SCAN_LIMIT[0]))==(jal(payload_syms['ringnav_scan_room']),SCAN_LIMIT[3])
 SONGS,STOP,LISTING=0xa3c354,0xa3c358,0xa3bf48  # toolsGetMusicNum's count, toolsStopUpdateMusic's flag, the listing deque
 class ScanMachine(Machine):
     def __init__(self,tree,songs,patched=True,stop_at=None):
@@ -3402,7 +3448,7 @@ class ScanMachine(Machine):
         elif name=='insert':
             self.added.append(f'{self.path}/{self.text(self.get(a+O["REC_NAME"]))}'); self.word(SONGS,self.get(SONGS)+1)
             if len(self.added)==self.stop_at: self.byte(STOP,1)  # Back on the Update Local Music dialog
-        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
 def scan(songs,tree={'/m':['a']},**kw):
     """(return, songs added, stop flag, count): 1 finished, 0 stopped."""
     m=ScanMachine(tree,songs,**kw)
@@ -3419,7 +3465,7 @@ assert scan(0,{'/m':['a','b','c']},stop_at=1)==(0,['/m/a'],1,1); passed()
 # A folder rescan refreshes existing tags in place, including quoted paths/tags and CUE rows.
 # Run the actual recursive scanner and refresh wrapper against SQLite; full scans still add songs.
 from build import SCAN_REFRESH
-assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_REFRESH[0]))[0]==0x0c000000|payload_syms['ringnav_scan_refresh']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_REFRESH[0]))[0]==jal(payload_syms['ringnav_scan_refresh'])
 class FolderTagsMachine(ScanMachine):
     def __init__(self,patched=True,cue=False,valid=True,songs=1,title="New artist's tags"):
         super().__init__({'/m':["it's.flac"]},songs,patched=patched)
@@ -3456,7 +3502,7 @@ class FolderTagsMachine(ScanMachine):
             elif name=='toolsUpdateDbTable':
                 assert self.text(a)=='/mnt/data/database.db'; self.updates.append(self.text(b)); self.db.execute(self.text(b)); ret=1
         else: return super().hook(u,address,size,unused)
-        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
     def rescan(self):
         return self.call(address=syms['toolsLoadAllFile'],args=(self.string('/m'),self.string('songtable'),1,0),gap=0)
 for patched in (False,True):
@@ -3479,17 +3525,16 @@ passed()
 # Library Artists rows hide the head picture (CLASS_ICON); Composers and Genres, sharing the rebound
 # rows, show theirs again through stock's setter.
 from build import CLASS_ICON
-assert struct.unpack_from('<I',demo,fileoff(demo,CLASS_ICON))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_class_icon']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,CLASS_ICON))[0]==jal(payload_syms['ringnav_class_icon'])
 m=Machine(); m.mock('class_icon'); icon=m.node('image','img_icon'); row=m.node('view','',[icon])
 for cls,shown in ((0xf004,0),(0xf006,1),(0xf005,1),(0xf004,0)):
     m.word(syms['g_class_type'],cls); m.calls=[]
-    m.call(address=symbols(B/'patch.elf')['ringnav_class_icon'],args=(row,3,0,0),gap=0)
+    m.call(address=payload_syms['ringnav_class_icon'],args=(row,3,0,0),gap=0)
     assert m.nodes[icon]['visible']==shown and [c[1:3] for c in m.calls if c[0]=='class_icon']==([(row,3)] if shown else [])
 passed()
 # Library sorts: both stock name comparators, on the patched trim calls, skip a leading article.
 from build import SORT_TRIMS
-from functools import cmp_to_key
-for a in SORT_TRIMS: assert struct.unpack_from('<I',demo,fileoff(demo,a))[0]==0x0c000000|symbols(B/'patch.elf')['ringnav_sort_key']>>2
+for a in SORT_TRIMS: assert struct.unpack_from('<I',demo,fileoff(demo,a))[0]==jal(payload_syms['ringnav_sort_key'])
 class SortMachine(Machine):
     def __init__(self):
         super().__init__(); self.handlers.pop(syms['toolsTrimLeft']); self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0')
@@ -3509,7 +3554,7 @@ class SortMachine(Machine):
         elif name=='atoi': ret=int(re.match(rb'\d*',s(a))[0] or 0)
         elif name=='strncpy': u.mem_write(a,s(b,c).ljust(c,b'\0')); ret=a
         else: x,y=(s(a,c),s(b,c)) if name=='strncmp' else (s(a),s(b)); x,y=(x.lower(),y.lower()) if name=='strcasecmp' else (x,y); ret=(x>y)-(x<y)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
 m=SortMachine()
 def sort_rec(name):
     r=m.alloc(0x60); m.word(r+0x10,m.string(name)); m.word(r+8,m.string(name+'.flac')); return r
@@ -3523,14 +3568,14 @@ names=['Daft Punk','The Cure','Coldplay','Them Crooked Vultures','A Tribe Called
 for cmp in (0x5ba658,0x5b9d40):
     assert ordered(names,cmp)==['Anthrax','Coldplay','The Cure','Daft Punk','an Orchestra','The','Them Crooked Vultures','Toto','A Tribe Called Quest'],ordered(names,cmp)
     passed()
-key=lambda t: (m.u.mem_write(0x1100000,t.encode()+b'\0'), m.call(address=symbols(B/'patch.elf')['ringnav_sort_key'],args=(0x1100000,0,0,0),gap=0), m.text(0x1100000))[2]
+key=lambda t: (m.u.mem_write(0x1100000,t.encode()+b'\0'), m.call(address=payload_syms['ringnav_sort_key'],args=(0x1100000,0,0,0),gap=0), m.text(0x1100000))[2]
 assert [key(t) for t in ('  The Cure','THE CURE','The ','The  Cure','A','An ','Ant','周杰伦','The 周杰伦')]==['Cure','CURE','The ','The  Cure','A','An ','Ant','周杰伦','周杰伦']; passed()
 # iPod boots to Home: home_page_init's memory-play resume, run from its stock context build, starts
 # the restored queue paused (mode 3) through player_start as playing_page_init would, and opens no
 # page; a 0xff class starts nothing, as the page's init. Car mode (mode 2) opens Now Playing as stock.
 if variant=='ipod':
-    boot=symbols(B/'patch.elf')['ringnav_boot']
-    assert struct.unpack_from('<I',demo,fileoff(demo,0x523de0))[0]==0x0c000000|boot>>2
+    boot=payload_syms['ringnav_boot']
+    assert struct.unpack_from('<I',demo,fileoff(demo,0x523de0))[0]==jal(boot)
     for car,cls,want in ((0,1,[(0x5550,4,1,3)]),(0,0xff,[]),(1,0xf003,[])):
         m=Machine(); m.word(syms['g_memory_info'],cls); m.byte(syms['g_carmode'],car)
         m.u.reg_write(UC_MIPS_REG_GP,0xa26cc0); m.u.reg_write(UC_MIPS_REG_SP,0x7000f000)
@@ -3566,16 +3611,14 @@ class ClassMachine(QueueMachine):
     def hook(self,u,address,size,unused):
         if address==syms['toolsQueryDbTable']:
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.split]
-            u.reg_write(UC_MIPS_REG_V0,len(self.split)); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(len(self.split)); return
         libc={syms['strdup@GLIBC_2.0']:'strdup',0x1000010:'free'}
         if address in libc:  # the untagged rows' titles (ringnav_localclass)
-            a=u.reg_read(REGS[0]); u.reg_write(UC_MIPS_REG_V0,self.string(self.text(a)) if libc[address]=='strdup' else 0)
-            u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            a=u.reg_read(REGS[0]); self.returns(self.string(self.text(a)) if libc[address]=='strdup' else 0); return
         if address!=self.tramp: return super().hook(u,address,size,unused)
         self.calls.append(('stock_localclass',u.reg_read(REGS[0]),0,0))
         assert self.get(payload_syms['library_music']) == int(u.reg_read(REGS[0]) in (0xf003,0xf004))
-        u.reg_write(UC_MIPS_REG_V0,len(self.items(self.get(syms['p_deque_showlist']))))
-        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(len(self.items(self.get(syms['p_deque_showlist']))))
 def unknown(cls,found,last=-1,artist=0,rows=3):
     m=ClassMachine(page='localclass_page',cls=0xf001,rows=rows); m.found=[m.song('T1')]*found; m.query=None
     m.word(syms['artist_type'],artist); m.word(syms['g_artist_type'],1-artist)
@@ -3638,14 +3681,14 @@ class LibraryQueryMachine(Machine):
         if address in (syms['strcpy@GLIBC_2.0'],syms['sprintf@GLIBC_2.0']):  # getAlbumByAlbumArtist's SQL: %s only
             a,b,*v=[u.reg_read(r) for r in REGS]; v=iter(v)
             u.mem_write(a,re.sub('%s',lambda _:self.text(next(v)),self.text(b)).encode()+b'\0')
-            u.reg_write(UC_MIPS_REG_V0,a); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(a); return
         if address not in self.tramps: return super().hook(u,address,size,unused)
         a,b,c,d=[u.reg_read(r) for r in REGS]; self.sql=self.text(b)
         if self.tramps[address]=='content_query': self.content=(c,self.text(d),self.get(u.reg_read(UC_MIPS_REG_SP)+16))
         else: assert self.text(a)=='/mnt/data/database.db' and (c,d)==(123,1)
         self.results=self.db.execute(self.sql).fetchall()
         if self.tramps[address]=='content_query': raise QueryDone  # stock's row handling after it isn't emulated
-        u.reg_write(UC_MIPS_REG_V0,len(self.results)); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(len(self.results))
 lm=LibraryQueryMachine(); AA="ifnull(nullif(albumsonger,''),songer)"
 for query in ('select id,songer from songtable group by songer COLLATE NOCASE',
               'select id,albumsonger from songtable group by albumsonger COLLATE NOCASE',
@@ -3685,7 +3728,7 @@ lm.db.close(); passed()
 # Their stock art cache names (/mnt/mmc/.sldp/<md5>0.jpg): a shared name adds the album artist,
 # a name alone stays; the album page's big cover follows its row's cover task name.
 for e in m.items(m.get(syms['p_deque_showlist']))[:2]: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
-art=symbols(B/'patch.elf'); buf=m.alloc(0x100)
+art=payload_syms; buf=m.alloc(0x100)
 keys=['Album\x1fBaroness','Album\x1fSTP','Other']
 for i,want in enumerate(keys):
     m.call(address=art['ringnav_art_name'],args=(buf,0x100,i,0),gap=0); assert m.text(buf)==want
@@ -3709,11 +3752,10 @@ class ArtistMachine(ClassMachine):
                 self.word(c+4,self.string(self.text(self.get(r+O['REC_ALBUM']))))
                 self.word(c+8,self.get(r+O['REC_PATH'])); covers.append(c)
             self.word(syms['pdeq_albumcoverlist'],self.deque(covers))
-            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0); return
         a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); libc={syms[n+'@GLIBC_2.0']:n for n in ('calloc','strdup')}|{0x1000010:'free'}
         if address not in libc: return super().hook(u,address,size,unused)
-        u.reg_write(UC_MIPS_REG_V0,{'calloc':lambda:self.alloc((a*b+7)&~3),'strdup':lambda:self.string(self.text(a)),'free':lambda:0}[libc[address]]())
-        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns({'calloc':lambda:self.alloc((a*b+7)&~3),'strdup':lambda:self.string(self.text(a)),'free':lambda:0}[libc[address]]())
 for path,artist,want in (('/p/x','Artist','Album\x1fBaroness'),('/z/x','STP','Album\x1fSTP'),('/z/x','Artist','Album')):
     m=ArtistMachine(page='localclass_page',cls=0xff01,rows=2); m.word(m.row(1)+O['REC_ALBUM'],m.string('Other'))
     m.word(m.row(0)+O['REC_PATH'],m.string(path)); m.word(m.row(0)+O['REC_ARTIST'],m.string(artist))
@@ -3758,7 +3800,7 @@ class ArtistCoverflow(ArtistMachine):
     def shown(self): return self.u.mem_read(self.top+0x34,1)[0]==0xff and self.nodes[self.top]['anim_hint']==SLIDE_HINT
     def hook(self,u,address,size,unused):
         if address!=payload_syms['coverflow_artist']: return super().hook(u,address,size,unused)
-        self.handed.append(len(self.items(u.reg_read(REGS[0])))); self.covers=self.names(u.reg_read(REGS[0])); u.reg_write(UC_MIPS_REG_V0,1); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.handed.append(len(self.items(u.reg_read(REGS[0])))); self.covers=self.names(u.reg_read(REGS[0])); self.returns(1)
 for on,tab,page,want in ((1,1,'artistinfo_page',[1]),(2,1,'artistinfo_page',[1]),(0,1,'artistinfo_page',[]),(1,0,'artistinfo_page',[]),(1,1,'localclass_page',[])):
     m=ArtistCoverflow(page='localclass_page',cls=0xff01,rows=2); m.handed=[]
     m.word(m.row(1)+O['REC_ALBUM'],m.string('Other album'))
@@ -3814,8 +3856,7 @@ class CoverQueueMachine(ArtistMachine):
         else:
             p=u.reg_read(REGS[1])
             self.pending.append(tuple(self.get(p+i) for i in (0,4,8)))
-        u.reg_write(UC_MIPS_REG_V0,0)
-        u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(0)
 m=CoverQueueMachine()
 def cover_requests(start,big):
     name='local_albumcover_task' if big else 'local_albumsmallcover_task'
@@ -3874,7 +3915,7 @@ passed()
 class ScrollEndMachine(CoverQueueMachine):
     def hook(self,u,address,size,unused):
         if address!=syms['toolsGetSysMemFree']: return super().hook(u,address,size,unused)
-        u.reg_write(UC_MIPS_REG_V0,1<<20); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(1<<20)
 m=ScrollEndMachine(); m.mock('widget_lookup','widget_get_prop_int')
 for pause in (0x4aab40,0x4a22b0):  # an artist's albums, Library Albums
     m.word(syms['albumcover_taskstate'],1)
@@ -3903,7 +3944,7 @@ if variant=='ipod': cards=cards[3][0]  # its scroll_view of rows
 cards=[c[2]['name'] for c in cards[3]]
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
-assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==0x08000000|symbols(B/'patch.elf')['coverflow_home']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==j(payload_syms['coverflow_home'])
 passed()
 def asset_tree(m,path):
     """A built UI asset as mock widgets, the window's parent the window manager, with what the payload
@@ -4210,22 +4251,14 @@ class CoverflowMachine(QueueMachine):
             rows=self.albums if 'fileurl not like' in self.text(b) else []
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in rows]
             ret=len(rows)
-        elif name=='qsort':  # sorted by the payload's comparator, run nested on a stack below this one
-            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[u.reg_read(r) for r in regs]; pair=self.alloc(2*c)
-            def compare(x,y):
-                self.u.mem_write(pair,x); self.u.mem_write(pair+c,y)
-                for r,v in ((UC_MIPS_REG_SP,sp-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,d),(REGS[0],pair),(REGS[1],pair+c)): u.reg_write(r,v)
-                u.emu_start(d,0x1000000,count=self.budget); return signed(u.reg_read(UC_MIPS_REG_V0))
-            for i,v in enumerate(sorted([bytes(u.mem_read(a+c*i,c)) for i in range(b)],key=cmp_to_key(compare))): u.mem_write(a+c*i,v)
-            for r,v in zip(regs,saved): u.reg_write(r,v)
+        elif name=='qsort': self.qsort(a,b,c,d)  # sorted by the payload's comparator, run nested
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
         elif name=='free': self.freed+=a!=0
         elif name=='statfs': self.word(b+4,4096); self.word(b+28,1<<20)
         elif name=='pthread_create': self.word(a,77); self.threads.append((c,d))
         elif name=='pthread_join': self.joins.append(a)
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def open(self):
         """Home with the card at index 2: centre confirms its image, whose click opens Coverflow."""
         if variant=='ipod':
@@ -4322,7 +4355,7 @@ if variant=='ipod':
     # Now Playing: stock init runs first, then "n of m", the album and "-remaining" (slider max less
     # value, in seconds) fill in; later paints rewrite a label only when its source changed.
     playing=HOOKS['playing_page_init'][0]
-    assert struct.unpack_from('<I',demo,fileoff(demo,playing))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_playing']>>2
+    assert struct.unpack_from('<I',demo,fileoff(demo,playing))[0]==j(payload_syms['ringnav_playing'])
     m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
     for i,r in enumerate(m.items(m.get(syms['mcl_pdeqplaylist']))): m.word(r+O['REC_ALBUM'],m.string(f'Album {i}'))
     bar=m.node('window','system_bar'); m.word(syms['system_bar'],bar)
@@ -4424,7 +4457,7 @@ if variant=='ipod':
     # The full-screen art: stock init runs first; the song name and its shade show BC_MS, then fade
     # out together over BC_STEPS steps. Closing it mid-fade stops the fade.
     big=IPOD_HOOKS['bigcover_page_init'][0]
-    assert struct.unpack_from('<I',demo,fileoff(demo,big))[0]==0x08000000|symbols(B/'patch.elf')['ringnav_bigcover']>>2
+    assert struct.unpack_from('<I',demo,fileoff(demo,big))[0]==j(payload_syms['ringnav_bigcover'])
     def bigcover():
         b=QueueMachine(queue=3,pos=1); b.handlers[big+12]='stock_bigcover'
         title,shade=b.node('hscroll_label','scrlabel_title'),b.node('view','view_shade')
@@ -4669,7 +4702,7 @@ if variant=='ipod':
 # and wrap edges. Album and Artist share article handling; nonalphabetical sorts stay single-step.
 def cf_jump(m,at,direction):
     letter=m.alloc(4)
-    steps=m.call(address=symbols(B/'patch.elf')['coverflow_jump'],args=(m.slide,at,direction,letter),gap=0)
+    steps=m.call(address=payload_syms['coverflow_jump'],args=(m.slide,at,direction,letter),gap=0)
     return steps,m.get(letter)
 m=CoverflowMachine(albums=8)
 for r,name in zip(m.albums,['Apple One','The Apple','Dawn','Dusk','Zulu','9 Lives','-Noise','Été']):
@@ -4903,8 +4936,7 @@ class AlbumRateMachine(FileMocks,CoverflowMachine):
         if not name.startswith('a:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; self.calls.append((name,a,b,c))
         ret=self.file_op(u,name,a,b,c,d)
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def kept(self):
         data=self.files.get(ALBUM_RATES,b''); return sorted(v for v in struct.unpack(f'<{len(data)//4}I',data) if v)
     def aid(self,r): return self.call(address=payload_syms['album_id'],args=(r,0,0,0),gap=0)&0xffffffff
@@ -5207,8 +5239,7 @@ class RolloverMachine(CoverflowMachine):
         elif name=='fork': self.forks+=1; ret=-1  # coverflow_player_cover's ffmpeg, refused
         elif name=='usleep' and self.worker:
             u.reg_write(UC_MIPS_REG_PC,0x1000000); u.emu_stop(); return
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def tick(self): self.call(address=syms['player_mainscheduling'],args=(0,0,0,0),gap=0)
     def artwork(self):
         self.worker=True
@@ -5241,7 +5272,7 @@ class RolloverMachine(CoverflowMachine):
         self.byte(syms['g_forcerefresh_flag'],1)
 
 from build import PLAYER_COVER
-assert struct.unpack_from('<I',demo,fileoff(demo,PLAYER_COVER[0]))[0]==0x0c000000|payload_syms['coverflow_player_cover']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,PLAYER_COVER[0]))[0]==jal(payload_syms['coverflow_player_cover'])
 for sizes in ((2,2,1,1),(1,1,1,1)):
     m=RolloverMachine(sizes); m.setup_ui(); m.artwork(); m.ui()
     paths=[path for path in m.files]
@@ -5324,8 +5355,7 @@ class DepthMachine(CoverflowMachine):
             self.draws.append((a,b,src,dst,struct.unpack_from('<H',bytes(self.u.mem_read(b+0xc,2)))[0],frame)); ret=0
         else: return super().hook(u,address,size,unused)
         self.calls.append((name,a,b,c))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
 
 def host_render(textures,cases):
     """The same renderer source built for the host: frames for (frac, mask of drawn slots) cases."""
@@ -5356,14 +5386,14 @@ int main(void) {
     size=4*O['CF_VIEW_W']*O['CF_VIEW_H']
     return [out[i*size:(i+1)*size] for i in range(len(cases))]
 
-ps=symbols(B/'patch.elf')
+ps=payload_syms
 textures=[cover_pixels(100+j) for j in range(7)]
 cases=[(0,127),(16384,127),(-16384,127),(32767,127),(-32768,127),(5000,0b0111110),(0,0)]
 want=host_render(textures,cases)
 m=DepthMachine(); tex=m.big_alloc(7*160*160*4); m.u.mem_write(tex,b''.join(textures))
 ring=m.big_alloc(28); frame=m.big_alloc(4*O['CF_VIEW_W']*O['CF_VIEW_H'])
 for (frac,mask),host in zip(cases,want):
-    for j in range(7): m.word(ring+4*j,tex+j*160*160*4 if mask>>j&1 else 0)
+    for k in range(7): m.word(ring+4*k,tex+k*160*160*4 if mask>>k&1 else 0)
     m.call(address=ps['coverflow_render'],args=(frame,O['CF_VIEW_W'],frac,ring),gap=0,count=50_000_000)
     assert bytes(m.u.mem_read(frame,len(host)))==host,(frac,mask)
     passed()
@@ -5403,7 +5433,7 @@ m.close(); assert m.destroyed==m.frames; passed()
 class Starved(DepthMachine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address,'')=='bitmap_create_ex':
-            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0); return
         return super().hook(u,address,size,unused)
 m=Starved(); m.open(); s=m.slide
 assert cf_geometry(m,s)==(0,24,375,160) and all(m.nodes[c].get('image') for c in m.nodes[s]['children'])
@@ -5413,7 +5443,7 @@ print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (d
 if variant=='ipod':
     # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
     # blend of the preset's red tone, alpha kept; greys, other hues and every Crimson color stay.
-    ps=symbols(B/'patch.elf'); RED=(0xff,0x14,0x48)
+    ps=payload_syms; RED=(0xff,0x14,0x48)
     # WCAG contrast of each preset: white text on the bar's top, the progress fill on its track, and
     # white on the red tone (Graphite's silver is chosen for its lit look instead; Crimson is stock).
     def lum(c):
@@ -5460,7 +5490,7 @@ if variant=='ipod':
     def hook(self,u,address,size,x):
         if self.handlers.get(address)=='stock_color':
             a=u.reg_read(UC_MIPS_REG_A0); self.word(a,self.stock_color); self.calls.append(('stock_color',a))
-            u.reg_write(UC_MIPS_REG_V0,a); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(a); return
         if address==GET and getattr(self,'get_gradient',None): return self.get_gradient(u)
         return orig_hook(self,u,address,size,x)
     Machine.hook=hook
@@ -5522,7 +5552,7 @@ if variant=='ipod':
             g=out if same_out else other
             m.word(g+8,len(stops))
             for i,c in enumerate(stops): m.word(g+0xc+8*i,c); m.word(g+0x10+8*i,i)
-            u.reg_write(UC_MIPS_REG_V0,g); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+            m.returns(g)
         m.get_gradient=get
         ret=m.call(address=ps['ringnav_style_gradient'],args=(st if style else 0,0,out,0),gap=0)&0xffffffff
         g=out if same_out else other
@@ -5539,7 +5569,7 @@ if variant=='ipod':
         m=Machine(); vt=m.alloc(0x20); st=m.alloc(8); m.word(st,vt); m.word(vt+0x14,0x1000700); m.word(vt+0x18,GET)
         def get(u):
             g=u.reg_read(UC_MIPS_REG_A2); m.word(g+8,1); m.word(g+0xc,red)
-            u.reg_write(UC_MIPS_REG_V0,g); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+            m.returns(g)
         m.get_gradient=get; out=m.alloc(4)
         m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,st,m.string(name),0),gap=0)
         assert m.get(out)==color_t(ACCENTS[0][column]),(name,hex(m.get(out))); passed()
@@ -5847,7 +5877,7 @@ if variant=='ipod':
             name=self.handlers.get(address,'')
             if not name.startswith('r:'): return super().hook(u,address,size,unused)
             name=name[2:].split('@')[0]; a=u.reg_read(UC_MIPS_REG_A0); self.calls.append((name,a))
-            u.reg_write(UC_MIPS_REG_V0,0x2000000 if name=='fopen' else 0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+            self.returns(0x2000000 if name=='fopen' else 0)
     def rockbox(card):
         m=RockboxMachine(); m.rockbox_mode=0o100755 if card else 0
         for n in ('fopen@GLIBC_2.2','fclose@GLIBC_2.2','system@GLIBC_2.0'): m.handlers[syms[n]]='r:'+n
@@ -5898,7 +5928,7 @@ if variant=='ipod':
                     h=ih or self.get(c+O['W_H']) or dh
                     self.word(c+O['W_Y'],y); self.word(c+O['W_H'],h); y+=h
                 self.word(view+O['VIEW_CONTENT_H'],y); self.layouts+=1
-                u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+                self.returns(0); return
             if name=='widget_on' and u.reg_read(UC_MIPS_REG_A1)==O['EVT_CLICK']:  # a clickable row
                 a=u.reg_read(UC_MIPS_REG_A0); em=self.alloc(4); it=self.alloc(0x28)
                 self.word(a+O['W_EMITTER'],em); self.word(em,it); self.word(it+O['EMIT_TYPE'],O['EVT_CLICK'])
@@ -6329,8 +6359,7 @@ class ShuffleMachine(CoverflowMachine):
             n,t=self.listed.pop(0); ret=self.alloc(268); self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
         elif name=='widget_restack':
             kids=next(n['children'] for n in self.nodes.values() if a in n['children']); kids.remove(a); kids.insert(b,a)
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
 m=ShuffleMachine(); stock=[m.node('list_item') for _ in range(11)]
 view=m.node('scroll_view','scroll_view_localmusic',stock); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0
@@ -6569,8 +6598,7 @@ class RateMachine(FileMocks,ShuffleMachine):
         elif name=='fav_click':  # stock: My Fav toggled for the playing track, and the heart's image
             assert a==self.np; t=self.names()[self.get(O['MCL_POS'])]; self.favs^={t}
             self.nodes[self.fav]['image']='play_fav' if t in self.favs else 'play_unfav'
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def kept(self):
         data=self.files.get('/mnt/data/ringnav-ratings',b'')
         return sorted(v for v in struct.unpack(f'<{len(data)//4}I',data) if v)
@@ -6880,8 +6908,7 @@ class PhotosMachine(DepthMachine):
             elif name=='memcmp': ret=0 if bytes(self.u.mem_read(a,c))==bytes(self.u.mem_read(b,c)) else 1
         else: return super().hook(u,address,size,unused)
         self.calls.append((name,a,b,c))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
 
 # Local Music's last row opens the card's Photos folder (case aside) as albums: All Photos, then
 # each subfolder holding a photo, by name; hidden files, other types and empty folders are left out.
@@ -6982,6 +7009,8 @@ class BooksMachine(DepthMachine):
                   'sendto@GLIBC_2.0','close@GLIBC_2.0'):
             self.handlers[syms[n]]='b:'+n
         self.handlers[syms['mclGetOutputWay']]='b:mclGetOutputWay'
+        self.handlers[payload_syms['child_exit']]='b:exit'
+        self.u.hook_add(UC_HOOK_CODE,self.hook,begin=payload_syms['child_exit'],end=payload_syms['child_exit'])
         self.forked=4242; self.waited=0; self.way=0; self.execs=[]; self.sent=[]
         tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
         self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
@@ -7034,8 +7063,10 @@ class BooksMachine(DepthMachine):
             self.lines.append((''.join(chr(self.get(b+4*j)) for j in range(c)),signed(d),signed(self.get(sp+16)),
                                self.get(self.lcd+O['LCD_TEXT_COLOR']),self.font))
         self.calls.append((name,a,b,c))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        if name=='exit':
+            for i,r in enumerate(SAVED): u.reg_write(r,0x12340000+i)
+            u.reg_write(UC_MIPS_REG_V0,0);u.reg_write(UC_MIPS_REG_SP,0x7000f000);u.reg_write(UC_MIPS_REG_PC,0x1000000);return
+        self.returns(ret,clobber=True)
 
 # Books (patch/books.c): Local Music's last row opens the card's Books folder (case aside): its own
 # .txt and .epub files and its subfolders', by path, named without the extension.
@@ -7225,8 +7256,7 @@ class SpotMachine(BooksMachine):
             if self.on_sleep: self.on_sleep()
         elif name=='mclGetPlayStatus': ret=self.play
         self.calls.append((name,a,b,c))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def state(self,state,position=0,at=None,cover=0,track='t1',title='Song',artist='A, B',album='LP',duration=200000):
         self.files[STATE]=bytearray((f'state={state}\ntrack={track}\ntitle={title}\nartist={artist}\nalbum={album}\n'
             f'duration={duration}\nposition={position}\nat={self.now if at is None else at}\ncover={cover}\n').encode())
@@ -7399,17 +7429,12 @@ class RadioMachine(SpotMachine):
         elif name=='curl_easy_init': ret=0x5150
         elif name=='curl_easy_setopt': self.opts[b]=self.text(c) if b in (10002,10018,10065) else c
         elif name=='curl_easy_perform':  # the write callback, run nested as qsort's comparator is
-            regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[u.reg_read(r) for r in regs]
-            data=self.alloc((len(self.reply)+7)&~3); u.mem_write(data,self.reply); f=self.opts[20011]
-            for r,v in ((UC_MIPS_REG_SP,u.reg_read(UC_MIPS_REG_SP)-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,f),
-                        (REGS[0],data),(REGS[1],1),(REGS[2],len(self.reply)),(REGS[3],0)): u.reg_write(r,v)
-            u.emu_start(f,0x1000000,count=self.budget); took=u.reg_read(UC_MIPS_REG_V0)
-            for r,v in zip(regs,saved): u.reg_write(r,v)
+            data=self.alloc((len(self.reply)+7)&~3); u.mem_write(data,self.reply)
+            took=self.nested(self.opts[20011],data,1,len(self.reply),0)
             ret=0 if took==len(self.reply) and self.code else 23  # CURLE_WRITE_ERROR
         elif name=='curl_easy_getinfo': self.word(c,self.code)
         self.calls.append((name,a,b,c))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def stream(self):
         view=self.node('scroll_view','scroll_view_streamsset',[self.node('list_item')]); self.top=self.node('window','stream_page',[view])
         assert self.call(address=HOOKS['stream_page_init'][0],args=(self.top,5,0,0),gap=0,count=5_000_000)==0
@@ -7464,6 +7489,7 @@ search('jazz fm'); assert m.labels()==['Loading…'] and not m.find('edit')
 m.reply=b'#EXTM3U\n#EXTINF:1,Jazz FM\nhttp://jazz/fm\n'; m.worker()
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/byname/jazz%20fm?order=votes&reverse=true&limit=100&hidebroken=true'
 assert m.labels()==['jazz fm','Jazz FM']; m.back(); assert m.labels()[0]=='Internet Radio'
+search('café'); m.worker(); assert '/byname/caf%C3%A9?' in m.opts[10002] and m.labels()[0]=='café'; m.back()  # UTF-8, not narrowed wchar
 for text,event in (('','EVT_VALUE_CHANGED'),('','EVT_IM_ACTION'),('abc','EVT_BLUR')):
     search(text,event); assert m.labels()[:2]==['Internet Radio','Favourites'] and not m.find('edit')
 # Return with the keyboard open empties and blurs the box, never destroying it under its keyboard; the blur shuts it.
@@ -7471,6 +7497,17 @@ assert m.call(address=payload_syms['radio_search'],gap=0,count=5_000_000)==0; ed
 m.back(); assert m.nodes[edit]['focused']==0 and m.nodes[edit]['text']==''; f,ctx=m.handler(edit,O['EVT_BLUR'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 assert m.labels()[:2]==['Internet Radio','Favourites'] and not m.find('edit')
+search('é'*31); m.worker(); assert m.labels()[0]=='é'*31; m.back()  # 62 UTF-8 bytes fit
+m.row(1); assert m.labels()==featured
+for event in ('EVT_VALUE_CHANGED','EVT_IM_ACTION'):
+    before=len(m.toasts)
+    search('',event); assert m.labels()==featured and not m.find('edit') and len(m.toasts)==before
+for query in ('x'*64,'é'*32):
+    before=len(m.toasts); workers=len(m.threads)
+    search(query)
+    assert m.labels()==featured and not m.find('edit') and len(m.threads)==workers
+    assert len(m.toasts)==before+1 and m.toasts[-1][3]=='Search is too long'
+m.back()
 search('zzz'); m.reply=b'#EXTM3U\n'; m.worker(); assert m.labels()==['No stations']; m.close(); passed()
 # Favourites: favourites.m3u, then the folder's other .m3u and .pls files (a .pls's TitleN names its FileN).
 m=RadioMachine({RDIR+'/favourites.m3u':bytearray(b'#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/a\r\nhttp://two/b\r\n'),
@@ -7519,7 +7556,7 @@ assert m.key(O['KEY_PLAY'])!=11 and not forks(); passed()
 # A q2video that does not quit within RADIO_QUIT_MS is killed.
 m.top=page; m.row(1); m.waited=0; m.top=m.node('window','home_page')
 m.handlers[syms['waitpid@GLIBC_2.0']]='s:waitpid'  # WNOHANG polls say running; the blocking wait reaps
-t0=m.now; assert m.key(O['KEY_PLAY'])==11 and 1500<=m.now-t0<=1540 and m.systems[-1]=='killall -9 q2video'
+t0=m.now; assert m.key(O['KEY_PLAY'])==11 and 1500<=m.now-t0<=1540 and m.systems[-1]=='kill -9 %d'%m.forked
 m.handlers[syms['waitpid@GLIBC_2.0']]='b:waitpid@GLIBC_2.0'; passed()
 # One that gives up says so.
 assert m.key(O['KEY_PLAY'])==11; m.files[RSTATE]=bytearray(b'state=error\n'); m.waited=4343; m.poll()
@@ -7625,8 +7662,7 @@ class BrowseMachine(RadioMachine):
             else: ret=1
         elif name=='recv': chunk=self.pending[:min(c,1000)]; self.pending=self.pending[len(chunk):]; u.mem_write(b,chunk); ret=len(chunk)
         self.calls.append((name,a,b,c))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def open(self):
         if not getattr(self,'button',0):  # Streaming, as RadioMachine.stream: Spotify's row
             view=self.node('scroll_view','scroll_view_streamsset',[self.node('list_item')]); self.top=self.node('window','stream_page',[view])
@@ -7910,8 +7946,7 @@ class ResumeMachine(QueueMachine):
             if self.play[1]: self.word(a,self.play[0]); self.word(b,self.play[1]); ret=1
             else: ret=-1
         elif name=='player_seek_time': self.seeks.append(signed(a)); self.play=(signed(a),self.play[1])
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def poll(self,sec,total=3600,pos=None,n=1):  # n polls a second apart, the time standing at sec
         if pos is not None: self.word(O['MCL_POS'],pos)
         for _ in range(n):
@@ -8253,7 +8288,7 @@ class TagMachine(BooksMachine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address)!='stock_music_info': return super().hook(u,address,size,unused)
         u.mem_write(u.reg_read(UC_MIPS_REG_A1)+0x580,self.stock_artist+b'\0')
-        u.reg_write(UC_MIPS_REG_V0,1); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(1)
     def album_artist(self,path,stock=b''):
         self.stock_artist=stock; info=self.alloc(0x6a0); p=self.alloc(256); self.u.mem_write(p,path.encode()+b'\0')
         assert self.call(address=HOOKS['toolsGetMusicInfo'][0],args=(0,info,p,0),gap=0)==1
@@ -8266,10 +8301,12 @@ def flac(*comments,picture=0):
 t=TagMachine({'/mnt/mmc/a.flac':flac(b'ARTIST=Chikoi The Maid',b'Album Artist=Chikoi The Maid',picture=70000),
               '/mnt/mmc/b.flac':flac(b'ARTIST=Evan Call'),'/mnt/mmc/c.FLAC':flac(b'ALBUM ARTIST='+b'x'*300),
               '/mnt/mmc/d.mp3':flac(b'ALBUM ARTIST=No')})
+t.files['/mnt/mmc/e.flac']=flac(b'METADATA_BLOCK_PICTURE='+b'A'*100000,b'ALBUM ARTIST=Past the cover')  # a block over 64 KB
 assert t.album_artist('/mnt/mmc/a.flac')=='Chikoi The Maid'
 assert t.album_artist('/mnt/mmc/a.flac',b'Stock')=='Stock'  # stock's ALBUMARTIST wins
 assert t.album_artist('/mnt/mmc/b.flac')=='' and t.album_artist('/mnt/mmc/c.FLAC')=='x'*255
 assert t.album_artist('/mnt/mmc/d.mp3')=='' and t.album_artist('/mnt/mmc/none.flac')==''
+assert t.album_artist('/mnt/mmc/e.flac')=='Past the cover'
 assert not t.handles  # every file closed
 passed()
 # Boot reads it too (ringnav_bootmode), so Audio settings shows it before any Library page has opened.
@@ -8422,14 +8459,14 @@ class PowerMachine(ResumeMachine):
         name=self.handlers.get(address,''); a=u.reg_read(REGS[0])
         if name.startswith('r:fclose') and self.open.get(a,[0,0])[1]=='w':
             path,_,_,data=self.open.pop(a); self.files[path]=data; self.writes.append((path,data)); self.calls.append(('fclose',a,0,0))
-            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0); return
         if name.startswith('r:fopen') and self.text(u.reg_read(REGS[1]))=='w':
             ret=0x2000000+len(self.calls); self.open[ret]=[self.text(a),'w',0,b'']; self.calls.append(('fopen',a,0,0))
-            u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(ret); return
         if not name.startswith('p:'): return super().hook(u,address,size,unused)
         self.calls.append((name[2:].split('@')[0],a,0,0))
         if name.startswith('p:unlink'): self.files.pop(self.text(a),None)
-        u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(0)
     def pass_(self,ms=O['CHARGE_POLL_MS']):
         self.now+=ms; self.calls=[]
         assert self.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)==0
@@ -8475,7 +8512,7 @@ m.call(address=inp,args=(m.wm,m.event,0,0),gap=0); assert m.pass_(1)[1]==[]; pas
 class Refused(PowerMachine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address,'').startswith('r:fwrite') and self.text(u.reg_read(REGS[0]))=='1':
-            self.calls.append(('refused',0,0,0)); u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.calls.append(('refused',0,0,0)); self.returns(0); return
         return super().hook(u,address,size,unused)
 m=Refused({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1); m.byte(syms['g_backlight_status'],1)
 tries=lambda ms:[c[0] for c in m.pass_(ms) and m.calls if c[0]=='refused']
@@ -8484,7 +8521,7 @@ assert tries(1)==['refused'] and tries(500)==[] and tries(500)==['refused']; pas
 class Full(PowerMachine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address,'').startswith('p:fsync'):
-            self.calls.append(('fsync',0,0,0)); u.reg_write(UC_MIPS_REG_V0,0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.calls.append(('fsync',0,0,0)); self.returns(0xffffffff); return
         return super().hook(u,address,size,unused)
 m=Full({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1); m.pass_(1)
 assert not any(p==CPU1 for p,_ in m.writes); passed()
@@ -8493,7 +8530,7 @@ if variant=='ipod':  # stock has no visualizer: np_animating() is 0 there
     class Live(PowerMachine):
         def hook(self,u,address,size,unused):
             if self.handlers.get(address)=='v:live':
-                u.reg_write(UC_MIPS_REG_V0,self.live); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+                self.returns(self.live); return
             return super().hook(u,address,size,unused)
     m=Live(); m.handlers[payload_syms['visualizer_live']]='v:live'; m.live=1
     m.top=m.node('window','playing_page'); m.pass_(1)
@@ -8509,7 +8546,7 @@ assert not m.writes and '/mnt/data/q2pod-cpu1.bad' in m.files and MARK not in m.
 class RenameFailed(PowerMachine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address,'').startswith('r:rename'):
-            u.reg_write(UC_MIPS_REG_V0,0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0xffffffff); return
         return super().hook(u,address,size,unused)
 m=RenameFailed({'LOWPOWER':'1'},files={MARK:b''}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
 assert not m.writes and MARK in m.files; passed()
@@ -8521,7 +8558,7 @@ class DirectoryFull(PowerMachine):
         if self.handlers.get(address,'').startswith('p:fsync'):
             self.syncs += 1
             if self.syncs == 2:
-                u.reg_write(UC_MIPS_REG_V0,0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+                self.returns(0xffffffff); return
         return super().hook(u,address,size,unused)
 m=DirectoryFull({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
 assert not any(p==CPU1 for p,_ in m.writes); passed()
@@ -8538,14 +8575,14 @@ class LogoMachine(PowerMachine):
     failure=''
     def __init__(self,files=None):
         super().__init__(files=files); self.threads=[]; self.execs=[]; self.toasts=[]; self.rotated=None; self.child=False; self.exits=[]
+        self.handlers[payload_syms['child_exit']]='l:exit'
         self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='l:free'  # free's GOT slot, as Coverflow's
         for n in ('fseek@GLIBC_2.0','ftell@GLIBC_2.0','memcmp@GLIBC_2.0','strstr@GLIBC_2.0','pthread_create@GLIBC_2.2',
                   'fork@GLIBC_2.0','execl@GLIBC_2.0','exit@GLIBC_2.0','waitpid@GLIBC_2.0','navigator_to_with_context'): self.handlers[syms[n]]='l:'+n
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if name.startswith('r:'+self.failure+'@') and (self.failure!='fopen' or self.text(u.reg_read(REGS[1]))=='wb'):
-            u.reg_write(UC_MIPS_REG_V0,0 if self.failure in ('fopen','fwrite') else 0xffffffff)
-            u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0 if self.failure in ('fopen','fwrite') else 0xffffffff); return
         if not name.startswith('l:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; self.calls.append((name,a,b,c)); ret=0
         if name=='fseek': f=self.open[a]; f[2]=signed(b)+(len(f[3]) if c==2 else 0)
@@ -8566,8 +8603,7 @@ class LogoMachine(PowerMachine):
             assert a==4242; self.word(b,0); ret=a
             if self.rotated is not None: self.files[LOGO_ROT]=self.rotated
         elif name=='navigator_to_with_context': self.toasts.append(self.text(b+8))
-        for r in [UC_MIPS_REG_V1,*REGS,UC_MIPS_REG_T8,UC_MIPS_REG_T9]: u.reg_write(r,0xdeadbeef)
-        u.reg_write(UC_MIPS_REG_V0,ret&0xffffffff); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret,clobber=True)
     def sync(self,mounted=True):  # a poll with the card in or out; returns the threads it started
         self.files['/proc/mounts']=b'/dev/mmcblk0p1 /mnt/mmc vfat rw 0 0\n' if mounted else b'none /mnt/data ubifs rw 0 0\n'
         self.threads=[]; self.pass_()
@@ -8606,15 +8642,13 @@ class BootMachine(ResumeMachine):
         name=self.handlers.get(address,'')
         if name=='boot_memcmp':
             a,b,c=[u.reg_read(r) for r in REGS[:3]]
-            u.reg_write(UC_MIPS_REG_V0,int(bytes(u.mem_read(a,c))!=bytes(u.mem_read(b,c))))
-            u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(int(bytes(u.mem_read(a,c))!=bytes(u.mem_read(b,c)))); return
         if name=='unlink@GLIBC_2.0': self.files.pop(self.text(u.reg_read(UC_MIPS_REG_A0)),None)
         if name in ('r:fopen@GLIBC_2.2','r:fwrite@GLIBC_2.0','r:fclose@GLIBC_2.2','r:rename@GLIBC_2.0','fflush@GLIBC_2.0','fsync@GLIBC_2.0'):
             a=u.reg_read(UC_MIPS_REG_A0)
             fail=name.removeprefix('r:').split('@')[0]
             if self.failure==fail and (fail!='fopen' or self.text(u.reg_read(UC_MIPS_REG_A1))=='wb'):
-                u.reg_write(UC_MIPS_REG_V0,0 if fail in ('fopen','fwrite') else 0xffffffff)
-                u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+                self.returns(0 if fail in ('fopen','fwrite') else 0xffffffff); return
         return super().hook(u,address,size,unused)
 def boot_row(value=None,mode=0o100755):
     path='/mnt/data/boot-target'
@@ -8716,7 +8750,7 @@ class HeadsetMachine(Machine):
         elif name.endswith('_set_playing'): self.playing=bool(a); self.actions.append((owner,'play' if a else 'pause'))
         elif name=='local_toggle': self.playing=not self.playing; self.actions.append((1,'play' if self.playing else 'pause'))
         else: self.actions.append((owner,a if owner!=1 else name)); ret=int(name.endswith('_media') and self.owner==owner)
-        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+        self.returns(ret)
     def fn(self,name,value=0,gap=0): return self.call(address=payload_syms[name],args=(value,0,0,0),gap=gap)
     def ears(self,mask,gap=100): return self.fn('headset_ears',4|mask,gap)
     def command(self,code,gap=200): return self.fn('headset_command',code,gap)
@@ -8854,7 +8888,7 @@ for owner in (1,2):
 # Stock's restart once A2DP comes up (BT_CONNECT_START): on, player_save_start(0) as stock. Off (default): a
 # playing queue goes on, a paused one comes back paused, a stopped one or a stream's turn starts nothing.
 from build import BT_CONNECT_START
-assert struct.unpack_from('<I',demo,fileoff(demo,BT_CONNECT_START[0]))[0]==0x0c000000|payload_syms['ringnav_bt_connect_start']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_CONNECT_START[0]))[0]==jal(payload_syms['ringnav_bt_connect_start'])
 for off,owner,saved,want in ((0,1,3,[0]),(0,2,0,[0]),(1,1,2,[0]),(1,1,3,[1]),(1,1,0,[]),(1,2,3,[])):
     m=HeadsetMachine(owner); m.saved=saved
     if not off: m.config['RESUME']='1'
@@ -8866,12 +8900,12 @@ print('Real Spotify/radio/video play-state APIs, helper gain updates and stock T
 # writes "Label:value" and the bare folder: ": " after each label, units spaced, the folder labelled
 # from player_location, en_US's first unknown ("Unknown Artist") plain "Unknown"; a second pass changes nothing.
 from build import NP_INFO_CALL
-assert struct.unpack_from('<I',demo,fileoff(demo,NP_INFO_CALL))[0]==0x0c000000|payload_syms['ringnav_np_info']>>2
+assert struct.unpack_from('<I',demo,fileoff(demo,NP_INFO_CALL))[0]==jal(payload_syms['ringnav_np_info'])
 class InfoMachine(Machine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address)=='i:format':
             self.u.mem_write(u.reg_read(UC_MIPS_REG_A1),{'player_location':getattr(self,'location',b'Location\0')}.get(self.text(u.reg_read(UC_MIPS_REG_A0)),b'?\0'))
-            u.reg_write(UC_MIPS_REG_V0,0); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA)); return
+            self.returns(0); return
         return super().hook(u,address,size,unused)
 m=InfoMachine(); m.handlers[syms['getFormatString']]='i:format'
 stock_lines={'label_album':'Album:Kid A','label_genre':'Genre:Unknown Artist','label_size':'File Size:35.92MB',

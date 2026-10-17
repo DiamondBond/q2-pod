@@ -31,14 +31,14 @@ minimal = (0xeeeeec, 0xeeeeec, inc('MINIMAL_FILL'))
 with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     tmp = pathlib.Path(tmp)
     def asset(build, name):
-        p = tmp/(build.name + '-' + pathlib.Path(name).name)
+        p = tmp/(('before-' if build.resolve() == before.resolve() else 'after-') + pathlib.Path(name).name)
         if not p.exists():
             p.write_bytes(subprocess.check_output(['unsquashfs', '-cat', str(build/'rootfs.squashfs'),
                           'release/assets/default/raw/' + name]))
         return p
     font = asset(before, 'fonts/default.ttf')
     # Builds can patch quote glyphs; provenance records the exact packaged font hash.
-    assert font.read_bytes() == asset(after, 'fonts/default.ttf').read_bytes()
+    assert font.read_bytes() == asset(after, 'fonts/default.ttf').read_bytes(), 'Build fonts differ'
     def tinted(p, name, accent):
         dest=tmp/(str(accent)+'-'+p.name)
         if dest.exists(): return dest

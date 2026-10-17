@@ -10,7 +10,7 @@ import math
 import pathlib
 import re
 import struct
-from build import ROOT, check, fileoff, sha
+from build import ROOT, check, fileoff, sha, jal
 
 AUDIT = json.loads((pathlib.Path(__file__).resolve().parents[1]/'patch/ipod.json').read_text())
 UI_ASSETS = AUDIT['assets'] | AUDIT['navbar_only'] | AUDIT['slide_only']
@@ -62,7 +62,6 @@ O = {m[1]: int(m[2], 0) for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]
 inc = O.__getitem__
 
 
-CHEVRON_W = inc('CHEVRON_W')
 # iPod page transition: the window anim_hint of the browsing, settings and equalizer pages. Stock's
 # htranslate animator slides a page in from the right and back out on Return; the duration is the
 # calibration knob.
@@ -662,7 +661,6 @@ def quiet_icon(name, data):
                       '-extent', '28x28', *PNG_OUT, data=data)
 
 
-def jal(addr): return 0x0c000000 | addr >> 2
 def branch(op, at, target):
     """op (beq, b, bal...) at address at, to target."""
     delta = (target - at - 4) // 4

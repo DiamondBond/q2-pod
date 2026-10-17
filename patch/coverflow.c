@@ -136,7 +136,7 @@ static int ff_thumb(const char *src, const char *dst, int w, int h) {
     if (!pid) {
         execl(ART_FFMPEG, ART_FFMPEG, "-nostdin", "-v", "quiet", "-i", src, "-frames:v", "1", "-vf",
               vf, "-pix_fmt", "yuvj420p", "-q:v", "3", "-f", "mjpeg", "-y", dst, (char *)0);
-        exit(127);
+        child_exit(127);
     }
     return pid > 0 && waitpid(pid, &status, 0) == pid && !status;
 }

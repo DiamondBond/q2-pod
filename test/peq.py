@@ -299,7 +299,7 @@ list_item_create label_create list_view_create scroll_view_create widget_use_sty
 widget_set_text_utf8 widget_on widget_get_prop_int widget_set_prop_int widget_destroy_children
 widget_resize scroll_view_set_offset widget_invalidate_force timer_add timer_remove
 navigator_back write_int_config widget_factory widget_factory_create_widget widget_set_prop_str
-widget_get_text widget_set_focused widget_lookup window_manager pages_set_active_by_name
+widget_get_text_utf8 widget_set_focused widget_lookup window_manager pages_set_active_by_name
 canvas_set_fill_color canvas_fill_rect canvas_get_vgcanvas vgcanvas_save vgcanvas_restore vgcanvas_translate
 vgcanvas_begin_path vgcanvas_close_path vgcanvas_move_to vgcanvas_line_to vgcanvas_arc vgcanvas_fill vgcanvas_stroke
 vgcanvas_set_fill_color vgcanvas_set_stroke_color vgcanvas_set_fill_linear_gradient vgcanvas_set_line_width
@@ -367,11 +367,10 @@ int widget_set_prop_str(void *x, const char *k, const char *v) {
     if ((long)x == edit_widget && !strcmp(k, "keyboard")) snprintf(keyboard, sizeof(keyboard), "%s", v);
     return 0;
 }
-const unsigned *widget_get_text(void *x) {
-    static unsigned wide[160];
-    unsigned i = 0;
-    for (; w[(long)x].text[i]; ++i) wide[i] = (unsigned char)w[(long)x].text[i];
-    wide[i] = 0; return wide;
+int widget_get_text_utf8(void *x, char *s, unsigned size) {
+    s[0] = 0;
+    if (strlen(w[(long)x].text) < size) snprintf(s, size, "%s", w[(long)x].text);
+    return 0;
 }
 int widget_set_focused(void *x, int v) {
     if ((long)x == edit_widget && (focused = v) && w[edit_widget].focus) w[edit_widget].focus(0, 0);
@@ -640,6 +639,8 @@ def editor_check(lib, tmp):
     assert ui.shim_page() == b'symnum'  # on its number keys
     ui.shim_type(b'2500'); assert edit() == '2500'
     ui.shim_type(b'abc'); assert edit() == '2500'      # not a number: unchanged
+    ui.shim_type('\u0131'.encode()); assert edit() == '2500'  # low wchar byte is ASCII '1', still not a number
+    ui.shim_type(b'9'*16); assert edit() == '2500'    # stock conversion refuses a value that cannot fit
     ui.shim_type(b'99999'); assert edit() == '20000'   # clamped like Raise
     ui.shim_type(b'1000.5'); assert edit() == '1000'   # kept exactly, shown whole
     ui.shim_return(); assert title() == 'Band 1'
@@ -1536,6 +1537,9 @@ def books_check(tmp):
     want = '\n\n'.join(['Hello caf\u00e9'] * 50) + '\f\nSecond'
     for method in (zipfile.ZIP_DEFLATED, zipfile.ZIP_STORED):
         epub(tmp/'a.epub', files, method); assert run(tmp/'a.epub') == 1 and dst.read_text() == want
+    # ../ and ./ in an href resolve against the OPF's folder
+    epub(tmp/'r.epub', {**files, 'OEBPS/content.opf': opf.replace("'Text/one.xhtml'", "'../OEBPS/./Text/one.xhtml'")})
+    assert run(tmp/'r.epub') == 1 and dst.read_text() == want
     epub(tmp/'f.epub', {**files, 'META-INF/encryption.xml': '<CipherReference URI="OEBPS/Fonts/a.otf"/>'})
     assert run(tmp/'f.epub') == 1  # obfuscated fonts alone
     epub(tmp/'d.epub', {**files, 'META-INF/encryption.xml': '<CipherReference URI="OEBPS/Text/one.xhtml"/>'})
