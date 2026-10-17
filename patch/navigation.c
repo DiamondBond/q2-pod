@@ -1903,17 +1903,22 @@ static void *list_button(void *view) {
  * label. */
 static void *list_row_core(void *view, const char *icon, int (*click)(void *, void *), void *ctx,
                            int w, int into) {
+    /* Match the patched Library constructor's body and art_inset (tools/ipod.py). */
+    int compact =
+        IPOD && !tk_strcmp(widget_get_prop_str(view, "name", ""), "scroll_view_localmusic");
+    int h = compact ? 68 : 70;
     void *button = list_button(view);
+    if (compact) widget_resize(button, 335, h);
     if (click) widget_on(button, EVT_CLICK, click, ctx);
-    if (icon) { /* centred, as stock's rows (0x524978); the default (icon) draws 2 px right */
-        void *image = image_create(button, 10, 0, SET_STOCK_ICON, 70);
+    if (icon) { /* centred, as stock's rows (0x524978) */
+        void *image = image_create(button, compact ? 8 : 10, 0, SET_STOCK_ICON, h);
         image_base_set_image(image, icon);
         image_set_draw_type(image, IMAGE_DRAW_CENTER);
     }
-    void *label = hscroll_label_create(button, icon ? 72 : 10, 0, w, 70);
+    void *label = hscroll_label_create(button, icon ? 72 : 10, 0, w, h);
     widget_use_style(label, "s_scrlabel_white24l");
     set_hscroll_label_attribute(label);
-    if (into) image_base_set_image(image_create(button, 282, 0, 50, 70), "list_into");
+    if (into) image_base_set_image(image_create(button, 282, 0, 50, h), "list_into");
     return label;
 }
 

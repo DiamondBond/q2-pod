@@ -292,7 +292,7 @@ def validate_assets(directory):
     names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
     assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
     # The Library's rows, stock's and list_row_core's alike, draw each local_* icon centred in one 52px
-    # box at x 10: every disc's alpha-weighted centre must sit on its image's, or the icon column wobbles.
+    # box (iPod x 8, Legacy x 10): each disc's alpha-weighted centre must sit on its image's.
     for rel in sorted(n.removeprefix('squashfs-root/') for n in names if n.startswith('squashfs-root/'+xx+'local_')):
         png = read('rootfs.squashfs', rel)
         w, h = png_header(png)[:2]

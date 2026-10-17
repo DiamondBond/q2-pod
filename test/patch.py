@@ -6350,17 +6350,20 @@ assert m.nodes[icon]['image']=='local_fav' and m.nodes[label]['text']=='Ratings'
 # The Shuffle row: the local_shuffle icon, its label and stock's list_into trailing image, as the
 # stock Local Music categories place them. Its button has no name, so stock's row click ignores it.
 button=m.nodes[row]['children'][0]; icon,label,into=m.nodes[button]['children']
-assert m.nodes[button]['style']=='s_btn_listitem' and [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
-assert m.nodes[icon]['image']=='local_shuffle' and [m.get(icon+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70]
-# Every added row's icon matches stock's row builder: image_create(button, 10, 0, 52, 70) at 0x524938-0x524948,
-# then image_set_draw_type(image, 1, centre) at 0x524970; the default (icon) draws it 2 px right of stock's.
-stock_demo=(B/'stock-demo').read_bytes()
-assert [struct.unpack_from('<I',stock_demo,fileoff(stock_demo,a))[0] for a in (0x524938,0x524944,0x524970)]==[0x24070034,0x2405000a,0x24050001]
-for k in (row,rated,top,long):
-    icon=m.nodes[m.nodes[k]['children'][0]]['children'][0]
-    assert [m.get(icon+O[f]) for f in ('W_X','W_Y','W_W','W_H')]==[10,0,52,70] and m.nodes[icon]['draw_type']==O['IMAGE_DRAW_CENTER']==1
+# Compare with the shipped constructor, whose iPod body and icon x differ from stock's.
+demo=(B/'demo').read_bytes()
+library_body,library_icon_w,library_icon_x,library_draw_type=[struct.unpack_from('<I',demo,fileoff(demo,a))[0]&0xffff
+                                                           for a in (0x524820,0x524938,0x524944,0x524970)]
+assert (library_body,library_icon_w,library_icon_x,library_draw_type)==((68,52,8,1) if variant=='ipod' else (70,52,10,1))
+assert m.nodes[button]['style']=='s_btn_listitem' and [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,library_body]
+assert m.nodes[icon]['image']=='local_shuffle'
+def library_geometry(m,k):
+    b=m.nodes[k]['children'][0]; icon=m.nodes[b]['children'][0]
+    assert [m.get(icon+O[f]) for f in ('W_X','W_Y','W_W','W_H')]==[library_icon_x,0,library_icon_w,library_body] and m.nodes[icon]['draw_type']==library_draw_type
+    assert all(m.get(c+O['W_H'])==library_body for c in [b,*m.nodes[b]['children']])
+for k in (row,rated,top,long): library_geometry(m,k)
 assert m.nodes[label]['style']=='s_scrlabel_white24l' and m.nodes[label]['text']=='Shuffle' and not m.nodes[button].get('name')
-assert m.nodes[into]['image']=='list_into' and [m.get(into+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[282,0,50,70]
+assert m.nodes[into]['image']=='list_into' and [m.get(into+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[282,0,50,library_body]
 f,ctx=m.handler(button,O['EVT_CLICK'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 # It opens the menu: a black shuffle_page holding the three 48px rows and the grey note under them.
@@ -6697,6 +6700,7 @@ m.config['TOKEN']='tok'; m.nodes[view]['children']=[m.node('list_item') for _ in
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16
 button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_scrobble' and m.nodes[label]['text']=='Upload Scrobbles' and not m.nodes[button].get('name')
+library_geometry(m,m.nodes[view]['children'][-2])
 f,ctx=m.handler(button,O['EVT_CLICK'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads
 m.wifi=3; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Uploading scrobbles' and len(m.threads)==1
@@ -7055,6 +7059,7 @@ view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==16
+library_geometry(m,m.nodes[view]['children'][-1])
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.page=m.top; assert m.nodes[page]['name']=='books_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
 books,reader=m.nodes[page]['children']; sheet,info=m.nodes[reader]['children']
