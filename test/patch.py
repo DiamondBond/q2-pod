@@ -3428,6 +3428,21 @@ for light,want in ((1,[]),(0,[O['SCREEN_OFF_SLEEP_MS']])):
         s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)
         assert [c[1] for c in s.calls if c[0]=='widget_invalidate_force']==([s.wm] if wake else [])
     passed()
+# Screen off, the window manager does not paint: stock blanks the framebuffer but paints on. A window
+# animation still paints, and so does a dev build that found PAINT_DARK_FLAG as the screen went off.
+for light,animating,flag in ((1,0,0),(0,0,0),(0,1,0),(0,0,1)):
+    s=Machine(); s.handlers[sleep_hook+12]='stock_sleep'
+    vt=s.alloc(16); s.word(s.wm+0x94,vt); s.word(vt+0xc,0x400100); s.handlers[0x400100]='wm_vt_paint'
+    if flag: s.present.add('/tmp/q2pod-paint-dark')
+    s.byte(syms['g_backlight_status'],light); s.animating=animating
+    s.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0)  # the pass that sees the screen go off
+    s.calls=[]; s.call(address=WM_PAINT_LEAF[1],args=(s.wm,0,0,0),gap=0,clear=False)
+    assert ('wm_vt_paint' in [c[0] for c in s.calls])==bool(light or animating or (flag and manifest.get('dev'))), (light,animating,flag)
+    if not light:  # back on: it paints again
+        s.byte(syms['g_backlight_status'],1); s.animating=0
+        s.calls=[]; s.call(address=WM_PAINT_LEAF[1],args=(s.wm,0,0,0),gap=0,clear=False)
+        assert 'wm_vt_paint' in [c[0] for c in s.calls]
+passed()
 for want in (1,3):
     m.call(address=syms['mclNextSong'],args=(0,0,0,0),gap=0)
     assert m.picks[-1]==1 and m.mcl('MCL_POS')==want and any(c[0]=='mclStartPlayer' for c in m.calls)

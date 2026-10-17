@@ -216,6 +216,7 @@ typedef struct {
     unsigned rate_hold, rate_tick, rate_album;
     void *rt_menu, *rt_page, *rt_list;
     int dark; /* 1: the backlight was off at the last UI loop pass; 2: a centre press woke it */
+    int paint_dark; /* dev builds: PAINT_DARK_FLAG was there when the screen went off */
     /* Power's Charge limit and Low power (read once from config.ini's Q2POD), the value
      * labels of those rows and Artists, and the poll: charging is held off at the limit; CPU1 is
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
@@ -6449,6 +6450,7 @@ static void bt_volume_poll(void) {
  * it, it also restarts Wake's window for a dropped press (woke_at). With the screen on, a pass
  * idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except while
  * Now Playing animates. */
+#define PAINT_DARK_FLAG "/tmp/q2pod-paint-dark" /* dev builds: paint dark as stock (ringnav_wm_paint) */
 int ringnav_sleep(void *loop) {
     headset_poll();
     bt_volume_poll();
@@ -6459,6 +6461,9 @@ int ringnav_sleep(void *loop) {
     resume_poll();
     power_poll();
     if (!g_backlight_status) {
+#if Q2POD_DEV
+        if (!st.dark) st.paint_dark = !access(PAINT_DARK_FLAG, 0); /* read as the screen goes off */
+#endif
         st.dark |= 1;
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
                     airplayGetFlag() != 2 && (signed char)bt__recv_pageflag != 2 &&
@@ -6548,8 +6553,15 @@ int ringnav_input(void *wm, void *e) {
 }
 
 /* window_manager_paint, a leaf (tools/build.py WM_PAINT_LEAF): the window manager's own paint
- * (vtable +0xc), except while q2video has the framebuffer; video_poll repaints after. */
+ * (vtable +0xc), except while q2video has the framebuffer (video_poll repaints after) and while the
+ * screen is off. Stock blanks the framebuffer then (screen_action's disable_fb) but its loop paints
+ * on, so Now Playing's 250 ms update kept drawing what nobody sees. What was invalidated waits, and
+ * the first lit pass repaints the whole screen (ringnav_sleep). A window animation still paints:
+ * AWTK steps it from the paint, so it would otherwise hang until the screen came on. Dev builds
+ * paint dark as stock when PAINT_DARK_FLAG exists as the screen goes off, to measure the saving. */
 int ringnav_wm_paint(void *wm) {
+    if (wm && !g_backlight_status && !st.paint_dark && !window_manager_is_animating(wm))
+        return 0; /* RET_OK */
     void *vt = wm && !video_on() ? P(wm, 0x94) : (void *)0;
     int (*paint)(void *) = vt ? (int (*)(void *))P(vt, 0xc) : (int (*)(void *))0;
     return paint ? paint(wm) : video_on() ? 0 : 0x10; /* RET_BAD_PARAMS, as stock */

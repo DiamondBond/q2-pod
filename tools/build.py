@@ -919,6 +919,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox row, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
     header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION}{" Pod" if ipod else ""}{f" dev {dev}" if dev else ""}"']
+    header.append(f'#define Q2POD_DEV {int(bool(dev))}')  # dev-only switches (navigation.c PAINT_DARK_FLAG)
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()
