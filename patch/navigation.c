@@ -6462,10 +6462,12 @@ static int wake_gate(void *e) {
     if (!g_backlight_status && key == KEY_RETURN) return 1;
     if (type == EVT_KEY_LONG) return 0; /* stock generates this downstream of the input hook */
     if (key != KEY_CENTER) return 0;
-    /* Standby may lose a held key's release; an accepted dark press cleared this guard. */
-    if (type == EVT_KEY_DOWN && st.wake_down == 1 && !g_backlight_status &&
-        *(volatile unsigned char *)BOOT_KEY_GUARD)
+    /* Consume Standby's release guard once; our dropped press already drops its release. */
+    if (type == EVT_KEY_DOWN && !g_backlight_status &&
+        *(volatile unsigned char *)BOOT_KEY_GUARD) {
         st.wake_down = 0;
+        *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
+    }
     if (type == EVT_KEY_UP) st.wake_down = 0;
     else {
         if (st.wake_down) return st.wake_down == 2;

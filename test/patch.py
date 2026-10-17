@@ -8151,7 +8151,21 @@ for double in (False,True):
     assert w.key(DOWN,100) and w.key(DOWN,258)
     w.byte(O['BOOT_KEY_GUARD'],1)
     assert w.key(DOWN,1000)==(not double) and w.key(UP,50)==(not double)
-    assert w.u.mem_read(O['BOOT_KEY_GUARD'],1)==bytes([int(double)])
+    assert w.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0'
+    # Standby may also lose a blocked press's release; consume its new guard once, not on repeats.
+    w=WakeMachine(double)
+    if not double:
+        assert w.key(DOWN,100) and w.key(UP,50)
+        w.byte(syms['g_backlight_status'],1)
+    assert not w.key(DOWN,100)
+    w.byte(syms['g_backlight_status'],0); w.byte(O['BOOT_KEY_GUARD'],1)
+    assert w.key(DOWN,1000)==(not double)
+    assert w.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0'
+    for gap in (258,50,750): assert w.key(DOWN,gap)==(not double)
+    assert w.key(UP,10)==(not double)
+    if double:
+        assert not w.key(DOWN,100) and not w.key(UP,50)
+        assert w.key(DOWN,100) and w.key(UP,50)
     # A blocked press stays blocked beyond WAKE_MS: holding adds no new wake gesture.
     for blind_second in (False,True):
         if not double and not blind_second: continue
@@ -8190,7 +8204,7 @@ m.byte(syms['g_backlight_status'],1); assert wake(DOWN,gap=1000) and wake(UP) an
 from build import STANDBY_WAKE
 assert struct.unpack_from('<I',demo,fileoff(demo,STANDBY_WAKE[0]))[0]==STANDBY_WAKE[2]
 m.byte(syms['g_backlight_status'],0)
-m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and not wake(UP,gap=50) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\1'
+m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and not wake(UP,gap=50) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0'
 assert wake(DOWN,gap=100) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP,gap=50)
 assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
 # Lighting the screen stalls the UI loop about WAKE_MS (stock's on_wm_keyup_fun, the paint), so a
