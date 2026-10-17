@@ -2086,6 +2086,53 @@ int ringnav_music_info(int a, char *info, const char *path) {
         flac_album_artist(path, info + MUSIC_INFO_ALBUM_ARTIST);
     return r;
 }
+/* Quote bounded scanner paths/tags into one UPDATE; never execute a truncated statement. */
+static int scan_quote(char *sql, unsigned cap, unsigned *n, const char *s) {
+    if (*n + 3 >= cap) return 0;
+    sql[(*n)++] = '\'';
+    for (; s && *s; ++s) {
+        if (*n + 3 >= cap) return 0;
+        if (*s == '\'') sql[(*n)++] = '\'';
+        sql[(*n)++] = *s;
+    }
+    sql[(*n)++] = '\'';
+    sql[*n] = 0;
+    return 1;
+}
+/* Only toolsLoadAllFile's folder-scan duplicate check calls this. Keep the row's ID, CUE bounds,
+ * creation time and library count, so saved queues/favourites still refer to the same song. */
+int ringnav_scan_refresh(void *row, const char *table, int type) {
+    int exists = toolsCheckItemExist(row, table, type);
+    if (!exists || !table || strcmp(table, "songtable")) return exists;
+    const char *path = P(row, REC_PATH), *name = P(row, REC_NAME);
+    if (!path || !name) return exists;
+    char info[0x698] = {0}, sql[8192];
+    int cue = I(row, REC_CUE_START) || I(row, REC_CUE_END);
+    if (!cue) {
+        /* Stock returns success even when TagLib cannot open/read a tag; keep the old tags then. */
+        void *file = taglib_file_new(path);
+        int valid = file && taglib_file_tag(file);
+        if (file) taglib_file_free(file);
+        if (!valid || toolsGetMusicInfo(1, info, path) != 1) return exists;
+    }
+    static const char *const fields[] = { "album", "songer", "style", "name", "composer", "albumsonger" };
+    static const unsigned offsets[] = { 0, 0x100, 0x200, 0x280, 0x480, 0x580 };
+    static const unsigned records[] = { REC_ALBUM, REC_ARTIST, 0x1c, REC_TITLE, 0x20, REC_ALBUM_ARTIST };
+    unsigned n = tk_snprintf(sql, sizeof sql, "update songtable set ");
+    for (unsigned i = 0; i < sizeof fields / sizeof *fields; ++i) {
+        n += tk_snprintf(sql + n, sizeof sql - n, "%s%s=", i ? "," : "", fields[i]);
+        if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, cue ? P(row, records[i]) : info + offsets[i])) return exists;
+    }
+    n += tk_snprintf(sql + n, sizeof sql - n, ",year=%d,track=%d,cd_num=%d where filename=",
+                     cue ? I(row, 0x30) : I(info, 0x680), cue ? I(row, REC_TRACK) : I(info, 0x684),
+                     cue ? I(row, REC_DISC) : I(info, 0x688));
+    if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, name)) return exists;
+    n += tk_snprintf(sql + n, sizeof sql - n, " and fileurl=");
+    if (n >= sizeof sql || !scan_quote(sql, sizeof sql, &n, path)) return exists;
+    n += tk_snprintf(sql + n, sizeof sql - n, " and time=%d and time_end=%d", I(row, REC_CUE_START), I(row, REC_CUE_END));
+    if (n < sizeof sql) toolsUpdateDbTable("/mnt/data/database.db", sql);
+    return exists;
+}
 /* checkBluetoothStatus' player_save_start(0) once a headset's A2DP comes up (tools/build.py
  * BT_CONNECT_START): player_save_stop stopped the local or Tidal queue, and stock restarts it
  * unpaused, so a paused queue plays, and a stopped one starts over whatever owns playback

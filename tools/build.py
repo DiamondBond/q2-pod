@@ -206,6 +206,7 @@ BT_CONNECT_START = (0x4f358c, 0x0320f809)
 PLAYER_COVER = (0x51301c, 0x0320f809)
 # The bal toolsTrimLeft on each name copy in the two library name comparators (0x5b9d40, 0x5ba658, the
 # Chinese and other-language sorts); they become jal ringnav_sort_key, which also drops a leading article.
+SCAN_REFRESH = (0x5c981c, 0x0411fd88)  # toolsLoadAllFile's existing-song check, folder scans only
 AUDIO_EXTENSION_CALLS = (0x5c2054, 0x5c3da4)  # toolsLoadDirectory and recursive scan
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
 # toolsLoadAllFile stops a scan at 20,000 songs: lw $2,count; slti $2,$2,0x4e20 before each entry. 65,000
@@ -525,6 +526,10 @@ FUNCTIONS = {
  'getAllFav': ('int', 'void'),
  # Long Songs (navigation.c): a file's length, probed once, as stock's scanner reads tags
  'taglib_file_new': ('void *', 'const char *'),
+ 'taglib_file_tag': ('void *', 'void *'),
+ 'toolsCheckItemExist': ('int', 'void *, const char *, int'),
+ 'toolsGetMusicInfo': ('int', 'int, char *, const char *'),
+ 'toolsUpdateDbTable': ('int', 'const char *, const char *'),
  'taglib_file_audioproperties': ('void *', 'void *'),
  'taglib_file_free': ('void', 'void *'),
  'deleteMusicFromFav': ('int', 'void *'),
@@ -922,6 +927,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')
     patch_word(patched, *BT_CONNECT_START, jal(ps['ringnav_bt_connect_start']),
                'Bluetooth: Resume on connect')
+    patch_word(patched, *SCAN_REFRESH, jal(ps['ringnav_scan_refresh']), 'folder scan refreshes existing tags')
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')

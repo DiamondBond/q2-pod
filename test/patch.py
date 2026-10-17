@@ -3416,6 +3416,55 @@ assert scan(0,nested)==(1,['/m/a','/m/sub/c','/m/sub/d','/m/b'],0,4); passed()
 assert scan(64998,nested)==(0,['/m/a','/m/sub/c'],1,65000); passed()  # the limit inside a subfolder ends the scan
 assert scan(0,nested,stop_at=2)==(0,['/m/a','/m/sub/c'],1,2); passed()  # the bnez delay slot's stop flag
 assert scan(0,{'/m':['a','b','c']},stop_at=1)==(0,['/m/a'],1,1); passed()
+# A folder rescan refreshes existing tags in place, including quoted paths/tags and CUE rows.
+# Run the actual recursive scanner and refresh wrapper against SQLite; full scans still add songs.
+from build import SCAN_REFRESH
+assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_REFRESH[0]))[0]==0x0c000000|payload_syms['ringnav_scan_refresh']>>2
+class FolderTagsMachine(ScanMachine):
+    def __init__(self,patched=True,cue=False,valid=True):
+        super().__init__({'/m':["it's.flac"]},1,patched=patched)
+        self.valid=valid; self.cue=cue; self.reads=0; self.updates=[]
+        self.db=sqlite3.connect(':memory:')
+        self.db.execute('create table songtable(id primary key,filename,fileurl,album,songer,style,name,composer,albumsonger,year,track,cd_num,time,time_end,time_create)')
+        self.old=(7,"it's.flac","/m/it's.flac",'Old album','Old artist','Old genre','Old title','Old composer','Old album artist',1990,1,1,10 if cue else 0,20 if cue else 0,123)
+        self.db.execute('insert into songtable values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',self.old)
+        # Another CUE segment in the same file must keep its own tags.
+        self.db.execute('insert into songtable values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(8,*self.old[1:12],30,40,456))
+        for n in ('taglib_file_new','taglib_file_tag','taglib_file_free','toolsGetMusicInfo','toolsUpdateDbTable'):
+            self.handlers[syms[n]]='refresh:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        a,b,c,d=[u.reg_read(r) for r in REGS]
+        if name=='scan:toolsCheckItemExist':
+            # The real folder listing includes the path and any parsed CUE tags.
+            self.word(a+O['REC_PATH'],self.string("/m/it's.flac"))
+            if self.cue:
+                for off,v in ((0x48,10),(0x4c,20),(0x30,2026),(0x3c,3),(0x40,2)): self.word(a+off,v)
+                for off in (0x14,0x18,0x1c,0x10,0x20,0x24): self.word(a+off,self.string("CUE's tags"))
+            ret=1
+        elif name.startswith('refresh:'):
+            name=name[8:]; ret=0
+            if name=='taglib_file_new': ret=123 if self.valid else 0
+            elif name=='taglib_file_tag': assert a==123; ret=456
+            elif name=='toolsGetMusicInfo':
+                self.reads+=1; assert (a,self.text(c))==(1,"/m/it's.flac"); ret=1
+                for off in (0,0x100,0x200,0x280,0x480,0x580): u.mem_write(b+off,"New artist's tags".encode()+b'\0')
+                for off,v in ((0x680,2026),(0x684,3),(0x688,2)): self.word(b+off,v)
+            elif name=='toolsUpdateDbTable':
+                assert self.text(a)=='/mnt/data/database.db'; self.updates.append(self.text(b)); self.db.execute(self.text(b)); ret=1
+        else: return super().hook(u,address,size,unused)
+        u.reg_write(UC_MIPS_REG_V0,ret); u.reg_write(UC_MIPS_REG_PC,u.reg_read(UC_MIPS_REG_RA))
+    def rescan(self):
+        return self.call(address=syms['toolsLoadAllFile'],args=(self.string('/m'),self.string('songtable'),1,0),gap=0)
+for patched in (False,True):
+    for cue in (False,True):
+        for valid in (False,True):
+            m=FolderTagsMachine(patched,cue,valid); assert m.rescan()==1 and not m.added and m.get(SONGS)==1
+            row=m.db.execute('select * from songtable where id=7').fetchone()
+            changed=patched and (cue or valid)
+            assert row==((7,*m.old[1:3],*(["CUE's tags" if cue else "New artist's tags"]*6),2026,3,2,*m.old[12:]) if changed else m.old)
+            assert m.db.execute('select * from songtable where id=8').fetchone()==(8,*m.old[1:12],30,40,456)
+            assert len(m.updates)==changed and m.reads==(patched and not cue and valid); passed()
 # Library Artists rows hide the head picture (CLASS_ICON); Composers and Genres, sharing the rebound
 # rows, show theirs again through stock's setter.
 from build import CLASS_ICON
