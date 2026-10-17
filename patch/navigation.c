@@ -6363,6 +6363,7 @@ int ringnav_sleep(void *loop) {
                     time_now_ms() - st.wake_at >= WAKE_MS;
         sleep_ms(quiet ? DARK_IDLE_SLEEP_MS : SCREEN_OFF_SLEEP_MS);
     } else if (st.dark) {
+        wheel_guard_reset();
         if (st.dark & 2) st.woke_at = (unsigned)time_now_ms();
         st.dark = 0;
         widget_invalidate_force(window_manager(), (void *)0);

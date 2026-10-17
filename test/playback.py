@@ -647,6 +647,12 @@ assert wheel([dark,(10,1)]+turn(10,D-1),sensitivity('200')[0])[0]==[]  # at any 
 assert wheel([dark,(10,1)]+turn(10,D+2*U-1))[0]==[P]                  # past it: every U ticks
 assert wheel([dark,(10,1)]+turn(10,D+2*U))[0]==[P,P]
 assert wheel([dark,(150,1)]+turn(150,D+U,-1))[0]==[N]                 # either way, over the seam
+assert wheel([dark,(150,1),(90,1),(90,1)]+turn(90,D+U-60,-1))[0]==[N]  # still samples do not reverse
+for step,key in ((1,P),(-1,N)):
+    samples=[dark,(100,1),((100+90*step-1)%200+1,1),((100+140*step-1)%200+1,1)]
+    assert wheel(samples)[0]==[key]                                  # crossing carries its excess
+    assert wheel(samples+[((100+(D+2*U)*step-1)%200+1,1)])[0]==[key,key]
+assert wheel([(100,1),(100-U//2,1),(100-U//2,1),(100-U,1)])[0]==[N]  # lit carry survives still samples too
 assert wheel([dark,(10,1)]+turn(10,D+U//4),sensitivity('200')[0])[0]==[P]
 assert wheel([dark,(10,1)]+turn(10,D-1)+turn(X,D+U-1,-1))[0]==[]      # a reversal starts it again
 assert wheel([dark,(10,1)]+turn(10,D-1)+turn(X,D+U,-1))[0]==[N]
@@ -661,6 +667,10 @@ assert wheel([(10,1)]+turn(10,U))[0]==[P]                               # lit: a
 assert wheel([lambda m: dark(m,0),(10,1)]+turn(10,U))[0]==[P]           # the guard off (default): as before
 assert wheel([dark,(10,1)]+turn(10,D-1)+[lit]+turn(X,U))[0]==[P]       # lit mid-turn ticks at once
 assert wheel([dark,(10,1)]+turn(10,D)+[lit]+turn(Y,1)+[dark]+turn(Y+1,U))[0]==[]  # and dark again arms
+def ui_pass(m):
+    m.handlers[ps['stock_sleep_trampoline']]='stock_sleep'
+    m.fn('ringnav_sleep',0x1234)
+assert wheel([dark,ui_pass,(10,1)]+turn(10,D)+[(Y,0),lit,ui_pass,dark,(Y,1)]+turn(Y,U))[0]==[]  # wake without wheel travel re-arms
 checks+=1
 # UI wiring in both variants: stock-style choice menu, selected marker, touch and wheel slider.
 m=PlaybackMachine(); m.top=m.node('window','playing_page'); m.stack=[m.top]; m.word(m.top+O['W_PARENT'],m.wm)

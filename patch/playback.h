@@ -17,5 +17,6 @@ void playback_save(void);
 void playback_clear(void);
 int wheel_pct(void); /* Wheel sensitivity, 50-200% */
 void wheel_set_pct(int n);
+void wheel_guard_reset(void);
 extern int wheel_guard; /* Volume guard: the screen-off wheel's half-turn guard, 0 off */
 #endif
