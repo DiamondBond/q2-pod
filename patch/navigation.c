@@ -212,7 +212,9 @@ typedef struct {
      * the check, 1 usable, 2 refused by an earlier boot's stall, 3 refused by the kernel;
      * last_input times the screen-on idle. year_old: Year order, oldest first. resume:
      * Bluetooth's Resume on connect on. */
-    int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat, wake_down, charge_held, cpu_off,
+    int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat,
+        wake_down, /* 1: the held Centre press passes; 2: it is dropped */
+        charge_held, cpu_off,
         cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock, artist_az;
     void *pod_label[10];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
@@ -221,7 +223,6 @@ typedef struct {
     unsigned art_cf_timer;
     unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
     unsigned woke_at; /* the centre press that woke the screen, then its first lit loop pass */
-    unsigned wake_down_at; /* held Centre: wake_down is 1 passing, 2 dropped until WAKE_MS */
     void *np_origin;  /* the page Hold Return opened Now Playing over */
     void *dc_top;     /* the page of the last centre press no list click took, and its time */
     unsigned dc_at;
@@ -6446,8 +6447,8 @@ int ringnav_sleep(void *loop) {
  * dropped with its release (wake_eat): turning the screen on (on_wm_keyup_fun) and that pass's
  * paint stall the loop about that long, so a blind second press is dispatched only after. A blind
  * double press only wakes, without clicking the selected row or turning the screen off again.
- * Repeated downs share their press's fate; after WAKE_MS a dropped hold passes to stock so its
- * downstream long-press timer can still reach power-off. Other keys pass: the wheel and media work
+ * Repeated downs share their press's fate, including a dropped press's release. A passing hold
+ * keeps stock's downstream long-press power-off. Other keys pass: the wheel and media work
  * dark. Returns 1 to drop the event. */
 static void woke(unsigned now) { /* a passing dark press: not Standby's resume key */
     *(volatile unsigned char *)BOOT_KEY_GUARD = 0;
@@ -6467,17 +6468,8 @@ static int wake_gate(void *e) {
         st.wake_down = 0;
     if (type == EVT_KEY_UP) st.wake_down = 0;
     else {
-        if (st.wake_down) {
-            if (st.wake_down == 1) return 0;
-            if (now - st.wake_down_at < WAKE_MS) return 1;
-            st.wake_down = 1;
-            st.wake_eat = 0;
-            st.wake_pass = 1;
-            if (!g_backlight_status) woke(now);
-            return 0;
-        }
+        if (st.wake_down) return st.wake_down == 2;
         st.wake_down = 1;
-        st.wake_down_at = now;
     }
     if (type == EVT_KEY_UP && st.wake_eat) {
         st.wake_eat = 0;

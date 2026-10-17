@@ -8152,36 +8152,33 @@ for double in (False,True):
     w.byte(O['BOOT_KEY_GUARD'],1)
     assert w.key(DOWN,1000)==(not double) and w.key(UP,50)==(not double)
     assert w.u.mem_read(O['BOOT_KEY_GUARD'],1)==bytes([int(double)])
-    # An extended blind second press stays blocked with its repeats and release below WAKE_MS.
-    w=WakeMachine(double)
-    if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
-    assert w.key(DOWN,100) and w.key(UP,50)
-    w.byte(syms['g_backlight_status'],1)
-    assert not w.key(DOWN,100) and not w.key(DOWN,258) and not w.key(DOWN,50) and not w.key(UP,50)
-    # Either a lone dark hold or the dropped blind second hold can still reach stock power-off.
-    for dropped in (False,True):
+    # A blocked press stays blocked beyond WAKE_MS: holding adds no new wake gesture.
+    for blind_second in (False,True):
+        if not double and not blind_second: continue
         w=WakeMachine(double)
-        if dropped:
+        if blind_second:
             if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
             assert w.key(DOWN,100) and w.key(UP,50)
             w.byte(syms['g_backlight_status'],1)
-        initial=w.key(DOWN,100)
-        assert initial==(not double and not dropped)
-        assert w.key(DOWN,258)==initial
-        for _ in range(5): w.key(DOWN,50)
-        assert w.held_at is not None
-        for _ in range(20): assert w.key(DOWN,50)
-        w.long()
-        assert w.key(UP,10)
+        assert not w.key(DOWN,100) and not w.key(DOWN,258)
+        for _ in range(25): assert not w.key(DOWN,50)
+        assert w.held_at is None and not w.key(UP,10)
+    # Accepted Single presses and eligible Double presses retain stock long-press power-off.
+    w=WakeMachine(double)
+    if double: assert not w.key(DOWN,1000) and not w.key(UP,50)
+    assert w.key(DOWN,100) and w.key(DOWN,258)
+    for _ in range(15): assert w.key(DOWN,50)
+    w.long()
+    assert w.key(UP,10)
 passed()
-def eaten():  # quick blind presses stay dropped; a held one eventually reaches stock's long timer
+def eaten():  # blind presses and their repeats stay dropped with the release
     m.byte(syms['g_backlight_status'],1)
     r=not wake(DOWN,gap=100) and not wake(UP,gap=50) and not wake(DOWN,gap=50) and not wake(DOWN,gap=258)
-    r=r and wake(DOWN,gap=250) and wake(UP)
+    r=r and not wake(DOWN,gap=750) and not wake(UP)
     m.byte(syms['g_backlight_status'],0); return r
-assert eaten() and wake(DOWN,gap=O['WAKE_MS']) and wake(UP)  # a blind double press only wakes; holding it still powers off
-m.byte(syms['g_backlight_status'],1); assert not wake(DOWN,gap=100); m.byte(syms['g_backlight_status'],0)
-assert wake(DOWN,gap=1000) and wake(UP)  # an eaten press whose release never came (Standby) leaves no flag
+assert eaten() and wake(DOWN,gap=O['WAKE_MS']) and wake(UP)  # a blind double press only wakes
+m.byte(syms['g_backlight_status'],1); assert not wake(DOWN,gap=100) and not wake(UP,gap=50); m.byte(syms['g_backlight_status'],0)
+assert wake(DOWN,gap=1000) and wake(UP)  # a new press does not inherit the dropped press's flag
 assert click(2)==[(1,'Q2POD','WAKEDOUBLE')] and texts()[2]=='Wake: Double Press' and back_dark()
 assert not wake(DOWN,gap=1000) and not wake(UP,gap=50)  # a pocket bump
 assert wake(DOWN,gap=100) and wake(UP,gap=50) and eaten()  # the double press; a third only wakes
