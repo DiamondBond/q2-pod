@@ -769,17 +769,50 @@ static const char *album_name(void *r) {
     const char *s = P(r, REC_ALBUM);
     return s ? s : "";
 }
-/* The row of r's album (album_cmp) in list, or -1: the Unknown row never matches. A linear
- * scan: the rank queries and play counts together look up at most the album count + 512 songs. */
-static int album_in(void *list, void *r) {
-    unsigned n = list ? deque_size(list) : 0;
-    for (unsigned i = 0; i < n; ++i) {
-        void *s = deque_at(list, i);
-        if (I(s, REC_ID) != -1 && !album_cmp(s, r)) return (int)i;
-    }
-    return -1;
+/* Rows sorted to look up by binary search, ties in their list's order. */
+typedef struct {
+    void *a;
+    unsigned j;
+} row_t;
+static int name_cmp(void *a, void *b) { return strcasecmp(album_name(a), album_name(b)); }
+static int by_name(const void *x, const void *y) {
+    const row_t *p = x, *q = y;
+    int d = name_cmp(p->a, q->a);
+    return d ? d : (p->j > q->j) - (p->j < q->j);
 }
-static int album_index(void *r) { return album_in(cf.stock, r); }
+static int by_album(const void *x, const void *y) {
+    const row_t *p = x, *q = y;
+    int d = album_cmp(p->a, q->a);
+    return d ? d : (p->j > q->j) - (p->j < q->j);
+}
+/* The first of v's n rows not before r by cmp. */
+static unsigned lower(row_t *v, unsigned n, void *r, int (*cmp)(void *, void *)) {
+    unsigned lo = 0;
+    while (n) {
+        unsigned h = n / 2;
+        if (cmp(v[lo + h].a, r) < 0) lo += h + 1, n -= h + 1;
+        else n = h;
+    }
+    return lo;
+}
+/* list's rows but the Unknown one sorted by album (album_cmp), *m of them; 0 out of memory. */
+static row_t *album_rows(void *list, unsigned *m) {
+    row_t *v = calloc(deque_size(list) + 1, sizeof *v);
+    *m = 0;
+    for (unsigned i = 0; v && i < deque_size(list); ++i)
+        if (I(deque_at(list, i), REC_ID) != -1) v[*m].a = deque_at(list, i), v[(*m)++].j = i;
+    if (v) qsort(v, *m, sizeof *v, by_album);
+    return v;
+}
+/* The list row of r's album among album_rows' v, or -1: the Unknown row never matches. */
+static int album_in(row_t *v, unsigned m, void *r) {
+    unsigned k = lower(v, m, r, album_cmp);
+    return k < m && !album_cmp(v[k].a, r) ? (int)v[k].j : -1;
+}
+/* cf.stock's album_rows while sorted() ranks it. */
+static row_t *stock_rows;
+static unsigned stock_n;
+static int album_index(void *r) { return album_in(stock_rows, stock_n, r); }
 /* album_row on the first four columns, then the fifth, the album artist, on the row it added; the
  * stSongInfo copy (0x5b3b1c) duplicates +0x24 as it does the other strings. */
 static int split_row(void *a, int n, char **v, char **c) {
@@ -792,20 +825,23 @@ static int split_row(void *a, int n, char **v, char **c) {
 static int rank_query(void *sql) { return toolsQueryDbTable("/mnt/data/database.db", sql, split_row, 0); }
 
 /* list's albums with music, in a new deque (list goes), using a music track for their art even when
- * tags are shared with an audiobook. The card's files stay untouched. */
+ * tags are shared with an audiobook. The card's files stay untouched. Out of memory,
+ * audiobooks stay. */
 static void *music_albums(void *list) {
     int n;
-    void *rows = staged(rank_query, MUSIC_ALBUM_SQL, &n), *out = _create_deque("stSongInfo");
+    void *rows = staged(rank_query, MUSIC_ALBUM_SQL, &n), *out;
+    unsigned m;
+    row_t *v = album_rows(rows, &m);
+    if (!v) return deque_destroy(rows), list;
+    out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < deque_size(list); ++i) {
         void *r = deque_at(list, i);
-        for (unsigned j = 0; j < deque_size(rows); ++j) {
-            void *a = deque_at(rows, j);
-            if (I(r, REC_ID) == -1 ? I(a, REC_ID) != -1 : I(a, REC_ID) == -1 || album_cmp(r, a) != 0) continue;
-            _deque_push_back(out, I(r, REC_ID) == -1 ? r : a);
-            break;
-        }
+        int k = I(r, REC_ID) == -1 ? -1 : album_in(v, m, r);
+        if (k >= 0) _deque_push_back(out, deque_at(rows, (unsigned)k));
+        else if (I(r, REC_ID) == -1 && m < deque_size(rows)) _deque_push_back(out, r);
     }
+    free(v);
     deque_destroy(rows);
     deque_destroy(list);
     return out;
@@ -813,23 +849,29 @@ static void *music_albums(void *list) {
 
 /* getAllAlbum groups by name alone, as stock's Albums list does: each of its rows becomes that
  * name's ALBUM_SQL rows, one per album_cmp album (the SQL keeps disc folders apart), in its place;
- * a row the query missed stays. ponytail: a scan per row, albums squared; merge name-sorted lists
- * if large libraries feel it. */
+ * a row the query missed stays. Out of memory, the rows stay unsplit. ponytail: a scan of the
+ * name's albums so far per row, its albums squared; fine unless one name has thousands. */
 static void *split(void *stock) {
     int n;
-    void *rows = staged(rank_query, ALBUM_SQL, &n), *out = _create_deque("stSongInfo");
+    void *rows = staged(rank_query, ALBUM_SQL, &n), *out;
+    unsigned m = deque_size(rows);
+    row_t *v = calloc(m + 1, sizeof *v);
+    if (!v) return deque_destroy(rows), stock;
+    for (unsigned j = 0; j < m; ++j) v[j].a = deque_at(rows, j), v[j].j = j;
+    qsort(v, m, sizeof *v, by_name);
+    out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < deque_size(stock); ++i) {
         void *r = deque_at(stock, i);
         unsigned from = deque_size(out), k;
-        for (unsigned j = 0; I(r, REC_ID) != -1 && j < deque_size(rows); ++j) {
-            void *a = deque_at(rows, j);
-            if (strcasecmp(album_name(r), album_name(a))) continue;
+        for (unsigned j = I(r, REC_ID) == -1 ? m : lower(v, m, r, name_cmp); j < m && !name_cmp(v[j].a, r); ++j) {
+            void *a = v[j].a;
             for (k = from; k < deque_size(out) && album_cmp(deque_at(out, k), a); ++k) {}
             if (k == deque_size(out)) _deque_push_back(out, a);
         }
         if (from == deque_size(out)) _deque_push_back(out, r);
     }
+    free(v);
     deque_destroy(rows);
     deque_destroy(stock);
     return out;
@@ -890,8 +932,9 @@ static void *sorted(void) {
     if (!cf.scoped) cf.year_old = ringnav_year_old(); /* the rated page's sort is its own */
     unsigned *sum = v && played ? calloc(n + 1, sizeof *sum) : 0;
     char *keys = v && artist ? calloc(n + 1, ARTIST_KEY) : 0;
-    if (!v || (played && !sum) || (artist && !keys)) {
-        free(v), free(sum), free(keys);
+    stock_rows = v ? album_rows(cf.stock, &stock_n) : 0;
+    if (!v || !stock_rows || (played && !sum) || (artist && !keys)) {
+        free(v), free(sum), free(keys), free(stock_rows), stock_rows = 0;
         cf.sort = SORT_ALBUM;
         return cf.stock;
     }
@@ -919,21 +962,25 @@ static void *sorted(void) {
     void *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < n; ++i) _deque_push_back(out, v[i].r);
-    free(v), free(sum), free(keys);
+    free(v), free(sum), free(keys), free(stock_rows), stock_rows = 0;
     return out;
 }
 extern int ringnav_artist_az(void);
 /* albums (split's rows) in place by year, as year_sql, or by name (Playback's Artist album order
  * A-Z): the query's order, then the albums it missed, then the Unknown album. navigation.c's artist pages. Out of memory they keep their order. */
 void coverflow_by_year(void *albums) {
-    unsigned n = deque_size(albums);
+    unsigned n = deque_size(albums), m;
     char *taken = calloc(n + 1, 1);
+    row_t *v = taken ? album_rows(albums, &m) : 0;
     int found;
-    if (!taken) return;
+    if (!v) {
+        free(taken);
+        return;
+    }
     void *rows = staged(rank_query, (void *)(ringnav_artist_az() ? SORT_SQL "album COLLATE NOCASE" : year_sql()), &found), *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned j = 0; j < deque_size(rows); ++j) {
-        int i = album_in(albums, deque_at(rows, j));
+        int i = album_in(v, m, deque_at(rows, j));
         if (i >= 0 && !taken[i]) taken[i] = 1, _deque_push_back(out, deque_at(albums, (unsigned)i));
     }
     deque_destroy(rows);
@@ -941,7 +988,7 @@ void coverflow_by_year(void *albums) {
         for (unsigned i = 0; i < n; ++i)
             if (!taken[i] && (I(deque_at(albums, i), REC_ID) == -1) == unknown)
                 _deque_push_back(out, deque_at(albums, i));
-    free(taken);
+    free(taken), free(v);
     deque_clear(albums);
     deque_assign(albums, out);
     deque_destroy(out);

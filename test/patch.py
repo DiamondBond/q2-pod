@@ -471,7 +471,8 @@ class Machine:
         regs=[UC_MIPS_REG_PC,*range(UC_MIPS_REG_0,UC_MIPS_REG_31+1)]; saved=[self.u.reg_read(r) for r in regs]
         for r,v in ((UC_MIPS_REG_SP,self.u.reg_read(UC_MIPS_REG_SP)-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,f),*zip(REGS,args)):
             self.u.reg_write(r,v)
-        self.u.emu_start(f,0x1000000,count=self.budget); ret=signed(self.u.reg_read(UC_MIPS_REG_V0))
+        # unicorn's count is one per engine: a nested run's limit stands for the rest of the caller's call too
+        self.u.emu_start(f,0x1000000,count=getattr(self,'count',self.budget)); ret=signed(self.u.reg_read(UC_MIPS_REG_V0))
         for r,v in zip(regs,saved): self.u.reg_write(r,v)
         return ret
     def qsort(self,base,n,size,compare):
@@ -509,7 +510,8 @@ class Machine:
         for i,v in enumerate(stack): self.word(0x7000f010+4*i,v)
         for r,v in zip(REGS,args or (self.wm,self.event,0,0)): self.u.reg_write(r,v&0xffffffff)
         for i,r in enumerate(SAVED): self.u.reg_write(r,0x12340000+i)
-        self.u.emu_start(address,0x1000000,count=count or self.budget)
+        self.count=count or self.budget
+        self.u.emu_start(address,0x1000000,count=self.count)
         assert self.u.reg_read(UC_MIPS_REG_PC)==0x1000000, 'Instruction limit reached'
         assert self.u.reg_read(UC_MIPS_REG_SP)==0x7000f000
         assert [self.u.reg_read(r) for r in SAVED]==[0x12340000+i for i in range(len(SAVED))]
@@ -2856,7 +2858,7 @@ class QueueMachine(Machine):
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
                   'getMusicBySonger','getMusicByAlbumArtist','getMusicByComposer','getMusicByGenre',
                   'getMusicByAlbumAndComposer','getMusicByAlbumAndGenre','checkFavExist','navigator_window_is_exist',
-                  'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','fopen@GLIBC_2.2'): self.handlers[syms[n]]='q:'+n
+                  'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0'): self.handlers[syms[n]]='q:'+n
         self.favs=set(); self.open_pages=set(); self.opened=[]
         self.handlers.pop(syms['mclLoadPlayList'])
         self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0'); self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
@@ -2935,6 +2937,7 @@ class QueueMachine(Machine):
             self.word(O['MCL_POS'],last if not a and last!=-1 else len(self.names())-1); ret=1
         elif name=='calloc@GLIBC_2.0': ret=self.alloc(a*b+4)  # the album ratings' table
         elif name=='fopen@GLIBC_2.2': ret=0  # no ratings file
+        elif name=='qsort@GLIBC_2.0': self.qsort(a,b,c,d)  # Albums' sorted lookups, the payload's comparator run nested
         else:  # the album/folder queries fill the staging deque
             self.query=(name,self.text(a) if a else None,(self.text(b) if b else None) if 'And' in name else None,c)
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=3
@@ -4876,7 +4879,7 @@ for writer in WRITERS:
 # Albums without art start the thread behind a progress screen; destroy joins it and drops the poll.
 m=CoverflowMachine(cached=False); page=m.open()
 assert len(m.threads)==1 and m.timers and any((t or '').startswith('Preparing artwork') for t in m.texts()) and 'Cancel' in m.texts()
-f,ctx=m.handler(page,O['EVT_DESTROY']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+f,ctx=m.handler(page,O['EVT_DESTROY']); m.freed=0; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
 assert m.joins==[77] and not m.timers and m.freed==4; passed()  # three job paths and the job array
 # Tracks list and play in album order (disc, track, then path, then CUE start), named without
 # their file's extension; a CUE title keeps its dot.
