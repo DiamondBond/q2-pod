@@ -202,6 +202,16 @@ int coverflow_player_cover(const char *track, const char *dst, int w, int h) {
            (!marked_empty(track) && ff_thumb(track, dst, w, h));
 }
 
+/* parse_albumcovertask_thd's embedded-art calls (Albums grids; Folder view's folder and track rows),
+ * under parse_cover_mutex: stock reads no Ogg picture, so an .opus or .ogg track's goes to ffmpeg,
+ * which takes no lock. ponytail: stock caches only a hit, so an Ogg track without embedded art
+ * costs a process per request, and a folder of them one per track; a marker if that drags. */
+int coverflow_grid_cover(const char *track, const char *dst, int w, int h) {
+    const char *dot = strrchr(track, '.');
+    return toolsGetAlbumCover(track, dst, w, h) == 1 ||
+           (dot && (!strcasecmp(dot, ".opus") || !strcasecmp(dot, ".ogg")) && ff_thumb(track, dst, w, h));
+}
+
 /* One album: embedded art, then beside_art, then ffmpeg's read of the embedded art, last as it
  * costs a process for every album without art; written to .tmp and renamed. An empty file marks
  * "no art", so the placeholder shows and the album is not retried until Refresh. */

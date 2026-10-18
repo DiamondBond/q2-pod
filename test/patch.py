@@ -5376,6 +5376,26 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
     for event in ('on_player_autochange','toolsLoadNextDir','player_refresh_playqueue'): assert events.count(event)==3
     assert events.count('mclLoadPlayList')==4 and events.count('mclClearChangeFlag')==len(paths)-1
 
+# Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg (refused here) only
+# for an Ogg track stock found none in, never for an MP3 or FLAC.
+from build import GRID_COVER
+for call,_ in GRID_COVER:
+    assert struct.unpack_from('<I',demo,fileoff(demo,call))[0]==jal(payload_syms['coverflow_grid_cover'])
+class GridCoverMachine(Machine):
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address)
+        if name not in ('toolsGetAlbumCover','fork@GLIBC_2.0'): return super().hook(u,address,size,unused)
+        self.seen.append(name.split('@')[0])
+        self.returns(self.found if name=='toolsGetAlbumCover' else -1,clobber=True)
+m=GridCoverMachine(); m.mock('toolsGetAlbumCover','fork@GLIBC_2.0')
+for track,found,want in (('01.opus',1,['toolsGetAlbumCover']),('01.OPUS',0,['toolsGetAlbumCover','fork']),
+                         ('01.ogg',0,['toolsGetAlbumCover','fork']),('01.mp3',0,['toolsGetAlbumCover']),
+                         ('01.flac',0,['toolsGetAlbumCover']),('opus',0,['toolsGetAlbumCover'])):
+    m.found=found; m.seen=[]
+    args=(m.string('/mnt/mmc/A/'+track),m.string('/mnt/mmc/.sldp/x0.jpg'),110,110)
+    assert m.call(address=payload_syms['coverflow_grid_cover'],args=args,gap=0)==found and m.seen==want, (track,m.seen)
+passed()
+
 # Coverflow depth (docs/internals.md#coverflow-depth): the payload's renderer, run as MIPS, draws
 # byte for byte what the host build of the same source draws (test/coverflow.py checks that
 # one's geometry); on the page it spans the frame, draws through the stock canvas and hit-tests taps.
