@@ -153,6 +153,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
 
     <li class="chap"><span class="n">{{p:c2}}</span><a href="#c2">Chapter 2: Library and Music</a></li>
     <li><span class="n">{{p:addmusic}}</span><a href="#addmusic">Adding music</a></li>
+    <li><span class="n">{{p:tagging}}</span><a href="#tagging">Tagging your music</a></li>
     <li><span class="n">{{p:card}}</span><a href="#card">What goes on the microSD card</a></li>
     <li><span class="n">{{p:ratings}}</span><a href="#ratings">Rating songs and albums</a></li>
     <li><span class="n">{{p:playlists}}</span><a href="#playlists">Playlists and Long Songs</a></li>
@@ -307,6 +308,17 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   </ol>
   <p>Update Local Music adds up to 65,000 songs (stock stopped at 20,000), so with a larger library run it again after updating.</p>
   <p>Settings, play counts, ratings, resume points and book pages are stored on the Q2 itself, not the card, so they stay put when you swap cards.</p>
+
+  </div>
+  <div class="sec">
+  <h2 id="tagging">Tagging your music</h2>
+  <p>Q2 Pod builds the library from your files’ tags, so a few tag habits decide how albums and songs show up. Fix tags on a computer (Mp3tag, MusicBrainz Picard or foobar2000), then run <b>Update Local Music</b> and press <b>Refresh library</b> in Coverflow.</p>
+  <ul>
+    <li><b>An album is its name plus its Album Artist.</b> Coverflow, <b>Library → Albums</b>, Album groups, Crossfade and album ratings all go by these two tags. Give every track on an album the same Album Artist. A track with a different one, for example “Artist; Guest” where the rest say “Artist”, becomes an album of its own. So does a track that has no Album Artist when the others do. Put guests in the track’s <b>Artist</b> or <b>Title</b> instead, and use one Album Artist such as “Various Artists” for a compilation.</li>
+    <li><b>No Album Artist on any track:</b> the album’s folder tells it apart instead, and disc folders (<code>CD1</code>, <code>Disc 2</code>) count as one album. Two albums with the same name in one folder then become one album, so give each album its own folder or an Album Artist.</li>
+    <li><b>Audio settings → Artists</b> picks what the <b>Artists</b> list groups by, <b>Album Artist</b> (the default) or <b>Artist</b>. It doesn’t change how albums are grouped.</li>
+    <li><b>Keep Genre short.</b> A very long Genre tag, such as dozens of genres joined with “//”, overflows into the title: the song shows the end of its genre as its name in song lists and on Now Playing. Trim the Genre to a few entries.</li>
+  </ul>
 
   </div>
   <div class="sec">
