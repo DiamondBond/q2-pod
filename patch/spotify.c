@@ -121,10 +121,7 @@ unsigned long long now_ms(void) { /* shared with radio.c; not now_ns() / 1e6: no
 /* c to the datagram socket at path, *sock opened on first use. Shared with radio.c. */
 void dgram_send(int *sock, const char *path, const char *c, unsigned n) {
     if (*sock <= 0) *sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
-    struct {
-        unsigned short family;
-        char path[108];
-    } to = { 1, { 0 } };
+    struct unix_addr to = { 1, { 0 } };
     memcpy(to.path, path, strlen(path) + 1);
     sendto(*sock, c, n, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
 }
@@ -603,10 +600,7 @@ void spot_shut(int fd);
  * at a time so a cancel is joined at once. */
 static void *worker(void *unused) {
     (void)unused;
-    struct {
-        unsigned short family;
-        char path[108];
-    } to = { 1, SPOT_BROWSE };
+    struct unix_addr to = { 1, SPOT_BROWSE };
     unsigned long long end = now_ms() + SPOT_WAIT_MS;
     unsigned sent = 0;
     int fd = socket(1, 2, 0), k = 1; /* AF_UNIX, SOCK_STREAM (MIPS numbering) */

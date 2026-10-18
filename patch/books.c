@@ -876,11 +876,7 @@ void video_key(unsigned key) {
                   : wheel || key == KEY_CENTER                           ? 'v'
                                                                          : 0,
                   (char)g_volume };
-    struct {
-        unsigned short family;
-        char path[108];
-    } to = { 1, VIDEO_SOCK };
-    if (c[0]) sendto(vid.sock, c, c[0] == 'v' ? 2 : 1, 0x40, &to, sizeof to); /* MSG_DONTWAIT */
+    if (c[0]) dgram_send(&vid.sock, VIDEO_SOCK, c, c[0] == 'v' ? 2 : 1);
     if (c[0] == 'p') {
         vid.paused = !vid.paused;
         vid.control_at = time_now_ms();

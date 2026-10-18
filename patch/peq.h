@@ -148,6 +148,10 @@ unsigned long long now_ms(void); /* CLOCK_MONOTONIC */
 void field(const char *raw, const char *key, char *out, unsigned n);
 unsigned long long number(const char *raw, const char *key);
 unsigned state_read(const char *path, char *raw, unsigned size);
+struct unix_addr { /* sockaddr_un */
+    unsigned short family;
+    char path[108];
+};
 void dgram_send(int *sock, const char *path, const char *c, unsigned n);
 int hex(char c); /* a hex digit's value, -1 for any other character; headset.c's too */
 void *label(void *parent, int x, int y, int w, int h, const char *style, int px, unsigned color);
