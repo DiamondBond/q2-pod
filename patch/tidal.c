@@ -38,6 +38,7 @@ extern int stock_tidal_trampoline(const char *url);
 
 static struct {
     volatile int busy;
+    volatile unsigned gen, want; /* tidal_play's count; the download's, from when it started */
     unsigned long thread;
     char url[2048], tmp[300], path[296];
 } td __attribute__((section(".scratch")));
@@ -75,10 +76,21 @@ static unsigned save(const void *data, unsigned size, unsigned n, void *file) {
     return fwrite(data, size, n, file) * size;
 }
 
+/* Stops the transfer once another track starts (tidal_play counts each) or the player, having
+ * started, stops: a skip or Stop drops the copy within a second, as radio.c's fetch_progress.
+ * ponytail: Stop is inferred from stock's play status, not signalled; a brief stopped state between
+ * queued tracks also drops the copy (cached on a later play). Hook stock's stop if that bites. */
+static int progress(void *started, long long a, long long b, long long c, long long d) {
+    (void)a, (void)b, (void)c, (void)d;
+    int stopped = mclGetPlayStatus() == 1; /* 1 stopped */
+    if (!stopped) *(int *)started = 1;
+    return td.gen != td.want || (stopped && *(int *)started);
+}
+
 static void *download(void *unused) {
     (void)unused;
     long code = 0;
-    int ok = 0;
+    int ok = 0, started = 0;
     void *f = fopen(td.tmp, "wb"), *c = f ? curl_easy_init() : 0;
     if (c) {
         curl_easy_setopt(c, 10002, td.url); /* CURLOPT_URL */
@@ -87,6 +99,11 @@ static void *download(void *unused) {
         curl_easy_setopt(c, 99, 1L);        /* NOSIGNAL: off the UI thread */
         curl_easy_setopt(c, 52, 1L);        /* FOLLOWLOCATION */
         curl_easy_setopt(c, 78, 15L);       /* CONNECTTIMEOUT */
+        curl_easy_setopt(c, 19, 1024L);     /* LOW_SPEED_LIMIT: a stalled transfer ends, */
+        curl_easy_setopt(c, 20, 30L);       /* LOW_SPEED_TIME   so busy always clears */
+        curl_easy_setopt(c, 20219, progress); /* XFERINFOFUNCTION */
+        curl_easy_setopt(c, 10057, &started); /* XFERINFODATA */
+        curl_easy_setopt(c, 43, 0L);        /* NOPROGRESS off, for it */
         /* Tidal's CDN roots are not in the firmware's bundle; hciplayer streams the same URL
          * unverified (ffmpeg's tls_verify=0), so the copy is trusted exactly as the stream is. */
         curl_easy_setopt(c, 64, 0L); /* SSL_VERIFYPEER */
@@ -123,6 +140,7 @@ static int cached(const char *key, const char *ext, char *path, unsigned n) {
 int tidal_play(const char *url, const char *id) {
     headset_manual();
     char ext[8], key[64], name[256], path[sizeof td.path];
+    ++td.gen; /* cancels a download of the track before */
     int level = I(tidalStreamingLevelNow, 0);
     if (!url || !id || !*id || strstr(id, "/") || strlen(id) > 40 || !tidal_ext(url, ext, sizeof ext))
         return stock_tidal_trampoline(url);
@@ -146,6 +164,7 @@ int tidal_play(const char *url, const char *id) {
         tk_snprintf(td.url, sizeof td.url, "%s", url);
         tk_snprintf(td.path, sizeof td.path, TIDAL_DIR "/%s", name);
         tk_snprintf(td.tmp, sizeof td.tmp, "%s.tmp", td.path);
+        td.want = td.gen;
         td.busy = 1;
         if (pthread_create(&td.thread, 0, download, 0))
             td.busy = 0;
