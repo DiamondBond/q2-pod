@@ -126,9 +126,19 @@ static int art_exists(const char *url) { return !access(url + 7, 0); }
 #define ART_FFMPEG "/usr/bin/ffmpeg"
 #endif
 
+/* path's size, -1 when it can't be opened */
+static long file_size(const char *path) {
+    void *f = fopen(path, "rb");
+    long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
+    if (f) fclose(f);
+    return size;
+}
+
 /* Stock ffmpeg's first picture of src (an image, or an audio file's embedded one) fitted into w x h
  * as a JPEG at dst: what stock's decoder refuses (WebP, a PNG over 1 MB, a JPEG over 6 MB). Uses no
- * shared file, so no lock. ponytail: a process per cover; a resident decoder if first builds drag. */
+ * shared file, so no lock. ffmpeg creates dst before decoding, so a picture it can't decode leaves
+ * an empty one, even on exit 0; that is removed, as stock's caches take any file for art.
+ * ponytail: a process per cover; a resident decoder if first builds drag. */
 static int ff_thumb(const char *src, const char *dst, int w, int h) {
     char vf[80];
     tk_snprintf(vf, sizeof(vf), "scale=%d:%d:force_original_aspect_ratio=decrease", w, h);
@@ -138,7 +148,9 @@ static int ff_thumb(const char *src, const char *dst, int w, int h) {
               vf, "-pix_fmt", "yuvj420p", "-q:v", "3", "-f", "mjpeg", "-y", dst, (char *)0);
         child_exit(127);
     }
-    return pid > 0 && waitpid(pid, &status, 0) == pid && !status;
+    if (pid > 0 && waitpid(pid, &status, 0) == pid && !status && file_size(dst) > 0) return 1;
+    unlink(dst);
+    return 0;
 }
 
 /* stock's thumbnailer, under the lock every stock caller holds, else ffmpeg; shared with photos.c */
@@ -183,10 +195,7 @@ static int marked_empty(const char *track) {
     const char *id3 = (const char *)g_play_id3_info;
     if (tk_strcmp(id3, track)) return 0;
     char art[512];
-    void *f = fopen(art_path(art, tags_key(id3 + ID3_ARTIST, id3 + ID3_ALBUM), ""), "rb");
-    long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
-    if (f) fclose(f);
-    return !size;
+    return !file_size(art_path(art, tags_key(id3 + ID3_ARTIST, id3 + ID3_ALBUM), ""));
 }
 
 /* player_parsecover_thd's folder-image call, after its embedded art failed, under
