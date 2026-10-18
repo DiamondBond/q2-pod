@@ -284,6 +284,139 @@ LABELS = tuple((k.encode(), o.encode(), n.encode()) for k, o, n in (
     ('genre', 'Genres', 'Genre'), ('player_era', 'Era', 'Year'), ('batch_addplaylist', 'Add to playlist', 'Add to Playlist'),
     ('scan_startscan', 'Scanning', 'Scan')))  # Scan specified folders' button; wifi_scan keeps its "Scanning"
 
+# Wi-Fi transfer's web page (stock thttpd on :8888): in English, an Upload Folder button, and a folder,
+# picked or dropped, keeps its tree: each file's folders are made with stock's create (a plain mkdir) before
+# it goes, as stock's upload only moves a file into an existing folder. The formats Q2 Pod's pages read are allowed too.
+MKDIR_JS = r'''// Each folder of a folder upload is made once per batch, parents first; stock's create is a plain mkdir,
+// so a folder that exists fails harmlessly and a real failure shows as its files' upload error.
+// ponytail: the stock CGIs run mkdir and mv through system() in double quotes, so a name with " ` or $
+// can't be uploaded (plain files too); replacing the CGIs would lift it.
+var _made = {};
+function _mkdir(path, base) {
+  if (path == base)
+    return $.Deferred().resolve();
+  if (!_made[path]) {
+    var made = $.Deferred();
+    _mkdir(path.replace(/[^\/]*\/$/, ""), base).always(function() {
+      $.ajax({url: 'create', type: 'POST', data: {path: path.slice(0, -1)}, dataType: 'json'})
+        .always(function() { made.resolve(); });
+    });
+    _made[path] = made;
+  }
+  return _made[path];
+}
+
+function _showError('''
+WEB = {
+  'usr/share/web/index.html': [
+    ('山灵音乐', 'Shanling Q2'),
+    ('支持音频格式:ISO,DFF,DSF,APE,FLAC,AIF,AIFF,WAV,M4A,AAC,MP2,AC3,DTS,MP3,OGG,WMA,CUE,M3U,M3U8<br/>图片格式:PNG,JPG,JPEG<br/>歌词格式:LRC<br/>固件升级包:BIN',
+     'Audio: ISO, DFF, DSF, APE, FLAC, AIF, AIFF, WAV, M4A, M4B, AAC, MP2, AC3, DTS, MP3, OGG, WMA, CUE, M3U, M3U8<br/>'
+     'Pictures: PNG, JPG, JPEG<br/>Lyrics: LRC<br/>Videos: MP4, M4V, MKV, AVI, MOV, MPG<br/>Books: TXT, EPUB<br/>Firmware: BIN'),
+    ('''上传文件
+          <input id="fileupload" type="file" name="files[]" multiple>
+        </button>''', '''Upload Files
+          <input id="fileupload" type="file" name="files[]" multiple>
+        </button>
+        <button type="button" class="btn btn-primary fileinput-button" id="upload-folder">
+          <span class="glyphicon glyphicon-folder-open"></span> Upload Folder
+          <input id="folderupload" type="file" name="files[]" multiple webkitdirectory>
+        </button>'''),
+    ('创建文件夹', 'New Folder'), ('返回上一级', 'Up'), ('正在进行文件上传', 'Uploading'), ('新建文件夹', 'New Folder'),
+    ('请输入要创建的文件夹的名称:', 'Folder name:'), ('取消', 'Cancel'), ('移动项目', 'Move'), ('请输入此项的新位置:', 'New location:')],
+  'usr/share/web/js/index.js': [
+    ('"LRC","BIN"];', '"LRC","BIN","M4B","MP4","M4V","MKV","AVI","MOV","MPG","TXT","EPUB"];'),
+    ('function _showError(', MKDIR_JS),
+    ('''  $("#upload-file").click(function(event) {
+    $("#fileupload").click();
+  });
+''', '''  $("#upload-file").click(function(event) {
+    $("#fileupload").click();
+  });
+  $("#upload-folder").click(function(event) {
+    $("#folderupload").click();
+  });
+'''),
+    ('$("#fileupload").click(function(event) {', '$("#fileupload, #folderupload").click(function(event) {'),
+    ('    dropZone: $(document),', '    fileInput: $("#fileupload, #folderupload"),\n    dropZone: $(document),'),
+    ('''      $(".uploading").hide();''', '''      if (!$("#uploads").children().length) {  // rows still waiting on their folders keep it up
+        $(".uploading").hide();
+        _made = {};
+      }'''),
+    ('''      var file = data.files[0];
+      if(_isValidFileType(file.name)) {
+        data.formData = {
+          path: _path
+        };
+        data.context = $(tmpl("template-uploads", {
+          path: _path + file.name
+        })).appendTo("#uploads");
+        var jqXHR = data.submit();
+        data.context.find("button").click(function(event) {
+          jqXHR.abort();
+        });''', '''      var file = data.files[0];
+      // a dropped folder's files carry relativePath ("Album/CD1/"), a picked one's webkitRelativePath ("Album/CD1/01.flac")
+      var dir = _path + (file.relativePath || (file.webkitRelativePath || "").replace(/[^\\/]*$/, ""));
+      if (dir != _path && file.name.charAt(0) == ".")
+        return;  // .DS_Store, macOS's ._ copies
+      if(_isValidFileType(file.name)) {
+        data.formData = {
+          path: dir
+        };
+        data.context = $(tmpl("template-uploads", {
+          path: dir + file.name
+        })).appendTo("#uploads");
+        $(".uploading").show();  // before its upload starts: it may wait on its folders
+        var jqXHR = null;
+        _mkdir(dir, _path).always(function() {
+          if (data.context.parent().length)  // not cancelled while its folder was made
+            jqXHR = data.submit();
+        });
+        data.context.find("button").click(function(event) {
+          if (jqXHR) jqXHR.abort(); else data.context.remove();
+        });'''),
+    ('"无法获取列表内容 - \\""', '"Can\'t list \\""'),
+    ('"无法创建\\"" + name + "\\"到\\""', '"Can\'t create \\"" + name + "\\" in \\""'), ('"无法移动\\""', '"Can\'t move \\""'), ('"\\"到\\""', '"\\" to \\""'),
+    ('"无效的命名 - \'\'"', '"Invalid name - \'\'"'), ('"你确定要删除吗?"', '"Delete this item?"'),
+    ('"没有权限删除\\""', '"Not allowed to delete \\""'), ('"无法删除\\""', '"Can\'t delete \\""'),
+    ('"没有权限上传内容到\\""', '"Not allowed to upload to \\""'), ('"不支持上传此类型文件 - \\""', '"Unsupported file type - \\""'),
+    ('"上传文件失败 \\"" + file.name + "\\" to \\"" + _path', '"Can\'t upload \\"" + file.name + "\\" to \\"" + data.formData.path'),
+    ('"没有权限添加内容到\\""', '"Not allowed to add to \\""'), ('"新建文件夹"', '"New Folder"'),
+    ('"没有权限移动内容到此目录 - \\""', '"Not allowed to move to \\""'), ('"当前已是顶级目录"', '"Already at the top folder"'),
+    ('//去掉后面的/', '// drop the trailing /'), ('//得到上一级目录，/结束', '// the parent folder, ending in /')],
+  # A dropped folder's entries: Chromium's readEntries gives at most 100 a call, so read until it gives none.
+  'usr/share/web/js/jquery.fileupload.js': [
+    ('''                dirReader.readEntries(function (entries) {
+                    that._handleFileTreeEntries(
+                        entries,
+                        path + entry.name + '/'
+                    ).done(function (files) {
+                        dfd.resolve(files);
+                    }).fail(errorHandler);
+                }, errorHandler);''', '''                var all = [], readEntries = function () {
+                    dirReader.readEntries(function (entries) {
+                        if (entries.length) {
+                            all = all.concat(Array.prototype.slice.call(entries));
+                            return readEntries();
+                        }
+                        that._handleFileTreeEntries(
+                            all,
+                            path + entry.name + '/'
+                        ).done(function (files) {
+                            dfd.resolve(files);
+                        }).fail(errorHandler);
+                    }, errorHandler);
+                };
+                readEntries();''')]}
+
+def patch_web(path, data):
+    text = data.decode()
+    for old, new in WEB[path]:
+        check(old in text, f'Unexpected {path}: {old[:40]!r}')
+        text = text.replace(old, new)
+    check(not re.search('[　-鿿＀-￯]', text), f'Chinese left in {path}')
+    return text.encode()
+
 # The stock font (Arial merged with a CJK font) gives curly quotes the CJK em advance, a wide gap
 # inside words wherever a tag has one; its cmaps map them to the straight glyphs instead. Its hearts
 # mix too: the ratings' ♡ (CJK: smaller, higher, the em advance) is fitted to Arial's ♥ box, both a wider advance.
@@ -1121,7 +1254,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         removed.append(line.group().split()[:6])
         p = p[:line.start()]+p[line.end():]
     changed_assets = {}
-    for path, fix, name in ((TAG_C, patch_m4b_cover, 'libtag_c.so.2.0.1'), (FONT, font_quotes, 'default.ttf')):
+    for path, fix, name in ((TAG_C, patch_m4b_cover, 'libtag_c.so.2.0.1'), (FONT, font_quotes, 'default.ttf'),
+                            *((p, lambda d, p=p: patch_web(p, d), p.rsplit('/', 1)[-1]) for p in WEB)):
         original = cat(path)
         data = fix(original)
         (out/name).write_bytes(data)
