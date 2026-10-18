@@ -8784,6 +8784,44 @@ class DirectoryFull(PowerMachine):
 m=DirectoryFull({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
 assert not any(p==CPU1 for p,_ in m.writes); passed()
 
+# The Wi-Fi signal (navigation.c ringnav_wifi_signal): networkGetWifiSignal, which the status bar and
+# the network monitor thread each call about once a second, reads the driver's rx_signal and never
+# sends stock's SIOCGIWSTATS, whose TX report takes the radio out of power save. It answers stock's
+# dBm (the ioctl's unsigned level less 256, get_station's signal_strength less 100), except that
+# 100% is 0 dBm, where stock wraps to -256; a missing file is 0, as stock's failed ioctl. The file
+# is read again only after WIFI_SIGNAL_MS.
+RX_SIGNAL='/proc/net/rtl8733bs/wlan0/rx_signal'
+class WifiMachine(Machine):
+    def __init__(self,pct,patched=True):
+        super().__init__(patched); self.pct=pct
+        self.mock('strstr@GLIBC_2.0','strncpy@GLIBC_2.0')
+        for n in ('open','read','close','socket','ioctl'): self.handlers[syms[n+'@GLIBC_2.0']]='w:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('w:'): return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address
+        name=name[2:]; a,b,c=(u.reg_read(r) for r in REGS[:3]); ret=0
+        self.calls.append((name,a,b,c))
+        if name=='open': ret=3 if self.pct is not None and self.text(a)==RX_SIGNAL else -1
+        elif name=='read':  # the driver's proc_get_rx_signal, as far as it matters
+            data=f'rssi:{self.pct}\nsignal_strength:{self.pct}\nsignal_qual:100\n'.encode()[:c]
+            u.mem_write(b,data); ret=len(data)
+        elif name=='socket': ret=5
+        elif name=='ioctl':  # cfg80211_wireless_stats: iw_statistics behind iwreq's data pointer
+            assert (a,b)==(5,0x8b0f); u.mem_write(self.get(c+16),bytes([0,0,70,(self.pct-100)&255]))
+        self.returns(ret,clobber=True)
+    def signal(self): return self.call(address=HOOKS['networkGetWifiSignal'][0],args=(0,0,0,0),gap=0)
+    def used(self): return [c[0] for c in self.calls if c[0] in ('open','read','close','socket','ioctl')]
+for pct in (0,20,35,64,99,100):
+    stock,m=WifiMachine(pct,patched=False),WifiMachine(pct)
+    assert stock.signal()==(pct-100 if pct<100 else -256) and stock.used()==['socket','ioctl','close']
+    assert m.signal()==pct-100 and m.used()==['open','read','close']
+    assert [m.text(c[1]) for c in m.calls if c[0]=='open']==[RX_SIGNAL]; passed()
+m=WifiMachine(None); assert m.signal()==0 and m.used()==['open']; passed()  # no driver: as a failed ioctl
+m=WifiMachine(60); assert m.signal()==-40; m.pct=30; m.calls=[]
+m.now+=O['WIFI_SIGNAL_MS']-1; assert m.signal()==-40 and m.used()==[]
+m.now+=1; assert m.signal()==-70 and m.used()==['open','read','close']; passed()
+
 
 
 # Boot logo: a card mount (boot, USB storage's end) starts a thread that keeps the card's logo as the
