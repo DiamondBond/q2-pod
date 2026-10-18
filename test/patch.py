@@ -3675,7 +3675,7 @@ class ClassMachine(QueueMachine):
             a=u.reg_read(REGS[0]); self.returns(self.string(self.text(a)) if libc[address]=='strdup' else 0); return
         if address!=self.tramp: return super().hook(u,address,size,unused)
         self.calls.append(('stock_localclass',u.reg_read(REGS[0]),0,0))
-        assert self.get(payload_syms['library_music']) == int(u.reg_read(REGS[0]) in (0xf003,0xf004))
+        assert self.get(payload_syms['library_music']) == int(self.tramp == int(manifest['patch_symbols']['stock_artist_trampoline'],16) or u.reg_read(REGS[0]) in (0xf003,0xf004,0xff10,0xff11))
         self.returns(len(self.items(self.get(syms['p_deque_showlist']))))
 def unknown(cls,found,last=-1,artist=0,rows=3):
     m=ClassMachine(page='localclass_page',cls=0xf001,rows=rows); m.found=[m.song('T1')]*found; m.query=None
@@ -3693,7 +3693,7 @@ for cls,artist,query in ((0xf003,0,'getMusicByAlbum'),(0xf004,0,'getMusicBySonge
     assert shown==['Row 0','Row 1'] and q[:2]==(query,None) and not staging, (cls,artist)
     shown,q,staging=unknown(cls,1,artist=artist)
     assert shown==['Row 0','Row 1','Row 2'] and q[:2]==(query,None) and not staging, (cls,artist); passed()
-for cls,last,rows in ((0xf004,1,3),(0xff01,-1,3),(0xf007,-1,3),(0xf004,-1,0)):
+for cls,last,rows in ((0xf004,1,3),(0xff01,-1,3),(0xff10,-1,3),(0xff11,-1,3),(0xf007,-1,3),(0xf004,-1,0)):
     shown,q,_=unknown(cls,0,last=last,rows=rows)
     assert len(shown)==rows and q is None, (cls,last,rows); passed()
 # iPod song rows: an untagged song's title is its file name without the extension; a tag stays.
@@ -3718,7 +3718,7 @@ m=ClassMachine(page='localclass_page',cls=0xf001,rows=2); m.word(m.row(1)+O['REC
 m.split=[m.song('Baroness'),m.song('STP')]; m.word(m.split[1]+O['REC_PATH'],m.string('/q/STP'))
 assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf003,0,0,0),gap=0)==3
 assert m.names(m.get(syms['p_deque_showlist']))==['Baroness','STP','Row 1']; passed()
-# Run the actual Library query wrapper against SQLite, with mixed music/book tags and Unknowns.
+# Run the actual Library query wrapper against SQLite, with mixed music/book/podcast tags and Unknowns.
 # The flag is scoped by ringnav_localclass above; outside it (Coverflow, folders, Podcasts) SQL stays intact.
 class QueryDone(Exception): pass
 class LibraryQueryMachine(Machine):
@@ -3757,8 +3757,36 @@ for query in ('select id,songer from songtable group by songer COLLATE NOCASE',
         lm.word(payload_syms['library_music'],scoped)
         lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
         assert (lm.sql==(query.replace('albumsonger',AA) if 'by albumsonger' in query else query)) == (not scoped)
-        assert {r[0] for r in lm.results} == ({2,5} if scoped and 'group by' in query else set() if scoped else
+        assert {r[0] for r in lm.results} == ({2} if scoped and 'group by' in query else set() if scoped else
                                              {1,3,4,5,6} if 'group by' in query else {6}),lm.results
+# Podcast paths are case insensitive and bounded by the top-level folder. Shared tags must use
+# the music row for artwork, and untagged episodes must not create Unknown Artist/Album rows.
+lm.db.executemany('insert into songtable values(?,?,?,?,?)',[
+    (10,'Shared','Shared','Shared','/mnt/mmc/pOdCaStS/Show/episode.mp3'),
+    (11,'','','','/mnt/mmc/PODCASTS/untagged.mp3'),
+    (12,'Music','Singer','Singer','/mnt/mmc/Podcasts Extra/song.mp3'),
+    (13,'Nested','Singer','Singer','/mnt/mmc/Music/Podcasts/song.mp3'),
+])
+for scoped in (1,0):
+    lm.word(payload_syms['library_music'],scoped)
+    for column in ('album','songer','albumsonger'):
+        query=f'select id,{column},fileurl from songtable group by {column} COLLATE NOCASE'
+        lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
+        if scoped:
+            assert {r[0] for r in lm.results} == ({2,12,13} if column=='album' else {2,12}),lm.results
+        else:
+            assert any(r[0]==5 for r in lm.results) and any(not r[1] for r in lm.results)
+lm.db.execute('delete from songtable where id >= 10')
+# Music staging applies the scope for stock queries and restores either caller state.
+class MusicStageMachine(QueueMachine):
+    def hook(self,u,address,size,unused):
+        if address==syms['getMusicByAlbum']:
+            assert self.get(payload_syms['library_music'])==1
+        return super().hook(u,address,size,unused)
+for scoped in (0,1):
+    ms=MusicStageMachine(); ms.word(payload_syms['library_music'],scoped)
+    rows=ms.call(address=payload_syms['staged_music'],args=(syms['getMusicByAlbum'],ms.string('Album'),ms.alloc(4),0),gap=0)
+    assert ms.get(payload_syms['library_music'])==scoped and ms.query[:2]==('getMusicByAlbum','Album')
 # Album Artist: an album without the tag lists under its artist (stock's albumsonger queries), a
 # tagged one under its album artist; Coverflow's own grouping keeps the tag as it is.
 lm.db.executemany('insert into songtable values(?,?,?,?,?)',[(7,'Disintegration','The Cure','','/mnt/mmc/Music/D/CD1/1.flac'),

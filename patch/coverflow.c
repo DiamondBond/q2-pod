@@ -1754,9 +1754,10 @@ const char *track_name(char *buf, unsigned size, void *t) {
     return buf;
 }
 
+extern void *staged_music(int (*query)(void *), void *arg, int *count);
 void *coverflow_album_tracks(void *r) {
     int n;
-    return in_order(staged(albums, r, &n), r);
+    return in_order(staged_music(albums, r, &n), r);
 }
 
 static int to_tracks(const void *unused) {

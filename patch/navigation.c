@@ -106,6 +106,15 @@ extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
     scrobble_album_artist(void);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
+/* Scope music detail loads too: spoken tracks can share all their tags with music. */
+void *staged_music(int (*query)(void *), void *arg, int *count) {
+    int saved = library_music;
+    library_music = 1;
+    void *out = staged(query, arg, count);
+    library_music = saved;
+    return out;
+}
+
 extern int album_only(void *, void *, int), coverflow_split(void *);
 extern unsigned album_id(void *r);
 extern unsigned album_dir(const char *, int);
@@ -4083,7 +4092,7 @@ static int artist_songs(void *unused) {
 /* Split artwork keys use the whole library; the layout uses only this artist's albums. */
 static void *artist_albums(void *all) {
     int n;
-    void *songs = staged(artist_songs, 0, &n), *out = _create_deque("stSongInfo");
+    void *songs = staged_music(artist_songs, 0, &n), *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < deque_size(all); ++i) {
         void *a = deque_at(all, i);
@@ -4145,7 +4154,7 @@ static int artist_cf_open(const void *unused) {
     if (veiled) artist_cf_veil(veiled, 0);
     return 0;
 }
-int ringnav_artist_list(int tab) {
+static int artist_list(int tab) {
     int n = stock_artist_trampoline(tab);
     void *list = P(p_deque_showlist, 0), *all;
     artist_keys_free();
@@ -4182,6 +4191,13 @@ int ringnav_artist_list(int tab) {
     }
     if (mine) deque_destroy(mine);
     deque_destroy(all);
+    return n;
+}
+int ringnav_artist_list(int tab) {
+    int saved = library_music;
+    library_music = 1;
+    int n = artist_list(tab);
+    library_music = saved;
     return n;
 }
 static const char *artist_key(char *buf, void *list, unsigned i) {
@@ -4266,7 +4282,7 @@ static void fav_titles(void *list, int n) {
 }
 int ringnav_localclass(int cls) {
     I(g_artist_type, 0) = I(artist_type, 0) == 1;
-    library_music = cls == CLASS_ALBUMS || cls == 0xf004;
+    library_music = cls == CLASS_ALBUMS || cls == 0xf004 || cls == 0xff10 || cls == 0xff11;
     int n = stock_localclass_trampoline(cls);
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
@@ -4281,7 +4297,10 @@ int ringnav_localclass(int cls) {
                 continue;
             free(*title), *title = t;
         }
-    if (cls < CLASS_ALBUMS || cls > 0xf006) return n;
+    if (cls < CLASS_ALBUMS || cls > 0xf006) {
+        library_music = 0;
+        return n;
+    }
     if (n > 0 && I(deque_at(list, (unsigned)n - 1), REC_ID) == -1) {
         class_query((unsigned)cls, deque_at(list, (unsigned)n - 1));
         int empty = !deque_size(dir);
@@ -4299,7 +4318,8 @@ int ringnav_localclass(int cls) {
 /* The tracks stock would play for that row, in its order. */
 static void qm_tracks(void *r, void *add) {
     int n;
-    void *rows = staged(qm_query, r, &n);
+    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS
+                      ? staged_music : staged)(qm_query, r, &n);
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
@@ -4387,7 +4407,7 @@ void toast(const char *text) {
 static int all_songs(void *unused) { return getAllMusic(0); }
 
 /* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
- * Non-zero music leaves audiobooks out, as the Library's Artists and Albums (MUSIC_WHERE). */
+ * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums (MUSIC_WHERE). */
 static int songs_unsorted(void *music) {
     library_music = music != 0;
     int n = getAllMusic(3);

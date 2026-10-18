@@ -294,6 +294,19 @@ int getAllAlbum(void) {
     }
     return albums;
 }
+static int music_only;
+extern void *staged(int (*query)(void *), void *arg, int *count);
+void *staged_music(int (*query)(void *), void *arg, int *count) {
+    music_only = 1;
+    void *out = staged(query, arg, count);
+    music_only = 0;
+    return out;
+}
+static int spoken_path(const char *path) {
+    return !strncasecmp(path, "/mnt/mmc/audiobooks/", 20) ||
+           !strncasecmp(path, "/mnt/mmc/podcasts/", 18) ||
+           (strlen(path) >= 4 && !strcasecmp(path + strlen(path) - 4, ".m4b"));
+}
 static int unknown_queries;
 int getMusicByAlbum(const char *a) {
     deque *d = shim_dir;
@@ -303,7 +316,7 @@ int getMusicByAlbum(const char *a) {
         if (unknown_songs) d->at[d->n++] = untagged_song;
     } else
         for (int i = 0; i < albums; ++i)
-            if (!strcasecmp(names[i], a)) d->at[d->n++] = records[i]; /* each album's one song: its record */
+            if (!strcasecmp(names[i], a) && (!music_only || !spoken_path(paths[i]))) d->at[d->n++] = records[i]; /* each album's one song: its record */
     return (int)d->n;
 }
 
@@ -328,6 +341,7 @@ int toolsQueryDbTable(const char *db, const char *sql, void *row, int sort) {
         for (int i = 0; i < albums; ++i) {
             const char *path = *(const char **)(records[i] + REC_PATH);
             if (music && (!strncasecmp(path, "/mnt/mmc/audiobooks/", 20) ||
+                          !strncasecmp(path, "/mnt/mmc/podcasts/", 18) ||
                           (strlen(path) >= 4 && !strcasecmp(path + strlen(path) - 4, ".m4b")))) continue;
             d->at[d->n++] = records[i];
         }
@@ -920,30 +934,39 @@ static void same_name(void) {
     albums -= 2;
     rescan();
 }
-/* Audiobook folders and M4B files never make covers, including artist and rated views. */
+/* Spoken-audio folders and M4B files never make covers, including artist and rated views. */
 static int five_hearts(void *r) { return 5; }
 static void audiobooks(void) {
     extern int coverflow_rated(int (*hearts)(void *));
     int music = albums;
     static const char *const books[] = {
         "/mnt/mmc/Audiobooks/Novel/01.mp3", "/mnt/mmc/aUdIoBoOkS/02.flac",
-        "/mnt/mmc/Music/Novel.M4B"
+        "/mnt/mmc/Music/Novel.M4B", "/mnt/mmc/Podcasts/Show/01.mp3",
+        "/mnt/mmc/pOdCaStS/02.mp3"
     };
     for (unsigned i = 0; i < sizeof books / sizeof *books; ++i) {
         album("Novel", 0);
         snprintf(paths[albums - 1], 600, "%s", books[i]);
     }
-    /* A music album and a book share album and album-artist tags. */
+    /* Music, a book and a podcast share album and album-artist tags. */
     memmove(names[music], names[0], sizeof names[0]);
     *(const char **)(records[0] + REC_ALBUM_ARTIST) = "Shared";
     *(const char **)(records[music] + REC_ALBUM_ARTIST) = "Shared";
+    memmove(names[music + 3], names[0], sizeof names[0]);
+    *(const char **)(records[music + 3] + REC_ALBUM_ARTIST) = "Shared";
+    extern void *coverflow_album_tracks(void *);
+    deque *tracks = coverflow_album_tracks(records[0]);
+    assert(tracks->n == 1 && tracks->at[0] == records[0]);
+    free(tracks);
+
     rescan();
     open_page();
     assert(slide()->nkids == music + 2);
     close_page();
     deque *artist = _create_deque(0);
     artist->at[artist->n++] = records[music + 1];
-    assert(!coverflow_artist(artist) && artist->n == 1);
+    artist->at[artist->n++] = records[music + 4];
+    assert(!coverflow_artist(artist) && artist->n == 2);
     free(artist);
     assert(coverflow_rated(five_hearts));
     run();
@@ -1378,8 +1401,11 @@ def main():
         db.execute('create table songtable(id,album,songer,fileurl,albumsonger)')
         paths = ['/mnt/mmc/Audiobooks/Book/01.mp3', '/mnt/mmc/aUdIoBoOkS/02.flac',
                  '/mnt/mmc/Music/book.M4B', '/mnt/mmc/Music/song.flac',
-                 '/mnt/mmc/Audiobooks Extra/song.mp3', '/mnt/mmc/Music/book.m4b.mp3']
+                 '/mnt/mmc/Audiobooks Extra/song.mp3', '/mnt/mmc/Music/book.m4b.mp3',
+                 '/mnt/mmc/Podcasts/Show/episode.mp3', '/mnt/mmc/pOdCaStS/untagged.mp3',
+                 '/mnt/mmc/Podcasts Extra/song.mp3', '/mnt/mmc/Music/Podcasts/song.mp3']
         db.executemany('insert into songtable values (?,"Shared","Artist",?,"Artist")', enumerate(paths))
+        assert {r[0] for r in db.execute('select id from songtable where '+macro('MUSIC_WHERE'))} == {3,4,5,8,9}
         rows = db.execute(sql).fetchall()
         assert len(rows) == 1 and rows[0][3] in paths[3:]
         db.execute('delete from songtable where id >= 3')
@@ -1387,6 +1413,8 @@ def main():
         db.execute("insert into songtable values (10,NULL,'Artist','/mnt/mmc/Music/untagged.mp3',NULL)")
         assert db.execute(sql).fetchone()[:2] == (-1, 'Unknown Album')
         db.execute("update songtable set fileurl='/mnt/mmc/Audiobooks/untagged.mp3' where id=10")
+        assert not db.execute(sql).fetchall()
+        db.execute("update songtable set fileurl='/mnt/mmc/PODCASTS/untagged.mp3' where id=10")
         assert not db.execute(sql).fetchall()
 
     with tempfile.TemporaryDirectory(prefix='q2-coverflow-check-') as directory:
