@@ -1987,7 +1987,7 @@ static void home_width(void *w, int outer, int inner, int x, int end, int depth)
 /* Stored HOME=0/1 is Split/Full in both themes: Split halves the screen, the art in the right
  * panel; Full hides the art and widens the list, its rows to HOME_FULL_ROW (Minimal) or
  * HOME_CLASSIC_ROW. Hidden Rockbox is restacked last because the native layout includes hidden
- * rows. */
+ * rows, and made insensitive, as hidden rows keep their taps. */
 void coverflow_home_layout(void) {
     int full = ipod_home_full(), classic = ipod_classic();
     if (!home.list) return;
@@ -1996,6 +1996,7 @@ void coverflow_home_layout(void) {
         int shown = ipod_home_rockbox();
         widget_restack(rockbox, shown ? 4 : 6); /* after Folder, else last */
         widget_set_visible(rockbox, shown, 0);
+        widget_set_sensitive(rockbox, shown); /* hidden, it would still take Streaming's taps */
         widget_set_text_utf8(widget_lookup(home.win, "label_rockbox", 1), ipod_home_shortcut());
     }
     int split = HOME_SPLIT_W, outer = full ? 375 : split,

@@ -6473,8 +6473,9 @@ def home_settings(full,classic=0):
         assert m.call(address=home_hook[0],args=(m.top,0,0,0),gap=0)==0
         btn=named(m,m.top,'btn_rockbox'); order=lambda: [m.nodes[r]['name'][4:] for r in m.nodes[view]['children']]
         assert order()==['playing','localmusic','coverflow','folder','stream','settings','rockbox'] and not m.nodes[btn]['visible']
+        assert m.nodes[btn]['sensitive']==0  # hidden rows keep their taps: Streaming's would launch Rockbox
         m.rockbox_mode=0o100755; m.call(address=payload_syms['coverflow_home_layout'],args=(0,0,0,0),gap=0)
-        assert order()==HOME_ROWS and m.nodes[btn]['visible']; passed()
+        assert order()==HOME_ROWS and m.nodes[btn]['visible'] and m.nodes[btn]['sensitive']==1; passed()
         # Its click and Settings' are bound at Home init. Settings slides the Settings list, stock's
         # Playback and System setting rows (stock binds them), into the list's place from the right,
         # the art staying; the wheel walks it, and Return slides the list back from the left with
