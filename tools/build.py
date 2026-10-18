@@ -209,6 +209,9 @@ BT_POWER = (0x4efcbc, 0x0320f809)
 # player_parsecover_thd's jalr toolsGetExternCover (lw $t9 at 0x51300c; Now Playing's folder art, after its
 # embedded art failed) becomes jal coverflow_player_cover, which gives ffmpeg what stock's decoder refuses.
 PLAYER_COVER = (0x51301c, 0x0320f809)
+# player_get_id3info's jalr strcpy of the parsed path (lw $t9 at 0x5148e0), which every fresh parse reaches
+# before Now Playing's lines, becomes jal ringnav_id3_path: a CUE track without sheet tags takes its file's.
+ID3_PATH = (0x5148e8, 0x0320f809)
 # parse_albumcovertask_thd's jalr toolsGetAlbumCover (Albums grids; Folder view's folder and track rows),
 # each with its lw $t9, become jal coverflow_grid_cover, which gives ffmpeg the Ogg pictures stock skips;
 # the Albums grid's (first, before stock's toolsGetExternCover) jal coverflow_album_cover.
@@ -791,6 +794,7 @@ FUNCTIONS = {
  'btctl_device_status_callback': ('void', 'void *, void *'),
  'btctl_set_a2dp_callback': ('void', 'void *, void *'),
  'btrecvA2dpFunc': ('int', 'int, void *, void *'),
+ 'mclGetCueFlag': ('int', 'void'),  # the playing record has a CUE start or end
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
  'player_stop': ('int', 'void'),
  'player_save_start': ('int', 'int'),  # pause: mclStartPlayer at the saved seek, then paused if set
@@ -1117,6 +1121,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x51300c))[0] == 0x8f99b6e4,
           'player cover: expected toolsGetExternCover import')
     patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x5148e0))[0] == 0x8f99f5bc,
+          'id3 path: expected strcpy import')
+    patch_word(patched, *ID3_PATH, jal(ps['ringnav_id3_path']), "a CUE track's file tags")
     for call, load, fn in GRID_COVER:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, load))[0] == 0x8f99b6e0,
               'grid cover: expected toolsGetAlbumCover import')

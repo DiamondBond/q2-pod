@@ -2134,6 +2134,26 @@ int ringnav_music_info(int a, char *info, const char *path) {
         flac_album_artist(path, info + MUSIC_INFO_ALBUM_ARTIST);
     return r;
 }
+/* player_get_id3info's copy of the parsed path (ID3_PATH in tools/build.py), after the tags and
+ * before Now Playing's lines. A CUE track's tags are its record's, the stock parser's TITLE and
+ * PERFORMER (the track's, else the sheet's); a sheet without them takes the file's (issue #59).
+ * ponytail: the playing track only; the database keeps the sheet's empty fields for Library. */
+char *ringnav_id3_path(char *id3, const char *path) {
+    static const int fields[] = { ID3_ALBUM, ID3_ARTIST, ID3_ALBUM_ARTIST };
+    if (mclGetCueFlag() && (!id3[ID3_ALBUM] || !id3[ID3_ARTIST] || !id3[ID3_ALBUM_ARTIST])) {
+        char info[0x698] = { 0 };
+        if (toolsGetMusicInfo(0, info, path) == 1)
+            for (unsigned i = 0; i < sizeof fields / sizeof *fields; i++) {
+                char *f = id3 + fields[i];
+                if (*f) continue;
+                tk_snprintf(f, 0x100, "%s", info + fields[i] - ID3_ALBUM);
+                toolsTrimLeft(f); /* as stock did to its fields before this copy */
+            }
+    }
+    /* last: now_tag and marked_empty read a matching path as the tags being complete */
+    tk_snprintf(id3, 0x400, "%s", path); /* +0x400: the CUE start */
+    return id3;
+}
 /* Quote bounded scanner paths/tags into one UPDATE; never execute a truncated statement. */
 static int scan_quote(char *sql, unsigned cap, unsigned *n, const char *s) {
     if (*n + 3 >= cap) return 0;
@@ -4318,8 +4338,8 @@ int ringnav_localclass(int cls) {
 /* The tracks stock would play for that row, in its order. */
 static void qm_tracks(void *r, void *add) {
     int n;
-    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS
-                      ? staged_music : staged)(qm_query, r, &n);
+    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS ? staged_music : staged)(
+        qm_query, r, &n);
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
@@ -4407,7 +4427,8 @@ void toast(const char *text) {
 static int all_songs(void *unused) { return getAllMusic(0); }
 
 /* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
- * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums (MUSIC_WHERE). */
+ * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums
+ * (MUSIC_WHERE). */
 static int songs_unsorted(void *music) {
     library_music = music != 0;
     int n = getAllMusic(3);
