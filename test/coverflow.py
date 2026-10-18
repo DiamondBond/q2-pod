@@ -89,14 +89,14 @@ static void *placed(void *x, int left, int top, int ww, int h) {
     r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
     return x;
 }
-void *window_create(void *p, int x, int y, int ww, int h) { (void)p; (void)x; (void)y; (void)ww; (void)h; return make(0, "window"); }
+void *window_create(void *p, int x, int y, int ww, int h) { return make(0, "window"); }
 void *widget_factory(void) { return (void *)1; }
-void *widget_factory_create_widget(void *f, const char *t, void *p, int x, int y, int ww, int h) { (void)f; return placed(make(p, t), x, y, ww, h); }
+void *widget_factory_create_widget(void *f, const char *t, void *p, int x, int y, int ww, int h) { return placed(make(p, t), x, y, ww, h); }
 #define CREATE(name, type) void *name(void *p, int x, int y, int ww, int h) { return placed(make(p, type), x, y, ww, h); }
 CREATE(image_create, "image") CREATE(list_view_create, "list_view")
 CREATE(hscroll_label_create, "hscroll_label")
 CREATE(scroll_view_create, "scroll_view") CREATE(list_item_create, "list_item")
-int image_set_draw_type(void *x, int t) { (void)x; (void)t; return 0; }
+int image_set_draw_type(void *x, int t) { return 0; }
 int image_base_set_image(void *x, const char *s) { snprintf(W(x)->image, 600, "%s", s); return 0; }
 /* A zero-length "no art" marker does not decode. Every successful load is unloaded again and
    decodes to art_w x art_h (bitmap_t w @0, h @4). */
@@ -121,7 +121,7 @@ static void pattern(unsigned char *px, unsigned seed) {
         }
 }
 int widget_load_image(void *x, const char *url, void *b) {
-    (void)x; struct stat s;
+    struct stat s;
     int failed = strncmp(url, "file://", 7) || stat(url + 7, &s) || !s.st_size;
     loads += !failed;
     if (!failed) {
@@ -136,18 +136,18 @@ int widget_load_image(void *x, const char *url, void *b) {
     return failed;
 }
 const unsigned char *bitmap_lock_buffer_for_read(void *b) { ++reads; return *(unsigned char **)((char *)b + 0x14); }
-int widget_unload_image(void *x, void *b) { (void)x; (void)b; ++unloads; return 0; }
+int widget_unload_image(void *x, void *b) { ++unloads; return 0; }
 void set_hscroll_label_attribute(void *x) { assert(!strcmp(W(x)->type, "hscroll_label")); }
 int slide_menu_set_value(void *x, int value) { *(int *)(W(x)->raw + SLIDE_INDEX) = value; return 0; }
 int widget_set_name(void *x, const char *s) { snprintf(W(x)->type, 32, "%s", s); return 0; }
-int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
+int widget_use_style(void *x, const char *s) { return 0; }
 int widget_set_text_utf8(void *x, const char *s) { snprintf(W(x)->text, 160, "%s", s); return 0; }
-int widget_restack(void *x, unsigned i) { (void)x; (void)i; return 0; }
-void *widget_animator_prop_create(void *x, unsigned d, unsigned l, int e, const char *p) { (void)x; (void)d; (void)l; (void)e; (void)p; return 0; }
-int widget_animator_prop_set_params(void *a, double f, double t) { (void)a; (void)f; (void)t; return 0; }
-int widget_animator_start(void *a) { (void)a; return 0; }
-int widget_set_visible(void *x, int v, int r) { (void)r; W(x)->visible = v; return 0; }
-int widget_get_prop_int(void *x, const char *k, int d) { (void)x; (void)k; return d; }
+int widget_restack(void *x, unsigned i) { return 0; }
+void *widget_animator_prop_create(void *x, unsigned d, unsigned l, int e, const char *p) { return 0; }
+int widget_animator_prop_set_params(void *a, double f, double t) { return 0; }
+int widget_animator_start(void *a) { return 0; }
+int widget_set_visible(void *x, int v, int r) { W(x)->visible = v; return 0; }
+int widget_get_prop_int(void *x, const char *k, int d) { return d; }
 int widget_set_prop_int(void *x, const char *k, int v) { if (!strcmp(k, "style:normal:bg_color")) W(x)->bg = v; return 0; }
 const char *widget_get_prop_str(void *x, const char *k, const char *d) { return strcmp(k, "image") ? d : W(x)->image; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
@@ -161,12 +161,11 @@ unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
 int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
 static int wm_repaints; /* whole-screen invalidations, from outside a paint */
 void *window_manager(void) { return &wm_repaints; }
-int widget_invalidate_force(void *x, void *y) { (void)y; wm_repaints += x == &wm_repaints; return 0; }
+int widget_invalidate_force(void *x, void *y) { wm_repaints += x == &wm_repaints; return 0; }
 unsigned widget_count_children(void *x) { return W(x)->nkids; }
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
 static void *home_art, *home_list; /* iPod Home's art and list; none in the carousel tests */
 void *widget_lookup(void *x, const char *n, int r) {
-    (void)r;
     return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
            !strcmp(n, "list_view_home") ? home_list : 0;
 }
@@ -175,7 +174,7 @@ int ipod_home_full(void) { return home_full; }
 int ipod_classic(void) { return classic; }
 int ipod_home_rockbox(void) { return 0; }
 const char *ipod_home_shortcut(void) { return "Rockbox"; }
-int home_shortcut_open(void *x, void *e) { (void)x; (void)e; return 0; }
+int home_shortcut_open(void *x, void *e) { return 0; }
 int widget_move_resize(void *x, int left, int top, int ww, int h) {
     int *r = (int *)W(x)->raw; /* W_X, W_Y, W_W, W_H */
     r[0] = left; r[1] = top; r[2] = ww; r[3] = h;
@@ -184,15 +183,15 @@ int widget_move_resize(void *x, int left, int top, int ww, int h) {
 static int insensitive; /* the widget last made insensitive */
 int widget_set_sensitive(void *x, int v) { if (!v) insensitive = W(x) - w; return 0; }
 static int clip_rect[4] = { 0, 0, 375, 320 }; /* the canvas clip, screen x, y, w, h */
-int canvas_get_clip_rect(void *c, void *r) { (void)c; memcpy(r, clip_rect, sizeof clip_rect); return 0; }
-int canvas_set_clip_rect(void *c, const void *r) { (void)c; memcpy(clip_rect, r, sizeof clip_rect); return 0; }
+int canvas_get_clip_rect(void *c, void *r) { memcpy(r, clip_rect, sizeof clip_rect); return 0; }
+int canvas_set_clip_rect(void *c, const void *r) { memcpy(clip_rect, r, sizeof clip_rect); return 0; }
 const char *widget_get_type(void *x) { return W(x)->type; }
 int widget_get_visible(void *x) { return W(x)->visible; }
 int tk_strcmp(const char *a, const char *b) { return strcmp(a ? a : "", b ? b : ""); }
 int navigator_back_to_home(void) { return 0; }
 int navigator_back(void) { return 0; }
-int window_manager_close_window_force(void *m, void *x) { (void)m; (void)x; return 0; }
-int navigator_to_with_context(const char *n, const void *c) { (void)n; (void)c; return 0; }
+int window_manager_close_window_force(void *m, void *x) { return 0; }
+int navigator_to_with_context(const char *n, const void *c) { return 0; }
 /* slide_menu: square items as high as the menu, plus the spacer. */
 int slide_menu_item_width(void *x) { return *(int *)(W(x)->raw + W_H); }
 int slide_menu_set_spacer(void *x, int v) { *(int *)(W(x)->raw + SLIDE_SPACER) = v; return 0; }
@@ -212,29 +211,29 @@ void *bitmap_create_ex(unsigned ww, unsigned h, unsigned line, unsigned format) 
 }
 int bitmap_destroy(void *b) { free(*(void **)((char *)b + 0x14)); free(b); --frames; return 0; }
 unsigned char *bitmap_lock_buffer_for_write(void *b) { ++locks; return *(unsigned char **)((char *)b + 0x14); }
-int bitmap_unlock_buffer(void *b) { (void)b; return 0; }
+int bitmap_unlock_buffer(void *b) { return 0; }
 unsigned bitmap_get_line_length(void *b) { return ((unsigned *)b)[2]; }
 int canvas_draw_image(void *c, void *b, const void *src, const void *dst) {
-    (void)c; ++draws;
+    ++draws;
     const int *r = dst, *q = src;
     assert(!memcmp(r, q, 16) && ((unsigned short *)b)[6] & 1); /* 1:1, and marked opaque */
     memcpy(drawn, r, sizeof drawn);
     for (int y = 0; y < CF_VIEW_H; ++y) memcpy(shown + y * CF_VIEW_W, *(unsigned char **)((char *)b + 0x14) + y * ((unsigned *)b)[2], CF_VIEW_W * 4);
     return 0;
 }
-int stock_home_trampoline(void *win, void *ctx) { (void)win; (void)ctx; return 0; }
+int stock_home_trampoline(void *win, void *ctx) { return 0; }
 /* The songtable writers' stock bodies; during_write runs inside one, as an open mid-scan would. */
 static void (*during_write)(void);
 static int stock_write(void) { if (during_write) during_write(); return 0; }
-int stock_scan_all_trampoline(void *a, void *b) { (void)a; (void)b; return stock_write(); }
-int stock_scan_folder_trampoline(void *a, void *b) { (void)a; (void)b; return stock_write(); }
-int stock_delete_song_trampoline(void *a, void *b) { (void)a; (void)b; return stock_write(); }
+int stock_scan_all_trampoline(void *a, void *b) { return stock_write(); }
+int stock_scan_folder_trampoline(void *a, void *b) { return stock_write(); }
+int stock_delete_song_trampoline(void *a, void *b) { return stock_write(); }
 int coverflow_scan_all(void *, void *);
 static void rescan(void) { coverflow_scan_all(0, 0); } /* the library changed, as only a scan changes it */
 
 static int (*timer_fn)(const void *);
-unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return 1; }
-int timer_remove(unsigned id) { (void)id; timer_fn = 0; return 0; }
+unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { timer_fn = f; return 1; }
+int timer_remove(unsigned id) { timer_fn = 0; return 0; }
 void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; } /* navigation.c's */
 void rearm(unsigned *t, int (*f)(const void *), unsigned ms) { stop_timer(t); *t = timer_add(f, 0, ms); }
 static void run(void) { while (timer_fn) { int (*f)(const void *) = timer_fn; timer_fn = 0; usleep(1000); f(0); } }
@@ -242,7 +241,7 @@ static void run(void) { while (timer_fn) { int (*f)(const void *) = timer_fn; ti
 /* libcstl: a deque of record pointers; the query stubs fill the staging deque. */
 typedef struct { unsigned n; void *at[64]; } deque;
 void *shim_dir;
-void *_create_deque(const char *t) { (void)t; return calloc(1, sizeof(deque)); }
+void *_create_deque(const char *t) { return calloc(1, sizeof(deque)); }
 void deque_init_copy(void *d, const void *s) { *(deque *)d = *(const deque *)s; }
 void deque_assign(void *d, const void *s) { *(deque *)d = *(const deque *)s; }
 void deque_clear(void *d) { ((deque *)d)->n = 0; }
@@ -318,9 +317,8 @@ int ringnav_year_old(void) { return year_old; }
 static int artist_view;
 int ringnav_artist_view(void) { return artist_view; }
 int ringnav_artist_az(void) { return 0; }
-int album_row(void *a, int n, char **v, char **c) { (void)a; (void)n; (void)v; (void)c; return 0; }
+int album_row(void *a, int n, char **v, char **c) { return 0; }
 int toolsQueryDbTable(const char *db, const char *sql, void *row, int sort) {
-    (void)row;
     assert(!strcmp(db, "/mnt/data/database.db") && !sort && strstr(sql, "group by album COLLATE NOCASE,ifnull(albumsonger"));
     deque *d = shim_dir;
     d->n = 0;
@@ -386,13 +384,11 @@ int toolsThumbSpecCover(const char *src, const char *dst, int ww, int h) {
     return write_art(dst, strrchr(src, '/') + 1);
 }
 int toolsGetAlbumCover(const char *src, const char *dst, int ww, int h) {
-    (void)src;
     assert(ww == 160 && h == 160 && held[0] && held[1] && strstr(dst, ".jpg.tmp"));
     return embedded_fails ? 0 : write_art(dst, "embedded");
 }
 static int extern_found;
 int toolsGetExternCover(const char *src, const char *dst, int ww, int h) {
-    (void)src;
     assert(ww == 320 && h == 320 && !held[0] && !held[1]);
     return extern_found ? write_art(dst, "extern") : 0;
 }
@@ -409,7 +405,7 @@ unsigned char shim_memory[0x800]; /* g_memory_info, which album_memory fills */
 unsigned char shim_covertype;
 char shim_lastcover[1024], shim_id3[2716];
 static widget *page;
-static void *release(void *unused) { (void)unused; usleep(50000); blocked = 0; return 0; }
+static void *release(void *unused) { usleep(50000); blocked = 0; return 0; }
 static void open_page(void) {
     widget home;
     memset(&home, 0, sizeof(home));
@@ -924,7 +920,7 @@ static void same_name(void) {
     rescan();
 }
 /* Audiobook folders and M4B files never make covers, including artist and rated views. */
-static int five_hearts(void *r) { (void)r; return 5; }
+static int five_hearts(void *r) { return 5; }
 static void audiobooks(void) {
     extern int coverflow_rated(int (*hearts)(void *));
     int music = albums;

@@ -321,7 +321,7 @@ static int edit_widget, focused;
 static char keyboard[32];
 void *widget_factory(void) { return 0; }
 void *widget_factory_create_widget(void *f, const char *type, void *p, int x, int y, int ww, int h) {
-    (void)f; (void)x; (void)y; (void)ww; void *e = make(p, h);
+    void *e = make(p, h);
     if (!strcmp(type, "edit")) { edit_widget = (int)(long)e; keyboard[0] = 0; focused = 0; }
     return e;
 }
@@ -330,28 +330,26 @@ void *widget_factory_create_widget(void *f, const char *type, void *p, int x, in
 static unsigned fill_color, screen[290 * 375];
 static struct { int r[4]; unsigned px, color; char s[32]; } texts[64];
 static int ntexts;
-int canvas_set_fill_color(void *c, unsigned v) { (void)c; fill_color = v; return 0; }
+int canvas_set_fill_color(void *c, unsigned v) { fill_color = v; return 0; }
 int canvas_fill_rect(void *c, int x, int y, int ww, int h) {
-    (void)c;
     for (int j = y < 0 ? 0 : y; j < y + h && j < 290; ++j)
         for (int i = x < 0 ? 0 : x; i < x + ww && i < 375; ++i) screen[j * 375 + i] = fill_color;
     return 0;
 }
-void *canvas_get_vgcanvas(void *c) { (void)c; return 0; }
-#define VG(name, ...) int name(void *vg, ##__VA_ARGS__) { (void)vg; return 0; }
+void *canvas_get_vgcanvas(void *c) { return 0; }
+#define VG(name, ...) int name(void *vg, ##__VA_ARGS__) { return 0; }
 VG(vgcanvas_save) VG(vgcanvas_restore) VG(vgcanvas_begin_path) VG(vgcanvas_close_path) VG(vgcanvas_fill) VG(vgcanvas_stroke)
-int vgcanvas_translate(void *vg, float x, float y) { (void)vg; (void)x; (void)y; return 0; }
-int vgcanvas_move_to(void *vg, float x, float y) { (void)vg; (void)x; (void)y; return 0; }
-int vgcanvas_line_to(void *vg, float x, float y) { (void)vg; (void)x; (void)y; return 0; }
-int vgcanvas_arc(void *vg, float x, float y, float r, float a, float b, int ccw) { (void)vg; (void)x; (void)y; (void)r; (void)a; (void)b; (void)ccw; return 0; }
-int vgcanvas_set_fill_color(void *vg, unsigned c) { (void)vg; (void)c; return 0; }
-int vgcanvas_set_stroke_color(void *vg, unsigned c) { (void)vg; (void)c; return 0; }
-int vgcanvas_set_line_width(void *vg, float w) { (void)vg; (void)w; return 0; }
+int vgcanvas_translate(void *vg, float x, float y) { return 0; }
+int vgcanvas_move_to(void *vg, float x, float y) { return 0; }
+int vgcanvas_line_to(void *vg, float x, float y) { return 0; }
+int vgcanvas_arc(void *vg, float x, float y, float r, float a, float b, int ccw) { return 0; }
+int vgcanvas_set_fill_color(void *vg, unsigned c) { return 0; }
+int vgcanvas_set_stroke_color(void *vg, unsigned c) { return 0; }
+int vgcanvas_set_line_width(void *vg, float w) { return 0; }
 int vgcanvas_set_fill_linear_gradient(void *vg, float a, float b, float c, float d, unsigned e, unsigned f) {
-    (void)vg; (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; return 0;
+    return 0;
 }
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color) {
-    (void)canvas;
     if (ntexts == 64) return;
     memcpy(texts[ntexts].r, r, sizeof texts[ntexts].r);
     texts[ntexts].px = px, texts[ntexts].color = color;
@@ -361,7 +359,7 @@ void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, un
 /* iPod builds' theme: Classic's Graphite light tone, or Minimal's fill. */
 static int shim_classic_on = 1;
 int ipod_classic(void) { return shim_classic_on; }
-unsigned accent_tone(int tone) { (void)tone; return shim_classic_on ? 0x6e6e6e : 0xeeeeec; }
+unsigned accent_tone(int tone) { return shim_classic_on ? 0x6e6e6e : 0xeeeeec; }
 void shim_classic(int on) { shim_classic_on = on; }
 int widget_set_prop_str(void *x, const char *k, const char *v) {
     if ((long)x == edit_widget && !strcmp(k, "keyboard")) snprintf(keyboard, sizeof(keyboard), "%s", v);
@@ -380,7 +378,6 @@ int widget_set_focused(void *x, int v) {
 static char page[16];
 void *window_manager(void) { return (void *)3999L; }
 void *widget_lookup(void *x, const char *name, int recursive) {
-    (void)recursive;
     if ((long)x == 3999 && !strcmp(name, "kb_default_t9")) return (void *)4000L;
     return (long)x == 4000 && !strcmp(name, "panel") ? (void *)4001L : 0;
 }
@@ -395,11 +392,11 @@ void shim_type(const char *text) {
     snprintf(w[edit_widget].text, 160, "%s", text);
     w[edit_widget].change(0, 0); shim_run();
 }
-void *list_item_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
-void *label_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
-void *list_view_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
-void *scroll_view_create(void *p, int x, int y, int ww, int h) { (void)x; (void)y; (void)ww; return make(p, h); }
-int widget_use_style(void *x, const char *s) { (void)x; (void)s; return 0; }
+void *list_item_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
+void *label_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
+void *list_view_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
+void *scroll_view_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
+int widget_use_style(void *x, const char *s) { return 0; }
 int widget_set_text_utf8(void *x, const char *s) { snprintf(w[(long)x].text, 160, "%s", s); return 0; }
 unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
     long i = (long)x;
@@ -422,14 +419,14 @@ int widget_set_prop_int(void *x, const char *k, int v) {
     if (!strcmp(k, "_ringnav_index")) selection = v;
     return 0;
 }
-int widget_destroy_children(void *x) { (void)x; count = 1; return 0; }
-int widget_resize(void *x, int ww, int h) { (void)ww; w[(long)x].h = h; return 0; }
-int scroll_view_set_offset(void *x, int a, int b) { (void)x; (void)a; offset = b; return 0; }
+int widget_destroy_children(void *x) { count = 1; return 0; }
+int widget_resize(void *x, int ww, int h) { w[(long)x].h = h; return 0; }
+int scroll_view_set_offset(void *x, int a, int b) { offset = b; return 0; }
 int shim_selection(void) { return selection; }
 int shim_offset(void) { return offset; }
-int widget_invalidate_force(void *x, void *y) { (void)x; (void)y; return 0; }
-unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { (void)ctx; (void)ms; timer_fn = f; return ++timers; }
-int timer_remove(unsigned id) { (void)id; timer_fn = 0; ++removed; return 0; }
+int widget_invalidate_force(void *x, void *y) { return 0; }
+unsigned timer_add(int (*f)(const void *), void *ctx, unsigned ms) { timer_fn = f; return ++timers; }
+int timer_remove(unsigned id) { timer_fn = 0; ++removed; return 0; }
 int navigator_back(void) { return ++backs; }
 static int eqflag = -1;
 int write_int_config(int v, const char *s, const char *k) { if (!strcmp(s, "PLAYSET") && !strcmp(k, "EQFLAG")) eqflag = v; return 0; }
@@ -474,10 +471,10 @@ static int child(int bar) {
 }
 void stop_timer(unsigned *t) { if (*t) timer_remove(*t); *t = 0; }
 int center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing) {
-    (void)timer; (void)at; (void)scrubbing; single(0); return 1;
+    single(0); return 1;
 }
-int on_wm_keyup_fun(void *a, void *b) { (void)a; (void)b; return ++screen_off; }
-int widget_to_local(void *x, void *xy) { (void)x; (void)xy; return 0; }
+int on_wm_keyup_fun(void *a, void *b) { return ++screen_off; }
+int widget_to_local(void *x, void *xy) { return 0; }
 int eq_key(void *top, unsigned key);
 int shim_e3_open(void) { return shim_open(); } /* the EQ page opens on Simple */
 int shim_e3_key(int k) { return eq_key((void *)1, (unsigned[]){KEY_PREV, KEY_NEXT, KEY_CENTER}[k]); }
@@ -1313,7 +1310,6 @@ static const char *cfg[6]; /* TOKEN, USER, PASSWORD, API_KEY, API_SECRET, ALBUM_
 int toolsReadConfig(const char *path, const char *section, const char *key, char *out, const char *def) {
     static const char *const keys[] = { "TOKEN", "USER", "PASSWORD", "API_KEY", "API_SECRET", "ALBUM_ARTIST" };
     static const char *const sections[] = { "LISTENBRAINZ", "LASTFM", "LASTFM", "LASTFM", "LASTFM", "SCROBBLE" };
-    (void)def;
     assert(strstr(path, "/mnt/mmc/.scrobble.ini"));
     for (int i = 0; i < 6; i++)
         if (!strcmp(key, keys[i]) && !strcmp(section, sections[i]) && cfg[i]) { strcpy(out, cfg[i]); return 1; }
@@ -1353,7 +1349,6 @@ int curl_easy_setopt(void *c, int opt, ...) {
     return 0;
 }
 int curl_easy_perform(void *c) {
-    (void)c;
     int i = requests++;
     if (i == append_at) scrobble_append("New\tB\tListen\t\t100\tL\t1700009999\t\n", 33); /* a listen meanwhile */
     fprintf(dump, "%s\t", easy.url);
@@ -1685,7 +1680,6 @@ static int reads, calls, recoveries, sleeps, mode;
 static unsigned tail_out;
 static const short *base;
 int mock_read(int fd, void *b, unsigned n) {
-    (void)fd;
     if (mode==3) return reads++ ? (reads==2 ? 1024 : 0) : 2048; /* 768 frames, then EOF */
     CHECK(n==2048);
     if (reads++) return 0;
@@ -1693,7 +1687,6 @@ int mock_read(int fd, void *b, unsigned n) {
     return (int)n;
 }
 long mock_write(void *pcm, const void *b, unsigned long n) {
-    (void)pcm;
     if (mode==3) return tail_out += n, (long)n;
     if (!calls) base=b;
     ++calls;
@@ -1706,11 +1699,11 @@ long mock_write(void *pcm, const void *b, unsigned long n) {
     return 384;
 }
 int mock_recover(void *pcm, int err, int silent) {
-    (void)pcm; (void)silent; ++recoveries;
+    ++recoveries;
     return err==-19 ? err : 0;
 }
-int mock_delay(void *pcm, long *delay) { (void)pcm; *delay=mode==3 ? 100 : 0; return 0; }
-const char *snd_strerror(int err) { (void)err; return "mock error"; }
+int mock_delay(void *pcm, long *delay) { *delay=mode==3 ? 100 : 0; return 0; }
+const char *snd_strerror(int err) { return "mock error"; }
 int mock_sleep(unsigned n) { CHECK(n==1000); ++sleeps; return 0; }
 int main(void) {
     au.gain=65536;
@@ -1813,21 +1806,21 @@ static _Atomic unsigned long long clk = 1000;
 static char last[64];
 static int mclGetPlayStatus(void) { return status; }
 static unsigned long long now_ms(void) { return clk; }
-static int deque_size(void *q) { (void)q; return 0; }
-static void *deque_at(void *q, unsigned i) { (void)q, (void)i; return 0; }
+static int deque_size(void *q) { return 0; }
+static void *deque_at(void *q, unsigned i) { return 0; }
 static void headset_manual(void) {}
-static int card_space(const char *d) { (void)d; return 1; }
-static int stream_cache(int s) { (void)s; return 2; }
-int stock_tidal_trampoline(const char *u) { (void)u; return 0; }
+static int card_space(const char *d) { return 1; }
+static int stream_cache(int s) { return 2; }
+int stock_tidal_trampoline(const char *u) { return 0; }
 static int __xstat(int v, const char *p, unsigned *st) {
-    struct stat s; (void)v; if (stat(p, &s)) return -1; st[12] = s.st_size, st[16] = s.st_mtime; return 0;
+    struct stat s; if (stat(p, &s)) return -1; st[12] = s.st_size, st[16] = s.st_mtime; return 0;
 }
 typedef unsigned (*sink_t)(const void *, unsigned, unsigned, void *);
 typedef int (*prog_t)(void *, long long, long long, long long, long long);
 static struct { sink_t sink; void *data; prog_t prog; void *pdata; const char *url; } h;
 static void *curl_easy_init(void) { return &h; }
 static int curl_easy_setopt(void *c, int o, ...) {
-    va_list ap; (void)c; va_start(ap, o);
+    va_list ap; va_start(ap, o);
     if (o == 10002) h.url = va_arg(ap, const char *);
     if (o == 20011) h.sink = va_arg(ap, sink_t);
     if (o == 10001) h.data = va_arg(ap, void *);
@@ -1836,12 +1829,12 @@ static int curl_easy_setopt(void *c, int o, ...) {
     va_end(ap); return 0;
 }
 static int curl_easy_perform(void *c) {
-    (void)c; snprintf(last, sizeof last, "%s", h.url); ++performs; performing = 1;
+    snprintf(last, sizeof last, "%s", h.url); ++performs; performing = 1;
     while (gate) if (h.prog(h.pdata, 0, 0, 0, 0)) { performing = 0; return 42; } else usleep(1000);
     h.sink("data", 1, 4, h.data); performing = 0; return 0;
 }
-static int curl_easy_getinfo(void *c, int i, long *code) { (void)c, (void)i; *code = 200; return 0; }
-static void curl_easy_cleanup(void *c) { (void)c; }
+static int curl_easy_getinfo(void *c, int i, long *code) { *code = 200; return 0; }
+static void curl_easy_cleanup(void *c) { }
 static int renamed(const char *a, const char *b) { int r = rename(a, b); ++ended; return r; }
 static int unlinked(const char *p) { int r = unlink(p); ++ended; return r; }
 #define rename renamed
@@ -1894,17 +1887,17 @@ def tidal_check(tmp):
 struct dirent { char d_name[16]; };
 static int fail, left, cursor, attempts, choice = 2;
 static int stream_cache(int spotify) { assert(!spotify); return choice; } /* 512 << choice MB */
-static void *opendir(const char *p) { (void)p; cursor=0; return (void *)1; }
+static void *opendir(const char *p) { cursor=0; return (void *)1; }
 static struct dirent *readdir(void *d) {
-    static struct dirent e; (void)d;
+    static struct dirent e;
     if (cursor == left) return 0;
     snprintf(e.d_name, sizeof e.d_name, "%d.flac", cursor++); return &e;
 }
-static int closedir(void *d) { (void)d; return 0; }
+static int closedir(void *d) { return 0; }
 static int __xstat(int v, const char *p, unsigned *s) {
-    (void)v; (void)p; s[12]=1200u<<20; s[16]=1; return 0;
+    s[12]=1200u<<20; s[16]=1; return 0;
 }
-static int unlink(const char *p) { (void)p; ++attempts; if (fail) return -1; --left; return 0; }
+static int unlink(const char *p) { ++attempts; if (fail) return -1; --left; return 0; }
 static void trim(void) {''' + trim + r'''
 int main(void) {
     left=3; trim(); assert(left==1 && attempts==2);

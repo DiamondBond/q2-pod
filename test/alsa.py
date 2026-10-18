@@ -34,11 +34,10 @@ void *calloc(unsigned, unsigned);
 int snd_pcm_ioplug_create(io *, const char *, int, int);
 int snd_pcm_ioplug_set_param_list(io *, int, unsigned, const unsigned *);
 int snd_pcm_ioplug_set_param_minmax(io *, int, unsigned, unsigned);
-static int action(io *p) { (void)p; return 0; }
+static int action(io *p) { return 0; }
 static long pointer(io *p) { return p->state==3 ? p->appl_ptr % p->buffer_size : 0; }
 static const struct callbacks callbacks={.start=action,.stop=action,.pointer=pointer,.prepare=action};
 int _snd_pcm_mock_open(void **out, const char *name, void *root, void *conf, int stream, int mode) {
-    (void)root; (void)conf;
     io *p=calloc(1,sizeof *p);
     if (!p) return -12;
     p->version=0x010002; p->name="test"; p->mmap_rw=1; p->callback=&callbacks;
@@ -68,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='q2-alsa-') as directory:
         subprocess.run(['clang',*flags,*extra,'-c',str(source),'-o',str(target)],check=True)
     # Identical writer without the workaround must reproduce the first-write deadlock.
     noop=tmp/'noop.c'
-    noop.write_text('int test_setenv(const char *a,const char *b,int c) {(void)a;(void)b;(void)c;return 0;}\n')
+    noop.write_text('int test_setenv(const char *a,const char *b,int c) {return 0;}\n')
     compile(noop,tmp/'noop.o')
     compile(ROOT/'patch/video.c',tmp/'baseline.o','-Dsetenv=test_setenv')
     baseline=tmp/'baseline'
