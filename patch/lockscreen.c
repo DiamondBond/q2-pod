@@ -173,7 +173,6 @@ static void *wall_bitmap(int w, int h, int id) {
 /* A picture widget (ctx) goes: its pointer must never match a later widget at the same address. A
  * widget already replaced by a newer one matches nothing here. */
 static int forget(void *ctx, void *event) {
-    (void)event;
     if (ctx == lk.img) {
         if (lk.full) bitmap_destroy(lk.full);
         lk.img = lk.full = 0;

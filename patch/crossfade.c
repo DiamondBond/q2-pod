@@ -96,24 +96,20 @@ static void set_value(int n) {
 }
 
 static int toggle(void *ctx, void *event) {
-    (void)ctx, (void)event;
     if (xf.wheel) return 0;
     xf.on = !xf.on;
     refresh(1);
     return 0;
 }
 static int step(void *ctx, void *event) {
-    (void)event;
     set_value(value() + (int)(long)ctx * (xf.wheel ? 10 : 1));
     return 0;
 }
 static int slid(void *ctx, void *event) {
-    (void)ctx, (void)event;
     set_value(widget_get_prop_int(xf.slider, "value", value()));
     return 0;
 }
 static int gone(void *ctx, void *event) {
-    (void)event;
     if (xf.page == ctx) xf.page = 0, xf.wheel = 0;
     return 0;
 }
@@ -121,7 +117,6 @@ static int gone(void *ctx, void *event) {
 /* The row's click: stock's Boot volume page, its handlers swapped for these; ctx 1 for Wheel
  * sensitivity's row. */
 int xfade_open(void *ctx, void *event) {
-    (void)event;
     int wheel = ctx != 0;
     settings();
     if (xf.page) return 0;
@@ -166,7 +161,6 @@ int xfade_open(void *ctx, void *event) {
 
 /* A single centre press, DOUBLE_CLICK_MS on: the switch. */
 static int single(const void *info) {
-    (void)info;
     xf.press = 0;
     toggle(0, 0);
     return 0;

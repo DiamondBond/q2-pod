@@ -325,7 +325,6 @@ int spot_media(unsigned key) {
  * on_wm_keyup_fun, which turns the screen off, as Now Playing's np_single. */
 static int spot_single(const void *info) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
-    (void)info;
     ui.press = 0;
     if (g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
     return 0;
@@ -418,7 +417,6 @@ static void spot_refresh(void) {
 }
 
 static int tick(const void *unused) {
-    (void)unused;
     if (g_backlight_status) spot_refresh();
     return 8; /* RET_REPEAT */
 }
@@ -458,7 +456,6 @@ void spot_paint(void *w, void *canvas) {
 }
 
 static int leave(const void *unused) {
-    (void)unused;
     ui.leave = 0;
     navigator_back();
     return 0;
@@ -466,7 +463,6 @@ static int leave(const void *unused) {
 
 /* Return: a scrub seeks first, as on Now Playing; then back to the browser. */
 static int keyup(void *ctx, void *event) {
-    (void)ctx;
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
     if (ui.scrub)
         scrub_commit();
@@ -476,7 +472,6 @@ static int keyup(void *ctx, void *event) {
 }
 
 static int closed(void *ctx, void *event) {
-    (void)ctx; (void)event;
     stop_timer(&ui.timer);
     stop_timer(&ui.leave);
     stop_timer(&ui.press);
@@ -600,7 +595,6 @@ void spot_shut(int fd);
 /* One connection a request: written, shut for writing, and read to EOF within SPOT_WAIT_MS, 100 ms
  * at a time so a cancel is joined at once. */
 static void *worker(void *unused) {
-    (void)unused;
     struct unix_addr to = { 1, SPOT_BROWSE };
     unsigned long long end = now_ms() + SPOT_WAIT_MS;
     unsigned sent = 0;
@@ -851,7 +845,6 @@ static void later(int next, int arg) {
 }
 
 static int clicked(void *ctx, void *event) {
-    (void)event;
     later(G_ROW, (int)(long)ctx);
     return 0;
 }
@@ -859,7 +852,6 @@ static int clicked(void *ctx, void *event) {
 /* The search box's OK, or its keyboard closed with text: its categories, Return going back to the
  * menu. An empty OK closes the keyboard with no other event, so it is taken here too. */
 static int searched(void *ctx, void *event) {
-    (void)ctx; (void)event;
     if (widget_get_text_utf8(br.edit, br.term, sizeof br.term)) br.term[0] = 0;
     later(br.term[0] ? G_SEARCH : G_SHOW, 0);
     return 0;
@@ -867,14 +859,12 @@ static int searched(void *ctx, void *event) {
 
 /* The box left without a search: the menu as it was. */
 static int search_left(void *ctx, void *event) {
-    (void)ctx; (void)event;
     if (!br.go) later(G_SHOW, 0);
     return 0;
 }
 
 /* A row's choice, on a timer: a row's click may not rebuild the list it is in. */
 static int go(const void *unused) {
-    (void)unused;
     static const char *const ops[] = { 0, "liked", "playlists", "albums", "artists", 0, "queue", "settings", "account", "downloaded" };
     static const char *const cats[] = { "tracks", "albums", "artists", "playlists" };
     level_t *l = top();
@@ -947,7 +937,6 @@ static int go(const void *unused) {
 /* The page's timer: a finished request taken, the pairing prompt asking again, and the menu
  * following Now Playing. */
 static int br_tick(const void *unused) {
-    (void)unused;
     level_t *l = top();
     if (wk.done) {
         if (wk.running) pthread_join(wk.thread, 0);
@@ -962,7 +951,6 @@ static int br_tick(const void *unused) {
 }
 
 static int br_leave(const void *unused) {
-    (void)unused;
     br.leave = 0;
     if (br.edit) /* the search box emptied, so no search; its blur shuts the keyboard, then the box */
         widget_set_text_utf8(br.edit, ""), widget_set_focused(br.edit, 0);
@@ -975,12 +963,10 @@ static int br_leave(const void *unused) {
 
 /* Return: the search box shut, else a level back, the base back to Streaming. */
 static int br_keyup(void *ctx, void *event) {
-    (void)ctx;
     return return_key(event, &br.leave, br_leave);
 }
 
 static int br_closed(void *ctx, void *event) {
-    (void)ctx; (void)event;
     fetch_cancel();
     stop_timer(&br.timer);
     stop_timer(&br.go);
@@ -994,8 +980,6 @@ static int br_closed(void *ctx, void *event) {
 /* Streaming's Spotify row (navigation.c ringnav_stream): librespot started if it is not, and the
  * browser; without librespot on the card, Now Playing says so. */
 int spot_open(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (access(SPOT_BIN, 0) && !sp.launched) return spot_np(), 0;
     spot_launch();
     if (br.page || !(br.lv = calloc(SPOT_DEPTH, sizeof *br.lv))) return 0;

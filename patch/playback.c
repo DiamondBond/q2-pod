@@ -857,7 +857,6 @@ void playback_save(void) {
     }
 }
 static int library(void *unused) {
-    (void)unused;
     /* Snapshot order wins; avoid stock's expensive pinyin title sort. */
     return getAllMusic(3);
 }

@@ -277,7 +277,6 @@ static int retire(unsigned done) {
 }
 
 static void *worker(void *unused) {
-    (void)unused;
     reply_t r;
     entry_t e[BATCH];
     char sk[64] = "";

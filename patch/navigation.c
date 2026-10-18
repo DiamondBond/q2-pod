@@ -590,7 +590,6 @@ static int home_done(void *w, void *event) {
 static void *surface(void *target, void **other);
 
 static int cf_letter_expire(const void *info) {
-    (void)info;
     st.cf_letter_timer = st.cf_letter = 0;
     void *w = surface(0, 0);
     if (w && w == st.cf_letter_surface) widget_invalidate_force(w, 0);
@@ -728,7 +727,6 @@ static int fx_live(void *w) {
 }
 
 static int fx_expire(const void *info) {
-    (void)info;
     st.fx_timer = 0;
     void *w = surface((void *)0, (void *)0);
     st.bump_dir = 0;
@@ -1169,7 +1167,6 @@ static int pending_matches(void *top, menu_t *m) {
 }
 
 static int confirm_center(const void *info) {
-    (void)info;
     void *w = surface((void *)0, (void *)0);
     if (!st.center_timer) return 0;
     /* Stock removes this one-shot after return; never repeat (RET_REPEAT=8). */
@@ -1592,7 +1589,6 @@ static unsigned put_num(unsigned *s, unsigned v) {
 }
 
 static int letter_expire(const void *info) {
-    (void)info;
     st.letter_timer = 0;
     void *w = surface((void *)0, (void *)0);
     if (w && w == st.wheel_surface) widget_invalidate_force(w, (void *)0);
@@ -1683,7 +1679,6 @@ static int draw_spaced(void *canvas, const unsigned *s, int x, int y, unsigned p
 #define MARQUEE_PX 2
 #define MARQUEE_HOLD_MS 1500
 static int np_marquee(const void *info) {
-    (void)info;
     st.np_marquee = 0;
     if (!st.np_album || st.np_over <= 0) return 0;
     int end = st.np_off >= st.np_over;
@@ -1968,7 +1963,6 @@ static void lock_set(int choice) {
     write_int_config(g_keylock_flag, "SYSSET", "LOCKFLAG");
 }
 static int lock_pick(void *ctx, void *event) {
-    (void)event;
     lock_set((int)(long)ctx);
     void *win = window_manager_get_top_window(window_manager());
     void *view = widget_lookup(win, "scroll_view_keylock", 1);
@@ -1997,7 +1991,6 @@ static void quick_lock_text(void *win) {
                          g_keylock_flag ? "drop_keylockopen" : "drop_keylock");
 }
 int ringnav_quick_lock(void *win, void *event) {
-    (void)event;
     lock_set((lock_choice() + 1) % 4);
     quick_lock_text(win);
     return 0;
@@ -2218,7 +2211,6 @@ static void pod_text(int i) {
 /* Centre or tap toggles and saves. Charge limit and Low power take effect on the next UI loop pass
  * (power_poll); Artists on the next load of an artist list, as the artist page's switch does. */
 static int pod_click(void *ctx, void *event) {
-    (void)event;
     int i = (int)(long)ctx;
     pod_settings();
     if (i == POD_ARTISTS) {
@@ -2371,7 +2363,6 @@ _Static_assert(sizeof codecs / sizeof *codecs == sizeof codec_reach / sizeof *co
                "one reach per codec");
 
 static int codec_fade(const void *info) {
-    (void)info;
     int n = ++st.codec_step, d = CODEC_STEPS - n;
     if (n == 1)
         st.codec_timer = timer_add(codec_fade, (void *)0, CODEC_STEP_MS); /* this one ends */
@@ -2607,7 +2598,6 @@ static void np_theme(void) {
 #define SETTLE_MS 250
 #define SETTLE_PLAY_MS 2000
 static int settle_poll(const void *info) {
-    (void)info;
     int sec = -1, total, status = mclGetPlayStatus();
     player_playtime_and_length(&sec, &total);
     if (status == 2) st.settle_played += SETTLE_MS;
@@ -2653,7 +2643,6 @@ static void scrub_end(void) {
 }
 
 static int scrub_expire(const void *info) {
-    (void)info;
     st.scrub_timer = 0;
     scrub_end();
     return 0;
@@ -2669,7 +2658,6 @@ static void lyric_end(void) {
 }
 
 static int lyric_expire(const void *info) {
-    (void)info;
     st.lyric_timer = 0;
     if (st.np_win) playing_timer_start(st.np_win);
     return 0;
@@ -2705,7 +2693,6 @@ static void np_cancel(void) {
 /* A single centre press, DOUBLE_CLICK_MS on, never while scrubbing: it replays the release to stock
  * on_wm_keyup_fun, which turns the screen off (it reads only the event's key). */
 static int np_single(const void *info) {
-    (void)info;
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     st.np_press = 0;
     if (g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
@@ -2755,7 +2742,6 @@ static int np_key(void *top, unsigned key) {
 }
 
 static int np_gone(void *win, void *event) {
-    (void)event;
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
@@ -2815,7 +2801,6 @@ int ringnav_playing(void *win, void *ctx) {
 
 /* The song name and its shade fade out together, BC_STEPS steps BC_STEP_MS apart. */
 static int bc_fade(const void *info) {
-    (void)info;
     int n = ++st.bc_step;
     if (n == 1) st.bc_timer = timer_add(bc_fade, (void *)0, BC_STEP_MS); /* this one ends */
     for (int i = 0; i < 2; ++i)
@@ -2826,8 +2811,6 @@ static int bc_fade(const void *info) {
 }
 
 static int bc_gone(void *win, void *event) {
-    (void)win;
-    (void)event;
     stop_timer(&st.bc_timer);
     st.bc[0] = st.bc[1] = (void *)0;
     return 0;
@@ -2851,7 +2834,6 @@ int ringnav_bigcover(void *win, void *ctx) {
  * whole. Stock's own invalidation of the hidden slider does not reliably reach the screen, so the
  * bar would stop following the wheel after a tick or two. */
 static int vol_poll(const void *info) {
-    (void)info;
     void *top = window_manager_get_top_window(window_manager());
     void *vol = top && top == st.vol_dialog ? widget_lookup(top, "slider_vol", 1) : (void *)0;
     if (!vol) {
@@ -3297,7 +3279,6 @@ static void settings_layout(void *w) {
  * and the screen repaints; Home takes its new layout and Streaming label at once (never
  * recreated), and an open Now Playing its progress bar. */
 static int setting_click(void *ctx, void *event) {
-    (void)event;
     int i = (int)(long)ctx, *value = setting_values[i];
     /* Rockbox, Favorites, Shuffle, Rated Albums, Artists, Albums */
     static const int shortcut_next[] = { 3, 2, 0, 5, 1, 4 };
@@ -3415,7 +3396,6 @@ static void boot_text(void *label) {
     widget_set_text_utf8(label, boot_rockbox ? "Boot to: Rockbox" : "Boot to: Q2 Pod");
 }
 static int boot_click(void *label, void *event) {
-    (void)event;
     if (!rockbox_available()) {
         toast("Rockbox is not on the card");
         return 0;
@@ -3463,7 +3443,6 @@ int ringnav_systemset(void *win, void *ctx) {
 
 #if IPOD
 static int untouch(const void *info) {
-    (void)info;
     st.untouch_timer = 0;
     st.touch_mode = 0;
     void *top = window_manager_get_top_window(window_manager());
@@ -3855,14 +3834,12 @@ static void qm_close(void) {
 
 /* Return and the title bar arrow dismiss without the stock sort-change flag. */
 static int qm_back(void *dialog, void *event) {
-    (void)dialog;
     if (I(event, EVENT_TYPE) == EVT_KEY_UP && I(event, EVENT_KEY) != KEY_RETURN) return 0;
     qm_close();
     return STOP;
 }
 
 static int qm_gone(void *dialog, void *event) {
-    (void)event;
     if (st.qm_dialog == dialog) st.qm_dialog = (void *)0;
     return 0;
 }
@@ -4018,7 +3995,6 @@ static int artist_album(void *all, void *r) {
 extern int coverflow_artist(void *albums);
 extern void coverflow_by_year(void *albums);
 static int artist_songs(void *unused) {
-    (void)unused;
     return (I(artist_type, 0) == 1 ? getMusicByAlbumArtist : getMusicBySonger)(
         g_local_classinfo_save[0xa] ? (const char *)0
                                     : (const char *)g_local_classinfo_save + 0x10d);
@@ -4060,7 +4036,6 @@ static void artist_order(void *list, void *mine) {
     deque_destroy(out);
 }
 static int artist_cf_gone(void *win, void *event) {
-    (void)event;
     if (win == st.art_cf_win) st.art_cf_win = (void *)0;
     if (win == st.art_cf_veil) st.art_cf_veil = (void *)0;
     return 0;
@@ -4078,7 +4053,6 @@ static void artist_cf_veil(void *win, int on) {
     widget_set_opacity(win, on ? 0 : 0xff);
 }
 static int artist_cf_open(const void *unused) {
-    (void)unused;
     void *top = window_manager_get_top_window(window_manager()), *all = st.art_cf_list,
          *veiled = st.art_cf_veil;
     st.art_cf_timer = 0;
@@ -4130,7 +4104,6 @@ int ringnav_artist_list(int tab) {
     return n;
 }
 static const char *artist_key(char *buf, void *list, unsigned i) {
-    (void)buf;
     return st.art_keys && list == P(p_deque_showlist, 0) && st.art_n == deque_size(list) &&
                    i < st.art_n
                ? st.art_keys[i]
@@ -4157,7 +4130,6 @@ int ringnav_art_header(char *buf, unsigned size, const char *fmt, const char *al
 
 static int empty_toast(const void *unused) {
     static const char *const none[] = { "No albums", "No artists", "No composers", "No genres" };
-    (void)unused;
     toast(none[st.empty_kind]);
     return 0;
 }
@@ -4183,7 +4155,6 @@ int ringnav_class_icon(void *row, int i) {
 /* list_get_img_pic: a song row's format badge (img_flac, img_mp3, ...) by its extension. "null" is
  * stock's no badge, which hides it, as an iPod's rows carry none. */
 int ringnav_badge(const char *path, char *out, int size) {
-    (void)path;
     tk_snprintf(out, (unsigned)size, "null");
     return 0;
 }
@@ -4332,10 +4303,7 @@ void toast(const char *text) {
     navigator_to_with_context("dialog/msginfo_dialog", &info);
 }
 
-static int all_songs(void *unused) {
-    (void)unused;
-    return getAllMusic(0);
-}
+static int all_songs(void *unused) { return getAllMusic(0); }
 
 /* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
  * Non-zero music leaves audiobooks out, as the Library's Artists and Albums (MUSIC_WHERE). */
@@ -4360,8 +4328,6 @@ static int shuffle_play(void *all) {
 }
 
 static int shuffle_songs(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     int n;
     void *all = staged(songs_unsorted, (void *)1, &n);
     if (!shuffle_play(all)) toast("Update Local Music first");
@@ -4370,7 +4336,6 @@ static int shuffle_songs(void *ctx, void *event) {
 }
 
 static int shuffle_groups(void *ctx, void *event) {
-    (void)event;
     int n;
     void *all = staged(songs_unsorted, (void *)1, &n);
     if (!playback_groups(all, (int)(long)ctx))
@@ -4381,7 +4346,6 @@ static int shuffle_groups(void *ctx, void *event) {
 
 /* Return and destroy for the payload's own pages, shared with Most Played. */
 static int page_keyup(void *ctx, void *event) {
-    (void)ctx;
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
     navigator_back();
     return STOP;
@@ -4389,8 +4353,6 @@ static int page_keyup(void *ctx, void *event) {
 
 static void ls_closed(void);
 static int page_closed(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (ctx == st.rt_page) {
         st.rt_page = 0;
         if (st.rt_list) deque_destroy(st.rt_list);
@@ -4414,7 +4376,6 @@ static int page_closed(void *ctx, void *event) {
  * leaves the page open, as Most Played's rows do. Album and folder shuffles queue and group the
  * whole library, hence the note. */
 static int sp_pick(void *ctx, void *event) {
-    (void)event;
     if ((long)ctx)
         shuffle_groups((void *)((long)ctx - 1), 0);
     else
@@ -4423,8 +4384,6 @@ static int sp_pick(void *ctx, void *event) {
 }
 
 static int shuffle_menu(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (st.sp_page || !(st.sp_page = page_open("shuffle_page", page_closed, page_keyup))) return 0;
     void *view = page_list(st.sp_page, st.sp_page, 0, "Shuffle", 3, 48);
     page_row_detail(view, 0, "Shuffle Songs", 0, sp_pick);
@@ -4470,7 +4429,6 @@ static unsigned listen_key(void *r) {
 
 /* Most Played's row: the ranked list from that track, as a library (not folder) queue. */
 static int mp_play(void *ctx, void *event) {
-    (void)event;
     play_folder(st.mp_list, (int)(long)ctx, 0xf001);
     return 0;
 }
@@ -4522,8 +4480,6 @@ static int mp_find(unsigned key) {
  * ponytail: the first open after boot or a library change still reads every song, and a song first
  * counted from stock's folder browser shows without its artist until then (no library tags). */
 static int most_played(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (st.mp_page || !(st.mp_page = page_open("mostplayed_page", page_closed, page_keyup)))
         return 0;
     int n, idx[PLAYS_TOP];
@@ -4583,13 +4539,11 @@ static int td_newer(const void *a, const void *b) {
     return (y > x) - (y < x);
 }
 static int td_play(void *ctx, void *event) {
-    (void)event;
     void *t = deque_at(st.td_list, (unsigned)(long)ctx);
     if (t && !access(P(t, REC_PATH), 0)) play_folder(st.td_list, (int)(long)ctx, 0xf001);
     return 0;
 }
 static int tidal_downloads(void *ctx, void *event) {
-    (void)ctx, (void)event;
     if (st.td_page || !(st.td_page = page_open("tidal_downloads", page_closed, page_keyup)))
         return 0;
     int n = 0;
@@ -4653,7 +4607,6 @@ static void sc_text(int i) {
  * loop, a radio station and a stock stream (Tidal's) queue, so the keys and the output are local
  * music's again; local music already stopped is left as it is. */
 static int sc_click(void *ctx, void *event) {
-    (void)event;
     int i = (int)(long)ctx;
     if (i == 2) {
         unsigned type = (unsigned)MCL(MCL_TYPE);
@@ -4674,7 +4627,6 @@ static int sc_click(void *ctx, void *event) {
 }
 
 static int stream_config(void *ctx, void *event) {
-    (void)ctx, (void)event;
     if (st.sc_page || !(st.sc_page = page_open("streamconf_page", page_closed, page_keyup)))
         return 0;
     void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 3, 48);
@@ -4769,7 +4721,6 @@ static void rate_badge(void) {
 }
 
 static int rate_tick(const void *unused) {
-    (void)unused;
     if (g_backlight_status) rate_badge();
     return 8; /* RET_REPEAT */
 }
@@ -4777,7 +4728,6 @@ static int rate_tick(const void *unused) {
 static int rate_tap(void *ctx, void *event);
 /* The picker goes down with its page or panel (Coverflow's load destroys the page's children). */
 static int rate_panel_gone(void *win, void *event) {
-    (void)event;
     if (win == st.rate_on) st.rate_on = (void *)0;
     return 0;
 }
@@ -4845,7 +4795,6 @@ static void rate_close(int save) {
 }
 
 static int rate_tap(void *ctx, void *event) {
-    (void)event;
     st.rate_pick = (int)(long)ctx;
     rate_close(1);
     return STOP;
@@ -4889,7 +4838,6 @@ static int rate_key(void *top, unsigned key) {
  * nothing here, so taking it away leaves the song unrated. The picker aborts the press, so the
  * slide_view under the heart lets go of its grab and the picker takes the next touch. */
 static int rate_long(const void *unused) {
-    (void)unused;
     st.rate_hold = 0;
     if (!window_manager_get_pointer_pressed(window_manager()) || !(st.rate_held = rate_open()))
         return 0;
@@ -4899,7 +4847,6 @@ static int rate_long(const void *unused) {
     return 0;
 }
 static int rate_down(void *ctx, void *event) {
-    (void)ctx, (void)event;
     st.rate_held = 0;
     rearm(&st.rate_hold, rate_long, RATE_HOLD_MS);
     return 0;
@@ -4919,7 +4866,6 @@ static int rate_fav_click(void *ctx, void *event) {
 }
 
 static int rate_gone(void *win, void *event) {
-    (void)event;
     if (win != st.rate_win) return 0;
     stop_timer(&st.rate_hold);
     stop_timer(&st.rate_tick);
@@ -4957,12 +4903,10 @@ static void rate_bind(void *win) {
 
 /* The Library's Ratings row: its menu, then a page of one list's songs, as Most Played's. */
 static int fav_songs(void *unused) {
-    (void)unused;
     return getAllFav(); /* select * from myfav, stock's song rows */
 }
 
 static int rt_play(void *ctx, void *event) {
-    (void)event;
     play_folder(st.rt_list, (int)(long)ctx, 0xf001);
     return 0;
 }
@@ -4992,7 +4936,6 @@ static void rate_all(void *songs, unsigned char *h) {
 static const char *const rt_names[] = { "Top Rated", "Loved", "All Rated", "Disliked" };
 #define RT_ALBUMS 2 /* the Ratings menu's Albums row, after Loved */
 static int rated_open(void *ctx, void *event) {
-    (void)event;
     static const unsigned char lo[] = { 4, 5, 1, 1 }, hi[] = { 5, 5, 5, 1 };
     int k = (int)(long)ctx - ((int)(long)ctx > RT_ALBUMS), n;
     if (st.rt_page || !(st.rt_page = page_open("rated_page", page_closed, page_keyup))) return 0;
@@ -5031,15 +4974,12 @@ static int rated_open(void *ctx, void *event) {
 extern int coverflow_rated(int (*hearts)(void *));
 static int album_hearts(void *r) { return rate_kept(1, album_id(r)); }
 static int rated_albums(void *ctx, void *event) {
-    (void)ctx, (void)event;
     if (!coverflow_rated(album_hearts)) toast("No rated albums yet");
     return 0;
 }
 
 /* The songs' best first, then the albums, then the songs' lists to tidy. */
 static int ratings_menu(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (st.rt_menu || !(st.rt_menu = page_open("ratings_page", page_closed, page_keyup))) return 0;
     void *view = page_list(st.rt_menu, st.rt_menu, 0, "Ratings", 5, 48);
     for (int i = 0; i < 5; i++)
@@ -5115,7 +5055,6 @@ static int by_key(const void *a, const void *b) {
 
 /* AudioProperties::length(), as libtag_c's taglib_audioproperties_length calls it: vtable +0xc. */
 static void *ls_worker(void *unused) {
-    (void)unused;
     while (ls.done < ls.total && !ls.cancel) {
         void *f = taglib_file_new(ls.paths[ls.done]);
         void *p = f ? taglib_file_audioproperties(f) : (void *)0;
@@ -5197,7 +5136,6 @@ static void ls_closed(void) {
 }
 
 static int ls_done(const void *unused) {
-    (void)unused;
     ls.timer = 0;
     ls_stop();
     if (st.rt_page && ls.songs) ls_show();
@@ -5205,13 +5143,11 @@ static int ls_done(const void *unused) {
 }
 
 static int ls_cancel(void *ctx, void *event) {
-    (void)ctx, (void)event;
     ls.cancel = 1; /* the poll shows what is known */
     return 0;
 }
 
 static int ls_poll(const void *unused) {
-    (void)unused;
     if (ls.done >= ls.total || ls.cancel) return ls_done(0);
     char t[64];
     tk_snprintf(t, sizeof t, "Measuring songs\xe2\x80\xa6 %d/%d", ls.done, ls.total);
@@ -5222,7 +5158,6 @@ static int ls_poll(const void *unused) {
 /* Long Songs' row: the files never probed are probed first, with their count and Cancel, which
  * keeps what is done; the page closing does the same. */
 static int long_songs(void *ctx, void *event) {
-    (void)ctx, (void)event;
     if (st.rt_page || !(st.rt_page = page_open("longsongs_page", page_closed, page_keyup)))
         return 0;
     int n;
@@ -5252,7 +5187,6 @@ static int long_songs(void *ctx, void *event) {
 
 /* Upload Scrobbles: the log goes up on scrobble.c's thread, and a timer reports how it went. */
 static int upload_wait(const void *unused) {
-    (void)unused;
     int sent = 0, done = scrobble_poll(&sent);
     if (!done) return 8; /* RET_REPEAT */
     char s[48];
@@ -5262,8 +5196,6 @@ static int upload_wait(const void *unused) {
 }
 
 static int upload_scrobbles(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     int started = get_wifisignal() > 0 ? scrobble_start() : -2;
     if (started > 0) timer_add(upload_wait, (void *)0, 500);
     toast(started > 0     ? "Uploading scrobbles"
@@ -5329,7 +5261,6 @@ static int media_find(int kind, char *path) {
 }
 
 static int media_click(void *ctx, void *event) {
-    (void)event;
     int kind = (int)(long)ctx;
     char root[sizeof st.media_root];
     if (kind >= PHOTOS) {
@@ -5461,8 +5392,6 @@ int ringnav_localmusic(void *win, void *ctx) {
 /* Streaming's AirPlay row: stock's own receiver (Shairport 1.1.1, AirPlay 1), whose switch is on
  * System settings' Network service page; that page, one press from Streaming. */
 static int airplay_open(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     navigator_to("systemset/netservice_page");
     return 0;
 }
@@ -5524,8 +5453,6 @@ int ringnav_about(void *win, void *ctx) {
 /* Go to album/artist reuse g_local_classinfo_save, which the pages underneath reload from when
  * they come back, so it is put back as the page opened here closes. */
 static int qm_restore(void *page, void *event) {
-    (void)page;
-    (void)event;
     memcpy((void *)g_local_classinfo_save, st.qm_classinfo, sizeof st.qm_classinfo);
     return 0;
 }
@@ -5572,8 +5499,6 @@ static int qm_playlist_pick(void *ctx, void *event) {
 }
 
 static int qm_playlist_gone(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     st.qm_playlist = 0;
     return 0;
 }
@@ -5604,7 +5529,6 @@ int ringnav_playlist(void *win) {
 static int qm_open(const void *unused);
 
 static int qm_run(const void *unused) {
-    (void)unused;
     st.qm_timer = 0;
     if (!st.qm_dialog) return 0;
     qm_close();
@@ -5681,7 +5605,6 @@ static int qm_run(const void *unused) {
 
 /* Touch and centre both arrive as the row's click; the first one wins. */
 static int qm_pick(void *action, void *event) {
-    (void)event;
     if (st.qm_dialog && !st.qm_timer) {
         st.qm_action = (int)(long)action;
         st.qm_timer = timer_add(qm_run, (void *)0, 0);
@@ -5695,7 +5618,6 @@ static int qm_pick(void *action, void *event) {
  * (SCROLL_MARGIN) show at every scroll, never a half row under the title. */
 #define QM_ROW 66
 static int qm_open(const void *unused) {
-    (void)unused;
     st.qm_timer = 0;
     void *wm = window_manager(), *page = window_manager_get_top_window(wm);
     void *r = usable() && !window_manager_is_animating(wm) ? qm_record() : (void *)0;
@@ -6267,7 +6189,6 @@ static void *logo_sync(void *unused) {
     unsigned n = 0, old_n;
     unsigned char *b = 0, *old = 0;
     const char *err = "Boot logo must be a 320x375 JPEG";
-    (void)unused;
     if (access(LOGO_SRC, 0))
         unlink(LOGO_DST), err = 0;
     else if ((b = logo_read(LOGO_SRC, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
@@ -6338,8 +6259,6 @@ static void power_poll(void) {
  * watchdog (checkappprocess.sh, which reboots once demo is gone) and hciplayer (which holds the
  * DAC's PCM) are stopped, and demo is killed outright, so no exit handler can hang it. */
 int rockbox_open(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     void *flag = !rockbox_available() ? (void *)0 : fopen(ROCKBOX_FLAG, "w");
     if (!flag) {
         toast("Rockbox is not on the card");
@@ -6664,7 +6583,6 @@ static void field_set(void *top, int f) {
 }
 
 static int edit_single(const void *info) {
-    (void)info;
     st.edit_press = 0;
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     if (!usable() || window_manager_is_animating(wm) || window_manager_get_pointer_pressed(wm))
@@ -6768,7 +6686,6 @@ static int hold_wheel(void *ctx, void *event, int dir) {
 }
 
 static int replay_wheel(const void *info) {
-    (void)info;
     void *wm = window_manager();
     if (!st.held || (unsigned)time_now_ms() - st.held_at > HOLD_MS || !usable()) {
         st.held = 0;

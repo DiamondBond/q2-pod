@@ -585,7 +585,6 @@ static void load(void) {
 }
 
 static void *worker(void *unused) {
-    (void)unused;
     bk.result = book_convert(bk.path[bk.current], bk.tmp, &bk.cancel);
     bk.finished = 1;
     return 0;
@@ -596,7 +595,6 @@ static void stop_worker(void) {
 }
 
 static int poll(const void *unused) {
-    (void)unused;
     if (!bk.finished) return 8; /* RET_REPEAT */
     bk.poll = 0;
     pthread_join(bk.thread, 0);
@@ -612,7 +610,6 @@ static int poll(const void *unused) {
 
 /* Book target: its text, or an EPUB's made first on the worker. */
 static int to_reader(const void *unused) {
-    (void)unused;
     bk.timer = 0;
     const char *path = bk.path[bk.current = bk.target];
     bk.key = fnv(FNV_SEED, (const unsigned char *)path);
@@ -642,14 +639,12 @@ static int to_reader(const void *unused) {
 }
 
 static int open_book(void *ctx, void *event) {
-    (void)event;
     bk.target = (int)(long)ctx;
     rearm(&bk.timer, to_reader, 0);
     return 0;
 }
 
 static int leave(const void *unused) {
-    (void)unused;
     bk.timer = 0;
     if (bk.screen != READER) {
         navigator_back();
@@ -668,7 +663,6 @@ static int leave(const void *unused) {
 
 /* Return: reader -> books -> Local Music. */
 static int keyup(void *ctx, void *event) {
-    (void)ctx;
     return return_key(event, &bk.timer, leave);
 }
 
@@ -690,7 +684,6 @@ int books_key(void *top, unsigned key) {
 }
 
 static int closed(void *ctx, void *event) {
-    (void)ctx; (void)event;
     marks_save();
     stop_worker();
     stop_timer(&bk.timer);
@@ -798,7 +791,6 @@ int video_start(const char *file, int radio) {
 }
 
 static int play_video(void *ctx, void *event) {
-    (void)event;
     if (vid.pid) return 0;
     headset_manual();
     radio_stop(); /* it holds the PCM too */

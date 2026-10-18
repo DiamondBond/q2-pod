@@ -230,7 +230,6 @@ int visualizer_live(void) {
  * rising zero crossing so the wave stands still; the VU needles integrate over 300 ms. With nothing
  * playing every one comes to rest. */
 static int tick(const void *unused) {
-    (void)unused;
     if (!showing()) {
         halo_art(0);
         vz.timer = 0;
@@ -414,7 +413,6 @@ static void halo(void *vg, unsigned tone) {
 
 /* A paint missed while not settled: once settled, the page paints again. */
 static int look(const void *unused) {
-    (void)unused;
     if (on_page() && !settled()) return 8; /* RET_REPEAT: an overlay can outlast one retry. */
     vz.retry = 0;
     if (settled()) widget_invalidate_force(vz.slide, 0);
@@ -481,7 +479,6 @@ void visualizer_paint(void *w, void *canvas) {
 }
 
 static int next_style(void *ctx, void *event) {
-    (void)ctx; (void)event;
     vz.style = (vz.style + 1) % STYLES;
     vis_reset();
     vz.named = time_now_ms() | 1; /* never 0, which is none */
@@ -491,13 +488,11 @@ static int next_style(void *ctx, void *event) {
 }
 
 static int slid(void *ctx, void *event) {
-    (void)ctx; (void)event;
     arm();
     return 0;
 }
 
 static int gone(void *win, void *event) {
-    (void)event;
     if (win == vz.win) {
         stop_timer(&vz.timer);
         stop_timer(&vz.retry);

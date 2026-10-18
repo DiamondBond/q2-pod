@@ -84,7 +84,6 @@ static unsigned save(const void *data, unsigned size, unsigned n, void *file) {
  * fetch_progress. ponytail: Stop is inferred from stock's play status, not signalled, so a stream that
  * sits stopped longer than that before it plays drops its copy too. Hook stock's stop if that bites. */
 static int progress(void *stopped_at, long long a, long long b, long long c, long long d) {
-    (void)a, (void)b, (void)c, (void)d;
     unsigned *at = stopped_at, now = now_ms(); /* low 32 bits: the difference below wraps safely */
     if (mclGetPlayStatus() != 1) /* 1 stopped */
         *at = 0;
@@ -95,7 +94,6 @@ static int progress(void *stopped_at, long long a, long long b, long long c, lon
 
 /* Downloads tidal_play's job, then the job a track started meanwhile left, until none waits. */
 static void *download(void *unused) {
-    (void)unused;
     char url[sizeof td.url], path[sizeof td.path], tmp[sizeof td.path + 4];
     for (;;) {
         pthread_mutex_lock(td.lock);

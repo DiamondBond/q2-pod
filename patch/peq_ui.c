@@ -6,7 +6,6 @@ extern int stock_eq_trampoline(int mode);
  * Afterwards the flag only drives the status-bar EQ icon (systembar_showface @0x52f8b0): on
  * while 3EQ or PEQ is. */
 int peq_stock_eq(int mode) {
-    (void)mode;
     g_equalizer_flag = 1;
     int result = stock_eq_trampoline(1);
     eq_state s;
@@ -157,7 +156,6 @@ static double *picked(void) {
 
 /* The value menu's edit closed with new text: apply it if it is a number (clamped like Raise/Lower), else restore it. */
 static int typed(void *ctx, void *event) {
-    (void)ctx; (void)event;
     char s[16];
     if (!ui.edit || widget_get_text_utf8(ui.edit, s, sizeof s)) s[0] = 0;
     if (peq_number(s, &ui.typed)) action((void *)(long)TYPED, 0);
@@ -168,14 +166,12 @@ static int typed(void *ctx, void *event) {
 /* The T9 keyboard opens on its letters; a value only needs its "123" page (symnum). The keyboard can open a
  * moment after the focus, so look for its window every 16 ms, up to 20 times. */
 static int numbers(const void *unused) {
-    (void)unused;
     void *kb = widget_lookup(window_manager(), "kb_default_t9", 0);
     if (kb) pages_set_active_by_name(widget_lookup(kb, "panel", 1), "symnum");
     return kb || ++ui.tries >= 20 ? 7 : 8; /* RET_REMOVE, else RET_REPEAT */
 }
 
 static int focused(void *ctx, void *event) {
-    (void)ctx; (void)event;
     ui.tries = 0;
     timer_add(numbers, 0, 16);
     return 0;
@@ -256,7 +252,6 @@ static void save_candidate(int replace) {
 }
 
 static int action(void *ctx, void *event) {
-    (void)event;
     int id = (int)(long)ctx;
     if (id < 0) return 0; /* display-only rows */
     /* The centre button on the value row; no render, which would destroy the edit and close the keyboard. */
@@ -372,7 +367,6 @@ static void e3_show(void);
 static int e3_touch(void *ctx, void *event);
 
 static int render(const void *unused) {
-    (void)unused;
     ui.timer = 0;
     if (!ui.page) return 7;
     if (ui.tab == SIMPLE) { /* the sliders' view, under the tabs */
@@ -623,7 +617,6 @@ static int keyup(void *ctx, void *event) {
 static int e3_flush(void);
 /* Leaving saves what Simple has unsaved and lets go of its Off comparison's held preamp. */
 static int closed(void *ctx, void *event) {
-    (void)ctx; (void)event;
     stop_timer(&e3.press);
     e3_flush();
     eq_state s;
@@ -669,7 +662,6 @@ static void tab_to(int tab) {
 }
 
 static int tab_touch(void *ctx, void *event) {
-    (void)ctx;
     int xy[2] = { I(event, EVENT_X), I(event, EVENT_Y) };
     widget_to_local(ui.page, xy);
     tab_to(xy[0] < 188 ? SIMPLE : ADVANCED);
@@ -687,7 +679,6 @@ static void *bar(void *page, int x, int w) {
 
 /* Audio settings' EQ row: Simple first, every time. Opening changes nothing. */
 int peq_page_init(void *page, void *context) {
-    (void)context;
     if (!page) return 16;
     ui.page = page;
     ui.view = 0;
@@ -748,7 +739,6 @@ static int e3_flush(void) {
 }
 
 static int e3_tick(const void *unused) {
-    (void)unused;
     e3.save = 0;
     e3_flush();
     e3_show();
@@ -796,7 +786,6 @@ static void e3_activate(void) {
 }
 
 static int e3_single(const void *unused) {
-    (void)unused;
     e3.press = 0;
     if (ui.tab == ADVANCED) tab_to(SIMPLE);
     else e3_activate();
@@ -840,7 +829,6 @@ int eq_key(void *top, unsigned key) {
 /* A touch: the switch or Reset on the press; a slider's gain follows the finger, in 0.5 dB steps,
  * until it lifts. */
 static int e3_touch(void *ctx, void *event) {
-    (void)ctx;
     int type = I(event, EVENT_TYPE), xy[2] = { I(event, EVENT_X), I(event, EVENT_Y) };
     if (!e3.view || (type != EVT_POINTER_DOWN && !e3.dragging)) return 0;
     widget_to_local(e3.view, xy);

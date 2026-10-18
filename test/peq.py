@@ -40,7 +40,7 @@ class DSP(C.Structure):
 
 def compile_host(tmp, name, *sources):
     path = tmp/name
-    subprocess.run(['cc', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root"', '-O2', '-Wall', '-Wextra', '-Werror',
+    subprocess.run(['cc', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root"', '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
                     '-shared', '-fPIC', *map(str, sources), '-lm', '-o', str(path)], check=True)
     return C.CDLL(str(path))
 
@@ -1232,7 +1232,7 @@ def player_check(tmp):
     binary = tmp/'player_test'
     sources = [ROOT/'patch/peq_player.c', ROOT/'patch/peq.c', tmp/'player_test.c']
     subprocess.run(['cc', '-m32', '-DPEQ_HOST', f'-DPEQ_ROOT="{root}"', '-Dcalloc=test_calloc',
-                    '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'),
+                    '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-I', str(ROOT/'patch'),
                     *map(str, sources), '-Wl,--wrap=clock_gettime', '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
     print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup, crossfade and the Xing seek table passed.')
@@ -1469,7 +1469,7 @@ def scrobble_check(tmp):
     (tmp/'scrobble_test.c').write_text(SCROBBLE)
     binary = tmp/'scrobble_test'
     subprocess.run(['cc', '-pthread', '-DPEQ_HOST', f'-DPEQ_ROOT="{root}"', f'-DROOT="{root}"', '-D_GNU_SOURCE',
-                    '-O1', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT/'patch'), '-include', str(tmp/'scrobble_shim.h'),
+                    '-O1', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-I', str(ROOT/'patch'), '-include', str(tmp/'scrobble_shim.h'),
                     str(ROOT/'patch/scrobble.c'), str(tmp/'scrobble_test.c'), '-lcrypto', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
     requests = [line.split('\t', 3) for line in (root/'requests').read_text().splitlines()]
@@ -1915,7 +1915,7 @@ int main(void) {
 }
 ''')
     binary = tmp/'tidal_trim'
-    subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
+    subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=5)
     import re
     # The download worker on a real pthread, curl scripted: perform runs the progress callback while
@@ -1923,7 +1923,7 @@ int main(void) {
     body = re.sub(r'^(#include|#ifndef PEQ_HOST|#endif|__asm__).*$', '', (ROOT/'patch/tidal.c').read_text(), flags=re.M)
     (tmp/'tidal_dl.c').write_text(TIDAL_DL.replace('TIDAL_SOURCE', body))
     binary = tmp/'tidal_dl'
-    subprocess.run(['cc', '-pthread', '-D_GNU_SOURCE', f'-DTIDAL_DIR="{tmp}/tidal"', '-Wall', '-Wextra', '-Werror',
+    subprocess.run(['cc', '-pthread', '-D_GNU_SOURCE', f'-DTIDAL_DIR="{tmp}/tidal"', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
                     str(tmp/'tidal_dl.c'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
     print('Tidal cache: stream file extensions, eviction at the chosen cap, failed deletion, Stop, re-fetch and skip downloads passed.')

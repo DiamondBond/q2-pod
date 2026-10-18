@@ -742,7 +742,7 @@ OBSOLETE = ['usr/lib/libdbus-1.so.3.19.8', *(f'usr/lib/lib{n}-2.0.so.0.5400.3' f
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
-         '-Oz','-Wall','-Wextra','-Werror']
+         '-Oz','-Wall','-Wextra','-Werror','-Wno-unused-parameter']
 
 def hooks(ipod): return HOOKS | IPOD_HOOKS if ipod else HOOKS
 

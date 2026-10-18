@@ -228,7 +228,6 @@ static void build_art(const job_t *j) {
 }
 
 static void *worker(void *unused) {
-    (void)unused;
     while (cf.done < cf.total && !cf.cancel) {
         build_art(&cf.jobs[cf.done]);
         ++cf.done;
@@ -1465,8 +1464,6 @@ static void cover(void *img, unsigned i, int near) {
 }
 
 static int changed(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     unsigned n = widget_count_children(cf.slide), c = (unsigned)I(cf.slide, SLIDE_INDEX);
     for (unsigned i = 0; !fx.frame && i < n; ++i) { /* the flat fallback's own images */
         unsigned d = i > c ? i - c : c - i;
@@ -1530,7 +1527,6 @@ static void covers(void) {
 }
 
 static int to_covers(const void *unused) {
-    (void)unused;
     cf.timer = 0;
     stop();
     covers();
@@ -1538,14 +1534,11 @@ static int to_covers(const void *unused) {
 }
 
 static int cancel_row(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     rearm(&cf.timer, to_covers, 0);
     return 0;
 }
 
 static int poll(const void *unused) {
-    (void)unused;
     cf.timer = 0;
     if (cf.done == cf.total) return to_covers(0); /* stop() joins the thread's last steps */
     char progress[64];
@@ -1649,7 +1642,6 @@ void play_folder(void *dq, int idx, int cls) {
 }
 
 static int play(void *ctx, void *event) {
-    (void)event;
     int i = (int)(long)ctx;
     void *t = deque_at(cf.tracks, (unsigned)i);
     if (!t || access(P(t, REC_PATH), 0)) {
@@ -1712,7 +1704,6 @@ void *coverflow_album_tracks(void *r) {
 }
 
 static int to_tracks(const void *unused) {
-    (void)unused;
     cf.timer = 0;
     int n;
     char name[512];
@@ -1741,7 +1732,6 @@ static int to_tracks(const void *unused) {
  * from the first, as a library queue (0xff10 would resume one album of the name). ponytail: a
  * query per album; one artist query split back into albums if a large artist drags. */
 static int play_all(const void *unused) {
-    (void)unused;
     cf.timer = 0;
     void *all = _create_deque("stSongInfo");
     deque_init(all);
@@ -1759,7 +1749,6 @@ static int play_all(const void *unused) {
 }
 
 static int refresh(const void *unused) {
-    (void)unused;
     cf.timer = 0;
     void *dir = opendir(ART_DIR);
     for (struct dirent *e; dir && (e = readdir(dir));) {
@@ -1776,7 +1765,6 @@ static int refresh(const void *unused) {
 /* The Sort card: the next order, saved, and the covers again in it, still on the Sort card. The
  * stock list is kept, so nothing is queried but the order's own ranking. */
 static int resort(const void *unused) {
-    (void)unused;
     cf.timer = 0;
     cf.sort = sort_next(1);
     if (cf.scoped) BLOB_IO(RATED_SORT_FILE, cf.sort, 1);
@@ -1790,7 +1778,6 @@ static int resort(const void *unused) {
 
 /* Clicks only schedule: a screen change never destroys the widget whose click is running. */
 static int pick(void *ctx, void *event) {
-    (void)event;
     int i = (int)(long)ctx, n = (int)deque_size(cf.albums);
     if (i == n && cf.scoped == ARTIST_ALBUMS)
         rearm(&cf.timer, play_all, 0);
@@ -1808,7 +1795,6 @@ static int pick(void *ctx, void *event) {
 /* Return: tracks -> covers (the slide_menu kept its album), preparing -> cancel and covers,
  * covers or the message -> Home, or back out of a scoped page. */
 static int keyup(void *ctx, void *event) {
-    (void)ctx;
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
     if (cf.screen == TRACKS || cf.screen == PREPARING)
         rearm(&cf.timer, to_covers, 0);
@@ -1828,7 +1814,6 @@ static int keyup(void *ctx, void *event) {
 }
 
 static int closed(void *ctx, void *event) {
-    (void)ctx; (void)event;
     if (cf.saved_album) BLOB_IO(LAST_ALBUM, cf.saved_album, 1);
     drop();
     cf.page = cf.body = cf.covers = cf.slide = 0;
@@ -1846,8 +1831,6 @@ static int closed(void *ctx, void *event) {
 }
 
 static int coverflow_open(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (cf.page || !(cf.page = page_open("coverflow_page", closed, keyup))) return 0;
     load();
     return 0;
@@ -1943,7 +1926,6 @@ static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpi
 /* Repaint every window once the paint that changed the art is over: AWTK drops what a paint
  * invalidates when the frame ends, so the new art would reach only regions repainted later. */
 static int home_repaint(const void *unused) {
-    (void)unused;
     home.repaint = 0;
     widget_invalidate_force(window_manager(), 0);
     return 0; /* RET_REMOVE */
@@ -2076,8 +2058,6 @@ static void home_swap(void *from, void *to, int dx) {
 }
 
 static int home_settings(void *ctx, void *event) {
-    (void)ctx;
-    (void)event;
     if (home.sets && !widget_get_visible(home.sets)) home_swap(home.list, home.sets, I(home.list, W_W));
     return 0;
 }

@@ -178,7 +178,6 @@ static struct {
 } au;
 
 static void *writer(void *unused) {
-    (void)unused;
     short buf[2 * CHUNK];
     long written = 0, delay;
     for (int end = 0; !end;) {
