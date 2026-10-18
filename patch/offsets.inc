@@ -302,6 +302,11 @@ static inline int arc_out(int r, int y) {
 #define CHARGE_STOP 80
 #define CHARGE_RESUME 75
 #define CHARGE_POLL_MS 5000
+/* Standby limit (docs/internals.md#standby-limit): its three choices after Off, in hours of one
+ * Standby, after which the Q2 powers off. */
+#define STANDBY_LIMIT_1 1
+#define STANDBY_LIMIT_2 8
+#define STANDBY_LIMIT_3 24
 /* Resume (docs/internals.md#resume): tracks of RESUME_MIN_S or longer keep their place in the
  * RESUME_SLOTS most recent; a place within RESUME_EDGE_S of either end is forgotten. Saved on a
  * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less

@@ -8393,11 +8393,16 @@ def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False,cls=Queu
     m.entries=entries
     return m,rows,lambda:[m.nodes[l]['text'] for l in labels],icons,click
 m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager')
-assert len(rows)==4 and icons==['usb_chargeswitch','system_powermanager','system_keylock','system_keylock'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
-assert texts()==['Charge Limit: Off','Low Power: Off','Wake: Single Press','Volume Guard: Off']
+assert len(rows)==5 and icons==['usb_chargeswitch','system_powermanager','system_keylock','system_keylock','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
+assert texts()==['Charge Limit: Off','Low Power: Off','Wake: Single Press','Volume Guard: Off','Standby Limit: Off']
 assert click(0)==[(1,'Q2POD','CHARGELIMIT')] and texts()[0]==f"Charge Limit: {O['CHARGE_STOP']}%"
 assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low Power: On'
-assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit: Off','Low Power: On','Wake: Single Press','Volume Guard: Off']; passed()
+assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit: Off','Low Power: On','Wake: Single Press','Volume Guard: Off','Standby Limit: Off']; passed()
+# Standby limit (its alarm with the power poll's tests): each click steps to the next limit, then Off.
+limits=[f"Standby Limit: {O[f'STANDBY_LIMIT_{i}']} h" for i in (1,2,3)]
+for v,want in ((1,limits[0]),(2,limits[1]),(3,limits[2]),(0,'Standby Limit: Off')):
+    assert click(4)==[(v,'Q2POD','STANDBYLIMIT')] and texts()[4]==want
+passed()
 # Volume guard (#46; its wheel engine in test/playback.py): off by default, the dark wheel as stock;
 # the row saves VOLGUARD and sets wheel_guard, which the encoder thread reads.
 guard=lambda: m.get(payload_syms['wheel_guard'])
@@ -8523,9 +8528,11 @@ for double in ('0','1'):
     w.byte(syms['g_backlight_status'],1); w.now+=O['WAKE_MS']; loop_pass()
     assert not press(DOWN,0) and not press(UP,50) and press(DOWN,O['WAKE_MS']) and press(UP,50),double
 passed()
-m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1','WAKEDOUBLE':'1','VOLGUARD':'1'})
-assert texts()==[f"Charge Limit: {O['CHARGE_STOP']}%",'Low Power: On','Wake: Double Press','Volume Guard: On']
+m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1','WAKEDOUBLE':'1','VOLGUARD':'1','STANDBYLIMIT':'2'})
+assert texts()==[f"Charge Limit: {O['CHARGE_STOP']}%",'Low Power: On','Wake: Double Press','Volume Guard: On',limits[1]]
 assert m.get(payload_syms['wheel_guard'])==1; passed()
+m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'STANDBYLIMIT':'4'})
+assert texts()[4]=='Standby Limit: Off'; passed()  # out of range: Off
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
 assert len(rows)==5 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump']
 assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card']
@@ -8846,6 +8853,52 @@ class DirectoryFull(PowerMachine):
         return super().hook(u,address,size,unused)
 m=DirectoryFull({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1)
 assert not any(p==CPU1 for p,_ in m.writes); passed()
+
+# Standby limit (docs/internals.md#standby-limit): with a limit, toolsIntoStandby's suspend runs
+# between the RTC wake alarm's set (the limit past since_epoch) and its clear. A resume at or past the
+# alarm powers off on the next pass (poweroff_page), once, unless a cable is in or the music plays; a
+# key's resume before it, an unreadable RTC or a refused alarm leave it on. Off, no file is touched.
+RTC_NOW,RTC_ALARM='/sys/class/rtc/rtc0/since_epoch','/sys/class/rtc/rtc0/wakealarm'
+class StandbyMachine(PowerMachine):
+    def __init__(self,config={},key=None,readable=True,refuse=False,rtc=1792363806):
+        super().__init__(config,files={RTC_NOW:f'{rtc}\n'.encode()} if readable else {})
+        self.rtc,self.key,self.readable,self.refuse,self.alarm,self.events=rtc,key,readable,refuse,0,[]
+        self.handlers[int(manifest['patch_symbols']['stock_standby_trampoline'],16)]='stock_standby'
+        self.handlers.pop(syms['mclGetPlayStatus'],None); self.word(0xa3beac,3)
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,''); a=u.reg_read(REGS[0])
+        if name=='stock_standby':  # asleep until the key (seconds in) or the alarm, whichever is first
+            ends=[t for t in (self.alarm,self.key and self.rtc+self.key) if t]; assert ends,'nothing wakes it'
+            self.rtc=min(ends)
+            if self.rtc==self.alarm: self.alarm=0  # it fired
+            if self.readable: self.files[RTC_NOW]=f'{self.rtc}\n'.encode()
+            self.events.append('suspend'); self.returns(0); return
+        if name.startswith('r:fclose') and self.open.get(a,[''])[0]==RTC_ALARM:
+            v=int(self.open.pop(a)[3])  # rtc-sysfs: a time not ahead clears it; a set alarm refuses another
+            ok=not self.refuse and (v<=self.rtc or not self.alarm)
+            if ok: self.alarm=v if v>self.rtc else 0
+            self.events.append(('alarm',v)); self.returns(0 if ok else 0xffffffff); return
+        return super().hook(u,address,size,unused)
+    def standby(self):
+        self.events=[]; assert self.call(address=HOOKS['toolsIntoStandby'][0],args=(0,0,0,0),gap=0)==0
+        return self.events
+    def off(self):  # the next UI loop pass powers off
+        self.opened=[]; self.pass_(1); return [p for p,*_ in self.opened]==['poweroff_page']
+start=1792363806
+m=StandbyMachine(key=600); assert m.standby()==['suspend'] and not m.opens and not m.off(); passed()
+for i in (1,2,3):
+    alarm=start+O[f'STANDBY_LIMIT_{i}']*3600; m=StandbyMachine({'STANDBYLIMIT':str(i)})
+    assert m.standby()==[('alarm',0),('alarm',alarm),'suspend',('alarm',0)] and m.rtc==alarm
+    assert m.off() and not m.off(); passed()
+limit=O['STANDBY_LIMIT_2']*3600; m=StandbyMachine({'STANDBYLIMIT':'2'},key=600)
+assert m.standby()==[('alarm',0),('alarm',start+limit),'suspend',('alarm',0)] and not m.alarm and not m.off()
+m.key=None; assert m.standby()[1]==('alarm',start+600+limit) and m.off(); passed()  # the next one counts from zero
+m=StandbyMachine({'STANDBYLIMIT':'1'}); m.alarm=start+60; assert m.standby()[:2]==[('alarm',0),('alarm',start+3600)]; passed()
+m=StandbyMachine({'STANDBYLIMIT':'1'},key=7200,readable=False); assert m.standby()==['suspend'] and not m.off(); passed()
+m=StandbyMachine({'STANDBYLIMIT':'1'},key=7200,refuse=True); assert m.standby()==[('alarm',0),'suspend'] and not m.off(); passed()
+for usb,play in ((1,3),(0,2)):  # a cable in, or playing: it stays on, and no later pass powers off
+    m=StandbyMachine({'STANDBYLIMIT':'1'}); m.standby(); m.byte(syms['g_usbdet_value'],usb); m.word(0xa3beac,play)
+    assert not m.off() and not m.off(); passed()
 
 
 
