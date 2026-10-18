@@ -84,7 +84,7 @@ LIBC = {
     'fork': ('int', 'void'), 'execl': ('int', 'const char *, const char *, ...'), 'exit': ('void', 'int'),
     # Home's Rockbox row (navigation.c rockbox_open)
     'system': ('int', 'const char *'),
-    'waitpid': ('int', 'int, int *, int'), 'socket': ('int', 'int, int, int'), 'close': ('int', 'int'),
+    'waitpid': ('int', 'int, int *, int'), '__errno_location': ('int *', 'void'), 'socket': ('int', 'int, int, int'), 'close': ('int', 'int'),
     'connect': ('int', 'int, const void *, unsigned'),
     'recv': ('int', 'int, void *, unsigned, int'),
     'select': ('int', 'int, void *, void *, void *, void *'),

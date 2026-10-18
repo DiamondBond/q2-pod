@@ -16,6 +16,7 @@ PROTOTYPES = {**FUNCTIONS, **LIBC}  # the stock calls the host shims stand in fo
 
 SHIM_H = r"""
 #include <dirent.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/wait.h>

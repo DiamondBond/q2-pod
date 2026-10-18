@@ -5376,25 +5376,60 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
     for event in ('on_player_autochange','toolsLoadNextDir','player_refresh_playqueue'): assert events.count(event)==3
     assert events.count('mclLoadPlayList')==4 and events.count('mclClearChangeFlag')==len(paths)-1
 
-# Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg (refused here) only
-# for an Ogg track stock found none in, never for an MP3 or FLAC; a failed run removes dst, which
-# stock's cache would take for art.
+# Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg only for an Ogg track
+# stock found none in, never for an MP3 or FLAC, run with parse_cover_mutex dropped. It writes dst.ff,
+# renamed onto dst only when non-empty (an empty one, left on exit 0, is removed and dst kept); waitpid
+# is retried on EINTR; a miss is remembered, so the track's next row forks nothing. The Albums grid's
+# call reads the folder image (toolsGetExternCover) before ffmpeg, which then never runs for it.
 from build import GRID_COVER
-for call,_ in GRID_COVER:
-    assert struct.unpack_from('<I',demo,fileoff(demo,call))[0]==jal(payload_syms['coverflow_grid_cover'])
+for call,_,fn in GRID_COVER:
+    assert struct.unpack_from('<I',demo,fileoff(demo,call))[0]==jal(payload_syms[fn])
 class GridCoverMachine(Machine):
+    MOCKS=('toolsGetAlbumCover','toolsGetExternCover','fork@GLIBC_2.0','waitpid@GLIBC_2.0','__errno_location@GLIBC_2.0',
+           'fopen@GLIBC_2.2','fseek@GLIBC_2.0','ftell@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0',
+           'unlink@GLIBC_2.0','access@GLIBC_2.0','pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0',
+           'calloc@GLIBC_2.0')
+    def __init__(self):
+        super().__init__(); self.mock(*self.MOCKS); self.errno=self.alloc(4); self.word(self.errno,4)  # EINTR
+        self.files={}; self.handles={}; self.found=self.extern=0; self.out=None  # ffmpeg's output; None: no fork
     def hook(self,u,address,size,unused):
-        name=self.handlers.get(address)
-        if name not in ('toolsGetAlbumCover','fork@GLIBC_2.0','unlink@GLIBC_2.0'): return super().hook(u,address,size,unused)
-        self.seen.append(name.split('@')[0])
-        self.returns(self.found if name=='toolsGetAlbumCover' else -1,clobber=True)
-m=GridCoverMachine(); m.mock('toolsGetAlbumCover','fork@GLIBC_2.0','unlink@GLIBC_2.0')
-for track,found,want in (('01.opus',1,['toolsGetAlbumCover']),('01.OPUS',0,['toolsGetAlbumCover','fork','unlink']),
-                         ('01.ogg',0,['toolsGetAlbumCover','fork','unlink']),('01.mp3',0,['toolsGetAlbumCover']),
-                         ('01.flac',0,['toolsGetAlbumCover']),('opus',0,['toolsGetAlbumCover'])):
-    m.found=found; m.seen=[]
-    args=(m.string('/mnt/mmc/A/'+track),m.string('/mnt/mmc/.sldp/x0.jpg'),110,110)
-    assert m.call(address=payload_syms['coverflow_grid_cover'],args=args,gap=0)==found and m.seen==want, (track,m.seen)
+        name=self.handlers.get(address,'')
+        if name not in self.MOCKS: return super().hook(u,address,size,unused)
+        name=name.split('@')[0]; a,b=(u.reg_read(r) for r in REGS[:2]); ret=0; self.seen.append(name)
+        if name=='toolsGetAlbumCover': ret=self.found
+        elif name=='toolsGetExternCover': ret=self.extern
+        elif name=='fork':
+            ret=-1 if self.out is None else 7
+            if self.out is not None: self.files[self.dst+'.ff']=self.out
+        elif name=='waitpid':
+            ret=-1 if self.seen.count('waitpid')==1 else a  # interrupted once, then reaped
+            if ret==a: self.word(b,0)
+        elif name=='__errno_location': ret=self.errno
+        elif name=='fopen': ret=self.alloc(4) if self.text(a) in self.files else 0; self.handles[ret]=self.text(a)
+        elif name=='ftell': ret=len(self.files[self.handles[a]])
+        elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
+        elif name=='unlink': self.files.pop(self.text(a),None)
+        elif name=='access': ret=0 if self.text(a).startswith('/mnt/mmc/A/') else -1
+        elif name=='calloc': ret=self.alloc(a*b)
+        self.returns(ret,clobber=True)
+    def cover(self,track,fn='coverflow_grid_cover',**kw):
+        for k,v in kw.items(): setattr(self,k,v)
+        self.seen=[]; self.dst='/mnt/mmc/.sldp/x0.jpg'
+        args=(self.string('/mnt/mmc/A/'+track),self.string(self.dst),110,110)
+        return self.call(address=payload_syms[fn],args=args,gap=0)
+m=GridCoverMachine()
+for track,found in (('01.opus',1),('01.mp3',0),('01.flac',0),('opus',0)):
+    assert m.cover(track,found=found)==found and m.seen==['toolsGetAlbumCover'],(track,m.seen)
+m.files={m.dst:b'old'}
+assert m.cover('01.OGG')==0 and m.seen==['toolsGetAlbumCover','calloc','pthread_mutex_unlock','fork','unlink',
+                                         'pthread_mutex_lock'],m.seen  # fork refused: not a miss
+assert m.cover('01.OGG')==0 and 'fork' in m.seen,m.seen  # so the next request tries again
+assert m.cover('02.opus',out=b'')==0 and m.files=={m.dst:b'old'} and m.seen.count('waitpid')==2,(m.files,m.seen)
+assert m.cover('02.opus',out=b'')==0 and m.seen==['toolsGetAlbumCover'],m.seen  # the miss is remembered
+assert m.cover('03.opus',out=b'jpeg')==1 and m.files=={m.dst:b'jpeg'} and 'toolsGetExternCover' not in m.seen
+assert m.seen.index('pthread_mutex_unlock')<m.seen.index('fork')<m.seen.index('pthread_mutex_lock')
+assert m.cover('04.opus','coverflow_album_cover',extern=1)==1 and m.seen==['toolsGetAlbumCover','toolsGetExternCover']
+assert m.cover('05.opus','coverflow_album_cover',extern=0)==1 and 'fork' in m.seen
 passed()
 
 # Coverflow depth (docs/internals.md#coverflow-depth): the payload's renderer, run as MIPS, draws
