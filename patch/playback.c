@@ -1097,8 +1097,11 @@ void playback_poll(void) {
     wheel_pct(); /* the saved sensitivity from the first UI pass */
     xfade_poll(playback_next());
     unsigned now = time_now_ms();
-    /* playback_save writes only what changed. */
-    if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= 5000)) playback_save(), s.stamp = now;
+    /* playback_save writes only what changed: a new track within 5 s, but while the same one plays
+     * the elapsed second every 30 s, not every 5 (a synced flash write each); a pause within 5 s,
+     * and power-off saves it exactly (ringnav_savequeue). */
+    unsigned every = mclGetPlayStatus() == 2 && (unsigned)M(MCL_POS) == s.saved_pos ? 30000 : 5000;
+    if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= every)) playback_save(), s.stamp = now;
 }
 
 int ringnav_savequeue(void) {

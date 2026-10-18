@@ -63,7 +63,8 @@ def validate(directory, variant):
             check(line.split() == [hashlib.md5(data).hexdigest(), name] and sha(data) == m[key], 'Update payload mismatch')
     for test, *args in (('peq',), ('build', '--build', directory), ('patch', directory),
                         ('playback', directory), ('m4b', directory), ('ldac', directory),
-                        ('id3', directory), ('headset_io', directory), ('bluealsa', directory)):
+                        ('id3', directory), ('headset_io', directory), ('bluealsa', directory),
+                        ('coverflow',), ('mp3',), ('remote',)):
         subprocess.run([sys.executable, ROOT/f'test/{test}.py', *map(str, args)], check=True)
 
 

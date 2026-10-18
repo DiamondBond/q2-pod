@@ -189,7 +189,7 @@ static void *writer(void *unused) {
         }
         unsigned frames = got / 4;
         if (!frames) break;
-        while (au.paused) usleep(20000);
+        while (au.paused) usleep(100000);
         if (au.gain < 65536) scale(buf, 2 * frames, au.gain);
         int recovered = 0;
         for (unsigned sent = 0; sent < frames;) {
@@ -501,7 +501,8 @@ int main(int argc, char **argv) {
             if (seek && wait <= 0) break;
             /* POLLIN; poll skips the probe's -1 once it is read */
             struct pollfd p[3] = { { sock, 1, 0 }, { pp[0], 1, 0 }, { vp[0], 1, 0 } };
-            poll(p, have < size ? 3 : 2, wait < 100 ? wait : 100);
+            int cap = au.paused && !until && !seek ? 1000 : 100; /* paused and still: wait on a key */
+            poll(p, have < size ? 3 : 2, wait < cap ? wait : cap);
             char c[2] = { 0 };
             if (p[0].revents && recv(sock, c, 2, 0) > 0) {
                 if (c[0] == 'p' || c[0] == 'a' || c[0] == 'r') { au.paused = video_pause(au.paused, c[0]);

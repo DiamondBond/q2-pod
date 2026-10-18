@@ -111,6 +111,7 @@ void *page_row_detail(void *view, int index, const char *caption, const char *de
                       int (*click)(void *, void *));
 void page_row_into(void *view, int index, const char *caption, int (*click)(void *, void *));
 void *bottom_caption(void *parent, int h);
+int text_differs(void *w, const char *s);
 int visual(void *s, int n, int *c, int *frac);
 int thumb(const char *src, const char *dst, int w, int h);
 int card_space(const char *dir);

@@ -551,7 +551,7 @@ static void info(void) {
                     bk.state == BAD ? "Can't open this book" : "Preparing\xe2\x80\xa6");
     else
         tk_snprintf(caption, sizeof caption, "%u%%  %s", pct, title(bk.path[bk.current], name));
-    if (tk_strcmp(widget_get_prop_str(bk.info, "text", ""), caption)) {
+    if (text_differs(bk.info, caption)) {
         widget_set_text_utf8(bk.info, caption);
         widget_set_prop_int(bk.info, "xoffset", 0); /* a long caption's scroll would shift this one left */
     }
@@ -734,9 +734,11 @@ void books_paint(void *w, void *canvas) {
 #define VIDEO_BIN "/usr/bin/q2video"
 #define VIDEO_SOCK "/tmp/q2video.sock" /* video.c Q2VIDEO_SOCK */
 #define VIDEO_PLACE "/tmp/q2video.place" /* video.c Q2VIDEO_PLACE: the second to start at, then left */
+#define VIDEO_PAUSE_QUIT_MS 300000 /* a pause this long quits, as Return, so the device can sleep */
 static struct {
     int paused, volume, gain, pid, sock, seek; /* seek: the wheel seeks, since seek_at (time_now_ms) */
     unsigned polled, control_at, seek_at, key, at; /* key: the video's in BOOK_MARKS, at its second there */
+    unsigned paused_at; /* time_now_ms when the pause began, 0 playing */
 } vid __attribute__((section(".scratch")));
 
 int video_on(void) { return vid.pid; }
@@ -803,6 +805,7 @@ static int play_video(void *ctx, void *event) {
     BLOB_IO(VIDEO_PLACE, vid.at, 1);
     vid.pid = video_start(path, 0);
     vid.seek = vid.paused = 0;
+    vid.paused_at = 0;
     vid.volume = g_volume; /* the helper starts at output_device's level: nothing to send, no bar */
     vid.gain = headset_gain();
     unlink("/tmp/q2video.state");
@@ -820,7 +823,10 @@ static void video_sync(void) {
 }
 
 /* ringnav_sleep, every UI loop pass: the helper's end, and meanwhile no screen, standby or DAC
- * power-off timeout (on_wm_idle_status, check_dacoff_state). */
+ * power-off timeout (on_wm_idle_status, check_dacoff_state). A pause of VIDEO_PAUSE_QUIT_MS quits
+ * as Return does (the place kept), so a pause from a dropped headset can't hold them forever.
+ * ponytail: input goes to the helper, so the pause can't just let the screen time out under it;
+ * a hold that lets a paused video go dark needs the wake path to reach stock while q2video runs. */
 void video_poll(void) {
     int status;
     if (!vid.pid) return;
@@ -832,6 +838,10 @@ void video_poll(void) {
                 BLOB_IO("/tmp/q2video.state", paused, 0) && (paused == 0 || paused == 1))
                 vid.paused = paused;
             if (vid.volume != g_volume || vid.gain != headset_gain()) video_sync();
+            if (!vid.paused) vid.paused_at = 0;
+            else if (!vid.paused_at) vid.paused_at = vid.polled ?: 1;
+            else if (vid.polled - vid.paused_at >= VIDEO_PAUSE_QUIT_MS)
+                dgram_send(&vid.sock, VIDEO_SOCK, "q", 1); /* again each poll until it ends */
         }
         reset_poweroptions_timer(1, 1, 1);
         if (I(g_dacoff_time, 0) > 0) I(g_dacoff_time, 0) = 0;

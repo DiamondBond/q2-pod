@@ -239,6 +239,7 @@ typedef struct {
      * and the list it opened, with its tracks. */
     unsigned *rates, *album_rates;
     void *rate_win, *rate_fav, *rate_ctx, *rate_badge, *rate_on;
+    int rate_shown; /* the badge's hearts plus 1, 0 for a new badge */
     int empty_kind; /* the empty Library list empty_toast names */
     int rate_pick, rate_held;
     unsigned rate_hold, rate_tick, rate_album;
@@ -4824,6 +4825,10 @@ static void rate_badge(void) {
     void *r = rate_track();
     int n = r ? rate_kept(0, listen_key(r)) : 0;
     if (n && !tk_strcmp(widget_get_prop_str(st.rate_fav, "image", ""), "play_fav")) n = 0;
+    /* each set repaints the badge, and this runs every 500 ms: only a change (AWTK's "text" is
+     * a wide string widget_get_prop_str doesn't read) */
+    if (st.rate_shown == n + 1) return;
+    st.rate_shown = n + 1;
     char s[4] = { (char)('0' + n) };
     widget_set_text_utf8(st.rate_badge, s);
     widget_set_visible(st.rate_badge, n != 0, 0);
@@ -5005,6 +5010,7 @@ static void rate_bind(void *win) {
     st.rate_badge = label(P(fav, W_PARENT), I(fav, W_X) + I(fav, W_W) - 18, I(fav, W_Y) + 6, 16, 16,
                           "s_scrlabel_white20c", 12, 0xffffffffu);
     widget_set_sensitive(st.rate_badge, 0); /* the heart's corner stays the heart's */
+    st.rate_shown = 0;
     widget_on(win, EVT_DESTROY, rate_gone, win);
     st.rate_tick = timer_add(rate_tick, (void *)0, 500);
     rate_badge();
@@ -6427,7 +6433,7 @@ static int bt_audio_ready(void) {
 
 static struct {
     unsigned checked;
-    int ready, last;
+    int ready, last, failed; /* failed: the headset refused the last absolute volume */
 } btvol __attribute__((section(".scratch")));
 
 void headset_volume_reset(void) { btvol.ready = 0; }
@@ -6441,10 +6447,11 @@ static int bt_sync_volume(int left, int right) {
      * hold */
     if ((int)(cur * 100 + 63) / 127 != v) {
         unsigned want = (v * 127 + 50) / 100;
-        if (btctl_transport_set_volume(want)) return 0;
+        if (btctl_transport_set_volume(want)) return btvol.failed = 1, 0;
         cur = want;
     }
     btvol.last = cur;
+    btvol.failed = 0;
     return 1;
 }
 
@@ -6459,12 +6466,14 @@ int ringnav_btvol(int left, int right) {
     return stock_btvol_trampoline(left, right);
 }
 
+/* Every 400 ms lit; every BT_VOLUME_SLOW_MS dark, or while the headset refuses absolute volume,
+ * so a long dark session doesn't wake libbtctl 2.5 times a second for a volume nobody sees. */
 static void bt_volume_poll(void) {
     unsigned now = time_now_ms();
-    if (now - btvol.checked < 400) return;
+    if (now - btvol.checked < (g_backlight_status && !btvol.failed ? 400u : BT_VOLUME_SLOW_MS)) return;
     btvol.checked = now;
     if (!bt_audio_ready()) {
-        btvol.ready = 0;
+        btvol.ready = btvol.failed = 0;
         return;
     }
     if (!btvol.ready) {
