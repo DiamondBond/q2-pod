@@ -1662,15 +1662,19 @@ def audio_writer_check(tmp):
 extern void abort(void);
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 static int reads, calls, recoveries, sleeps, mode;
+static unsigned tail_out;
 static const short *base;
 int mock_read(int fd, void *b, unsigned n) {
-    (void)fd; CHECK(n==2048);
+    (void)fd;
+    if (mode==3) return reads++ ? (reads==2 ? 1024 : 0) : 2048; /* 768 frames, then EOF */
+    CHECK(n==2048);
     if (reads++) return 0;
     for (unsigned i=0; i<n/2; ++i) ((short *)b)[i]=(short)i;
     return (int)n;
 }
 long mock_write(void *pcm, const void *b, unsigned long n) {
     (void)pcm;
+    if (mode==3) return tail_out += n, (long)n;
     if (!calls) base=b;
     ++calls;
     if (mode==1) return -32;
@@ -1698,6 +1702,9 @@ int main(void) {
         CHECK(au.done && recoveries==1 && calls==(mode==1 ? 2 : 1));
         CHECK(au.error[0]);
     }
+    reads=0; au.done=0; mode=3;
+    writer(0);
+    CHECK(au.done && tail_out==768 && au.played==768);
     return 0;
 }
 ''')

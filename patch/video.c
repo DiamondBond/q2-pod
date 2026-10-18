@@ -181,17 +181,20 @@ static void *writer(void *unused) {
     (void)unused;
     short buf[2 * CHUNK];
     long written = 0, delay;
-    for (;;) {
-        for (unsigned got = 0; got < sizeof buf;) {
+    for (int end = 0; !end;) {
+        unsigned got = 0;
+        while (got < sizeof buf) {
             int r = read(au.fd, (char *)buf + got, sizeof buf - got);
-            if (r <= 0) return au.played = written, au.done = 1, (void *)0;
+            if (r <= 0) { end = 1; break; } /* the short last block still plays */
             got += (unsigned)r;
         }
+        unsigned frames = got / 4;
+        if (!frames) break;
         while (au.paused) usleep(20000);
-        if (au.gain < 65536) scale(buf, 2 * CHUNK, au.gain);
+        if (au.gain < 65536) scale(buf, 2 * frames, au.gain);
         int recovered = 0;
-        for (unsigned sent = 0; sent < CHUNK;) {
-            long r = snd_pcm_writei(au.pcm, buf + 2 * sent, CHUNK - sent);
+        for (unsigned sent = 0; sent < frames;) {
+            long r = snd_pcm_writei(au.pcm, buf + 2 * sent, frames - sent);
             if (r < 0) {
                 int err = recovered ? (int)r : snd_pcm_recover(au.pcm, (int)r, 1);
                 if (!err) { recovered = 1; continue; }
@@ -208,6 +211,7 @@ static void *writer(void *unused) {
         au.played = !snd_pcm_delay(au.pcm, &delay) && delay > 0 && delay < written ? written - delay
                                                                                  : written;
     }
+    return au.played = written, au.done = 1, (void *)0;
 }
 
 /* fd onto at for ffmpeg: dup2 of an fd onto itself keeps O_CLOEXEC, so exec would close it (demo
