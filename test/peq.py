@@ -1709,7 +1709,7 @@ int mock_recover(void *pcm, int err, int silent) {
     (void)pcm; (void)silent; ++recoveries;
     return err==-19 ? err : 0;
 }
-int mock_delay(void *pcm, long *delay) { (void)pcm; *delay=0; return 0; }
+int mock_delay(void *pcm, long *delay) { (void)pcm; *delay=mode==3 ? 100 : 0; return 0; }
 const char *snd_strerror(int err) { (void)err; return "mock error"; }
 int mock_sleep(unsigned n) { CHECK(n==1000); ++sleeps; return 0; }
 int main(void) {
@@ -1724,7 +1724,7 @@ int main(void) {
     }
     reads=0; au.done=0; mode=3;
     writer(0);
-    CHECK(au.done && tail_out==768 && au.played==768);
+    CHECK(au.done && tail_out==768 && au.played==668); /* still behind the buffer at the end */
     return 0;
 }
 ''')
@@ -1732,7 +1732,7 @@ int main(void) {
     subprocess.run(['cc','-m32','-fno-builtin','-ffunction-sections','-fdata-sections',
                     '-I',str(ROOT/'patch'),str(source),'-Wl,--gc-sections','-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
-    print('Audio writer: partial frames retained, underrun retry, zero progress and output failures passed.')
+    print('Audio writer: partial frames retained, underrun retry, zero progress, output failures and end delay passed.')
 
 def radio_check(tmp):
     """Internet Radio (radio.c): .m3u and .pls favourites, radio-browser's m3u and CSV, URL escaping."""

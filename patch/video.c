@@ -147,7 +147,7 @@ void _exit(int) __attribute__((noreturn));
 int pthread_create(unsigned long *, const void *, void *(*)(void *), void *), pthread_join(unsigned long, void **);
 int snd_pcm_open(void **, const char *, int, int), snd_pcm_close(void *), snd_pcm_drop(void *);
 int snd_pcm_set_params(void *, int, int, unsigned, unsigned, int, unsigned), snd_pcm_prepare(void *);
-int snd_pcm_recover(void *, int, int), snd_pcm_delay(void *, long *);
+int snd_pcm_recover(void *, int, int), snd_pcm_delay(void *, long *), snd_pcm_drain(void *);
 const char *snd_strerror(int);
 long snd_pcm_writei(void *, const void *, unsigned long);
 
@@ -211,7 +211,7 @@ static void *writer(void *unused) {
         au.played = !snd_pcm_delay(au.pcm, &delay) && delay > 0 && delay < written ? written - delay
                                                                                  : written;
     }
-    return au.played = written, au.done = 1, (void *)0;
+    return au.done = 1, (void *)0; /* played stays behind the buffer, as the picture's clock wants */
 }
 
 /* fd onto at for ffmpeg: dup2 of an fd onto itself keeps O_CLOEXEC, so exec would close it (demo
@@ -393,6 +393,9 @@ static int sink(char **argv) {
             struct pollfd p = { sock, 1, 0 };
             if (poll(&p, 1, 500) > 0) radio_key(sock, soft, &quit);
         }
+    /* an end, not a quit or a lost device: the buffer's last 200 ms still play (never paused in
+     * ALSA, so the drain ends) */
+    if (au.done && !quit && !au.error[0]) snd_pcm_drain(au.pcm);
     unlink(SINK_SOCK);
     return !au.pcm;
 }
@@ -532,6 +535,7 @@ int main(int argc, char **argv) {
         au.paused = 0;             /* so the writer reads to the end and stops */
         if (thread) pthread_join(thread, 0);
         close(vp[0]);
+        if (thread && !quit && !seek && !held) snd_pcm_drain(au.pcm); /* an end: the buffer plays out */
         if (audio) close(ap[0]), snd_pcm_drop(au.pcm), snd_pcm_prepare(au.pcm);
         place = quit ? resume_at(at + seek + n / FPS, len) : 0; /* a pending seek too */
         if (seek) {
