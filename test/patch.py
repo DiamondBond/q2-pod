@@ -68,7 +68,7 @@ class Machine:
         self.next=0x1001000; self.nodes={}; self.calls=[]; self.animating=0; self.pressed=0
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
-        self.rounded_fail=False
+        self.rounded_fail=False; self.count=self.budget  # call()'s instruction limit, which nested() shares
         self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
@@ -472,7 +472,7 @@ class Machine:
         for r,v in ((UC_MIPS_REG_SP,self.u.reg_read(UC_MIPS_REG_SP)-0x400),(UC_MIPS_REG_RA,0x1000000),(UC_MIPS_REG_T9,f),*zip(REGS,args)):
             self.u.reg_write(r,v)
         # unicorn's count is one per engine: a nested run's limit stands for the rest of the caller's call too
-        self.u.emu_start(f,0x1000000,count=getattr(self,'count',self.budget)); ret=signed(self.u.reg_read(UC_MIPS_REG_V0))
+        self.u.emu_start(f,0x1000000,count=self.count); ret=signed(self.u.reg_read(UC_MIPS_REG_V0))
         for r,v in zip(regs,saved): self.u.reg_write(r,v)
         return ret
     def qsort(self,base,n,size,compare):

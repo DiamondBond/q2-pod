@@ -775,15 +775,16 @@ typedef struct {
     unsigned j;
 } row_t;
 static int name_cmp(void *a, void *b) { return strcasecmp(album_name(a), album_name(b)); }
+static int tie(int d, const row_t *p, const row_t *q) {
+    return d ? d : (p->j > q->j) - (p->j < q->j);
+}
 static int by_name(const void *x, const void *y) {
     const row_t *p = x, *q = y;
-    int d = name_cmp(p->a, q->a);
-    return d ? d : (p->j > q->j) - (p->j < q->j);
+    return tie(name_cmp(p->a, q->a), p, q);
 }
 static int by_album(const void *x, const void *y) {
     const row_t *p = x, *q = y;
-    int d = album_cmp(p->a, q->a);
-    return d ? d : (p->j > q->j) - (p->j < q->j);
+    return tie(album_cmp(p->a, q->a), p, q);
 }
 /* The first of v's n rows not before r by cmp. */
 static unsigned lower(row_t *v, unsigned n, void *r, int (*cmp)(void *, void *)) {
@@ -795,13 +796,13 @@ static unsigned lower(row_t *v, unsigned n, void *r, int (*cmp)(void *, void *))
     }
     return lo;
 }
-/* list's rows but the Unknown one sorted by album (album_cmp), *m of them; 0 out of memory. */
-static row_t *album_rows(void *list, unsigned *m) {
+/* list's rows sorted by by, *m of them, Unknown (REC_ID -1) only if all; 0 out of memory. */
+static row_t *album_rows(void *list, unsigned *m, int (*by)(const void *, const void *), int all) {
     row_t *v = calloc(deque_size(list) + 1, sizeof *v);
     *m = 0;
     for (unsigned i = 0; v && i < deque_size(list); ++i)
-        if (I(deque_at(list, i), REC_ID) != -1) v[*m].a = deque_at(list, i), v[(*m)++].j = i;
-    if (v) qsort(v, *m, sizeof *v, by_album);
+        if (all || I(deque_at(list, i), REC_ID) != -1) v[*m].a = deque_at(list, i), v[(*m)++].j = i;
+    if (v) qsort(v, *m, sizeof *v, by);
     return v;
 }
 /* The list row of r's album among album_rows' v, or -1: the Unknown row never matches. */
@@ -831,7 +832,7 @@ static void *music_albums(void *list) {
     int n;
     void *rows = staged(rank_query, MUSIC_ALBUM_SQL, &n), *out;
     unsigned m;
-    row_t *v = album_rows(rows, &m);
+    row_t *v = album_rows(rows, &m, by_album, 0);
     if (!v) return deque_destroy(rows), list;
     out = _create_deque("stSongInfo");
     deque_init(out);
@@ -854,11 +855,9 @@ static void *music_albums(void *list) {
 static void *split(void *stock) {
     int n;
     void *rows = staged(rank_query, ALBUM_SQL, &n), *out;
-    unsigned m = deque_size(rows);
-    row_t *v = calloc(m + 1, sizeof *v);
+    unsigned m;
+    row_t *v = album_rows(rows, &m, by_name, 1);
     if (!v) return deque_destroy(rows), stock;
-    for (unsigned j = 0; j < m; ++j) v[j].a = deque_at(rows, j), v[j].j = j;
-    qsort(v, m, sizeof *v, by_name);
     out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < deque_size(stock); ++i) {
@@ -932,8 +931,9 @@ static void *sorted(void) {
     if (!cf.scoped) cf.year_old = ringnav_year_old(); /* the rated page's sort is its own */
     unsigned *sum = v && played ? calloc(n + 1, sizeof *sum) : 0;
     char *keys = v && artist ? calloc(n + 1, ARTIST_KEY) : 0;
-    stock_rows = v ? album_rows(cf.stock, &stock_n) : 0;
-    if (!v || !stock_rows || (played && !sum) || (artist && !keys)) {
+    int ranked = cf.sort != SORT_RATING && cf.sort != SORT_RANDOM; /* uses album_index */
+    stock_rows = v && ranked ? album_rows(cf.stock, &stock_n, by_album, 0) : 0;
+    if (!v || (ranked && !stock_rows) || (played && !sum) || (artist && !keys)) {
         free(v), free(sum), free(keys), free(stock_rows), stock_rows = 0;
         cf.sort = SORT_ALBUM;
         return cf.stock;
@@ -971,7 +971,7 @@ extern int ringnav_artist_az(void);
 void coverflow_by_year(void *albums) {
     unsigned n = deque_size(albums), m;
     char *taken = calloc(n + 1, 1);
-    row_t *v = taken ? album_rows(albums, &m) : 0;
+    row_t *v = taken ? album_rows(albums, &m, by_album, 0) : 0;
     int found;
     if (!v) {
         free(taken);
