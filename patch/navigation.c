@@ -141,6 +141,22 @@ typedef struct {
     unsigned scope, hash, hash2;
 } position_t;
 
+/* The settings rows pod_rows builds (pod_values and the Q2POD keys below). */
+enum {
+    POD_CHARGE,
+    POD_LOW,
+    POD_WAKE,
+    POD_ARTIST_CF,
+    POD_YEAR_OLD,
+    POD_ARTISTS,
+    POD_RESUME,
+    POD_LOCKCLOCK,
+    POD_ARTIST_AZ,
+    POD_VOL_GUARD,
+    POD_HOLD_HOME,
+    POD_COUNT
+};
+
 /* Writable state lives in the zero-filled page the builder maps past the payload text.
  * center_timer defers confirmation; wheel_* scale repeated fast detents; pos_* remember
  * the selected row per audited context across page recreation; reveal_* pin the recall glide so
@@ -222,12 +238,12 @@ typedef struct {
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
      * the check, 1 usable, 2 refused by an earlier boot's stall, 3 refused by the kernel;
      * last_input times the screen-on idle. year_old: Year order, oldest first. resume:
-     * Bluetooth's Resume on connect on. */
+     * Bluetooth's Resume on connect on. hold_home: Hold Return goes Home. */
     int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat,
         wake_down, /* 1: the held Centre press passes; 2: it is dropped */
         charge_held, cpu_off, cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock,
-        artist_az;
-    void *pod_label[10];
+        artist_az, hold_home;
+    void *pod_label[POD_COUNT];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
     void *art_cf_veil;              /* the artist page unseen until they show, and its anim_hint */
     char art_cf_hint[64];
@@ -2008,29 +2024,20 @@ int ringnav_quick_settings(void *win, void *ctx) {
  * docs/internals.md#album-artists), and Bluetooth's Resume on connect (RESUME, so a missing key
  * holds playback; docs/internals.md#resume-on-connect), and the Lock screen's Clock (LOCKCLOCK,
  * lockscreen.c; docs/internals.md#lock-screen), and Playback's Artist album order (ARTISTAZ), and
- * Power's Volume guard (VOLGUARD, playback.c's wheel_guard; docs/internals.md#volume-guard). */
+ * Power's Volume guard (VOLGUARD, playback.c's wheel_guard; docs/internals.md#volume-guard), and
+ * Display's Hold Return (HOLDRETURN, compact_now_playing; docs/ipod.md#hold-return). */
 #define STR_(x) #x
 #define STR(x) STR_(x)
-enum {
-    POD_CHARGE,
-    POD_LOW,
-    POD_WAKE,
-    POD_ARTIST_CF,
-    POD_YEAR_OLD,
-    POD_ARTISTS,
-    POD_RESUME,
-    POD_LOCKCLOCK,
-    POD_ARTIST_AZ,
-    POD_VOL_GUARD
-};
 static int *const pod_values[] = { &st.charge_limit, &st.low_power,  &st.wake_double,
                                    &st.artist_cf,    &st.year_old,   0,
                                    &st.resume,       &st.lock_clock, &st.artist_az,
-                                   &wheel_guard };
+                                   &wheel_guard,     &st.hold_home };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
+_Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
 static const char *const pod_keys[] = { "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",
                                         "YEAROLD",     0,          "RESUME",     "LOCKCLOCK",
-                                        "ARTISTAZ",    "VOLGUARD" };
+                                        "ARTISTAZ",    "VOLGUARD", "HOLDRETURN" };
+_Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
 static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
@@ -2204,7 +2211,9 @@ static void pod_text(int i) {
         { "Clock: Standard", "Clock: Large" },
         { "Artist Album Order: Year", "Artist Album Order: A–Z" },
         { "Volume Guard: Off", "Volume Guard: On" },
+        { "Hold Return: Recent", "Hold Return: Home" },
     };
+    _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
     int v = i != POD_ARTISTS ? *pod_values[i] : I(artist_type, 0) == 1;
     widget_set_text_utf8(st.pod_label[i], names[i][v]);
 }
@@ -3361,12 +3370,13 @@ int ringnav_np_info(void *win) {
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
  * Theme, Accent, Home and Battery rows follow with the same widgets and styles, borrowing the
  * Display (Theme and Accent), cover mode and power manager icons, the value in the label and no
- * chevron, since they change in place. Wheel sensitivity ends the list in both builds and opens its
- * slider page (crossfade.c). */
+ * chevron, since they change in place. Hold Return (folder jump icon) and Wheel sensitivity end the
+ * list in both builds, the latter opening its slider page (crossfade.c). */
 int ringnav_display(void *win, void *ctx) {
     int result = stock_display_trampoline(win, ctx);
     /* Artist albums: Grid or Coverflow, a layout as Home's, so it sits after Home. */
     static const char *const cf_icon[] = { "playset_covermode" };
+    static const char *const hold_icon[] = { "playset_folderjump" };
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
 #if IPOD
     static const char *const icons[] = { "system_display", "playset_covermode",
@@ -3385,6 +3395,7 @@ int ringnav_display(void *win, void *ctx) {
 #else
     pod_rows(win, "scroll_view_display", POD_ARTIST_CF, 1, cf_icon);
 #endif
+    pod_rows(win, "scroll_view_display", POD_HOLD_HOME, 1, hold_icon);
     if (view) wheel_row(list_row(view, "system_display", xfade_open, (void *)1));
     return result;
 }
@@ -3685,7 +3696,11 @@ void ringnav_boot(const char *page, const int *ctx) {
 
 /* Called by stock long Return (both builds) and short Return on iPod Home, after their gates.
  * Elsewhere it opens Now Playing over the page, remembered as np_origin; on Now Playing it goes
- * back to that page while it lies right under it, else Home. */
+ * back to that page while it lies right under it, else Home. With Hold Return: Home it goes Home
+ * from any page but Home itself, where it still opens Now Playing.
+ * ponytail: going Home leaves the latch to the stock release filter, as stock's own Home call
+ * here did, relying on the hold's key-up reaching it once the windows close; clearing it would
+ * let that release act on Home. */
 int compact_now_playing(void) {
     pull_cancel();
     drop_input();
@@ -3693,7 +3708,12 @@ int compact_now_playing(void) {
     void *top = window_manager_get_top_window(wm);
     fx_cancel();
     if (usable() && top && !window_manager_is_animating(wm)) {
-        if (!tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page")) {
+        const char *name = widget_get_prop_str(top, "name", "");
+        pod_settings();
+        if (st.hold_home && tk_strcmp(name, "home_page")) {
+            st.np_origin = (void *)0;
+            navigator_back_to_home();
+        } else if (!tk_strcmp(name, "playing_page")) {
             /* ponytail: np_origin is only compared, never followed; a reused address goes Back
              * instead of Home */
             unsigned n = st.np_origin ? widget_count_children(wm) : 0;
@@ -6727,8 +6747,11 @@ int ringnav(void *ctx, void *event) {
     if (usable() && rate_key(window_manager_get_top_window(window_manager()), key)) return STOP;
 #if IPOD
     /* Return or Centre closes quick settings, as its swipe up does (dialog_quit); stock leaves
-     * Return to its Home button and Centre to turning the screen off. */
-    if ((key == KEY_RETURN || key == KEY_CENTER) && usable()) {
+     * Return to its Home button and Centre to turning the screen off. A held Return's release
+     * goes to the stock filter, which consumes its latch (a hold may go Home from here). */
+    if ((key == KEY_CENTER ||
+         (key == KEY_RETURN && !*(volatile unsigned char *)RETURN_RELEASE_LATCH)) &&
+        usable()) {
         void *top = window_manager_get_top_window(window_manager());
         if (top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "statusbar_dialog")) {
             dialog_quit(top, 0);

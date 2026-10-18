@@ -1231,6 +1231,28 @@ for under,want in ((True,'navigator_back'),(False,'navigator_back_to_home')):
     m.call(170, gap=0); m.calls = []
     assert long_return(m) == 0 and [c[0] for c in m.calls if c[0] in ('navigator_back', 'navigator_back_to_home')] == ['navigator_back_to_home']
 passed()
+# Hold Return: Home (Q2POD HOLDRETURN 1) goes Home from any page but Home, Now Playing included;
+# Home still opens Now Playing. Going Home leaves the stock latch armed, as the stock Home call did:
+# the hold's release is swallowed and the next short Return passes.
+for page in ('folder_page', 'playing_page', 'sysset_page', 'home_page'):
+    m = long_machine(); m.mock('navigator_back'); m.config['HOLDRETURN'] = '1'; m.page(page)
+    want = 'navigator_switch_to_with_context' if page == 'home_page' else 'navigator_back_to_home'
+    assert long_return(m) == 0 and [c[0] for c in m.calls if c[0] in ('navigator_back', 'navigator_back_to_home', 'navigator_switch_to_with_context')] == [want], page
+    if page != 'home_page': assert m.call(170, gap=0) == 11 and m.call(170, gap=0) == 0, page
+passed()
+if variant == 'ipod':  # over quick settings, the release goes to that latch, not to closing it
+    m = long_machine(); m.mock('dialog_quit'); m.config['HOLDRETURN'] = '1'
+    m.top = m.node('dialog', 'statusbar_dialog')
+    assert long_return(m) == 0 and [c[0] for c in destinations(m)] == ['navigator_back_to_home']
+    assert m.call(170, gap=0) == 11 and not [c for c in m.calls if c[0] == 'dialog_quit']
+    assert m.call(170, gap=0) == 11 and [c[1:3] for c in m.calls if c[0] == 'dialog_quit'] == [(m.top, 0)]
+    passed()
+# Now Playing opened over Home, which lies right under it: Recent would go Back, Home goes Home.
+m = long_machine(); m.mock('navigator_back'); m.config['HOLDRETURN'] = '1'; m.page('home_page'); home = m.top
+long_return(m); np = m.node('window', 'playing_page')
+m.nodes[m.wm] = {'children': [home, np]}; m.top = np; m.call(170, gap=0); m.calls = []
+assert long_return(m) == 0 and [c[0] for c in m.calls if c[0] in ('navigator_back', 'navigator_back_to_home')] == ['navigator_back_to_home']
+passed()
 # Other long-key paths remain byte-for-byte stock; exercise the inert keys and power gate.
 # Home is not a local list, so a Play/Pause hold there stays stock too (queue menu below).
 for key in (171, 172, 173, 222, 223, 218):
@@ -5812,9 +5834,9 @@ if variant=='ipod':
         kids=m.nodes[view]['children'][3:]
         return [next(r for r in kids if lab(r).startswith(k)) for k in ('Accent','Home','Battery','Theme')]
     m,view,rows=display({})
-    kids=m.nodes[view]['children'][3:]; cf,shortcut,wheel=kids[3],kids[5],kids[6]
-    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,wheel] and m.nodes[rows[0]]['visible']==0  # Theme, hidden Accent, Home, Artist albums, Battery, Shortcut, Wheel sensitivity
-    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','system_powermanager','playset_covermode','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    kids=m.nodes[view]['children'][3:]; cf,shortcut,hold,wheel=kids[3],kids[5],kids[6],kids[7]
+    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0  # Theme, hidden Accent, Home, Artist albums, Battery, Shortcut, Hold Return, Wheel sensitivity
+    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','system_powermanager','playset_covermode','playset_folderjump','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -5876,7 +5898,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[1]),m.text(w[2])) for w in writes]==[(1,'IPOD','THEME')]
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,wheel] and m.nodes[rows[0]]['visible']==1
+    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # The Accent row changed the list's count, which would drop the selection: Theme (after the three
     # stock rows) keeps it, painted.
@@ -5893,7 +5915,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal'
     m.paint(view); assert m.selected(view)==3
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,wheel] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Split'
+    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     click(3); home_bounds(False,True); click(3); home_bounds(False); passed()
@@ -6041,7 +6063,7 @@ if variant=='ipod':
     # shows it; then the next layout places it right after Theme as a whole settings row (mapped at
     # 0x0 it was an empty gap on the device), and hiding it again leaves no gap. However often Theme
     # flips, the wheel and Centre reach the row after Theme, and a tap selects it.
-    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-7:-5]  # then Artist albums, Home, Battery, Shortcut, Wheel sensitivity
+    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-8:-6]  # then Home, Artist albums, Battery, Shortcut, Hold Return, Wheel sensitivity
     button=lambda i: m.nodes[i]['children'][0]
     cached=m.node('list_view'); library=m.node('list_view')
     m.word(cached+O['LIST_DEFAULT_ITEM_HEIGHT'],SET['ROW']); m.word(cached+O['ROW_HEIGHT'],0); m.word(cached+O['W_Y'],SET['TOP'])
@@ -6053,7 +6075,7 @@ if variant=='ipod':
         assert m.get(cached+O['W_Y'])==(0 if classic else SET['TOP'])  # cached page, before any layout
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         assert m.get(library+O['W_Y'])==0
-        assert lay(m,view)==0 and m.nodes[view]['children'][-7:-5]==[theme,accent] and m.nodes[accent]['visible']==classic
+        assert lay(m,view)==0 and m.nodes[view]['children'][-8:-6]==[theme,accent] and m.nodes[accent]['visible']==classic
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         shown=[i for i in items if m.nodes[i]['visible']]; after=shown[shown.index(theme)+1]
         assert (after==accent)==bool(classic)
@@ -8421,6 +8443,15 @@ for config,pct in (({},50),({'WHEELSENSITIVITY':'130'},130),({'WHEELSENSITIVITY'
     label=m.nodes[m.nodes[rows[-1]]['children'][0]]['children'][-1]
     assert texts()[-1]==f'Wheel Sensitivity: {pct}%' and icons[-1]=='system_display' and m.nodes[label]['name']=='label_wheel'
     assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-1]==rows[-1],config  # the list's end
+passed()
+# Hold Return (Q2POD HOLDRETURN; compact_now_playing): Display's row before Wheel sensitivity in both
+# builds, Recent unless set; Centre or tap toggles and saves it.
+for config,text in (({},'Recent'),({'HOLDRETURN':'1'},'Home')):
+    m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3)
+    assert texts()[-2]=='Hold Return: '+text and icons[-2]=='playset_folderjump'
+    assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-2]==rows[-2],config
+assert click(-2)==[(0,'Q2POD','HOLDRETURN')] and texts()[-2]=='Hold Return: Recent'
+assert click(-2)==[(1,'Q2POD','HOLDRETURN')] and texts()[-2]=='Hold Return: Home'
 passed()
 # Its row opens stock's Boot volume page re-dressed (crossfade.c): titled, no switch, the percent
 # beside the slider, which runs 50-200 in tens. The wheel and +/- step 10%, live and saved, the

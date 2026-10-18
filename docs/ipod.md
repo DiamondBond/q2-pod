@@ -324,6 +324,12 @@ Playing and the first short Return reaches the stock Back path, with position
 memory restoring the browsing page and its selection. No short-Return callback or
 other long-key destination changes.
 
+**System settings → Display → Hold Return** (`Q2POD HOLDRETURN`, both builds) picks the
+destination: Recent (0, the default) is the behaviour above; Home (1) calls the stock Home
+destination from any page but Home, Now Playing included, and clears `np_origin`. On Home the hold
+still opens Now Playing, as does iPod's short Return on Home's first row (on any other row it first
+selects that row). The release latch on the way Home: [internals.md](internals.md#hold-return).
+
 ## Transitions
 
 Pages slide with stock's own window animator; the payload adds no animation code. The build sets
@@ -523,12 +529,13 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_btn_listitem` with a click handler, and in it a 52-pixel icon at x 10, a
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
-pixels high). iPod runs the stock init, then adds six rows the same way: "Theme: Minimal" and
+pixels high). iPod runs the stock init, then adds seven rows the same way: "Theme: Minimal" and
 "Accent: Graphite" with the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
 mode icon (`playset_covermode`), "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon; Coverflow ends with an All albums card, see [internals.md](internals.md#artist-albums-in-coverflow)),
 "Battery: Icon" (Icon, Percent, Icon + Percent, Percent Inside; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
-(`system_powermanager`), then "Shortcut: Rockbox", all among the [settings icons](#settings-icons)
+(`system_powermanager`), then "Shortcut: Rockbox" and "Hold Return: Recent" (`Q2POD HOLDRETURN`,
+[Hold Return](#hold-return); Play settings' folder jump icon, `playset_folderjump`), all among the [settings icons](#settings-icons)
 the build pre-sizes. The value is in the label (260 pixels wide, to where the chevron ends) and there is no
 chevron, since Centre or a tap changes them in place.
 Both variants also append **Boot to: Rockbox / Q2 Pod** to System settings when Rockbox is present; see [Boot](boot.md#rockbox).
