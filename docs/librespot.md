@@ -8,10 +8,10 @@ The port lives in [DiamondBond/q2-librespot](https://github.com/DiamondBond/q2-l
 
 - **Release:** [q2-librespot's releases](https://github.com/DiamondBond/q2-librespot/releases/latest) ship the prebuilt card files as `q2-librespot-*.zip`, unzipped to the card's root.
 - **On the card:** the binary, its launcher and its sink go in the card's `.spotify` folder, with the saved login in `.spotify/cache/`. Q2 Pod starts it; see the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf) to install it.
-- **Build:** librespot is built **static and soft-float (musl)**, so the firmware's `-mfp64`, NaN-2008 and glibc 2.28 don't matter. The kernel still requires the `nan2008` ELF flag, so the build sets it.
+- **Build:** since `q2-v1.7`, librespot is built **hard-float** for the X2000's FPU, with the stock binaries' ABI (`-mfp64`, NaN-2008). It is linked dynamically against the Q2's own glibc 2.28 through `/lib/ld-linux-mipsn8.so.1`, the way Q2 Pod's helpers are. The libraries it links against come from the V1.32 firmware ZIP's rootfs. Earlier releases were static soft-float (musl).
 - **Audio:** goes through the stock `aplay` to `plughw:0,0`, the CS43131 headphone DAC, started only while librespot plays (its subprocess backend), so local music can open the DAC whenever Spotify is paused. With Bluetooth or a USB DAC as the output, Q2 Pod names the device and volume in `/tmp/q2-librespot.out` and `aplay.sh` runs Q2 Pod's `q2video -s` there instead, at hciplayer's soft volume ([internals](internals.md#spotify)).
 
-**It plays.** On the device, librespot appears in Spotify Connect, the phone's session authenticates, and audio comes out of the headphones at 160 kbit/s. Soft-float decoding keeps up, with no stutter heard.
+**It plays.** On the device, librespot appears in Spotify Connect, the phone's session authenticates, and audio comes out of the headphones at 160 kbit/s. Hard-float decoding takes about 3% of a core, against about 31% for the earlier soft-float build.
 
 ## Q2 Pod
 
@@ -32,7 +32,7 @@ In a playlist, **Download Playlist** saves its tracks in the background without 
 
 The fork's `--browse-socket /tmp/q2-librespot.browse.sock` serves Q2 Pod's Spotify browser. Older backends lack it; Q2 Pod then keeps the Connect Now Playing page and asks for the add-on to be updated.
 
-The browser integration uses q2-librespot `shanlingq2` (`q2-v1.6`, Q2SPOT/1). Card updates replace `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`; preserve `.spotify/cache` to keep the paired login and complete downloads, and `.spotify/.cache-size` to keep the chosen cache size. Signing out deletes that account's saved audio, keys and artwork.
+The browser integration uses q2-librespot `shanlingq2` (`q2-v1.6` or later, Q2SPOT/1). Card updates replace `.spotify/librespot`, `.spotify/run` and `.spotify/aplay.sh`; preserve `.spotify/cache` to keep the paired login and complete downloads, and `.spotify/.cache-size` to keep the chosen cache size. Signing out deletes that account's saved audio, keys and artwork.
 
 **Transport.** A Unix stream socket. One request per connection: the client writes the request and shuts down its write side; the backend answers and closes. Requests are at most 8 KiB, responses at most 64 KiB. The client gives up after 15 s.
 
