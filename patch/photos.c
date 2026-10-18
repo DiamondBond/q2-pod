@@ -430,8 +430,6 @@ static slot_t *slot(slot_t *s, int count, int box, int i, const char *suffix) {
     return pick;
 }
 
-/* The bottom caption of a page h high: above the rounded glass's bottom corners, dark under white
- * so it reads over any photo. Shared with books.c. */
 /* w's text isn't s. AWTK keeps a widget's text as UTF-32, which widget_get_prop_str(w, "text")
  * never returns, so a compare through it always differs and every set repaints. */
 int text_differs(void *w, const char *s) {
@@ -439,6 +437,8 @@ int text_differs(void *w, const char *s) {
     return widget_get_text_utf8(w, cur, sizeof cur) || strcmp(cur, s);
 }
 
+/* The bottom caption of a page h high: above the rounded glass's bottom corners, dark under white
+ * so it reads over any photo. Shared with books.c. */
 void *bottom_caption(void *parent, int h) {
     void *label = text(parent, CF_EDGE, h - 56, 375 - 2 * CF_EDGE, 36);
     widget_set_prop_int(label, "style:normal:bg_color", (int)0xb3000000u);
