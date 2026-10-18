@@ -342,12 +342,14 @@ int peq_update(peq_dsp *d, const peq_preset *p) {
     return 1;
 }
 
+/* Identity coefficients: with zero memory the band passes x through unchanged. */
+static inline __attribute__((always_inline)) int identity(const peq_coeff *c) { return c->b0 == 1 && !c->b1 && !c->b2 && !c->a1 && !c->a2; }
+
 /* The bands sample can act on, in order: identity bands with zero memory stay so until an update. */
 static int live(const peq_engine *e, int *list) {
     int n = 0;
     for (int i = 0; i < e->used; ++i) {
-        const peq_coeff *c = &e->c[i];
-        int on = e->only[i] || c->b0 != 1 || c->b1 || c->b2 || c->a1 || c->a2;
+        int on = e->only[i] || !identity(&e->c[i]);
         for (int ch = 0; ch < PEQ_CHANNELS && !on; ++ch) on = e->z[ch][i][0] || e->z[ch][i][1];
         if (on) list[n++] = i;
     }
@@ -362,8 +364,8 @@ static double sample(peq_engine *e, const int *list, int n, double x, int ch) {
         double *z = e->z[ch][i];
         /* The other channel's band: drop memory carried from a both-channel version. */
         if (e->only[i] && e->only[i] != ch + 1) { z[0] = z[1] = 0; continue; }
-        /* A band left out with settled memory passes x through: most presets leave several. */
-        if (c->b0 == 1 && !c->b1 && !c->b2 && !c->a1 && !c->a2 && !z[0] && !z[1]) continue;
+        /* Still checked per sample: a band can drain to idle mid-block. */
+        if (identity(c) && !z[0] && !z[1]) continue;
         /* Flush |y| < ~2e-34 to zero: decaying tails would otherwise reach denormals, which MIPS FPUs trap on. */
         double y = c->b0 * x + z[0] + 1e-18 - 1e-18;
         z[0] = c->b1 * x - c->a1 * y + z[1];
