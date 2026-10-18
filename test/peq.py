@@ -923,16 +923,16 @@ static void same(af_instance *af, peq_dsp *ref, int rate, int nch) {
             assert(t->ring[(t->seq - n + i) % VIS_RING][ch] == a[i * step * nch + (ch && nch > 1)]);
 }
 
-/* Crossfade (peq_player.c crossfade): demo's file, one filter instance per track. */
-static volatile xfade_flag *xfade_view(int ms) {
-    static volatile xfade_flag *f;
+/* Crossfade (peq_player.c crossfade): demo's flag, one filter instance per track. */
+static volatile int *xfade_view(int ms) {
+    static volatile int *f;
     if (!f) {
         int fd = open(XFADE_FILE, O_RDWR | O_CREAT, 0644);
         assert(fd >= 0 && !ftruncate(fd, sizeof *f));
         f = mmap(0, sizeof *f, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         assert(f != MAP_FAILED && !close(fd));
     }
-    f->ms = ms;
+    *f = ms;
     return f;
 }
 static af_instance *track(af_instance *af, int rate) {
@@ -1037,60 +1037,6 @@ static void crossfade_check(void) {
     track(&a, 48000);
     for (n = 0; n < 10 * 48000;) assert(block(&a, buf, 1024, &n, 1, 48000) == 1024);
     a.uninit(&a);
-
-    /* A manual skip (demo's skip) holds from where the track is, here just begun, whatever its
-     * length: half of each block, in order, until the fade is whole (held 1, then 2), then every
-     * block whole, the tail kept; the next instance mixes it and clears skip and held. */
-    volatile xfade_flag *f = xfade_view(0);
-    f->skip = 1000, f->held = 0, peq_length = 60;
-    track(&a, 48000);
-    for (n = out = 0; f->held != 2;) {
-        unsigned k = block(&a, buf, 1024, &n, 1, 48000);
-        assert(k < 1024 && f->held == 1 + (n - out - k == 48000) && n < 3 * 48000);
-        for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)out++);
-    }
-    for (int i = 0; i < 50; ++i, out += 1024) /* waiting for demo: no seek, no restart */
-        assert(block(&a, buf, 1024, &n, 1, 48000) == 1024 && buf[0] == (float)out && f->held == 2);
-    a.uninit(&a);
-    track(&b, 48000);
-    for (m = 0, mixed = 0; m < 2 * 48000;) {
-        unsigned start = m, k = block(&b, buf, 1024, &m, 0, 48000);
-        assert(k == 1024 && !f->skip && !f->held);
-        for (unsigned i = 0; i < k; ++i, ++mixed)
-            if (mixed < 48000) assert(fabsf(buf[2 * i] - ((start + i) * sinf((mixed + 0.5f) / 48000 * 1.5707963f) +
-                                                          (out + mixed) * cosf((mixed + 0.5f) / 48000 * 1.5707963f))) < 0.5f);
-            else assert(buf[2 * i] == (float)(start + i) && buf[2 * i + 1] == 0);
-    }
-    b.uninit(&b);
-    /* A skip dropped (or made with no new file) before another track comes: what is held plays on
-     * in order, held back, every block whole, and fades into the next track. */
-    f->skip = 1000;
-    track(&a, 48000);
-    for (n = out = 0; n < 48000;) {
-        unsigned k = block(&a, buf, 1024, &n, 1, 48000);
-        for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)out++);
-    }
-    f->skip = f->held = 0;
-    held = n - out;
-    for (int i = 0; i < 100; ++i, out += 1024)
-        assert(block(&a, buf, 1024, &n, 1, 48000) == 1024 && buf[0] == (float)out && buf[2046] == (float)(out + 1023));
-    a.uninit(&a);
-    track(&b, 48000);
-    m = 0;
-    assert(block(&b, buf, 1024, &m, 0, 48000) == 1024 && fabsf(buf[1] - cosf(0.5f / held * 1.5707963f)) < 1e-5f);
-    assert(fabsf(buf[0] - out * cosf(0.5f / held * 1.5707963f)) < 0.5f);
-    while (m < 2 * 48000) block(&b, buf, 1024, &m, 0, 48000);
-    b.uninit(&b);
-    /* A tail the next track drops (another rate) ends the skip too: no hold starts for it. */
-    f->skip = 1000;
-    track(&a, 48000);
-    for (n = 0; f->held != 2;) block(&a, buf, 1024, &n, 1, 48000);
-    a.uninit(&a);
-    track(&b, 44100);
-    m = 0;
-    assert(block(&b, buf, 1024, &m, 0, 44100) == 1024 && buf[0] == 0 && !f->skip && !f->held);
-    b.uninit(&b);
-    peq_length = 10;
     xfade_view(0);
     peq_pts = -1;
 }

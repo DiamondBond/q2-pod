@@ -661,7 +661,8 @@ int ringnav_prev(void) {
  * queue index 0 or n-1 stock wraps or loads a sibling folder itself; in Repeat All without Folder
  * Skip every branch calls mclNextSong(0)/mclPrevSong, so advanced order applies. MCL_MODE is
  * written directly: mclSetPlayMode would end advanced play. */
-int playback_change(int next) {
+int ringnav_change(int next) {
+    headset_manual();
     if (!s.active) {
         if (!next || !list_end()) return stock_change_trampoline(next);
         ringnav_next(0); /* stops */
@@ -676,18 +677,6 @@ int playback_change(int next) {
     M(MCL_MODE) = mode;
     *skip = was;
     return result;
-}
-/* Whether a manual Next (1) or Prev (0) plays another local track: Crossfade holds a tail only then
- * (a stream could stutter at twice real time). */
-int playback_moves(int next) {
-    int type = M(MCL_TYPE);
-    if (type != 1 && (type & 0xf000) != 0xf000) return 0;
-    return next ? !list_end() && !(s.active && playback_successor(0) < 0) : !(s.active && s.hn < 2);
-}
-/* Crossfade first holds the playing track's tail (crossfade.c), then makes the change. */
-int ringnav_change(int next) {
-    headset_manual();
-    return xfade_skip(next) ? 0 : playback_change(next);
 }
 int playback_group_skip(int forward) {
     if (!s.active && !playback_set(2, s.folder)) return 0;

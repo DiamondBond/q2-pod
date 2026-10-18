@@ -754,41 +754,6 @@ for nxt,pos,wrap,folder in ((1,6,0,'toolsLoadNextDir'),(0,0,6,'toolsLoadPrevDir'
             elif stop: assert m.stops==1 and folder not in m.seen and not any(type(e) is tuple for e in m.seen), m.seen
             else: assert folder not in m.seen and ('mclSetPlayPos',wrap) in m.seen, m.seen
             checks+=1
-# Crossfade on (crossfade.c xfade_skip): a playing local track's manual Next waits while the filter
-# holds its tail (XFADE_FILE's skip, then held 1 and 2); xfade_poll makes it once the tail is whole,
-# after 2 s with no hold or the fade and 2 s with one; a pause drops it. A press while one waits makes
-# both; within a fade of a change, paused, at List Play's end, an advanced Prev with no history, or
-# a stream: at once (and Crossfade off: the loop above).
-class FadeMachine(ChangeMachine):
-    def __init__(self):
-        super().__init__(); self.flag=self.alloc(12); self.play=2; self.attached=0
-        self.config.update(XFADE='1',XFADESEC='5'); self.word(O['MCL_TYPE'],0xf001); self.word(O['MCL_POS'],2)
-        for n in ('open@GLIBC_2.0','ftruncate@GLIBC_2.0','rename@GLIBC_2.0','mmap@GLIBC_2.0','close@GLIBC_2.0','mclGetPlayStatus'):
-            self.handlers[syms[n]]='f:'+n.split('@')[0]
-        self.handlers[ps['peq_attach']]='f:peq_attach'
-    def hook(self,u,address,size,unused):
-        name=self.handlers.get(address,'')
-        if not name.startswith('f:'): return super().hook(u,address,size,unused)
-        name=name[2:]; self.attached+=name=='peq_attach'
-        self.returns({'open':3,'mmap':self.flag,'mclGetPlayStatus':self.play}.get(name,0),clobber=True)
-    def press(self,nxt=1): return signed(self.call(address=syms['player_change_music'],args=(nxt,0,0,0),gap=0))
-    def poll(self,ms): self.now+=ms; self.fn('xfade_poll',-1)
-    def changed(self): return len(self.starts)+self.stops
-    def file(self): return [signed(self.get(self.flag+4*i)) for i in range(3)]  # ms, skip, held
-m=FadeMachine(); m.now=100000; assert m.press()==0 and not m.changed() and m.file()[1:]==[5000,0] and m.attached==1
-m.poll(1900); m.word(m.flag+8,1); m.poll(5000); assert not m.changed()  # holding: the fade and 2 s
-m.word(m.flag+8,2); m.poll(10); assert m.starts==[3] and m.file()[1]==5000  # whole: the filter clears skip
-m.poll(2900); assert m.file()[1]==5000; m.poll(200); assert m.file()[1:]==[0,0]  # unless no track takes it
-m.press(); assert m.starts==[3,4] and m.file()[1]==0  # 3.1 s after the change: within the fade
-m=FadeMachine(); m.now=100000; m.press(); m.poll(1900); assert not m.changed(); m.poll(200); assert m.changed()==1 and m.file()[1]==0  # no hold
-m=FadeMachine(); m.now=100000; m.press(); assert m.press()==1 and m.starts==[3,4]; m.poll(9000); assert m.changed()==2  # a second press
-m=FadeMachine(); m.now=100000; m.word(O['MCL_POS'],0); m.press(0); assert not m.changed(); m.press(); assert m.starts==[0,1]  # Prev, then Next: both, in order
-m=FadeMachine(); m.now=100000; m.press(); m.play=3; m.poll(10); assert m.file()[1]==0; m.poll(9000); assert not m.changed()  # paused meanwhile
-m=FadeMachine(); m.now=100000; m.play=3; assert m.press()==1 and m.changed()==1 and m.file()==[0,0,0]  # paused
-m=FadeMachine(); m.now=100000; m.word(O['MCL_POS'],6); assert m.press()==0 and m.stops==1 and m.file()[1]==0  # List Play's end
-m=FadeMachine(); m.now=100000; m.word(O['MCL_TYPE'],0x200); m.press(); assert m.file()[1]==0  # a stream (Tidal)
-m=FadeMachine(); m.now=100000; m.options(0,2,0); assert m.press(0)==1 and not m.changed() and m.file()[1]==0  # no history
-checks+=1
 
 print(f'{checks} advanced playback/wheel MIPS checks passed ({variant})')
 
