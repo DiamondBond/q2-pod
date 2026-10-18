@@ -810,6 +810,15 @@ static int play_video(void *ctx, void *event) {
     return 0;
 }
 
+/* the helper's soft volume and gain (its bar), and what it was last sent */
+static void video_sync(void) {
+    char v[4] = { 'v', (char)g_volume, 'g', (char)headset_gain() };
+    dgram_send(&vid.sock, VIDEO_SOCK, v, 2);
+    dgram_send(&vid.sock, VIDEO_SOCK, v + 2, 2);
+    vid.volume = g_volume;
+    vid.gain = headset_gain();
+}
+
 /* ringnav_sleep, every UI loop pass: the helper's end, and meanwhile no screen, standby or DAC
  * power-off timeout (on_wm_idle_status, check_dacoff_state). */
 void video_poll(void) {
@@ -822,14 +831,7 @@ void video_poll(void) {
             if (time_now_ms() - vid.control_at >= 1000 &&
                 BLOB_IO("/tmp/q2video.state", paused, 0) && (paused == 0 || paused == 1))
                 vid.paused = paused;
-            if (vid.volume != g_volume || vid.gain != headset_gain()) {
-                char v[2] = { 'v', (char)g_volume };
-                dgram_send(&vid.sock, VIDEO_SOCK, v, 2);
-                char g[2] = { 'g', (char)headset_gain() };
-                dgram_send(&vid.sock, VIDEO_SOCK, g, 2);
-                vid.volume = g_volume;
-                vid.gain = headset_gain();
-            }
+            if (vid.volume != g_volume || vid.gain != headset_gain()) video_sync();
         }
         reset_poweroptions_timer(1, 1, 1);
         if (I(g_dacoff_time, 0) > 0) I(g_dacoff_time, 0) = 0;
@@ -860,24 +862,18 @@ void video_key(unsigned key) {
         device_set_volume(v, 1);
         write_int_config(v, "PLAYSET", "VOLUME");
     }
-    char c[2] = { key == KEY_RETURN                                      ? 'q'
-                  : key == KEY_PLAY                                      ? 'p'
-                  : key == KEY_FWD_BTN || (key == KEY_NEXT && vid.seek)  ? 'f'
-                  : key == KEY_BACK_BTN || (key == KEY_PREV && vid.seek) ? 'b'
-                  : key == KEY_CENTER && vid.seek                        ? 's'
-                  : wheel || key == KEY_CENTER                           ? 'v'
-                                                                         : 0,
-                  (char)g_volume };
-    if (c[0]) dgram_send(&vid.sock, VIDEO_SOCK, c, c[0] == 'v' ? 2 : 1);
-    if (c[0] == 'p') {
+    char c = key == KEY_RETURN                                      ? 'q'
+             : key == KEY_PLAY                                      ? 'p'
+             : key == KEY_FWD_BTN || (key == KEY_NEXT && vid.seek)  ? 'f'
+             : key == KEY_BACK_BTN || (key == KEY_PREV && vid.seek) ? 'b'
+             : key == KEY_CENTER && vid.seek                        ? 's'
+             : wheel || key == KEY_CENTER                           ? 'v'
+                                                                    : 0;
+    if (c == 'v') video_sync();
+    else if (c) dgram_send(&vid.sock, VIDEO_SOCK, &c, 1);
+    if (c == 'p') {
         vid.paused = !vid.paused;
         vid.control_at = time_now_ms();
-    }
-    if (c[0] == 'v') {
-        char g[2] = { 'g', (char)headset_gain() };
-        dgram_send(&vid.sock, VIDEO_SOCK, g, 2);
-        vid.volume = g_volume;
-        vid.gain = headset_gain();
     }
 }
 
