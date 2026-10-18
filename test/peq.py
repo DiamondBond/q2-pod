@@ -1787,6 +1787,86 @@ def spotify_check(tmp):
     assert lib.spot_escape(b'abc', out, 3) == -1 and lib.spot_escape(b'%', out, 3) == -1 and lib.spot_escape(b'%', out, 4) == 3
     print('Spotify: Q2SPOT/1 replies, escapes and malformed input passed.')
 
+TIDAL_DL = r'''#include <assert.h>
+#include <dirent.h>
+#include <pthread.h>
+#include <stdarg.h>
+#include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#define tk_snprintf snprintf
+#define pthread_mutex_lock(m) pthread_mutex_lock((pthread_mutex_t *)(m))
+#define pthread_mutex_unlock(m) pthread_mutex_unlock((pthread_mutex_t *)(m))
+#define I(p, o) (*(int *)((char *)(p) + (o)))
+#define P(p, o) (*(void **)((char *)(p) + (o)))
+#define REC_TIDAL_ID 0
+#define REC_TITLE 0
+#define REC_ARTIST 0
+static int quality = 27; static void *queue;
+#define tidalStreamingLevelNow (&quality)
+#define mcl_pdeqplaylist (&queue)
+static _Atomic int status = 1, gate, performing, performs, ended;
+static _Atomic unsigned long long clk = 1000;
+static char last[64];
+static int mclGetPlayStatus(void) { return status; }
+static unsigned long long now_ms(void) { return clk; }
+static int deque_size(void *q) { (void)q; return 0; }
+static void *deque_at(void *q, unsigned i) { (void)q, (void)i; return 0; }
+static void headset_manual(void) {}
+static int card_space(const char *d) { (void)d; return 1; }
+static int stream_cache(int s) { (void)s; return 2; }
+int stock_tidal_trampoline(const char *u) { (void)u; return 0; }
+static int __xstat(int v, const char *p, unsigned *st) {
+    struct stat s; (void)v; if (stat(p, &s)) return -1; st[12] = s.st_size, st[16] = s.st_mtime; return 0;
+}
+typedef unsigned (*sink_t)(const void *, unsigned, unsigned, void *);
+typedef int (*prog_t)(void *, long long, long long, long long, long long);
+static struct { sink_t sink; void *data; prog_t prog; void *pdata; const char *url; } h;
+static void *curl_easy_init(void) { return &h; }
+static int curl_easy_setopt(void *c, int o, ...) {
+    va_list ap; (void)c; va_start(ap, o);
+    if (o == 10002) h.url = va_arg(ap, const char *);
+    if (o == 20011) h.sink = va_arg(ap, sink_t);
+    if (o == 10001) h.data = va_arg(ap, void *);
+    if (o == 20219) h.prog = va_arg(ap, prog_t);
+    if (o == 10057) h.pdata = va_arg(ap, void *);
+    va_end(ap); return 0;
+}
+static int curl_easy_perform(void *c) {
+    (void)c; snprintf(last, sizeof last, "%s", h.url); ++performs; performing = 1;
+    while (gate) if (h.prog(h.pdata, 0, 0, 0, 0)) { performing = 0; return 42; } else usleep(1000);
+    h.sink("data", 1, 4, h.data); performing = 0; return 0;
+}
+static int curl_easy_getinfo(void *c, int i, long *code) { (void)c, (void)i; *code = 200; return 0; }
+static void curl_easy_cleanup(void *c) { (void)c; }
+static int renamed(const char *a, const char *b) { int r = rename(a, b); ++ended; return r; }
+static int unlinked(const char *p) { int r = unlink(p); ++ended; return r; }
+#define rename renamed
+#define unlink unlinked
+TIDAL_SOURCE
+static void wait_for(_Atomic int *v, int want) { for (int i = 0; i < 3000 && *v != want; i++) usleep(1000); assert(*v == want); }
+static int has(const char *id) { char p[300]; snprintf(p, sizeof p, TIDAL_DIR "/%s-27.flac", id); return !access(p, 0); }
+static void play(const char *id) { char u[64]; snprintf(u, sizeof u, "https://x/%s.flac", id); tidal_play(u, id); }
+static void finish(int n) { usleep(20000); gate = 0; wait_for(&ended, n); usleep(20000); }
+int main(void) {
+    gate = 1; play("A"); wait_for(&performing, 1); /* stopped 2 s between tracks, then playing: kept */
+    clk += 2000; usleep(20000); status = 2; finish(1); assert(has("A"));
+    gate = 1; play("B"); wait_for(&performing, 1); /* stopped 3 s: Stop, dropped */
+    status = 1; usleep(20000); clk += 3001; wait_for(&ended, 2); assert(!has("B"));
+    status = 2; gate = 1; play("C"); wait_for(&performing, 1); /* the same id again: one transfer */
+    play("C"); finish(3); assert(has("C") && performs == 3);
+    gate = 1; play("D"); wait_for(&performing, 1); /* a skip: D dropped, the same worker takes E */
+    play("E"); wait_for(&ended, 4); wait_for(&performing, 1); assert(!strcmp(last, "https://x/E.flac"));
+    finish(5); assert(!has("D") && has("E"));
+    gate = 1; play("F"); wait_for(&performing, 1); /* G's job overtaken by a cached play: dropped */
+    play("G"); play("A"); finish(6); usleep(50000); assert(!has("F") && !has("G") && performs == 6);
+    return 0;
+}
+'''
+
 def tidal_check(tmp):
     """Tidal cache (tidal.c): the cached file's extension comes from the stream URL's path."""
     lib = compile_host(tmp, 'tidal.so', ROOT/'patch/tidal.c')
@@ -1837,7 +1917,16 @@ int main(void) {
     binary = tmp/'tidal_trim'
     subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=5)
-    print('Tidal cache: stream file extensions, eviction at the chosen cap and failed deletion passed.')
+    import re
+    # The download worker on a real pthread, curl scripted: perform runs the progress callback while
+    # gate is open, then hands over a body (unless cancelled) and the worker renames or unlinks.
+    body = re.sub(r'^(#include|#ifndef PEQ_HOST|#endif|__asm__).*$', '', (ROOT/'patch/tidal.c').read_text(), flags=re.M)
+    (tmp/'tidal_dl.c').write_text(TIDAL_DL.replace('TIDAL_SOURCE', body))
+    binary = tmp/'tidal_dl'
+    subprocess.run(['cc', '-pthread', '-D_GNU_SOURCE', f'-DTIDAL_DIR="{tmp}/tidal"', '-Wall', '-Wextra', '-Werror',
+                    str(tmp/'tidal_dl.c'), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=30)
+    print('Tidal cache: stream file extensions, eviction at the chosen cap, failed deletion, Stop, re-fetch and skip downloads passed.')
 
 if __name__ == '__main__':
     import argparse

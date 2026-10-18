@@ -36,11 +36,14 @@ char *tidal_name(char *out, unsigned n, const char *key, const char *artist, con
 
 extern int stock_tidal_trampoline(const char *url);
 
+#define TIDAL_STOP_MS 3000 /* stopped this long, the player was stopped, not between tracks */
+
 static struct {
-    volatile int busy;
-    volatile unsigned gen, want; /* tidal_play's count; the download's, from when it started */
+    unsigned lock[16]; /* a zeroed pthread mutex, 24 bytes on MIPS glibc */
+    int busy, job;     /* a download thread runs; tidal_play's job waits in id, url and path */
+    volatile unsigned gen, want, job_gen; /* tidal_play's count; the download's and the job's, from it */
     unsigned long thread;
-    char url[2048], tmp[300], path[296];
+    char id[48], url[2048], path[296];
 } td __attribute__((section(".scratch")));
 
 /* mcl_tidalStartPlayer's only caller, the stream-URL thread (0x486d88), keeps its own copy of the
@@ -76,51 +79,64 @@ static unsigned save(const void *data, unsigned size, unsigned n, void *file) {
     return fwrite(data, size, n, file) * size;
 }
 
-/* Stops the transfer once another track starts (tidal_play counts each) or the player, having
- * started, stops: a skip or Stop drops the copy within a second, as radio.c's fetch_progress.
- * ponytail: Stop is inferred from stock's play status, not signalled; a brief stopped state between
- * queued tracks also drops the copy (cached on a later play). Hook stock's stop if that bites. */
-static int progress(void *started, long long a, long long b, long long c, long long d) {
+/* Stops the transfer once another track starts (tidal_play counts each) or the player has stayed
+ * stopped for TIDAL_STOP_MS: a skip drops the copy within a second, a Stop within a few, as radio.c's
+ * fetch_progress. ponytail: Stop is inferred from stock's play status, not signalled, so a stream that
+ * sits stopped longer than that before it plays drops its copy too. Hook stock's stop if that bites. */
+static int progress(void *stopped_at, long long a, long long b, long long c, long long d) {
     (void)a, (void)b, (void)c, (void)d;
-    int stopped = mclGetPlayStatus() == 1; /* 1 stopped */
-    if (!stopped) *(int *)started = 1;
-    return td.gen != td.want || (stopped && *(int *)started);
+    unsigned *at = stopped_at, now = now_ms(); /* low 32 bits: the difference below wraps safely */
+    if (mclGetPlayStatus() != 1) /* 1 stopped */
+        *at = 0;
+    else if (!*at)
+        *at = now | 1; /* 0 is not stopped */
+    return td.gen != td.want || (*at && (int)(now - *at) >= TIDAL_STOP_MS);
 }
 
+/* Downloads tidal_play's job, then the job a track started meanwhile left, until none waits. */
 static void *download(void *unused) {
     (void)unused;
-    long code = 0;
-    int ok = 0, started = 0;
-    void *f = fopen(td.tmp, "wb"), *c = f ? curl_easy_init() : 0;
-    if (c) {
-        curl_easy_setopt(c, 10002, td.url); /* CURLOPT_URL */
-        curl_easy_setopt(c, 20011, save);   /* WRITEFUNCTION */
-        curl_easy_setopt(c, 10001, f);      /* WRITEDATA */
-        curl_easy_setopt(c, 99, 1L);        /* NOSIGNAL: off the UI thread */
-        curl_easy_setopt(c, 52, 1L);        /* FOLLOWLOCATION */
-        curl_easy_setopt(c, 78, 15L);       /* CONNECTTIMEOUT */
-        curl_easy_setopt(c, 19, 1024L);     /* LOW_SPEED_LIMIT: a stalled transfer ends, */
-        curl_easy_setopt(c, 20, 30L);       /* LOW_SPEED_TIME   so busy always clears */
-        curl_easy_setopt(c, 20219, progress); /* XFERINFOFUNCTION */
-        curl_easy_setopt(c, 10057, &started); /* XFERINFODATA */
-        curl_easy_setopt(c, 43, 0L);        /* NOPROGRESS off, for it */
-        /* Tidal's CDN roots are not in the firmware's bundle; hciplayer streams the same URL
-         * unverified (ffmpeg's tls_verify=0), so the copy is trusted exactly as the stream is. */
-        curl_easy_setopt(c, 64, 0L); /* SSL_VERIFYPEER */
-        curl_easy_setopt(c, 81, 0L); /* SSL_VERIFYHOST */
-        ok = !curl_easy_perform(c) && !curl_easy_getinfo(c, 0x200002, &code) && code == 200; /* RESPONSE_CODE */
-        curl_easy_cleanup(c);
+    char url[sizeof td.url], path[sizeof td.path], tmp[sizeof td.path + 4];
+    for (;;) {
+        pthread_mutex_lock(td.lock);
+        int job = td.job && td.job_gen == td.gen; /* a later track's start drops it */
+        td.busy = job, td.job = 0;
+        if (job) memcpy(url, td.url, sizeof url), memcpy(path, td.path, sizeof path), td.want = td.job_gen;
+        pthread_mutex_unlock(td.lock);
+        if (!job) return 0;
+        tk_snprintf(tmp, sizeof tmp, "%s.tmp", path);
+        unsigned stopped_at = 0;
+        long code = 0;
+        int ok = 0;
+        void *f = fopen(tmp, "wb"), *c = f ? curl_easy_init() : 0;
+        if (c) {
+            curl_easy_setopt(c, 10002, url);         /* CURLOPT_URL */
+            curl_easy_setopt(c, 20011, save);        /* WRITEFUNCTION */
+            curl_easy_setopt(c, 10001, f);           /* WRITEDATA */
+            curl_easy_setopt(c, 99, 1L);             /* NOSIGNAL: off the UI thread */
+            curl_easy_setopt(c, 52, 1L);             /* FOLLOWLOCATION */
+            curl_easy_setopt(c, 78, 15L);            /* CONNECTTIMEOUT */
+            curl_easy_setopt(c, 19, 1024L);          /* LOW_SPEED_LIMIT: a stalled transfer ends, */
+            curl_easy_setopt(c, 20, 30L);            /* LOW_SPEED_TIME   so busy always clears */
+            curl_easy_setopt(c, 20219, progress);    /* XFERINFOFUNCTION */
+            curl_easy_setopt(c, 10057, &stopped_at); /* XFERINFODATA */
+            curl_easy_setopt(c, 43, 0L);             /* NOPROGRESS off, for it */
+            /* Tidal's CDN roots are not in the firmware's bundle; hciplayer streams the same URL
+             * unverified (ffmpeg's tls_verify=0), so the copy is trusted exactly as the stream is. */
+            curl_easy_setopt(c, 64, 0L); /* SSL_VERIFYPEER */
+            curl_easy_setopt(c, 81, 0L); /* SSL_VERIFYHOST */
+            ok = !curl_easy_perform(c) && !curl_easy_getinfo(c, 0x200002, &code) && code == 200; /* RESPONSE_CODE */
+            curl_easy_cleanup(c);
+        }
+        if (f) {
+            ok = ok && !fflush(f) && !fsync(fileno(f)) && !ferror(f);
+            ok = !fclose(f) && ok;
+        }
+        if (ok && !rename(tmp, path))
+            trim();
+        else
+            unlink(tmp);
     }
-    if (f) {
-        ok = ok && !fflush(f) && !fsync(fileno(f)) && !ferror(f);
-        ok = !fclose(f) && ok;
-    }
-    if (ok && !rename(td.tmp, td.path))
-        trim();
-    else
-        unlink(td.tmp);
-    td.busy = 0;
-    return 0;
 }
 
 /* key's cached file with ext in path (n bytes): "<key><ext>", or named as tidal_name names it. */
@@ -140,8 +156,8 @@ static int cached(const char *key, const char *ext, char *path, unsigned n) {
 int tidal_play(const char *url, const char *id) {
     headset_manual();
     char ext[8], key[64], name[256], path[sizeof td.path];
-    ++td.gen; /* cancels a download of the track before */
-    int level = I(tidalStreamingLevelNow, 0);
+    if (!id || strcmp(id, td.id)) ++td.gen; /* another track: cancels the download of the one before */
+    int level = I(tidalStreamingLevelNow, 0), start = 0;
     if (!url || !id || !*id || strstr(id, "/") || strlen(id) > 40 || !tidal_ext(url, ext, sizeof ext))
         return stock_tidal_trampoline(url);
     /* AAC comes in an .mp4, which stock's file lists skip: kept as .m4a, so Tidal Downloads lists it. */
@@ -149,8 +165,10 @@ int tidal_play(const char *url, const char *id) {
     /* Keyed by quality too, so a higher Streaming quality never gets a lower one's copy. */
     tk_snprintf(key, sizeof key, "%s-%d", id, level);
     if (cached(key, ext, path, sizeof path)) return stock_tidal_trampoline(path);
-    /* One download at a time; a track that starts meanwhile is cached on a later play. */
-    if (!td.busy && strlen(url) < sizeof td.url && (mkdir(TIDAL_DIR, 0755), card_space(TIDAL_DIR))) {
+    /* One download at a time: while a skipped track's is still ending, this one waits as the job its
+     * loop takes next; while this track's own runs (a re-fetch of its URL), nothing changes. */
+    pthread_mutex_lock(td.lock);
+    if ((!td.busy || td.want != td.gen) && strlen(url) < sizeof td.url && (mkdir(TIDAL_DIR, 0755), card_space(TIDAL_DIR))) {
         /* The queue record this id came from (as get_tidal_trackurl finds it) names the file.
          * ponytail: read off the UI thread, as stock's URL thread reads it; copied at once. */
         const char *title = 0, *artist = 0;
@@ -161,16 +179,17 @@ int tidal_play(const char *url, const char *id) {
                 title = P(r, REC_TITLE) ? P(r, REC_TITLE) : "", artist = P(r, REC_ARTIST);
         }
         tidal_name(name, sizeof name, key, artist, title, ext);
+        tk_snprintf(td.id, sizeof td.id, "%s", id);
         tk_snprintf(td.url, sizeof td.url, "%s", url);
         tk_snprintf(td.path, sizeof td.path, TIDAL_DIR "/%s", name);
-        tk_snprintf(td.tmp, sizeof td.tmp, "%s.tmp", td.path);
-        td.want = td.gen;
-        td.busy = 1;
-        if (pthread_create(&td.thread, 0, download, 0))
-            td.busy = 0;
-        else
-            pthread_detach(td.thread);
+        td.job_gen = td.gen, td.job = 1;
+        start = !td.busy, td.busy = 1;
     }
+    pthread_mutex_unlock(td.lock);
+    if (start && pthread_create(&td.thread, 0, download, 0))
+        td.busy = td.job = 0;
+    else if (start)
+        pthread_detach(td.thread);
     return stock_tidal_trampoline(url);
 }
 #endif
