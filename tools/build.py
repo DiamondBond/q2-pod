@@ -636,6 +636,7 @@ FUNCTIONS = {
  'get_wifisignal': ('int', 'void'),  # the status bar's Wi-Fi bars, 1-4; -1 when not connected
  # Podcasts and Audiobooks (navigation.c): folder_page's reload of g_folder_path, title and list rebuild
  'folder_reload_data': ('int', 'void'),
+ 'folder_reset_variable': ('int', 'void'),  # a fresh visit: layer 0, no path, enter history or CUE
  'folder_reinit_navbarname': ('int', 'void'),
  'folder_refresh': ('int', 'void *'),
  # Videos (books.c): stop the music, the DAC's power, and the screen and standby timeouts held off

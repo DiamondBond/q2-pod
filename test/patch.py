@@ -69,7 +69,7 @@ class Machine:
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False; self.count=self.budget  # call()'s instruction limit, which nested() shares
-        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]
+        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]; self.card=()  # /mnt/mmc's (name, d_type) entries
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
@@ -155,11 +155,11 @@ class Machine:
     def wide_string(self,s):
         data=(s+'\0').encode('utf-32-le')
         a=self.alloc(len(data)); self.u.mem_write(a,data); return a
-    def text(self,a):
-        if not a: return ''
+    def raw(self,a):
         out=bytearray()
-        while (c:=self.u.mem_read(a,1))!=b'\0': out+=c; a+=1
-        return out.decode()
+        while a and (c:=self.u.mem_read(a,1))!=b'\0': out+=c; a+=1
+        return bytes(out)
+    def text(self,a): return self.raw(a).decode()
     def node(self,t='scroll_view',name='',children=(),visible=1,**kw):
         a=self.alloc(); self.nodes[a]=dict(type=t,name=name,children=list(children),visible=visible,enable=1,**kw)
         self.word(a+O['W_W'],240); self.word(a+O['W_H'],240); self.word(a+O['ROW_HEIGHT'],48)
@@ -244,9 +244,10 @@ class Machine:
         elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
         elif name=='rockbox_stat':
             assert a==3
-            if self.text(b)!='/mnt/mmc/.rockbox/rockbox': ret=-1  # Tidal Downloads' rows: no such files here
+            if self.text(b) in ['/mnt/mmc/'+n for n,t in self.card if t==4]: self.word(c+20,0o40755); ret=0  # a card folder
+            elif self.text(b)!='/mnt/mmc/.rockbox/rockbox': ret=-1  # Tidal Downloads' rows: no such files here
             else: self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
-        elif name=='strlen@GLIBC_2.0': ret=len(self.text(a).encode())
+        elif name=='strlen@GLIBC_2.0': ret=len(self.raw(a))  # bytes: stock strips a path's UTF-8 name byte by byte
         elif name=='strrchr@GLIBC_2.0': i=self.text(a).encode().rfind(bytes([b&255])); ret=a+i if i>=0 else 0
         elif name=='memcmp@GLIBC_2.0': x,y=bytes(u.mem_read(a,c)),bytes(u.mem_read(b,c)); ret=(x>y)-(x<y)
         elif name in ('strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0'):  # ASCII case, as the C locale
@@ -280,6 +281,7 @@ class Machine:
             values=self.alloc(4*len(children)+4)
             for i,child in enumerate(children): self.word(values+4*i,child)
             self.word(b,len(children)); self.word(b+8,values); ret=0
+        elif name=='toolsWriteConfig': self.config[self.text(c)]=self.text(d); ret=0
         elif name=='toolsReadConfig':
             key=self.text(c)
             self.config_reads.append((self.text(a),self.text(b),key,self.text(self.get(u.reg_read(UC_MIPS_REG_SP)+16))))
@@ -6392,7 +6394,7 @@ def fnv(s,h=2166136261):
 class ShuffleMachine(CoverflowMachine):
     def __init__(self):
         super().__init__()
-        self.counts=b''; self.queued=None; self.wifi=-1; self.card=[]  # /mnt/mmc's (name, d_type) entries
+        self.counts=b''; self.queued=None; self.wifi=-1
         for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2','get_wifisignal',
                   'opendir@GLIBC_2.0','readdir@GLIBC_2.0','closedir@GLIBC_2.0','navigator_to'): self.handlers[syms[n]]='s:'+n
         self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0','memcmp@GLIBC_2.0')
@@ -6815,7 +6817,7 @@ assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and [m.text(c[1]) for c
 win=m.node('window','folder_page'); m.calls=[]
 assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0
 assert m.text(syms['g_folder_path'])=='/mnt/mmc/PODCASTS' and m.u.mem_read(syms['g_folder_layer'],1)[0]==3
-assert [c[0] for c in m.calls]==['stock_folder','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh'] and m.calls[-1][1]==win
+assert [c[0] for c in m.calls]==['stock_folder','folder_reset_variable','strlen@GLIBC_2.0','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh'] and m.calls[-1][1]==win
 assert m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)==0 and m.calls[-1][0]=='stock_folder_back'
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1; passed()
 m.byte(syms['g_folder_layer'],3); assert m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)==0  # the Folder view
@@ -6853,8 +6855,9 @@ for otg,card in ((0,1),(1,1),(0,0)):
     assert m.u.mem_read(syms['g_folder_layer'],1)[0]==(2 if direct else 1)
     if direct:
         assert m.text(syms['g_folder_path'])=='/mnt/mmc'
-        assert calls==['stock_folder','memcpy','memcpy','folder_reload_data','folder_reinit_navbarname','folder_refresh']
-    else: assert calls==['stock_folder']
+        assert calls==['stock_folder','memcpy','toolsReadConfig','tk_snprintf','folder_reset_variable','strlen@GLIBC_2.0','memcpy',
+                       'folder_reload_data','folder_reinit_navbarname','folder_refresh'],calls
+    else: assert calls==['stock_folder','toolsReadConfig','tk_snprintf'][:1+2*card],calls
     # Nested Back stays stock. Plugging/unplugging OTG mid-visit does not change root Back.
     m.folder('/mnt/mmc/Music'); m.byte(syms['g_folder_layer'],3)
     m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
@@ -6877,6 +6880,61 @@ assert m.u.mem_read(syms['g_folder_layer'],1)[0]==1
 m.folder('/mnt/mmc'); m.byte(syms['g_folder_layer'],2)
 m.call(address=HOOKS['folder_back'][0],args=(0,0,0,0),gap=0)
 assert m.u.mem_read(syms['g_folder_layer'],1)[0]==2; passed()
+
+# Folder Root (#49): with a card, Folder opens in the saved top-level folder (Q2POD FOLDERROOT) as a
+# layer-3 folder, a fresh visit (stock folder_reset_variable, run here: no enter history, no M3U).
+# Stock folder_back, run here, walks up to the card at layer 2 with stock's title; its history being
+# empty, the position stays the caller's (the list's top). Back there leaves without a drive and
+# reaches the storage selector with one. A missing, unsafe or file root opens as before.
+class RootMachine(ShuffleMachine):
+    def __init__(self,root=None,otg=0,card=(('Music',4),('Podcasts',4),('notes.txt',8))):
+        super().__init__(); self.card=list(card); self.byte(syms['g_otg_status'],otg)  # access finds /tmp/mmc_add
+        if root is not None: self.config['FOLDERROOT']=root
+        self.stacks={}
+        for g in ('g_yoffset_save','g_index_save'): h=self.alloc(4); self.word(syms[g],h); self.stacks[h]=[]
+        for n in ('stack_empty','stack_top','stack_pop','strcpy@GLIBC_2.0'): self.handlers[syms[n]]='r:'+n
+        self.handlers.pop(syms['folder_reset_variable']); self.mock('strstr@GLIBC_2.0')
+        for n in ('folder','folder_top'): self.handlers[int(manifest['patch_symbols'][f'stock_{n}_trampoline'],16)]='stock_'+n  # Back: stock's own
+        self.win=self.node('window','folder_page'); self.byte(syms['g_folder_layer'],1)
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('r:'): return super().hook(u,address,size,unused)
+        name=name[2:].split('@')[0]; a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); ret=0; self.calls.append((name,a,b))
+        if name=='stack_empty': ret=int(not self.stacks[a])
+        elif name=='stack_top': ret=self.stacks[a][-1]
+        elif name=='stack_pop': self.stacks[a].pop()
+        elif name=='strcpy': self.u.mem_write(a,self.text(b).encode()+b'\0'); ret=a
+        self.returns(ret,clobber=True)
+    def push(self,yoffset,index):  # an enter's history entry, as folder_enter's stack_push
+        for g,v in (('g_yoffset_save',yoffset),('g_index_save',index)):
+            e=self.alloc(4); self.word(e,v); self.stacks[self.get(syms[g])].append(e)
+    def open(self):
+        self.calls=[]; assert self.call(address=HOOKS['folder_page_init'][0],args=(self.win,0,0,0),gap=0)==0
+        return self.text(syms['g_folder_path']),self.u.mem_read(syms['g_folder_layer'],1)[0]
+    def back(self):  # the folder page's Back handler zeroes both before stock fills them from the history
+        out=self.alloc(8); self.word(out,7); self.word(out+4,9)
+        ret=self.call(address=HOOKS['folder_back'][0],args=(out,out+4,0,0),gap=0)
+        return ret,self.text(syms['g_folder_path']),self.u.mem_read(syms['g_folder_layer'],1)[0],(self.get(out),self.get(out+4))
+for otg in (0,1):
+    m=RootMachine('Music',otg=otg); m.push(5,6); m.u.mem_write(syms['g_m3u_path'],b'/mnt/mmc/Music/list.m3u\0')  # a visit left deep
+    assert m.open()==('/mnt/mmc/Music',3) and not any(m.stacks.values()) and m.text(syms['g_m3u_path'])==''
+    calls=[c[0] for c in m.calls if c[0] in ('stock_folder','folder_reload_data','folder_reinit_navbarname','folder_refresh')]
+    assert calls==['stock_folder','folder_reload_data','folder_reinit_navbarname','folder_refresh'] and m.calls[-1][1]==m.win
+    m.calls=[]; assert m.back()==(1,'/mnt/mmc',2,(7,9)) and m.text(syms['g_navbar_name'])=='SD'
+    assert [c[1] for c in m.calls if c[0]=='toolsLoadDirectory']==[syms['g_folder_path']]
+    assert m.back()[::2]==((1,1) if otg else (0,0)); passed()  # the selector, or out of the page
+# Gone, a file, hidden, a path, or no card: as before Folder Root (the card at layer 2, or stock's page).
+for root in ('Gone','notes.txt','.Trash','Music/..',''):
+    assert RootMachine(root).open()==('/mnt/mmc',2),root
+for m in (RootMachine('Gone',otg=1),RootMachine('Music')):
+    m.missing=m.config['FOLDERROOT']=='Music'  # no card: CoverflowMachine's access finds nothing
+    assert m.open()[1]==1 and 'folder_reload_data' not in [c[0] for c in m.calls]
+passed()
+# Podcasts keeps its own root, Back there leaving the page, whatever Folder Root says.
+m=RootMachine('Music'); view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)])
+m.top=m.node('window','localmusic_page',[view]); m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
+f,ctx=m.handler(m.nodes[m.nodes[view]['children'][-2]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+assert m.open()==('/mnt/mmc/Podcasts',3) and m.back()[::2]==(0,0); passed()
 
 # Photos (patch/photos.c): the helpers first. Names: .jpg, .jpeg and .png, case aside, not hidden.
 m=Machine(); m.mock('memcmp@GLIBC_2.0',prefix='cmp:')
@@ -8223,8 +8281,8 @@ passed()
 # Settings rows (docs/internals.md#charge-limit, #low-power, #album-artists): Power management gains
 # Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
-def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False):
-    m=QueueMachine(); m.config.update(config); m.restack=True
+def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False,cls=QueueMachine):
+    m=cls(); m.config.update(config); m.restack=True
     if boot: m.call(address=payload_syms['ringnav_bootmode'],args=(3,0,0,0),gap=0)  # config_init's play mode
     if hook=='btrows': m.byte(syms['g_bluetoothflag'],bt)
     m.handlers[int(manifest['patch_symbols'][f'stock_{hook}_trampoline'],16)]='stock_'+hook
@@ -8378,7 +8436,8 @@ m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':
 assert texts()==[f"Charge Limit: {O['CHARGE_STOP']}%",'Low Power: On','Wake: Double Press','Volume Guard: On']
 assert m.get(payload_syms['wheel_guard'])==1; passed()
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
-assert len(rows)==4 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless'] and texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off']
+assert len(rows)==5 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump']
+assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card']
 assert click(2)==[(1,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: A–Z'
 assert click(2)==[(0,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: Year'
 assert click(0)==[(1,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Oldest First'
@@ -8429,7 +8488,19 @@ for config,text in (({},'Artists: Album Artist'),({'ARTISTTYPE':'0'},'Artists: A
 passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
-assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,1,8,16,15,17,13,14,12,6,7]; passed()
+assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,1,8,16,15,17,13,14,19,12,6,7]; passed()
+# Folder Root (#49): the row cycles the card's top-level folders, case aside, then the card, saving Q2POD
+# FOLDERROOT each time. Not offered: files, dot-folders, names with an edge space or over 200 bytes (a
+# config.ini line can't keep them). A saved folder gone moves on to the next name after it.
+card=[('Zeta',4),('.Trash',4),('Música ñ',4),('alpha',4),('notes.txt',8),(' Edge',4),('B'*200,4),('C'*201,4),('Unknown',0)]
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',{'FOLDERROOT':'Deleted'},stock_rows=15,cls=lambda:RootMachine(card=card))
+assert texts()[4]=='Folder Root: Deleted'
+saved=[]
+for _ in range(6):
+    assert click(4)==[] and [(m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='toolsWriteConfig']==[('Q2POD','FOLDERROOT')]
+    saved.append((m.config['FOLDERROOT'],texts()[4]))
+assert [v for v,_ in saved]==['Música ñ','Unknown','Zeta','','alpha','B'*200]
+assert [t for _,t in saved]==['Folder Root: '+(v or 'Card') for v,_ in saved]; passed()
 # Crossfade (crossfade.c): the row shows the saved length while on; an unreadable one is the default.
 for config,text in (({'XFADE':'1','XFADESEC':'7'},'Crossfade: 7 s'),({'XFADE':'1','XFADESEC':'11'},'Crossfade: 5 s'),({'XFADESEC':'7'},'Crossfade: Off')):
     m,rows,texts,*_=settings_page('audioset','scroll_view_playset',config,stock_rows=15)

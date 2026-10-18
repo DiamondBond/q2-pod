@@ -323,6 +323,7 @@ typedef struct {
      * page is there, Back at that root leaves it. */
     int media_open;
     char media_root[32];
+    void *root_label; /* Playback settings' Folder Root row */
     void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
     char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own
                         (ringnav_artist_list) */
@@ -2283,16 +2284,16 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
 
 /* Playback Setting: what is changed while listening first, then library behaviour, then output. */
 static const unsigned char playset_order[] = {
-    3 /* Play Mode */,     2 /* EQ */,
-    0 /* Gain */,          10 /* ReplayGain */,
-    18 /* Crossfade */,    9 /* Gapless */,
-    4 /* Max Volume */,    5 /* Default Vol */,
-    11 /* Balance */,      1 /* Filters */,
-    8 /* Memory play */,   16 /* Artists */,
-    15 /* Year order */,   17 /* Artist album order */,
-    13 /* Folder art */,   14 /* Folder skip */,
-    12 /* Enlarged art */, 6 /* DSD Output */,
-    7 /* USB Audio */,
+    3 /* Play Mode */,    2 /* EQ */,
+    0 /* Gain */,         10 /* ReplayGain */,
+    18 /* Crossfade */,   9 /* Gapless */,
+    4 /* Max Volume */,   5 /* Default Vol */,
+    11 /* Balance */,     1 /* Filters */,
+    8 /* Memory play */,  16 /* Artists */,
+    15 /* Year order */,  17 /* Artist album order */,
+    13 /* Folder art */,  14 /* Folder skip */,
+    19 /* Folder Root */, 12 /* Enlarged art */,
+    6 /* DSD Output */,   7 /* USB Audio */,
 };
 /* System Setting: connections and display first, boot/update/reset/about last. */
 static const unsigned char sysset_order[] = {
@@ -2302,6 +2303,58 @@ static const unsigned char sysset_order[] = {
     11 /* About */,
 };
 
+/* Folder Root (Q2POD FOLDERROOT): the card's top-level folder Home's Folder opens in, "" the card
+ * itself; name holds 256. toolsReadConfig leaves name alone for a missing key and empty default.
+ * ponytail: names over ROOT_MAX bytes or with an edge space are not offered: stock's config.ini
+ * line (toolsWriteConfig's 257-byte sprintf, toolsReadConfig's 255-byte fgets, then trimmed) can't
+ * keep them. */
+#define ROOT_MAX 200
+static void root_read(char *name) {
+    name[0] = 0;
+    toolsReadConfig("/mnt/data/config.ini", "Q2POD", "FOLDERROOT", name, "");
+}
+/* The card's next top-level folder after name, in name order (case aside, as FAT and exFAT hold
+ * no two names differing only so; no dot-folders): the first after "", "" (the card) after the
+ * last. d_type 0: as media_find. */
+static void root_next(char *name) {
+    char next[256] = "";
+    void *dir = opendir("/mnt/mmc");
+    for (struct dirent *e; dir && (e = readdir(dir));) {
+        const char *d = e->d_name;
+        unsigned n = strlen(d);
+        if ((e->d_type != 4 && e->d_type) || d[0] == '.' || d[0] == ' ' || d[n - 1] == ' ' ||
+            n > ROOT_MAX)
+            continue;
+        if (strcasecmp(d, name) > 0 && (!next[0] || strcasecmp(d, next) < 0))
+            memcpy(next, d, n + 1);
+    }
+    if (dir) closedir(dir);
+    memcpy(name, next, 256);
+}
+/* The saved root's folder into path (265 bytes), 0 when there is none to open. */
+static int root_dir(char *path) {
+    char name[256];
+    unsigned info[36];
+    root_read(name);
+    tk_snprintf(path, 265, "/mnt/mmc/%s", name);
+    return name[0] && name[0] != '.' && !strrchr(name, '/') && !__xstat(3, path, info) &&
+           (info[5] & 0170000) == 0040000;
+}
+static void root_text(const char *name) {
+    char t[280];
+    tk_snprintf(t, sizeof t, "Folder Root: %s", name[0] ? name : "Card");
+    widget_set_text_utf8(st.root_label, t);
+}
+/* Centre or tap: the next root, saved; Folder opens there from its next visit. */
+static int root_click(void *ctx, void *event) {
+    char name[256];
+    root_read(name);
+    root_next(name);
+    toolsWriteConfig("/mnt/data/config.ini", "Q2POD", "FOLDERROOT", name);
+    root_text(name);
+    return 0;
+}
+
 int ringnav_audioset(void *win, void *ctx) {
     static const char *const icons[] = { "playset_covermode", "playset_folderjump" };
     int result = stock_audioset_trampoline(win, ctx);
@@ -2309,6 +2362,12 @@ int ringnav_audioset(void *win, void *ctx) {
     pod_rows(win, "scroll_view_playset", POD_ARTIST_AZ, 1, icons);
     void *view = win ? widget_lookup(win, "scroll_view_playset", 1) : (void *)0;
     if (view) xfade_row(list_row(view, "playset_gapless", xfade_open, (void *)0)); /* crossfade.c */
+    if (view) {
+        char name[256];
+        root_read(name);
+        st.root_label = list_row(view, "playset_folderjump", root_click, 0);
+        root_text(name);
+    }
     reorder(view, playset_order, sizeof playset_order);
     return result;
 }
@@ -5298,17 +5357,24 @@ static int media_click(void *ctx, void *event) {
 
 /* folder_page_init lists the storage roots at g_folder_layer 1, a root's folders at 2 and deeper
  * folders at 3 on (folder_enter). A media root becomes a layer-3 folder, so stock's reload, title
- * (its name, folder_reinit_navbarname) and entering all treat it as one. */
+ * (its name, folder_reinit_navbarname) and entering all treat it as one. Each open starts a fresh
+ * visit (folder_reset_variable): folder_back pops the enter history kept for each layer and leaves
+ * an M3U before stepping up, and a visit left without Back (Home, playing) keeps both. */
 int ringnav_folder(void *win, void *ctx) {
     int result = stock_folder_trampoline(win, ctx), layer = 3;
+    char root[265];
+    const char *path = st.media_root;
     if (!st.media_open || !win) {
+        int card = win && !access("/tmp/mmc_add", 0);
         st.media_root[0] = 0;
         /* No drive and a card (stock's check_tfstatus): the card is the only root, so open it. */
-        if (win && !g_otg_status && !access("/tmp/mmc_add", 0))
-            memcpy(st.media_root, "/mnt/mmc", 9), layer = 2;
+        if (card && !g_otg_status) memcpy(st.media_root, "/mnt/mmc", 9), layer = 2;
+        /* Folder Root: an ordinary folder below the card, so Back walks up to it, then as above. */
+        if (card && root_dir(root)) path = root, layer = 3;
     }
-    if (st.media_root[0]) {
-        memcpy((char *)g_folder_path, st.media_root, sizeof st.media_root);
+    if (path[0]) {
+        folder_reset_variable();
+        memcpy((char *)g_folder_path, path, strlen(path) + 1);
         g_folder_layer = layer;
         folder_reload_data();
         folder_reinit_navbarname();
