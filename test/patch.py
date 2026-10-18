@@ -7459,7 +7459,7 @@ m.advance(O['DOUBLE_CLICK_MS']); assert 'on_wm_keyup_fun' not in [c[0] for c in 
 assert m.call(O['KEY_RETURN'],address=m.handler(page,O['EVT_KEY_UP'])[0],args=(0,m.event,0,0),event_type=O['EVT_KEY_UP'],gap=0)==11
 m.advance(0); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
 # SPOT_IDLE_MS (30 s) not playing after it has played, the browser shut, stops librespot and its
-# loop; never before the first play nor while the browser is open (Now Playing is on it), and playing
+# loop; before the first play only after SPOT_CAST_MS (150 s), never while the browser is open (Now Playing is on it), and playing
 # again in time restarts the wait. The keys are local music's again, and the row starts it again.
 m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button)
 m.state('none'); m.poll(40000); assert len(m.systems)==1
@@ -7470,6 +7470,11 @@ m.poll(29000); assert len(m.systems)==1 and m.key(O['KEY_PLAY'])==11
 m.poll(1000); assert 'killall -9 librespot aplay' in m.systems[-1] and STATE in m.systems[-1]
 assert m.key(O['KEY_PLAY'])!=11
 spot_open(m,button); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.close(); passed()
+# Never played: the browser shut, SPOT_CAST_MS (150 s) leaves time to cast from the phone, then it stops.
+m=SpotMachine({BIN:bytearray()}); button=stream_page(m); page=spot_open(m,button); m.state('none'); m.poll()
+m.close(); m.page=m.browser; m.close(); m.top=m.node('window','home_page')
+m.poll(149000); assert len(m.systems)==1
+m.poll(1000); assert 'killall -9 librespot aplay' in m.systems[-1]; passed()
 
 # Internet Radio (patch/radio.c, docs/internals.md#internet-radio): favourites on the card and
 # radio-browser.info's directory, a station played by q2video -r, its tags from RADIO_STATE.

@@ -78,6 +78,7 @@ int spot_reply(char *buf, unsigned len, char **f, int max) {
                             */
 #define SPOT_STEP_MS 5000  /* a scrub tick, as Now Playing's */
 #define SPOT_IDLE_MS 30000 /* not playing this long after it has played, the browser shut: librespot is stopped */
+#define SPOT_CAST_MS 150000 /* as SPOT_IDLE_MS before it has played: time to cast from the phone */
 #define SPOT_BROWSE "/tmp/q2-librespot.browse.sock" /* its --browse-socket, Q2SPOT/1 */
 #define SPOT_REPLY_MAX (64 << 10)
 #define SPOT_REQ_MAX (8 << 10)
@@ -226,7 +227,7 @@ static int spot_started(void) {
 static void spot_launch(void) {
     if (sp.launched || access(SPOT_BIN, 0)) return;
     sp.launched = 1;
-    sp.launch_at = time_now_ms();
+    sp.idle_at = sp.launch_at = time_now_ms();
     system(SPOT_RUN);
 }
 
@@ -282,9 +283,9 @@ void spot_poll(void) {
     } else if (mclGetPlayStatus() == 2)
         sp.local = 1; /* local music plays: the keys are its again */
     sp.active = (playing || sp.paused) && !sp.local;
-    if (playing || downloading || !sp.played || browsing())
+    if (playing || downloading || browsing())
         sp.played |= playing, sp.idle_at = now;
-    else if (now - sp.idle_at >= SPOT_IDLE_MS)
+    else if (now - sp.idle_at >= (sp.played ? SPOT_IDLE_MS : SPOT_CAST_MS))
         spot_stop();
     if (ui.scrub && now - ui.scrub_at >= SCRUB_MS) scrub_commit();
 }
