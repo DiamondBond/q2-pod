@@ -1,6 +1,6 @@
 # Changelog
 
-- **1.2.8**: Next and Previous no longer crossfade: they skip at once again, as before 1.2.6. Crossfade still fades between albums when a song ends on its own.
+- **1.2.8**: Next and Previous no longer crossfade: they skip at once again, as before 1.2.6. Crossfade still fades between albums when a song ends on its own. With Home's shortcut set to Rockbox and no Rockbox on the card, tapping Streaming opens Streaming again instead of saying Rockbox is missing.
 
 - **1.2.7**: Ordinary FLAC and WAV playback uses far less battery: the MQA decoder now runs only for MQA tracks, which are recognised at the start of the track, so the player takes about 2% of a core instead of 13% on 16-bit 44.1 kHz FLAC. Shuffle Songs, Albums and Folders leave out audiobooks. Closing the rating picker on Now Playing no longer stops swiping between its pages until you leave and come back.
 
