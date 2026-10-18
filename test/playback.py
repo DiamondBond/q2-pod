@@ -23,6 +23,7 @@ class PlaybackMachine(QueueMachine):
         self.handlers[ps['stock_savequeue_trampoline']] = 'p:saved'
         self.handlers[ps['stock_speed_trampoline']] = 'p:speed'
         self.handlers[ps['stock_open_preload_trampoline']] = 'p:mcl_open_preload'
+        self.handlers[ps['stock_start_queue_trampoline']] = 'p:start_queue'
         self.handlers[ps['toast']] = 'p:toast'
         self.sent_speed = None; self.toasts = []
         for name in ('calloc@GLIBC_2.0','qsort@GLIBC_2.0','memcmp@GLIBC_2.0','strcmp@GLIBC_2.0',
@@ -88,6 +89,7 @@ class PlaybackMachine(QueueMachine):
         elif name=='mclGetPlayTime': self.word(a,self.elapsed); self.word(b,300)
         elif name=='mclStartPlayer': self.starts.append(self.mcl('MCL_POS')); ret=1
         elif name=='mclStop': self.stops+=1; ret=1
+        elif name=='start_queue': self.word(O['MCL_POS'],a); self.starts.append(a); ret=1  # mclSetPlayPos, mclStartPlayer
         elif name=='mclSetStartSeekTime': self.seek=a; ret=1
         elif name=='mcl_open_preload': self.word(O['MCL_PRELOAD'],1); ret=1
         elif name=='toolsRandnum':
@@ -271,6 +273,25 @@ m.deqs[q][1][old+1:old+1]=[m.song('next%d'%i) for i in range(3)]
 m.fn('playback_insert',old+1,3,1)
 out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i in range(n)]
 assert up[:3]==[old+1,old+2,old+3] and m.sequence(limit=n)[1:]==up, up
+checks+=1
+
+# A View Queue or Up Next pick plays now; the pass carries on without it, the tracks it jumped stay
+# up next, Previous returns to it, and a Play Next it is not part of stays first.
+m=PlaybackMachine(); m.options(1,5,0); out=m.alloc(24*4)
+up=[m.get(out+4*i) for i in range(m.fn('playback_upcoming',out,24))]; x=up[3]; rest=[t for t in up[:6] if t!=x]
+assert m.fn('ringnav_start_queue',x)==1 and m.current()==x and m.sequence(limit=5)[1:]==rest
+m=PlaybackMachine(); m.options(1,5,0); x=m.fn('playback_successor',0); m.fn('ringnav_start_queue',x)
+assert m.advance_song()==1 and m.fn('ringnav_prev')==1 and m.current()==x
+m=PlaybackMachine(); m.options(1,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
+m.deqs[q][1][old+1:old+1]=[m.song('next')]; m.fn('playback_insert',old+1,1,1)
+out=m.alloc(24*4); up=[m.get(out+4*i) for i in range(m.fn('playback_upcoming',out,24))]; x=up[3]
+m.fn('ringnav_start_queue',x); assert m.sequence(limit=1)[1:]==[old+1]
+starts=len(m.starts); assert m.fn('ringnav_start_queue',m.current())==1 and len(m.starts)==starts+1  # the playing one: restarted
+m=PlaybackMachine(); m.options(1,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()  # the top of a Play Next keeps the rest
+m.deqs[q][1][old+1:old+1]=[m.song('next%d'%i) for i in range(3)]; m.fn('playback_insert',old+1,3,1)
+m.fn('ringnav_start_queue',old+1); assert m.sequence(limit=2)[1:]==[old+2,old+3]
+m=PlaybackMachine(); m.options(0,2,0); m.fn('ringnav_start_queue',4)  # ordered: the tracks after it follow
+assert m.sequence(limit=3)==[4,5]  # the play order is 2,6,0,1,3,4,5
 checks+=1
 
 # Add and Play next remap history and occurrences, including multiple priority tracks.

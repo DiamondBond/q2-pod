@@ -15,7 +15,7 @@
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_prev_trampoline(void), stock_mode_trampoline(int), stock_preload_trampoline(void),
     stock_memory_trampoline(void *), stock_savequeue_trampoline(void), stock_change_trampoline(int),
-    stock_speed_trampoline(int), stock_open_preload_trampoline(void);
+    stock_speed_trampoline(int), stock_open_preload_trampoline(void), stock_start_queue_trampoline(int);
 extern void *staged(int (*)(void *), void *, int *);
 extern int album_before(const void *, const void *), folder_cmp(void *, void *),
     album_only(void *, void *, int);
@@ -549,6 +549,22 @@ static void commit(unsigned next) {
     history(next);
     s.next_valid = 0;
     s.dirty = 1;
+}
+/* player_start_queue: stock's View Queue row (and its queue delete, DLNA and URL plays) start queue
+ * index at. In advanced play the pick is committed first: a shuffle's through Play Next's path, so
+ * the order carries on after it and it neither plays again later in the pass nor drops the tracks
+ * it jumped; an ordered queue's in place, so the tracks after it follow. A pick inside a pending
+ * Play Next keeps the rest of that range, as Next would. */
+int ringnav_start_queue(int at) {
+    unsigned f = s.forced, fe = s.force_end, x = (unsigned)at;
+    if (s.active && x < s.n && x != (unsigned)M(MCL_POS) && queue() && deque_size(queue()) == s.n) {
+        int in = f && x + 1 >= f && x < fe;
+        close_preload();
+        if (in || s.shuffle == 1) s.forced = x + 1, s.force_end = in ? fe : x + 1;
+        commit(x);
+        if (!in) s.forced = f, s.force_end = fe;
+    }
+    return stock_start_queue_trampoline(at);
 }
 int ringnav_load(void *q, int at, int type) {
     if (s.restoring == 2) type = M(MCL_TYPE);

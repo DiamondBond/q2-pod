@@ -127,6 +127,7 @@ extern const char *track_name(char *buf, unsigned size, void *t);
 #define SHORT_LIST_MAX 16
 #define MAX_ENTRIES 512
 #define POS_MEM 64
+#define UP_NEXT_ROWS 100 /* Up Next's snapshot cap */
 /* RADIUS, FILL_RGB, FILL_ALPHA, SHADE_ALPHA, OUTLINE_RGB and OUTLINE_ALPHA come from offsets.inc;
  * the colors pack their bytes at compile time (little-endian r,g,b,a). The outline is translucent
  * neutral white, never the playing red, seated on a dark shade of the stock surface so bright
@@ -218,9 +219,10 @@ typedef struct {
      * opens while the library is at mp_gen (~library_gen once stale). */
     void *mp_page, *mp_list, *td_page, *td_list;
     unsigned mp_gen;
-    void *sp_page;             /* the Library Shuffle menu's page, kept across picks */
-    void *un_page;             /* Up Next's page, one at a time */
-    void *sc_page, *sc_row[2]; /* Streaming's Configuration page and its two cache rows */
+    void *sp_page;                 /* the Library Shuffle menu's page, kept across picks */
+    void *un_page;                 /* Up Next's page, one at a time */
+    unsigned un_idx[UP_NEXT_ROWS]; /* its rows' queue indices */
+    void *sc_page, *sc_row[2];     /* Streaming's Configuration page and its two cache rows */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
      * is up on (0 when down), the hearts picked, the heart's hold timer (rate_held once it fired),
@@ -4590,19 +4592,27 @@ static int most_played(void *ctx, void *event) {
 }
 
 /* Up Next: the tracks after the playing one in the order they play, which a shuffle's order differs
- * from the queue's. Rows are a view only. ponytail: a snapshot taken on open, capped at
- * UP_NEXT_ROWS; the page does not follow the playing track. */
-#define UP_NEXT_ROWS 100
+ * from the queue's. A row plays its track as View Queue's does (player_start_queue), and the page
+ * closes, as its snapshot is then stale. ponytail: a snapshot taken on open, capped at
+ * UP_NEXT_ROWS; the page does not follow the playing track, and a queue replaced while it is open
+ * (a folder play's next folder) leaves its rows naming other tracks; keep the records to check. */
+static int un_play(void *ctx, void *event) {
+    void *q = P(mcl_pdeqplaylist, 0);
+    unsigned at = st.un_idx[(long)ctx];
+    if (q && at < deque_size(q)) player_start_queue((int)at);
+    navigator_back();
+    return 0;
+}
 static void up_next(void) {
     if (st.un_page || !(st.un_page = page_open("upnext_page", page_closed, page_keyup))) return;
     void *q = P(mcl_pdeqplaylist, 0);
-    unsigned idx[UP_NEXT_ROWS], n = playback_upcoming(idx, UP_NEXT_ROWS);
+    unsigned *idx = st.un_idx, n = playback_upcoming(idx, UP_NEXT_ROWS);
     void *view = page_list(st.un_page, st.un_page, 0, n ? "Up Next" : "Nothing Up Next", n, 64);
     char name[512];
     for (unsigned i = 0; i < n; i++) { /* the title over the artist, if tagged */
         void *t = deque_at(q, idx[i]);
         const char *artist = P(t, REC_ARTIST);
-        page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", 0);
+        page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", un_play);
     }
 }
 
@@ -6036,8 +6046,8 @@ static void play_count(void *r, unsigned key) {
 /* Scrobbling (docs/internals.md#scrobbling): a Rockbox-style AudioScrobbler 1.1 log at the card's
  * root, for any .scrobbler.log uploader or Upload Scrobbles (scrobble.c). Artist and album are the
  * player's parsed tags when it has parsed this track (now_tag), or with .scrobble.ini's
- * ALBUM_ARTIST the library's album artist when the song has one; untagged (artist-less) tracks are
- * skipped, as scrobblers reject them. */
+ * ALBUM_ARTIST the song's album artist when it has one (parsed too: folder queues' records have
+ * none); untagged (artist-less) tracks are skipped, as scrobblers reject them. */
 static char *scrobble_tag(char *o, char *end, const char *s) {
     for (; s && *s && o < end - 1; s++) *o++ = *s == '\t' || *s == '\n' || *s == '\r' ? ' ' : *s;
     *o++ = '\t';
@@ -6045,7 +6055,9 @@ static char *scrobble_tag(char *o, char *end, const char *s) {
 }
 
 static void scrobble(void *r, int total, int heard) {
-    const char *artist = now_tag(r, REC_ARTIST), *album_artist = P(r, REC_ALBUM_ARTIST);
+    const char *artist = now_tag(r, REC_ARTIST), *album_artist = now_tag(r, REC_ALBUM_ARTIST);
+    if (!album_artist || !*album_artist)
+        album_artist = P(r, REC_ALBUM_ARTIST); /* CUE: none parsed */
     if (album_artist && *album_artist && scrobble_album_artist()) artist = album_artist;
     if (!artist || !*artist) return;
     long now = time((void *)0);

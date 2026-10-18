@@ -8224,6 +8224,13 @@ assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[3].startswith('X\
 m.word(r+O['REC_TITLE'],m.string('')); m.word(r+O['REC_NAME'],m.string('Song.flac')); m.word(r+O['REC_PATH'],m.string('/p/Song.flac'))
 m.poll(0,200); playing(m,1,200,n=110)  # untitled: the file name without its extension
 assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[4].startswith('X\tAlbum\tSong\t7\t200\t'); passed()
+# ALBUM_ARTIST=1 (issue #15): the parsed album artist, as a folder queue's record has none; else the record's
+m.config['ALBUM_ARTIST']='1'; id3=syms['g_play_id3_info']; m.u.mem_write(id3,b'/p/Song.flac\0')
+m.u.mem_write(id3+O['ID3_ARTIST'],b'X\0'); m.u.mem_write(id3+O['ID3_ALBUM']+O['MUSIC_INFO_ALBUM_ARTIST'],b'AA\0')
+m.poll(0,200); playing(m,1,200,n=110); assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[5].startswith('AA\t'); passed()
+m.u.mem_write(id3+O['ID3_ALBUM']+O['MUSIC_INFO_ALBUM_ARTIST'],b'\0'); m.word(r+O['REC_ALBUM_ARTIST'],m.string('RA'))
+m.poll(0,200); playing(m,1,200,n=110); assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[6].startswith('RA\t'); passed()
+del m.config['ALBUM_ARTIST']
 m=ResumeMachine(); m.epoch=86400; playing(m,0,200,pos=0,n=110)  # clock never set: counted only
 assert counts(m) and '/mnt/mmc/.scrobbler.log' not in m.files; passed()
 m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]  # CUE tracks of one image: apart

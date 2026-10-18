@@ -1892,15 +1892,16 @@ void *queue_now(unsigned *pos, unsigned *n) {
     return *pos < *n ? deque_at(queue, *pos) : (void *)0;
 }
 
-/* r's REC_ALBUM, REC_ARTIST or REC_TITLE as the player parsed it from the file, once it has
- * parsed r's; else the record's own. Folder plays' records, and those of the next folder, which
+/* r's REC_ALBUM, REC_ARTIST, REC_ALBUM_ARTIST or REC_TITLE as the player parsed it from the file,
+ * once it has parsed r's; else the record's own. Folder plays' records, and those of the next folder, which
  * stock queues when a folder play ends (on_player_autochange), carry no tags (issue #7). */
 const char *now_tag(void *r, int field) {
     if (!r) return (void *)0;
     if (!tk_strcmp((const char *)g_play_id3_info, P(r, REC_PATH)))
-        return (const char *)g_play_id3_info + (field == REC_ALBUM   ? ID3_ALBUM
-                                                 : field == REC_TITLE ? ID3_TITLE
-                                                                      : ID3_ARTIST);
+        return (const char *)g_play_id3_info + (field == REC_ALBUM          ? ID3_ALBUM
+                                                 : field == REC_TITLE        ? ID3_TITLE
+                                                 : field == REC_ALBUM_ARTIST ? ID3_ALBUM_ARTIST
+                                                                             : ID3_ARTIST);
     return P(r, field);
 }
 

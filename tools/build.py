@@ -96,6 +96,8 @@ HOOKS = {
     # Spotify (patch/spotify.c): Streaming's row, and local music letting librespot go first
     'stream_page_init': (0x52efdc, 'ringnav_stream', 'stream'),
     'mclStartPlayer': (0x5ad6ac, 'ringnav_start_player', 'start_player'),
+    # View Queue's row and Up Next's (navigation.c): a picked queue index, kept in advanced play's order
+    'player_start_queue': (0x5160dc, 'ringnav_start_queue', 'start_queue'),
     # Tidal cache (patch/tidal.c): the stream URL thread's player start, with its song id in $s2
     'mcl_tidalStartPlayer': (0x5ad240, 'tidal_start', 'tidal'),
     # Ratings (navigation.c rate_bind): Now Playing's heart, held, opens the picker
@@ -581,6 +583,7 @@ FUNCTIONS = {
  'batch_add_file': ('int', 'int, int, void *, void *, int'),
  'navigator_window_is_exist': ('int', 'const char *'),
  'mclStartPlayer': ('int', 'void'),
+ 'player_start_queue': ('int', 'int'),
  'mclStop': ('int', 'void'),
  'mclGetPlayTime': ('int', 'int *, int *'),
  'mclSetStartSeekTime': ('int', 'int'),
