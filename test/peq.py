@@ -1037,6 +1037,26 @@ static void crossfade_check(void) {
     track(&a, 48000);
     for (n = 0; n < 10 * 48000;) assert(block(&a, buf, 1024, &n, 1, 48000) == 1024);
     a.uninit(&a);
+    /* A 10 s fade: the hold wraps the ring; odd block sizes; order and the equal-power gain hold. */
+    xfade_view(10000);
+    peq_length = 60;
+    static const unsigned sizes[] = {1024, 333, 17, 1000};
+    unsigned j = 0;
+    track(&a, 48000);
+    for (n = out = 0; n < 60 * 48000;) {
+        unsigned k = block(&a, buf, sizes[j++ % 4], &n, 1, 48000);
+        for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)out++);
+    }
+    held = n - out;
+    a.uninit(&a);
+    track(&b, 48000);
+    for (m = mixed = 0; mixed < held;) {
+        unsigned k = block(&b, buf, sizes[j++ % 4], &m, 0, 48000);
+        for (unsigned i = 0; i < k && mixed < held; ++i, ++mixed)
+            assert(fabsf(buf[2 * i + 1] - cosf((mixed + 0.5f) / held * 1.5707963f)) < 1e-5f);
+    }
+    b.uninit(&b);
+    peq_length = 10;
     xfade_view(0);
     peq_pts = -1;
 }

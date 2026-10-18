@@ -146,6 +146,14 @@ static int xfade_ms(int rate, unsigned frames) {
     return f && *f > 0 ? *f : 0;
 }
 
+/* n frames between a and the ring's frame at (of cap), into the ring if put: two spans where it wraps. */
+static void ring_copy(float *a, unsigned at, unsigned n, unsigned cap, int nch, int put) {
+    unsigned m = n < cap - at ? n : cap - at;
+    float *r = xf.ring + at * nch;
+    if (put) memcpy(r, a, 4 * m * nch), memcpy(xf.ring, a + m * nch, 4 * (n - m) * nch);
+    else memcpy(a, r, 4 * m * nch), memcpy(a + m * nch, xf.ring, 4 * (n - m) * nch);
+}
+
 /* Frames of a (interleaved, nch) put out in place: all of them, or fewer while the hold fills. */
 static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, int rate) {
     int ms = xfade_ms(rate, frames);
@@ -163,10 +171,16 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
         } else {
             if (!xf.total) xf.total = xf.len;
             unsigned n = frames < xf.len ? frames : xf.len;
-            for (unsigned i = 0; i < n; ++i) {
-                float p = (xf.total - xf.len + i + 0.5f) / xf.total * 1.5707963f;
-                float in = sinf(p), out = cosf(p), *held = xf.ring + (xf.head + i) % cap * nch;
-                for (int c = 0; c < nch; ++c) a[i * nch + c] = a[i * nch + c] * in + held[c] * out;
+            /* The gains turn by a fixed angle a frame: exact at each block's start, rotated after, in
+             * double (and cos d as 1 - 2 sin^2 d/2) or a long fade's rounding drifts to 1e-4. */
+            float d = 1.5707963f / xf.total, p = (xf.total - xf.len + 0.5f) * d, h = sinf(d / 2);
+            double in = sinf(p), out = cosf(p), sd = sinf(d), cd = 1 - 2.0 * h * h;
+            float *held = xf.ring + xf.head * nch, *end = xf.ring + cap * nch;
+            for (unsigned i = 0; i < n; ++i, held = held + nch == end ? xf.ring : held + nch) {
+                float fi = (float)in, fo = (float)out;
+                for (int c = 0; c < nch; ++c) a[i * nch + c] = a[i * nch + c] * fi + held[c] * fo;
+                double t = in * cd + out * sd;
+                out = out * cd - in * sd, in = t;
             }
             xf.head = (xf.head + n) % cap;
             if (!(xf.len -= n)) xf.total = 0;
@@ -184,13 +198,12 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
     if (!ending || frames > cap - want || (!xf.ring && !(xf.ring = calloc(XF_FLOATS, sizeof(float)))))
         return frames;
     if (!xf.len) xf.head = 0, xf.owner = s->id, xf.rate = rate, xf.nch = nch, xf.length = length;
-    for (unsigned i = 0; i < frames; ++i)
-        memcpy(xf.ring + (xf.head + xf.len + i) % cap * nch, a + i * nch, 4 * nch);
+    ring_copy(a, (xf.head + xf.len) % cap, frames, cap, nch, 1);
     xf.len += frames;
     unsigned k = (frames + 1) / 2;
     if (xf.len > want && xf.len - want > k) k = xf.len - want;
     if (k > frames) k = frames;
-    for (unsigned i = 0; i < k; ++i) memcpy(a + i * nch, xf.ring + (xf.head + i) % cap * nch, 4 * nch);
+    ring_copy(a, xf.head, k, cap, nch, 0);
     xf.head = (xf.head + k) % cap;
     xf.len -= k;
     xf.last = now;
