@@ -102,6 +102,9 @@ HOOKS = {
     'mcl_tidalStartPlayer': (0x5ad240, 'tidal_start', 'tidal'),
     # Ratings (navigation.c rate_bind): Now Playing's heart, held, opens the picker
     'playing_page_init': (0x52ca88, 'ringnav_playing', 'playing'),
+    # The Wi-Fi signal (navigation.c ringnav_wifi_signal): the driver's rx_signal instead of an ioctl
+    # that takes the radio out of power save; the status bar and the network monitor (a bal) poll it
+    'networkGetWifiSignal': (0x5afb48, 'ringnav_wifi_signal', None),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist', 'playlist'),
@@ -188,6 +191,10 @@ WATCHDOG = 'usr/bin/checkappprocess.sh'
 WATCHDOG_SLEEP = (b'\tsleep 2\n', b'\tsleep 10\n')
 # toolsSetRtcTime's command, with its padding; -u keeps the RTC in UTC. See docs/internals.md#clock.
 RTC_WRITE = (b'hwclock -w\0\0', b'hwclock -wu\0')
+# network_checkstatus's command once Wi-Fi connects (its digit at file offset 0x37133d): stock turns
+# the radio's power save (LPS) off for the whole connection; 2 restores the driver's own default,
+# PS_MODE_MAX. See docs/internals.md#battery.
+WIFI_LPS = (b'rtwpriv wlan0 pm_set lps=0\0', b'rtwpriv wlan0 pm_set lps=2\0')
 # The lock window's 12-hour clock format (after its 24-hour hh:mm, by clock_time): stock's HH:TT shows
 # "05:PM"; H:mm is the hour 1-12 unpadded and the minutes (tk_date_time_format_impl), "5:07".
 LOCK_CLOCK_12H = (b'hh:mm\0\0\0HH:TT\0', b'hh:mm\0\0\0H:mm\0\0')
@@ -1187,6 +1194,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
           'VERSION must be three single digits (x.y.z): the 5-character tag would shift every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
     patched = patched.replace(*RTC_WRITE)
+    check(patched.count(WIFI_LPS[0]) == 1, 'Unexpected Wi-Fi power save command')
+    patched = patched.replace(*WIFI_LPS)
     check(patched.count(LOCK_CLOCK_12H[0]) == 1, 'Unexpected lock clock formats')
     patched = patched.replace(*LOCK_CLOCK_12H)
     check(re.search(r'\.pdr +PROGBITS +0+ +0*%x +0*%x ' % PDR, run('readelf', '-SW', demo)) and

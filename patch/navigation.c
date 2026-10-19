@@ -6216,6 +6216,36 @@ static void charge_poll(void) {
     st.charge_held = hold;
 }
 
+/* The Wi-Fi signal (docs/internals.md#battery), for networkGetWifiSignal's two pollers: the status
+ * bar's bars (get_wifisignal) and the network monitor thread's connect status, each about once a
+ * second. Stock asks with SIOCGIWSTATS, which the driver answers through get_station, whose TX
+ * report takes the radio out of power save (LPS) every time. The driver keeps the same signal in
+ * rx_signal, a percentage that get_station reports less 100 as dBm, and reading it touches no
+ * hardware. Unreadable, it is 0, as stock's failed ioctl. Stock's unsigned level wraps the one
+ * value 0 dBm (100%) to -256, one bar; here it is 0, four. */
+#define WIFI_SIGNAL "/proc/net/rtl8733bs/wlan0/rx_signal"
+static struct {
+    unsigned at;
+    int dbm;
+} wifi __attribute__((section(".scratch")));
+
+int ringnav_wifi_signal(void) {
+    unsigned now = time_now_ms();
+    if (wifi.at && now - wifi.at < WIFI_SIGNAL_MS) return wifi.dbm;
+    char text[512];
+    int fd = open(WIFI_SIGNAL, 0x80000); /* O_RDONLY | O_CLOEXEC, MIPS */
+    int n = fd < 0 ? 0 : read(fd, text, sizeof text - 1);
+    if (fd >= 0) close(fd);
+    text[n > 0 ? n : 0] = 0;
+    const char *s = strstr(text, "signal_strength:");
+    int pct = 0;
+    if (s)
+        for (s += 16; *s >= '0' && *s <= '9'; ++s) pct = pct * 10 + *s - '0';
+    wifi.dbm = s ? pct - 100 : 0;
+    wifi.at = now | !now; /* never 0, not read yet */
+    return wifi.dbm;
+}
+
 /* Low power's second core (docs/internals.md#low-power): CPU1 is offline while the screen is off
  * and no video plays, so the player decodes on one core and the UI, Coverflow and videos keep both.
  * The first offline of a boot is bracketed by CPU1_PENDING, synced to flash: if a kernel stalled on
