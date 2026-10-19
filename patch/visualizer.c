@@ -25,7 +25,7 @@ static struct {
     unsigned timer, last, named, heard; /* heard: the last tick with audio */
     unsigned retry; /* a paint missed while not settled looks again (look) */
     int ox, oy, page_x; /* the slide area in the window; the page's canvas x there as last painted */
-    int style, tapped; /* tapped: the filter was put in the chain this boot */
+    int style;
     int quiet; /* at rest (not playing, nothing heard), the style's name gone, as last ticked: the
                 * track's name shows, and its change repaints */
 #endif
@@ -235,9 +235,8 @@ static int tick(const void *unused) {
         return 7; /* RET_REMOVE */
     }
     /* The tap lives in hciplayer's PEQ filter, which boot leaves out of the chain when PEQ is off: the
-     * first tick (outside the paint) puts it in, in bypass, as the editor's switch does. */
-    if (!vz.tapped && !g_equalizer_flag) peq_attach();
-    vz.tapped = 1;
+     * first tick (outside the paint) while playing puts it in, in bypass, as the editor's switch does. */
+    peq_chain();
     unsigned now = time_now_ms(), rate = capture();
     float dt = (now - vz.last) / 1000.0f;
     vz.last = now;

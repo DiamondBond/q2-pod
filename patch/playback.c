@@ -1096,6 +1096,7 @@ static int playback_next(void) {
 void playback_poll(void) {
     wheel_pct(); /* the saved sensitivity from the first UI pass */
     xfade_poll(playback_next());
+    mono_sync();
     unsigned now = time_now_ms();
     if (!s.active) return;
     /* playback_save writes only what changed, at most every 5 s. A track that just plays on

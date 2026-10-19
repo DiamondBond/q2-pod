@@ -2,10 +2,12 @@
 #include "offsets.inc"
 
 extern int stock_eq_trampoline(int mode);
+int peq_chained __attribute__((section(".scratch"))); /* a peq_stock_eq this boot: the filter is in */
 /* All calls, including restored playback, instantiate the replacement even in bypass.
  * Afterwards the flag only drives the status-bar EQ icon (systembar_showface @0x52f8b0): on
  * while 3EQ or PEQ is. */
 int peq_stock_eq(int mode) {
+    peq_chained = 1;
     g_equalizer_flag = 1;
     int result = stock_eq_trampoline(1);
     eq_state s;

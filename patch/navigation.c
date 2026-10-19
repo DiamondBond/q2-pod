@@ -93,7 +93,9 @@ extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas)
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event), spot_hold(void *top);
 extern void radio_poll(void);
-extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label);
+extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label),
+    mono_row(void *label);
+extern int mono_click(void *ctx, void *event);
 extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key), resume_min(void);
 extern int eq_key(void *top, unsigned key); /* peq_ui.c */
 extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
@@ -2321,13 +2323,12 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
 
 /* Playback Setting: what is changed while listening first, then library behaviour, then output. */
 static const unsigned char playset_order[] = {
-    3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,
-    10 /* ReplayGain */,   18 /* Crossfade */,   9 /* Gapless */,
-    4 /* Max Volume */,    5 /* Default Vol */,  11 /* Balance */,
-    1 /* Filters */,       8 /* Memory play */,  20 /* Resume Songs */,
-    16 /* Artists */,      15 /* Year order */,  17 /* Artist album order */,
-    13 /* Folder art */,   14 /* Folder skip */, 19 /* Folder Root */,
-    12 /* Enlarged art */, 6 /* DSD Output */,   7 /* USB Audio */,
+    3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,         10 /* ReplayGain */,
+    18 /* Crossfade */,    9 /* Gapless */,      4 /* Max Volume */,   5 /* Default Vol */,
+    11 /* Balance */,      21 /* Mono Audio */,  1 /* Filters */,      8 /* Memory play */,
+    20 /* Resume Songs */, 16 /* Artists */,     15 /* Year order */,  17 /* Artist album order */,
+    13 /* Folder art */,   14 /* Folder skip */, 19 /* Folder Root */, 12 /* Enlarged art */,
+    6 /* DSD Output */,    7 /* USB Audio */,
 };
 /* System Setting: connections and display first, boot/update/reset/about last. */
 static const unsigned char sysset_order[] = {
@@ -2402,6 +2403,7 @@ int ringnav_audioset(void *win, void *ctx) {
         st.root_label = list_row(view, "playset_folderjump", root_click, 0);
         root_text(name);
         resume_row(list_row(view, "playset_memplay", xfade_open, (void *)2)); /* crossfade.c */
+        mono_row(list_row(view, "playset_balance", mono_click, 0));
     }
     reorder(view, playset_order, sizeof playset_order);
     return result;

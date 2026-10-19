@@ -128,22 +128,28 @@ static struct {
 } xf;
 static int xf_ids;
 
-/* demo's fade for the next change, looked for once a second of audio until the file appears. */
-static int xfade_ms(int rate, unsigned frames) {
-    static volatile int *f;
-    static unsigned wait = ~0u;
-    if (!f && wait < (unsigned)rate) {
-        wait += frames;
-    } else if (!f) {
-        wait = 0;
-        int fd = open(XFADE_FILE, 0); /* O_RDONLY */
+/* An int demo writes (XFADE_FILE, MONO_FILE), mapped read-only, looked for once a second of audio
+ * until the file appears; 0 till then, or below. */
+typedef struct { volatile int *f; unsigned wait; } watched;
+static int watch(watched *w, const char *path, int rate, unsigned frames) {
+    if (!w->f && w->wait < (unsigned)rate) {
+        w->wait += frames;
+    } else if (!w->f) {
+        w->wait = 0;
+        int fd = open(path, 0); /* O_RDONLY */
         if (fd >= 0) {
-            void *p = mmap64(0, sizeof *f, 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
+            void *p = mmap64(0, sizeof *w->f, 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
             close(fd);
-            if (p != (void *)-1) f = p;
+            if (p != (void *)-1) w->f = p;
         }
     }
-    return f && *f > 0 ? *f : 0;
+    return w->f && *w->f > 0 ? *w->f : 0;
+}
+
+/* demo's fade for the next change. */
+static int xfade_ms(int rate, unsigned frames) {
+    static watched w = { 0, ~0u };
+    return watch(&w, XFADE_FILE, rate, frames);
 }
 
 /* n frames between a and the ring's frame at (of cap), into the ring if put: two spans where it wraps. */
@@ -218,6 +224,10 @@ static af_data *play(af_instance *af, af_data *data) {
         !(data->len % (4 * data->nch))) {
         unsigned frames = (unsigned)data->len / (4 * data->nch);
         peq_process(&s->dsp, data->audio, frames);
+        static watched mono = { 0, ~0u }; /* Mono Audio (crossfade.c mono_sync), after the EQ's sides */
+        if (data->nch == 2 && watch(&mono, MONO_FILE, data->rate, frames))
+            for (float *a = data->audio, *end = a + 2 * frames; a < end; a += 2)
+                a[0] = a[1] = (a[0] + a[1]) * 0.5f;
         frames = crossfade(s, data->audio, frames, data->nch, data->rate);
         data->len = (int)(frames * 4 * data->nch);
         tap(data->audio, frames, data->nch, data->rate);

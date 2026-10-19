@@ -8634,8 +8634,8 @@ assert m.get(payload_syms['wheel_guard'])==1; passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'STANDBYLIMIT':'4'})
 assert texts()[4]=='Standby Limit: Off'; passed()  # out of range: Off
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
-assert len(rows)==6 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump','playset_memplay']
-assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min']
+assert len(rows)==7 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump','playset_memplay','playset_balance']
+assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min','Mono Audio: Off']
 assert click(2)==[(1,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: A–Z'
 assert click(2)==[(0,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: Year'
 assert click(0)==[(1,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Oldest First'
@@ -8684,9 +8684,38 @@ for config,text in (({},'Artists: Album Artist'),({'ARTISTTYPE':'0'},'Artists: A
     shown=settings_page('audioset','scroll_view_playset',config,stock_rows=15,boot=True)[2]
     assert shown()[1]==text,config
 passed()
+# Mono Audio (crossfade.c mono_click): saved as Q2POD MONO, the row's text following, and the int
+# hciplayer and q2video map (MONO_FILE) set live. No file until it is first turned on.
+class MonoMachine(QueueMachine):
+    def __init__(self):
+        super().__init__(); self.flag=self.alloc(4); self.word(syms['g_equalizer_flag'],1)  # the filter is in
+        for n in ('open','ftruncate','rename','mmap','close'): self.handlers[syms[n+'@GLIBC_2.0']]='mono:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('mono:'): return super().hook(u,address,size,unused)
+        self.calls.append((name,)); self.returns(self.flag if name=='mono:mmap' else 3 if name=='mono:open' else 0)
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15,cls=MonoMachine)
+assert not [c for c in m.calls if c[0]=='mono:open']
+assert click(6)==[(1,'Q2POD','MONO')] and texts()[6]=='Mono Audio: On' and m.get(m.flag)==1
+assert click(6)==[(0,'Q2POD','MONO')] and texts()[6]=='Mono Audio: Off' and m.get(m.flag)==0
+assert [c[0] for c in m.calls if c[0]=='mono:open']==[]; passed()  # mapped once
+# Mono Audio with the EQ off and the player stopped (mono_sync): the filter is not attached until something
+# plays (peq_chain), then is attached; once the filter is in (peq_chained) a later sync does not attach it again.
+class MonoStoppedMachine(MonoMachine):
+    def __init__(self):
+        super().__init__(); self.word(syms['g_equalizer_flag'],0); self.handlers.pop(syms['mclGetPlayStatus'],None)
+        self.word(PLAY_STATUS,1); self.handlers[payload_syms['peq_attach']]='mono:peq_attach'
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15,cls=MonoStoppedMachine)
+assert click(6)==[(1,'Q2POD','MONO')] and not [c for c in m.calls if c[0]=='mono:peq_attach']
+m.word(PLAY_STATUS,2)
+m.call(address=payload_syms['mono_sync'],args=(0,0,0,0),gap=0)
+assert [c[0] for c in m.calls].count('mono:peq_attach')==1
+m.word(payload_syms['peq_chained'],1)  # what the attach's peq_stock_eq leaves, as any EQ switch this boot
+m.call(address=payload_syms['mono_sync'],args=(0,0,0,0),gap=0)
+assert 'mono:peq_attach' not in [c[0] for c in m.calls]; passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
-assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,1,8,20,16,15,17,13,14,19,12,6,7]; passed()
+assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,21,1,8,20,16,15,17,13,14,19,12,6,7]; passed()
 # Folder Root (#49): the row cycles the card's top-level folders, case aside, then the card, saving Q2POD
 # FOLDERROOT each time. Not offered: files, dot-folders, names with an edge space or over 200 bytes (a
 # config.ini line can't keep them). A saved folder gone moves on to the next name after it.

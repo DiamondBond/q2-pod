@@ -30,6 +30,7 @@
 #define Q2VIDEO_PLACE "/tmp/q2video.place" /* an int, the second: books.c VIDEO_PLACE */
 #define RADIO_SOCK "/tmp/q2radio.sock"
 #define SINK_SOCK "/tmp/q2sink.sock" /* spotify.c SPOT_SINK */
+#define MONO_FILE "/tmp/q2mono" /* peq.h's: an int, 1 for Mono Audio */
 #define RADIO_STATE "/tmp/q2radio.state" /* key=value lines, as spotify.c reads librespot's */
 #define RADIO_TRIES 5                       /* starts in a row without sound, then state=error */
 #define RADIO_SILENT_MS 20000 /* a start without a sound written: the output is stuck, give up */
@@ -77,6 +78,11 @@ int video_pause(int paused, int command) {
 /* n samples times gain g (at most 65536, so no sample overflows). */
 void scale(short *s, unsigned n, int g) {
     for (unsigned i = 0; i < n; ++i) s[i] = (short)(s[i] * g >> 16);
+}
+
+/* Mono Audio: each of n stereo frames' channels their mean. */
+void mono(short *s, unsigned n) {
+    for (unsigned i = 0; i < 2 * n; i += 2) s[i] = s[i + 1] = (short)((s[i] + s[i + 1]) >> 1);
 }
 
 /* The seconds in ffmpeg's "Duration: HH:MM:SS.ss" line; 0 without one. */
@@ -180,7 +186,16 @@ static struct {
 static void *writer(void *unused) {
     short buf[2 * CHUNK];
     long written = 0, delay;
-    for (int end = 0; !end;) {
+    volatile int *mono_on = 0; /* demo's MONO_FILE, looked for every hundredth chunk till it appears */
+    for (int end = 0, tries = 0; !end;) {
+        if (!mono_on && !(tries++ % 100)) {
+            int fd = open(MONO_FILE, 0); /* O_RDONLY */
+            if (fd >= 0) {
+                void *p = mmap(0, sizeof *mono_on, 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
+                close(fd);
+                if (p != (void *)-1) mono_on = p;
+            }
+        }
         unsigned got = 0;
         while (got < sizeof buf) {
             int r = read(au.fd, (char *)buf + got, sizeof buf - got);
@@ -191,6 +206,7 @@ static void *writer(void *unused) {
         if (!frames) break;
         while (au.paused) usleep(100000);
         if (au.gain < 65536) scale(buf, 2 * frames, au.gain);
+        if (mono_on && *mono_on > 0) mono(buf, frames);
         int recovered = 0;
         for (unsigned sent = 0; sent < frames;) {
             long r = snd_pcm_writei(au.pcm, buf + 2 * sent, frames - sent);
@@ -262,27 +278,29 @@ static const char *usb_device(char *out) {
 }
 
 /* ALSA dev ("-" for none, "usb" for usb_device) into au.pcm at rate; Bluetooth or a USB DAC (a
- * volume, vol) have no headphone DAC and get hciplayer's soft volume unless "h". Returns the DAC,
- * readied, or -1; without a device, au.error says which step failed and ALSA's reason. */
+ * volume, vol) get hciplayer's soft volume unless "h". The headphone DAC, plughw:0,0 (Spotify's
+ * sink there with Mono Audio has an h volume), is readied: returns it, else -1; without a device,
+ * au.error says which step failed and ALSA's reason. */
 static int sound_open(const char *dev, const char *vol, unsigned rate) {
-    int dac = -1, off = 0, err = 0;
+    int dac = -1, off = 0, err = 0, jack;
     char usb[16];
     if (!strcmp(dev, "usb")) dev = usb_device(usb);
+    jack = !strcmp(dev, "plughw:0,0");
     au.gain = vol && vol[0] != 'h' ? bt_gain(atoi(vol)) : 65536;
     if (strcmp(dev, "-")) {
         /* hciplayer lets go of the device, muting the DAC, a moment after demo's stop; bluealsa
          * (one client a PCM) can take longer, so Bluetooth and USB get 5 s */
-        for (int i = 0; i < (vol ? 50 : 20) && (err = snd_pcm_open(&au.pcm, dev, 0, 0)); ++i)
+        for (int i = 0; i < (jack ? 20 : 50) && (err = snd_pcm_open(&au.pcm, dev, 0, 0)); ++i)
             au.pcm = 0, usleep(100000);
         if (err) snprintf(au.error, sizeof au.error, "open: %s", snd_strerror(err));
         /* bluealsa claims its PCM here, not at open: busy (-EBUSY) while hciplayer holds it */
         for (int i = 0; au.pcm && (err = snd_pcm_set_params(au.pcm, 2, 3, 2, rate, 1, LATENCY)) == -16 &&
-                        vol && i < 50; ++i) /* S16_LE, RW_INTERLEAVED */
+                        !jack && i < 50; ++i) /* S16_LE, RW_INTERLEAVED */
             usleep(100000);
         if (au.pcm && err)
             snd_pcm_close(au.pcm), au.pcm = 0,
                 snprintf(au.error, sizeof au.error, "params: %s", snd_strerror(err));
-        if (au.pcm && !vol && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
+        if (au.pcm && jack && (dac = open(DAC, O_RDWR | O_CLOEXEC)) >= 0)
             ioctl(dac, DAC_PCM, &off), ioctl(dac, DAC_MUTE, &off);
     }
     return dac;

@@ -1095,6 +1095,29 @@ static void crossfade_check(void) {
     peq_pts = -1;
 }
 
+/* Mono Audio (peq_player.c play): demo's MONO_FILE, looked for once a second of audio; set, each
+ * stereo frame is its channels' mean, live; cleared, the block plays exactly. */
+static void mono_check(void) {
+    static float buf[2 * 1024];
+    af_instance a;
+    int fd = open(MONO_FILE, O_RDWR | O_CREAT, 0644);
+    assert(fd >= 0 && !ftruncate(fd, sizeof(int)));
+    volatile int *f = mmap(0, sizeof *f, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    assert(f != MAP_FAILED && !close(fd));
+    *f = 1;
+    unlink(PEQ_ACTIVE); /* bypass */
+    track(&a, 48000);
+    unsigned n = 0, k = 0;
+    for (int i = 0; i < 60; ++i) k = block(&a, buf, 1024, &n, -1, 48000); /* found within a second */
+    for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == buf[2 * i + 1] && buf[2 * i] == (n - k + i - 1.0f) * 0.5f);
+    *f = 0;
+    k = block(&a, buf, 1024, &n, -1, 48000);
+    for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)(n - k + i) && buf[2 * i + 1] == -1);
+    a.uninit(&a);
+    unlink(MONO_FILE);
+    peq_pts = -1;
+}
+
 int main(void) {
     af_instance af;
     tap_view();
@@ -1229,6 +1252,7 @@ int main(void) {
     af.uninit(&af);
     assert(!af.data && !af.setup);
     crossfade_check();
+    mono_check();
 
     /* Exact VBR seeking: a 44.1 kHz stereo MPEG-1 Layer III Xing frame, 3600 s long, whose table
      * puts the first half of the time in the first quarter of the bytes. */
@@ -1269,7 +1293,7 @@ def player_check(tmp):
                     '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-I', str(ROOT/'patch'),
                     *map(str, sources), '-Wl,--wrap=clock_gettime', '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup, crossfade and the Xing seek table passed.')
+    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup, crossfade, mono and the Xing seek table passed.')
 
 def visualizer_check(tmp):
     """The visualizer's analysis (patch/visualizer.c vis_bands): a sine lands in its band at full scale."""
@@ -1662,6 +1686,9 @@ def video_check(tmp):
     lib.scale(pcm, 6, 65536); assert list(pcm) == [32767, -32768, 1000, -1000, 1, -1]
     lib.scale(pcm, 5, lib.bt_gain(50)); assert list(pcm) == [3276, -3277, 99, -100, 0, -1]
     lib.scale(pcm, 6, 0); assert list(pcm) == [0] * 6
+    # Mono Audio: each frame's mean in both channels, never clipping at the ends.
+    pcm = (C.c_short * 8)(32767, 32767, -32768, -32768, 1000, -3000, 7, 0)
+    lib.mono(pcm, 4); assert list(pcm) == [32767, 32767, -32768, -32768, -1000, -1000, 3, 3]
     # The length from ffmpeg -i's report, for the position bar.
     assert lib.duration(b'Input #0, mov\n  Duration: 01:02:03.45, start: 0.0\n') == 3723
     assert lib.duration(b'  Duration: N/A, bitrate: N/A') == 0 and lib.duration(b'') == 0

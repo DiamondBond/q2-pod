@@ -4,7 +4,8 @@
  * and off. Display's Wheel sensitivity row opens the same page (xf.ctx 1): 50-200% in tens, no
  * switch, the wheel a ten a tick and Centre back, as on Brightness (navigation.c edit_key). Audio
  * settings' Resume Songs row opens it too (xf.ctx 2): Off and RS_MIN..RS_MAX minutes in fives, the
- * same way, the length a music track needs to keep its place (navigation.c resume_poll). */
+ * same way, the length a music track needs to keep its place (navigation.c resume_poll). Mono
+ * Audio's row and its shared flag live here too (mono_sync). */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -21,10 +22,12 @@
 #define RS_DEFAULT 30
 
 static struct {
-    int read, on, seconds, attached, done, key[4];
+    int read, on, seconds, done, key[4];
     int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs */
     int rs_read, rs_min;
-    volatile int *flag;
+    int mono_read, mono;
+    volatile int *flag, *mono_flag;
+    void *mono_label; /* the Mono Audio row's, while Audio settings is open */
     void *page, *sw, *view, *slider, *dec, *add, *label;
     unsigned press, press_at;
 } xf __attribute__((section(".scratch")));
@@ -89,6 +92,56 @@ static void rs_text(void *label) {
 void resume_row(void *label) {
     widget_set_name(label, RS_ROW);
     rs_text(label);
+}
+
+/* An int shared with hciplayer's filter (and q2video): made whole under tmp and renamed, as the
+ * visualizer's tap is, then mapped; 0 if it cannot be made yet, so the caller tries next pass. */
+static volatile int *shared_int(const char *tmp, const char *path) {
+    void *p = (void *)-1;
+    int fd = open(tmp, 0x302, 0644); /* O_RDWR | O_CREAT | O_TRUNC (MIPS) */
+    if (fd < 0) return 0;
+    if (!ftruncate(fd, sizeof(int)) && !rename(tmp, path))
+        p = mmap(0, sizeof(int), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
+    close(fd);
+    return p != (void *)-1 ? p : 0;
+}
+
+/* The PEQ filter into the chain, in bypass, for the visualizer's tap, a fade or Mono Audio: boot
+ * leaves it out with the EQ off, and any peq_stock_eq since (the EQ switched) has put it in. Only
+ * while something plays (1 stopped), so a call while stopped is simply made again later.
+ * ponytail: whether an attach while stopped would stick is unknown; waiting for play covers both. */
+void peq_chain(void) {
+    if (!peq_chained && !g_equalizer_flag && mclGetPlayStatus() != 1) peq_attach();
+}
+
+/* Mono Audio (Q2POD MONO, read once): MONO_FILE holds it for hciplayer's filter and q2video, which
+ * map it (peq_player.c, video.c), so a change is heard at once. The filter mixes after the EQ. */
+int mono_on(void) {
+    if (!xf.mono_read) xf.mono = config_value("Q2POD", "MONO", 2, 0), xf.mono_read = 1;
+    return xf.mono;
+}
+void mono_sync(void) {
+    if (!xf.mono_flag && (!mono_on() || !(xf.mono_flag = shared_int(MONO_FILE ".tmp", MONO_FILE))))
+        return; /* no file reads as off */
+    *xf.mono_flag = mono_on();
+    if (xf.mono) peq_chain();
+}
+
+static void mono_text(void *label) {
+    widget_set_text_utf8(label, mono_on() ? "Mono Audio: On" : "Mono Audio: Off");
+}
+
+/* Audio settings' row (navigation.c ringnav_audioset makes it): the label, kept for mono_click. */
+void mono_row(void *label) {
+    xf.mono_label = label;
+    mono_text(label);
+}
+int mono_click(void *ctx, void *event) {
+    xf.mono = !mono_on();
+    write_int_config(xf.mono, "Q2POD", "MONO");
+    mono_sync();
+    mono_text(xf.mono_label);
+    return 0;
 }
 
 /* The slider's value: the sensitivity; Resume's minutes, RS_MIN - 5 for Off; or 0 for Off, else
@@ -242,6 +295,7 @@ void xfade_poll(int next) {
     unsigned pos = (unsigned)I(MCL_POS, 0), n = q ? deque_size(q) : 0;
     if (!xf.flag && (next < 0 || pos >= n)) return; /* nothing playing on: no config read yet */
     settings();
+    if (xf.flag && *xf.flag) peq_chain(); /* the fade runs in the filter, once something plays */
     int in = next >= 0 && pos < n && (unsigned)next < n; /* records, not positions: a new queue */
     int key[4] = { xf.on ? xf.seconds : 0, *(volatile unsigned char *)MCL_GAPLESS,
                    in ? (int)deque_at(q, pos) : 0, in ? (int)deque_at(q, (unsigned)next) : 0 };
@@ -251,19 +305,7 @@ void xfade_poll(int next) {
                  ? key[0] * 1000
                  : 0;
     xf.done = 0; /* until the player is told: a file that cannot be made yet is tried next pass */
-    if (!xf.flag && ms) {
-        int fd = open(XFADE_FILE ".tmp", 0x302, 0644); /* O_RDWR | O_CREAT | O_TRUNC (MIPS) */
-        if (fd < 0) return;
-        if (!ftruncate(fd, sizeof *xf.flag) && !rename(XFADE_FILE ".tmp", XFADE_FILE)) {
-            void *p = mmap(0, sizeof *xf.flag, 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
-            if (p != (void *)-1) xf.flag = p;
-        }
-        close(fd);
-        if (!xf.flag) return;
-    }
+    if (!xf.flag && ms && !(xf.flag = shared_int(XFADE_FILE ".tmp", XFADE_FILE))) return;
     if (xf.flag) *xf.flag = ms;
     xf.done = 1;
-    /* The fade runs in the PEQ filter, which boot leaves out of the chain while PEQ is off. */
-    if (ms && !xf.attached && !g_equalizer_flag) peq_attach();
-    xf.attached |= ms != 0;
 }

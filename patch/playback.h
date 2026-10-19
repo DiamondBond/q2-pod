@@ -13,6 +13,7 @@ void playback_insert(unsigned at, unsigned n, int next);
 void playback_poll(void);
 void playback_speed_start(void);
 void xfade_poll(int next); /* crossfade.c */
+void mono_sync(void);      /* crossfade.c */
 int playback_resumed(void *r);
 void playback_save(void);
 void playback_clear(void);

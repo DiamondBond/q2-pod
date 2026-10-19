@@ -186,18 +186,21 @@ static void spot_take(void) {
 
 /* The output in use, which the card's aplay.sh reads each time librespot starts its sink: SPOT_OUT
  * holds output_device's device and volume for Bluetooth or a USB DAC (q2video -s plays there), and
- * is gone for the headphone DAC (aplay on plughw:0,0). Written aside and renamed, when it changes;
- * a running q2video gets v and the volume, as radio's does. ponytail: a new device waits for the
- * sink's next start (pause and play), as Videos and Internet Radio keep theirs till they end. */
+ * is gone for the headphone DAC (aplay on plughw:0,0), except with Mono Audio on: q2video mixes it,
+ * so the DAC is plughw:0,0 with an h volume (the DAC applies it). Written aside and renamed, when it
+ * changes; a running q2video gets v and the volume, as radio's does. ponytail: a new device, or
+ * Mono Audio's switch on the DAC, waits for the sink's next start (pause and play), as Videos and
+ * Internet Radio keep theirs till they end. */
 static void spot_output(void) {
     char vol[5], out[sizeof sp.out] = "", v[2] = { 'v', (char)headset_gain() };
     const char *dev = output_device(vol);
     if (dev) tk_snprintf(out, sizeof out, "%s %s\n", dev, vol);
+    else if (mono_on()) tk_snprintf(out, sizeof out, "plughw:0,0 h%s\n", vol);
     if (!strcmp(out, sp.out)) return;
     memcpy(sp.out, out, sizeof out);
-    void *f = dev ? fopen(SPOT_OUT ".tmp", "w") : 0;
+    void *f = out[0] ? fopen(SPOT_OUT ".tmp", "w") : 0;
     if (f) fwrite(out, 1, strlen(out), f), fclose(f), rename(SPOT_OUT ".tmp", SPOT_OUT);
-    if (!dev) unlink(SPOT_OUT);
+    if (!out[0]) unlink(SPOT_OUT);
     dgram_send(&sp.sock, SPOT_SINK, v, 2);
 }
 
