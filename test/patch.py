@@ -5403,6 +5403,21 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
     events=[event for event,_ in m.trace]
     for event in ('on_player_autochange','toolsLoadNextDir','player_refresh_playqueue'): assert events.count(event)==3
     assert events.count('mclLoadPlayList')==4 and events.count('mclClearChangeFlag')==len(paths)-1
+# A CUE track (issue #59): its record's PERFORMER is kept, a missing sheet TITLE takes the file's album.
+from build import ID3_PATH
+assert struct.unpack_from('<I',demo,fileoff(demo,ID3_PATH[0]))[0]==jal(payload_syms['ringnav_id3_path'])
+m=RolloverMachine((1,1)); m.handlers.pop(syms['mclGetCueFlag'])  # stock's, on the queue
+r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; id3=syms['g_play_id3_info']
+m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m.word(r+O['REC_ARTIST'],m.string('Author'))
+m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
+assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Author','Album 0']
+assert m.text(id3)=='/mnt/mmc/0/0.flac'; passed()
+# ...and a sheet TITLE without PERFORMER keeps the album and takes the file's artist, not Unknown Artist.
+m=RolloverMachine((1,1)); m.handlers.pop(syms['mclGetCueFlag'])
+r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
+m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m.word(r+O['REC_ALBUM'],m.string('Book'))
+m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
+assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Artist','Book']; passed()
 
 # Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg only for an Ogg track
 # stock found none in, never for an MP3 or FLAC, run with parse_cover_mutex dropped. It writes dst.ff,
