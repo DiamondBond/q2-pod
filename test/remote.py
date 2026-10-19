@@ -4,6 +4,7 @@ import os
 import contextlib
 import io
 import pathlib
+import signal
 import socket
 import struct
 import subprocess
@@ -80,9 +81,11 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
     subprocess.run(["cc", "-DREMOTE_HOST", f'-DKEY_FILE="{keyfile}"', f'-DCARD="{root}"', f'-DMOUNTS="{mounts}"',
                     f'-DCACHE_FILE="{cache}"', f"-DPORT={port}",
                     str(pathlib.Path(__file__).resolve().parents[1] / "patch/remote.c"), "-o", str(exe)], check=True)
-    proc = subprocess.Popen([exe])
+    proc = subprocess.Popen([exe], start_new_session=True)  # its own group: forked children die with it
     try:
-        time.sleep(.1)
+        for _ in range(100):  # a forked child writes it: up to 5 s on a loaded host
+            if cache.exists() and cache.read_text(): break
+            time.sleep(.05)
         assert cache.read_text() == "0123456789abcdef\n"  # kept at start, before any client
         os.environ.update(Q2_HOST="127.0.0.1", Q2_KEY="0123456789abcdef")
         assert q.shell("cat", b"\x00binary\xff") == b"\x00binary\xff"
@@ -148,5 +151,6 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
             s.settimeout(12)
             assert s.recv(16) == b""  # 10-second handshake timeout
     finally:
-        proc.terminate(); proc.wait(timeout=2)
+        with contextlib.suppress(ProcessLookupError): os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=2)
 print("Remote auth, rotation/removal, USB-storage key cache, fragmented requests, binary stdin/output, timeout, devices and framebuffer checks passed.")

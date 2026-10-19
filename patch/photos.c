@@ -289,7 +289,7 @@ static void info(void) {
                     s ? "Can't open this photo" : "Loading\xe2\x80\xa6");
     else
         tk_snprintf(caption, sizeof caption, "%d of %d  %s", ph.current + 1, ph.n, name);
-    if (tk_strcmp(widget_get_prop_str(ph.info, "text", ""), caption)) { /* a decode redraws the same */
+    if (text_differs(ph.info, caption)) { /* a decode redraws the same */
         widget_set_text_utf8(ph.info, caption);
         widget_set_prop_int(ph.info, "xoffset", 0); /* a long caption's scroll would shift this one left */
     }
@@ -428,6 +428,13 @@ static slot_t *slot(slot_t *s, int count, int box, int i, const char *suffix) {
     if (src) bitmap_unlock_buffer(bitmap);
     widget_unload_image(ph.page, bitmap);
     return pick;
+}
+
+/* w's text isn't s. AWTK keeps a widget's text as UTF-32, which widget_get_prop_str(w, "text")
+ * never returns, so a compare through it always differs and every set repaints. */
+int text_differs(void *w, const char *s) {
+    char cur[512] = ""; /* stock writes nothing when it doesn't fit */
+    return widget_get_text_utf8(w, cur, sizeof cur) || strcmp(cur, s);
 }
 
 /* The bottom caption of a page h high: above the rounded glass's bottom corners, dark under white

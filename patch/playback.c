@@ -809,7 +809,7 @@ void playback_save(void) {
         s.resume_wait = 0;
     if (sec < 0) sec = 0;
     if (!s.dirty && !s.save_failed && sec == s.saved_elapsed && (unsigned)M(MCL_POS) == s.saved_pos) return;
-    /* Failed checkpoints stay pending, but the UI loop retries at most every five seconds. */
+    /* Failed checkpoints stay pending; the UI loop retries at most every five seconds. */
     s.save_failed = 1;
     s.stamp = time_now_ms();
     if (!s.dirty && (unsigned)M(MCL_POS) == s.saved_pos) {
@@ -1097,8 +1097,20 @@ void playback_poll(void) {
     wheel_pct(); /* the saved sensitivity from the first UI pass */
     xfade_poll(playback_next());
     unsigned now = time_now_ms();
-    /* playback_save writes only what changed. */
-    if (s.active && ((s.dirty && !s.save_failed) || now - s.stamp >= 5000)) playback_save(), s.stamp = now;
+    if (!s.active) return;
+    /* playback_save writes only what changed, at most every 5 s. A track that just plays on
+     * writes its elapsed second every 30 s instead (a synced flash write each); a new track, a
+     * pause, a seek or a failed write go within 5 s, and power-off saves exactly
+     * (ringnav_savequeue). */
+    if (!(s.dirty && !s.save_failed)) {
+        if (now - s.stamp < 5000) return;
+        int sec = 0, total = 0;
+        mclGetPlayTime(&sec, &total);
+        if (now - s.stamp < 30000 && !s.save_failed && mclGetPlayStatus() == 2 &&
+            (unsigned)M(MCL_POS) == s.saved_pos && (unsigned)(sec - s.saved_elapsed) <= 35)
+            return;
+    }
+    playback_save(), s.stamp = now;
 }
 
 int ringnav_savequeue(void) {

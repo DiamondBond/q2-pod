@@ -189,7 +189,7 @@ static void *writer(void *unused) {
         }
         unsigned frames = got / 4;
         if (!frames) break;
-        while (au.paused) usleep(20000);
+        while (au.paused) usleep(100000);
         if (au.gain < 65536) scale(buf, 2 * frames, au.gain);
         int recovered = 0;
         for (unsigned sent = 0; sent < frames;) {
@@ -218,6 +218,28 @@ static void *writer(void *unused) {
 static void move_fd(int fd, int at) {
     dup2(fd, at);
     fcntl(at, F_SETFD, 0);
+}
+
+/* ffmpeg with args, a onto fd at_a and b (unless -1) onto at_b; its pid, -1 when fork failed. */
+static int ffmpeg(const char **args, int a, int at_a, int b, int at_b) {
+    int pid = fork();
+    if (!pid) {
+        move_fd(a, at_a);
+        if (b >= 0) move_fd(b, at_b);
+        execv(FFMPEG, args);
+        _exit(127);
+    }
+    return pid;
+}
+
+/* A datagram socket bound at path, a stale one unlinked first. */
+static int dgram_listen(const char *path) {
+    int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
+    struct sockaddr_un addr = { AF_UNIX, { 0 } };
+    memcpy(addr.path, path, strlen(path) + 1);
+    unlink(path);
+    bind(sock, &addr, sizeof addr);
+    return sock;
 }
 
 static long long now_ms(void) {
@@ -299,10 +321,7 @@ static int radio(int argc, char **argv) {
     radio_state("connecting");
     int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argv[1], argc > 3 ? argv[3] : 0, RATE);
     int on = 1, quit = 0, tries = 0;
-    int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
-    struct sockaddr_un addr = { AF_UNIX, RADIO_SOCK };
-    unlink(RADIO_SOCK);
-    bind(sock, &addr, sizeof addr);
+    int sock = dgram_listen(RADIO_SOCK);
     while (au.pcm && !quit && tries++ < RADIO_TRIES) {
         int ap[2], ep[2] = { -1, -1 }, len = 0;
         if (pipe2(ap, O_CLOEXEC) || pipe2(ep, O_CLOEXEC)) break;
@@ -313,13 +332,7 @@ static int radio(int argc, char **argv) {
                                "pipe:4", 0 };
         rs.at = 0;
         radio_state("connecting");
-        int pid = fork();
-        if (!pid) {
-            move_fd(ap[1], 4);
-            move_fd(ep[1], 2);
-            execv(FFMPEG, args);
-            _exit(127);
-        }
+        int pid = ffmpeg(args, ap[1], 4, ep[1], 2);
         close(ap[1]), close(ep[1]);
         unsigned long thread = 0;
         au.fd = ap[0];
@@ -381,11 +394,8 @@ static int radio(int argc, char **argv) {
  * 44.1 kHz S16 stereo from stdin until it ends or the device fails, at the soft volume, with v and
  * q on SINK_SOCK as radio's. */
 static int sink(char **argv) {
-    int soft = argv[2][0] != 'h', quit = 0, sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
-    struct sockaddr_un addr = { AF_UNIX, SINK_SOCK };
+    int soft = argv[2][0] != 'h', quit = 0, sock = dgram_listen(SINK_SOCK);
     unsigned long thread = 0;
-    unlink(SINK_SOCK);
-    bind(sock, &addr, sizeof addr);
     sound_open(argv[1], argv[2], 44100);
     if (au.pcm && !pthread_create(&thread, 0, writer, 0)) /* au.fd 0: stdin */
         while (!au.done && !quit) {
@@ -426,22 +436,14 @@ int main(int argc, char **argv) {
         return 1;
     unsigned char *mem = mmap(0, fix[5], 3, 1, fb, 0), *frame = malloc(row * H);
     if (mem == (void *)-1 || !frame) return 1;
-    int sock = socket(AF_UNIX, SOCK_DGRAM | O_CLOEXEC, 0);
-    struct sockaddr_un addr = { AF_UNIX, Q2VIDEO_SOCK };
-    unlink(Q2VIDEO_SOCK);
-    bind(sock, &addr, sizeof addr);
+    int sock = dgram_listen(Q2VIDEO_SOCK);
     int soft = argc > 3 && argv[3][0] != 'h', dac = sound_open(argv[1], argc > 3 ? argv[3] : 0, RATE), on = 1;
     /* ffmpeg -i alone, meanwhile, for the length the position bar needs */
     char info[4096];
     int at = 0, audio = au.pcm != 0, first = 1, quit = 0, held = 0, pp[2] = { -1, -1 }, got = 0;
-    int len = 0, vol = 0, pos_bar = 0, redraw = 0, probe = pipe2(pp, O_CLOEXEC) ? -1 : fork();
+    const char *pa[] = { FFMPEG, "-nostdin", "-hide_banner", "-i", argv[2], 0 };
+    int len = 0, vol = 0, pos_bar = 0, redraw = 0, probe = pipe2(pp, O_CLOEXEC) ? -1 : ffmpeg(pa, pp[1], 2, -1, 0);
     long long until = 0;
-    if (!probe) {
-        const char *pa[] = { FFMPEG, "-nostdin", "-hide_banner", "-i", argv[2], 0 };
-        move_fd(pp[1], 2);
-        execv(FFMPEG, pa);
-        _exit(127);
-    }
     close(pp[1]);
     int fd = open(Q2VIDEO_PLACE, O_CLOEXEC), place = 0;
     if (fd >= 0) read(fd, &at, sizeof at), close(fd);
@@ -453,13 +455,7 @@ int main(int argc, char **argv) {
         const char *args[27];
         char ss[16];
         ffmpeg_argv(args, ss, at, argv[2], audio);
-        int pid = fork();
-        if (!pid) {
-            move_fd(vp[1], 3);
-            if (audio) move_fd(ap[1], 4);
-            execv(FFMPEG, args);
-            _exit(127);
-        }
+        int pid = ffmpeg(args, vp[1], 3, audio ? ap[1] : -1, 4);
         close(vp[1]);
         unsigned long thread = 0;
         au.paused = held; /* before the writer starts, so a paused seek plays nothing */
@@ -501,7 +497,8 @@ int main(int argc, char **argv) {
             if (seek && wait <= 0) break;
             /* POLLIN; poll skips the probe's -1 once it is read */
             struct pollfd p[3] = { { sock, 1, 0 }, { pp[0], 1, 0 }, { vp[0], 1, 0 } };
-            poll(p, have < size ? 3 : 2, wait < 100 ? wait : 100);
+            int cap = au.paused && !until && !seek ? 1000 : 100; /* paused and still: wait on a key */
+            poll(p, have < size ? 3 : 2, wait < cap ? wait : cap);
             char c[2] = { 0 };
             if (p[0].revents && recv(sock, c, 2, 0) > 0) {
                 if (c[0] == 'p' || c[0] == 'a' || c[0] == 'r') { au.paused = video_pause(au.paused, c[0]);

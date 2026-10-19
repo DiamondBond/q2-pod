@@ -148,7 +148,6 @@ void vis_analyze(int style, unsigned rate, float dt, unsigned now) {
 }
 
 #ifndef PEQ_HOST
-extern int config_digit(const char *key, int n);
 /* The accent's palette: its light tone, a dark shade of it and a bright tint, never washed to white. */
 #define DARK(tone) mix(tone, 0, 55, 100)
 #define BRIGHT(tone) mix(tone, 0xffffff, 30, 100)
@@ -505,7 +504,7 @@ static int gone(void *win, void *event) {
 void visualizer_attach(void *win) {
     void *slide = widget_lookup(win, "slide_view", 1), *dots = widget_lookup(win, "slide_indicator1", 1);
     if (!slide) return;
-    vz.style = config_digit("VIS", STYLES);
+    vz.style = config_value("IPOD", "VIS", STYLES, 0);
     vz.win = win;
     vz.slide = slide;
     vz.cover = widget_lookup(win, "img_cover", 1);

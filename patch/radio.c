@@ -337,7 +337,7 @@ int radio_media(unsigned key) {
 
 /* A label's text, written only when it changes, so a scrolling one keeps its place. */
 static void set(void *w, const char *s) {
-    if (tk_strcmp(widget_get_prop_str(w, "text", ""), s)) widget_set_text_utf8(w, s);
+    if (text_differs(w, s)) widget_set_text_utf8(w, s);
 }
 
 static void later(int next, int arg);

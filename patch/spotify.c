@@ -89,11 +89,12 @@ int spot_reply(char *buf, unsigned len, char **f, int max) {
 #define SPOT_PAIR_MS 2000  /* pairing, or an old add-on: account asked again this often */
 #define SPOT_OLD_MS 3000   /* no browse socket this long after the start, but a state file: an old add-on */
 #define SPOT_SIGNOUT_MS 15000 /* librespot exits on signout; its launcher restarts it within this */
+#define SPOT_ALIVE_MS 10000   /* while it holds the timers, librespot's socket is checked this often */
 
 /* librespot as last read; kept for the life of demo. */
 static struct {
-    int launched, sock, playing, paused, local, active, played;
-    unsigned polled, idle_at, duration, position, cover, launch_at;
+    int launched, sock, playing, paused, local, active, played, dead; /* dead: its socket refused */
+    unsigned polled, idle_at, duration, position, cover, launch_at, alive_at;
     unsigned long long at;
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
@@ -107,7 +108,7 @@ static struct {
 static struct {
     void *page, *info, *msg, *art, *bar, *glyph, *title, *artist, *album, *elapsed, *remain, *note,
         *sub;
-    unsigned timer, leave, scrub_at, shown, playing, press, press_at;
+    unsigned timer, leave, scrub_at, shown, playing, press, press_at, bar_drawn; /* bar_drawn: its state + 1 */
     int scrub, scrub_ms;
     char art_track[64], art_tried[64]; /* art_tried: the track whose cover failed, tried art_tries times */
     int art_tries;
@@ -251,6 +252,15 @@ void spot_stop(void) {
     sp.sock = sock;
 }
 
+/* librespot's control socket takes a connection (nothing sent): a crashed one leaves its state
+ * and download files saying playing, which would hold the timers and the DAC for good. */
+static int spot_alive(void) {
+    struct unix_addr to = { 1, SPOT_SOCK };
+    int fd = socket(1, 1, 0), ok = fd < 0 || !connect(fd, &to, sizeof to); /* AF_UNIX, SOCK_DGRAM */
+    if (fd >= 0) close(fd);
+    return ok;
+}
+
 /* ringnav_sleep, every UI loop pass: nothing until Streaming's Spotify row started librespot; then,
  * paced to SPOT_POLL_MS, the output (spot_output), its state, and while it plays the standby and
  * auto-power-off timers held and the DAC kept on (check_dacoff_state). The screen's own timer runs,
@@ -265,10 +275,14 @@ void spot_poll(void) {
     if (spot_read(raw, sizeof raw)) {
         memcpy(sp.raw, raw, sizeof raw);
         spot_parse();
+        sp.dead = 0;
     }
     state_read(SPOT_DOWNLOAD, raw, sizeof raw);
     int downloading = number(raw, "downloading") == 1;
     int playing = !strcmp(sp.state, "playing");
+    if ((playing || downloading) && now - sp.alive_at >= SPOT_ALIVE_MS)
+        sp.alive_at = now, sp.dead = !spot_alive();
+    if (sp.dead) playing = downloading = 0; /* a crash's last word: no hold, so it idles out */
     if (playing && !sp.playing) {
         sp.playing = 1;
         spot_take();
@@ -384,7 +398,7 @@ static void spot_refresh(void) {
     void *fields[] = { ui.title, ui.artist, ui.album };
     const char *values[] = { sp.title, sp.artist, sp.album };
     for (unsigned i = 0; i < 3; ++i)
-        if (tk_strcmp(widget_get_prop_str(fields[i], "text", ""), values[i])) {
+        if (text_differs(fields[i], values[i])) {
             widget_set_text_utf8(fields[i], values[i]);
             widget_set_prop_int(fields[i], "xoffset", 0);
         }
@@ -409,7 +423,12 @@ static void spot_refresh(void) {
         ui.shown = ms / 1000 + 1;
         times(ms);
     }
-    widget_invalidate_force(ui.bar, 0);
+    /* only when the drawn width (spot_paint's) or the scrub's colour moves: this runs every tick */
+    unsigned bar = (unsigned)((ms >> 4) * SPOT_BAR_W / ((sp.duration >> 4) | 1)) << 1 | (ui.scrub != 0);
+    if (bar + 1 != ui.bar_drawn) {
+        ui.bar_drawn = bar + 1;
+        widget_invalidate_force(ui.bar, 0);
+    }
     if (ui.playing != (unsigned)sp.playing + 1) {
         ui.playing = (unsigned)sp.playing + 1;
         widget_invalidate_force(ui.glyph, 0);

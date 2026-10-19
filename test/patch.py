@@ -148,7 +148,7 @@ class Machine:
     def byte(self,a,v): self.u.mem_write(a,bytes([v]))
     def word(self,a,v): self.u.mem_write(a,struct.pack('<I',v&0xffffffff))
     def get(self,a): return struct.unpack('<I',self.u.mem_read(a,4))[0]
-    def alloc(self,n=0x200): a=self.next; self.next+=n; return a
+    def alloc(self,n=0x200): a=self.next; self.next+=(n+3)&~3; return a  # word-aligned, as glibc
     def string(self,s):
         data=s.encode()+b'\0'
         a=self.alloc((len(data)+3)&~3); self.u.mem_write(a,data); return a
@@ -3430,7 +3430,15 @@ b.byte(syms['bt_linkstatus'],1); b.word(syms['bt_showcoding'],0); b.poll(); asse
 b.word(syms['bt_showcoding'],1); b.poll(); assert not b.writes(); passed()
 b=BtVolumeMachine(); b.write_result=-1; b.poll()
 assert b.writes()==[25] and not any(c[0]=='stock_btvol' for c in b.calls)
-b.write_result=0; b.poll(); assert b.writes()==[25]; passed()
+b.write_result=0; b.poll(); assert not b.writes()  # a refusal retries at the slow pace
+b.poll(O['BT_VOLUME_SLOW_MS']-400); assert b.writes()==[25]; passed()
+# Dark, the read-back slows down.
+b=BtVolumeMachine(); b.poll(); b.calls=[]; b.byte(syms['g_backlight_status'],0); b.absolute=50
+b.poll(); assert not any(c[0]=='btctl_transport_get_volume' for c in b.calls)
+b.poll(O['BT_VOLUME_SLOW_MS']-400); assert any(c[0]=='btctl_transport_get_volume' for c in b.calls); passed()
+# Dark with a volume limit, the headset's own keys are still held to it at the lit pace.
+b=BtVolumeMachine(); b.byte(syms['g_maxvolume'],60); b.poll(); b.byte(syms['g_backlight_status'],0); b.absolute=127
+b.poll(); assert b.writes()==[76] and b.u.mem_read(syms['g_volume'],1)[0]==60; passed()
 # Native device_set_volume calls LocalVol and BtVol for the DAC/Bluetooth, USB's own
 # setter for USB. g_output_way=0 avoids stock's fixed line-out branch; notify is covered too.
 for way,soft in ((0,0),(1,0),(2,0),(2,1)):
@@ -7453,8 +7461,9 @@ class SpotMachine(BooksMachine):
     def __init__(self,files):
         super().__init__({},files)
         for n in ('system@GLIBC_2.0','clock_gettime@GLIBC_2.2','toolsThumbSpecCover','pthread_mutex_lock@GLIBC_2.0',
-                  'pthread_mutex_unlock@GLIBC_2.0','sleep_ms','mclGetPlayStatus'):
+                  'pthread_mutex_unlock@GLIBC_2.0','sleep_ms','mclGetPlayStatus','connect@GLIBC_2.0'):
             self.handlers[syms[n]]='s:'+n
+        self.alive=True  # librespot's control socket takes a connection (spot_alive)
         for x in ('stream','start_player'):
             tramp=int(manifest['patch_symbols'][f'stock_{x}_trampoline'],16)
             self.handlers[tramp]='stock_'+x; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
@@ -7475,6 +7484,7 @@ class SpotMachine(BooksMachine):
             self.now+=a
             if self.on_sleep: self.on_sleep()
         elif name=='mclGetPlayStatus': ret=self.play
+        elif name=='connect': assert self.text(b+2)==SOCK; ret=0 if self.alive else -1
         self.calls.append((name,a,b,c))
         self.returns(ret,clobber=True)
     def state(self,state,position=0,at=None,cover=0,track='t1',title='Song',artist='A, B',album='LP',duration=200000):
@@ -7703,7 +7713,7 @@ class RadioMachine(SpotMachine):
                 x=parent
             return True
         w=w or self.page
-        return [n['text'] for x,n in self.nodes.items() if n['type']=='hscroll_label' and n.get('text') is not None and linked(x,w)]
+        return [n.get('text','') for x,n in self.nodes.items() if n['type']=='hscroll_label' and linked(x,w)]  # a new label's text is ''
     def back(self,w=None):
         """Return on page w (the radio list by default), and its timers."""
         w=w or self.page; f,ctx=self.handler(w,O['EVT_KEY_UP']); ev=self.alloc(0x40)
@@ -7892,8 +7902,11 @@ class BrowseMachine(RadioMachine):
             self.word(u.reg_read(REGS[0])+O['VIEW_CONTENT_H'],u.reg_read(REGS[2]))
         if not name.startswith('x:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
-        if name=='socket': assert a==1 and b in (1,2); ret=9 if b==2 else 7; self.out=b''; self.pending=b''
-        elif name=='connect': assert a==9 and self.text(b+2)==BROWSE; ret=0 if self.serve else -1
+        if name=='socket':
+            assert a==1 and b in (1,2); ret=9 if b==2 else 7
+            if b==2: self.out=b''; self.pending=b''
+        elif name=='connect' and a!=9: assert self.text(b+2)==SOCK; ret=0 if self.alive else -1  # spot_alive's
+        elif name=='connect': assert self.text(b+2)==BROWSE; ret=0 if self.serve else -1
         elif name=='fcntl': assert (a,b,c)==(9,4,0x80)  # nonblocking before connect
         elif name=='send':
             if a==9: self.out+=bytes(u.mem_read(b,c))
@@ -8076,6 +8089,16 @@ assert len(m.systems)==1 and 'reset_poweroptions_timer' in names and 'player_sto
 assert not m.call(address=payload_syms['spot_status'],gap=0)
 m.files['/tmp/q2-librespot.download']=bytearray(b'downloading=0\n')
 m.poll(500); m.poll(30000); assert 'killall -9 librespot aplay' in m.systems[-1]; passed()
+# A crashed librespot's files still say playing and downloading: once its socket refuses, no hold,
+# and it idles out; a new state (the restart) or a socket that answers again trusts them again.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.state('playing'); m.poll(); m.destroy(m.page)
+m.files['/tmp/q2-librespot.download']=bytearray(b'downloading=1\n')
+m.alive=False; names=m.poll(10000); assert 'reset_poweroptions_timer' not in names
+names=m.poll(); assert 'reset_poweroptions_timer' not in names
+m.state('playing',position=1); names=m.poll(); assert 'reset_poweroptions_timer' in names
+m.poll(10000); m.alive=True; names=m.poll(10000); assert 'reset_poweroptions_timer' in names
+m.alive=False
+m.alive=False; m.poll(10000); m.poll(30000); assert 'killall -9 librespot aplay' in m.systems[-1]; passed()
 
 # Back reveals the saved More row, and paint keeps it selected.
 m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)
