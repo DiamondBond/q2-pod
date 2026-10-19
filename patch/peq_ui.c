@@ -35,7 +35,8 @@ void peq_attach(void) {
 enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST, STOCKS };
 enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
        YES, CANCEL, DELETE, BALANCE, PREAMP, GAIN, /* these three open the picker, in picks[] order */
-       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD, STOCK };
+       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD, STOCK, FILE_PREV, FILE_NEXT };
+#define FILE_PAGE 128
 #define GRAPH_W (375 - 2 * PEQ_GRAPH_X)
 #if IPOD
 #define ROW_X CF_EDGE /* the text column clear of the rounded glass, as coverflow.c's */
@@ -50,6 +51,7 @@ static struct {
     void *page, *view, *edit, *graph, *bar; /* bar: the title, which shows the tabs on the top screens */
     unsigned timer;
     int screen, band, step, count, previous, rendered, dirty, pick, adjust, tries;
+    int capacity, file_page;
     int tab, tabs; /* tabs: the wheel is on the tab bar, over Advanced's list */
     double typed;
     peq_preset draft, candidate, named; /* named: the preset applied under applied's name */
@@ -183,8 +185,6 @@ static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
 
 static void list_files(const char *folder, const char *extension) {
     ui.count = 0;
-    if (!ui.names) ui.names = calloc(256, 256);
-    if (!ui.names) { snprintf(ui.status, sizeof(ui.status), "Out of memory"); return; }
     void *dir = opendir(folder);
     if (!dir) { snprintf(ui.status, sizeof(ui.status), "Folder missing or unavailable"); return; }
     struct dirent *entry;
@@ -193,11 +193,23 @@ static void list_files(const char *folder, const char *extension) {
         unsigned n = strlen(name), e = strlen(extension);
         if (entry->d_type != 8 && entry->d_type != 0) continue;
         if (n <= e || n >= 256 || strcmp(name + n - e, extension)) continue;
-        if (ui.count == 256) break; /* show the first 256 */
+        if (ui.count == ui.capacity) {
+            int capacity = ui.capacity ? ui.capacity * 2 : FILE_PAGE;
+            void *names = calloc(capacity, 256);
+            if (!names) {
+                ui.count = 0;
+                snprintf(ui.status, sizeof(ui.status), "Out of memory; cannot list presets");
+                break;
+            }
+            if (ui.count) memcpy(names, ui.names, ui.count * 256);
+            free(ui.names);
+            ui.names = names;
+            ui.capacity = capacity;
+        }
         memcpy(ui.names[ui.count++], name, n + 1);
     }
     closedir(dir);
-    qsort(ui.names, ui.count, 256, compare_names);
+    if (ui.count) qsort(ui.names, ui.count, 256, compare_names);
     if (!ui.count && !ui.status[0]) snprintf(ui.status, sizeof(ui.status), "No presets found");
 }
 
@@ -254,6 +266,7 @@ static void save_candidate(int replace) {
 static int action(void *ctx, void *event) {
     int id = (int)(long)ctx;
     if (id < 0) return 0; /* display-only rows */
+    int screen = ui.screen;
     /* The centre button on the value row; no render, which would destroy the edit and close the keyboard. */
     if (id == KEYBOARD) { widget_set_focused(ui.edit, 1); return 0; }
     peq_band *b = &ui.draft.bands[ui.band];
@@ -269,6 +282,10 @@ static int action(void *ctx, void *event) {
         else ui.screen = ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
+    else if (id == FILE_PREV || id == FILE_NEXT) {
+        ui.file_page += id == FILE_NEXT ? 1 : -1;
+        ui.rendered = -1;
+    }
     else if (id == STOCK) ui.screen = STOCKS;
     else if (id == DELETE) ui.screen = DELETES;
     else if (id >= BALANCE && id <= GAIN) { ui.pick = id; ui.screen = PICK; }
@@ -312,6 +329,7 @@ static int action(void *ctx, void *event) {
         else snprintf(ui.status, sizeof(ui.status), "Deleted %.100s; active EQ unchanged", deleting());
     } else if (id == CANCEL) ui.screen = ui.previous;
     else if (id < 256) {
+        int file = ui.file_page * FILE_PAGE + id;
         if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
         else if (ui.screen == PICK && id < picks[ui.pick - BALANCE].rows) {
             /* Preamp's Auto row: the band-edit cut, which later band edits then keep up to date. */
@@ -331,26 +349,26 @@ static int action(void *ctx, void *event) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/Manual %02d.peq", id + 1);
             ui.candidate = ui.draft;
             save_candidate(0);
-        } else if (id < ui.count && ui.screen == IMPORTS) {
+        } else if (file < ui.count && ui.screen == IMPORTS) {
             char path[600];
             peq_error error;
-            snprintf(path, sizeof(path), PEQ_IMPORT "/%s", ui.names[id]);
+            snprintf(path, sizeof(path), PEQ_IMPORT "/%s", ui.names[file]);
             if (!peq_import_file(path, &ui.candidate, &error))
                 snprintf(ui.status, sizeof(ui.status), "Line %u: %s", error.line, error.reason);
             else {
-                unsigned n = strlen(ui.names[id]) - 4;
-                snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%.*s.peq", (int)n, ui.names[id]);
+                unsigned n = strlen(ui.names[file]) - 4;
+                snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%.*s.peq", (int)n, ui.names[file]);
                 save_candidate(0);
             }
-        } else if (id < ui.count && ui.screen == DELETES) {
-            snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%s", ui.names[id]);
+        } else if (file < ui.count && ui.screen == DELETES) {
+            snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%s", ui.names[file]);
             ui.previous = DELETES;
             ui.screen = CONFIRM;
-        } else if (id < ui.count && ui.screen == PRESETS) {
+        } else if (file < ui.count && ui.screen == PRESETS) {
             char path[600];
-            snprintf(path, sizeof(path), PEQ_SAVED "/%s", ui.names[id]);
+            snprintf(path, sizeof(path), PEQ_SAVED "/%s", ui.names[file]);
             peq_preset p;
-            if (peq_load(path, &p)) load_draft(&p, ui.names[id], (int)strlen(ui.names[id]) - 4);
+            if (peq_load(path, &p)) load_draft(&p, ui.names[file], (int)strlen(ui.names[file]) - 4);
             else snprintf(ui.status, sizeof(ui.status), "Cannot read preset; settings unchanged");
         }
     }
@@ -358,6 +376,7 @@ static int action(void *ctx, void *event) {
         ui.dirty = 1;
         if (automatic) ui.draft.preamp = headroom(&ui.draft);
     }
+    if (screen != ui.screen) ui.file_page = 0;
     if (!ui.timer) ui.timer = timer_add(render, 0, 1);
     return 0;
 }
@@ -492,7 +511,13 @@ static int render(const void *unused) {
             row(view, n++, "Delete a preset", DELETE);
         }
         list_files(ui.screen == IMPORTS ? PEQ_IMPORT : PEQ_SAVED, ui.screen == IMPORTS ? ".txt" : ".peq");
-        for (int i = 0; i < ui.count; ++i) row(view, n++, ui.names[i], i);
+        int last = ui.count ? (ui.count - 1) / FILE_PAGE : 0;
+        if (ui.file_page < 0) ui.file_page = 0;
+        if (ui.file_page > last) { ui.file_page = last; selection = offset = 0; }
+        if (ui.file_page) row(view, n++, "Previous page", FILE_PREV);
+        if (ui.file_page < last) row(view, n++, "Next page", FILE_NEXT);
+        for (int i = 0, start = ui.file_page * FILE_PAGE; i < FILE_PAGE && start + i < ui.count; ++i)
+            row(view, n++, ui.names[start + i], i);
     }
     widget_set_prop_int(view, "virtual_h", n * 48);
     /* ringnav keeps the selection above on a view whose row count it already knows. */
@@ -517,6 +542,8 @@ static int render(const void *unused) {
     else if (ui.screen == ADJUST) snprintf(text, sizeof(text), ui.adjust == QUALITY ? "Band %d Q" : "Band %d Frequency (Hz)", ui.band + 1);
     else if (ui.screen == PICK && ui.pick == GAIN) snprintf(text, sizeof(text), "Band %d Gain", ui.band + 1);
     else if (ui.screen == PICK) snprintf(text, sizeof(text), ui.pick == PREAMP ? "Preamp" : "Balance");
+    else if ((ui.screen == IMPORTS || ui.screen == PRESETS || ui.screen == DELETES) && ui.count > FILE_PAGE)
+        snprintf(text, sizeof(text), "Presets %d/%d", ui.file_page + 1, (ui.count - 1) / FILE_PAGE + 1);
     else if (ui.screen != HOME) snprintf(text, sizeof(text), "Presets");
     widget_set_text_utf8(title, text);
     widget_invalidate_force(ui.page, 0);
@@ -629,6 +656,7 @@ static int closed(void *ctx, void *event) {
     ui.graph = 0;
     free(ui.names);
     ui.names = 0;
+    ui.capacity = ui.file_page = 0;
     return 0;
 }
 
