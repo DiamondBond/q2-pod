@@ -2445,13 +2445,15 @@ int ringnav_lyric(void) {
     int ret = stock_lyric_trampoline();
     void *q = P(mcl_pdeqplaylist, 0), *r;
     unsigned pos = (unsigned)I(MCL_POS, 0);
-    if (mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q || pos >= deque_size(q) ||
-        !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 || !P(r, REC_PATH) || *(char *)P(r, REC_PATH) != '/')
+    if (mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q ||
+        pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 || !P(r, REC_PATH) ||
+        *(char *)P(r, REC_PATH) != '/')
         return ret;
     void *f = taglib_file_new(P(r, REC_PATH));
     if (!f) return ret;
     unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0), lib = at - TAGLIB_FILE_NEW;
-    char **(*get)(void *, const char *) = (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
+    char **(*get)(void *, const char *) =
+        (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
     char **v = 0; /* an unbound entry still holds demo's stub */
     if (at != (unsigned)taglib_file_new) {
         v = get(f, "LYRICS");
@@ -2461,7 +2463,10 @@ int ringnav_lyric(void) {
         }
     }
     if (v && *v && **v) {
-        struct { int time; const char *text; } line = { 0x7fffffff, 0 };
+        struct {
+            int time;
+            const char *text;
+        } line = { 0x7fffffff, 0 };
         pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
         for (char *s = *v; *s && s - *v < LYRIC_TAG_MAX;) {
             char *e = s, c;
