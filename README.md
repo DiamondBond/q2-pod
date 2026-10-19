@@ -35,7 +35,7 @@
 - **Browsing and playback:** favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder.
 - **Podcasts and audiobooks:** `.m4b` audiobooks (including ones split by a CUE sheet) and podcasts resume where you stopped, with per-folder playback speed, and audiobooks stay out of Library shuffle.
 - **AirPods:** stem controls, ear detection and two-way volume sync.
-- **Battery:** an optional 80% charge limit and Low Power mode.
+- **Battery:** an optional 80% charge limit, Low Power mode, and a Standby limit that powers off a Q2 left asleep.
 
 <details open>
 <summary><h2>Screenshots</h2></summary>

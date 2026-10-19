@@ -90,6 +90,8 @@ HOOKS = {
     'mcl_preload': (0x5a8c1c, 'ringnav_preload', 'preload'),
     'memeory_startplayer': (0x5164e0, 'ringnav_memory', 'memory'),
     'systemset_powermanager_page_init': (0x4c72d0, 'ringnav_powermanager', 'power'),
+    # Standby limit: the suspend to RAM between the RTC wake alarm's set and clear
+    'toolsIntoStandby': (0x5be57c, 'ringnav_standby', 'standby'),
     'playset_playset_page_init': (0x4b98d8, 'ringnav_audioset', 'audioset'),
     # Bluetooth's list, rebuilt on every search and link change, gains Resume on connect
     'btmenu_rows': (0x4bee90, 'ringnav_btrows', 'btrows'),

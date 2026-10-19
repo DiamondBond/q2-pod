@@ -75,7 +75,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_power_trampoline(void *, void *), stock_systemset_trampoline(void *, void *),
     stock_audioset_trampoline(void *, void *), stock_btrows_trampoline(void *, void *),
     stock_playlist_trampoline(void *), stock_stream_trampoline(void *, void *),
-    stock_start_player_trampoline(void);
+    stock_start_player_trampoline(void), stock_standby_trampoline(void);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -164,6 +164,7 @@ enum {
     POD_ARTIST_AZ,
     POD_VOL_GUARD,
     POD_HOLD_HOME,
+    POD_STANDBY,
     POD_COUNT
 };
 
@@ -250,11 +251,12 @@ typedef struct {
      * offline (cpu_off), this boot's first offline is done (cpu_marked), and cpu_bad is 0 before
      * the check, 1 usable, 2 refused by an earlier boot's stall, 3 refused by the kernel;
      * last_input times the screen-on idle. year_old: Year order, oldest first. resume:
-     * Bluetooth's Resume on connect on. hold_home: Hold Return goes Home. */
+     * Bluetooth's Resume on connect on. hold_home: Hold Return goes Home. standby_limit: Standby
+     * limit's choice; standby_off: its alarm ended a Standby, so the next pass powers off. */
     int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat,
         wake_down, /* 1: the held Centre press passes; 2: it is dropped */
         charge_held, cpu_off, cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock,
-        artist_az, hold_home;
+        artist_az, hold_home, standby_limit, standby_off;
     void *pod_label[POD_COUNT];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
     void *art_cf_veil;              /* the artist page unseen until they show, and its anim_hint */
@@ -2032,25 +2034,27 @@ int ringnav_quick_settings(void *win, void *ctx) {
  * holds playback; docs/internals.md#resume-on-connect), and the Lock screen's Clock (LOCKCLOCK,
  * lockscreen.c; docs/internals.md#lock-screen), and Playback's Artist album order (ARTISTAZ), and
  * Power's Volume guard (VOLGUARD, playback.c's wheel_guard; docs/internals.md#volume-guard), and
- * Display's Hold Return (HOLDRETURN, compact_now_playing; docs/ipod.md#hold-return). */
+ * Display's Hold Return (HOLDRETURN, compact_now_playing; docs/ipod.md#hold-return), and Power's
+ * Standby limit (STANDBYLIMIT, ringnav_standby; docs/internals.md#standby-limit). */
 #define STR_(x) #x
 #define STR(x) STR_(x)
 static int *const pod_values[] = { &st.charge_limit, &st.low_power,  &st.wake_double,
                                    &st.artist_cf,    &st.year_old,   0,
                                    &st.resume,       &st.lock_clock, &st.artist_az,
-                                   &wheel_guard,     &st.hold_home };
+                                   &wheel_guard,     &st.hold_home,  &st.standby_limit };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 _Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
 static const char *const pod_keys[] = { "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",
                                         "YEAROLD",     0,          "RESUME",     "LOCKCLOCK",
-                                        "ARTISTAZ",    "VOLGUARD", "HOLDRETURN" };
+                                        "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT" };
 _Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
+/* a row's choices: Artist albums three, Standby limit four, every other row off and on */
+static int pod_choices(unsigned i) { return i == POD_ARTIST_CF ? 3 : i == POD_STANDBY ? 4 : 2; }
 static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
         if (pod_keys[i]) /* Artist albums defaults to Coverflow */
-            *pod_values[i] =
-                config_value("Q2POD", pod_keys[i], i == POD_ARTIST_CF ? 3 : 2, i == POD_ARTIST_CF);
+            *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i), i == POD_ARTIST_CF);
     st.pod_read = 1;
 }
 int ringnav_year_old(void) {
@@ -2229,7 +2233,7 @@ int ringnav_bt_connect_start(int pause) {
     return saved == 2 || saved == 3 ? player_save_start(saved == 3) : 0;
 }
 static void pod_text(int i) {
-    static const char *const names[][3] = {
+    static const char *const names[][4] = {
         { "Charge Limit: Off", "Charge Limit: " STR(CHARGE_STOP) "%" },
         { "Low Power: Off", "Low Power: On" },
         { "Wake: Single Press", "Wake: Double Press" },
@@ -2241,13 +2245,17 @@ static void pod_text(int i) {
         { "Artist Album Order: Year", "Artist Album Order: A–Z" },
         { "Volume Guard: Off", "Volume Guard: On" },
         { "Hold Return: Recent", "Hold Return: Home" },
+        { "Standby Limit: Off", "Standby Limit: " STR(STANDBY_LIMIT_1) " h",
+          "Standby Limit: " STR(STANDBY_LIMIT_2) " h",
+          "Standby Limit: " STR(STANDBY_LIMIT_3) " h" },
     };
     _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
     int v = i != POD_ARTISTS ? *pod_values[i] : I(artist_type, 0) == 1;
     widget_set_text_utf8(st.pod_label[i], names[i][v]);
 }
 /* Centre or tap toggles and saves. Charge limit and Low power take effect on the next UI loop pass
- * (power_poll); Artists on the next load of an artist list, as the artist page's switch does. */
+ * (power_poll); Artists on the next load of an artist list, as the artist page's switch does;
+ * Standby limit at the next Standby. */
 static int pod_click(void *ctx, void *event) {
     int i = (int)(long)ctx;
     pod_settings();
@@ -2257,7 +2265,7 @@ static int pod_click(void *ctx, void *event) {
         write_int_config(v, "PLAYSET", "ARTISTTYPE");
     } else {
         int *value = pod_values[i];
-        *value = (*value + 1) % (i == POD_ARTIST_CF ? 3 : 2);
+        *value = (*value + 1) % pod_choices(i);
         write_int_config(*value, "Q2POD", pod_keys[i]);
         st.charge_at = 0;
     }
@@ -2281,6 +2289,7 @@ int ringnav_powermanager(void *win, void *ctx) {
     int result = stock_power_trampoline(win, ctx);
     pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 3, icons);
     pod_rows(win, "scroll_view_powermanager", POD_VOL_GUARD, 1, icons + 2);
+    pod_rows(win, "scroll_view_powermanager", POD_STANDBY, 1, icons + 1);
     return result;
 }
 /* The Bluetooth page's list (stock's local builder, btmenu_rows), rebuilt whole on every search and
@@ -6302,6 +6311,51 @@ static void cpu_poll(void) {
     }
     if (!st.cpu_off) st.cpu_bad = 3;
 }
+/* Standby limit (docs/internals.md#standby-limit): device_standby puts the radios, the card and the
+ * DAC down, then toolsIntoStandby suspends to RAM ("mem" to /sys/power/state) and returns once
+ * something resumes it. With a limit, the RTC's wake alarm is set that far ahead first and cleared
+ * after. A resume at or past the alarm is the alarm's, and the next UI loop pass powers off as
+ * stock's Auto power-off does (poweroff_page), unless a cable is in or the music plays. A key or
+ * anything else that resumes it sooner leaves it on, and the next Standby counts from zero.
+ * Without the RTC's time, or with an alarm it refuses, Standby is stock's. */
+#define RTC_NOW "/sys/class/rtc/rtc0/since_epoch"
+#define RTC_ALARM "/sys/class/rtc/rtc0/wakealarm"
+static unsigned rtc_now(void) { /* the RTC's seconds since 1970 (UTC, RTC_WRITE); 0 unreadable */
+    char s[16];
+    void *f = fopen(RTC_NOW, "rb");
+    if (!f) return 0;
+    unsigned n = fread(s, 1, sizeof s, f), t = 0;
+    fclose(f);
+    for (unsigned i = 0; i < n && s[i] >= '0' && s[i] <= '9'; ++i) t = t * 10 + s[i] - '0';
+    return t;
+}
+static int rtc_alarm(unsigned at) { /* 0 clears it; one already set refuses another (EBUSY) */
+    char s[16];
+    void *f = fopen(RTC_ALARM, "w");
+    if (!f) return 0;
+    unsigned n = (unsigned)tk_snprintf(s, sizeof s, "%u", at);
+    int ok = fwrite(s, 1, n, f) == n;
+    return !fclose(f) && ok;
+}
+int ringnav_standby(void) {
+    static const unsigned hours[] = { 0, STANDBY_LIMIT_1, STANDBY_LIMIT_2, STANDBY_LIMIT_3 };
+    pod_settings();
+    unsigned start = st.standby_limit ? rtc_now() : 0;
+    unsigned alarm = start + hours[st.standby_limit] * 3600;
+    int armed = start && rtc_alarm(0) && rtc_alarm(alarm);
+    int result = stock_standby_trampoline();
+    if (armed) {
+        unsigned now = rtc_now();
+        rtc_alarm(0);
+        st.standby_off = now >= alarm;
+    }
+    return result;
+}
+static void standby_poll(void) {
+    if (!st.standby_off) return;
+    st.standby_off = 0;
+    if (!g_usbdet_value && mclGetPlayStatus() != 2) navigator_to("poweroff_page");
+}
 /* User boot logo (docs/boot.md): the card's LOGO_SRC is kept as LOGO_DST, which the splash shows at
  * power-on, each time the card is mounted (boot, the end of USB storage). A 375x320 one is turned
  * upright by stock ffmpeg; anything but a 320x375 baseline JPEG is refused and LOGO_DST kept. No
@@ -6397,6 +6451,7 @@ static void power_poll(void) {
     pod_settings();
     charge_poll();
     cpu_poll();
+    standby_poll();
     logo_poll();
 }
 

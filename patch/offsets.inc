@@ -306,6 +306,11 @@ static inline int arc_out(int r, int y) {
 #define CHARGE_STOP 80
 #define CHARGE_RESUME 75
 #define CHARGE_POLL_MS 5000
+/* Standby limit (docs/internals.md#standby-limit): its three choices after Off, in hours of one
+ * Standby, after which the Q2 powers off. */
+#define STANDBY_LIMIT_1 1
+#define STANDBY_LIMIT_2 8
+#define STANDBY_LIMIT_3 24
 /* The Wi-Fi signal (ringnav_wifi_signal) is read from the driver again at most every
  * WIFI_SIGNAL_MS; its two pollers each ask about once a second. */
 #define WIFI_SIGNAL_MS 1000
