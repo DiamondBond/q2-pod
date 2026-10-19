@@ -49,7 +49,9 @@
 
 ## Install
 
-**Requirements:** Q2 with microSD card and USB-C cable.
+**Requirements:** a Q2 with a microSD card, a USB-C cable and a computer with internet.
+
+**Optional:** The [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 
 > [!IMPORTANT]
 > Charge the Q2 before you start. Only insert or remove the microSD card while the Q2 is **fully shut down** (not asleep), or the card can be corrupted.
@@ -66,11 +68,11 @@
 
 ## Extras
 
-- **Spotify:** unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2, v1.6 to download playlists) to the card's root. Then open **Streaming → Spotify** on the Q2 and, the first time, pick it in the Spotify app on your phone. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
+- **Spotify (optional, Premium):** unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2, v1.6 to download playlists) to the card's root. Then open **Streaming → Spotify** on the Q2 and, the first time, pick it in the Spotify app on your phone on the same Wi-Fi. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Scrobbling:** connect Last.fm or ListenBrainz with the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Lock screen:** six built-in wallpapers, a large clock, or your own images ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
 - **Boot logo:** put your own JPEG at `/Q2Pod/boot/boot-logo.jpg` on the card. It shows from the next power-on ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
-- **Rockbox:** unzip [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root. Hold Play/Pause while powering on to use Q2 Pod for that session. See the [setup guide](docs/setup.md) and [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases).
+- **Rockbox (optional):** a separate player. Unzip [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root only if you want it. Hold Play/Pause while powering on to use Q2 Pod for that session. See the [setup guide](docs/setup.md) and [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases).
 
 ## Controls
 
