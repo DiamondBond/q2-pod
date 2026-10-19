@@ -233,98 +233,11 @@ int coverflow_player_cover(const char *track, const char *dst, int w, int h) {
  * found no picture in is remembered (not one gone with the card, nor a refused fork or a killed
  * ffmpeg). ponytail: 1024 misses until a
  * reboot, oldest overwritten; a picture since added to a track shows after a reboot. */
-static unsigned id3_size(const unsigned char *p, int syncsafe) {
-    return syncsafe ? (p[0] & 127u) << 21 | (p[1] & 127u) << 14 | (p[2] & 127u) << 7 | (p[3] & 127u)
-                    : (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3];
-}
-
-/* Whether the picture at f's offset at (data before end) is over 1600 x 1600 pixels: a PNG's IHDR,
- * or a JPEG's SOF0-2 within its first 32 segments; 0 when neither is found. */
-static int art_huge(void *f, unsigned at, unsigned end) {
-    unsigned char b[24];
-    unsigned w = 0, h = 0;
-    if (at > end || end - at < 8 || fseek(f, (long)at, 0) || fread(b, 8, 1, f) != 1) return 0;
-    if (!memcmp(b, "\x89PNG\r\n\x1a\n", 8) && end - at >= 24 && fread(b + 8, 16, 1, f) == 1 &&
-        id3_size(b + 8, 0) == 13 && !memcmp(b + 12, "IHDR", 4))
-        w = id3_size(b + 16, 0), h = id3_size(b + 20, 0);
-    int jpeg = b[0] == 0xff && b[1] == 0xd8;
-    at += 2;
-    for (int i = 0; jpeg && !h && i < 32 && end - at >= 4 && !fseek(f, (long)at, 0) &&
-                    fread(b, 4, 1, f) == 1 && b[0] == 0xff;
-         ++i) {
-        unsigned n = b[2] << 8 | b[3];
-        if (n < 2 || n > end - at - 2 || b[1] == 0xda || b[1] == 0xd9) break;
-        if (b[1] >= 0xc0 && b[1] <= 0xc2 && n >= 7 && fread(b + 4, 5, 1, f) == 1)
-            h = b[5] << 8 | b[6], w = b[7] << 8 | b[8];
-        at += 2 + n;
-    }
-    return h && w > 1600u * 1600 / h;
-}
-
-/* An APIC frame's body (at..end): its encoding byte, MIME type, picture type and description (two
- * zero bytes end a UTF-16 one), read from its first 128 bytes, then the picture. */
-static int apic_huge(void *f, unsigned at, unsigned end) {
-    unsigned char b[128];
-    unsigned len = end - at < sizeof b ? end - at : sizeof b, p = 1, wide;
-    if (!len || fseek(f, (long)at, 0) || fread(b, len, 1, f) != 1 || b[0] > 3) return 0;
-    wide = b[0] == 1 || b[0] == 2;
-    while (p < len && b[p]) ++p;
-    if (len - p < 2) return 0;
-    for (p += 2; p + wide < len && (b[p] || b[p + wide]); p += 1 + wide) {
-    }
-    p += 1 + wide;
-    return p < len && art_huge(f, at + p, end);
-}
-
-/* Whether an MP3's ID3v2.3/2.4 tag holds an APIC picture stock should not decode: over the 6 MB
- * (0x600000) JPEG ceiling toolsGetAlbumCover gives taglib_album_picture, which libtag reads whole into
- * memory before that check, or over 1600 x 1600 pixels, as stock decodes it whole (about 30 MB at
- * 3000 x 3000). Frame headers only, as id3_gain walks them, and the picture's header.
- * Encoded APIC frames go to ffmpeg too, as their dimensions cannot be inspected directly.
- * shortcut: inspect only 128 APIC prefix bytes and 32 JPEG segments; expand if real covers need it.
- * ponytail: speculative (crashes opening Podcasts folders of heavily tagged MP3s); the 1600 px
- * ceiling is a guess at stock's headroom, raise it if big covers show through ffmpeg needlessly;
- * MP3 only, a FLAC PICTURE or an MP4 covr still goes to stock, and stock's own cover thread is
- * unchanged. */
-static int art_oversized(const char *track) {
-    const char *dot = strrchr(track, '.');
-    void *f = dot && !strcasecmp(dot, ".mp3") ? fopen(track, "rb") : 0;
-    unsigned char h[10];
-    int big = 0;
-    if (f && fread(h, 10, 1, f) == 1 && !memcmp(h, "ID3", 3) && (h[3] == 3 || h[3] == 4)) {
-        int v4 = h[3] == 4;
-        if (h[5] & 0x80) { /* tag-wide unsynchronization can move the frame boundaries too */
-            big = 1;
-            goto done;
-        }
-        unsigned at = 10, end = 10 + id3_size(h + 6, 1), n;
-        if (h[5] & 0x40) {
-            if (end - at < 4 || fread(h, 4, 1, f) != 1) goto done;
-            n = id3_size(h, v4);
-            if (n > end - at - (v4 ? 0 : 4) || (v4 && n < 4)) goto done;
-            at += n + (v4 ? 0 : 4);
-        }
-        while (!big && at + 10 <= end && !fseek(f, (long)at, 0) && fread(h, 10, 1, f) == 1 && h[0]) {
-            n = id3_size(h + 4, v4);
-            if (n > end - at - 10) break;
-            big = !memcmp(h, "APIC", 4) &&
-                  (n > 0x600000 || (h[9] & (v4 ? 0x4f : 0xe0)) ||
-                   apic_huge(f, at + 10, at + 10 + n));
-            at += 10 + n;
-        }
-    }
-done:
-    if (f) fclose(f);
-    return big;
-}
-
-/* An oversized MP3 picture goes to ffmpeg, in its own process, as an Ogg one does. */
 static int grid_cover(const char *track, const char *dst, int w, int h, int album) {
     static unsigned *miss __attribute__((section(".scratch"))), n __attribute__((section(".scratch")));
     const char *dot = strrchr(track, '.');
-    int big = art_oversized(track), got = big ? 0 : toolsGetAlbumCover(track, dst, w, h);
-    if (got == 1) return 1;
-    if (!big && (!dot || (strcasecmp(dot, ".opus") && strcasecmp(dot, ".ogg")))) return got;
+    if (toolsGetAlbumCover(track, dst, w, h) == 1) return 1;
+    if (!dot || (strcasecmp(dot, ".opus") && strcasecmp(dot, ".ogg"))) return 0;
     unsigned key = fnv(FNV_SEED, (const unsigned char *)track);
     if (!miss) miss = calloc(1024, sizeof(*miss)); /* heap, as the scratch page is nearly full */
     for (unsigned i = 0; miss && i < n && i < 1024; ++i)

@@ -398,9 +398,7 @@ int toolsThumbSpecCover(const char *src, const char *dst, int ww, int h) {
     if (strstr(src, ".webp")) return 0; /* stock decodes only JPEG and PNG */
     return write_art(dst, strrchr(src, '/') + 1);
 }
-static int grid_got = -2, grid_calls; /* not -2: a grid row's call (coverflow_grid_cover) */
 int toolsGetAlbumCover(const char *src, const char *dst, int ww, int h) {
-    if (grid_got != -2) return ++grid_calls, grid_got;
     assert(ww == 160 && h == 160 && held[0] && held[1] && strstr(dst, ".jpg.tmp"));
     return embedded_fails ? 0 : write_art(dst, "embedded");
 }
@@ -1110,109 +1108,6 @@ static void player_cover(void) {
     memset(shim_id3, 0, sizeof(shim_id3));
 }
 
-static void grid_cover(void) {
-    /* coverflow_grid_cover: stock's return passes through for a non-Ogg track, and an MP3 whose
-       APIC frame is over stock's 6 MB JPEG ceiling never reaches stock (ID3v2.3's plain size after
-       an extended header, ID3v2.4's syncsafe one); only the headers exist, so only they are read. */
-    extern int coverflow_grid_cover(const char *, const char *, int, int);
-    const char *mp3 = PEQ_ROOT "/grid.mp3", *dst = PEQ_ROOT "/grid.jpg";
-    unsigned cases[][4] = { { 3, 0x600001, 0, 0 }, { 4, 0x600001, 0, 0 },
-                           { 4, 0x600000, 0, 0 }, { 3, 100, 0, 0 },
-                           { 3, 100, 0x80, 0 }, { 3, 100, 0, 0x80 } };
-    for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); ++i) {
-        unsigned v = cases[i][0], n = cases[i][1], len = 0;
-        unsigned char b[32] = { 'I', 'D', '3', v, 0, v == 3 ? 0x40 : 0, 127, 127, 127, 127 };
-        if (v == 3) b[13] = 6, len = 20; /* extended header: size 6, then 6 bytes */
-        memcpy(b + len + (v == 4) * 10, "APIC", 4), len += (v == 4) * 10;
-        for (int k = 0; k < 4; ++k) b[len + 4 + k] = v == 4 ? n >> (21 - 7 * k) & 127 : n >> (24 - 8 * k);
-        b[5] |= cases[i][2]; b[len + 9] = cases[i][3];
-        FILE *f = fopen(mp3, "wb");
-        fwrite(b, 1, len + 10, f);
-        fclose(f);
-        grid_got = -1, grid_calls = 0;
-        int big = n > 0x600000 || cases[i][2] || cases[i][3];
-        norder = 0; shim_lock(&shim_parse);
-        assert(coverflow_grid_cover(mp3, dst, 100, 100) == (big ? 0 : -1) && grid_calls == !big);
-        assert(held[0]); shim_unlock(&shim_parse);
-    }
-    /* ID3v2.3 unsynchronization inserts a byte in an earlier text frame, so its raw
-       next-frame offset differs from its decoded size; bypass the whole tag before walking. */
-    {
-        unsigned char b[64] = { 'I', 'D', '3', 3, 0, 0x80, 0, 0, 0, 54 };
-        memcpy(b + 10, "TXXX", 4); b[17] = 4;
-        memcpy(b + 20, "\1\xff\0\xfe\0", 5);
-        memcpy(b + 25, "APIC", 4); b[32] = 29;
-        memcpy(b + 35, "\0image/jpeg\0\3\0", 14);
-        memcpy(b + 49, "\xff\xd8\xff\xe0\0\2\xff\xc0\0\7\10\13\270\13\270", 15);
-        const char *src = PEQ_ROOT "/music/Ffok/unsync.mp3";
-        FILE *f = fopen(src, "wb"); assert(f);
-        assert(fwrite(b, 1, sizeof b, f) == sizeof b); fclose(f);
-        grid_got = -1; grid_calls = 0; norder = 0;
-        shim_lock(&shim_parse);
-        assert(coverflow_grid_cover(src, dst, 100, 100) == 1 && !grid_calls && held[0]);
-        shim_unlock(&shim_parse); unlink(src);
-    }
-    /* Pixel area, not compressed bytes: JPEG/PNG at 1600 square stays stock; 3000 square
-       reaches ffmpeg. UTF-16 descriptions end on code-unit boundaries, including a BOM. */
-    for (int png = 0; png < 2; ++png) for (int wide = 0; wide < 3; ++wide) for (int big = 0; big < 2; ++big) {
-        unsigned char b[160] = { 'I', 'D', '3', 4 }, *body = b + 20, *p = body;
-        *p++ = wide;
-        memcpy(p, png ? "image/png" : "image/jpeg", png ? 10 : 11); p += png ? 10 : 11;
-        *p++ = 3;
-        if (wide) {
-            if (wide == 1) *p++ = 0xff, *p++ = 0xfe;
-            *p++ = 'X'; *p++ = 0; *p++ = 0; *p++ = 0;
-        } else *p++ = 0;
-        unsigned char *image = p;
-        unsigned side = big ? 3000 : 1600;
-        if (png) {
-            memcpy(p, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR", 16);
-            for (int k = 0; k < 4; ++k) p[16 + k] = p[20 + k] = side >> (24 - 8 * k);
-            p += 24;
-        } else {
-            memcpy(p, "\xff\xd8\xff\xe0\0\2\xff\xc2\0\7\10", 11);
-            p[11] = p[13] = side >> 8; p[12] = p[14] = side; p += 15;
-        }
-        unsigned len = p - b, n = p - body;
-        memcpy(b + 10, "APIC", 4);
-        b[9] = len - 10; b[17] = n;
-        for (int bad = 0; bad < 8; ++bad) {
-            unsigned char c[160]; memcpy(c, b, len);
-            if (bad == 1) c[17] = n - 1; /* picture header crosses frame end */
-            if (bad == 2) c[9] = len - 11; /* frame crosses tag end */
-            if (bad == 3) c[20] = 4; /* invalid description encoding */
-            if (bad == 5) c[5] = 0x80; /* tag-wide unsynchronization */
-            if (bad == 6) c[19] = 2; /* v2.4 per-frame unsynchronization */
-            if (bad == 7) c[19] = 8; /* compressed APIC: do not inspect encoded bytes */
-            if (bad == 4) {
-                unsigned offset = image - b;
-                if (png) c[offset + 7] = 0; /* incomplete PNG magic */
-                else c[offset + 4] = 0xff; /* APP segment extends beyond frame */
-            }
-            char src[600];
-            snprintf(src, sizeof(src), PEQ_ROOT "/music/Ffok/grid-%d-%d-%d-%d.mp3", png, wide, big, bad);
-            FILE *f = fopen(src, "wb"); assert(f);
-            assert(fwrite(c, 1, len, f) == len); fclose(f);
-            grid_got = -1; grid_calls = 0; norder = 0;
-            shim_lock(&shim_parse);
-            int huge = (big && !bad) || bad >= 5;
-            assert(coverflow_grid_cover(src, dst, 100, 100) == (huge ? 1 : -1));
-            assert(grid_calls == !huge && held[0] && !held[1]);
-            shim_unlock(&shim_parse);
-            if (huge) {
-                char out[8] = {0}; f = fopen(dst, "rb"); assert(f);
-                assert(fread(out, 1, 6, f) == 6 && !strcmp(out, "ffmpeg")); fclose(f);
-            }
-            unlink(src);
-        }
-    }
-    grid_got = 2;
-    grid_calls = 1;
-    assert(coverflow_grid_cover(PEQ_ROOT "/missing.flac", dst, 100, 100) == 2 && grid_calls == 2);
-    grid_got = -2;
-    unlink(mp3);
-}
-
 int main(void) {
     /* Titles come from tags, unchanged; missing tags retain filename/CUE fallbacks. */
     char track[0x60] = {0}, name[512];
@@ -1348,7 +1243,6 @@ int main(void) {
     audiobooks();
     ffmpeg_art();
     player_cover();
-    grid_cover();
 #if IPOD
     /* iPod Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
@@ -1551,7 +1445,6 @@ def main():
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
           ' Sort by artist, year, recently added, most played and random, kept across opens, passed; an artist\'s albums alone passed;'
-          ' grid cover passthrough and oversized MP3 art skip passed;'
           ' iPod Home art sources, fit, clip, cache and Split/Full layout in both themes passed.')
 
 
