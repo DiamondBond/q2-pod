@@ -79,7 +79,7 @@ void scrobble_append(const char *line, unsigned n) {
 
 /* path's bytes in a calloc'd buffer of *size + 1 (NUL-terminated), or 0 and *size 0 when it can't
  * be opened or read or holds over max bytes. Shared with navigation.c. */
-char *read_all(const char *path, unsigned max, unsigned *size) {
+void *read_all(const char *path, unsigned max, unsigned *size) {
     void *f = fopen(path, "rb");
     char *p = 0;
     long n = f && !fseek(f, 0, 2) ? ftell(f) : -1;

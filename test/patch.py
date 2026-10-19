@@ -3436,6 +3436,9 @@ b.poll(O['BT_VOLUME_SLOW_MS']-400); assert b.writes()==[25]; passed()
 b=BtVolumeMachine(); b.poll(); b.calls=[]; b.byte(syms['g_backlight_status'],0); b.absolute=50
 b.poll(); assert not any(c[0]=='btctl_transport_get_volume' for c in b.calls)
 b.poll(O['BT_VOLUME_SLOW_MS']-400); assert any(c[0]=='btctl_transport_get_volume' for c in b.calls); passed()
+# Dark with a volume limit, the headset's own keys are still held to it at the lit pace.
+b=BtVolumeMachine(); b.byte(syms['g_maxvolume'],60); b.poll(); b.byte(syms['g_backlight_status'],0); b.absolute=127
+b.poll(); assert b.writes()==[76] and b.u.mem_read(syms['g_volume'],1)[0]==60; passed()
 # Native device_set_volume calls LocalVol and BtVol for the DAC/Bluetooth, USB's own
 # setter for USB. g_output_way=0 avoids stock's fixed line-out branch; notify is covered too.
 for way,soft in ((0,0),(1,0),(2,0),(2,1)):

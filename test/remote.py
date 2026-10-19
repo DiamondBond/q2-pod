@@ -151,5 +151,6 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
             s.settimeout(12)
             assert s.recv(16) == b""  # 10-second handshake timeout
     finally:
-        os.killpg(proc.pid, signal.SIGTERM); proc.wait(timeout=2)
+        with contextlib.suppress(ProcessLookupError): os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=2)
 print("Remote auth, rotation/removal, USB-storage key cache, fragmented requests, binary stdin/output, timeout, devices and framebuffer checks passed.")

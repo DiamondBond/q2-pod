@@ -40,14 +40,14 @@ class KernelMachine(Machine):
             self.attempts.append((self.now,self.text(a)))
             ret=11 if self.now>=12000 and self.text(a)=='/dev/input/event5' else -1
         elif name=='ioctl': assert b==0x40404506; self.u.mem_write(c,b'AirPods Pro (AVRCP)\0'); ret=19
-        elif name=='select':
+        elif name=='select':  # fd_sets as words; the ready ones kept, as the kernel does
             self.now+=200
-            fd=a-1
             if c: ret=1  # nonblocking connect completes
-            elif fd==10: ret=int(not self.received)
-            elif fd==11:
-                ret=1
-                if self.reads: self.word(self.hs,self.get(self.hs)+1)  # disconnect after one input batch
+            else:
+                asked=self.get(b); ready=asked&((1<<10 if not self.received else 0)|1<<11)
+                self.word(b,ready); ret=bin(ready).count('1')
+                if ready>>11&1 and self.reads: self.word(self.hs,self.get(self.hs)+1)  # disconnect after one input batch
+                if not ready: self.now+=800  # the rest of a 1 s wait
         elif name=='recv':
             self.received=True
             if self.stale: self.word(self.hs,self.get(self.hs)+1)

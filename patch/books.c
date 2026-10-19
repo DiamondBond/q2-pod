@@ -732,7 +732,7 @@ void books_paint(void *w, void *canvas) {
 #define VIDEO_BIN "/usr/bin/q2video"
 #define VIDEO_SOCK "/tmp/q2video.sock" /* video.c Q2VIDEO_SOCK */
 #define VIDEO_PLACE "/tmp/q2video.place" /* video.c Q2VIDEO_PLACE: the second to start at, then left */
-#define VIDEO_PAUSE_QUIT_MS 300000 /* a pause this long quits, as Return, so the device can sleep */
+#define VIDEO_PAUSE_QUIT_MS 300000 /* a pause this long without a key quits, as Return, so the device can sleep */
 static struct {
     int paused, volume, gain, pid, sock, seek; /* seek: the wheel seeks, since seek_at (time_now_ms) */
     unsigned polled, control_at, seek_at, key, at; /* key: the video's in BOOK_MARKS, at its second there */
@@ -860,6 +860,7 @@ void video_poll(void) {
  * through device_set_volume (the DAC's, or hciplayer's for Bluetooth and a soft USB volume) and
  * saved; the helper gets it for that soft gain and its bar. */
 void video_key(unsigned key) {
+    vid.paused_at = 0; /* a key restarts a pause's VIDEO_PAUSE_QUIT_MS */
     if (key == KEY_PLAY || key == KEY_FWD_BTN || key == KEY_BACK_BTN || key == KEY_RETURN)
         headset_manual();
     int wheel = key == KEY_NEXT || key == KEY_PREV, v = g_volume + (key == KEY_NEXT ? 1 : -1);

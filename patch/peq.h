@@ -113,7 +113,7 @@ void page_row_into(void *view, int index, const char *caption, int (*click)(void
 void *bottom_caption(void *parent, int h);
 int text_differs(void *w, const char *s);
 long file_size(const char *path); /* coverflow.c: -1 when it can't be opened */
-char *read_all(const char *path, unsigned max, unsigned *size); /* scrobble.c */
+void *read_all(const char *path, unsigned max, unsigned *size); /* scrobble.c */
 int visual(void *s, int n, int *c, int *frac);
 int thumb(const char *src, const char *dst, int w, int h);
 int card_space(const char *dir);

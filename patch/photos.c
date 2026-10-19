@@ -433,7 +433,7 @@ static slot_t *slot(slot_t *s, int count, int box, int i, const char *suffix) {
 /* w's text isn't s. AWTK keeps a widget's text as UTF-32, which widget_get_prop_str(w, "text")
  * never returns, so a compare through it always differs and every set repaints. */
 int text_differs(void *w, const char *s) {
-    char cur[512];
+    char cur[512] = ""; /* stock writes nothing when it doesn't fit */
     return widget_get_text_utf8(w, cur, sizeof cur) || strcmp(cur, s);
 }
 

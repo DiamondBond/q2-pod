@@ -2076,7 +2076,9 @@ int ringnav_bt_resume(void) {
 /* read_artistype_value (a Library list's or artist page's init) and boot (playback.c
  * ringnav_bootmode): Artists as stock reads it, PLAYSET ARTISTTYPE, but Album Artist when no choice
  * is saved; stock writes the key only when Artists or the artist page's switch toggles. */
-void ringnav_read_artistype(void) { I(artist_type, 0) = config_value("PLAYSET", "ARTISTTYPE", 2, 1); }
+void ringnav_read_artistype(void) {
+    I(artist_type, 0) = config_value("PLAYSET", "ARTISTTYPE", 2, 1);
+}
 static unsigned le32(const unsigned char *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24;
 }
@@ -4310,8 +4312,8 @@ int ringnav_localclass(int cls) {
 /* The tracks stock would play for that row, in its order. */
 static void qm_tracks(void *r, void *add) {
     int n;
-    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS
-                      ? staged_music : staged)(qm_query, r, &n);
+    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS ? staged_music : staged)(
+        qm_query, r, &n);
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
@@ -4399,7 +4401,8 @@ void toast(const char *text) {
 static int all_songs(void *unused) { return getAllMusic(0); }
 
 /* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
- * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums (MUSIC_WHERE). */
+ * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums
+ * (MUSIC_WHERE). */
 static int songs_unsorted(void *music) {
     library_music = music != 0;
     int n = getAllMusic(3);
@@ -5115,8 +5118,9 @@ static struct {
 static void lengths_read(void) {
     if (ls.read) return;
     unsigned size;
-    length_t *tab = (length_t *)read_all(LENGTHS_FILE, ~0u, &size);
-    ls.read = tab || file_size(LENGTHS_FILE) <= 0; /* unread, not empty: not saved over, read again next time */
+    length_t *tab = read_all(LENGTHS_FILE, ~0u, &size);
+    ls.read = tab || file_size(LENGTHS_FILE) <=
+                         0; /* unread, not empty: not saved over, read again next time */
     ls.n = size / sizeof(length_t);
     if (!ls.n) free(tab), tab = 0;
     ls.tab = tab;
@@ -6287,7 +6291,7 @@ static void *logo_sync(void *unused) {
     const char *err = "Boot logo must be a 320x375 JPEG";
     if (access(LOGO_SRC, 0))
         unlink(LOGO_DST), err = 0;
-    else if ((b = (unsigned char *)read_all(LOGO_SRC, LOGO_MAX, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
+    else if ((b = read_all(LOGO_SRC, LOGO_MAX, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
         free(b),
             b = 0; /* landscape: ffmpeg turns it a quarter clockwise (coverflow.c's ff_thumb) */
         int status, pid = fork();
@@ -6297,11 +6301,12 @@ static void *logo_sync(void *unused) {
                   LOGO_ROT, (char *)0);
             child_exit(127);
         }
-        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status) b = (unsigned char *)read_all(LOGO_ROT, LOGO_MAX, &n);
+        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status)
+            b = read_all(LOGO_ROT, LOGO_MAX, &n);
         unlink(LOGO_ROT);
     }
     if (b && jpeg_size(b, n) == (320u << 16 | 375)) {
-        old = (unsigned char *)read_all(LOGO_DST, LOGO_MAX, &old_n);
+        old = read_all(LOGO_DST, LOGO_MAX, &old_n);
         if ((old && old_n == n && !memcmp(old, b, n)) ||
             blob_io(LOGO_DST, LOGO_DST ".tmp", b, n, 1))
             err = 0; /* the same bytes are not written again each boot */
@@ -6438,11 +6443,13 @@ int ringnav_btvol(int left, int right) {
     return stock_btvol_trampoline(left, right);
 }
 
-/* Every 400 ms lit; every BT_VOLUME_SLOW_MS dark, or while the headset refuses absolute volume,
- * so a long dark session doesn't wake libbtctl 2.5 times a second for a volume nobody sees. */
+/* Every 400 ms lit, or while a volume limit has to be held on the headset's own keys; else every
+ * BT_VOLUME_SLOW_MS dark, or while the headset refuses absolute volume, so a long dark session
+ * doesn't wake libbtctl 2.5 times a second for a volume nobody sees. */
 static void bt_volume_poll(void) {
     unsigned now = time_now_ms();
-    if (now - btvol.checked < (g_backlight_status && !btvol.failed ? 400u : BT_VOLUME_SLOW_MS)) return;
+    int fast = (g_backlight_status || (btvol.ready && g_maxvolume < 100)) && !btvol.failed;
+    if (now - btvol.checked < (fast ? 400u : BT_VOLUME_SLOW_MS)) return;
     btvol.checked = now;
     if (!bt_audio_ready()) {
         btvol.ready = btvol.failed = 0;

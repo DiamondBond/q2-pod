@@ -293,8 +293,9 @@ static inline int arc_out(int r, int y) {
  * second, so a Q2 left dark without Standby stops waking the CPU for nothing. The first key waits
  * at most that; Wake's second press is timed at the screen-off pace. */
 #define DARK_IDLE_SLEEP_MS 250
-/* Bluetooth absolute volume is read back this often with the screen off, or after the headset
- * refused it (bt_volume_poll); 400 ms lit. A headset's own volume keys show on the Q2 that late. */
+/* Bluetooth absolute volume is read back this often with the screen off and no volume limit to
+ * hold, or after the headset refused it (bt_volume_poll); 400 ms otherwise. A headset's own volume
+ * keys show on the Q2 that late. */
 #define BT_VOLUME_SLOW_MS 2000
 /* Screen on, once IDLE_MS pass without input or a window animation, each turn idles IDLE_SLEEP_MS
  * (about 30 passes a second; the first input after waits at most that). */

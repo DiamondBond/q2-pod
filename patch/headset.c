@@ -164,11 +164,11 @@ static void *headset_worker(void *arg) {
     memcpy(address, hs.address, sizeof address);
     while (generation == hs.generation) {
         /* A pass is up to 1 s. Retry throughout the connection, including late-created and
-         * replaced uinput devices: each second for the first 10, then every 10 s. */
-        if (aap < 0 && !(tries % 10)) aap = aap_open(address, generation);
-        if (input < 0 && (tries < 10 || !(tries % 10))) input = avrcp_open();
+         * replaced uinput devices: each second for the first 10, then every 2 s; AACP every 5. */
+        if (aap < 0 && !(tries % 5)) aap = aap_open(address, generation);
+        if (input < 0 && (tries < 10 || !(tries % 2))) input = avrcp_open();
         if (aap < 0 && input < 0) {
-            usleep(1000000);
+            for (int i = 0; i < 5 && generation == hs.generation; ++i) usleep(200000);
             ++tries;
             continue;
         }
