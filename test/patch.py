@@ -5470,7 +5470,7 @@ class GridCoverMachine(Machine):
         return self.call(address=payload_syms[fn],args=args,gap=0)
 m=GridCoverMachine()
 for track,found in (('01.opus',1),('01.mp3',0),('01.flac',0),('opus',0)):
-    assert m.cover(track,found=found)==found and m.seen==['toolsGetAlbumCover'],(track,m.seen)
+    assert m.cover(track,found=found)==found and m.seen==['fopen']*track.endswith('.mp3')+['toolsGetAlbumCover'],(track,m.seen)
 m.files={m.dst:b'old'}
 assert m.cover('01.OGG')==0 and m.seen==['toolsGetAlbumCover','calloc','pthread_mutex_unlock','fork','unlink',
                                          'pthread_mutex_lock'],m.seen  # fork refused: not a miss
