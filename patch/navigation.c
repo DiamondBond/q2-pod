@@ -339,7 +339,10 @@ typedef struct {
      * page is there, Back at that root leaves it. */
     int media_open;
     char media_root[32];
-    void *root_label; /* Playback settings' Folder Root row */
+    /* Go to Folder: once set, folder_page opens at go_folder at g_folder_layer go_layer. */
+    int go_layer;
+    char go_folder[1024]; /* g_folder_path's size */
+    void *root_label;     /* Playback settings' Folder Root row */
     void *album;     /* what an Albums row or Go to album opened (album_open), a one-record deque */
     char **art_keys; /* an artist's albums tab's art keys by row, 0 for a name's own
                         (ringnav_artist_list) */
@@ -3904,7 +3907,8 @@ enum {
     QA_RATE,
     QA_RESUME,
     QA_QUEUE,
-    QA_UP_NEXT
+    QA_UP_NEXT,
+    QA_FOLDER
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -5459,6 +5463,27 @@ static int media_click(void *ctx, void *event) {
     return 0;
 }
 
+/* Go to Folder: a card song's folder into path (sizeof st.go_folder) and its g_folder_layer, as
+ * folder_enter counts (the card 2), so stock Back climbs to the card; 0 when off the card, too
+ * long, holding a name stock's enter never builds ("", "." or "..") or no longer a directory. */
+static int song_folder(void *r, char *path) {
+    const char *p = P(r, REC_PATH);
+    unsigned info[36], layer = 2;
+    if (!p || strlen(p) <= 9 || memcmp(p, "/mnt/mmc/", 9)) return 0;
+    unsigned n = (unsigned)(strrchr(p, '/') - p);
+    if (n >= sizeof st.go_folder) return 0;
+    memcpy(path, p, n);
+    path[n] = 0;
+    for (unsigned i = 8, j; i < n; i = j) { /* path[i] is the '/' before a name */
+        for (j = i + 1; j < n && path[j] != '/'; ++j) {}
+        unsigned len = j - i - 1;
+        if (!len || (path[i + 1] == '.' && (len == 1 || (len == 2 && path[i + 2] == '.'))) ||
+            ++layer > 255) /* g_folder_layer is a byte */
+            return 0;
+    }
+    return !__xstat(3, path, info) && (info[5] & 0170000) == 0040000 ? (int)layer : 0;
+}
+
 /* folder_page_init lists the storage roots at g_folder_layer 1, a root's folders at 2 and deeper
  * folders at 3 on (folder_enter). A media root becomes a layer-3 folder, so stock's reload, title
  * (its name, folder_reinit_navbarname) and entering all treat it as one. Each open starts a fresh
@@ -5475,6 +5500,8 @@ int ringnav_folder(void *win, void *ctx) {
         if (card && !g_otg_status) memcpy(st.media_root, "/mnt/mmc", 9), layer = 2;
         /* Folder Root: an ordinary folder below the card, so Back walks up to it, then as above. */
         if (card && root_dir(root)) path = root, layer = 3;
+        /* Go to Folder, checked as it was picked (song_folder) */
+        if (card && st.go_layer) path = st.go_folder, layer = st.go_layer;
     }
     if (path[0]) {
         folder_reset_variable();
@@ -5484,7 +5511,7 @@ int ringnav_folder(void *win, void *ctx) {
         folder_reinit_navbarname();
         folder_refresh(win);
     }
-    st.media_open = 0;
+    st.media_open = st.go_layer = 0;
     return result;
 }
 
@@ -5780,6 +5807,13 @@ static int qm_run(const void *unused) {
             deque_destroy(songs);
         } else
             toast("Queue unchanged");
+    } else if (r && a == QA_FOLDER) {
+        st.go_layer = song_folder(r, st.go_folder);
+        if (st.go_layer)
+            navigator_to("folder_page"); /* its init, ringnav_folder, opens there */
+        else
+            toast("Folder not found");
+        st.go_layer = 0; /* never left for a later Folder visit */
     } else if (r && a >= QA_ALBUM)
         qm_goto(r, a == QA_ALBUM);
     else {
@@ -5884,7 +5918,7 @@ static int qm_open(const void *unused) {
     /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
      * Go to is left out where its single-instance page is already open, or the album is the page.
      */
-    unsigned char acts[14], n = 0;
+    unsigned char acts[16], n = 0;
     /* Shuffle Albums/Folders only: skipping the group comes first */
     int group_first = st.qm_kind == QM_PLAYING && playback_option(0) >= 3;
     /* Rate (the heart's hold) follows Next/Previous album */
@@ -5911,6 +5945,10 @@ static int qm_open(const void *unused) {
     if ((song || cls == CLASS_ALBUMS) && artist && *artist &&
         !navigator_window_is_exist("artistinfo_page"))
         acts[n++] = QA_ARTIST;
+    /* ponytail: hidden while a folder_page is open (as Go to's single-instance pages), so a folder
+     * play's Now Playing has none; Back reaches that folder_page instead. */
+    if (song && !navigator_window_is_exist("folder_page") && song_folder(r, st.go_folder))
+        acts[n++] = QA_FOLDER;
     if (st.qm_kind == QM_PLAYING) {
         acts[n++] = QA_ADV_SHUFFLE;
         acts[n++] = QA_REPEAT;
@@ -5933,7 +5971,8 @@ static int qm_open(const void *unused) {
                                         "Rate",
                                         "Resume",
                                         "View Queue",
-                                        "Up Next" };
+                                        "Up Next",
+                                        "Go to Folder" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {

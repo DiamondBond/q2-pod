@@ -69,7 +69,7 @@ class Machine:
         self.top=0; self.wm=0x1000000; self.event=0x1000100
         self.strokes=[]; self.rounded=[]; self.bands=[]; self.icons=[]; self.letters=[]; self.font=None; self.vg_calls=[]; self.fake_vg=0; self.global_alpha=0
         self.rounded_fail=False; self.count=self.budget  # call()'s instruction limit, which nested() shares
-        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]; self.card=()  # /mnt/mmc's (name, d_type) entries
+        self.allocs={}; self.config=dict(CONFIG); self.config_reads=[]; self.card=(); self.dirs=set()  # /mnt/mmc's (name, d_type) entries; deeper folders
         self.rebind=None; self.on_click=None; self.glide=True
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
@@ -245,7 +245,7 @@ class Machine:
         elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
         elif name=='rockbox_stat':
             assert a==3
-            if self.text(b) in ['/mnt/mmc/'+n for n,t in self.card if t==4]: self.word(c+20,0o40755); ret=0  # a card folder
+            if self.text(b) in ['/mnt/mmc/'+n for n,t in self.card if t==4] or self.text(b) in self.dirs: self.word(c+20,0o40755); ret=0  # a card folder
             elif self.text(b)!='/mnt/mmc/.rockbox/rockbox': ret=-1  # Tidal Downloads' rows: no such files here
             else: self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
         elif name=='strlen@GLIBC_2.0': ret=len(self.raw(a))  # bytes: stock strips a path's UTF-8 name byte by byte
@@ -7093,6 +7093,51 @@ m=RootMachine('Music'); view=m.node('scroll_view','scroll_view_localmusic',[m.no
 m.top=m.node('window','localmusic_page',[view]); m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
 f,ctx=m.handler(m.nodes[m.nodes[view]['children'][-2]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.open()==('/mnt/mmc/Podcasts',3) and m.back()[::2]==(0,0); passed()
+
+# Go to Folder: a card song's hold menu row, after Go to Artist, opens folder_page in the song's folder as a
+# fresh visit at the layer stock's enters would have reached (the card 2, each folder one more), so stock
+# folder_back, run here, climbs a folder at a time to the card and out of the page, or to the storage
+# selector with a drive. The path is copied as it is: percent signs, format directives and UTF-8 stay literal.
+class GoMachine(RootMachine):
+    def __init__(self,path,dirs=(),otg=0):
+        super().__init__(otg=otg); self.handlers[syms['navigator_to']]='q:navigator_to'; self.dirs=set(dirs)
+        self.word(self.row(0)+O['REC_PATH'],self.string(path))
+    def hook(self,u,address,size,unused):
+        folder=address==syms['navigator_to'] and self.text(u.reg_read(REGS[0]))=='folder_page'
+        super().hook(u,address,size,unused)
+        if folder: self.win=self.top; self.nested(HOOKS['folder_page_init'][0],self.win,0)  # stock's init is synchronous
+    def menu(self): self.press(5); assert self.hold()==11; got=self.nodes[self.title]['text'],self.labels(); self.release(); return got
+    def go(self): self.calls=[]; self.pick(len(SONG_MENU)); self.advance(0)  # Go to Folder, from the open menu
+GO=[*SONG_MENU,'Go to Folder']
+DEEP='/mnt/mmc/Music/100% %s%n/Ünï cødé'
+for otg in (0,1):
+    m=GoMachine(DEEP+'/song.flac',['/mnt/mmc/Music/100% %s%n',DEEP],otg=otg); m.push(5,6)  # a visit left deep
+    assert m.menu()==('Row 0',GO); m.go(); assert m.opened[-1][0]=='folder_page'
+    assert (m.text(syms['g_folder_path']),m.u.mem_read(syms['g_folder_layer'],1)[0])==(DEEP,5) and not any(m.stacks.values())
+    for want,layer in (('/mnt/mmc/Music/100% %s%n',4),('/mnt/mmc/Music',3),('/mnt/mmc',2)): assert RootMachine.back(m)[:3]==(1,want,layer)
+    assert RootMachine.back(m)[::2]==((1,1) if otg else (0,0)); passed()  # the selector, or out of the page
+# A song at the card's root opens the card itself.
+m=GoMachine('/mnt/mmc/x.mp3',['/mnt/mmc']); assert m.menu()[1]==GO; m.go()
+assert (m.text(syms['g_folder_path']),m.u.mem_read(syms['g_folder_layer'],1)[0])==('/mnt/mmc',2) and RootMachine.back(m)[::2]==(0,0); passed()
+# No row off the card, for a path stock's enters never build, a gone folder, one too long for g_folder_path
+# (1023 bytes fit), or while a folder_page is open.
+for path,dirs,row in (('/mnt/mmcx/a.mp3',['/mnt/mmcx'],0),('/mnt/mmc/A/../a.mp3',['/mnt/mmc/A/..'],0),
+        ('/mnt/mmc/./a.mp3',['/mnt/mmc/.'],0),('/mnt/mmc/A//a.mp3',['/mnt/mmc/A/'],0),('/mnt/mmc/Gone/a.mp3',[],0),
+        ('/mnt/mmc/'+'d'*1015+'/a.mp3',['/mnt/mmc/'+'d'*1015],0),('/mnt/mmc/'+'d'*1014+'/a.mp3',['/mnt/mmc/'+'d'*1014],1),
+        ('/mnt/mmc/..a/.b/a.mp3',['/mnt/mmc/..a/.b'],1)):
+    assert GoMachine(path,dirs).menu()[1]==(GO if row else SONG_MENU),path; passed()
+m=GoMachine(DEEP+'/a.mp3',[DEEP]); m.open_pages.add('folder_page'); assert m.menu()[1]==SONG_MENU; passed()
+# Gone between the menu and the pick: a toast, no page, and the next Folder visit opens as before.
+m=GoMachine(DEEP+'/a.mp3',[DEEP]); m.menu(); m.dirs.clear(); m.go()
+assert m.toasts[-1][3]=='Folder not found' and m.opened[-1][0]!='folder_page' and m.open()==('/mnt/mmc',2); passed()
+# The card gone as the page opens: stock's page, the pending folder dropped.
+m=GoMachine(DEEP+'/a.mp3',[DEEP]); m.menu(); m.missing=True; m.go()
+assert m.opened[-1][0]=='folder_page' and m.u.mem_read(syms['g_folder_layer'],1)[0]==1; m.missing=False
+assert m.open()==('/mnt/mmc',2); passed()
+# Now Playing: the playing song's row sits after Go to Artist, before the play modes.
+m=playing_menu(); m.dirs.add('/mnt/mmc/Music'); m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[1]+O['REC_PATH'],m.string('/mnt/mmc/Music/B'))
+m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU[:2]+['View Queue']+SONG_MENU[2:]+['Go to Folder','Shuffle','Repeat','Group by: Album']
+passed()
 
 # Photos (patch/photos.c): the helpers first. Names: .jpg, .jpeg and .png, case aside, not hidden.
 m=Machine(); m.mock('memcmp@GLIBC_2.0',prefix='cmp:')
