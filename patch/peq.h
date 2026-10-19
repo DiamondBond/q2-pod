@@ -112,6 +112,8 @@ void *page_row_detail(void *view, int index, const char *caption, const char *de
 void page_row_into(void *view, int index, const char *caption, int (*click)(void *, void *));
 void *bottom_caption(void *parent, int h);
 int text_differs(void *w, const char *s);
+long file_size(const char *path); /* coverflow.c: -1 when it can't be opened */
+char *read_all(const char *path, unsigned max, unsigned *size); /* scrobble.c */
 int visual(void *s, int n, int *c, int *frac);
 int thumb(const char *src, const char *dst, int w, int h);
 int card_space(const char *dir);
@@ -121,7 +123,7 @@ unsigned fnv(unsigned h, const unsigned char *s);
 void stop_timer(unsigned *timer), rearm(unsigned *timer, int (*fn)(const void *), unsigned ms);
 int return_key(void *event, unsigned *timer, int (*leave)(const void *)); /* a page's keyup: Return */
 int center_press(unsigned *timer, unsigned *at, int (*single)(const void *), int scrubbing);
-int config_value(const char *section, const char *key, int n); /* navigation.c: Q2POD and IPOD digits */
+int config_value(const char *section, const char *key, int n, int def); /* navigation.c: a config.ini digit */
 int image_show(void *img, const char *url, unsigned *size);
 int album_cmp(void *a, void *b);
 void peq_attach(void); /* peq_ui.c */

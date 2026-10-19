@@ -26,7 +26,7 @@ static struct {
 static void settings(void) {
     if (xf.read) return;
     char v[16] = "";
-    xf.on = config_value("Q2POD", "XFADE", 2);
+    xf.on = config_value("Q2POD", "XFADE", 2, 0);
     toolsReadConfig("/mnt/data/config.ini", "Q2POD", "XFADESEC", v, "0");
     int n = atoi(v);
     xf.seconds = n >= XF_MIN && n <= XF_MAX ? n : XF_DEFAULT;

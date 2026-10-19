@@ -148,7 +148,7 @@ class Machine:
     def byte(self,a,v): self.u.mem_write(a,bytes([v]))
     def word(self,a,v): self.u.mem_write(a,struct.pack('<I',v&0xffffffff))
     def get(self,a): return struct.unpack('<I',self.u.mem_read(a,4))[0]
-    def alloc(self,n=0x200): a=self.next; self.next+=n; return a
+    def alloc(self,n=0x200): a=self.next; self.next+=(n+3)&~3; return a  # word-aligned, as glibc
     def string(self,s):
         data=s.encode()+b'\0'
         a=self.alloc((len(data)+3)&~3); self.u.mem_write(a,data); return a

@@ -1363,13 +1363,10 @@ static void pull_begin(void *event) {
 
 /* A one-digit setting under section in the stock config.ini, 0 to n - 1, else def (a missing key
  * too): toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
-static int config_or(const char *section, const char *key, int n, int def) {
+int config_value(const char *section, const char *key, int n, int def) {
     char s[256] = "", d[2] = { (char)('0' + def), 0 };
     toolsReadConfig("/mnt/data/config.ini", section, key, s, d);
     return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : def;
-}
-int config_value(const char *section, const char *key, int n) {
-    return config_or(section, key, n, 0);
 }
 
 #define ROCKBOX_BIN "/mnt/mmc/.rockbox/rockbox"
@@ -1401,9 +1398,6 @@ static const unsigned accents[][5] = { ACCENTS };
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
                                             "Accent: Champagne" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-int config_digit(const char *key, int n) {
-    return config_value("IPOD", key, n);
-} /* and visualizer.c's */
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
 static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 6 };
@@ -1412,8 +1406,8 @@ static int *const setting_values[] = { &st.accent, &st.home_full, &st.battery, &
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
-            *setting_values[i] = config_digit(setting_keys[i], setting_counts[i]);
-        st.shortcut = config_or("IPOD", "SHORTCUT", 6, 6); /* 6: no key, see shortcut() */
+            *setting_values[i] = config_value("IPOD", setting_keys[i], setting_counts[i], 0);
+        st.shortcut = config_value("IPOD", "SHORTCUT", 6, 6); /* 6: no key, see shortcut() */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : 0; /* Graphite */
@@ -2056,7 +2050,7 @@ static void pod_settings(void) {
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
         if (pod_keys[i]) /* Artist albums defaults to Coverflow */
             *pod_values[i] =
-                config_or("Q2POD", pod_keys[i], i == POD_ARTIST_CF ? 3 : 2, i == POD_ARTIST_CF);
+                config_value("Q2POD", pod_keys[i], i == POD_ARTIST_CF ? 3 : 2, i == POD_ARTIST_CF);
     st.pod_read = 1;
 }
 int ringnav_year_old(void) {
@@ -2082,7 +2076,7 @@ int ringnav_bt_resume(void) {
 /* read_artistype_value (a Library list's or artist page's init) and boot (playback.c
  * ringnav_bootmode): Artists as stock reads it, PLAYSET ARTISTTYPE, but Album Artist when no choice
  * is saved; stock writes the key only when Artists or the artist page's switch toggles. */
-void ringnav_read_artistype(void) { I(artist_type, 0) = config_or("PLAYSET", "ARTISTTYPE", 2, 1); }
+void ringnav_read_artistype(void) { I(artist_type, 0) = config_value("PLAYSET", "ARTISTTYPE", 2, 1); }
 static unsigned le32(const unsigned char *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24;
 }
@@ -2527,10 +2521,7 @@ static void bar_sync(void *bar) {
     const unsigned *t = widget_get_text(st.bar_pct);
     int level = 0;
     while (t && *t >= '0' && *t <= '9') level = level * 10 + (int)(*t++ - '0');
-    unsigned key = (unsigned)(level < 0     ? 0
-                              : level > 100 ? 100
-                                            : level)
-                       << 2 |
+    unsigned key = (unsigned)(level > 100 ? 100 : level) << 2 |
                    (unsigned)(icon && !tk_strcmp(icon, "bar_charge")) << 1 |
                    (unsigned)(icon && !tk_strcmp(icon, "bar_lowcharge"));
     int pct = pct_width(key >> 2);
@@ -5123,19 +5114,12 @@ static struct {
 
 static void lengths_read(void) {
     if (ls.read) return;
-    ls.read = 1;
-    void *f = fopen(LENGTHS_FILE, "rb");
-    long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
-    unsigned n = size > 0 ? (unsigned)size / sizeof(length_t) : 0;
-    if (n && !fseek(f, 0, 0) && (ls.tab = calloc(n, sizeof(length_t))) &&
-        fread(ls.tab, sizeof(length_t), n, f) == n)
-        ls.n = n;
-    else if (n) { /* unread, not empty: not saved over, read again next time */
-        free(ls.tab);
-        ls.tab = 0;
-        ls.read = 0;
-    }
-    if (f) fclose(f);
+    unsigned size;
+    length_t *tab = (length_t *)read_all(LENGTHS_FILE, ~0u, &size);
+    ls.read = tab || file_size(LENGTHS_FILE) <= 0; /* unread, not empty: not saved over, read again next time */
+    ls.n = size / sizeof(length_t);
+    if (!ls.n) free(tab), tab = 0;
+    ls.tab = tab;
 }
 
 /* key's seconds, -1 when never probed. */
@@ -6297,25 +6281,13 @@ static unsigned jpeg_size(const unsigned char *b, unsigned n) {
     }
     return 0;
 }
-/* path whole, if it is 1..LOGO_MAX bytes; the caller frees it */
-static unsigned char *logo_read(const char *path, unsigned *n) {
-    void *f = fopen(path, "rb");
-    unsigned char *b = 0;
-    long size = !f || fseek(f, 0, 2) ? -1 : ftell(f);
-    if (size > 0 && size <= LOGO_MAX && !fseek(f, 0, 0) && (b = calloc(1, (unsigned)size)) &&
-        fread(b, (unsigned)size, 1, f) != 1)
-        free(b), b = 0;
-    if (f) fclose(f);
-    *n = b ? (unsigned)size : 0;
-    return b;
-}
 static void *logo_sync(void *unused) {
     unsigned n = 0, old_n;
     unsigned char *b = 0, *old = 0;
     const char *err = "Boot logo must be a 320x375 JPEG";
     if (access(LOGO_SRC, 0))
         unlink(LOGO_DST), err = 0;
-    else if ((b = logo_read(LOGO_SRC, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
+    else if ((b = (unsigned char *)read_all(LOGO_SRC, LOGO_MAX, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
         free(b),
             b = 0; /* landscape: ffmpeg turns it a quarter clockwise (coverflow.c's ff_thumb) */
         int status, pid = fork();
@@ -6325,11 +6297,11 @@ static void *logo_sync(void *unused) {
                   LOGO_ROT, (char *)0);
             child_exit(127);
         }
-        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status) b = logo_read(LOGO_ROT, &n);
+        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status) b = (unsigned char *)read_all(LOGO_ROT, LOGO_MAX, &n);
         unlink(LOGO_ROT);
     }
     if (b && jpeg_size(b, n) == (320u << 16 | 375)) {
-        old = logo_read(LOGO_DST, &old_n);
+        old = (unsigned char *)read_all(LOGO_DST, LOGO_MAX, &old_n);
         if ((old && old_n == n && !memcmp(old, b, n)) ||
             blob_io(LOGO_DST, LOGO_DST ".tmp", b, n, 1))
             err = 0; /* the same bytes are not written again each boot */

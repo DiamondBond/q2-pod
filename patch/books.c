@@ -573,9 +573,7 @@ static void marks_save(void) {
 
 /* The text file is ready: open it at the page last read. */
 static void load(void) {
-    void *f = fopen(bk.file, "rb");
-    long size = f && !fseek(f, 0, 2) ? ftell(f) : 0;
-    if (f) fclose(f);
+    long size = file_size(bk.file);
     bk.size = size > 0 ? (unsigned)size : 0;
     bk.state = bk.size ? READY : BAD;
     bk.pos = bk.end = bk.prev = bk.len = 0;
