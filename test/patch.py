@@ -92,7 +92,7 @@ class Machine:
         self.mock('pthread_create@GLIBC_2.2','pthread_detach@GLIBC_2.0')
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0',
-                  'strlen@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
+                  'strlen@GLIBC_2.0','strncpy@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
                   'unlink@GLIBC_2.0','atoi@GLIBC_2.0','memcmp@GLIBC_2.0','access@GLIBC_2.0',
                   'fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0',  # blob_io's sync before rename
                   'fopen@GLIBC_2.2')  # no /proc/mounts: the boot logo's poll sees no card
@@ -203,6 +203,7 @@ class Machine:
         n=self.nodes.get(a,{})
         self.calls.append((name,a,b,c))
         if name=='memcpy': self.u.mem_write(a,bytes(self.u.mem_read(b,c))); ret=a
+        elif name=='strncpy@GLIBC_2.0': self.u.mem_write(a,self.raw(b)[:c].ljust(c,b'\0')); ret=a
         elif name=='memset': self.u.mem_write(a,bytes([b&255])*c); ret=a
         elif name in ('table_row_create', 'list_item_create', 'button_create', 'image_create', 'view_create',
                        'hscroll_label_create', 'gif_image_create', 'label_create'):
@@ -1121,12 +1122,12 @@ for address in (0x523038, 0x4aa2cc, 0x4b0efc, 0x4a4ae8):
                 width=m.get(title+O['W_W'])
                 m.row_record=m.alloc(0x80); m.word(m.row_record+0x34,8)
                 m.mock('deque_at','tk_snprintf','widget_set_text_utf8','file_is_playing')
-                for navbar in (0,1,0):
+                for navbar,label in ((0,'再利用された長いフォルダー名 '*5), (1,'99% Invisible'),
+                                     (0,'100% true %s %n.mp3'), (1,'plain.mp3'), (0,'x'*600)):
                     m.byte(syms['g_navbar_status'],navbar)
-                    label='再利用された長いフォルダー名 '*5
                     m.word(m.row_record+8,m.string(label))
                     assert m.call(address=0x522304,args=(button,7,0,0))==0
-                    assert m.nodes[title]['text']==label
+                    assert m.nodes[title]['text']==label.encode()[:511].decode()
                     assert m.get(title+O['W_W'])==(width if variant=='ipod' else 140 if navbar else 190)
         else:
             assert all(m.get(n+O['W_CHILDREN_LAYOUT'])==0 for row in rows for n in m.nodes[row]['children'])

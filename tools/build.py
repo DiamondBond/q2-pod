@@ -204,6 +204,11 @@ WIFI_LPS = (b'rtwpriv wlan0 pm_set lps=0\0', b'rtwpriv wlan0 pm_set lps=2\0')
 LOCK_CLOCK_12H = (b'hh:mm\0\0\0HH:TT\0', b'hh:mm\0\0\0H:mm\0\0')
 # Now Playing's info page: its one fill (0x52a508), a bal, becomes jal ringnav_np_info, which tidies the lines.
 NP_INFO_CALL = 0x52baf4
+# Folder row names are text, not printf formats ("99% Invisible" crashes stock's formatter).
+# tk_strncpy writes its terminator at n, so reserve the last byte of the 512-byte buffer.
+FOLDER_NAME = ((0x522384, 0x24050200, 0x240601ff),  # a2 = 511
+               (0x522390, 0x8f99a7c8, 0x8f99b200),  # tk_snprintf -> tk_strncpy
+               (0x522398, 0x8e260008, 0x8e250008))  # a1 = record->name
 # mclNextSong's shuffle pick; the payload calls the stock pick, then applies a pending Play next.
 SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a0=1) stays
 # Hold Return: only on_wm_keylong_fun's final Home call (bal) changes; all stock gates and its release
@@ -1150,6 +1155,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')
     for address, old, new in DROP_CACHES:
         patch_word(patched, address, old, new, 'keep the page cache')
+    for word in FOLDER_NAME:
+        patch_word(patched, *word, 'folder names are literal text')
     patch_word(patched, NP_INFO_CALL, branch(0x04110000, NP_INFO_CALL, PRIVATE_FUNCTIONS['np_info']),
                jal(ps['ringnav_np_info']), "Now Playing's info lines")
     for address, old, new in LDAC_HQ:
