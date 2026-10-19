@@ -2433,6 +2433,52 @@ static void keep_selected(void *target) {
     widget_invalidate_force(w, (void *)0);
 }
 
+/* Lyrics from tags: stock reads a local track's lyrics only from a .lrc beside it. Without one,
+ * the track's LYRICS tag (else UNSYNCEDLYRICS) fills stock's list a line each, at a time no track
+ * reaches, so the page stays at its top as before a .lrc's first stamp. libtag_c's property calls
+ * are found from taglib_file_new's address, which that call binds in demo's GOT.
+ * ponytail: unsynced text only (no SYLT frame, any [mm:ss] in the text shown as is), and lines
+ * starting in its first LYRIC_TAG_MAX bytes; parse stamps here for synced tags. */
+#define LYRIC_TAG_MAX 65536
+extern int stock_lyric_trampoline(void);
+int ringnav_lyric(void) {
+    int ret = stock_lyric_trampoline();
+    void *q = P(mcl_pdeqplaylist, 0), *r;
+    unsigned pos = (unsigned)I(MCL_POS, 0);
+    if (mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q || pos >= deque_size(q) ||
+        !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 || !P(r, REC_PATH) || *(char *)P(r, REC_PATH) != '/')
+        return ret;
+    void *f = taglib_file_new(P(r, REC_PATH));
+    if (!f) return ret;
+    unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0), lib = at - TAGLIB_FILE_NEW;
+    char **(*get)(void *, const char *) = (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
+    char **v = 0; /* an unbound entry still holds demo's stub */
+    if (at != (unsigned)taglib_file_new) {
+        v = get(f, "LYRICS");
+        if (!v || !*v || !**v) {
+            if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+            v = get(f, "UNSYNCEDLYRICS");
+        }
+    }
+    if (v && *v && **v) {
+        struct { int time; const char *text; } line = { 0x7fffffff, 0 };
+        pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
+        for (char *s = *v; *s && s - *v < LYRIC_TAG_MAX;) {
+            char *e = s, c;
+            while (*e && *e != '\n' && *e != '\r') ++e;
+            c = *e, *e = 0;
+            line.text = *s ? s : " "; /* stock's text for a stamp alone */
+            _deque_push_back(P(MCL_LYRICS, 0), &line);
+            s = e + (c != 0) + (c == '\r' && e[1] == '\n');
+        }
+        pthread_mutex_unlock((void *)MCL_LYRIC_LOCK);
+        ret = 1;
+    }
+    if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+    taglib_file_free(f);
+    return ret;
+}
+
 #if IPOD
 /* The status bar's centred label follows stock's 24-hour setting (18:14 or 6:14 PM), without
  * seconds, or --:-- when the time cannot be read. The bar repaints at least once

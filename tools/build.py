@@ -81,6 +81,8 @@ HOOKS = {
     'save_memoryplay_info': (0x516344, 'ringnav_savequeue', 'savequeue'),
     'mclLoadPlayList': (0x5aa8d4, 'ringnav_load', 'load'),
     'mclNextSong': (0x5adbbc, 'ringnav_next', 'next'),
+    # Lyrics: a local track without a .lrc takes its LYRICS tag (navigation.c ringnav_lyric)
+    'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
     'mclPrevSong': (0x5ada98, 'ringnav_prev', 'prev'),
     'mclSetPlayMode': (0x5ab25c, 'ringnav_mode', 'mode'),
     'mclSetPlaySpeed': (0x5ab2ec, 'ringnav_speed', 'speed'),

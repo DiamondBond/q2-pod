@@ -427,6 +427,16 @@ static inline int arc_out(int r, int y) {
 #define ALBUMINFO_ROW 0xa27200  /* the albums row localmusic_albuminfo_page_init opened (0x4a7ab4) */
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */
 #define MCL_POOL 0xa3bdb0       /* deque_t * of int: unplayed shuffle indices */
+/* The playing track's lyrics (mclGetLyricSize @0x5aac20): a deque_t * of stLyricInfo { int time;
+ * char *text; }, whose copy duplicates the text, and the mutex every reader and the loader hold. */
+#define MCL_LYRICS 0xa3bdac
+#define MCL_LYRIC_LOCK 0xa3bdb8
+/* demo's GOT entry for taglib_file_new, libtag_c's own address once a call has bound it, and the
+ * pinned libtag_c.so.2.0.1's (build.py TAG_C_SHA) offsets of it and the property calls demo lacks. */
+#define TAGLIB_NEW_GOT 0xa2662c
+#define TAGLIB_FILE_NEW 0x98e0
+#define TAGLIB_PROPERTY_GET 0xb4dc
+#define TAGLIB_PROPERTY_FREE 0xb700
 #define MCL_LASTPOS 0xa3be90    /* shuffle "previous" index, -1 none */
 #define MCL_PREPOS 0xa3be94
 #define MCL_PRELOAD 0xa3be98    /* 1 preloaded, 0 none, -1 closed for this track */
