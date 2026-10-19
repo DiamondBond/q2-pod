@@ -314,11 +314,10 @@ static inline int arc_out(int r, int y) {
 /* The Wi-Fi signal (ringnav_wifi_signal) is read from the driver again at most every
  * WIFI_SIGNAL_MS; its two pollers each ask about once a second. */
 #define WIFI_SIGNAL_MS 1000
-/* Resume (docs/internals.md#resume): tracks of RESUME_MIN_S or longer keep their place in the
- * RESUME_SLOTS most recent; a place within RESUME_EDGE_S of either end is forgotten. Saved on a
- * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less
- * than RESUME_START_S when first seen playing. */
-#define RESUME_MIN_S 1200
+/* Resume (docs/internals.md#resume): tracks of Q2POD RESUMEMIN minutes or longer (crossfade.c
+ * resume_min) keep their place in the RESUME_SLOTS most recent; a place within RESUME_EDGE_S of
+ * either end is forgotten. Saved on a track change, a pause and every RESUME_SAVE_S of play;
+ * restored if the track has played less than RESUME_START_S when first seen playing. */
 #define RESUME_SLOTS 512
 #define RESUME_EDGE_S 30
 #define RESUME_SAVE_S 60

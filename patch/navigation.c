@@ -93,8 +93,8 @@ extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas)
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event), spot_hold(void *top);
 extern void radio_poll(void);
-extern void xfade_row(void *label), wheel_row(void *label);
-extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key);
+extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label);
+extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key), resume_min(void);
 extern int eq_key(void *top, unsigned key); /* peq_ui.c */
 extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
 extern const char *radio_hold(void *top);
@@ -2321,16 +2321,13 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
 
 /* Playback Setting: what is changed while listening first, then library behaviour, then output. */
 static const unsigned char playset_order[] = {
-    3 /* Play Mode */,    2 /* EQ */,
-    0 /* Gain */,         10 /* ReplayGain */,
-    18 /* Crossfade */,   9 /* Gapless */,
-    4 /* Max Volume */,   5 /* Default Vol */,
-    11 /* Balance */,     1 /* Filters */,
-    8 /* Memory play */,  16 /* Artists */,
-    15 /* Year order */,  17 /* Artist album order */,
-    13 /* Folder art */,  14 /* Folder skip */,
-    19 /* Folder Root */, 12 /* Enlarged art */,
-    6 /* DSD Output */,   7 /* USB Audio */,
+    3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,
+    10 /* ReplayGain */,   18 /* Crossfade */,   9 /* Gapless */,
+    4 /* Max Volume */,    5 /* Default Vol */,  11 /* Balance */,
+    1 /* Filters */,       8 /* Memory play */,  20 /* Resume Songs */,
+    16 /* Artists */,      15 /* Year order */,  17 /* Artist album order */,
+    13 /* Folder art */,   14 /* Folder skip */, 19 /* Folder Root */,
+    12 /* Enlarged art */, 6 /* DSD Output */,   7 /* USB Audio */,
 };
 /* System Setting: connections and display first, boot/update/reset/about last. */
 static const unsigned char sysset_order[] = {
@@ -2404,6 +2401,7 @@ int ringnav_audioset(void *win, void *ctx) {
         root_read(name);
         st.root_label = list_row(view, "playset_folderjump", root_click, 0);
         root_text(name);
+        resume_row(list_row(view, "playset_memplay", xfade_open, (void *)2)); /* crossfade.c */
     }
     reorder(view, playset_order, sizeof playset_order);
     return result;
@@ -6150,7 +6148,8 @@ static void resume_poll(void) {
         st.rs_cue = I(r, REC_CUE_START);
         st.rs_end = I(r, REC_CUE_END);
         int book = st.rs_cue || st.rs_end; /* music CUE images are left alone */
-        st.rs_long = book ? st.rs_spoken : total >= RESUME_MIN_S || st.rs_spoken;
+        int min = resume_min();            /* Q2POD RESUMEMIN, 0 for Off */
+        st.rs_long = book ? st.rs_spoken : (min && total >= min * 60) || st.rs_spoken;
         int saved = st.rs_long ? spot_at(st.rs_file) : 0; /* reads the ring spot_keep writes */
         st.rs_pending = book ? 0 : saved;
         if (playback_resumed(r)) st.rs_pending = 0;

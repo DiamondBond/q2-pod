@@ -8204,9 +8204,10 @@ assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==want
 assert m.nodes[title]['text']=='CFW. Version' and m.nodes[value]['text']==f"{VERSION}{' Pod' if variant=='ipod' else ''}{f" dev {manifest['dev']}" if manifest['dev'] else ''}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
 
-# Resume: once a second the UI loop polls the playing track; one of RESUME_MIN_S or longer keeps its
-# place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S of play, after a
-# pause and on a track change, and jumps back there when it next starts playing near its beginning.
+# Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or
+# longer keeps its place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S
+# of play, after a pause and on a track change, and jumps back there when it next starts playing near
+# its beginning.
 # A place near either end is forgotten; a short or CUE track, or a paused start, is left alone.
 class ResumeMachine(QueueMachine):
     def __init__(self,files=None):
@@ -8276,6 +8277,16 @@ assert len(m.places())==O['RESUME_SLOTS']>=512 and m.places()[0][1]==100+O['RESU
 old32=struct.pack('<II',fnv('/p/old'),700)+bytes(8*31)  # an earlier release's 32-slot file keeps its places
 m=ResumeMachine({'/mnt/data/ringnav-resume':old32}); m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[0]+O['REC_PATH'],m.string('/p/old'))
 m.poll(0,pos=0,n=2); playing(m,1,n=3); assert m.seeks==[700]; passed()
+# Q2POD RESUMEMIN (crossfade.c resume_min): the minutes a music track needs, 30 unless 0 (Off) or a
+# five in 20-120; Off leaves music alone while Podcasts/Audiobooks still resume.
+for config,total,kept in (({},1799,0),({},1800,1),({'RESUMEMIN':'20'},1199,0),({'RESUMEMIN':'20'},1200,1),
+                          ({'RESUMEMIN':'0'},7200,0),({'RESUMEMIN':'125'},1800,1),({'RESUMEMIN':'25'},1500,1),
+                          ({'RESUMEMIN':'22'},1799,0),({'RESUMEMIN':'x'},1800,1)):
+    m=ResumeMachine(); m.config.update(config); playing(m,0,total,pos=0,n=70)
+    assert len(m.places())==kept and ('/mnt/data/config.ini','Q2POD','RESUMEMIN','30') in m.config_reads,(config,total)
+m=ResumeMachine(); m.config['RESUMEMIN']='0'; r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
+m.word(r+O['REC_PATH'],m.string('/mnt/mmc/podcasts/Show/01.mp3')); playing(m,0,200,pos=0,n=70)
+assert m.places()==[(fnv('/mnt/mmc/podcasts/Show/01.mp3'),61)]; passed()
 
 m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]  # Podcasts/Audiobooks: any length, never counted
 m.word(r+O['REC_PATH'],m.string('/mnt/mmc/audiobooks/Book/01.mp3')); playing(m,0,200,pos=0,n=110)
@@ -8572,8 +8583,8 @@ assert m.get(payload_syms['wheel_guard'])==1; passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'STANDBYLIMIT':'4'})
 assert texts()[4]=='Standby Limit: Off'; passed()  # out of range: Off
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
-assert len(rows)==5 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump']
-assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card']
+assert len(rows)==6 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump','playset_memplay']
+assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min']
 assert click(2)==[(1,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: A–Z'
 assert click(2)==[(0,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: Year'
 assert click(0)==[(1,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Oldest First'
@@ -8624,7 +8635,7 @@ for config,text in (({},'Artists: Album Artist'),({'ARTISTTYPE':'0'},'Artists: A
 passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
-assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,1,8,16,15,17,13,14,19,12,6,7]; passed()
+assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,1,8,20,16,15,17,13,14,19,12,6,7]; passed()
 # Folder Root (#49): the row cycles the card's top-level folders, case aside, then the card, saving Q2POD
 # FOLDERROOT each time. Not offered: files, dot-folders, names with an edge space or over 200 bytes (a
 # config.ini line can't keep them). A saved folder gone moves on to the next name after it.
@@ -8641,6 +8652,12 @@ assert [t for _,t in saved]==['Folder Root: '+(v or 'Card') for v,_ in saved]; p
 for config,text in (({'XFADE':'1','XFADESEC':'7'},'Crossfade: 7 s'),({'XFADE':'1','XFADESEC':'11'},'Crossfade: 5 s'),({'XFADESEC':'7'},'Crossfade: Off')):
     m,rows,texts,*_=settings_page('audioset','scroll_view_playset',config,stock_rows=15)
     assert texts()[3]==text and m.nodes[m.nodes[m.nodes[rows[3]]['children'][0]]['children'][1]].get('name')=='label_xfade'
+passed()
+# Resume Songs (crossfade.c resume_min): the row shows Q2POD RESUMEMIN, 30 min unless 0 or a five in 20-120.
+for config,text in (({},'30 min'),({'RESUMEMIN':'0'},'Off'),({'RESUMEMIN':'120'},'120 min'),({'RESUMEMIN':'125'},'30 min'),
+                    ({'RESUMEMIN':'22'},'30 min'),({'RESUMEMIN':'15'},'30 min'),({'RESUMEMIN':'x'},'30 min')):
+    m,rows,texts,*_=settings_page('audioset','scroll_view_playset',config,stock_rows=15)
+    assert texts()[5]=='Resume Songs: '+text and m.nodes[m.nodes[m.nodes[rows[5]]['children'][0]]['children'][1]].get('name')=='label_resumemin',config
 passed()
 # Wheel sensitivity (playback.c wheel_pct, test/playback.py's travel): Display's last row in both
 # builds, Q2POD WHEELSENSITIVITY as 1.0.6 saved it, 50% unless a canonical ten in 50-200.
@@ -8681,6 +8698,21 @@ assert press(m.dec)==[(50,*W)] and press(m.dec)==[] and texts()[-1]=='Wheel Sens
 m.nodes[m.slider]['value']=127; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(130,*W)] and m.nodes[m.vol]['text']=='130%'
 m.nodes[m.slider]['value']=300; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[(200,*W)] and press(m.add)==[] and turn()==[]
 assert texts()[-1]=='Wheel Sensitivity: 200%' and m.nodes[m.switch]['visible']==0
+assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1; passed()
+# Resume Songs' row opens the same page: no switch, Off below 20, then 20-120 min in fives, live and
+# saved; Centre goes back.
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
+m.stack=[m.top]; m.nodes[m.wm]=dict(type='window_manager',name='',children=m.stack,visible=1)
+assert click(5)==[] and m.nodes[m.top]['name']=='bootvol_page' and m.nodes[m.title]['text']=='Resume Songs'
+assert m.nodes[m.switch]['visible']==0 and m.nodes[m.vol]['text']=='30 min'
+R='Q2POD','RESUMEMIN'
+assert turn()==[(35,*R)] and m.nodes[m.vol]['text']=='35 min' and texts()[5]=='Resume Songs: 35 min'
+assert press(m.dec)==[(30,*R)] and turn(O['KEY_PREV'])==[(25,*R)] and turn(O['KEY_PREV'])==[(20,*R)]
+assert turn(O['KEY_PREV'])==[(0,*R)] and m.nodes[m.vol]['text']=='Off' and texts()[5]=='Resume Songs: Off'
+assert turn(O['KEY_PREV'])==[] and press(m.add)==[(20,*R)]  # Off is the bottom; up from it is 20
+m.nodes[m.slider]['value']=63; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(65,*R)] and m.nodes[m.vol]['text']=='65 min'
+m.nodes[m.slider]['value']=300; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[(120,*R)] and turn()==[]
+m.nodes[m.slider]['value']=15; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(0,*R)] and texts()[5]=='Resume Songs: Off'
 assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1; passed()
 # Bluetooth's list (btmenu_rows, rebuilt on every search) gains Resume on connect with Bluetooth on,
 # right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon, 78 high.

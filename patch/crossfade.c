@@ -1,8 +1,10 @@
 /* Crossfade (docs/internals.md#crossfade): Audio settings' row, its page and the fade hciplayer's
  * filter applies (peq_player.c). The page is stock's Boot volume page re-dressed: its slider runs
  * Off (0) and XF_MIN..XF_MAX seconds, so it needs no switch; the switch and Centre still turn it on
- * and off. Display's Wheel sensitivity row opens the same page (xf.wheel): 50-200% in tens, no
- * switch, the wheel a ten a tick and Centre back, as on Brightness (navigation.c edit_key). */
+ * and off. Display's Wheel sensitivity row opens the same page (xf.ctx 1): 50-200% in tens, no
+ * switch, the wheel a ten a tick and Centre back, as on Brightness (navigation.c edit_key). Audio
+ * settings' Resume Songs row opens it too (xf.ctx 2): Off and RS_MIN..RS_MAX minutes in fives, the
+ * same way, the length a music track needs to keep its place (navigation.c resume_poll). */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -11,12 +13,17 @@
 #define XF_MIN 1
 #define XF_MAX 10
 #define XF_DEFAULT 5
-#define XF_ROW "label_xfade"    /* the Audio settings row's label, found again by name */
-#define WHEEL_ROW "label_wheel" /* and Display's Wheel sensitivity row's */
+#define XF_ROW "label_xfade"     /* the Audio settings row's label, found again by name */
+#define WHEEL_ROW "label_wheel"  /* and Display's Wheel sensitivity row's */
+#define RS_ROW "label_resumemin" /* and Audio settings' Resume Songs row's */
+#define RS_MIN 20
+#define RS_MAX 120
+#define RS_DEFAULT 30
 
 static struct {
     int read, on, seconds, attached, done, key[4];
-    int wheel; /* the page is Wheel sensitivity's */
+    int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs */
+    int rs_read, rs_min;
     volatile int *flag;
     void *page, *sw, *view, *slider, *dec, *add, *label;
     unsigned press, press_at;
@@ -58,22 +65,57 @@ void wheel_row(void *label) {
     wheel_text(label);
 }
 
-/* The slider's value: the sensitivity, or 0 for Off, else the length. */
-static int value(void) { return xf.wheel ? wheel_pct() : xf.on ? xf.seconds : 0; }
+/* Q2POD RESUMEMIN in config.ini, read once: 0 (Off) or RS_MIN..RS_MAX in fives, else RS_DEFAULT. */
+int resume_min(void) {
+    if (!xf.rs_read) {
+        char v[16] = "";
+        toolsReadConfig("/mnt/data/config.ini", "Q2POD", "RESUMEMIN", v, "30");
+        int n = atoi(v);
+        xf.rs_min = v[0] == '0' && !v[1]                     ? 0
+                    : n >= RS_MIN && n <= RS_MAX && !(n % 5) ? n
+                                                             : RS_DEFAULT;
+        xf.rs_read = 1;
+    }
+    return xf.rs_min;
+}
+
+static void rs_text(void *label) {
+    char t[32] = "Resume Songs: Off";
+    if (resume_min()) tk_snprintf(t, sizeof t, "Resume Songs: %d min", resume_min());
+    widget_set_text_utf8(label, t);
+}
+
+/* Audio settings' row (navigation.c ringnav_audioset makes it): the label, named for refresh(). */
+void resume_row(void *label) {
+    widget_set_name(label, RS_ROW);
+    rs_text(label);
+}
+
+/* The slider's value: the sensitivity; Resume's minutes, RS_MIN - 5 for Off; or 0 for Off, else
+ * the length. */
+static int value(void) {
+    if (xf.ctx == 2) return resume_min() ? resume_min() : RS_MIN - 5;
+    return xf.ctx ? wheel_pct() : xf.on ? xf.seconds : 0;
+}
+static const int steps[] = { 1, 10, 5 }; /* a tick or +/-, by xf.ctx */
 
 /* The page and the row from xf, and the choice saved. */
 static void refresh(int save) {
-    if (save && !xf.wheel) {
+    if (save && xf.ctx == 2) write_int_config(xf.rs_min, "Q2POD", "RESUMEMIN");
+    if (save && !xf.ctx) {
         write_int_config(xf.on, "Q2POD", "XFADE");
         write_int_config(xf.seconds, "Q2POD", "XFADESEC");
     }
     void *row = widget_lookup(window_manager(), XF_ROW, 1);
     if (row) row_text(row);
     if ((row = widget_lookup(window_manager(), WHEEL_ROW, 1))) wheel_text(row);
+    if ((row = widget_lookup(window_manager(), RS_ROW, 1))) rs_text(row);
     if (!xf.page) return;
     char t[16];
-    if (xf.wheel)
+    if (xf.ctx == 1)
         tk_snprintf(t, sizeof t, "%d%%", wheel_pct());
+    else if (xf.ctx == 2)
+        tk_snprintf(t, sizeof t, xf.rs_min ? "%d min" : "Off", xf.rs_min);
     else {
         tk_snprintf(t, sizeof t, xf.on ? "%d s" : "Off", xf.seconds);
         image_base_set_image(xf.sw, xf.on ? "switch_on" : "switch_off");
@@ -83,7 +125,14 @@ static void refresh(int save) {
 }
 
 static void set_value(int n) {
-    if (xf.wheel) {
+    if (xf.ctx == 2) {
+        n = n < RS_MIN ? 0 : n > RS_MAX ? RS_MAX : (n + 2) / 5 * 5; /* the nearest five */
+        if (n == resume_min()) return;
+        xf.rs_min = n;
+        refresh(1);
+        return;
+    }
+    if (xf.ctx) {
         wheel_set_pct(n); /* rounds, clamps and saves */
         refresh(0);
         return;
@@ -96,13 +145,13 @@ static void set_value(int n) {
 }
 
 static int toggle(void *ctx, void *event) {
-    if (xf.wheel) return 0;
+    if (xf.ctx) return 0;
     xf.on = !xf.on;
     refresh(1);
     return 0;
 }
 static int step(void *ctx, void *event) {
-    set_value(value() + (int)(long)ctx * (xf.wheel ? 10 : 1));
+    set_value(value() + (int)(long)ctx * steps[xf.ctx]);
     return 0;
 }
 static int slid(void *ctx, void *event) {
@@ -110,14 +159,14 @@ static int slid(void *ctx, void *event) {
     return 0;
 }
 static int gone(void *ctx, void *event) {
-    if (xf.page == ctx) xf.page = 0, xf.wheel = 0;
+    if (xf.page == ctx) xf.page = 0, xf.ctx = 0;
     return 0;
 }
 
 /* The row's click: stock's Boot volume page, its handlers swapped for these; ctx 1 for Wheel
- * sensitivity's row. */
+ * sensitivity's row, 2 for Resume Songs'. */
 int xfade_open(void *ctx, void *event) {
-    int wheel = ctx != 0;
+    int mode = (int)(long)ctx, wheel = mode == 1;
     settings();
     if (xf.page) return 0;
     void *wm = window_manager(), *below = window_manager_get_top_window(wm);
@@ -147,13 +196,15 @@ int xfade_open(void *ctx, void *event) {
     widget_on(xf.slider, EVT_VALUE_CHANGING, slid, 0);
     widget_on(xf.slider, EVT_VALUE_CHANGED, slid, 0);
     widget_on(page, EVT_DESTROY, gone, page);
-    widget_set_text_utf8(title, wheel ? "Wheel Sensitivity" : "Crossfade");
+    widget_set_text_utf8(title, mode == 2 ? "Resume Songs"
+                                : wheel   ? "Wheel Sensitivity"
+                                          : "Crossfade");
     widget_set_visible(xf.view, 1, 0); /* stock shows it only while Boot volume's switch is on */
-    if (wheel) widget_set_visible(xf.sw, 0, 0);
-    slider_set_min(xf.slider, wheel ? 50 : 0);
-    slider_set_max(xf.slider, wheel ? 200 : XF_MAX);
-    slider_set_step(xf.slider, wheel ? 10 : 1);
-    xf.wheel = wheel;
+    if (mode) widget_set_visible(xf.sw, 0, 0);
+    slider_set_min(xf.slider, mode == 2 ? RS_MIN - 5 : wheel ? 50 : 0);
+    slider_set_max(xf.slider, mode == 2 ? RS_MAX : wheel ? 200 : XF_MAX);
+    slider_set_step(xf.slider, steps[mode]);
+    xf.ctx = mode;
     xf.page = page;
     refresh(0);
     return 0;
@@ -173,13 +224,13 @@ int xfade_key(void *top, unsigned key) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     if (!xf.page || top != xf.page) return 0;
     if (key == KEY_CENTER) {
-        if (xf.wheel) return 0;
+        if (xf.ctx) return 0;
         int press = center_press(&xf.press, &xf.press_at, single, 0);
         if (press == 2 && g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
         return press;
     }
     if (key != KEY_NEXT && key != KEY_PREV) return 0;
-    set_value(value() + (key == KEY_NEXT ? 1 : -1) * (xf.wheel ? 10 : 1));
+    set_value(value() + (key == KEY_NEXT ? 1 : -1) * steps[xf.ctx]);
     return 1;
 }
 
