@@ -148,6 +148,7 @@ static const char *const walls[WALLS] = { "q2pod:aurora", "q2pod:sunrise", "q2po
 
 static struct {
     void *img, *full;                      /* the lock window's picture and its wallpaper */
+    unsigned full_key;                     /* full's id, width and height, kept between windows */
     void *thumb[WALLS], *small[WALLS];     /* the picker's built-in thumbnails and theirs */
 } lk __attribute__((section(".scratch")));
 
@@ -173,10 +174,7 @@ static void *wall_bitmap(int w, int h, int id) {
 /* A picture widget (ctx) goes: its pointer must never match a later widget at the same address. A
  * widget already replaced by a newer one matches nothing here. */
 static int forget(void *ctx, void *event) {
-    if (ctx == lk.img) {
-        if (lk.full) bitmap_destroy(lk.full);
-        lk.img = lk.full = 0;
-    }
+    if (ctx == lk.img) lk.img = 0; /* full stays for the next lock window */
     for (int i = 0; i < WALLS; ++i)
         if (ctx == lk.thumb[i]) {
             if (lk.small[i]) bitmap_destroy(lk.small[i]);
@@ -243,9 +241,15 @@ int lockscreen_init(void *win, void *ctx) {
     int id = wall_id(PICTURE);
     if (img && id >= 0) {
         image_base_set_image(img, ""); /* nothing to look up on every paint */
-        if (lk.full) bitmap_destroy(lk.full);
+        /* rendered once per picture and size, not per lock window: each screen-on shows one.
+         * ponytail: about 470 KB kept for the life of demo; drop it on the next pick if RAM is short. */
+        unsigned key = (unsigned)id << 24 | (unsigned)I(img, W_W) << 12 | (unsigned)I(img, W_H);
         lk.img = img;
-        lk.full = id == WALLS - 1 ? 0 : wall_bitmap(I(img, W_W), I(img, W_H), id); /* Black: the window's own */
+        if (!lk.full || lk.full_key != key) {
+            if (lk.full) bitmap_destroy(lk.full);
+            lk.full = id == WALLS - 1 ? 0 : wall_bitmap(I(img, W_W), I(img, W_H), id); /* Black: the window's own */
+            lk.full_key = key;
+        }
         widget_on(img, EVT_DESTROY, forget, img);
     }
     if (ringnav_lock_clock()) big_clock(win);

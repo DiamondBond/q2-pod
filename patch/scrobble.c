@@ -77,11 +77,13 @@ void scrobble_append(const char *line, unsigned n) {
     pthread_mutex_unlock(up.lock);
 }
 
-static char *read_all(const char *path, unsigned *size) {
+/* path's bytes in a calloc'd buffer of *size + 1 (NUL-terminated), or 0 and *size 0 when it can't
+ * be opened or read or holds over max bytes. Shared with navigation.c. */
+void *read_all(const char *path, unsigned max, unsigned *size) {
     void *f = fopen(path, "rb");
     char *p = 0;
     long n = f && !fseek(f, 0, 2) ? ftell(f) : -1;
-    if (n >= 0 && !fseek(f, 0, 0) && (p = calloc(1, (unsigned)n + 1)) &&
+    if (n >= 0 && (unsigned long)n <= max && !fseek(f, 0, 0) && (p = calloc(1, (unsigned)n + 1)) &&
         fread(p, 1, (unsigned)n, f) != (unsigned)n) {
         free(p);
         p = 0;
@@ -251,7 +253,7 @@ static int scrobble_lastfm(const entry_t *e, int n, const char *sk, buf_t *b, re
 static int retire(unsigned done) {
     pthread_mutex_lock(up.lock);
     unsigned size;
-    char *p = read_all(LOG_FILE, &size);
+    char *p = read_all(LOG_FILE, ~0u, &size);
     void *f = p && size >= done ? fopen(LOG_FILE ".tmp", "wb") : 0;
     int ok = f != 0;
     if (f) {
@@ -283,7 +285,7 @@ static void *worker(void *unused) {
     unsigned size, done = 0;
     int lb = !!up.cfg[LB_TOKEN][0], fm = !!up.cfg[FM_USER][0], ok = 1, sent = 0;
     pthread_mutex_lock(up.lock);
-    char *log = read_all(LOG_FILE, &size);
+    char *log = read_all(LOG_FILE, ~0u, &size);
     pthread_mutex_unlock(up.lock);
     buf_t b = { calloc(1, BODY_MAX), 0, BODY_MAX };
     ok = b.p != 0;

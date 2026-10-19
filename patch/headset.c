@@ -103,6 +103,17 @@ static int wait_fd(int fd, int writing) {
     set[fd / 32] = 1u << (fd % 32);
     return select(fd + 1, writing ? 0 : set, writing ? set : 0, 0, tv);
 }
+/* Up to 1 s for either fd (-1 for none) to read: bit 1 a, bit 2 b, -1 an error. */
+static int wait_either(int a, int b) {
+    if (a >= 1024 || b >= 1024) return -1;
+    unsigned set[32] = { 0 };
+    long tv[2] = { 1, 0 };
+    if (a >= 0) set[a / 32] |= 1u << (a % 32);
+    if (b >= 0) set[b / 32] |= 1u << (b % 32);
+    int n = select((a > b ? a : b) + 1, set, 0, 0, tv);
+    if (n <= 0) return n;
+    return (a >= 0 && set[a / 32] >> (a % 32) & 1) | (b >= 0 && set[b / 32] >> (b % 32) & 1) << 1;
+}
 static int avrcp_open(void) {
     char path[32], name[64];
     for (int i = 0; i < 32; ++i) {
@@ -152,25 +163,34 @@ static void *headset_worker(void *arg) {
     unsigned char address[14];
     memcpy(address, hs.address, sizeof address);
     while (generation == hs.generation) {
-        if (aap < 0 && !(tries % 25)) aap = aap_open(address, generation);
-        /* Retry throughout the connection, including late-created and replaced uinput devices. */
-        if (input < 0 && !(tries % 5)) input = avrcp_open();
-        int ready = aap >= 0 ? wait_fd(aap, 0) : 0;
-        if (ready < 0) close(aap), aap = -1;
-        if (ready > 0) {
+        /* A pass is up to 1 s. Retry throughout the connection, including late-created and
+         * replaced uinput devices: each second for the first 10, then every 2 s; AACP every 5. */
+        if (aap < 0 && !(tries % 5)) aap = aap_open(address, generation);
+        if (input < 0 && (tries < 10 || !(tries % 2))) input = avrcp_open();
+        if (aap < 0 && input < 0) {
+            for (int i = 0; i < 5 && generation == hs.generation; ++i) usleep(200000);
+            ++tries;
+            continue;
+        }
+        int ready = wait_either(aap, input);
+        if (ready < 0) { /* which one: a closed fd shows as readable, so take each alone */
+            if (aap >= 0 && wait_fd(aap, 0) < 0) close(aap), aap = -1;
+            if (input >= 0 && wait_fd(input, 0) < 0) close(input), input = -1;
+            ++tries;
+            continue;
+        }
+        if (ready & 1) {
             unsigned char packet[256];
             int n = recv(aap, packet, sizeof packet, 0x40);
             if (n <= 0) close(aap), aap = -1;
-            /* Drain the queue: AirPods stream other reports too, and one packet a pass (each
-             * pass also waits up to 200 ms on the input) fell behind, delaying ear reports. */
+            /* Drain the queue: AirPods stream other reports too, and one packet a pass fell
+             * behind, delaying ear reports. */
             for (int i = 0; n > 0 && i < 64 && generation == hs.generation; ++i) {
                 ringnav_aap_parse(packet, n);
                 n = recv(aap, packet, sizeof packet, 0x40);
             }
         }
-        ready = input >= 0 ? wait_fd(input, 0) : 0;
-        if (ready < 0) close(input), input = -1;
-        if (ready > 0) {
+        if (ready & 2) {
             struct {
                 unsigned sec, usec;
                 unsigned short type, code;
@@ -187,7 +207,6 @@ static void *headset_worker(void *arg) {
                         ++hs.head;
                     }
         }
-        if (aap < 0 && input < 0) usleep(200000);
         ++tries;
     }
     if (input >= 0) close(input);

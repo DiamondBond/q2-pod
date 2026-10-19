@@ -240,6 +240,7 @@ typedef struct {
      * and the list it opened, with its tracks. */
     unsigned *rates, *album_rates;
     void *rate_win, *rate_fav, *rate_ctx, *rate_badge, *rate_on;
+    int rate_shown; /* the badge's hearts plus 1, 0 for a new badge */
     int empty_kind; /* the empty Library list empty_toast names */
     int rate_pick, rate_held;
     unsigned rate_hold, rate_tick, rate_album;
@@ -1364,13 +1365,10 @@ static void pull_begin(void *event) {
 
 /* A one-digit setting under section in the stock config.ini, 0 to n - 1, else def (a missing key
  * too): toolsReadConfig(path, section, key, out, default) copies the value, or the default. */
-static int config_or(const char *section, const char *key, int n, int def) {
+int config_value(const char *section, const char *key, int n, int def) {
     char s[256] = "", d[2] = { (char)('0' + def), 0 };
     toolsReadConfig("/mnt/data/config.ini", section, key, s, d);
     return s[0] >= '0' && s[0] < '0' + n && !s[1] ? s[0] - '0' : def;
-}
-int config_value(const char *section, const char *key, int n) {
-    return config_or(section, key, n, 0);
 }
 
 #define ROCKBOX_BIN "/mnt/mmc/.rockbox/rockbox"
@@ -1402,9 +1400,6 @@ static const unsigned accents[][5] = { ACCENTS };
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
                                             "Accent: Champagne" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-int config_digit(const char *key, int n) {
-    return config_value("IPOD", key, n);
-} /* and visualizer.c's */
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
 static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 6 };
@@ -1413,8 +1408,8 @@ static int *const setting_values[] = { &st.accent, &st.home_full, &st.battery, &
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
-            *setting_values[i] = config_digit(setting_keys[i], setting_counts[i]);
-        st.shortcut = config_or("IPOD", "SHORTCUT", 6, 6); /* 6: no key, see shortcut() */
+            *setting_values[i] = config_value("IPOD", setting_keys[i], setting_counts[i], 0);
+        st.shortcut = config_value("IPOD", "SHORTCUT", 6, 6); /* 6: no key, see shortcut() */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : 0; /* Graphite */
@@ -2059,7 +2054,7 @@ static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
         if (pod_keys[i]) /* Artist albums defaults to Coverflow */
-            *pod_values[i] = config_or("Q2POD", pod_keys[i], pod_choices(i), i == POD_ARTIST_CF);
+            *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i), i == POD_ARTIST_CF);
     st.pod_read = 1;
 }
 int ringnav_year_old(void) {
@@ -2085,7 +2080,9 @@ int ringnav_bt_resume(void) {
 /* read_artistype_value (a Library list's or artist page's init) and boot (playback.c
  * ringnav_bootmode): Artists as stock reads it, PLAYSET ARTISTTYPE, but Album Artist when no choice
  * is saved; stock writes the key only when Artists or the artist page's switch toggles. */
-void ringnav_read_artistype(void) { I(artist_type, 0) = config_or("PLAYSET", "ARTISTTYPE", 2, 1); }
+void ringnav_read_artistype(void) {
+    I(artist_type, 0) = config_value("PLAYSET", "ARTISTTYPE", 2, 1);
+}
 static unsigned le32(const unsigned char *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24;
 }
@@ -2137,6 +2134,26 @@ int ringnav_music_info(int a, char *info, const char *path) {
     if (path && !info[MUSIC_INFO_ALBUM_ARTIST])
         flac_album_artist(path, info + MUSIC_INFO_ALBUM_ARTIST);
     return r;
+}
+/* player_get_id3info's copy of the parsed path (ID3_PATH in tools/build.py), after the tags and
+ * before Now Playing's lines. A CUE track's tags are its record's, the stock parser's TITLE and
+ * PERFORMER (the track's, else the sheet's); a sheet without them takes the file's (issue #59).
+ * ponytail: the playing track only; the database keeps the sheet's empty fields for Library. */
+char *ringnav_id3_path(char *id3, const char *path) {
+    static const int fields[] = { ID3_ALBUM, ID3_ARTIST, ID3_ALBUM_ARTIST };
+    if (mclGetCueFlag() && (!id3[ID3_ALBUM] || !id3[ID3_ARTIST] || !id3[ID3_ALBUM_ARTIST])) {
+        char info[0x698] = { 0 };
+        if (toolsGetMusicInfo(0, info, path) == 1)
+            for (unsigned i = 0; i < sizeof fields / sizeof *fields; i++) {
+                char *f = id3 + fields[i];
+                if (*f) continue;
+                tk_snprintf(f, 0x100, "%s", info + fields[i] - ID3_ALBUM);
+                toolsTrimLeft(f); /* as stock did to its fields before this copy */
+            }
+    }
+    /* last: now_tag and marked_empty read a matching path as the tags being complete */
+    tk_snprintf(id3, 0x400, "%s", path); /* +0x400: the CUE start */
+    return id3;
 }
 /* Quote bounded scanner paths/tags into one UPDATE; never execute a truncated statement. */
 static int scan_quote(char *sql, unsigned cap, unsigned *n, const char *s) {
@@ -2535,10 +2552,7 @@ static void bar_sync(void *bar) {
     const unsigned *t = widget_get_text(st.bar_pct);
     int level = 0;
     while (t && *t >= '0' && *t <= '9') level = level * 10 + (int)(*t++ - '0');
-    unsigned key = (unsigned)(level < 0     ? 0
-                              : level > 100 ? 100
-                                            : level)
-                       << 2 |
+    unsigned key = (unsigned)(level > 100 ? 100 : level) << 2 |
                    (unsigned)(icon && !tk_strcmp(icon, "bar_charge")) << 1 |
                    (unsigned)(icon && !tk_strcmp(icon, "bar_lowcharge"));
     int pct = pct_width(key >> 2);
@@ -4327,8 +4341,8 @@ int ringnav_localclass(int cls) {
 /* The tracks stock would play for that row, in its order. */
 static void qm_tracks(void *r, void *add) {
     int n;
-    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS
-                      ? staged_music : staged)(qm_query, r, &n);
+    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS ? staged_music : staged)(
+        qm_query, r, &n);
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
@@ -4416,7 +4430,8 @@ void toast(const char *text) {
 static int all_songs(void *unused) { return getAllMusic(0); }
 
 /* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
- * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums (MUSIC_WHERE). */
+ * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums
+ * (MUSIC_WHERE). */
 static int songs_unsorted(void *music) {
     library_music = music != 0;
     int n = getAllMusic(3);
@@ -4833,6 +4848,10 @@ static void rate_badge(void) {
     void *r = rate_track();
     int n = r ? rate_kept(0, listen_key(r)) : 0;
     if (n && !tk_strcmp(widget_get_prop_str(st.rate_fav, "image", ""), "play_fav")) n = 0;
+    /* each set repaints the badge, and this runs every 500 ms: only a change (AWTK's "text" is
+     * a wide string widget_get_prop_str doesn't read) */
+    if (st.rate_shown == n + 1) return;
+    st.rate_shown = n + 1;
     char s[4] = { (char)('0' + n) };
     widget_set_text_utf8(st.rate_badge, s);
     widget_set_visible(st.rate_badge, n != 0, 0);
@@ -5014,6 +5033,7 @@ static void rate_bind(void *win) {
     st.rate_badge = label(P(fav, W_PARENT), I(fav, W_X) + I(fav, W_W) - 18, I(fav, W_Y) + 6, 16, 16,
                           "s_scrlabel_white20c", 12, 0xffffffffu);
     widget_set_sensitive(st.rate_badge, 0); /* the heart's corner stays the heart's */
+    st.rate_shown = 0;
     widget_on(win, EVT_DESTROY, rate_gone, win);
     st.rate_tick = timer_add(rate_tick, (void *)0, 500);
     rate_badge();
@@ -5126,19 +5146,13 @@ static struct {
 
 static void lengths_read(void) {
     if (ls.read) return;
-    ls.read = 1;
-    void *f = fopen(LENGTHS_FILE, "rb");
-    long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
-    unsigned n = size > 0 ? (unsigned)size / sizeof(length_t) : 0;
-    if (n && !fseek(f, 0, 0) && (ls.tab = calloc(n, sizeof(length_t))) &&
-        fread(ls.tab, sizeof(length_t), n, f) == n)
-        ls.n = n;
-    else if (n) { /* unread, not empty: not saved over, read again next time */
-        free(ls.tab);
-        ls.tab = 0;
-        ls.read = 0;
-    }
-    if (f) fclose(f);
+    unsigned size;
+    length_t *tab = read_all(LENGTHS_FILE, ~0u, &size);
+    ls.read = tab || file_size(LENGTHS_FILE) <=
+                         0; /* unread, not empty: not saved over, read again next time */
+    ls.n = size / sizeof(length_t);
+    if (!ls.n) free(tab), tab = 0;
+    ls.tab = tab;
 }
 
 /* key's seconds, -1 when never probed. */
@@ -6211,6 +6225,36 @@ static void charge_poll(void) {
     st.charge_held = hold;
 }
 
+/* The Wi-Fi signal (docs/internals.md#battery), for networkGetWifiSignal's two pollers: the status
+ * bar's bars (get_wifisignal) and the network monitor thread's connect status, each about once a
+ * second. Stock asks with SIOCGIWSTATS, which the driver answers through get_station, whose TX
+ * report takes the radio out of power save (LPS) every time. The driver keeps the same signal in
+ * rx_signal, a percentage that get_station reports less 100 as dBm, and reading it touches no
+ * hardware. Unreadable, it is 0, as stock's failed ioctl. Stock's unsigned level wraps the one
+ * value 0 dBm (100%) to -256, one bar; here it is 0, four. */
+#define WIFI_SIGNAL "/proc/net/rtl8733bs/wlan0/rx_signal"
+static struct {
+    unsigned at;
+    int dbm;
+} wifi __attribute__((section(".scratch")));
+
+int ringnav_wifi_signal(void) {
+    unsigned now = time_now_ms();
+    if (wifi.at && now - wifi.at < WIFI_SIGNAL_MS) return wifi.dbm;
+    char text[512];
+    int fd = open(WIFI_SIGNAL, 0x80000); /* O_RDONLY | O_CLOEXEC, MIPS */
+    int n = fd < 0 ? 0 : read(fd, text, sizeof text - 1);
+    if (fd >= 0) close(fd);
+    text[n > 0 ? n : 0] = 0;
+    const char *s = strstr(text, "signal_strength:");
+    int pct = 0;
+    if (s)
+        for (s += 16; *s >= '0' && *s <= '9'; ++s) pct = pct * 10 + *s - '0';
+    wifi.dbm = s ? pct - 100 : 0;
+    wifi.at = now | !now; /* never 0, not read yet */
+    return wifi.dbm;
+}
+
 /* Low power's second core (docs/internals.md#low-power): CPU1 is offline while the screen is off
  * and no video plays, so the player decodes on one core and the UI, Coverflow and videos keep both.
  * The first offline of a boot is bracketed by CPU1_PENDING, synced to flash: if a kernel stalled on
@@ -6345,25 +6389,13 @@ static unsigned jpeg_size(const unsigned char *b, unsigned n) {
     }
     return 0;
 }
-/* path whole, if it is 1..LOGO_MAX bytes; the caller frees it */
-static unsigned char *logo_read(const char *path, unsigned *n) {
-    void *f = fopen(path, "rb");
-    unsigned char *b = 0;
-    long size = !f || fseek(f, 0, 2) ? -1 : ftell(f);
-    if (size > 0 && size <= LOGO_MAX && !fseek(f, 0, 0) && (b = calloc(1, (unsigned)size)) &&
-        fread(b, (unsigned)size, 1, f) != 1)
-        free(b), b = 0;
-    if (f) fclose(f);
-    *n = b ? (unsigned)size : 0;
-    return b;
-}
 static void *logo_sync(void *unused) {
     unsigned n = 0, old_n;
     unsigned char *b = 0, *old = 0;
     const char *err = "Boot logo must be a 320x375 JPEG";
     if (access(LOGO_SRC, 0))
         unlink(LOGO_DST), err = 0;
-    else if ((b = logo_read(LOGO_SRC, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
+    else if ((b = read_all(LOGO_SRC, LOGO_MAX, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
         free(b),
             b = 0; /* landscape: ffmpeg turns it a quarter clockwise (coverflow.c's ff_thumb) */
         int status, pid = fork();
@@ -6373,11 +6405,12 @@ static void *logo_sync(void *unused) {
                   LOGO_ROT, (char *)0);
             child_exit(127);
         }
-        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status) b = logo_read(LOGO_ROT, &n);
+        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status)
+            b = read_all(LOGO_ROT, LOGO_MAX, &n);
         unlink(LOGO_ROT);
     }
     if (b && jpeg_size(b, n) == (320u << 16 | 375)) {
-        old = logo_read(LOGO_DST, &old_n);
+        old = read_all(LOGO_DST, LOGO_MAX, &old_n);
         if ((old && old_n == n && !memcmp(old, b, n)) ||
             blob_io(LOGO_DST, LOGO_DST ".tmp", b, n, 1))
             err = 0; /* the same bytes are not written again each boot */
@@ -6482,7 +6515,7 @@ static int bt_audio_ready(void) {
 
 static struct {
     unsigned checked;
-    int ready, last;
+    int ready, last, failed; /* failed: the headset refused the last absolute volume */
 } btvol __attribute__((section(".scratch")));
 
 void headset_volume_reset(void) { btvol.ready = 0; }
@@ -6496,10 +6529,11 @@ static int bt_sync_volume(int left, int right) {
      * hold */
     if ((int)(cur * 100 + 63) / 127 != v) {
         unsigned want = (v * 127 + 50) / 100;
-        if (btctl_transport_set_volume(want)) return 0;
+        if (btctl_transport_set_volume(want)) return btvol.failed = 1, 0;
         cur = want;
     }
     btvol.last = cur;
+    btvol.failed = 0;
     return 1;
 }
 
@@ -6514,12 +6548,16 @@ int ringnav_btvol(int left, int right) {
     return stock_btvol_trampoline(left, right);
 }
 
+/* Every 400 ms lit, or while a volume limit has to be held on the headset's own keys; else every
+ * BT_VOLUME_SLOW_MS dark, or while the headset refuses absolute volume, so a long dark session
+ * doesn't wake libbtctl 2.5 times a second for a volume nobody sees. */
 static void bt_volume_poll(void) {
     unsigned now = time_now_ms();
-    if (now - btvol.checked < 400) return;
+    int fast = (g_backlight_status || (btvol.ready && g_maxvolume < 100)) && !btvol.failed;
+    if (now - btvol.checked < (fast ? 400u : BT_VOLUME_SLOW_MS)) return;
     btvol.checked = now;
     if (!bt_audio_ready()) {
-        btvol.ready = 0;
+        btvol.ready = btvol.failed = 0;
         return;
     }
     if (!btvol.ready) {

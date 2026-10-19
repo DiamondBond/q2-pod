@@ -104,6 +104,9 @@ HOOKS = {
     'mcl_tidalStartPlayer': (0x5ad240, 'tidal_start', 'tidal'),
     # Ratings (navigation.c rate_bind): Now Playing's heart, held, opens the picker
     'playing_page_init': (0x52ca88, 'ringnav_playing', 'playing'),
+    # The Wi-Fi signal (navigation.c ringnav_wifi_signal): the driver's rx_signal instead of an ioctl
+    # that takes the radio out of power save; the status bar and the network monitor (a bal) poll it
+    'networkGetWifiSignal': (0x5afb48, 'ringnav_wifi_signal', None),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist', 'playlist'),
@@ -190,6 +193,10 @@ WATCHDOG = 'usr/bin/checkappprocess.sh'
 WATCHDOG_SLEEP = (b'\tsleep 2\n', b'\tsleep 10\n')
 # toolsSetRtcTime's command, with its padding; -u keeps the RTC in UTC. See docs/internals.md#clock.
 RTC_WRITE = (b'hwclock -w\0\0', b'hwclock -wu\0')
+# network_checkstatus's command once Wi-Fi connects (its digit at file offset 0x37133d): stock turns
+# the radio's power save (LPS) off for the whole connection; 2 restores the driver's own default,
+# PS_MODE_MAX. See docs/internals.md#battery.
+WIFI_LPS = (b'rtwpriv wlan0 pm_set lps=0\0', b'rtwpriv wlan0 pm_set lps=2\0')
 # The lock window's 12-hour clock format (after its 24-hour hh:mm, by clock_time): stock's HH:TT shows
 # "05:PM"; H:mm is the hour 1-12 unpadded and the minutes (tk_date_time_format_impl), "5:07".
 LOCK_CLOCK_12H = (b'hh:mm\0\0\0HH:TT\0', b'hh:mm\0\0\0H:mm\0\0')
@@ -211,6 +218,9 @@ BT_POWER = (0x4efcbc, 0x0320f809)
 # player_parsecover_thd's jalr toolsGetExternCover (lw $t9 at 0x51300c; Now Playing's folder art, after its
 # embedded art failed) becomes jal coverflow_player_cover, which gives ffmpeg what stock's decoder refuses.
 PLAYER_COVER = (0x51301c, 0x0320f809)
+# player_get_id3info's jalr strcpy of the parsed path (lw $t9 at 0x5148e0), which every fresh parse reaches
+# before Now Playing's lines, becomes jal ringnav_id3_path: a CUE track without sheet tags takes its file's.
+ID3_PATH = (0x5148e8, 0x0320f809)
 # parse_albumcovertask_thd's jalr toolsGetAlbumCover (Albums grids; Folder view's folder and track rows),
 # each with its lw $t9, become jal coverflow_grid_cover, which gives ffmpeg the Ogg pictures stock skips;
 # the Albums grid's (first, before stock's toolsGetExternCover) jal coverflow_album_cover.
@@ -793,6 +803,7 @@ FUNCTIONS = {
  'btctl_device_status_callback': ('void', 'void *, void *'),
  'btctl_set_a2dp_callback': ('void', 'void *, void *'),
  'btrecvA2dpFunc': ('int', 'int, void *, void *'),
+ 'mclGetCueFlag': ('int', 'void'),  # the playing record has a CUE start or end
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
  'player_stop': ('int', 'void'),
  'player_save_start': ('int', 'int'),  # pause: mclStartPlayer at the saved seek, then paused if set
@@ -1119,6 +1130,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x51300c))[0] == 0x8f99b6e4,
           'player cover: expected toolsGetExternCover import')
     patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x5148e0))[0] == 0x8f99f5bc,
+          'id3 path: expected strcpy import')
+    patch_word(patched, *ID3_PATH, jal(ps['ringnav_id3_path']), "a CUE track's file tags")
     for call, load, fn in GRID_COVER:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, load))[0] == 0x8f99b6e0,
               'grid cover: expected toolsGetAlbumCover import')
@@ -1182,6 +1196,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
           'VERSION must be three single digits (x.y.z): the 5-character tag would shift every later file offset')
     patched = patched.replace(b'V1.32\0', version.encode()+b'\0')
     patched = patched.replace(*RTC_WRITE)
+    check(patched.count(WIFI_LPS[0]) == 1, 'Unexpected Wi-Fi power save command')
+    patched = patched.replace(*WIFI_LPS)
     check(patched.count(LOCK_CLOCK_12H[0]) == 1, 'Unexpected lock clock formats')
     patched = patched.replace(*LOCK_CLOCK_12H)
     check(re.search(r'\.pdr +PROGBITS +0+ +0*%x +0*%x ' % PDR, run('readelf', '-SW', demo)) and

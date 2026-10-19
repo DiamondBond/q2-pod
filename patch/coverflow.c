@@ -127,7 +127,7 @@ static int art_exists(const char *url) { return !access(url + 7, 0); }
 #endif
 
 /* path's size, -1 when it can't be opened */
-static long file_size(const char *path) {
+long file_size(const char *path) {
     void *f = fopen(path, "rb");
     long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
     if (f) fclose(f);

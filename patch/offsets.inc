@@ -293,6 +293,10 @@ static inline int arc_out(int r, int y) {
  * second, so a Q2 left dark without Standby stops waking the CPU for nothing. The first key waits
  * at most that; Wake's second press is timed at the screen-off pace. */
 #define DARK_IDLE_SLEEP_MS 250
+/* Bluetooth absolute volume is read back this often with the screen off and no volume limit to
+ * hold, or after the headset refused it (bt_volume_poll); 400 ms otherwise. A headset's own volume
+ * keys show on the Q2 that late. */
+#define BT_VOLUME_SLOW_MS 2000
 /* Screen on, once IDLE_MS pass without input or a window animation, each turn idles IDLE_SLEEP_MS
  * (about 30 passes a second; the first input after waits at most that). */
 #define IDLE_MS 2000
@@ -307,6 +311,9 @@ static inline int arc_out(int r, int y) {
 #define STANDBY_LIMIT_1 1
 #define STANDBY_LIMIT_2 8
 #define STANDBY_LIMIT_3 24
+/* The Wi-Fi signal (ringnav_wifi_signal) is read from the driver again at most every
+ * WIFI_SIGNAL_MS; its two pollers each ask about once a second. */
+#define WIFI_SIGNAL_MS 1000
 /* Resume (docs/internals.md#resume): tracks of RESUME_MIN_S or longer keep their place in the
  * RESUME_SLOTS most recent; a place within RESUME_EDGE_S of either end is forgotten. Saved on a
  * track change, a pause and every RESUME_SAVE_S of play; restored if the track has played less
@@ -414,7 +421,7 @@ static inline int arc_out(int r, int y) {
 #define ID3_ARTIST 0x504
 #define ID3_TITLE 0x684
 #define MUSIC_INFO_ALBUM_ARTIST 0x580 /* toolsGetMusicInfo's info (ID3_ALBUM's base): abmartist, the scan's albumsonger */
-#define ID3_ALBUM_ARTIST (ID3_ALBUM + MUSIC_INFO_ALBUM_ARTIST) /* empty for CUE tracks, copied from the record */
+#define ID3_ALBUM_ARTIST (ID3_ALBUM + MUSIC_INFO_ALBUM_ARTIST) /* a CUE track's, from its file (ringnav_id3_path) */
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
 #define MUSIC_WHERE "fileurl not like '/mnt/mmc/audiobooks/%' and fileurl not like '/mnt/mmc/podcasts/%' and fileurl not like '%.m4b'"
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */

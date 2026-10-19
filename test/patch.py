@@ -148,7 +148,7 @@ class Machine:
     def byte(self,a,v): self.u.mem_write(a,bytes([v]))
     def word(self,a,v): self.u.mem_write(a,struct.pack('<I',v&0xffffffff))
     def get(self,a): return struct.unpack('<I',self.u.mem_read(a,4))[0]
-    def alloc(self,n=0x200): a=self.next; self.next+=n; return a
+    def alloc(self,n=0x200): a=self.next; self.next+=(n+3)&~3; return a  # word-aligned, as glibc
     def string(self,s):
         data=s.encode()+b'\0'
         a=self.alloc((len(data)+3)&~3); self.u.mem_write(a,data); return a
@@ -3430,7 +3430,15 @@ b.byte(syms['bt_linkstatus'],1); b.word(syms['bt_showcoding'],0); b.poll(); asse
 b.word(syms['bt_showcoding'],1); b.poll(); assert not b.writes(); passed()
 b=BtVolumeMachine(); b.write_result=-1; b.poll()
 assert b.writes()==[25] and not any(c[0]=='stock_btvol' for c in b.calls)
-b.write_result=0; b.poll(); assert b.writes()==[25]; passed()
+b.write_result=0; b.poll(); assert not b.writes()  # a refusal retries at the slow pace
+b.poll(O['BT_VOLUME_SLOW_MS']-400); assert b.writes()==[25]; passed()
+# Dark, the read-back slows down.
+b=BtVolumeMachine(); b.poll(); b.calls=[]; b.byte(syms['g_backlight_status'],0); b.absolute=50
+b.poll(); assert not any(c[0]=='btctl_transport_get_volume' for c in b.calls)
+b.poll(O['BT_VOLUME_SLOW_MS']-400); assert any(c[0]=='btctl_transport_get_volume' for c in b.calls); passed()
+# Dark with a volume limit, the headset's own keys are still held to it at the lit pace.
+b=BtVolumeMachine(); b.byte(syms['g_maxvolume'],60); b.poll(); b.byte(syms['g_backlight_status'],0); b.absolute=127
+b.poll(); assert b.writes()==[76] and b.u.mem_read(syms['g_volume'],1)[0]==60; passed()
 # Native device_set_volume calls LocalVol and BtVol for the DAC/Bluetooth, USB's own
 # setter for USB. g_output_way=0 avoids stock's fixed line-out branch; notify is covered too.
 for way,soft in ((0,0),(1,0),(2,0),(2,1)):
@@ -5403,6 +5411,21 @@ for sizes in ((2,2,1,1),(1,1,1,1)):
     events=[event for event,_ in m.trace]
     for event in ('on_player_autochange','toolsLoadNextDir','player_refresh_playqueue'): assert events.count(event)==3
     assert events.count('mclLoadPlayList')==4 and events.count('mclClearChangeFlag')==len(paths)-1
+# A CUE track (issue #59): its record's PERFORMER is kept, a missing sheet TITLE takes the file's album.
+from build import ID3_PATH
+assert struct.unpack_from('<I',demo,fileoff(demo,ID3_PATH[0]))[0]==jal(payload_syms['ringnav_id3_path'])
+m=RolloverMachine((1,1)); m.handlers.pop(syms['mclGetCueFlag'])  # stock's, on the queue
+r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]; id3=syms['g_play_id3_info']
+m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m.word(r+O['REC_ARTIST'],m.string('Author'))
+m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
+assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Author','Album 0']
+assert m.text(id3)=='/mnt/mmc/0/0.flac'; passed()
+# ...and a sheet TITLE without PERFORMER keeps the album and takes the file's artist, not Unknown Artist.
+m=RolloverMachine((1,1)); m.handlers.pop(syms['mclGetCueFlag'])
+r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
+m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m.word(r+O['REC_ALBUM'],m.string('Book'))
+m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
+assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Artist','Book']; passed()
 
 # Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg only for an Ogg track
 # stock found none in, never for an MP3 or FLAC, run with parse_cover_mutex dropped. It writes dst.ff,
@@ -7438,8 +7461,9 @@ class SpotMachine(BooksMachine):
     def __init__(self,files):
         super().__init__({},files)
         for n in ('system@GLIBC_2.0','clock_gettime@GLIBC_2.2','toolsThumbSpecCover','pthread_mutex_lock@GLIBC_2.0',
-                  'pthread_mutex_unlock@GLIBC_2.0','sleep_ms','mclGetPlayStatus'):
+                  'pthread_mutex_unlock@GLIBC_2.0','sleep_ms','mclGetPlayStatus','connect@GLIBC_2.0'):
             self.handlers[syms[n]]='s:'+n
+        self.alive=True  # librespot's control socket takes a connection (spot_alive)
         for x in ('stream','start_player'):
             tramp=int(manifest['patch_symbols'][f'stock_{x}_trampoline'],16)
             self.handlers[tramp]='stock_'+x; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
@@ -7460,6 +7484,7 @@ class SpotMachine(BooksMachine):
             self.now+=a
             if self.on_sleep: self.on_sleep()
         elif name=='mclGetPlayStatus': ret=self.play
+        elif name=='connect': assert self.text(b+2)==SOCK; ret=0 if self.alive else -1
         self.calls.append((name,a,b,c))
         self.returns(ret,clobber=True)
     def state(self,state,position=0,at=None,cover=0,track='t1',title='Song',artist='A, B',album='LP',duration=200000):
@@ -7688,7 +7713,7 @@ class RadioMachine(SpotMachine):
                 x=parent
             return True
         w=w or self.page
-        return [n['text'] for x,n in self.nodes.items() if n['type']=='hscroll_label' and n.get('text') is not None and linked(x,w)]
+        return [n.get('text','') for x,n in self.nodes.items() if n['type']=='hscroll_label' and linked(x,w)]  # a new label's text is ''
     def back(self,w=None):
         """Return on page w (the radio list by default), and its timers."""
         w=w or self.page; f,ctx=self.handler(w,O['EVT_KEY_UP']); ev=self.alloc(0x40)
@@ -7877,8 +7902,11 @@ class BrowseMachine(RadioMachine):
             self.word(u.reg_read(REGS[0])+O['VIEW_CONTENT_H'],u.reg_read(REGS[2]))
         if not name.startswith('x:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
-        if name=='socket': assert a==1 and b in (1,2); ret=9 if b==2 else 7; self.out=b''; self.pending=b''
-        elif name=='connect': assert a==9 and self.text(b+2)==BROWSE; ret=0 if self.serve else -1
+        if name=='socket':
+            assert a==1 and b in (1,2); ret=9 if b==2 else 7
+            if b==2: self.out=b''; self.pending=b''
+        elif name=='connect' and a!=9: assert self.text(b+2)==SOCK; ret=0 if self.alive else -1  # spot_alive's
+        elif name=='connect': assert self.text(b+2)==BROWSE; ret=0 if self.serve else -1
         elif name=='fcntl': assert (a,b,c)==(9,4,0x80)  # nonblocking before connect
         elif name=='send':
             if a==9: self.out+=bytes(u.mem_read(b,c))
@@ -8061,6 +8089,16 @@ assert len(m.systems)==1 and 'reset_poweroptions_timer' in names and 'player_sto
 assert not m.call(address=payload_syms['spot_status'],gap=0)
 m.files['/tmp/q2-librespot.download']=bytearray(b'downloading=0\n')
 m.poll(500); m.poll(30000); assert 'killall -9 librespot aplay' in m.systems[-1]; passed()
+# A crashed librespot's files still say playing and downloading: once its socket refuses, no hold,
+# and it idles out; a new state (the restart) or a socket that answers again trusts them again.
+m=BrowseMachine(); m.open(); m.answer(*ME); m.state('playing'); m.poll(); m.destroy(m.page)
+m.files['/tmp/q2-librespot.download']=bytearray(b'downloading=1\n')
+m.alive=False; names=m.poll(10000); assert 'reset_poweroptions_timer' not in names
+names=m.poll(); assert 'reset_poweroptions_timer' not in names
+m.state('playing',position=1); names=m.poll(); assert 'reset_poweroptions_timer' in names
+m.poll(10000); m.alive=True; names=m.poll(10000); assert 'reset_poweroptions_timer' in names
+m.alive=False
+m.alive=False; m.poll(10000); m.poll(30000); assert 'killall -9 librespot aplay' in m.systems[-1]; passed()
 
 # Back reveals the saved More row, and paint keeps it selected.
 m=BrowseMachine(); m.open(); m.answer(*ME); m.row(0)
@@ -8899,6 +8937,43 @@ m=StandbyMachine({'STANDBYLIMIT':'1'},key=7200,refuse=True); assert m.standby()=
 for usb,play in ((1,3),(0,2)):  # a cable in, or playing: it stays on, and no later pass powers off
     m=StandbyMachine({'STANDBYLIMIT':'1'}); m.standby(); m.byte(syms['g_usbdet_value'],usb); m.word(0xa3beac,play)
     assert not m.off() and not m.off(); passed()
+# The Wi-Fi signal (navigation.c ringnav_wifi_signal): networkGetWifiSignal, which the status bar and
+# the network monitor thread each call about once a second, reads the driver's rx_signal and never
+# sends stock's SIOCGIWSTATS, whose TX report takes the radio out of power save. It answers stock's
+# dBm (the ioctl's unsigned level less 256, get_station's signal_strength less 100), except that
+# 100% is 0 dBm, where stock wraps to -256; a missing file is 0, as stock's failed ioctl. The file
+# is read again only after WIFI_SIGNAL_MS.
+RX_SIGNAL='/proc/net/rtl8733bs/wlan0/rx_signal'
+class WifiMachine(Machine):
+    def __init__(self,pct,patched=True):
+        super().__init__(patched); self.pct=pct
+        self.mock('strstr@GLIBC_2.0','strncpy@GLIBC_2.0')
+        for n in ('open','read','close','socket','ioctl'): self.handlers[syms[n+'@GLIBC_2.0']]='w:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('w:'): return super().hook(u,address,size,unused)
+        assert u.reg_read(UC_MIPS_REG_T9)==address
+        name=name[2:]; a,b,c=(u.reg_read(r) for r in REGS[:3]); ret=0
+        self.calls.append((name,a,b,c))
+        if name=='open': ret=3 if self.pct is not None and self.text(a)==RX_SIGNAL else -1
+        elif name=='read':  # the driver's proc_get_rx_signal, as far as it matters
+            data=f'rssi:{self.pct}\nsignal_strength:{self.pct}\nsignal_qual:100\n'.encode()[:c]
+            u.mem_write(b,data); ret=len(data)
+        elif name=='socket': ret=5
+        elif name=='ioctl':  # cfg80211_wireless_stats: iw_statistics behind iwreq's data pointer
+            assert (a,b)==(5,0x8b0f); u.mem_write(self.get(c+16),bytes([0,0,70,(self.pct-100)&255]))
+        self.returns(ret,clobber=True)
+    def signal(self): return self.call(address=HOOKS['networkGetWifiSignal'][0],args=(0,0,0,0),gap=0)
+    def used(self): return [c[0] for c in self.calls if c[0] in ('open','read','close','socket','ioctl')]
+for pct in (0,20,35,64,99,100):
+    stock,m=WifiMachine(pct,patched=False),WifiMachine(pct)
+    assert stock.signal()==(pct-100 if pct<100 else -256) and stock.used()==['socket','ioctl','close']
+    assert m.signal()==pct-100 and m.used()==['open','read','close']
+    assert [m.text(c[1]) for c in m.calls if c[0]=='open']==[RX_SIGNAL]; passed()
+m=WifiMachine(None); assert m.signal()==0 and m.used()==['open']; passed()  # no driver: as a failed ioctl
+m=WifiMachine(60); assert m.signal()==-40; m.pct=30; m.calls=[]
+m.now+=O['WIFI_SIGNAL_MS']-1; assert m.signal()==-40 and m.used()==[]
+m.now+=1; assert m.signal()==-70 and m.used()==['open','read','close']; passed()
 
 
 

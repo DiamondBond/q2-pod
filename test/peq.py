@@ -647,6 +647,43 @@ def editor_check(lib, tmp):
     ui.shim_return(); ui.shim_return(); click('Apply changes')
     r = read(); assert (r.bands[0].frequency, round(r.bands[0].q, 9)) == (1000.5, 0.7), (r.bands[0].frequency, r.bands[0].q)
     print('EQ Advanced tab: bypass, apply, auto preamp, channels, balance, frequency and Q, load, failed saves, delete and close passed.')
+    # A full pack stays sorted and reachable, with bounded widget counts and page-local action IDs.
+    imports = tmp/'root/mnt/mmc/EQ'
+    for i in reversed(range(8850)):
+        (imports/f'Headphone {i:04}.txt').write_text('Preamp: -3 dB\nFilter: ON PK Fc 1000 Hz Gain -2 dB Q 1\n')
+    (imports/'ignored.txt').mkdir()
+    (imports/'ignored.wav').write_bytes(b'')
+    before = active.read_bytes()
+    click('Presets'); click('Import from SD /EQ')
+    for start in range(0, 8850, 128):
+        assert ui.shim_click(f'Headphone {start:04}.txt'.encode(), 2)
+        assert ui.shim_click(f'Headphone {min(start + 127, 8849):04}.txt'.encode(), 2)
+        assert not ui.shim_click(f'Headphone {start + 128:04}.txt'.encode(), 2)
+        assert title() == f'Presets {start // 128 + 1}/70'
+        assert ui.shim_selection() == ui.shim_offset() == 0
+        if start < 8832: click('Next page')
+    assert not ui.shim_click(b'Next page', 2)
+    click('Headphone 8849.txt')
+    imported = Preset()
+    assert lib.peq_load(bytes(saved/'Headphone 8849.peq'), C.byref(imported)) and imported.preamp == -3
+    assert active.read_bytes() == before  # importing only saves a copy
+    click('Previous page'); assert title() == 'Presets 69/70'
+    ui.shim_return(); click('Import from SD /EQ')
+    assert title() == 'Presets 1/70' and not ui.shim_click(b'Previous page', 2)
+    click('Headphone 0000.txt'); assert (saved/'Headphone 0000.peq').exists()
+    click('Headphone 0000.txt'); assert title() == 'Presets'  # existing preset asks before replacement
+    assert ui.shim_click(b'Replace existing preset? Confirm', 2)
+    click('Cancel replacement'); ui.shim_return()
+    # Saved presets and deletion use the same paging.
+    for i in range(257):
+        assert lib.peq_save(bytes(saved/f'Batch {i:04}.peq'), C.byref(imported), 1) == 1
+    ui.shim_return(); click('Presets')
+    click('Next page'); click('Batch 0128.peq'); assert named('Batch 0128')
+    click('Presets'); click('Delete a preset'); click('Next page'); click('Next page')
+    click('Batch 0256.peq'); click('Delete Batch 0256.peq? Confirm')
+    assert not (saved/'Batch 0256.peq').exists() and active.read_bytes() == before
+    ui.shim_return(); ui.shim_return()
+    print('EQ preset pages: all 8,850 imports, sorting, page boundaries, navigation, save/replace, load and deletion passed.')
     eq3_editor_check(lib, ui, tmp)
 
 def eq3_check(lib, tmp):
