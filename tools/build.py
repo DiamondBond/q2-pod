@@ -724,7 +724,7 @@ FUNCTIONS = {
  'checkFavExist': ('int', 'void *'),
  'getAllFav': ('int', 'void'),
  # Long Songs (navigation.c): a file's length, probed once, as stock's scanner reads tags
- 'taglib_file_new': ('void *', 'const char *'),
+ 'taglib_file_new': ('void *', 'const char *, int'),
  'taglib_file_tag': ('void *', 'void *'),
  'toolsCheckItemExist': ('int', 'void *, const char *, int'),
  'toolsGetMusicInfo': ('int', 'int, char *, const char *'),

@@ -2186,10 +2186,11 @@ int ringnav_scan_refresh(void *row, const char *table, int type) {
     int cue = I(row, REC_CUE_START) || I(row, REC_CUE_END);
     if (!cue) {
         /* Stock returns success even when TagLib cannot open/read a tag; keep the old tags then. */
-        void *file = taglib_file_new(path);
+        void *file = taglib_file_new(path, 0);
         int valid = file && taglib_file_tag(file);
         if (file) taglib_file_free(file);
-        if (!valid || toolsGetMusicInfo(1, info, path) != 1) return exists;
+        /* Refresh tags without the audio-properties probe that can walk the whole file. */
+        if (!valid || toolsGetMusicInfo(0, info, path) != 1) return exists;
     }
     static const char *const fields[] = { "album", "songer",   "style",
                                           "name",  "composer", "albumsonger" };
@@ -2455,7 +2456,7 @@ int ringnav_lyric(void) {
         pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 || !P(r, REC_PATH) ||
         *(char *)P(r, REC_PATH) != '/')
         return ret;
-    void *f = taglib_file_new(P(r, REC_PATH));
+    void *f = taglib_file_new(P(r, REC_PATH), 0);
     if (!f) return ret;
     unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0), lib = at - TAGLIB_FILE_NEW;
     char **(*get)(void *, const char *) =
@@ -5265,7 +5266,7 @@ static int by_key(const void *a, const void *b) {
 /* AudioProperties::length(), as libtag_c's taglib_audioproperties_length calls it: vtable +0xc. */
 static void *ls_worker(void *unused) {
     while (ls.done < ls.total && !ls.cancel) {
-        void *f = taglib_file_new(ls.paths[ls.done]);
+        void *f = taglib_file_new(ls.paths[ls.done], 1);
         void *p = f ? taglib_file_audioproperties(f) : (void *)0;
         int sec = p ? ((int (*)(void *))(*(void ***)p)[3])(p) : 0;
         ls.jobs[ls.done].sec = sec > 0 ? (unsigned)sec : 0;

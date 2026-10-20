@@ -3585,12 +3585,14 @@ class FolderTagsMachine(ScanMachine):
         elif name.startswith('refresh:'):
             name=name[8:]; ret=0
             if name=='toolsGetMusicNum': ret=self.get(SONGS)
-            elif name=='taglib_file_new': ret=123 if self.valid else 0
+            elif name=='taglib_file_new':
+                assert b==0  # TagLib's vendor ABI: tags only, no audio-properties scan.
+                ret=123 if self.valid else 0
             elif name=='taglib_file_tag': assert a==123; ret=456
             elif name in ('toolsTrimLeft','toolsTrimRight'): u.mem_write(a,self.text(a).strip().encode()+b'\0')
             elif name=='toolsHanziToPinyin': u.mem_write(b,self.text(a).encode()+b'\0')
             elif name=='toolsGetMusicInfo':
-                self.reads+=1; assert (a,self.text(c))==(1,"/m/it's.flac"); ret=1
+                self.reads+=1; assert (a,self.text(c))==(0,"/m/it's.flac"); ret=1
                 for off in (0,0x100,0x200,0x280,0x480,0x580): u.mem_write(b+off,(self.title if off==0x280 else "New artist's tags").encode()+b'\0')
                 for off,v in ((0x680,2026),(0x684,3),(0x688,2)): self.word(b+off,v)
             elif name=='toolsUpdateDbTable':
@@ -4914,6 +4916,7 @@ class LyricMachine(QueueMachine):
         elif name=='_deque_push_back' and a==self.get(O['MCL_LYRICS']): self.lines.append((signed(self.get(b)),self.text(self.get(b+4))))
         elif name=='_deque_push_back': return super().hook(u,address,size,unused)
         elif name=='taglib_file_new':
+            assert b==0  # Embedded lyrics need tags only.
             self.tag_calls.append(('new',self.text(a))); ret=0x1170000
             if self.bound: self.word(O['TAGLIB_NEW_GOT'],TAGLIB+O['TAGLIB_FILE_NEW'])
         elif name=='get':
@@ -6899,6 +6902,7 @@ class RateMachine(FileMocks,ShuffleMachine):
         elif name=='fseek': ret=0
         elif name=='ftell': ret=len(self.files[self.open_files[a][0]])
         elif name=='taglib_file_new':
+            assert b==1  # Long Songs requires audio properties.
             path=self.text(a); self.probed.append(path)
             if path in self.lengths: ret=self.alloc(8); props=self.alloc(8); vt=self.alloc(16); self.word(props,vt); self.word(vt+12,0x1000030); self.word(ret,props); self.word(props+4,self.lengths[path])
         elif name=='taglib_file_audioproperties': ret=self.get(a)
