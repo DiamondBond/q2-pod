@@ -5,12 +5,13 @@
 
 extern int stock_pause_trampoline(void);
 extern int ringnav_bt_resume(void);
-/* Stock registers these after starting bluetoothd; a fast boot reconnect loses its events. */
-int headset_bt_power(const char *gpio, int value) {
+/* The control thread can discover a boot reconnect before openBluetooth powers the radio. */
+int headset_bt_init(void *thread) {
+    initBluetoothParam(); /* Lists must exist before callbacks; the later reset would erase links. */
     btctl_set_prompt_callback((void *)0x4ef600, 0);
     btctl_device_status_callback((void *)0x4f1a50, 0);
     btctl_set_a2dp_callback((void *)btrecvA2dpFunc, (void *)0x01020304);
-    return toolsGpioSetValue(gpio, value);
+    return btctl_create_daemon_thread(thread);
 }
 static struct {
     volatile unsigned generation, running, head, tail, report;

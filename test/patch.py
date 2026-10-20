@@ -3391,24 +3391,31 @@ for patched,want in ((True,(0x15,0x16,0x18)),(False,(0x16,0x16,0x18))):
         assert bt.call(address=syms['switchBtPriority'],args=(row,0,0,0),gap=0)==1
         assert [c[1] for c in bt.calls if c[0]=='btctl_set_ldac_quality']==[quality], (patched,row)
     passed()
-# A boot reconnect can arrive at radio power-up, before stock's late callback registration.
-from build import BT_POWER
-assert struct.unpack_from('<I',demo,fileoff(demo,BT_POWER[0]))[0]==jal(payload_syms['headset_bt_power'])
-class BtPowerMachine(Machine):
+# A boot reconnect can arrive as the control thread starts, before openBluetooth's GPIO write.
+from build import BT_INIT, BT_PARAMS
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_INIT[0]))[0]==jal(payload_syms['headset_bt_init'])
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_PARAMS[0]))[0]==0
+# The old radio-power hook is gone: startup owns registration, and stock retains its toggle path.
+assert struct.unpack_from('<I',demo,fileoff(demo,0x4efcbc))[0]==0x0320f809
+class BtInitMachine(Machine):
     def hook(self,u,addr,size,_):
-        if self.handlers.get(addr)=='toolsGpioSetValue':
-            self.calls.append(('toolsGpioSetValue',*[u.reg_read(r) for r in REGS]))
-            self.returns(-7,clobber=True)
+        if self.handlers.get(addr)=='btctl_create_daemon_thread':
+            self.calls.append(('btctl_create_daemon_thread',u.reg_read(REGS[0]),0))
+            self.word(u.reg_read(REGS[0]),0x12345678)
+            self.returns(self.result,clobber=True)
             return
         super().hook(u,addr,size,_)
-bt_power=BtPowerMachine(); gpio=bt_power.string('bt_power')
-assert bt_power.call(address=payload_syms['headset_bt_power'],args=(gpio,1,0,0),gap=0)==-7
-assert [c[:3] for c in bt_power.calls]==[
-    ('btctl_set_prompt_callback',0x4ef600,0),
-    ('btctl_device_status_callback',0x4f1a50,0),
-    ('btctl_set_a2dp_callback',syms['btrecvA2dpFunc'],0x01020304),
-    ('toolsGpioSetValue',gpio,1)]
-passed()
+for result in (0,-7):
+    bt_init=BtInitMachine(); bt_init.result=result; thread=bt_init.alloc(4)
+    assert bt_init.call(address=payload_syms['headset_bt_init'],args=(thread,0,0,0),gap=0)==result
+    assert bt_init.calls[0][0]=='initBluetoothParam'
+    assert [c[:3] for c in bt_init.calls[1:]]==[
+        ('btctl_set_prompt_callback',0x4ef600,0),
+        ('btctl_device_status_callback',0x4f1a50,0),
+        ('btctl_set_a2dp_callback',syms['btrecvA2dpFunc'],0x01020304),
+        ('btctl_create_daemon_thread',thread,0)]
+    assert bt_init.get(thread)==0x12345678
+    passed()
 # Bluetooth volume runs through the shared hook in both variants. Mock only headset I/O
 # and stock gain; device_set_volume itself executes its native output routing.
 class OutputVolumeMachine(Machine):

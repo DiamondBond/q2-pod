@@ -222,8 +222,9 @@ STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
 # checkBluetoothStatus' jalr player_save_start once a headset's A2DP comes up (a0 0: the queue restarts
 # unpaused, whatever it was doing). It becomes jal ringnav_bt_connect_start (docs/internals.md#resume-on-connect).
 BT_CONNECT_START = (0x4f358c, 0x0320f809)
-# openBluetooth's first GPIO write: install callbacks before powering the radio.
-BT_POWER = (0x4efcbc, 0x0320f809)
+# platform_init's control thread start: install callbacks before it discovers boot connections.
+BT_INIT = (0x512598, 0x0320f809)
+BT_PARAMS = (0x4f3ab4, 0x0411f5ef)  # config_bt_init's reset moves before the control thread too
 # player_parsecover_thd's jalr toolsGetExternCover (lw $t9 at 0x51300c; Now Playing's folder art, after its
 # embedded art failed) becomes jal coverflow_player_cover, which gives ffmpeg what stock's decoder refuses.
 PLAYER_COVER = (0x51301c, 0x0320f809)
@@ -807,7 +808,8 @@ FUNCTIONS = {
  'player_play_pause': ('int', 'void'),
  'player_next_music': ('int', 'void'), 'player_prev_music': ('int', 'void'),
  'getBtLinkSize': ('int', 'void'), 'getBtLinkItem': ('int', 'int, int *, char *'),
- 'toolsGpioSetValue': ('int', 'const char *, int'),
+ 'btctl_create_daemon_thread': ('int', 'void *'),
+ 'initBluetoothParam': ('void', 'void'),
  'btctl_set_prompt_callback': ('void', 'void *, void *'),
  'btctl_device_status_callback': ('void', 'void *, void *'),
  'btctl_set_a2dp_callback': ('void', 'void *, void *'),
@@ -925,7 +927,7 @@ def compile_payload(out, ipod):
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=ringnav_ts_read',
-        '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_power',
+        '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -1148,9 +1150,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         patch_word(patched, call, 0x0320f809, jal(ps[fn]), 'Ogg art in Albums and Folder view')
     patch_word(patched, *BT_CONNECT_START, jal(ps['ringnav_bt_connect_start']),
                'Bluetooth: Resume on connect')
-    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, BT_POWER[0] - 12))[0] == 0x8f99ad10,
-          'Bluetooth power: expected toolsGpioSetValue import')
-    patch_word(patched, *BT_POWER, jal(ps['headset_bt_power']), 'Bluetooth callbacks before radio power')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, BT_INIT[0] - 4))[0] == 0x8f99f558,
+          'Bluetooth init: expected btctl_create_daemon_thread import')
+    patch_word(patched, *BT_INIT, jal(ps['headset_bt_init']), 'Bluetooth callbacks before control thread')
+    patch_word(patched, *BT_PARAMS, 0, 'Bluetooth state initialized before control thread')
     patch_word(patched, *SCAN_REFRESH, jal(ps['ringnav_scan_refresh']), 'folder scan refreshes existing tags')
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')
