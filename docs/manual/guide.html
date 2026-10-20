@@ -343,7 +343,6 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
     <li>Send your listens to Last.fm or ListenBrainz over Wi-Fi</li>
     <li>Rate songs and albums 0–5 hearts, then browse Top Rated, Loved and rated albums</li>
     <li>Use favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder</li>
-    <li>Craft a Mixtape from any album: songs from your library that sound like it, which you can strike and re-roll before playing</li>
     <li>Resume <code>.m4b</code> audiobooks (also split by a CUE sheet) and podcasts where you stopped, with per-folder playback speed</li>
     <li>Use AirPods stem controls, ear detection, two-way volume sync and smoother AAC audio</li>
     <li>Look after the battery with an optional 80% charge limit, Low Power mode, a Standby limit and a sleep timer</li>
@@ -381,7 +380,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   </div>
   <div class="sec">
   <h2 id="card">What goes on the microSD card</h2>
-  <p>Media folders go at the card’s root, with any capitalisation; each adds its own <b>Library</b> row when present. Q2 Pod’s own caches, <code>.coverflow/</code>, <code>.photos/</code>, <code>.books/</code> and <code>.mixtape/</code>, can be deleted to free space: Q2 Pod rebuilds them as needed, and Coverflow and Photos need 16 MB free. Don’t delete <code>.spotify/cache/</code> or <code>.tidal/</code>: they hold your saved Spotify login and the songs you downloaded for offline play. Deleting them signs you out or removes those offline songs, and the Spotify and Tidal caches are sized in Streaming → Configuration instead.</p>
+  <p>Media folders go at the card’s root, with any capitalisation; each adds its own <b>Library</b> row when present. Q2 Pod’s own caches, <code>.coverflow/</code>, <code>.photos/</code> and <code>.books/</code>, can be deleted to free space: Q2 Pod rebuilds them as needed, and Coverflow and Photos need 16 MB free. Don’t delete <code>.spotify/cache/</code> or <code>.tidal/</code>: they hold your saved Spotify login and the songs you downloaded for offline play. Deleting them signs you out or removes those offline songs, and the Spotify and Tidal caches are sized in Streaming → Configuration instead.</p>
   <table class="paths">
     <thead><tr><th>Path</th><th>What it is</th><th>Made by</th></tr></thead>
     <tbody>
@@ -399,7 +398,6 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
       <tr><td><code>.coverflow/</code></td><td>Coverflow artwork cache</td><td>Q2 Pod</td></tr>
       <tr><td><code>.photos/</code></td><td>Photo thumbnails and screen-size copies</td><td>Q2 Pod</td></tr>
       <tr><td><code>.books/</code></td><td>EPUBs converted to text</td><td>Q2 Pod</td></tr>
-      <tr><td><code>.mixtape/</code></td><td>How each song sounds, for Craft a Mixtape; deleting it means every song is listened to again</td><td>Q2 Pod</td></tr>
       <tr><td><code>.sldp/</code></td><td>Stock’s own cover cache</td><td>Stock</td></tr>
       <tr><td><code>.spotify/</code></td><td>Spotify add-on. <code>cache/</code> holds the saved login and downloads, so keep it; deleting the whole folder removes Spotify</td><td>You</td></tr>
       <tr><td><code>.tidal/</code></td><td>Tidal tracks you’ve played, so they replay without streaming or Wi-Fi (Streaming → Tidal Downloads); up to 2 GB, set in Streaming → Configuration</td><td>Q2 Pod</td></tr>
@@ -527,18 +525,6 @@ ALBUM_ARTIST=1</pre>
     <li><b>An artist’s albums as Coverflow:</b> <b>System settings → Display → Artist Albums: Coverflow</b> switches <b>Library → Artists → artist → Albums</b> from the default Grid to Coverflow; <b>List</b> shows the album names alone. It contains only that artist’s albums, also when Artists is set to Album Artist. With two or more, the last card, <b>All albums</b>, plays all of them: the albums in the order shown, each in disc and track order, from the first song. Return goes straight back to the Artists list.</li>
     <li><b>Audiobooks</b> stay out of Coverflow: an album whose tracks are all <code>.m4b</code> files or sit under the card’s <code>Audiobooks/</code> folder. Library Artists, Albums and Shuffle exclude them too; Podcasts keep their current listings.</li>
     <li><b>Artwork:</b> embedded art first, then a <code>cover</code> or <code>folder</code> image (<code>.jpg</code>, <code>.png</code> or <code>.webp</code>); otherwise a placeholder. A folder shared by several albums skips its cover and folder images, since they’d be another album’s art. Now Playing shows the same WebP and large or unusual PNG covers.</li>
-  </ul>
-  </div>
-  <div class="sec">
-  <h2 id="mixtape">Crafting a Mixtape</h2>
-  <p>A Mixtape starts from an album you love and carries on with about 45 minutes of your own music that sounds like it. Hold <b>Play/Pause</b> on an album in Coverflow, or on any album row in the Library, and pick <b>Craft a Mixtape</b>.</p>
-  <ul>
-    <li><b>Listening:</b> the first time, Q2 Pod listens to 30 seconds from the middle of every song, starting with the album’s own and then the songs whose tags suggest a match. Each song is listened to once and remembered, so later Mixtapes start straight away and only new or changed songs are heard. A large library takes a while the first time: plug the Q2 in and leave it on this screen. <b>Craft Now</b> makes the Mixtape from the songs heard so far, and Return stops and keeps what was heard.</li>
-    <li><b>What goes in:</b> songs that sound like the album’s tracks, helped by shared genre, artist and era, and by your hearts and plays. Songs rated one heart rarely appear; songs under a minute never do. A Mixtape opens with one of the album’s best-loved tracks and returns to the album twice more. No artist plays twice in a row, and no other album appears more than once.</li>
-    <li><b>Make it yours:</b> nothing plays until you choose. Press Centre on a song to strike it, then <b>Re-roll</b> to replace the struck songs; a struck song isn’t offered again. With nothing struck, Re-roll picks new songs for everything but the album’s own.</li>
-    <li><b>Play Mixtape</b> replaces the queue and plays in order; Up Next, Previous and resuming after power-off follow the same order. Your shuffle and repeat settings come back with the next album you play.</li>
-    <li><b>Keep Mixtape</b> plays it and opens the playlist picker with every song selected. While it plays, hold Play/Pause on Now Playing for <b>Keep Mixtape</b> too.</li>
-    <li>When too little of your music matches, you see <b>Not enough related music</b>, and the song playing carries on.</li>
   </ul>
   </div>
 </section>

@@ -3313,16 +3313,15 @@ def menu(m,setup=None):
     if setup: setup(m)
     m.press(5); assert m.hold()==11; t=m.nodes[m.title]['text']; got=m.labels(); m.release(); return t,got
 GROUP=['Play Next','Add to Queue','Shuffle','Add to Playlist']
-ALBUM_GROUP=[*GROUP[:3],'Craft a Mixtape',GROUP[3]]  # an album row's: Mixtape after Shuffle
 for kw,setup,want in (({},None,('Row 0',SONG_MENU)),
         ({},lambda m:m.favs.add('Row 0'),('Row 0',[*SONG_MENU[:2],'Remove from Favourites',*SONG_MENU[3:]])),
         ({},lambda m:m.open_pages.update({'artistinfo_page','playerjumpinfo_page'}),('Row 0',SONG_MENU[:4])),
         ({'cls':0xff10,'page':'album_page'},None,('Row 0',[*SONG_MENU[:4],'Go to Artist'])),
         ({},lambda m:m.word(m.row(0)+O['REC_ALBUM'],0),('Row 0',[*SONG_MENU[:4],'Go to Artist'])),
-        ({'cls':0xf003,'page':'album_page'},None,('Album',[*ALBUM_GROUP[:4],'Add to Favourites','Rate Album',GROUP[3],'Go to Artist'])),
-        ({'cls':0xff01,'page':'album_page'},None,('Album',ALBUM_GROUP)),
+        ({'cls':0xf003,'page':'album_page'},None,('Album',[*GROUP[:3],'Add to Favourites','Rate Album',GROUP[3],'Go to Artist'])),
+        ({'cls':0xff01,'page':'album_page'},None,('Album',GROUP)),
         # An artist's tabs set classinfo +0, not g_class_type: Albums first, then Songs after an album.
-        ({'cls':0xff07,'page':'artistinfo_page'},lambda m:m.word(syms['g_local_classinfo_save'],0xff01),('Album',ALBUM_GROUP)),
+        ({'cls':0xff07,'page':'artistinfo_page'},lambda m:m.word(syms['g_local_classinfo_save'],0xff01),('Album',GROUP)),
         ({'cls':0xff01,'page':'artistinfo_page'},lambda m:(m.word(syms['g_local_classinfo_save'],0xff07),m.open_pages.add('artistinfo_page')),('Row 0',SONG_MENU[:5])),
         ({'cls':0xf004,'page':'localclass_page'},None,('Artist',GROUP)),
         ({'cls':0xf006,'page':'localclass_page'},lambda m:m.word(m.row(0)+0x1c,m.string('Pop')),('Pop',GROUP)),
@@ -3339,16 +3338,16 @@ for cls,flag in ((0xf001,0),(0xf00a,1)):
     passed()
 # Add to playlist opens the stock playlist page in its add mode (context: 1 << 16 | class) with the
 # row selected, as the batch Add to playlist does; the page adds the row's songs itself.
-for kw,row in (({},3),({'cls':0xf003,'page':'album_page'},6)):
+for kw,row in (({},3),({'cls':0xf003,'page':'album_page'},5)):
     m=QueueMachine(**kw); assert m.run(row,steps=1) is None
     assert m.opened[-1]==('localmusic/playlist_page',0x10000|m.get(syms['g_class_type']))
     assert sel(m)==[('batch_init_selectrecord',20),('batch_set_selectitem',1)] and m.names()==['A','B','C']; passed()
 # Shuffle plays the collection's songs from a random one with shuffle saved, as Shuffle Songs.
 # Then the payload's Shuffle Songs takes the queue over (test/playback.py), so Up Next has an order.
-m=QueueMachine(cls=0xf004,page='localclass_page'); m.handlers[payload_syms['playback_take']]='stock_playback_take'  # a payload call: no t9
+m=QueueMachine(cls=0xf004,page='localclass_page'); m.handlers[payload_syms['playback_shuffle']]='stock_playback_shuffle'  # a payload call: no t9
 assert m.run(2) is None
 assert m.opened[-1][:2]==('playing_page',['T1','T2']) and m.opened[-1][2] in (0,1) and m.opened[-1][3:]==(0xf001,2) and [c[1:3] for c in m.calls if c[0]=='config_playmode']==[(2,1)]
-assert [c[0] for c in m.calls].count('stock_playback_take')==1; passed()
+assert [c[0] for c in m.calls].count('stock_playback_shuffle')==1; passed()
 m=QueueMachine(cls=0xf004,page='localclass_page'); m.found=[]; assert m.run(2)=='Queue unchanged' and m.opened[-1][0]!='playing_page'; passed()
 # Go to album fills the album query as Now Playing's Album info and opens playerjumpinfo_page; Go to
 # artist opens artistinfo_page with {class, record}. Closing either puts the browsing state back.
@@ -5102,7 +5101,7 @@ for found,want in (((('b.mp3','/p/b.mp3',2,1),('a.mp3','/p/a.mp3',1,2),('c.mp3',
     f,ctx=m.handler(m.nodes[view]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
     assert [n.rsplit('.',1)[0] if n.endswith(('.mp3','.flac')) else n for n in m.names(m.plays[-1][1]&0xffffffff)]==want; passed()
 
-COVER_ALBUM=['Play Next','Add to Queue','Shuffle','Craft a Mixtape','Add to Favourites','Rate Album']  # a cover's menu, Go to artist aside
+COVER_ALBUM=['Play Next','Add to Queue','Shuffle','Add to Favourites','Rate Album']  # a cover's menu, Go to artist aside
 # Album holds use the live carousel before tracks have ever been opened, and the same ordering.
 for action,want in ((0,['A','early','late','B','C']),(1,['A','B','C','early','late'])):
     m=CoverflowMachine(); m.found=[track(m,'late','/p/z',2,1),track(m,'early','/p/a',1,2)]
@@ -5139,7 +5138,7 @@ assert m.run(1)=='Added to Queue' and m.names()==['A','B','C','T2'] and m.query[
 assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==[0,1,2,3]; passed()
 
 # Go to artist uses the album record directly; an absent artist omits that action.
-m=CoverflowMachine(); m.open(); m.run(6)
+m=CoverflowMachine(); m.open(); m.run(5)
 assert m.opened[-1][:2]==('localmusic/artistinfo_page',O['CLASS_ALBUMS']); passed()
 m=CoverflowMachine(); m.word(m.albums[0]+O['REC_ARTIST'],0); m.open(); m.press(100); assert m.hold()==11
 assert m.labels()==COVER_ALBUM; passed()
@@ -5192,7 +5191,7 @@ class AlbumRateMachine(FileMocks,CoverflowMachine):
         rows=self.labels(); f,ctx=self.handler(self.back,O['EVT_CLICK']); self.call(O['KEY_RETURN'],address=f,args=(ctx,self.event,0,0),gap=0)
         return rows
     def rate(self,want):  # Rate album, wheel down to 0 then up to want, Centre
-        assert self.run(5) is None and self.top==self.page and self.panel()
+        assert self.run(4) is None and self.top==self.page and self.panel()
         for k in [O['KEY_PREV']]*5+[O['KEY_NEXT']]*want: assert self.call(k)==11
         assert self.call(O['KEY_CENTER'])==11 and self.panel() is None
         return self.toasts[-1][3]
@@ -5201,13 +5200,13 @@ def song_side_effects(m):
 m=AlbumRateMachine(); m.open(); m.word(m.slide+O['SLIDE_INDEX'],1); a1=m.aid(m.albums[1])
 assert m.menu()==[*COVER_ALBUM,'Go to Artist'] and m.top==m.page; passed()
 # Add, then Remove from Favourites: 5 hearts, then none; the other covers stay unrated.
-assert m.run(4)=='Added to Favourites' and m.kept()==[(a1&~7)|5] and not song_side_effects(m)
-assert m.menu()[4:6]==['Remove from Favourites','Rate Album  ♥♥♥♥♥']
-assert m.run(4)=='Removed from Favourites' and m.kept()==[] and not song_side_effects(m)
-m.word(m.slide+O['SLIDE_INDEX'],0); assert m.menu()[4:6]==['Add to Favourites','Rate Album']
+assert m.run(3)=='Added to Favourites' and m.kept()==[(a1&~7)|5] and not song_side_effects(m)
+assert m.menu()[3:5]==['Remove from Favourites','Rate Album  ♥♥♥♥♥']
+assert m.run(3)=='Removed from Favourites' and m.kept()==[] and not song_side_effects(m)
+m.word(m.slide+O['SLIDE_INDEX'],0); assert m.menu()[3:5]==['Add to Favourites','Rate Album']
 m.word(m.slide+O['SLIDE_INDEX'],1); passed()
 # The picker over the covers, on the album's hearts; the wheel moves the rating, never the covers.
-assert m.run(5) is None and m.caption()=='Unrated' and m.hearts()==['play_unfav']*5
+assert m.run(4) is None and m.caption()=='Unrated' and m.hearts()==['play_unfav']*5
 for _ in range(3): assert m.call()==11
 assert m.caption()=='3 of 5' and m.hearts()==['play_fav']*3+['play_unfav']*2 and m.get(m.slide+O['SLIDE_INDEX'])==1 and not m.slides
 # Hold Play/Pause meanwhile opens nothing, and its release does not toggle playback.
@@ -5220,32 +5219,32 @@ m.advance(500); assert not m.plays and m.find('scroll_view')==0 and m.nodes[m.ge
 # Every rating, each shown on the menu's row; 0 unrated, 5 the favourite.
 for want in range(6):
     m.rate(want); assert m.kept()==([(a1&~7)|want] if want else [])
-    rows=m.menu(); assert rows[5]==('Rate Album  '+'♥'*want+'♡'*(5-want) if want else 'Rate Album')
-    assert rows[4]==('Remove from Favourites' if want==5 else 'Add to Favourites')
+    rows=m.menu(); assert rows[4]==('Rate Album  '+'♥'*want+'♡'*(5-want) if want else 'Rate Album')
+    assert rows[3]==('Remove from Favourites' if want==5 else 'Add to Favourites')
 passed()
 # A tap on a heart saves that many.
-assert m.run(5) is None; heart=m.nodes[m.panel()]['children'][2]; f,ctx=m.handler(heart,O['EVT_CLICK'])
+assert m.run(4) is None; heart=m.nodes[m.panel()]['children'][2]; f,ctx=m.handler(heart,O['EVT_CLICK'])
 m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert m.panel() is None and m.kept()==[(a1&~7)|2]; passed()
 # Kept across boots, apart from the songs' table.
 m2=AlbumRateMachine(files={ALBUM_RATES:m.files[ALBUM_RATES]}); m2.open(); m2.word(m2.slide+O['SLIDE_INDEX'],1)
-assert m2.menu()[5]=='Rate Album  ♥♥♡♡♡' and '/mnt/data/ringnav-ratings' not in m2.files; passed()
+assert m2.menu()[4]=='Rate Album  ♥♥♡♡♡' and '/mnt/data/ringnav-ratings' not in m2.files; passed()
 # Another cover centred, or the page gone, before Centre: nothing is saved.
-assert m.run(5) is None; m.call(); m.word(m.slide+O['SLIDE_INDEX'],0)
+assert m.run(4) is None; m.call(); m.word(m.slide+O['SLIDE_INDEX'],0)
 assert m.call(O['KEY_CENTER'])==11 and m.toasts[-1][3]=='Album changed' and m.kept()==[(a1&~7)|2]
-m.word(m.slide+O['SLIDE_INDEX'],1); assert m.run(5) is None and m.panel()
+m.word(m.slide+O['SLIDE_INDEX'],1); assert m.run(4) is None and m.panel()
 for t,f,ctx in m.nodes[m.page]['handlers']:
     if t==O['EVT_DESTROY']: m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 m.stack.remove(m.page); m.top=m.stack[-1]; m.open(); assert m.panel() is None and m.call()==11 and m.slides; passed()
 # A full table and a failed write report it, the rating as it was.
 full=b''.join(struct.pack('<I',(i+1)<<3|1) for i in range(O['RATE_SLOTS']))
 m=AlbumRateMachine(files={ALBUM_RATES:full}); m.open(); m.word(m.slide+O['SLIDE_INDEX'],1)
-assert m.run(4)=='Ratings are full' and m.files[ALBUM_RATES]==full and m.rate(4)=='Ratings are full'; passed()
+assert m.run(3)=='Ratings are full' and m.files[ALBUM_RATES]==full and m.rate(4)=='Ratings are full'; passed()
 m=AlbumRateMachine(); m.open(); m.word(m.slide+O['SLIDE_INDEX'],1); m.fail_write=True
-assert m.run(4)=='Rating not saved' and m.menu()[4:6]==['Add to Favourites','Rate Album'] and ALBUM_RATES not in m.files; passed()
+assert m.run(3)=='Rating not saved' and m.menu()[3:5]==['Add to Favourites','Rate Album'] and ALBUM_RATES not in m.files; passed()
 # A malformed slot (6 or 7 hearts) reads unrated; a truncated file reads empty.
 for data in (struct.pack('<I',(a1&~7)|7).ljust(4*O['RATE_SLOTS'],b'\0'),b'\x05\0'):
     m=AlbumRateMachine(files={ALBUM_RATES:data}); m.open(); m.word(m.slide+O['SLIDE_INDEX'],1)
-    assert m.menu()[4:6]==['Add to Favourites','Rate Album']; passed()
+    assert m.menu()[3:5]==['Add to Favourites','Rate Album']; passed()
 # An album is album_cmp's: its name and album artist, else its folder (disc folders as one), ASCII case aside but
 # the folder's; the song artist never counts, so a compilation is one album. The Unknown card is one album.
 def rec(album='Album',aa=None,path='/m/A/1.mp3',artist='Artist',rid=1):
@@ -5264,7 +5263,7 @@ assert all(m.aid(x)==m.aid(y)!=0 for x,y in same) and all(m.aid(x)!=m.aid(y) for
 m=AlbumRateMachine(); dq=m.deque(m.albums[:2]); m.top=m.node('window','artistinfo_page'); m.stack=[m.top]
 assert m.call(address=payload_syms['coverflow_artist'],args=(dq,0,0,0),gap=0)==1; m.page=m.top; m.slide=m.find('slide_menu')
 assert m.menu()==[*COVER_ALBUM,'Go to Artist'] and m.rate(5)=='Album rated  ♥♥♥♥♥' and m.kept()==[(m.aid(m.albums[0])&~7)|5]
-assert m.run(5) is None and m.call(O['KEY_RETURN'])==11 and m.panel() is None and m.top==m.page; passed()
+assert m.run(4) is None and m.call(O['KEY_RETURN'])==11 and m.panel() is None and m.top==m.page; passed()
 # An artist's covers stop at both ends (All albums the last): a step past kicks the end and springs it back, never wrapping.
 w=m.slide; index=lambda: m.get(w+O['SLIDE_INDEX'])
 assert m.call(O['KEY_PREV'],gap=500)==11; _,kick,goal,_=slide(m,w); assert kick>0 and goal==0
@@ -5300,9 +5299,9 @@ for albums,want in (([1,0],['c','d','a','b']),([0],None)):
 m=AlbumRateMachine(page='album_page',cls=O['CLASS_ALBUMS']); m.page=m.top; a0=m.aid(m.row(0))
 assert m.menu()==[*COVER_ALBUM,'Add to Playlist','Go to Artist']
 assert m.rate(4)=='Album rated  ♥♥♥♥♡' and m.kept()==[(a0&~7)|4] and not song_side_effects(m)
-assert m.run(4)=='Added to Favourites' and m.kept()==[(a0&~7)|5]; passed()
+assert m.run(3)=='Added to Favourites' and m.kept()==[(a0&~7)|5]; passed()
 # A browse change under the picker saves nothing.
-assert m.run(5) is None; m.u.mem_write(syms['g_folder_path'],b'/elsewhere\0')
+assert m.run(4) is None; m.u.mem_write(syms['g_folder_path'],b'/elsewhere\0')
 assert m.call(O['KEY_CENTER'])==11 and m.toasts[-1][3]=='Album changed' and m.kept()==[(a0&~7)|5]; passed()
 # An artist's albums tab (Grid): each row's album found among the split albums when the tab loads.
 m=ArtistMachine(page='artistinfo_page',cls=0xff01,rows=2); m.word(syms['g_local_classinfo_save'],0xff01)
@@ -5323,7 +5322,7 @@ m=AlbumRateMachine(files={ALBUM_RATES:data}); menu_page=ratings_albums(m)
 m.page=m.top; m.slide=m.find('slide_menu'); assert m.page!=menu_page and m.nodes[m.page]['name']=='coverflow_page'
 def shown(m,i): m.word(m.slide+O['SLIDE_INDEX'],i); f,ctx=m.handler(m.slide,O['EVT_VALUE_CHANGED']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); return m.texts()[0]
 assert len(m.nodes[m.slide]['children'])==3 and [shown(m,i) for i in range(3)]==['Album 2','Album 0','Sort: Rating']
-shown(m,0); assert m.menu()[4:6]==['Remove from Favourites','Rate Album  ♥♥♥♥♥']  # the cover's menu, as Coverflow's
+shown(m,0); assert m.menu()[3:5]==['Remove from Favourites','Rate Album  ♥♥♥♥♥']  # the cover's menu, as Coverflow's
 f,ctx=m.handler(m.nodes[m.slide]['children'][2],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
 m.slide=m.find('slide_menu'); assert [shown(m,i) for i in range(3)]==['Album 0','Album 2','Sort: Album']
 assert [v for k,v in m.files.items() if k.endswith('ringnav-ratedsort')]==[struct.pack('<i',0)]; passed()
@@ -6721,9 +6720,9 @@ note=m.nodes[page]['children'][-1]
 assert m.nodes[note]['type']=='hscroll_label' and m.nodes[note]['style:normal:text_color']==-0x555556 and m.nodes[note]['style:normal:font_size']==16 and not m.nodes[note].get('handlers')
 # Shuffle Songs from the menu: the stock play-mode save, a random start, the staging deque kept.
 def called(n): return [c[1:3] for c in m.calls if c[0]==n]
-f0,ctx0=m.handler(rows[0],O['EVT_CLICK']); m.handlers[payload_syms['playback_take']]='stock_playback_take'  # a payload call: no t9
+f0,ctx0=m.handler(rows[0],O['EVT_CLICK']); m.handlers[payload_syms['playback_shuffle']]='stock_playback_shuffle'  # a payload call: no t9
 assert m.call(address=f0,args=(ctx0,m.event,0,0),gap=0)==0
-assert called('config_playmode')==[(2,1)] and called('stock_playback_take') and len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][2] in (0,1) and m.plays[0][3:]==(0xf001,2)
+assert called('config_playmode')==[(2,1)] and called('stock_playback_shuffle') and len(m.plays)==1 and m.plays[0][0]=='playing_page' and m.plays[0][2] in (0,1) and m.plays[0][3:]==(0xf001,2)
 assert called('getAllMusic')==[(3,1)] and m.get(payload_syms['library_music'])==0
 assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and not m.toasts and m.top==page; passed()
 m.found=[]; m.plays=[]; m.calls=[]
@@ -7235,18 +7234,6 @@ m=playing_menu(); m.dirs.add('/mnt/mmc/Music'); m.word(m.items(m.get(syms['mcl_p
 m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU[:2]+['View Queue']+SONG_MENU[2:]+['Go to Folder','Shuffle','Repeat','Group by: Album']
 passed()
 
-# Keep Mixtape: on Now Playing's menu while the queue mixtape_play loaded plays, every row selected for the
-# playlist picker; gone once the queue changes.
-def mixtape_playing():
-    m=playing_menu(); m.handlers[payload_syms['playback_take']]='stock_playback_take'  # a payload call: no t9
-    q=m.get(syms['mcl_pdeqplaylist']); m.call(address=payload_syms['mixtape_play'],args=(q,0,0,0),gap=0)
-    assert [c[1:3] for c in m.calls if c[0]=='config_playmode']==[(0,1)] and [c[0] for c in m.calls].count('stock_playback_take')==1
-    return m,q
-m,q=mixtape_playing(); m.press(6000); assert m.hold()==11; rows=m.labels(); m.release(); assert rows[3]=='Keep Mixtape',rows
-m.calls=[]; m.pick(3); m.advance(0); assert m.opened[-1]==('localmusic/playlist_page',0x20000|0xf001)
-assert sel(m)==[('batch_init_selectrecord',len(m.items(q)))]+[('batch_set_selectitem',i) for i in range(len(m.items(q)))]; passed()
-m,q=mixtape_playing(); m.word(m.items(q)[0]+O['REC_PATH'],m.string('/p/other'))
-m.press(6000); assert m.hold()==11 and 'Keep Mixtape' not in m.labels(); passed()
 # Photos (patch/photos.c): the helpers first. Names: .jpg, .jpeg and .png, case aside, not hidden.
 m=Machine(); m.mock('memcmp@GLIBC_2.0',prefix='cmp:')
 def ph_call(name,*args): return m.call(address=ps[name],args=(*args,0,0,0,0)[:4],gap=0,count=5_000_000)

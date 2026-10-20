@@ -22,7 +22,6 @@
 { "ratings_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "rated_page", CTX_FIXED, 0 },      /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "longsongs_page", CTX_FIXED, 0 },  /* runtime window (patch/navigation.c); fixed: the hold menu */
-{ "mixtape_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/mixtape.c) */
 { "radio_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/radio.c) */
 { "spotbrowse_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/spotify.c) */
 { "streamconf_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/navigation.c) */

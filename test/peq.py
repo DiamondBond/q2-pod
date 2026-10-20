@@ -5,7 +5,6 @@ import ctypes as C
 import math
 import pathlib
 import subprocess
-import struct
 import tempfile
 import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first
 from build import FUNCTIONS, ROOT
@@ -1362,192 +1361,6 @@ void check_styles(void) {
     checked.check_styles()
     print('Visualizer: FFT bands, selected-style work, stereo scope/VU and pause decay passed.')
 
-MIXTAPE = r"""
-#include <assert.h>
-#include "mixtape.c"
-static unsigned seed = 1;
-unsigned rand_below(unsigned n) { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return seed % n; }
-int card_space(const char *dir) { return 1; }
-int taglib_length(const char *path) { return 200; }
-int blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write) {
-    FILE *f = fopen(tmp, "wb");
-    int ok = f && fwrite(buf, size, 1, f) == 1;
-    if (f) fclose(f);
-    return ok && !rename(tmp, path);
-}
-
-static void tone(short *pcm, int n, double hz, double gain, int noise) {
-    unsigned r = 7;
-    for (int i = 0; i < n; ++i) {
-        r = r * 1103515245 + 12345;
-        double v = sin(2 * M_PI * hz * i / MX_RATE) + 0.5 * sin(2 * M_PI * hz * 2.5 * i / MX_RATE);
-        if (noise) v = (double)(r >> 16 & 0x7fff) / 16384 - 1;
-        pcm[i] = (short)(v * gain * 16000);
-    }
-}
-
-/* MFCCs: silence has none; the coefficients follow timbre, not loudness. */
-void check_features(void) {
-    static short pcm[10 * MX_RATE];
-    float a[MX_DIMS], b[MX_DIMS], c[MX_DIMS], d = 0, e = 0;
-    memset(pcm, 0, sizeof pcm);
-    assert(!mx_features(pcm, 10 * MX_RATE, a));
-    assert(!mx_features(pcm, 100, a)); /* not one frame */
-    tone(pcm, 10 * MX_RATE, 440, 1, 0);
-    assert(mx_features(pcm, 10 * MX_RATE, a));
-    tone(pcm, 10 * MX_RATE, 440, 0.25, 0); /* 12 dB down */
-    assert(mx_features(pcm, 10 * MX_RATE, b));
-    tone(pcm, 10 * MX_RATE, 0, 1, 1);      /* noise */
-    assert(mx_features(pcm, 10 * MX_RATE, c));
-    for (int k = 0; k < MX_CEPS; ++k) d += (a[k] - b[k]) * (a[k] - b[k]), e += (a[k] - c[k]) * (a[k] - c[k]);
-    assert(d < 0.01f && e > 100 * d && e > 1);
-    for (int i = 0; i < MX_RATE; ++i) pcm[i] = 0; /* a quiet first second still counts the rest */
-    assert(mx_features(pcm, 10 * MX_RATE, c));
-}
-
-void check_tags(void) {
-    unsigned g[4] = { 0 };
-    mx_genres(" Rock ; indie/Pop,,|Jazz|Folk", g);
-    assert(g[0] == mx_hash("rock", ~0u) && g[1] == mx_hash("INDIE", ~0u) && g[2] == mx_hash("pop", ~0u) && g[3] == mx_hash("jazz", ~0u));
-    assert(mx_hash("", ~0u) == 0 && mx_hash(0, ~0u) == 0 && mx_hash("ab", 1) == mx_hash("a", ~0u));
-}
-
-/* A library: the seed album (artist 1, rock, sound near 0), 40 rock songs by 20 artists that sound
- * near it, 40 jazz songs that don't, a short rock song, and a loved far one. */
-#define N 92
-static mx_song v[N];
-static mx_prof prof[N];
-static void library(int heard) {
-    memset(v, 0, sizeof v);
-    for (int i = 0; i < N; ++i) {
-        mx_song *s = &v[i];
-        int seedt = i < 6, near = i >= 6 && i < 46;
-        s->key = i + 1, s->sec = 240, s->year = near || seedt ? 1994 : 1960;
-        s->artist = seedt ? 1 : near ? 100 + (i - 6) / 2 : 500 + (i - 46) / 2;
-        s->album = seedt ? 7 : 1000 + i, s->title = 5000 + i, s->seed = seedt;
-        s->genre[0] = near || seedt ? mx_hash("rock", ~0u) : mx_hash("jazz", ~0u);
-        prof[i].status = MX_OK;
-        for (int k = 0; k < MX_DIMS; ++k) prof[i].f[k] = (near || seedt ? 0 : 5) + (float)((i * 7 + k * 3) % 11) / 20;
-        s->prof = heard ? &prof[i] : 0;
-    }
-    v[2].sec = 40;             /* an interlude on the album */
-    v[90].genre[0] = v[0].genre[0], v[90].sec = 30, v[90].artist = 999; /* short rock: never */
-    v[91].hearts = 5;          /* loved, but jazz and far */
-}
-
-static void rules(const int *list, int len) {
-    for (int i = 0; i < len; ++i) {
-        const mx_song *s = &v[list[i]];
-        int artist = 0, album = 0;
-        assert(list[i] != 90 && list[i] != 2 && (s->seed || (list[i] >= 6 && list[i] < 46)));
-        if (i) assert(s->artist != v[list[i - 1]].artist);
-        for (int j = 0; j < len; ++j) {
-            if (j != i) assert(list[j] != list[i]);
-            if (!s->seed && !v[list[j]].seed) artist += v[list[j]].artist == s->artist, album += v[list[j]].album == s->album;
-        }
-        assert(s->seed || (artist <= 2 && album <= 1));
-    }
-}
-
-void check_choosing(void) {
-    int list[MX_MAX], again[MX_MAX], len;
-    unsigned char struck[MX_MAX] = { 0 };
-    library(1);
-    mx_rank(v, N);
-    assert(v[91].score < v[10].score && v[90].score == 0);
-    seed = 99;
-    len = mx_craft(v, N, list);
-    assert(len >= MX_MIN && len <= MX_MAX && v[list[0]].seed && list[0] != 2 && v[list[4]].seed && v[list[8]].seed);
-    rules(list, len);
-    seed = 99; /* the same draw, the same mix */
-    assert(mx_craft(v, N, again) == len && !memcmp(list, again, len * sizeof *list));
-    /* strike two: new songs there, the struck never again */
-    int a = list[1], b = list[2];
-    struck[0] = struck[1] = 1; /* Play's row aside, slots 0 and 1 */
-    a = list[0], b = list[1];
-    int n = mx_reroll(v, N, list, len, struck);
-    assert(n == len && list[0] != a && list[1] != b && v[a].flags == MX_REJECTED && v[b].flags == MX_REJECTED);
-    rules(list, n);
-    for (int r = 0; r < 20; ++r) { /* re-roll everything but the album's own, again and again */
-        int seeds[MX_MAX];
-        for (int i = 0; i < n; ++i) seeds[i] = v[list[i]].seed ? list[i] : -1;
-        n = mx_reroll(v, N, list, n, struck);
-        for (int i = 0; i < n; ++i) assert(list[i] != a && list[i] != b && (seeds[i] < 0 || seeds[i] == list[i]));
-        rules(list, n);
-    }
-    /* nothing heard: the tags alone still find the rock, never the jazz */
-    library(0);
-    mx_rank(v, N);
-    assert(mx_craft(v, N, list) >= MX_MIN);
-    rules(list, mx_craft(v, N, list));
-    /* nothing related: no mix */
-    library(0);
-    for (int i = 6; i < 46; ++i) v[i].genre[0] = mx_hash("jazz", ~0u), v[i].year = 1960;
-    mx_rank(v, N);
-    assert(mx_craft(v, N, list) < MX_MIN);
-}
-
-/* Listening: two songs heard through the fake ffmpeg, one it fails; cached after a merge; heard
- * again once a file changes; a bad header drops the cache. */
-void check_listening(const char *dir) {
-    char path[3][512];
-    for (int i = 0; i < 3; ++i) snprintf(path[i], sizeof path[i], "%s/song%d.flac", dir, i);
-    mx.jobs = calloc(3, sizeof *mx.jobs);
-    for (int i = 0; i < 3; ++i) mx.jobs[i].path = strdup(path[i]), mx.jobs[i].len = i ? -1 : 100, mx.jobs[i].p.key = 10 + i;
-    mx.njobs = 3;
-    mx_load();
-    assert(mx.ntab == 0);
-    mx_worker(0);
-    assert(mx.checked == 3 && mx.need == 3 && mx.heard == 3 && mx.finished);
-    assert(mx.jobs[0].p.status == MX_OK && mx.jobs[1].p.status == MX_OK && mx.jobs[2].p.status == MX_FAILED);
-    assert(mx.jobs[0].p.sec == 100 && mx.jobs[1].p.sec == 200);
-    mx_stop();
-    assert(mx.ntab == 3 && !mx.jobs);
-    mx_load();
-    assert(mx.ntab == 3 && mx_find(10) && mx_find(11)->status == MX_OK && mx_find(12)->status == MX_FAILED && !mx_find(13));
-    /* again: nothing to hear; then song1 changed */
-    for (int pass = 0; pass < 2; ++pass) {
-        mx.jobs = calloc(3, sizeof *mx.jobs);
-        for (int i = 0; i < 3; ++i) mx.jobs[i].path = strdup(path[i]), mx.jobs[i].len = -1, mx.jobs[i].p.key = 10 + i;
-        mx.njobs = 3, mx.checked = mx.need = mx.heard = mx.finished = 0;
-        if (pass) {
-            FILE *f = fopen(path[1], "ab");
-            fputs("more", f);
-            fclose(f);
-        }
-        mx_worker(0);
-        assert(mx.need == pass && mx.heard == pass);
-        mx_stop();
-    }
-    FILE *f = fopen(MX_FILE, "r+b");
-    fputc('X', f);
-    fclose(f);
-    mx_load();
-    assert(mx.ntab == 0);
-}
-"""
-
-def mixtape_check(tmp):
-    """Mixtape (patch/mixtape.c): MFCCs, choosing and re-rolling under the rules, and the cache."""
-    root = tmp/'root'
-    (root/'tmp').mkdir(parents=True, exist_ok=True); (root/'mnt/mmc/.mixtape').mkdir(parents=True, exist_ok=True)
-    music = tmp/'music'; music.mkdir()
-    ffmpeg = tmp/'ffmpeg'
-    ffmpeg.write_text('#!/bin/sh\necho "$@" >> "$0.log"\nwhile [ $# -gt 1 ]; do [ "$1" = -i ] && in=$2; shift; done\nexec cp "$in.pcm" "$1" 2>/dev/null\n')
-    ffmpeg.chmod(0o755)
-    for i in range(3):
-        (music/f'song{i}.flac').write_bytes(b'flac')
-        if i < 2:
-            pcm = [int(12000 * math.sin(2 * math.pi * (300 + 500 * i) * t / 22050)) for t in range(5 * 22050)]
-            (music/f'song{i}.flac.pcm').write_bytes(struct.pack(f'<{len(pcm)}h', *pcm))
-    harness = tmp/'mixtape_checks.c'; harness.write_text(MIXTAPE)
-    lib = compile_host(tmp, 'mixtape.so', harness, ROOT/'patch/visualizer.c', ROOT/'patch/peq.c', '-DIPOD=1',
-                       '-I', ROOT/'patch', f'-DMX_FFMPEG="{ffmpeg}"', '-lpthread')
-    lib.check_features(); lib.check_tags(); lib.check_choosing(); lib.check_listening(str(music).encode())
-    calls = (tmp/'ffmpeg.log').read_text().split('\n')
-    assert '-ss 35 -t 30 -i' in calls[0] and '-ss 85 -t 30' in calls[1] and '-ac 1 -ar 22050 -f s16le' in calls[0], calls
-    print('Mixtape: MFCCs, choosing and re-rolling by the rules, listening and its cache passed.')
-
 SCROBBLE = r"""
 #include <assert.h>
 #include <stdarg.h>
@@ -2188,7 +2001,6 @@ if __name__ == '__main__':
         editor_check(lib, tmp)
         player_check(tmp)
         visualizer_check(tmp)
-        mixtape_check(tmp)
         scrobble_check(tmp)
         books_check(tmp)
         video_check(tmp)

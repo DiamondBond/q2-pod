@@ -21,7 +21,7 @@ def dev_tag(number, edition):
     for _ in range(3): n, d = divmod(n, 36); digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[d] + digits
     return 'V' + digits + edition.lower()
 BASE = 0xb00000
-SCRATCH = 0xb60000
+SCRATCH = 0xb50000
 RING_STEP = 48
 HOOKS = {
     'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown', 'keydown'),
@@ -883,7 +883,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 # the lock screen's picture (SYSSET SCREENSAVERPATH) and the picker's list
                 'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'mixtape_page', 'spotify_page',
+PAYLOAD_WINDOWS = {'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'spotify_page',
                    'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ

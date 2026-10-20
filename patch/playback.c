@@ -462,14 +462,12 @@ int playback_unshuffle(void) {
     unshuffle = 0;
     return mode;
 }
-/* The loaded queue taken over as advanced play, so Up Next, Next and resume follow one order, and the
- * next other queue restores mode (the stock mode it replaced). Shuffle Songs: stock's shuffle draws
- * each next at random, so it has no order for Up Next; Shuffle Songs, Repeat All, as stock's never
- * ends, over stock Shuffle (2). A Mixtape (shuffle 0): its order, Play All, over List (0). */
-int playback_take(int mode, int shuffle) {
-    unshuffle = mode == (shuffle ? 2 : 0) ? 0 : mode + 1;
-    s.shuffle = shuffle;
-    s.repeat = shuffle ? 5 : 2;
+/* Shuffle Songs: stock's shuffle draws each next at random, so it has no order for Up Next. Take
+ * the loaded queue over as advanced Shuffle Songs, Repeat All, as stock's never ends. */
+int playback_shuffle(int mode) {
+    unshuffle = mode == 2 ? 0 : mode + 1;
+    s.shuffle = 1;
+    s.repeat = 5;
     s.folder = 0;
     s.forced = s.force_end = 0;
     close_preload();
