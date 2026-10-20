@@ -1590,9 +1590,20 @@ static void frame_box(void *canvas, const rect_t *r, unsigned color, unsigned ra
 }
 
 #if IPOD
+/* Stock names a playlist row's trailing More dots "img_more%d". */
+static void *more_image(void *w) {
+    for (unsigned i = 0, n = w ? widget_count_children(w) : 0; i < n; ++i) {
+        void *c = widget_get_child(w, i);
+        if (widget_get_visible(c) && tk_str_start_with(widget_get_prop_str(c, "name", ""), "img_more"))
+            return c;
+    }
+    return (void *)0;
+}
+
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
 static int drill(void *w) {
+    if (more_image(w)) return 0; /* stock's More hit test owns the trailing area */
     w = window_of(w);
     int ctx = w ? context_id(widget_get_prop_str(w, "name", (void *)0)) : -1;
     return ctx >= 0 && (contexts[ctx].flags & DRILL);
@@ -1612,7 +1623,7 @@ static void paint_chevrons(void *w, void *canvas) {
         return;
     for (int i = 0; i < g_menu.n; ++i) {
         rect_t r = bounds(&g_menu, i);
-        if (2 * r.w >= I(w, W_W) && (!home || i == st.sel_row))
+        if (2 * r.w >= I(w, W_W) && drill(g_menu.at[i]) && (!home || i == st.sel_row))
             canvas_draw_icon(
                 canvas, bitmap,
                 r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 +
@@ -1891,13 +1902,25 @@ static void edit_paint(void *w, void *canvas);
 static void paint_radio(void *w, void *canvas) {
     if (!w || !st.sel_widget || st.sel_home || ipod_classic() || !P(canvas, CANVAS_LCD)) return;
     const char *image = widget_get_prop_str(w, "image", "");
+    int more = tk_str_start_with(widget_get_prop_str(w, "name", ""), "img_more");
     int dot = !tk_strcmp(image, "select");
-    if (!dot && tk_strcmp(image, "unselect")) return;
+    if (!more && !dot && tk_strcmp(image, "unselect")) return;
     void *row = P(w, W_PARENT);
     for (int depth = 0; row && row != st.sel_widget && depth < 8; ++depth) row = P(row, W_PARENT);
     if (row != st.sel_widget) return;
     int x = I(w, W_W) / 2, y = I(w, W_H) / 2;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    if (more) {
+        /* Stock's 4px dots, 7px apart, centred in the 50px image. */
+        rect_t clear = { x - 13, y - 4, 26, 8 };
+        fill_box(canvas, &clear, RGBA(MINIMAL_FILL), 0);
+        for (int i = -1; i <= 1; ++i) {
+            rect_t dot = { x - 11 + (i + 1) * 7, y - 2, 4, 4 };
+            fill_box(canvas, &dot, RGBA(0x171717), 2);
+        }
+        canvas_set_fill_color(canvas, fill);
+        return;
+    }
     rect_t ring = { x - 13, y - 13, 26, 26 }, hole = { x - 11, y - 11, 22, 22 },
            in = { x - 6, y - 6, 12, 12 };
     fill_box(canvas, &ring, RGBA(0x171717), 13);

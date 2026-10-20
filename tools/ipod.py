@@ -692,6 +692,12 @@ def patch_asset(path, data, ipod):
         whole[path](root)
     if path in whole or not ipod:
         return encode(root)
+    if path == 'dialog/addplaylist_dialog.bin':
+        edit = root[3][0][3][0]
+        check(edit[0] == 'edit' and edit[2].get('name') == 'ssedit' and
+              edit[2].get('sensitive') == 'false', 'Unexpected new playlist editor')
+        edit[2]['sensitive'] = 'true'
+        return encode(root)
     # Home is never reopened; Now Playing, Coverflow and the dialogs open at once.
     check(root[0] == 'window' and not any(k.endswith('anim_hint') for k in root[2]), f'{path}: unexpected window')
     root[2]['anim_hint'] = SLIDE

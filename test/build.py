@@ -427,6 +427,11 @@ def validate_assets(directory):
             continue
         short = rel.split('/raw/ui/')[1]
         assert new == patch_asset(short, original, ipod), short
+        if short == 'dialog/addplaylist_dialog.bin':
+            expected = decode(original)
+            expected[3][0][3][0][2]['sensitive'] = 'true'
+            assert decode(new) == expected
+            continue
         root = decode(new)
         if ipod and short in SETTINGS_SLIDERS:
             before = {n[2].get('name'): n for n in walk(decode(original))}

@@ -1017,7 +1017,8 @@ def check_title_bounds(m, button, drill=False):
                     after=children[children.index(text)+1:]
                     left=margin+sum(widths[c]+gap for c in before if m.nodes[c]['visible'])
                     # A drill row lays out as if a stock img_into (CHEVRON_W with the margin) came last.
-                    edge=O['CHEVRON_W']+gap if drill and variant=='ipod' else margin
+                    more=any(m.nodes[c]['name'].startswith('img_more') and m.nodes[c]['visible'] for c in children)
+                    edge=O['CHEVRON_W']+gap if drill and not more and variant=='ipod' else margin
                     right=m.get(button+O['W_W'])-edge-sum(widths[c]+gap for c in after if m.nodes[c]['visible'])
                     assert m.get(text+O['W_X'])==left
                     if variant=='ipod':
@@ -1166,6 +1167,12 @@ for address,page in ((0x4a62c0,'artistinfo_page'),(0x4adcbc,'artistinfo_page'),(
         buttons=[n for n,v in m.nodes.items() if v['type']=='button']
         assert len(buttons)==1
         check_title_bounds(m,buttons[0],drill=page=='playlist_page')
+        if variant=='ipod' and address==0x4b2864:
+            button=buttons[0]
+            more=next(c for c in m.nodes[button]['children'] if m.nodes[c]['name'].startswith('img_more'))
+            native_row_layout(m,button)
+            # Stock opens More for pointer x >= 286: the dots must keep that trailing position.
+            assert m.get(button+O['W_X'])+m.get(more+O['W_X'])>=286
 passed()
 
 # Long Return executes the stock gates and release filter in both variants.
@@ -1679,13 +1686,17 @@ m.paint(w); assert m.selected(w)==2; passed()
 # iPod Minimal: the selected row's white radio is drawn again dark on the off-white card: a ring,
 # and its dot when checked. Other rows keep stock's.
 if variant=='ipod':
-    for row,image,fills in ((2,'select',3),(0,'unselect',0)):
+    for row,image,fills in ((2,'select',3),(0,'unselect',0),(2,'more',4),(0,'more',0)):
         m=Machine(); w,es=m.page_list(4,name='playmode_page')
         radio=m.node('image',image=image); m.nodes[es[row]]['children']=[radio]
-        m.word(radio+O['W_PARENT'],es[row]); m.word(radio+O['W_W'],26); m.word(radio+O['W_H'],70)
+        if image=='more':
+            m.nodes[radio]['name']='img_more0'
+            if row==2: m.nodes[es[row]]['children'].append(m.node('image',image='select'))
+        m.word(radio+O['W_PARENT'],es[row]); m.word(radio+O['W_W'],50 if image=='more' else 26); m.word(radio+O['W_H'],70)
         if row==0: m.nodes[es[2]]['children']=[m.node('image',image='select')]
         m.paint(w); m.paint(radio)
-        assert [r['rect'] for r in m.rounded]==[(0,22,26,26),(2,24,22,22),(7,29,12,12)][:fills] and m.lcd_colors()==LCD_COLORS
+        expected=[(12,31,26,8),(14,33,4,4),(21,33,4,4),(28,33,4,4)] if image=='more' else [(0,22,26,26),(2,24,22,22),(7,29,12,12)]
+        assert [r['rect'] for r in m.rounded]==expected[:fills] and m.lcd_colors()==LCD_COLORS, (image,m.rounded,m.lcd_colors())
         passed()
 
 # iPod: a playlist's More page (Rename, Delete) is a BUTTONS page: the wheel moves between them.

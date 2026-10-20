@@ -4,6 +4,8 @@
   - Fix the remaining search freeze on wheel Back when the keyboard is the top window; the first Back closes the keyboard and the next leaves search.
   - Hold the quick-settings Wi-Fi or Bluetooth icon to open its settings page; tapping still toggles the radio.
   - Restore the 1.0.3 Playback and System settings order, with newer controls beside related settings and Reset last.
+  - Playlists: the three-dot menu on a playlist row opens its More page instead of playing the row, and the dots stay visible on the selected row.
+  - New Playlist: the name field takes the keyboard as the dialog opens, without a tap first.
 
 - **1.3.4**:
   - **Reset to defaults** in the PEQ editor puts the ten bands, preamp and balance back to flat, keeps Advanced's On/Off as it is and leaves saved presets untouched; choose **Apply changes** to activate it.
