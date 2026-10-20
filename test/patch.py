@@ -235,7 +235,7 @@ class Machine:
         elif name=='deque_at': ret=self.row_record
         elif name=='deque_size': ret=1
         elif name in ('tk_snprintf','snprintf@GLIBC_2.0'):
-            fmt=self.text(c); values=iter([d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in (16,20,24,28)])
+            fmt=self.text(c); values=iter([d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in range(16,80,4)])
             params=[]  # %.*s takes a length, then the string (its bytes)
             for star,kind in re.findall(r'%(\.\*)?\d*([sdxXu])',fmt):
                 if star: n=next(values); params.append(bytes(self.u.mem_read(next(values),n)).split(b'\0')[0].decode())
@@ -4596,6 +4596,212 @@ class CoverflowMachine(QueueMachine):
     def key(self,k=O['KEY_RETURN']):
         f,ctx=self.handler(self.page,O['EVT_KEY_UP']); ev=self.alloc(0x40); self.word(ev,O['EVT_KEY_UP']); self.word(ev+O['EVENT_KEY'],k)
         ret=self.call(address=f,args=(ctx,ev,0,0),gap=0); self.advance(0); return ret
+
+# Local playlist editor: real MIPS UI/control code and real SQLite transactions at its ABI boundary.
+class PlaylistEditMachine(CoverflowMachine):
+    def __init__(self,count=3):
+        super().__init__()
+        self.db=sqlite3.connect(':memory:',isolation_level=None)
+        self.db.execute('create table playlist(id integer primary key,cd_num,fileurl,time,time_end,filename)')
+        self.db.execute("insert into playlist values(0,0,'',0,0,'Mix')")
+        self.db.executemany('insert into playlist values(?,?,?,?,?,?)',[(101+i,0,'/p/'+x,0,0,x) for i,x in enumerate('ABC'[:count])])
+        self.db.execute("insert into playlist values(200,1,'/p/other',0,0,'Other')")
+        self.fail=''; self.sql=[]; self.closed_db=0
+        for n in ('sqlite3_open','sqlite3_close','sqlite3_exec','getMusicByPlayList','getAllMusic','checkPlayListExist','batch_add_file','navigator_back','_create_vector','vector_init','_vector_push_back'):
+            self.handlers[syms[n]]='edit:'+n
+        self.handlers[int(manifest['patch_symbols']['stock_playlistsmore_trampoline'],16)]='edit:more'
+        r=self.song('Mix',4); self.word(r+O['REC_TITLE'],self.string('Mix')); self.word(r+O['REC_DISC'],0)
+        self.word(syms['p_deque_playlist'],self.deque([r]))
+        self.before_queue=self.names()
+    def record(self,row):
+        ident,dest,path,start,end,name=row
+        r=self.song(name); self.word(r+O['REC_ID'],ident); self.word(r+O['REC_DISC'],dest)
+        self.word(r+O['REC_PATH'],self.string(path)); self.word(r+O['REC_CUE_START'],start); self.word(r+O['REC_CUE_END'],end)
+        return r
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('edit:'): return super().hook(u,address,size,unused)
+        a,b,c,d=[u.reg_read(r) for r in REGS]; name=name[5:]; ret=0
+        if name=='sqlite3_open': self.word(b,123); ret=1 if self.fail=='open' else 0
+        elif name=='sqlite3_close': self.closed_db+=1
+        elif name=='sqlite3_exec':
+            assert a==123
+            try:
+                for sql in self.text(b).split(';'):
+                    self.sql.append(sql)
+                    if self.fail and sql.startswith(self.fail): raise sqlite3.OperationalError('injected write failure')
+                    cur=self.db.execute(sql)
+                    if cur.description and c:
+                        for row in cur.fetchall():
+                            values=self.alloc(4*len(row)); names=self.alloc(4*len(row))
+                            for i,v in enumerate(row): self.word(values+4*i,0 if v is None else self.string(str(v)))
+                            if self.nested(c,d,len(row),values,names): raise sqlite3.OperationalError('callback aborted')
+            except sqlite3.Error: ret=1
+        elif name=='_create_vector': assert self.text(a)=='int'; ret=self.alloc(64)
+        elif name=='_vector_push_back': self.word(a,b)
+        elif name=='vector_init': pass
+        elif name=='getAllMusic':
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',r) for r in self.found]; ret=len(self.found)
+        elif name=='getMusicByPlayList':
+            rows=self.db.execute('select * from playlist where id>100 and cd_num=? order by id',(a,)).fetchall()
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.record(row) for row in rows]; ret=len(rows)
+        elif name=='checkPlayListExist':
+            ret=self.db.execute('select count(*) from playlist where id>100 and cd_num=? and fileurl=? and time=?',
+                                (b,self.text(self.get(a+O['REC_PATH'])),self.get(a+O['REC_CUE_START']))).fetchone()[0]
+        elif name=='batch_add_file':
+            assert (a,b)==(0xf001,0xf00b) and d!=self.get(syms['p_vector_select_record']) and self.get(d)==1
+            dest=self.get(u.reg_read(UC_MIPS_REG_SP)+16); r=self.items(c)[0]
+            if not self.fail:
+                ident=self.db.execute('select max(id)+1 from playlist').fetchone()[0]
+                self.db.execute('insert into playlist values(?,?,?,?,?,?)',(ident,dest,self.text(self.get(r+O['REC_PATH'])),
+                                self.get(r+O['REC_CUE_START']),self.get(r+O['REC_CUE_END']),self.text(self.get(r+O['REC_NAME']))))
+            ret=1
+        elif name=='navigator_back':
+            self.nested(*self.handler(self.page,O['EVT_DESTROY']),self.event)
+            self.stack.remove(self.page); self.top=self.stack[-1]
+        self.returns(ret,clobber=True)
+    def open_editor(self):
+        more=self.node('window','playlistsmore_page'); self.word(more+O['W_PARENT'],self.wm)
+        self.top=more; self.stack.append(more)
+        self.call(address=HOOKS['localmusic_playlistsmore_page_init'][0],args=(more,0,0,0),gap=0)
+        row=self.nodes[more]['children'][-1]; button=self.nodes[row]['children'][0]
+        assert self.nodes[self.nodes[button]['children'][0]]['text']=='Edit Playlist'
+        f,ctx=self.handler(button,O['EVT_CLICK'])
+        self.call(address=f,args=(ctx,self.event,0,0),gap=0)
+        self.page=self.top; self.view=self.find('scroll_view'); self.paint(self.view)
+        assert self.nodes[self.page]['name']=='playlistedit_page'
+    def showlabels(self):
+        self.view=self.find('scroll_view'); return self.labels()
+    def choose(self,i):
+        self.view=self.find('scroll_view'); self.pick(i); self.advance(0)
+        self.view=self.find('scroll_view')
+    def move(self,key=O['KEY_FWD_BTN']):
+        assert self.call(key,address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)==11
+        assert self.call(key,gap=0)==11
+        self.view=self.find('scroll_view')
+    def order(self,dest=0): return [r[0] for r in self.db.execute('select filename from playlist where id>100 and cd_num=? order by id',(dest,))]
+    def mutate(self,a=101,b=102,dest=0):
+        records=[self.record(self.db.execute('select * from playlist where id=?',(i,)).fetchone()) if i else 0 for i in (a,b)]
+        return self.call(address=payload_syms['ple_mutate'],args=(dest,*records,0),gap=0)
+
+m=PlaylistEditMachine(); m.open_editor()
+# The wheel still selects rows and Centre opens the selected song's actions.
+m.on_click=lambda w,e: m.nested(*m.handler(w,O['EVT_CLICK']),e)
+assert m.call()==11 and m.selected(m.view)==3
+assert m.confirm()==11 and m.showlabels()==['Move Up','Move Down','Remove from Playlist']
+assert m.key()==11 and m.selected(m.find('scroll_view'))==3
+m.close()
+m=PlaylistEditMachine(); m.open_editor()
+assert m.showlabels()==['Add Songs','Done','A','B','C']
+assert m.nodes[m.nodes[m.page]['children'][0]]['text']=='Editing: Mix'
+# A repeat and long press cannot move again, and releases never reach playback.
+for key,want in ((O['KEY_FWD_BTN'],['B','A','C']),(O['KEY_FWD_BTN'],['B','C','A']),(O['KEY_BACK_BTN'],['B','A','C'])):
+    assert m.call(key,address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)==11
+    for _ in range(2):
+        assert m.call(key,address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)==11
+        assert m.call(key,address=HOOKS['on_wm_keylong_fun'][0],event_type=O['EVT_KEY_LONG'],gap=0)==11
+    assert m.order()==want
+    assert m.call(key,gap=0)==11
+    m.view=m.find('scroll_view'); assert m.selected(m.view)==want.index('A')+2
+assert m.names()==m.before_queue and not m.playback(); passed()
+# Touch actions and confirmation; cancel and Back leave the entry intact.
+m.choose(3); assert m.showlabels()==['Move Up','Move Down','Remove from Playlist']
+m.choose(2); assert m.showlabels()==['Remove from Playlist','Cancel']; m.choose(1)
+assert m.order()==['B','A','C']; m.choose(3); m.choose(0); assert m.order()==['A','B','C']
+m.choose(2); m.choose(1); assert m.order()==['B','A','C']
+m.choose(3); m.choose(2); m.choose(0); assert m.order()==['B','C'] and m.selected(m.view)==3
+assert m.order(1)==['Other']; passed()
+# The fixed destination picker stays open; failed writes never report success.
+saved=m.alloc(16); m.word(saved,0x12345678); m.word(syms['p_vector_select_record'],saved)
+m.choose(0); assert m.showlabels()==['T1','T2']; m.choose(0)
+assert m.get(syms['p_vector_select_record'])==saved and m.get(saved)==0x12345678
+assert not any(c[0].startswith('batch_') for c in m.calls)
+assert m.toasts[-1][3]=='Added to Playlist' and m.showlabels()==['T1','T2']
+m.choose(0); assert m.toasts[-1][3]=='Already in playlist'
+m.fail='write'; m.choose(1); assert m.toasts[-1][3]=='Could not save playlist'; m.fail=''
+assert m.key()==11 and m.showlabels()==['Add Songs','Done','B','C','T1']
+m.choose(1); assert m.top!=m.page and not m.get(payload_syms['ple'])
+assert m.names()==m.before_queue; passed()
+for count in (0,1):
+    m=PlaylistEditMachine(count); m.open_editor(); before=m.order()
+    m.move(O['KEY_BACK_BTN']); m.move(); assert m.order()==before
+    assert m.key()==11 and not m.get(payload_syms['ple']); passed()
+# Roll back failed statements/commits, stale IDs, wrong playlist, CUE/path changes and ignored writes.
+for failure in ('open','begin','update','commit'):
+    m=PlaylistEditMachine(); m.fail=failure
+    assert m.mutate()==0 and m.order()==list('ABC') and not m.db.in_transaction
+    assert m.closed_db==1; passed()
+m=PlaylistEditMachine(); m.db.execute("create trigger no_move before update on playlist begin select raise(ignore); end")
+assert m.mutate()==0 and m.order()==list('ABC'); passed()
+for change in ("delete from playlist where id=101", "update playlist set cd_num=1 where id=101",
+               "update playlist set fileurl='/new' where id=101", "update playlist set time=30 where id=101"):
+    m=PlaylistEditMachine(); a=m.record(m.db.execute('select * from playlist where id=101').fetchone()); b=m.record(m.db.execute('select * from playlist where id=102').fetchone())
+    m.db.execute(change); before=m.db.execute('select * from playlist order by id').fetchall()
+    assert m.call(address=payload_syms['ple_mutate'],args=(0,a,b,0),gap=0)==0
+    assert m.db.execute('select * from playlist order by id').fetchall()==before; passed()
+# Duplicate paths and CUE segments are removed by entry ID; hidden records keep their positions.
+m=PlaylistEditMachine(); m.db.execute("update playlist set fileurl='/same',time=id,time_end=id+1 where cd_num=0 and id>100")
+m.db.execute("insert into playlist values(150,0,'/hidden',0,0,'Hidden')")
+assert m.mutate(101,103)==1 and m.order()==['C','B','A','Hidden']
+assert m.mutate(102,0)==1 and m.order()==['C','A','Hidden'] and m.order(1)==['Other']
+# Reopening uses the database order and leaves the live queue unchanged.
+m.open_editor(); assert m.showlabels()==['Add Songs','Done','C','A','Hidden'] and m.names()==m.before_queue
+assert m.mutate(101,200,0)==0
+m.db.execute('update playlist set id=2147483647 where id=200'); assert m.mutate(101,103)==0
+passed()
+# Back cancels a deferred confirmation before returning to the editor.
+m=PlaylistEditMachine(); m.open_editor(); m.choose(2); m.choose(2)
+m.pick(0); assert m.key()==11 and m.order()==list('ABC')
+assert m.showlabels()==['Add Songs','Done','A','B','C']; passed()
+# A side press during a deferred click cannot change the row that click refers to.
+m.choose(2); assert m.key()==11
+m.view=m.find('scroll_view')
+m.pick(3); m.move(); m.advance(0)
+assert m.order()==list('ABC') and m.showlabels()==['Move Up','Move Down','Remove from Playlist']; passed()
+# Simultaneous side-button presses retain independent repeat/release latches.
+m=PlaylistEditMachine(); m.open_editor()
+for key in (O['KEY_FWD_BTN'],O['KEY_BACK_BTN']):
+    assert m.call(key,address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)==11
+assert m.order()==list('ABC')
+assert m.call(O['KEY_BACK_BTN'],gap=0)==11
+assert m.call(O['KEY_FWD_BTN'],address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)==11
+assert m.order()==list('ABC') and m.call(O['KEY_FWD_BTN'],gap=0)==11; passed()
+# Failed removal and identical occurrences still target one entry only.
+for failure in ('delete','commit'):
+    m=PlaylistEditMachine(); m.fail=failure
+    assert m.mutate(101,0)==0 and m.order()==list('ABC') and not m.db.in_transaction; passed()
+m=PlaylistEditMachine(); m.db.execute("update playlist set fileurl='/same',time=0,time_end=0 where id in (101,102)")
+assert m.mutate(102,0)==1 and m.order()==['A','C']; passed()
+# Native delivery is consumed too; closing during a press consumes its remaining release.
+m=PlaylistEditMachine(); m.open_editor(); key=O['KEY_FWD_BTN']
+assert m.call(key,address=HOOKS['widget_dispatch'][0],args=(m.view,m.event,0,0),event_type=O['EVT_KEY_LONG'],gap=0)==11
+assert m.call(key,address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)==11
+m.close(); assert m.call(key,gap=0)==11
+assert m.call(address=payload_syms['ple_key'],args=(key,3,0,0),gap=0)==0
+assert not m.playback(); passed()
+# Reopen an on-disk database, independently of the editor's record cache.
+import tempfile
+with tempfile.TemporaryDirectory() as directory:
+    path=str(pathlib.Path(directory)/'database.db'); disk=sqlite3.connect(path)
+    m.db.backup(disk); disk.close(); disk=sqlite3.connect(path)
+    assert [r[0] for r in disk.execute('select filename from playlist where cd_num=0 and id>100 order by id')]==['B','A','C']
+    disk.close()
+passed()
+# A success/error toast covering the editor also consumes media keys, without moving songs.
+m=PlaylistEditMachine(); m.open_editor(); page=m.top; m.top=m.node('dialog','msginfo_dialog')
+m.move(); assert m.order()==list('ABC') and not m.playback()
+m.top=page; m.move(); assert m.order()==['B','A','C']; passed()
+# A subsequent stock playback load takes the saved order; editing itself left the queue alone.
+m=PlaylistEditMachine(); assert m.mutate()==1; m.open_editor()
+assert m.names()==m.before_queue
+songs=m.get(payload_syms['ple']+8)
+m.call(address=syms['mclLoadPlayList'],args=(songs,0,0xff13,0),gap=0)
+assert m.names()==['B','A','C']; passed()
+# Explicit stock loading order also reaches export and later playback loads through the shared query hook.
+m=LibraryQueryMachine(); m.db.execute('create table playlist(id,cd_num)')
+m.db.executemany('insert into playlist values(?,?)',[(103,0),(101,0),(102,0),(100,0),(104,1)])
+m.call(address=HOOKS['toolsQueryDbTable'][0],args=(m.string('/mnt/data/database.db'),m.string('select * from playlist where id > 100 and cd_num=0'),123,1),gap=0)
+assert m.sql.endswith('order by id asc') and m.results==[(101,0),(102,0),(103,0)]; passed()
 
 if variant=='ipod':
     # Both themes: the art itself follows the playing track, when Home or the status bar paints, in

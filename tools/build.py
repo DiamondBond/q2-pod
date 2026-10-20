@@ -24,6 +24,7 @@ BASE = 0xb00000
 SCRATCH = 0xb50000
 RING_STEP = 48
 HOOKS = {
+    'localmusic_playlistsmore_page_init': (0x4b3918, 'ringnav_playlistsmore', 'playlistsmore'),
     'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown', 'keydown'),
     'on_wm_keyup_before_fun': (0x4e85c8, 'ringnav', 'keyup'),
     'on_wm_tsdown_before_fun': (0x4e8bd0, 'ringnav_touch', 'touch'),
@@ -604,6 +605,14 @@ def patch_timezones(demo):
         struct.pack_into('<I', demo, off, new)
 
 FUNCTIONS = {
+ '_create_vector': ('void *', 'const char *'),
+ 'vector_init': ('void', 'void *'),
+ '_vector_push_back': ('void', 'void *, ...'),
+ 'sqlite3_open': ('int', 'const char *, void **'),
+ 'sqlite3_close': ('int', 'void *'),
+ 'sqlite3_exec': ('int', 'void *, const char *, int (*)(void *, int, char **, char **), void *, char **'),
+ 'getMusicByPlayList': ('int', 'int'),
+ 'checkPlayListExist': ('int', 'void *, int'),
  'toolsSetTimeZone': ('int', 'const char *'),
  'widget_on': ('unsigned', 'void *, unsigned, int (*)(void *, void *), void *'),
  'widget_set_visible': ('int', 'void *, int, int'),
@@ -877,7 +886,7 @@ GLOBALS = ['g_time_zone', 'g_playspeed_mode', 'g_time24h_flag', 'g_backlight_sta
 # player_get_id3info parsed them; sizes are checked against the ELF.
 CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024, 'g_class_type': 4,
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4,
-                'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
+                'p_deque_playlist': 4, 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
                 'g_dacoff_time': 4, 'p_vector_select_record': 4,
                 'g_play_id3_info': 2716,
@@ -889,7 +898,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 # the lock screen's picture (SYSSET SCREENSAVERPATH) and the picker's list
                 'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'spotify_page',
+PAYLOAD_WINDOWS = {'playlistedit_page', 'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'spotify_page',
                    'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ

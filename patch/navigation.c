@@ -53,6 +53,12 @@ static int library_query(int content, const char *db, const char *sql, void *row
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
+    if (sql && strstr(sql, "select * from playlist where id > 100 and cd_num=") == sql &&
+        !strstr(sql, "order by")) {
+        int n = tk_snprintf(filtered, sizeof filtered, "%s order by id asc", sql);
+        if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
+        sql = filtered;
+    }
     return content ? stock_content_query_trampoline(db, sql, row, arg, sort)
                    : stock_dbquery_trampoline(db, sql, row, (int)arg);
 }
@@ -125,6 +131,7 @@ extern unsigned album_id(void *r);
 extern unsigned album_dir(const char *, int);
 extern volatile unsigned library_gen;
 extern const char *track_name(char *buf, unsigned size, void *t);
+static int ple_key(unsigned key, int phase);
 #define STOP 11
 #define GLIDE_MS 300
 #define SCROLL_MARGIN 12
@@ -3712,6 +3719,10 @@ int ringnav_touch(void *ctx, void *event) {
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
+    if (event && target != window_manager() &&
+        ((I(event, EVENT_TYPE) >= EVT_KEY_DOWN && I(event, EVENT_TYPE) <= EVT_KEY_UP_BEFORE) ||
+         I(event, EVENT_TYPE) == EVT_KEY_LONG) &&
+        ple_key((unsigned)I(event, EVENT_KEY), 3)) return STOP;
     if (event) {
         int type = I(event, EVENT_TYPE);
         if (quick.timer &&
@@ -5851,6 +5862,232 @@ int ringnav_about(void *win, void *ctx) {
     return result;
 }
 
+/* Entry IDs are stock's order. Keep our records separate from browsing and the live queue. */
+static struct {
+    void *page, *view, *songs, *picker;
+    int dest, mode, selected, pending;
+    unsigned key, timer;
+    char name[128];
+} ple __attribute__((section(".scratch")));
+
+/* One private selection for demo's lifetime, so a covered stock picker keeps its batch intact. */
+static void *ple_add_select __attribute__((section(".scratch")));
+struct ple_check { void *a, *b; int seen; };
+static int ple_checked(void *ctx, int n, char **v, char **names) {
+    struct ple_check *c = ctx;
+    if (n != 4 || !v[0] || !v[1]) return 1;
+    int id = atoi(v[0]);
+    void *r = id == I(c->a, REC_ID) ? c->a : c->b;
+    if (!r || id != I(r, REC_ID) || tk_strcmp(v[1], P(r, REC_PATH)) ||
+        (v[2] ? atoi(v[2]) : 0) != I(r, REC_CUE_START) ||
+        (v[3] ? atoi(v[3]) : 0) != I(r, REC_CUE_END)) return 1;
+    c->seen++;
+    return 0;
+}
+static int ple_changed(void *ctx, int n, char **v, char **names) {
+    return n != 1 || !v[0] || atoi(v[0]) != 1;
+}
+static int ple_number(void *ctx, int n, char **v, char **names) {
+    if (n != 1 || !v[0]) return 1;
+    *(int *)ctx = atoi(v[0]);
+    return 0;
+}
+
+/* Revalidate under the write lock; the temporary ID is above every occupied ID. */
+static int ple_mutate(int dest, void *a, void *b) {
+    void *db = 0;
+    int ok = 0, temp = 0;
+    char sql[512];
+    struct ple_check check = { a, b, 0 };
+    if (dest < 0 || dest >= 100 || !a || I(a, REC_ID) <= 100 ||
+        (b && (I(b, REC_ID) <= 100 || I(a, REC_ID) == I(b, REC_ID)))) return 0;
+    if (sqlite3_open("/mnt/data/database.db", &db)) goto done;
+    if (sqlite3_exec(db, "begin immediate", 0, 0, 0)) goto done;
+    tk_snprintf(sql, sizeof sql,
+                "select id,fileurl,time,time_end from playlist where cd_num=%d and id in (%d,%d)",
+                dest, I(a, REC_ID), b ? I(b, REC_ID) : I(a, REC_ID));
+    if (sqlite3_exec(db, sql, ple_checked, &check, 0) || check.seen != (b ? 2 : 1)) goto rollback;
+    if (b) {
+        if (sqlite3_exec(db, "select max(100,ifnull(max(id),100))+1 from playlist "
+                            "having max(100,ifnull(max(id),100))<2147483647",
+                         ple_number, &temp, 0) || temp <= 100) goto rollback;
+        tk_snprintf(sql, sizeof sql,
+                    "update playlist set id=%d where cd_num=%d and id=%d;select changes();"
+                    "update playlist set id=%d where cd_num=%d and id=%d;select changes();"
+                    "update playlist set id=%d where cd_num=%d and id=%d;select changes()",
+                    temp, dest, I(a, REC_ID), I(a, REC_ID), dest, I(b, REC_ID),
+                    I(b, REC_ID), dest, temp);
+    } else
+        tk_snprintf(sql, sizeof sql, "delete from playlist where cd_num=%d and id=%d;select changes()",
+                    dest, I(a, REC_ID));
+    if (sqlite3_exec(db, sql, ple_changed, 0, 0) || sqlite3_exec(db, "commit", 0, 0, 0)) goto rollback;
+    ok = 1;
+    goto done;
+rollback:
+    sqlite3_exec(db, "rollback", 0, 0, 0);
+done:
+    if (db) sqlite3_close(db);
+    return ok;
+}
+
+static int ple_query(void *ctx) { return getMusicByPlayList(ple.dest); }
+static void ple_reload(void) {
+    int n;
+    void *songs = staged(ple_query, 0, &n);
+    if (ple.songs) deque_destroy(ple.songs);
+    ple.songs = songs;
+    int size = (int)deque_size(songs);
+    if (ple.selected >= size) ple.selected = size ? size - 1 : 0;
+}
+static void ple_show(void);
+static int ple_closed(void *ctx, void *event) {
+    if (ple.timer) timer_remove(ple.timer);
+    if (ple.songs) deque_destroy(ple.songs);
+    if (ple.picker) deque_destroy(ple.picker);
+    unsigned key = ple.key; /* swallow the release even if the page closed during the press */
+    memset(&ple, 0, sizeof ple);
+    ple.key = key;
+    return 0;
+}
+static void ple_move(int at, int dir) {
+    int n = (int)deque_size(ple.songs), next = at + dir;
+    if (at < 0 || at >= n || next < 0 || next >= n) return;
+    if (ple_mutate(ple.dest, deque_at(ple.songs, (unsigned)at),
+                   deque_at(ple.songs, (unsigned)next))) {
+        ple.selected = next;
+        ple_reload();
+        ple_show();
+    } else toast("Could not save playlist");
+}
+/* phase: press, release, or native delivery/long press. A repeat never moves twice. */
+static int ple_key(unsigned key, int phase) {
+    if (key != KEY_BACK_BTN && key != KEY_FWD_BTN) return 0;
+    unsigned bit = key == KEY_FWD_BTN ? 2 : 1;
+    int live = ple.page && window_manager_get_top_window(window_manager()) == ple.page;
+    if (!ple.page && !(ple.key & bit)) return 0;
+    if (phase == 1 && !(ple.key & bit)) {
+        ple.key |= bit;
+        if (live && !ple.mode && !ple.timer && usable()) ple_move(widget_get_prop_int(ple.view, SEL, ple.selected + 2) - 2,
+                     key == KEY_FWD_BTN ? 1 : -1);
+    }
+    if (phase == 2) ple.key &= ~bit;
+    return 1;
+}
+static int ple_back(void *ctx, void *event) {
+    if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
+    stop_timer(&ple.timer);
+    if (ple.mode) {
+        ple.mode = 0;
+        ple_reload();
+        ple_show();
+    } else navigator_back();
+    return STOP;
+}
+
+/* Rebuilds and closes run after click delivery, as the queue menu does. */
+static int ple_run(const void *unused) {
+    ple.timer = 0;
+    if (!ple.page) return 0;
+    int action = ple.pending, mode = ple.mode;
+    if (!mode) {
+        if (action == 1) { navigator_back(); return 0; }
+        if (!action) {
+            int n;
+            if (ple.picker) deque_destroy(ple.picker);
+            ple.picker = staged_music(all_songs, 0, &n);
+            ple.mode = 1;
+        } else {
+            ple.selected = action - 2;
+            ple.mode = 2;
+        }
+    } else if (mode == 1) {
+        if ((unsigned)action >= deque_size(ple.picker)) return 0;
+        void *r = deque_at(ple.picker, (unsigned)action);
+        if (checkPlayListExist(r, ple.dest)) toast("Already in playlist");
+        else {
+            int before = (int)deque_size(ple.songs);
+            void *one = _create_deque("stSongInfo");
+            if (!one) { toast("Could not save playlist"); return 0; }
+            deque_init(one);
+            _deque_push_back(one, r); /* stock rewrites the added record's ID and cd_num */
+            if (!ple_add_select) {
+                ple_add_select = _create_vector("int");
+                if (ple_add_select) {
+                    vector_init(ple_add_select);
+                    _vector_push_back(ple_add_select, 1);
+                }
+            }
+            if (ple_add_select) batch_add_file(0xf001, 0xf00b, one, ple_add_select, ple.dest);
+            deque_destroy(one);
+            ple_reload();
+            toast((int)deque_size(ple.songs) > before ? "Added to Playlist" : "Could not save playlist");
+        }
+        return 0; /* picker stays on its selected song */
+    } else if (mode == 2) {
+        if (action == 2) ple.mode = 3;
+        else {
+            ple.mode = 0;
+            ple_move(ple.selected, action ? 1 : -1);
+        }
+    } else {
+        if (!action && (unsigned)ple.selected < deque_size(ple.songs)) {
+            if (ple_mutate(ple.dest, deque_at(ple.songs, (unsigned)ple.selected), 0)) ple_reload();
+            else toast("Could not save playlist");
+        }
+        ple.mode = 0;
+    }
+    ple_show();
+    return 0;
+}
+static int ple_pick(void *ctx, void *event) {
+    if (!ple.timer) {
+        ple.pending = (int)(long)ctx;
+        ple.timer = timer_add(ple_run, 0, 0);
+    }
+    return 0;
+}
+static void ple_show(void) {
+    int mode = ple.mode, n = mode == 0 ? (int)deque_size(ple.songs) + 2
+                           : mode == 1 ? (int)deque_size(ple.picker) : mode == 2 ? 3 : 2;
+    char title[180], name[512];
+    tk_snprintf(title, sizeof title, "%s: %s", mode == 0 ? "Editing" : mode == 1 ? "Add Songs"
+                                                     : mode == 2 ? "Song Actions" : "Remove song?",
+                ple.name);
+    ple.view = page_list(ple.page, ple.page, 0, title, n, 48);
+    static const char *const actions[] = { "Move Up", "Move Down", "Remove from Playlist" };
+    for (int i = 0; i < n; i++) {
+        const char *caption = mode == 0 && i < 2 ? (i ? "Done" : "Add Songs")
+                              : mode == 2 ? actions[i]
+                              : mode == 3 ? (i ? "Cancel" : "Remove from Playlist")
+                              : track_name(name, sizeof name, deque_at(mode == 1 ? ple.picker : ple.songs,
+                                                                        (unsigned)(i - (mode == 0 ? 2 : 0))));
+        page_row_detail(ple.view, i, caption, 0, ple_pick);
+    }
+    if (n) ringnav_select(ple.view, mode == 0 ? ple.selected + 2 < n ? ple.selected + 2 : 0 : 0, n);
+}
+static int ple_open(void *ctx, void *event) {
+    if (ple.page) return 0;
+    unsigned at = (unsigned)(long)ctx;
+    void *lists = P(p_deque_playlist, 0);
+    if (!lists || at >= deque_size(lists)) return 0;
+    void *r = deque_at(lists, at);
+    ple.dest = I(r, REC_DISC);
+    if (ple.dest < 0 || ple.dest >= 100) return 0;
+    tk_snprintf(ple.name, sizeof ple.name, "%s", P(r, REC_TITLE));
+    ple.page = page_open("playlistedit_page", ple_closed, ple_back);
+    if (ple.page) { ple_reload(); ple_show(); }
+    return 0;
+}
+extern int stock_playlistsmore_trampoline(void *, void *);
+int ringnav_playlistsmore(void *win, void *ctx) {
+    int result = stock_playlistsmore_trampoline(win, ctx);
+    if (win) {
+        void *row = library_row(win, 0, ple_open, ctx, "Edit Playlist");
+        widget_move_resize(row, 0, 180, 375, 70);
+    }
+    return result;
+}
+
 /* Go to album/artist reuse g_local_classinfo_save, which the pages underneath reload from when
  * they come back, so it is put back as the page opened here closes. */
 static int qm_restore(void *page, void *event) {
@@ -6275,6 +6512,7 @@ static int qm_hold(void) {
  * Internet Radio station it is the favourite toggle, on a Spotify track Add to Queue (its reply
  * toasts), the release latched as the queue menu's. */
 int ringnav_keylong(void *ctx, void *event) {
+    if (event && ple_key((unsigned)I(event, EVENT_KEY), 3)) return STOP;
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
     void *top = window_manager_get_top_window(window_manager());
     const char *fav = radio_hold(top);
@@ -7038,6 +7276,7 @@ int ringnav_buzzer(int on) {
  * scrub, the volume and every other key keep the stock click. */
 int ringnav_keydown(void *ctx, void *event) {
     unsigned key = event ? (unsigned)I(event, EVENT_KEY) : 0;
+    if (ple_key(key, 1)) return STOP;
     void *top = window_manager_get_top_window(window_manager());
 #if IPOD
     unsigned char tone = g_keytone_flag;
@@ -7247,6 +7486,7 @@ int ringnav(void *ctx, void *event) {
         return 0;
     }
     unsigned key = (unsigned)I(event, EVENT_KEY);
+    if (ple_key(key, 2)) return STOP;
 #if IPOD
     /* This release's press was silenced by ringnav_keydown: a row change below clicks instead. */
     int owned = st.tone_key == key;

@@ -17,6 +17,7 @@
 { "books_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/books.c) */
 { "mostplayed_page", CTX_FIXED, 0 }, /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "shuffle_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
+{ "playlistedit_page", CTX_DYNAMIC, 0 },
 { "chapters_page", CTX_DYNAMIC, 0 }, /* runtime chapter list */
 { "upnext_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "ratings_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
@@ -84,7 +85,7 @@
 { "confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
 { "tidal_confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
 { "autoshutdown_dialog", CTX_DYNAMIC, BUTTONS },
-{ "playlistsmore_page", CTX_DYNAMIC, BUTTONS }, /* a playlist's Rename and Delete */
+{ "playlistsmore_page", CTX_DYNAMIC, BUTTONS }, /* a playlist's Rename, Delete and Edit */
 { "tidal_quality_select_dialog", CTX_DYNAMIC, BUTTONS },
 { "tidal_sortmode_dialog", CTX_DYNAMIC, BUTTONS },
 #endif
