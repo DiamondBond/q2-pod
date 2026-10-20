@@ -2031,9 +2031,59 @@ int ringnav_quick_lock(void *win, void *event) {
     quick_lock_text(win);
     return 0;
 }
+#define QUICK_HOLD "_quick_hold"
+static struct {
+    void *win, *icon;
+    unsigned timer;
+    int x, y;
+} quick __attribute__((section(".scratch")));
+
+static int quick_cancel(void *ctx, void *event) {
+    stop_timer(&quick.timer);
+    quick.win = quick.icon = 0;
+    return 0;
+}
+static int quick_long(const void *unused) {
+    quick.timer = 0;
+    void *win = quick.win, *icon = quick.icon;
+    if (!win || window_manager_get_top_window(window_manager()) != win ||
+        !window_manager_get_pointer_pressed(window_manager()))
+        return 0;
+    int page = widget_get_prop_int(icon, QUICK_HOLD, 0);
+    /* Abort the image's press before closing, so its release cannot toggle the radio. */
+    prop(icon, QUICK_HOLD, -page);
+    unsigned abort_event[12];
+    pointer_event_init(abort_event, EVT_POINTER_ABORT, win, 0, 0);
+    widget_dispatch_event_to_target_recursive(win, abort_event);
+    quick_cancel(0, 0);
+    dialog_quit(win, 0);
+    navigator_to(page == 1 ? "systemset/wifi_page" : "systemset/bluetooth_page");
+    return 0;
+}
+static int quick_down(void *icon, void *event) {
+    int page = widget_get_prop_int(icon, QUICK_HOLD, 0);
+    prop(icon, QUICK_HOLD, page < 0 ? -page : page);
+    quick.win = window_manager_get_top_window(window_manager());
+    quick.icon = icon;
+    quick.x = I(event, EVENT_X), quick.y = I(event, EVENT_Y);
+    rearm(&quick.timer, quick_long, RATE_HOLD_MS);
+    return 0;
+}
 int ringnav_quick_settings(void *win, void *ctx) {
     int result = stock_quicksettings_trampoline(win, ctx);
-    if (win) quick_lock_text(win);
+    if (win) {
+        quick_lock_text(win);
+        static const char *const names[] = { "img_wifiswitch", "img_btswitch" };
+        for (int i = 0; i < 2; ++i) {
+            void *icon = widget_lookup(win, names[i], 1);
+            if (!icon) continue;
+            prop(icon, QUICK_HOLD, i + 1);
+            widget_on(icon, EVT_POINTER_DOWN, quick_down, icon);
+        }
+        widget_on(win, EVT_DESTROY, quick_cancel, win);
+        widget_on(win, EVT_WINDOW_CLOSE, quick_cancel, win);
+        widget_on(win, EVT_WINDOW_BACKGROUND, quick_cancel, win);
+    }
     return result;
 }
 
@@ -2333,19 +2383,19 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
 
 /* Playback Setting: what is changed while listening first, then library behaviour, then output. */
 static const unsigned char playset_order[] = {
-    3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,         10 /* ReplayGain */,
-    18 /* Crossfade */,    9 /* Gapless */,      4 /* Max Volume */,   5 /* Default Vol */,
+    3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,         18 /* Crossfade */,
+    9 /* Gapless */,       10 /* ReplayGain */,  4 /* Max Volume */,   5 /* Default Vol */,
     11 /* Balance */,      21 /* Mono Audio */,  1 /* Filters */,      8 /* Memory play */,
     20 /* Resume Songs */, 16 /* Artists */,     15 /* Year order */,  17 /* Artist album order */,
     13 /* Folder art */,   14 /* Folder skip */, 19 /* Folder Root */, 12 /* Enlarged art */,
     6 /* DSD Output */,    7 /* USB Audio */,
 };
-/* System Setting: connections and display first, boot/update/reset/about last. */
+/* System Setting: connections and display first, set-once items next, Reset last. */
 static const unsigned char sysset_order[] = {
     1 /* Wireless */,     3 /* Display */,  4 /* Power */,   5 /* Date and time */,
     8 /* Buttons lock */, 7 /* Key tone */, 2 /* Network */, 0 /* Language */,
-    6 /* In-Vehicle */,   12 /* Boot to */, 9 /* Update */,  10 /* Reset */,
-    11 /* About */,
+    6 /* In-Vehicle */,   12 /* Boot to */, 9 /* Update */,  11 /* About */,
+    10 /* Reset */,
 };
 
 /* Folder Root (Q2POD FOLDERROOT): the card's top-level folder Home's Folder opens in, "" the card
@@ -3662,6 +3712,18 @@ int ringnav_touch(void *ctx, void *event) {
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
+    if (event) {
+        int type = I(event, EVENT_TYPE);
+        if (quick.timer &&
+            (type == EVT_POINTER_UP_BEFORE || type == EVT_POINTER_UP_BEFORE - 1 ||
+             type == EVT_POINTER_ABORT || type == EVT_CLICK || type == EVT_KEY_DOWN_BEFORE ||
+             ((type == EVT_POINTER_MOVE_BEFORE || type == EVT_POINTER_MOVE_BEFORE - 1) &&
+              ((unsigned)(I(event, EVENT_X) - quick.x + 10) > 20 ||
+               (unsigned)(I(event, EVENT_Y) - quick.y + 10) > 20))))
+            quick_cancel(0, 0);
+        if (target && type == EVT_CLICK && widget_get_prop_int(target, QUICK_HOLD, 0) < 0)
+            return STOP;
+    }
     /* Native key delivery can retain the covered window's focused widget: the Artists list under
      * an artist's page (wheel turns queued while it loads) or under its Coverflow. */
     if (target && event && I(event, EVENT_TYPE) >= EVT_KEY_DOWN &&

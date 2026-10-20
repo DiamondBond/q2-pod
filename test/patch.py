@@ -8695,6 +8695,47 @@ for choice in (1,2,3,0):
                 assert (gate.call(key,address=address)==11)==blocked,(choice,light,key,address)
 passed()
 
+# Quick settings (#70): a tap passes unchanged; a stationary hold opens settings without a click.
+for radio,page in (('wifi','systemset/wifi_page'),('bt','systemset/bluetooth_page')):
+    def quick_page():
+        m=QueueMachine(); m.mock('dialog_quit','widget_dispatch_event_to_target_recursive')
+        m.handlers[int(manifest['patch_symbols']['stock_quicksettings_trampoline'],16)]='stock_quicksettings'
+        icon=m.node('image','img_'+radio+'switch')
+        win=m.node('dialog','statusbar_dialog',[icon,m.node('image','img_lock'),m.node('label','label_lock')])
+        m.top=win
+        m.call(address=HOOKS['dialog_statusbar_dialog_init'][0],args=(win,0,0,0),gap=0)
+        def down():
+            m.pressed=1
+            m.word(m.event+O['EVENT_X'],30); m.word(m.event+O['EVENT_Y'],40)
+            f,ctx=m.handler(icon,O['EVT_POINTER_DOWN'])
+            m.call(key=30,address=f,args=(ctx,m.event,0,0),event_type=O['EVT_POINTER_DOWN'],gap=0)
+        def dispatch(kind,x=30):
+            m.word(m.event+O['EVENT_X'],x); m.word(m.event+O['EVENT_Y'],40)
+            return m.call(key=x,address=HOOKS['widget_dispatch'][0],args=(icon,m.event,0,0),event_type=kind,gap=0)
+        return m,icon,win,down,dispatch
+    m,icon,win,down,dispatch=quick_page(); down()
+    m.advance(O['RATE_HOLD_MS']-1); assert not m.opened
+    dispatch(O['EVT_POINTER_UP_BEFORE']); assert not m.timers
+    assert dispatch(O['EVT_CLICK'])==0 and any(c[0]=='stock_dispatch' for c in m.calls)
+    m.advance(O['RATE_HOLD_MS']); assert not m.opened; passed()
+    m,icon,win,down,dispatch=quick_page(); down(); m.advance(O['RATE_HOLD_MS'])
+    assert m.opened==[(page,None)] and [c[1:3] for c in m.calls if c[0]=='dialog_quit']==[(win,0)]
+    assert any(c[0]=='widget_dispatch_event_to_target_recursive' for c in m.calls)
+    assert dispatch(O['EVT_CLICK'])==11 and not any(c[0]=='stock_dispatch' for c in m.calls)
+    # A later touch can tap the same icon normally.
+    m.top=win; down(); dispatch(O['EVT_POINTER_UP_BEFORE']); assert dispatch(O['EVT_CLICK'])==0; passed()
+    for kind in (O['EVT_POINTER_MOVE_BEFORE'],O['EVT_POINTER_ABORT'],O['EVT_KEY_DOWN_BEFORE']):
+        m,icon,win,down,dispatch=quick_page(); down(); dispatch(kind,x=50)
+        m.advance(O['RATE_HOLD_MS']); assert not m.opened, (kind,m.opened)
+    for kind in (O['EVT_DESTROY'],O['EVT_WINDOW_CLOSE'],O['EVT_WINDOW_BACKGROUND']):
+        m,icon,win,down,dispatch=quick_page(); down(); f,ctx=m.handler(win,kind)
+        m.call(address=f,args=(ctx,m.event,0,0),event_type=kind,gap=0)
+        m.advance(O['RATE_HOLD_MS']); assert not m.opened
+    m,icon,win,down,dispatch=quick_page(); down(); m.top=m.node('window','other')
+    m.advance(O['RATE_HOLD_MS']); assert not m.opened
+    m,icon,win,down,dispatch=quick_page(); m.timer_fail=True; down()
+    assert dispatch(O['EVT_CLICK'])==0 and not m.opened; passed()
+
 # Settings rows (docs/internals.md#charge-limit, #low-power, #album-artists): Power management gains
 # Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
@@ -8941,7 +8982,7 @@ m.call(address=payload_syms['mono_sync'],args=(0,0,0,0),gap=0)
 assert 'mono:peq_attach' not in [c[0] for c in m.calls]; passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
-assert stacked(m,'scroll_view_playset')==[3,2,0,10,18,9,4,5,11,21,1,8,20,16,15,17,13,14,19,12,6,7]; passed()
+assert stacked(m,'scroll_view_playset')==[3,2,0,18,9,10,4,5,11,21,1,8,20,16,15,17,13,14,19,12,6,7]; passed()
 # Folder Root (#49): the row cycles the card's top-level folders, case aside, then the card, saving Q2POD
 # FOLDERROOT each time. Not offered: files, dot-folders, names with an edge space or over 200 bytes (a
 # config.ini line can't keep them). A saved folder gone moves on to the next name after it.
@@ -9412,11 +9453,11 @@ def boot_row(value=None,mode=0o100755):
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
     if mode!=0o100755:
-        assert m.nodes[view]['children']==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,10,11)]
+        assert m.nodes[view]['children']==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
         return m,None,None
     kids=m.nodes[view]['children']
     assert len(kids)==13
-    assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,10,11)]
+    assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
     button=m.nodes[kids[9]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label

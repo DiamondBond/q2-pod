@@ -1,5 +1,9 @@
 # Changelog
 
+- **1.3.5** (unreleased):
+  - Hold the quick-settings Wi-Fi or Bluetooth icon to open its settings page; tapping still toggles the radio.
+  - Restore the 1.0.3 Playback and System settings order, with newer controls beside related settings and Reset last.
+
 - **1.3.4**:
   - **Reset to defaults** in the PEQ editor puts the ten bands, preamp and balance back to flat, keeps Advanced's On/Off as it is and leaves saved presets untouched; choose **Apply changes** to activate it.
   - Advanced's **Auto** preamp now estimates its cut across standard sample rates from 8 to 384 kHz, instead of only 48 kHz, so its headroom is right for high-resolution tracks too.

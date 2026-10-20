@@ -35,7 +35,7 @@ int snd_pcm_ioplug_create(io *, const char *, int, int);
 int snd_pcm_ioplug_set_param_list(io *, int, unsigned, const unsigned *);
 int snd_pcm_ioplug_set_param_minmax(io *, int, unsigned, unsigned);
 static int action(io *p) { return 0; }
-static long pointer(io *p) { return p->state==3 ? p->appl_ptr % p->buffer_size : 0; }
+static long pointer(io *p) { return p->state==3 || p->state==5 ? p->appl_ptr % p->buffer_size : 0; }
 static const struct callbacks callbacks={.start=action,.stop=action,.pointer=pointer,.prepare=action};
 int _snd_pcm_mock_open(void **out, const char *name, void *root, void *conf, int stream, int mode) {
     io *p=calloc(1,sizeof *p);
