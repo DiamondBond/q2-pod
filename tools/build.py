@@ -724,7 +724,7 @@ FUNCTIONS = {
  'checkFavExist': ('int', 'void *'),
  'getAllFav': ('int', 'void'),
  # Long Songs (navigation.c): a file's length, probed once, as stock's scanner reads tags
- 'taglib_file_new': ('void *', 'const char *'),
+ 'taglib_file_new': ('void *', 'const char *, int'),
  'taglib_file_tag': ('void *', 'void *'),
  'toolsCheckItemExist': ('int', 'void *, const char *, int'),
  'toolsGetMusicInfo': ('int', 'int, char *, const char *'),
@@ -883,7 +883,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 # the lock screen's picture (SYSSET SCREENSAVERPATH) and the picker's list
                 'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'mixtape_page', 'spotify_page',
+PAYLOAD_WINDOWS = {'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'mixtape_page', 'spotify_page',
                    'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ

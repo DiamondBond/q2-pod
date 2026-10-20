@@ -55,6 +55,7 @@ python3 test/build.py 'Q2 Firmware V1.32.zip'   # packaging checks (custom logo,
 python3 test/remote.py                     # q2remote protocol, auth, event and framebuffer checks
 python3 test/playback.py /tmp/q2-build     # grouped traversal, snapshots and the wheel's ticks
 python3 test/patch.py /tmp/q2-build        # the patched MIPS payload, wheel and UI scenarios
+python3 test/chapters.py                   # embedded chapter parsing, both MP4 formats and async extraction
 python3 test/m4b.py /tmp/q2-build          # native TagLib M4B/MP4 metadata dispatch
 python3 test/id3.py /tmp/q2-build          # the built player's MP3 ReplayGain on ID3v2.3/2.4 tags
 python3 test/ldac.py /tmp/q2-build         # shipped LDAC intermediate rates and native adaptive controller
