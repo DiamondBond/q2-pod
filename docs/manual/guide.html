@@ -543,7 +543,7 @@ ALBUM_ARTIST=1</pre>
     <li><b>Touch:</b> drag a slider; tap the switch or <b>Reset</b>.</li>
     <li><b>Simple On/Off:</b> On plays Simple and turns Advanced off. Changes are heard as you make them while it’s on; edits made while it’s off are kept for later without turning it on. While the page is open, Off keeps Simple’s headroom cut, so comparing isn’t suddenly louder.</li>
     <li><b>Reset</b> sets all three to 0 dB.</li>
-    <li><b>Headroom:</b> boosts get just enough cut to avoid clipping, as Advanced’s Auto preamp.</li>
+    <li><b>Headroom:</b> boosts get a preamp cut based on their combined response, as Advanced’s Auto preamp.</li>
   </ul>
   <p>One EQ plays at a time: Simple, Advanced or neither. Each keeps its own settings, and the status-bar <b>EQ</b> icon shows while either is on.</p>
 
@@ -561,7 +561,7 @@ ALBUM_ARTIST=1</pre>
       <tr><td>Stock presets</td><td><b>Presets → Stock presets</b> loads stock’s Pop, Rock, Dance, Blues, Metal, Vocal, Classical or Jazz curve into the ten bands. Edit it, apply it, or save it as your own.</td></tr>
       <tr><td>Apply changes</td><td>Edits and presets take effect only when chosen.</td></tr>
       <tr><td>Advanced: On/Off</td><td>Applies at once and persists; On turns Simple off. The status-bar <b>EQ</b> icon follows it.</td></tr>
-      <tr><td>Preamp</td><td><b>Auto</b> cuts just enough that boosts don’t clip. Or pick +12 to −24 dB; above Auto, loud boosts can clip.</td></tr>
+      <tr><td>Preamp</td><td><b>Auto</b> estimates headroom across standard sample rates from 8–384 kHz. It is not a limiter: transients can still need more cut. Or pick +12 to −24 dB; manual and imported gain stay as set, so loud boosts can clip at output.</td></tr>
     </tbody>
   </table>
 

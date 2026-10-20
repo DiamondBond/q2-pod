@@ -221,8 +221,8 @@ def dsp_check(lib):
     assert (e.c[9].b0, e.c[9].a1) == (1, 0)  # only the unrepresentable band is skipped
     p = parse(lib, '\n'.join(f'Filter: ON PK Fc {100+i*1000} Hz Gain 6 dB Q 1' for i in range(10)))
     d = DSP(); lib.peq_reset(C.byref(d), 48000, 2, C.byref(p))
-    clipped = process(lib, d, [1., -1.] * 20000, 2)
-    assert all(math.isfinite(x) and -1 <= x <= 1 for x in clipped)
+    boosted = process(lib, d, [1., -1.] * 20000, 2)
+    assert all(math.isfinite(x) for x in boosted) and max(boosted) > 1 and min(boosted) < -1
     # Block splitting and stereo independence; no file I/O or allocation in process.
     a, b = DSP(), DSP()
     for d in (a, b): lib.peq_reset(C.byref(d), 48000, 2, C.byref(p))
@@ -286,7 +286,88 @@ def dsp_check(lib):
     p.bands[0].enabled = 1; lib.peq_reset(C.byref(a), 48000, 2, C.byref(p)); process(lib, a, [.5, .5] * 100, 2)
     p.bands[0].enabled = 2; assert lib.peq_update(C.byref(a), C.byref(p)); process(lib, a, [0., 0.] * 2000, 2)
     assert a.current.z[1][0][0] == a.current.z[1][0][1] == 0 and a.current.z[0][0][0]
-    print('PEQ DSP: C PCM response, 30 bands, shelves, rates, bypass, clipping, channels, balance and updates passed.')
+    # Non-finite input is still sanitized while EQ is on.
+    p = parse(lib, 'Preamp: 6 dB')
+    lib.peq_reset(C.byref(a), 48000, 1, C.byref(p))
+    assert process(lib, a, [math.nan, math.inf, -math.inf, 0.25]) == [0, 0, 0, C.c_float(.25*10**(.3)).value]
+    # A preamp/bypass transition also retains float headroom, with no flattened peaks.
+    bypass = parse(lib, 'Preamp: 0 dB'); bypass.bypass = 1
+    assert lib.peq_update(C.byref(a), C.byref(bypass))
+    ramp = process(lib, a, [1.5] * 1000)
+    assert min(ramp) == 1.5 and max(ramp) > 2.9
+    print('PEQ DSP: C PCM response, 30 bands, shelves, rates, bypass, float headroom, channels, balance and updates passed.')
+
+REPORTED_PRESET = """Channel: L
+Preamp: -2.2 dB
+Filter 1: ON LSC Fc 3936 Hz Gain -0.40 dB Q 0.509
+Filter 2: ON HSC Fc 15939 Hz Gain 2.88 dB Q 2.916
+Filter 3: ON PK Fc 12705 Hz Gain 6.92 dB Q 2.292
+Filter 4: ON PK Fc 13150 Hz Gain -4.65 dB Q 4.000
+Filter 5: ON PK Fc 15172 Hz Gain 9.66 dB Q 2.078
+Filter 6: ON PK Fc 15331 Hz Gain -4.33 dB Q 0.569
+Filter 7: ON PK Fc 10160 Hz Gain 6.86 dB Q 1.401
+Filter 8: ON PK Fc 15627 Hz Gain -5.71 dB Q 0.577
+Channel: R
+Preamp: -2.2 dB
+Filter 1: ON LSC Fc 3936 Hz Gain 0.40 dB Q 0.509
+Filter 2: ON HSC Fc 15939 Hz Gain -2.88 dB Q 2.916
+Filter 3: ON PK Fc 12705 Hz Gain -6.92 dB Q 2.292
+Filter 4: ON PK Fc 13150 Hz Gain 4.65 dB Q 4.000
+Filter 5: ON PK Fc 15172 Hz Gain -9.66 dB Q 2.078
+Filter 6: ON PK Fc 15331 Hz Gain 4.33 dB Q 0.569
+Filter 7: ON PK Fc 10160 Hz Gain -6.86 dB Q 1.401
+Filter 8: ON PK Fc 15627 Hz Gain 5.71 dB Q 0.577
+Channel: all
+Preamp: -6.3 dB
+Filter 1: ON LSC Fc 32 Hz Gain 6.17 dB Q 0.552
+Filter 2: ON PK Fc 51 Hz Gain 2.04 dB Q 0.867
+Filter 3: ON PK Fc 204 Hz Gain -3.35 dB Q 0.804
+Filter 4: ON PK Fc 385 Hz Gain -0.65 dB Q 1.986
+Filter 5: ON PK Fc 787 Hz Gain 1.48 dB Q 1.224
+Filter 6: ON PK Fc 1689 Hz Gain -2.24 dB Q 0.890
+Filter 7: ON PK Fc 3076 Hz Gain 2.87 dB Q 1.327
+Filter 8: ON HSC Fc 5562 Hz Gain 1.14 dB Q 2.018
+Filter 9: ON PK Fc 9530 Hz Gain 4.19 dB Q 1.446
+Filter 10: ON PK Fc 13560 Hz Gain -0.62 dB Q 2.940
+"""
+
+def headroom_check(lib, ui):
+    """The reported preset stays linear; Auto covers rate-dependent peaks without changing manual gain."""
+    p = parse(lib, REPORTED_PRESET)
+    before = bytes(p)
+    assert p.count == 26 and p.preamp == -8.5 and p.balance == 0
+    for rate in (44100, 48000, 96000):
+        for f in (20, 50, 9840, 15000):
+            a, b = DSP(), DSP()
+            for d in (a, b): lib.peq_reset(C.byref(d), rate, 2, C.byref(p))
+            signal = [x for i in range(rate//5) for x in (0.999*math.sin(2*math.pi*f*i/rate),)*2]
+            loud = process(lib, a, signal, 2)
+            quiet = process(lib, b, [x/16 for x in signal], 2)
+            # Later volume can recover the waveform only if EQ hasn't clipped it first.
+            assert max(abs(x/16-y) for x, y in zip(loud, quiet)) < 2e-7, (rate, f)
+            if f == 9840 and rate in (44100, 48000):
+                assert max(loud[::2]) > 1 and min(loud[::2]) < -1 and max(map(abs, loud[1::2])) < 1
+    ui.check_headroom.argtypes = [C.POINTER(Preset)]
+    ui.check_headroom.restype = C.c_double
+    auto = ui.check_headroom(C.byref(p))
+    assert -12.37 < auto < -12.34, auto  # strongest response is at 32 kHz, not the old 48 kHz estimate
+    assert bytes(p) == before and ui.check_headroom(C.byref(p)) == auto
+    p.preamp = auto
+    for rate in (8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100,
+                 48000, 64000, 88200, 96000, 176400, 192000, 352800, 384000):
+        e = Engine(); assert lib.peq_compile(C.byref(p), rate, C.byref(e))
+        peak = max(response(e, rate, f, ch)
+                   for f in [0] + [(rate/2)**(i/4095) for i in range(4096)] for ch in range(2))
+        assert peak <= 1.00001, (rate, peak, auto)
+    # Flat/cut-only Auto stays +0; shelves include DC and Nyquist outside the old 20..20k grid.
+    for source, want in (('', 0), ('Filter: ON PK Fc 1000 Hz Gain -12 dB Q 1', 0),
+                         ('Filter: ON LSC Fc 20 Hz Gain 6 dB Q 0.707', -6),
+                         ('Filter: ON HSC Fc 20000 Hz Gain 6 dB Q 0.707', -6),
+                         ('Filter: ON PK Fc 3999 Hz Gain 12 dB Q 10', -12)):
+        p = parse(lib, source); actual = ui.check_headroom(C.byref(p))
+        assert abs(actual-want) < .0001, (source, actual)
+        if not want: assert math.copysign(1, actual) == 1
+    print('PEQ headroom: reported 26-band preset, unclipped float output and Auto across standard PCM rates passed.')
 
 # Host stand-ins for the stock services peq_platform.h maps on the device.
 SHIM_H = r"""
@@ -522,8 +603,10 @@ def editor_check(lib, tmp):
     """The editor's promises, driven through its real click and render paths."""
     (tmp/'shim.h').write_text(SHIM_H)
     (tmp/'shim.c').write_text('#include "peq.h"\n' + SHIM)
-    ui = compile_host(tmp, 'peq_ui.so', ROOT/'patch/peq_ui.c', ROOT/'patch/peq.c', tmp/'shim.c',
+    (tmp/'peq_ui_checks.c').write_text('#include "peq_ui.c"\ndouble check_headroom(const peq_preset *p) { return headroom(p); }\n')
+    ui = compile_host(tmp, 'peq_ui.so', tmp/'peq_ui_checks.c', ROOT/'patch/peq.c', tmp/'shim.c',
                       '-I', ROOT/'patch', '-include', tmp/'shim.h')
+    headroom_check(lib, ui)
     ui.shim_title.restype = C.c_char_p
     data, saved = tmp/'root/mnt/data', tmp/'root/mnt/data/peq-presets'
     saved.mkdir(parents=True); (tmp/'root/mnt/mmc/EQ').mkdir(parents=True)

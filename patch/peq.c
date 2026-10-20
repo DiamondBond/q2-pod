@@ -401,7 +401,8 @@ void peq_process(peq_dsp *d, float *audio, unsigned frames) {
                 double mix = (double)(d->ramp_length - d->ramp + 1) / d->ramp_length;
                 y += (wet - y) * mix;
             }
-            *audio = (float)(y > 1 ? 1 : y < -1 ? -1 : y);
+            /* Keep float headroom for downstream volume; the output converter owns full-scale clipping. */
+            *audio = (float)y;
         }
         if (d->ramp && !--d->ramp) d->current = d->next, nc = nn, memcpy(cur, nxt, sizeof(cur));
     }

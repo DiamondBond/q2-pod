@@ -104,9 +104,9 @@ static void row_dim(void *view, int index, const char *text, const char *value, 
 }
 #define row(view, index, text, id) row_dim(view, index, text, 0, id, 0)
 
-/* |H|^2 of the engine's left and right chains at f Hz (at 48 kHz, as compiled here). */
-static void response(const peq_engine *e, double f, double *l, double *r) {
-    double w = 6.283185307179586 * f / 48000, c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
+/* |H|^2 of the engine's left and right chains, without preamp or balance. */
+static void response(const peq_engine *e, int rate, double f, double *l, double *r) {
+    double w = 6.283185307179586 * f / rate, c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
     *l = *r = 1;
     for (int i = 0; i < e->used; ++i) { /* bands past used are identity */
         const peq_coeff *q = &e->c[i];
@@ -131,27 +131,48 @@ static void curve(void) {
     int ok = peq_compile(&ui.draft, 48000, &e);
     for (int x = 0; x < GRAPH_W; ++x) {
         double l = 1, r = 1;
-        if (ok) response(&e, 20 * pow(1000, x / (GRAPH_W - 1.0)), &l, &r);
+        if (ok) response(&e, 48000, 20 * pow(1000, x / (GRAPH_W - 1.0)), &l, &r);
         ui.curve[0][x] = graph_y(decibels(l));
         ui.curve[1][x] = graph_y(decibels(r));
     }
 }
 
-/* Preamp that keeps the combined response at or below 0 dB, as AutoEQ sets it: minus the peak
- * of |H| on a log grid from 20 Hz to 20 kHz at 48 kHz. ponytail: 1024 points (0.7% apart); a very
- * narrow boost between two can read a little low, refine around the best point if that matters. */
+static double response_peak(const peq_engine *e, int rate, double f) {
+    double l, r;
+    response(e, rate, f, &l, &r);
+    return l > r ? l : r;
+}
+
+/* Auto is a saved number, so cover standard PCM rates instead of tying it to the current track.
+ * shortcut: sampled steady-state peaks, not a transient limiter or a bound for nonstandard rates. */
 static double headroom(const peq_preset *p) {
+    static const int rates[] = {8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100,
+                               48000, 64000, 88200, 96000, 176400, 192000, 352800, 384000};
+    static peq_preset cached;
+    static int have_cache;
+    static double gain;
+    if (have_cache && !memcmp(p, &cached, sizeof(*p))) return gain;
     peq_engine e;
-    if (!peq_compile(p, 48000, &e)) return p->preamp; /* preamp only sets e.gain, unused here */
     double peak = 1;
-    for (int k = 0; k < 1024; ++k) {
-        double l, r;
-        response(&e, 20 * pow(1000, k / 1023.0), &l, &r);
-        if (l > peak) peak = l;
-        if (r > peak) peak = r;
+    for (unsigned i = 0; i < sizeof(rates) / sizeof(*rates); ++i) {
+        int rate = rates[i];
+        if (!peq_compile(p, rate, &e)) return p->preamp;
+        double nyquist = rate * 0.5, best = 0;
+        /* Include DC, Nyquist and each band's centre: near Nyquist a peak can be narrower than the grid. */
+        for (int k = -2; k < 1024 + p->count; ++k) {
+            double f = k == -2 ? 0 : k == -1 ? nyquist : k < 1024 ? pow(nyquist, k / 1023.0)
+                       : p->bands[k - 1024].frequency;
+            if (f >= nyquist && k != -1) continue;
+            double v = response_peak(&e, rate, f);
+            if (v > best) best = v;
+        }
+        if (best > peak) peak = best;
     }
-    double gain = -decibels(peak);
-    return peak == 1 ? 0 : gain < -60 ? -60 : gain; /* no boost: +0, not -0.0 on screen */
+    gain = -decibels(peak);
+    gain = gain > -0.0001 ? 0 : gain < -60 ? -60 : gain;
+    cached = *p;
+    have_cache = 1;
+    return gain; /* no boost: +0, not -0.0 on screen */
 }
 
 static double *picked(void) {
