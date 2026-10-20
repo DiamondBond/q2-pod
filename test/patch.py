@@ -9593,4 +9593,115 @@ folder='SD:/Music/'+'\u97f3\u697d'*150; label=m.node('label','label_location',te
 m.call(address=payload_syms['ringnav_np_info'],args=(m.node('window','playing_page',[label]),0,0,0),gap=0)
 assert m.nodes[label]['text']=='Location: '+folder; passed()
 
+# Chapter subprocess syscalls use Linux o32 and pass the filename through argv.
+for name,number,args,error in (('chapter_pipe2',4328,(0x1001000,0x80000,0,0),False),
+                                ('chapter_pipe2',4328,(0x1001000,0x80000,0,0),True),
+                                ('chapter_kill',4037,(123,9,0,0),False),
+                                ('chapter_execv',4011,(0x1001000,0x1002000,99,0),False)):
+    m=Machine(); seen=[]
+    def chapter_syscall(u,interrupt,unused):
+        seen.append((u.reg_read(UC_MIPS_REG_V0),*[u.reg_read(r) for r in REGS[:3]]))
+        u.reg_write(UC_MIPS_REG_A3,int(error)); u.reg_write(UC_MIPS_REG_V0,13 if error else 0)
+    m.u.hook_add(UC_HOOK_INTR,chapter_syscall)
+    result=m.call(address=payload_syms[name],args=args,gap=0)
+    assert result==(-1 if error else 0)
+    assert seen==[(number,args[0],args[1],0 if name=='chapter_execv' else args[2])]; passed()
+
+# Chapter extraction is tested with real FFmpeg in chapters.py; here only that boundary is mocked.
+class ChapterMachine(CoverflowMachine):
+    def __init__(self, count=3, failed=False, ready=True):
+        super().__init__(page='playing_page', pos=1)
+        self.ready=ready; self.cancelled=0; self.playtime=70
+        self.job=self.alloc(32+512*260)
+        for off,v in ((12,0),(16,int(failed)),(20,count)): self.word(self.job+off,v)
+        for i,(sec,title) in enumerate(((0,'Opening'),(60,''),(120,'日本語'))):
+            self.word(self.job+32+i*260,sec)
+            self.u.mem_write(self.job+36+i*260,title.encode()+b'\0')
+        for name in ('chapters_start','chapters_poll','chapters_cancel'):
+            self.handlers[payload_syms[name]]='chapter:'+name
+        self.mock('navigator_back')
+        self.handlers.pop(syms['mclGetPlayStatus'],None); self.word(0xa3beac,2)
+        self.track=self.items(self.get(syms['mcl_pdeqplaylist']))[1]
+        self.word(self.track+O['REC_PATH'],self.string('/mnt/mmc/Book ; $x.M4B'))
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('chapter:'): return super().hook(u,address,size,unused)
+        a=u.reg_read(REGS[0]); ret=0
+        if name=='chapter:chapters_start':
+            assert self.text(a)=='/mnt/mmc/Book ; $x.M4B'; ret=self.job
+        elif name=='chapter:chapters_poll':
+            ret=int(self.ready)
+            if ret: self.word(self.job+12,1)
+        else: self.cancelled+=1; self.ready=True
+        self.returns(ret)
+    def open_chapters(self):
+        self.press(6000); assert self.hold()==11
+        assert 'Chapters' in self.labels(); self.release()
+        self.pick(self.labels().index('Chapters')); self.advance(0)
+        self.page=self.top
+        assert self.nodes[self.page]['name']=='chapters_page'
+    def rows(self): return self.nodes[self.find('scroll_view')]['children']
+    def choose(self,i):
+        f,ctx=self.handler(self.rows()[i],O['EVT_CLICK'])
+        self.call(address=f,args=(ctx,self.event,0,0),gap=0)
+
+for ext,shown in (('m4b',True),('M4B',True),('M4b',True),('mp3',False),('m4b.mp3',False)):
+    m=playing_menu(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[1]
+    m.word(r+O['REC_PATH'],m.string('/p/book.'+ext))
+    m.press(6000); assert m.hold()==11 and ('Chapters' in m.labels())==shown; passed()
+for state in (2,3):
+    m=ChapterMachine(); m.word(0xa3beac,state); m.open_chapters()
+    assert 'Loading chapters…' in m.texts()
+    m.advance(50); view=m.find('scroll_view'); m.paint(view)
+    assert m.nodes[view]['_ringnav_index']==1
+    assert 'Chapter 2' in m.texts() and '0:01:00' in m.texts() and '日本語' in m.texts()
+    m.choose(2)
+    seeks=[c for c in m.calls if c[0] in ('player_seek_time','mclSetSeek','mclSetResume')]
+    assert [(c[0],c[1]) for c in seeks]==[('player_seek_time' if state==2 else 'mclSetSeek',120)]
+    assert any(c[0]=='navigator_back' for c in m.calls); passed()
+m=ChapterMachine(); m.open_chapters(); m.advance(50); m.word(O['MCL_POS'],2); m.choose(1)
+assert not any(c[0] in ('player_seek_time','mclSetSeek') for c in m.calls)
+assert any(c[0]=='navigator_back' for c in m.calls); passed()
+for count,failed,title in ((0,False,'No embedded chapters'),(0,True,'Could not read chapters')):
+    m=ChapterMachine(count,failed); m.open_chapters(); m.advance(50)
+    assert title in m.texts() and not m.rows(); passed()
+m=ChapterMachine(ready=False); m.open_chapters(); m.advance(50)
+f,ctx=m.handler(m.page,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+assert m.cancelled==1
+m.advance(50); assert m.freed==1 and not m.timers; passed()
+
+# Centre/wheel and touch reach the same guarded row handler.
+for touch in (False,True):
+    m=ChapterMachine(); m.open_chapters(); m.advance(50); view=m.find('scroll_view'); m.paint(view)
+    if touch:
+        m.choose(2)
+    else:
+        assert m.call(O['KEY_NEXT'],gap=0)==11
+        assert m.nodes[view]['_ringnav_index']==2
+        m.on_click=lambda w,e: m.nested(m.handler(w,O['EVT_CLICK'])[0],m.handler(w,O['EVT_CLICK'])[1],e)
+        assert m.confirm()==11
+    assert any(c[0]=='player_seek_time' and c[1]==120 for c in m.calls); passed()
+
+class ChapterResumeMachine(ChapterMachine):
+    def __init__(self):
+        super().__init__()
+        self.files=place(85,'/mnt/mmc/Book ; $x.M4B'); self.open={}; self.play=(0,225)
+        self.seeks=[]; self.opens=self.renames=0; self.epoch=1700000000
+        self.handlers[sleep_hook+12]='stock_sleep'
+        for name in ('fopen@GLIBC_2.2','fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2',
+                     'rename@GLIBC_2.0','access@GLIBC_2.0','time@GLIBC_2.0',
+                     'player_playtime_and_length','player_seek_time'):
+            self.handlers[syms[name]]='r:'+name
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address,'').startswith('r:'): return ResumeMachine.hook(self,u,address,size,unused)
+        return super().hook(u,address,size,unused)
+    poll=ResumeMachine.poll
+for polls in (0,1,2):  # before first resume poll, during settling, or with a restore pending
+    m=ChapterResumeMachine()
+    if polls: m.poll(0,225,pos=1,n=polls)
+    m.open_chapters(); m.advance(50); m.choose(0)
+    assert m.seeks==[0]
+    m.poll(0,225,n=2); m.poll(1,225,n=3)
+    assert m.seeks==[0], (polls,m.seeks); passed()
+
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

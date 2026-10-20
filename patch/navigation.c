@@ -2,6 +2,7 @@
 #include "offsets.inc"
 #include "peq.h" /* libc/libcstl imports (deque_*, send) and the shared helpers */
 #include "playback.h"
+#include "chapters.h"
 #include "stock.h"
 #undef select /* the UI selection helper below; headset.c uses libc select */
 extern int stock_dbquery_trampoline(const char *, const char *, void *, int),
@@ -233,6 +234,9 @@ typedef struct {
     void *mp_page, *mp_list, *td_page, *td_list;
     unsigned mp_gen;
     void *sp_page;                 /* the Library Shuffle menu's page, kept across picks */
+    void *ch_page;
+    chapters *ch;
+    unsigned ch_timer, ch_track, ch_key;
     void *un_page;                 /* Up Next's page, one at a time */
     unsigned un_idx[UP_NEXT_ROWS]; /* its rows' queue indices */
     void *sc_page, *sc_row[2];     /* Streaming's Configuration page and its two cache rows */
@@ -2491,6 +2495,27 @@ int ringnav_lyric(void) {
     return ret;
 }
 
+/* The playing track: its queue position and path. */
+static unsigned np_track(void) {
+    unsigned at, n;
+    void *r = queue_now(&at, &n);
+    return r ? fnv(hash_bytes(FNV_SEED, (const unsigned char *)&at, sizeof at), P(r, REC_PATH)) : 0;
+}
+
+/* Stock's seek resumes playback; a paused seek must wait for Play instead. */
+static int seek_position(int to) {
+    unsigned at, n;
+    void *r = mclGetPlayStatus() == 3 ? queue_now(&at, &n) : 0;
+    if (r) {
+        int sec = -1, total;
+        player_playtime_and_length(&sec, &total);
+        mclSetSeek(to + I(r, REC_CUE_START));
+        return sec + 1;
+    }
+    player_seek_time(to);
+    return 0;
+}
+
 #if IPOD
 /* The status bar's centred label follows stock's 24-hour setting (18:14 or 6:14 PM), without
  * seconds, or --:-- when the time cannot be read. The bar repaints at least once
@@ -2714,13 +2739,6 @@ static void np_sync(void *top) {
 /* Scrub (docs/internals.md#scrub-ipod) follows stock's own key seek (0x52c754): the page's 250 ms
  * timer stops, the slider and label_playtime preview the target, player_seek_time commits it once
  * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
-/* The playing track: its queue position and path. */
-static unsigned np_track(void) {
-    unsigned at, n;
-    void *r = queue_now(&at, &n);
-    return r ? fnv(hash_bytes(FNV_SEED, (const unsigned char *)&at, sizeof at), P(r, REC_PATH)) : 0;
-}
-
 /* The accent's light tone (Minimal's MINIMAL_FILL) fills the progress bar; a white fill (Minimal: a
  * thicker line) marks the scrub. */
 static void np_fill(int scrub) {
@@ -2776,20 +2794,7 @@ static void scrub_end(void) {
     st.scrub = 0;
     stop_timer(&st.scrub_timer);
     int seek = st.scrub_moved && np_track() == st.scrub_track;
-    unsigned at, n;
-    void *r = seek && mclGetPlayStatus() == 3 ? queue_now(&at, &n) : (void *)0;
-    /* Stock's player_seek_time resumes a paused track (mclSetResume) to reach the target; paused,
-     * the seek alone (in file seconds, as it adds a CUE track's start) waits for Play. */
-    if (r) {
-        int sec = -1, total;
-        player_playtime_and_length(&sec, &total);
-        st.held_sec =
-            sec + 1; /* until it plays: Now Playing reopened puts the bar back on the target */
-        mclSetSeek(st.scrub_to + I(r, REC_CUE_START));
-    } else if (seek) {
-        st.held_sec = 0;
-        player_seek_time(st.scrub_to); /* blocks the UI up to 2 s, as stock's key seek */
-    }
+    if (seek) st.held_sec = seek_position(st.scrub_to);
     st.scrub_moved = 0;
     if (!st.np_win) return;
     np_fill(0);
@@ -3910,7 +3915,8 @@ enum {
     QA_RESUME,
     QA_QUEUE,
     QA_UP_NEXT,
-    QA_FOLDER
+    QA_FOLDER,
+    QA_CHAPTERS
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -4571,6 +4577,11 @@ static int page_closed(void *ctx, void *event) {
     }
     if (ctx == st.sp_page) st.sp_page = 0;
     if (ctx == st.un_page) st.un_page = 0;
+    if (ctx == st.ch_page) {
+        st.ch_page = 0;
+        if (st.ch && !st.ch->done) chapters_cancel(st.ch);
+        else { free(st.ch); st.ch = 0; }
+    }
     if (ctx == st.sc_page) st.sc_page = 0;
     return 0;
 }
@@ -4736,6 +4747,80 @@ static void up_next(void) {
         const char *artist = P(t, REC_ARTIST);
         page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", un_play);
     }
+}
+
+/* M4B chapters are read only while this snapshot is open. */
+static int chapter_file(const char *path) {
+    const char *ext = path ? strrchr(path, '.') : 0;
+    return ext && !strcasecmp(ext, ".m4b");
+}
+static int chapter_pick(void *ctx, void *event) {
+    unsigned i = (unsigned)(long)ctx;
+    if (st.ch && st.ch->done && !st.ch->failed && i < (unsigned)st.ch->count &&
+        np_track() == st.ch_track && (mclGetPlayStatus() == 2 || mclGetPlayStatus() == 3)) {
+        /* Suppress even a resume poll that has not yet settled this track. */
+        unsigned at, n;
+        void *r = queue_now(&at, &n);
+        st.ch_key = listen_key(r);
+        st.rs_pending = 0;
+        st.rs_go_key = 0;
+#if IPOD
+        st.scrub_track = st.ch_track;
+        st.scrub_to = st.ch->rows[i].sec;
+        st.scrub = st.scrub_moved = 1;
+        if (st.np_win) playing_timer_clear(st.np_win);
+        if (st.np_slider) widget_set_prop_int(st.np_slider, "value", st.scrub_to);
+        if (st.np_elapsed) clock_text(st.np_elapsed, 0, st.scrub_to);
+        scrub_end();
+#else
+        seek_position(st.ch->rows[i].sec);
+#endif
+    }
+    navigator_back();
+    return 0;
+}
+static int chapter_poll(const void *unused) {
+    if (!chapters_poll(st.ch, time_now_ms())) return 8;
+    st.ch_timer = 0;
+    if (!st.ch_page) { free(st.ch); st.ch = 0; return 0; }
+    int n = st.ch->failed ? 0 : st.ch->count;
+    void *view = page_list(st.ch_page, st.ch_page, 0,
+                           st.ch->failed ? "Could not read chapters" :
+                           n ? "Chapters" : "No embedded chapters", n, 64);
+    int sec = 0, total, current = 0;
+    player_playtime_and_length(&sec, &total);
+    for (int i = 0; i < n; ++i) {
+        char name[32], at[32];
+        chapter *c = &st.ch->rows[i];
+        tk_snprintf(name, sizeof name, "Chapter %d", i + 1);
+        tk_snprintf(at, sizeof at, "%d:%02d:%02d", c->sec / 3600, c->sec / 60 % 60, c->sec % 60);
+        page_row_detail(view, i, *c->title ? c->title : name, at, chapter_pick);
+        if (c->sec <= sec) current = i;
+    }
+    if (n) ringnav_select(view, current, n);
+    return 0;
+}
+static void chapters_open(void *r) {
+    if (st.ch || !chapter_file(P(r, REC_PATH))) return;
+    st.ch_track = np_track();
+    st.ch = chapters_start(P(r, REC_PATH), time_now_ms());
+    if (!st.ch) { toast("Could not read chapters"); return; }
+    st.ch_page = page_open("chapters_page", page_closed, page_keyup);
+    st.ch_timer = timer_add(chapter_poll, 0, 50);
+    if (!st.ch_page || !st.ch_timer) {
+        /* No polling timer: kill and reap the child before releasing its storage. */
+        chapters_cancel(st.ch);
+        if (st.ch->pid > 0) {
+            int status;
+            while (waitpid(st.ch->pid, &status, 0) < 0 && *__errno_location() == 4) {}
+        }
+        free(st.ch);
+        st.ch = 0;
+        if (st.ch_page) navigator_back();
+        stop_timer(&st.ch_timer);
+        return;
+    }
+    page_list(st.ch_page, st.ch_page, 0, "Loading chapters…", 0, 64);
 }
 
 /* Tidal Downloads (docs/internals.md#tidal-cache): Streaming's row lists tidal.c's complete
@@ -5778,6 +5863,8 @@ static int qm_run(const void *unused) {
     if (r && a >= 100) {
         if (!playback_set(st.qm_choice - 1, a - 100)) toast("Queue unchanged");
         st.qm_choice = 0;
+    } else if (r && a == QA_CHAPTERS) {
+        chapters_open(r);
     } else if (r && a == QA_QUEUE) {
         navigator_to("playerqueue_page");
     } else if (r && a == QA_UP_NEXT) {
@@ -5941,7 +6028,7 @@ static int qm_open(const void *unused) {
     /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
      * Go to is left out where its single-instance page is already open, or the album is the page.
      */
-    unsigned char acts[16], n = 0;
+    unsigned char acts[20], n = 0;
     /* Shuffle Albums/Folders only: skipping the group comes first */
     int group_first = st.qm_kind == QM_PLAYING && playback_option(0) >= 3;
     /* Rate (the heart's hold) follows Next/Previous album */
@@ -5952,6 +6039,7 @@ static int qm_open(const void *unused) {
     acts[n++] = QA_NEXT;
     acts[n++] = QA_ADD;
     if (st.qm_kind == QM_PLAYING) {
+        if (chapter_file(P(r, REC_PATH))) acts[n++] = QA_CHAPTERS;
         acts[n++] = QA_QUEUE;
         if (playback_option(0)) acts[n++] = QA_UP_NEXT; /* a shuffle's order is not the list's */
     }
@@ -5995,7 +6083,8 @@ static int qm_open(const void *unused) {
                                         "Resume",
                                         "View Queue",
                                         "Up Next",
-                                        "Go to Folder" };
+                                        "Go to Folder",
+                                        "Chapters" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {
@@ -6271,6 +6360,8 @@ static void resume_poll(void) {
         st.rs_sec = st.rs_saved = sec;
         st.rs_still = 0;
     }
+    if (st.ch_key == key) st.rs_pending = 0;
+    else st.ch_key = 0;
     /* A listen: half the track or LISTEN_MAX_S heard, seeks and pauses aside; a repeat starts over.
      */
     if (!st.rs_pending && !st.rs_spoken) {

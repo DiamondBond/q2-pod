@@ -17,6 +17,7 @@
 { "books_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/books.c) */
 { "mostplayed_page", CTX_FIXED, 0 }, /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "shuffle_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
+{ "chapters_page", CTX_DYNAMIC, 0 }, /* runtime chapter list */
 { "upnext_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "ratings_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "rated_page", CTX_FIXED, 0 },      /* runtime window (patch/navigation.c); fixed: the hold menu */
