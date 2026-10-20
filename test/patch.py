@@ -3274,6 +3274,33 @@ for cls,artist_type,query in ((0xf004,0,('getMusicBySonger','Artist',None)),(0xf
     m.word(m.row(0)+0x20,m.string('Comp')); m.word(m.row(0)+0x1c,m.string('Pop'))
     assert m.run(1)=='Added to Queue' and m.names()==['A','B','C','T1','T2'] and m.query[:3]==query, m.query
     assert m.query[3]==0 or cls<0xff00; passed()
+# Queue category expansion uses music scope; folder expansion still includes spoken tracks.
+class ScopedQueueMachine(QueueMachine):
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name.startswith('q:getMusic') or name=='q:toolsLoadDirectory':
+            scope=self.get(payload_syms['library_music'])
+            assert scope==int(name!='q:toolsLoadDirectory')
+            found=self.found
+            if scope: self.found=found[:1]  # the SQL hook's music-only result, checked against SQLite below
+            super().hook(u,address,size,unused)
+            self.found=found
+            return
+        return super().hook(u,address,size,unused)
+for cls in (0xf004,0xf005,0xf006,0xff01,0xff02,0xff03,1):
+    for action in (0,1):
+        m=ScopedQueueMachine(page='folder_page' if cls==1 else 'localclass_page',cls=cls)
+        m.found=[m.song('Music'),m.song('Episode'),m.song('Book')]
+        for r,path in zip(m.found,('/mnt/mmc/Music/song.flac','/mnt/mmc/pOdCaStS/episode.mp3','/mnt/mmc/elsewhere/BOOK.M4B')):
+            m.word(r+O['REC_PATH'],m.string(path))
+        m.word(m.row(0)+0x20,m.string('Comp')); m.word(m.row(0)+0x1c,m.string('Pop'))
+        if cls==1: m.word(m.row(0)+O['REC_TYPE'],4)
+        assert m.run(action)==('Playing Next' if action==0 else 'Added to Queue')
+        added=['Music','Episode','Book'] if cls==1 else ['Music']
+        assert m.names()==(['A']+added+['B','C'] if action==0 else ['A','B','C']+added)
+        assert m.get(payload_syms['library_music'])==0
+        assert m.names(m.get(syms['tools_pdeq_directory']))==['staged']
+passed()
 # An Unknown row (id -1) queries the empty name; an artist's All songs row (-2) sets the flag.
 m=QueueMachine(page='localclass_page',cls=0xf004); m.word(m.row(0)+O['REC_ID'],-1); m.run(1)
 assert m.query[:2]==('getMusicBySonger',None); passed()
@@ -3684,7 +3711,7 @@ class ClassMachine(QueueMachine):
             a=u.reg_read(REGS[0]); self.returns(self.string(self.text(a)) if libc[address]=='strdup' else 0); return
         if address!=self.tramp: return super().hook(u,address,size,unused)
         self.calls.append(('stock_localclass',u.reg_read(REGS[0]),0,0))
-        assert self.get(payload_syms['library_music']) == int(self.tramp == int(manifest['patch_symbols']['stock_artist_trampoline'],16) or u.reg_read(REGS[0]) in (0xf003,0xf004,0xff10,0xff11))
+        assert self.get(payload_syms['library_music']) == 1
         self.returns(len(self.items(self.get(syms['p_deque_showlist']))))
 def unknown(cls,found,last=-1,artist=0,rows=3):
     m=ClassMachine(page='localclass_page',cls=0xf001,rows=rows); m.found=[m.song('T1')]*found; m.query=None
@@ -3705,6 +3732,39 @@ for cls,artist,query in ((0xf003,0,'getMusicByAlbum'),(0xf004,0,'getMusicBySonge
 for cls,last,rows in ((0xf004,1,3),(0xff01,-1,3),(0xff10,-1,3),(0xff11,-1,3),(0xf007,-1,3),(0xf004,-1,0)):
     shown,q,_=unknown(cls,0,last=last,rows=rows)
     assert len(shown)==rows and q is None, (cls,last,rows); passed()
+# Every Library class and detail load scopes SQL, including empty results and failures, and
+# restores an already-scoped caller. The trampoline supplies stock's displayed copies.
+class ScopedClassMachine(ClassMachine):
+    def hook(self,u,address,size,unused):
+        super().hook(u,address,size,unused)
+        if address==self.tramp and getattr(self,'failed',False): self.returns(-1)
+for cls in (*range(0xf001,0xf00c),*range(0xff01,0xff15),0xff20):
+    for scoped,rows,failed in ((0,1,False),(1,0,False),(1,0,True),(0,0,True)):
+        m=ScopedClassMachine(rows=rows); m.failed=failed
+        m.word(payload_syms['library_music'],scoped)
+        m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+        assert m.get(payload_syms['library_music'])==scoped
+# Saved Favourites and playlist entries stay stored, in order, including spoken-only lists.
+paths=['/mnt/mmc/pOdCaStS/Show/episode.mp3','/mnt/mmc/Music/song.flac',
+       '/mnt/mmc/AUDIOBOOKS/chapter.mp3','/mnt/mmc/elsewhere/BOOK.M4B',
+       '/mnt/mmc/Podcasts Extra/song.mp3','/mnt/mmc/Music/Podcasts/song.mp3']
+for cls in (0xf00a,0xff20):
+    for selected in (paths,[paths[0],paths[2],paths[3]]):
+        m=ClassMachine(rows=len(selected))
+        for i,path in enumerate(selected):
+            m.word(m.row(i)+O['REC_PATH'],m.string(path))
+            m.word(m.row(i)+O['REC_TITLE'],m.string('Tagged'))
+        stored=m.deque(m.items(m.get(syms['p_deque_showlist'])))
+        before=[bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]
+        n=m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+        want=[f'Row {i}' for i,path in enumerate(selected) if path in paths[1:2]+paths[4:]]
+        assert m.names(m.get(syms['p_deque_showlist']))==want and n==len(want)
+        assert [bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]==before
+# A playlist container remains even when its name/path looks like spoken audio.
+m=ClassMachine(rows=1); m.word(m.row(0)+O['REC_TYPE'],4)
+m.word(m.row(0)+O['REC_PATH'],m.string(paths[0]))
+assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf00b,0,0,0),gap=0)==1
+passed()
 # iPod song rows: an untagged song's title is its file name without the extension; a tag stays.
 m=ClassMachine(page='localclass_page',cls=0xf001,rows=2); m.word(m.row(1)+O['REC_TITLE'],m.string('Tagged'))
 m.word(m.row(0)+O['REC_NAME'],m.string('a.flac')); m.word(m.row(0)+O['REC_PATH'],m.string('/p/a.flac'))
@@ -3785,6 +3845,23 @@ for scoped in (1,0):
             assert {r[0] for r in lm.results} == ({2,12,13} if column=='album' else {2,12}),lm.results
         else:
             assert any(r[0]==5 for r in lm.results) and any(not r[1] for r in lm.results)
+# Genre/composer lists, their albums and song detail queries use the same pre-group scope.
+for column in ('genre','composer'):
+    lm.db.execute(f'alter table songtable add column {column}')
+    lm.db.execute(f"update songtable set {column}=case when id in (6,11) then '' else album end")
+    for query,want in ((f'select id,{column},fileurl from songtable group by {column} COLLATE NOCASE',{2,12,13}),
+                       (f"select id,album,fileurl from songtable where {column}='Shared' group by album COLLATE NOCASE",{2}),
+                       (f"select id,fileurl from songtable where {column}='Shared' and album='Shared'",{2}),
+                       (f"select id,fileurl from songtable where ifnull({column},'')=''",set())):
+        lm.word(payload_syms['library_music'],1)
+        lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
+        assert {r[0] for r in lm.results}==want,(query,lm.results)
+# Direct song/history/Hi-Res loads retain only the music rows, in the requested order.
+for order in ('id','id desc'):
+    query=f'select id,fileurl from songtable order by {order}'
+    lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
+    assert [r[0] for r in lm.results]==sorted([2,12,13],reverse=order.endswith('desc'))
+for column in ('genre','composer'): lm.db.execute(f'alter table songtable drop column {column}')
 lm.db.execute('delete from songtable where id >= 10')
 # Music staging applies the scope for stock queries and restores either caller state.
 class MusicStageMachine(QueueMachine):
@@ -3796,6 +3873,20 @@ for scoped in (0,1):
     ms=MusicStageMachine(); ms.word(payload_syms['library_music'],scoped)
     rows=ms.call(address=payload_syms['staged_music'],args=(syms['getMusicByAlbum'],ms.string('Album'),ms.alloc(4),0),gap=0)
     assert ms.get(payload_syms['library_music'])==scoped and ms.query[:2]==('getMusicByAlbum','Album')
+class MusicLoadMachine(QueueMachine):
+    def __init__(self):
+        super().__init__(); self.handlers[syms['getAllMusic']]='music_load'
+    def hook(self,u,address,size,unused):
+        if address!=syms['getAllMusic']: return super().hook(u,address,size,unused)
+        assert self.get(payload_syms['library_music'])==1
+        self.returns(self.result)
+for loader,args in (('all_songs',(0,)),('songs_unsorted',(1,))):
+    for scoped in (0,1):
+        for result in (-1,0,2):
+            ms=MusicLoadMachine(); ms.result=result; ms.word(payload_syms['library_music'],scoped)
+            assert ms.call(address=payload_syms[loader],args=args,gap=0)==result
+            assert ms.get(payload_syms['library_music'])==scoped
+passed()
 # Album Artist: an album without the tag lists under its artist (stock's albumsonger queries), a
 # tagged one under its album artist; Coverflow's own grouping keeps the tag as it is.
 lm.db.executemany('insert into songtable values(?,?,?,?,?)',[(7,'Disintegration','The Cure','','/mnt/mmc/Music/D/CD1/1.flac'),

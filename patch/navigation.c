@@ -17,6 +17,7 @@ int ringnav_timezone(void) {
 }
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
+static int spoken(const char *path);
 
 /* Failed exec in a forked child must not flush demo's copied stdio or run its exit handlers. */
 __asm__(".globl child_exit\nchild_exit:\nli $v0, 4001\nsyscall\n");
@@ -4358,11 +4359,26 @@ static void fav_titles(void *list, int n) {
     }
     if (songs) deque_destroy(songs);
 }
+/* Saved collections bypass songtable; filter their displayed copies, never their stored rows. */
+static int music_records(void *list) {
+    void *music = _create_deque("stSongInfo");
+    deque_init(music);
+    for (unsigned i = 0; i < deque_size(list); ++i) {
+        void *r = deque_at(list, i);
+        if (I(r, REC_TYPE) != 8 || !spoken(P(r, REC_PATH))) _deque_push_back(music, r);
+    }
+    deque_clear(list);
+    deque_assign(list, music);
+    deque_destroy(music);
+    return (int)deque_size(list);
+}
 int ringnav_localclass(int cls) {
     I(g_artist_type, 0) = I(artist_type, 0) == 1;
-    library_music = cls == CLASS_ALBUMS || cls == 0xf004 || cls == 0xff10 || cls == 0xff11;
+    int saved = library_music;
+    library_music = 1;
     int n = stock_localclass_trampoline(cls);
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
+    if (n > 0 && (cls == 0xf00a || cls == 0xff20)) n = music_records(list);
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
     if (n > 0 && cls == 0xf00a) fav_titles(list, n);
@@ -4376,7 +4392,7 @@ int ringnav_localclass(int cls) {
             free(*title), *title = t;
         }
     if (cls < CLASS_ALBUMS || cls > 0xf006) {
-        library_music = 0;
+        library_music = saved;
         return n;
     }
     if (n > 0 && I(deque_at(list, (unsigned)n - 1), REC_ID) == -1) {
@@ -4385,7 +4401,7 @@ int ringnav_localclass(int cls) {
         deque_clear(dir);
         if (empty) deque_pop_back(list), n--;
     }
-    library_music = 0;
+    library_music = saved;
     if (n <= 0) { /* say so, not a black page; once the page that loads it is up */
         st.empty_kind = cls - CLASS_ALBUMS;
         timer_add(empty_toast, (void *)0, 0);
@@ -4396,8 +4412,7 @@ int ringnav_localclass(int cls) {
 /* The tracks stock would play for that row, in its order. */
 static void qm_tracks(void *r, void *add) {
     int n;
-    void *rows = (st.qm_cls == 0xf004 || st.qm_cls == CLASS_ARTIST_ALBUMS ? staged_music : staged)(
-        qm_query, r, &n);
+    void *rows = (st.qm_kind == QM_FOLDER ? staged : staged_music)(qm_query, r, &n);
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
@@ -4482,15 +4497,22 @@ void toast(const char *text) {
     navigator_to_with_context("dialog/msginfo_dialog", &info);
 }
 
-static int all_songs(void *unused) { return getAllMusic(0); }
+static int all_songs(void *unused) {
+    int saved = library_music;
+    library_music = 1;
+    int n = getAllMusic(0);
+    library_music = saved;
+    return n;
+}
 
 /* Shuffle does not need the expensive pinyin title sort; groups order their tracks themselves.
  * Non-zero music leaves audiobooks and podcasts out, as the Library's Artists and Albums
  * (MUSIC_WHERE). */
 static int songs_unsorted(void *music) {
+    int saved = library_music;
     library_music = music != 0;
     int n = getAllMusic(3);
-    library_music = 0;
+    library_music = saved;
     return n;
 }
 
@@ -4635,7 +4657,7 @@ static int mp_rank(void *songs, int *idx, unsigned *score) {
  * album's index in Coverflow's list (-1 none). One pass over the library. */
 void album_plays(int (*album_of)(void *), unsigned *sum) {
     int n;
-    void *songs = staged(songs_unsorted, 0, &n);
+    void *songs = staged(songs_unsorted, (void *)1, &n);
     plays_load();
     for (unsigned i = 0; i < deque_size(songs); i++) {
         void *r = deque_at(songs, i);
@@ -5349,7 +5371,7 @@ static int long_songs(void *ctx, void *event) {
         return 0;
     int n;
     lengths_read();
-    ls.songs = staged(songs_unsorted, 0, &n);
+    ls.songs = staged(songs_unsorted, (void *)1, &n);
     unsigned size = deque_size(ls.songs);
     ls.jobs = calloc(size + 1, sizeof *ls.jobs);
     ls.paths = calloc(size + 1, sizeof *ls.paths);
