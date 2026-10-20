@@ -5,6 +5,9 @@
   - Hold the quick-settings Wi-Fi or Bluetooth icon to open its settings page; tapping still toggles the radio.
   - Restore the 1.0.3 Playback and System settings order, with newer controls beside related settings and Reset last.
   - Playlists: the three-dot menu on a playlist row opens its More page instead of playing the row, and the dots stay visible on the selected row.
+  - Playlists: holding Play/Pause on a playlist row opens the same More page as its three dots.
+  - Playlists: the More menu's Delete Song row now reads Delete Playlist, and Edit Playlist uses the same icon, text style and row spacing as Rename and Delete Playlist.
+  - Add Songs: its Search row filters the picker by title, artist or album and keeps the query while you add several songs.
   - New Playlist: the name field takes the keyboard as the dialog opens, without a tap first.
 
 - **1.3.4**:

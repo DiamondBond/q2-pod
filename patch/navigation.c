@@ -5887,10 +5887,11 @@ int ringnav_about(void *win, void *ctx) {
 
 /* Entry IDs are stock's order. Keep our records separate from browsing and the live queue. */
 static struct {
-    void *page, *view, *songs, *picker;
-    int dest, mode, selected, pending;
+    void *page, *view, *songs, *picker, *edit;
+    void **match;
+    int dest, mode, selected, pending, nmatch;
     unsigned key, timer;
-    char name[128];
+    char name[128], query[128];
 } ple __attribute__((section(".scratch")));
 
 /* One private selection for demo's lifetime, so a covered stock picker keeps its batch intact. */
@@ -5962,11 +5963,41 @@ static void ple_reload(void) {
     int size = (int)deque_size(songs);
     if (ple.selected >= size) ple.selected = size ? size - 1 : 0;
 }
+/* The Add Songs picker's Search row filters by title, artist or album, ASCII case-insensitively.
+ * ple.match holds the matching records only; the picker keeps every song, so clearing the query
+ * restores the list without re-staging it. */
+static int ple_fold(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
+static int ple_has(const char *text, const char *query) {
+    for (; text && *text; ++text) {
+        const char *a = text, *b = query;
+        while (*a && *b && ple_fold((unsigned char)*a) == ple_fold((unsigned char)*b)) ++a, ++b;
+        if (!*b) return 1;
+    }
+    return !*query;
+}
+static void ple_filter(void) {
+    free(ple.match);
+    ple.match = 0;
+    ple.nmatch = 0;
+    int n = ple.picker ? (int)deque_size(ple.picker) : 0;
+    if (!n || !(ple.match = calloc((unsigned)n, sizeof *ple.match))) return;
+    for (int i = 0; i < n; ++i) {
+        void *r = deque_at(ple.picker, (unsigned)i);
+        char name[512];
+        const char *fields[] = { track_name(name, sizeof name, r), P(r, REC_ARTIST), P(r, REC_ALBUM) };
+        for (unsigned f = 0; f < sizeof fields / sizeof *fields; ++f)
+            if (ple_has(fields[f], ple.query)) {
+                ple.match[ple.nmatch++] = r;
+                break;
+            }
+    }
+}
 static void ple_show(void);
 static int ple_closed(void *ctx, void *event) {
     if (ple.timer) timer_remove(ple.timer);
     if (ple.songs) deque_destroy(ple.songs);
     if (ple.picker) deque_destroy(ple.picker);
+    free(ple.match);
     unsigned key = ple.key; /* swallow the release even if the page closed during the press */
     memset(&ple, 0, sizeof ple);
     ple.key = key;
@@ -5996,8 +6027,14 @@ static int ple_key(unsigned key, int phase) {
     if (phase == 2) ple.key &= ~bit;
     return 1;
 }
+static int ple_run(const void *unused);
 static int ple_back(void *ctx, void *event) {
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
+    /* The search box's text is applied by the next loop pass, never under its own key event. */
+    if (ple.mode == 4) {
+        if (!ple.timer) ple.timer = timer_add(ple_run, 0, 0);
+        return STOP;
+    }
     stop_timer(&ple.timer);
     if (ple.mode) {
         ple.mode = 0;
@@ -6018,34 +6055,44 @@ static int ple_run(const void *unused) {
             int n;
             if (ple.picker) deque_destroy(ple.picker);
             ple.picker = staged_music(all_songs, 0, &n);
+            ple_filter();
             ple.mode = 1;
         } else {
             ple.selected = action - 2;
             ple.mode = 2;
         }
     } else if (mode == 1) {
-        if ((unsigned)action >= deque_size(ple.picker)) return 0;
-        void *r = deque_at(ple.picker, (unsigned)action);
-        if (checkPlayListExist(r, ple.dest)) toast("Already in playlist");
+        if (!action) ple.mode = 4;
+        else if ((unsigned)(action - 1) >= (unsigned)ple.nmatch) return 0;
         else {
-            int before = (int)deque_size(ple.songs);
-            void *one = _create_deque("stSongInfo");
-            if (!one) { toast("Could not save playlist"); return 0; }
-            deque_init(one);
-            _deque_push_back(one, r); /* stock rewrites the added record's ID and cd_num */
-            if (!ple_add_select) {
-                ple_add_select = _create_vector("int");
-                if (ple_add_select) {
-                    vector_init(ple_add_select);
-                    _vector_push_back(ple_add_select, 1);
+            void *r = ple.match[action - 1];
+            if (checkPlayListExist(r, ple.dest)) toast("Already in playlist");
+            else {
+                int before = (int)deque_size(ple.songs);
+                void *one = _create_deque("stSongInfo");
+                if (!one) { toast("Could not save playlist"); return 0; }
+                deque_init(one);
+                _deque_push_back(one, r); /* stock rewrites the added record's ID and cd_num */
+                if (!ple_add_select) {
+                    ple_add_select = _create_vector("int");
+                    if (ple_add_select) {
+                        vector_init(ple_add_select);
+                        _vector_push_back(ple_add_select, 1);
+                    }
                 }
+                if (ple_add_select) batch_add_file(0xf001, 0xf00b, one, ple_add_select, ple.dest);
+                deque_destroy(one);
+                ple_reload();
+                toast((int)deque_size(ple.songs) > before ? "Added to Playlist" : "Could not save playlist");
             }
-            if (ple_add_select) batch_add_file(0xf001, 0xf00b, one, ple_add_select, ple.dest);
-            deque_destroy(one);
-            ple_reload();
-            toast((int)deque_size(ple.songs) > before ? "Added to Playlist" : "Could not save playlist");
+            return 0; /* picker stays on its selected song */
         }
-        return 0; /* picker stays on its selected song */
+    } else if (mode == 4) {
+        char query[sizeof ple.query];
+        if (!ple.edit || widget_get_text_utf8(ple.edit, query, sizeof query)) query[0] = 0;
+        tk_snprintf(ple.query, sizeof ple.query, "%s", query);
+        ple.mode = 1;
+        ple_filter();
     } else if (mode == 2) {
         if (action == 2) ple.mode = 3;
         else {
@@ -6069,23 +6116,54 @@ static int ple_pick(void *ctx, void *event) {
     }
     return 0;
 }
+/* The T9 box over the title, as Internet Radio's pull-down: page children go so the keyboard has
+ * room. Its widget is named search_edit, so navigation.c's search_key closes the keyboard before
+ * Return can destroy the edit under it. */
+static int ple_searched(void *ctx, void *event) {
+    if (!ple.timer) ple.timer = timer_add(ple_run, 0, 0);
+    return 0;
+}
+static void ple_search_show(void) {
+    widget_destroy_children(ple.page);
+    ple.view = 0;
+    ple.edit = edit_create(ple.page, "text", 2, 26);
+    widget_set_name(ple.edit, "search_edit");
+    widget_set_prop_str(ple.edit, "tips", "Search songs");
+    if (*ple.query) widget_set_text_utf8(ple.edit, ple.query);
+    widget_on(ple.edit, EVT_VALUE_CHANGED, ple_searched, 0);
+    widget_on(ple.edit, EVT_IM_ACTION, ple_searched, 0);
+    widget_set_focused(ple.edit, 1);
+}
 static void ple_show(void) {
-    int mode = ple.mode, n = mode == 0 ? (int)deque_size(ple.songs) + 2
-                           : mode == 1 ? (int)deque_size(ple.picker) : mode == 2 ? 3 : 2;
+    int mode = ple.mode;
+    if (mode == 4) { ple_search_show(); return; }
+    ple.edit = 0;
+    int n = mode == 0 ? (int)deque_size(ple.songs) + 2
+          : mode == 1 ? (ple.nmatch ? ple.nmatch + 1 : 2)
+          : mode == 2 ? 3 : 2;
     char title[180], name[512];
     tk_snprintf(title, sizeof title, "%s: %s", mode == 0 ? "Editing" : mode == 1 ? "Add Songs"
                                                      : mode == 2 ? "Song Actions" : "Remove song?",
                 ple.name);
     ple.view = page_list(ple.page, ple.page, 0, title, n, 48);
     static const char *const actions[] = { "Move Up", "Move Down", "Remove from Playlist" };
-    for (int i = 0; i < n; i++) {
-        const char *caption = mode == 0 && i < 2 ? (i ? "Done" : "Add Songs")
-                              : mode == 2 ? actions[i]
-                              : mode == 3 ? (i ? "Cancel" : "Remove from Playlist")
-                              : track_name(name, sizeof name, deque_at(mode == 1 ? ple.picker : ple.songs,
-                                                                        (unsigned)(i - (mode == 0 ? 2 : 0))));
-        page_row_detail(ple.view, i, caption, 0, ple_pick);
-    }
+    if (mode == 1) {
+        char search[160];
+        tk_snprintf(search, sizeof search, "%s%s", *ple.query ? "Search: " : "Search", ple.query);
+        page_row_detail(ple.view, 0, search, 0, ple_pick);
+        if (!ple.nmatch) page_row_detail(ple.view, 1, "No songs match", 0, 0);
+        else
+            for (int i = 0; i < ple.nmatch; i++)
+                page_row_detail(ple.view, i + 1, track_name(name, sizeof name, ple.match[i]), 0, ple_pick);
+    } else
+        for (int i = 0; i < n; i++) {
+            const char *caption = mode == 0 && i < 2 ? (i ? "Done" : "Add Songs")
+                                  : mode == 2 ? actions[i]
+                                  : mode == 3 ? (i ? "Cancel" : "Remove from Playlist")
+                                  : track_name(name, sizeof name, deque_at(ple.songs,
+                                                                            (unsigned)(i - (mode == 0 ? 2 : 0))));
+            page_row_detail(ple.view, i, caption, 0, ple_pick);
+        }
     if (n) ringnav_select(ple.view, mode == 0 ? ple.selected + 2 < n ? ple.selected + 2 : 0 : 0, n);
 }
 static int ple_open(void *ctx, void *event) {
@@ -6101,12 +6179,35 @@ static int ple_open(void *ctx, void *event) {
     if (ple.page) { ple_reload(); ple_show(); }
     return 0;
 }
+/* A row like this page's stock Rename and Delete: a 375x72 (Legacy 78) list_item holding a
+ * 335x68 (Legacy 70) s_btn_listitem, its 52px icon at x 10 and its 20px label at x 72. Edit
+ * Playlist follows the Delete row at the same spacing. */
+static void *playlistsmore_row(void *win, const char *icon, int (*click)(void *, void *), void *ctx,
+                               const char *text) {
+    int h = IPOD ? 72 : 78, inner = IPOD ? 68 : 70;
+    void *item = list_item_create(win, 0, IPOD ? 154 : 216, 375, h);
+    widget_use_style(item, "s_listitem_black");
+    void *button = button_create(item, 20, 0, 335, inner);
+    widget_use_style(button, "s_btn_listitem");
+    widget_on(button, EVT_CLICK, click, ctx);
+    void *image = image_create(button, 10, 0, 52, inner);
+    image_base_set_image(image, icon);
+    image_set_draw_type(image, IMAGE_DRAW_CENTER);
+    void *label = hscroll_label_create(button, 72, 0, 253, inner);
+    widget_use_style(label, "s_scrlabel_white20l");
+    set_hscroll_label_attribute(label);
+    widget_set_text_utf8(label, text);
+    return item;
+}
 extern int stock_playlistsmore_trampoline(void *, void *);
 int ringnav_playlistsmore(void *win, void *ctx) {
     int result = stock_playlistsmore_trampoline(win, ctx);
     if (win) {
-        void *row = library_row(win, 0, ple_open, ctx, "Edit Playlist");
-        widget_move_resize(row, 0, 180, 375, 70);
+        /* Stock's row says Delete Song; this page deletes the whole playlist. Rename only this
+         * label, as Now Playing's Delete Song still deletes the song. */
+        void *del = widget_lookup(win, "label_del", 1);
+        if (del) widget_set_text_utf8(del, "Delete Playlist");
+        playlistsmore_row(win, "rename", ple_open, ctx, "Edit Playlist");
     }
     return result;
 }
@@ -6503,6 +6604,16 @@ static int qm_hold(void) {
         g_menu.kind == 3)
         return 0;
     int cur = reconcile(&g_menu, !moving(&g_menu));
+    if (cur < 0) return 0;
+    /* A playlist row's hold opens the same More page as its trailing dots. The Add to Playlist
+     * picker shares playlist_page's name; its add mode tells the two apart. */
+    if (!tk_strcmp(name, "playlist_page") && !I(PLAYLIST_ADD_MODE, 0)) {
+        if (!key) return 0;
+        st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
+        drop_input();
+        navigator_to_with_context("localmusic/playlistsmore_page", (void *)(long)g_menu.id[cur]);
+        return 1;
+    }
     if (!coverflow) list = P(p_deque_showlist, 0);
     if (cur < 0 || !list || deque_size(list) != (unsigned)g_menu.rows) return 0;
     void *r = deque_at(list, g_menu.id[cur]);

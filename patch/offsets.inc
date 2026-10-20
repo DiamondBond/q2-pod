@@ -423,6 +423,9 @@ static inline int arc_out(int r, int y) {
 #define MUSIC_INFO_ALBUM_ARTIST 0x580 /* toolsGetMusicInfo's info (ID3_ALBUM's base): abmartist, the scan's albumsonger */
 #define ID3_ALBUM_ARTIST (ID3_ALBUM + MUSIC_INFO_ALBUM_ARTIST) /* a CUE track's, from its file (ringnav_id3_path) */
 #define CLASS_ALBUMS 0xf003     /* all albums: rows open getMusicByAlbum (load_localclass_list 0xff10) */
+/* localmusic/playlist_page's add mode (g_play_info + 0x7894): non-zero while it is Add to Playlist;
+ * 0 when browsing the Playlists list, whose rows' trailing dots open playlistsmore_page. */
+#define PLAYLIST_ADD_MODE 0xa27894
 #define MUSIC_WHERE "fileurl not like '/mnt/mmc/audiobooks/%' and fileurl not like '/mnt/mmc/podcasts/%' and fileurl not like '%.m4b'"
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
 #define ALBUMINFO_ROW 0xa27200  /* the albums row localmusic_albuminfo_page_init opened (0x4a7ab4) */

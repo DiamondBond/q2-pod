@@ -3013,6 +3013,7 @@ class QueueMachine(Machine):
             if page=='dialog/msginfo_dialog': self.toasts.append((page,self.get(b),self.get(b+4),self.text(b+8)))
             elif page=='playing_page': self.opened.append((page,self.names(self.get(b)),self.get(b+4),self.get(b+8),self.get(b+12)))
             elif page=='localmusic/playlist_page': self.opened.append((page,b))
+            elif page=='localmusic/playlistsmore_page': self.opened.append((page,b))
             else: self.opened.append((page,self.get(b),self.get(b+4))); self.top=self.node('window',page); self.stack.append(self.top)
         elif name=='checkFavExist': ret=self.text(self.get(a+O['REC_NAME'])) in self.favs
         elif name=='navigator_window_is_exist': ret=self.text(a) in self.open_pages
@@ -3230,6 +3231,7 @@ class PlaylistMachine(PlayingPlaylistMachine):
         data=(B/'stock-demo').read_bytes()
         from build import fileoff, GP
         self.mode=struct.unpack_from('<I',data,fileoff(data,GP-0x5810))[0]+0x7894
+        assert self.mode==O['PLAYLIST_ADD_MODE']
         self.word(self.mode,mode)
         self.view=self.node('scroll_view','scroll_view')
         self.top=self.node('window','playlist_page',[self.view])
@@ -4674,9 +4676,21 @@ class PlaylistEditMachine(CoverflowMachine):
     def open_editor(self):
         more=self.node('window','playlistsmore_page'); self.word(more+O['W_PARENT'],self.wm)
         self.top=more; self.stack.append(more)
+        deleted=self.node('hscroll_label',name='label_del')
+        self.word(deleted+O['W_PARENT'],more); self.nodes[more]['children'].append(deleted)
         self.call(address=HOOKS['localmusic_playlistsmore_page_init'][0],args=(more,0,0,0),gap=0)
+        assert self.nodes[deleted]['text']=='Delete Playlist'
         row=self.nodes[more]['children'][-1]; button=self.nodes[row]['children'][0]
-        assert self.nodes[self.nodes[button]['children'][0]]['text']=='Edit Playlist'
+        image,label=self.nodes[button]['children']
+        h,inner,y=(72,68,154) if variant=='ipod' else (78,70,216)
+        assert [self.get(row+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[0,y,375,h]
+        assert self.nodes[row]['style']=='s_listitem_black'
+        assert [self.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,inner]
+        assert self.nodes[button]['style']=='s_btn_listitem'
+        assert [self.get(image+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[10,0,52,inner]
+        assert self.nodes[image]['image']=='rename' and self.nodes[image]['draw_type']==O['IMAGE_DRAW_CENTER']
+        assert [self.get(label+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[72,0,253,inner]
+        assert self.nodes[label]['style']=='s_scrlabel_white20l' and self.nodes[label]['text']=='Edit Playlist'
         f,ctx=self.handler(button,O['EVT_CLICK'])
         self.call(address=f,args=(ctx,self.event,0,0),gap=0)
         self.page=self.top; self.view=self.find('scroll_view'); self.paint(self.view)
@@ -4724,15 +4738,49 @@ m.choose(3); m.choose(2); m.choose(0); assert m.order()==['B','C'] and m.selecte
 assert m.order(1)==['Other']; passed()
 # The fixed destination picker stays open; failed writes never report success.
 saved=m.alloc(16); m.word(saved,0x12345678); m.word(syms['p_vector_select_record'],saved)
-m.choose(0); assert m.showlabels()==['T1','T2']; m.choose(0)
+m.choose(0); assert m.showlabels()==['Search','T1','T2']; m.choose(1)
 assert m.get(syms['p_vector_select_record'])==saved and m.get(saved)==0x12345678
 assert not any(c[0].startswith('batch_') for c in m.calls)
-assert m.toasts[-1][3]=='Added to Playlist' and m.showlabels()==['T1','T2']
-m.choose(0); assert m.toasts[-1][3]=='Already in playlist'
-m.fail='write'; m.choose(1); assert m.toasts[-1][3]=='Could not save playlist'; m.fail=''
+assert m.toasts[-1][3]=='Added to Playlist' and m.showlabels()==['Search','T1','T2']
+m.choose(1); assert m.toasts[-1][3]=='Already in playlist'
+m.fail='write'; m.choose(2); assert m.toasts[-1][3]=='Could not save playlist'; m.fail=''
 assert m.key()==11 and m.showlabels()==['Add Songs','Done','B','C','T1']
 m.choose(1); assert m.top!=m.page and not m.get(payload_syms['ple'])
 assert m.names()==m.before_queue; passed()
+# Add Songs' Search row filters by tagged title, artist or album, case-insensitively; the query
+# stays for adding several and an empty one restores the whole picker.
+def ple_search(m,text,event='EVT_VALUE_CHANGED'):
+    m.choose(0)
+    edit=m.find('edit'); assert m.nodes[edit]['name']=='search_edit' and m.nodes[edit]['focused']==1
+    assert m.get(edit+O['W_Y'])+m.get(edit+O['W_H'])<=30 and not m.find('scroll_view')
+    m.nodes[edit]['text']=text; f,ctx=m.handler(edit,O[event])
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.advance(0)
+    m.view=m.find('scroll_view')
+m=PlaylistEditMachine(); m.word(m.found[0]+O['REC_ARTIST'],m.string('Beatles'))
+m.word(m.found[1]+O['REC_ALBUM'],m.string('Zebra')); m.open_editor(); m.choose(0)
+assert m.showlabels()==['Search','T1','T2']
+ple_search(m,'T2'); assert m.showlabels()==['Search: T2','T2'] and not m.find('edit')
+m.choose(0); assert m.nodes[m.find('edit')]['text']=='T2'  # prefilled for editing
+m.nodes[m.find('edit')]['text']='beat'; f,ctx=m.handler(m.find('edit'),O['EVT_VALUE_CHANGED'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.advance(0); m.view=m.find('scroll_view')
+assert m.showlabels()==['Search: beat','T1']
+m.choose(1); assert m.toasts[-1][3]=='Added to Playlist' and m.showlabels()==['Search: beat','T1']
+ple_search(m,'zeb'); assert m.showlabels()==['Search: zeb','T2']
+ple_search(m,''); assert m.showlabels()==['Search','T1','T2']
+ple_search(m,'zzz'); assert m.showlabels()==['Search: zzz','No songs match']
+# Return from the box applies its text, and a filtered pick can close the page cleanly.
+m.choose(0); m.nodes[m.find('edit')]['text']='t1'; assert m.key()==11
+assert m.showlabels()==['Search: t1','T1']; m.close(); passed()
+# Holding Play/Pause on a playlist row opens the same More page as its trailing dots.
+# The Add to Playlist picker shares playlist_page's name and keeps stock's hold.
+m=QueueMachine(page='playlist_page',rows=3); m.word(O['PLAYLIST_ADD_MODE'],0); m.paint(m.surface)
+m.press(7000); assert m.hold()==11 and m.opened[-1][:2]==('localmusic/playlistsmore_page',0)
+assert m.release()==0  # the locked hold's release never toggles playback
+m.paint(m.surface); m.call(); m.paint(m.surface)
+m.press(7100); assert m.hold()==11 and m.opened[-1][:2]==('localmusic/playlistsmore_page',1)
+assert m.release()==0
+m.opened=[]; m.word(O['PLAYLIST_ADD_MODE'],1); m.press(7200)
+m.hold(); assert not [o for o in m.opened if o[0]=='localmusic/playlistsmore_page']; passed()
 for count in (0,1):
     m=PlaylistEditMachine(count); m.open_editor(); before=m.order()
     m.move(O['KEY_BACK_BTN']); m.move(); assert m.order()==before

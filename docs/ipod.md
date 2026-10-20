@@ -504,7 +504,7 @@ its tiles, framed in white when selected.
 | `confirminfo_dialog`          | Cancel, OK (full-width rows)                    |
 | `tidal_confirminfo_dialog`    | `img_cancel`, `img_enter` (80x80, side by side) |
 | `autoshutdown_dialog`         | `btn_cancel`                                    |
-| `playlistsmore_page` (a page) | Rename, Delete                                  |
+| `playlistsmore_page` (a page) | Rename, Delete Playlist, Edit Playlist          |
 | `tidal_quality_select_dialog` | four quality rows, `btn_ok`                     |
 | `tidal_sortmode_dialog`       | three sort rows, `btn_cancel`                   |
 
