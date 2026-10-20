@@ -1,5 +1,10 @@
 # Changelog
 
+- **1.3.3**:
+  - Bluetooth and wired/USB output remember separate volume levels, respecting the configured volume limit.
+  - The wheel navigates Audio settings and its submenus while receiving Bluetooth audio from a phone.
+  - Fix Bluetooth boot reconnect initialization so callbacks and saved state are ready before connections are discovered.
+
 - **1.3.2**: Remove **Craft a Mixtape** while it undergoes further development. The user guide no longer includes Mixtape instructions. All other 1.3.1 features and fixes remain.
 
 - **1.3.1**:
