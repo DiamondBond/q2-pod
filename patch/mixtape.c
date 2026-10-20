@@ -583,14 +583,14 @@ static void mx_show(int sel) {
         int a = artist && *artist;
         if (s->sec > 0) toolsTimeItoa(t, s->sec);
         if (mx.struck[i])
-            snprintf(detail, sizeof detail, "Struck \xc2\xb7 Re-roll replaces it");
+            snprintf(detail, sizeof detail, "Removed \xc2\xb7 Re-roll replaces it");
         else
             snprintf(detail, sizeof detail, "%s%s%s", a ? artist : "", a && s->sec > 0 ? " \xc2\xb7 " : "", s->sec > 0 ? t : "");
         void *item = page_row_detail(view, i + 1, track_name(name, sizeof name, r), detail, mx_row);
         for (unsigned c = 0; mx.struck[i] && c < widget_count_children(item); ++c)
             widget_set_prop_int(widget_get_child(item, c), "style:normal:text_color", (int)0xff666666u);
     }
-    page_row_detail(view, mx.len + 1, "Re-roll", struck ? "New songs for the struck ones" : "New songs around the album's own", mx_row);
+    page_row_detail(view, mx.len + 1, "Re-roll", struck ? "New songs for the removed ones" : "New songs around the album's own", mx_row);
     page_row_detail(view, mx.len + 2, "Keep Mixtape", "Play it and save it as a playlist", mx_row);
     ringnav_select(view, sel < rows ? sel : rows - 1, rows);
 }
@@ -618,7 +618,7 @@ static int mx_go(const void *keep) {
     if (n) mixtape_play(list);
     deque_destroy(list);
     if (!n) {
-        toast("Every song is struck");
+        toast("Every song is removed");
         return 0;
     }
     void *page = mx.page;
