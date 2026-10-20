@@ -333,6 +333,8 @@ typedef struct {
     int qm_kind, qm_action, qm_choice;
     void *qm_dialog, *qm_queue, *qm_playlist;
     unsigned qm_queue_hash;
+    int qm_keep;      /* Keep Mixtape: the playlist picker takes the whole queue */
+    unsigned mx_hash; /* the queue mixtape_play loaded (queue_hash), for Keep Mixtape */
     unsigned char qm_classinfo[912]; /* g_local_classinfo_save before a Go to */
     /* Podcasts/Audiobooks: folder_page opens at media_root once media_open is set (else at the
      * card, /mnt/mmc, with a card and no drive; otherwise the storage selector stays); while the
@@ -3908,7 +3910,9 @@ enum {
     QA_RESUME,
     QA_QUEUE,
     QA_UP_NEXT,
-    QA_FOLDER
+    QA_FOLDER,
+    QA_MIX,
+    QA_KEEP
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -4502,7 +4506,7 @@ static int shuffle_play(void *all) {
         playback_clear(); /* stock Shuffle keeps Shuffle Albums/Folders otherwise */
         config_playmode(2, 1);
         play_folder(all, (int)rand_below((unsigned)size), 0xf001);
-        playback_shuffle(mode); /* an order Up Next can list; stock's shuffle stays the fallback */
+        playback_take(mode, 1); /* an order Up Next can list; stock's shuffle stays the fallback */
     }
     return size;
 }
@@ -5240,14 +5244,19 @@ static int by_key(const void *a, const void *b) {
     return (x > y) - (x < y);
 }
 
-/* AudioProperties::length(), as libtag_c's taglib_audioproperties_length calls it: vtable +0xc. */
+/* path's seconds through stock's TagLib, 0 when unreadable; shared with mixtape.c's worker.
+ * AudioProperties::length(), as libtag_c's taglib_audioproperties_length calls it: vtable +0xc. */
+int taglib_length(const char *path) {
+    void *f = taglib_file_new(path);
+    void *p = f ? taglib_file_audioproperties(f) : (void *)0;
+    int sec = p ? ((int (*)(void *))(*(void ***)p)[3])(p) : 0;
+    if (f) taglib_file_free(f);
+    return sec > 0 ? sec : 0;
+}
+
 static void *ls_worker(void *unused) {
     while (ls.done < ls.total && !ls.cancel) {
-        void *f = taglib_file_new(ls.paths[ls.done]);
-        void *p = f ? taglib_file_audioproperties(f) : (void *)0;
-        int sec = p ? ((int (*)(void *))(*(void ***)p)[3])(p) : 0;
-        ls.jobs[ls.done].sec = sec > 0 ? (unsigned)sec : 0;
-        if (f) taglib_file_free(f);
+        ls.jobs[ls.done].sec = (unsigned)taglib_length(ls.paths[ls.done]);
         ++ls.done;
     }
     return 0;
@@ -5701,7 +5710,8 @@ static void qm_goto(void *r, int album) {
 /* The row alone selected in the stock batch record, as player_addplayList (0x50d0b8) does. */
 static void qm_select(void) {
     batch_init_selectrecord((int)st.qm_rows);
-    batch_set_selectitem((int)st.qm_idx);
+    unsigned from = st.qm_keep ? 0 : st.qm_idx, to = st.qm_keep ? st.qm_rows : st.qm_idx + 1;
+    for (unsigned i = from; i < to; ++i) batch_set_selectitem((int)i);
 }
 
 /* Stock playlist rows use the queue in add mode 2. Guard their final dispatch as well. */
@@ -5717,6 +5727,7 @@ static int qm_playlist_pick(void *ctx, void *event) {
 
 static int qm_playlist_gone(void *ctx, void *event) {
     st.qm_playlist = 0;
+    st.qm_keep = 0;
     return 0;
 }
 
@@ -5741,6 +5752,93 @@ int ringnav_playlist(void *win) {
     if (win == st.qm_playlist) qm_playlist_bind(win, 0);
     return result;
 }
+
+/* The playlist page's add mode adds the selected rows (qm_select): Now Playing's (0x20000) from the
+ * queue, guarded as qm_playlist_pick, a list's from the showlist. */
+static void qm_playlist_open(int cls) {
+    qm_select();
+    navigator_to_with_context("localmusic/playlist_page",
+                              (void *)(long)((st.qm_kind == QM_PLAYING ? 0x20000 : 0x10000) | cls));
+    void *top = window_manager_get_top_window(window_manager());
+    if (st.qm_kind == QM_PLAYING &&
+        !tk_strcmp(widget_get_prop_str(top, "name", ""), "playlist_page")) {
+        st.qm_playlist = top;
+        qm_playlist_bind(top, 0);
+        widget_on(top, EVT_DESTROY, qm_playlist_gone, top);
+    } else
+        st.qm_keep = 0;
+}
+
+/* Craft a Mixtape (docs/internals.md#mixtape): every library song with what is known of it here
+ * (hearts, plays, length, whether it is one of the album's, as Play Next would queue them) for
+ * mixtape.c, which takes the songs. */
+static void mx_open(void *album) {
+    int n;
+    void *seed = qm_collect(album), *songs = staged(songs_unsorted, (void *)1, &n);
+    unsigned size = deque_size(songs), ns = seed ? deque_size(seed) : 0, last = 0;
+    mx_pref *p = calloc(size + 1, sizeof *p);
+    unsigned char *h = calloc(size + 1, 1);
+    unsigned *keys = calloc(ns + 1, sizeof *keys);
+    if (p && h && keys && size && ns) {
+        int album_hearts = 0;
+        for (unsigned i = 0; i < ns; i++) keys[i] = listen_key(deque_at(seed, i));
+        rate_all(songs, h);
+        plays_load();
+        lengths_read();
+        for (unsigned i = 0; i < size; i++) {
+            void *r = deque_at(songs, i);
+            unsigned key = listen_key(r), aid = album_id(r);
+            if (aid != last)
+                last = aid, album_hearts = rate_kept(1, aid); /* the library comes album by album */
+            p[i].key = key, p[i].sec = song_length(r), p[i].hearts = h[i],
+            p[i].album_hearts = (unsigned char)album_hearts;
+            for (int j = 0; j < PLAYS_SLOTS && !p[i].plays; j++)
+                if (st.plays[j].key == key) p[i].plays = (int)st.plays[j].n;
+            for (unsigned j = 0; j < ns && !p[i].seed; j++) p[i].seed = keys[j] == key;
+        }
+        mixtape_start(songs, p, (int)size, P(album, REC_ALBUM));
+    } else {
+        toast(!size ? "Update Local Music first"
+              : ns  ? "Queue unchanged"
+                    : "Not enough related music");
+        deque_destroy(songs);
+    }
+    free(p);
+    free(h);
+    free(keys);
+    if (seed) deque_destroy(seed);
+}
+
+/* A crafted Mixtape plays in its order: advanced playback's List order, so Up Next, resume and
+ * Next agree; the next other queue restores the mode it replaced (playback_take). */
+void mixtape_play(void *list) {
+    int mode = playback_unshuffle();
+    playback_clear();
+    config_playmode(0, 1);
+    play_folder(list, 0, 0xf001);
+    playback_take(mode, 0);
+    st.mx_hash = queue_hash(P(mcl_pdeqplaylist, 0));
+}
+
+/* Keep Mixtape from its page: once Now Playing has opened, the picker as its hold menu's row. */
+static int mx_keep_open(const void *unused) {
+    if (window_manager_is_animating(window_manager())) return 8; /* RET_REPEAT */
+    unsigned at, n;
+    void *r = queue_now(&at, &n), *q = P(mcl_pdeqplaylist, 0);
+    if (!r || !st.mx_hash || queue_hash(q) != st.mx_hash || st.qm_dialog || st.qm_playlist)
+        return 0;
+    st.qm_kind = QM_PLAYING;
+    st.qm_cls = 0xf001;
+    st.qm_queue = q;
+    st.qm_idx = at;
+    st.qm_rows = n;
+    st.qm_hash = rec_hash(r);
+    st.qm_queue_hash = st.mx_hash;
+    st.qm_keep = 1;
+    qm_playlist_open(0xf001);
+    return 0;
+}
+void mixtape_keep(void) { timer_add(mx_keep_open, (void *)0, 100); }
 
 /* Deferred so the dialog is never closed under its own click dispatch. */
 static int qm_open(const void *unused);
@@ -5780,19 +5878,11 @@ static int qm_run(const void *unused) {
         if (cls == 0xf00a)
             g_delete_flag = 1; /* My Fav reloads, as Now Playing's heart (0x52b2e8) */
         toast("Removed from Favourites");
-    } else if (r && a == QA_PLAYLIST) { /* the playlist page's add mode adds the selected row */
-        qm_select();
-        navigator_to_with_context(
-            "localmusic/playlist_page",
-            (void *)(long)((st.qm_kind == QM_PLAYING ? 0x20000 : 0x10000) | cls));
-        if (st.qm_kind == QM_PLAYING) {
-            void *top = window_manager_get_top_window(window_manager());
-            if (!tk_strcmp(widget_get_prop_str(top, "name", ""), "playlist_page")) {
-                st.qm_playlist = top;
-                qm_playlist_bind(top, 0);
-                widget_on(top, EVT_DESTROY, qm_playlist_gone, top);
-            }
-        }
+    } else if (r && (a == QA_PLAYLIST || a == QA_KEEP)) {
+        st.qm_keep = a == QA_KEEP;
+        qm_playlist_open(cls);
+    } else if (r && a == QA_MIX) {
+        mx_open(r);
     } else if (r && a == QA_RESUME) { /* the list's songs from the chapter; the poll seeks */
         int at = 0, off = 0;
         void *list = qm_list(), *t = book_place(list, r, &at, &off), *songs;
@@ -5918,7 +6008,7 @@ static int qm_open(const void *unused) {
     /* Songs favourite, as stock's heart, and go to their album and artist; collections shuffle.
      * Go to is left out where its single-instance page is already open, or the album is the page.
      */
-    unsigned char acts[16], n = 0;
+    unsigned char acts[18], n = 0;
     /* Shuffle Albums/Folders only: skipping the group comes first */
     int group_first = st.qm_kind == QM_PLAYING && playback_option(0) >= 3;
     /* Rate (the heart's hold) follows Next/Previous album */
@@ -5931,8 +6021,10 @@ static int qm_open(const void *unused) {
     if (st.qm_kind == QM_PLAYING) {
         acts[n++] = QA_QUEUE;
         if (playback_option(0)) acts[n++] = QA_UP_NEXT; /* a shuffle's order is not the list's */
+        if (st.mx_hash && st.qm_queue_hash == st.mx_hash) acts[n++] = QA_KEEP;
     }
     if (!song) acts[n++] = QA_SHUFFLE;
+    if (st.qm_kind == QM_ALBUM || st.qm_kind == QM_COVERALBUM) acts[n++] = QA_MIX;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
     /* an album's own hearts, 5 its favourite */
     unsigned aid = song ? 0 : qm_album_id(r);
@@ -5972,7 +6064,9 @@ static int qm_open(const void *unused) {
                                         "Resume",
                                         "View Queue",
                                         "Up Next",
-                                        "Go to Folder" };
+                                        "Go to Folder",
+                                        "Craft a Mixtape",
+                                        "Keep Mixtape" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {
@@ -6005,6 +6099,7 @@ static int qm_open(const void *unused) {
  * else stays stock. */
 static int qm_hold(void) {
     st.qm_choice = 0;
+    if (!st.qm_playlist) st.qm_keep = 0;
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     const char *name = top ? widget_get_prop_str(top, "name", "") : "";
     int playing = !tk_strcmp(name, "playing_page");

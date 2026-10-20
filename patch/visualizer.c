@@ -3,6 +3,34 @@
  * plugins; a tap moves to the next style. */
 #include "peq.h"
 #include "offsets.inc"
+
+/* In-place radix-2 FFT of n complex values, n a power of two; shared with mixtape.c, so in both builds. */
+void vis_fft(float *re, float *im, int n) {
+    for (int i = 1, j = 0; i < n; ++i) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+            float t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+    }
+    for (int len = 2; len <= n; len <<= 1) {
+        float wr = cosf(6.2831853f / len), wi = -sinf(6.2831853f / len);
+        for (int i = 0; i < n; i += len) {
+            float cr = 1, ci = 0;
+            for (int k = i; k < i + len / 2; ++k) {
+                float tr = re[k + len / 2] * cr - im[k + len / 2] * ci, ti = re[k + len / 2] * ci + im[k + len / 2] * cr;
+                re[k + len / 2] = re[k] - tr; im[k + len / 2] = im[k] - ti;
+                re[k] += tr; im[k] += ti;
+                float t = cr * wr - ci * wi;
+                ci = cr * wi + ci * wr;
+                cr = t;
+            }
+        }
+    }
+}
+
 #if IPOD
 
 #define VIS_N 1024           /* frames each frame analyses */
@@ -31,33 +59,6 @@ static struct {
 #endif
 } vz __attribute__((section(".scratch")));
 
-/* In-place radix-2 FFT of n complex values, n a power of two. */
-static void fft(float *re, float *im, int n) {
-    for (int i = 1, j = 0; i < n; ++i) {
-        int bit = n >> 1;
-        for (; j & bit; bit >>= 1) j ^= bit;
-        j ^= bit;
-        if (i < j) {
-            float t = re[i]; re[i] = re[j]; re[j] = t;
-            t = im[i]; im[i] = im[j]; im[j] = t;
-        }
-    }
-    for (int len = 2; len <= n; len <<= 1) {
-        float wr = cosf(TAU / len), wi = -sinf(TAU / len);
-        for (int i = 0; i < n; i += len) {
-            float cr = 1, ci = 0;
-            for (int k = i; k < i + len / 2; ++k) {
-                float tr = re[k + len / 2] * cr - im[k + len / 2] * ci, ti = re[k + len / 2] * ci + im[k + len / 2] * cr;
-                re[k + len / 2] = re[k] - tr; im[k + len / 2] = im[k] - ti;
-                re[k] += tr; im[k] += ti;
-                float t = cr * wr - ci * wi;
-                ci = cr * wi + ci * wr;
-                cr = t;
-            }
-        }
-    }
-}
-
 static int band_bin(int b, unsigned rate) { return (int)(40 * pow(400, (double)b / VIS_HALO) * VIS_N / rate + 0.5); }
 
 /* level[VIS_HALO]: each band's loudest bin of the Hann-windowed mono mix of VIS_N frames at rate, 0
@@ -69,7 +70,7 @@ void vis_bands(const float (*pcm)[2], unsigned rate, float *level) {
         vz.re[i] = (pcm[i][0] + pcm[i][1]) * vz.hann[i];
         vz.im[i] = 0;
     }
-    fft(vz.re, vz.im, VIS_N);
+    vis_fft(vz.re, vz.im, VIS_N);
     if (vz.bin_rate != rate) {
         for (int b = 0; b <= VIS_HALO; ++b) vz.bin[b] = band_bin(b, rate);
         vz.bin_rate = rate;

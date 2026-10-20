@@ -144,6 +144,13 @@ int directory(void *path); /* playback.c: toolsLoadDirectory, for staged */
 #define SPOT_DIR "/mnt/mmc/.spotify" /* librespot and its launcher, spotify.c's */
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
+/* Mixtape (mixtape.c): what navigation.c knows of each library song, for mixtape_start. */
+typedef struct {
+    unsigned key;   /* listen_key */
+    int sec, plays; /* sec: song_length, -1 unknown */
+    unsigned char hearts, album_hearts, seed, pad; /* hearts 0-5; seed: on the album crafted from */
+} mx_pref;
+void mixtape_start(void *songs, const mx_pref *p, int n, const char *album);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal: MINIMAL_FILL) */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
