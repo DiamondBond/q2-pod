@@ -6740,7 +6740,8 @@ int ringnav_output(int way) {
     if (changed) {
         write_int_config(g_volume, "PLAYSET", "VOLUME");
         char s[256] = "";
-        toolsReadConfig("/mnt/data/config.ini", "PLAYSET", way == 1 ? "BT_VOLUME" : "VOLUME", s, "");
+        toolsReadConfig("/mnt/data/config.ini", "PLAYSET", way == 1 ? "BT_VOLUME" : "VOLUME", s,
+                        "");
         int v = 0;
         unsigned i;
         for (i = 0; i < 3 && s[i] >= '0' && s[i] <= '9'; ++i) v = v * 10 + s[i] - '0';
