@@ -707,7 +707,9 @@ static void *bar(void *page, int x, int w) {
     return title;
 }
 
-/* Audio settings' EQ row: Simple first, every time. Opening changes nothing. */
+/* Audio settings' EQ row: opens on the tab it was last on (ui.tab, zeroed to Simple at boot).
+ * Opening changes nothing. ponytail: kept in RAM, so a reboot goes back to Simple; saving it in
+ * eq_state would keep it, add when asked. */
 int peq_page_init(void *page, void *context) {
     if (!page) return 16;
     ui.page = page;
@@ -715,7 +717,6 @@ int peq_page_init(void *page, void *context) {
     ui.screen = HOME;
     ui.status[0] = 0;
     ui.dirty = 0;
-    ui.tab = SIMPLE;
     ui.tabs = 0;
     eq_state s;
     eq_load(&s);

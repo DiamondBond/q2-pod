@@ -815,7 +815,8 @@ def eq3_editor_check(lib, ui, tmp):
     # PEQ playing; opening 3EQ changes nothing.
     ui.shim_close(); ui.shim_open(); assert ui.shim_tab_touch(300)
     if ui.shim_flag() == 0: assert ui.shim_click(b'Advanced Off', 1)
-    ui.shim_close()
+    ui.shim_close(); assert ui.shim_open() == 0 and ui.shim_click(b'Advanced', 2)  # reopens on the tab it was last on
+    assert ui.shim_tab_touch(50); ui.shim_close()  # back to Simple, where the page opens after a boot
     before = active.read_bytes(); peq = bytes(state().peq)
     assert state().mode == EQ_PEQ and ui.shim_flag() == 1
     assert ui.shim_e3_open() == 0 and title() == '' and active.read_bytes() == before
@@ -875,6 +876,7 @@ def eq3_editor_check(lib, ui, tmp):
     # PEQ's switch selects PEQ again; the 3EQ settings stay.
     ui.shim_open(); assert ui.shim_tab_touch(300) and ui.shim_click(b'Advanced Off', 1); s = state()
     assert s.mode == EQ_PEQ and bytes(s.peq) == peq and gains(s) == [0.5, 0, 0] and ui.shim_flag() == 1
+    assert ui.shim_tab_touch(50); ui.shim_close()
     ui.shim_e3_open(); assert ui.shim_e3_touch(0x100, 50, 70) == 0 and state().mode == EQ_3  # and back
     ui.shim_e3_close(); assert state().mode == EQ_3 and ui.shim_flag() == 1
     # The tabs: the wheel reaches the bar above Simple's switch, Centre opens Advanced with the wheel
