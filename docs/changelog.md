@@ -1,5 +1,7 @@
 # Changelog
 
+- **1.3.2**: Remove **Craft a Mixtape** while it undergoes further development. The user guide no longer includes Mixtape instructions. All other 1.3.1 features and fixes remain.
+
 - **1.3.1**:
   - **Chapters** in the Now Playing hold menu opens embedded M4B audiobook chapters, with titles and start times. Pick a chapter to jump to it; paused playback stays paused.
   - **Go to Folder** in a song's hold menu opens its containing folder.
