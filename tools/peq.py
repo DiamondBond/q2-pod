@@ -69,6 +69,7 @@ LIBC = {
     'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
     'strdup': ('char *', 'const char *'),
     'strrchr': ('char *', 'const char *, int'), 'strcasecmp': ('int', 'const char *, const char *'),
+    'strcasestr': ('char *', 'const char *, const char *'),
     'strncmp': ('int', 'const char *, const char *, unsigned'),
     'strncasecmp': ('int', 'const char *, const char *, unsigned'),
     # iPod status bar clock (navigation.c)

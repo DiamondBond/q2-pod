@@ -5966,15 +5966,7 @@ static void ple_reload(void) {
 /* The Add Songs picker's Search row filters by title, artist or album, ASCII case-insensitively.
  * ple.match holds the matching records only; the picker keeps every song, so clearing the query
  * restores the list without re-staging it. */
-static int ple_fold(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
-static int ple_has(const char *text, const char *query) {
-    for (; text && *text; ++text) {
-        const char *a = text, *b = query;
-        while (*a && *b && ple_fold((unsigned char)*a) == ple_fold((unsigned char)*b)) ++a, ++b;
-        if (!*b) return 1;
-    }
-    return !*query;
-}
+static int ple_has(const char *text, const char *query) { return text && strcasestr(text, query); }
 static void ple_filter(void) {
     free(ple.match);
     ple.match = 0;
@@ -6088,9 +6080,8 @@ static int ple_run(const void *unused) {
             return 0; /* picker stays on its selected song */
         }
     } else if (mode == 4) {
-        char query[sizeof ple.query];
-        if (!ple.edit || widget_get_text_utf8(ple.edit, query, sizeof query)) query[0] = 0;
-        tk_snprintf(ple.query, sizeof ple.query, "%s", query);
+        if (!ple.edit || widget_get_text_utf8(ple.edit, ple.query, sizeof ple.query))
+            ple.query[0] = 0;
         ple.mode = 1;
         ple_filter();
     } else if (mode == 2) {
@@ -6179,26 +6170,6 @@ static int ple_open(void *ctx, void *event) {
     if (ple.page) { ple_reload(); ple_show(); }
     return 0;
 }
-/* A row like this page's stock Rename and Delete: a 375x72 (Legacy 78) list_item holding a
- * 335x68 (Legacy 70) s_btn_listitem, its 52px icon at x 10 and its 20px label at x 72. Edit
- * Playlist follows the Delete row at the same spacing. */
-static void *playlistsmore_row(void *win, const char *icon, int (*click)(void *, void *), void *ctx,
-                               const char *text) {
-    int h = IPOD ? 72 : 78, inner = IPOD ? 68 : 70;
-    void *item = list_item_create(win, 0, IPOD ? 154 : 216, 375, h);
-    widget_use_style(item, "s_listitem_black");
-    void *button = button_create(item, 20, 0, 335, inner);
-    widget_use_style(button, "s_btn_listitem");
-    widget_on(button, EVT_CLICK, click, ctx);
-    void *image = image_create(button, 10, 0, 52, inner);
-    image_base_set_image(image, icon);
-    image_set_draw_type(image, IMAGE_DRAW_CENTER);
-    void *label = hscroll_label_create(button, 72, 0, 253, inner);
-    widget_use_style(label, "s_scrlabel_white20l");
-    set_hscroll_label_attribute(label);
-    widget_set_text_utf8(label, text);
-    return item;
-}
 extern int stock_playlistsmore_trampoline(void *, void *);
 int ringnav_playlistsmore(void *win, void *ctx) {
     int result = stock_playlistsmore_trampoline(win, ctx);
@@ -6207,7 +6178,22 @@ int ringnav_playlistsmore(void *win, void *ctx) {
          * label, as Now Playing's Delete Song still deletes the song. */
         void *del = widget_lookup(win, "label_del", 1);
         if (del) widget_set_text_utf8(del, "Delete Playlist");
-        playlistsmore_row(win, "rename", ple_open, ctx, "Edit Playlist");
+        /* A row like this page's stock Rename and Delete: a 375x72 (Legacy 78) list_item holding
+         * a 335x68 (Legacy 70) s_btn_listitem, its 52px icon at x 10 and its 20px label at x 72.
+         * Edit Playlist follows the Delete row at the same spacing. */
+        int h = IPOD ? 72 : 78, inner = IPOD ? 68 : 70;
+        void *item = list_item_create(win, 0, IPOD ? 154 : 216, 375, h);
+        widget_use_style(item, "s_listitem_black");
+        void *button = button_create(item, 20, 0, 335, inner);
+        widget_use_style(button, "s_btn_listitem");
+        widget_on(button, EVT_CLICK, ple_open, ctx);
+        void *image = image_create(button, 10, 0, 52, inner);
+        image_base_set_image(image, "rename");
+        image_set_draw_type(image, IMAGE_DRAW_CENTER);
+        void *label = hscroll_label_create(button, 72, 0, 253, inner);
+        widget_use_style(label, "s_scrlabel_white20l");
+        set_hscroll_label_attribute(label);
+        widget_set_text_utf8(label, "Edit Playlist");
     }
     return result;
 }
@@ -6615,7 +6601,7 @@ static int qm_hold(void) {
         return 1;
     }
     if (!coverflow) list = P(p_deque_showlist, 0);
-    if (cur < 0 || !list || deque_size(list) != (unsigned)g_menu.rows) return 0;
+    if (!list || deque_size(list) != (unsigned)g_menu.rows) return 0;
     void *r = deque_at(list, g_menu.id[cur]);
     /* An artist's tabs reload the showlist with load_localartist_list, which sets classinfo +0
      * (0xff07 songs, 0xff01 albums) but not g_class_type. */
