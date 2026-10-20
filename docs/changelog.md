@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.3.5** (unreleased):
+  - Fix the remaining search freeze on wheel Back when the keyboard is the top window; the first Back closes the keyboard and the next leaves search.
   - Hold the quick-settings Wi-Fi or Bluetooth icon to open its settings page; tapping still toggles the radio.
   - Restore the 1.0.3 Playback and System settings order, with newer controls beside related settings and Reset last.
 

@@ -656,7 +656,6 @@ FUNCTIONS = {
  'widget_animator_scroll_create': ('void *', 'void *, unsigned, unsigned, int'),
  'widget_animator_on': ('unsigned', 'void *, unsigned, int (*)(void *, void *), void *'),
  'widget_set_focused': ('int', 'void *, int'),
- 'widget_get_focused_widget': ('void *', 'void *'),
  'input_method': ('void *', 'void'),
  'input_method_request': ('int', 'void *, void *'),
  'widget_animator_pause': ('int', 'void *'),
