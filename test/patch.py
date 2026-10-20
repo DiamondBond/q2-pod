@@ -650,9 +650,18 @@ for t,off in [('scroll_view',O['SCROLL_Y']),('table_client',O['TABLE_TOP'])]:
 for name in ['playing_page','volume_dialog','saverscreen_page','usbmode_page','unknown_page']:
     m=Machine(); m.page(name); assert m.call()==0 and not m.moved(); passed()
 GATES=[('g_backlight_status',0),('g_lockscreen_pageflag',1),('g_testmode_flag',1),
-       ('g_guideflag',1),('g_poweroff_state',2),('g_usblink_status',2),('bt__recv_pageflag',1)]
+       ('g_guideflag',1),('g_poweroff_state',2),('g_usblink_status',2)]
 for flag,value in GATES:
     m=Machine(); m.page(); m.byte(syms[flag],value); assert m.call()==0 and not m.moved(); passed()
+# The Bluetooth receiver's gear opens Audio settings: its wheel navigates, while the player
+# and its volume dialog still pass wheel input to stock volume handling.
+for flag in (1,2):
+    m=Machine(); m.page('audiosetting_page'); m.byte(syms['bt__recv_pageflag'],flag)
+    assert m.call()==11 and m.moved()
+    assert m.call(O['KEY_PREV'])==11 and m.moved(); passed()
+    for name in ('bluetoothrecv_page','volume_dialog'):
+        m=Machine(); m.page(name); m.byte(syms['bt__recv_pageflag'],flag)
+        assert m.call()==0 and not m.moved(); passed()
 for field in ['animating','pressed']:
     m=Machine(); m.page(); setattr(m,field,1); assert m.call()==11 and not m.moved(); passed()
 
@@ -1573,6 +1582,9 @@ for name in ('backlight_page','maxvol_page','bootvol_page','balance_page'):
     m.top=m.node('window',name,[m.node('view','view_body',[dec,add])]); m.mock('on_wm_keyup_fun')
     assert m.call()==11 and m.clicks==[add]
     assert m.call(O['KEY_PREV'])==11 and m.clicks==[add,dec]
+    m.byte(syms['bt__recv_pageflag'],2)
+    assert m.call()==11 and m.call(O['KEY_PREV'])==11 and m.clicks==[add,dec,add,dec]
+    m.byte(syms['bt__recv_pageflag'],0)
     assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1
     assert m.call(O['KEY_CENTER'])==11 and m.call(O['KEY_CENTER'],gap=50)==11
     m.advance(300,clear=False); names=[c[0] for c in m.calls]
@@ -3399,6 +3411,48 @@ assert [c[:3] for c in bt_power.calls]==[
 passed()
 # Bluetooth volume runs through the shared hook in both variants. Mock only headset I/O
 # and stock gain; device_set_volume itself executes its native output routing.
+class OutputVolumeMachine(Machine):
+    def __init__(self,config=()):
+        super().__init__(); self.way=0; self.config.update(config)
+        self.byte(syms['g_volume'],20); self.byte(syms['g_maxvolume'],100)
+        self.handlers.pop(syms['write_int_config'])
+        for name,label in (('mclSetOutputWay','output'),('write_int_config','write_config')):
+            self.handlers[HOOKS[name][0]+12]='stock_'+label
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name not in ('mclGetOutputWay','stock_output','stock_write_config'):
+            return super().hook(u,address,size,unused)
+        a,b,c=[u.reg_read(r) for r in REGS[:3]]
+        self.calls.append((name,a,b,c))
+        if name=='stock_output': self.way=a; ret=1
+        elif name=='stock_write_config': self.config[self.text(c)]=str(a); ret=0
+        else: ret=self.way
+        self.returns(ret)
+    def output(self,way):
+        changed=(self.way==1)!=(way==1)
+        assert self.call(address=syms['mclSetOutputWay'],args=(way,0,0,0),gap=0)==1
+        volume=self.u.mem_read(syms['g_volume'],1)[0]
+        assert [c[1:3] for c in self.calls if c[0]=='device_set_volume']==([(volume,1)] if changed else [])
+        return volume
+    def save(self,volume,section='PLAYSET',key='VOLUME'):
+        self.byte(syms['g_volume'],volume)
+        return self.call(address=syms['write_int_config'],args=(volume,self.string(section),self.string(key),0),gap=0)
+
+ov=OutputVolumeMachine(); assert ov.output(1)==20  # first connection inherits the current level
+ov.save(65); assert ov.config=={'VOLUME':'20','BT_VOLUME':'65'}
+assert ov.output(0)==20; ov.save(13)
+assert ov.output(1)==65 and ov.output(1)==65 and ov.output(2)==13
+assert ov.output(0)==13 and ov.output(1)==65; passed()
+# A fresh boot uses wired VOLUME; reconnect restores Bluetooth, including muted and capped levels.
+for value,limit,want in (('0',100,0),('100',40,40),('37',100,37)):
+    ov=OutputVolumeMachine({'VOLUME':'13','BT_VOLUME':value}); ov.byte(syms['g_volume'],13)
+    ov.byte(syms['g_maxvolume'],limit)
+    assert ov.output(1)==want and ov.output(0)==13; passed()
+for value in ('','-1','101','999999999999999999','20junk',' 20'):
+    ov=OutputVolumeMachine({'BT_VOLUME':value}); assert ov.output(1)==20; passed()
+ov=OutputVolumeMachine(); ov.output(1); ov.save(7,'OTHER','VOLUME'); ov.save(8,'PLAYSET','OTHER')
+assert ov.config=={'VOLUME':'7','OTHER':'8'}; passed()  # other writes keep their section/key
+
 class BtVolumeMachine(Machine):
     def __init__(self):
         super().__init__()

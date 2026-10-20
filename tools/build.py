@@ -53,6 +53,8 @@ HOOKS = {
     'deleteMusicFromMusicDb': (0x500b5c, 'coverflow_delete_song', 'delete_song'),
     'player_play_pause': (0x515728, 'ringnav_play_pause', 'pause'),
     'mclSetBtVol': (0x5accec, 'ringnav_btvol', 'btvol'),
+    'mclSetOutputWay': (0x5aae54, 'ringnav_output', 'output'),
+    'write_int_config': (0x4f3f4c, 'ringnav_write_config', 'write_config'),
     'main_loop_sleep_default': (0x648f00, 'ringnav_sleep', 'sleep'),
     'systemset_about_page_init': (0x4bc80c, 'ringnav_about', 'about'),
     # Podcasts and Audiobooks: folder_page opened at their folder, and Back there leaving it

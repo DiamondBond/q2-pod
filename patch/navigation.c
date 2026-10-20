@@ -63,6 +63,7 @@ int ringnav_content_query(const char *db, const char *sql, void *row, void *arg,
     return library_query(1, db, sql, row, arg, sort);
 }
 extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *, void *),
+    stock_output_trampoline(int), stock_write_config_trampoline(int, const char *, const char *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
@@ -699,7 +700,7 @@ static void home_step(void *w, int dir, unsigned now, int jump) {
 
 static int usable(void) {
     if (!g_backlight_status || g_lockscreen_pageflag || g_testmode_flag || g_guideflag ||
-        g_poweroff_state > 1 || bt__recv_pageflag)
+        g_poweroff_state > 1)
         return 0;
     void *top = window_manager_get_top_window(window_manager());
     int confirm = top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "confirminfo_dialog");
@@ -6724,6 +6725,33 @@ static int np_animating(void) {
 #else
     return 0;
 #endif
+}
+
+/* Keep stock VOLUME for wired/USB and boot; Bluetooth saves its own level. */
+int ringnav_write_config(int value, const char *section, const char *key) {
+    if (!tk_strcmp(section, "PLAYSET") && !tk_strcmp(key, "VOLUME") && mclGetOutputWay() == 1)
+        key = "BT_VOLUME";
+    return stock_write_config_trampoline(value, section, key);
+}
+
+int ringnav_output(int way) {
+    int old = mclGetOutputWay();
+    int changed = (old == 1) != (way == 1);
+    if (changed) {
+        write_int_config(g_volume, "PLAYSET", "VOLUME");
+        char s[256] = "";
+        toolsReadConfig("/mnt/data/config.ini", "PLAYSET", way == 1 ? "BT_VOLUME" : "VOLUME", s, "");
+        int v = 0;
+        unsigned i;
+        for (i = 0; i < 3 && s[i] >= '0' && s[i] <= '9'; ++i) v = v * 10 + s[i] - '0';
+        if (!i || s[i] || v > 100) v = g_volume;
+        if (v > g_maxvolume) v = g_maxvolume;
+        g_volume = (unsigned char)v;
+        headset_volume_reset();
+    }
+    int result = stock_output_trampoline(way);
+    if (changed) device_set_volume(g_volume, 1);
+    return result;
 }
 
 /* AVRCP absolute volume, as in PR #3. libbtctl returns 0 on a successful write.
