@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.3.4**:
+  - Search from the Library no longer freezes when Back is pressed while the keyboard is open: the first Back closes the keyboard, and the next leaves search.
+
 - **1.3.3**:
   - Bluetooth and wired/USB output remember separate volume levels, respecting the configured volume limit.
   - The wheel navigates Audio settings and its submenus while receiving Bluetooth audio from a phone.

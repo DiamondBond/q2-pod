@@ -7166,6 +7166,17 @@ static int replay_wheel(const void *info) {
     return 0;
 }
 
+/* Stock's search dialogs quit on Return even while their edit's keyboard is open. Destroying the
+ * edit under the keyboard freezes demo, so the first Return closes the keyboard instead, as the
+ * custom search boxes do; the next Return runs stock's quit. */
+static int search_key(void *top, unsigned key) {
+    void *edit = key == KEY_RETURN && top ? widget_get_focused_widget(top) : (void *)0;
+    if (!edit || tk_strcmp(widget_get_prop_str(edit, "name", ""), "search_edit")) return 0;
+    widget_set_focused(edit, 0);
+    input_method_request(input_method(), (void *)0); /* searchbox dialogs do not close on blur */
+    return 1;
+}
+
 int ringnav(void *ctx, void *event) {
     pull_cancel();
     /* The stock filter dereferences the event before returning. */
@@ -7199,6 +7210,7 @@ int ringnav(void *ctx, void *event) {
         }
     }
 #endif
+    if (search_key(window_manager_get_top_window(window_manager()), key)) return STOP;
     int result = stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
     /* Media controls follow the active source, including when local Now Playing is visible. */

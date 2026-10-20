@@ -307,6 +307,14 @@ class Machine:
                     if found: return found
                 return 0
             ret=lookup(a) if a else 0
+        elif name=='widget_get_focused_widget':
+            def focused(w):
+                if self.nodes[w].get('focused'): return w
+                for child in self.nodes[w]['children']:
+                    found=focused(child)
+                    if found: return found
+                return 0
+            ret=focused(a) if a else 0
         elif name=='scroll_bar_cast': ret=a
         elif name=='scroll_bar_is_mobile': ret=n.get('type')=='scroll_bar_m'
         elif name=='widget_set_opacity': self.byte(a+0x34,b); ret=0
@@ -1532,6 +1540,23 @@ for name in ('search_dialog','tidal_search_dialog'):
 for name in ('searchbox_dialog','tidal_searchbox_dialog'):
     m=Machine(); m.top=m.node('window',name,[m.node('view')])
     assert m.call()==0 and not m.moved(); passed()
+# Stock's search dialogs quit on Return even while their edit's keyboard is open; destroying the
+# edit under the keyboard freezes demo. The first Return closes the keyboard and keeps the dialog;
+# with the keyboard shut, the next Return reaches stock's quit untouched.
+for name in ('search_dialog','tidal_search_dialog','searchbox_dialog','tidal_searchbox_dialog'):
+    m=Machine(); m.mock('input_method','input_method_request')
+    top=m.node('dialog',name); edit=m.node('edit',name='search_edit')
+    m.nodes[top]['children']=[edit]; m.word(edit+O['W_PARENT'],top); m.top=top
+    m.nodes[edit]['focused']=1
+    assert m.call(O['KEY_RETURN'],gap=0)==11 and m.nodes[edit]['focused']==0
+    assert [c[0] for c in m.calls if c[0].startswith('input_method')]==['input_method','input_method_request']
+    assert m.call(O['KEY_RETURN'],gap=0)==0 and not [c for c in m.calls if c[0].startswith('input_method')]
+    passed()
+m=Machine(); m.mock('input_method','input_method_request')
+top=m.node('dialog','search_dialog'); edit=m.node('edit',name='search_edit')
+m.nodes[top]['children']=[edit]; m.word(edit+O['W_PARENT'],top); m.top=top
+assert m.call(O['KEY_RETURN'],gap=0)==0 and 'focused' not in m.nodes[edit]
+assert not [c for c in m.calls if c[0].startswith('input_method')]; passed()
 
 # iPod: a confirm dialog's buttons are its rows (contexts.inc BUTTONS). The wheel moves between the
 # side-by-side buttons without scrolling anything, the bar is the button's own tile, the ends are
