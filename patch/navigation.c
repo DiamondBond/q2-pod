@@ -1,8 +1,8 @@
 /* Logical menu selection is independent of native touch focus. Stock code owns gestures. */
+#include "chapters.h"
 #include "offsets.inc"
 #include "peq.h" /* libc/libcstl imports (deque_*, send) and the shared helpers */
 #include "playback.h"
-#include "chapters.h"
 #include "stock.h"
 #undef select /* the UI selection helper below; headset.c uses libc select */
 extern int stock_dbquery_trampoline(const char *, const char *, void *, int),
@@ -233,7 +233,7 @@ typedef struct {
      * opens while the library is at mp_gen (~library_gen once stale). */
     void *mp_page, *mp_list, *td_page, *td_list;
     unsigned mp_gen;
-    void *sp_page;                 /* the Library Shuffle menu's page, kept across picks */
+    void *sp_page; /* the Library Shuffle menu's page, kept across picks */
     void *ch_page;
     chapters *ch;
     unsigned ch_timer, ch_track, ch_key;
@@ -4583,8 +4583,12 @@ static int page_closed(void *ctx, void *event) {
     if (ctx == st.un_page) st.un_page = 0;
     if (ctx == st.ch_page) {
         st.ch_page = 0;
-        if (st.ch && !st.ch->done) chapters_cancel(st.ch);
-        else { free(st.ch); st.ch = 0; }
+        if (st.ch && !st.ch->done)
+            chapters_cancel(st.ch);
+        else {
+            free(st.ch);
+            st.ch = 0;
+        }
     }
     if (ctx == st.sc_page) st.sc_page = 0;
     return 0;
@@ -4786,11 +4790,17 @@ static int chapter_pick(void *ctx, void *event) {
 static int chapter_poll(const void *unused) {
     if (!chapters_poll(st.ch, time_now_ms())) return 8;
     st.ch_timer = 0;
-    if (!st.ch_page) { free(st.ch); st.ch = 0; return 0; }
+    if (!st.ch_page) {
+        free(st.ch);
+        st.ch = 0;
+        return 0;
+    }
     int n = st.ch->failed ? 0 : st.ch->count;
     void *view = page_list(st.ch_page, st.ch_page, 0,
-                           st.ch->failed ? "Could not read chapters" :
-                           n ? "Chapters" : "No embedded chapters", n, 64);
+                           st.ch->failed ? "Could not read chapters"
+                           : n           ? "Chapters"
+                                         : "No embedded chapters",
+                           n, 64);
     int sec = 0, total, current = 0;
     player_playtime_and_length(&sec, &total);
     for (int i = 0; i < n; ++i) {
@@ -4808,7 +4818,10 @@ static void chapters_open(void *r) {
     if (st.ch || !chapter_file(P(r, REC_PATH))) return;
     st.ch_track = np_track();
     st.ch = chapters_start(P(r, REC_PATH), time_now_ms());
-    if (!st.ch) { toast("Could not read chapters"); return; }
+    if (!st.ch) {
+        toast("Could not read chapters");
+        return;
+    }
     st.ch_page = page_open("chapters_page", page_closed, page_keyup);
     st.ch_timer = timer_add(chapter_poll, 0, 50);
     if (!st.ch_page || !st.ch_timer) {
@@ -6455,8 +6468,10 @@ static void resume_poll(void) {
         st.rs_sec = st.rs_saved = sec;
         st.rs_still = 0;
     }
-    if (st.ch_key == key) st.rs_pending = 0;
-    else st.ch_key = 0;
+    if (st.ch_key == key)
+        st.rs_pending = 0;
+    else
+        st.ch_key = 0;
     /* A listen: half the track or LISTEN_MAX_S heard, seeks and pauses aside; a repeat starts over.
      */
     if (!st.rs_pending && !st.rs_spoken) {
