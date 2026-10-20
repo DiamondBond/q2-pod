@@ -160,7 +160,7 @@ for grouping in (0,1):
 
 # Shuffle Songs takes the loaded queue over as Shuffle Songs, Repeat All: an order Up Next lists,
 # every track once a pass from the playing one, then the next pass, without end.
-m=PlaybackMachine(); assert m.fn('playback_shuffle')==1
+m=PlaybackMachine(); assert m.fn('playback_take',0,1)==1
 assert [m.fn('playback_option',k) for k in range(3)]==[1,5,0]
 out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i in range(n)]
 seq=m.sequence(limit=20); assert n==13 and seq[1:14]==up and len(seq)==21 and sorted(seq[:7])==list(range(7)) and seq[0]==2; checks+=1
@@ -173,24 +173,34 @@ for shuffles,chosen in ((1,None),(2,None),(1,0)):
     mode(3)
     for _ in range(shuffles):  # shuffle_play's order
         was=m.fn('playback_unshuffle'); mode(2,1); m.fn('ringnav_load',m.deque([m.song('a'),m.song('b')]),0,0xf001)
-        assert m.fn('playback_shuffle',was)==1 and m.mcl('MCL_MODE')==2
+        assert m.fn('playback_take',was,1)==1 and m.mcl('MCL_MODE')==2
     if chosen is not None: mode(chosen)
     m.fn('ringnav_load',m.deque([m.song('album')]),0,1)
     assert m.mcl('MCL_MODE')==(3 if chosen is None else chosen) and m.fn('playback_option',0)==0; checks+=1
 # Shuffle Albums straight after restores it too, and keeps its groups.
 m=PlaybackMachine(); m.handlers.pop(syms['config_playmode'],None); all=m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist'])))); mode(3)
-was=m.fn('playback_unshuffle'); mode(2,1); m.fn('ringnav_load',m.deque([m.song('a'),m.song('b')]),0,0xf001); m.fn('playback_shuffle',was)
+was=m.fn('playback_unshuffle'); mode(2,1); m.fn('ringnav_load',m.deque([m.song('a'),m.song('b')]),0,0xf001); m.fn('playback_take',was,1)
 assert m.fn('playback_groups',all,0)==1 and m.mcl('MCL_MODE')==3 and m.fn('playback_option',0)==3; checks+=1
+
+# A Mixtape (mixtape_play: playback_take(mode, 0)) keeps the loaded order, Play All, saved for resume: Up Next is the
+# rest of the list. The next other queue restores the mode it replaced; a List it replaced stays List.
+for before in (2,3,0):
+    m=PlaybackMachine(); m.handlers.pop(syms['config_playmode'],None); mode(before)
+    was=m.fn('playback_unshuffle'); m.fn('playback_clear'); mode(0,1); m.fn('ringnav_load',m.deque([m.song(x) for x in 'abcd']),0,0xf001)
+    assert m.fn('playback_take',was,0)==1 and [m.fn('playback_option',k) for k in range(2)]==[0,2] and '/mnt/data/ringnav-queue' in m.files
+    out=m.alloc(16); n=m.fn('playback_upcoming',out,4); assert [m.get(out+4*i) for i in range(n)]==[1,2,3],n
+    m.fn('ringnav_load',m.deque([m.song('album')]),0,1)
+    assert m.mcl('MCL_MODE')==before and m.fn('playback_option',0)==0; checks+=1
 
 # Over SAVE_LIMIT (999) tracks nothing is saved, and an older snapshot goes.
 for n,kept in ((999,True),(1000,False)):
     m=PlaybackMachine({'/mnt/data/ringnav-queue':b'old'}); m.budget=100000000; m.install([(f't{i}',f'/L/{i}.flac','L',1,i,0,0) for i in range(n)])
-    assert m.fn('playback_shuffle')==1 and ('/mnt/data/ringnav-queue' in m.files)==kept and m.files.get('/mnt/data/ringnav-queue')!=b'old'; checks+=1
+    assert m.fn('playback_take',0,1)==1 and ('/mnt/data/ringnav-queue' in m.files)==kept and m.files.get('/mnt/data/ringnav-queue')!=b'old'; checks+=1
 
 # A failed rebuild ends advanced play and drops the older queue's snapshot, so a reboot cannot
 # restore it.
-m=PlaybackMachine(); assert m.fn('playback_shuffle')==1 and '/mnt/data/ringnav-queue' in m.files
-m.fail='alloc'; assert m.fn('playback_shuffle')==0 and '/mnt/data/ringnav-queue' not in m.files and m.fn('playback_option',0)==0; checks+=1
+m=PlaybackMachine(); assert m.fn('playback_take',0,1)==1 and '/mnt/data/ringnav-queue' in m.files
+m.fail='alloc'; assert m.fn('playback_take',0,1)==0 and '/mnt/data/ringnav-queue' not in m.files and m.fn('playback_option',0)==0; checks+=1
 
 # The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
 # order, and opens nothing else.
