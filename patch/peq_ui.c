@@ -35,7 +35,7 @@ void peq_attach(void) {
 }
 
 enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST, STOCKS };
-enum { BACK = 1000, APPLY, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
+enum { BACK = 1000, APPLY, RESET, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
        YES, CANCEL, DELETE, BALANCE, PREAMP, GAIN, /* these three open the picker, in picks[] order */
        FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD, STOCK, FILE_PREV, FILE_NEXT };
 #define FILE_PAGE 128
@@ -344,6 +344,14 @@ static int action(void *ctx, void *event) {
             ui.named = ui.draft;
             snprintf(ui.status, sizeof(ui.status), "Applied");
         } else snprintf(ui.status, sizeof(ui.status), "Apply failed; active EQ unchanged");
+    } else if (id == RESET) {
+        /* The draft returns to peq_default; On/Off is live state, not part of the edit. */
+        int bypass = ui.draft.bypass;
+        peq_default(&ui.draft);
+        ui.draft.bypass = bypass;
+        ui.name[0] = 0;
+        ui.dirty = 1;
+        snprintf(ui.status, sizeof(ui.status), "Reset; choose Apply to activate");
     } else if (id == YES) {
         ui.screen = ui.previous;
         if (ui.screen != DELETES) save_candidate(1);
@@ -458,6 +466,7 @@ static int render(const void *unused) {
     /* No Back row: Return steps back on every screen (keyup). */
     if (ui.screen == HOME) {
         row(view, n++, ui.dirty ? "Apply changes" : "Nothing to apply", ui.dirty ? APPLY : -1);
+        row(view, n++, "Reset to defaults", RESET);
         row_dim(view, n++, "Advanced", ui.draft.bypass ? "Off" : "On", BYPASS, 0);
         snprintf(value, sizeof(value), on_auto() ? "%.1f dB (Auto)" : "%.1f dB", ui.draft.preamp);
         row_dim(view, n++, "Preamp", value, PREAMP, 0);

@@ -729,7 +729,28 @@ def editor_check(lib, tmp):
     ui.shim_type(b'0.7'); assert edit() == '0.70'
     ui.shim_return(); ui.shim_return(); click('Apply changes')
     r = read(); assert (r.bands[0].frequency, round(r.bands[0].q, 9)) == (1000.5, 0.7), (r.bands[0].frequency, r.bands[0].q)
-    print('EQ Advanced tab: bypass, apply, auto preamp, channels, balance, frequency and Q, load, failed saves, delete and close passed.')
+    # Reset replaces the draft with peq_default's ten flat bands and leaves what plays alone until
+    # Apply changes; Advanced's On/Off is live state and stays as it was.
+    before = active.read_bytes()
+    click('Reset to defaults')
+    assert title() == 'Reset; choose Apply to activate' and active.read_bytes() == before
+    assert ui.shim_click(b'Preamp 0.0 dB (Auto)', 2) and ui.shim_click(b'Balance Centre', 2)
+    assert not ui.shim_click(b'Presets ', 2)  # the draft is no longer a named preset
+    click('Apply changes')
+    r = read()
+    assert (r.count, r.preamp, r.balance, r.bypass) == (10, 0, 0, 0)
+    assert [round(b.frequency) for b in r.bands[:10]] == [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+    assert all(not b.enabled and b.gain == 0 and b.q == 1.41 and b.type == 0 for b in r.bands[:10])
+    # Off stays Off.
+    click('Advanced On')  # turns PEQ off
+    before = active.read_bytes()
+    click('Reset to defaults')
+    assert active.read_bytes() == before
+    click('Apply changes')
+    r = read()
+    assert (r.count, r.preamp, r.balance, r.bypass) == (10, 0, 0, 1)
+    s = State(); assert lib.eq_load(C.byref(s)) and s.mode == EQ_OFF
+    print('EQ Advanced tab: bypass, apply, auto preamp, channels, balance, frequency and Q, load, failed saves, delete, reset and close passed.')
     # A full pack stays sorted and reachable, with bounded widget counts and page-local action IDs.
     imports = tmp/'root/mnt/mmc/EQ'
     for i in reversed(range(8850)):
