@@ -1,6 +1,9 @@
 # Changelog
 
 - **1.3.4**:
+  - **Reset to defaults** in the PEQ editor puts the ten bands, preamp and balance back to flat, keeps Advanced's On/Off as it is and leaves saved presets untouched; choose **Apply changes** to activate it.
+  - Advanced's **Auto** preamp now estimates its cut across standard sample rates from 8 to 384 kHz, instead of only 48 kHz, so its headroom is right for high-resolution tracks too.
+  - The EQ keeps float headroom instead of clipping its own output at full scale, so software volume and mixing can use the extra level; manual and imported preamp and balance apply exactly.
   - Search from the Library no longer freezes when Back is pressed while the keyboard is open: the first Back closes the keyboard, and the next leaves search.
 
 - **1.3.3**:
