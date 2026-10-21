@@ -1,6 +1,6 @@
 # Changelog
 
-- **1.3.5** (unreleased):
+- **1.3.5**:
   - Add persistent **Swap L/R** below Mono Audio, default Off, for local PCM playback, Bluetooth/USB output, Videos, Internet Radio and Spotify’s helper. DSD and AirPlay retain Mono Audio’s limitations; Spotify on the headphone jack may need pause/play after switching.
   - Advanced EQ now reads **Enabled: On/Off**, followed by Balance, Preamp and Presets; Simple EQ’s switch reads **Enabled: On/Off** too.
   - Library → Songs excludes podcasts and audiobooks in every stock sort, without a database reset; Folder and stored playlists keep their contents.
