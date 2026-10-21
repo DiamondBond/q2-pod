@@ -285,7 +285,6 @@ static inline int arc_out(int r, int y) {
 #define DOUBLE_CLICK_MS 250 /* a second centre press within this is a double press */
 #define WAKE_MS 500 /* Wake: Double press, the screen-off double press; looser, done blind in a hand */
 #define SCRUB_MS 3000
-#define LYRIC_STEP 25 /* px per wheel tick on the lyrics page: one stock lyric row */
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms, about 10 turns a
  * second; screen-off keys (volume, play/pause, wake) wait at most this much longer. */
 #define SCREEN_OFF_SLEEP_MS 100

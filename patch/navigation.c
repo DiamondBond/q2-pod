@@ -2920,7 +2920,10 @@ static int lyric_expire(const void *info) {
 }
 
 /* The wheel on the lyrics page (the slide_view's second), while the track has lyrics, scrolls
- * them LYRIC_STEP a tick, ahead of scrub (which ends) and the volume. */
+ * them a row a tick, to the next or previous row's top, ahead of scrub (which ends) and the
+ * volume. Stock's rows are 20 px, or 25 a line when wrapped (0x52a0c8), so a fixed step would
+ * leave the top row cut. ponytail: at the very end the view's bottom meets the last row and the
+ * top one can still be cut; the view is not a whole number of rows. */
 static int np_lyrics(unsigned key) {
     void *lrc = st.np_lrc;
     if (!st.np_slide || !lrc || widget_get_prop_int(st.np_slide, "value", 0) != 1 ||
@@ -2930,9 +2933,12 @@ static int np_lyrics(unsigned key) {
     stop_timer(&st.settle_timer);
     if (!st.lyric_timer) playing_timer_clear(st.np_win);
     rearm(&st.lyric_timer, lyric_expire, SCRUB_MS);
-    int y = clamp_step(I(lrc, SCROLL_Y), I(lrc, VIEW_CONTENT_H) - I(lrc, W_H),
-                       key == KEY_NEXT ? LYRIC_STEP : -LYRIC_STEP);
-    scroll_view_set_offset(lrc, I(lrc, SCROLL_X), y);
+    int y = I(lrc, SCROLL_Y), max = I(lrc, VIEW_CONTENT_H) - I(lrc, W_H), to = key == KEY_NEXT ? max : 0;
+    for (int i = 0, n = widget_count_children(lrc); i < n; ++i) {
+        int top = I(widget_get_child(lrc, i), W_Y);
+        if (key == KEY_NEXT ? top > y && top < to : top < y && top > to) to = top;
+    }
+    scroll_view_set_offset(lrc, I(lrc, SCROLL_X), clamp_step(to, max, 0));
     return 1;
 }
 

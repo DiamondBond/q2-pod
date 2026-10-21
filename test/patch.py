@@ -5278,13 +5278,17 @@ if variant=='ipod':
         elif end=='timeout': step(m,O['SCRUB_MS'],wait=True)
         else: assert step(m,O['KEY_RETURN'],gap=50)==11
         ended(m,[],end); passed()
-    # The lyrics page (slide value 1) with lyrics: the wheel scrolls scroll_lrc LYRIC_STEP a tick within
-    # its content, ahead of scrub and the volume, with stock's timer (which re-pins the current line)
-    # stopped until SCRUB_MS after the last tick. Another page or no lyrics leaves the wheel on volume.
-    def lyric_page(page=1,size=9,lines=1):
+    # The lyrics page (slide value 1) with lyrics: the wheel scrolls scroll_lrc a row a tick, to the next
+    # or previous row's top (stock's rows are 20 px, 25 a wrapped line) within its content, ahead of scrub
+    # and the volume, with stock's timer (which re-pins the current line) stopped until SCRUB_MS after the
+    # last tick. Another page or no lyrics leaves the wheel on volume.
+    ROWS=(20,50,20,20,25)+(20,)*7  # tops 0 20 70 90 110 ...; 275 px of content, at most 97 down
+    def lyric_page(page=1,size=9,lines=len(ROWS)):
         m=scrub_page(); m.lyric_size=size
-        m.lrc=m.node('scroll_view','scroll_lrc',[m.node('label') for _ in range(lines)])
-        m.word(m.lrc+O['W_H'],178); m.word(m.lrc+O['VIEW_CONTENT_H'],250)
+        rows=[m.node('label') for _ in range(lines)]
+        for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
+        m.lrc=m.node('scroll_view','scroll_lrc',rows)
+        m.word(m.lrc+O['W_H'],178); m.word(m.lrc+O['VIEW_CONTENT_H'],sum(ROWS))
         m.slide=m.node('slide_view','slide_view',[m.lrc],value=page)
         m.nodes[m.win]['children'].append(m.slide)
         assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0; m.calls=[]
@@ -5292,16 +5296,18 @@ if variant=='ipod':
     for kw in ({'page':0},{'size':0},{'lines':0}):
         m=lyric_page(**kw); assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
     m=lyric_page()
-    assert step(m)==11 and m.get(m.lrc+O['SCROLL_Y'])==O['LYRIC_STEP'] and did(m,'playing_timer_clear')==[m.win]
-    for _ in range(5): assert step(m,gap=200)==11
-    assert m.get(m.lrc+O['SCROLL_Y'])==72 and not did(m,'playing_timer_clear')  # 250 - 178
-    for _ in range(5): assert step(m,O['KEY_PREV'],gap=200)==11
-    assert m.get(m.lrc+O['SCROLL_Y'])==0 and not m.starts
+    assert step(m)==11 and m.get(m.lrc+O['SCROLL_Y'])==20 and did(m,'playing_timer_clear')==[m.win]
+    ys=[]
+    for _ in range(5): assert step(m,gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
+    assert ys==[70,90,97,97,97] and not did(m,'playing_timer_clear'),ys  # row tops, then the end: 275 - 178
+    ys=[]
+    for _ in range(5): assert step(m,O['KEY_PREV'],gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
+    assert ys==[90,70,20,0,0] and not m.starts,ys
     step(m,O['SCRUB_MS']-1,wait=True); assert not m.starts
     step(m,1,wait=True); assert m.starts==[m.win] and not m.timers and m.seeks==[]; passed()
     # A scrub begun on the lyrics page ends at the next tick, committing once, and the tick scrolls.
     m=lyric_page(); centre(m); m.nodes[m.slide]['value']=0; step(m); m.nodes[m.slide]['value']=1
-    assert step(m)==11 and m.seeks==[105] and m.get(m.lrc+O['SCROLL_Y'])==O['LYRIC_STEP']
+    assert step(m)==11 and m.seeks==[105] and m.get(m.lrc+O['SCROLL_Y'])==20
     step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win] and not m.timers; passed()  # lyrics drop the settle wait
     # Touch ends it at once; the page's destruction keeps stock's timer off.
     m=lyric_page(); step(m); step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
