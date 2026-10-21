@@ -8924,15 +8924,21 @@ def fetch(codes,tag,reply=b'',done=500):
     threads=len(m.threads); press(); assert len(m.threads)==threads  # ended, not yet joined: nothing
     m.advance(done,clear=False)
     assert ('widget_set_tr_text',label) in [c[:2] for c in m.calls] and UPDATE+'.part' not in m.files
-fetch([302,200],'0.0.1',b'TAR'*100)
+fetch([302,200],'9.9.9',b'TAR'*100)
 assert m.opts[10002]==f'https://github.com/DiamondBond/q2-pod/releases/latest/download/{ASSET}' and m.opts[52]==1
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
 assert bytes(m.files[UPDATE])==b'TAR'*100 and 'fwupdate_tf' in [c[0] for c in m.calls]
 m.files[UPDATE]=bytearray(b'old')
-fetch([302,404],'0.0.1'); assert m.toasts[-1][3]=='No update for this build' and m.files[UPDATE]==b'old'
-fetch([200],'0.0.1'); assert m.toasts[-1][3]=="Can't reach GitHub"  # no redirect: no tag
+fetch([302,404],'9.9.9'); assert m.toasts[-1][3]=='No update for this build' and m.files[UPDATE]==b'old'
+fetch([200],'9.9.9'); assert m.toasts[-1][3]=="Can't reach GitHub"  # no redirect: no tag
 if not manifest['dev']:  # --dev builds have no release tag, so always fetch
     fetch([302],VERSION); assert m.toasts[-1][3]=='Latest firmware installed' and m.files[UPDATE]==b'old'
+    fetch([302],'1.0.0'); assert m.toasts[-1][3]=='Latest firmware installed'  # older: never a downgrade
+# Leaving the page cancels before the download starts: the card may be unmounted or shared next.
+press(); m.codes=[302,200]; m.location='https://github.com/DiamondBond/q2-pod/releases/tag/9.9.9'; m.reply=b'NEW'
+f,ctx=m.handler(label,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
+m.advance(500,clear=False); assert m.toasts[-1][3]=='Download cancelled' and m.files[UPDATE]==b'old'
 assert 'fwupdate_tf' not in [c[0] for c in m.calls]; passed()
 
 # Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or

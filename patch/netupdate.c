@@ -82,13 +82,18 @@ static void *worker(void *unused) {
         nu.state = NU_NET;
         return 0;
     }
-    /* Stock's updater refuses its own tag anyway; Q2POD_TAG is empty in --dev builds. */
-    if (!strcmp(tag, Q2POD_TAG)) {
+    /* Tags are single-digit x.y.z, so strcmp orders them: nothing older than this build, which
+     * stock's updater would flash. Q2POD_TAG is empty in --dev builds, which take any tag. */
+    if (*Q2POD_TAG && strcmp(tag, Q2POD_TAG) <= 0) {
         nu.state = NU_LATEST;
         return 0;
     }
     /* The old update.tar stays until the new one is whole. ponytail: needs the tar's ~55 MB free
      * beside it; TLS and curl's length check are the only integrity checks before stock's own MD5s. */
+    if (nu.cancel) { /* pressed while checking, or the page was left */
+        nu.state = NU_CANCELLED;
+        return 0;
+    }
     void *f = fopen(NU_FILE ".part", "wb");
     int err = !f, state = NU_CARD;
     if (f) {
@@ -97,9 +102,11 @@ static void *worker(void *unused) {
         err = err || code != 200 || fflush(f) || fsync(fileno(f)) || ferror(f);
         err = fclose(f) || err;
     }
-    if (!err && !nu.cancel && !rename(NU_FILE ".part", NU_FILE)) /* a late cancel still cancels */
+    if (!err && !nu.cancel && !rename(NU_FILE ".part", NU_FILE)) { /* a late cancel still cancels */
+        void *dir = fopen("/mnt/mmc", "r"); /* the rename's directory entry, before stock flashes */
+        if (dir) fsync(fileno(dir)), fclose(dir);
         state = NU_DONE;
-    else
+    } else
         unlink(NU_FILE ".part");
     nu.state = state;
     return 0;
@@ -158,8 +165,9 @@ static int online_click(void *ctx, void *event) {
     return 0;
 }
 
+/* Leaving the page cancels: the card may be unmounted or shared over USB next. */
 static int label_gone(void *ctx, void *event) {
-    if (nu.label == ctx) nu.label = 0;
+    if (nu.label == ctx) nu.label = 0, nu.cancel = 1;
     return 0;
 }
 
