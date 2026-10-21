@@ -436,7 +436,7 @@ is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` co
 
 A tap on the art opens stock's full-screen art (`bigcover_page`; any tap closes it). Its song name
 and the shade band behind it show for `BC_MS` (3 s), then fade out together over `BC_STEPS` steps
-`BC_STEP_MS` apart (`ringnav_bigcover`, after stock's init).
+`BC_STEP_MS` apart (`ringnav_bigcover`, after stock's init). They show again for each new song while it is open.
 
 **Scrub.** A double press of the centre button starts scrubbing, as on an iPod classic (with the screen off it only
 wakes it, [Wake](internals.md#wake)), and the bar fill turns white

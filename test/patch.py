@@ -5185,6 +5185,12 @@ if variant=='ipod':
     for _ in range(O['BC_STEPS']):
         b.advance(O['BC_STEP_MS'] if steps else 1); steps.append(alpha()[0]); assert alpha()[0]==alpha()[1]
     n=O['BC_STEPS']; assert steps==[255*(n-k)//n for k in range(1,n+1)] and not b.timers,steps; passed()
+    # A new song while it is open shows its name again and restarts the fade; the same song does not.
+    b.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
+    tick=lambda: b.call(address=HOOKS['main_loop_sleep_default'][0],args=(0x1234,0,0,0),gap=0,clear=False)
+    tick(); assert alpha()==[0,0] and not b.timers
+    b.word(O['MCL_POS'],2); tick(); assert alpha()==[255,255] and len(b.timers)==1
+    b.advance(O['BC_MS']-1); tick(); assert alpha()==[255,255] and len(b.timers)==1; passed()
     b,bw,alpha=bigcover(); b.advance(O['BC_MS']+O['BC_STEP_MS'])
     f,ctx=b.handler(bw,O['EVT_DESTROY']); b.call(address=f,args=(ctx,b.event,0,0),gap=0)
     assert not b.timers; passed()

@@ -318,7 +318,7 @@ typedef struct {
      */
     void *bc[2];
     int bc_step;
-    unsigned bc_timer;
+    unsigned bc_timer, bc_track;
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -3119,16 +3119,25 @@ static int bc_gone(void *win, void *event) {
     return 0;
 }
 
+/* Shows the song name and its shade again for BC_MS, then fades them out. */
+static void bc_show(void) {
+    stop_timer(&st.bc_timer);
+    for (int i = 0; i < 2; ++i)
+        if (st.bc[i]) widget_set_opacity(st.bc[i], 255);
+    st.bc_step = 0;
+    st.bc_track = np_track();
+    st.bc_timer = timer_add(bc_fade, (void *)0, BC_MS);
+}
+
 /* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
- * shows the song name BC_MS, then bc_fade fades it out. */
+ * shows the song name BC_MS, then bc_fade fades it out. Stock's own timer writes the next song's
+ * name; ringnav_sleep shows it again when the track changes. */
 int ringnav_bigcover(void *win, void *ctx) {
     int result = stock_bigcover_trampoline(win, ctx);
     if (!win) return result;
-    stop_timer(&st.bc_timer);
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
     st.bc[1] = widget_lookup(win, "view_shade", 1);
-    st.bc_step = 0;
-    st.bc_timer = timer_add(bc_fade, (void *)0, BC_MS);
+    bc_show();
     widget_on(win, EVT_DESTROY, bc_gone, win);
     return result;
 }
@@ -7388,6 +7397,7 @@ int ringnav_sleep(void *loop) {
     playback_poll();
     resume_poll();
     power_poll();
+    if (st.bc[0] && np_track() != st.bc_track) bc_show();
     if (!g_backlight_status) {
         st.dark |= 1;
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
