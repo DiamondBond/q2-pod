@@ -192,16 +192,16 @@ for n,kept in ((999,True),(1000,False)):
 m=PlaybackMachine(); assert m.fn('playback_shuffle')==1 and '/mnt/data/ringnav-queue' in m.files
 m.fail='alloc'; assert m.fn('playback_shuffle')==0 and '/mnt/data/ringnav-queue' not in m.files and m.fn('playback_option',0)==0; checks+=1
 
-# The Now Playing hold offers Up Next only while a shuffle is on; its page lists those rows, in play
-# order, and opens nothing else.
+# The Now Playing hold's View Queue opens the Up Next list only while a shuffle is on (stock's page
+# otherwise); it lists those rows, in play order, and opens nothing else. No separate Up Next row.
 def now_playing():
     m=PlaybackMachine(page='playing_page',pos=1); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2); return m
 m=now_playing(); m.options(0,2,0); m.press(5000); assert m.release()==1
 m.press(6000); assert m.hold()==11 and 'Up Next' not in m.labels() and m.release()==0
 m.press(7000); assert m.release()==1; checks+=1
 m=now_playing(); m.options(1,2,0); calls=m.random_calls
-m.press(6000); assert m.hold()==11 and m.release()==0 and 'Up Next' in m.labels()
-m.pick(m.labels().index('Up Next')); m.advance(0)
+m.press(6000); assert m.hold()==11 and m.release()==0 and 'Up Next' not in m.labels()
+m.pick(m.labels().index('View Queue')); m.advance(0)
 assert 'window_create' in [c[0] for c in m.calls] and m.random_calls==calls and not m.playback(); checks+=1
 
 # Album identity (name, then album artist, else folder) crosses folders with an album artist;
@@ -275,7 +275,7 @@ out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); up=[m.get(out+4*i) for i 
 assert up[:3]==[old+1,old+2,old+3] and m.sequence(limit=n)[1:]==up, up
 checks+=1
 
-# A View Queue or Up Next pick plays now; the pass carries on without it, the tracks it jumped stay
+# A View Queue pick (stock's page or the shuffle list) plays now; the pass carries on without it, the tracks it jumped stay
 # up next, Previous returns to it, and a Play Next it is not part of stays first.
 m=PlaybackMachine(); m.options(1,5,0); out=m.alloc(24*4)
 up=[m.get(out+4*i) for i in range(m.fn('playback_upcoming',out,24))]; x=up[3]; rest=[t for t in up[:6] if t!=x]
@@ -294,7 +294,7 @@ m=PlaybackMachine(); m.options(0,2,0); m.fn('ringnav_start_queue',4)  # ordered:
 assert m.sequence(limit=3)==[4,5]  # the play order is 2,6,0,1,3,4,5
 checks+=1
 
-# An Up Next hold moves its track to play next (playback_move): not again at its old place, the rest
+# A hold on View Queue's shuffle list moves its track to play next (playback_move): not again at its old place, the rest
 # of the order as it was, a pending Play Next behind it, every index (pool, previous, history) moved.
 def up_names(m,k=24):
     out=m.alloc(24*4); names=m.names(); return [names[m.get(out+4*i)] for i in range(m.fn('playback_upcoming',out,k))]

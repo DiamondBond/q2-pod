@@ -4095,7 +4095,6 @@ enum {
     QA_RATE,
     QA_RESUME,
     QA_QUEUE,
-    QA_UP_NEXT,
     QA_FOLDER,
     QA_CHAPTERS
 };
@@ -4934,9 +4933,10 @@ static int most_played(void *ctx, void *event) {
     return 0;
 }
 
-/* Up Next: the tracks after the playing one in the order they play, which a shuffle's order differs
- * from the queue's. A row plays its track as View Queue's does (player_start_queue), and the page
- * closes, as its snapshot is then stale. ponytail: a snapshot taken on open (and again on a hold's
+/* View Queue while a shuffle is on (Up Next): the tracks after the playing one in the order they
+ * play, which a shuffle's order differs from the queue's that stock's playerqueue_page lists. A row
+ * plays its track as stock's does (player_start_queue), and the page closes, as its snapshot is
+ * then stale. ponytail: a snapshot taken on open (and again on a hold's
  * move, un_move), capped at UP_NEXT_ROWS; the page does not follow the playing track, and a queue
  * replaced while it is open (a folder play's next folder) leaves its rows naming other tracks; keep
  * the records to check. */
@@ -4951,7 +4951,7 @@ static int un_play(void *ctx, void *event) {
 static void un_fill(int sel) {
     void *q = P(mcl_pdeqplaylist, 0);
     unsigned *idx = st.un_idx, n = playback_upcoming(idx, UP_NEXT_ROWS);
-    void *view = page_list(st.un_page, st.un_page, 0, n ? "Up Next" : "Nothing Up Next", n, 64);
+    void *view = page_list(st.un_page, st.un_page, 0, n ? "View Queue" : "Nothing to play next", n, 64);
     char name[512];
     for (unsigned i = 0; i < n; i++) { /* the title over the artist, if tagged */
         void *t = deque_at(q, idx[i]);
@@ -6458,9 +6458,10 @@ static int qm_run(const void *unused) {
     } else if (r && a == QA_CHAPTERS) {
         chapters_open(r);
     } else if (r && a == QA_QUEUE) {
-        navigator_to("playerqueue_page");
-    } else if (r && a == QA_UP_NEXT) {
-        up_next();
+        if (playback_option(0)) /* a shuffle's play order is not the list's: ours */
+            up_next();
+        else
+            navigator_to("playerqueue_page");
     } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
         if (!playback_group_skip(a == QA_NEXT_GROUP)) toast("No other group");
     } else if (aid && a == QA_RATE) {
@@ -6633,7 +6634,6 @@ static int qm_open(const void *unused) {
     if (st.qm_kind == QM_PLAYING) {
         if (chapter_file(P(r, REC_PATH))) acts[n++] = QA_CHAPTERS;
         acts[n++] = QA_QUEUE;
-        if (playback_option(0)) acts[n++] = QA_UP_NEXT; /* a shuffle's order is not the list's */
     }
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
@@ -6674,7 +6674,6 @@ static int qm_open(const void *unused) {
                                         "Rate",
                                         "Resume",
                                         "View Queue",
-                                        "Up Next",
                                         "Go to Folder",
                                         "Chapters" };
     char rated[32];
@@ -6740,7 +6739,7 @@ static int qm_hold(void) {
         drop_input();
         return 1;
     }
-    if (top == st.un_page) { /* Up Next: the row plays next, no menu */
+    if (top == st.un_page) { /* View Queue's shuffle list: the row plays next, no menu */
         void *w = surface_under(top, (void *)0, (void *)0, 0);
         char *key = play_key();
         int cur = key && w && load(&g_menu, w, 1) /* no context: a snapshot keeps no place */
