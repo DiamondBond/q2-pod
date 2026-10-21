@@ -2085,6 +2085,29 @@ def netupdate_check(tmp):
         assert tag(bad) is None, bad
 
 
+def online_check(tmp):
+    """Lyrics and cover search (onlinematch.c): LRCLIB's, MusicBrainz's and iTunes's search URLs,
+    percent-encoded, and iTunes artwork's 600 px size."""
+    lib = compile_host(tmp, 'onlinematch.so', ROOT/'patch/onlinematch.c')
+    def call(f, t, a, n=256):
+        out = C.create_string_buffer(n)
+        return out.value if f(out, n, t, a) else None
+    url = lambda t, a, n=256: call(lib.lrclib_url, t, a, n)
+    assert url('Café & Co/2'.encode(), b'AC~DC') == \
+        b'https://lrclib.net/api/search?track_name=Caf%C3%A9%20%26%20Co%2F2&artist_name=AC~DC'
+    assert url(b'Solo', b'') == b'https://lrclib.net/api/search?track_name=Solo&artist_name='
+    assert url(b'x' * 300, b'a') is None and url(b'Solo', b'a', 59) is None and url(b'Solo', b'a', 60)  # too long for out
+    mb = 'https://musicbrainz.org/ws/2/release/?fmt=json&limit=10&query=release%3A%22'
+    assert call(lib.mb_url, b'OK Computer', b'Radiohead') == (mb + 'OK%20Computer%22%20AND%20artist%3A%22Radiohead%22').encode()
+    assert call(lib.mb_url, b'Say "Hi" \\o', b'') == (mb + 'Say%20%5C%22Hi%5C%22%20%5C%5Co%22').encode()  # Lucene-escaped, no artist clause
+    assert call(lib.mb_url, b'x' * 100, b'a', 200) is None
+    assert call(lib.itunes_url, b'In Rainbows', b'Radiohead') == \
+        b'https://itunes.apple.com/search?entity=album&limit=5&term=Radiohead%20In%20Rainbows'
+    art = C.create_string_buffer(b'https://is1-ssl.mzstatic.com/image/thumb/a/100x100.png/100x100bb.jpg')
+    assert lib.itunes_art(art) and art.value == b'https://is1-ssl.mzstatic.com/image/thumb/a/100x100.png/600x600bb.jpg'
+    assert not lib.itunes_art(C.create_string_buffer(b'https://x/cover.jpg'))
+
+
 def tidal_check(tmp):
     """Tidal cache (tidal.c): the cached file's extension comes from the stream URL's path."""
     lib = compile_host(tmp, 'tidal.so', ROOT/'patch/tidal.c')
@@ -2168,6 +2191,7 @@ if __name__ == '__main__':
         spotify_check(tmp)
         tidal_check(tmp)
         netupdate_check(tmp)
+        online_check(tmp)
         if args.captures:
             args.captures.mkdir(parents=True, exist_ok=True)
             (tmp/'captures').mkdir()

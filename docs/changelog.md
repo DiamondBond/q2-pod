@@ -3,6 +3,8 @@
 - **1.3.6**:
   - Up Next: hold Play/Pause on a song to play it next; it moves out of its old place in the queue.
   - Quick Settings: hold Play/Pause to switch the wheel between the brightness slider and volume; the choice is kept across restarts.
+  - Lyrics: Now Playing's lyrics search (⋯ menu) now looks on LRCLIB first, which has synced lyrics for most non-Chinese music, then Kugou as before. NetEase, stock's other source, no longer answers.
+  - Cover art: Now Playing's cover search (⋯ menu) now offers covers from MusicBrainz's Cover Art Archive and Apple's iTunes first, then Kugou and Baidu as before.
   - Lyrics: the top row is no longer shown cut in half, whether the page follows the song, reaches the end or the wheel scrolls it a row a tick.
   - Quick Settings: swiping up to close no longer changes the brightness.
   - Artist page: with Artist Albums set to Grid, the stock toolbar is back, with its multi-select for adding or deleting several songs or albums at once.

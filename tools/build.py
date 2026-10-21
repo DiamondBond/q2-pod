@@ -89,6 +89,10 @@ HOOKS = {
     'mclNextSong': (0x5adbbc, 'ringnav_next', 'next'),
     # Lyrics: a local track without a .lrc takes its LYRICS tag (navigation.c ringnav_lyric)
     'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
+    # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB first, then stock's Kugou search
+    'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', 'kugou'),
+    # its cover match: MusicBrainz/Cover Art Archive and iTunes candidates, then stock's Kugou search
+    'kugou_obtaincover': (0x5112c4, 'ringnav_cover_search', 'kugoucover'),
     'mclPrevSong': (0x5ada98, 'ringnav_prev', 'prev'),
     'mclSetPlayMode': (0x5ab25c, 'ringnav_mode', 'mode'),
     'mclSetPlaySpeed': (0x5ab2ec, 'ringnav_speed', 'speed'),
@@ -865,6 +869,13 @@ FUNCTIONS = {
  'class_icon': ('int', 'void *, int'),  # Artists, Composers and Genres rows' img_icon (CLASS_ICON)
  'np_info': ('int', 'void *'),  # Now Playing's info page labels (ringnav_np_info)
  'getFormatString': ('int', 'const char *, char *, int'),  # a string's label in the language: key, out, size
+ # Lyrics and cover search (onlinematch.c): demo's cJSON, a node's valuestring at +16
+ 'cJSON_Parse': ('void *', 'const char *'), 'cJSON_Delete': ('void', 'void *'),
+ 'cJSON_GetArraySize': ('int', 'void *'), 'cJSON_GetArrayItem': ('void *', 'void *, int'),
+ 'cJSON_GetObjectItem': ('void *', 'void *, const char *'),
+ 'online_getkeyword_info': ('void', 'char *'),  # stock's lyric keywords (0x600 bytes), copied under its lock
+ # the cover match's candidate URLs (onlinematching_page shows each), under the same lock
+ 'online_addcoverlist': ('void', 'const char *'), 'online_getsize_coverlist': ('int', 'void'),
  'mclSetSeek': ('int', 'int'),  # the player's seek in file seconds; it plays on from there, or on Play once paused
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
@@ -1115,7 +1126,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox row, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
     header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION}{" Pod" if ipod else ""}{f" dev {dev}" if dev else ""}"',
-               f'#define Q2POD_TAG "{"" if dev else VERSION}"']  # netupdate.c: the release tag, none when --dev
+               f'#define Q2POD_TAG "{"" if dev else VERSION}"',  # netupdate.c: the release tag, none when --dev
+               f'#define Q2POD_UA "Q2Pod/{VERSION} (https://github.com/DiamondBond/q2-pod)"']  # onlinematch.c, as MusicBrainz asks
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()
