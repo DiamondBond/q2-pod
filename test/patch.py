@@ -3535,10 +3535,58 @@ for result in (0,-7):
     assert bt_init.calls[0][0]=='initBluetoothParam'
     assert [c[:3] for c in bt_init.calls[1:]]==[
         ('btctl_set_prompt_callback',0x4ef600,0),
-        ('btctl_device_status_callback',0x4f1a50,0),
+        ('btctl_device_status_callback',payload_syms['headset_bt_status'],0),
         ('btctl_set_a2dp_callback',syms['btrecvA2dpFunc'],0x01020304),
         ('btctl_create_daemon_thread',thread,0)]
     assert bt_init.get(thread)==0x12345678
+    passed()
+# An incoming link while a link thread waits for the saved device (BT_STATUS) is adopted; auto-link
+# skips while a listed one is connected (BT_AUTOLINK).
+from build import BT_STATUS, BT_AUTOLINK
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_STATUS[0]))[0]==jal(payload_syms['headset_status_register'])
+assert struct.unpack_from('<I',demo,fileoff(demo,BT_AUTOLINK[0]))[0]==jal(payload_syms['headset_bt_autolink'])
+class BtLinkMachine(Machine):
+    def __init__(self,links,paired=True,connecting=1,saved='AA:AA:AA:AA:AA:AA'):
+        super().__init__(); self.links=[list(x) for x in links]; self.paired=paired
+        self.u.mem_write(0xa38168,saved.encode()+b'\0')  # BTLINKMAC
+        self.word(syms['bt_connectstatus'],connecting); self.handlers[0x4f1a50]='device_status'
+    def hook(self,u,addr,size,_):
+        name=self.handlers.get(addr)
+        if name not in ('getBtLinkStatus','getBtLinkSize','getBtLinkItem','addBtLinkItem','updateBtLinkStatus','checkPairDev','device_status'):
+            return super().hook(u,addr,size,_)
+        assert u.reg_read(UC_MIPS_REG_T9)==addr, (name,'PIC call missing t9')
+        a,b,c,d=[u.reg_read(r) for r in REGS]; self.calls.append((name,a,b,c,d)); ret=0
+        if name=='getBtLinkStatus': ret=next((st for x,st in self.links if x==self.text(a)),0)
+        elif name=='getBtLinkSize': ret=len(self.links)
+        elif name=='getBtLinkItem' and 0<=signed(a)<len(self.links):
+            self.word(b,self.links[a][1]); self.u.mem_write(c,self.links[a][0].encode()+b'\0')
+        elif name=='addBtLinkItem': self.links.append([self.text(a),b])
+        elif name=='updateBtLinkStatus':
+            for x in self.links:
+                if x[0]==self.text(b): x[1]=a; ret=1
+        elif name=='checkPairDev': ret=self.paired
+        self.returns(ret,clobber=True)
+a_mac,b_mac='AA:AA:AA:AA:AA:AA','BB:BB:BB:BB:BB:BB'
+link=BtLinkMachine([]); link.call(address=payload_syms['headset_status_register'],args=(0,0,0,0),gap=0)
+assert [c[:3] for c in link.calls]==[('btctl_device_status_callback',payload_syms['headset_bt_status'],0)]
+for target in (1,5):  # added by auto-link, then 5 while the thread's Connect runs
+    link=BtLinkMachine([(a_mac,target)])
+    link.call(address=payload_syms['headset_bt_status'],args=(3,link.string(b_mac),0,0),gap=0)
+    assert link.links==[[a_mac,4],[b_mac,3]] and 'device_status' not in [c[0] for c in link.calls]; passed()
+# Otherwise stock's callback gets the event as libbtctl sent it: not connecting, thread ended or judged,
+# already listed, unpaired, empty list, target connected, a thread for another device, other events.
+for event,links,paired,connecting,saved in ((3,[(a_mac,5)],True,0,a_mac),(3,[(a_mac,5)],True,2,a_mac),
+        (3,[(a_mac,5)],True,3,a_mac),(3,[(a_mac,5),(b_mac,1)],True,1,a_mac),(3,[(a_mac,5)],False,1,a_mac),
+        (3,[],True,1,''),(3,[(a_mac,3)],True,1,a_mac),(3,[(a_mac,5)],True,1,'CC:CC:CC:CC:CC:CC'),
+        (4,[(a_mac,5)],True,1,a_mac)):
+    link=BtLinkMachine(links,paired,connecting,saved); addr=link.string(b_mac)
+    link.call(address=payload_syms['headset_bt_status'],args=(event,addr,0x1234,0x5678),gap=0)
+    assert link.links==[list(x) for x in links] and link.calls[-1]==('device_status',event,addr,0x1234,0x5678)
+    passed()
+for links,paired,want in (([],True,1),([],False,0),([(b_mac,3)],True,0),([(b_mac,4)],True,1),
+                          ([(b_mac,5)],True,1),([(b_mac,3),(a_mac,5)],True,0)):
+    link=BtLinkMachine(links,paired)
+    assert link.call(address=payload_syms['headset_bt_autolink'],args=(link.string(a_mac),0,0,0),gap=0)==want
     passed()
 # Bluetooth volume runs through the shared hook in both variants. Mock only headset I/O
 # and stock gain; device_set_volume itself executes its native output routing.

@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '1.3.6'  # major.minor.patch, single digits, shown as is (About, release tag and ZIPs)
+VERSION = '1.3.7'  # major.minor.patch, single digits, shown as is (About, release tag and ZIPs)
 # The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
 # differ from the installed one, so it packs the digits: 1.0.1 is V101I. About shows the stock
 # firmware version and a CFW. Version row with VERSION and the edition instead (ringnav_about).
@@ -237,6 +237,10 @@ BT_CONNECT_START = (0x4f358c, 0x0320f809)
 # platform_init's control thread start: install callbacks before it discovers boot connections.
 BT_INIT = (0x512598, 0x0320f809)
 BT_PARAMS = (0x4f3ab4, 0x0411f5ef)  # config_bt_init's reset moves before the control thread too
+# openBluetooth's jalr btctl_device_status_callback(0x4f1a50) registers headset_bt_status instead, and
+# autoLinkBluetooth's bal checkPairDev also skips while the link list holds a connected link.
+BT_STATUS = (0x4effe0, 0x0320f809)
+BT_AUTOLINK = (0x4f17fc, 0x0411fd04)
 # player_parsecover_thd's jalr toolsGetExternCover (lw $t9 at 0x51300c; Now Playing's folder art, after its
 # embedded art failed) becomes jal coverflow_player_cover, which gives ffmpeg what stock's decoder refuses.
 PLAYER_COVER = (0x51301c, 0x0320f809)
@@ -839,6 +843,8 @@ FUNCTIONS = {
  'player_play_pause': ('int', 'void'),
  'player_next_music': ('int', 'void'), 'player_prev_music': ('int', 'void'),
  'getBtLinkSize': ('int', 'void'), 'getBtLinkItem': ('int', 'int, int *, char *'),
+ 'getBtLinkStatus': ('int', 'char *'), 'addBtLinkItem': ('void', 'char *, int'),
+ 'updateBtLinkStatus': ('int', 'int, char *'), 'checkPairDev': ('int', 'char *'),
  'btctl_create_daemon_thread': ('int', 'void *'),
  'initBluetoothParam': ('void', 'void'),
  'btctl_set_prompt_callback': ('void', 'void *, void *'),
@@ -925,7 +931,8 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'tidalStreamingLevelNow': 4,  # the quality the Tidal URL thread asked for
                 'g_dropdown_menu_state': 4,  # Quick Settings: 1, 2 while it slides or follows a swipe, 3 open
                 # the lock screen's picture (SYSSET SCREENSAVERPATH) and the picker's list
-                'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4}
+                'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4,
+                'bt_connectstatus': 4}  # a link thread runs (1), ended (2), checked (3)
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'playlistedit_page', 'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'spotify_page',
                    'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads'}
@@ -968,6 +975,7 @@ def compile_payload(out, ipod):
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access', '--undefined=ringnav_ts_read',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
+        '--undefined=headset_status_register', '--undefined=headset_bt_autolink',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -1203,6 +1211,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
           'Bluetooth init: expected btctl_create_daemon_thread import')
     patch_word(patched, *BT_INIT, jal(ps['headset_bt_init']), 'Bluetooth callbacks before control thread')
     patch_word(patched, *BT_PARAMS, 0, 'Bluetooth state initialized before control thread')
+    check(struct.unpack_from('<III', raw_demo, fileoff(raw_demo, BT_STATUS[0] - 4)) ==
+          (0x8f99fb58, 0x0320f809, 0x24841a50), 'Bluetooth status: expected btctl_device_status_callback(0x4f1a50)')
+    patch_word(patched, *BT_STATUS, jal(ps['headset_status_register']), 'Bluetooth: incoming link during a connect')
+    patch_word(patched, *BT_AUTOLINK, jal(ps['headset_bt_autolink']), 'Bluetooth: auto-link keeps an incoming link')
     patch_word(patched, *SCAN_REFRESH, jal(ps['ringnav_scan_refresh']), 'folder scan refreshes existing tags')
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')

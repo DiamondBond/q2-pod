@@ -5,11 +5,36 @@
 
 extern int stock_pause_trampoline(void);
 extern int ringnav_bt_resume(void);
+/* Stock drops an unlisted device's Connected (3) while a link thread waits; adopt it when the wait
+ * is for BTLINKMAC (0xa38168), not yet connected; checkBluetoothStatus judges it as the last item.
+ * ponytail: the target's Connect still runs; powered on within its page timeout, both may link. */
+static void headset_bt_status(int event, char *address, char *name, void *data) {
+    char target[32] = { 0 };
+    int status = 0;
+    if (event == 3 && *(const volatile int *)bt_connectstatus == 1 && !getBtLinkStatus(address) &&
+        checkPairDev(address)) {
+        getBtLinkItem(getBtLinkSize() - 1, &status, target);
+        if (status && status != 3 && !strcmp(target, (const char *)0xa38168)) {
+            addBtLinkItem(address, 3);
+            updateBtLinkStatus(4, target);
+            return;
+        }
+    }
+    ((void (*)(int, char *, char *, void *))0x4f1a50)(event, address, name, data);
+}
+void headset_status_register(void) { btctl_device_status_callback(headset_bt_status, 0); }
+/* Auto-link would append its target after a connected incoming link; its failure clears both. */
+int headset_bt_autolink(char *address) {
+    char item[32];
+    int status = 0;
+    for (int i = getBtLinkSize(); status != 3 && i-- > 0;) getBtLinkItem(i, &status, item);
+    return status != 3 && checkPairDev(address);
+}
 /* The control thread can discover a boot reconnect before openBluetooth powers the radio. */
 int headset_bt_init(void *thread) {
     initBluetoothParam(); /* Lists must exist before callbacks; the later reset would erase links. */
     btctl_set_prompt_callback((void *)0x4ef600, 0);
-    btctl_device_status_callback((void *)0x4f1a50, 0);
+    headset_status_register();
     btctl_set_a2dp_callback((void *)btrecvA2dpFunc, (void *)0x01020304);
     return btctl_create_daemon_thread(thread);
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+- **1.3.7**:
+  - Bluetooth: earbuds or a speaker that connect to the Q2 while it is still trying to reconnect the last device, at power-on or when Bluetooth is turned on, now show as connected and play, instead of needing Bluetooth turned off and on. The reconnect is also skipped when a device is already connected.
+  - Battery: Percent Inside is a smaller 28×15 battery with the regular icon's terminal and slightly rounded corners, digits as before. It now stays next to an aptX HD badge with Wi-Fi on.
+
 - **1.3.6**:
   - View Queue: with a shuffle on it lists the songs in the order they will play (it replaces the separate Up Next entry), and holding Play/Pause on a song plays it next, without playing it again later.
   - Quick Settings: hold Play/Pause to switch the wheel between the brightness slider and volume; the choice is kept across restarts.
