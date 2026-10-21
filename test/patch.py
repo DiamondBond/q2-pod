@@ -8865,7 +8865,7 @@ def fetch(codes,tag,reply=b'',done=500):
     press(); assert m.nodes[label]['text']=='Checking…'
     m.codes=list(codes); m.location=f'https://github.com/DiamondBond/q2-pod/releases/tag/{tag}'; m.reply=reply
     m.advance(500,clear=False)  # while it runs: the percentage, and standby and auto power-off wait
-    assert m.nodes[label]['text']=='Downloading 0%' and ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls]
+    assert m.nodes[label]['text']=='Checking…' and ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls]
     worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
     threads=len(m.threads); press(); assert len(m.threads)==threads  # ended, not yet joined: nothing
     m.advance(done,clear=False)

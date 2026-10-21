@@ -97,7 +97,7 @@ static void *worker(void *unused) {
         err = err || code != 200 || fflush(f) || fsync(fileno(f)) || ferror(f);
         err = fclose(f) || err;
     }
-    if (!err && !rename(NU_FILE ".part", NU_FILE))
+    if (!err && !nu.cancel && !rename(NU_FILE ".part", NU_FILE)) /* a late cancel still cancels */
         state = NU_DONE;
     else
         unlink(NU_FILE ".part");
@@ -119,7 +119,7 @@ static int wait_done(const void *unused) {
     if (nu.state == NU_RUNNING) {
         reset_poweroptions_timer(1, 1, 0); /* standby, auto power-off; not the screen's */
         tk_snprintf(s, sizeof s, "Downloading %d%%", nu.percent);
-        show(s);
+        show(nu.cancel ? "Cancelling…" : nu.percent ? s : "Checking…");
         return 8; /* RET_REPEAT */
     }
     pthread_join(nu.thread, 0);
