@@ -6,7 +6,7 @@
 extern int stock_pause_trampoline(void);
 extern int ringnav_bt_resume(void);
 /* Stock drops an unlisted device's Connected (3) while a link thread waits; adopt it when the wait
- * is for BTLINKMAC (0xa38168), not yet connected; checkBluetoothStatus judges it as the last item.
+ * is for BTLINKMAC (0xa38168), its Connect running (5); checkBluetoothStatus then judges it last.
  * ponytail: the target's Connect still runs; powered on within its page timeout, both may link. */
 static void headset_bt_status(int event, char *address, char *name, void *data) {
     char target[32] = { 0 };
@@ -14,7 +14,7 @@ static void headset_bt_status(int event, char *address, char *name, void *data) 
     if (event == 3 && *(const volatile int *)bt_connectstatus == 1 && !getBtLinkStatus(address) &&
         checkPairDev(address)) {
         getBtLinkItem(getBtLinkSize() - 1, &status, target);
-        if (status && status != 3 && !strcmp(target, (const char *)0xa38168)) {
+        if (status == 5 && !strcmp(target, (const char *)0xa38168)) {
             addBtLinkItem(address, 3);
             updateBtLinkStatus(4, target);
             return;

@@ -3569,15 +3569,15 @@ class BtLinkMachine(Machine):
 a_mac,b_mac='AA:AA:AA:AA:AA:AA','BB:BB:BB:BB:BB:BB'
 link=BtLinkMachine([]); link.call(address=payload_syms['headset_status_register'],args=(0,0,0,0),gap=0)
 assert [c[:3] for c in link.calls]==[('btctl_device_status_callback',payload_syms['headset_bt_status'],0)]
-for target in (1,5):  # added by auto-link, then 5 while the thread's Connect runs
-    link=BtLinkMachine([(a_mac,target)])
-    link.call(address=payload_syms['headset_bt_status'],args=(3,link.string(b_mac),0,0),gap=0)
-    assert link.links==[[a_mac,4],[b_mac,3]] and 'device_status' not in [c[0] for c in link.calls]; passed()
+link=BtLinkMachine([(a_mac,5)])  # 5 while the thread's Connect runs
+link.call(address=payload_syms['headset_bt_status'],args=(3,link.string(b_mac),0,0),gap=0)
+assert link.links==[[a_mac,4],[b_mac,3]] and 'device_status' not in [c[0] for c in link.calls]; passed()
 # Otherwise stock's callback gets the event as libbtctl sent it: not connecting, thread ended or judged,
-# already listed, unpaired, empty list, target connected, a thread for another device, other events.
+# already listed, unpaired, empty list, target connected or not yet taken by the thread (1), a thread
+# for another device, other events.
 for event,links,paired,connecting,saved in ((3,[(a_mac,5)],True,0,a_mac),(3,[(a_mac,5)],True,2,a_mac),
         (3,[(a_mac,5)],True,3,a_mac),(3,[(a_mac,5),(b_mac,1)],True,1,a_mac),(3,[(a_mac,5)],False,1,a_mac),
-        (3,[],True,1,''),(3,[(a_mac,3)],True,1,a_mac),(3,[(a_mac,5)],True,1,'CC:CC:CC:CC:CC:CC'),
+        (3,[],True,1,''),(3,[(a_mac,3)],True,1,a_mac),(3,[(a_mac,1)],True,1,a_mac),(3,[(a_mac,5)],True,1,'CC:CC:CC:CC:CC:CC'),
         (4,[(a_mac,5)],True,1,a_mac)):
     link=BtLinkMachine(links,paired,connecting,saved); addr=link.string(b_mac)
     link.call(address=payload_syms['headset_bt_status'],args=(event,addr,0x1234,0x5678),gap=0)
