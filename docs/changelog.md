@@ -9,6 +9,7 @@
   - Volume input during the Now Playing transition applies immediately without a delayed overlay; fresh input after loading keeps normal feedback.
   - Built-in lock-screen wallpapers survive startup and updates without repair writes; missing custom images still fall back normally.
   - Playlist action labels follow the action’s enabled state. Add Songs search confirms before closing its keyboard and rebuilding the picker.
+  - **System Update → Network Update** downloads the newest Q2 Pod release from GitHub to the card's `update.tar` over Wi-Fi, then opens the TF card update. Releases now also carry `update.tar` and `update-legacy.tar` for it.
   - Fix the remaining search freeze on wheel Back when the keyboard is the top window; the first Back closes the keyboard and the next leaves search.
   - Hold the quick-settings Wi-Fi or Bluetooth icon to open its settings page; tapping still toggles the radio.
   - Restore the 1.0.3 Playback and System settings order, with newer controls beside related settings and Reset last.

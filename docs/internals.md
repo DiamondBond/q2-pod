@@ -26,6 +26,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                                                     |
 | `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                                                   |
 | `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md))                        |
+| `systemset_fwupdate_page_init`        | `0x4c339c` | Network Update fetches the latest GitHub release ([Network Update](#network-update))                         |
 | `folder_page_init`                    | `0x523330` | Opens at the SD root (card, no OTG), or at Podcasts/Audiobooks for their shortcuts                           |
 | `folder_back`                         | `0x507ac8` | Back at a bypassed SD root or shortcut root leaves the page                                                  |
 | `window_manager_dispatch_input_event` | `0x66d49c` | No input while a video plays ([Videos](#videos)); [Wake](#wake)'s screen-off gate                            |
@@ -752,3 +753,18 @@ The stock title sorter queries `toolsQueryDbTableAndSort` (`0x5c8274`), now scop
 `ringnav_input` handles the disconnected USB confirmation before stock input routing. During a Now Playing animation it applies fresh wheel volume directly and consumes the event; held list-navigation ticks are discarded. Once the animation ends, normal stock feedback resumes.
 
 Stock startup and wallpaper-list validation call `lockscreen_access` only at their two audited access sites (`0x4fa41c`, `0x4fad60`). Valid built-in names succeed; other paths use normal access checks. The list wrapper no longer writes a repaired choice back to config.ini. Factory reset still selects stock’s default.
+
+## Network Update
+
+**System settings → System Update** keeps stock's page (`systemset_fwupdate_page_init`, hooked by `ringnav_fwupdate` in `patch/netupdate.c`). Stock's row builder (`0x4c3140`) names each row's button by its index, and stock's click (`0x4c2fac`) runs `atoi` on the name: 0 is the TF card update (`0x4c2994`), 1 Shanling's plain-HTTP server (`openwin.shanling.com:9000`, `/tmp/versioninfo`, `download_ota_thd`). The hook renames the second button "2", which stock's click ignores, and adds its own click (`online_click`).
+
+The click says "Connect to Wi-Fi first" when `get_wifisignal` is 0 or below. Otherwise one pthread (`worker`) runs two transfers through demo's libcurl, both verified against `/etc/scrobble-ca.pem` (`SSL_VERIFYPEER`, `SSL_VERIFYHOST` 2):
+
+1. A header-only request for `https://github.com/DiamondBond/q2-pod/releases/latest`, without following the redirect. The tag is what follows the last `/` of `CURLINFO_REDIRECT_URL` (`netupdate_tag`, `.../releases/tag/TAG`). A tag equal to `Q2POD_TAG` (`VERSION` in `tools/build.py`; empty in `--dev` builds) says "Latest firmware installed", as stock's updater would refuse that tag anyway.
+2. `releases/latest/download/update.tar` (iPod) or `update-legacy.tar` (Legacy), following the redirect to GitHub's asset host, into `/mnt/mmc/update.tar.part`, flushed and `fsync`ed, then renamed over `update.tar`. curl fails a body shorter than its `Content-Length`, and a transfer under 1 KB/s for 30 s ends. Any failure deletes the `.part` and keeps the old `update.tar`: "Can't reach GitHub" (curl or no redirect), "No update for this build" (not 200), "Can't write to the card".
+
+A 500 ms timer (`wait_done`) shows "Downloading NN%" in the row's label, from the transfer's progress callback, calls `reset_poweroptions_timer(1, 1, 0)` so standby and auto power-off wait (the screen still sleeps), and joins the thread. Presses between the thread's end and that join do nothing. A second press sets `nu.cancel`, which the progress callback returns, so curl stops ("Download cancelled"). Leaving the page drops the label (`EVT_DESTROY`) and the download goes on; reopening it shows "Downloading…" again. When it finishes on the page, `fwupdate_tf` runs stock's TF card update: its battery check, its confirmation and the flash. Elsewhere it says "Update downloaded: use TF card update".
+
+`tools/release.py` uploads each variant's `update.tar` again under those fixed names (`FIXED`), because `releases/latest/download/` needs a name without the version. `github.com` chains to USERTrust ECC (Sectigo E46) and the asset host to ISRG Root X1; both roots are in the bundle.
+
+ponytail: only releases that carry the fixed-name assets can be fetched, and a CA change at GitHub needs a bundle refresh. The card needs room for the new tar (about 55 MB) beside the old one. TLS and curl's length check are the only integrity checks before stock's updater checks its MD5s.

@@ -8312,20 +8312,23 @@ class RadioMachine(SpotMachine):
                   'mkdir@GLIBC_2.0'):
             self.handlers[syms[n]]='r:'+n
         self.mock('fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','ferror@GLIBC_2.0')
-        self.wifi=3; self.reply=b''; self.code=200; self.opts={}
+        self.wifi=3; self.reply=b''; self.code=200; self.codes=[]; self.location=''; self.opts={}
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('r:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
         if name=='get_wifisignal': ret=self.wifi
         elif name=='mkdir': self.tree[self.text(a)]=[]
-        elif name=='curl_easy_init': ret=0x5150
+        elif name=='curl_easy_init': ret=0x5150; self.opts={}  # each handle starts with curl's defaults
         elif name=='curl_easy_setopt': self.opts[b]=self.text(c) if b in (10002,10018,10065) else c
+        elif name=='curl_easy_perform' and 20011 not in self.opts: ret=0  # NOBODY: headers only
         elif name=='curl_easy_perform':  # the write callback, run nested as qsort's comparator is
             data=self.alloc((len(self.reply)+7)&~3); u.mem_write(data,self.reply)
-            took=self.nested(self.opts[20011],data,1,len(self.reply),0)
+            took=self.nested(self.opts[20011],data,1,len(self.reply),self.opts.get(10001,0))
             ret=0 if took==len(self.reply) and self.code else 23  # CURLE_WRITE_ERROR
-        elif name=='curl_easy_getinfo': self.word(c,self.code)
+        elif name=='curl_easy_getinfo' and b==0x10001f:  # REDIRECT_URL
+            text=self.alloc(len(self.location)+4); u.mem_write(text,self.location.encode()+b'\0'); self.word(c,text)
+        elif name=='curl_easy_getinfo': self.word(c,self.codes.pop(0) if self.codes else self.code)
         self.calls.append((name,a,b,c))
         self.returns(ret,clobber=True)
     def stream(self):
@@ -8836,6 +8839,47 @@ want=tree(m.nodes[rows[1]]['children'][0])
 assert m.nodes[item]['style']=='s_listitem_black' and tree(button)==want
 assert m.nodes[title]['text']=='CFW. Version' and m.nodes[value]['text']==f"{VERSION}{' Pod' if variant=='ipod' else ''}{f" dev {manifest['dev']}" if manifest['dev'] else ''}"
 assert not m.nodes[button].get('handlers') and not m.nodes[button].get('name'); passed()
+
+# Network Update (netupdate.c): System Update's second row, built by stock's own row builder
+# (0x4c3140), is renamed "2" so stock's click (atoi of the name: 0 TF card, 1 Shanling) skips it, and
+# fetches the latest GitHub release over verified TLS to the card's update.tar (a .part, renamed),
+# then runs stock's TF card update (0x4c2994). A failure keeps the old update.tar.
+m=RadioMachine(); resume=int(manifest['patch_symbols']['stock_fwupdate_trampoline'],16); m.handlers[resume]='stock_fwupdate'
+m.u.hook_add(UC_HOOK_CODE,m.hook,begin=resume,end=resume)  # fast(): payload addresses hook one by one
+m.handlers[0x4c2994]='fwupdate_tf'; m.mock('strcpy@GLIBC_2.0','widget_set_tr_text')
+view=m.node('scroll_view','scroll_view_fwupdate'); m.top=m.node('window','fwupdate_page',[view])
+for i in range(2):
+    row=m.node('list_item'); m.nodes[view]['children'].append(row)
+    assert m.call(address=0x4c3140,args=(row,i,0,0),gap=0)==0
+tf,online=(m.nodes[r]['children'][0] for r in m.nodes[view]['children'])
+assert m.call(address=HOOKS['systemset_fwupdate_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+assert m.calls[0][:3]==('stock_fwupdate',m.top,5) and m.nodes[tf]['name']=='0' and m.nodes[online]['name']=='2'
+label=m.nodes[online]['children'][0]; assert m.nodes[label]['type']=='hscroll_label'
+def press():
+    f,ctx=[(f,c) for t,f,c in m.nodes[online]['handlers'] if t==O['EVT_CLICK']][-1]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
+UPDATE='/mnt/mmc/update.tar'; ASSET='update.tar' if variant=='ipod' else 'update-legacy.tar'
+m.files[UPDATE]=bytearray(b'old')
+m.wifi=-1; press(); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; m.wifi=3
+def fetch(codes,tag,reply=b'',done=500):
+    press(); assert m.nodes[label]['text']=='Checking…'
+    m.codes=list(codes); m.location=f'https://github.com/DiamondBond/q2-pod/releases/tag/{tag}'; m.reply=reply
+    m.advance(500,clear=False)  # while it runs: the percentage, and standby and auto power-off wait
+    assert m.nodes[label]['text']=='Downloading 0%' and ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls]
+    worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
+    threads=len(m.threads); press(); assert len(m.threads)==threads  # ended, not yet joined: nothing
+    m.advance(done,clear=False)
+    assert ('widget_set_tr_text',label) in [c[:2] for c in m.calls] and UPDATE+'.part' not in m.files
+fetch([302,200],'0.0.1',b'TAR'*100)
+assert m.opts[10002]==f'https://github.com/DiamondBond/q2-pod/releases/latest/download/{ASSET}' and m.opts[52]==1
+assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
+assert bytes(m.files[UPDATE])==b'TAR'*100 and 'fwupdate_tf' in [c[0] for c in m.calls]
+m.files[UPDATE]=bytearray(b'old')
+fetch([302,404],'0.0.1'); assert m.toasts[-1][3]=='No update for this build' and m.files[UPDATE]==b'old'
+fetch([200],'0.0.1'); assert m.toasts[-1][3]=="Can't reach GitHub"  # no redirect: no tag
+if not manifest['dev']:  # --dev builds have no release tag, so always fetch
+    fetch([302],VERSION); assert m.toasts[-1][3]=='Latest firmware installed' and m.files[UPDATE]==b'old'
+assert 'fwupdate_tf' not in [c[0] for c in m.calls]; passed()
 
 # Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or
 # longer keeps its place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S

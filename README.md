@@ -97,6 +97,8 @@ Settings, play counts, ratings and resume points are stored on the Q2 itself, so
 
 Repeat the [install steps](#install) with the newest release. Your settings, ratings and play counts are kept. The updater skips a version that's already installed, so a newer release always goes on.
 
+Or, over Wi-Fi: **System settings → System Update → Network Update** downloads the newest release to the card's `update.tar`, replacing any that's there, then opens the TF card update's confirmation. Press the row again to cancel the download.
+
 ## Restoring stock firmware
 
 - **Back to Shanling's firmware:** install the [official Shanling firmware](https://en.shanling.com/download/150) the same way.
