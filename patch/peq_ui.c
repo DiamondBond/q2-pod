@@ -467,13 +467,13 @@ static int render(const void *unused) {
     if (ui.screen == HOME) {
         row(view, n++, ui.dirty ? "Apply changes" : "Nothing to apply", ui.dirty ? APPLY : -1);
         row(view, n++, "Reset to defaults", RESET);
-        row_dim(view, n++, "Advanced", ui.draft.bypass ? "Off" : "On", BYPASS, 0);
-        snprintf(value, sizeof(value), on_auto() ? "%.1f dB (Auto)" : "%.1f dB", ui.draft.preamp);
-        row_dim(view, n++, "Preamp", value, PREAMP, 0);
+        row_dim(view, n++, "Enabled", ui.draft.bypass ? "Off" : "On", BYPASS, 0);
         /* Balance turns one side down: R 1.0 dB is the left 1 dB quieter. */
         snprintf(value, sizeof(value), __builtin_fabs(ui.draft.balance) >= 0.05 ? "%s %.1f dB" : "Centre",
                  ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
         row_dim(view, n++, "Balance", value, BALANCE, 0);
+        snprintf(value, sizeof(value), on_auto() ? "%.1f dB (Auto)" : "%.1f dB", ui.draft.preamp);
+        row_dim(view, n++, "Preamp", value, PREAMP, 0);
         row_dim(view, n++, "Presets", ui.name[0] ? ui.name : 0, MENU, 0); /* the draft's preset */
         /* Ten rows, then one spare past the last used band to add another. */
         for (int i = 0; i < PEQ_BANDS && (i < 10 || i <= ui.draft.count); ++i) {
@@ -929,7 +929,7 @@ static void e3_paint(void *canvas) {
         int focus = e3.focus == (i ? E3_RESET : E3_SWITCH);
         e3_box(canvas, i ? 192 : 12, E3_BUTTONS, 171, 40, focus ? 0x333333 : 0x1a1a1a);
         if (!i) e3_box(canvas, 12, E3_BUTTONS + 36, 171, 4, tone);
-        caption(canvas, i ? "Reset" : e3.on ? "Simple On" : "Simple Off", i ? 192 : 12, E3_BUTTONS, 171, 40, 20, 0xffffffffu);
+        caption(canvas, i ? "Reset" : e3.on ? "Enabled: On" : "Enabled: Off", i ? 192 : 12, E3_BUTTONS, 171, 40, 20, 0xffffffffu);
     }
     for (int i = 0; i < 3; ++i) {
         static const char *const names[] = { "Low", "Mid", "High" };

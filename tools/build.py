@@ -38,6 +38,7 @@ HOOKS = {
     'localmusic_page_init': (0x524424, 'ringnav_localmusic', 'localmusic'),
     # Library lists: an Unknown row with no songs is dropped
     'load_localclass_list': (0x5088cc, 'ringnav_localclass', 'localclass'),
+    'toolsQueryDbTableAndSort': (0x5c8274, 'ringnav_sorted_query', 'sorted_query'),
     'toolsQueryDbTable': (0x5c8044, 'ringnav_library_query', 'dbquery'),
     # An artist's albums tab (getAlbumByAlbumArtist): the same album-artist rewrite
     'toolsQueryContentDbTable': (0x5c863c, 'ringnav_content_query', 'content_query'),
@@ -937,7 +938,7 @@ def compile_payload(out, ipod):
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
-        f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=ringnav_ts_read',
+        f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access', '--undefined=ringnav_ts_read',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
@@ -1136,6 +1137,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
           'player_initconfig: unexpected mclSetPlayMode call')
     patch_word(patched, 0x4f999c, 0x0411e992, jal(ps['ringnav_bootmode']),
                'config_init preserves the saved queue when applying the boot play mode')
+    patch_word(patched, 0x4fa41c, 0x0320f809, jal(ps['lockscreen_access']),
+               'startup accepts built-in wallpapers')
+    patch_word(patched, 0x4fad60, 0x0320f809, jal(ps['lockscreen_access']),
+               'wallpaper list accepts built-in wallpapers')
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq')

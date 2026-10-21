@@ -1,11 +1,21 @@
 # Changelog
 
 - **1.3.5** (unreleased):
+  - Add persistent **Swap L/R** below Mono Audio, default Off, for local PCM playback, Bluetooth/USB output, Videos, Internet Radio and Spotify’s helper. DSD and AirPlay retain Mono Audio’s limitations; Spotify on the headphone jack may need pause/play after switching.
+  - Advanced EQ now reads **Enabled: On/Off**, followed by Balance, Preamp and Presets; Simple EQ’s switch reads **Enabled: On/Off** too.
+  - Library → Songs excludes podcasts and audiobooks in every stock sort, without a database reset; Folder and stored playlists keep their contents.
+  - Bluetooth main Balance keeps unequal channel gains when absolute volume succeeds, including reconnects.
+  - The disconnected USB scan prompt takes wheel and Centre input before stock volume handling.
+  - Volume input during the Now Playing transition applies immediately without a delayed overlay; fresh input after loading keeps normal feedback.
+  - Built-in lock-screen wallpapers survive startup and updates without repair writes; missing custom images still fall back normally.
+  - Playlist action labels follow the action’s enabled state. Add Songs search confirms before closing its keyboard and rebuilding the picker.
   - Fix the remaining search freeze on wheel Back when the keyboard is the top window; the first Back closes the keyboard and the next leaves search.
   - Hold the quick-settings Wi-Fi or Bluetooth icon to open its settings page; tapping still toggles the radio.
   - Restore the 1.0.3 Playback and System settings order, with newer controls beside related settings and Reset last.
+  - **Edit Playlist** adds songs, reorders entries with Previous/Next or song actions, and removes an entry after confirmation. Edits save immediately; failed transactions roll back and the current playback queue keeps its order.
   - Playlists: the three-dot menu on a playlist row opens its More page instead of playing the row, and the dots stay visible on the selected row.
   - Playlists: holding Play/Pause on a playlist row opens the same More page as its three dots.
+  - Fix Edit Playlist doing nothing from a held playlist row: the Import/Export rows no longer shift the held playlist, so Edit Playlist, Rename and Delete act on that playlist.
   - Playlists: the More menu's Delete Song row now reads Delete Playlist, and Edit Playlist uses the same icon, text style and row spacing as Rename and Delete Playlist.
   - Add Songs: its Search row filters the picker by title, artist or album and keeps the query while you add several songs.
   - New Playlist: the name field takes the keyboard as the dialog opens, without a tap first.

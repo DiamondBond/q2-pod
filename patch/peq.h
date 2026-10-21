@@ -82,6 +82,7 @@ long long now_ns(void);
 /* Mono Audio: demo writes an int, 1 to mix both channels into each; hciplayer's filter and q2video map
  * it read-only (video.c keeps its own copy of the path). */
 #define MONO_FILE PEQ_ROOT "/tmp/q2mono"
+#define SWAP_FILE PEQ_ROOT "/tmp/q2swap"
 /* librespot (spotify.c) and its restart loop, whose pid its launcher left, stopped: Spotify's idle
  * stop and Home's Rockbox row, which lets ALSA go too. A q2video sink ends with librespot's pipe. */
 #define SPOT_OUT "/tmp/q2-librespot.out" /* the output for the card's aplay.sh, none on the DAC */
@@ -132,6 +133,7 @@ int album_cmp(void *a, void *b);
 void peq_attach(void); /* peq_ui.c */
 extern int peq_chained; /* peq_ui.c: peq_stock_eq ran this boot */
 void peq_chain(void);   /* crossfade.c: peq_attach once a boot, while playing */
+int swap_on(void);
 int mono_on(void);      /* crossfade.c: Mono Audio's setting */
 int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
 void ringnav_select(void *w, int id, int rows);

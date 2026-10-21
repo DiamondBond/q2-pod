@@ -158,6 +158,11 @@ static int wall_id(const char *name) {
     return -1;
 }
 
+/* Only stock's two wallpaper validation calls use this; ordinary missing files still fail. */
+int lockscreen_access(const char *path, int mode) {
+    return wall_id(path) >= 0 ? 0 : access(path, mode);
+}
+
 static void *wall_bitmap(int w, int h, int id) {
     void *bm = bitmap_create_ex((unsigned)w, (unsigned)h, (unsigned)w * 4, 1 /* RGBA8888 */);
     unsigned *d = bm ? (unsigned *)bitmap_lock_buffer_for_write(bm) : 0;
@@ -204,7 +209,6 @@ int lockscreen_images(void) {
     }
     if (wall_id(saved) >= 0 && strcmp(PICTURE, saved)) {
         memcpy(PICTURE, saved, sizeof saved);
-        toolsWriteConfig("/mnt/data/config.ini", "SYSSET", "SCREENSAVERPATH", PICTURE);
     }
     return result;
 }

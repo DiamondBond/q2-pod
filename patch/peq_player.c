@@ -228,6 +228,11 @@ static af_data *play(af_instance *af, af_data *data) {
         if (data->nch == 2 && watch(&mono, MONO_FILE, data->rate, frames))
             for (float *a = data->audio, *end = a + 2 * frames; a < end; a += 2)
                 a[0] = a[1] = (a[0] + a[1]) * 0.5f;
+        static watched swap = { 0, ~0u };
+        if (data->nch == 2 && watch(&swap, SWAP_FILE, data->rate, frames))
+            for (float *a = data->audio, *end = a + 2 * frames; a < end; a += 2) {
+                float left = a[0]; a[0] = a[1]; a[1] = left;
+            }
         frames = crossfade(s, data->audio, frames, data->nch, data->rate);
         data->len = (int)(frames * 4 * data->nch);
         tap(data->audio, frames, data->nch, data->rate);

@@ -195,7 +195,7 @@ static void spot_output(void) {
     char vol[5], out[sizeof sp.out] = "", v[2] = { 'v', (char)headset_gain() };
     const char *dev = output_device(vol);
     if (dev) tk_snprintf(out, sizeof out, "%s %s\n", dev, vol);
-    else if (mono_on()) tk_snprintf(out, sizeof out, "plughw:0,0 h%s\n", vol);
+    else if (mono_on() || swap_on()) tk_snprintf(out, sizeof out, "plughw:0,0 h%s\n", vol);
     if (!strcmp(out, sp.out)) return;
     memcpy(sp.out, out, sizeof out);
     void *f = out[0] ? fopen(SPOT_OUT ".tmp", "w") : 0;

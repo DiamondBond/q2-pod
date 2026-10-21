@@ -5,6 +5,7 @@
 #include "playback.h"
 #include "stock.h"
 #undef select /* the UI selection helper below; headset.c uses libc select */
+extern int stock_sorted_query_trampoline(const char *, const char *, void *, int);
 extern int stock_dbquery_trampoline(const char *, const char *, void *, int),
     stock_content_query_trampoline(const char *, const char *, void *, void *, int);
 extern int stock_quicksettings_trampoline(void *, void *);
@@ -59,11 +60,15 @@ static int library_query(int content, const char *db, const char *sql, void *row
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
+    if (content == 2) return stock_sorted_query_trampoline(db, sql, row, (int)arg);
     return content ? stock_content_query_trampoline(db, sql, row, arg, sort)
                    : stock_dbquery_trampoline(db, sql, row, (int)arg);
 }
 int ringnav_library_query(const char *db, const char *sql, void *row, int sort) {
     return library_query(0, db, sql, row, (void *)sort, 0);
+}
+int ringnav_sorted_query(const char *db, const char *sql, void *row, int sort) {
+    return library_query(2, db, sql, row, (void *)sort, 0);
 }
 int ringnav_content_query(const char *db, const char *sql, void *row, void *arg, int sort) {
     return library_query(1, db, sql, row, arg, sort);
@@ -103,8 +108,8 @@ extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event), spot_hold(void *top);
 extern void radio_poll(void);
 extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label),
-    mono_row(void *label);
-extern int mono_click(void *ctx, void *event);
+    mono_row(void *label), swap_row(void *label);
+extern int mono_click(void *ctx, void *event), swap_click(void *ctx, void *event);
 extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key), resume_min(void);
 extern int eq_key(void *top, unsigned key); /* peq_ui.c */
 extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
@@ -410,12 +415,10 @@ static int kind(void *w) {
     const char *t = widget_get_type(w);
     if (!tk_strcmp(t, "slide_menu")) return 3;
     if (!tk_strcmp(t, "table_client")) return 2;
-#if IPOD
     if (!tk_strcmp(t, "dialog") || !tk_strcmp(t, "window")) {
         int ctx = context_id(widget_get_prop_str(w, "name", (void *)0));
         return ctx >= 0 && (contexts[ctx].flags & BUTTONS) ? 4 : 0;
     }
-#endif
     return !tk_strcmp(t, "scroll_view") && B(w, VIEW_VERTICAL) && !B(w, VIEW_HORIZONTAL) &&
                    !B(w, VIEW_SNAP)
                ? 1
@@ -720,7 +723,15 @@ static int usable(void) {
     return !g_usbdet_value && confirm;
 }
 
+static int usb_prompt(void) {
+    void *top = window_manager_get_top_window(window_manager());
+    return g_usblink_status == 2 && !g_usbdet_value && usable() && top &&
+           !tk_strcmp(widget_get_prop_str(top, "name", ""), "confirminfo_dialog");
+}
+
 static int allowed_top(void *top) {
+    if (!IPOD && top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "confirminfo_dialog"))
+        return usb_prompt();
     return top && context_id(widget_get_prop_str(top, "name", (void *)0)) >= 0;
 }
 
@@ -1589,7 +1600,6 @@ static void frame_box(void *canvas, const rect_t *r, unsigned color, unsigned ra
     canvas_stroke_rect(canvas, in.x, in.y, in.w, in.h);
 }
 
-#if IPOD
 /* Stock names a playlist row's trailing More dots "img_more%d". */
 static void *more_image(void *w) {
     for (unsigned i = 0, n = w ? widget_count_children(w) : 0; i < n; ++i) {
@@ -1600,6 +1610,7 @@ static void *more_image(void *w) {
     return (void *)0;
 }
 
+#if IPOD
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
 static int drill(void *w) {
@@ -2415,7 +2426,7 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
 static const unsigned char playset_order[] = {
     3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,         18 /* Crossfade */,
     9 /* Gapless */,       10 /* ReplayGain */,  4 /* Max Volume */,   5 /* Default Vol */,
-    11 /* Balance */,      21 /* Mono Audio */,  1 /* Filters */,      8 /* Memory play */,
+    11 /* Balance */,      21 /* Mono Audio */,  22 /* Swap L/R */,  1 /* Filters */,      8 /* Memory play */,
     20 /* Resume Songs */, 16 /* Artists */,     15 /* Year order */,  17 /* Artist album order */,
     13 /* Folder art */,   14 /* Folder skip */, 19 /* Folder Root */, 12 /* Enlarged art */,
     6 /* DSD Output */,    7 /* USB Audio */,
@@ -2494,6 +2505,7 @@ int ringnav_audioset(void *win, void *ctx) {
         root_text(name);
         resume_row(list_row(view, "playset_memplay", xfade_open, (void *)2)); /* crossfade.c */
         mono_row(list_row(view, "playset_balance", mono_click, 0));
+        swap_row(list_row(view, "playset_balance", swap_click, 0));
     }
     reorder(view, playset_order, sizeof playset_order);
     return result;
@@ -3248,6 +3260,13 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
             *color &= 0xffffff; /* paint_caps draws it */
             return color;
         }
+        const char *label = widget_get_prop_str(st.paint_w, "name", "");
+        if (!tk_strcmp(label, "label_del") || !tk_strcmp(label, "label_rename")) {
+            int enabled = 1;
+            for (void *w = P(st.paint_w, W_PARENT); w; w = P(w, W_PARENT))
+                if (!widget_get_prop_bool(w, "enable", 1)) enabled = 0;
+            *color = (*color & 0xff000000u) | (enabled ? 0xffffff : 0xaaaaaa);
+        }
         if (selected_ink()) {
             unsigned alpha = *color & 0xff000000u;
             *color =
@@ -3374,7 +3393,7 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
      * towards the white glyph, so edges stay smooth; alpha kept. */
     int into = s && !*s &&
                (!tk_strcmp(name, "list_into") || !tk_strcmp(name, "bt_lefticon") ||
-                !tk_strcmp(name, "bt_refresh") || !tk_strcmp(name, "navbar_delete"));
+                !tk_strcmp(name, "bt_refresh"));
     int icon = s && !*s &&
                (settings_icon(name) || tk_str_start_with(name, "local_") ||
                 (tk_str_start_with(name, "list_") && !into) || tk_str_start_with(name, "small_") ||
@@ -6111,6 +6130,8 @@ static int ple_pick(void *ctx, void *event) {
  * room. Its widget is named search_edit, so navigation.c's search_key closes the keyboard before
  * Return can destroy the edit under it. */
 static int ple_searched(void *ctx, void *event) {
+    widget_set_focused(ple.edit, 0);
+    input_method_request(input_method(), 0); /* Detach the keyboard before rebuilding its owner. */
     if (!ple.timer) ple.timer = timer_add(ple_run, 0, 0);
     return 0;
 }
@@ -6121,7 +6142,6 @@ static void ple_search_show(void) {
     widget_set_name(ple.edit, "search_edit");
     widget_set_prop_str(ple.edit, "tips", "Search songs");
     if (*ple.query) widget_set_text_utf8(ple.edit, ple.query);
-    widget_on(ple.edit, EVT_VALUE_CHANGED, ple_searched, 0);
     widget_on(ple.edit, EVT_IM_ACTION, ple_searched, 0);
     widget_set_focused(ple.edit, 1);
 }
@@ -6594,10 +6614,13 @@ static int qm_hold(void) {
     /* A playlist row's hold opens the same More page as its trailing dots. The Add to Playlist
      * picker shares playlist_page's name; its add mode tells the two apart. */
     if (!tk_strcmp(name, "playlist_page") && !I(PLAYLIST_ADD_MODE, 0)) {
-        if (!key) return 0;
+        /* The row's index counts Import and Export; its dots' name carries the playlist's. */
+        void *more = more_image(g_menu.at[cur]);
+        if (!key || !more) return 0;
         st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
         drop_input();
-        navigator_to_with_context("localmusic/playlistsmore_page", (void *)(long)g_menu.id[cur]);
+        navigator_to_with_context("localmusic/playlistsmore_page",
+                                  (void *)(long)atoi(widget_get_prop_str(more, "name", "") + 8));
         return 1;
     }
     if (!coverflow) list = P(p_deque_showlist, 0);
@@ -7212,7 +7235,11 @@ int headset_gain(void) { return bt_audio_ready() && btvol.ready && g_volume ? 10
 int ringnav_btvol(int left, int right) {
     if (bt_audio_ready()) {
         btvol.ready = bt_sync_volume(left, right);
-        if (btvol.ready && (left > 0 || right > 0)) return stock_btvol_trampoline(100, 100);
+        if (btvol.ready && (left > 0 || right > 0)) {
+            int volume = left > right ? left : right;
+            return stock_btvol_trampoline(left <= 0 ? 0 : left * 100 / volume,
+                                           right <= 0 ? 0 : right * 100 / volume);
+        }
     }
     return stock_btvol_trampoline(left, right);
 }
@@ -7230,16 +7257,13 @@ static void bt_volume_poll(void) {
         return;
     }
     if (!btvol.ready) {
-        if (bt_sync_volume(g_volume, g_volume)) {
-            stock_btvol_trampoline(g_volume ? 100 : 0, g_volume ? 100 : 0);
-            btvol.ready = 1;
-        }
+        device_set_volume(g_volume, 0); /* Reuse stock's Balance calculation on reconnect. */
         return; /* Initial connection preserves Q2 volume. */
     }
     int cur = btctl_transport_get_volume();
     if (cur < 0 || cur > 127) {
         btvol.ready = 0;
-        stock_btvol_trampoline(g_volume, g_volume);
+        device_set_volume(g_volume, 0);
         return;
     }
     if (cur == btvol.last) return;
@@ -7251,9 +7275,6 @@ static void bt_volume_poll(void) {
     *(volatile signed char *)0xa38c41u = (signed char)v; /* stock responseSetVolume's level */
     device_set_volume(v, 1);
     write_int_config(v, "PLAYSET", "VOLUME");
-    /* device_set_volume invokes our gain hook; enforce the limit even when mocked/unsupported. */
-    btvol.ready = bt_sync_volume(v, v);
-    stock_btvol_trampoline(btvol.ready && v ? 100 : v, btvol.ready && v ? 100 : v);
     void *top = window_manager_get_top_window(window_manager());
     if (top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog")) {
         void *slider = widget_lookup(top, "slider_vol", 1);
@@ -7359,12 +7380,41 @@ static int wake_gate(void *e) {
 
 /* window_manager_dispatch_input_event: while q2video plays (books.c) no key or touch reaches the
  * UI; a key's release goes to the player instead. Every event times ringnav_sleep's idle. */
+int ringnav(void *ctx, void *event);
 int ringnav_input(void *wm, void *e) {
     if (e && wake_gate(e)) return 0;
     st.last_input = time_now_ms();
-    if (!video_on()) return stock_input_trampoline(wm, e);
-    if (e && I(e, EVENT_TYPE) == EVT_KEY_UP) video_key((unsigned)I(e, EVENT_KEY));
-    return 0;
+    if (video_on()) {
+        if (e && I(e, EVENT_TYPE) == EVT_KEY_UP) video_key((unsigned)I(e, EVENT_KEY));
+        return 0;
+    }
+    unsigned type = e ? (unsigned)I(e, EVENT_TYPE) : 0;
+    unsigned key = e ? (unsigned)I(e, EVENT_KEY) : 0;
+    if ((type == EVT_KEY_DOWN || type == EVT_KEY_UP || type == EVT_KEY_LONG) &&
+        (key == KEY_PREV || key == KEY_NEXT || key == KEY_CENTER) && usb_prompt()) {
+        reset_poweroptions_timer(1, 1, 1);
+        if (type == EVT_KEY_UP) ringnav(0, e);
+        return 0;
+    }
+    void *top = window_manager_get_top_window(wm);
+    if (type == EVT_KEY_UP && (key == KEY_PREV || key == KEY_NEXT) && usable() &&
+        window_manager_is_animating(wm) && top &&
+        !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page")) {
+        drop_input();
+        st.held = 0; /* Queued list ticks never become volume ticks. */
+        reset_poweroptions_timer(1, 1, 1);
+        int value = g_volume + (key == KEY_NEXT ? 1 : -1);
+        if (value < 0) value = 0;
+        if (value > g_maxvolume) value = g_maxvolume;
+        if (value > 100) value = 100;
+        if (value != g_volume) {
+            g_volume = value;
+            device_set_volume(value, 1);
+            write_int_config(value, "PLAYSET", "VOLUME");
+        }
+        return 0;
+    }
+    return stock_input_trampoline(wm, e);
 }
 
 /* window_manager_paint, a leaf (tools/build.py WM_PAINT_LEAF): the window manager's own paint
@@ -7633,7 +7683,7 @@ int ringnav(void *ctx, void *event) {
     }
 #endif
     if (search_key(key)) return STOP;
-    int result = stock_keyup_trampoline(ctx, event);
+    int result = usb_prompt() ? 0 : stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
     /* Media controls follow the active source, including when local Now Playing is visible. */
     if (!result && (media_focused() || media_owner() != 1) &&
@@ -7726,7 +7776,7 @@ int ringnav(void *ctx, void *event) {
     else if (key == KEY_CENTER || st.scrub)
         return np_key(top, key);
 #endif
-    if (!allowed_top(top)) {
+    if (!allowed_top(top) && !usb_prompt()) {
         drop_input();
         return result;
     }

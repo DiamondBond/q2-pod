@@ -80,9 +80,9 @@
 { "tidal_viewall_page", CTX_DYNAMIC, 0 },
 { "search_dialog", CTX_DYNAMIC, 0 },
 { "tidal_search_dialog", CTX_DYNAMIC, 0 },
+{ "confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
 #if IPOD /* confirm and choice dialogs; text-entry and toast dialogs leave the wheel on volume */
 /* A BUTTONS window must not contain a list: the window is the surface, so a list inside never is. */
-{ "confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
 { "tidal_confirminfo_dialog", CTX_DYNAMIC, BUTTONS },
 { "autoshutdown_dialog", CTX_DYNAMIC, BUTTONS },
 { "playlistsmore_page", CTX_DYNAMIC, BUTTONS }, /* a playlist's Rename, Delete and Edit */

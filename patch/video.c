@@ -30,6 +30,7 @@
 #define Q2VIDEO_PLACE "/tmp/q2video.place" /* an int, the second: books.c VIDEO_PLACE */
 #define RADIO_SOCK "/tmp/q2radio.sock"
 #define SINK_SOCK "/tmp/q2sink.sock" /* spotify.c SPOT_SINK */
+#define SWAP_FILE "/tmp/q2swap"
 #define MONO_FILE "/tmp/q2mono" /* peq.h's: an int, 1 for Mono Audio */
 #define RADIO_STATE "/tmp/q2radio.state" /* key=value lines, as spotify.c reads librespot's */
 #define RADIO_TRIES 5                       /* starts in a row without sound, then state=error */
@@ -83,6 +84,12 @@ void scale(short *s, unsigned n, int g) {
 /* Mono Audio: each of n stereo frames' channels their mean. */
 void mono(short *s, unsigned n) {
     for (unsigned i = 0; i < 2 * n; i += 2) s[i] = s[i + 1] = (short)((s[i] + s[i + 1]) >> 1);
+}
+
+void swap(short *s, unsigned n) {
+    for (unsigned i = 0; i < 2 * n; i += 2) {
+        short left = s[i]; s[i] = s[i + 1]; s[i + 1] = left;
+    }
 }
 
 /* The seconds in ffmpeg's "Duration: HH:MM:SS.ss" line; 0 without one. */
@@ -187,8 +194,17 @@ static void *writer(void *unused) {
     short buf[2 * CHUNK];
     long written = 0, delay;
     volatile int *mono_on = 0; /* demo's MONO_FILE, looked for every hundredth chunk till it appears */
+    volatile int *swap_on = 0;
     for (int end = 0, tries = 0; !end;) {
-        if (!mono_on && !(tries++ % 100)) {
+        if (!swap_on && !(tries % 100)) {
+            int fd = open(SWAP_FILE, 0);
+            if (fd >= 0) {
+                void *p = mmap(0, sizeof *swap_on, 1, 1, fd, 0);
+                close(fd);
+                if (p != (void *)-1) swap_on = p;
+            }
+        }
+        if (!mono_on && !(tries % 100)) {
             int fd = open(MONO_FILE, 0); /* O_RDONLY */
             if (fd >= 0) {
                 void *p = mmap(0, sizeof *mono_on, 1, 1, fd, 0); /* PROT_READ, MAP_SHARED */
@@ -196,6 +212,7 @@ static void *writer(void *unused) {
                 if (p != (void *)-1) mono_on = p;
             }
         }
+        ++tries;
         unsigned got = 0;
         while (got < sizeof buf) {
             int r = read(au.fd, (char *)buf + got, sizeof buf - got);
@@ -207,6 +224,7 @@ static void *writer(void *unused) {
         while (au.paused) usleep(100000);
         if (au.gain < 65536) scale(buf, 2 * frames, au.gain);
         if (mono_on && *mono_on > 0) mono(buf, frames);
+        if (swap_on && *swap_on > 0) swap(buf, frames);
         int recovered = 0;
         for (unsigned sent = 0; sent < frames;) {
             long r = snd_pcm_writei(au.pcm, buf + 2 * sent, frames - sent);

@@ -630,15 +630,15 @@ def editor_check(lib, tmp):
     ui.shim_close(); ui.peq_attach(); assert read().bypass == 1 and ui.shim_flag() == 0; advanced()
     assert lib.peq_save(bytes(active), C.byref(preset(enabled=1)), 1) == 1
     # The switch writes the stock config key, so boot restores it; the flag follows the preset.
-    click('Advanced Off'); assert ui.shim_eqflag() == 1 and ui.shim_flag() == 1
-    click('Advanced On'); assert ui.shim_eqflag() == 0 and ui.shim_flag() == 0
-    ui.shim_close(); assert advanced() == 0; click('Advanced Off')
+    click('Enabled Off'); assert ui.shim_eqflag() == 1 and ui.shim_flag() == 1
+    click('Enabled On'); assert ui.shim_eqflag() == 0 and ui.shim_flag() == 0
+    ui.shim_close(); assert advanced() == 0; click('Enabled Off')
     full = ui.shim_list_height()
     # iPod rows are transparent, so the list itself must paint black, not the theme's light card.
     ui.shim_list_bg.restype = C.c_uint; assert ui.shim_list_bg() == 0xff000000
     # Bypass switches at once but keeps unapplied band edits out of the active preset.
     click('1  '); click('Gain +0.0 dB'); assert title() == 'Band 1 Gain'; click('+1.0 dB'); ui.shim_return()
-    click('Advanced On')
+    click('Enabled On')
     assert read().bypass == 1 and read().bands[0].gain == 0 and ui.shim_flag() == 0
     click('Apply changes')
     assert read().bands[0].gain == 1 and read().bypass == 1 and title() == 'Applied'
@@ -651,14 +651,14 @@ def editor_check(lib, tmp):
     before = active.read_bytes()
     click('Presets'); click('HD650.peq')
     assert active.read_bytes() == before and title() == 'Preset loaded; choose Apply to activate'
-    click('Advanced Off'); click('Advanced On')  # any action clears the message
+    click('Enabled Off'); click('Enabled On')  # any action clears the message
     assert named('HD650') and read().bands[0].gain == 1  # the draft's name; still the applied preset
     # A failed apply or switch leaves the active preset untouched.
     before = active.read_bytes()
     (data/'peq-active.tmp').mkdir()
     click('Apply changes')
     assert title() == 'Apply failed; active EQ unchanged' and active.read_bytes() == before
-    click('Advanced Off')
+    click('Enabled Off')
     assert title() == 'Switch failed; EQ unchanged' and active.read_bytes() == before
     (data/'peq-active.tmp').rmdir()
     click('Apply changes'); assert read().bands[0].gain == -3
@@ -742,7 +742,7 @@ def editor_check(lib, tmp):
     assert [round(b.frequency) for b in r.bands[:10]] == [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     assert all(not b.enabled and b.gain == 0 and b.q == 1.41 and b.type == 0 for b in r.bands[:10])
     # Off stays Off.
-    click('Advanced On')  # turns PEQ off
+    click('Enabled On')  # turns PEQ off
     before = active.read_bytes()
     click('Reset to defaults')
     assert active.read_bytes() == before
@@ -918,8 +918,8 @@ def eq3_editor_check(lib, ui, tmp):
         for x in k: assert ui.shim_e3_key(x)
     # PEQ playing; opening 3EQ changes nothing.
     ui.shim_close(); ui.shim_open(); assert ui.shim_tab_touch(300)
-    if ui.shim_flag() == 0: assert ui.shim_click(b'Advanced Off', 1)
-    ui.shim_close(); assert ui.shim_open() == 0 and ui.shim_click(b'Advanced', 2)  # reopens on the tab it was last on
+    if ui.shim_flag() == 0: assert ui.shim_click(b'Enabled Off', 1)
+    ui.shim_close(); assert ui.shim_open() == 0 and ui.shim_click(b'Enabled', 2)  # reopens on the tab it was last on
     assert ui.shim_tab_touch(50); ui.shim_close()  # back to Simple, where the page opens after a boot
     before = active.read_bytes(); peq = bytes(state().peq)
     assert state().mode == EQ_PEQ and ui.shim_flag() == 1
@@ -978,7 +978,7 @@ def eq3_editor_check(lib, ui, tmp):
     ui.shim_e3_close(); s = state(); assert (s.mode, s.hold) == (EQ_OFF, 0)
     assert lib.peq_load_active(C.byref(e)) and e.bypass == 1 and ui.shim_flag() == 0
     # PEQ's switch selects PEQ again; the 3EQ settings stay.
-    ui.shim_open(); assert ui.shim_tab_touch(300) and ui.shim_click(b'Advanced Off', 1); s = state()
+    ui.shim_open(); assert ui.shim_tab_touch(300) and ui.shim_click(b'Enabled Off', 1); s = state()
     assert s.mode == EQ_PEQ and bytes(s.peq) == peq and gains(s) == [0.5, 0, 0] and ui.shim_flag() == 1
     assert ui.shim_tab_touch(50); ui.shim_close()
     ui.shim_e3_open(); assert ui.shim_e3_touch(0x100, 50, 70) == 0 and state().mode == EQ_3  # and back
@@ -987,11 +987,11 @@ def eq3_editor_check(lib, ui, tmp):
     # still on the bar; past it the list's first row, and back. Neither tab changes what plays.
     before = active.read_bytes()
     ui.shim_e3_open(); keys(PREV, PREV, CENTRE); ui.shim_run()
-    assert ui.shim_click(b'Advanced Off', 2) and ui.shim_selection() == -1 and title() == ''
+    assert ui.shim_click(b'Enabled Off', 2) and ui.shim_selection() == -1 and title() == ''
     keys(NEXT); assert ui.shim_selection() == 0
     assert not ui.shim_e3_key(NEXT)  # the list's own
     keys(PREV); assert ui.shim_selection() == -1
-    keys(CENTRE); ui.shim_run(); assert not ui.shim_click(b'Advanced', 2)  # Simple: no list
+    keys(CENTRE); ui.shim_run(); assert not ui.shim_click(b'Enabled', 2)  # Simple: no list
     keys(NEXT, CENTRE); assert state().mode == EQ_OFF; keys(CENTRE)  # the switch, from the bar
     assert active.read_bytes() == before and state().mode == EQ_3
     ui.shim_e3_close()
@@ -1210,6 +1210,11 @@ static void mono_check(void) {
     assert(fd >= 0 && !ftruncate(fd, sizeof(int)));
     volatile int *f = mmap(0, sizeof *f, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     assert(f != MAP_FAILED && !close(fd));
+    int sf = open(SWAP_FILE, O_RDWR | O_CREAT, 0644);
+    assert(sf >= 0 && !ftruncate(sf, sizeof(int)));
+    volatile int *swap = mmap(0, sizeof *swap, PROT_READ | PROT_WRITE, MAP_SHARED, sf, 0);
+    assert(swap != MAP_FAILED && !close(sf));
+    *swap = 1;
     *f = 1;
     unlink(PEQ_ACTIVE); /* bypass */
     track(&a, 48000);
@@ -1218,9 +1223,13 @@ static void mono_check(void) {
     for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == buf[2 * i + 1] && buf[2 * i] == (n - k + i - 1.0f) * 0.5f);
     *f = 0;
     k = block(&a, buf, 1024, &n, -1, 48000);
+    for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == -1 && buf[2 * i + 1] == (float)(n - k + i));
+    *swap = 0;
+    k = block(&a, buf, 1024, &n, -1, 48000);
     for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)(n - k + i) && buf[2 * i + 1] == -1);
     a.uninit(&a);
     unlink(MONO_FILE);
+    unlink(SWAP_FILE);
     peq_pts = -1;
 }
 
@@ -1795,6 +1804,9 @@ def video_check(tmp):
     # Mono Audio: each frame's mean in both channels, never clipping at the ends.
     pcm = (C.c_short * 8)(32767, 32767, -32768, -32768, 1000, -3000, 7, 0)
     lib.mono(pcm, 4); assert list(pcm) == [32767, 32767, -32768, -32768, -1000, -1000, 3, 3]
+    pcm = (C.c_short * 4)(32767, -32768, 1000, -3000)
+    lib.swap(pcm, 2); assert list(pcm) == [-32768, 32767, -3000, 1000]
+    lib.mono(pcm, 2); lib.swap(pcm, 2); assert list(pcm) == [-1, -1, -1000, -1000]
     # The length from ffmpeg -i's report, for the position bar.
     assert lib.duration(b'Input #0, mov\n  Duration: 01:02:03.45, start: 0.0\n') == 3723
     assert lib.duration(b'  Duration: N/A, bitrate: N/A') == 0 and lib.duration(b'') == 0

@@ -25,8 +25,9 @@ static struct {
     int read, on, seconds, done, key[4];
     int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs */
     int rs_read, rs_min;
-    int mono_read, mono;
-    volatile int *flag, *mono_flag;
+    int mono_read, mono, swap_read, swap;
+    volatile int *flag, *mono_flag, *swap_flag;
+    void *swap_label;
     void *mono_label; /* the Mono Audio row's, while Audio settings is open */
     void *page, *sw, *view, *slider, *dec, *add, *label;
     unsigned press, press_at;
@@ -100,8 +101,13 @@ static volatile int *shared_int(const char *tmp, const char *path) {
     void *p = (void *)-1;
     int fd = open(tmp, 0x302, 0644); /* O_RDWR | O_CREAT | O_TRUNC (MIPS) */
     if (fd < 0) return 0;
-    if (!ftruncate(fd, sizeof(int)) && !rename(tmp, path))
+    if (!ftruncate(fd, sizeof(int))) {
         p = mmap(0, sizeof(int), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
+        if (p != (void *)-1 && rename(tmp, path)) {
+            munmap(p, sizeof(int));
+            p = (void *)-1;
+        }
+    }
     close(fd);
     return p != (void *)-1 ? p : 0;
 }
@@ -120,7 +126,14 @@ int mono_on(void) {
     if (!xf.mono_read) xf.mono = config_value("Q2POD", "MONO", 2, 0), xf.mono_read = 1;
     return xf.mono;
 }
+int swap_on(void) {
+    if (!xf.swap_read) xf.swap = config_value("Q2POD", "SWAPLR", 2, 0), xf.swap_read = 1;
+    return xf.swap;
+}
 void mono_sync(void) {
+    if (!xf.swap_flag && swap_on()) xf.swap_flag = shared_int(SWAP_FILE ".tmp", SWAP_FILE);
+    if (xf.swap_flag) *xf.swap_flag = swap_on();
+    if (xf.swap) peq_chain();
     if (!xf.mono_flag && (!mono_on() || !(xf.mono_flag = shared_int(MONO_FILE ".tmp", MONO_FILE))))
         return; /* no file reads as off */
     *xf.mono_flag = mono_on();
@@ -141,6 +154,21 @@ int mono_click(void *ctx, void *event) {
     write_int_config(xf.mono, "Q2POD", "MONO");
     mono_sync();
     mono_text(xf.mono_label);
+    return 0;
+}
+
+static void swap_text(void) {
+    widget_set_text_utf8(xf.swap_label, swap_on() ? "Swap L/R: On" : "Swap L/R: Off");
+}
+void swap_row(void *label) {
+    xf.swap_label = label;
+    swap_text();
+}
+int swap_click(void *ctx, void *event) {
+    xf.swap = !swap_on();
+    write_int_config(xf.swap, "Q2POD", "SWAPLR");
+    mono_sync();
+    swap_text();
     return 0;
 }
 
