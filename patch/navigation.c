@@ -1579,7 +1579,8 @@ void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, un
     canvas_set_text_color(canvas, text);
 }
 
-/* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas). */
+/* A rounded box in color, or a square one when the canvas declines to round it (no vgcanvas, or a
+ * radius under 3, which stock zeroes and then fails). */
 static void fill_box(void *canvas, rect_t *r, unsigned color, unsigned radius) {
     if (canvas_fill_rounded_rect(canvas, r, (void *)0, &color, radius)) {
         canvas_set_fill_color(canvas, color);
@@ -2812,7 +2813,7 @@ static void paint_battery(void *w, void *canvas) {
     canvas_set_fill_color(canvas, color);
     if (inside) {
         rect_t body = { 0, y, bw, bh };
-        fill_box(canvas, &body, color, 2);
+        fill_box(canvas, &body, color, 3);
         canvas_set_fill_color(canvas, color);
         canvas_fill_rect(canvas, bw, y + (bh - nh) / 2, BATT_NUB_W, nh);
         /* Digits have no descenders: lower their ink within the font's line box. */
