@@ -211,7 +211,10 @@ static int on_auto(void) {
 /* A draft on Auto takes the current headroom (an update can move it): 1 if that changed it. */
 static int follow_auto(void) {
     double was = ui.draft.preamp;
-    if (on_auto()) ui.draft.automatic = 1, ui.draft.preamp = headroom(&ui.draft);
+    if (on_auto()) { /* headroom before the flag: the flag is part of its cache key */
+        double h = headroom(&ui.draft);
+        ui.draft.automatic = 1, ui.draft.preamp = h;
+    }
     return ui.draft.preamp != was;
 }
 
