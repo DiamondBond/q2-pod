@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '1.3.5'  # major.minor.patch, single digits, shown as is (About, release tag and ZIPs)
+VERSION = '1.3.6'  # major.minor.patch, single digits, shown as is (About, release tag and ZIPs)
 # The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
 # differ from the installed one, so it packs the digits: 1.0.1 is V101I. About shows the stock
 # firmware version and a CFW. Version row with VERSION and the edition instead (ringnav_about).
@@ -21,7 +21,7 @@ def dev_tag(number, edition):
     for _ in range(3): n, d = divmod(n, 36); digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[d] + digits
     return 'V' + digits + edition.lower()
 BASE = 0xb00000
-SCRATCH = 0xb50000
+SCRATCH = 0xb60000
 RING_STEP = 48
 HOOKS = {
     'localmusic_playlistsmore_page_init': (0x4b3918, 'ringnav_playlistsmore', 'playlistsmore'),
@@ -896,6 +896,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
                 'pdeq_albumcoverlist': 4, 'aclist_mutex': 24,
                 'tidalStreamingLevelNow': 4,  # the quality the Tidal URL thread asked for
+                'g_dropdown_menu_state': 4,  # Quick Settings: 1, 2 while it slides or follows a swipe, 3 open
                 # the lock screen's picture (SYSSET SCREENSAVERPATH) and the picker's list
                 'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4}
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.

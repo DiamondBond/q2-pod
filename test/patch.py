@@ -1680,6 +1680,32 @@ assert m.call(O['KEY_PREV'])==11 and m.nodes[bright]['value']==99
 for key in ('KEY_CENTER','KEY_RETURN')*(variant=='ipod'):  # Legacy keeps stock's keys
     assert m.call(O[key])==11 and [c[1:3] for c in m.calls if c[0]=='dialog_quit']==[(m.top,0)]
 passed()
+# A held Play/Pause there switches its wheel to stock's volume and back, kept as Q2POD QSVOLUME.
+m=Machine(); bright=m.node('slider','slider_backlight',value=50)
+m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
+hold=lambda: m.call(O['KEY_PLAY'],address=syms['on_wm_keylong_fun'],event_type=O['EVT_KEY_LONG'],gap=0)
+saved=lambda: [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
+assert hold()==11 and saved()==[(1,'Q2POD','QSVOLUME')]
+m.call(); assert m.nodes[bright]['value']==50
+assert hold()==11 and saved()==[(0,'Q2POD','QSVOLUME')]
+assert m.call()==11 and m.nodes[bright]['value']==51
+m=Machine(); m.config['QSVOLUME']='1'; bright=m.node('slider','slider_backlight',value=50)
+m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
+m.call(); assert m.nodes[bright]['value']==50; passed()
+# A swipe up that closes it (stock g_dropdown_menu_state 1, 2) may start on the brightness slider: its
+# moves and release abort the slider's press and put back the value from pointer-down. Open and
+# still (3), a drag keeps the value it set.
+for state,kept in ((1,False),(2,False),(3,True)):
+    m=Machine(); bright=m.node('slider','slider_backlight',value=50)
+    m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
+    m.word(syms['g_dropdown_menu_state'],3)
+    touch=lambda kind: m.call(address=HOOKS['widget_dispatch'][0],args=(bright,m.event,0,0),event_type=kind,gap=0)
+    touch(O['EVT_POINTER_DOWN']-1); m.nodes[bright]['value']=80  # the slider takes the press
+    m.word(syms['g_dropdown_menu_state'],state)
+    for kind in (O['EVT_POINTER_MOVE_BEFORE']-1,O['EVT_POINTER_UP_BEFORE']-1):
+        touch(kind); aborts=[c for c in m.dispatched() if m.get(c[2])==O['EVT_POINTER_ABORT']]
+        assert m.nodes[bright]['value']==(80 if kept else 50) and [c[1] for c in aborts]==[bright]*(not kept),(state,kind)
+passed()
 
 # Set date and time: the wheel turns the outlined field, Centre moves on (to the time page after
 # the day) and then to OK, which Centre presses; a turn on OK goes back to the fields.
