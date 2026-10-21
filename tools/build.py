@@ -185,6 +185,10 @@ REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
                b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n')
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
+# Its launcher: keep the A2DP transport open 5 s after hciplayer closes the PCM between songs, so
+# a track change doesn't restart the stream (true-wireless buds started one ear first).
+BLUEALSA2 = 'usr/bin/bluealsa2'
+BT_KEEPALIVE = (b'bluealsa -c LDAC', b'bluealsa --keep-alive=5 -c LDAC')
 SCROBBLE_CA = 'etc/scrobble-ca.pem'
 AAC_44K1 = 0x317b8
 # DROP is acknowledged before the encoder handles its signal. Flush in the control
@@ -1267,6 +1271,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')
     (out/'S11logo').write_bytes(s11logo.replace(*LOGO_HOOK))
+    bluealsa2 = cat(BLUEALSA2)
+    check(bluealsa2.count(BT_KEEPALIVE[0]) == 1, 'Unexpected bluealsa2')
+    (out/'bluealsa2').write_bytes(bluealsa2.replace(*BT_KEEPALIVE))
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.
@@ -1275,6 +1282,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     for path, src in ((b'release/bin/demo', out/'demo'), (b'usr/bin/hciplayer', out/'peq/hciplayer'),
                       (BLUEALSA.encode(), out/'bluealsa'), (WATCHDOG.encode(), out/'watchdog'),
                       (S90PLAY.encode(), out/'S90play'), (S11LOGO.encode(), out/'S11logo'),
+                      (BLUEALSA2.encode(), out/'bluealsa2'),
                       (b'release/assets/default/raw/images/xx/logo.jpg', logo)):
         p = swap_inode(p, path, src)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
