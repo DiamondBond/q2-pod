@@ -13,7 +13,7 @@ const char *netupdate_tag(const char *location) {
 #include "stock.h"
 
 #define NU_REPO "https://github.com/DiamondBond/q2-pod/releases/latest"
-#if IPOD /* tools/release.py FIXED */
+#if IPOD /* tools/release.py ASSETS */
 #define NU_ASSET "update.tar"
 #else
 #define NU_ASSET "update-legacy.tar"
