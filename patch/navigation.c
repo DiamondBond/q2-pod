@@ -1605,7 +1605,8 @@ static void frame_box(void *canvas, const rect_t *r, unsigned color, unsigned ra
 static void *more_image(void *w) {
     for (unsigned i = 0, n = w ? widget_count_children(w) : 0; i < n; ++i) {
         void *c = widget_get_child(w, i);
-        if (widget_get_visible(c) && tk_str_start_with(widget_get_prop_str(c, "name", ""), "img_more"))
+        if (widget_get_visible(c) &&
+            tk_str_start_with(widget_get_prop_str(c, "name", ""), "img_more"))
             return c;
     }
     return (void *)0;
@@ -2425,12 +2426,29 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
 
 /* Playback Setting: what is changed while listening first, then library behaviour, then output. */
 static const unsigned char playset_order[] = {
-    3 /* Play Mode */,     2 /* EQ */,           0 /* Gain */,         18 /* Crossfade */,
-    9 /* Gapless */,       10 /* ReplayGain */,  4 /* Max Volume */,   5 /* Default Vol */,
-    11 /* Balance */,      21 /* Mono Audio */,  22 /* Swap L/R */,  1 /* Filters */,      8 /* Memory play */,
-    20 /* Resume Songs */, 16 /* Artists */,     15 /* Year order */,  17 /* Artist album order */,
-    13 /* Folder art */,   14 /* Folder skip */, 19 /* Folder Root */, 12 /* Enlarged art */,
-    6 /* DSD Output */,    7 /* USB Audio */,
+    3 /* Play Mode */,
+    2 /* EQ */,
+    0 /* Gain */,
+    18 /* Crossfade */,
+    9 /* Gapless */,
+    10 /* ReplayGain */,
+    4 /* Max Volume */,
+    5 /* Default Vol */,
+    11 /* Balance */,
+    21 /* Mono Audio */,
+    22 /* Swap L/R */,
+    1 /* Filters */,
+    8 /* Memory play */,
+    20 /* Resume Songs */,
+    16 /* Artists */,
+    15 /* Year order */,
+    17 /* Artist album order */,
+    13 /* Folder art */,
+    14 /* Folder skip */,
+    19 /* Folder Root */,
+    12 /* Enlarged art */,
+    6 /* DSD Output */,
+    7 /* USB Audio */,
 };
 /* System Setting: connections and display first, set-once items next, Reset last. */
 static const unsigned char sysset_order[] = {
@@ -2955,7 +2973,8 @@ static int np_lyrics(unsigned key) {
     if (!st.lyric_timer) playing_timer_clear(st.np_win);
     rearm(&st.lyric_timer, lyric_expire, SCRUB_MS);
     lyric_pad(lrc);
-    int y = I(lrc, SCROLL_Y), max = I(lrc, VIEW_CONTENT_H) - I(lrc, W_H), to = key == KEY_NEXT ? max : 0;
+    int y = I(lrc, SCROLL_Y), max = I(lrc, VIEW_CONTENT_H) - I(lrc, W_H),
+        to = key == KEY_NEXT ? max : 0;
     for (int i = 0, n = widget_count_children(lrc); i < n; ++i) {
         int top = I(widget_get_child(lrc, i), W_Y);
         if (key == KEY_NEXT ? top > y && top < to : top < y && top > to) to = top;
@@ -3792,7 +3811,8 @@ int ringnav_dispatch(void *target, void *event) {
     if (event && target != window_manager() &&
         ((I(event, EVENT_TYPE) >= EVT_KEY_DOWN && I(event, EVENT_TYPE) <= EVT_KEY_UP_BEFORE) ||
          I(event, EVENT_TYPE) == EVT_KEY_LONG) &&
-        ple_key((unsigned)I(event, EVENT_KEY), 3)) return STOP;
+        ple_key((unsigned)I(event, EVENT_KEY), 3))
+        return STOP;
     if (event) {
         int type = I(event, EVENT_TYPE);
         if (quick.timer &&
@@ -5984,7 +6004,10 @@ static struct {
 
 /* One private selection for demo's lifetime, so a covered stock picker keeps its batch intact. */
 static void *ple_add_select __attribute__((section(".scratch")));
-struct ple_check { void *a, *b; int seen; };
+struct ple_check {
+    void *a, *b;
+    int seen;
+};
 static int ple_checked(void *ctx, int n, char **v, char **names) {
     struct ple_check *c = ctx;
     if (n != 4 || !v[0] || !v[1]) return 1;
@@ -5992,7 +6015,8 @@ static int ple_checked(void *ctx, int n, char **v, char **names) {
     void *r = id == I(c->a, REC_ID) ? c->a : c->b;
     if (!r || id != I(r, REC_ID) || tk_strcmp(v[1], P(r, REC_PATH)) ||
         (v[2] ? atoi(v[2]) : 0) != I(r, REC_CUE_START) ||
-        (v[3] ? atoi(v[3]) : 0) != I(r, REC_CUE_END)) return 1;
+        (v[3] ? atoi(v[3]) : 0) != I(r, REC_CUE_END))
+        return 1;
     c->seen++;
     return 0;
 }
@@ -6012,7 +6036,8 @@ static int ple_mutate(int dest, void *a, void *b) {
     char sql[512];
     struct ple_check check = { a, b, 0 };
     if (dest < 0 || dest >= 100 || !a || I(a, REC_ID) <= 100 ||
-        (b && (I(b, REC_ID) <= 100 || I(a, REC_ID) == I(b, REC_ID)))) return 0;
+        (b && (I(b, REC_ID) <= 100 || I(a, REC_ID) == I(b, REC_ID))))
+        return 0;
     if (sqlite3_open("/mnt/data/database.db", &db)) goto done;
     if (sqlite3_exec(db, "begin immediate", 0, 0, 0)) goto done;
     tk_snprintf(sql, sizeof sql,
@@ -6020,19 +6045,24 @@ static int ple_mutate(int dest, void *a, void *b) {
                 dest, I(a, REC_ID), b ? I(b, REC_ID) : I(a, REC_ID));
     if (sqlite3_exec(db, sql, ple_checked, &check, 0) || check.seen != (b ? 2 : 1)) goto rollback;
     if (b) {
-        if (sqlite3_exec(db, "select max(100,ifnull(max(id),100))+1 from playlist "
-                            "having max(100,ifnull(max(id),100))<2147483647",
-                         ple_number, &temp, 0) || temp <= 100) goto rollback;
+        if (sqlite3_exec(db,
+                         "select max(100,ifnull(max(id),100))+1 from playlist "
+                         "having max(100,ifnull(max(id),100))<2147483647",
+                         ple_number, &temp, 0) ||
+            temp <= 100)
+            goto rollback;
         tk_snprintf(sql, sizeof sql,
                     "update playlist set id=%d where cd_num=%d and id=%d;select changes();"
                     "update playlist set id=%d where cd_num=%d and id=%d;select changes();"
                     "update playlist set id=%d where cd_num=%d and id=%d;select changes()",
-                    temp, dest, I(a, REC_ID), I(a, REC_ID), dest, I(b, REC_ID),
-                    I(b, REC_ID), dest, temp);
+                    temp, dest, I(a, REC_ID), I(a, REC_ID), dest, I(b, REC_ID), I(b, REC_ID), dest,
+                    temp);
     } else
-        tk_snprintf(sql, sizeof sql, "delete from playlist where cd_num=%d and id=%d;select changes()",
-                    dest, I(a, REC_ID));
-    if (sqlite3_exec(db, sql, ple_changed, 0, 0) || sqlite3_exec(db, "commit", 0, 0, 0)) goto rollback;
+        tk_snprintf(sql, sizeof sql,
+                    "delete from playlist where cd_num=%d and id=%d;select changes()", dest,
+                    I(a, REC_ID));
+    if (sqlite3_exec(db, sql, ple_changed, 0, 0) || sqlite3_exec(db, "commit", 0, 0, 0))
+        goto rollback;
     ok = 1;
     goto done;
 rollback:
@@ -6064,7 +6094,8 @@ static void ple_filter(void) {
     for (int i = 0; i < n; ++i) {
         void *r = deque_at(ple.picker, (unsigned)i);
         char name[512];
-        const char *fields[] = { track_name(name, sizeof name, r), P(r, REC_ARTIST), P(r, REC_ALBUM) };
+        const char *fields[] = { track_name(name, sizeof name, r), P(r, REC_ARTIST),
+                                 P(r, REC_ALBUM) };
         for (unsigned f = 0; f < sizeof fields / sizeof *fields; ++f)
             if (ple_has(fields[f], ple.query)) {
                 ple.match[ple.nmatch++] = r;
@@ -6091,7 +6122,8 @@ static void ple_move(int at, int dir) {
         ple.selected = next;
         ple_reload();
         ple_show();
-    } else toast("Could not save playlist");
+    } else
+        toast("Could not save playlist");
 }
 /* phase: press, release, or native delivery/long press. A repeat never moves twice. */
 static int ple_key(unsigned key, int phase) {
@@ -6101,7 +6133,8 @@ static int ple_key(unsigned key, int phase) {
     if (!ple.page && !(ple.key & bit)) return 0;
     if (phase == 1 && !(ple.key & bit)) {
         ple.key |= bit;
-        if (live && !ple.mode && !ple.timer && usable()) ple_move(widget_get_prop_int(ple.view, SEL, ple.selected + 2) - 2,
+        if (live && !ple.mode && !ple.timer && usable())
+            ple_move(widget_get_prop_int(ple.view, SEL, ple.selected + 2) - 2,
                      key == KEY_FWD_BTN ? 1 : -1);
     }
     if (phase == 2) ple.key &= ~bit;
@@ -6120,7 +6153,8 @@ static int ple_back(void *ctx, void *event) {
         ple.mode = 0;
         ple_reload();
         ple_show();
-    } else navigator_back();
+    } else
+        navigator_back();
     return STOP;
 }
 
@@ -6130,7 +6164,10 @@ static int ple_run(const void *unused) {
     if (!ple.page) return 0;
     int action = ple.pending, mode = ple.mode;
     if (!mode) {
-        if (action == 1) { navigator_back(); return 0; }
+        if (action == 1) {
+            navigator_back();
+            return 0;
+        }
         if (!action) {
             int n;
             if (ple.picker) deque_destroy(ple.picker);
@@ -6142,15 +6179,21 @@ static int ple_run(const void *unused) {
             ple.mode = 2;
         }
     } else if (mode == 1) {
-        if (!action) ple.mode = 4;
-        else if ((unsigned)(action - 1) >= (unsigned)ple.nmatch) return 0;
+        if (!action)
+            ple.mode = 4;
+        else if ((unsigned)(action - 1) >= (unsigned)ple.nmatch)
+            return 0;
         else {
             void *r = ple.match[action - 1];
-            if (checkPlayListExist(r, ple.dest)) toast("Already in playlist");
+            if (checkPlayListExist(r, ple.dest))
+                toast("Already in playlist");
             else {
                 int before = (int)deque_size(ple.songs);
                 void *one = _create_deque("stSongInfo");
-                if (!one) { toast("Could not save playlist"); return 0; }
+                if (!one) {
+                    toast("Could not save playlist");
+                    return 0;
+                }
                 deque_init(one);
                 _deque_push_back(one, r); /* stock rewrites the added record's ID and cd_num */
                 if (!ple_add_select) {
@@ -6163,7 +6206,8 @@ static int ple_run(const void *unused) {
                 if (ple_add_select) batch_add_file(0xf001, 0xf00b, one, ple_add_select, ple.dest);
                 deque_destroy(one);
                 ple_reload();
-                toast((int)deque_size(ple.songs) > before ? "Added to Playlist" : "Could not save playlist");
+                toast((int)deque_size(ple.songs) > before ? "Added to Playlist"
+                                                          : "Could not save playlist");
             }
             return 0; /* picker stays on its selected song */
         }
@@ -6173,15 +6217,18 @@ static int ple_run(const void *unused) {
         ple.mode = 1;
         ple_filter();
     } else if (mode == 2) {
-        if (action == 2) ple.mode = 3;
+        if (action == 2)
+            ple.mode = 3;
         else {
             ple.mode = 0;
             ple_move(ple.selected, action ? 1 : -1);
         }
     } else {
         if (!action && (unsigned)ple.selected < deque_size(ple.songs)) {
-            if (ple_mutate(ple.dest, deque_at(ple.songs, (unsigned)ple.selected), 0)) ple_reload();
-            else toast("Could not save playlist");
+            if (ple_mutate(ple.dest, deque_at(ple.songs, (unsigned)ple.selected), 0))
+                ple_reload();
+            else
+                toast("Could not save playlist");
         }
         ple.mode = 0;
     }
@@ -6216,14 +6263,21 @@ static void ple_search_show(void) {
 }
 static void ple_show(void) {
     int mode = ple.mode;
-    if (mode == 4) { ple_search_show(); return; }
+    if (mode == 4) {
+        ple_search_show();
+        return;
+    }
     ple.edit = 0;
-    int n = mode == 0 ? (int)deque_size(ple.songs) + 2
-          : mode == 1 ? (ple.nmatch ? ple.nmatch + 1 : 2)
-          : mode == 2 ? 3 : 2;
+    int n = mode == 0   ? (int)deque_size(ple.songs) + 2
+            : mode == 1 ? (ple.nmatch ? ple.nmatch + 1 : 2)
+            : mode == 2 ? 3
+                        : 2;
     char title[180], name[512];
-    tk_snprintf(title, sizeof title, "%s: %s", mode == 0 ? "Editing" : mode == 1 ? "Add Songs"
-                                                     : mode == 2 ? "Song Actions" : "Remove song?",
+    tk_snprintf(title, sizeof title, "%s: %s",
+                mode == 0   ? "Editing"
+                : mode == 1 ? "Add Songs"
+                : mode == 2 ? "Song Actions"
+                            : "Remove song?",
                 ple.name);
     ple.view = page_list(ple.page, ple.page, 0, title, n, 48);
     static const char *const actions[] = { "Move Up", "Move Down", "Remove from Playlist" };
@@ -6231,17 +6285,20 @@ static void ple_show(void) {
         char search[160];
         tk_snprintf(search, sizeof search, "%s%s", *ple.query ? "Search: " : "Search", ple.query);
         page_row_detail(ple.view, 0, search, 0, ple_pick);
-        if (!ple.nmatch) page_row_detail(ple.view, 1, "No songs match", 0, 0);
+        if (!ple.nmatch)
+            page_row_detail(ple.view, 1, "No songs match", 0, 0);
         else
             for (int i = 0; i < ple.nmatch; i++)
-                page_row_detail(ple.view, i + 1, track_name(name, sizeof name, ple.match[i]), 0, ple_pick);
+                page_row_detail(ple.view, i + 1, track_name(name, sizeof name, ple.match[i]), 0,
+                                ple_pick);
     } else
         for (int i = 0; i < n; i++) {
-            const char *caption = mode == 0 && i < 2 ? (i ? "Done" : "Add Songs")
-                                  : mode == 2 ? actions[i]
-                                  : mode == 3 ? (i ? "Cancel" : "Remove from Playlist")
-                                  : track_name(name, sizeof name, deque_at(ple.songs,
-                                                                            (unsigned)(i - (mode == 0 ? 2 : 0))));
+            const char *caption =
+                mode == 0 && i < 2 ? (i ? "Done" : "Add Songs")
+                : mode == 2        ? actions[i]
+                : mode == 3 ? (i ? "Cancel" : "Remove from Playlist")
+                            : track_name(name, sizeof name,
+                                         deque_at(ple.songs, (unsigned)(i - (mode == 0 ? 2 : 0))));
             page_row_detail(ple.view, i, caption, 0, ple_pick);
         }
     if (n) ringnav_select(ple.view, mode == 0 ? ple.selected + 2 < n ? ple.selected + 2 : 0 : 0, n);
@@ -6256,7 +6313,10 @@ static int ple_open(void *ctx, void *event) {
     if (ple.dest < 0 || ple.dest >= 100) return 0;
     tk_snprintf(ple.name, sizeof ple.name, "%s", P(r, REC_TITLE));
     ple.page = page_open("playlistedit_page", ple_closed, ple_back);
-    if (ple.page) { ple_reload(); ple_show(); }
+    if (ple.page) {
+        ple_reload();
+        ple_show();
+    }
     return 0;
 }
 extern int stock_playlistsmore_trampoline(void *, void *);
@@ -7323,7 +7383,7 @@ int ringnav_btvol(int left, int right) {
         if (btvol.ready && (left > 0 || right > 0)) {
             int volume = left > right ? left : right;
             return stock_btvol_trampoline(left <= 0 ? 0 : left * 100 / volume,
-                                           right <= 0 ? 0 : right * 100 / volume);
+                                          right <= 0 ? 0 : right * 100 / volume);
         }
     }
     return stock_btvol_trampoline(left, right);
@@ -7343,7 +7403,7 @@ static void bt_volume_poll(void) {
     }
     if (!btvol.ready) {
         device_set_volume(g_volume, 0); /* Reuse stock's Balance calculation on reconnect. */
-        return; /* Initial connection preserves Q2 volume. */
+        return;                         /* Initial connection preserves Q2 volume. */
     }
     int cur = btctl_transport_get_volume();
     if (cur < 0 || cur > 127) {

@@ -749,7 +749,6 @@ Stock `getMusicByPlayList` (`0x500a28`) selects `playlist` records with `id > 10
 
 Previous/Next press, repeats, native delivery, long press and release are consumed while the editor is open, including under a success/error toast; movement requires the editor to own the top window. One press moves once; a release latch survives page closure. The wheel retains ordinary row selection. `test/patch.py` exercises the MIPS editor in both builds with SQLite transactions at the import boundary, including rollback, stale selections, ignored writes, duplicate/CUE entries, isolation, limits, picker behavior, touch actions and selection retention. Hardware reboot, stock export/import round trips and subsequent playback still require device validation before release.
 
-
 ## 1.3.5 audio and input fixes
 
 Swap L/R (`Q2POD SWAPLR`, default 0) follows Mono Audio in settings. `crossfade.c` publishes `/tmp/q2swap` using the existing atomic shared-int pattern. The float PCM filter swaps after EQ and mono, before Crossfade and the visualizer; q2video swaps S16 after soft gain and mono for video, radio and Spotify’s helper. Spotify uses that helper on the headphone DAC when either switch is on, with the existing sink-restart limitation. Neither option changes DSD/DoP or AirPlay.
