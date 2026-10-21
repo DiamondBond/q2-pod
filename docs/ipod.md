@@ -156,7 +156,7 @@ The percentage's slot is as wide as its digits (measured once in the stock font,
 digits), so every mode ends on the icons' margin with the same 4-pixel gap to Wi-Fi; `BATT_PCT_W`
 (42, "100%") stands in until the first paint has measured them.
 
-- Percent Inside (`BATTERY=3`): a compact 32×16 solid battery with softly rounded corners and a 2×6 terminal. Centred 13 px dark digits show the percentage without a percent sign. The body turns green while charging and red when low.
+- Percent Inside (`BATTERY=3`): a compact 28×15 solid battery with slightly rounded corners and a 2×5 terminal, the regular icon's. Centred 13 px dark digits show the percentage without a percent sign. The body turns green while charging and red when low.
 
 The playback, Bluetooth and Wi-Fi glyphs share smooth edges, rounded ends and a consistent visual weight. Four-pixel spacing keeps the enlarged numbers clear of connectivity icons. Wi-Fi's arcs are concentric round its dot and stand the battery's 11 pixels tall; it retains all five signal states.
 

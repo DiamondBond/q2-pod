@@ -148,9 +148,8 @@ static inline int arc_out(int r, int y) {
 #define BATT_PCT_PX 16
 #define BATT_BODY_W 16
 #define BATT_BODY_H 11
-#define BATT_INSIDE_W 32
-#define BATT_INSIDE_H 16
-#define BATT_INSIDE_NUB_H 6
+#define BATT_INSIDE_W 28
+#define BATT_INSIDE_H 15
 #define BATT_INSIDE_TEXT_DY 1
 #define BATT_INSIDE_PX 13
 #define BATT_NUB_W 2

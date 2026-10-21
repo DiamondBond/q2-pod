@@ -2808,12 +2808,11 @@ static void paint_battery(void *w, void *canvas) {
         return;
     }
     const int bw = inside ? BATT_INSIDE_W : BATT_BODY_W, bh = inside ? BATT_INSIDE_H : BATT_BODY_H,
-              nh = inside ? BATT_INSIDE_NUB_H : BATT_NUB_H,
-              y = (I(w, W_H) + 1 - bh) / 2 - BATT_PCT_DY * (st.batt_mode == 2);
+              nh = BATT_NUB_H, y = (I(w, W_H) + 1 - bh) / 2 - BATT_PCT_DY * (st.batt_mode == 2);
     canvas_set_fill_color(canvas, color);
     if (inside) {
         rect_t body = { 0, y, bw, bh };
-        fill_box(canvas, &body, color, 3);
+        fill_box(canvas, &body, color, 2);
         canvas_set_fill_color(canvas, color);
         canvas_fill_rect(canvas, bw, y + (bh - nh) / 2, BATT_NUB_W, nh);
         /* Digits have no descenders: lower their ink within the font's line box. */

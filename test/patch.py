@@ -895,19 +895,23 @@ else:
                     b.nodes[w['img_battery']]['image']=image
                     b.nodes[w['label_battery']]['text']=f'{value}%'
                     paint(); before=lcd(); bands,letters=slot()
-                    bw,bh,nh=O['BATT_INSIDE_W'],O['BATT_INSIDE_H'],O['BATT_INSIDE_NUB_H']; y=(30+1-bh)//2
+                    bw,bh,nh=O['BATT_INSIDE_W'],O['BATT_INSIDE_H'],O['BATT_NUB_H']; y=(30+1-bh)//2
                     assert b.get(w['view_battery']+O['W_W'])==bw+O['BATT_NUB_W']
                     assert [x[:5] for x in bands]==[(bw,y+(bh-nh)//2,O['BATT_NUB_W'],nh,color_t(rgb))]
-                    assert [(r['kind'],r['rect'],r['color'],r['radius']) for r in b.rounded]==[('fill',(0,y,bw,bh),color_t(rgb),3)]
+                    assert [(r['kind'],r['rect'],r['color'],r['radius']) for r in b.rounded]==[('fill',(0,y,bw,bh),color_t(rgb),2)]
                     assert [(l['text'],l['rect'],l['color'],l['font'],l['align']) for l in letters]==[(str(value),(2,y+O['BATT_INSIDE_TEXT_DY'],bw-4,bh),color_t(0),('default',O['BATT_INSIDE_PX']),(1,1))]
-        # A crowded codec temporarily uses the small icon and recovers without a level change.
+        # Percent Inside fits beside the widest codec and Wi-Fi.
         b,bar,w,paint=battery_bar(3); b.nodes[w['label_battery']]['text']='100%'
+        b.nodes[w['img_bt']]['image']='bar_aptxhd'
+        paint(); assert b.get(w['view_battery']+O['W_W'])==O['BATT_INSIDE_W']+O['BATT_NUB_W']
+        # A crowded codec temporarily uses the small icon and recovers without a level change.
+        b,bar,w,paint=battery_bar(2); b.nodes[w['label_battery']]['text']='100%'
         b.nodes[w['img_bt']]['image']='bar_aptxhd'
         paint(); assert b.get(w['view_battery']+O['W_W'])==O['BATT_BODY_W']+O['BATT_NUB_W']
         b.advance(O['CODEC_MS'])
         for _ in range(O['CODEC_STEPS']): b.advance(O['CODEC_STEP_MS'])
         b.calls=[]; paint()
-        assert b.get(w['view_battery']+O['W_W'])==O['BATT_INSIDE_W']+O['BATT_NUB_W']
+        assert b.get(w['view_battery']+O['W_W'])>O['BATT_BODY_W']+O['BATT_NUB_W']+O['BATT_GAP']
         assert ('widget_invalidate_force',w['view_battery']) in [c[:2] for c in b.calls]
         for invalid in ('4','9','-1','33','bad',''):
             b,bar,w,paint=battery_bar(invalid); paint()
