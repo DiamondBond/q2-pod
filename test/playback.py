@@ -197,7 +197,7 @@ m.fail='alloc'; assert m.fn('playback_shuffle')==0 and '/mnt/data/ringnav-queue'
 def now_playing():
     m=PlaybackMachine(page='playing_page',pos=1); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2); return m
 m=now_playing(); m.options(0,2,0); m.press(5000); assert m.release()==1
-m.press(6000); assert m.hold()==11 and 'Up Next' not in m.labels() and m.release()==0
+m.press(6000); assert m.hold()==11 and m.release()==0
 m.press(7000); assert m.release()==1; checks+=1
 m=now_playing(); m.options(1,2,0); calls=m.random_calls
 m.press(6000); assert m.hold()==11 and m.release()==0 and 'Up Next' not in m.labels()
@@ -294,27 +294,48 @@ m=PlaybackMachine(); m.options(0,2,0); m.fn('ringnav_start_queue',4)  # ordered:
 assert m.sequence(limit=3)==[4,5]  # the play order is 2,6,0,1,3,4,5
 checks+=1
 
-# A hold on View Queue's shuffle list moves its track to play next (playback_move): not again at its old place, the rest
-# of the order as it was, a pending Play Next behind it, every index (pool, previous, history) moved.
+# A hold on View Queue's shuffle list plays its track next (playback_move): not again at its old
+# place, the rest of the order as it was, the queue and its indices untouched; with a Play Next
+# pending the track goes ahead of it, and the pending list keeps its order behind.
 def up_names(m,k=24):
     out=m.alloc(24*4); names=m.names(); return [names[m.get(out+4*i)] for i in range(m.fn('playback_upcoming',out,k))]
 def played(m,limit): return [m.names()[i] for i in m.sequence(limit=limit)]
-for shuffle,row in ((1,3),(1,5),(0,1),(0,2),(0,5)):  # ordered plays 2,6,0,1,3,4,5: rows 1-2 lie before it
-    m=PlaybackMachine(); m.options(shuffle,5,0); m.word(O['MCL_LASTPOS'],3)
-    out=m.alloc(24*4); m.fn('playback_upcoming',out,24); x=m.get(out+4*row); pos=m.current()
-    names=m.names(); now,last,name=names[pos],names[3],names[x]
-    up=up_names(m)[:6]; pool=[names[i] for i in m.pool()]
-    at=m.fn('playback_move',x); names=m.names()
-    assert at==(pos+1 if x>pos else pos) and names[at]==name and names[m.current()]==now and sorted(names)==sorted(up+[now])
-    assert names[m.mcl('MCL_LASTPOS')]==last and [names[i] for i in m.pool()]==pool
-    want=[name]+[t for t in up if t!=name]
-    assert up_names(m)[:6]==want and played(m,6)[1:]==want, (shuffle,row)
+for shuffle,repeat,row in ((1,5,3),(1,5,5),(0,5,1),(0,5,2),(0,5,5),(2,5,2),(3,5,4),(4,5,3),(3,4,1),(2,1,1)):  # ordered plays 2,6,0,1,3,4,5
+    m=PlaybackMachine(); m.options(shuffle,repeat,0); m.word(O['MCL_LASTPOS'],3)
+    out=m.alloc(24*4); n=m.fn('playback_upcoming',out,24); x=m.get(out+4*row); pos=m.current()
+    names=m.names(); now=names[pos]; up=up_names(m); pool=m.pool()
+    assert row<n and m.fn('playback_move',x)==x and m.names()==names and m.current()==pos, (shuffle,repeat)
+    assert m.mcl('MCL_LASTPOS')==3 and m.pool()==pool
+    want=([up[row]]+up[:row]+up[row+1:])[:5]  # a short category's next pass repeats names
+    assert up_names(m)[:5]==want and played(m,5)[1:]==want, (shuffle,repeat,row)
     for t in reversed([now]+want[:-1]): assert m.fn('ringnav_prev')==1 and m.names()[m.current()]==t
     checks+=1
-m=PlaybackMachine(); m.options(1,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
+for pick in (0,1):
+    m=PlaybackMachine(); m.options(1,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
+    m.deqs[q][1][old+1:old+1]=[m.song('next')]; m.fn('playback_insert',old+1,1,1)
+    if pick: x=up_names(m)[3]; m.fn('ringnav_start_queue',m.names().index(x)); assert up_names(m)[0]=='next'
+    m.word(O['MCL_LASTPOS'],3); up=up_names(m)[:7]; assert up[0]=='next'; now=m.names()[m.current()]; last=m.names()[m.mcl('MCL_LASTPOS')]
+    names=m.names(); m.fn('playback_move',m.names().index(up[4]))
+    assert m.names()==names and m.names()[m.current()]==now and m.names()[m.mcl('MCL_LASTPOS')]==last
+    want=[up[4]]+[t for t in up if t!=up[4]]; assert up_names(m)[:7]==want and played(m,7)[1:]==want, pick
+checks+=1
+# Songs in Album with a Play Next pending: the hold leaves the queue, its album grouping and the
+# current track alone, and the pending Play Next plays after the moved track, as before the move.
+m=PlaybackMachine(); m.options(2,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
 m.deqs[q][1][old+1:old+1]=[m.song('next')]; m.fn('playback_insert',old+1,1,1)
-up=up_names(m)[:7]; assert up[0]=='next'; m.fn('playback_move',m.names().index(up[4]))
-want=[up[4]]+[t for t in up if t!=up[4]]; assert up_names(m)[:7]==want and played(m,7)[1:]==want
+names=m.names(); now=names[m.current()]; up=up_names(m)[:8]; assert up[0]=='next'
+x=up[4]; m.fn('playback_move',m.names().index(x))
+want=[x,'next']+[t for t in up if t not in (x,'next')]
+assert m.names()==names and m.names()[m.current()]==now
+assert up_names(m)[:7]==want[:7] and played(m,7)[1:]==want[:7]
+checks+=1
+# Play Next's list holds 64: a 65th hold drops the oldest, and the list plays newest first.
+m=PlaybackMachine(); m.budget=10000000; m.install([(f'p{k}',f'/p/{k:03}.flac','P',1,k,0,0) for k in range(70)],0)
+m.options(0,2,0)
+for k in range(1,66): assert m.fn('playback_move',k)==k
+out=m.alloc(24*4); up=[m.get(out+4*i) for i in range(m.fn('playback_upcoming',out,70))]
+assert up[:64]==list(range(65,1,-1)) and up[64]==1, up[:66]
+checks+=1
 # The playing track and stock's own queue do nothing; a move closes the preload, which then
 # targets the moved track, and the saved queue resumes as moved.
 m=PlaybackMachine(); m.options(1,5,0); m.word(O['MCL_PRELOAD'],1); m.word(O['MCL_FD'],9)
@@ -406,9 +427,9 @@ for missing in ({'priority1'}, {'priority3'}, {'priority1','priority3'},
     r.missing={'/p/'+n for n in missing}
     assert r.fn('ringnav_memory',r.deque([]))==2
     r.fn('playback_save')
-    saved=struct.unpack_from('<15I',r.files['/mnt/data/ringnav-queue'])
-    assert saved[12]<=saved[13]<=saved[4]
+    saved=struct.unpack_from('<14I',r.files['/mnt/data/ringnav-queue'])
     remaining=[n for n in ('priority1','priority2','priority3') if n not in missing]
+    assert saved[12]==len(remaining)
     for name in remaining:
         r.advance_song(0); assert r.names()[r.current()]==name
     again=PlaybackMachine(r.files); again.byte(syms['g_memory_play'],2)
@@ -483,13 +504,30 @@ def fnv(data):
     return value
 def snapshot_checksum(data):
     struct.pack_into('<I',data,12,0); struct.pack_into('<I',data,12,fnv(data))
-legacy=bytearray(files['/mnt/data/ringnav-queue']); del legacy[56:60]
+legacy=bytearray(files['/mnt/data/ringnav-queue']); del legacy[52:56]
 struct.pack_into('<I',legacy,4,1); struct.pack_into('<I',legacy,8,len(legacy)); snapshot_checksum(legacy)
 r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(legacy)}); r.byte(syms['g_memory_play'],2)
 assert r.fn('ringnav_memory',r.deque([]))==-1
-bad=bytearray(files['/mnt/data/ringnav-queue']); struct.pack_into('<I',bad,56,5); snapshot_checksum(bad)
+bad=bytearray(files['/mnt/data/ringnav-queue']); struct.pack_into('<I',bad,52,5); snapshot_checksum(bad)
 r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(bad)}); r.byte(syms['g_memory_play'],2)
 assert r.fn('ringnav_memory',r.deque([]))==-1
+# A version 2 snapshot (its Play Next one run, forced and force_end in the header) restores: the run
+# comes back as the list, in order, with the queue and position, and the next save writes version 3.
+m=PlaybackMachine(); m.options(1,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
+m.deqs[q][1][old+1:old+1]=[m.song('next%d'%i) for i in range(3)]; m.fn('playback_insert',old+1,3,1); m.fn('playback_save')
+v3=m.files['/mnt/data/ringnav-queue']; hdr=struct.unpack_from('<14I',v3); n,hn=hdr[4],hdr[11]
+assert hdr[12]==3
+body=bytearray(v3[56:]); at=(n*3+hn)*4; run=struct.unpack_from('<3I',body,at)
+assert run==(old+1,old+2,old+3)
+v2=struct.pack('<15I',0x5132524e,2,0,0,*hdr[4:12],run[0]+1,run[2]+1,hdr[13])+bytes(body[:at]+body[at+12:])
+v2=bytearray(v2); struct.pack_into('<I',v2,8,len(v2)); snapshot_checksum(v2)
+names=m.names(); want=m.current()
+r=PlaybackMachine({'/mnt/data/ringnav-queue':bytes(v2)}); r.byte(syms['g_memory_play'],2)
+r.library_rows.extend(r.song('next%d'%i) for i in range(3))
+assert r.fn('ringnav_memory',r.deque([]))==want and r.names()==same(names)
+assert up_names(r)[:3]==['next0','next1','next2'] and up_names(r)==same(up_names(m))
+r.fn('playback_save'); saved=struct.unpack_from('<14I',r.files['/mnt/data/ringnav-queue'])
+assert saved[1]==3 and saved[12]==3
 checks+=1
 
 # List Play stops both Next and natural completion at the selected library queue's end.
@@ -841,8 +879,8 @@ for n in (8,128):
         m.install([(str(i),'/a/'+str(i),'A' if i==0 else 'B',0,i,0,0) for i in range(n)],0)
         m.options(0,repeat,0)
         cost=[0]; visits=[0]
-        # playback's private o32 layout: order/cycle pointers follow 24 words of scalar state.
-        tables=[m.get(ps['s']+96),m.get(ps['s']+100)]
+        # playback's o32 layout: order/cycle follow 88 words (scalar state, then Play Next's list).
+        tables=[m.get(ps['s']+352),m.get(ps['s']+356)]
         def count_traversal(u,access,address,size,value,unused):
             if any(start<=address<start+n*12 for start in tables): visits[0]+=1
         read_hook=m.u.hook_add(UC_HOOK_MEM_READ,count_traversal)

@@ -1,7 +1,7 @@
 # Changelog
 
 - **1.3.6**:
-  - View Queue: with a shuffle on it lists the songs in the order they will play (it replaces the separate Up Next entry), and holding Play/Pause on a song plays it next; it moves out of its old place in the queue.
+  - View Queue: with a shuffle on it lists the songs in the order they will play (it replaces the separate Up Next entry), and holding Play/Pause on a song plays it next, without playing it again later.
   - Quick Settings: hold Play/Pause to switch the wheel between the brightness slider and volume; the choice is kept across restarts.
   - Lyrics: Now Playing's lyrics search (⋯ menu) now looks on LRCLIB first, which has synced lyrics for most non-Chinese music, then Kugou as before. NetEase, stock's other source, no longer answers.
   - Cover art: Now Playing's cover search (⋯ menu) now offers covers from MusicBrainz's Cover Art Archive and Apple's iTunes first, then Kugou and Baidu as before.

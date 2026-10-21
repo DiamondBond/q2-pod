@@ -9,8 +9,11 @@
 #define CHECKPOINT_FILE QUEUE_FILE "-elapsed"
 #define QUEUE_LIMIT 65536
 #define HISTORY_LIMIT 4096
-/* ponytail: a larger queue is not kept across a reboot, as the snapshot is the whole queue, rewritten
- * each track change; save the order once and positions after to lift it. */
+/* ponytail: Play Next's pending list holds 64 queue indices; a new one past that drops the oldest
+ * (the last). Raise it, a fixed array in the struct, if more are wanted. */
+#define PEND_LIMIT 64
+/* ponytail: a larger queue is not kept across a reboot, as the snapshot is the whole queue,
+ * rewritten each track change; save the order once and positions after to lift it. */
 #define SAVE_LIMIT 999
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_prev_trampoline(void), stock_mode_trampoline(int), stock_preload_trampoline(void),
@@ -25,7 +28,8 @@ typedef struct {
 } entry;
 typedef struct {
     int active, shuffle, repeat, folder, restoring, dirty, grouping;
-    unsigned n, cursor, forced, force_end, hn, stamp;
+    unsigned n, cursor, npend, hn, stamp;
+    unsigned pend[PEND_LIMIT]; /* Play Next: queue indices, the first plays first */
     int saved_elapsed, save_failed, resume_pending, resume_elapsed, resume_wait;
     unsigned saved_pos, saved_sum;
     int next_valid, next_value;
@@ -257,7 +261,7 @@ static void release(void) {
     if (s.history) free(s.history);
     s.order = s.cycle = 0;
     s.groups = s.seen = s.history = 0;
-    s.n = s.hn = s.cursor = s.forced = s.force_end = 0;
+    s.n = s.hn = s.cursor = s.npend = 0;
     s.resume_key = s.resume_pending = s.resume_wait = s.save_failed = 0;
 }
 /* Albums as Coverflow tells them apart (album_cmp: tagged albums first), or folders. */
@@ -434,7 +438,7 @@ int playback_set(int kind, int value) {
     else
         s.folder = value;
     close_preload();
-    s.forced = s.force_end = 0;
+    s.npend = 0;
     s.active = rebuild(s.active);
     playback_save();
     return s.active;
@@ -469,11 +473,34 @@ int playback_shuffle(int mode) {
     s.shuffle = 1;
     s.repeat = 5;
     s.folder = 0;
-    s.forced = s.force_end = 0;
+    s.npend = 0;
     close_preload();
     s.active = rebuild(0);
     playback_save();
     return s.active;
+}
+/* The pending Play Next list: queue indices, the head plays first. */
+static unsigned pend_find(unsigned x) {
+    unsigned k = 0;
+    while (k < s.npend && s.pend[k] != x) ++k;
+    return k;
+}
+/* x to the front, out of its old place if listed; a full list drops its last entry. */
+static void pend_front(unsigned x) {
+    unsigned k = pend_find(x);
+    if (k == s.npend) {
+        if (s.npend == PEND_LIMIT) --s.npend;
+        k = s.npend++;
+    }
+    for (; k > 0; --k) s.pend[k] = s.pend[k - 1];
+    s.pend[0] = x;
+}
+/* Takes x off the list if listed; returns whether it was. */
+static int pend_take(unsigned x) {
+    unsigned k = pend_find(x);
+    if (k == s.npend) return 0;
+    for (--s.npend; k < s.npend; ++k) s.pend[k] = s.pend[k + 1];
+    return 1;
 }
 /* The indices that play after this track, in order, ignoring the single-song rules. Peek has no
  * side effects, RNG or history writes. */
@@ -481,13 +508,15 @@ static unsigned upcoming(unsigned *out, unsigned max) {
     unsigned at = (unsigned)M(MCL_POS), k = 0;
     if (!s.active || at >= s.n) return 0;
     int category = s.repeat == 1 || s.repeat == 4;
-    /* Play Next's tracks [forced-1, force_end) play back to back first (commit moves forced on) */
-    unsigned f = s.forced ? s.forced - 1 : s.n, fe = f;
-    while (fe < s.force_end && fe < s.n && k < max && (!category || s.groups[fe] == s.groups[at]))
-        out[k++] = fe++;
+    /* Play Next's list first, in order; the order walk below skips its members */
+    for (unsigned j = 0; j < s.npend && k < max; ++j) {
+        unsigned x = s.pend[j];
+        if (!category || s.groups[x] == s.groups[at]) out[k++] = x;
+    }
     for (unsigned i = s.cursor + 1; i < s.n && k < max; ++i) {
         unsigned x = s.order[i].index;
-        if (!s.seen[x] && (x < f || x >= fe) && (!category || s.groups[x] == s.groups[at])) out[k++] = x;
+        if (!s.seen[x] && pend_find(x) == s.npend && (!category || s.groups[x] == s.groups[at]))
+            out[k++] = x;
     }
     if (s.repeat < 3) return k;
     /* the next pass after the order runs out: the cycle, wrapped */
@@ -516,26 +545,26 @@ int playback_successor(int automatic) {
     }
     return s.next_value;
 }
+/* A Play Next pick plays now: its order entry moves immediately after the cursor, leaving other
+ * order intact, even when the order sorted it before the cursor (already marked seen). */
+static void play_now(unsigned next) {
+    unsigned i = 0;
+    while (i < s.n && s.order[i].index != next) ++i;
+    if (i < s.cursor) {
+        entry t = s.order[i];
+        for (; i < s.cursor; ++i) s.order[i] = s.order[i + 1];
+        s.order[i] = t;
+        --s.cursor;
+    } else if (i > s.cursor && i < s.n) {
+        entry t = s.order[i];
+        for (; i > s.cursor + 1; --i) s.order[i] = s.order[i - 1];
+        s.order[i] = t;
+    }
+    s.seen[next] = 0;
+}
 static void commit(unsigned next) {
     s.resume_key = s.resume_pending = 0;
-    if (s.forced && next == s.forced - 1) {
-        s.forced = next + 1 < s.force_end ? next + 2 : 0;
-        /* Move the priority occurrence immediately after the cursor, leaving other order intact,
-         * even when the order sorted it before the cursor (already marked seen). */
-        unsigned i = 0;
-        while (i < s.n && s.order[i].index != next) ++i;
-        if (i < s.cursor) {
-            entry t = s.order[i];
-            for (; i < s.cursor; ++i) s.order[i] = s.order[i + 1];
-            s.order[i] = t;
-            --s.cursor;
-        } else if (i > s.cursor && i < s.n) {
-            entry t = s.order[i];
-            for (; i > s.cursor + 1; --i) s.order[i] = s.order[i - 1];
-            s.order[i] = t;
-        }
-        s.seen[next] = 0;
-    }
+    if (pend_take(next)) play_now(next);
     unsigned i = s.cursor + 1;
     while (i < s.n && s.order[i].index != next) ++i;
     if ((i == s.n || s.seen[next]) && !(s.repeat == 3 && next == (unsigned)M(MCL_POS))) {
@@ -554,15 +583,13 @@ static void commit(unsigned next) {
  * index at. In advanced play the pick is committed first: a shuffle's through Play Next's path, so
  * the order carries on after it and it neither plays again later in the pass nor drops the tracks
  * it jumped; an ordered queue's in place, so the tracks after it follow. A pick inside a pending
- * Play Next keeps the rest of that range, as Next would. */
+ * Play Next takes only its entry off the list, the rest stay pending. */
 int ringnav_start_queue(int at) {
-    unsigned f = s.forced, fe = s.force_end, x = (unsigned)at;
+    unsigned x = (unsigned)at;
     if (s.active && x < s.n && x != (unsigned)M(MCL_POS) && queue() && deque_size(queue()) == s.n) {
-        int in = f && x + 1 >= f && x < fe;
         close_preload();
-        if (in || s.shuffle == 1) s.forced = x + 1, s.force_end = in ? fe : x + 1;
+        if (s.shuffle == 1 && pend_find(x) == s.npend) play_now(x);
         commit(x);
-        if (!in) s.forced = f, s.force_end = fe;
     }
     return stock_start_queue_trampoline(at);
 }
@@ -577,7 +604,7 @@ int ringnav_load(void *q, int at, int type) {
         s.restoring = 0;
     else if (!s.restoring) {
         s.resume_key = s.resume_pending = 0;
-        s.forced = s.force_end = 0;
+        s.npend = 0;
         /* Shuffle Albums/Folders end with any other queue; a repeat or Shuffle track mode carries on */
         if (s.active && (type == 1 || (type & 0xf000) == 0xf000) && (s.shuffle < 3 || s.grouping))
             s.active = rebuild(0);
@@ -714,7 +741,7 @@ int playback_group_skip(int forward) {
         if (next == s.n) return 0;
         for (unsigned i = 0; i < s.n; ++i)
             if (s.groups[i] == group) s.seen[i] = 1;
-        s.forced = s.force_end = 0;
+        s.npend = 0;
         commit(next);
     } else {
         unsigned h = s.hn;
@@ -733,7 +760,7 @@ int playback_group_skip(int forward) {
         s.hn = h;
         history(next);
         s.seen[next] = 1;
-        s.forced = s.force_end = s.resume_key = s.resume_pending = 0;
+        s.npend = s.resume_key = s.resume_pending = 0;
         s.next_valid = 0;
         s.dirty = 1;
     }
@@ -768,74 +795,74 @@ void playback_insert(unsigned at, unsigned n, int next) {
     for (unsigned i = 0; i < s.hn; ++i)
         if (s.history[i] >= at) s.history[i] += n;
     s.active = rebuild(1);
-    if (s.forced && s.forced - 1 >= at) {
-        s.forced += n;
-        s.force_end += n;
-    }
-    if (next) {
-        /* Play Next again before the last one finished: the new tracks, then what is left of it */
-        s.force_end = s.forced == at + n + 1 ? s.force_end : at + n;
-        s.forced = at + 1;
-    }
+    for (unsigned i = 0; i < s.npend; ++i)
+        if (s.pend[i] >= at) s.pend[i] += n;
+    /* Play Next again before the last one finished: the new tracks go first, in order */
+    if (next)
+        for (unsigned i = n; i-- > 0;) pend_front(at + i);
     playback_save();
 }
-/* Up Next's hold: the queue's track at from moves to play right after this one, a move, not Play
- * Next's copy, so it does not play again at its old place. Every index (the queue, stock's shuffle
- * pool, previous and position, this order, seen, groups and history) follows the moved occurrence;
- * the order is not dealt again, so Up Next keeps the rest as it was. A pending Play Next right
- * after this track stays behind it. Returns its new index, -1 when nothing moves. ponytail: a track
- * taken from the next pass's rows (Repeat All) still plays in that pass too. */
+/* Play Next or Add: the tracks land at pos+1 (next) or the end, and every queue index moves with
+ * them. The stock side (deque, shuffle pool, last pick, previous index, gapless preload) is kept
+ * whether or not advanced play is on; the preload closes as mclSetPlayMode @0x5ab29c does, flag -1,
+ * then advanced play's own state follows. Returns the index the first track lands at. */
+unsigned playback_queue_insert(void *queue, void *add, int next) {
+    unsigned size = deque_size(queue), n = deque_size(add), pos = (unsigned)M(MCL_POS);
+    unsigned at = next && pos < size ? pos + 1 : size;
+    if (at == size)
+        for (unsigned i = 0; i < n; ++i) _deque_push_back(queue, deque_at(add, i));
+    else {
+        void *all = _create_deque("stSongInfo");
+        deque_init(all);
+        for (unsigned i = 0; i < size + n; ++i)
+            _deque_push_back(all, i < at       ? deque_at(queue, i)
+                                  : i < at + n ? deque_at(add, i - at)
+                                               : deque_at(queue, i - n));
+        deque_clear(queue);
+        deque_assign(queue, all);
+        deque_destroy(all);
+    }
+    void *pool = P(MCL_POOL, 0);
+    for (unsigned i = 0; i < deque_size(pool); ++i) {
+        int *index = deque_at(pool, i);
+        if ((unsigned)*index >= at) *index += (int)n;
+    }
+    for (unsigned i = 0; i < n; ++i) _deque_push_back(pool, (int)(at + i));
+    if (M(MCL_LASTPOS) != -1 && (unsigned)M(MCL_LASTPOS) >= at) M(MCL_LASTPOS) += (int)n;
+    /* back_to is the previous index + 1 (0 none), shifted like the rest */
+    if (back_to && (unsigned)back_to - 1 >= at) back_to += (int)n;
+    /* A preload always targets pos+1 (or the wrap); only an insert there makes it stale. */
+    if (M(MCL_PRELOAD) == 1 && at == pos + 1) {
+        if (M(MCL_FD) != -1) send(M(MCL_FD), "{mcl-closegapless\\null}", 23, 0);
+        M(MCL_PRELOAD) = -1;
+    }
+    playback_insert(at, n, next);
+    return at;
+}
+/* Up Next's hold: the queue's track at from plays next, ahead of any pending Play Next. Only the
+ * pending list changes: from joins its front (out of its old place there), so the queue, its
+ * indices, the order and every album or folder group stay as they were. commit then takes its
+ * order entry to the cursor, as a Shuffle Songs pick does. Returns from, -1 when nothing moves.
+ * ponytail: a track taken from the next pass's rows (Repeat All) still plays in that pass too. */
 int playback_move(unsigned from) {
     void *q = queue();
     unsigned pos = (unsigned)M(MCL_POS);
     if (!s.active || !q || deque_size(q) != s.n || pos >= s.n || from >= s.n || from == pos)
         return -1;
-    unsigned to = from > pos ? pos + 1 : pos, lo = from < to ? from : to,
-             hi = from < to ? to : from;
-    unsigned step = from < to ? -1u : 1u;
-#define MOVED(i) ((i) == from ? to : (i) >= lo && (i) <= hi ? (i) + step : (i))
-    void *all = _create_deque("stSongInfo");
-    deque_init(all);
-    for (unsigned j = 0; j < s.n; ++j)
-        _deque_push_back(all, deque_at(q, j == to ? from : j >= lo && j <= hi ? j - step : j));
-    deque_clear(q);
-    deque_assign(q, all);
-    deque_destroy(all);
-    void *pool = P(MCL_POOL, 0);
-    for (unsigned i = 0; i < deque_size(pool); ++i) {
-        int *index = deque_at(pool, i);
-        *index = (int)MOVED((unsigned)*index);
-    }
-    if (M(MCL_LASTPOS) != -1) M(MCL_LASTPOS) = (int)MOVED((unsigned)M(MCL_LASTPOS));
-    M(MCL_POS) = (int)MOVED(pos);
-    unsigned seen = s.seen[from], group = s.groups[from], j = from;
-    for (; j < to; ++j) s.seen[j] = s.seen[j + 1], s.groups[j] = s.groups[j + 1];
-    for (; j > to; --j) s.seen[j] = s.seen[j - 1], s.groups[j] = s.groups[j - 1];
-    s.seen[to] = seen, s.groups[to] = group;
-    for (unsigned i = 0; i < s.n; ++i) {
-        s.order[i].index = MOVED(s.order[i].index);
-        s.cycle[i].index = MOVED(s.cycle[i].index);
-        s.groups[i] = MOVED(s.groups[i]);
-    }
-    for (unsigned i = 0; i < s.hn; ++i) s.history[i] = MOVED(s.history[i]);
-    s.resume_pos = MOVED(s.resume_pos);
-#undef MOVED
-    /* A pending Play Next right after this track: the moved one first, then the rest of it (one
-     * more when from lay after it). Any other range ends, as playback_insert's. */
-    unsigned fe = s.force_end;
-    s.force_end = s.forced && s.forced - 1 == pos + 1 && fe > pos + 1 ? fe + (from >= fe) : to + 1;
-    s.forced = to + 1;
     close_preload();
     s.next_valid = 0;
     s.dirty = 1;
+    pend_front(from);
     playback_save();
-    return (int)to;
+    return (int)from;
 }
 
-/* Snapshot fields are little-endian uint32 on this MIPS target, no pointers. */
+/* Snapshot fields are little-endian uint32 on this MIPS target, no pointers. Version 3: after the
+ * history comes the pending Play Next list, npend indices. Version 2 had one run of it, forced and
+ * force_end in the header, and restores as the list. */
 typedef struct {
     unsigned magic, version, size, checksum, n, pos, elapsed, shuffle, repeat, folder, cursor, hn,
-        forced, force_end, type;
+        npend, type;
 } snapshot;
 /* Elapsed time for the snapshot whose checksum is snapshot, at pos. */
 typedef struct {
@@ -869,7 +896,7 @@ void playback_save(void) {
         return;
     }
     s.dirty = 1;
-    unsigned size = sizeof(snapshot) + (s.n * 3 + s.hn) * 4;
+    unsigned size = sizeof(snapshot) + (s.n * 3 + s.hn + s.npend) * 4;
     for (unsigned i = 0; i < s.n; ++i) {
         const char *path = P(deque_at(queue(), i), REC_PATH);
         unsigned len = path ? strlen(path) : 0;
@@ -879,7 +906,7 @@ void playback_save(void) {
     unsigned char *buf = calloc(size, 1);
     if (!buf) return;
     snapshot h = { 0x5132524e,
-                   2,
+                   3,
                    size,
                    0,
                    s.n,
@@ -890,16 +917,16 @@ void playback_save(void) {
                    (unsigned)s.folder,
                    s.cursor,
                    s.hn,
-                   s.forced,
-                   s.force_end,
+                   s.npend,
                    (unsigned)M(MCL_TYPE) };
     memcpy(buf, &h, sizeof h);
     unsigned char *p = buf + sizeof h;
-    for (unsigned i = 0; i < s.n * 3 + s.hn; ++i) {
-        unsigned index = i < s.n       ? s.order[i].index
-                         : i < s.n * 2 ? s.cycle[i - s.n].index
-                         : i < s.n * 3 ? s.seen[i - s.n * 2]
-                                       : s.history[i - s.n * 3];
+    for (unsigned i = 0; i < s.n * 3 + s.hn + s.npend; ++i) {
+        unsigned index = i < s.n              ? s.order[i].index
+                         : i < s.n * 2        ? s.cycle[i - s.n].index
+                         : i < s.n * 3        ? s.seen[i - s.n * 2]
+                         : i < s.n * 3 + s.hn ? s.history[i - s.n * 3]
+                                              : s.pend[i - s.n * 3 - s.hn];
         memcpy(p, &index, 4);
         p += 4;
     }
@@ -956,16 +983,30 @@ int ringnav_memory(void *out) {
     void *f = fopen(QUEUE_FILE, "rb");
     if (!f) return stock_memory(out);
     snapshot h = { 0 };
-    unsigned header_size = sizeof h;
-    int ok = fread(&h, header_size, 1, f) == 1 && h.magic == 0x5132524e && h.version == 2 && (h.type == 1 || (h.type & 0xf000) == 0xf000) && h.type <= 0xffff && h.n &&
+    /* Raw header words, as the file has them: version 3 ends with npend, type; version 2 with
+     * forced, force_end, type, its one run, which the restore turns into the list. */
+    unsigned head[15] = { 0 }, header_size, run = 0, run_end = 0;
+    int ok = fread(head, 48, 1, f) == 1 && head[0] == 0x5132524e && (head[1] == 2 || head[1] == 3);
+    header_size = head[1] == 2 ? 60 : 56;
+    ok = ok && fread(head + 12, header_size - 48, 1, f) == 1;
+    memcpy(&h, head, 48);
+    if (h.version == 2) {
+        run = head[12], run_end = head[13];
+        h.type = head[14];
+    } else {
+        h.npend = head[12];
+        h.type = head[13];
+    }
+    ok = ok && (h.type == 1 || (h.type & 0xf000) == 0xf000) && h.type <= 0xffff && h.n &&
          h.n <= QUEUE_LIMIT && h.pos < h.n && h.cursor < h.n && h.hn <= HISTORY_LIMIT &&
+         (h.version == 2 ? run <= h.n && run_end <= h.n && (!run || run <= run_end)
+                         : h.npend <= PEND_LIMIT) &&
          h.shuffle < 5 && h.repeat < 6 && h.folder < 2 && h.elapsed <= 0x7fffffff &&
-         h.forced <= h.n && h.force_end <= h.n && (!h.forced || h.forced <= h.force_end) &&
-         h.size >= header_size + (h.n * 3 + h.hn) * 4 + h.n * 14 &&
-         h.size <= header_size + (h.n * 3 + h.hn) * 4 + h.n * 1036;
+         h.size >= header_size + (h.n * 3 + h.hn + h.npend) * 4 + h.n * 14 &&
+         h.size <= header_size + (h.n * 3 + h.hn + h.npend) * 4 + h.n * 1036;
     unsigned char *buf = ok ? calloc(h.size, 1) : 0;
     if (buf) {
-        memcpy(buf, &h, header_size);
+        memcpy(buf, head, header_size);
         ok = fread(buf + header_size, h.size - header_size, 1, f) == 1;
         unsigned char extra;
         if (fread(&extra, 1, 1, f)) ok = 0;
@@ -980,10 +1021,10 @@ int ringnav_memory(void *out) {
         h.elapsed = c.elapsed;
     /* Validate the entire snapshot before queries or mutations. */
     unsigned *indices = (unsigned *)(buf ? buf + header_size : 0);
-    unsigned char *p = buf ? buf + header_size + (h.n * 3 + h.hn) * 4 : 0;
+    unsigned char *p = buf ? buf + header_size + (h.n * 3 + h.hn + h.npend) * 4 : 0;
     unsigned *map = ok ? calloc(h.n, sizeof *map) : 0;
     if (!map) ok = 0;
-    for (unsigned i = 0; ok && i < h.n * 3 + h.hn; ++i)
+    for (unsigned i = 0; ok && i < h.n * 3 + h.hn + h.npend; ++i)
         if (i >= h.n * 2 && i < h.n * 3 ? indices[i] > 1 : indices[i] >= h.n) ok = 0;
     for (unsigned cycle = 0; ok && cycle < 2; ++cycle) {
         memset(map, 0, h.n * 4);
@@ -1024,7 +1065,7 @@ int ringnav_memory(void *out) {
         }
         if (n) qsort(lookup, n, sizeof *lookup, resume_before);
         char folder[1024] = "";
-        p = buf + header_size + (h.n * 3 + h.hn) * 4;
+        p = buf + header_size + (h.n * 3 + h.hn + h.npend) * 4;
         for (unsigned i = 0; ok && i < h.n; ++i) {
             unsigned id[3];
             memcpy(id, p, 12);
@@ -1107,13 +1148,16 @@ int ringnav_memory(void *out) {
                     s.cursor = i;
                     break;
                 }
-            s.forced = s.force_end = 0;
-            if (h.forced)
-                for (unsigned i = h.forced - 1; i < h.force_end; ++i)
-                    if (map[i] != ~0u) {
-                        if (!s.forced) s.forced = map[i] + 1;
-                        s.force_end = map[i] + 1;
-                    }
+            s.npend = 0;
+            if (h.version == 2) {
+                /* the run [forced-1, force_end), in order */
+                for (unsigned i = run_end; run && i-- > run - 1;)
+                    if (map[i] != ~0u) pend_front(map[i]);
+            } else
+                for (unsigned i = h.npend; i-- > 0;) {
+                    unsigned at = map[indices[h.n * 3 + h.hn + i]];
+                    if (at != ~0u) pend_front(at);
+                }
             deque_assign(out, q);
             I(g_memory_info, 0) = (int)h.type;
             mclSetStartSeekTime(g_memory_play == 2 || g_carmode ? (int)h.elapsed : 0);

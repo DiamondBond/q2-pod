@@ -106,6 +106,9 @@ extern int books_key(void *top, unsigned key), video_on(void);
 extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas), *spot_art(void);
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event), spot_hold(void *top);
+extern void up_next(int (*closed)(void *, void *), int (*keyup)(void *, void *)),
+    upnext_closed(void *page);
+extern int un_hold(void *top);
 extern void radio_poll(void);
 extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label),
     mono_row(void *label), swap_row(void *label);
@@ -153,7 +156,6 @@ static int ple_key(unsigned key, int phase);
 #define SHORT_LIST_MAX 16
 #define MAX_ENTRIES 512
 #define POS_MEM 64
-#define UP_NEXT_ROWS 100 /* Up Next's snapshot cap */
 /* RADIUS, FILL_RGB, FILL_ALPHA, SHADE_ALPHA, OUTLINE_RGB and OUTLINE_ALPHA come from offsets.inc;
  * the colors pack their bytes at compile time (little-endian r,g,b,a). The outline is translucent
  * neutral white, never the playing red, seated on a dark shade of the stock surface so bright
@@ -250,9 +252,6 @@ typedef struct {
     void *ch_page;
     chapters *ch;
     unsigned ch_timer, ch_track, ch_key;
-    void *un_page;                 /* Up Next's page, one at a time */
-    unsigned un_idx[UP_NEXT_ROWS]; /* its rows' queue indices */
-    unsigned un_row;               /* the row a hold moves (un_move) */
     void *sc_page, *sc_row[2];     /* Streaming's Configuration page and its two cache rows */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
@@ -4133,7 +4132,7 @@ static void *page_tracks(void *page) {
                                 : coverflow_tracks(page);
 }
 
-static unsigned queue_hash(void *q) {
+unsigned queue_hash(void *q) {
     unsigned h = FNV_SEED;
     for (unsigned i = 0, n = deque_size(q); i < n; ++i) {
         unsigned r = rec_hash(deque_at(q, i));
@@ -4646,39 +4645,10 @@ static void *qm_collect(void *r) {
     return add;
 }
 
-/* Insert at pos+1 or append, then keep the shuffle pool, previous index and gapless preload
- * consistent with the shifted indices. Playback state itself is never touched. */
-static void qm_insert(void *queue, void *add, unsigned size, int next) {
-    unsigned n = deque_size(add), pos = (unsigned)MCL(MCL_POS);
-    unsigned at = next && pos < size ? pos + 1 : size;
-    if (at == size)
-        for (unsigned i = 0; i < n; ++i) _deque_push_back(queue, deque_at(add, i));
-    else {
-        void *all = _create_deque("stSongInfo");
-        deque_init(all);
-        for (unsigned i = 0; i < size + n; ++i)
-            _deque_push_back(all, i < at       ? deque_at(queue, i)
-                                  : i < at + n ? deque_at(add, i - at)
-                                               : deque_at(queue, i - n));
-        deque_clear(queue);
-        deque_assign(queue, all);
-        deque_destroy(all);
-    }
-    void *pool = P(MCL_POOL, 0);
-    for (unsigned i = 0; i < deque_size(pool); ++i) {
-        int *index = deque_at(pool, i);
-        if ((unsigned)*index >= at) *index += (int)n;
-    }
-    for (unsigned i = 0; i < n; ++i) _deque_push_back(pool, (int)(at + i));
-    if (MCL(MCL_LASTPOS) != -1 && (unsigned)MCL(MCL_LASTPOS) >= at) MCL(MCL_LASTPOS) += (int)n;
-    /* A preload always targets pos+1 (or the wrap); only an insert there makes it stale.
-     * Same close as mclSetPlayMode @0x5ab29c. */
-    if (MCL(MCL_PRELOAD) == 1 && at == pos + 1) {
-        if (MCL(MCL_FD) != -1) send(MCL(MCL_FD), "{mcl-closegapless\\null}", 23, 0);
-        MCL(MCL_PRELOAD) = -1;
-    }
-    playback_insert(at, n, next);
-    /* Shuffle picks at random: the first inserted track is forced once (ringnav_shuffle). */
+/* Insert at pos+1 or append; playback_queue_insert keeps every queue index right. Shuffle picks at
+ * random, so the first inserted track is forced once (ringnav_shuffle). */
+static void qm_insert(void *queue, void *add, int next) {
+    unsigned at = playback_queue_insert(queue, add, next);
     if (next) {
         st.qm_forced = MCL(MCL_MODE) == 2 ? at + 1 : 0;
         st.qm_forced_hash = rec_hash(deque_at(queue, at));
@@ -4696,7 +4666,7 @@ static int qm_apply(void *add, int next) {
         if (album) album_memory(deque_at(add, 0));
         mclLoadPlayList(add, 0, st.qm_kind == QM_FOLDER ? 1 : album ? 0xff10 : (int)st.qm_cls);
     } else if (n)
-        qm_insert(queue, add, size, next);
+        qm_insert(queue, add, next);
     return n != 0;
 }
 
@@ -4781,7 +4751,7 @@ static int page_closed(void *ctx, void *event) {
         st.td_list = 0;
     }
     if (ctx == st.sp_page) st.sp_page = 0;
-    if (ctx == st.un_page) st.un_page = 0;
+    upnext_closed(ctx);
     if (ctx == st.ch_page) {
         st.ch_page = 0;
         if (st.ch && !st.ch->done)
@@ -4930,51 +4900,6 @@ static int most_played(void *ctx, void *event) {
                     plays, plays == 1 ? "" : "s");
         page_row_detail(view, i, track_name(name, sizeof name, t), detail, mp_play);
     }
-    return 0;
-}
-
-/* View Queue while a shuffle is on (Up Next): the tracks after the playing one in the order they
- * play, which a shuffle's order differs from the queue's that stock's playerqueue_page lists. A row
- * plays its track as stock's does (player_start_queue), and the page closes, as its snapshot is
- * then stale. ponytail: a snapshot taken on open (and again on a hold's
- * move, un_move), capped at UP_NEXT_ROWS; the page does not follow the playing track, and a queue
- * replaced while it is open (a folder play's next folder) leaves its rows naming other tracks; keep
- * the records to check. */
-static int un_play(void *ctx, void *event) {
-    void *q = P(mcl_pdeqplaylist, 0);
-    unsigned at = st.un_idx[(long)ctx];
-    if (q && at < deque_size(q)) player_start_queue((int)at);
-    navigator_back();
-    return 0;
-}
-/* The rows, taken again; sel, if not -1, the row selected (clamped). */
-static void un_fill(int sel) {
-    void *q = P(mcl_pdeqplaylist, 0);
-    unsigned *idx = st.un_idx, n = playback_upcoming(idx, UP_NEXT_ROWS);
-    void *view = page_list(st.un_page, st.un_page, 0, n ? "View Queue" : "Nothing to play next", n, 64);
-    char name[512];
-    for (unsigned i = 0; i < n; i++) { /* the title over the artist, if tagged */
-        void *t = deque_at(q, idx[i]);
-        const char *artist = P(t, REC_ARTIST);
-        page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", un_play);
-    }
-    if (sel >= 0 && n) ringnav_select(view, (unsigned)sel < n ? sel : (int)n - 1, (int)n);
-}
-static void up_next(void) {
-    if (st.un_page || !(st.un_page = page_open("upnext_page", page_closed, page_keyup))) return;
-    un_fill(-1);
-}
-/* A Play/Pause hold on a row (qm_hold, deferred out of its dispatch): the row's track plays next,
- * moved there (playback_move), and the rows are taken again with the selection where it was, for
- * another pick. A row already next only says so; the playing track (a stale row) does nothing. */
-static int un_move(const void *unused) {
-    unsigned row = st.un_row, next;
-    if (!st.un_page || row >= UP_NEXT_ROWS) return 0;
-    if (!(playback_upcoming(&next, 1) && next == st.un_idx[row]) &&
-        playback_move(st.un_idx[row]) < 0)
-        return 0;
-    un_fill((int)row);
-    toast("Playing Next");
     return 0;
 }
 
@@ -6459,7 +6384,7 @@ static int qm_run(const void *unused) {
         chapters_open(r);
     } else if (r && a == QA_QUEUE) {
         if (playback_option(0)) /* a shuffle's play order is not the list's: ours */
-            up_next();
+            up_next(page_closed, page_keyup);
         else
             navigator_to("playerqueue_page");
     } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
@@ -6739,18 +6664,6 @@ static int qm_hold(void) {
         drop_input();
         return 1;
     }
-    if (top == st.un_page) { /* View Queue's shuffle list: the row plays next, no menu */
-        void *w = surface_under(top, (void *)0, (void *)0, 0);
-        char *key = play_key();
-        int cur = key && w && load(&g_menu, w, 1) /* no context: a snapshot keeps no place */
-                      ? reconcile(&g_menu, !moving(&g_menu))
-                      : -1;
-        if (cur < 0 || !timer_add(un_move, (void *)0, 0)) return 0;
-        st.un_row = (unsigned)g_menu.id[cur];
-        st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
-        drop_input();
-        return 1;
-    }
     int kind = contexts[context_id(name)].kind;
     void *album = coverflow_album(top);
     char *key = play_key();
@@ -6828,14 +6741,14 @@ static int quick_wheel_toggle(void *top) {
 }
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. On an
  * Internet Radio station it is the favourite toggle, on a Spotify track Add to Queue (its reply
- * toasts), in Quick Settings the wheel's brightness/volume switch, the release latched as the
- * queue menu's. */
+ * toasts), in Quick Settings the wheel's brightness/volume switch, on View Queue's shuffle list
+ * Play Next (un_hold), the release latched as the queue menu's. */
 int ringnav_keylong(void *ctx, void *event) {
     if (event && ple_key((unsigned)I(event, EVENT_KEY), 3)) return STOP;
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
     void *top = window_manager_get_top_window(window_manager());
     const char *fav = radio_hold(top);
-    int taken = fav || quick_wheel_toggle(top) || spot_hold(top);
+    int taken = fav || quick_wheel_toggle(top) || spot_hold(top) || un_hold(top);
     char *key = taken ? play_key() : (char *)0;
     if (taken) {
         if (key) st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
