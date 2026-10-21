@@ -21,7 +21,7 @@ def dev_tag(number, edition):
     for _ in range(3): n, d = divmod(n, 36); digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[d] + digits
     return 'V' + digits + edition.lower()
 BASE = 0xb00000
-SCRATCH = 0xb60000
+SCRATCH = 0xb60000  # 384 KB of payload text below it
 RING_STEP = 48
 HOOKS = {
     'localmusic_playlistsmore_page_init': (0x4b3918, 'ringnav_playlistsmore', 'playlistsmore'),
@@ -59,6 +59,8 @@ HOOKS = {
     'write_int_config': (0x4f3f4c, 'ringnav_write_config', 'write_config'),
     'main_loop_sleep_default': (0x648f00, 'ringnav_sleep', 'sleep'),
     'systemset_about_page_init': (0x4bc80c, 'ringnav_about', 'about'),
+    # Network Update (patch/netupdate.c): the latest GitHub release to the card's update.tar
+    'systemset_fwupdate_page_init': (0x4c339c, 'ringnav_fwupdate', 'fwupdate'),
     # Podcasts and Audiobooks: folder_page opened at their folder, and Back there leaving it
     'folder_page_init': (0x523330, 'ringnav_folder', 'folder'),
     'folder_back': (0x507ac8, 'ringnav_folder_back', 'folder_back'),
@@ -812,6 +814,8 @@ FUNCTIONS = {
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
  'on_wm_keyup_fun': ('int', 'void *, void *'),  # stock key-up: np_single replays a centre release
  'get_wifisignal': ('int', 'void'),  # the status bar's Wi-Fi bars, 1-4; -1 when not connected
+ 'fwupdate_tf': ('int', 'void'),  # System Update's TF card update: battery check, confirm, flash
+ 'widget_set_tr_text': ('int', 'void *, const char *'),
  # Podcasts and Audiobooks (navigation.c): folder_page's reload of g_folder_path, title and list rebuild
  'folder_reload_data': ('int', 'void'),
  'folder_reset_variable': ('int', 'void'),  # a fresh visit: layer 0, no path, enter history or CUE
@@ -873,6 +877,7 @@ PRIVATE_FUNCTIONS = {
     "screensaver_rows": HOOKS['screensaver_rows'][0],  # the Lock screen page's rows and picture grid
     "saver_cover": HOOKS['saver_cover'][0],  # the lock window's img_playcover from the playing track
     "np_info": 0x52a508,  # Now Playing's info page labels, from the track (NP_INFO_CALL)
+    "fwupdate_tf": 0x4c2994,  # systemset_fwupdate_page's row 0 click (0x4c2fac): stock's TF card update
 }
 GLOBALS = ['g_time_zone', 'g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_keylock_flag', 'g_keylock_mode',
@@ -1101,7 +1106,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     header.append(f'#define SETTINGS_ICON_NAMES "{names}"')
     header.append(f'#define ROCKBOX_FLAG "{ROCKBOX_FLAG}"')  # Home's Rockbox row, for S90play
     # About: the stock firmware's version on its own row, and this build's on the CFW. Version row.
-    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION}{" Pod" if ipod else ""}{f" dev {dev}" if dev else ""}"']
+    header += [f'#define STOCK_VERSION "{info[1]}"', f'#define Q2POD_VERSION "{VERSION}{" Pod" if ipod else ""}{f" dev {dev}" if dev else ""}"',
+               f'#define Q2POD_TAG "{"" if dev else VERSION}"']  # netupdate.c: the release tag, none when --dev
     (out/'stock.h').write_text('\n'.join(header)+'\n')
     ps = compile_payload(out, ipod)
     payload = (out/'patch.bin').read_bytes()

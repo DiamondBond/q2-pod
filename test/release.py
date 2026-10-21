@@ -55,6 +55,7 @@ with tempfile.TemporaryDirectory() as tmp:
             variant=variant, version=release.VERSIONS[variant], update_sha256=release.sha(variant.encode()))))
         data = release.archive_bytes(d)
         (out/name).write_bytes(data)
+        (out/release.FIXED[variant]).write_bytes(variant.encode())
         assets[name] = release.sha(data)
     (out/release.GUIDE).write_bytes(b'%PDF')
     record = dict(tag=release.VERSION, revision='revision', source_sha256=release.source_sha256(), assets=assets,
@@ -82,7 +83,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 raise subprocess.CalledProcessError(1, args)
             if command == 'download':
                 target = pathlib.Path(args[-1])
-                for name in [*assets, release.GUIDE]:
+                for name in [*assets, *release.FIXED.values(), release.GUIDE]:
                     (target/name).write_bytes((out/name).read_bytes() if failure != 'corrupt' else b'bad')
             return ''
         with patch('release.run', side_effect=gh):
@@ -93,6 +94,17 @@ with tempfile.TemporaryDirectory() as tmp:
             else:
                 assert failure is None
         assert any('--draft=false' in c for c in calls) == (failure is None)
+        # Network Update's fixed names are uploaded with the ZIPs.
+        sent = {pathlib.Path(a).name for c in calls if c[4] == 'upload' for a in c[6:]}
+        assert set(release.FIXED.values()) <= sent
+    # A fixed-name tar that isn't its variant's update.tar must fail before contacting GitHub.
+    (out/release.FIXED['stock']).write_bytes(b'ipod')
+    with patch('release.run') as gh:
+        try: release.upload(out)
+        except ValueError: pass
+        else: raise AssertionError('Accepted a mismatched fixed-name update')
+        gh.assert_not_called()
+    (out/release.FIXED['stock']).write_bytes(b'stock')
     # A missing variant must fail before contacting GitHub.
     (out/release.ASSETS['ipod']).unlink()
     with patch('release.run') as gh:

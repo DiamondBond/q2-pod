@@ -2042,6 +2042,17 @@ int main(void) {
 }
 '''
 
+def netupdate_check(tmp):
+    """Network Update (netupdate.c): the latest tag from GitHub's releases/latest redirect."""
+    lib = compile_host(tmp, 'netupdate.so', ROOT/'patch/netupdate.c')
+    lib.netupdate_tag.restype = C.c_char_p
+    tag = lib.netupdate_tag
+    assert tag(b'https://github.com/DiamondBond/q2-pod/releases/tag/1.3.5') == b'1.3.5'
+    for bad in (None, b'', b'https://github.com/DiamondBond/q2-pod/releases', b'https://github.com/login',
+                b'https://github.com/DiamondBond/q2-pod/releases/tag/'):
+        assert tag(bad) is None, bad
+
+
 def tidal_check(tmp):
     """Tidal cache (tidal.c): the cached file's extension comes from the stream URL's path."""
     lib = compile_host(tmp, 'tidal.so', ROOT/'patch/tidal.c')
@@ -2124,6 +2135,7 @@ if __name__ == '__main__':
         radio_check(tmp)
         spotify_check(tmp)
         tidal_check(tmp)
+        netupdate_check(tmp)
         if args.captures:
             args.captures.mkdir(parents=True, exist_ok=True)
             (tmp/'captures').mkdir()
