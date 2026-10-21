@@ -7,7 +7,7 @@
   - Artist page: with Artist Albums set to Grid, the stock toolbar is back, with its multi-select for adding or deleting several songs or albums at once.
   - **System Update → Network Update** downloads the newest Q2 Pod release from GitHub to the card's `update.tar` over Wi-Fi, then opens the TF card update. Releases now also carry `update.tar` and `update-legacy.tar` for it.
   - Bluetooth: the connection stays open for 5 s between songs, so true-wireless earbuds no longer start one ear before the other at each new track.
-  - EQ: Auto preamp is remembered across restarts and updates.
+  - EQ: presets use Auto preamp, imported ones included, unless a preamp is picked from the list; either is remembered across restarts and updates. A preamp picked before 1.3.6 returns to Auto until picked again.
 
 - **1.3.5**:
   - Add persistent **Swap L/R** below Mono Audio, default Off, for local PCM playback, Bluetooth/USB output, Videos, Internet Radio and Spotify’s helper. DSD and AirPlay retain Mono Audio’s limitations; Spotify on the headphone jack may need pause/play after switching.

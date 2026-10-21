@@ -202,11 +202,8 @@ static int focused(void *ctx, void *event) {
     return 0;
 }
 
-/* Saved since 1.3.6 (automatic); before, a preamp within 0.05 dB of the headroom was Auto. */
-static int on_auto(void) {
-    return ui.draft.automatic ? ui.draft.automatic == 1
-                              : __builtin_fabs(ui.draft.preamp - headroom(&ui.draft)) < 0.05;
-}
+/* Auto unless the preamp was picked (2): imports and presets or states from before 1.3.6 take it. */
+static int on_auto(void) { return ui.draft.automatic != 2; }
 
 /* A draft on Auto takes the current headroom (an update can move it): 1 if that changed it. */
 static int follow_auto(void) {
@@ -312,7 +309,6 @@ static int action(void *ctx, void *event) {
     ui.tabs = 0;
     /* Band edits keep the preamp on Auto (just enough cut for the boosts) only if it was there. */
     int edit = (id >= ENABLE && id < STEP) || (id < 256 && ui.screen == PICK && ui.pick == GAIN);
-    if (edit) ui.draft.automatic = on_auto() ? 1 : 2;
     if (id == BACK) {
         if (ui.screen == HOME) { navigator_back(); return 0; }
         if (ui.screen == PICK) ui.screen = ui.pick == GAIN ? BAND : HOME;

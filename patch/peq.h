@@ -31,8 +31,8 @@ void child_exit(int status) __attribute__((noreturn));
 /* Versioned disk representation: fixed-width fields, no pointers or implicit padding.
  * enabled: 0 off, 1 both channels, 2 left only, 3 right only (v1 files hold 0 or 1).
  * balance: dB, above 0 turns the left channel down, below 0 the right (v2 only).
- * automatic: the preamp is 1 Auto (the UI's headroom), 2 set, 0 unknown (an import, or saved
- * before 1.3.6: PEQ_PRESET_V2 bytes). */
+ * automatic: the preamp is 1 Auto (the UI's headroom), 2 picked, 0 never picked (an import, or
+ * saved before 1.3.6: PEQ_PRESET_V2 bytes), which the UI also takes as Auto. */
 typedef struct { int enabled, type; double frequency, gain, q; } peq_band;
 typedef struct {
     int count, bypass;

@@ -688,10 +688,10 @@ def editor_check(lib, tmp):
     assert [p.bands[k].gain for k in range(10)] == [-2, 0, 2, 4, -2, -2, 0, 0, 4, 4]
     assert [p.bands[k].enabled for k in range(10)] == [1, 0, 1, 1, 1, 1, 0, 0, 1, 1] and p.preamp < -4
     # Overlapping boosts add up (+6.5 and +6 dB at 1 kHz); cuts alone leave 0 dB.
-    p = preset(enabled=1, gain=6.0); p.count = 2; p.bands[1] = p.bands[0]; p.preamp = -1
+    p = preset(enabled=1, gain=6.0); p.count = 2; p.bands[1] = p.bands[0]; p.preamp, p.automatic = -1, 2
     assert lib.peq_save(bytes(active), C.byref(p), 1) == 1
     ui.shim_close(); advanced(); click('1  '); click('Gain +6.0 dB'); click('+6.5 dB'); ui.shim_return(); click('Apply changes')
-    assert read().preamp == -1, read().preamp  # a preamp off Auto (here the preset's) sticks through band edits
+    assert read().preamp == -1, read().preamp  # a picked preamp sticks through band edits
     click('Preamp -1.0 dB'); assert title() == 'Preamp' and ui.shim_selection() == 27  # opens on -1.0
     click('Auto (-12.5 dB)'); click('Apply changes')
     assert abs(read().preamp + 12.5) < 0.05, read().preamp
@@ -771,9 +771,17 @@ def editor_check(lib, tmp):
     assert shown(False) and not shown(True)
     click('1  '); click('Gain +6.0 dB'); click('+7.0 dB'); ui.shim_return(); click('Apply changes')
     assert read().preamp == want and lib.eq_load(C.byref(t)) and t.peq.automatic == 2
-    reopen(want, 0, v2=True)  # 1.3.5's state loads; its preamp at the headroom reads as Auto
+    reopen(-1, 0, v2=True)  # 1.3.5's state loads; never picked, so Auto, playing -1 until Apply
     assert lib.eq_load(C.byref(t)) and t.peq.automatic == 0 and bytes(t.eq3) == bytes(s.eq3) and shown(True)
-    reopen(-1, 0, v2=True); assert ui.shim_click(b'Preamp -1.0 dB', 2) and not shown(True)
+    assert ui.shim_click(b'Apply changes', 2)
+    # An import's own preamp gives way to Auto; picking a preamp afterwards sticks across a restart.
+    (tmp/'root/mnt/mmc/EQ').mkdir(parents=True, exist_ok=True)
+    (tmp/'root/mnt/mmc/EQ/Imp.txt').write_text('Preamp: -2 dB\nFilter 1: ON PK Fc 1000 Hz Gain 6 dB Q 1.41\n')
+    click('Presets'); click('Import from SD /EQ'); click('Imp.txt'); ui.shim_close(); advanced()
+    click('Presets'); click('Imp.peq'); assert shown(True)
+    click(f'Preamp {want:.1f} dB (Auto)'); click('-3.0 dB'); click('Apply changes')
+    ui.shim_close(); advanced(); assert ui.shim_click(b'Preamp -3.0 dB', 2) and not shown(True)
+    (tmp/'root/mnt/mmc/EQ/Imp.txt').unlink(); (saved/'Imp.peq').unlink()
     print('EQ Advanced tab: bypass, apply, auto preamp, channels, balance, frequency and Q, load, failed saves, delete, reset and close passed.')
     # A full pack stays sorted and reachable, with bounded widget counts and page-local action IDs.
     imports = tmp/'root/mnt/mmc/EQ'
