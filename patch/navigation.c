@@ -3784,14 +3784,14 @@ int ringnav_dispatch(void *target, void *event) {
         if (target && type == EVT_CLICK && widget_get_prop_int(target, QUICK_HOLD, 0) < 0)
             return STOP;
         /* Quick Settings' swipe up may start on its brightness slider. While stock slides the
-         * dialog or it follows a swipe (g_dropdown_menu_state 1, 2), the slider's pointer events
+         * dialog or it follows a swipe (g_dropdown_menu_state 1, 2), the slider's moves and release
          * first abort its press and put back the value it had at pointer-down. ponytail: stock
          * takes the swipe after the slider sees its first move, which may set the brightness
          * until the next event puts it back. */
         if (type == EVT_POINTER_DOWN - 1 && target &&
             !tk_strcmp(widget_get_prop_str(target, "name", ""), "slider_backlight"))
             quick.slider = target, quick.light = widget_get_prop_int(target, "value", 0);
-        else if (target && target == quick.slider && type >= EVT_POINTER_DOWN - 1 &&
+        else if (target && target == quick.slider && type > EVT_POINTER_DOWN &&
                  type <= EVT_POINTER_UP_BEFORE && (unsigned)(I(g_dropdown_menu_state, 0) - 1) < 2) {
             unsigned abort_event[12];
             stock_dispatch_trampoline(
@@ -6699,7 +6699,21 @@ static int qm_hold(void) {
     return 1;
 }
 
-static const char *quick_wheel_toggle(void *top);
+/* Quick Settings' wheel: 0 its brightness slider, 1 stock's volume (Q2POD QSVOLUME). A held
+ * Play/Pause there switches it (ringnav_keylong). No toast: its msginfo_dialog would cover the
+ * pull-down, taking the wheel and Centre for 2 s; the next tick shows the mode. */
+static int quick_volume(void) {
+    if (!st.qs_wheel) st.qs_wheel = 1 + config_value("Q2POD", "QSVOLUME", 2, 0);
+    return st.qs_wheel - 1;
+}
+static int quick_wheel_toggle(void *top) {
+    if (!usable() || !top || tk_strcmp(widget_get_prop_str(top, "name", ""), "statusbar_dialog"))
+        return 0;
+    int volume = !quick_volume();
+    st.qs_wheel = 1 + volume;
+    write_int_config(volume, "Q2POD", "QSVOLUME");
+    return 1;
+}
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. On an
  * Internet Radio station it is the favourite toggle, on a Spotify track Add to Queue (its reply
  * toasts), in Quick Settings the wheel's brightness/volume switch, the release latched as the
@@ -6709,8 +6723,7 @@ int ringnav_keylong(void *ctx, void *event) {
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
     void *top = window_manager_get_top_window(window_manager());
     const char *fav = radio_hold(top);
-    if (!fav) fav = quick_wheel_toggle(top);
-    int taken = fav || spot_hold(top);
+    int taken = fav || quick_wheel_toggle(top) || spot_hold(top);
     char *key = taken ? play_key() : (char *)0;
     if (taken) {
         if (key) st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
@@ -7521,20 +7534,6 @@ int ringnav_keydown(void *ctx, void *event) {
         !tk_strcmp(widget_get_prop_str(top, "name", ""), "coverflow_page"))
         return STOP;
     return result;
-}
-
-/* Quick Settings' wheel: 0 its brightness slider, 1 stock's volume (Q2POD QSVOLUME). A held
- * Play/Pause there switches it (ringnav_keylong), returning the toast. */
-static int quick_volume(void) {
-    if (!st.qs_wheel) st.qs_wheel = 1 + config_value("Q2POD", "QSVOLUME", 2, 0);
-    return st.qs_wheel - 1;
-}
-static const char *quick_wheel_toggle(void *top) {
-    if (!top || tk_strcmp(widget_get_prop_str(top, "name", ""), "statusbar_dialog")) return 0;
-    int volume = !quick_volume();
-    st.qs_wheel = 1 + volume;
-    write_int_config(volume, "Q2POD", "QSVOLUME");
-    return volume ? "Wheel: Volume" : "Wheel: Brightness";
 }
 
 /* Stock's setting editors, which have no list. Brightness, maximum and startup volume and balance
