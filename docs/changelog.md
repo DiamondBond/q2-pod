@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.3.6**:
+  - Up Next: hold Play/Pause on a song to play it next; it moves out of its old place in the queue.
   - Quick Settings: hold Play/Pause to switch the wheel between the brightness slider and volume; the choice is kept across restarts.
   - Lyrics: the top row is no longer shown cut in half, whether the page follows the song, reaches the end or the wheel scrolls it a row a tick.
   - Quick Settings: swiping up to close no longer changes the brightness.

@@ -779,6 +779,58 @@ void playback_insert(unsigned at, unsigned n, int next) {
     }
     playback_save();
 }
+/* Up Next's hold: the queue's track at from moves to play right after this one, a move, not Play
+ * Next's copy, so it does not play again at its old place. Every index (the queue, stock's shuffle
+ * pool, previous and position, this order, seen, groups and history) follows the moved occurrence;
+ * the order is not dealt again, so Up Next keeps the rest as it was. A pending Play Next right
+ * after this track stays behind it. Returns its new index, -1 when nothing moves. ponytail: a track
+ * taken from the next pass's rows (Repeat All) still plays in that pass too. */
+int playback_move(unsigned from) {
+    void *q = queue();
+    unsigned pos = (unsigned)M(MCL_POS);
+    if (!s.active || !q || deque_size(q) != s.n || pos >= s.n || from >= s.n || from == pos)
+        return -1;
+    unsigned to = from > pos ? pos + 1 : pos, lo = from < to ? from : to,
+             hi = from < to ? to : from;
+    unsigned step = from < to ? -1u : 1u;
+#define MOVED(i) ((i) == from ? to : (i) >= lo && (i) <= hi ? (i) + step : (i))
+    void *all = _create_deque("stSongInfo");
+    deque_init(all);
+    for (unsigned j = 0; j < s.n; ++j)
+        _deque_push_back(all, deque_at(q, j == to ? from : j >= lo && j <= hi ? j - step : j));
+    deque_clear(q);
+    deque_assign(q, all);
+    deque_destroy(all);
+    void *pool = P(MCL_POOL, 0);
+    for (unsigned i = 0; i < deque_size(pool); ++i) {
+        int *index = deque_at(pool, i);
+        *index = (int)MOVED((unsigned)*index);
+    }
+    if (M(MCL_LASTPOS) != -1) M(MCL_LASTPOS) = (int)MOVED((unsigned)M(MCL_LASTPOS));
+    M(MCL_POS) = (int)MOVED(pos);
+    unsigned seen = s.seen[from], group = s.groups[from], j = from;
+    for (; j < to; ++j) s.seen[j] = s.seen[j + 1], s.groups[j] = s.groups[j + 1];
+    for (; j > to; --j) s.seen[j] = s.seen[j - 1], s.groups[j] = s.groups[j - 1];
+    s.seen[to] = seen, s.groups[to] = group;
+    for (unsigned i = 0; i < s.n; ++i) {
+        s.order[i].index = MOVED(s.order[i].index);
+        s.cycle[i].index = MOVED(s.cycle[i].index);
+        s.groups[i] = MOVED(s.groups[i]);
+    }
+    for (unsigned i = 0; i < s.hn; ++i) s.history[i] = MOVED(s.history[i]);
+    s.resume_pos = MOVED(s.resume_pos);
+#undef MOVED
+    /* A pending Play Next right after this track: the moved one first, then the rest of it (one
+     * more when from lay after it). Any other range ends, as playback_insert's. */
+    unsigned fe = s.force_end;
+    s.force_end = s.forced && s.forced - 1 == pos + 1 && fe > pos + 1 ? fe + (from >= fe) : to + 1;
+    s.forced = to + 1;
+    close_preload();
+    s.next_valid = 0;
+    s.dirty = 1;
+    playback_save();
+    return (int)to;
+}
 
 /* Snapshot fields are little-endian uint32 on this MIPS target, no pointers. */
 typedef struct {

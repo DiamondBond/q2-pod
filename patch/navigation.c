@@ -252,6 +252,7 @@ typedef struct {
     unsigned ch_timer, ch_track, ch_key;
     void *un_page;                 /* Up Next's page, one at a time */
     unsigned un_idx[UP_NEXT_ROWS]; /* its rows' queue indices */
+    unsigned un_row;               /* the row a hold moves (un_move) */
     void *sc_page, *sc_row[2];     /* Streaming's Configuration page and its two cache rows */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
@@ -4935,9 +4936,10 @@ static int most_played(void *ctx, void *event) {
 
 /* Up Next: the tracks after the playing one in the order they play, which a shuffle's order differs
  * from the queue's. A row plays its track as View Queue's does (player_start_queue), and the page
- * closes, as its snapshot is then stale. ponytail: a snapshot taken on open, capped at
- * UP_NEXT_ROWS; the page does not follow the playing track, and a queue replaced while it is open
- * (a folder play's next folder) leaves its rows naming other tracks; keep the records to check. */
+ * closes, as its snapshot is then stale. ponytail: a snapshot taken on open (and again on a hold's
+ * move, un_move), capped at UP_NEXT_ROWS; the page does not follow the playing track, and a queue
+ * replaced while it is open (a folder play's next folder) leaves its rows naming other tracks; keep
+ * the records to check. */
 static int un_play(void *ctx, void *event) {
     void *q = P(mcl_pdeqplaylist, 0);
     unsigned at = st.un_idx[(long)ctx];
@@ -4945,8 +4947,8 @@ static int un_play(void *ctx, void *event) {
     navigator_back();
     return 0;
 }
-static void up_next(void) {
-    if (st.un_page || !(st.un_page = page_open("upnext_page", page_closed, page_keyup))) return;
+/* The rows, taken again; sel, if not -1, the row selected (clamped). */
+static void un_fill(int sel) {
     void *q = P(mcl_pdeqplaylist, 0);
     unsigned *idx = st.un_idx, n = playback_upcoming(idx, UP_NEXT_ROWS);
     void *view = page_list(st.un_page, st.un_page, 0, n ? "Up Next" : "Nothing Up Next", n, 64);
@@ -4956,6 +4958,24 @@ static void up_next(void) {
         const char *artist = P(t, REC_ARTIST);
         page_row_detail(view, i, track_name(name, sizeof name, t), artist ? artist : "", un_play);
     }
+    if (sel >= 0 && n) ringnav_select(view, (unsigned)sel < n ? sel : (int)n - 1, (int)n);
+}
+static void up_next(void) {
+    if (st.un_page || !(st.un_page = page_open("upnext_page", page_closed, page_keyup))) return;
+    un_fill(-1);
+}
+/* A Play/Pause hold on a row (qm_hold, deferred out of its dispatch): the row's track plays next,
+ * moved there (playback_move), and the rows are taken again with the selection where it was, for
+ * another pick. A row already next only says so; the playing track (a stale row) does nothing. */
+static int un_move(const void *unused) {
+    unsigned row = st.un_row, next;
+    if (!st.un_page || row >= UP_NEXT_ROWS) return 0;
+    if (!(playback_upcoming(&next, 1) && next == st.un_idx[row]) &&
+        playback_move(st.un_idx[row]) < 0)
+        return 0;
+    un_fill((int)row);
+    toast("Playing Next");
+    return 0;
 }
 
 /* M4B chapters are read only while this snapshot is open. */
@@ -6716,6 +6736,18 @@ static int qm_hold(void) {
         st.qm_rows = n;
         st.qm_hash = rec_hash(r);
         st.qm_queue_hash = queue_hash(q);
+        st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
+        drop_input();
+        return 1;
+    }
+    if (top == st.un_page) { /* Up Next: the row plays next, no menu */
+        void *w = surface_under(top, (void *)0, (void *)0, 0);
+        char *key = play_key();
+        int cur = key && w && load(&g_menu, w, 1) /* no context: a snapshot keeps no place */
+                      ? reconcile(&g_menu, !moving(&g_menu))
+                      : -1;
+        if (cur < 0 || !timer_add(un_move, (void *)0, 0)) return 0;
+        st.un_row = (unsigned)g_menu.id[cur];
         st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
         drop_input();
         return 1;

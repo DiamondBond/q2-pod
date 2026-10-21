@@ -10,6 +10,7 @@ int playback_group_skip(int forward);
 int playback_back(void); /* the track stock Shuffle's Previous left, once; else -1 */
 unsigned playback_upcoming(unsigned *out, unsigned max); /* Up Next: queue indices, in play order */
 void playback_insert(unsigned at, unsigned n, int next);
+int playback_move(unsigned from); /* Up Next's hold: from plays next; its new index, else -1 */
 void playback_poll(void);
 void playback_speed_start(void);
 void xfade_poll(int next); /* crossfade.c */

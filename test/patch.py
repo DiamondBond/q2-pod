@@ -7378,6 +7378,23 @@ m.close(); m.calls=[]; m.rescan(); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0 and called('getAllMusic')
 m.page=m.top; assert m.texts()==['Most Played']+[x for p in zip(ranked[:3],details[:3]) for x in p]; passed()
 
+# Up Next (Now Playing's hold menu, on a shuffle): a Play/Pause hold on a row moves its track to play
+# next, a move, not Play Next's copy; the rows are taken again with the pick first and the selection
+# kept, with no menu and no play/pause. A row already next only says so; playback is not touched.
+m=CoverflowMachine(page='playing_page',pos=1); q=m.deque([m.song(c) for c in 'ABCDE'])
+m.word(syms['mcl_pdeqplaylist'],q); m.word(O['MCL_POOL'],m.deque(list(range(5)),'int'))
+assert m.call(address=payload_syms['playback_set'],args=(0,1,0,0),gap=0)==1
+m.press(10); assert m.hold()==11 and 'Up Next' in m.labels(); m.release()
+m.pick(m.labels().index('Up Next')); m.advance(0); m.page=m.top; assert m.nodes[m.page]['name']=='upnext_page'
+up=m.texts()[1::2]; assert len(up)==4 and 'B' not in up and m.texts()[0]=='Up Next'
+view=m.find('scroll_view'); m.paint(view); m.call(); assert m.selected(view)==1
+m.press(20); assert m.hold()==11 and m.release()==0 and m.toasts[-1][3]=='Playing Next'
+want=[up[1],up[0]]+up[2:]; assert m.texts()[1::2]==want and m.names()[1:3]==['B',up[1]] and m.mcl('MCL_POS')==1
+view=m.find('scroll_view'); assert m.selected(view)==1 and not m.playback() and m.top==m.page
+m.paint(view); m.call(O['KEY_PREV']); assert m.selected(view)==0
+toasts=len(m.toasts); m.press(30); assert m.hold()==11 and m.release()==0 and len(m.toasts)==toasts+1
+assert m.texts()[1::2]==want and sorted(m.names())==list('ABCDE'); m.close(); passed()
+
 # Ratings (navigation.c rate_*): 5 hearts are stock's My Fav, 1-4 kept in /mnt/data/ringnav-ratings by listen_key with
 # the hearts in its low three bits. Now Playing's heart: stock's click (0x52b154, bound to img_fav with the window) is
 # swapped for one telling a tap, stock's toggle that leaves nothing kept, from a RATE_HOLD_MS hold, which opens the

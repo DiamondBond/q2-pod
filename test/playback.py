@@ -294,6 +294,40 @@ m=PlaybackMachine(); m.options(0,2,0); m.fn('ringnav_start_queue',4)  # ordered:
 assert m.sequence(limit=3)==[4,5]  # the play order is 2,6,0,1,3,4,5
 checks+=1
 
+# An Up Next hold moves its track to play next (playback_move): not again at its old place, the rest
+# of the order as it was, a pending Play Next behind it, every index (pool, previous, history) moved.
+def up_names(m,k=24):
+    out=m.alloc(24*4); names=m.names(); return [names[m.get(out+4*i)] for i in range(m.fn('playback_upcoming',out,k))]
+def played(m,limit): return [m.names()[i] for i in m.sequence(limit=limit)]
+for shuffle,row in ((1,3),(1,5),(0,1),(0,2),(0,5)):  # ordered plays 2,6,0,1,3,4,5: rows 1-2 lie before it
+    m=PlaybackMachine(); m.options(shuffle,5,0); m.word(O['MCL_LASTPOS'],3)
+    out=m.alloc(24*4); m.fn('playback_upcoming',out,24); x=m.get(out+4*row); pos=m.current()
+    names=m.names(); now,last,name=names[pos],names[3],names[x]
+    up=up_names(m)[:6]; pool=[names[i] for i in m.pool()]
+    at=m.fn('playback_move',x); names=m.names()
+    assert at==(pos+1 if x>pos else pos) and names[at]==name and names[m.current()]==now and sorted(names)==sorted(up+[now])
+    assert names[m.mcl('MCL_LASTPOS')]==last and [names[i] for i in m.pool()]==pool
+    want=[name]+[t for t in up if t!=name]
+    assert up_names(m)[:6]==want and played(m,6)[1:]==want, (shuffle,row)
+    for t in reversed([now]+want[:-1]): assert m.fn('ringnav_prev')==1 and m.names()[m.current()]==t
+    checks+=1
+m=PlaybackMachine(); m.options(1,5,0); q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
+m.deqs[q][1][old+1:old+1]=[m.song('next')]; m.fn('playback_insert',old+1,1,1)
+up=up_names(m)[:7]; assert up[0]=='next'; m.fn('playback_move',m.names().index(up[4]))
+want=[up[4]]+[t for t in up if t!=up[4]]; assert up_names(m)[:7]==want and played(m,7)[1:]==want
+# The playing track and stock's own queue do nothing; a move closes the preload, which then
+# targets the moved track, and the saved queue resumes as moved.
+m=PlaybackMachine(); m.options(1,5,0); m.word(O['MCL_PRELOAD'],1); m.word(O['MCL_FD'],9)
+assert m.fn('playback_move',m.current())==-1 and m.mcl('MCL_PRELOAD')==1 and not m.sent
+out=m.alloc(24*4); m.fn('playback_upcoming',out,24); at=m.fn('playback_move',m.get(out+8))
+assert m.mcl('MCL_PRELOAD')==0 and m.sent==[(9,b'{mcl-closegapless\\null}',23,0)]
+m.fn('ringnav_preload'); assert m.mcl('MCL_PREPOS')==at
+r=PlaybackMachine(dict(m.files)); r.byte(syms['g_memory_play'],2)
+same=lambda l:[t.replace('dup','a1') for t in l]  # the library's row for dup's path
+assert r.fn('ringnav_memory',r.deque([]))==m.current() and r.names()==same(m.names()) and up_names(r)==same(up_names(m))
+assert PlaybackMachine().fn('playback_move',4)==-1
+checks+=1
+
 # Add and Play next remap history and occurrences, including multiple priority tracks.
 m=PlaybackMachine(); m.options(1,5,0)
 q=m.get(syms['mcl_pdeqplaylist']); old=m.current()
