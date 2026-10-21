@@ -64,7 +64,7 @@
 4. **Update:** open **System settings → System Update → TF card update**. Leave the card in until the Q2 restarts.
 
 > [!TIP]
-> Prefer Shanling's original look? Download `update-legacy.tar` instead, and rename it `update.tar` on the card. It has the same features and fixes, without the iPod UI.
+> Prefer Shanling's original look? Download `update-legacy.tar` instead, then rename `update-legacy.tar` to `update.tar` before you copy it to the card. It has the same features and fixes, without the iPod UI.
 
 ## Extras
 
