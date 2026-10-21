@@ -1,5 +1,10 @@
 # Changelog
 
+- **1.3.8**:
+  - Full-screen album art: the song name shows again for 3 s each time the track changes, then fades as before.
+  - Battery: Percent Inside has rounded corners again. 1.3.7's radius was below the smallest stock will round, so it drew a square.
+  - Downloads: a release now carries `update.tar` (and `update-legacy.tar` for Legacy) without the ZIPs.
+
 - **1.3.7**:
   - Bluetooth: earbuds or a speaker that connect to the Q2 while it is still trying to reconnect the last device, at power-on or when Bluetooth is turned on, now show as connected and play, instead of needing Bluetooth turned off and on. The reconnect is also skipped when a device is already connected.
   - Battery: Percent Inside is a smaller 28×15 battery with the regular icon's terminal and slightly rounded corners, digits as before. It now stays next to an aptX HD badge with Wi-Fi on.
