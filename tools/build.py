@@ -787,6 +787,9 @@ FUNCTIONS = {
  'toolsReadConfig': ('int', 'const char *, const char *, const char *, char *, const char *'),
  'button_create': ('void *', 'void *, int, int, int, int'),
  'widget_move_resize': ('int', 'void *, int, int, int, int'),
+ # The artist page's toolbar (navigation.c artist_bar): its tabs move down under it
+ 'widget_set_self_layout_params': ('int', 'void *, const char *, const char *, const char *, const char *'),
+ 'widget_layout': ('int', 'void *'),
  'tk_str_end_with': ('int', 'const char *, const char *'),
  'tk_str_start_with': ('int', 'const char *, const char *'),
  'image_manager': ('void *', 'void'),

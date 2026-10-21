@@ -181,7 +181,9 @@ their size. The settings inits never move or resize
 these widgets. Left out: `wifitransport_page` (its image starts above the
 navbar's bottom edge), `fwdownload_page` (no navbar), the PEQ page (it replaces
 all children) and every Tidal page, whose navbars hold the search and sort
-buttons. A page with a visible navbar keeps its own title.
+buttons. A page with a visible navbar keeps its own title. The artist page shows its stock
+navbar (multi-select, the Album Artist switch) again at run time when Artist Albums is Grid, its
+tabs 50 pixels lower ([internals.md](internals.md#artist-albums-in-coverflow)).
 
 ## Settings
 

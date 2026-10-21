@@ -4379,9 +4379,34 @@ static int artist_cf_open(const void *unused) {
     if (veiled) artist_cf_veil(veiled, 0);
     return 0;
 }
+/* Artist albums: Grid gives the artist page its stock toolbar back, for its multi-select
+ * (s_img_mulsel), which iPod hides on the local pages; the tabs move down under it. A toolbar
+ * already showing (Legacy, a reload) is left alone. */
+static void artist_bar(void) {
+    void *top = window_manager_get_top_window(window_manager()),
+         *nav = top ? widget_lookup(top, "view_navbar", 0) : 0,
+         *tab = top ? widget_lookup(top, "tab_control", 0) : 0,
+         *pages = tab ? widget_lookup(tab, "pages", 0) : 0, *album;
+    char h[12], y[12];
+    pod_settings();
+    if (st.artist_cf || !nav || !pages || widget_get_visible(nav) ||
+        tk_strcmp(widget_get_prop_str(top, "name", ""), "artistinfo_page"))
+        return;
+    int height = I(tab, W_H) - I(nav, W_H), inner = height - I(pages, W_Y);
+    widget_set_visible(nav, 1, 0);
+    widget_set_enable(nav, 1);
+    widget_move_resize(tab, I(tab, W_X), I(nav, W_H), I(tab, W_W), height);
+    tk_snprintf(y, sizeof y, "%d", I(pages, W_Y));
+    tk_snprintf(h, sizeof h, "%d", inner);
+    widget_set_self_layout_params(pages, "0", y, "100%", h);
+    if ((album = widget_lookup(pages, "list_view_album", 1))) /* its height is fixed, not 100% */
+        widget_move_resize(album, I(album, W_X), I(album, W_Y), I(album, W_W), inner);
+    widget_layout(tab);
+}
 static int artist_list(int tab) {
     int n = stock_artist_trampoline(tab);
     void *list = P(p_deque_showlist, 0), *all;
+    artist_bar();
     artist_keys_free();
     if (tab != 1 || n <= 0 || !(st.art_keys = calloc((unsigned)n, sizeof(char *)))) return n;
     st.art_ids = calloc((unsigned)n, sizeof *st.art_ids);

@@ -220,6 +220,8 @@ class Machine:
             for off,value in zip(('W_X','W_Y','W_W','W_H'),(d,self.get(u.reg_read(UC_MIPS_REG_SP)+16),self.get(u.reg_read(UC_MIPS_REG_SP)+20),self.get(u.reg_read(UC_MIPS_REG_SP)+24))): self.word(ret+O[off],value)
         elif name=='widget_set_name': n['name']=self.text(b); ret=0
         elif name=='widget_set_enable': n['enable']=b; ret=0
+        elif name=='widget_set_self_layout_params':
+            n['self_layout']=tuple(self.text(x) for x in (b,c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))); ret=0
         elif name=='widget_on': n.setdefault('handlers',[]).append((b,c,d)); ret=len(n['handlers'])
         elif name=='widget_to_local':
             x,y=signed(self.get(b)),signed(self.get(b+4))
@@ -4184,6 +4186,24 @@ for on,tab,page,want in ((1,1,'artistinfo_page',[1]),(2,1,'artistinfo_page',[1])
         # The page gone, another at the same address gets Coverflow again.
         f,ctx=m.handler(m.top,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
         m.call(address=HOOKS['load_localartist_list'][0],args=(tab,0,0,0),gap=0); m.advance(0); assert len(m.handed)==2
+    passed()
+# Artist albums: Grid shows the artist page's hidden stock toolbar (its multi-select) on either
+# tab, the tabs moved down under it; other modes, pages or a toolbar already up stay as they are.
+for on,tab,page,up in ((0,1,'artistinfo_page',0),(0,0,'artistinfo_page',0),(1,1,'artistinfo_page',0),
+                       (2,1,'artistinfo_page',0),(0,1,'localclass_page',0),(0,1,'artistinfo_page',1)):
+    m=ArtistCoverflow(page='localclass_page',cls=0xff01,rows=1); m.handed=[]; m.found=[]
+    m.config['ARTISTCF']=str(on); m.artist_page(page)
+    album=m.node('list_view','list_view_album'); pages=m.node('pages','pages',[album])
+    bar=m.node('tab_control','tab_control',[pages]); nav=m.node('view','view_navbar',visible=up)
+    m.nodes[nav]['enable']=up; m.nodes[m.top]['children']+=[nav,bar]
+    geo=lambda w:[m.get(w+O[o]) for o in ('W_X','W_Y','W_W','W_H')]
+    for w,g in ((nav,(0,0,375,50)),(bar,(0,0,375,290)),(pages,(0,40,375,250)),(album,(0,0,375,250))):
+        for o,v in zip(('W_X','W_Y','W_W','W_H'),g): m.word(w+O[o],v)
+    m.call(address=HOOKS['load_localartist_list'][0],args=(tab,0,0,0),gap=0)
+    want=not on and page=='artistinfo_page' and not up
+    assert bool(m.nodes[nav]['visible'])==bool(want or up) and bool(m.nodes[nav]['enable'])==bool(want or up),(on,tab,page,up)
+    assert geo(bar)==([0,50,375,240] if want else [0,0,375,290]) and geo(album)[3]==(200 if want else 250),(on,tab,page,up)
+    assert m.nodes[pages].get('self_layout')==(('0','40','100%','200') if want else None),(on,tab,page,up)
     passed()
 # Same-named albums by other artists stay out, in both artist modes. Membership follows
 # the artist's songs, so a guest artist and multiple albums of one name work too.
