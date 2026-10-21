@@ -26,7 +26,8 @@ static int valid_band(const peq_band *b) {
 
 int peq_valid(const peq_preset *p) {
     if (!p || p->count < 0 || p->count > PEQ_BANDS || (p->bypass != 0 && p->bypass != 1) ||
-        !between(p->preamp, -60, 24) || !between(p->balance, -12, 12)) return 0;
+        !between(p->preamp, -60, 24) || !between(p->balance, -12, 12) || (unsigned)p->automatic > 2)
+        return 0;
     for (int i = 0; i < p->count; ++i) if (!valid_band(&p->bands[i])) return 0;
     return 1;
 }
@@ -204,9 +205,10 @@ int peq_load(const char *path, peq_preset *out) {
     unsigned n = fread(&file, 1, sizeof(file), f);
     int ok = fread(&extra, 1, 1, f) == 0 && !ferror(f);
     if (fclose(f)) ok = 0;
-    /* Q2PEQ01 predates balance and held ten bands. */
-    unsigned want = !memcmp(file.magic, "Q2PEQ02", 8) ? sizeof(file)
-                  : !memcmp(file.magic, "Q2PEQ01", 8) ? 8 + __builtin_offsetof(peq_preset, bands[10]) : 0;
+    /* Q2PEQ01 predates balance and held ten bands; Q2PEQ02 before 1.3.6 lacks automatic. */
+    unsigned want =
+        !memcmp(file.magic, "Q2PEQ01", 8) ? 8 + __builtin_offsetof(peq_preset, bands[10]) : 0;
+    if (!memcmp(file.magic, "Q2PEQ02", 8)) want = n == sizeof(file) ? n : 8 + PEQ_PRESET_V2;
     if (!ok || !want || n != want || !peq_valid(&file.preset)) return 0;
     *out = file.preset;
     return 1;
@@ -260,10 +262,17 @@ int eq_load(eq_state *s) {
     void *f = fopen(PEQ_ACTIVE, "rb");
     if (!f) return 0;
     char extra;
-    memset(file.magic, 0, sizeof(file.magic));
-    unsigned n = fread(&file, 1, sizeof(file), f);
-    int ok = n == sizeof(file) && fread(&extra, 1, 1, f) == 0 && !ferror(f);
+    memset(&file, 0, sizeof(file));
+    unsigned n = fread(&file, 1, sizeof(file), f), v2 = 8 + 8 + 2 * PEQ_PRESET_V2;
+    int ok = (n == sizeof(file) || n == v2) && fread(&extra, 1, 1, f) == 0 && !ferror(f);
     if (fclose(f)) ok = 0;
+    /* 1.3.5's: presets without automatic, which the zeroed tail leaves 0; demo has no memmove. */
+    if (n == v2) {
+        peq_preset eq3;
+        memcpy(&eq3, (char *)&file.s.peq + PEQ_PRESET_V2, sizeof(eq3));
+        file.s.eq3 = eq3;
+        file.s.peq.automatic = file.s.peq.spare = 0;
+    }
     if (ok && !memcmp(file.magic, "Q2PEQ03", 8) && eq_valid(&file.s)) {
         *s = file.s;
         return 1;
