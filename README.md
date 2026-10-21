@@ -58,13 +58,13 @@
 >
 > Flashing firmware carries risk. Back up anything on the card you can't lose before you start.
 
-1. **Download** `Q2.Firmware.*.zip` from the [latest release](https://github.com/DiamondBond/q2-pod/releases/latest).
+1. **Download** `update.tar` from the [latest release](https://github.com/DiamondBond/q2-pod/releases/latest).
 2. **Plug the Q2 into your computer** with the USB-C cable. The card shows up as a drive.
-3. **Unzip the download** and copy `update.tar` to the **root** of the card (not inside a folder), then eject and unplug.
+3. Copy `update.tar` to the **root** of the card (not inside a folder), then eject and unplug.
 4. **Update:** open **System settings → System Update → TF card update**. Leave the card in until the Q2 restarts.
 
 > [!TIP]
-> Prefer Shanling's original look? Download `Q2.Firmware.*-legacy.zip` instead. It has the same features and fixes, without the iPod UI.
+> Prefer Shanling's original look? Download `update-legacy.tar` instead, and rename it `update.tar` on the card. It has the same features and fixes, without the iPod UI.
 
 ## Extras
 
