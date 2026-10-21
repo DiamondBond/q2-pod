@@ -405,6 +405,9 @@ class Machine:
             assert self.get(a+O['VIEW_ANIMATOR'])==0
             self.word(a+O['SCROLL_X'],b); self.word(a+O['SCROLL_Y'],c)
             ret=0
+        elif name=='scroll_view_scroll_to':  # stock's clamps the end to the content (0x5f0178)
+            end=signed(self.get(a+O['VIEW_CONTENT_H']))-signed(self.get(a+O['W_H']))
+            self.word(a+O['SCROLL_X'],b); self.word(a+O['SCROLL_Y'],max(0,min(signed(c),end))); ret=0
         elif name=='table_client_scroll_to':
             if self.glide:
                 self.word(a+O['TABLE_TOP'],b)
@@ -5347,7 +5350,8 @@ if variant=='ipod':
     assert step(m)==11 and m.get(m.lrc+O['SCROLL_Y'])==20 and did(m,'playing_timer_clear')==[m.win]
     ys=[]
     for _ in range(5): assert step(m,gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
-    assert ys==[70,90,97,97,97] and not did(m,'playing_timer_clear'),ys  # row tops, then the end: 275 - 178
+    assert ys==[70,90,110,110,110] and not did(m,'playing_timer_clear'),ys  # row tops, the last the end's
+    assert m.get(m.lrc+O['VIEW_CONTENT_H'])==288  # padded: 110 + 178, not 275 - 178 = 97 cutting a row
     ys=[]
     for _ in range(5): assert step(m,O['KEY_PREV'],gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
     assert ys==[90,70,20,0,0] and not m.starts,ys
@@ -6046,6 +6050,20 @@ r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
 m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m.word(r+O['REC_ALBUM'],m.string('Book'))
 m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
 assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Artist','Book']; passed()
+
+# Now Playing's lyric follow (LYRIC_FOLLOW): stock's scroll_to past the end clamps to a row top, the
+# content padded to it, not to 275 - 178 = 97 through a row; repeated it stays; a short page is left.
+from build import LYRIC_FOLLOW
+assert struct.unpack_from('<I',demo,fileoff(demo,LYRIC_FOLLOW[0]))[0]==jal(payload_syms['ringnav_lyric_follow'])
+m=Machine(); rows=[m.node('label') for _ in range(12)]
+for i,(y,h) in enumerate(zip((0,20,70,90,110,135,155,175,195,215,235,255),(20,50,20,20,25)+(20,)*7)):
+    m.word(rows[i]+O['W_Y'],y); m.word(rows[i]+O['W_H'],h)
+lrc=m.node('scroll_view','scroll_lrc',rows); m.word(lrc+O['W_H'],178); m.word(lrc+O['VIEW_CONTENT_H'],275)
+ys=[]
+for y in (195,0,20,195): m.call(address=payload_syms['ringnav_lyric_follow'],args=(lrc,0,y,10),gap=0); ys.append(m.get(lrc+O['SCROLL_Y']))
+assert ys==[110,0,20,110] and m.get(lrc+O['VIEW_CONTENT_H'])==288,ys
+m.word(lrc+O['VIEW_CONTENT_H'],100); m.call(address=payload_syms['ringnav_lyric_follow'],args=(lrc,0,0,10),gap=0)
+assert m.get(lrc+O['VIEW_CONTENT_H'])==100 and m.get(lrc+O['SCROLL_Y'])==0; passed()
 
 # Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg only for an Ogg track
 # stock found none in, never for an MP3 or FLAC, run with parse_cover_mutex dropped. It writes dst.ff,

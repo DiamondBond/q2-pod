@@ -2589,6 +2589,28 @@ int ringnav_lyric(void) {
     return ret;
 }
 
+/* scroll_lrc's rows are 20 px, or 25 a line when wrapped (0x52a0c8), and its 178 px are no whole
+ * number of them, so the view's end (content height - view height), where stock's follow and the
+ * wheel stop, cut the top row. The content grows to the first row top at or past that end plus the
+ * view: under a row of blank space below the last. A relayout (scroll_view's, 0x5f17a8) puts the
+ * height back and clamps the offset; the next follow or tick pads it again. ponytail: a drag still
+ * stops anywhere; snap on pointer up if that shows. */
+static void lyric_pad(void *lrc) {
+    int h = I(lrc, W_H), end = I(lrc, VIEW_CONTENT_H) - h, top = 1 << 30;
+    for (int i = widget_count_children(lrc); i-- > 0;) {
+        int t = I(widget_get_child(lrc, i), W_Y);
+        if (t >= end && t < top) top = t;
+    }
+    if (end > 0 && top < 1 << 30) I(lrc, VIEW_CONTENT_H) = top + h;
+}
+
+/* The Now Playing timer's follow (LYRIC_FOLLOW in tools/build.py): stock scrolls to the row three
+ * lines above the current one, which past the end clamps to it. */
+int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
+    lyric_pad(lrc);
+    return scroll_view_scroll_to(lrc, x, y, ms);
+}
+
 /* The playing track: its queue position and path. */
 static unsigned np_track(void) {
     unsigned at, n;
@@ -2922,9 +2944,7 @@ static int lyric_expire(const void *info) {
 
 /* The wheel on the lyrics page (the slide_view's second), while the track has lyrics, scrolls
  * them a row a tick, to the next or previous row's top, ahead of scrub (which ends) and the
- * volume. Stock's rows are 20 px, or 25 a line when wrapped (0x52a0c8), so a fixed step would
- * leave the top row cut. ponytail: at the very end the view's bottom meets the last row and the
- * top one can still be cut; the view is not a whole number of rows. */
+ * volume. */
 static int np_lyrics(unsigned key) {
     void *lrc = st.np_lrc;
     if (!st.np_slide || !lrc || widget_get_prop_int(st.np_slide, "value", 0) != 1 ||
@@ -2934,6 +2954,7 @@ static int np_lyrics(unsigned key) {
     stop_timer(&st.settle_timer);
     if (!st.lyric_timer) playing_timer_clear(st.np_win);
     rearm(&st.lyric_timer, lyric_expire, SCRUB_MS);
+    lyric_pad(lrc);
     int y = I(lrc, SCROLL_Y), max = I(lrc, VIEW_CONTENT_H) - I(lrc, W_H), to = key == KEY_NEXT ? max : 0;
     for (int i = 0, n = widget_count_children(lrc); i < n; ++i) {
         int top = I(widget_get_child(lrc, i), W_Y);

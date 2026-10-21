@@ -233,6 +233,9 @@ PLAYER_COVER = (0x51301c, 0x0320f809)
 # player_get_id3info's jalr strcpy of the parsed path (lw $t9 at 0x5148e0), which every fresh parse reaches
 # before Now Playing's lines, becomes jal ringnav_id3_path: a CUE track without sheet tags takes its file's.
 ID3_PATH = (0x5148e8, 0x0320f809)
+# The Now Playing timer's jalr scroll_view_scroll_to(scroll_lrc, 0, y, 10) (lw $t9 at 0x52bec0), its lyric
+# follow, becomes jal ringnav_lyric_follow, which pads the content so the view's end is a row top.
+LYRIC_FOLLOW = (0x52bed0, 0x0320f809)
 # parse_albumcovertask_thd's jalr toolsGetAlbumCover (Albums grids; Folder view's folder and track rows),
 # each with its lw $t9, become jal coverflow_grid_cover, which gives ffmpeg the Ogg pictures stock skips;
 # the Albums grid's (first, before stock's toolsGetExternCover) jal coverflow_album_cover.
@@ -707,6 +710,7 @@ FUNCTIONS = {
  'table_client_set_yoffset': ('int', 'void *, int'),
  'widget_dispatch_simple_event': ('int', 'void *, unsigned'),
  'scroll_view_set_offset': ('int', 'void *, int, int'),
+ 'scroll_view_scroll_to': ('int', 'void *, int, int, int'),
  'table_client_scroll_to': ('int', 'void *, int'),
  'scroll_view_scroll_delta_to': ('int', 'void *, int, int, int'),
  'widget_destroy_children': ('int', 'void *'),
@@ -1164,6 +1168,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x5148e0))[0] == 0x8f99f5bc,
           'id3 path: expected strcpy import')
     patch_word(patched, *ID3_PATH, jal(ps['ringnav_id3_path']), "a CUE track's file tags")
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x52bec0))[0] == 0x8f99c004,
+          'lyric follow: expected scroll_view_scroll_to import')
+    patch_word(patched, *LYRIC_FOLLOW, jal(ps['ringnav_lyric_follow']), 'lyric rows whole at the top')
     for call, load, fn in GRID_COVER:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, load))[0] == 0x8f99b6e0,
               'grid cover: expected toolsGetAlbumCover import')

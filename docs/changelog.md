@@ -2,7 +2,7 @@
 
 - **1.3.6**:
   - Quick Settings: hold Play/Pause to switch the wheel between the brightness slider and volume; the choice is kept across restarts.
-  - Lyrics: each wheel tick scrolls one whole row, so the top row is no longer left half cut.
+  - Lyrics: the top row is no longer shown cut in half, whether the page follows the song, reaches the end or the wheel scrolls it a row a tick.
   - Quick Settings: swiping up to close no longer changes the brightness.
   - Artist page: with Artist Albums set to Grid, the stock toolbar is back, with its multi-select for adding or deleting several songs or albums at once.
 
