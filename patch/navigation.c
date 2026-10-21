@@ -7397,7 +7397,9 @@ int ringnav_sleep(void *loop) {
     playback_poll();
     resume_poll();
     power_poll();
+#if IPOD
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
+#endif
     if (!g_backlight_status) {
         st.dark |= 1;
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
