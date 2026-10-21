@@ -455,9 +455,11 @@ scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
 
-**Lyrics.** Stock already highlights the current line and scrolls to keep it in view. On the
+**Lyrics.** Stock already highlights the current line and scrolls to keep it in view. The top row is
+always whole: near the end the lines stop with up to a row of space below the last, not with the top
+one cut. On the
 lyrics page, while the track has lyrics, the wheel scrolls them a row
-per tick, to the next row's top so none is left cut in half, instead of changing the volume or scrubbing; a scrub under way ends first, as any other end
+per tick, to the next row's top, instead of changing the volume or scrubbing; a scrub under way ends first, as any other end
 does. Both times, the bar and the highlight wait meanwhile, and 3 seconds (`SCRUB_MS`) after the
 last tick, or at a touch, the page follows the current line again; see
 [internals.md](internals.md#scrub-ipod).
