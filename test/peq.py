@@ -18,7 +18,8 @@ class Band(C.Structure):
 
 class Preset(C.Structure):
     _fields_ = [('count', C.c_int), ('bypass', C.c_int), ('preamp', C.c_double), ('bands', Band * 30),
-                ('balance', C.c_double)]
+                ('balance', C.c_double), ('automatic', C.c_int), ('spare', C.c_int)]
+V2 = Preset.automatic.offset  # a preset as 1.3.5 saved it
 
 class State(C.Structure):
     _fields_ = [('mode', C.c_int), ('hold', C.c_int), ('peq', Preset), ('eq3', Preset)]
@@ -165,7 +166,9 @@ def parser_check(lib, tmp):
     v1 = tmp/'v1'
     v1.write_bytes(b'Q2PEQ01\0' + bytes(q)[:16 + 10*32])
     assert lib.peq_load(bytes(v1), C.byref(p)) and bytes(p) == bytes(q)  # q's bands 11-30 are the defaults
-    v1.write_bytes(b'Q2PEQ02\0' + bytes(q)[:-8])
+    v1.write_bytes(b'Q2PEQ02\0' + bytes(q)[:V2])  # 1.3.5's, before automatic: unknown (0)
+    assert lib.peq_load(bytes(v1), C.byref(p)) and bytes(p) == bytes(q) and p.automatic == 0
+    v1.write_bytes(b'Q2PEQ02\0' + bytes(q)[:V2 - 8])
     assert not lib.peq_load(bytes(v1), C.byref(p))
     v1.write_bytes(b'')
     assert not lib.peq_load(bytes(v1), C.byref(p))
@@ -750,6 +753,27 @@ def editor_check(lib, tmp):
     r = read()
     assert (r.count, r.preamp, r.balance, r.bypass) == (10, 0, 0, 1)
     s = State(); assert lib.eq_load(C.byref(s)) and s.mode == EQ_OFF
+    # Auto is saved (automatic), so it survives a restart and a headroom change; a set preamp stays set.
+    p = preset(enabled=1, gain=6.0); want = ui.check_headroom(C.byref(p)); assert want < -5
+    shown = lambda auto: ui.shim_click(f'Preamp {want:.1f} dB{" (Auto)" if auto else ""}'.encode(), 2)
+    def reopen(preamp, automatic, v2=False):
+        p.preamp, p.automatic, s.peq, s.mode = preamp, automatic, p, EQ_PEQ; assert lib.eq_save(C.byref(s))
+        if v2: active.write_bytes(b'Q2PEQ03\0' + bytes(s)[:8] + bytes(s.peq)[:V2] + bytes(s.eq3)[:V2])  # 1.3.5's
+        ui.shim_close(); advanced()
+    reopen(-1, 1)  # Auto under an older headroom: the current one, to apply
+    assert shown(True) and ui.shim_click(b'Apply changes', 2)
+    click('Apply changes'); reopen(read().preamp, 1)
+    assert shown(True) and ui.shim_click(b'Nothing to apply', 2)
+    t = State(); assert lib.eq_load(C.byref(t)) and t.peq.automatic == 1 and t.peq.preamp == want
+    assert lib.peq_save(bytes(saved/'Auto.peq'), C.byref(p), 1) == 1  # presets carry it too
+    reopen(0, 2); click('Presets'); click('Auto.peq'); assert shown(True)
+    reopen(want, 2)  # set to exactly the headroom: still set, through a band edit
+    assert shown(False) and not shown(True)
+    click('1  '); click('Gain +6.0 dB'); click('+7.0 dB'); ui.shim_return(); click('Apply changes')
+    assert read().preamp == want and lib.eq_load(C.byref(t)) and t.peq.automatic == 2
+    reopen(want, 0, v2=True)  # 1.3.5's state loads; its preamp at the headroom reads as Auto
+    assert lib.eq_load(C.byref(t)) and t.peq.automatic == 0 and bytes(t.eq3) == bytes(s.eq3) and shown(True)
+    reopen(-1, 0, v2=True); assert ui.shim_click(b'Preamp -1.0 dB', 2) and not shown(True)
     print('EQ Advanced tab: bypass, apply, auto preamp, channels, balance, frequency and Q, load, failed saves, delete, reset and close passed.')
     # A full pack stays sorted and reachable, with bounded widget counts and page-local action IDs.
     imports = tmp/'root/mnt/mmc/EQ'

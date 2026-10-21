@@ -5,6 +5,7 @@
   - Lyrics: each wheel tick scrolls one whole row, so the top row is no longer left half cut.
   - Quick Settings: swiping up to close no longer changes the brightness.
   - Artist page: with Artist Albums set to Grid, the stock toolbar is back, with its multi-select for adding or deleting several songs or albums at once.
+  - EQ: Auto preamp is remembered across restarts and updates.
 
 - **1.3.5**:
   - Add persistent **Swap L/R** below Mono Audio, default Off, for local PCM playback, Bluetooth/USB output, Videos, Internet Radio and Spotify’s helper. DSD and AirPlay retain Mono Audio’s limitations; Spotify on the headphone jack may need pause/play after switching.

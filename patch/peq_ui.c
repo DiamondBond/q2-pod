@@ -202,7 +202,18 @@ static int focused(void *ctx, void *event) {
     return 0;
 }
 
-static int on_auto(void) { return __builtin_fabs(ui.draft.preamp - headroom(&ui.draft)) < 0.05; }
+/* Saved since 1.3.6 (automatic); before, a preamp within 0.05 dB of the headroom was Auto. */
+static int on_auto(void) {
+    return ui.draft.automatic ? ui.draft.automatic == 1
+                              : __builtin_fabs(ui.draft.preamp - headroom(&ui.draft)) < 0.05;
+}
+
+/* A draft on Auto takes the current headroom (an update can move it): 1 if that changed it. */
+static int follow_auto(void) {
+    double was = ui.draft.preamp;
+    if (on_auto()) ui.draft.automatic = 1, ui.draft.preamp = headroom(&ui.draft);
+    return ui.draft.preamp != was;
+}
 
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
 
@@ -254,6 +265,7 @@ static const signed char stock_gains[][10] = {
 static void load_draft(peq_preset *p, const char *name, int length) {
     p->bypass = ui.draft.bypass; /* ON/OFF is live state, not part of the edit */
     ui.draft = *p;
+    follow_auto();
     ui.dirty = 1;
     snprintf(ui.name, sizeof(ui.name), "%.*s", length, name);
     ui.screen = HOME;
@@ -297,7 +309,7 @@ static int action(void *ctx, void *event) {
     ui.tabs = 0;
     /* Band edits keep the preamp on Auto (just enough cut for the boosts) only if it was there. */
     int edit = (id >= ENABLE && id < STEP) || (id < 256 && ui.screen == PICK && ui.pick == GAIN);
-    int automatic = edit && on_auto();
+    if (edit) ui.draft.automatic = on_auto() ? 1 : 2;
     if (id == BACK) {
         if (ui.screen == HOME) { navigator_back(); return 0; }
         if (ui.screen == PICK) ui.screen = ui.pick == GAIN ? BAND : HOME;
@@ -349,6 +361,7 @@ static int action(void *ctx, void *event) {
         int bypass = ui.draft.bypass;
         peq_default(&ui.draft);
         ui.draft.bypass = bypass;
+        follow_auto();
         ui.name[0] = 0;
         ui.dirty = 1;
         snprintf(ui.status, sizeof(ui.status), "Reset; choose Apply to activate");
@@ -365,6 +378,7 @@ static int action(void *ctx, void *event) {
         else if (ui.screen == PICK && id < picks[ui.pick - BALANCE].rows) {
             /* Preamp's Auto row: the band-edit cut, which later band edits then keep up to date. */
             *picked() = ui.pick == PREAMP && !id ? headroom(&ui.draft) : picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * id;
+            if (ui.pick == PREAMP) ui.draft.automatic = id ? 2 : 1;
             if (ui.pick == GAIN && !b->enabled) b->enabled = 1; /* picking a gain is using the band */
             ui.dirty = 1;
             ui.screen = ui.pick == GAIN ? BAND : HOME;
@@ -373,7 +387,7 @@ static int action(void *ctx, void *event) {
             peq_preset p;
             peq_default(&p);
             for (int k = 0; k < 10; ++k) p.bands[k].enabled = (p.bands[k].gain = stock_gains[id][k]) != 0;
-            p.preamp = headroom(&p);
+            p.automatic = 1; /* load_draft sets the preamp */
             load_draft(&p, stock_names[id], sizeof(stock_names[id]));
         }
         else if (ui.screen == SAVES && id < 10) {
@@ -405,7 +419,7 @@ static int action(void *ctx, void *event) {
     }
     if (edit) { /* ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL and a picked gain */
         ui.dirty = 1;
-        if (automatic) ui.draft.preamp = headroom(&ui.draft);
+        follow_auto();
     }
     if (screen != ui.screen) ui.file_page = 0;
     if (!ui.timer) ui.timer = timer_add(render, 0, 1);
@@ -746,11 +760,12 @@ int peq_page_init(void *page, void *context) {
     ui.view = 0;
     ui.screen = HOME;
     ui.status[0] = 0;
-    ui.dirty = 0;
     ui.tabs = 0;
     eq_state s;
     eq_load(&s);
     ui.draft = s.peq;
+    /* ponytail: a moved Auto plays its old number until Apply; the player has no headroom(). */
+    ui.dirty = follow_auto();
     load(&s);
     ui.named.bypass = ui.draft.bypass;
     if (memcmp(&ui.draft, &ui.named, sizeof(ui.named))) ui.applied[0] = 0; /* replaced since */
