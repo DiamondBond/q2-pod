@@ -2,6 +2,9 @@
 
 - **1.3.9**:
   - iPod: **Library → Games** with a controller icon and Sudoku, Vortex and Solitaire (Klondike, draw one), playable while music plays. Sudoku and Solitaire keep the game in progress and Vortex the best score across restarts.
+  - Games: Vortex lets the screen dim and turn off while the ball is in play (which pauses it) and no longer redraws the screen when nothing moves, saving battery.
+  - Games: Sudoku and Solitaire save a couple of seconds after your moves instead of after every one, and still on leaving the game.
+  - Library: My Fav, Frequent and Recent, and **Add Songs**' ticks, open faster in a large library.
   - Library: Frequent and Recent show a song's title instead of its file name and track number when it was played from Folder.
   - Quick Settings: swiping up to close from the brightness slider no longer moves the brightness. The slider now only moves once your finger goes sideways.
   - Wi-Fi and Bluetooth (Minimal): the delete mark on the selected row is grey instead of white on white.

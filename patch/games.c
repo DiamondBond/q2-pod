@@ -421,6 +421,7 @@ void sol_finish(struct solitaire *s) {
  * units, wheel_sample). The hardware's calibration knob. */
 #define VORTEX_GAIN 100
 #define FRAME_MS 33
+#define SAVE_MS 2000 /* a move's save waits this long; a power-off loses at most this */
 #define CELL 30
 #define TURN (6.2831853f / 1024)
 enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE };
@@ -431,11 +432,13 @@ struct best {
 static struct game {
     void *page, *list, *view, *sheet;
     unsigned timer, frame, at, acc; /* frame: Vortex's timer, at its last run, acc 1/60000 s due */
-    int h, screen, target, picking, pick, confirm, paused, choice, carry, sud_open;
+    int h, screen, target, picking, pick, confirm, paused, choice, carry;
+    int dirty; /* unsaved: 1 Sudoku, 2 Solitaire */
     struct sudoku sud;
     struct vortex vx;
     struct best best;
     struct solitaire sol;
+    unsigned save;
 } *g __attribute__((section(".scratch")));
 
 static int sud_started(const struct sudoku *s) {
@@ -444,9 +447,28 @@ static int sud_started(const struct sudoku *s) {
     return 0;
 }
 
-static void sud_store(int loud) {
-    games_seal(&g->sud, sizeof g->sud, SUD_MAGIC);
-    if (!BLOB_IO(GAMES_SUDOKU, g->sud, 1) && loud) toast("Couldn't save");
+/* The dirty games written whole (blob_io: a temporary, synced, renamed over). */
+static void flush(int loud) {
+    int ok = 1;
+    stop_timer(&g->save);
+    if (g->dirty & 1)
+        games_seal(&g->sud, sizeof g->sud, SUD_MAGIC), ok &= BLOB_IO(GAMES_SUDOKU, g->sud, 1);
+    if (g->dirty & 2)
+        games_seal(&g->sol, sizeof g->sol, SOL_MAGIC), ok &= BLOB_IO(GAMES_SOLITAIRE, g->sol, 1);
+    g->dirty = 0;
+    if (!ok && loud) toast("Couldn't save");
+}
+
+static int save_due(const void *unused) {
+    g->save = 0;
+    flush(1);
+    return 0;
+}
+
+/* A move: saved SAVE_MS after the first unsaved one, or on leaving the game, not per move. */
+static void changed(int game) {
+    g->dirty |= game;
+    if (!g->save) g->save = timer_add(save_due, (void *)0, SAVE_MS);
 }
 
 /* The frame timer off and the wheel back to ticks. */
@@ -473,6 +495,7 @@ static int frame(const void *unused) {
     }
     unsigned now = (unsigned)time_now_ms();
     int travel = __sync_lock_test_and_set(&wheel_travel, 0), n = 0;
+    struct vortex was = g->vx;
     g->acc += (now - g->at) * 60;
     g->at = now;
     g->carry -= travel * 1024 * VORTEX_GAIN; /* the wheel's x falls clockwise */
@@ -480,8 +503,8 @@ static int frame(const void *unused) {
     for (; g->acc >= 1000 && n < 4; ++n, g->acc -= 1000) vortex_step(&g->vx, n ? 0 : dpa);
     if (n) g->carry -= dpa * 200 * 100;
     if (g->acc >= 1000) g->acc = 0;
-    if (travel || g->vx.state == PLAY) reset_poweroptions_timer(1, 1, 1);
-    widget_invalidate_force(g->page, 0);
+    if (travel) reset_poweroptions_timer(1, 1, 1); /* the ball alone lets the screen time out */
+    if (memcmp(&was, &g->vx, sizeof was)) widget_invalidate_force(g->page, 0);
     if (g->vx.state != OVER) return 8; /* RET_REPEAT */
     g->frame = 0;
     hold(RUN);
@@ -509,12 +532,10 @@ static int show(const void *unused) {
     widget_set_visible(g->list, g->screen == CHOOSER, 0);
     widget_set_visible(g->sheet, g->screen != CHOOSER, 0);
     if (g->screen == CHOOSER) {
-        if (g->sud_open) sud_store(0);
+        flush(1);
         ringnav_select(g->view, from - 1, 3);
     } else if (g->screen == VORTEX)
         vortex_new(&g->vx), run();
-    else if (g->screen == SUDOKU)
-        g->sud_open = 1;
     widget_invalidate_force(g->page, 0);
     return 0;
 }
@@ -545,11 +566,11 @@ static void sudoku_key(unsigned key) {
     struct sudoku *s = &g->sud;
     int wheel = key == KEY_NEXT ? 1 : key == KEY_PREV ? -1 : 0;
     if (g->confirm) {
-        if (key == KEY_CENTER) sud_new(s), sud_store(1);
+        if (key == KEY_CENTER) sud_new(s), changed(1);
         if (key == KEY_CENTER || key == KEY_RETURN) g->confirm = 0;
     } else if (g->picking) {
         if (wheel) g->pick = (g->pick + wheel + 10) % 10;
-        if (key == KEY_CENTER) sud_set(s, s->cur, g->pick), sud_store(1);
+        if (key == KEY_CENTER) sud_set(s, s->cur, g->pick), changed(1);
         if (key == KEY_CENTER || key == KEY_RETURN) g->picking = 0;
     } else if (wheel)
         s->cur = (unsigned char)((s->cur + wheel + 81) % 81);
@@ -560,7 +581,7 @@ static void sudoku_key(unsigned key) {
     else if (key == KEY_PLAY && sud_started(s) && !sud_done(s))
         g->confirm = 1;
     else if (key == KEY_PLAY)
-        sud_new(s), sud_store(1);
+        sud_new(s), changed(1);
     else if (key == KEY_RETURN)
         to(CHOOSER);
 }
@@ -589,11 +610,6 @@ static void vortex_key(unsigned key) {
         vortex_launch(v);
 }
 
-static void sol_store(void) {
-    games_seal(&g->sol, sizeof g->sol, SOL_MAGIC);
-    if (!BLOB_IO(GAMES_SOLITAIRE, g->sol, 1)) toast("Couldn't save");
-}
-
 /* A pile's column on screen: the stock, the waste, a gap and the foundations over the tableau. */
 static const unsigned char col[PILES] = { 0, 1, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6 };
 
@@ -603,7 +619,7 @@ static void solitaire_key(unsigned key) {
     struct solitaire *s = &g->sol;
     int wheel = key == KEY_NEXT ? 1 : key == KEY_PREV ? -1 : 0, cur = s->cur, moved = 0;
     if (g->confirm) {
-        if (key == KEY_CENTER) sol_new(s), sol_store();
+        if (key == KEY_CENTER) sol_new(s), changed(2);
         if (key == KEY_CENTER || key == KEY_RETURN) g->confirm = g->picking = 0;
     } else if (wheel)
         s->cur = (unsigned char)((cur + wheel + PILES) % PILES);
@@ -623,12 +639,12 @@ static void solitaire_key(unsigned key) {
     else if (key == KEY_PLAY && !sol_won(s))
         g->confirm = 1;
     else if (key == KEY_PLAY)
-        sol_new(s), sol_store();
+        sol_new(s), changed(2);
     else if (key == KEY_RETURN && g->picking)
         g->picking = 0;
     else if (key == KEY_RETURN)
-        sol_store(), to(CHOOSER); /* the cursor too */
-    if (moved) sol_finish(s), sol_store();
+        to(CHOOSER); /* show() saves, the cursor too */
+    if (moved) sol_finish(s), changed(2);
 }
 
 /* ringnav(), before stock: a game takes every key but Power and a held Return (Home), so the
@@ -637,13 +653,16 @@ static void solitaire_key(unsigned key) {
 int games_key(void *top, unsigned key) {
     if (!g || top != g->page || g->screen == CHOOSER) return 0;
     if (key == KEY_RETURN && *(volatile unsigned char *)RETURN_RELEASE_LATCH) return 0;
+    struct game was = *g;
     if (g->screen == SUDOKU)
         sudoku_key(key);
     else if (g->screen == SOLITAIRE)
         solitaire_key(key);
     else
         vortex_key(key);
-    widget_invalidate_force(g->page, 0);
+    /* a moved cursor is kept on leaving; a key the game ignored paints nothing */
+    g->dirty |= (g->sud.cur != was.sud.cur) | (g->sol.cur != was.sol.cur) << 1;
+    if (memcmp(&was, g, sizeof was)) widget_invalidate_force(g->page, 0);
     return 1;
 }
 
@@ -822,7 +841,7 @@ void games_paint(void *w, void *canvas) {
 static int closed(void *ctx, void *event) {
     hold(RUN);
     stop_timer(&g->timer);
-    if (g->sud_open) sud_store(0);
+    flush(0);
     free(g);
     g = 0;
     return 0;

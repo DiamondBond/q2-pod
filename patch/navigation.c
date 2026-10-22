@@ -4613,30 +4613,53 @@ int ringnav_badge(const char *path, char *out, int size) {
     tk_snprintf(out, (unsigned)size, "null");
     return 0;
 }
+static unsigned listen_key(void *r);
+/* A deque's songs by path and CUE start (listen_key), open addressing at most half full: slot j + 1
+ * for record j, so a key's first record in deque order is met first. calloc'd, 0 if that fails. */
+static unsigned *rec_index(void *songs, unsigned *mask) {
+    unsigned n = deque_size(songs), size = 2, *slot;
+    while (size < 2 * n) size <<= 1;
+    *mask = size - 1;
+    if (!(slot = calloc(size, sizeof *slot))) return 0;
+    for (unsigned j = 0; j < n; ++j) {
+        void *s = deque_at(songs, j);
+        if (!P(s, REC_PATH)) continue;
+        unsigned h = listen_key(s);
+        while (slot[h & *mask]) ++h;
+        slot[h & *mask] = j + 1;
+    }
+    return slot;
+}
+/* The first of rec_index's songs with r's path and CUE start, else 0. */
+static void *rec_find(void *songs, const unsigned *slot, unsigned mask, void *r) {
+    const char *path = P(r, REC_PATH);
+    for (unsigned h = path ? listen_key(r) : 0; path && slot[h & mask]; ++h) {
+        void *s = deque_at(songs, slot[h & mask] - 1);
+        if (!strcmp(P(s, REC_PATH), path) && I(s, REC_CUE_START) == I(r, REC_CUE_START)) return s;
+    }
+    return 0;
+}
 /* My Fav's, Frequent's and Recent's rows are stock's copies of the songs as added or played, some
  * with an empty title though the library has the tag (a song played from Folder): an empty one
  * takes the library's, by path, so it reads as every other list's instead of falling back to its
  * file name and track number.
- * ponytail: each untitled row scans the library, as rate_all does; a sorted index
- * (ringnav_memory's) if that shows. */
+ * ponytail: the library is staged and indexed once per list load (O(library)) when any row is
+ * untitled; keep an index across loads if that shows. */
 static int songs_unsorted(void *);
 static void fav_titles(void *list, int n) {
     void *songs = 0;
+    unsigned mask = 0, *slot = 0;
     for (int i = 0; i < n; ++i) {
-        void *r = deque_at(list, (unsigned)i);
+        void *r = deque_at(list, (unsigned)i), *s;
         char **title = (char **)((char *)r + REC_TITLE), *t;
         if (I(r, REC_TYPE) != 8 || (*title && **title) || !P(r, REC_PATH)) continue;
         int k;
-        if (!songs) songs = staged(songs_unsorted, 0, &k);
-        for (unsigned j = 0; j < deque_size(songs); ++j) {
-            void *s = deque_at(songs, j);
-            const char *lib = P(s, REC_TITLE), *path = P(s, REC_PATH);
-            if (!path || strcmp(path, P(r, REC_PATH)) || I(s, REC_CUE_START) != I(r, REC_CUE_START))
-                continue;
-            if (lib && *lib && (t = strdup(lib))) free(*title), *title = t;
-            break;
-        }
+        if (!songs && (songs = staged(songs_unsorted, 0, &k))) slot = rec_index(songs, &mask);
+        if (!slot || !(s = rec_find(songs, slot, mask, r))) continue;
+        const char *lib = P(s, REC_TITLE);
+        if (lib && *lib && (t = strdup(lib))) free(*title), *title = t;
     }
+    free(slot);
     if (songs) deque_destroy(songs);
 }
 /* Saved collections bypass songtable; filter their displayed copies, never their stored rows. */
@@ -6122,17 +6145,6 @@ static void ple_filter(void) {
             }
     }
 }
-/* Add Songs ticks a song the playlist already holds: same path and CUE segment.
- * ponytail: a scan of the playlist per picker row; a sorted path list if huge playlists drag. */
-static int ple_in(void *r) {
-    const char *path = P(r, REC_PATH);
-    for (unsigned i = 0, n = path ? deque_size(ple.songs) : 0; i < n; ++i) {
-        void *s = deque_at(ple.songs, i);
-        const char *p = P(s, REC_PATH);
-        if (p && !strcmp(p, path) && I(s, REC_CUE_START) == I(r, REC_CUE_START)) return 1;
-    }
-    return 0;
-}
 /* Stock's "select" check at the row's end, as the Shuffle and Repeat menus; the caption stops short
  * of it. */
 static void ple_tick(void *item) {
@@ -6324,14 +6336,17 @@ static void ple_show(void) {
         char search[160];
         tk_snprintf(search, sizeof search, "%s%s", *ple.query ? "Search: " : "Search", ple.query);
         page_row_detail(ple.view, 0, search, 0, ple_pick);
+        /* a tick on a song the playlist already holds: same path and CUE segment */
+        unsigned mask, *in = ple.nmatch ? rec_index(ple.songs, &mask) : 0;
         if (!ple.nmatch)
             page_row_detail(ple.view, 1, "No songs match", 0, 0);
         else
             for (int i = 0; i < ple.nmatch; i++) {
                 void *row = page_row_detail(
                     ple.view, i + 1, track_name(name, sizeof name, ple.match[i]), 0, ple_pick);
-                if (ple_in(ple.match[i])) ple_tick(row);
+                if (in && rec_find(ple.songs, in, mask, ple.match[i])) ple_tick(row);
             }
+        free(in);
     } else
         for (int i = 0; i < n; i++) {
             const char *caption =

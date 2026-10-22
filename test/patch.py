@@ -8282,7 +8282,7 @@ if variant=='ipod':
     m.byte(G+G_CUR,blank); key(O['KEY_CENTER']); assert word(G_PICKING)
     for _ in range(3): key(O['KEY_NEXT'])
     paint(); key(O['KEY_CENTER']); assert cells()[blank]==3 and not word(G_PICKING)
-    saved=bytes(m.files['/mnt/data/ringnav-sudoku']); assert len(saved)==92 and saved[4:85]==cells()
+    m.advance(2000); saved=bytes(m.files['/mnt/data/ringnav-sudoku']); assert len(saved)==92 and saved[4:85]==cells()
     key(O['KEY_CENTER']); key(O['KEY_NEXT']); key(O['KEY_RETURN']); assert cells()[blank]==3 and not word(G_PICKING) and word(G_SCREEN)==1
     before=cells(); key(O['KEY_PLAY']); assert cells()==before and word(52); paint()
     key(O['KEY_RETURN']); assert cells()==before and not word(52)
@@ -8291,7 +8291,13 @@ if variant=='ipod':
     # Vortex: the frame timer and the raw wheel while it plays; the wheel's travel turns the paddle.
     m.page=m.top; pick(1); assert word(G_SCREEN)==2 and len(frames())==1 and m.get(payload_syms['wheel_raw'])==1
     m.word(payload_syms['wheel_travel'],-50&0xffffffff); m.advance(34); assert word(G_VX+16)==0 and m.get(payload_syms['wheel_travel'])==0
-    key(O['KEY_CENTER']); m.advance(500); assert word(G_VX)==1; paint()
+    made=lambda *a: [c[0] for c in m.calls if c[0] in a]
+    assert made('reset_poweroptions_timer') and made('widget_invalidate_force')
+    # Idle, waiting to launch: no repaint and the screen's timeout runs; the ball in play repaints, still
+    # leaving the screen to time out; a key the game ignores paints nothing.
+    m.advance(500); assert not made('reset_poweroptions_timer','widget_invalidate_force')
+    key(O['KEY_CENTER']); m.advance(500); assert word(G_VX)==1 and made('widget_invalidate_force') and not made('reset_poweroptions_timer'); paint()
+    key(O['KEY_FWD_BTN']); assert not made('widget_invalidate_force')
     key(O['KEY_PLAY']); assert word(G_PAUSED)==1 and not frames() and m.get(payload_syms['wheel_raw'])==0
     x=word(G_VX+20),word(G_VX+24); m.advance(500); assert (word(G_VX+20),word(G_VX+24))==x; paint()
     key(O['KEY_PLAY']); assert word(G_PAUSED)==0 and len(frames())==1 and m.get(payload_syms['wheel_raw'])==1
@@ -8306,13 +8312,13 @@ if variant=='ipod':
     G_SOL=220; sol=lambda: bytes(m.u.mem_read(G+G_SOL,336)); n=lambda p: byte(G_SOL+316+p); cur=lambda: byte(G_SOL+329)
     def put(p,cards): m.u.mem_write(G+G_SOL+4+24*p,bytes(cards)); m.byte(G+G_SOL+316+p,len(cards))
     m.page=m.top; pick(2); assert word(G_SCREEN)==3 and cur()==0 and [n(p) for p in range(13)]==[24,0,0,0,0,0,1,2,3,4,5,6,7]; paint()
-    key(O['KEY_CENTER']); assert (n(0),n(1))==(23,1) and bytes(m.files['/mnt/data/ringnav-solitaire'])==sol()
+    key(O['KEY_CENTER']); m.advance(2000); assert (n(0),n(1))==(23,1) and bytes(m.files['/mnt/data/ringnav-solitaire'])==sol()
     key(O['KEY_NEXT']); assert cur()==1; key(O['KEY_FWD_BTN']); assert cur()==7; key(O['KEY_BACK_BTN']); assert cur()==1
     key(O['KEY_PREV']); key(O['KEY_PREV']); assert cur()==12; key(O['KEY_BACK_BTN']); assert cur()==5; passed()
     put(6,[64|13+11]); put(7,[3,64|10]); m.byte(G+G_SOL+329,7)  # Q of hearts; a face-down 4 under the J of spades
     key(O['KEY_CENTER']); assert word(G_PICKING) and word(48)==7; paint()
     key(O['KEY_FWD_BTN']); key(O['KEY_CENTER']); assert word(G_PICKING)  # not onto the waste
-    key(O['KEY_FWD_BTN']); key(O['KEY_PREV']); key(O['KEY_CENTER']); assert not word(G_PICKING)
+    key(O['KEY_FWD_BTN']); key(O['KEY_PREV']); key(O['KEY_CENTER']); assert not word(G_PICKING); m.advance(2000)
     assert (n(6),n(7),byte(G_SOL+4+24*6+1),byte(G_SOL+4+24*7))==(2,1,64|10,64|3) and bytes(m.files['/mnt/data/ringnav-solitaire'])==sol()
     put(1,[64|26]); m.byte(G+G_SOL+329,1); key(O['KEY_CENTER']); key(O['KEY_CENTER'])  # the Ace of diamonds, home
     assert not word(G_PICKING) and n(1)==0 and n(2)==1 and byte(G_SOL+4+48)==64|26
@@ -8325,6 +8331,12 @@ if variant=='ipod':
     chooser,sheet=games_open(); G=m.get(payload_syms['g']); rows=m.nodes[m.find('scroll_view',chooser)]['children']
     pick(0); assert cells()==before
     key(O['KEY_RETURN']); m.advance(0); pick(2); assert sol()[:-4]==before_sol[:-4]  # and the cursor, kept on leaving
+    # Moves save once, SAVE_MS after the first unsaved one, not per move; leaving with nothing new writes nothing.
+    saves=[]; m.u.hook_add(UC_HOOK_CODE,lambda u,a,n,_: saves.append(a),begin=syms['rename@GLIBC_2.0'],end=syms['rename@GLIBC_2.0'])
+    m.byte(G+G_SOL+329,0)
+    for _ in range(10): m.call(O['KEY_CENTER'],gap=100,count=2_000_000)
+    assert not saves; m.advance(2000); assert len(saves)==1 and bytes(m.files['/mnt/data/ringnav-solitaire'])==sol()
+    key(O['KEY_RETURN']); m.advance(0); pick(0); key(O['KEY_RETURN']); m.advance(0); assert len(saves)==1; pick(2)
     key(O['KEY_RETURN']); m.advance(0); pick(1); assert len(frames())==1
     m.close(); assert m.get(payload_syms['g'])==0 and not frames() and m.get(payload_syms['wheel_raw'])==0; passed()
 
