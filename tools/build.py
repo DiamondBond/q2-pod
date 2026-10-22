@@ -1331,8 +1331,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         shuffle='playset_playmode.png', scrobble='wifiset_wifi.png', podcasts='netservice_dlna.png',
         audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
         videos='system_display.png', longsongs='system_time.png').items()})
-    if ipod:  # the Library's Games row; ponytail: stock's language icon until one is drawn
-        icons['local_games.png'] = ('system_language.png', cat(xx+'system_language.png'))
+    if ipod:
+        icons['local_games.png'] = ('system_language.png', (ROOT/'assets/icons/local_games.png').read_bytes())
         # Minimal's selected Wi-Fi and Bluetooth rows draw this grey copy over stock's white delete mark
         icons['list_delete.png'] = ('navbar_delete.png', cat(xx+'navbar_delete.png'))
     for n in ('spotify', 'radio'):  # Streaming's Spotify and Internet Radio rows

@@ -1,7 +1,7 @@
 # Changelog
 
 - **1.3.9**:
-  - iPod: **Library → Games** with Sudoku, Vortex and Solitaire (Klondike, draw one), playable while music plays. Sudoku and Solitaire keep the game in progress and Vortex the best score across restarts.
+  - iPod: **Library → Games** with a controller icon and Sudoku, Vortex and Solitaire (Klondike, draw one), playable while music plays. Sudoku and Solitaire keep the game in progress and Vortex the best score across restarts.
   - Library: Frequent and Recent show a song's title instead of its file name and track number when it was played from Folder.
   - Quick Settings: swiping up to close from the brightness slider no longer moves the brightness. The slider now only moves once your finger goes sideways.
   - Wi-Fi and Bluetooth (Minimal): the delete mark on the selected row is grey instead of white on white.
@@ -10,7 +10,7 @@
   - Cover Flow: a cover that isn't square shows whole, between black bars, instead of cropped to its centre.
   - Lyrics: a lyrics search no longer shows the credits (writer, mix engineer and so on) some LRCLIB lyrics start with.
   - EQ: **Presets → Rename a preset** renames a saved preset.
-  - Now Playing: the progress bar shows no thumb when you touch it to seek, instead of a blue one.
+  - Now Playing: a larger touchscreen seek target, separate from page swipes, and an outlined handle while seeking: white in Minimal, the selected accent in Classic.
   - Menus: the hold menu, Now Playing's ⋯ menu and the sort picker wrap from bottom to top and back after a pause at the end, as Library lists do.
   - Playlists: the ⋯ page's row that deletes the whole playlist always reads **Delete Playlist**.
   - Edit Playlist: **Add Songs** shows a tick beside songs already in the playlist, and ticks a song as you add it.

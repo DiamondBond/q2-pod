@@ -1961,6 +1961,26 @@ static void paint_radio(void *w, void *canvas) {
 }
 #endif
 
+#if IPOD
+/* Keep the handle distinct from a white fill, without adding a permanent control to Minimal. */
+static void paint_seek(void *w, void *canvas) {
+    if (!w || w != st.np_slider || !P(canvas, CANVAS_LCD) ||
+        (!st.scrub && !widget_get_prop_int(w, "inputing", 0)))
+        return;
+    int max = widget_get_prop_int(w, "max", 0), width = I(w, W_W);
+    if (max <= 0 || width < 16) return;
+    int value = clamp_step(widget_get_prop_int(w, "value", 0), max, 0);
+    int x = (int)((float)value * width / max), y = I(w, W_H) / 2;
+    if (x < 8) x = 8;
+    if (x > width - 8) x = width - 8;
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    rect_t edge = { x - 8, y - 8, 16, 16 }, knob = { x - 7, y - 7, 14, 14 };
+    fill_box(canvas, &edge, RGBA(0x171717), 8);
+    fill_box(canvas, &knob, ipod_classic() ? RGBA(accent_tone(TONE_LIGHT)) : 0xffffffff, 7);
+    canvas_set_fill_color(canvas, fill);
+}
+#endif
+
 /* Stock paints children first and calls this with the surface's canvas origin restored. */
 int ringnav_paint(void *w, void *canvas) {
     if (st.pull_page && !pull_live()) pull_cancel();
@@ -1997,6 +2017,7 @@ int ringnav_paint(void *w, void *canvas) {
     paint_radio(w, canvas);
     paint_letter(w, canvas);
     paint_cover(w, canvas);
+    paint_seek(w, canvas);
     paint_caps(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
@@ -2903,11 +2924,10 @@ static void np_sync(void *top) {
 /* Scrub (docs/internals.md#scrub-ipod) follows stock's own key seek (0x52c754): the page's 250 ms
  * timer stops, the slider and label_playtime preview the target, player_seek_time commits it once
  * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
-/* The accent's light tone (Minimal's MINIMAL_FILL) fills the progress bar; a white fill (Minimal: a
- * thicker line) marks the scrub. */
+/* Minimal thickens and brightens its line during a scrub; Classic keeps the accent. */
 static void np_fill(int scrub) {
     if (!st.np_slider) return;
-    unsigned color = scrub ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
+    unsigned color = scrub && !ipod_classic() ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
     /* Minimal's fill is near white already: its scrub thickens the line to Classic's. */
     if (!ipod_classic())
@@ -3341,6 +3361,18 @@ static int selected_ink(void) {
 
 unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, unsigned fallback) {
     stock_color_trampoline(color, style, name, fallback);
+    /* Stock changes the slider's colors on pointer-down/up; resolve every state at paint time. */
+    if (st.paint_w && st.paint_w == st.np_slider && name) {
+        if (!tk_strcmp(name, "border_color")) {
+            *color = 0; /* paint_seek supplies the outlined handle without shortening the track */
+            return color;
+        }
+        if (!tk_strcmp(name, "fg_color")) {
+            *color = !ipod_classic() && (st.scrub || widget_get_prop_int(st.np_slider, "inputing", 0))
+                         ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
+            return color;
+        }
+    }
     if (st.paint_w && name && tk_str_end_with(name, "text_color")) {
         if (!ipod_classic() && (st.paint_w == st.bar_idle || coverflow_home_owns(st.paint_w))) {
             *color &= 0xffffff; /* paint_caps draws it */

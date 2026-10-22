@@ -1726,6 +1726,34 @@ assert slider_touch([('down',100,300),('up',100,300)],state=2)==[(0,[]),(0,[])]
 assert slider_touch([('down',100,300),('move',103,280)],dialog='backlight_page')==[(0,[D]),(0,[M])]  # Settings' slider is stock's
 passed()
 
+if variant=='ipod':
+    # Run stock's slider event handler with the packaged hit rectangle. Position arithmetic is
+    # stock FP64 (unsupported by Unicorn); this checks capture and delivery, including outside drags.
+    from ipod import decode,walk as ui_walk
+    node=next(n for n in ui_walk(decode((B/'ui/playing_page.bin').read_bytes())) if n[2].get('name')=='slider_play')
+    for x in (22,187,353):
+      for y in (234,255,276):
+       for end in (U,A):
+        m=Machine(); slider=m.node('slider','slider_play'); parent=m.node('window','playing_page',[slider])
+        m.word(slider+O['W_PARENT'],parent)
+        for k,v in zip(('W_X','W_Y','W_W','W_H'),node[1]): m.word(slider+O[k],v)
+        assert node[1][0]<=x<node[1][0]+node[1][2] and node[1][1]<=y<node[1][1]+node[1][3]
+        m.word(slider+0x98,int(node[2]['bar_size'])); m.byte(slider+0xa6,node[2]['slide_with_bar']=='true')
+        m.handlers[0x61a3f4]='stock_slider_preview'
+        m.mock('widget_find_animator','widget_set_state','widget_grab','widget_ungrab')
+        def pointer(typ,x,y):
+            m.byte(m.event+0x24,1); m.word(m.event+O['EVENT_Y'],y)
+            return m.call(x,address=0x61a934,args=(slider,m.event,0,0),event_type=typ,gap=0)
+        assert pointer(D,x,y)==11 and bytes(m.u.mem_read(slider+0xac,1))==b'\x01'
+        assert any(c[0]=='widget_grab' and c[1:3]==(parent,slider) for c in m.calls)
+        pointer(M,400,210)  # drift well above and beyond the bar without losing the drag
+        assert bytes(m.u.mem_read(slider+0xad,1))==b'\x01'
+        assert any(c[0]=='stock_slider_preview' for c in m.calls)
+        pointer(end,400,210)
+        assert bytes(m.u.mem_read(slider+0xac,2))==b'\x00\x00'
+        assert any(c[0]=='widget_ungrab' and c[1:3]==(parent,slider) for c in m.calls)
+        passed()
+
 # Set date and time: the wheel turns the outlined field, Centre moves on (to the time page after
 # the day) and then to OK, which Centre presses; a turn on OK goes back to the fields.
 def time_page(name):
@@ -5310,6 +5338,26 @@ if variant=='ipod':
     def ended(m,seeks,label=''):  # the scrub is over: fill, stock timer and the wheel's volume are back
         assert m.seeks==seeks and m.starts==[m.win], (label,m.seeks,m.starts)
         assert m.nodes[m.slider][FG]==FILL_HI and not m.timers and m.call()==0 and not did(m,'player_seek_time'), label
+    # Touch/wheel feedback: a 1px dark edge separates the handle from the fill in either theme.
+    for theme,accent in [('0',2),*[('1',a) for a in range(len(ACCENTS))]]:
+        CONFIG.clear(); CONFIG.update(THEME=theme,ACCENT=str(accent)); m=scrub_page()
+        m.word(m.slider+O['W_W'],333); m.word(m.slider+O['W_H'],44)
+        for value in (-1,0,100,225,226):
+            m.nodes[m.slider].update(value=value,inputing=1)
+            m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slider,m.canvas,0,0),gap=0)
+            x=max(8,min(325,333*max(0,min(225,value))//225))
+            color=0xffffff if theme=='0' else ACCENTS[accent][2]
+            assert [(r['rect'],r['radius'],r['color']) for r in m.rounded]==[
+                ((x-8,14,16,16),8,color_t(0x171717)),((x-7,15,14,14),7,color_t(color))]
+            assert m.get(m.lcd+O['LCD_FILL_COLOR'])==LCD_COLORS[0]
+        m.nodes[m.slider]['inputing']=0
+        m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slider,m.canvas,0,0),gap=0)
+        assert not m.rounded
+        m.nodes[m.slider].update(inputing=1,max=0)
+        m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slider,m.canvas,0,0),gap=0)
+        assert not m.rounded
+        passed()
+    CONFIG.clear()
     m=scrub_page(); centre(m)
     assert did(m,'playing_timer_clear')==[m.win] and m.nodes[m.slider][FG]==-1 and not m.screens; passed()
     # Ticks a second apart, far past the old 150 ms seek, each preview at once and none seeks.
@@ -6409,6 +6457,17 @@ if variant=='ipod':
         return orig_hook(self,u,address,size,x)
     Machine.hook=hook
     # Theme: Minimal (no THEME, or 0) has no accent: Graphite's greys whatever ACCENT holds.
+    for theme,accent in [('0',2),*[('1',a) for a in range(len(ACCENTS))]]:
+        CONFIG.clear(); CONFIG.update(THEME=theme,ACCENT=str(accent)); m=scrub_page()
+        m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.slider,m.canvas,0,0),gap=0)
+        for active in (0,1):
+            m.nodes[m.slider]['inputing']=active
+            for stock in (color_t(0x0080ff),0xffffffff,color_t(0x6e6e6e)):
+                want=(0xffffff if active else O['MINIMAL_FILL']) if theme=='0' else ACCENTS[accent][2]
+                assert style_color(m,stock,'fg_color')[1]==color_t(want)
+                assert style_color(m,stock,'border_color')[1]==0
+        passed()
+    CONFIG.clear()
     C={'THEME':'1'}
     for config,preset in (({},0),({**C,'ACCENT':'1'},1),({**C,'ACCENT':'2'},2),({**C,'ACCENT':'3','HOME':'1'},3),({**C,'ACCENT':'7'},0),
                           ({**C,'ACCENT':'12'},0),({**C,'ACCENT':'4'},4),({**C,'ACCENT':'5'},0),({'ACCENT':'1'},0),({'ACCENT':'2','THEME':'0'},0),({'ACCENT':'2','THEME':'2'},0)):  # 4 is Cobalt (once Custom, gone before 0.9.9)
@@ -6997,7 +7056,8 @@ if variant=='ipod':
     m.win=m.top=m.node('window','playing_page',[m.slider,m.node('label','label_playtime')]); m.word(m.win+O['W_PARENT'],m.wm)
     m.call(address=playing,args=(m.win,7,0,0),gap=0)
     assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); centre(m)
-    assert m.nodes[m.slider][FG]==-1; centre(m,50); assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); passed()
+    assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); centre(m,50)
+    assert m.nodes[m.slider][FG]==signed(color_t(ACCENTS[3][2])); passed()
 
     # Home at init: Split halves the screen in both themes and shows the art; Full widens the list
     # to the screen and its rows' tap targets to HOME_FULL_ROW (Classic: HOME_CLASSIC_ROW) and hides it.

@@ -90,6 +90,7 @@ NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
 NP_BAR_X = max(MARGIN, corner_x(30 + 251, 8))
 NP_BAR = [NP_BAR_X, 253, 375 - 2 * NP_BAR_X, 4]
+NP_TOUCH = 44
 NP_TIMES_Y = 265  # 14px text in a 16px label, clear of the 10px A-B markers
 NP_TIME_X = max(MARGIN, corner_x(30 + NP_TIMES_Y + 1, 14))
 NP_TEXT_X = NP_MARGIN + NP_ART + 12
@@ -425,23 +426,23 @@ def playing_page(root):
     named['view_lrc'][2]['self_layout'] = f'default(x={column},y=0,w=225,h=178)'
     for n in named['view_info'][3]:
         n[1][0] += column
-    named['slide_view_view'][1] = [0, NP_TOP, 375, NP_SLIDE_H + 12]
+    named['slide_view_view'][1] = [0, NP_TOP, 375, NP_SLIDE_H + 6]
     named['slide_view'][1] = [0, 0, 375, NP_SLIDE_H]
     dots = named['slide_indicator1']
     for key in dots[2]:
         if key.endswith(':selected_fg_color'): dots[2][key] = '#eeeeee'
         elif key.endswith(':fg_color'): dots[2][key] = '#555555'
-    dots[1][1] = NP_SLIDE_H + 2
-    dots[2]['self_layout'] = f'default(x=0,y={NP_SLIDE_H + 2},w=100%,h=10)'
+    dots[1][1] = NP_SLIDE_H - 4
+    dots[2]['self_layout'] = f'default(x=0,y={NP_SLIDE_H - 4},w=100%,h=10)'
     named['image_wait'][1] = [NP_MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
 
     slider = named['slider_play']
     x, y, w, h = NP_BAR
-    slider[1] = [x, 240, w, 30]
+    slider[1] = [x, y + h // 2 - NP_TOUCH // 2, w, NP_TOUCH]
     slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
-    # No thumb: stock skips the dragger only when border_color is clear, else a touch shows its blue.
-    for key in slider[2]:
-        if key.endswith(':border_color'): slider[2][key] = '#00000000'
+    # The payload draws the handle; keep native thumb geometry out of the full-width seek track.
+    for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
+        slider[2][f'style:{state}:border_color'] = '#00000000'
     # Stock draws small radii square; the four-pixel line deliberately has square ends.
     for key in slider[2]:
         if key.endswith(':round_radius'): slider[2][key] = str(h // 2)  # a capsule, track and fill

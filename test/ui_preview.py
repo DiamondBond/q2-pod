@@ -25,7 +25,7 @@ cf_paths = list(map(pathlib.Path, argv[3:]))
 assert len(cf_paths) in (0, 2)
 out.mkdir(parents=True, exist_ok=True)
 # Classic: patch/offsets.inc ACCENTS (top, bottom, light); Minimal has no accent.
-classic_accents = [tuple(int(v, 16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x\w+, 0x\w+ \}', INC)]
+classic_accents = [tuple(int(v, 16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x\w+ \}', INC)]
 minimal = (0xeeeeec, 0xeeeeec, inc('MINIMAL_FILL'))
 
 with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         if dest.exists(): return dest
         w,h=png_header(p.read_bytes())[:2]
         pixels=bytearray(imagemagick(p,'-depth','8','rgba:-',data=b''))
-        tone=0x2b2b2b if name.startswith('confirm_') else (0xd8d8d8,0xff1448,0x30929b,0x9a8446)[accent]
+        tone=0x2b2b2b if name.startswith('confirm_') else classic_accents[accent][3]
         if name in ('add','dec'): tone=classic_accents[accent][2]
         glyph=0x2b2b2b if accent==0 and name=='drop_wifiopen' else 0xffffff
         red=(255,20,72); total=sum(red); delta=[3*c-total for c in red]; dd=sum(d*d for d in delta)
@@ -110,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
         for case, title in enumerate(cases):
             for side, (theme, build) in enumerate(zip(themes, (before, after))):
                 old = theme == 'classic'  # Classic draws the pre-1.0.1 look
-                palette = classic_accents[accent] if old else minimal
+                palette = classic_accents[accent][:3] if old else minimal
                 tint = accent if old else 0  # Minimal's images take Graphite's greys
                 a=['-size','375x320','xc:black']
                 if case<8 or case>=10:
@@ -139,7 +139,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                 elif case in (3,4,12):
                     nodes={n[2].get('name'):n for n in walk(decode((build/'ui/playing_page.bin').read_bytes()))}
                     art=dark if case==3 else (bright if case==12 else asset(build,'images/xx/default_album_flow.png'))
-                    text(a,'3 of 12' if case==3 else 'Spotify',16,30,180,40,16,'#AAAAAA')
+                    text(a,'Spotify' if case==4 else '3 of 12',16,30,180,40,16,'#AAAAAA')
                     # The real art mask is rounded in the payload; compose the same 12px radius.
                     cover=tmp/'cover.png'
                     render([art,'-resize','166x166!','(', '-size','166x166','xc:black','-fill','white',
@@ -153,12 +153,16 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         y+=30 if node=='img_more' else 70
                         p=asset(build,'images/xx/'+icon+'.png'); iw,ih=png_header(p.read_bytes())[:2]
                         image(a,p,x+(w-iw)//2,y+(h-ih)//2,iw,ih)
-                    if case==3: text(a,'•  ·  ·',168,258,70,12,12,'#AAAAAA')
+                    if case==3: text(a,'•  ·  ·',168,252,70,12,12,'#AAAAAA')
                     bh=inc('NP_BAR_CLASSIC') if old else inc('NP_BAR_MINIMAL'); by=251 if case==4 else 270+(30-bh)//2
-                    rect(a,21,by,333,bh,'#1C1C1C'); rect(a,21,by,132,bh,'#FFFFFF' if case in (4,12) else f'#{palette[2]:06x}')
+                    rect(a,21,by,333,bh,'#1C1C1C'); rect(a,21,by,132,bh,'#FFFFFF' if case==4 or (case==12 and not old) else f'#{palette[2]:06x}')
+                    if case==12:
+                        cy=by+bh//2
+                        a+=['-fill','#171717','-draw',f'circle 153,{cy} 161,{cy}',
+                            '-fill',f'#{palette[2]:06x}' if old else 'white','-draw',f'circle 153,{cy} 160,{cy}']
                     text(a,'1:23',46,295,80,16,14,'#AAAAAA'); text(a,'-2:34',249,295,80,16,14,'#AAAAAA')
                 elif case<8:
-                    rows = [('Shuffle','local_shuffle'),('Most Played','local_frequentplay'),('Audiobooks','local_audiobooks'),('Podcasts','local_podcasts')]
+                    rows = [('Podcasts','local_podcasts'),('Games','local_games'),('Audiobooks','local_audiobooks'),('Videos','local_videos')]
                     if case==6: rows=[('Albums','list_folder'),('音楽 - 長いフォルダー名','list_folder'),('A very long track title','local_frequentplay'),('Live recordings','list_folder')]
                     if case==7: rows=[('Backlight','display_backlight'),('Theme: Classic','system_display'),('Accent: '+name,'system_display'),('Home: Full','playset_covermode')] if old else \
                         [('Backlight','display_backlight'),('Theme: Minimal','system_display'),('Home: Split','playset_covermode'),('Battery: Icon','system_powermanager')]
@@ -169,7 +173,8 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         if not p.exists():
                             p=asset(build,'images/xx/'+icon+'.png')
                         if not old: p=recolour(p)
-                        image(a,p,16,y+14,40,40); text(a,label,72,y,245,68,24,'#171717' if not old and i==1 else '#FFFFFF')
+                        image(a,p,8 if case==5 else 16,y+(8 if case==5 else 14),52 if case==5 else 40,52 if case==5 else 40)
+                        text(a,label,72,y,245,68,24,'#171717' if not old and i==1 else '#FFFFFF')
                         into=asset(build,'images/xx/list_into.png')
                         if case!=7 or i==0: image(a,into if old else recolour(into,inc('MINIMAL_CHEVRON')&255),317,y+9,50,50)
                 elif 15 <= case < 27:
