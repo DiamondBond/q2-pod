@@ -103,6 +103,8 @@ extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
 extern int books_key(void *top, unsigned key), video_on(void);
+extern void games_paint(void *w, void *canvas);
+extern int games_key(void *top, unsigned key), games_open(void *ctx, void *event);
 extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas), *spot_art(void);
 extern int spot_media(unsigned key), spot_key(void *top, unsigned key),
     spot_open(void *ctx, void *event), spot_hold(void *top);
@@ -1967,6 +1969,7 @@ int ringnav_paint(void *w, void *canvas) {
     peq_paint(w, canvas);
 #if IPOD
     visualizer_paint(w, canvas);
+    games_paint(w, canvas);
 #endif
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
@@ -5872,7 +5875,8 @@ int ringnav_localmusic(void *win, void *ctx) {
     widget_restack(stock[L_FREQUENT], n++);
     widget_restack(stock[L_HIRES], n++);
     widget_restack(library_row(view, "local_longsongs", long_songs, 0, "Long Songs"), n++);
-    /* Podcasts, Audiobooks, Photos, Books and Videos, each only with its folder. */
+    /* Podcasts, Audiobooks, Photos, Books and Videos, each only with its folder; then iPod's Games.
+     */
     static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos",
                                          "local_books", "local_videos" };
     char path[sizeof st.media_root];
@@ -5880,6 +5884,9 @@ int ringnav_localmusic(void *win, void *ctx) {
         if (media_find(k + 1, path))
             widget_restack(
                 library_row(view, icons[k], media_click, (void *)(long)(k + 1), MEDIA[k]), n++);
+#if IPOD
+    widget_restack(library_row(view, "local_games", games_open, 0, "Games"), n++);
+#endif
     if (scrobble_ready())
         widget_restack(library_row(view, "local_scrobble", upload_scrobbles, 0, "Upload Scrobbles"),
                        n++);
@@ -7770,6 +7777,10 @@ int ringnav(void *ctx, void *event) {
     if (key == KEY_CENTER || key == KEY_RETURN) st.held = 0; /* a button ends a held turn */
     /* The rating picker's keys, before the page's own (its Return would leave it) */
     if (usable() && rate_key(window_manager_get_top_window(window_manager()), key)) return STOP;
+#if IPOD
+    /* A game's keys, before stock's lock filter, media keys and screen-off double Centre */
+    if (usable() && games_key(window_manager_get_top_window(window_manager()), key)) return STOP;
+#endif
 #if IPOD
     /* Return or Centre closes quick settings, as its swipe up does (dialog_quit); stock leaves
      * Return to its Home button and Centre to turning the screen off. A held Return's release

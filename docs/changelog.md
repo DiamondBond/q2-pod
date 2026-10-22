@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.3.9** (unreleased):
+  - iPod: **Library → Games** with Sudoku and Vortex, playable while music plays. Sudoku keeps the game in progress and Vortex the best score across restarts.
+
 - **1.3.8**:
   - Full-screen album art: the song name shows again for 3 s each time the track changes, then fades as before.
   - Battery: Percent Inside has rounded corners again. 1.3.7's radius was below the smallest stock will round, so it drew a square.

@@ -24,4 +24,7 @@ int wheel_pct(void); /* Wheel sensitivity, 50-200% */
 void wheel_set_pct(int n);
 void wheel_guard_reset(void);
 extern int wheel_guard; /* Volume guard: the screen-off wheel's half-turn guard, 0 off */
+/* iPod: while wheel_raw is set the wheel posts no ticks and adds its raw travel to wheel_travel,
+ * 200 units a turn, rising anticlockwise (games.c's Vortex) */
+extern volatile int wheel_raw, wheel_travel;
 #endif

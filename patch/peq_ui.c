@@ -600,8 +600,8 @@ unsigned rgba(unsigned c, unsigned a) { return a << 24 | (c & 255) << 16 | (c & 
 
 /* ASCII s centred in x, y, w, h (draw_centred). Shared with visualizer.c. */
 void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color) {
-    unsigned wide[16], n = 0;
-    for (; s[n] && n < 16; ++n) wide[n] = (unsigned char)s[n];
+    unsigned wide[32], n = 0;
+    for (; s[n] && n < 32; ++n) wide[n] = (unsigned char)s[n];
     int r[4] = {x, y, w, h};
     draw_centred(canvas, wide, n, r, px, color);
 }

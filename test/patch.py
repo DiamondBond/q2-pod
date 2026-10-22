@@ -7245,10 +7245,13 @@ view=m.node('scroll_view','scroll_view_localmusic',stock); m.top=m.node('window'
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0
 assert m.calls[0][:3]==('stock_localmusic',m.top,5)
 # Library order: Shuffle; Artist, Album, All Songs, Genre, Playlist, Ratings (in My Fav's place, hidden);
-# Recently Added, Recent, Most Played, Frequent, Hi-Res, Long Songs; then Update Local Music, last (stock rows by
-# get_localmusic_showinfo index).
-kids=m.nodes[view]['children']; row,rated,top,long=kids[0],kids[6],kids[10],kids[13]
-assert [kids[i] for i in (*range(1,6),7,8,9,11,12,14)]==[stock[i] for i in (3,2,1,4,10,6,9,8,7,5,0)] and m.nodes[row]['style']=='s_listitem_black'
+# Recently Added, Recent, Most Played, Frequent, Hi-Res, Long Songs; iPod's Games; then Update Local Music, last
+# (stock rows by get_localmusic_showinfo index).
+kids=m.nodes[view]['children']; row,rated,top,long=kids[0],kids[6],kids[10],kids[13]; GAMES=variant=='ipod'  # its Games row
+assert [kids[i] for i in (*range(1,6),7,8,9,11,12,14+GAMES)]==[stock[i] for i in (3,2,1,4,10,6,9,8,7,5,0)] and m.nodes[row]['style']=='s_listitem_black'
+if GAMES:
+    icon,label=m.nodes[m.nodes[kids[14]]['children'][0]]['children']
+    assert m.nodes[icon]['image']=='local_games' and m.nodes[label]['text']=='Games' and len(kids)==16
 icon,label=m.nodes[m.nodes[long]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_longsongs' and m.nodes[label]['text']=='Long Songs'
 assert m.nodes[stock[6]]['visible']==0 and all(m.nodes[k].get('visible',1) for k in kids if k!=stock[6])
@@ -7630,10 +7633,10 @@ assert m.texts()==['Long Songs','A','Artist · 21:40','A','Artist · 11:40']; pa
 # starts, a second press finds it running, and a timer reports the result once the thread ends.
 m=ShuffleMachine(); m.config.update(USER='u',PASSWORD='p',API_KEY='k')  # no API_SECRET: no row
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
-assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==15
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==15+GAMES
 assert ('/mnt/mmc/.scrobble.ini','LASTFM','API_SECRET','') in m.config_reads
 m.config['TOKEN']='tok'; m.nodes[view]['children']=[m.node('list_item') for _ in range(11)]
-assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16+GAMES
 button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_scrobble' and m.nodes[label]['text']=='Upload Scrobbles' and not m.nodes[button].get('name')
 library_geometry(m,m.nodes[view]['children'][-2])
@@ -7652,8 +7655,8 @@ m=ShuffleMachine(); m.card=[('Music',4),('PODCASTS',4),('Audiobooks',8)]
 m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_folder'
 m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
-assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16
-button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==16+GAMES
+button=m.nodes[m.nodes[view]['children'][-2-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_podcasts' and m.nodes[label]['text']=='Podcasts' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['folder_page']
@@ -7674,7 +7677,7 @@ m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='s
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)])
 m.top=m.node('window','localmusic_page',[view])
 m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
-button=m.nodes[m.nodes[view]['children'][-2]]['children'][0]
+button=m.nodes[m.nodes[view]['children'][-2-GAMES]]['children'][0]
 f,ctx=m.handler(button,O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 win=m.node('window','folder_page'); m.call(address=HOOKS['folder_page_init'][0],args=(win,0,0,0),gap=0)
 assert m.text(syms['g_folder_path'])=='/mnt/mmc/Audiobooks' and m.u.mem_read(syms['g_folder_layer'],1)[0]==3
@@ -7776,7 +7779,7 @@ passed()
 # Podcasts keeps its own root, Back there leaving the page, whatever Folder Root says.
 m=RootMachine('Music'); view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)])
 m.top=m.node('window','localmusic_page',[view]); m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
-f,ctx=m.handler(m.nodes[m.nodes[view]['children'][-2]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+f,ctx=m.handler(m.nodes[m.nodes[view]['children'][-2-GAMES]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.open()==('/mnt/mmc/Podcasts',3) and m.back()[::2]==(0,0); passed()
 
 # Go to Folder: a card song's hold menu row, after Go to Artist, opens folder_page in the song's folder as a
@@ -7928,8 +7931,8 @@ data={R+'/b.jpg':exif(6),R+'/A.png':b'\x89PNG',R+'/Trip/1.jpg':b'corrupt',R+'/Tr
 m=PhotosMachine(tree,data)
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
-assert m.nodes[icon]['image']=='local_photos' and m.nodes[label]['text']=='Photos' and len(m.nodes[view]['children'])==16
+button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_photos' and m.nodes[label]['text']=='Photos' and len(m.nodes[view]['children'])==16+GAMES
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.top; assert m.nodes[page]['name']=='photos_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
 albums,grid,viewer=m.nodes[page]['children']; assert not m.nodes[grid]['visible'] and not m.nodes[viewer]['visible']
@@ -8097,9 +8100,9 @@ files={R+'/Zed.txt':bytearray(txt.encode()),R+'/Series/A Tale.EPUB':bytearray(bu
 m=BooksMachine(tree,files)
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
-assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==16
-library_geometry(m,m.nodes[view]['children'][-1])
+button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==16+GAMES
+library_geometry(m,m.nodes[view]['children'][-1-GAMES])
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.page=m.top; assert m.nodes[page]['name']=='books_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
 books,reader=m.nodes[page]['children']; sheet,info=m.nodes[reader]['children']
@@ -8145,6 +8148,69 @@ worker,arg=m.threads[-1]; m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_
 assert m.nodes[info]['visible'] and m.nodes[info]['text']=="Can't open this book" and m.call()==11 and not page_lines()
 m.close(); passed()
 
+# Games (patch/games.c, iPod): the Library's Games row, always there, opens a chooser of Sudoku and
+# Vortex. A game's keys never reach stock's filter or the media keys; Return goes game -> chooser ->
+# Library. Vortex's frame timer and raw wheel run only while it plays: Play/Pause, the screen going
+# off and leaving each stop them, and closing frees the state.
+if variant=='ipod':
+    m=BooksMachine({},{}); G_SCREEN,G_PICKING,G_PAUSED,G_CELL,G_CUR,G_VX=36,44,56,76,157,164
+    def games_open():
+        view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
+        assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+        button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+        assert m.nodes[icon]['image']=='local_games' and m.nodes[label]['text']=='Games'
+        library_geometry(m,m.nodes[view]['children'][-1])
+        f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+        m.page=m.top; assert m.nodes[m.page]['name']=='games_page' and m.nodes[m.page]['style:normal:bg_color']==-0x1000000
+        return m.nodes[m.page]['children']
+    chooser,sheet=games_open(); G=m.get(payload_syms['g'])
+    assert labels(chooser)==['Games','Sudoku','Vortex'] and not m.nodes[sheet]['visible']
+    rows=m.nodes[m.find('scroll_view',chooser)]['children']
+    def pick(i):
+        f,ctx=m.handler(rows[i],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
+    def paint(): m.call(address=HOOKS['widget_on_paint_border'][0],args=(sheet,m.canvas,0,0),gap=0,clear=False,count=50_000_000)
+    stock=[]; tramp=int(manifest['patch_symbols']['stock_keyup_trampoline'],16)
+    for a in (tramp,payload_syms['media_key']): m.u.hook_add(UC_HOOK_CODE,lambda u,a,n,_: stock.append(a),begin=a,end=a)
+    def key(k): r=m.call(k,count=2_000_000); assert r==11 and not stock,(k,stock); return r
+    byte=lambda o: m.u.mem_read(G+o,1)[0]; word=lambda o: signed(m.get(G+o))
+    frames=lambda: [t for t in m.timers.values() if t[1]==payload_syms['frame']]
+    pick(0); assert m.nodes[sheet]['visible'] and not m.nodes[chooser]['visible'] and word(G_SCREEN)==1; paint()
+    key(O['KEY_NEXT']); assert byte(G_CUR)==1
+    key(O['KEY_PREV']); key(O['KEY_PREV']); assert byte(G_CUR)==80
+    key(O['KEY_FWD_BTN']); assert byte(G_CUR)==8
+    key(O['KEY_BACK_BTN']); assert byte(G_CUR)==80; passed()
+    # Centre on a blank cell picks its digit with the wheel, Centre writes it and saves; Return cancels; a
+    # clue takes no digit. Play/Pause then asks before a new game.
+    cells=lambda: bytes(m.u.mem_read(G+G_CELL,81))
+    blank=cells().index(0); clue=next(i for i,c in enumerate(cells()) if c&16)
+    m.byte(G+G_CUR,clue); key(O['KEY_CENTER']); assert not word(G_PICKING)
+    m.byte(G+G_CUR,blank); key(O['KEY_CENTER']); assert word(G_PICKING)
+    for _ in range(3): key(O['KEY_NEXT'])
+    paint(); key(O['KEY_CENTER']); assert cells()[blank]==3 and not word(G_PICKING)
+    saved=bytes(m.files['/mnt/data/ringnav-sudoku']); assert len(saved)==92 and saved[4:85]==cells()
+    key(O['KEY_CENTER']); key(O['KEY_NEXT']); key(O['KEY_RETURN']); assert cells()[blank]==3 and not word(G_PICKING) and word(G_SCREEN)==1
+    before=cells(); key(O['KEY_PLAY']); assert cells()==before and word(52); paint()
+    key(O['KEY_RETURN']); assert cells()==before and not word(52)
+    key(O['KEY_RETURN']); m.advance(0); assert word(G_SCREEN)==0 and m.nodes[chooser]['visible'] and not m.nodes[sheet]['visible']
+    assert m.key()==11; passed()
+    # Vortex: the frame timer and the raw wheel while it plays; the wheel's travel turns the paddle.
+    m.page=m.top; pick(1); assert word(G_SCREEN)==2 and len(frames())==1 and m.get(payload_syms['wheel_raw'])==1
+    m.word(payload_syms['wheel_travel'],-50&0xffffffff); m.advance(34); assert word(G_VX+16)==0 and m.get(payload_syms['wheel_travel'])==0
+    key(O['KEY_CENTER']); m.advance(500); assert word(G_VX)==1; paint()
+    key(O['KEY_PLAY']); assert word(G_PAUSED)==1 and not frames() and m.get(payload_syms['wheel_raw'])==0
+    x=word(G_VX+20),word(G_VX+24); m.advance(500); assert (word(G_VX+20),word(G_VX+24))==x; paint()
+    key(O['KEY_PLAY']); assert word(G_PAUSED)==0 and len(frames())==1 and m.get(payload_syms['wheel_raw'])==1
+    m.byte(syms['g_backlight_status'],0); m.advance(40); m.byte(syms['g_backlight_status'],1)
+    assert word(G_PAUSED)==1 and not frames() and m.get(payload_syms['wheel_raw'])==0
+    key(O['KEY_RETURN']); assert word(G_PAUSED)==2; key(O['KEY_NEXT']); paint(); key(O['KEY_CENTER']); m.advance(0)
+    assert word(G_SCREEN)==0 and not frames() and m.get(payload_syms['wheel_raw'])==0; passed()
+    # Closing frees the state, also mid-game; opening again starts clean and resumes the Sudoku.
+    m.close(); assert m.get(payload_syms['g'])==0 and not frames()
+    chooser,sheet=games_open(); G=m.get(payload_syms['g']); rows=m.nodes[m.find('scroll_view',chooser)]['children']
+    pick(0); assert cells()==before
+    key(O['KEY_RETURN']); m.advance(0); pick(1); assert len(frames())==1
+    m.close(); assert m.get(payload_syms['g'])==0 and not frames() and m.get(payload_syms['wheel_raw'])==0; passed()
+
 # Videos (patch/books.c, docs/internals.md#videos): the card's Videos folder (case aside) lists its and
 # its subfolders' video files as Books does; a row stops the music and starts /usr/bin/q2video with
 # the headphone DAC's PCM and the path as plain argv, never through a shell.
@@ -8153,8 +8219,8 @@ tree={'/mnt/mmc':[('Music',4),('VIDEOS',4)],R:[('b.MKV',8),('a.mp4',8),('notes.t
 m=BooksMachine(tree,{})
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
-assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==16
+button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==16+GAMES
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.page=m.top; videos,_=m.nodes[page]['children']
 assert m.nodes[page]['name']=='books_page' and labels(videos)==['Videos','c','a','b']; passed()

@@ -15,6 +15,9 @@
 { "coverflow_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/coverflow.c) */
 { "photos_page", CTX_DYNAMIC, 0 },    /* runtime window (patch/photos.c) */
 { "books_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/books.c) */
+#if IPOD
+{ "games_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/games.c) */
+#endif
 { "mostplayed_page", CTX_FIXED, 0 }, /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "shuffle_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "playlistedit_page", CTX_DYNAMIC, 0 },

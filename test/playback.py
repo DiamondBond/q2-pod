@@ -704,6 +704,12 @@ assert wheel([(50,1),(52+U,1),(52+U,0),(52+U,1),(51+2*U,1)])[0]==[P]  # a lift d
 F=O['WHEEL_QUEUE_FREE']  # a busy UI: a tick that would leave fewer free slots is dropped, not queued
 assert [len(wheel([(10,1),(10+U,1)],used=n)[0]) for n in (20-F-2,20-F-1,20)]==[1,0,0]
 checks+=1
+if 'wheel_raw' in ps:  # iPod: while games.c's Vortex sets wheel_raw, nothing ticks and the travel adds up raw
+    raw=lambda on: lambda m: m.word(ps['wheel_raw'],on)
+    m=PlaybackMachine()
+    assert wheel([raw(1),(195,1),(5,1),(5+2*U,1),(5+U,1),(5+U,0)],m)==([],[195]*5) and m.get(ps['wheel_travel'])==10+U
+    assert wheel([raw(0),(10,1),(10+U,1)],m)[0]==[P] and m.get(ps['wheel_travel'])==10+U
+    checks+=1
 # Wheel sensitivity (Q2POD WHEELSENSITIVITY, 50-200% in tens, 1.0.6's key and scale): the travel
 # per tick is 50/pct of U, in sixteenths of a unit, so 50% is exactly U (28), the wheel before the
 # setting, and every step differs. A fresh card, a sample before the first read and any value that

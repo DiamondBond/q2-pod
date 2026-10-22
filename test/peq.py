@@ -1809,6 +1809,122 @@ def books_check(tmp):
         assert b < pos and page(big, b, rows=10, width=320)[0] >= pos and pos - b < 3072
     print('Books: inflate, XHTML text, EPUB conversion and refusals, UTF-8 and page layout passed.')
 
+def games_check(tmp):
+    """Games (games.c): every bundled Sudoku and 200 shuffled ones have one solution, clues stay,
+    conflicts and completion; saves' magic and checksum; Vortex's paddle, bricks, lives, levels,
+    speed cap, no tunnelling and determinism."""
+    import random
+    lib = compile_host(tmp, 'games.so', ROOT/'patch/games.c')
+    class Sudoku(C.Structure):
+        _fields_ = [('magic', C.c_uint), ('cell', C.c_ubyte * 81), ('cur', C.c_ubyte), ('pad', C.c_ubyte * 2), ('sum', C.c_uint)]
+    class Vortex(C.Structure):
+        _fields_ = [(k, C.c_int) for k in ('state', 'lives', 'level', 'score', 'pa', 'x', 'y', 'vx', 'vy')] + \
+                   [('brick', C.c_ushort * 3), ('pad', C.c_ushort)]
+    assert C.sizeof(Sudoku) == 92 and C.sizeof(Vortex) == 44
+    def solutions(g, limit=2):
+        g = list(g); rows, cols, boxes = [0] * 9, [0] * 9, [0] * 9
+        for i, v in enumerate(g):
+            if v:
+                b, r, c = 1 << v, i // 9, i % 9
+                if (rows[r] | cols[c] | boxes[r // 3 * 3 + c // 3]) & b: return 0
+                rows[r] |= b; cols[c] |= b; boxes[r // 3 * 3 + c // 3] |= b
+        found = []
+        def go():
+            best = None
+            for i in range(81):
+                if not g[i]:
+                    r, c = divmod(i, 9); m = ~(rows[r] | cols[c] | boxes[r // 3 * 3 + c // 3]) & 0x3fe
+                    if not m: return
+                    if best is None or bin(m).count('1') < bin(best[1]).count('1'): best = (i, m)
+            if best is None: found.append(list(g)); return
+            i, m = best; r, c = divmod(i, 9); x = r // 3 * 3 + c // 3
+            for v in range(1, 10):
+                b = 1 << v
+                if m & b and len(found) < limit:
+                    g[i] = v; rows[r] |= b; cols[c] |= b; boxes[x] |= b
+                    go()
+                    rows[r] ^= b; cols[c] ^= b; boxes[x] ^= b; g[i] = 0
+        go(); return found
+    out = (C.c_ubyte * 81)()
+    assert lib.sud_puzzles() == 24
+    for k in range(24):
+        lib.sud_puzzle(k, out); assert len(solutions(out)) == 1, k
+    seed = C.c_uint.in_dll(lib, 'games_seed'); s = Sudoku()
+    for n in range(200):
+        seed.value = n * 2654435761 % 2**32 or 1; lib.sud_new(C.byref(s))
+        assert all(c & 15 and c & 16 or not c for c in s.cell) and s.cur == 0
+        found = solutions([c & 15 for c in s.cell]); assert len(found) == 1, n
+    # a clue stays; an entry is set and cleared; conflicts by row, column and box; completion
+    clue = next(i for i in range(81) if s.cell[i] & 16); blank = next(i for i in range(81) if not s.cell[i])
+    assert not lib.sud_set(C.byref(s), clue, 0) and s.cell[clue] & 16
+    assert not lib.sud_set(C.byref(s), blank, 10) and not lib.sud_set(C.byref(s), 81, 1)
+    solution = found[0]
+    for peer in (blank // 9 * 9 + (blank + 1) % 9, (blank + 9) % 81, blank // 27 * 27 + blank % 9 // 3 * 3 + (blank + 1) % 3 + 9 * ((blank // 9 + 1) % 3) - 9 * (blank // 9 % 3)):
+        t = Sudoku.from_buffer_copy(s); r, c = divmod(blank, 9); pr, pc = divmod(peer, 9)
+        assert peer != blank and (pr == r or pc == c or (pr // 3, pc // 3) == (r // 3, c // 3))
+        v = solution[peer] if not t.cell[peer] else t.cell[peer] & 15
+        if not t.cell[peer]: assert lib.sud_set(C.byref(t), peer, v)
+        assert lib.sud_set(C.byref(t), blank, v) and lib.sud_conflict(C.byref(t), blank) and lib.sud_conflict(C.byref(t), peer)
+    assert lib.sud_set(C.byref(s), blank, solution[blank]) and not lib.sud_conflict(C.byref(s), blank)
+    assert lib.sud_set(C.byref(s), blank, 0) and s.cell[blank] == 0 and not lib.sud_done(C.byref(s))
+    for i in range(81):
+        if not s.cell[i] & 16: lib.sud_set(C.byref(s), i, solution[i])
+    assert lib.sud_done(C.byref(s))
+    # saves: sealed reads back; a zeroed (short) read, another magic or any flipped byte is none
+    lib.games_seal(C.byref(s), 92, 0x31445553); assert lib.games_ok(C.byref(s), 92, 0x31445553)
+    assert not lib.games_ok(C.byref(s), 92, 0x31585456) and not lib.games_ok(C.byref(Sudoku()), 92, 0x31445553)
+    raw = bytearray(bytes(s))
+    for i in range(92):
+        b = bytearray(raw); b[i] ^= 4; t = Sudoku.from_buffer_copy(b); assert not lib.games_ok(C.byref(t), 92, 0x31445553), i
+    # Vortex
+    def speed(v): return round(math.hypot(v.vx, v.vy))
+    v = Vortex(); lib.vortex_new(C.byref(v))
+    assert (v.state, v.lives, v.level, v.score, v.pa, list(v.brick)) == (0, 3, 0, 0, 768, [0xffff] * 3)
+    lib.vortex_step(C.byref(v), -800); assert v.pa == 992
+    lib.vortex_step(C.byref(v), 100); assert v.pa == 68
+    lib.vortex_step(C.byref(v), 700); assert v.pa == 768 and v.state == 0 and abs(v.x) < 1 << 16 and v.y < 0
+    assert speed(v) == 0
+    lib.vortex_launch(C.byref(v)); assert v.state == 1 and abs(speed(v) - (2 << 16)) < 64
+    def until(test, limit=2000):
+        for _ in range(limit):
+            if test(): return
+            lib.vortex_step(C.byref(v), 0)
+        raise AssertionError('Vortex never got there')
+    until(lambda: v.score)  # the outer ring's top brick, the ball sent back out
+    assert v.score == 10 and v.brick[2] == 0xffff & ~(1 << 12) and v.brick[:2] == [0xffff] * 2 and v.vy < 0
+    until(lambda: v.vy > 0)  # the paddle sends it back in
+    assert v.state == 1 and v.lives == 3
+    until(lambda: v.score == 30)  # the brick behind the one gone, ring 1
+    assert v.brick[1] == 0xffff & ~(1 << 12)
+    lib.vortex_step(C.byref(v), 512)  # the paddle away: a life lost, aiming again
+    until(lambda: v.state != 1)
+    assert v.state == 0 and v.lives == 2
+    for lives in (1, 0):
+        lib.vortex_launch(C.byref(v)); v.brick[0] = v.brick[1] = v.brick[2] = 0  # through the centre, past the paddle
+        until(lambda: v.state != 1)
+        assert v.lives == lives and v.state == (2 if not lives else 0)
+    x, y = v.x, v.y; lib.vortex_step(C.byref(v), 0); assert (v.x, v.y, v.state) == (x, y, 2)  # over: frozen
+    lib.vortex_launch(C.byref(v)); assert v.state == 2
+    # the last brick: the next level, its layout, aiming
+    lib.vortex_new(C.byref(v)); v.brick[0] = v.brick[1] = 0; v.brick[2] = 1 << 12
+    lib.vortex_launch(C.byref(v)); until(lambda: v.level)
+    assert (v.state, v.score, list(v.brick)) == (0, 110, [0x5555, 0xffff, 0xaaaa])
+    lib.vortex_launch(C.byref(v)); assert abs(speed(v) - (2 << 16) - (1 << 14)) < 64
+    # the speed caps; at it, from every angle, the outer ring is hit first: no ring is crossed
+    for pa in range(0, 1024, 7):
+        lib.vortex_new(C.byref(v)); v.level = 99; lib.vortex_step(C.byref(v), pa - 768); lib.vortex_launch(C.byref(v))
+        assert abs(speed(v) - (9 << 15)) < 64
+        until(lambda: v.score); assert v.score == 10 and v.brick[:2] == [0xffff] * 2 and bin(v.brick[2]).count('1') == 15, pa
+    # the same inputs, the same game
+    def play(seed):
+        rng = random.Random(seed); w = Vortex(); lib.vortex_new(C.byref(w))
+        for i in range(20000):
+            if w.state == 0: lib.vortex_launch(C.byref(w))
+            lib.vortex_step(C.byref(w), rng.randrange(-9, 10))
+        return bytes(w)
+    assert play(1) == play(1) and play(1) != play(2)
+    print('Games: Sudoku uniqueness, clues, conflicts, completion and saves; Vortex paddle, bricks, lives, levels, speed, tunnelling and determinism passed.')
+
 def video_check(tmp):
     """Videos' player (video.c): ffmpeg's argv for the Q2's framebuffer, frame pacing and BT volume."""
     lib = compile_host(tmp, 'q2video.so', ROOT/'patch/video.c')
@@ -2185,6 +2301,7 @@ if __name__ == '__main__':
         visualizer_check(tmp)
         scrobble_check(tmp)
         books_check(tmp)
+        games_check(tmp)
         video_check(tmp)
         audio_writer_check(tmp)
         radio_check(tmp)

@@ -134,6 +134,11 @@ static void wheel_post(char *info, int key) {
     }
 }
 
+#if IPOD
+volatile int wheel_raw __attribute__((section(".scratch")));
+volatile int wheel_travel __attribute__((section(".scratch")));
+#endif
+
 /* struct ts_sample {int x, y; unsigned pressure; struct timeval tv;} */
 void wheel_sample(int *s, int ret, char *info) {
     if (ret <= 0) return;
@@ -151,6 +156,14 @@ void wheel_sample(int *s, int ret, char *info) {
     int d = s[0] - wh_last, units = wheel_units ? wheel_units : WHEEL_TICK_UNITS * WHEEL_FINE;
     d = (d < -100 ? d + 200 : d > 100 ? d - 200 : d) * WHEEL_FINE;
     wh_last = s[0];
+#if IPOD
+    if (wheel_raw) { /* games.c's Vortex reads the travel itself; nothing is queued for a menu */
+        __sync_fetch_and_add(&wheel_travel, d / WHEEL_FINE);
+        wh_acc = 0;
+        s[0] = wh_anchor;
+        return;
+    }
+#endif
     /* Sensitivity changed mid-turn (its own page takes the wheel): the carry keeps its share of a
      * tick, so it stays under the new travel and fires no burst. */
     if (units != wh_units) {

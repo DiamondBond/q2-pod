@@ -91,6 +91,8 @@ Copy your music to the card over USB-C, then run **Library → Update Local Musi
 
 These folders at the card's root each add their own Library entry: `Podcasts/`, `Audiobooks/`, `Photos/`, `Books/` and `Videos/`; `EQ/` holds EQ presets to import. See the user guide for supported formats.
 
+On iPod, **Library → Games** has Sudoku and Vortex, playable while music plays.
+
 Settings, play counts, ratings and resume points are stored on the Q2 itself, so they stay put when you swap cards.
 
 ## Updating

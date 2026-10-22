@@ -592,6 +592,16 @@ What Classic does not restore: the pinned theme edit of `s_btn_listitem`'s press
 (`#3D1920` to `#333333`), so a touched row flashes grey rather than an accent tint, and the
 status bar asset's own background (`#000000`, not `#161616`), which the payload's fill covers.
 
+## Games
+
+**Library → Games** opens Sudoku and Vortex ([internals](internals.md#games)). A game takes every
+key but Power and a held Return, so the music keeps playing untouched.
+
+| Game | Wheel | Centre | Play/Pause | Previous/Next | Return |
+| --- | --- | --- | --- | --- | --- |
+| Sudoku | Moves through the cells; picks the digit | Opens the digit, then writes it | New game (asks first) | Up or down a row | Cancels the digit; back to Games |
+| Vortex | Turns the paddle | Launches; plays again after a game | Pauses and resumes | | Pause menu: Continue or Quit |
+
 ## Review sheets
 
 Review sheets are native-size **composed previews**, not firmware captures.
