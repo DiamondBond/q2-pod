@@ -1,6 +1,12 @@
 # Changelog
 
 - **1.4.0**:
+  - Home's **Shortcut** setting includes **Games**.
+  - Playback and System settings wrap from bottom to top and back after a pause at the end.
+  - Classic: grid highlights use the same rounded spacing as Minimal, keeping the selected accent.
+  - Audiobooks and podcasts appear in Favorites and Ratings when added or rated, while staying out of Library music lists and shuffle.
+  - Playback: check queue progress every five seconds between checkpoints, avoiding repeated audio-state locking on every UI pass.
+  - EQ Off: restart clears a temporary Simple EQ comparison level left by shutting down on its page.
   - **System settings → Apps** installs, updates and removes Rockbox, the Rockbox themes and Spotify over Wi-Fi from their GitHub releases, keeping Rockbox's settings and Spotify's login and cache. Removing Spotify keeps its login unless you also pick **Erase Spotify Data**.
   - EQ: Advanced's **Auto** preamp cuts for the sample rate that is playing, instead of for the worst of every rate, so most presets play louder at 44.1 and 48 kHz. The Preamp row shows both cuts, e.g. **Auto (44.1: -9.2 / 48: -8.8)**. A picked preamp and Simple (3EQ) play as before.
 

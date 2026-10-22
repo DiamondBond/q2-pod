@@ -1069,6 +1069,21 @@ def eq3_editor_check(lib, ui, tmp):
     keys(NEXT, CENTRE); assert state().mode == EQ_OFF; keys(CENTRE)  # the switch, from the bar
     assert active.read_bytes() == before and state().mode == EQ_3
     ui.shim_e3_close()
+    # Restarting with the Simple page still open must not keep its temporary Off attenuation.
+    before = active.read_bytes(); ui.peq_boot(); assert active.read_bytes() == before  # 3EQ stays on
+    ui.shim_e3_open(); ui.shim_e3_touch(0x100, 50, 70)
+    s = state(); assert (s.mode, s.hold) == (EQ_OFF, 1) and s.eq3.preamp < 0
+    ui.peq_stock_eq(1); assert state().hold == 1  # live player updates keep the comparison
+    before = active.read_bytes(); (active.parent/'peq-active.tmp').mkdir()
+    ui.peq_boot(); assert active.read_bytes() == before  # a failed reset preserves the good state
+    (active.parent/'peq-active.tmp').rmdir()
+    ui.peq_boot(); after = state()
+    assert (after.mode, after.hold) == (EQ_OFF, 0)
+    assert bytes(after.peq) == bytes(s.peq) and bytes(after.eq3) == bytes(s.eq3)
+    assert lib.peq_load_active(C.byref(e)) and e.bypass == 1
+    ui.shim_e3_close()
+    after.mode = EQ_PEQ; assert lib.eq_save(C.byref(after))
+    before = active.read_bytes(); ui.peq_boot(); assert active.read_bytes() == before  # PEQ stays on
     print('EQ Simple tab: entry without change, tabs, wheel and touch adjustment, coalesced saves, switch, held Off, reset, failed save and indicator passed.')
 
 # Drives patch/peq_player.c the way hciplayer's af chain does. Built 32-bit like the device,

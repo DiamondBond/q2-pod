@@ -45,7 +45,7 @@
 { "filter_page", CTX_FIXED, CHOICE },
 { "memplay_page", CTX_FIXED, CHOICE },
 { "playmode_page", CTX_FIXED, CHOICE },
-{ "playset_page", CTX_FIXED, 0 },
+{ "playset_page", CTX_FIXED, RING },
 { "equalizer_page", CTX_DYNAMIC, 0 }, /* PEQ list editor */
 { "replaygain_page", CTX_FIXED, CHOICE },
 { "usbvol_page", CTX_FIXED, CHOICE },
@@ -68,7 +68,7 @@
 { "screensaver_page", CTX_FIXED, CHOICE },
 { "standby_page", CTX_FIXED, CHOICE },
 { "synclink_page", CTX_FIXED, 0 },
-{ "sysset_page", CTX_FIXED, 0 },
+{ "sysset_page", CTX_FIXED, RING },
 { "wifi_page", CTX_DYNAMIC, 0 },
 { "wifiset_page", CTX_DYNAMIC, 0 },
 { "tidal_add_playlist_page", CTX_DYNAMIC, 0 },

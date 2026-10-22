@@ -37,6 +37,7 @@ typedef struct {
     unsigned resume_key, resume_pos;
     entry *order, *cycle;
     unsigned *groups, *seen, *history;
+    unsigned poll_stamp;
 } playback;
 static playback s __attribute__((section(".scratch")));
 /* Stock Shuffle's Previous plays the last track, but the track it left stays unplayed in the pool,
@@ -638,6 +639,7 @@ extern void ringnav_read_artistype(void);
 /* config_init applies the saved mode before the Home page can restore the queue; Artists is read
  * here too, as stock reads it only when a Library list or artist page opens. */
 int ringnav_bootmode(int mode, int notify) {
+    peq_boot();
     ringnav_read_artistype();
     s.restoring = 1;
     int result = config_playmode(mode, notify);
@@ -1218,7 +1220,8 @@ void playback_poll(void) {
      * pause, a seek or a failed write go within 5 s, and power-off saves exactly
      * (ringnav_savequeue). */
     if (!(s.dirty && !s.save_failed)) {
-        if (now - s.stamp < 5000) return;
+        if (now - s.stamp < 5000 || now - s.poll_stamp < 5000) return;
+        s.poll_stamp = now;
         int sec = 0, total = 0;
         mclGetPlayTime(&sec, &total);
         if (now - s.stamp < 30000 && !s.save_failed && mclGetPlayStatus() == 2 &&

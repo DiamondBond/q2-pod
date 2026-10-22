@@ -15,10 +15,12 @@ class PlaybackMachine(QueueMachine):
         super().__init__(**kw)
         self.files = dict(files or {}); self.handles = {}; self.fd = 100
         self.fail = ''; self.elapsed = 37; self.random_calls = 0; self.rng = 71
-        self.allocations = 0; self.write_opens = 0
+        self.allocations = 0; self.write_opens = 0; self.time_reads = 0; self.eq_boots = 0
         self.path_comparisons = 0; self.library_modes = []
         self.missing = set(); self.starts = []; self.stops = 0; self.seek = None; self.stock_resume = None
         self.handlers.pop(syms['mclLoadPlayList'], None)
+        # EQ storage uses FP64 odd registers Unicorn cannot execute; test/peq.py checks the real reset.
+        self.handlers[ps['peq_boot']] = 'p:eq_boot'
         self.handlers[ps['stock_memory_trampoline']] = 'p:fallback'
         self.handlers[ps['stock_savequeue_trampoline']] = 'p:saved'
         self.handlers[ps['stock_speed_trampoline']] = 'p:speed'
@@ -55,7 +57,8 @@ class PlaybackMachine(QueueMachine):
         name=self.handlers.get(address,'')
         if not name.startswith('p:'): return super().hook(u,address,size,unused)
         name=name[2:]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
-        if name=='calloc':
+        if name=='eq_boot': self.eq_boots+=1
+        elif name=='calloc':
             self.allocations+=1
             ret=0 if self.fail=='alloc' or (self.fail=='lookup' and a==len(self.library_rows) and b==8) else self.alloc((a*b+7)&~3)
         elif name=='memcmp':
@@ -86,7 +89,7 @@ class PlaybackMachine(QueueMachine):
         elif name=='access': ret=-1 if self.text(a) in self.missing else 0
         elif name=='speed': self.sent_speed=a; ret=1
         elif name=='toast': self.toasts.append(self.text(a))
-        elif name=='mclGetPlayTime': self.word(a,self.elapsed); self.word(b,300)
+        elif name=='mclGetPlayTime': self.time_reads+=1; self.word(a,self.elapsed); self.word(b,300)
         elif name=='mclStartPlayer': self.starts.append(self.mcl('MCL_POS')); ret=1
         elif name=='mclStop': self.stops+=1; ret=1
         elif name=='start_queue': self.word(O['MCL_POS'],a); self.starts.append(a); ret=1  # mclSetPlayPos, mclStartPlayer
@@ -456,6 +459,21 @@ m.advance_song(0); m.fn('playback_poll')
 assert m.write_opens==state[2]+3
 checks+=1
 
+# Polling between checkpoints takes the playback-time mutex only once every five seconds.
+# Frequent UI passes still save elapsed time at 30 seconds, and dirty transitions save at once.
+m=PlaybackMachine(); m.options(0,5,0)
+m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2)
+start=m.now; reads=m.time_reads; writes=m.write_opens
+for elapsed in range(50,30000,50):
+    m.now=start+elapsed; m.elapsed=37+elapsed//1000; m.fn('playback_poll')
+    assert m.time_reads==reads+elapsed//5000, (elapsed,m.time_reads,reads)
+    assert m.write_opens==writes
+m.now=start+30000; m.elapsed=67; m.fn('playback_poll')
+assert m.time_reads==reads+7 and m.write_opens==writes+1
+m.advance_song(0); m.fn('playback_poll')
+assert m.write_opens==writes+3
+checks+=1
+
 # Failed writes preserve the prior snapshot and retry even if playback has since paused.
 # Repeated UI passes do not hammer allocation/storage while the checkpoint is pending.
 for failure in ('alloc','open','write','close','rename'):
@@ -627,7 +645,7 @@ for folder in (0,1):
         r.u.reg_write(UC_MIPS_REG_V0,mode)
         r.u.reg_write(UC_MIPS_REG_A1,0)
         r.u.emu_start(0x4f9998,0x4f99a4,count=r.budget)
-        assert r.u.reg_read(UC_MIPS_REG_PC)==0x4f99a4
+        assert r.u.reg_read(UC_MIPS_REG_PC)==0x4f99a4 and r.eq_boots==1
         assert r.mcl('MCL_MODE')==mode
         assert r.files['/mnt/data/ringnav-queue']==m.files['/mnt/data/ringnav-queue']
         at=r.fn('ringnav_memory',out); assert at==want[0] and r.seek==37

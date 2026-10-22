@@ -26,14 +26,14 @@
 
 ## Features
 
-- **iPod UI:** Home, menus, Now Playing, Coverflow and four visualizers. Choose your accent colour, Home layout and battery display.
+- **iPod UI:** Home, menus, Now Playing, Coverflow and four visualizers, accent colour and Games.
 - **Wheel navigation:** smooth scrolling, and menus remember your place.
-- **EQ:** Simple's Low, Mid and High sliders, or Advanced's parametric EQ with up to 30 bands and a live curve. Import AutoEQ and Equalizer APO presets.
+- **EQ:** Simple's Low, Mid and High sliders, or Advanced's parametric EQ with up to 30 bands and a live curve.
 - **Streaming:** Spotify (Premium): browse your library, search, play and download playlists on the Q2 after a one-time pairing from your phone; AirPlay from your iPhone, and Internet Radio.
 - **Scrobbling:** send your listens to Last.fm or ListenBrainz over Wi-Fi.
 - **Ratings:** rate songs and albums 0–5 hearts, then browse Top Rated, Loved and rated albums.
 - **Browsing and playback:** favourites, playlists, Most Played, Long Songs, Crossfade, and shuffle by song, album or folder.
-- **Podcasts and audiobooks:** `.m4b` audiobooks (including ones split by a CUE sheet) and podcasts resume where you stopped, with per-folder playback speed, and audiobooks stay out of Library shuffle.
+- **Podcasts and audiobooks:** `.m4b` audiobooks (including ones split by a CUE sheet) and podcasts resume where you stopped.
 - **AirPods:** stem controls, ear detection and two-way volume sync.
 - **Battery:** an optional 80% charge limit, Low Power mode, and a Standby limit that powers off a Q2 left asleep.
 
@@ -68,11 +68,13 @@
 
 ## Extras
 
-- **Spotify (optional, Premium):** unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2, v1.6 to download playlists) to the card's root. Then open **Streaming → Spotify** on the Q2 and, the first time, pick it in the Spotify app on your phone on the same Wi-Fi. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
+- **Spotify (optional, Premium):** with the Q2 on Wi-Fi, open **System settings → Apps → Spotify** and press the row to install it. Then open **Streaming → Spotify** and, the first time, pick the Q2 in the Spotify app on your phone on the same Wi-Fi. Without Wi-Fi, unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2, v1.6 to download playlists) to the card's root instead. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Scrobbling:** connect Last.fm or ListenBrainz with the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Lock screen:** six built-in wallpapers, a large clock, or your own images ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
 - **Boot logo:** put your own JPEG at `/Q2Pod/boot/boot-logo.jpg` on the card. It shows from the next power-on ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
-- **Rockbox (optional):** a separate player. Unzip [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root only if you want it. Hold Play/Pause while powering on to use Q2 Pod for that session. See the [setup guide](docs/setup.md) and [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases).
+- **Rockbox (optional):** a separate player. With the Q2 on Wi-Fi, open **System settings → Apps → Rockbox**. The first press says that Rockbox becomes what the Q2 starts at power-on; press again to install it. Then open **Rockbox Themes** to install the [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). Hold Play/Pause while powering on to use Q2 Pod for that session. Without Wi-Fi, unzip [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root instead. See the [setup guide](docs/setup.md).
+
+**System settings → Apps** installs, updates and removes Rockbox, its themes and Spotify over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later), keeping your Rockbox settings and Spotify's login. To remove an installed app, press its row twice. Keep USB storage unplugged until a download finishes.
 
 ## Controls
 
@@ -97,9 +99,9 @@ Settings, play counts, ratings and resume points are stored on the Q2 itself, so
 
 ## Updating
 
-Repeat the [install steps](#install) with the newest release. Your settings, ratings and play counts are kept. The updater skips a version that's already installed, so a newer release always goes on.
+Over Wi-Fi: **System settings → System Update → Network Update** downloads the newest release to the card's `update.tar`, replacing any that's there, then opens the TF card update's confirmation. Press the row again to cancel the download.
 
-Or, over Wi-Fi: **System settings → System Update → Network Update** downloads the newest release to the card's `update.tar`, replacing any that's there, then opens the TF card update's confirmation. Press the row again to cancel the download.
+Manual: Repeat the [install steps](#install) with the newest release. Your settings, ratings and play counts are kept. The updater skips a version that's already installed, so a newer release always goes on.
 
 ## Restoring stock firmware
 

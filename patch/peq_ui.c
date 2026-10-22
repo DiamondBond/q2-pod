@@ -16,6 +16,15 @@ int peq_stock_eq(int mode) {
     return result;
 }
 
+/* Off's comparison preamp belongs to the open page, which cannot survive a restart. */
+void peq_boot(void) {
+    eq_state s;
+    if (eq_load(&s) && s.hold) {
+        s.hold = 0;
+        if (eq_save(&s) && peq_chained) peq_stock_eq(1);
+    }
+}
+
 /* Every EQ change goes through here: s saved, the stock switch's config key (boot instantiates
  * the filter only when it is set) written when on/off changes, and the player told. */
 static int eq_commit(eq_state *s) {

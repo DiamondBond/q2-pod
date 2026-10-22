@@ -405,7 +405,7 @@ static int context_id(const char *name) {
 }
 
 /* The audited local row lists built from the compact assets: the file and music views. Grids
- * (album_page, but its Albums list below), settings menus, dynamic pages and the home carousel
+ * (album_page, but its Albums list below), dynamic pages and the home carousel
  * keep hard ends; iPod Home's lists wrap at once (home_menu). */
 /* By the top window's name, not m->ctx: a dynamic page (the hold menu) has no memory context.
  * album_page also holds an album's songs (0xff10), which keep hard ends. */
@@ -1440,14 +1440,14 @@ static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 6 };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7 };
 static int *const setting_values[] = { &st.accent, &st.home_full, &st.battery, &st.classic,
                                        &st.shortcut };
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
             *setting_values[i] = config_value("IPOD", setting_keys[i], setting_counts[i], 0);
-        st.shortcut = config_value("IPOD", "SHORTCUT", 6, 6); /* 6: no key, see shortcut() */
+        st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : 0; /* Graphite */
@@ -1456,7 +1456,7 @@ static int accent(void) {
  * card may mount after the first read. */
 static int shortcut(void) {
     accent();
-    return st.shortcut < 6 ? st.shortcut : rockbox_available() ? 0 : 3;
+    return st.shortcut < 7 ? st.shortcut : rockbox_available() ? 0 : 3;
 }
 int ipod_classic(void) {
     accent();
@@ -1476,8 +1476,8 @@ int ipod_home_rockbox(void) {
     return shortcut() || st.home_rockbox;
 }
 const char *ipod_home_shortcut(void) {
-    static const char *const names[] = { "Rockbox",   "Artists",      "Albums",
-                                         "Favorites", "Rated Albums", "Shuffle" };
+    static const char *const names[] = { "Rockbox",      "Artists", "Albums", "Favorites",
+                                         "Rated Albums", "Shuffle", "Games" };
     return names[shortcut()];
 }
 extern int rockbox_open(void *, void *);
@@ -1487,6 +1487,7 @@ int home_shortcut_open(void *ctx, void *event) {
     if (!s) return rockbox_open(ctx, event);
     if (s == 4) return rated_albums(ctx, event);
     if (s == 5) return shuffle_menu(ctx, event);
+    if (s == 6) return games_open(ctx, event);
     if (s == 2) {
         struct {
             int cls;
@@ -1863,7 +1864,7 @@ static void paint_selection(void *w, void *canvas) {
     int classic = ipod_classic();
     st.sel_widget = classic ? (void *)0 : home ? P(g_menu.at[i], W_PARENT) : g_menu.at[i];
     st.sel_home = home && !classic;
-    if (classic) {
+    if (classic && (!tile || g_menu.kind == 4)) {
         const unsigned *a = accents[accent()];
         gradient(canvas, r, a[0], a[1], a[4]);
     } else if (home) {
@@ -1873,7 +1874,7 @@ static void paint_selection(void *w, void *canvas) {
         int grid = tile && g_menu.kind != 4; /* pop-up buttons keep their row inset */
         int in = grid ? TILE_INSET : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
-        fill_box(canvas, &card, RGBA(MINIMAL_FILL), SEL_RADIUS);
+        fill_box(canvas, &card, RGBA(classic ? accents[accent()][0] : MINIMAL_FILL), SEL_RADIUS);
     }
     st.sel_w = w;
     st.sel_row = i;
@@ -3636,8 +3637,8 @@ static void settings_layout(void *w) {
  * recreated), and an open Now Playing its progress bar. */
 static int setting_click(void *ctx, void *event) {
     int i = (int)(long)ctx, *value = setting_values[i];
-    /* Rockbox, Favorites, Shuffle, Rated Albums, Artists, Albums */
-    static const int shortcut_next[] = { 3, 2, 0, 5, 1, 4 };
+    /* Rockbox, Favorites, Shuffle, Rated Albums, Artists, Albums, Games */
+    static const int shortcut_next[] = { 3, 2, 6, 5, 1, 4, 0 };
     *value = i == 4 ? shortcut_next[shortcut()] : (*value + 1) % setting_counts[i];
     write_int_config(*value, "IPOD", setting_keys[i]);
     if (i == 2)
@@ -4663,7 +4664,7 @@ static void fav_titles(void *list, int n) {
     free(slot);
     if (songs) deque_destroy(songs);
 }
-/* Saved collections bypass songtable; filter their displayed copies, never their stored rows. */
+/* Playlists bypass songtable; filter their displayed copies, never their stored rows. */
 static int music_records(void *list) {
     void *music = _create_deque("stSongInfo");
     deque_init(music);
@@ -4682,7 +4683,7 @@ int ringnav_localclass(int cls) {
     library_music = 1;
     int n = stock_localclass_trampoline(cls);
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
-    if (n > 0 && (cls == 0xf00a || cls == 0xff20)) n = music_records(list);
+    if (n > 0 && cls == 0xff20) n = music_records(list);
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
     if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007)) /* My Fav, Frequent, Recent */
@@ -4773,9 +4774,9 @@ void toast(const char *text) {
     navigator_to_with_context("dialog/msginfo_dialog", &info);
 }
 
-static int all_songs(void *unused) {
+static int all_songs(void *music) {
     int saved = library_music;
-    library_music = 1;
+    library_music = music != 0;
     int n = getAllMusic(0);
     library_music = saved;
     return n;
@@ -4974,7 +4975,7 @@ static int most_played(void *ctx, void *event) {
     unsigned score[PLAYS_TOP], gen = library_gen;
     void *from = st.mp_list;
     if (!from || st.mp_gen != gen) {
-        from = staged(all_songs, 0, &n);
+        from = staged(all_songs, (void *)1, &n);
         st.mp_gen = gen;
     }
     int top = mp_rank(from, idx, score);
@@ -6223,7 +6224,7 @@ static int ple_run(const void *unused) {
         if (!action) {
             int n;
             if (ple.picker) deque_destroy(ple.picker);
-            ple.picker = staged_music(all_songs, 0, &n);
+            ple.picker = staged_music(all_songs, (void *)1, &n);
             ple_filter();
             ple.mode = 1;
         } else {

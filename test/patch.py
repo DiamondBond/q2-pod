@@ -743,20 +743,22 @@ else:
     k=Machine(); k.config['THEME']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
     assert len(k.bands)==49 and [k.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[0][i]) for i in (0,1,4)]; passed()
     # Cards stay two pixels inside all three columns, including scrolled first/last rows.
-    for offset in (0, 24):
-        for selected in range(6):
-            g=Machine(); gw=g.page('album_page'); tiles=[g.entry(gw,(i//3)*48) for i in range(6)]
-            g.nodes[gw]['children']=tiles
-            for i,t in enumerate(tiles): g.word(t+O['W_X'],80*(i%3)); g.word(t+O['W_W'],80)
-            g.word(gw+O['W_H'],96); g.word(gw+O['SCROLL_Y'],offset)
-            g.paint(gw)
-            g.nodes[gw]['_ringnav_index']=selected
-            g.paint(gw)
-            x,y,width,height=g.rounded[-1]['rect']
-            assert g.selected(gw)==selected, (offset,selected,g.selected(gw),g.rounded)
-            assert (x,width,height)==(80*(selected%3)+2,76,44)
-            assert y==48*(selected//3)-g.get(gw+O['SCROLL_Y'])+2
-            assert g.rounded[-1]['radius']==O['SEL_RADIUS']; passed()
+    for classic in (0,1):
+        for offset in (0, 24):
+            for selected in range(6):
+                g=Machine(); g.config.update(THEME=str(classic),ACCENT='2'); gw=g.page('album_page'); tiles=[g.entry(gw,(i//3)*48) for i in range(6)]
+                g.nodes[gw]['children']=tiles
+                for i,t in enumerate(tiles): g.word(t+O['W_X'],80*(i%3)); g.word(t+O['W_W'],80)
+                g.word(gw+O['W_H'],96); g.word(gw+O['SCROLL_Y'],offset)
+                g.paint(gw)
+                g.nodes[gw]['_ringnav_index']=selected
+                g.paint(gw)
+                x,y,width,height=g.rounded[-1]['rect']
+                assert g.selected(gw)==selected, (offset,selected,g.selected(gw),g.rounded)
+                assert (x,width,height)==(80*(selected%3)+2,76,44)
+                assert y==48*(selected//3)-g.get(gw+O['SCROLL_Y'])+2
+                assert g.rounded[-1]['radius']==O['SEL_RADIUS']
+                assert g.rounded[-1]['color']==color_t(ACCENTS[2][0] if classic else O['MINIMAL_FILL']); passed()
     # Touch mode draws nothing; the wheel brings the bar back.
     c=Machine(); cw,_=c.page_list(5,extent=1000); c.paint(cw)
     c.touch(); c.paint(cw); assert not c.drawn() and c.clip==(0,0,240,240)
@@ -2684,15 +2686,15 @@ for cls,wraps in ((0xf003,True),(0xff10,False)):
     else:
         assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5,(cls,m.selected(w))
     passed()
-# Settings menus, dynamic pages and other grids keep hard ends; one-row lists never wrap.
-for name in ('sysset_page','playerqueue_page'):
+# Other settings, dynamic pages and other grids keep hard ends; one-row lists never wrap.
+for name in ('display_page','playerqueue_page'):
     m,w,es=walk(6,5,height=96,extent=288,name=name)
     assert m.call(gap=100)==11 and m.selected(w)==5
     m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
     assert m.call(gap=100)==11 and m.selected(w)==5
     passed()
 # The hold menu and Now Playing's More page carry over as Library lists do.
-for name in ('playermore_page','sortselect_dialog'):
+for name in ('playermore_page','sortselect_dialog','playset_page','sysset_page'):
     m,w,es=walk(6,5,height=96,extent=288,name=name)
     assert m.call(gap=100)==11 and m.selected(w)==5
     assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0,(name,m.selected(w))
@@ -4049,7 +4051,7 @@ for cls in (0xf00a,0xff20):
         stored=m.deque(m.items(m.get(syms['p_deque_showlist'])))
         before=[bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]
         n=m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
-        want=[f'Row {i}' for i,path in enumerate(selected) if path in paths[1:2]+paths[4:]]
+        want=[f'Row {i}' for i,path in enumerate(selected) if cls==0xf00a or path in paths[1:2]+paths[4:]]
         assert m.names(m.get(syms['p_deque_showlist']))==want and n==len(want)
         assert [bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]==before
 # A playlist container remains even when its name/path looks like spoken audio.
@@ -4180,7 +4182,7 @@ class MusicLoadMachine(QueueMachine):
         if address!=syms['getAllMusic']: return super().hook(u,address,size,unused)
         assert self.get(payload_syms['library_music'])==1
         self.returns(self.result)
-for loader,args in (('all_songs',(0,)),('songs_unsorted',(1,))):
+for loader,args in (('all_songs',(1,)),('songs_unsorted',(1,))):
     for scoped in (0,1):
         for result in (-1,0,2):
             ms=MusicLoadMachine(); ms.result=result; ms.word(payload_syms['library_music'],scoped)
@@ -6509,7 +6511,7 @@ if variant=='ipod':
     passed()
 
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','6')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -6800,7 +6802,7 @@ if variant=='ipod':
         assert tuple(signed(m.get(art+O[k])) for k in ('W_X','W_Y','W_W','W_H'))==(split,0,375-split,290)
     shortcut_button=m.nodes[shortcut]['children'][0]
     sf,sc=m.handler(shortcut_button,O['EVT_CLICK'])
-    for label in ('Favorites','Shuffle','Rated Albums','Artists','Albums','Rockbox'):
+    for label in ('Favorites','Shuffle','Rated Albums','Artists','Albums','Games','Rockbox'):
         m.call(address=sf,args=(sc,m.event,0,0),gap=0)
         assert m.nodes[named(m,home,'label_rockbox')]['text']==label
     home_bounds(False)
@@ -6919,7 +6921,7 @@ if variant=='ipod':
         for n in syms:  # string helpers the builders format their names with
             if n.endswith('@GLIBC_2.0') and syms[n] not in m.handlers: m.handlers[syms[n]]=n
         m.handlers[O['LIST_VIEW_LAYOUT']]='stock_list_layout'
-        view=m.node('scroll_view'); lst=m.node('list_view','list_view',[view]); m.top=m.node('window','sysset_page',[lst])
+        view=m.node('scroll_view'); lst=m.node('list_view','list_view',[view]); m.top=m.node('window','display_page' if builder=='display' else 'sysset_page',[lst])
         m.word(view+O['W_PARENT'],lst); m.word(lst+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
         m.word(lst+O['ROW_HEIGHT'],0); m.word(lst+O['LIST_DEFAULT_ITEM_HEIGHT'],default)
         m.word(lst+O['W_Y'],SET['TOP']); m.word(lst+O['W_H'],SET['ROWS']*SET['ROW'])
@@ -7011,13 +7013,13 @@ if variant=='ipod':
     for k,v in (('W_X',8),('W_Y',0),('W_W',359),('W_H',70)): m.word(other+O[k],v)
     m.nodes[view]['children'].append(odd); lay(m,view)
     assert geometry(m,odd)[3]==78 and geometry(m,other)==(8,0,359,70); passed()
-    # The wheel walks the laid-out rows with hard ends, the bar spans the whole 68px row, the list
+    # The wheel walks the laid-out rows, the bar spans the whole 68px row, the list
     # scrolls to keep the row in view, and Centre and a tap reach the same button.
     m,view=settings(0x4cbcc4); lay(m,view); items=m.nodes[view]['children']
     buttons=[m.nodes[i]['children'][0] for i in items]
     m.paint(view); assert m.selected(view)==0
-    for k in range(1,len(items)+2):
-        m.call(); m.paint(view); i=min(k,len(items)-1); assert m.selected(view)==i
+    for k in range(1,len(items)):
+        m.call(); m.paint(view); i=k; assert m.selected(view)==i
         y=geometry(m,items[i])[1]-signed(m.get(view+O['SCROLL_Y']))
         assert 0<=y and y+SET['ROW']<=SET['ROWS']*SET['ROW'], (k,y)
         assert not m.bands and m.sel()[2:]==(375,SET['ROW'])
@@ -7143,7 +7145,7 @@ if variant=='ipod':
     m.paint(w,gap=0); assert m.sel()==(0,6,240,48)   # bumped down at the top, on the first tick
     assert m.call(PREV,gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5; passed()
     # Settings keep hard ends: no bump and no wrap, however long the pause.
-    m,w,es=ring('sysset_page')
+    m,w,es=ring('display_page')
     for gap in (100,O['EDGE_PAUSE_MS'],1000):
         assert m.call(gap=gap)==11 and m.selected(w)==5
         m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
@@ -7289,7 +7291,7 @@ if variant=='ipod':
 else:
     # Outside Coverflow, Stock's key-down hook keeps every press clicking as the stock binary
     # does whether or not the row moves; release adds nothing, every tick steps a row, no setting is read.
-    m=audible(Machine()); w,es=m.page_list(3); m.paint(w)
+    m=audible(Machine()); w,es=m.page_list(3,name='display_page'); m.paint(w)
     s=audible(Machine(patched=False)); got=[]
     for _ in range(4):
         got.append((press(m),lift(m),m.selected(w)))
@@ -7663,8 +7665,10 @@ m2.word(O['MCL_POS'],1); m2.handlers[syms['navigator_to']]='q:navigator_to'; m2.
 assert m2.hold()==11 and m2.labels()[-2:]==['Group by: Album','Rate  ♥♥♡♡♡'] and m2.release()==0
 m2.pick(len(m2.labels())-1); m2.advance(0); m2.top=m2.np; assert m2.caption()=='2 of 5' and m2.call(O['KEY_RETURN'])==11; passed()
 # Ratings: Top Rated (4-5), Loved (5), All Rated and Disliked (1), most hearts first, then title order.
-m=RateMachine(b''.join(struct.pack('<I',(key_of(n)&~7)|h) for n,h in (('A',1),('C',4),('E',2))).ljust(4*O['RATE_SLOTS'],b'\0'))
+m=RateMachine(b''.join(struct.pack('<I',(fnv(path)&~7)|h) for path,h in (('/p/A',1),('/mnt/mmc/Audiobooks/C.m4b',4),('/mnt/mmc/Podcasts/E.mp3',2))).ljust(4*O['RATE_SLOTS'],b'\0'))
 m.found=[m.song(n) for n in ('A','B','C','D','E')]; m.fav_songs=[m.song('D')]
+m.word(m.found[2]+O['REC_PATH'],m.string('/mnt/mmc/Audiobooks/C.m4b'))
+m.word(m.found[4]+O['REC_PATH'],m.string('/mnt/mmc/Podcasts/E.mp3'))
 m.top=m.node('window','localmusic_page'); view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)])
 m.nodes[m.top]['children']=[view]; m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
 f,ctx=m.handler(m.nodes[m.nodes[view]['children'][6]]['children'][0],O['EVT_CLICK'])
@@ -7676,6 +7680,7 @@ for i,names in want.items():
     row=m.nodes[m.find('scroll_view',menu)]['children'][i+(i>=2)]; g,c=m.handler(row,O['EVT_CLICK'])  # Albums aside
     assert m.call(address=g,args=(c,m.event,0,0),gap=0,count=50_000_000)==0; m.page=m.top
     assert m.nodes[m.page]['name']=='rated_page'
+    assert [c for c in m.calls if c[0]=='getAllMusic'][-1][1:]==(0,0)
     assert m.texts()==[('Top Rated','Loved','All Rated','Disliked')[i]]+[x for n in names for x in (n,hearts[n]+' · Artist')],m.texts()
     if i==2:  # a row plays the list from there, as a library queue
         r=m.nodes[m.find('scroll_view')]['children'][1]; g,c=m.handler(r,O['EVT_CLICK'])
@@ -8248,7 +8253,8 @@ m.close(); passed()
 # Library. Vortex's frame timer and raw wheel run only while it plays: Play/Pause, the screen going
 # off and leaving each stop them, and closing frees the state.
 if variant=='ipod':
-    m=BooksMachine({},{}); G_SCREEN,G_PICKING,G_PAUSED,G_CELL,G_CUR,G_VX=36,44,56,76,157,164
+    CONFIG['SHORTCUT']='6'; m=BooksMachine({},{}); del CONFIG['SHORTCUT']
+    G_SCREEN,G_PICKING,G_PAUSED,G_CELL,G_CUR,G_VX=36,44,56,76,157,164
     def games_open():
         view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
         assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
@@ -8258,6 +8264,10 @@ if variant=='ipod':
         f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
         m.page=m.top; assert m.nodes[m.page]['name']=='games_page' and m.nodes[m.page]['style:normal:bg_color']==-0x1000000
         return m.nodes[m.page]['children']
+    assert m.text(m.call(address=payload_syms['ipod_home_shortcut'],args=(0,0,0,0),gap=0))=='Games'
+    assert m.call(address=payload_syms['home_shortcut_open'],args=(0,m.event,0,0),gap=0,count=5_000_000)==0
+    m.page=m.top; assert m.nodes[m.page]['name']=='games_page'
+    m.close()
     chooser,sheet=games_open(); G=m.get(payload_syms['g'])
     assert labels(chooser)==['Games','Sudoku','Vortex','Solitaire'] and not m.nodes[sheet]['visible']
     rows=m.nodes[m.find('scroll_view',chooser)]['children']
@@ -9574,7 +9584,9 @@ for radio,page in (('wifi','systemset/wifi_page'),('bt','systemset/bluetooth_pag
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
 def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False,cls=QueueMachine):
     m=cls(); m.config.update(config); m.restack=True
-    if boot: m.call(address=payload_syms['ringnav_bootmode'],args=(3,0,0,0),gap=0)  # config_init's play mode
+    if boot:
+        m.handlers[payload_syms['peq_boot']]='stock_peq_boot'  # FP64 storage checked by test/peq.py
+        m.call(address=payload_syms['ringnav_bootmode'],args=(3,0,0,0),gap=0)  # config_init's play mode
     if hook=='btrows': m.byte(syms['g_bluetoothflag'],bt)
     m.handlers[int(manifest['patch_symbols'][f'stock_{hook}_trampoline'],16)]='stock_'+hook
     entries=[m.entry(0) for _ in range(stock_rows)]
