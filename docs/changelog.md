@@ -1,6 +1,6 @@
 # Changelog
 
-- **1.3.9** (unreleased):
+- **1.3.9**:
   - iPod: **Library → Games** with Sudoku and Vortex, playable while music plays. Sudoku keeps the game in progress and Vortex the best score across restarts.
   - Library: Frequent and Recent show a song's title instead of its file name and track number when it was played from Folder.
   - Quick Settings: swiping up to close from the brightness slider no longer moves the brightness. The slider now only moves once your finger goes sideways.
