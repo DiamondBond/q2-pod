@@ -2478,7 +2478,7 @@ static const unsigned char playset_order[] = {
 static const unsigned char sysset_order[] = {
     1 /* Wireless */,     3 /* Display */,  4 /* Power */,   5 /* Date and time */,
     8 /* Buttons lock */, 7 /* Key tone */, 2 /* Network */, 0 /* Language */,
-    6 /* In-Vehicle */,   13 /* Boot to */, 9 /* Update */,  12 /* Apps */,
+    6 /* In-Vehicle */,   13 /* Boot to */, 12 /* Apps */,   9 /* Update */,
     11 /* About */,       10 /* Reset */,
 };
 

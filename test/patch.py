@@ -10338,13 +10338,13 @@ def boot_row(value=None,mode=0o100755):
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
     kids=m.nodes[view]['children']
-    if mode!=0o100755:  # Apps (System Update's icon, netupdate.c's page) after Update; no Boot to
-        assert kids[:10]+kids[11:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
-        apps=m.nodes[kids[10]]['children'][0]; icon,label=m.nodes[apps]['children'][:2]
+    if mode!=0o100755:  # Apps (System Update's icon, netupdate.c's page) before Update; no Boot to
+        assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
+        apps=m.nodes[kids[9]]['children'][0]; icon,label=m.nodes[apps]['children'][:2]
         assert m.nodes[icon]['image']=='system_update' and m.nodes[label]['text']=='Apps' and m.handler(apps,O['EVT_CLICK'])[0]==payload_syms['shelf_open']
         return m,None,None
     assert len(kids)==14
-    assert kids[:9]+kids[10:11]+kids[12:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
+    assert kids[:9]+kids[11:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
     button=m.nodes[kids[9]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label
