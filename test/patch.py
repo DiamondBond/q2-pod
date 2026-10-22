@@ -9235,6 +9235,85 @@ worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,co
 m.advance(500,clear=False); assert m.toasts[-1][3]=='Download cancelled' and m.files[UPDATE]==b'old'
 assert 'fwupdate_tf' not in [c[0] for c in m.calls]; passed()
 
+# Q2 Shelf (netupdate.c, docs/internals.md#q2-shelf): System settings' Apps page, a row per app with
+# its state from .q2/apps/<id>.tag, a manual install's binary and, with Wi-Fi, a check of GitHub's
+# latest releases on opening, kept SH_STALE_MS. Install and Update start a worker at once; Remove, Erase
+# and Rockbox's first Install (the power-on default) want a second press. A press on the running
+# install cancels it; one during the opening check stops the check.
+SPOT_TAG,SPOT_FILES='/mnt/mmc/.q2/apps/spotify.tag','/mnt/mmc/.q2/apps/spotify.files'
+class ShelfMachine(RadioMachine):
+    """RadioMachine with busybox's side scripted: unzip -l prints listing, unzip -o stages staged
+    ((path, bytes), in find's order), find lists them; statfs has free bytes; renames kept in order."""
+    def __init__(self,files=None):
+        super().__init__(files); self.free=1<<32; self.moves=[]; self.listing=''; self.staged=[]
+        self.mock('rmdir@GLIBC_2.0')
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='c:statfs@GLIBC_2.0':
+            b=u.reg_read(UC_MIPS_REG_A1); self.word(b+4,4096); self.word(b+28,self.free>>12); self.returns(0,clobber=True); return
+        if name=='b:rename@GLIBC_2.0': self.moves.append(self.text(u.reg_read(UC_MIPS_REG_A1)))
+        if name=='s:system@GLIBC_2.0':
+            cmd=self.text(u.reg_read(UC_MIPS_REG_A0)); out=cmd.split(' > ')[-1]
+            if 'unzip -l' in cmd: self.files[out]=bytearray(self.listing.encode())
+            elif 'unzip -o' in cmd:
+                for path,data in self.staged: self.files[cmd.split('-d ')[1].split(' ')[0]+'/'+path]=bytearray(data)
+            elif ' find ' in cmd: self.files[out]=bytearray(''.join(path+'\n' for path,_ in self.staged).encode())
+            elif cmd.startswith('rm -rf /mnt/mmc/.q2/staging'):
+                for f in [f for f in self.files if f.startswith('/mnt/mmc/.q2/staging')]: del self.files[f]
+        return super().hook(u,address,size,unused)
+def apps_open(m):
+    assert m.call(address=payload_syms['shelf_open'],args=(0,m.event,0,0),gap=0,count=5_000_000)==0
+    m.advance(0,clear=False); m.page=m.top; assert m.nodes[m.page]['name']=='apps_page'
+def shelf_job(m,ms=500):
+    worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_000_000)==0; m.advance(ms,clear=False)
+KILL='killall -9 librespot aplay'
+m=ShelfMachine({SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
+                '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
+m.rockbox_mode=0; m.wifi=-1; apps_open(m)
+assert m.labels()==['Apps','Rockbox','Install','Spotify','Installed'] and not m.threads; passed()  # no themes without Rockbox
+m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; apps_open(m)
+assert m.labels()==['Apps','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache']
+m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
+assert m.opts[10002]=='https://api.github.com/repos/DiamondBond/q2-librespot/releases/latest' and m.opts[10018]=='Q2Pod'
+assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2
+assert m.labels()[6]=='Update' and '/tmp/q2-shelf.json' not in m.files; passed()  # q2-v1.8 against the latest q2-v1.9
+m.close(); m.now+=9*60*1000; apps_open(m); assert len(m.threads)==1 and m.labels()[6]=='Update'; passed()  # still fresh: no requests
+m.row(2); assert m.labels()[6]=='Checking…' and len(m.threads)==2 and KILL in m.systems[-1]; m.row(2); assert m.labels()[6]=='Cancelling…'
+shelf_job(m); assert m.toasts[-1][3]=='Download cancelled' and m.labels()[6]=='Update'; passed()
+m.wifi=-1; m.row(2); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and len(m.threads)==2; m.wifi=3; passed()
+m.codes=[403]; m.row(2); shelf_job(m); assert m.toasts[-1][3]=='GitHub is busy, try later'; passed()  # the API's rate limit
+m.files[SPOT_TAG]=bytearray(b'q2-v1.9'); m.close(); m.wifi=-1; apps_open(m); assert m.labels()[6]=='Installed' and len(m.threads)==3
+m.row(2); assert m.labels()[6]=='Press again to remove' and len(m.threads)==3
+m.row(3); assert m.labels()[6]=='Installed' and m.labels()[8]=='Press again to erase the login and cache'  # one row armed at a time
+m.row(2); m.row(2); assert m.labels()[6]=='Removing…' and m.labels()[8]=='Login and cache'; shelf_job(m)
+assert m.toasts[-1][3]=='Spotify removed' and KILL in m.systems[-3] and m.systems[-2]=='sync' and KILL in m.systems[-1]  # spot_stop: before and after
+assert not {SPOT_TAG,SPOT_FILES,'/mnt/mmc/.spotify/run','/mnt/mmc/.spotify/librespot'}&set(m.files) and m.labels()[6]=='Install'; passed()
+m.row(3); assert m.labels()[8]=='Press again to erase the login and cache'; m.row(3)
+assert m.labels()[6]=='Install' and m.labels()[8]=='Erasing…'; shelf_job(m)
+assert 'rm -rf /mnt/mmc/.spotify/cache /mnt/mmc/.spotify/.cache-size' in m.systems and m.toasts[-1][3]=="Spotify's login and cache erased"; passed()
+# A stale check, stopped by a press (it needs no answer); then Rockbox from its release to "ready".
+m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==6
+m.row(1); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==6; passed()
+m.close(); m.rockbox_mode=0; m.dirs.pop('/mnt/mmc/.spotify'); m.reply=(ROOT/'test/shelf/q2-rockbox.json').read_bytes()
+apps_open(m); shelf_job(m); assert m.labels()==['Apps','Rockbox','Install','Spotify','Install']  # not stopped: checked again
+m.row(0); assert m.labels()[2]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==7
+m.row(0); assert len(m.threads)==8 and m.labels()[2]=='Checking…'; m.row(0); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
+m.free=10<<20; m.row(0); m.row(0); shelf_job(m)  # the zip (13018581 bytes) and 64 MB left over
+assert m.toasts[-1][3]==f'Needs {(13018581+(54<<20)+(1<<20)-1)>>20} MB more space' and not [f for f in m.files if '.q2/staging/' in f]; passed()
+m.free=1<<32; m.staged=[('.rockbox/rockbox',b'ELF3.2'),('.rockbox/codecs/flac.codec',b'c'),('.rockbox/fonts/a b.fnt',b'f')]
+m.listing=''.join(f'{len(d):9}  10-06-2026 13:18   {f}\n' for f,d in m.staged)
+m.row(0); m.row(0); m.rockbox_mode=0o100755; m.moves=[]; shelf_job(m)  # Rockbox on the card by the end
+assert m.toasts[-1][3]==('Rockbox is ready. Find it on Home' if variant=='ipod' else 'Rockbox is ready. It starts at power-on')
+assert [x for x in m.moves if x.startswith('/mnt/mmc/.rockbox/')][-1]=='/mnt/mmc/.rockbox/rockbox'  # the binary last
+assert m.moves[-2:]==['/mnt/mmc/.q2/apps/rockbox.files','/mnt/mmc/.q2/apps/rockbox.tag'] and m.files['/mnt/mmc/.q2/apps/rockbox.tag']==b'v3.2'
+assert m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2' and m.files['/mnt/mmc/.rockbox/fonts/a b.fnt']==b'f'
+assert m.files['/mnt/mmc/.q2/apps/rockbox.files']==b'.rockbox/rockbox\n.rockbox/codecs/flac.codec\n.rockbox/fonts/a b.fnt\n'
+assert not [f for f in m.files if '.q2/staging' in f] and 'sync' in m.systems; passed()
+assert m.labels()==['Apps','Rockbox','Installed','Rockbox Themes','Install','Spotify','Install']; passed()  # the rows built again
+m.listing='        1  10-06-2026 13:18   .rockbox/../../x\n'; m.files.pop('/mnt/mmc/.q2/apps/rockbox.tag'); m.row(0); shelf_job(m)
+assert m.toasts[-1][3]=='The download is not a usable app' and m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2'; passed()
+m.close(); passed()
+
 # Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or
 # longer keeps its place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S
 # of play, after a pause and on a track change, and jumps back there when it next starts playing near
@@ -10246,12 +10325,14 @@ def boot_row(value=None,mode=0o100755):
     m.top=m.node('window','sysset_page',[m.node('list_view','list_view_sysset',[view])])
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
-    if mode!=0o100755:
-        assert m.nodes[view]['children']==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
-        return m,None,None
     kids=m.nodes[view]['children']
-    assert len(kids)==13
-    assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
+    if mode!=0o100755:  # Apps (System Update's icon, netupdate.c's page) after Update; no Boot to
+        assert kids[:10]+kids[11:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
+        apps=m.nodes[kids[10]]['children'][0]; icon,label=m.nodes[apps]['children'][:2]
+        assert m.nodes[icon]['image']=='system_update' and m.nodes[label]['text']=='Apps' and m.handler(apps,O['EVT_CLICK'])[0]==payload_syms['shelf_open']
+        return m,None,None
+    assert len(kids)==14
+    assert kids[:9]+kids[10:11]+kids[12:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
     button=m.nodes[kids[9]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label

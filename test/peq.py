@@ -2333,15 +2333,123 @@ int main(void) {
 }
 '''
 
+SHELF_SHIM = r"""
+#include <stdio.h>
+#include <stdlib.h>
+void *read_all(const char *path, unsigned max, unsigned *size) { /* scrobble.c's */
+    FILE *f = fopen(path, "rb");
+    char *p = 0;
+    long n = f && !fseek(f, 0, 2) ? ftell(f) : -1;
+    if (n >= 0 && (unsigned long)n <= max && !fseek(f, 0, 0) && (p = calloc(1, n + 1)) && fread(p, 1, n, f) != (size_t)n)
+        free(p), p = 0;
+    if (f) fclose(f);
+    *size = p ? n : 0;
+    return p;
+}
+"""
+
+
 def netupdate_check(tmp):
     """Network Update (netupdate.c): the latest tag from GitHub's releases/latest redirect."""
-    lib = compile_host(tmp, 'netupdate.so', ROOT/'patch/netupdate.c')
+    (tmp/'shelf_shim.c').write_text(SHELF_SHIM)
+    lib = compile_host(tmp, 'netupdate.so', ROOT/'patch/netupdate.c', tmp/'shelf_shim.c')
     lib.netupdate_tag.restype = C.c_char_p
     tag = lib.netupdate_tag
     assert tag(b'https://github.com/DiamondBond/q2-pod/releases/tag/1.3.5') == b'1.3.5'
     for bad in (None, b'', b'https://github.com/DiamondBond/q2-pod/releases', b'https://github.com/login',
                 b'https://github.com/DiamondBond/q2-pod/releases/tag/'):
         assert tag(bad) is None, bad
+    return lib
+
+
+def shelf_check(tmp, lib):
+    """Q2 Shelf (netupdate.c): GitHub's release JSON, the unzip listing's checks, and an install and
+    remove of Rockbox, its themes and Spotify on a scratch card, host unzip (Info-ZIP) for busybox's."""
+    import shutil, zipfile
+    def release(json):
+        tag, url, size = C.create_string_buffer(32), C.create_string_buffer(256), C.c_uint()
+        ok = lib.shelf_release(json, tag, 32, url, 256, C.byref(size))
+        return (tag.value.decode(), url.value.decode(), size.value) if ok else None
+    gh = 'https://github.com/DiamondBond/'
+    assert release((ROOT/'test/shelf/q2-rockbox.json').read_bytes()) == ('v3.2', gh + 'q2-rockbox/releases/download/v3.2/rockbox.zip', 13018581)
+    assert release((ROOT/'test/shelf/q2-rockbox-themes.json').read_bytes()) == \
+        ('v1.3', gh + 'q2-rockbox-themes/releases/download/v1.3/q2-rockbox-themes-1.3.zip', 44591509)
+    spot = (ROOT/'test/shelf/q2-librespot.json').read_bytes()
+    assert release(spot) == ('q2-v1.9', gh + 'q2-librespot/releases/download/q2-v1.9/q2-librespot-v1.9-2ea4406.zip', 7108981)
+    pretty = b'{"tag_name" : "1.0", "assets" : [ {"name": "SHA256SUMS", "size": 9, "browser_download_url": "x"},\n' \
+             b'  {"name": "a.zip", "size": 5, "browser_download_url": "https://h/a.zip"} ] }'
+    assert release(pretty) == ('1.0', 'https://h/a.zip', 5)
+    for bad in (b'', b'{}', spot.replace(b'.zip"', b'.tar"'), spot.replace(b'"tag_name"', b'"tag"'),
+                pretty.replace(b'"size": 5', b'"size": 0'), b'{"tag_name":"a\\"b","assets":[]}'):
+        assert release(bad) is None, bad[:40]
+    def unpacked(text, cap=1 << 30):
+        total = C.c_uint(); n = lib.shelf_unpacked(text.encode(), cap, C.byref(total))
+        return (n, total.value) if n >= 0 else None
+    head = '  Length      Date    Time    Name\n---------  ---------- -----   ----\n'
+    row = lambda size, name: f'{size:9}  10-06-2026 13:18   {name}\n'
+    foot = '---------                     -------\n 19786468                     3 files\n'
+    assert unpacked(head + row(19783496, '.spotify/librespot') + row(2149, '.spotify/my run') + row(0, '.spotify/') + foot) == (3, 19785645)
+    assert unpacked(head + foot) == (0, 0) and unpacked('') == (0, 0)
+    assert unpacked(row(1000000000, '.rockbox/big') + row(4000000000, '.rockbox/huge')) is None  # past the cap
+    assert unpacked(row(1, '.rockbox/a') + row(2, '.rockbox/b'), 2) is None and unpacked(row(1, '.rockbox/..a'), 2) == (1, 1)
+    for evil in ('/etc/passwd', '.rockbox/../../x', '..', '.rockbox/..', '../x'):
+        assert unpacked(head + row(1, '.rockbox/ok') + row(1, evil) + foot) is None, evil
+    listed = lambda text, path: lib.shelf_listed(text, len(text or b''), path)
+    assert listed(b'.rockbox/a\0.rockbox/fonts/b\0', b'.rockbox/fonts/b') and not listed(b'.rockbox/a\0', b'.rockbox/') and not listed(None, b'x')
+
+    # Install and remove on a scratch card, from zips laid out as the releases are.
+    card = tmp/'root/mnt/mmc'; staging = card/'.q2/staging'
+    def zip_of(path, entries):
+        with zipfile.ZipFile(path, 'w') as z:
+            for name, data in entries: z.writestr(name, data)
+        return path
+    font = '.rockbox/fonts/15-Adobe-Helvetica.fnt'
+    synthetic = {0: zip_of(tmp/'rockbox.zip', [('.rockbox/', b''), ('.rockbox/rockbox', b'ELF3.2'), (font, b'rb'),
+                                                ('.rockbox/codecs/flac.codec', b'c'), ('.rockbox/config.cfg', b'release')]),
+                 1: zip_of(tmp/'themes.zip', [('INSTALL.txt', b'readme'), ('.rockbox/._fonts', b'mac'), (font, b'th'),
+                                              ('.rockbox/wps/Big Theme.wps', b'w'), ('.rockbox/themes/._x.cfg', b'mac'),
+                                              ('__MACOSX/.rockbox/._wps', b'mac')]),
+                 2: zip_of(tmp/'spotify.zip', [('.spotify/run', b'#!/bin/sh'), ('.spotify/librespot', b'ELF'),
+                                               ('.spotify/cache/credentials.json', b'theirs'), ('.spotify/.cache-size', b'1M')])}
+    def install(i, zip_path):
+        shutil.rmtree(staging, ignore_errors=True); staging.mkdir(parents=True); (card/'.q2/apps').mkdir(exist_ok=True)
+        shutil.copy(zip_path, staging/f'{("rockbox", "themes", "spotify")[i]}.part')
+        total = C.c_uint(); r = lib.shelf_list(i, C.byref(total))
+        if r: return r
+        assert total.value > 0 and lib.shelf_unpack(i) == 0
+        r = lib.shelf_place(i); shutil.rmtree(staging); return r
+    def tree():
+        return sorted(str(f.relative_to(card)) for f in card.rglob('*') if f.is_file() and '.q2' not in f.parts)
+    def files(i): return (card/f'.q2/apps/{("rockbox", "themes", "spotify")[i]}.files').read_text().split('\n')[:-1]
+    shutil.rmtree(card, ignore_errors=True); (card/'.rockbox').mkdir(parents=True); (card/'.spotify/cache').mkdir(parents=True)
+    (card/'.rockbox/config.cfg').write_bytes(b'mine'); (card/'.spotify/cache/credentials.json').write_bytes(b'login')
+    (card/'.spotify/.cache-size').write_bytes(b'4096M'); (card/'Music').mkdir(); (card/'Music/a.flac').write_bytes(b'song')
+    for i in range(3): assert install(i, synthetic[i]) == 0, i
+    have = tree()
+    assert '.rockbox/rockbox' in have and '.spotify/librespot' in have and font in have and 'INSTALL.txt' not in have
+    assert not [f for f in have if '/._' in f or f.startswith('__MACOSX')] and not list(staging.parent.glob('staging'))
+    assert (card/'.rockbox/config.cfg').read_bytes() == b'mine' and (card/'.spotify/cache/credentials.json').read_bytes() == b'login'
+    assert (card/'.spotify/.cache-size').read_bytes() == b'4096M' and not [f for f in files(2) if 'cache' in f]
+    assert set(files(0)) | set(files(1)) | set(files(2)) == set(have) - {'.rockbox/config.cfg', '.spotify/cache/credentials.json', '.spotify/.cache-size', 'Music/a.flac'}
+    assert font in files(0) and font in files(1)
+    assert install(0, synthetic[0]) == 0 and tree() == have  # an update: the same files again
+    lib.shelf_remove(1)  # the themes: the font Rockbox lists stays, and so does Rockbox
+    assert font in tree() and '.rockbox/rockbox' in tree() and not set(files(1) if (card/'.q2/apps/themes.files').exists() else []) and \
+        not [f for f in tree() if f in set(have) - set(files(0)) and f.startswith('.rockbox/') and f != '.rockbox/config.cfg']
+    lib.shelf_remove(0); lib.shelf_remove(2)
+    assert tree() == ['.rockbox/config.cfg', '.spotify/.cache-size', '.spotify/cache/credentials.json', 'Music/a.flac']
+    assert [d.name for d in (card/'.rockbox').iterdir()] == ['config.cfg'] and not list((card/'.q2/apps').iterdir())
+    # A failed codec replacement must leave the old binary and installed file list intact.
+    (card/'.rockbox/rockbox').write_bytes(b'old')
+    (card/'.rockbox/codecs').mkdir(); (card/'.rockbox/codecs/flac.codec').mkdir()
+    (card/'.q2/apps/rockbox.files').write_bytes(b'old list')
+    assert install(0, synthetic[0]) == 3  # SH_CARD: a directory blocks the codec's rename
+    assert (card/'.rockbox/rockbox').read_bytes() == b'old'
+    assert (card/'.q2/apps/rockbox.files').read_bytes() == b'old list'
+    evil = zip_of(tmp/'evil.zip', [('.rockbox/ok', b'x'), ('.rockbox/../../../escaped', b'x')])
+    assert install(0, evil) == 5 and not (tmp/'escaped').exists() and not (card.parent/'escaped').exists()  # SH_BAD, nothing unpacked
+    assert install(1, zip_of(tmp/'empty.zip', [('INSTALL.txt', b'readme')])) == 5  # nothing for the app's folder
+    print("Q2 Shelf: release JSON, unzip listing checks, install, update, failed move and remove passed.")
 
 
 def online_check(tmp):
@@ -2457,7 +2565,7 @@ if __name__ == '__main__':
         radio_check(tmp)
         spotify_check(tmp)
         tidal_check(tmp)
-        netupdate_check(tmp)
+        shelf_check(tmp, netupdate_check(tmp))
         online_check(tmp)
         if args.captures:
             args.captures.mkdir(parents=True, exist_ok=True)

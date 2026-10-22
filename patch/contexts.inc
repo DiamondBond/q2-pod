@@ -29,6 +29,7 @@
 { "radio_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/radio.c) */
 { "spotbrowse_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/spotify.c) */
 { "streamconf_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/navigation.c) */
+{ "apps_page", CTX_DYNAMIC, 0 },       /* runtime window (patch/netupdate.c) */
 { "tidal_downloads", CTX_DYNAMIC, 0 }, /* runtime window (patch/navigation.c) */
 { "album_page", CTX_LOCAL, 0 },
 { "albuminfo_page", CTX_LOCAL, RING },

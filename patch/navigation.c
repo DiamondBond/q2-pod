@@ -1411,7 +1411,7 @@ int config_value(const char *section, const char *key, int n, int def) {
 
 #define ROCKBOX_BIN "/mnt/mmc/.rockbox/rockbox"
 /* glibc 2.28 MIPS o32 stat v3: st_mode at byte 20, as stock's fs stat reads it. */
-static int rockbox_available(void) {
+int rockbox_available(void) {
     unsigned info[36];
     return !__xstat(3, ROCKBOX_BIN, info) && (info[5] & 0170000) == 0100000;
 }
@@ -2477,8 +2477,8 @@ static const unsigned char playset_order[] = {
 static const unsigned char sysset_order[] = {
     1 /* Wireless */,     3 /* Display */,  4 /* Power */,   5 /* Date and time */,
     8 /* Buttons lock */, 7 /* Key tone */, 2 /* Network */, 0 /* Language */,
-    6 /* In-Vehicle */,   12 /* Boot to */, 9 /* Update */,  11 /* About */,
-    10 /* Reset */,
+    6 /* In-Vehicle */,   13 /* Boot to */, 9 /* Update */,  12 /* Apps */,
+    11 /* About */,       10 /* Reset */,
 };
 
 /* Folder Root (Q2POD FOLDERROOT): the card's top-level folder Home's Folder opens in, "" the card
@@ -3771,6 +3771,7 @@ static int boot_click(void *label, void *event) {
 int ringnav_systemset(void *win, void *ctx) {
     int result = stock_systemset_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_sysset", 1) : (void *)0;
+    if (view) widget_set_text_utf8(list_row(view, "system_update", shelf_open, 0), "Apps");
     if (view && rockbox_available()) {
         char value[16];
         void *f = fopen(BOOT_TARGET, "rb");
@@ -3790,7 +3791,7 @@ int ringnav_systemset(void *win, void *ctx) {
         widget_on(button, EVT_CLICK, boot_click, label);
         boot_text(label);
     }
-    /* Without Rockbox there is no Boot to (12): the order less it. */
+    /* Without Rockbox there is no Boot to (13): the order less it. */
     unsigned char order[sizeof sysset_order];
     unsigned n = 0, rows = view ? widget_count_children(view) : 0;
     for (unsigned i = 0; i < sizeof sysset_order; i++)
@@ -4821,8 +4822,9 @@ static int shuffle_groups(void *ctx, void *event) {
     return 0;
 }
 
-/* Return and destroy for the payload's own pages, shared with Most Played. */
-static int page_keyup(void *ctx, void *event) {
+/* Return and destroy for the payload's own pages, shared with Most Played; Return with
+ * netupdate.c's Apps page. */
+int page_keyup(void *ctx, void *event) {
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
     navigator_back();
     return STOP;

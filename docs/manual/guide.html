@@ -601,6 +601,7 @@ ALBUM_ARTIST=1</pre>
     <li>Unzip the file to the card’s root, so the card has <code>.spotify/librespot</code>, <code>.spotify/run</code> and <code>.spotify/aplay.sh</code>. On macOS and Linux the leading dot hides the folder; Cmd+Shift+. shows it in Finder.</li>
     <li>Eject and unplug the Q2.</li>
   </ol>
+  <p>Or, over Wi-Fi: <b>System settings → Apps → Spotify</b> downloads and installs it (<a href="#apps">Installing apps over Wi-Fi</a>).</p>
   <p>Browsing on the Q2 needs q2-librespot v1.3 or later. To update, unzip a newer release over it; its <code>cache/</code> keeps the saved login. To remove Spotify, delete the <code>.spotify</code> folder.</p>
   <p><b>Pairing, once:</b> the first time, the page says “Open Spotify on your phone and choose Q2”. With the phone on the same Wi-Fi, pick <b>Q2</b> in the Spotify app’s device list; the page turns into the menu, and the login is saved on the card. From then on the Q2 needs no phone. <b>Account</b> shows who is signed in and signs out.</p>
   </div>
@@ -848,6 +849,16 @@ http://stream.radioparadise.com/mp3-128</pre>
   <h2 id="update">Updating Q2 Pod</h2>
   <p>Repeat the <a href="#install">install steps</a> in Chapter 1 with the newest release. Your settings, ratings and play counts are kept. The updater skips a version that’s already installed, so a newer release always goes on.</p>
   <p>Or, over Wi-Fi: <b>System settings → System Update → Network Update</b> downloads the newest release to the card’s <code>update.tar</code>, replacing any that’s there, then opens the TF card update’s confirmation. Press the row again to cancel the download.</p>
+  <div class="sub">
+  <h3 id="apps">Installing apps over Wi-Fi</h3>
+  <p><b>System settings → Apps</b> installs and updates Rockbox, the Rockbox themes and Spotify from their GitHub releases, instead of unzipping them by hand. Each row shows <b>Install</b>, <b>Update</b> or <b>Installed</b>; with Wi-Fi on, the page checks for newer releases when it opens (at most every 10 minutes). Rockbox Themes appears once Rockbox is on the card.</p>
+  <ul>
+    <li><b>Install or update:</b> press Centre on the row. It shows the download’s progress; press it again to cancel. You can leave the page meanwhile: a message says when it’s done, such as “Spotify is ready in Streaming”. Updates keep your Rockbox settings and Spotify’s login and cache size.</li>
+    <li><b>Rockbox</b> becomes what the Q2 starts at power-on, as when you unzip it, so the first press says so and a second one installs it. <b>System settings → Boot to</b> changes that.</li>
+    <li><b>Remove:</b> press an <b>Installed</b> row twice. Removing Rockbox removes the themes too. Removing Spotify keeps its login and cache; <b>Erase Spotify Data</b> (press twice) deletes them.</li>
+    <li>The card needs room for the download and what it unpacks to, plus 64 MB; otherwise it says how much more space it needs. Keep USB storage unplugged until it finishes.</li>
+  </ul>
+  </div>
 
   </div>
   <div class="sec">
@@ -872,6 +883,7 @@ http://stream.radioparadise.com/mp3-128</pre>
     <li>Unzip it onto the card’s root. It adds a <code>.rockbox</code> folder.</li>
     <li>Turn the Q2 on. Rockbox starts.</li>
   </ol>
+  <p>Or, over Wi-Fi: <b>System settings → Apps</b> installs Rockbox and then the themes (<a href="#apps">Installing apps over Wi-Fi</a>).</p>
   <p class="task">Install the ported themes:</p>
   <ol class="steps">
     <li>Download the zip from github.com/DiamondBond/q2-rockbox-themes/releases.</li>
