@@ -13,6 +13,7 @@
   - Cover Flow: a cover that isn't square shows whole, between black bars, instead of cropped to its centre.
   - Lyrics: a lyrics search no longer shows the credits (writer, mix engineer and so on) some LRCLIB lyrics start with.
   - EQ: **Presets → Rename a preset** renames a saved preset.
+  - EQ: Advanced's **Auto** preamp cuts for the sample rate that is playing, instead of for the worst of every rate, so most presets play louder at 44.1 and 48 kHz. The Preamp row shows both cuts, e.g. **Auto (44.1: -9.2 / 48: -8.8)**. A picked preamp and Simple (3EQ) play as before.
   - Now Playing: a larger touchscreen seek target, separate from page swipes. The progress bar shows no thumb when you touch it to seek, instead of a blue one.
   - Menus: the hold menu, Now Playing's ⋯ menu and the sort picker wrap from bottom to top and back after a pause at the end, as Library lists do.
   - Audiobooks: a song that follows a book played at a faster speed plays at normal speed; the speed sent to the decoder follows each track's folder.

@@ -31,8 +31,9 @@ void child_exit(int status) __attribute__((noreturn));
 /* Versioned disk representation: fixed-width fields, no pointers or implicit padding.
  * enabled: 0 off, 1 both channels, 2 left only, 3 right only (v1 files hold 0 or 1).
  * balance: dB, above 0 turns the left channel down, below 0 the right (v2 only).
- * automatic: the preamp is 1 Auto (the UI's headroom), 2 picked, 0 never picked (an import, or
- * saved before 1.3.6: PEQ_PRESET_V2 bytes), which the UI also takes as Auto. */
+ * automatic: the preamp is 1 Auto (the player cuts each rate's own peak; preamp holds the 48 kHz
+ * cut), 2 picked, 0 never picked (an import, or saved before 1.3.6: PEQ_PRESET_V2 bytes), which the
+ * UI and PEQ playback also take as Auto. */
 typedef struct { int enabled, type; double frequency, gain, q; } peq_band;
 typedef struct {
     int count, bypass;
@@ -71,7 +72,10 @@ void eq3_bands(peq_preset *p, const double gain[3]);
 int eq_load(eq_state *s); /* 0: no readable state, s holds the defaults */
 int eq_save(const eq_state *s);
 void eq_effective(const eq_state *s, peq_preset *out);
-int peq_compile(const peq_preset *p, int rate, peq_engine *out);
+int peq_compile(const peq_preset *p, int rate, peq_engine *out); /* the saved preamp, Auto or not */
+void peq_response(const peq_engine *e, int rate, double f, double *l, double *r);
+/* Auto's preamp at rate, dB: what the player plays */
+double peq_auto(const peq_preset *p, int rate);
 void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p);
 int peq_update(peq_dsp *d, const peq_preset *p);
 void peq_process(peq_dsp *d, float *audio, unsigned frames);

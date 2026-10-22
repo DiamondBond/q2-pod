@@ -286,9 +286,13 @@ int eq_save(const eq_state *s) {
     return eq_valid(s) && save_file(PEQ_ACTIVE, "Q2PEQ03", s, sizeof(*s));
 }
 
-/* What plays: the mode's preset, bypassed when Off, or with hold the 3EQ's preamp alone. */
+/* What plays: the mode's preset, bypassed when Off, or with hold the 3EQ's preamp alone. Only PEQ
+ * plays Auto (1: the player's per-rate cut), unless picked: never picked (0) is Auto, as the editor
+ * takes it. 3EQ (0) and the hold keep their saved preamp. */
 void eq_effective(const eq_state *s, peq_preset *out) {
     *out = s->mode == EQ_3 ? s->eq3 : s->peq;
+    if (s->mode == EQ_PEQ ? !out->automatic : out->automatic == 1)
+        out->automatic = s->mode == EQ_PEQ;
     out->bypass = s->mode == EQ_OFF && !s->hold;
     if (s->mode == EQ_OFF && s->hold) out->count = 0, out->preamp = s->eq3.preamp, out->balance = 0;
 }
@@ -300,14 +304,19 @@ int peq_load_active(peq_preset *p) {
     return ok;
 }
 
+/* The preamp, linear, on every channel, then balance turning one side down. */
+static void level(peq_engine *e, double gain, double balance) {
+    for (int ch = 0; ch < PEQ_CHANNELS; ++ch) e->gain[ch] = gain;
+    if (balance > 0) e->gain[0] *= pow(10, -balance / 20);
+    if (balance < 0) e->gain[1] *= pow(10, balance / 20);
+}
+
 /* RBJ peaking and Q-form shelves. All design work is outside the PCM callback. */
 int peq_compile(const peq_preset *p, int rate, peq_engine *out) {
     peq_engine e;
     memset(&e, 0, sizeof(e));
     if (!peq_valid(p) || rate < 8000 || rate > 384000) return 0;
-    for (int ch = 0; ch < PEQ_CHANNELS; ++ch) e.gain[ch] = pow(10, p->preamp / 20);
-    if (p->balance > 0) e.gain[0] *= pow(10, -p->balance / 20);
-    if (p->balance < 0) e.gain[1] *= pow(10, p->balance / 20);
+    level(&e, pow(10, p->preamp / 20), p->balance);
     e.bypass = p->bypass;
     for (int i = 0; i < PEQ_BANDS; ++i) {
         e.c[i].b0 = 1;
@@ -337,16 +346,65 @@ int peq_compile(const peq_preset *p, int rate, peq_engine *out) {
     return 1;
 }
 
+/* |H|^2 of the engine's left and right chains, without preamp or balance. */
+void peq_response(const peq_engine *e, int rate, double f, double *l, double *r) {
+    double w = 6.283185307179586 * f / rate, c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1,
+           s2 = 2 * s1 * c1;
+    *l = *r = 1;
+    for (int i = 0; i < e->used; ++i) { /* bands past used are identity */
+        const peq_coeff *q = &e->c[i];
+        double nr = q->b0 + q->b1 * c1 + q->b2 * c2, ni = q->b1 * s1 + q->b2 * s2;
+        double dr = 1 + q->a1 * c1 + q->a2 * c2, di = q->a1 * s1 + q->a2 * s2;
+        double m = (nr * nr + ni * ni) / (dr * dr + di * di);
+        if (e->only[i] != 2) *l *= m; /* only: 1 left, 2 right */
+        if (e->only[i] != 1) *r *= m;
+    }
+}
+
+/* The loudest |H|^2 of e (p compiled at rate), either channel, at least 1 (Auto never boosts) and
+ * at most 60 dB. Includes DC, Nyquist and each band's centre: near Nyquist a peak can be narrower
+ * than the grid. shortcut: sampled steady-state peaks, not a transient or intersample bound. */
+static double peak(const peq_engine *e, const peq_preset *p, int rate) {
+    double nyquist = rate * 0.5, best = 1;
+    for (int k = -2; k < 1024 + p->count; ++k) {
+        double f = k == -2    ? 0
+                   : k == -1  ? nyquist
+                   : k < 1024 ? pow(nyquist, k / 1023.0)
+                              : p->bands[k - 1024].frequency;
+        if (f >= nyquist && k != -1) continue;
+        double l, r;
+        peq_response(e, rate, f, &l, &r);
+        if (l > best) best = l;
+        if (r > best) best = r;
+    }
+    return best < 1.0000230261 ? 1 : best > 1e6 ? 1e6 : best; /* under 0.0001 dB is none */
+}
+
+double peq_auto(const peq_preset *p, int rate) {
+    peq_engine e;
+    if (!peq_compile(p, rate, &e)) return p->preamp;
+    double v = peak(&e, p, rate);
+    return v > 1 ? -decibels(v) : 0; /* no boost: +0, not -0.0 on screen */
+}
+
+/* The player's engine: Auto (1) takes the cut for this rate's own response, from the coefficients
+ * just designed, in place of the saved number (the editor's 48 kHz figure). */
+static int prepare(const peq_preset *p, int rate, peq_engine *e) {
+    if (!peq_compile(p, rate, e)) return 0;
+    if (p->automatic == 1) level(e, pow(peak(e, p, rate), -0.5), p->balance);
+    return 1;
+}
+
 void peq_reset(peq_dsp *d, int rate, int channels, const peq_preset *p) {
     memset(d, 0, sizeof(*d));
     d->rate = rate;
     d->channels = channels;
     d->ramp_length = rate / 50; /* 20 ms */
-    if (!peq_compile(p, rate, &d->current)) d->current.bypass = 1;
+    if (!prepare(p, rate, &d->current)) d->current.bypass = 1;
 }
 
 int peq_update(peq_dsp *d, const peq_preset *p) {
-    if (!peq_compile(p, d->rate, &d->pending)) return 0;
+    if (!prepare(p, d->rate, &d->pending)) return 0;
     d->waiting = 1; /* Latest complete update wins; never interrupt an in-flight crossfade. */
     return 1;
 }

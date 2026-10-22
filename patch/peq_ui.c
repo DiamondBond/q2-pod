@@ -88,35 +88,22 @@ static struct {
 static int action(void *ctx, void *event);
 static int render(const void *unused);
 
-/* A row: the caption on the left, white or, for display-only rows and off bands (dim), grey, and the
- * value, if any, in grey against the right edge. */
-static void row_dim(void *view, int index, const char *text, const char *value, int id, int dim) {
-    void *item = list_item_create(view, 0, index * 48, 375, 48);
+/* A row: the caption on the left, white or, for display-only rows and off bands (dim), grey, and
+ * the value, if any, in grey against the right edge. Returns the last label, the value's if any. */
+static void *row_dim(void *view, int index, const char *text, const char *value, int id, int dim) {
+    void *item = list_item_create(view, 0, index * 48, 375, 48), *label = 0;
     widget_use_style(item, "s_listitem_black");
     for (int i = 0; i < 1 + !!value; ++i) {
-        void *label = label_create(item, ROW_X, 0, 375 - 2 * ROW_X, 48);
+        label = label_create(item, ROW_X, 0, 375 - 2 * ROW_X, 48);
         widget_use_style(label, "s_label_white20l");
         if (i || dim || id < 0) widget_set_prop_int(label, "style:normal:text_color", (int)CF_GREY);
         if (i) widget_set_prop_str(label, "style:normal:text_align_h", "right");
         widget_set_text_utf8(label, i ? value : text);
     }
     widget_on(item, EVT_CLICK, action, (void *)(long)id);
+    return label;
 }
 #define row(view, index, text, id) row_dim(view, index, text, 0, id, 0)
-
-/* |H|^2 of the engine's left and right chains, without preamp or balance. */
-static void response(const peq_engine *e, int rate, double f, double *l, double *r) {
-    double w = 6.283185307179586 * f / rate, c1 = cos(w), s1 = sin(w), c2 = 2 * c1 * c1 - 1, s2 = 2 * s1 * c1;
-    *l = *r = 1;
-    for (int i = 0; i < e->used; ++i) { /* bands past used are identity */
-        const peq_coeff *q = &e->c[i];
-        double nr = q->b0 + q->b1 * c1 + q->b2 * c2, ni = q->b1 * s1 + q->b2 * s2;
-        double dr = 1 + q->a1 * c1 + q->a2 * c2, di = q->a1 * s1 + q->a2 * s2;
-        double m = (nr * nr + ni * ni) / (dr * dr + di * di);
-        if (e->only[i] != 2) *l *= m; /* only: 1 left, 2 right */
-        if (e->only[i] != 1) *r *= m;
-    }
-}
 
 static float graph_y(double db) {
     if (db > PEQ_GRAPH_DB) db = PEQ_GRAPH_DB;
@@ -131,48 +118,46 @@ static void curve(void) {
     int ok = peq_compile(&ui.draft, 48000, &e);
     for (int x = 0; x < GRAPH_W; ++x) {
         double l = 1, r = 1;
-        if (ok) response(&e, 48000, 20 * pow(1000, x / (GRAPH_W - 1.0)), &l, &r);
+        if (ok) peq_response(&e, 48000, 20 * pow(1000, x / (GRAPH_W - 1.0)), &l, &r);
         ui.curve[0][x] = graph_y(decibels(l));
         ui.curve[1][x] = graph_y(decibels(r));
     }
 }
 
-static double response_peak(const peq_engine *e, int rate, double f) {
-    double l, r;
-    response(e, rate, f, &l, &r);
-    return l > r ? l : r;
-}
-
-/* Auto is a saved number, so cover standard PCM rates instead of tying it to the current track.
- * shortcut: sampled steady-state peaks, not a transient limiter or a bound for nonstandard rates. */
+/* 3EQ's preamp is a saved number (its player keeps it), so it covers the standard PCM rates' Auto
+ * instead of the current track's. shortcut: no bound for nonstandard rates. */
 static double headroom(const peq_preset *p) {
     static const int rates[] = {8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100,
                                48000, 64000, 88200, 96000, 176400, 192000, 352800, 384000};
     static peq_preset cached;
     static int have_cache;
     static double gain;
+    if (!peq_valid(p)) return p->preamp;
     if (have_cache && !memcmp(p, &cached, sizeof(*p))) return gain;
-    peq_engine e;
-    double peak = 1;
+    gain = 0;
     for (unsigned i = 0; i < sizeof(rates) / sizeof(*rates); ++i) {
-        int rate = rates[i];
-        if (!peq_compile(p, rate, &e)) return p->preamp;
-        double nyquist = rate * 0.5, best = 0;
-        /* Include DC, Nyquist and each band's centre: near Nyquist a peak can be narrower than the grid. */
-        for (int k = -2; k < 1024 + p->count; ++k) {
-            double f = k == -2 ? 0 : k == -1 ? nyquist : k < 1024 ? pow(nyquist, k / 1023.0)
-                       : p->bands[k - 1024].frequency;
-            if (f >= nyquist && k != -1) continue;
-            double v = response_peak(&e, rate, f);
-            if (v > best) best = v;
-        }
-        if (best > peak) peak = best;
+        double g = peq_auto(p, rates[i]);
+        if (g < gain) gain = g;
     }
-    gain = -decibels(peak);
-    gain = gain > -0.0001 ? 0 : gain < -60 ? -60 : gain;
     cached = *p;
     have_cache = 1;
-    return gain; /* no boost: +0, not -0.0 on screen */
+    return gain;
+}
+
+/* PEQ's Auto at 44.1 and 48 kHz, for the Preamp row and its picker: the player's cut at those rates
+ * (any other rate plays its own). Kept until a band changes, as preamp, balance and the switch move
+ * none. */
+static const double *autos(void) {
+    static peq_preset key;
+    static double cut[2];
+    static int have;
+    peq_preset p = ui.draft;
+    p.preamp = p.balance = 0, p.bypass = p.automatic = 0;
+    if (!have || memcmp(&p, &key, sizeof(p))) {
+        cut[0] = peq_auto(&p, 44100), cut[1] = peq_auto(&p, 48000);
+        key = p, have = 1;
+    }
+    return cut;
 }
 
 static double *picked(void) {
@@ -211,14 +196,14 @@ static int focused(void *ctx, void *event) {
 /* Auto unless the preamp was picked (2): imports and presets or states from before 1.3.6 take it. */
 static int on_auto(void) { return ui.draft.automatic != 2; }
 
-/* A draft on Auto takes the current headroom (an update can move it): 1 if that changed it. */
-static int follow_auto(void) {
-    double was = ui.draft.preamp;
-    if (on_auto()) { /* headroom before the flag: the flag is part of its cache key */
-        double h = headroom(&ui.draft);
-        ui.draft.automatic = 1, ui.draft.preamp = h;
-    }
-    return ui.draft.preamp != was;
+/* A draft on Auto saves its 48 kHz cut, a fallback: the player works out its own for each rate. */
+static void follow_auto(void) {
+    if (on_auto()) ui.draft.automatic = 1, ui.draft.preamp = autos()[1];
+}
+
+/* The Preamp row's and the picker's Auto. */
+static void auto_text(char *s, unsigned n) {
+    snprintf(s, n, "Auto (44.1: %.1f / 48: %.1f)", autos()[0], autos()[1]);
 }
 
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
@@ -415,7 +400,9 @@ static int action(void *ctx, void *event) {
         if (ui.screen == HOME && id < PEQ_BANDS) { ui.band = id; ui.screen = BAND; }
         else if (ui.screen == PICK && id < picks[ui.pick - BALANCE].rows) {
             /* Preamp's Auto row: the band-edit cut, which later band edits then keep up to date. */
-            *picked() = ui.pick == PREAMP && !id ? headroom(&ui.draft) : picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * id;
+            *picked() = ui.pick == PREAMP && !id
+                            ? autos()[1]
+                            : picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * id;
             if (ui.pick == PREAMP) ui.draft.automatic = id ? 2 : 1;
             if (ui.pick == GAIN && !b->enabled) b->enabled = 1; /* picking a gain is using the band */
             ui.dirty = 1;
@@ -527,8 +514,14 @@ static int render(const void *unused) {
         snprintf(value, sizeof(value), __builtin_fabs(ui.draft.balance) >= 0.05 ? "%s %.1f dB" : "Centre",
                  ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
         row_dim(view, n++, "Balance", value, BALANCE, 0);
-        snprintf(value, sizeof(value), on_auto() ? "%.1f dB (Auto)" : "%.1f dB", ui.draft.preamp);
-        row_dim(view, n++, "Preamp", value, PREAMP, 0);
+        if (on_auto())
+            auto_text(value, sizeof(value));
+        else
+            snprintf(value, sizeof(value), "%.1f dB", ui.draft.preamp);
+        void *shown = row_dim(view, n++, "Preamp", value, PREAMP, 0);
+        /* At 20px two double-digit cuts overrun the iPod's 303px column beside the caption; at 18
+         * the longest, -60.0 at both, leaves 6px (the stock font's widths). */
+        if (on_auto()) widget_set_prop_int(shown, "style:normal:font_size", 18);
         row_dim(view, n++, "Presets", ui.name[0] ? ui.name : 0, MENU, 0); /* the draft's preset */
         /* Ten rows, then one spare past the last used band to add another. */
         for (int i = 0; i < PEQ_BANDS && (i < 10 || i <= ui.draft.count); ++i) {
@@ -574,7 +567,8 @@ static int render(const void *unused) {
             double v = picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * i;
             if (ui.pick == BALANCE) /* L 12.0 dB to R 12.0 dB */
                 snprintf(text, sizeof(text), i == 24 ? "Centre" : "%s %.1f dB", v < 0 ? "L" : "R", __builtin_fabs(v));
-            else if (ui.pick == PREAMP && !i) snprintf(text, sizeof(text), "Auto (%.1f dB)", headroom(&ui.draft));
+            else if (ui.pick == PREAMP && !i)
+                auto_text(text, sizeof(text));
             else snprintf(text, sizeof(text), "%+.1f dB", v);
             row(view, n++, text, i);
         }
@@ -817,8 +811,10 @@ int peq_page_init(void *page, void *context) {
     eq_state s;
     eq_load(&s);
     ui.draft = s.peq;
-    /* ponytail: a moved Auto plays its old number until Apply; the player has no headroom(). */
-    ui.dirty = follow_auto();
+    /* Auto's saved number may be older (another version's); the player never plays it, so nothing
+     * to apply. */
+    follow_auto();
+    ui.dirty = 0;
     load(&s);
     ui.named.bypass = ui.draft.bypass;
     if (memcmp(&ui.draft, &ui.named, sizeof(ui.named))) ui.applied[0] = 0; /* replaced since */
