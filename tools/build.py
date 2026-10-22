@@ -21,7 +21,7 @@ def dev_tag(number, edition):
     for _ in range(3): n, d = divmod(n, 36); digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[d] + digits
     return 'V' + digits + edition.lower()
 BASE = 0xb00000
-SCRATCH = 0xb60000  # 384 KB of payload text below it
+SCRATCH = 0xb80000  # 512 KB of payload text below it
 RING_STEP = 48
 HOOKS = {
     'localmusic_playlistsmore_page_init': (0x4b3918, 'ringnav_playlistsmore', 'playlistsmore'),
@@ -1141,7 +1141,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     payload = (out/'patch.bin').read_bytes()
     check(len(payload) < SCRATCH-BASE, 'Payload overlaps its scratch page')
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
-    check(ps['__scratch_end'] <= SCRATCH + 0x10000, 'Scratch state exceeds its page')
+    check(ps['__scratch_end'] <= SCRATCH + 0x20000, 'Scratch state exceeds its 128 KB')
     patched = bytearray(raw_demo)
     patch_timezones(patched)
     def jump(off, name): patched[off:off+8] = struct.pack('<II', j(ps[name]), 0)
