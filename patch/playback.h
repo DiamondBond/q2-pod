@@ -15,6 +15,7 @@ void playback_insert(unsigned at, unsigned n, int next); /* the advanced part al
 int playback_move(unsigned from); /* Up Next's hold: from plays next; its new index, else -1 */
 void playback_poll(void);
 void playback_speed_start(void);
+void playback_track_speed(void); /* a track's start: the folder's speed, to the decoder */
 void xfade_poll(int next); /* crossfade.c */
 void mono_sync(void);      /* crossfade.c */
 int playback_resumed(void *r);

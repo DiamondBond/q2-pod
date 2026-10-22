@@ -977,4 +977,11 @@ for badpath in ('https://host/book.mp3','/A/','/'+'x'*1024+'/a.mp3'):
     assert speed_at(m,0)==0
     # No folder (a stream): the change applies to this track only, nothing is saved.
     m.fn('ringnav_speed',2); assert not m.files and m.sent_speed==2 and m.u.mem_read(syms['g_playspeed_mode'],1)[0]==2
+# A track's start sends its own folder's speed to the running decoder: a song after a fast book
+# plays at normal speed, not the decoder's last speed.
+m=PlaybackMachine(); m.word(O['MCL_POS'],0); m.fn('ringnav_speed',2); m.sent_speed=None
+m.word(O['MCL_POS'],1); m.fn('playback_track_speed')
+assert m.sent_speed==0 and m.u.mem_read(syms['g_playspeed_mode'],1)[0]==0
+m.word(O['MCL_POS'],0); m.sent_speed=None; m.fn('playback_track_speed')
+assert m.sent_speed==2 and m.u.mem_read(syms['g_playspeed_mode'],1)[0]==2
 print('Folder speed: persistence, exact parents, reconnect, gapless and failed saves passed')

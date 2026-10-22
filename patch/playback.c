@@ -232,6 +232,11 @@ static unsigned speed_read(int at) {
 }
 
 void playback_speed_start(void) { g_playspeed_mode = speed_read(M(MCL_POS)); }
+/* A track's start: its folder's speed, sent to the decoder, which keeps the last track's otherwise. */
+void playback_track_speed(void) {
+    playback_speed_start();
+    stock_speed_trampoline(g_playspeed_mode);
+}
 
 int ringnav_speed(int mode) {
     folder_speed saved = { { 0 }, 0 };

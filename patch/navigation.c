@@ -5980,7 +5980,7 @@ int ringnav_start_player(void) {
     headset_manual();
     spot_yield();
     radio_stop();
-    playback_speed_start();
+    playback_track_speed();
     return stock_start_player_trampoline();
 }
 
