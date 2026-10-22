@@ -92,7 +92,8 @@
 #define ACCENTS { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }, /* Graphite */ \
                 { 0xe8123f, 0xe8123f, 0xeb2f56, 0xff1448, 0xeb2f56 }, /* Crimson */ \
                 { 0x13838d, 0x13838d, 0x30929b, 0x30929b, 0x30929b }, /* Tidal */ \
-                { 0x8c732c, 0x8c732c, 0x9a8446, 0x9a8446, 0x9a8446 }  /* Champagne */
+                { 0x8c732c, 0x8c732c, 0x9a8446, 0x9a8446, 0x9a8446 }, /* Champagne */ \
+                { 0x2a6ad8, 0x2a6ad8, 0x447cdd, 0x447cdd, 0x447cdd }  /* Cobalt, the iPod's blue */
 #define CRIMSON 1
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
  * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
@@ -118,7 +119,7 @@
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
-/* iPod black status chrome (Classic: BAR_CLASSIC); TRACK_COLOR is Now Playing's progress track. */
+/* iPod black status chrome, in both Themes; TRACK_COLOR is Now Playing's progress track. */
 #define BAR_COLOR 0x000000
 #define TRACK_COLOR 0x1c1c1c
 #define NP_TIMES_PX 14 /* Now Playing's times, and the volume text in their place */
@@ -194,7 +195,7 @@ static inline int arc_out(int r, int y) {
  * over the Minimal assets at runtime. In Home's Full the rows end at HOME_CLASSIC_ROW, so the
  * chevron's glyph (x 20 to 30 of list_into) sits close to the panel edge without touching the
  * glass on the bottom row. Labels start at HOME_CLASSIC_TEXT_X and leave room for the glyph.
- * The status bar is BAR_CLASSIC and the progress bar an NP_BAR_CLASSIC capsule
+ * The progress bar is an NP_BAR_CLASSIC capsule
  * (Minimal's NP_BAR_MINIMAL line). Minimal has no accent: its fills are MINIMAL_FILL, its
  * settings icons grey and list_into MINIMAL_CHEVRON. */
 #define HOME_SPLIT_W 187
@@ -204,7 +205,6 @@ static inline int arc_out(int r, int y) {
 #define HOME_FULL_CHEVRON_SHIFT 10
 #define HOME_CLASSIC_TEXT_X 33
 #define HOME_CLASSIC_LABEL_END (CHEVRON_W - 10)
-#define BAR_CLASSIC 0x242424
 #define NP_BAR_CLASSIC 8
 #define NP_BAR_MINIMAL 4
 #define MINIMAL_FILL 0xeeeeec

@@ -1430,7 +1430,7 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
-                                            "Accent: Champagne" };
+                                            "Accent: Champagne", "Accent: Cobalt" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
@@ -3296,7 +3296,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-        canvas_set_fill_color(canvas, RGBA(ipod_classic() ? BAR_CLASSIC : BAR_COLOR));
+        canvas_set_fill_color(canvas, RGBA(BAR_COLOR));
         canvas_fill_rect(canvas, 0, 0, I(w, W_W), I(w, W_H));
         canvas_set_fill_color(canvas, fill);
     }

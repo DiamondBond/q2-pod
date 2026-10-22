@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     cases += [f'{label} / {value}%' for label in ('Brightness','Balance','Maximum volume','Default volume')
               for value in (0,50,100)]
     cases += ['System Settings / with Rockbox', 'System Settings / without Rockbox', 'Internet Radio / favourite']
-    for accent, name in enumerate(('Graphite','Crimson','Tidal','Champagne')):
+    for accent, name in enumerate(('Graphite','Crimson','Tidal','Champagne','Cobalt')):
         tiles=[]
         for case, title in enumerate(cases):
             for side, (theme, build) in enumerate(zip(themes, (before, after))):
@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                 tint = accent if old else 0  # Minimal's images take Graphite's greys
                 a=['-size','375x320','xc:black']
                 if case<8 or case>=10:
-                    rect(a,0,0,375,30,f'#{inc("BAR_CLASSIC") if old else inc("BAR_COLOR"):06x}')
+                    rect(a,0,0,375,30,f'#{inc("BAR_COLOR"):06x}')
                     text(a,'Ⅱ' if case==3 else 'Q2' if case in (1,2) or case>=15 else '▶',STATUS_MARGIN,7,28,16,16)
                     text(a,'12:59 PM',151,5,74,20,16)
                     text(a,'88%',280,5,40,20,16)
@@ -304,7 +304,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
     # Native-size status review: all four modes, both themes, crowded and critical states.
     battery_rows=[]
     for theme in themes:
-        bg=f'#{inc("BAR_CLASSIC") if theme=="classic" else inc("BAR_COLOR"):06x}'
+        bg=f'#{inc("BAR_COLOR"):06x}'
         for state,level in [('normal',n) for n in (0,1,9,50,99,100)]+[('charging',50),('low',5),('codec',100)]:
             columns=[]
             for mode in range(4):

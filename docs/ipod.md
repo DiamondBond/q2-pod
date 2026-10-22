@@ -270,7 +270,7 @@ The controls' stock images are 60-pixel discs: `#444444` with a white glyph when
 disc takes the accent's red tone, as everything else red does, so it stands clearly apart from the
 grey inactive discs. On a tone brighter than `GLYPH_LIGHT_MAX` (perceived brightness 160 of 255),
 which is Graphite's silver, the white glyph and its anti-aliased edges turn `CONFIRM_SURFACE`
-(`#2B2B2B`) so the glyph stays legible; Crimson, Tidal and Champagne keep the white glyph (3:1 or
+(`#2B2B2B`) so the glyph stays legible; Crimson, Tidal, Champagne and Cobalt keep the white glyph (3:1 or
 more). Only an image that holds the red disc gets the dark glyph, so inactive discs keep their white
 glyphs; off and disabled discs contain no red and keep their stock look, and alpha is untouched.
 The brightness suns (`drop_lighleft`, `drop_lightright`) sit on black, not a disc, and keep the
@@ -563,6 +563,7 @@ no `THEME`, keeps 1.0.1's look.
 | Crimson (1)           | `#EB2F56`                            | stock `#FF1448`  |
 | Tidal (2)             | `#30929B`                            | `#30929B`        |
 | Champagne (3)         | `#9A8446`                            | `#9A8446`        |
+| Cobalt (4)            | `#447CDD`                            | `#447CDD`        |
 
 Existing accent preference values and the red-tone mapping stay compatible; greys and artwork
 remain unchanged by the live accent mapper. See [internals.md](internals.md#accent) for the mapping.
@@ -573,8 +574,8 @@ Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the ex
 
 **Theme: Minimal** (`THEME=0`, the default) is the look described above. **Theme: Classic**
 (`1`) is the iPod look before 1.0.1, drawn at runtime over the same assets: the accent's
-full-width selection bar under white text, with Home's chevron on its bar, coloured settings icons and the stock `list_into`, a `#242424` status
-bar (`BAR_CLASSIC`), and Now Playing's 8-pixel capsule and play/pause glyph.
+full-width selection bar under white text, with Home's chevron on its bar, coloured settings icons and the stock `list_into`, and Now Playing's 8-pixel capsule and play/pause
+glyph. Its status bar is black, as Minimal's.
 
 Minimal has no accent: the Accent row hides (the list's layout skips a hidden row, so it leaves
 no gap) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,

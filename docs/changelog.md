@@ -9,6 +9,8 @@
   - EQ: **Presets → Rename a preset** renames a saved preset.
   - Now Playing: the progress thumb you touch to seek is white in Minimal and your accent colour in Classic, instead of blue.
   - Playlists: the ⋯ page's row that deletes the whole playlist always reads **Delete Playlist**.
+  - Display: **Accent: Cobalt**, the iPod's blue, for the Classic theme.
+  - Display: the Classic theme's status bar is black, as Minimal's.
 
 - **1.3.8**:
   - Full-screen album art: the song name shows again for 3 s each time the track changes, then fades as before.

@@ -773,7 +773,7 @@ else:
     k=Machine(); k.config['THEME']='1'; kb=k.node('system_bar','system_bar'); k.word(syms['system_bar'],kb)
     k.word(kb+O['W_PARENT'],k.wm); k.word(kb+O['W_W'],375); k.word(kb+O['W_H'],30)
     k.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(kb,k.canvas,0,0))
-    assert [b[:5] for b in k.bands]==[(0,0,375,30,color_t(O['BAR_CLASSIC']))]; passed()  # Classic's grey
+    assert [b[:5] for b in k.bands]==[(0,0,375,30,color_t(O['BAR_COLOR']))]; passed()  # Classic's black, as Minimal's
     # The clock: local time as 12-hour h:mm AM/PM, written only when the minute shown changes, on
     # the bar's own repaint (stock repaints it each second) or the top window's, whatever the page.
     def clock(): return s.nodes[title].get('text')
@@ -6371,7 +6371,7 @@ if variant=='ipod':
     # Theme: Minimal (no THEME, or 0) has no accent: Graphite's greys whatever ACCENT holds.
     C={'THEME':'1'}
     for config,preset in (({},0),({**C,'ACCENT':'1'},1),({**C,'ACCENT':'2'},2),({**C,'ACCENT':'3','HOME':'1'},3),({**C,'ACCENT':'7'},0),
-                          ({**C,'ACCENT':'12'},0),({**C,'ACCENT':'4'},0),({'ACCENT':'1'},0),({'ACCENT':'2','THEME':'0'},0),({'ACCENT':'2','THEME':'2'},0)):  # 4 was Custom
+                          ({**C,'ACCENT':'12'},0),({**C,'ACCENT':'4'},4),({**C,'ACCENT':'5'},0),({'ACCENT':'1'},0),({'ACCENT':'2','THEME':'0'},0),({'ACCENT':'2','THEME':'2'},0)):  # 4 is Cobalt (once Custom, gone before 0.9.9)
         m=Machine(); m.config=config
         ret,got,out=style_color(m,red)
         assert ret==out and got==(red if preset==O['CRIMSON'] else color_t(ACCENTS[preset][3])),(config,hex(got))
@@ -6737,7 +6737,7 @@ if variant=='ipod':
     # stock rows) keeps it, painted.
     m.paint(view); assert m.selected(view)==3; passed()
     click(1); assert texts()[1]=='Home: Full'; home_bounds(True,True); click(1); home_bounds(False,True); passed()
-    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(0,'Graphite'),(1,'Crimson')):
+    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Cobalt'),(0,'Graphite'),(1,'Crimson')):
         writes=click(0)
         assert len(writes)==1 and writes[0][0]==value and m.text(writes[0][1])=='IPOD' and m.text(writes[0][2])=='ACCENT'
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]

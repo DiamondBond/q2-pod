@@ -326,7 +326,7 @@ iPod sets the hint in its assets ([ipod.md](ipod.md#transitions)). `htranslate` 
 
 ## Status bar (iPod)
 
-The background hook also handles top-level widgets, whose parent is the window manager. The status bar widget, which `system_bar_init` stores in the `system_bar` global (`0xa3a6d0`, a size-checked `CONTEXT_DATA` entry), gets one `canvas_fill_rect` in a darker color, `BAR_COLOR` (`#242424`), without a highlight, with the LCD fill color restored.
+The background hook also handles top-level widgets, whose parent is the window manager. The status bar widget, which `system_bar_init` stores in the `system_bar` global (`0xa3a6d0`, a size-checked `CONTEXT_DATA` entry), gets one `canvas_fill_rect` in black, `BAR_COLOR` (`#000000`, both Themes), without a highlight, with the LCD fill color restored.
 
 Painting the bar or the top window also updates `label_clock` in the bar with the device's local time: `time` and `localtime` (the stock libc imports, through the payload's GOT trampolines) give the hour and minute (`struct tm` `+8`, `+4`), written through `tk_snprintf` as `%d:%02d %s`, a 12-hour clock without seconds or a leading zero (`12:05 AM`, `6:14 PM`), then `widget_set_text_utf8`. A failed `time` (`-1`) or `localtime` (null), or an out-of-range field, shows `--:--`. The minute of the day (plus one, `~0` for `--:--`) is kept in the scratch page, so the label is looked up and written only when the minute shown changes; the bar repaints at least once a second through `systembar_showface`, so the clock turns over within a second, including after the screen wakes. Every page and dialog shows it. There is no volume flash: stock `on_wm_keyup_fun` opens `dialog/volume_dialog` on every volume turn (`0x4e8bb0`).
 
