@@ -2,6 +2,13 @@
 
 - **1.3.9** (unreleased):
   - iPod: **Library → Games** with Sudoku and Vortex, playable while music plays. Sudoku keeps the game in progress and Vortex the best score across restarts.
+  - Library: Frequent and Recent show a song's title instead of its file name and track number when it was played from Folder.
+  - Quick Settings: swiping up to close from the brightness slider no longer moves the brightness. The slider now only moves once your finger goes sideways.
+  - Wi-Fi and Bluetooth (Minimal): the delete mark on the selected row is grey instead of white on white.
+  - Lyrics: a lyrics search no longer shows the credits (writer, mix engineer and so on) some LRCLIB lyrics start with.
+  - EQ: **Presets → Rename a preset** renames a saved preset.
+  - Now Playing: the progress thumb you touch to seek is white in Minimal and your accent colour in Classic, instead of blue.
+  - Playlists: the ⋯ page's row that deletes the whole playlist always reads **Delete Playlist**.
 
 - **1.3.8**:
   - Full-screen album art: the song name shows again for 3 s each time the track changes, then fades as before.

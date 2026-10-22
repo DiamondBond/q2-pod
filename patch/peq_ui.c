@@ -34,10 +34,10 @@ void peq_attach(void) {
     if (s.mode == EQ_OFF || (s.mode = EQ_OFF, s.hold = 0, eq_save(&s))) peq_stock_eq(1);
 }
 
-enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST, STOCKS };
+enum { HOME, BAND, PRESETS, IMPORTS, SAVES, CONFIRM, DELETES, PICK, ADJUST, STOCKS, RENAMES, NAMING };
 enum { BACK = 1000, APPLY, RESET, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAISE, LOWER, TYPED, CHANNEL, STEP,
        YES, CANCEL, DELETE, BALANCE, PREAMP, GAIN, /* these three open the picker, in picks[] order */
-       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD, STOCK, FILE_PREV, FILE_NEXT };
+       FREQUENCY, QUALITY, /* and these two the value menu */ KEYBOARD, STOCK, FILE_PREV, FILE_NEXT, RENAME, NAMED };
 #define FILE_PAGE 128
 #define GRAPH_W (375 - 2 * PEQ_GRAPH_X)
 #if IPOD
@@ -188,6 +188,12 @@ static int typed(void *ctx, void *event) {
     return 0;
 }
 
+/* The rename edit closed with new text. */
+static int named(void *ctx, void *event) {
+    action((void *)(long)NAMED, 0);
+    return 0;
+}
+
 /* The T9 keyboard opens on its letters; a value only needs its "123" page (symnum). The keyboard can open a
  * moment after the focus, so look for its window every 16 ms, up to 20 times. */
 static int numbers(const void *unused) {
@@ -249,6 +255,37 @@ static void list_files(const char *folder, const char *extension) {
 
 /* File name in ui.destination: sizeof skips PEQ_SAVED and its "/". */
 static const char *deleting(void) { return ui.destination + sizeof(PEQ_SAVED); }
+
+/* ui.destination (a saved preset's path) renamed to the edit's text, kept if that is empty, starts
+ * with a dot, holds a character the card's FAT cannot, or names another preset. The editor's and
+ * the active preset's names follow it. */
+static void rename_preset(void) {
+    char text[200], to[600], old[256];
+    const char *from = deleting();
+    if (!ui.edit || widget_get_text_utf8(ui.edit, text, sizeof text)) text[0] = 0;
+    unsigned n = strlen(text);
+    while (n && (text[n - 1] == ' ' || text[n - 1] == '.')) text[--n] = 0; /* FAT drops these */
+    const char *t = text, *c;
+    while (*t == ' ') ++t;
+    for (c = t; *c; ++c) /* stops on a character FAT refuses */
+        for (const char *bad = "/\\:*?\"<>|"; *bad; ++bad)
+            if (*c == *bad) goto checked;
+checked:
+    snprintf(old, sizeof old, "%.*s", (int)strlen(from) - 4, from);
+    ui.screen = PRESETS;
+    if (!*t || *t == '.' || *c)
+        snprintf(ui.status, sizeof(ui.status), "Name not allowed; preset kept");
+    else if (!strcmp(t, old)) return;
+    else if (snprintf(to, sizeof to, PEQ_SAVED "/%s.peq", t), strcasecmp(t, old) && !access(to, 0))
+        snprintf(ui.status, sizeof(ui.status), "Name taken; preset kept");
+    else if (rename(ui.destination, to))
+        snprintf(ui.status, sizeof(ui.status), "Rename failed; preset kept");
+    else {
+        if (!strcmp(ui.name, old)) snprintf(ui.name, sizeof(ui.name), "%s", t);
+        if (!strcmp(ui.applied, old)) snprintf(ui.applied, sizeof(ui.applied), "%s", t);
+        snprintf(ui.status, sizeof(ui.status), "Renamed to %.100s", t);
+    }
+}
 
 /* Stock's genre presets, built in: reset_user_eq's table (modes 4-11), in dB over the ten default
  * bands. Picking one loads it into the editor as a saved preset does; nothing is written. */
@@ -322,6 +359,8 @@ static int action(void *ctx, void *event) {
     }
     else if (id == STOCK) ui.screen = STOCKS;
     else if (id == DELETE) ui.screen = DELETES;
+    else if (id == RENAME) ui.screen = RENAMES;
+    else if (id == NAMED) { if (ui.screen == NAMING) rename_preset(); }
     else if (id >= BALANCE && id <= GAIN) { ui.pick = id; ui.screen = PICK; }
     else if (id == FREQUENCY || id == QUALITY) { ui.adjust = id; ui.screen = ADJUST; }
     else if (id == SAVE) ui.screen = SAVES;
@@ -404,6 +443,9 @@ static int action(void *ctx, void *event) {
                 snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%.*s.peq", (int)n, ui.names[file]);
                 save_candidate(0);
             }
+        } else if (file < ui.count && ui.screen == RENAMES) {
+            snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%s", ui.names[file]);
+            ui.screen = NAMING;
         } else if (file < ui.count && ui.screen == DELETES) {
             snprintf(ui.destination, sizeof(ui.destination), PEQ_SAVED "/%s", ui.names[file]);
             ui.previous = DELETES;
@@ -536,6 +578,15 @@ static int render(const void *unused) {
             else snprintf(text, sizeof(text), "%+.1f dB", v);
             row(view, n++, text, i);
         }
+    } else if (ui.screen == NAMING) { /* the name in an edit, as the value menu's, on the keyboard's letters */
+        void *item = list_item_create(view, 0, 0, 375, 48);
+        widget_use_style(item, "s_listitem_black");
+        widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
+        ui.edit = edit_create(item, "text", 4, 40);
+        snprintf(text, sizeof(text), "%.*s", (int)strlen(deleting()) - 4, deleting());
+        widget_set_text_utf8(ui.edit, text);
+        widget_on(ui.edit, EVT_VALUE_CHANGED, named, 0);
+        n = 1;
     } else if (ui.screen == CONFIRM && ui.previous == DELETES) {
         snprintf(text, sizeof(text), "Delete %.100s? Confirm", deleting()); row(view, n++, text, YES);
         row(view, n++, "Cancel", CANCEL);
@@ -553,6 +604,7 @@ static int render(const void *unused) {
             row(view, n++, "Stock presets", STOCK);
             row(view, n++, "Import from SD /EQ", IMPORT);
             row(view, n++, "Save editor preset", SAVE);
+            row(view, n++, "Rename a preset", RENAME);
             row(view, n++, "Delete a preset", DELETE);
         }
         list_files(ui.screen == IMPORTS ? PEQ_IMPORT : PEQ_SAVED, ui.screen == IMPORTS ? ".txt" : ".peq");
@@ -587,7 +639,9 @@ static int render(const void *unused) {
     else if (ui.screen == ADJUST) snprintf(text, sizeof(text), ui.adjust == QUALITY ? "Band %d Q" : "Band %d Frequency (Hz)", ui.band + 1);
     else if (ui.screen == PICK && ui.pick == GAIN) snprintf(text, sizeof(text), "Band %d Gain", ui.band + 1);
     else if (ui.screen == PICK) snprintf(text, sizeof(text), ui.pick == PREAMP ? "Preamp" : "Balance");
-    else if ((ui.screen == IMPORTS || ui.screen == PRESETS || ui.screen == DELETES) && ui.count > FILE_PAGE)
+    else if (ui.screen == NAMING) snprintf(text, sizeof(text), "Rename %.*s", (int)strlen(deleting()) - 4, deleting());
+    else if ((ui.screen == IMPORTS || ui.screen == PRESETS || ui.screen == DELETES || ui.screen == RENAMES) &&
+             ui.count > FILE_PAGE)
         snprintf(text, sizeof(text), "Presets %d/%d", ui.file_page + 1, (ui.count - 1) / FILE_PAGE + 1);
     else if (ui.screen != HOME) snprintf(text, sizeof(text), "Presets");
     widget_set_text_utf8(title, text);

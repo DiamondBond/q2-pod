@@ -2203,7 +2203,7 @@ def netupdate_check(tmp):
 
 def online_check(tmp):
     """Lyrics and cover search (onlinematch.c): LRCLIB's, MusicBrainz's and iTunes's search URLs,
-    percent-encoded, and iTunes artwork's 600 px size."""
+    percent-encoded, iTunes artwork's 600 px size, and LRCLIB lyrics less their opening credits."""
     lib = compile_host(tmp, 'onlinematch.so', ROOT/'patch/onlinematch.c')
     def call(f, t, a, n=256):
         out = C.create_string_buffer(n)
@@ -2222,6 +2222,13 @@ def online_check(tmp):
     art = C.create_string_buffer(b'https://is1-ssl.mzstatic.com/image/thumb/a/100x100.png/100x100bb.jpg')
     assert lib.itunes_art(art) and art.value == b'https://is1-ssl.mzstatic.com/image/thumb/a/100x100.png/600x600bb.jpg'
     assert not lib.itunes_art(C.create_string_buffer(b'https://x/cover.jpg'))
+    lib.lrc_body.restype = C.c_char_p
+    body = lambda t: lib.lrc_body(t.encode())
+    sung = '[00:06.10]안 봐도 보여 what is on your mind\n[00:09.00]Line : two\n'
+    assert body('[00:00.00] 作词 : X\n[00:01.00]\r\n[00:03.00] Mix Engineer : N for 411 E. 9th Ave @ Z\n' + sung) == sung.encode()
+    assert body(sung) == sung.encode() and body('[offset:+200]\n[00:00.00] A : B\n' + sung).startswith(b'[offset')  # tags stay
+    assert body('[00:00.00]男：你好\n') == '[00:00.00]男：你好\n'.encode()  # a duet's label is sung
+    assert body('[00:00.00] Lyrics : X\n[00:01.00]\n') == b''  # nothing sung: lrclib tries the next result
 
 
 def tidal_check(tmp):

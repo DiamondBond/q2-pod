@@ -229,7 +229,7 @@ class Machine:
                 x-=signed(self.get(a+O['W_X'])); y-=signed(self.get(a+O['W_Y']))
                 a=self.get(a+O['W_PARENT'])
             self.word(b,x); self.word(b+4,y); ret=0
-        elif name=='widget_set_text_utf8': n['text']=self.text(b); ret=0
+        elif name in ('widget_set_text_utf8','widget_set_tr_text'): n['text']=self.text(b); ret=0  # no language has our keys
         elif name=='image_base_set_image': n['image']=self.text(b); ret=0
         elif name=='widget_use_style': n['style']=self.text(b); ret=0
         elif name.startswith('hscroll_label_set_') or name=='set_hscroll_label_attribute':
@@ -1701,21 +1701,29 @@ assert m.call()==11 and m.nodes[bright]['value']==51
 m=Machine(); m.config['QSVOLUME']='1'; bright=m.node('slider','slider_backlight',value=50)
 m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
 assert m.call()!=11 and m.nodes[bright]['value']==50; passed()
-# A swipe up that closes it (stock g_dropdown_menu_state 1, 2) may start on the brightness slider: its
-# moves and release abort the slider's press and put back the value from pointer-down. Open and
-# still (3), a drag keeps the value it set.
-for state,kept in ((1,False),(2,False),(3,True)):
+# A swipe up that closes it may start on the brightness slider: the slider gets its press only once the
+# touch goes 10 px more sideways than up or down, or with a tap's release; a touch that goes up first,
+# or any while stock slides the pull-down (g_dropdown_menu_state 1, 2), never reaches it, and a press
+# it has is aborted. Withheld events return 0, not STOP, so the window manager still sees the touch.
+def slider_touch(steps,state=3,dialog='statusbar_dialog'):
     m=Machine(); bright=m.node('slider','slider_backlight',value=50)
-    m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
-    m.word(syms['g_dropdown_menu_state'],3)
-    touch=lambda kind: m.call(address=HOOKS['widget_dispatch'][0],args=(bright,m.event,0,0),event_type=kind,gap=0)
-    touch(O['EVT_POINTER_DOWN']-1); m.nodes[bright]['value']=80  # the slider takes the press
-    m.word(syms['g_dropdown_menu_state'],state)
-    for kind in (O['EVT_POINTER_MOVE_BEFORE']-1,O['EVT_POINTER_UP_BEFORE']-1):
-        touch(kind); aborts=[c for c in m.dispatched() if m.get(c[2])==O['EVT_POINTER_ABORT']]
-        assert m.nodes[bright]['value']==(80 if kept else 50) and [c[1] for c in aborts]==[bright]*(not kept),(state,kind)
-    # a later touch's down-before, ahead of its down, must not put back the earlier touch's value
-    if kept: m.word(syms['g_dropdown_menu_state'],1); touch(O['EVT_POINTER_DOWN']); assert m.nodes[bright]['value']==80
+    view=m.node('view','view_backlight',[bright]); m.top=m.node('dialog',dialog,[view])
+    m.word(bright+O['W_PARENT'],view); m.word(view+O['W_PARENT'],m.top)
+    m.word(syms['g_dropdown_menu_state'],3); got=[]
+    for kind,x,y in steps:
+        if kind=='up': m.word(syms['g_dropdown_menu_state'],state)
+        m.word(m.event+O['EVENT_Y'],y)
+        typ={'down':O['EVT_POINTER_DOWN']-1,'move':O['EVT_POINTER_MOVE_BEFORE']-1,'up':O['EVT_POINTER_UP_BEFORE']-1}[kind]
+        ret=m.call(x,address=HOOKS['widget_dispatch'][0],args=(bright,m.event,0,0),event_type=typ,gap=0)  # EVENT_X is EVENT_KEY's word
+        got.append((ret,[m.get(c[2]) for c in m.dispatched() if c[1]==bright]))
+    return got
+D,M,U,A=O['EVT_POINTER_DOWN']-1,O['EVT_POINTER_MOVE_BEFORE']-1,O['EVT_POINTER_UP_BEFORE']-1,O['EVT_POINTER_ABORT']
+assert slider_touch([('down',100,300),('move',103,290),('move',104,270),('move',140,250),('up',140,200)])==[(0,[])]*5  # a swipe up
+assert slider_touch([('down',100,300),('move',105,301),('move',120,302),('up',150,302)])==[(0,[]),(0,[]),(0,[D,M]),(0,[U])]  # a drag
+assert slider_touch([('down',100,300),('up',101,301)])==[(0,[]),(0,[D,U])]  # a tap
+assert slider_touch([('down',100,300),('move',120,300),('up',120,250)],state=1)==[(0,[]),(0,[D,M]),(0,[A])]  # then stock slides it
+assert slider_touch([('down',100,300),('up',100,300)],state=2)==[(0,[]),(0,[])]
+assert slider_touch([('down',100,300),('move',103,280)],dialog='backlight_page')==[(0,[D]),(0,[M])]  # Settings' slider is stock's
 passed()
 
 # Set date and time: the wheel turns the outlined field, Centre moves on (to the time page after
@@ -4006,14 +4014,17 @@ m=ClassMachine(page='localclass_page',cls=0xf001,rows=2); m.word(m.row(1)+O['REC
 m.word(m.row(0)+O['REC_NAME'],m.string('a.flac')); m.word(m.row(0)+O['REC_PATH'],m.string('/p/a.flac'))
 m.call(address=HOOKS['load_localclass_list'][0],args=(0xf001,0,0,0),gap=0)
 assert variant!='ipod' or [m.text(m.get(m.row(i)+O['REC_TITLE'])) for i in (0,1)]==['a','Tagged']; passed()
-# Favorites: a row stock copied without its title takes the library's, by path, not its file name.
-m=ClassMachine(page='localclass_page',cls=0xf001,rows=2)
-m.word(m.row(0)+O['REC_NAME'],m.string('05-song.flac')); m.word(m.row(0)+O['REC_PATH'],m.string('/p/05-song.flac'))
-m.handlers.pop(syms['getAllMusic']); m.split=[m.song('Row 0'),m.song('05-song.flac')]; m.word(m.split[1]+O['REC_TITLE'],m.string('Song'))
-m.word(m.split[0]+O['REC_PATH'],m.string('/p/05-song.flac')); m.word(m.split[0]+O['REC_CUE_START'],1)  # a CUE image's other track
-m.call(address=HOOKS['load_localclass_list'][0],args=(0xf00a,0,0,0),gap=0)
-t=m.get(m.row(1)+O['REC_TITLE'])  # no library title: as before
-assert m.text(m.get(m.row(0)+O['REC_TITLE']))=='Song' and (m.text(t)=='Row 1' if variant=='ipod' else not t); passed()
+# My Fav, Frequent and Recent: a row stock copied without its title takes the library's, by path, not
+# its file name.
+for cls in (0xf00a,0xf008,0xf007):
+    m=ClassMachine(page='localclass_page',cls=0xf001,rows=2)
+    m.word(m.row(0)+O['REC_NAME'],m.string('05-song.flac')); m.word(m.row(0)+O['REC_PATH'],m.string('/p/05-song.flac'))
+    m.handlers.pop(syms['getAllMusic']); m.split=[m.song('Row 0'),m.song('05-song.flac')]; m.word(m.split[1]+O['REC_TITLE'],m.string('Song'))
+    m.word(m.split[0]+O['REC_PATH'],m.string('/p/05-song.flac')); m.word(m.split[0]+O['REC_CUE_START'],1)  # a CUE image's other track
+    m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+    t=m.get(m.row(1)+O['REC_TITLE'])  # no library title: as before
+    assert m.text(m.get(m.row(0)+O['REC_TITLE']))=='Song' and (m.text(t)=='Row 1' if variant=='ipod' else not t), hex(cls)
+passed()
 # An empty category list says so once its page is up, instead of a black page.
 m=ClassMachine(page='localclass_page',cls=0xf001,rows=0)
 assert m.call(address=HOOKS['load_localclass_list'][0],args=(0xf006,0,0,0),gap=0)==0 and not m.toasts
@@ -6589,6 +6600,7 @@ if variant=='ipod':
     for config in ({},{'ACCENT':'2'}):
         assert rgba(config,'system_netservice',px)==[(ink,255),(0xbcbcbc,255),(0xffffff,255),(ink,128),(0xffffff,0)]
         assert rgba(config,'list_into',px)==[(O['MINIMAL_CHEVRON'],a) for _,a in px]
+        assert rgba(config,'list_delete',[(0xffffff,255),(0xffffff,0)])==[(O['MINIMAL_CHEVRON'],255),(O['MINIMAL_CHEVRON'],0)]
         # Codec badges take SUDO_MUTED, legible on black and on the selected card; other img_ art doesn't.
         assert rgba(config,'img_flac',[(0xff1448,255),(0xff1448,0)])==[(O['SUDO_MUTED'],255),(O['SUDO_MUTED'],0)]
         assert rgba(config,'img_delete',[(0xff1448,255)])!=[(O['SUDO_MUTED'],255)]

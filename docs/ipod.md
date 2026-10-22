@@ -580,7 +580,9 @@ Minimal has no accent: the Accent row hides (the list's layout skips a hidden ro
 no gap) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,
 whatever `ACCENT` holds, and its own fills (the progress bars, Spotify's, the PEQ curve and the
 visualizer) are `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure white. In Classic
-the Accent row follows Theme and every accent applies as before.
+the Accent row follows Theme and every accent applies as before. Now Playing's progress thumb, which
+stock draws while the bar is touched in the slider's `border_color` (the stock theme's blue), is set
+by `np_fill` to white in Minimal and the accent's light tone in Classic.
 
 A change applies at once, as Accent does: the image cache is dropped and the screen repaints
 (icons and chevrons reload in the new theme's colours), Home re-lays its menus and art, and all
@@ -597,10 +599,10 @@ status bar asset's own background (`#000000`, not `#161616`), which the payload'
 **Library → Games** opens Sudoku and Vortex ([internals](internals.md#games)). A game takes every
 key but Power and a held Return, so the music keeps playing untouched.
 
-| Game | Wheel | Centre | Play/Pause | Previous/Next | Return |
-| --- | --- | --- | --- | --- | --- |
-| Sudoku | Moves through the cells; picks the digit | Opens the digit, then writes it | New game (asks first) | Up or down a row | Cancels the digit; back to Games |
-| Vortex | Turns the paddle | Launches; plays again after a game | Pauses and resumes | | Pause menu: Continue or Quit |
+| Game   | Wheel                                    | Centre                             | Play/Pause            | Previous/Next    | Return                           |
+| ------ | ---------------------------------------- | ---------------------------------- | --------------------- | ---------------- | -------------------------------- |
+| Sudoku | Moves through the cells; picks the digit | Opens the digit, then writes it    | New game (asks first) | Up or down a row | Cancels the digit; back to Games |
+| Vortex | Turns the paddle                         | Launches; plays again after a game | Pauses and resumes    |                  | Pause menu: Continue or Quit     |
 
 ## Review sheets
 

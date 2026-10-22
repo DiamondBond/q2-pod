@@ -51,6 +51,33 @@ int itunes_art(char *url) {
     return last != 0;
 }
 
+/* t past its opening credit lines ("[00:01.00] Mix Engineer : Name", NetEase's style, which LRCLIB
+ * keeps): each line, up to the first sung one, whose text holds " : ", and any blank line before
+ * one. A tag line such as [offset:...] ends the search, so it stays; lyrics with no sung line at all
+ * come back empty. */
+const char *lrc_body(const char *t) {
+    const char *line = t;
+    while (*line) {
+        const char *text = line, *end = line;
+        while (*end && *end != '\n') ++end;
+        while (*text == '[' && text[1] >= '0' && text[1] <= '9') { /* the line's [mm:ss.xx] times */
+            const char *c = text;
+            while (c < end && *c != ']') ++c;
+            if (c == end) break;
+            text = c + 1;
+        }
+        int credit = 0, blank = 1;
+        for (const char *c = text; c < end; ++c) {
+            if (*c != ' ' && *c != '\r') blank = 0;
+            if (c[0] == ' ' && c + 2 < end && c[1] == ':' && c[2] == ' ') credit = 1;
+        }
+        if (!credit && !blank) return t; /* the first sung line, or a tag */
+        line = *end ? end + 1 : end;
+        if (credit) t = line;
+    }
+    return line;
+}
+
 #ifndef PEQ_HOST
 #include "offsets.inc"
 #include "stock.h"
@@ -119,7 +146,7 @@ static int lrclib(const char *out) {
     void *json = cJSON_Parse(body);
     for (int i = 0, n = json ? cJSON_GetArraySize(json) : 0; i < n && !ok; ++i) {
         const char *text = str(cJSON_GetArrayItem(json, i), "syncedLyrics");
-        void *f = text && *text ? fopen(out, "w") : 0;
+        void *f = text && *(text = lrc_body(text)) ? fopen(out, "w") : 0;
         if (f) {
             fputs("\xef\xbb\xbf", f), fputs(text, f);
             ok = !fclose(f); /* a failed write shows at close */

@@ -1329,6 +1329,8 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         videos='system_display.png', longsongs='system_time.png').items()})
     if ipod:  # the Library's Games row; ponytail: stock's language icon until one is drawn
         icons['local_games.png'] = ('system_language.png', cat(xx+'system_language.png'))
+        # Minimal's selected Wi-Fi and Bluetooth rows draw this grey copy over stock's white delete mark
+        icons['list_delete.png'] = ('navbar_delete.png', cat(xx+'navbar_delete.png'))
     for n in ('spotify', 'radio'):  # Streaming's Spotify and Internet Radio rows
         icons[f'stream_{n}.png'] = ('list_tidal.png', (ROOT/'assets/icons'/f'stream_{n}.png').read_bytes())
     icons['stream_airplay.png'] = ('list_tidal.png', cat(xx+'netservice_airplay.png'))  # iPod resizes stock's

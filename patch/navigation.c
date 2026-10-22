@@ -254,7 +254,7 @@ typedef struct {
     void *ch_page;
     chapters *ch;
     unsigned ch_timer, ch_track, ch_key;
-    void *sc_page, *sc_row[2];     /* Streaming's Configuration page and its two cache rows */
+    void *sc_page, *sc_row[2]; /* Streaming's Configuration page and its two cache rows */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
      * is up on (0 when down), the hearts picked, the heart's hold timer (rate_held once it fired),
@@ -1914,18 +1914,30 @@ static void edit_paint(void *w, void *canvas);
 #if IPOD
 /* Minimal: stock's white radio images (select, unselect: a 26 px ring, a 12 px dot when checked)
  * vanish on the selected row's off-white card, so they are drawn again over it in the card's ink.
+ * So does the Wi-Fi, Bluetooth and Tidal rows' navbar_delete, drawn again as list_delete, its copy
+ * in list_into's grey; navbar_delete itself stays white for the playlist page's Delete.
  */
 static void paint_radio(void *w, void *canvas) {
     if (!w || !st.sel_widget || st.sel_home || ipod_classic() || !P(canvas, CANVAS_LCD)) return;
     const char *image = widget_get_prop_str(w, "image", "");
     int more = tk_str_start_with(widget_get_prop_str(w, "name", ""), "img_more");
-    int dot = !tk_strcmp(image, "select");
-    if (!more && !dot && tk_strcmp(image, "unselect")) return;
+    int dot = !tk_strcmp(image, "select"), del = !tk_strcmp(image, "navbar_delete");
+    if (!more && !dot && !del && tk_strcmp(image, "unselect")) return;
     void *row = P(w, W_PARENT);
     for (int depth = 0; row && row != st.sel_widget && depth < 8; ++depth) row = P(row, W_PARENT);
     if (row != st.sel_widget) return;
     int x = I(w, W_W) / 2, y = I(w, W_H) / 2;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    if (del) {
+        unsigned bitmap[64]; /* bitmap_t: width @0, height @4 */
+        if (widget_load_image(w, "list_delete", bitmap)) return;
+        rect_t clear = { x - (int)bitmap[0] / 2, y - (int)bitmap[1] / 2, (int)bitmap[0],
+                         (int)bitmap[1] };
+        fill_box(canvas, &clear, RGBA(MINIMAL_FILL), 0);
+        canvas_draw_icon(canvas, bitmap, x, y);
+        canvas_set_fill_color(canvas, fill);
+        return;
+    }
     if (more) {
         /* Stock's 4px dots, 7px apart, centred in the 50px image. */
         rect_t clear = { x - 13, y - 4, 26, 8 };
@@ -2079,10 +2091,11 @@ int ringnav_quick_lock(void *win, void *event) {
     return 0;
 }
 #define QUICK_HOLD "_quick_hold"
+#define SLIDE_PX 10 /* the brightness slider's sideways move before it takes the touch */
 static struct {
     void *win, *icon, *slider;
     unsigned timer;
-    int x, y, light;
+    int x, y, sx, sy, slide; /* slide: the slider's touch, 0 undecided, 1 its own, -1 the swipe's */
 } quick __attribute__((section(".scratch")));
 
 static int quick_cancel(void *ctx, void *event) {
@@ -2877,11 +2890,17 @@ static void np_sync(void *top) {
  * timer stops, the slider and label_playtime preview the target, player_seek_time commits it once
  * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
 /* The accent's light tone (Minimal's MINIMAL_FILL) fills the progress bar; a white fill (Minimal: a
- * thicker line) marks the scrub. */
+ * thicker line) marks the scrub. The thumb a touch shows is the slider's border_color, stock's
+ * theme blue: white in Minimal, the accent's light tone in Classic. */
 static void np_fill(int scrub) {
     if (!st.np_slider) return;
+    static const char *const thumb[] = { "style:normal:border_color", "style:pressed:border_color",
+                                         "style:over:border_color", "style:focused:border_color" };
     unsigned color = scrub ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
+    for (unsigned i = 0; i < sizeof thumb / sizeof *thumb; ++i)
+        widget_set_prop_int(st.np_slider, thumb[i],
+                            (int)(ipod_classic() ? RGBA(accent_tone(TONE_LIGHT)) : 0xffffffffu));
     /* Minimal's fill is near white already: its scrub thickens the line to Classic's. */
     if (!ipod_classic())
         widget_set_prop_int(st.np_slider, "bar_size", scrub ? NP_BAR_CLASSIC : np_bar_h());
@@ -3446,13 +3465,14 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
         tk_strcmp(name, "img_path") && !dark && !ipod_classic())
         tone = SUDO_MUTED;
     /* Minimal: the settings icons' coloured discs all turn MINIMAL_CHEVRON, like list_into's ink
-     * and stock's grey list discs. The Bluetooth rows' white marks (device, refresh, delete) take
-     * list_into's ink too, or they vanish on the selected row's off-white card. A pixel's
+     * and stock's grey list discs. The Bluetooth rows' white marks (device, refresh) and
+     * list_delete (paint_radio's) take list_into's ink too, or they vanish on the selected row's
+     * off-white card. A pixel's
      * saturation (max - min) against the disc's (the icon's most saturated) says how far it blends
      * towards the white glyph, so edges stay smooth; alpha kept. */
     int into = s && !*s &&
                (!tk_strcmp(name, "list_into") || !tk_strcmp(name, "bt_lefticon") ||
-                !tk_strcmp(name, "bt_refresh"));
+                !tk_strcmp(name, "bt_refresh") || !tk_strcmp(name, "list_delete"));
     int icon = s && !*s &&
                (settings_icon(name) || tk_str_start_with(name, "local_") ||
                 (tk_str_start_with(name, "list_") && !into) || tk_str_start_with(name, "small_") ||
@@ -3836,22 +3856,44 @@ int ringnav_dispatch(void *target, void *event) {
             quick_cancel(0, 0);
         if (target && type == EVT_CLICK && widget_get_prop_int(target, QUICK_HOLD, 0) < 0)
             return STOP;
-        /* Quick Settings' swipe up may start on its brightness slider. While stock slides the
-         * dialog or it follows a swipe (g_dropdown_menu_state 1, 2), the slider's moves and release
-         * first abort its press and put back the value it had at pointer-down. ponytail: stock
-         * takes the swipe after the slider sees its first move, which may set the brightness
-         * until the next event puts it back. */
+        /* Quick Settings' swipe up to close may start on its brightness slider. The slider gets
+         * its press only once the touch has moved SLIDE_PX more sideways than up or down, or on a
+         * tap's release; a touch that moves up or down first, or while stock slides the pull-down
+         * (g_dropdown_menu_state 1, 2), never reaches it, and one it already has is aborted. A
+         * withheld event returns 0, not STOP, which would end its parents' handling too: the
+         * window manager's pointer-down keeps the touch's start (g_pressdown_y) for the swipe. */
+        void *qs = target;
         if (type == EVT_POINTER_DOWN - 1 && target &&
             !tk_strcmp(widget_get_prop_str(target, "name", ""), "slider_backlight"))
-            quick.slider = target, quick.light = widget_get_prop_int(target, "value", 0);
-        else if (target && target == quick.slider && type > EVT_POINTER_DOWN &&
-                 type <= EVT_POINTER_UP_BEFORE && (unsigned)(I(g_dropdown_menu_state, 0) - 1) < 2) {
-            unsigned abort_event[12];
-            stock_dispatch_trampoline(
-                target, pointer_event_init(abort_event, EVT_POINTER_ABORT, target, 0, 0));
-            if (widget_get_prop_int(target, "value", 0) != quick.light)
-                widget_set_prop_int(target, "value", quick.light);
+            while (qs && tk_strcmp(widget_get_prop_str(qs, "name", ""), "statusbar_dialog"))
+                qs = P(qs, W_PARENT); /* Quick Settings', not Settings' Brightness page */
+        else
+            qs = 0;
+        if (qs) {
+            quick.slider = target, quick.slide = 0;
+            quick.sx = I(event, EVENT_X), quick.sy = I(event, EVENT_Y);
+            return 0;
         }
+        int move = type == EVT_POINTER_MOVE_BEFORE - 1, up = type == EVT_POINTER_UP_BEFORE - 1;
+        if (target && target == quick.slider && (move || up)) {
+            int dx = I(event, EVENT_X) - quick.sx, dy = I(event, EVENT_Y) - quick.sy;
+            dx = dx < 0 ? -dx : dx, dy = dy < 0 ? -dy : dy;
+            unsigned ev[12];
+            if ((unsigned)(I(g_dropdown_menu_state, 0) - 1) < 2) {
+                if (quick.slide > 0)
+                    stock_dispatch_trampoline(
+                        target, pointer_event_init(ev, EVT_POINTER_ABORT, target, 0, 0));
+                quick.slide = -1;
+            } else if (!quick.slide && (up || (dx >= SLIDE_PX && dx > dy))) {
+                quick.slide = 1;
+                stock_dispatch_trampoline(target, pointer_event_init(ev, EVT_POINTER_DOWN - 1,
+                                                                     target, quick.sx, quick.sy));
+            } else if (!quick.slide && dy >= SLIDE_PX)
+                quick.slide = -1;
+            if (up) quick.slider = 0;
+            if (quick.slide <= 0) return 0;
+        } else if (up) /* a release the slider doesn't see, its press never given */
+            quick.slider = 0;
     }
     /* Native key delivery can retain the covered window's focused widget: the Artists list under
      * an artist's page (wheel turns queued while it loads) or under its Coverflow. */
@@ -4557,9 +4599,10 @@ int ringnav_badge(const char *path, char *out, int size) {
     tk_snprintf(out, (unsigned)size, "null");
     return 0;
 }
-/* My Fav's rows are stock's copies of the songs as added, some with an empty title though the
- * library has the tag: an empty one takes the library's, by path, so it reads as every other
- * list's instead of falling back to its file name.
+/* My Fav's, Frequent's and Recent's rows are stock's copies of the songs as added or played, some
+ * with an empty title though the library has the tag (a song played from Folder): an empty one
+ * takes the library's, by path, so it reads as every other list's instead of falling back to its
+ * file name and track number.
  * ponytail: each untitled row scans the library, as rate_all does; a sorted index
  * (ringnav_memory's) if that shows. */
 static int songs_unsorted(void *);
@@ -4604,7 +4647,8 @@ int ringnav_localclass(int cls) {
     if (n > 0 && (cls == 0xf00a || cls == 0xff20)) n = music_records(list);
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
-    if (n > 0 && cls == 0xf00a) fav_titles(list, n);
+    if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007)) /* My Fav, Frequent, Recent */
+        fav_titles(list, n);
     if (IPOD) /* an untagged song's row reads its file name without the extension (track_name) */
         for (int i = 0; i < n; ++i) {
             void *r = deque_at(list, (unsigned)i);
@@ -6285,9 +6329,10 @@ int ringnav_playlistsmore(void *win, void *ctx) {
     int result = stock_playlistsmore_trampoline(win, ctx);
     if (win) {
         /* Stock's row says Delete Song; this page deletes the whole playlist. Rename only this
-         * label, as Now Playing's Delete Song still deletes the song. */
+         * label, as Now Playing's Delete Song still deletes the song. As its translation key, so a
+         * re-translation keeps it (no language has the key, so it reads as given). */
         void *del = widget_lookup(win, "label_del", 1);
-        if (del) widget_set_text_utf8(del, "Delete Playlist");
+        if (del) widget_set_tr_text(del, "Delete Playlist");
         /* A row like this page's stock Rename and Delete: a 375x72 (Legacy 78) list_item holding
          * a 335x68 (Legacy 70) s_btn_listitem, its 52px icon at x 10 and its 20px label at x 72.
          * Edit Playlist follows the Delete row at the same spacing. */
