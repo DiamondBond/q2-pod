@@ -597,13 +597,14 @@ status bar asset's own background (`#000000`, not `#161616`), which the payload'
 
 ## Games
 
-**Library → Games** opens Sudoku and Vortex ([internals](internals.md#games)). A game takes every
-key but Power and a held Return, so the music keeps playing untouched.
+**Library → Games** opens Sudoku, Vortex and Solitaire ([internals](internals.md#games)). A game
+takes every key but Power and a held Return, so the music keeps playing untouched.
 
-| Game   | Wheel                                    | Centre                             | Play/Pause            | Previous/Next    | Return                           |
-| ------ | ---------------------------------------- | ---------------------------------- | --------------------- | ---------------- | -------------------------------- |
-| Sudoku | Moves through the cells; picks the digit | Opens the digit, then writes it    | New game (asks first) | Up or down a row | Cancels the digit; back to Games |
-| Vortex | Turns the paddle                         | Launches; plays again after a game | Pauses and resumes    |                  | Pause menu: Continue or Quit     |
+| Game      | Wheel                                    | Centre                                          | Play/Pause            | Previous/Next    | Return                              |
+| --------- | ---------------------------------------- | ----------------------------------------------- | --------------------- | ---------------- | ----------------------------------- |
+| Sudoku    | Moves through the cells; picks the digit | Opens the digit, then writes it                 | New game (asks first) | Up or down a row | Cancels the digit; back to Games    |
+| Vortex    | Turns the paddle                         | Launches; plays again after a game              | Pauses and resumes    |                  | Pause menu: Continue or Quit        |
+| Solitaire | Moves between the piles                  | Draws; picks up, drops; twice sends a card home | New game (asks first) | Up or down a row | Drops the held cards; back to Games |
 
 ## Review sheets
 

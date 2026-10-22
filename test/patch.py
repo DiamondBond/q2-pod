@@ -8160,8 +8160,8 @@ worker,arg=m.threads[-1]; m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_
 assert m.nodes[info]['visible'] and m.nodes[info]['text']=="Can't open this book" and m.call()==11 and not page_lines()
 m.close(); passed()
 
-# Games (patch/games.c, iPod): the Library's Games row, always there, opens a chooser of Sudoku and
-# Vortex. A game's keys never reach stock's filter or the media keys; Return goes game -> chooser ->
+# Games (patch/games.c, iPod): the Library's Games row, always there, opens a chooser of Sudoku,
+# Vortex and Solitaire. A game's keys never reach stock's filter or the media keys; Return goes game -> chooser ->
 # Library. Vortex's frame timer and raw wheel run only while it plays: Play/Pause, the screen going
 # off and leaving each stop them, and closing frees the state.
 if variant=='ipod':
@@ -8176,7 +8176,7 @@ if variant=='ipod':
         m.page=m.top; assert m.nodes[m.page]['name']=='games_page' and m.nodes[m.page]['style:normal:bg_color']==-0x1000000
         return m.nodes[m.page]['children']
     chooser,sheet=games_open(); G=m.get(payload_syms['g'])
-    assert labels(chooser)==['Games','Sudoku','Vortex'] and not m.nodes[sheet]['visible']
+    assert labels(chooser)==['Games','Sudoku','Vortex','Solitaire'] and not m.nodes[sheet]['visible']
     rows=m.nodes[m.find('scroll_view',chooser)]['children']
     def pick(i):
         f,ctx=m.handler(rows[i],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
@@ -8216,10 +8216,32 @@ if variant=='ipod':
     assert word(G_PAUSED)==1 and not frames() and m.get(payload_syms['wheel_raw'])==0
     key(O['KEY_RETURN']); assert word(G_PAUSED)==2; key(O['KEY_NEXT']); paint(); key(O['KEY_CENTER']); m.advance(0)
     assert word(G_SCREEN)==0 and not frames() and m.get(payload_syms['wheel_raw'])==0; passed()
+    # Solitaire (piles 0 stock, 1 waste, 2-5 foundations, 6-12 columns; a card suit*13+rank, 64 up): Centre on
+    # the stock draws and saves; the wheel walks the piles, Previous/Next jump between the rows; Centre picks a
+    # run up and drops it where it fits, turning the card under it; Centre twice sends a card home; Return
+    # drops the held run, then leaves.
+    G_SOL=220; sol=lambda: bytes(m.u.mem_read(G+G_SOL,336)); n=lambda p: byte(G_SOL+316+p); cur=lambda: byte(G_SOL+329)
+    def put(p,cards): m.u.mem_write(G+G_SOL+4+24*p,bytes(cards)); m.byte(G+G_SOL+316+p,len(cards))
+    m.page=m.top; pick(2); assert word(G_SCREEN)==3 and cur()==0 and [n(p) for p in range(13)]==[24,0,0,0,0,0,1,2,3,4,5,6,7]; paint()
+    key(O['KEY_CENTER']); assert (n(0),n(1))==(23,1) and bytes(m.files['/mnt/data/ringnav-solitaire'])==sol()
+    key(O['KEY_NEXT']); assert cur()==1; key(O['KEY_FWD_BTN']); assert cur()==7; key(O['KEY_BACK_BTN']); assert cur()==1
+    key(O['KEY_PREV']); key(O['KEY_PREV']); assert cur()==12; key(O['KEY_BACK_BTN']); assert cur()==5; passed()
+    put(6,[64|13+11]); put(7,[3,64|10]); m.byte(G+G_SOL+329,7)  # Q of hearts; a face-down 4 under the J of spades
+    key(O['KEY_CENTER']); assert word(G_PICKING) and word(48)==7; paint()
+    key(O['KEY_FWD_BTN']); key(O['KEY_CENTER']); assert word(G_PICKING)  # not onto the waste
+    key(O['KEY_FWD_BTN']); key(O['KEY_PREV']); key(O['KEY_CENTER']); assert not word(G_PICKING)
+    assert (n(6),n(7),byte(G_SOL+4+24*6+1),byte(G_SOL+4+24*7))==(2,1,64|10,64|3) and bytes(m.files['/mnt/data/ringnav-solitaire'])==sol()
+    put(1,[64|26]); m.byte(G+G_SOL+329,1); key(O['KEY_CENTER']); key(O['KEY_CENTER'])  # the Ace of diamonds, home
+    assert not word(G_PICKING) and n(1)==0 and n(2)==1 and byte(G_SOL+4+48)==64|26
+    m.byte(G+G_SOL+329,6); key(O['KEY_CENTER']); key(O['KEY_CENTER']); assert not word(G_PICKING) and n(6)==2  # nothing home: put back
+    key(O['KEY_CENTER']); key(O['KEY_RETURN']); assert not word(G_PICKING) and word(G_SCREEN)==3
+    before_sol=sol(); key(O['KEY_PLAY']); assert word(52); paint(); key(O['KEY_RETURN']); assert not word(52) and sol()==before_sol
+    key(O['KEY_RETURN']); m.advance(0); assert word(G_SCREEN)==0 and m.nodes[chooser]['visible']; passed()
     # Closing frees the state, also mid-game; opening again starts clean and resumes the Sudoku.
     m.close(); assert m.get(payload_syms['g'])==0 and not frames()
     chooser,sheet=games_open(); G=m.get(payload_syms['g']); rows=m.nodes[m.find('scroll_view',chooser)]['children']
     pick(0); assert cells()==before
+    key(O['KEY_RETURN']); m.advance(0); pick(2); assert sol()[:-4]==before_sol[:-4]  # and the cursor, kept on leaving
     key(O['KEY_RETURN']); m.advance(0); pick(1); assert len(frames())==1
     m.close(); assert m.get(payload_syms['g'])==0 and not frames() and m.get(payload_syms['wheel_raw'])==0; passed()
 

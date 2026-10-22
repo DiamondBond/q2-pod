@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.4.0** (unreleased):
+  - iPod: **Library → Games** adds Solitaire (Klondike, draw one). The game in progress is kept across restarts.
+
 - **1.3.9**:
   - iPod: **Library → Games** with Sudoku and Vortex, playable while music plays. Sudoku keeps the game in progress and Vortex the best score across restarts.
   - Library: Frequent and Recent show a song's title instead of its file name and track number when it was played from Folder.

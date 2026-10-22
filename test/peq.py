@@ -1923,7 +1923,69 @@ def games_check(tmp):
             lib.vortex_step(C.byref(w), rng.randrange(-9, 10))
         return bytes(w)
     assert play(1) == play(1) and play(1) != play(2)
-    print('Games: Sudoku uniqueness, clues, conflicts, completion and saves; Vortex paddle, bricks, lives, levels, speed, tunnelling and determinism passed.')
+    # Solitaire: piles 0 stock, 1 waste, 2-5 foundations, 6-12 the columns; a card suit * 13 + rank, 64 face up
+    class Sol(C.Structure):
+        _fields_ = [('magic', C.c_uint), ('card', (C.c_ubyte * 24) * 13), ('len', C.c_ubyte * 13), ('cur', C.c_ubyte),
+                    ('pad', C.c_ubyte * 2), ('sum', C.c_uint)]
+    assert C.sizeof(Sol) == 336
+    UP, S, H, D, CL = 64, 0, 13, 26, 39  # spades, hearts, diamonds, clubs
+    pile = lambda s, p: list(s.card[p][:s.len[p]])
+    def put(s, p, cards): s.len[p] = len(cards); s.card[p][:len(cards)] = cards
+    def sound(s):  # every card once; columns face down then a run; foundations A up in one suit
+        assert sorted(c & ~UP for p in range(13) for c in pile(s, p)) == list(range(52))
+        for p in range(6, 13):
+            c = pile(s, p); d = next((i for i, x in enumerate(c) if x & UP), len(c))
+            assert all(x & UP for x in c[d:]) and (not c or c[-1] & UP)
+            for a, b in zip(c[d:], c[d + 1:]):
+                a, b = a & ~UP, b & ~UP; assert b % 13 == a % 13 - 1 and (a // 13 % 3 == 0) != (b // 13 % 3 == 0)
+        for p in range(2, 6):
+            f = [c & ~UP for c in pile(s, p)]; assert not f or f[0] % 13 == 0 and f == list(range(f[0], f[0] + len(f)))
+    s = Sol()
+    for n in range(50):
+        seed.value = n * 2654435761 % 2**32 or 1; lib.sol_new(C.byref(s)); sound(s)
+        assert [s.len[p] for p in range(13)] == [24, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7] and s.cur == 0
+        assert not any(c & UP for c in pile(s, 0)) and all(sum(c & UP for c in pile(s, 6 + k)) == UP for k in range(7))
+    # draw one at a time; an empty stock takes the waste back in its order; nothing left draws nothing
+    stock = pile(s, 0)
+    for k in range(24): assert lib.sol_draw(C.byref(s))
+    assert s.len[0] == 0 and pile(s, 1) == [c | UP for c in stock[::-1]]
+    assert lib.sol_draw(C.byref(s)) and pile(s, 0) == stock and s.len[1] == 0
+    put(s, 0, []); assert not lib.sol_draw(C.byref(s))
+    # foundations: an Ace on an empty one, then up in its suit; columns: down in alternate colours, a King on an empty one
+    t = Sol(); put(t, 1, [UP | H + 1]); put(t, 2, [UP | H]); put(t, 3, [UP | S]); put(t, 4, [])
+    assert not lib.sol_move(C.byref(t), 1, 3) and not lib.sol_move(C.byref(t), 1, 4)
+    assert lib.sol_move(C.byref(t), 1, 2) and pile(t, 2) == [UP | H, UP | H + 1] and t.len[1] == 0
+    put(t, 6, [D + 4, UP | S + 9, UP | H + 8, UP | CL + 7]); put(t, 7, [UP | H + 10]); put(t, 8, [UP | D + 8])
+    put(t, 9, [UP | D + 9]); put(t, 10, [])
+    assert not lib.sol_move(C.byref(t), 6, 9) and not lib.sol_move(C.byref(t), 6, 10)  # red 9 on red 10; no King
+    assert not lib.sol_move(C.byref(t), 0, 10) and not lib.sol_move(C.byref(t), 6, 1) and not lib.sol_move(C.byref(t), 6, 6)
+    assert lib.sol_move(C.byref(t), 6, 8) and pile(t, 8) == [UP | D + 8, UP | CL + 7] and t.len[6] == 3  # just the 8
+    assert lib.sol_move(C.byref(t), 6, 7) and pile(t, 7) == [UP | H + 10, UP | S + 9, UP | H + 8]  # the run's rest
+    assert pile(t, 6) == [UP | D + 4]  # turned
+    put(t, 11, [UP | S + 12, UP | H + 11]); assert lib.sol_move(C.byref(t), 11, 10) and pile(t, 10) == [UP | S + 12, UP | H + 11]
+    put(t, 12, [UP | S + 1, UP | S]); put(t, 3, [])  # a foundation takes the top card only
+    assert lib.sol_home(C.byref(t), 12) and pile(t, 3) == [UP | S] and lib.sol_home(C.byref(t), 12) and t.len[12] == 0
+    # everything up and dealt: it all goes home; a face-down card anywhere and nothing moves
+    def runs(s, down):
+        for p in range(13): put(s, p, [])
+        for k, (a, b) in enumerate(((S, H), (H, S), (D, CL), (CL, D))):
+            put(s, 6 + k, [(a if r % 2 else b) + r | UP for r in range(12, -1, -1)])
+        if down: s.card[6][0] &= ~UP
+    runs(s, 1); lib.sol_finish(C.byref(s)); assert not lib.sol_won(C.byref(s)) and s.len[6] == 13
+    runs(s, 0); lib.sol_finish(C.byref(s)); assert lib.sol_won(C.byref(s)) and all(s.len[p] == 13 for p in range(2, 6))
+    # random play keeps every card once and every pile sound; a won game is a finished one
+    won = 0
+    for n in range(100):
+        seed.value = n * 2654435761 % 2**32 or 1; lib.sol_new(C.byref(s)); rng = random.Random(n)
+        for _ in range(400):
+            moved = [(a, b) for a in range(1, 13) for b in range(2, 13) if lib.sol_move(C.byref(t := Sol.from_buffer_copy(s)), a, b)]
+            home = [m for m in moved if m[1] < 6 and m[0] > 5 or m[0] == 1]  # home first, then the waste
+            if moved and rng.random() < .8: lib.sol_move(C.byref(s), *rng.choice(home or moved))
+            else: lib.sol_draw(C.byref(s))
+            lib.sol_finish(C.byref(s)); sound(s)
+            if lib.sol_won(C.byref(s)): won += 1; break
+    assert won > 10, won
+    print('Games: Sudoku uniqueness, clues, conflicts, completion and saves; Vortex paddle, bricks, lives, levels, speed, tunnelling and determinism; Solitaire deal, draw, moves, finish and random play passed.')
 
 def video_check(tmp):
     """Videos' player (video.c): ffmpeg's argv for the Q2's framebuffer, frame pacing and BT volume."""

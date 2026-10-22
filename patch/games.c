@@ -328,9 +328,94 @@ void vortex_step(struct vortex *v, int dpa) {
     }
 }
 
+/* Solitaire: Klondike, draw one, unlimited redeals. A card is suit * 13 + rank (Ace 0, King 12;
+ * spades, hearts, diamonds, clubs) and UP when face up. The piles in the wheel's order: the stock,
+ * the waste, four foundations (any takes an Ace), seven tableau columns.
+ * ponytail: no undo or score; a held run drops whatever part of it fits. */
+#define SOL_MAGIC 0x314c4f53u /* "SOL1" */
+#define UP 64
+#define SOL_MAX 24 /* the stock's 24 at most; a column's 6 face down and 13 up */
+enum { STOCK, WASTE, FOUND, TABLEAU = FOUND + 4, PILES = TABLEAU + 7 };
+struct solitaire {
+    unsigned magic;
+    unsigned char card[PILES][SOL_MAX], len[PILES], cur, pad[2];
+    unsigned sum;
+};
+
+void sol_new(struct solitaire *s) {
+    unsigned char deck[52];
+    int n = 0;
+    deal(deck, 52);
+    memset(s, 0, sizeof *s);
+    for (int k = 0; k < 7; ++k) {
+        for (int i = 0; i <= k; ++i) s->card[TABLEAU + k][i] = deck[n++];
+        s->card[TABLEAU + k][k] |= UP;
+        s->len[TABLEAU + k] = (unsigned char)(k + 1);
+    }
+    memcpy(s->card[STOCK], deck + n, 52 - n);
+    s->len[STOCK] = (unsigned char)(52 - n);
+}
+
+/* The stock's top card face up on the waste; an empty stock takes the waste back, face down. */
+int sol_draw(struct solitaire *s) {
+    if (s->len[STOCK]) {
+        s->card[WASTE][s->len[WASTE]++] = s->card[STOCK][--s->len[STOCK]] | UP;
+        return 1;
+    }
+    for (; s->len[WASTE]; ++s->len[STOCK])
+        s->card[STOCK][s->len[STOCK]] = s->card[WASTE][--s->len[WASTE]] & ~UP;
+    return s->len[STOCK] != 0;
+}
+
+static int sol_fits(const struct solitaire *s, int c, int to) {
+    int n = s->len[to], top = n ? s->card[to][n - 1] & ~UP : 0;
+    if (to < TABLEAU) return n ? c == top + 1 && c / 13 == top / 13 : c % 13 == 0;
+    return n ? c % 13 == top % 13 - 1 && (c / 13 % 3 == 0) != (top / 13 % 3 == 0) : c % 13 == 12;
+}
+
+/* From's cards that fit onto to, moved: a foundation takes the top card, a column the part of
+ * the face-up run that fits (at most one does). A column left with a face-down top turns it. */
+int sol_move(struct solitaire *s, int from, int to) {
+    int n = s->len[from], run = 0;
+    if (from == STOCK || from == to || to < FOUND) return 0;
+    while (run < n && s->card[from][n - 1 - run] & UP && (run < 1 || from >= TABLEAU)) ++run;
+    for (int k = 1; k <= run && (k == 1 || to >= TABLEAU); ++k)
+        if (sol_fits(s, s->card[from][n - k] & ~UP, to)) {
+            memcpy(&s->card[to][s->len[to]], &s->card[from][n - k], (unsigned)k);
+            s->len[to] = (unsigned char)(s->len[to] + k);
+            s->len[from] = (unsigned char)(n - k);
+            if (n > k) s->card[from][n - k - 1] |= UP;
+            return 1;
+        }
+    return 0;
+}
+
+/* From's top card onto the foundation that takes it. */
+int sol_home(struct solitaire *s, int from) {
+    for (int f = FOUND; f < TABLEAU; ++f)
+        if (sol_move(s, from, f)) return 1;
+    return 0;
+}
+
+int sol_won(const struct solitaire *s) {
+    return s->len[FOUND] + s->len[FOUND + 1] + s->len[FOUND + 2] + s->len[FOUND + 3] == 52;
+}
+
+/* Every card dealt and face up: all of them home, the lowest left always being a column's top. */
+void sol_finish(struct solitaire *s) {
+    if (s->len[STOCK] || s->len[WASTE]) return;
+    for (int p = TABLEAU; p < PILES; ++p)
+        if (s->len[p] && !(s->card[p][0] & UP)) return;
+    for (int moved = 1; moved;) {
+        moved = 0;
+        for (int p = TABLEAU; p < PILES; ++p) moved |= sol_home(s, p);
+    }
+}
+
 #ifndef PEQ_HOST
 #define GAMES_SUDOKU "/mnt/data/ringnav-sudoku"
 #define GAMES_VORTEX "/mnt/data/ringnav-vortex"
+#define GAMES_SOLITAIRE "/mnt/data/ringnav-solitaire"
 #define BEST_MAGIC 0x31585456u /* "VTX1" */
 /* The paddle's turn for the wheel's, in percent: 100 is a whole turn for a whole turn (200 raw
  * units, wheel_sample). The hardware's calibration knob. */
@@ -338,7 +423,7 @@ void vortex_step(struct vortex *v, int dpa) {
 #define FRAME_MS 33
 #define CELL 30
 #define TURN (6.2831853f / 1024)
-enum { CHOOSER, SUDOKU, VORTEX };
+enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE };
 enum { RUN, HELD, MENU }; /* Vortex: playing, paused by Play/Pause or the screen, Return's menu */
 struct best {
     unsigned magic, score, sum;
@@ -350,6 +435,7 @@ static struct game {
     struct sudoku sud;
     struct vortex vx;
     struct best best;
+    struct solitaire sol;
 } *g __attribute__((section(".scratch")));
 
 static int sud_started(const struct sudoku *s) {
@@ -424,10 +510,10 @@ static int show(const void *unused) {
     widget_set_visible(g->sheet, g->screen != CHOOSER, 0);
     if (g->screen == CHOOSER) {
         if (g->sud_open) sud_store(0);
-        ringnav_select(g->view, from - 1, 2);
+        ringnav_select(g->view, from - 1, 3);
     } else if (g->screen == VORTEX)
         vortex_new(&g->vx), run();
-    else
+    else if (g->screen == SUDOKU)
         g->sud_open = 1;
     widget_invalidate_force(g->page, 0);
     return 0;
@@ -503,6 +589,48 @@ static void vortex_key(unsigned key) {
         vortex_launch(v);
 }
 
+static void sol_store(void) {
+    games_seal(&g->sol, sizeof g->sol, SOL_MAGIC);
+    if (!BLOB_IO(GAMES_SOLITAIRE, g->sol, 1)) toast("Couldn't save");
+}
+
+/* A pile's column on screen: the stock, the waste, a gap and the foundations over the tableau. */
+static const unsigned char col[PILES] = { 0, 1, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6 };
+
+/* Centre picks a pile's cards up (the stock draws instead) and drops them where they fit; Centre
+ * again on the same pile sends its top card home, or puts it back. */
+static void solitaire_key(unsigned key) {
+    struct solitaire *s = &g->sol;
+    int wheel = key == KEY_NEXT ? 1 : key == KEY_PREV ? -1 : 0, cur = s->cur, moved = 0;
+    if (g->confirm) {
+        if (key == KEY_CENTER) sol_new(s), sol_store();
+        if (key == KEY_CENTER || key == KEY_RETURN) g->confirm = g->picking = 0;
+    } else if (wheel)
+        s->cur = (unsigned char)((cur + wheel + PILES) % PILES);
+    else if (key == KEY_FWD_BTN || key == KEY_BACK_BTN)
+        s->cur = (unsigned char)(cur < TABLEAU       ? TABLEAU + col[cur]
+                                 : cur < TABLEAU + 2 ? cur - TABLEAU
+                                                     : cur - TABLEAU - 1); /* col 2: the waste */
+    else if (key == KEY_CENTER && g->picking) {
+        moved = cur == g->pick
+                    ? (cur < FOUND || cur >= TABLEAU) && sol_home(s, cur) /* a foundation's stays */
+                    : sol_move(s, g->pick, cur);
+        if (moved || cur == g->pick) g->picking = 0;
+    } else if (key == KEY_CENTER && cur == STOCK)
+        moved = sol_draw(s);
+    else if (key == KEY_CENTER && s->len[cur] && !sol_won(s))
+        g->picking = 1, g->pick = cur;
+    else if (key == KEY_PLAY && !sol_won(s))
+        g->confirm = 1;
+    else if (key == KEY_PLAY)
+        sol_new(s), sol_store();
+    else if (key == KEY_RETURN && g->picking)
+        g->picking = 0;
+    else if (key == KEY_RETURN)
+        sol_store(), to(CHOOSER); /* the cursor too */
+    if (moved) sol_finish(s), sol_store();
+}
+
 /* ringnav(), before stock: a game takes every key but Power and a held Return (Home), so the
  * wheel, Centre, Play/Pause and the side buttons never reach the volume, the media or the screen.
  */
@@ -511,6 +639,8 @@ int games_key(void *top, unsigned key) {
     if (key == KEY_RETURN && *(volatile unsigned char *)RETURN_RELEASE_LATCH) return 0;
     if (g->screen == SUDOKU)
         sudoku_key(key);
+    else if (g->screen == SOLITAIRE)
+        solitaire_key(key);
     else
         vortex_key(key);
     widget_invalidate_force(g->page, 0);
@@ -623,12 +753,67 @@ static void vortex_paint(void *canvas, unsigned tone) {
         caption(canvas, "Centre", (int)cx - 40, (int)cy - 12, 80, 24, 16, SPOT_GREY);
 }
 
+#define CARD_W 49
+#define CARD_H 46
+#define PITCH 53 /* 7 columns, 4 px apart, 4 px in */
+#define FAN 20   /* a face-up card's label showing under the next */
+#define FAN_DOWN 6
+
+/* A card: face down in a dark tone, or rank and suit at the top in red or black, its suit large
+ * below when nothing covers it. */
+static void card_paint(void *canvas, int x, int y, int c, int whole, unsigned tone) {
+    static const unsigned short suit[] = { 0x2660, 0x2665, 0x2666, 0x2663 }; /* ♠♥♦♣ */
+    unsigned text[3], n = 0;
+    box(canvas, x, y, CARD_W, CARD_H, 0x777777);
+    box(canvas, x + 1, y + 1, CARD_W - 2, CARD_H - 2, c & UP ? 0xf2f2f2 : mix(tone, 0, 2, 3));
+    if (!(c & UP)) return;
+    c &= ~UP;
+    unsigned ink = rgba(c / 13 % 3 ? 0xd01818 : 0x101010, 255);
+    if (c % 13 == 9) text[n++] = '1';
+    text[n++] = (unsigned char)"A234567890JQK"[c % 13];
+    text[n++] = suit[c / 13];
+    int r[4] = { x, y + 1, CARD_W, FAN - 2 }, big[4] = { x, y + FAN - 2, CARD_W, CARD_H - FAN + 2 };
+    draw_centred(canvas, text, n, r, 16, ink);
+    if (whole) draw_centred(canvas, &text[n - 1], 1, big, 26, ink);
+}
+
+/* The top row's piles show their top card, a column all of it, its face-up fan closed up to fit
+ * the sheet. The cursor's pile is framed round its top card, white over a held run framed in the
+ * tone. */
+static void solitaire_paint(void *canvas, unsigned tone) {
+    const struct solitaire *s = &g->sol;
+    int room = g->h - 4 - (CARD_H + 12); /* the tableau's height */
+    for (int p = 0; p < PILES; ++p) {
+        int n = s->len[p], i = p >= TABLEAU || !n ? 0 : n - 1, down = 0, fan = FAN;
+        int x = 4 + col[p] * PITCH, y = p < TABLEAU ? 4 : CARD_H + 12, first = -1;
+        while (down < n && !(s->card[p][down] & UP)) ++down;
+        if (n - down > 1 && down * FAN_DOWN + (n - down - 1) * FAN + CARD_H > room)
+            fan = (room - CARD_H - down * FAN_DOWN) / (n - down - 1);
+        if (!n) frame_rect(canvas, x, y, CARD_W, CARD_H, 0x333333);
+        for (; i < n; y += s->card[p][i++] & UP ? fan : FAN_DOWN) {
+            if (s->card[p][i] & UP && first < 0) first = y;
+            card_paint(canvas, x, y, s->card[p][i], i == n - 1, tone);
+            if (i == n - 1) break;
+        }
+        if (g->picking && p == g->pick)
+            frame_rect(canvas, x - 2, first - 2, CARD_W + 4, y - first + CARD_H + 4, tone);
+        if (p == s->cur)
+            frame_rect(canvas, x - 2, y - 2, CARD_W + 4, CARD_H + 4, g->picking ? 0xffffff : tone);
+    }
+    if (g->confirm)
+        banner(canvas, tone, "New game?", 0xffffff, "Centre: yes   Return: no", 0xaaaaaa);
+    else if (sol_won(s))
+        banner(canvas, tone, "You win!", tone, "Play/Pause: new game", 0xaaaaaa);
+}
+
 /* ringnav_paint: a game's sheet, after stock painted it. */
 void games_paint(void *w, void *canvas) {
     if (!g || w != g->sheet || g->screen == CHOOSER || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), tone = accent_tone(2);
     if (g->screen == SUDOKU)
         sudoku_paint(canvas, tone);
+    else if (g->screen == SOLITAIRE)
+        solitaire_paint(canvas, tone);
     else
         vortex_paint(canvas, tone);
     canvas_set_fill_color(canvas, fill);
@@ -657,14 +842,19 @@ int games_open(void *ctx, void *event) {
     g->list = widget_factory_create_widget(f, "view", page, 0, 0, 375, g->h);
     g->sheet = widget_factory_create_widget(f, "view", page, 0, 0, 375, g->h);
     widget_set_visible(g->sheet, 0, 0);
-    g->view = page_list(page, g->list, 0, "Games", 2, 48);
+    g->view = page_list(page, g->list, 0, "Games", 3, 48);
     page_row_into(g->view, 0, "Sudoku", pick_game);
     page_row_into(g->view, 1, "Vortex", pick_game);
+    page_row_into(g->view, 2, "Solitaire", pick_game);
     if (!BLOB_IO(GAMES_SUDOKU, g->sud, 0) || !games_ok(&g->sud, sizeof g->sud, SUD_MAGIC) ||
         g->sud.cur > 80)
         sud_new(&g->sud);
     if (!BLOB_IO(GAMES_VORTEX, g->best, 0) || !games_ok(&g->best, sizeof g->best, BEST_MAGIC))
         g->best.score = 0;
+    int bad = !BLOB_IO(GAMES_SOLITAIRE, g->sol, 0) ||
+              !games_ok(&g->sol, sizeof g->sol, SOL_MAGIC) || g->sol.cur >= PILES;
+    for (int p = 0; p < PILES; ++p) bad |= g->sol.len[p] > SOL_MAX;
+    if (bad) sol_new(&g->sol);
     return 0;
 }
 #endif
