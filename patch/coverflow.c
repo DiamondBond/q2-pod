@@ -1381,10 +1381,10 @@ static struct {
     int c, frac, drawn;           /* the position the frame holds, once drawn */
 } fx __attribute__((section(".scratch")));
 
-/* A decoded image copied into a texture: its centred square, nearest sampled to ART_SIZE, over
- * black. Only 32-bit formats (BITMAP_RGBA_AT); stock decodes covers to RGBA8888 with straight
- * alpha. The image manager's copy is only
- * read, and a cover's load is dropped again at once, as stock does. */
+/* A decoded image copied into a texture: fitted whole and centred, nearest sampled to ART_SIZE, over
+ * black, so a non-square cover shows uncropped between black bars, as Now Playing shows it. Only
+ * 32-bit formats (BITMAP_RGBA_AT); stock decodes covers to RGBA8888 with straight alpha. The image
+ * manager's copy is only read, and a cover's load is dropped again at once, as stock does. */
 static int decode(const char *url, unsigned *out, int unload) {
     static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned bitmap[64]; /* bitmap_t */
@@ -1394,13 +1394,19 @@ static int decode(const char *url, unsigned *out, int unload) {
         format < 4 && w && h && w <= 4096 && h <= 4096 ? bitmap_lock_buffer_for_read(bitmap) : 0;
     if (data) {
         const unsigned char *o = at[format];
-        unsigned stride = bitmap_get_line_length(bitmap), side = w < h ? w : h, xoff[ART_SIZE];
-        const unsigned char *base = data + (h - side) / 2 * stride + (w - side) / 2 * 4;
-        for (unsigned x = 0; x < ART_SIZE; ++x) xoff[x] = x * side / ART_SIZE * 4;
+        unsigned stride = bitmap_get_line_length(bitmap), side = w > h ? w : h, xoff[ART_SIZE];
+        for (unsigned x = 0; x < ART_SIZE; ++x) { /* ~0u: a bar; left of the image wraps to one */
+            unsigned sx = x * side / ART_SIZE - (side - w) / 2;
+            xoff[x] = sx < w ? sx * 4 : ~0u;
+        }
         for (unsigned y = 0; y < ART_SIZE; ++y) {
-            const unsigned char *line = base + y * side / ART_SIZE * stride;
+            unsigned sy = y * side / ART_SIZE - (side - h) / 2; /* wraps above the image */
             for (unsigned x = 0; x < ART_SIZE; ++x) {
-                const unsigned char *px = line + xoff[x];
+                if (sy >= h || xoff[x] == ~0u) {
+                    *out++ = 0xff000000u;
+                    continue;
+                }
+                const unsigned char *px = data + sy * stride + xoff[x];
                 unsigned a = px[o[3]], r = px[o[0]], g = px[o[1]], b = px[o[2]];
                 if (a < 255) r = r * a / 255, g = g * a / 255, b = b * a / 255; /* over black */
                 *out++ = 0xff000000u | r | g << 8 | b << 16;

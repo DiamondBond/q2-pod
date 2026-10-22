@@ -7,6 +7,7 @@
   - Wi-Fi and Bluetooth (Minimal): the delete mark on the selected row is grey instead of white on white.
   - Lyrics: Play/Pause no longer flicks the lyrics to the top and back.
   - Cover Flow: **Go to Artist** from a song played in Cover Flow opens the artist in Cover Flow when **Artist Albums** is set to Coverflow, instead of the grid.
+  - Cover Flow: a cover that isn't square shows whole, between black bars, instead of cropped to its centre.
   - Lyrics: a lyrics search no longer shows the credits (writer, mix engineer and so on) some LRCLIB lyrics start with.
   - EQ: **Presets → Rename a preset** renames a saved preset.
   - Now Playing: the progress thumb you touch to seek is white in Minimal and your accent colour in Classic, instead of blue.

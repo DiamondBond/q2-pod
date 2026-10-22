@@ -6215,6 +6215,7 @@ class DepthMachine(CoverflowMachine):
         super().__init__(**kw)
         self.u.mem_map(BIG,0x800000); self.big=BIG
         self.frames=[]; self.destroyed=[]; self.draws=[]; self.loads=[]; self.unloads=0; self.pixels={}
+        self.art_size=(160,160)  # the covers' decoded size; the placeholder is always 160 square
         self.fast()
     def big_alloc(self,n):
         a=self.big; self.big+=(n+15)&~15; assert self.big<=BIG+0x800000; return a
@@ -6230,9 +6231,10 @@ class DepthMachine(CoverflowMachine):
         elif name=='bitmap_lock_buffer_for_read': ret=self.get(a+0x14)
         elif name=='widget_load_image':
             url=self.text(b); self.loads.append(url) if a==self.top else None  # Coverflow's, not iPod Home's
+            w,h=(160,160) if url==CF_PLACEHOLDER else self.art_size
             if url not in self.pixels:
-                self.pixels[url]=self.big_alloc(160*160*4); self.u.mem_write(self.pixels[url],cover_pixels(len(self.pixels)))
-            self.word(c,160); self.word(c+4,160); self.word(c+8,640); self.u.mem_write(c+0xc,struct.pack('<HH',2,1)); self.word(c+0x14,self.pixels[url]); ret=0
+                self.pixels[url]=self.big_alloc(w*h*4); self.u.mem_write(self.pixels[url],cover_pixels(len(self.pixels))[:w*h*4])
+            self.word(c,w); self.word(c+4,h); self.word(c+8,w*4); self.u.mem_write(c+0xc,struct.pack('<HH',2,1)); self.word(c+0x14,self.pixels[url]); ret=0
         elif name=='widget_unload_image': self.unloads+=a==self.top; ret=0
         elif name=='slide_menu_set_spacer': self.word(a+O['SLIDE_SPACER'],b); ret=0
         elif name=='canvas_draw_image':
@@ -6306,6 +6308,21 @@ assert len(m.loads)==4 and m.loads[0]==CF_PLACEHOLDER and all(u.startswith('file
 tex_of={u:bytes(m.u.mem_read(m.pixels[u],160*160*4)) for u in m.pixels}
 ring_tex=[tex_of[m.loads[1]],tex_of[CF_PLACEHOLDER],tex_of[CF_PLACEHOLDER],tex_of[m.loads[2]],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of[CF_PLACEHOLDER]]
 assert host_render(ring_tex,[(0,127)])[0]==m.draws[0][5]; passed()
+# A non-square cover is fitted whole and centred between black bars, not cropped (#74).
+def fitted(px,w,h):
+    side=max(w,h); out=[]
+    for y in range(160):
+        sy=y*side//160-(side-h)//2
+        for x in range(160):
+            sx=x*side//160-(side-w)//2
+            out.append(px[(sy*w+sx)*4:(sy*w+sx)*4+4] if 0<=sx<w and 0<=sy<h else struct.pack('<I',0xff000000))
+    return b''.join(out)
+for size in ((200,100),(60,150)):
+    n=DepthMachine(); n.art_size=size; n.open(); paint(n)
+    tex={u:fitted(bytes(n.u.mem_read(n.pixels[u],size[0]*size[1]*4)),*size) for u in n.loads[1:]}
+    tex[CF_PLACEHOLDER]=bytes(n.u.mem_read(n.pixels[CF_PLACEHOLDER],160*160*4))
+    ring_tex=[tex[n.loads[1]],tex[CF_PLACEHOLDER],tex[CF_PLACEHOLDER],tex[n.loads[2]],tex[n.loads[3]],tex[n.loads[1]],tex[CF_PLACEHOLDER]]
+    assert host_render(ring_tex,[(0,127)])[0]==n.draws[0][5],size; passed()
 # A repaint in place draws again without rendering; a quarter turn renders from the live offset.
 instructions[0]=0; paint(m); assert len(m.draws)==2 and instructions[0]<rest_cost//20
 m.word(s+O['SLIDE_OFFSET'],-O['CF_STRIDE']//4); instructions[0]=0; paint(m); turn_cost=instructions[0]
