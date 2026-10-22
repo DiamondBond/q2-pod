@@ -250,6 +250,9 @@ ID3_PATH = (0x5148e8, 0x0320f809)
 # The Now Playing timer's jalr scroll_view_scroll_to(scroll_lrc, 0, y, 10) (lw $t9 at 0x52bec0), its lyric
 # follow, becomes jal ringnav_lyric_follow, which pads the content so the view's end is a row top.
 LYRIC_FOLLOW = (0x52bed0, 0x0320f809)
+# The page refresh's bal to the lyric row builder (0x529f0c, which ends at offset 0) becomes jal
+# ringnav_lyric_rows, which keeps the offset: Play/Pause no longer flicks the lyrics to the top.
+LYRIC_ROWS = (0x52b8f8, 0x0411f984)
 # parse_albumcovertask_thd's jalr toolsGetAlbumCover (Albums grids; Folder view's folder and track rows),
 # each with its lw $t9, become jal coverflow_grid_cover, which gives ffmpeg the Ogg pictures stock skips;
 # the Albums grid's (first, before stock's toolsGetExternCover) jal coverflow_album_cover.
@@ -1201,6 +1204,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x52bec0))[0] == 0x8f99c004,
           'lyric follow: expected scroll_view_scroll_to import')
     patch_word(patched, *LYRIC_FOLLOW, jal(ps['ringnav_lyric_follow']), 'lyric rows whole at the top')
+    patch_word(patched, *LYRIC_ROWS, jal(ps['ringnav_lyric_rows']), 'lyrics keep their place on a refresh')
     for call, load, fn in GRID_COVER:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, load))[0] == 0x8f99b6e0,
               'grid cover: expected toolsGetAlbumCover import')

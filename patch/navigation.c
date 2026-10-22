@@ -2646,6 +2646,17 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     return scroll_view_scroll_to(lrc, x, y, ms);
 }
 
+/* The page's refresh rebuilds scroll_lrc's rows (0x529f0c, LYRIC_ROWS in tools/build.py) whenever
+ * g_forcerefresh_flag is set, as Play/Pause (playpause_quick_click) and the page's return to the
+ * front do, and the rebuild ends at offset 0: the lyrics flicked to the top until the next follow.
+ * The offset stays; the follow moves it if the line did. */
+int ringnav_lyric_rows(void *win) {
+    void *lrc = widget_lookup(win, "scroll_lrc", 1);
+    int y = lrc ? I(lrc, SCROLL_Y) : 0, ret = ((int (*)(void *))0x529f0c)(win);
+    if (y) scroll_view_set_offset(lrc, I(lrc, SCROLL_X), y);
+    return ret;
+}
+
 /* The playing track: its queue position and path. */
 static unsigned np_track(void) {
     unsigned at, n;

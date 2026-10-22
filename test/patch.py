@@ -6134,6 +6134,19 @@ assert ys==[110,0,20,110] and m.get(lrc+O['VIEW_CONTENT_H'])==288,ys
 m.word(lrc+O['VIEW_CONTENT_H'],100); m.call(address=payload_syms['ringnav_lyric_follow'],args=(lrc,0,0,10),gap=0)
 assert m.get(lrc+O['VIEW_CONTENT_H'])==100 and m.get(lrc+O['SCROLL_Y'])==0; passed()
 
+# A refresh's lyric rebuild (LYRIC_ROWS), which stock ends at offset 0, keeps the view where it was.
+from build import LYRIC_ROWS
+assert struct.unpack_from('<I',demo,fileoff(demo,LYRIC_ROWS[0]))[0]==jal(payload_syms['ringnav_lyric_rows'])
+class LyricRowsMachine(Machine):
+    def __init__(self): super().__init__(); self.handlers[0x529f0c]='rows'
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)!='rows': return super().hook(u,address,size,unused)
+        self.word(self.lrc+O['SCROLL_Y'],0); self.returns(0,clobber=True)
+for y in (110,0):
+    m=LyricRowsMachine(); m.lrc=m.node('scroll_view','scroll_lrc'); win=m.node('window','playing_page',[m.lrc])
+    m.word(m.lrc+O['SCROLL_Y'],y); m.call(address=payload_syms['ringnav_lyric_rows'],args=(win,),gap=0)
+    assert m.get(m.lrc+O['SCROLL_Y'])==y; passed()
+
 # Albums grids and Folder view (GRID_COVER): stock's embedded art first; ffmpeg only for an Ogg track
 # stock found none in, never for an MP3 or FLAC, run with parse_cover_mutex dropped. It writes dst.ff,
 # renamed onto dst only when non-empty (an empty one, left on exit 0, is removed and dst kept); waitpid

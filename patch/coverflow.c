@@ -1849,6 +1849,16 @@ static int pick(void *ctx, void *event) {
     return 0;
 }
 
+/* The artist page right under an artist's covers, which they close with them (keyup,
+ * coverflow_artist), or 0. */
+static void *artist_under(void) {
+    void *wm = window_manager(), *under = 0;
+    for (unsigned i = 1, n = cf.scoped == ARTIST_ALBUMS ? widget_count_children(wm) : 0; i < n; ++i)
+        if (widget_get_child(wm, i) == cf.page) under = widget_get_child(wm, i - 1);
+    if (under && tk_strcmp(widget_get_prop_str(under, "name", ""), "artistinfo_page")) under = 0;
+    return under;
+}
+
 /* Return: tracks -> covers (the slide_menu kept its album), preparing -> cancel and covers,
  * covers or the message -> Home, or back out of a scoped page. */
 static int keyup(void *ctx, void *event) {
@@ -1859,11 +1869,8 @@ static int keyup(void *ctx, void *event) {
         /* An artist's covers: the unseen artist page under them closes first, unanimated (its
          * own Return is navigator_back too; its cleanup runs on EVT_WINDOW_CLOSE), so Return
          * lands on the Artists list. */
-        void *wm = window_manager(), *under = 0;
-        unsigned n = cf.scoped == ARTIST_ALBUMS ? widget_count_children(wm) : 0;
-        if (n >= 2 && widget_get_child(wm, n - 1) == cf.page) under = widget_get_child(wm, n - 2);
-        if (under && !tk_strcmp(widget_get_prop_str(under, "name", ""), "artistinfo_page"))
-            window_manager_close_window_force(wm, under);
+        void *under = artist_under();
+        if (under) window_manager_close_window_force(window_manager(), under);
         navigator_back();
     } else
         navigator_back_to_home();
@@ -1871,6 +1878,7 @@ static int keyup(void *ctx, void *event) {
 }
 
 static int closed(void *ctx, void *event) {
+    if (ctx != cf.page) return 0; /* a page scoped_open closed already */
     if (cf.saved_album) BLOB_IO(LAST_ALBUM, cf.saved_album, 1);
     drop();
     cf.page = cf.body = cf.covers = cf.slide = 0;
@@ -1893,14 +1901,30 @@ static int coverflow_open(void *ctx, void *event) {
     return 0;
 }
 
+/* A scoped page: a Coverflow already open (played from, under Now Playing's Go to Artist, issue
+ * #73) closes once the new one is up, with an artist page under it: there is one page's state.
+ * ponytail: Return then skips it; stack the state if that is missed. */
+static int scoped_open(void) {
+    void *old = cf.page, *under = artist_under(),
+         *page = page_open("coverflow_page", closed, keyup);
+    if (!page) return 0; /* the old page and its state stay */
+    if (old) {
+        closed(old, 0);
+        window_manager_close_window_force(window_manager(), old);
+        if (under) window_manager_close_window_force(window_manager(), under);
+    }
+    cf.page = page;
+    return 1;
+}
+
 /* Display settings' Artist albums: Coverflow (navigation.c): albums, coverflow_split's, as the
- * covers, which the page owns; 0 when Coverflow is open already, and albums is the caller's. */
+ * covers, which the page owns; 0 when there are none, and albums is the caller's. */
 int coverflow_artist(void *albums) {
-    if (cf.page || !deque_size(albums)) return 0;
+    if (!deque_size(albums)) return 0;
     void *music = _create_deque("stSongInfo");
     deque_init_copy(music, albums);
     music = music_albums(music);
-    if (!deque_size(music) || !(cf.page = page_open("coverflow_page", closed, keyup))) {
+    if (!deque_size(music) || !scoped_open()) {
         deque_destroy(music);
         return 0;
     }
@@ -1916,10 +1940,9 @@ int coverflow_artist(void *albums) {
 }
 
 /* Library Ratings' Albums (navigation.c): the albums hearts gives 1 to 5 hearts, as covers with the
- * rated Sort card alone; 0 when none is, or Coverflow is open already. */
+ * rated Sort card alone; 0 when none is. */
 int coverflow_rated(int (*hearts)(void *)) {
     int n;
-    if (cf.page) return 0;
     void *all = staged(albums, 0, &n), *rated = _create_deque("stSongInfo");
     if (n > 0) all = split(all);
     all = music_albums(all);
@@ -1927,7 +1950,7 @@ int coverflow_rated(int (*hearts)(void *)) {
     for (unsigned i = 0; i < deque_size(all); ++i)
         if (hearts(deque_at(all, i))) _deque_push_back(rated, deque_at(all, i));
     deque_destroy(all);
-    if (!deque_size(rated) || !(cf.page = page_open("coverflow_page", closed, keyup))) {
+    if (!deque_size(rated) || !scoped_open()) {
         deque_destroy(rated);
         return 0;
     }

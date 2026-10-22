@@ -2,6 +2,8 @@
 
 - **1.4.0** (unreleased):
   - iPod: **Library → Games** adds Solitaire (Klondike, draw one). The game in progress is kept across restarts.
+  - Lyrics: Play/Pause no longer flicks the lyrics to the top and back.
+  - Cover Flow: **Go to Artist** from a song played in Cover Flow opens the artist in Cover Flow when **Artist Albums** is set to Coverflow, instead of the grid.
 
 - **1.3.9**:
   - iPod: **Library → Games** with Sudoku and Vortex, playable while music plays. Sudoku keeps the game in progress and Vortex the best score across restarts.
