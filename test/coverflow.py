@@ -163,7 +163,7 @@ int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
 static int wm_repaints; /* whole-screen invalidations, from outside a paint */
 void *window_manager(void) { return &wm_repaints; }
 int widget_invalidate_force(void *x, void *y) { wm_repaints += x == &wm_repaints; return 0; }
-unsigned widget_count_children(void *x) { return W(x)->nkids; }
+unsigned widget_count_children(void *x) { return x == &wm_repaints ? 0 : W(x)->nkids; } /* no window stack */
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
 static void *home_art, *home_list; /* iPod Home's art and list; none in the carousel tests */
 void *widget_lookup(void *x, const char *n, int r) {
@@ -430,7 +430,7 @@ static void open_page(void) {
     run();
 }
 static void key(int k) { int e[16] = {0}; e[EVENT_KEY / 4] = k; w[8190].click(0, e); run(); }
-static void close_page(void) { w[8191].click(0, 0); }
+static void close_page(void) { w[8191].click(w[8191].ctx, 0); }
 static void mid_write(void) { open_page(); close_page(); }
 unsigned fnv(unsigned h, const unsigned char *s);
 static int last_album(int i) { /* the card holds album i's key as the one to reopen on */
@@ -846,8 +846,10 @@ static void artist_only(void) {
     order_is((const char *const[]){ "B", "Tight", 0 });
     deque *again = _create_deque(0);
     again->at[again->n++] = records[0];
-    assert(!coverflow_artist(again)); /* one Coverflow page at a time; the caller keeps its list */
-    free(again);
+    page = &w[nw + 1];
+    assert(coverflow_artist(again)); /* a scoped page replaces the open one (#73) and owns the list */
+    run();
+    order_is((const char *const[]){ "Cover", 0 });
     close_page();
     open_page();
     assert(slide()->nkids == all);
