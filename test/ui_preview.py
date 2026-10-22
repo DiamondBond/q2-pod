@@ -155,11 +155,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         image(a,p,x+(w-iw)//2,y+(h-ih)//2,iw,ih)
                     if case==3: text(a,'•  ·  ·',168,252,70,12,12,'#AAAAAA')
                     bh=inc('NP_BAR_CLASSIC') if old else inc('NP_BAR_MINIMAL'); by=251 if case==4 else 270+(30-bh)//2
-                    rect(a,21,by,333,bh,'#1C1C1C'); rect(a,21,by,132,bh,'#FFFFFF' if case==4 or (case==12 and not old) else f'#{palette[2]:06x}')
-                    if case==12:
-                        cy=by+bh//2
-                        a+=['-fill','#171717','-draw',f'circle 153,{cy} 161,{cy}',
-                            '-fill',f'#{palette[2]:06x}' if old else 'white','-draw',f'circle 153,{cy} 160,{cy}']
+                    rect(a,21,by,333,bh,'#1C1C1C'); rect(a,21,by,132,bh,'#FFFFFF' if case in (4,12) else f'#{palette[2]:06x}')
                     text(a,'1:23',46,295,80,16,14,'#AAAAAA'); text(a,'-2:34',249,295,80,16,14,'#AAAAAA')
                 elif case<8:
                     rows = [('Podcasts','local_podcasts'),('Games','local_games'),('Audiobooks','local_audiobooks'),('Videos','local_videos')]

@@ -440,7 +440,7 @@ def playing_page(root):
     x, y, w, h = NP_BAR
     slider[1] = [x, y + h // 2 - NP_TOUCH // 2, w, NP_TOUCH]
     slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
-    # The payload draws the handle; keep native thumb geometry out of the full-width seek track.
+    # No thumb: stock skips the dragger only when border_color is clear, else a touch shows its blue.
     for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
         slider[2][f'style:{state}:border_color'] = '#00000000'
     # Stock draws small radii square; the four-pixel line deliberately has square ends.

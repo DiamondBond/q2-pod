@@ -426,11 +426,11 @@ vertical position. Both keep their stock images and handlers and swipe away with
 Internet Radio uses the same heart alignment in both iPod themes.
 
 The bar is a four-pixel plain-colour line inside a 44-pixel seek target: a `#1C1C1C` track
-(`TRACK_COLOR`) and an off-white `MINIMAL_FILL` fill. While dragging, a white handle with a one-pixel dark edge stays distinct from the fill. **Theme: Classic** makes it an
+(`TRACK_COLOR`) and an off-white `MINIMAL_FILL` fill, with no thumb. **Theme: Classic** makes it an
 8-pixel capsule (`NP_BAR_CLASSIC`; `bar_size` and `round_radius` set on the slider at runtime,
 `np_theme`) filled in the accent's light tone (Graphite `#6E6E6E`, 3.3:1; see [Display
 settings](#display-settings)), and shows stock's play/pause glyph on the art again. Spotify's bar follows the same theme.
-Classic's handle and fill use the selected accent, including while dragging. Tap or drag anywhere in the bar's taller target to seek; the page dots sit just above it so page swipes keep a separate target. The elapsed time
+The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or drag anywhere in the bar's taller target to seek; the page dots sit just above it so page swipes keep a separate target. The elapsed time
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/ipod.py`; see [internals.md](internals.md#now-playing-ipod).
 
@@ -439,7 +439,7 @@ and the shade band behind it show for `BC_MS` (3 s), then fade out together over
 `BC_STEP_MS` apart (`ringnav_bigcover`, after stock's init). They show again for each new song while it is open.
 
 **Scrub.** A double press of the centre button starts scrubbing, as on an iPod classic (with the screen off it only
-wakes it, [Wake](internals.md#wake)), and an outlined handle marks the target. Minimal brightens and thickens its white line; Classic keeps the selected accent. Each wheel tick moves 5 seconds, times a ramp of one more step per 100 ms of spin
+wakes it, [Wake](internals.md#wake)), and the bar fill turns white while it lasts. Each wheel tick moves 5 seconds, times a ramp of one more step per 100 ms of spin
 (up to 40 seconds a tick; the lists' gentler ramp does not apply), within the
 track. Both times and the bar follow the target at once;
 the track jumps there once, when the scrub ends. A press of the centre button confirms it at once

@@ -10,7 +10,7 @@
   - Cover Flow: a cover that isn't square shows whole, between black bars, instead of cropped to its centre.
   - Lyrics: a lyrics search no longer shows the credits (writer, mix engineer and so on) some LRCLIB lyrics start with.
   - EQ: **Presets → Rename a preset** renames a saved preset.
-  - Now Playing: a larger touchscreen seek target, separate from page swipes, and an outlined handle while seeking: white in Minimal, the selected accent in Classic.
+  - Now Playing: a larger touchscreen seek target, separate from page swipes. The progress bar shows no thumb when you touch it to seek, instead of a blue one.
   - Menus: the hold menu, Now Playing's ⋯ menu and the sort picker wrap from bottom to top and back after a pause at the end, as Library lists do.
   - Playlists: the ⋯ page's row that deletes the whole playlist always reads **Delete Playlist**.
   - Edit Playlist: **Add Songs** shows a tick beside songs already in the playlist, and ticks a song as you add it.
