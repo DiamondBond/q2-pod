@@ -405,13 +405,16 @@ static int context_id(const char *name) {
 }
 
 /* The audited local row lists built from the compact assets: the file and music views. Grids
- * (album_page), settings menus, dynamic pages and the home carousel keep hard ends; iPod Home's
- * lists wrap at once (home_menu). */
-/* By the top window's name, not m->ctx: a dynamic page (the hold menu) has no memory context. */
+ * (album_page, but its Albums list below), settings menus, dynamic pages and the home carousel
+ * keep hard ends; iPod Home's lists wrap at once (home_menu). */
+/* By the top window's name, not m->ctx: a dynamic page (the hold menu) has no memory context.
+ * album_page also holds an album's songs (0xff10), which keep hard ends. */
 static int ring_list(const menu_t *m) {
     void *top = window_manager_get_top_window(window_manager());
-    int ctx = top ? context_id(widget_get_prop_str(top, "name", (void *)0)) : -1;
-    return m->w && ctx >= 0 && (contexts[ctx].flags & RING) && m->rows >= 2;
+    const char *name = top ? widget_get_prop_str(top, "name", (void *)0) : (void *)0;
+    int ctx = context_id(name), ring = ctx >= 0 && (contexts[ctx].flags & RING);
+    if (ctx >= 0 && !tk_strcmp(name, "album_page")) ring = I(g_class_type, 0) == CLASS_ALBUMS;
+    return m->w && ring && m->rows >= 2;
 }
 
 /* The view kinds load() actually navigates: a vertical scroll view, a table client, a slide

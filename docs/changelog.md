@@ -12,6 +12,7 @@
   - EQ: **Presets → Rename a preset** renames a saved preset.
   - Now Playing: a larger touchscreen seek target, separate from page swipes. The progress bar shows no thumb when you touch it to seek, instead of a blue one.
   - Menus: the hold menu, Now Playing's ⋯ menu and the sort picker wrap from bottom to top and back after a pause at the end, as Library lists do.
+  - Library: **Albums** wraps from bottom to top the same way as Artists: push past the end's resistance, then turn again after a pause.
   - Playlists: the ⋯ page's row that deletes the whole playlist always reads **Delete Playlist**.
   - Edit Playlist: **Add Songs** shows a tick beside songs already in the playlist, and ticks a song as you add it.
   - Display: **Accent: Cobalt**, the iPod's blue, for the Classic theme.

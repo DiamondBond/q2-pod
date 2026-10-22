@@ -2670,8 +2670,22 @@ assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0 and m.get(w+O['TA
 assert any(c[0]=='table_client_set_yoffset' for c in m.calls)
 passed()
 
-# Settings menus, dynamic pages and the album grid keep hard ends; one-row lists never wrap.
-for name in ('sysset_page','playerqueue_page','album_page'):
+# The Library's Albums grid (album_page, 0xf003) carries over at its ends as Artists do; an album's
+# songs (0xff10) on the same page keep hard ends. The class is set before the list loads, as the
+# Library sets it: changing it under a live list reloads the list and drops the bump.
+for cls,wraps in ((0xf003,True),(0xff10,False)):
+    m=Machine(); m.word(syms['g_class_type'],cls)
+    w,es=m.page_list(6,height=96,extent=288,name='album_page'); m.paint(w)
+    for _ in range(5): assert m.call()==11
+    assert m.call(gap=100)==11 and m.selected(w)==5
+    m.paint(w,gap=0)
+    if wraps:
+        assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0,(cls,m.selected(w))
+    else:
+        assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==5,(cls,m.selected(w))
+    passed()
+# Settings menus, dynamic pages and other grids keep hard ends; one-row lists never wrap.
+for name in ('sysset_page','playerqueue_page'):
     m,w,es=walk(6,5,height=96,extent=288,name=name)
     assert m.call(gap=100)==11 and m.selected(w)==5
     m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
