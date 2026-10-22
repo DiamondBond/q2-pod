@@ -439,6 +439,9 @@ def playing_page(root):
     x, y, w, h = NP_BAR
     slider[1] = [x, 240, w, 30]
     slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
+    # No thumb: stock skips the dragger only when border_color is clear, else a touch shows its blue.
+    for key in slider[2]:
+        if key.endswith(':border_color'): slider[2][key] = '#00000000'
     # Stock draws small radii square; the four-pixel line deliberately has square ends.
     for key in slider[2]:
         if key.endswith(':round_radius'): slider[2][key] = str(h // 2)  # a capsule, track and fill

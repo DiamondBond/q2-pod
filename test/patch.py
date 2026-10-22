@@ -2649,6 +2649,12 @@ for name in ('sysset_page','playerqueue_page','album_page'):
     m.paint(w,gap=0); assert m.sel()==(0,48,240,48)
     assert m.call(gap=100)==11 and m.selected(w)==5
     passed()
+# The hold menu and Now Playing's More page carry over as Library lists do.
+for name in ('playermore_page','sortselect_dialog'):
+    m,w,es=walk(6,5,height=96,extent=288,name=name)
+    assert m.call(gap=100)==11 and m.selected(w)==5
+    assert m.call(gap=O['EDGE_PAUSE_MS'])==11 and m.selected(w)==0,(name,m.selected(w))
+    passed()
 m=Machine(); w,es=m.page_list(1,height=96,extent=96,name='playlist_page')
 m.paint(w)
 for _ in range(3): assert m.call(gap=100)==11 and m.selected(w)==0
@@ -4849,6 +4855,9 @@ class PlaylistEditMachine(CoverflowMachine):
         assert self.nodes[self.page]['name']=='playlistedit_page'
     def showlabels(self):
         self.view=self.find('scroll_view'); return self.labels()
+    def ticks(self):  # rows holding stock's "select" check: songs already in the playlist
+        return [any(self.nodes[c].get('image')=='select' for c in self.nodes[r]['children'])
+                for r in self.nodes[self.view]['children']]
     def choose(self,i):
         self.view=self.find('scroll_view'); self.pick(i); self.advance(0)
         self.view=self.find('scroll_view')
@@ -4908,6 +4917,7 @@ assert not any(c[0].startswith('batch_') for c in m.calls)
 assert m.toasts[-1][3]=='Added to Playlist' and m.showlabels()==['Search','T1','T2']
 m.choose(1); assert m.toasts[-1][3]=='Already in playlist'
 m.fail='write'; m.choose(2); assert m.toasts[-1][3]=='Could not save playlist'; m.fail=''
+assert m.ticks()==[False,True,False]  # ticked on add, not on a failed write
 assert m.key()==11 and m.showlabels()==['Add Songs','Done','B','C','T1']
 m.choose(1); assert m.top!=m.page and not m.get(payload_syms['ple'])
 assert m.names()==m.before_queue; passed()
@@ -4930,7 +4940,7 @@ assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; m.advance(0); m.view=m
 assert m.showlabels()==['Search: beat','T1']
 m.choose(1); assert m.toasts[-1][3]=='Added to Playlist' and m.showlabels()==['Search: beat','T1']
 ple_search(m,'zeb'); assert m.showlabels()==['Search: zeb','T2']
-ple_search(m,''); assert m.showlabels()==['Search','T1','T2']
+ple_search(m,''); assert m.showlabels()==['Search','T1','T2'] and m.ticks()==[False,True,False]
 ple_search(m,'zzz'); assert m.showlabels()==['Search: zzz','No songs match']
 # Return from the box applies its text, and a filtered pick can close the page cleanly.
 m.choose(0); m.nodes[m.find('edit')]['text']='t1'; assert m.key()==11

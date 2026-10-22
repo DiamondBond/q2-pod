@@ -581,9 +581,9 @@ Minimal has no accent: the Accent row hides (the list's layout skips a hidden ro
 no gap) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,
 whatever `ACCENT` holds, and its own fills (the progress bars, Spotify's, the PEQ curve and the
 visualizer) are `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure white. In Classic
-the Accent row follows Theme and every accent applies as before. Now Playing's progress thumb, which
-stock draws while the bar is touched in the slider's `border_color` (the stock theme's blue), is set
-by `np_fill` to white in Minimal and the accent's light tone in Classic.
+the Accent row follows Theme and every accent applies as before. Now Playing's bar has no thumb:
+stock draws its dragger (a box and knob, the stock theme's blue) unless `border_color` is clear,
+so `playing_page` clears it in every state. 1.3.9 first painted it white, which drew the box at rest.
 
 A change applies at once, as Accent does: the image cache is dropped and the screen repaints
 (icons and chevrons reload in the new theme's colours), Home re-lays its menus and art, and all

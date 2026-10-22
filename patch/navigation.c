@@ -407,8 +407,11 @@ static int context_id(const char *name) {
 /* The audited local row lists built from the compact assets: the file and music views. Grids
  * (album_page), settings menus, dynamic pages and the home carousel keep hard ends; iPod Home's
  * lists wrap at once (home_menu). */
+/* By the top window's name, not m->ctx: a dynamic page (the hold menu) has no memory context. */
 static int ring_list(const menu_t *m) {
-    return m->w && m->ctx >= 0 && (contexts[m->ctx].flags & RING) && m->rows >= 2;
+    void *top = window_manager_get_top_window(window_manager());
+    int ctx = top ? context_id(widget_get_prop_str(top, "name", (void *)0)) : -1;
+    return m->w && ctx >= 0 && (contexts[ctx].flags & RING) && m->rows >= 2;
 }
 
 /* The view kinds load() actually navigates: a vertical scroll view, a table client, a slide
@@ -2901,17 +2904,11 @@ static void np_sync(void *top) {
  * timer stops, the slider and label_playtime preview the target, player_seek_time commits it once
  * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
 /* The accent's light tone (Minimal's MINIMAL_FILL) fills the progress bar; a white fill (Minimal: a
- * thicker line) marks the scrub. The thumb a touch shows is the slider's border_color, stock's
- * theme blue: white in Minimal, the accent's light tone in Classic. */
+ * thicker line) marks the scrub. */
 static void np_fill(int scrub) {
     if (!st.np_slider) return;
-    static const char *const thumb[] = { "style:normal:border_color", "style:pressed:border_color",
-                                         "style:over:border_color", "style:focused:border_color" };
     unsigned color = scrub ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
     widget_set_prop_int(st.np_slider, "style:normal:fg_color", (int)color);
-    for (unsigned i = 0; i < sizeof thumb / sizeof *thumb; ++i)
-        widget_set_prop_int(st.np_slider, thumb[i],
-                            (int)(ipod_classic() ? RGBA(accent_tone(TONE_LIGHT)) : 0xffffffffu));
     /* Minimal's fill is near white already: its scrub thickens the line to Classic's. */
     if (!ipod_classic())
         widget_set_prop_int(st.np_slider, "bar_size", scrub ? NP_BAR_CLASSIC : np_bar_h());
@@ -6119,6 +6116,25 @@ static void ple_filter(void) {
             }
     }
 }
+/* Add Songs ticks a song the playlist already holds: same path and CUE segment.
+ * ponytail: a scan of the playlist per picker row; a sorted path list if huge playlists drag. */
+static int ple_in(void *r) {
+    const char *path = P(r, REC_PATH);
+    for (unsigned i = 0, n = path ? deque_size(ple.songs) : 0; i < n; ++i) {
+        void *s = deque_at(ple.songs, i);
+        const char *p = P(s, REC_PATH);
+        if (p && !strcmp(p, path) && I(s, REC_CUE_START) == I(r, REC_CUE_START)) return 1;
+    }
+    return 0;
+}
+/* Stock's "select" check at the row's end, as the Shuffle and Repeat menus; the caption stops short
+ * of it. */
+static void ple_tick(void *item) {
+    void *label = item ? widget_get_child(item, 0) : 0;
+    if (!label) return;
+    widget_move_resize(label, I(label, W_X), I(label, W_Y), 330 - I(label, W_X), I(label, W_H));
+    image_base_set_image(image_create(item, 340, 0, 24, 48), "select");
+}
 static void ple_show(void);
 static int ple_closed(void *ctx, void *event) {
     if (ple.timer) timer_remove(ple.timer);
@@ -6222,8 +6238,9 @@ static int ple_run(const void *unused) {
                 if (ple_add_select) batch_add_file(0xf001, 0xf00b, one, ple_add_select, ple.dest);
                 deque_destroy(one);
                 ple_reload();
-                toast((int)deque_size(ple.songs) > before ? "Added to Playlist"
-                                                          : "Could not save playlist");
+                int added = (int)deque_size(ple.songs) > before;
+                if (added) ple_tick(widget_get_child(ple.view, (unsigned)action));
+                toast(added ? "Added to Playlist" : "Could not save playlist");
             }
             return 0; /* picker stays on its selected song */
         }
@@ -6304,9 +6321,11 @@ static void ple_show(void) {
         if (!ple.nmatch)
             page_row_detail(ple.view, 1, "No songs match", 0, 0);
         else
-            for (int i = 0; i < ple.nmatch; i++)
-                page_row_detail(ple.view, i + 1, track_name(name, sizeof name, ple.match[i]), 0,
-                                ple_pick);
+            for (int i = 0; i < ple.nmatch; i++) {
+                void *row = page_row_detail(
+                    ple.view, i + 1, track_name(name, sizeof name, ple.match[i]), 0, ple_pick);
+                if (ple_in(ple.match[i])) ple_tick(row);
+            }
     } else
         for (int i = 0; i < n; i++) {
             const char *caption =
