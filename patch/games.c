@@ -424,6 +424,9 @@ void sol_finish(struct solitaire *s) {
 #define SAVE_MS 2000 /* a move's save waits this long; a power-off loses at most this */
 #define CELL 30
 #define TURN (6.2831853f / 1024)
+#define POP_MS 240 /* Vortex: a broken brick's flash fading out */
+#define TRAIL 4    /* Vortex: the ball's last frames, fading behind it */
+#define HUD_X 24   /* Vortex: the score, best, level and lives, clear of the glass's corners */
 enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE };
 enum { RUN, HELD, MENU }; /* Vortex: playing, paused by Play/Pause or the screen, Return's menu */
 struct best {
@@ -439,6 +442,8 @@ static struct game {
     struct best best;
     struct solitaire sol;
     unsigned save;
+    unsigned pop_at; /* Vortex: when the last brick broke, which pop_ring, pop_seg */
+    int pop_ring, pop_seg, trail[TRAIL][2], record; /* record: the last game set Best */
 } *g __attribute__((section(".scratch")));
 
 static int sud_started(const struct sudoku *s) {
@@ -479,7 +484,7 @@ static void hold(int paused) {
 }
 
 static void game_over(void) {
-    if (g->vx.score <= (int)g->best.score) return;
+    if (!(g->record = g->vx.score > (int)g->best.score)) return;
     g->best.score = (unsigned)g->vx.score;
     games_seal(&g->best, sizeof g->best, BEST_MAGIC);
     if (!BLOB_IO(GAMES_VORTEX, g->best, 1)) toast("Couldn't save");
@@ -504,7 +509,16 @@ static int frame(const void *unused) {
     if (n) g->carry -= dpa * 200 * 100;
     if (g->acc >= 1000) g->acc = 0;
     if (travel) reset_poweroptions_timer(1, 1, 1); /* the ball alone lets the screen time out */
-    if (memcmp(&was, &g->vx, sizeof was)) widget_invalidate_force(g->page, 0);
+    for (int k = 0; k < RINGS; ++k) { /* a cleared level refills: its last brick is was's */
+        unsigned gone = was.brick[k] & ~(g->vx.level == was.level ? g->vx.brick[k] : 0u);
+        if (gone) g->pop_at = now, g->pop_ring = k, g->pop_seg = __builtin_ctz(gone);
+    }
+    for (int k = TRAIL - 1; k; --k) memcpy(g->trail[k], g->trail[k - 1], sizeof *g->trail);
+    g->trail[0][0] = was.x, g->trail[0][1] = was.y;
+    for (int k = 0; g->vx.state != PLAY && k < TRAIL; ++k) /* a launch starts with no tail */
+        g->trail[k][0] = g->vx.x, g->trail[k][1] = g->vx.y;
+    if (memcmp(&was, &g->vx, sizeof was) || now - g->pop_at < POP_MS)
+        widget_invalidate_force(g->page, 0);
     if (g->vx.state != OVER) return 8; /* RET_REPEAT */
     g->frame = 0;
     hold(RUN);
@@ -671,7 +685,21 @@ static void box(void *canvas, int x, int y, int w, int h, unsigned rgb) {
     canvas_fill_rect(canvas, x, y, w, h);
 }
 
-static void frame_rect(void *canvas, int x, int y, int w, int h, unsigned rgb) {
+/* A box with its corners rounded r, square when the canvas declines to round it. */
+static void round_box(void *canvas, int x, int y, int w, int h, unsigned rgb, unsigned r) {
+    int rect[4] = { x, y, w, h };
+    unsigned c = rgba(rgb, 255);
+    if (canvas_fill_rounded_rect(canvas, rect, (void *)0, &c, r)) box(canvas, x, y, w, h, rgb);
+}
+
+/* A two-pixel frame, its corners rounded r (4 or more) or, at 0 or when the canvas declines,
+ * square. */
+static void frame_rect(void *canvas, int x, int y, int w, int h, unsigned rgb, unsigned r) {
+    int out[4] = { x, y, w, h }, in[4] = { x + 1, y + 1, w - 2, h - 2 };
+    unsigned c = rgba(rgb, 255);
+    if (r && !canvas_stroke_rounded_rect(canvas, out, (void *)0, &c, r, 1) &&
+        !canvas_stroke_rounded_rect(canvas, in, (void *)0, &c, r - 1, 1))
+        return;
     box(canvas, x, y, w, 2, rgb);
     box(canvas, x, y + h - 2, w, 2, rgb);
     box(canvas, x, y, 2, h, rgb);
@@ -682,31 +710,34 @@ static void frame_rect(void *canvas, int x, int y, int w, int h, unsigned rgb) {
 static void banner(void *canvas, unsigned tone, const char *a, unsigned ca, const char *b,
                    unsigned cb) {
     int w = 281, h = 80, x = (375 - w) / 2, y = (g->h - h) / 2;
-    box(canvas, x, y, w, h, 0x202020);
-    frame_rect(canvas, x, y, w, h, tone);
+    round_box(canvas, x, y, w, h, 0x202020, 12);
+    frame_rect(canvas, x, y, w, h, tone, 12);
     caption(canvas, a, x, y + 8, w, 32, 20, rgba(ca, 255));
     caption(canvas, b, x, y + 40, w, 32, 20, rgba(cb, 255));
 }
 
-/* Clues on grey, entries plain in the tone, a conflict red and underlined, the cursor framed. */
+/* Clues on grey, entries plain in the tone, a conflict red and underlined, the cursor framed, and
+ * every cell holding the cursor's digit (the one being picked) dark on the tone. */
 static void sudoku_paint(void *canvas, unsigned tone) {
     const struct sudoku *s = &g->sud;
     int x0 = (375 - 9 * CELL) / 2, y0 = (g->h - 9 * CELL) / 2;
+    int same = g->picking ? g->pick : s->cell[s->cur] & 15;
     char d[2] = { 0, 0 };
     box(canvas, x0, y0, 9 * CELL, 9 * CELL, 0x555555);
     for (int i = 0; i < 81; ++i) {
         int x = x0 + i % 9 * CELL, y = y0 + i / 9 * CELL, v = s->cell[i] & 15;
         int picked = g->picking && i == s->cur, bad = !picked && sud_conflict(s, i);
         if (picked) v = g->pick;
+        int lit = v && v == same; /* the picked cell too */
         box(canvas, x + 1, y + 1, CELL - 2, CELL - 2,
-            picked              ? tone
+            lit                 ? tone
             : s->cell[i] & CLUE ? 0x333333
                                 : 0);
         if (!v) continue;
         d[0] = (char)('0' + v);
         caption(canvas, d, x, y, CELL, CELL, 20,
-                rgba(picked              ? 0
-                     : bad               ? 0xff5050
+                rgba(bad                 ? 0xff5050
+                     : lit               ? 0
                      : s->cell[i] & CLUE ? 0xffffff
                                          : tone,
                      255));
@@ -717,75 +748,98 @@ static void sudoku_paint(void *canvas, unsigned tone) {
         box(canvas, x0 - 1, y0 + k * CELL - 1, 9 * CELL + 2, 2, 0xaaaaaa);
     }
     frame_rect(canvas, x0 + s->cur % 9 * CELL, y0 + s->cur / 9 * CELL, CELL, CELL,
-               g->picking ? 0xffffff : tone);
+               g->picking ? 0xffffff : tone, 0);
     if (g->confirm)
         banner(canvas, tone, "New game?", 0xffffff, "Centre: yes   Return: no", 0xaaaaaa);
     else if (sud_done(s))
         banner(canvas, tone, "Solved!", tone, "Play/Pause: new game", 0xaaaaaa);
 }
 
-static void arc(void *vg, float cx, float cy, int r, int a0, int a1, int width, unsigned rgb) {
+static void arc(void *vg, float cx, float cy, int r, int a0, int a1, int width, unsigned color) {
     vgcanvas_begin_path(vg);
     vgcanvas_arc(vg, cx, cy, (float)r, (float)a0 * TURN, (float)a1 * TURN, 0);
     vgcanvas_set_line_width(vg, (float)width);
-    vgcanvas_set_stroke_color(vg, rgba(rgb, 255));
+    vgcanvas_set_stroke_color(vg, color);
     vgcanvas_stroke(vg);
 }
 
+static void dot(void *vg, float x, float y, float r, unsigned color) {
+    vgcanvas_begin_path(vg);
+    vgcanvas_arc(vg, x, y, r, 0, 1024 * TURN, 0);
+    vgcanvas_set_fill_color(vg, color);
+    vgcanvas_fill(vg);
+}
+
+/* The rings shaded from the tone inwards, a broken brick flashing white as it goes, the paddle
+ * round-ended, the ball with a fading trail in the tone, and the lives as balls under Best. */
 static void vortex_paint(void *canvas, unsigned tone) {
     const struct vortex *v = &g->vx;
     void *vg = canvas_get_vgcanvas(canvas);
     float cx = 187.5f, cy = (float)g->h / 2;
+    unsigned age = (unsigned)time_now_ms() - g->pop_at;
     char line[24];
     if (vg) {
         vgcanvas_save(vg);
         vgcanvas_translate(vg, (float)I(canvas, CANVAS_X), (float)I(canvas, CANVAS_Y));
-        arc(vg, cx, cy, R_PAD, 0, 1024, 1, 0x333333);
+        arc(vg, cx, cy, R_PAD, 0, 1024, 1, rgba(0x333333, 255));
         for (int k = 0; k < RINGS; ++k)
             for (int j = 0; j < SEGS; ++j)
                 if (v->brick[k] >> j & 1)
                     arc(vg, cx, cy, R_B + k * BRICK_T + BRICK_T / 2, j * 64 + 2, j * 64 + 62,
-                        BRICK_T - 2, mix(tone, 0, k, 4));
-        arc(vg, cx, cy, R_PAD, v->pa - PAD_HALF, v->pa + PAD_HALF, 6, 0xffffff);
-        vgcanvas_begin_path(vg);
-        vgcanvas_arc(vg, cx + (float)v->x / 65536, cy + (float)v->y / 65536, 4, 0, 1024 * TURN, 0);
-        vgcanvas_set_fill_color(vg, rgba(0xffffff, 255));
-        vgcanvas_fill(vg);
+                        BRICK_T - 2, rgba(mix(tone, 0, k, 4), 255));
+        if (age < POP_MS && !g->paused && v->state != OVER)
+            arc(vg, cx, cy, R_B + g->pop_ring * BRICK_T + BRICK_T / 2, g->pop_seg * 64 + 2,
+                g->pop_seg * 64 + 62, BRICK_T - 2, rgba(0xffffff, 255 - 255 * age / POP_MS));
+        vgcanvas_set_line_cap(vg, "round");
+        arc(vg, cx, cy, R_PAD, v->pa - PAD_HALF, v->pa + PAD_HALF, 6, rgba(0xffffff, 255));
+        for (int k = TRAIL - 1; v->state == PLAY && k >= 0; --k)
+            dot(vg, cx + (float)g->trail[k][0] / 65536, cy + (float)g->trail[k][1] / 65536,
+                3.5f - k * 0.5f, rgba(tone, 160 - 36 * k));
+        dot(vg, cx + (float)v->x / 65536, cy + (float)v->y / 65536, 4, rgba(0xffffff, 255));
+        for (int k = 0; k < v->lives; ++k)
+            dot(vg, 375 - HUD_X - 55 + (k - (v->lives - 1) / 2.0f) * 14, (float)g->h - 18, 4,
+                rgba(0xaaaaaa, 255));
         vgcanvas_restore(vg);
     }
     tk_snprintf(line, sizeof line, "Score %d", v->score);
-    caption(canvas, line, 4, 4, 110, 24, 16, SPOT_GREY);
+    caption(canvas, line, HUD_X, 6, 110, 24, 16, SPOT_GREY);
     tk_snprintf(line, sizeof line, "Best %u", g->best.score);
-    caption(canvas, line, 375 - 114, 4, 110, 24, 16, SPOT_GREY);
+    caption(canvas, line, 375 - HUD_X - 110, 6, 110, 24, 16, SPOT_GREY);
     tk_snprintf(line, sizeof line, "Level %d", v->level + 1);
-    caption(canvas, line, 4, g->h - 28, 110, 24, 16, SPOT_GREY);
-    tk_snprintf(line, sizeof line, "Lives %d", v->lives);
-    caption(canvas, line, 375 - 114, g->h - 28, 110, 24, 16, SPOT_GREY);
+    caption(canvas, line, HUD_X, g->h - 30, 110, 24, 16, SPOT_GREY);
     if (g->paused == MENU)
         banner(canvas, tone, "Continue", g->choice ? 0xaaaaaa : tone, "Quit",
                g->choice ? tone : 0xaaaaaa);
     else if (v->state == OVER)
-        banner(canvas, tone, "Game over", 0xffffff, "Centre: play again", 0xaaaaaa);
+        banner(canvas, tone, g->record ? "New best!" : "Game over", 0xffffff, "Centre: play again",
+               0xaaaaaa);
     else if (g->paused)
         banner(canvas, tone, "Paused", 0xffffff, "Play/Pause: resume", 0xaaaaaa);
     else if (v->state == AIM)
         caption(canvas, "Centre", (int)cx - 40, (int)cy - 12, 80, 24, 16, SPOT_GREY);
 }
 
-#define CARD_W 49
+#define CARD_W 45
 #define CARD_H 46
-#define PITCH 53 /* 7 columns, 4 px apart, 4 px in */
-#define FAN 20   /* a face-up card's label showing under the next */
+#define PITCH 49   /* 7 columns, 4 px apart */
+#define SOL_X 18   /* the first column's left: the top row clears the glass's corners */
+#define SOL_Y 6    /* the top row's top */
+#define SOL_LOW 35 /* the outer columns end this far above the bottom, clear of the corners */
+#define FAN 20     /* a face-up card's label showing under the next */
 #define FAN_DOWN 6
 
-/* A card: face down in a dark tone, or rank and suit at the top in red or black, its suit large
- * below when nothing covers it. */
+/* A rounded card: face down in the tone, darker inside a border when nothing covers it, or rank and
+ * suit at the top in red or black, its suit large below when nothing covers it. */
 static void card_paint(void *canvas, int x, int y, int c, int whole, unsigned tone) {
     static const unsigned short suit[] = { 0x2660, 0x2665, 0x2666, 0x2663 }; /* ♠♥♦♣ */
     unsigned text[3], n = 0;
-    box(canvas, x, y, CARD_W, CARD_H, 0x777777);
-    box(canvas, x + 1, y + 1, CARD_W - 2, CARD_H - 2, c & UP ? 0xf2f2f2 : mix(tone, 0, 2, 3));
-    if (!(c & UP)) return;
+    round_box(canvas, x, y, CARD_W, CARD_H, 0x777777, 5);
+    round_box(canvas, x + 1, y + 1, CARD_W - 2, CARD_H - 2, c & UP ? 0xf2f2f2 : mix(tone, 0, 1, 2),
+              4);
+    if (!(c & UP)) {
+        if (whole) round_box(canvas, x + 4, y + 4, CARD_W - 8, CARD_H - 8, mix(tone, 0, 3, 4), 3);
+        return;
+    }
     c &= ~UP;
     unsigned ink = rgba(c / 13 % 3 ? 0xd01818 : 0x101010, 255);
     if (c % 13 == 9) text[n++] = '1';
@@ -801,23 +855,24 @@ static void card_paint(void *canvas, int x, int y, int c, int whole, unsigned to
  * tone. */
 static void solitaire_paint(void *canvas, unsigned tone) {
     const struct solitaire *s = &g->sol;
-    int room = g->h - 4 - (CARD_H + 12); /* the tableau's height */
     for (int p = 0; p < PILES; ++p) {
         int n = s->len[p], i = p >= TABLEAU || !n ? 0 : n - 1, down = 0, fan = FAN;
-        int x = 4 + col[p] * PITCH, y = p < TABLEAU ? 4 : CARD_H + 12, first = -1;
+        int x = SOL_X + col[p] * PITCH, y = p < TABLEAU ? SOL_Y : SOL_Y + CARD_H + 8, first = -1;
+        int room = (col[p] % 6 ? g->h - 4 : g->h - SOL_LOW) - y; /* the column's height */
         while (down < n && !(s->card[p][down] & UP)) ++down;
         if (n - down > 1 && down * FAN_DOWN + (n - down - 1) * FAN + CARD_H > room)
             fan = (room - CARD_H - down * FAN_DOWN) / (n - down - 1);
-        if (!n) frame_rect(canvas, x, y, CARD_W, CARD_H, 0x333333);
+        if (!n) frame_rect(canvas, x, y, CARD_W, CARD_H, 0x333333, 5);
         for (; i < n; y += s->card[p][i++] & UP ? fan : FAN_DOWN) {
             if (s->card[p][i] & UP && first < 0) first = y;
             card_paint(canvas, x, y, s->card[p][i], i == n - 1, tone);
             if (i == n - 1) break;
         }
         if (g->picking && p == g->pick)
-            frame_rect(canvas, x - 2, first - 2, CARD_W + 4, y - first + CARD_H + 4, tone);
+            frame_rect(canvas, x - 2, first - 2, CARD_W + 4, y - first + CARD_H + 4, tone, 7);
         if (p == s->cur)
-            frame_rect(canvas, x - 2, y - 2, CARD_W + 4, CARD_H + 4, g->picking ? 0xffffff : tone);
+            frame_rect(canvas, x - 2, y - 2, CARD_W + 4, CARD_H + 4, g->picking ? 0xffffff : tone,
+                       7);
     }
     if (g->confirm)
         banner(canvas, tone, "New game?", 0xffffff, "Centre: yes   Return: no", 0xaaaaaa);
