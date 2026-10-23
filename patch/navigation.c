@@ -2329,17 +2329,22 @@ static int utf8_text(const char *s) {
     return 1;
 }
 
+static int ascii_letter(unsigned c) { return (c | 32) >= 'a' && (c | 32) <= 'z'; }
+
 /* Whether s reads as GBK rather than Latin-1 or Windows-1252: not UTF-8, and every byte from 0x80
- * a two-byte character's, lead 0x81-0xFE then trail 0x80-0xFE. Western text has an accented letter
- * beside an ASCII one ("mú-s-ica" is FA 73), Chinese text pairs of high bytes. ponytail: a GBK
- * character with an ASCII-range trail (0x40-0x7E, rarer GBK/3-4 ones) reads as Latin-1, and Western
- * text whose accented letters only ever come in pairs ("ñó" alone) as GBK; a real charset guesser
- * if either shows up. */
+ * a two-byte character's, lead 0x81-0xFE then trail 0x80-0xFE, none of them between two ASCII
+ * letters. Western text has an accented letter beside an ASCII one ("mú-s-ica" is FA 73), or a
+ * pair inside a word ("Can-çã-o", "Beyonc-é’-s"); Chinese text runs of high-byte pairs. ponytail: a
+ * GBK character with an ASCII-range trail (0x40-0x7E, rarer GBK/3-4 ones), or one alone inside a
+ * Latin word, reads as Latin-1, and accented pairs at a word's edge only ("ñó" alone) as GBK; a
+ * real charset guesser if either shows up. */
 static int gbk_text(const char *s) {
     int high = 0;
     for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
         if (*p < 0x80) continue;
-        if (*p == 0x80 || *p == 0xff || p[1] < 0x80 || p[1] == 0xff) return 0;
+        if (*p == 0x80 || *p == 0xff || p[1] < 0x80 || p[1] == 0xff ||
+            (p > (const unsigned char *)s && ascii_letter(p[-1]) && ascii_letter(p[2])))
+            return 0;
         high = 1, ++p;
     }
     return high && !utf8_text(s);
@@ -2360,7 +2365,10 @@ int ringnav_gbk_tag(const char *round, const char *latin1) {
  * whole character to 511 bytes. Stock's returned 1 for kept text; so does this. */
 int ringnav_cue_text(char *s, const char *to, const char *from) {
     if (!s || utf8_text(s)) return 1;
-    if (gbk_text(s)) return ((int (*)(char *, const char *, const char *))0x5bccac)(s, to, from);
+    /* stock's conversion writes back over s unbounded: GBK grows by half as UTF-8, so 340 bytes at
+     * most fill the 512; a longer field reads as Windows-1252 */
+    if (strlen(s) <= 340 && gbk_text(s))
+        return ((int (*)(char *, const char *, const char *))0x5bccac)(s, to, from);
     static const unsigned short cp1252[32] = {
         0x20ac, '?',    0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160,
         0x2039, 0x0152, '?',    0x017d, '?',    '?',    0x2018, 0x2019, 0x201c, 0x201d, 0x2022,

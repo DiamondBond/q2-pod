@@ -6290,7 +6290,7 @@ class TagTextMachine(Machine):
             except UnicodeError: pass
         self.returns(ret,clobber=True)
 for utf8,raw in (('Lo que la música me enseñó',None),('Ciencia Ficción',None),('Mateo Nieto',None),('今','今'.encode()),
-                 ('Ölüdeniz',None),('周杰伦','周杰伦'.encode('gbk')),('Jay 周杰伦 - 晴天','Jay 周杰伦 - 晴天'.encode('gbk'))):
+                 ('Ölüdeniz',None),('Canção do Mar',None),('Informações',None),('Grüße',None),('周杰伦','周杰伦'.encode('gbk')),('Jay 周杰伦 - 晴天','Jay 周杰伦 - 晴天'.encode('gbk'))):
     m=TagTextMachine(); out=m.alloc(0x100); latin1=raw is None or raw!=utf8.encode()
     raw=utf8.encode('latin-1') if raw is None else raw  # taglib_tag_<field>(tag, 0): its Latin-1 bytes
     copy=raw.decode('latin-1') if latin1 else utf8  # (tag, 1): TagLib's UTF-8, of the bytes as Latin-1
@@ -6302,7 +6302,8 @@ for utf8,raw in (('Lo que la música me enseñó',None),('Ciencia Ficción',None
 for address in CUE_TEXT: assert struct.unpack_from('<I',demo,fileoff(demo,address))[0]==jal(payload_syms['ringnav_cue_text'])
 for given,want in ((b'Caf\xc3\xa9 \xc3\x91and\xc3\xba','Café Ñandú'),(b'Caf\xe9 \x93Hi\x94 \x80','Café “Hi” €'),
                    (b'\xc3(','Ã('),(b'a\xe9'*200,'aé'*170+'a'),(b'plain','plain'),(b'\xed\xa0\x80','í\xa0€'),
-                   ('周杰伦 晴天'.encode('gbk'),'周杰伦 晴天'),('Lo que la música'.encode('cp1252'),'Lo que la música')):
+                   ('周杰伦 晴天'.encode('gbk'),'周杰伦 晴天'),('Lo que la música'.encode('cp1252'),'Lo que la música'),
+                   ('Canção'.encode('cp1252'),'Canção'),('Beyoncé’s'.encode('cp1252'),'Beyoncé’s'),('周'.encode('gbk')*171,('ÖÜ'*171)[:255])):
     m=TagTextMachine(); buf=m.alloc(512); m.u.mem_write(buf,given+b'\0')
     assert m.call(address=payload_syms['ringnav_cue_text'],args=(buf,m.string('utf-8'),m.string('gbk'),0),gap=0)==1 and m.raw(buf).decode()==want,(given,m.raw(buf)); passed()
 # The library scan (SCAN_DIRS) skips every hidden folder: q2-deezer's .deezer/stream never joins the Library.
