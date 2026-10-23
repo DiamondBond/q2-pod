@@ -208,7 +208,10 @@ int spot_status(void), radio_status(void), video_status(void);
 unsigned spot_session(void), radio_session(void), video_session(void);
 void spot_set_playing(int playing), radio_set_playing(int playing), video_set_playing(int playing);
 int video_start(const char *file, int radio); /* books.c */
-void *edit_create(void *item, const char *input_type, int y, int h); /* peq_ui.c */
+/* peq_ui.c's T9 edit, named EDIT_NAME: navigation.c's search_key cancels it on Return while its
+ * keyboard is up. */
+#define EDIT_NAME "q2_edit"
+void *edit_create(void *item, const char *input_type, int y, int h);
 const char *output_device(char *vol);         /* books.c */
 void dac_take(void);                          /* books.c */
 #if IPOD

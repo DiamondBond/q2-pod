@@ -11,6 +11,8 @@
 #define W_FOCUS 0x24            /* stock focused flag byte (tests) */
 #define W_PARENT 0x48
 #define IM_WIDGET 0x04 /* input_method_t's editing target, input_method_request @0x645758 */
+#define IM_KEYBOARD                                                                                \
+    0x0c /* the default input method's open keyboard window, 0 once it closes (@0x68bbec) */
 #define W_EMITTER 0x60
 #define W_CHILDREN_LAYOUT 0x68
 #define CHILDREN_LAYOUT_VTABLE 0x10

@@ -5790,7 +5790,8 @@ static int ratings_menu(void *ctx, void *event) {
  * have no hold menu; a year page, or the decade as a scoped Coverflow, if asked for. */
 #define ERA_DECADES 32
 #define ERA_ALBUMS                                                                                 \
-    "select album,ifnull(nullif(albumsonger,''),songer)," ALBUM_YEAR " as release_year,fileurl from songtable " \
+    "select album,ifnull(nullif(albumsonger,''),songer)," ALBUM_YEAR                               \
+    " as release_year,fileurl from songtable "                                                     \
     "where " MUSIC_WHERE " and ifnull(album,'')<>''" ALBUM_GROUP
 typedef struct {
     char *album, *artist, *path;
@@ -5894,10 +5895,10 @@ static int era_open_decade(void *ctx, void *event) {
     if (era.albums || !(era.albums = page_open("era_albums_page", era_closed, page_keyup)))
         return 0;
     char sql[1024], name[16], detail[300];
-    tk_snprintf(sql,
-                sizeof sql, /* MUSIC_WHERE's like patterns hold '%': an argument, not the format */
-                "%s having release_year between %d and %d order by release_year,album COLLATE NOCASE",
-                ERA_ALBUMS, from, from + 9);
+    tk_snprintf(
+        sql, sizeof sql, /* MUSIC_WHERE's like patterns hold '%': an argument, not the format */
+        "%s having release_year between %d and %d order by release_year,album COLLATE NOCASE",
+        ERA_ALBUMS, from, from + 9);
     era.v =
         calloc((unsigned)era.count[k] + 1, sizeof *era.v); /* the decade's count, from era_menu */
     era.cap = era.v ? (unsigned)era.count[k] : 0;
@@ -5916,10 +5917,10 @@ static int era_open_decade(void *ctx, void *event) {
 static int era_menu(void *ctx, void *event) {
     if (era.page) return 0;
     era.n = 0;
-    if (!era_sql(
-        "select year/10*10,count(*) from (select " ALBUM_YEAR " year from songtable where " MUSIC_WHERE
-        " and ifnull(album,'')<>''" ALBUM_GROUP ") where year>0 group by 1 order by 1",
-        era_decade_row)) {
+    if (!era_sql("select year/10*10,count(*) from (select " ALBUM_YEAR
+                 " year from songtable where " MUSIC_WHERE " and ifnull(album,'')<>''" ALBUM_GROUP
+                 ") where year>0 group by 1 order by 1",
+                 era_decade_row)) {
         toast("Era unavailable");
         return 0;
     }
@@ -8270,12 +8271,18 @@ static int replay_wheel(const void *info) {
     return 0;
 }
 
-/* The keyboard is its own top window: take the search edit from the input method's owner.
- * Close it before stock's Return can destroy the edit; the next Return quits the dialog. */
+/* The keyboard is its own top window: take the edit from the input method's owner. Close it
+ * before stock's Return or the page's own can destroy the edit under it, which crashes demo; the
+ * next Return goes back. Stock's search dialogs and the playlist editor's search (search_edit)
+ * keep their text. Every other T9 edit of ours (EDIT_NAME, edit_create) is a cancel: emptied
+ * first, so the blur's EVT_VALUE_CHANGED reads as no entry and its page shows what it had. */
 static int search_key(unsigned key) {
     if (key != KEY_RETURN) return 0;
     void *im = input_method(), *edit = im ? P(im, IM_WIDGET) : (void *)0;
-    if (!edit || tk_strcmp(widget_get_prop_str(edit, "name", ""), "search_edit")) return 0;
+    const char *name = edit ? widget_get_prop_str(edit, "name", "") : "";
+    int ours = !tk_strcmp(name, EDIT_NAME);
+    if (!edit || (!ours && tk_strcmp(name, "search_edit"))) return 0;
+    if (ours) widget_set_text_utf8(edit, "");
     widget_set_focused(edit, 0);
     input_method_request(im, (void *)0); /* searchbox dialogs do not close on blur */
     return 1;

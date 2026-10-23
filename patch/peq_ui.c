@@ -183,16 +183,24 @@ static int typed(void *ctx, void *event) {
     return 0;
 }
 
-/* The rename edit closed with new text. */
+/* The rename edit closed with new text; empty (Return's cancel, search_key) shows the name again.
+ */
 static int named(void *ctx, void *event) {
-    if (ui.edit) action((void *)(long)NAMED, 0);
+    char s[4];
+    if (!ui.edit) return 0;
+    if (!widget_get_text_utf8(ui.edit, s, sizeof s) && s[0])
+        action((void *)(long)NAMED, 0);
+    else if (!ui.timer)
+        ui.timer = timer_add(render, 0, 1);
     return 0;
 }
 
 /* Open T9's "123" page and select the old value so the first key replaces it.
- * The keyboard may open after focus; look for it every 16 ms, up to 20 times. */
+ * The keyboard may open after focus; look for it every 16 ms, up to 20 times. It is the input
+ * method's own, for this edit: a lookup by name could find the last one while it still closes. */
 static int numbers(const void *unused) {
-    void *kb = widget_lookup(window_manager(), "kb_default_t9", 0);
+    void *im = input_method(),
+         *kb = im && ui.edit && P(im, IM_WIDGET) == ui.edit ? P(im, IM_KEYBOARD) : 0;
     char s[16];
     if (kb) pages_set_active_by_name(widget_lookup(kb, "panel", 1), "symnum");
     if (kb && ui.edit && !widget_get_text_utf8(ui.edit, s, sizeof s)) edit_set_select(ui.edit, 0, strlen(s));
@@ -324,6 +332,7 @@ void *edit_create(void *item, const char *input_type, int y, int h) {
             widget_set_prop_str(edit, name, props[i][1] ? props[i][1] : radius);
         }
     }
+    widget_set_name(edit, EDIT_NAME);
     return edit;
 }
 
@@ -567,22 +576,11 @@ static int render(const void *unused) {
         snprintf(value, sizeof(value), "%+.1f dB", b->gain); row_dim(view, n++, "Gain", value, GAIN, 0);
         snprintf(value, sizeof(value), "%.2f", b->q); row_dim(view, n++, "Q", value, QUALITY, 0);
     } else if (ui.screen == ADJUST) {
-        /* Row 0 is the value in an edit, styled and keyed as the stock playlist dialogs' (T9 keyboard, 123 page
-         * for digits); a tap or the centre button opens the keyboard and the value applies when it closes. Its
-         * action text is "done", as stock edit_on_event only acts on the keyboard's OK for "done" (close the
-         * keyboard, then EVT_VALUE_CHANGED) or "next"; the dialogs' "OK" is handled by their own EVT_IM_ACTION
-         * handlers. The keyboard's OK key shows an image, not the text. */
-        void *item = list_item_create(view, 0, 0, 375, 48);
-        widget_use_style(item, "s_listitem_black");
-        widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
-        /* Validate on Done in typed(): stock's numeric edit also rewrites unfinished decimals. */
-        ui.edit = edit_create(item, "text", 4, 40);
-        peq_band *b = &ui.draft.bands[ui.band];
-        snprintf(text, sizeof(text), ui.adjust == QUALITY ? "%.2f" : "%.0f", ui.adjust == QUALITY ? b->q : b->frequency);
-        widget_set_text_utf8(ui.edit, text);
-        widget_on(ui.edit, EVT_VALUE_CHANGED, typed, 0);
-        widget_on(ui.edit, EVT_FOCUS, focused, 0);
-        n = 1;
+        /* Row 0 names the value; it and the centre button open the keyboard on the edit over the
+         * title (below). */
+        snprintf(text, sizeof(text), ui.adjust == QUALITY ? "Band %d Q" : "Band %d Frequency (Hz)",
+                 ui.band + 1);
+        row(view, n++, text, KEYBOARD);
         if (ui.adjust == QUALITY) snprintf(value, sizeof(value), "0.05");
         else snprintf(value, sizeof(value), "%d Hz", steps[ui.step]);
         row_dim(view, n++, "Raise", value, RAISE, 0);
@@ -598,15 +596,10 @@ static int render(const void *unused) {
             else snprintf(text, sizeof(text), "%+.1f dB", v);
             row(view, n++, text, i);
         }
-    } else if (ui.screen == NAMING) { /* the name in an edit, as the value menu's, on the keyboard's letters */
-        void *item = list_item_create(view, 0, 0, 375, 48);
-        widget_use_style(item, "s_listitem_black");
-        widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
-        ui.edit = edit_create(item, "text", 4, 40);
-        snprintf(text, sizeof(text), "%.*s", (int)strlen(deleting()) - 4, deleting());
-        widget_set_text_utf8(ui.edit, text);
-        widget_on(ui.edit, EVT_VALUE_CHANGED, named, 0);
-        n = 1;
+    } else if (ui.screen == NAMING) { /* the name in the edit over the title, as the value menu's,
+                                         on the keyboard's letters */
+        snprintf(text, sizeof(text), "Rename %.*s", (int)strlen(deleting()) - 4, deleting());
+        row(view, n++, text, KEYBOARD);
     } else if (ui.screen == CONFIRM && ui.previous == DELETES) {
         snprintf(text, sizeof(text), "Delete %.100s? Confirm", deleting()); row(view, n++, text, YES);
         row(view, n++, "Cancel", CANCEL);
@@ -655,16 +648,35 @@ static int render(const void *unused) {
     ui.bar = ui.screen == HOME ? title : 0;
     text[0] = 0;
     if (ui.status[0]) snprintf(text, sizeof(text), "%s", ui.status);
-    else if (ui.screen == BAND) snprintf(text, sizeof(text), "Band %d", ui.band + 1);
-    else if (ui.screen == ADJUST) snprintf(text, sizeof(text), ui.adjust == QUALITY ? "Band %d Q" : "Band %d Frequency (Hz)", ui.band + 1);
+    else if (ui.screen == BAND)
+        snprintf(text, sizeof(text), "Band %d", ui.band + 1);
     else if (ui.screen == PICK && ui.pick == GAIN) snprintf(text, sizeof(text), "Band %d Gain", ui.band + 1);
-    else if (ui.screen == PICK) snprintf(text, sizeof(text), ui.pick == PREAMP ? "Preamp" : "Balance");
-    else if (ui.screen == NAMING) snprintf(text, sizeof(text), "Rename %.*s", (int)strlen(deleting()) - 4, deleting());
+    else if (ui.screen == PICK)
+        snprintf(text, sizeof(text), ui.pick == PREAMP ? "Preamp" : "Balance");
     else if ((ui.screen == IMPORTS || ui.screen == PRESETS || ui.screen == DELETES || ui.screen == RENAMES) &&
              ui.count > FILE_PAGE)
         snprintf(text, sizeof(text), "Presets %d/%d", ui.file_page + 1, (ui.count - 1) / FILE_PAGE + 1);
-    else if (ui.screen != HOME) snprintf(text, sizeof(text), "Presets");
+    else if (ui.screen != HOME && ui.screen != ADJUST && ui.screen != NAMING)
+        snprintf(text, sizeof(text), "Presets");
     widget_set_text_utf8(title, text);
+    /* The value or name in an edit over the title, after it so a tap reaches the edit, as the
+     * search fields': its bottom (page y 28) clears T9's top (page y 30), so the keyboard neither
+     * covers it nor moves the page. Under T9, as row 0, it showed nothing the user typed and lost
+     * the keys. Action text "done": stock edit_on_event acts on the keyboard's OK only for "done"
+     * (close the keyboard, then EVT_VALUE_CHANGED) or "next". Text input: typed() validates on
+     * Done, as stock's numeric edit rewrites unfinished decimals. */
+    if (ui.screen == ADJUST || ui.screen == NAMING) {
+        peq_band *b = &ui.draft.bands[ui.band];
+        ui.edit = edit_create(ui.page, "text", 2, 26);
+        if (ui.screen == NAMING)
+            snprintf(text, sizeof(text), "%.*s", (int)strlen(deleting()) - 4, deleting());
+        else
+            snprintf(text, sizeof(text), ui.adjust == QUALITY ? "%.2f" : "%.0f",
+                     ui.adjust == QUALITY ? b->q : b->frequency);
+        widget_set_text_utf8(ui.edit, text);
+        widget_on(ui.edit, EVT_VALUE_CHANGED, ui.screen == NAMING ? named : typed, 0);
+        if (ui.screen == ADJUST) widget_on(ui.edit, EVT_FOCUS, focused, 0);
+    }
     widget_invalidate_force(ui.page, 0);
     return 7; /* RET_REMOVE */
 }

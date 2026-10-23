@@ -1591,6 +1591,12 @@ for name in ('search_dialog','tidal_search_dialog','searchbox_dialog','tidal_sea
         assert len([c for c in m.calls if c[0]=='search:close'])==1
         assert m.call(O['KEY_RETURN'],gap=0)==0 and not [c for c in m.calls if c[0]=='search:close']
         passed()
+# Our T9 edits (peq_ui.c edit_create, EDIT_NAME): Return empties the box before the blur, so its
+# EVT_VALUE_CHANGED is a cancel, then detaches the keyboard; stock's and the playlist search keep their text.
+for name,text in (('q2_edit',''),('search_edit','query')):
+    m=SearchMachine(); m.nodes[m.edit]['name']=name; m.nodes[m.edit]['text']='query'
+    assert m.call(O['KEY_RETURN'],gap=0)==11 and m.nodes[m.edit]['focused']==0 and m.nodes[m.edit]['text']==text
+    assert m.get(m.im+O['IM_WIDGET'])==0 and len([c for c in m.calls if c[0]=='search:close'])==1; passed()
 # An idle input method, a different editor and unrelated keys leave the keyboard alone.
 for case in ('idle','other','key','missing'):
     m=SearchMachine()

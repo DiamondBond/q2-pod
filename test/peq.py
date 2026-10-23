@@ -414,7 +414,7 @@ widget_set_text_utf8 widget_on widget_get_prop_int widget_set_prop_int widget_de
 widget_resize scroll_view_set_offset widget_invalidate_force timer_add timer_remove
 navigator_back write_int_config widget_factory widget_factory_create_widget widget_set_prop_str
 widget_get_text_utf8 widget_set_focused widget_lookup window_manager pages_set_active_by_name edit_set_select
-input_method input_method_request
+input_method input_method_request widget_set_name
 canvas_set_fill_color canvas_fill_rect canvas_get_vgcanvas vgcanvas_save vgcanvas_restore vgcanvas_translate
 vgcanvas_begin_path vgcanvas_close_path vgcanvas_move_to vgcanvas_line_to vgcanvas_arc vgcanvas_fill vgcanvas_stroke
 vgcanvas_set_fill_color vgcanvas_set_stroke_color vgcanvas_set_fill_linear_gradient vgcanvas_set_line_width
@@ -432,16 +432,26 @@ static void *make(void *parent, int h) {
     w[count].text[0] = 0; w[count].click = w[count].change = w[count].focus = w[count].down = 0; w[count].bg = 0; return (void *)(long)count;
 }
 /* The value menu's edit: its text, the keyboard it asks for, whether it took focus. */
-static int edit_widget, focused, keyboard_owner;
-void *input_method(void) { return (void *)3998L; }
-int input_method_request(void *im, void *edit) { keyboard_owner = (int)(long)edit; return 0; }
+static int edit_widget, edit_parent, edit_bottom, focused, keyboard_owner;
+#include "offsets.inc"
+/* The input method's editing target (IM_WIDGET) and open keyboard (IM_KEYBOARD, stock's window 4000). */
+static unsigned char im[32];
+static char edit_name[16];
+void *input_method(void) { return im; }
+int input_method_request(void *x, void *edit) {
+    keyboard_owner = (int)(long)edit;
+    P(im, IM_WIDGET) = edit, P(im, IM_KEYBOARD) = edit ? (void *)4000L : 0;
+    return 0;
+}
+int widget_set_name(void *x, const char *name) { if ((long)x == edit_widget) snprintf(edit_name, sizeof edit_name, "%s", name); return 0; }
+const char *shim_edit_name(void) { return edit_name; }
 int shim_keyboard_owner(void) { return keyboard_owner; }
-void shim_dismiss_keyboard(void) { keyboard_owner = 0; }
+void shim_dismiss_keyboard(void) { input_method_request(im, 0); }
 static char keyboard[32], input_type[16];
 void *widget_factory(void) { return 0; }
 void *widget_factory_create_widget(void *f, const char *type, void *p, int x, int y, int ww, int h) {
     void *e = make(p, h);
-    if (!strcmp(type, "edit")) { edit_widget = (int)(long)e; keyboard[0] = 0; focused = 0; }
+    if (!strcmp(type, "edit")) { edit_name[0] = 0; edit_widget = (int)(long)e; edit_parent = (int)(long)p; edit_bottom = y + h; keyboard[0] = 0; focused = 0; }
     return e;
 }
 /* The curve's vgcanvas drawing (peq_paint) is checked on the device; here it only has to link. Filled
@@ -515,8 +525,17 @@ const char *shim_edit(void) { return edit_widget ? w[edit_widget].text : ""; }
 const char *shim_keyboard(void) { return keyboard; }
 const char *shim_input_type(void) { return input_type; }
 int shim_focused(void) { return focused; }
-/* Typing a value and closing the keyboard: the edit reports EVT_VALUE_CHANGED. */
+/* The edit on the page itself, its bottom in page y: T9's window starts at page y 30. */
+int shim_edit_clear(void) { return edit_parent == 1 && edit_bottom <= 30; }
 void shim_run(void);
+/* Return with the keyboard up, as navigation.c's search_key does to an EDIT_NAME edit: emptied, then
+ * blurred, which shuts the keyboard and reports EVT_VALUE_CHANGED. */
+void shim_cancel(void) {
+    w[edit_widget].text[0] = 0, focused = 0;
+    input_method_request(im, 0);
+    w[edit_widget].change(0, 0); shim_run();
+}
+/* Typing a value and closing the keyboard: the edit reports EVT_VALUE_CHANGED. */
 void shim_type(const char *text) {
     assert(keyboard_owner == edit_widget);
     snprintf(w[edit_widget].text, 160, "%s", text);
@@ -594,7 +613,6 @@ const char *shim_title(void) {
 int shim_list_height(void) { return w[2].h; } /* the list view is the page's first child */
 /* The Simple tab: its view the page's child with a press handler, the tab bar the 48px one. Centre's
  * single press runs at once; a double press is the screen's. */
-#include "offsets.inc"
 static int screen_off;
 static int child(int bar) {
     for (int i = count; i > 1; --i) if (w[i].parent == 1 && w[i].down && (w[i].h == 48) == bar) return i;
@@ -721,6 +739,12 @@ def editor_check(lib, tmp):
     assert not ui.shim_pending() and ui.shim_removed() == removed + 1
     advanced()
     assert named('HD650')  # the applied preset's name survives the page
+    # Renaming: Return with the keyboard up keeps the name and the file.
+    ui.shim_edit.restype = C.c_char_p; name = lambda: ui.shim_edit().decode()
+    click('Presets'); click('Rename a preset'); click('HD650.peq'); assert name() == 'HD650'
+    click('Rename HD650'); assert ui.shim_keyboard_owner(); ui.shim_cancel()
+    assert name() == 'HD650' and (saved/'HD650.peq').exists() and title() == ''
+    ui.shim_return(); ui.shim_return()
     # Deleting asks first, removes only the saved copy and leaves the active EQ alone.
     before = active.read_bytes()
     click('Presets'); click('Delete a preset'); click('HD650.peq'); click('Cancel')
@@ -763,21 +787,25 @@ def editor_check(lib, tmp):
     ui.shim_edit.restype = ui.shim_keyboard.restype = ui.shim_input_type.restype = C.c_char_p
     edit = lambda: ui.shim_edit().decode()
     def type_value(text):
-        click(edit()); assert ui.shim_keyboard_owner()
+        click('Band 1 '); assert ui.shim_keyboard_owner()  # row 0, the caption
         ui.shim_type(text)
     ui.shim_close(); advanced(); click('1  Peaking 31 Hz R'); click('Frequency 31 Hz')
-    assert title() == 'Band 1 Frequency (Hz)' and edit() == '31' and ui.shim_keyboard() == b'kb_default_t9'
+    assert ui.shim_click(b'Band 1 Frequency (Hz)', 2) and edit() == '31' and ui.shim_keyboard() == b'kb_default_t9'
+    assert ui.shim_edit_clear() and title() == ''  # over the title, above T9: what is typed shows, the page stays put
     assert ui.shim_input_type() == b'text'  # keep unfinished input out of stock's numeric auto-fix
     click('Lower 1 Hz'); click('Lower 1 Hz'); assert edit() == '29'
     click('Step 1 Hz'); click('Lower 10 Hz'); assert edit() == '20'  # clamped at 20 Hz
     click('Step 10 Hz'); click('Raise 100 Hz'); assert edit() == '120'
     ui.shim_page.restype = C.c_char_p
-    assert not ui.shim_focused(); click('120'); assert ui.shim_focused()  # the centre button opens the keyboard
+    assert not ui.shim_focused(); click('Band 1 '); assert ui.shim_focused()  # the centre button opens the keyboard
     assert ui.shim_keyboard_owner()
     ui.shim_dismiss_keyboard(); assert ui.shim_focused()  # stock keeps focus after T9 closes
-    click('120'); assert ui.shim_keyboard_owner()  # reopen the same focused field
+    click('Band 1 '); assert ui.shim_keyboard_owner()  # reopen the same focused field
     assert ui.shim_page() == b'symnum'  # on its number keys
     type_value(b'2500'); assert edit() == '2500'
+    ui.shim_edit_name.restype = C.c_char_p; assert ui.shim_edit_name() == b'q2_edit'  # search_key's cancel
+    click('Band 1 '); ui.shim_cancel()  # Return with the keyboard up: the value and the screen stay
+    assert edit() == '2500' and ui.shim_click(b'Band 1 Frequency (Hz)', 2) and not ui.shim_keyboard_owner()
     type_value(b'abc'); assert edit() == '2500'      # not a number: unchanged
     type_value('\u0131'.encode()); assert edit() == '2500'  # low wchar byte is ASCII '1', still not a number
     type_value(b'9'*16); assert edit() == '2500'    # stock conversion refuses a value that cannot fit
@@ -786,17 +814,17 @@ def editor_check(lib, tmp):
     type_value(b'0'); assert edit() == '20'  # zero is entered, then clamped to the frequency minimum
     type_value(b'1000.5')
     ui.shim_return(); assert title() == 'Band 1'
-    click('Q 1.41'); assert title() == 'Band 1 Q' and edit() == '1.41'
+    click('Q 1.41'); assert ui.shim_click(b'Band 1 Q', 2) and edit() == '1.41'
     assert ui.shim_input_type() == b'text'
     click('Raise 0.05'); assert edit() == '1.46'
-    click('1.46'); assert (ui.shim_selected(0), ui.shim_selected(1)) == (0, 4)  # selected: a key replaces it, "." too
+    click('Band 1 '); assert (ui.shim_selected(0), ui.shim_selected(1)) == (0, 4)  # selected: a key replaces it, "." too
     type_value(b'0.7'); assert edit() == '0.70'
     for text, want in ((b'0.05', '0.10'), (b'0', '0.10'), (b'10', '10.00'),
                        (b'0,70', '0.70'), (b'NaN', '0.70'), (b'', '0.70')):
         type_value(text); assert edit() == want, (text, edit())
     ui.shim_return(); ui.shim_return(); click('Apply changes')
     r = read(); assert (r.bands[0].frequency, round(r.bands[0].q, 9)) == (1000.5, 0.7), (r.bands[0].frequency, r.bands[0].q)
-    click('1  Peaking 1000 Hz R'); click('Frequency 1000 Hz'); click('1000')
+    click('1  Peaking 1000 Hz R'); click('Frequency 1000 Hz'); click('Band 1 ')
     assert ui.shim_keyboard_owner()
     ui.shim_close(); assert not ui.shim_keyboard_owner() and not ui.shim_pending()
     advanced()  # reopen the EQ page after closing it with its keyboard attached

@@ -1,6 +1,8 @@
 # Changelog
 
 - **1.4.4**:
+  - Search boxes and text fields (Internet Radio, Spotify and card-app search, Advanced EQ's Frequency, Q and preset name): **Return** with the keyboard up closes the keyboard and leaves the box as it was, instead of crashing the player; the next Return goes back. The EQ's number keys open on the keyboard that is showing, every time.
+  - Advanced EQ: the Frequency, Q and preset-name fields sit at the top of the screen, above the keyboard, so what you type shows and is kept. They used to sit under the keyboard, which hid the typing and lost it. The row below names the field; Centre on it opens the keyboard.
   - Advanced EQ: reopen the keyboard even when the value field kept focus after Done, and detach it before replacing the field.
   - Era: bound SQLite cache memory while counting the entire library, including libraries above 20,000 songs.
   - Advanced EQ: Q and Frequency accept typed decimals and zero digits without the stock numeric editor rewriting the entry. Completed values keep the EQ limits (Q 0.1–10; Frequency 20–20,000 Hz).
