@@ -344,6 +344,10 @@ class Machine:
             ret=0
         elif name in ('widget_get_prop_bool','widget_get_prop_int'): ret=n.get(self.text(b),c)
         elif name=='mclGetLyricSize': ret=getattr(self,'lyric_size',0)
+        elif name=='widget_destroy':  # out of its parent's children
+            for p in self.nodes.values():
+                if a in p.get('children',()): p['children'].remove(a)
+            n['destroyed']=True; ret=0
         elif name=='widget_count_children': ret=len(n['children'])
         elif name=='widget_get_child': ret=n['children'][b] if b<len(n['children']) else 0
         elif name=='widget_set_prop_int': n[self.text(b)]=signed(c); ret=0
@@ -5508,6 +5512,7 @@ class LyricMachine(QueueMachine):
         self.word(self.items(self.get(syms['mcl_pdeqplaylist']))[0]+O['REC_TYPE'],kind)
         self.word(O['MCL_LYRICS'],self.deque([],'stLyricInfo'))
         self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
+        self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='lyric:libc_free'  # free's GOT slot, as Coverflow's (the stamps' table)
         self.handlers[int(manifest['patch_symbols']['stock_lyric_trampoline'],16)]='lyric:stock'
         for n,off in (('get',O['TAGLIB_PROPERTY_GET']),('pfree',O['TAGLIB_PROPERTY_FREE'])): self.handlers[TAGLIB+off]='lyric:'+n
         for n in ('taglib_file_new','taglib_file_free','mclGetLyricSize','_deque_push_back'): self.handlers[syms[n]]='lyric:'+n
@@ -5519,6 +5524,7 @@ class LyricMachine(QueueMachine):
         elif name=='mclGetLyricSize': ret=len(self.lines)
         elif name=='_deque_push_back' and a==self.get(O['MCL_LYRICS']): self.lines.append((signed(self.get(b)),self.text(self.get(b+4))))
         elif name=='_deque_push_back': return super().hook(u,address,size,unused)
+        elif name=='libc_free': pass
         elif name=='taglib_file_new':
             assert b==0  # Embedded lyrics need tags only.
             self.tag_calls.append(('new',self.text(a))); ret=0x1170000
@@ -5542,6 +5548,14 @@ for kw in ({'cls':0xf1},{'cls':0xf2},{'kind':4}):
     m=LyricMachine({'LYRICS':'x'},**kw); assert m.load()==-1 and m.tag_calls==['stock'] and not m.lines,kw; passed()
 m=LyricMachine({'LYRICS':'x'},bound=False); assert m.load()==-1 and not m.asked and not m.lines and m.tag_calls[-1]=='free'; passed()
 m=LyricMachine({'LYRICS':('a'*99+'\n')*700}); assert m.load()==1 and len(m.lines)==656 and m.lines[-1]==(FAR,'a'*99); passed()  # 64 KB
+# A tag in LRC form (q2-deezer's synced lyrics): each stamped line at its stamp's whole seconds, as stock's
+# .lrc parser keeps them, in time order, a line with two stamps twice; "[ar:...]" and the lines before the
+# first stamp, and the unstamped ones after it, left out; a stamp alone is stock's " ".
+m=LyricMachine({'LYRICS':'[ar:Someone]\nIntro\n[00:12.50]Two\r\n[00:03]One\n[01:02.00][00:20.10]Both\nloose\n[00:30.00]\n'})
+assert m.load()==1 and m.lines==[(3,'One'),(12,'Two'),(20,'Both'),(30,' '),(62,'Both')],m.lines; passed()
+# Bracketed text that is no stamp leaves the lyrics plain.
+m=LyricMachine({'LYRICS':'[Chorus]\nLa la\n[1:2]\n[00:61]x'}); assert m.load()==1
+assert m.lines==[(FAR,'[Chorus]'),(FAR,'La la'),(FAR,'[1:2]'),(FAR,'[00:61]x')],m.lines; passed()
 
 # Sparse populated initials: one destination per sustained tick, both directions, utilities
 # and wrap edges. Album and Artist share article handling; nonalphabetical sorts stay single-step.
@@ -5631,24 +5645,24 @@ m.advance(200); assert m.get(m.slide+O['SLIDE_INDEX'])==7; passed()
 m=CoverflowMachine(albums=10); m.open(); m.call(gap=0); m.call(gap=20)
 a=slide(m,m.slide)[0]; assert m.call(O['KEY_PREV'],gap=20)==11 and slide(m,m.slide)[0]==a
 m.advance(300); assert m.get(m.slide+O['SLIDE_INDEX'])==0; passed()
-# Single stops through Sort, Refresh, wrapping, and back, even with a sustained run.
+# Single stops through the wrap and back, even with a sustained run: the library has no cards after
+# its albums (its Sort and Refresh are Display settings' rows).
 m=CoverflowMachine(albums=3); m.open()
-for expected in (1,2,3,4,0):
+for expected in (1,2,0):
     assert m.call(gap=50)==11; m.advance(200)
     assert m.get(m.slide+O['SLIDE_INDEX'])==expected
-for expected in (4,3,2):
+for expected in (2,1,0):
     assert m.call(O['KEY_PREV'],gap=50)==11; m.advance(200)
     assert m.get(m.slide+O['SLIDE_INDEX'])==expected
 passed()
 
 
 # The Home card is index 2 of seven; its click opens coverflow_page with every album as a cover
-# plus the Sort and Refresh cards, the wheel steps the stock slide_menu and centre confirms the cover.
+# and nothing after them, the wheel steps the stock slide_menu and centre confirms the cover.
 m=CoverflowMachine(); page=m.open()
 assert m.nodes[page]['name']=='coverflow_page' and m.slide and not m.threads
-covers=m.nodes[m.slide]['children']; assert len(covers)==5
-assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers[:3])
-assert m.nodes[covers[-2]]['image']==m.nodes[covers[-1]]['image']==CF_PLACEHOLDER
+covers=m.nodes[m.slide]['children']; assert len(covers)==3
+assert all(m.nodes[c]['image'].startswith('file:///mnt/mmc/.coverflow/') for c in covers)
 assert 'Album 0' in m.texts(); passed()
 m.press(3); assert m.hold()==11 and m.nodes[m.title]['text']=='Album 0'
 f,ctx=m.handler(m.back,O['EVT_CLICK']); m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)
@@ -5681,7 +5695,7 @@ assert m.key()==11 and m.nodes[m.get(m.slide+O['W_PARENT'])]['visible'] and m.ge
 assert m.key(O['KEY_NEXT'])==0 and m.key()==11 and m.homes==1; passed()
 # The album list outlives the page: a reopen queries nothing until one of the songtable writers runs.
 m=CoverflowMachine(); m.open(); m.close(); m.calls=[]
-m.open(); assert not m.queried() and len(m.nodes[m.slide]['children'])==5; m.close(); passed()
+m.open(); assert not m.queried() and len(m.nodes[m.slide]['children'])==3; m.close(); passed()
 for writer in WRITERS:
     m.rescan(writer); m.calls=[]; m.open(); assert m.queried()==1; m.close()
     m.calls=[]; m.open(); assert not m.queried(); m.close(); passed()
@@ -5716,9 +5730,7 @@ for action,want in ((0,['A','early','late','B','C']),(1,['A','B','C','early','la
     m.pick(action); m.pick(action); m.advance(0)
     assert m.names()==want and not m.playback() and not m.plays and m.top==m.page
     assert m.query[:2]==('getMusicByAlbum','Album 2') and m.names(m.get(syms['tools_pdeq_directory']))==['staged']; passed()
-for index in (3,4):
-    m=CoverflowMachine(); m.open(); m.word(m.slide+O['SLIDE_INDEX'],index)
-    m.press(100); assert m.hold()==0 and m.top==m.page; passed()
+m=CoverflowMachine(); m.open(); assert len(m.nodes[m.slide]['children'])==3; passed()  # no Sort or Refresh card to hold
 for kwargs in ({'albums':0},{'cached':False}):
     m=CoverflowMachine(**kwargs); m.open(); m.press(100); assert m.hold()==0; passed()
 for invalidate in ('selection','closed','tracks'):
@@ -5730,11 +5742,6 @@ for invalidate in ('selection','closed','tracks'):
     assert m.names()==['A','B','C'] and m.toasts[-1][3]=='Queue unchanged'; passed()
 m=CoverflowMachine(); m.open(); m.tracks(2); m.key(); m.word(m.slide+O['SLIDE_INDEX'],1)
 assert m.run(2) is None and m.plays[-1][2] in (0,1) and m.plays[-1][3:]==(0xf001,2) and m.play_names==['T1','T2']; passed()
-# Sorting leaves the utility card selected; the next album hold follows the reordered deque.
-m=CoverflowMachine(); m.word(m.albums[2]+O['REC_ARTIST'],m.string('Aardvark')); m.open(); m.tracks(3); m.slide=m.find('slide_menu'); m.press(100); assert m.hold()==0
-m.word(m.slide+O['SLIDE_INDEX'],0); m.press(101); assert m.hold()==11
-assert m.nodes[m.title]['text']=='Album 2'; m.release(); m.pick(1); m.advance(0)
-assert m.query[:2]==('getMusicByAlbum','Album 2'); passed()
 # A Library Albums row queues its own album alone, as a cover does: getMusicByAlbum finds every
 # album of the name, here T1 in another folder.
 m=CoverflowMachine(page='album_page',cls=O['CLASS_ALBUMS'],pos=2); m.word(m.found[0]+O['REC_PATH'],m.string('/q/T1'))
@@ -5980,7 +5987,7 @@ assert m.nodes[m.top]['name']=='coverflow_page' and m.texts()[:3]==['Beta','b1',
 m=EraMachine(); top=m.top; assert m.open_era() is not None and m.top==top and m.toasts[-1][3]=='No dated albums yet'; passed()
 m=EraMachine([s for s in SONGS if s[4]==0]); top=m.top; m.open_era(); assert m.top==top and m.toasts[-1][3]=='No dated albums yet'; passed()
 # Library > Ratings > Albums: the rated albums as Coverflow, most hearts first, with the rated Sort card alone
-# (Rating, Album, Artist, Year, kept); closing it brings the library's covers and Sort back.
+# (Rating, Album, Artist, Year, kept); closing it brings the library's covers back, with no card.
 def ratings_albums(m):
     m.call(address=payload_syms['ratings_menu'],args=(0,m.event,0,0),gap=0)  # the Library's Ratings row
     menu_page=m.top; assert m.nodes[menu_page]['name']=='ratings_page'; row=m.nodes[m.find('scroll_view',menu_page)]['children'][2]; f,ctx=m.handler(row,O['EVT_CLICK'])
@@ -5997,8 +6004,20 @@ shown(m,0); assert m.menu()[3:5]==['Remove from Favourites','Rate Album  ♥♥�
 f,ctx=m.handler(m.nodes[m.slide]['children'][2],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
 m.slide=m.find('slide_menu'); assert [shown(m,i) for i in range(3)]==['Album 0','Album 2','Sort: Album']
 assert [v for k,v in m.files.items() if k.endswith('ringnav-ratedsort')]==[struct.pack('<i',0)]; passed()
-m.close(); m.stack.remove(m.page); m.top=m.stack[-1]; m.open(); assert len(m.nodes[m.slide]['children'])==5
-assert shown(m,3)=='Sort: Album'; passed()
+m.close(); m.stack.remove(m.page); m.top=m.stack[-1]; m.open(); assert len(m.nodes[m.slide]['children'])==3
+assert shown(m,2)=='Album 2'; passed()
+# Display settings' Coverflow Sort (navigation.c's pod rows): each press saves the next of Album, Artist,
+# Year, Recently Added, Most Played and Random, round again, which Coverflow takes at its next open; the
+# next album hold follows the reordered deque.
+m=AlbumRateMachine(); m.word(m.albums[2]+O['REC_ARTIST'],m.string('Aardvark'))
+sort_name=lambda: m.text(m.call(address=payload_syms['coverflow_sort_name'],args=(0,0,0,0),gap=0)&0xffffffff)
+assert sort_name()=='Sort: Album'
+for want in ('Sort: Artist','Sort: Year','Sort: Recently Added','Sort: Most Played','Sort: Random','Sort: Album','Sort: Artist'):
+    m.call(address=payload_syms['coverflow_sort_step'],args=(0,0,0,0),gap=0); assert sort_name()==want
+assert [v for k,v in m.files.items() if k.endswith('ringnav-coversort')]==[struct.pack('<i',1)]  # SORT_ARTIST
+m.open(); m.slide=m.find('slide_menu'); m.word(m.slide+O['SLIDE_INDEX'],0); m.press(101); assert m.hold()==11
+assert m.nodes[m.title]['text']=='Album 2'; m.release(); m.pick(1); m.advance(0)
+assert m.query[:2]==('getMusicByAlbum','Album 2'); passed()
 
 # Coverflow's own song deque feeds the shared queue menu, independently of stock browsing state.
 for action,want in ((0,['A','T2','B','C']),(1,['A','B','C','T2'])):
@@ -6243,6 +6262,45 @@ m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m
 m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
 assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Artist','Book']; passed()
 
+# Tag text (TAG_TEXT): stock toolsFixId3ErrorCode, run as patched, keeps a field TagLib found all Latin-1
+# ("Lo que la música me enseñó", every character below U+0100) as its UTF-8 copy, where stock read its
+# Latin-1 bytes as GBK and showed Chinese; it never converts (toolsIconvConvert untouched), and stores the
+# field as for any other, through its tidy-up (0x5b5a30) into the 256-byte field.
+from build import TAG_TEXT, CUE_TEXT, SCAN_DIRS
+for address,old,new in TAG_TEXT: assert struct.unpack_from('<I',demo,fileoff(demo,address))[0]==new
+class TagTextMachine(Machine):
+    def __init__(self):
+        super().__init__()
+        self.word(0xa26cc0-0xabc,0x1000014); self.handlers[0x1000014]='t:malloc'  # lazy-bound, as RolloverMachine's
+        self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='t:free'
+        self.handlers[syms['strcpy@GLIBC_2.0']]='t:strcpy'; self.handlers[syms['toolsIconvConvert']]='t:iconv'
+        self.mock('snprintf@GLIBC_2.0'); self.iconv=0
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('t:'): return super().hook(u,address,size,unused)
+        a,b=[u.reg_read(r) for r in REGS[:2]]; ret=0
+        if name=='t:malloc': ret=self.alloc((a+3)&~3)
+        elif name=='t:strcpy': u.mem_write(a,self.raw(b)+b'\0'); ret=a
+        elif name=='t:iconv': self.iconv+=1
+        self.returns(ret,clobber=True)
+for utf8,latin1 in (('Lo que la música me enseñó',1),('Ciencia Ficción',1),('Mateo Nieto',1),('今',0),('Ölüdeniz',1)):
+    m=TagTextMachine(); out=m.alloc(0x100)
+    raw=utf8.encode('latin-1') if latin1 else utf8.encode()  # taglib_tag_<field>(tag, 0): its Latin-1 bytes
+    rawp=m.alloc(len(raw)+4); m.u.mem_write(rawp,raw+b'\0')
+    m.call(address=0x5c5cf8,args=(latin1,rawp,m.string(utf8),out),stack=(1,),gap=0)
+    assert m.raw(out).decode()==utf8 and not m.iconv,(utf8,m.raw(out)); passed()
+# CUE sheets (CUE_TEXT): its seven field conversions go to ringnav_cue_text: UTF-8 stays, any other text
+# is Windows-1252 re-encoded as UTF-8, cut at a whole character to 511 bytes.
+for address in CUE_TEXT: assert struct.unpack_from('<I',demo,fileoff(demo,address))[0]==jal(payload_syms['ringnav_cue_text'])
+for given,want in ((b'Caf\xc3\xa9 \xc3\x91and\xc3\xba','Café Ñandú'),(b'Caf\xe9 \x93Hi\x94 \x80','Café “Hi” €'),
+                   (b'\xc3(','Ã('),(b'\xe9'*400,'é'*255),(b'plain','plain'),(b'\xed\xa0\x80','í\xa0€')):
+    m=Machine(); buf=m.alloc(512); m.u.mem_write(buf,given+b'\0')
+    assert m.call(address=payload_syms['ringnav_cue_text'],args=(buf,0,0,0),gap=0)==1 and m.raw(buf).decode()==want,(given,m.raw(buf)); passed()
+# The library scan (SCAN_DIRS) skips every hidden folder: q2-deezer's .deezer/stream never joins the Library.
+assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_DIRS[0]))[0]==jal(payload_syms['ringnav_scan_dir'])
+m=Machine(); dot=m.string('.')
+assert [m.call(address=payload_syms['ringnav_scan_dir'],args=(m.string(n),dot,0,0),gap=0)!=0 for n in ('.','..','.deezer','.Trashes','Music','Deezer')]==[False,False,False,False,True,True]; passed()
+
 # Now Playing's lyric follow (LYRIC_FOLLOW): stock's scroll_to past the end clamps to a row top, the
 # content padded to it, not to 275 - 178 = 97 through a row; repeated it stays; a short page is left.
 from build import LYRIC_FOLLOW
@@ -6425,11 +6483,11 @@ counter=m.u.hook_add(UC_HOOK_BLOCK,count_block,begin=BASE,end=SCRATCH-1)
 paint(m); rest_cost=instructions[0]
 assert len(m.draws)==1 and m.draws[0][1]==m.frames[0] and m.draws[0][2]==m.draws[0][3]==(0,0,O['CF_VIEW_W'],O['CF_VIEW_H'])
 assert m.draws[0][4]&1  # BITMAP_FLAG_OPAQUE
-# The placeholder first (fx_open), then the ring from -3 round album 0 of three and the Sort and
-# Refresh cards: album 2, Sort and Refresh (the placeholder, no load), 0, 1, then 2 and Sort again.
+# The placeholder first (fx_open), then the ring from -3 round album 0 of three, which repeats as the
+# slide_menu wraps: 0, 1, 2, 0, 1, 2, 0, each album decoded once.
 assert len(m.loads)==4 and m.loads[0]==CF_PLACEHOLDER and all(u.startswith('file://') for u in m.loads[1:]) and m.unloads==3
 tex_of={u:bytes(m.u.mem_read(m.pixels[u],160*160*4)) for u in m.pixels}
-ring_tex=[tex_of[m.loads[1]],tex_of[CF_PLACEHOLDER],tex_of[CF_PLACEHOLDER],tex_of[m.loads[2]],tex_of[m.loads[3]],tex_of[m.loads[1]],tex_of[CF_PLACEHOLDER]]
+ring_tex=[tex_of[m.loads[1+i%3]] for i in range(7)]
 assert host_render(ring_tex,[(0,127)])[0]==m.draws[0][5]; passed()
 # A non-square cover is fitted whole and centred between black bars, not cropped (#74).
 def fitted(px,w,h):
@@ -6444,7 +6502,7 @@ for size in ((200,100),(60,150)):
     n=DepthMachine(); n.art_size=size; n.open(); paint(n)
     tex={u:fitted(bytes(n.u.mem_read(n.pixels[u],size[0]*size[1]*4)),*size) for u in n.loads[1:]}
     tex[CF_PLACEHOLDER]=bytes(n.u.mem_read(n.pixels[CF_PLACEHOLDER],160*160*4))
-    ring_tex=[tex[n.loads[1]],tex[CF_PLACEHOLDER],tex[CF_PLACEHOLDER],tex[n.loads[2]],tex[n.loads[3]],tex[n.loads[1]],tex[CF_PLACEHOLDER]]
+    ring_tex=[tex[n.loads[1+i%3]] for i in range(7)]
     assert host_render(ring_tex,[(0,127)])[0]==n.draws[0][5],size; passed()
 # A repaint in place draws again without rendering; a quarter turn renders from the live offset.
 instructions[0]=0; paint(m); assert len(m.draws)==2 and instructions[0]<rest_cost//20
@@ -6820,9 +6878,9 @@ if variant=='ipod':
         kids=m.nodes[view]['children'][3:]
         return [next(r for r in kids if lab(r).startswith(k)) for k in ('Accent','Home','Battery','Theme')]
     m,view,rows=display({})
-    kids=m.nodes[view]['children'][3:]; cf,shortcut,hold,wheel=kids[3],kids[5],kids[6],kids[7]
-    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0  # Theme, hidden Accent, Home, Artist albums, Battery, Shortcut, Hold Return, Wheel sensitivity
-    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','system_powermanager','playset_covermode','playset_folderjump','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    kids=m.nodes[view]['children'][3:]; cf,cf_sort,cf_refresh,shortcut,hold,wheel=kids[3],kids[4],kids[5],kids[7],kids[8],kids[9]
+    assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0  # Theme, hidden Accent, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
+    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','playset_covermode','system_update','system_powermanager','playset_covermode','playset_folderjump','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -6837,6 +6895,13 @@ if variant=='ipod':
     assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(2,'Q2POD','ARTISTCF')]
     m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert m.nodes[cf_label]['text']=='Artist Albums: Grid'
     m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert m.nodes[cf_label]['text']=='Artist Albums: Coverflow'; passed()
+    # Coverflow Sort and Refresh Coverflow (coverflow.c), the library Coverflow's Sort and Refresh cards
+    # before: no saved order is Album; Refresh empties the art cache for the next open, with a toast.
+    sort_label,refresh_label=(m.nodes[m.nodes[r]['children'][0]]['children'][1] for r in (cf_sort,cf_refresh))
+    assert m.nodes[sort_label]['text']=='Coverflow Sort: Album' and m.nodes[refresh_label]['text']=='Refresh Coverflow'
+    f,ctx=m.handler(m.nodes[cf_refresh]['children'][0],O['EVT_CLICK']); m.mock('opendir@GLIBC_2.0'); m.calls=[]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.toasts[-1][3]=='Coverflow rebuilds its artwork next time'
+    assert [m.text(c[1]) for c in m.calls if c[0]=='opendir@GLIBC_2.0']==['/mnt/mmc/.coverflow'] and m.nodes[refresh_label]['text']=='Refresh Coverflow'; passed()
     # Shortcut: no key is Rockbox on a card with it, else Favorites.
     for card,first in ((True,'Rockbox'),(False,'Favorites')):
         CONFIG.clear(); d=Machine(); d.rockbox_mode=0o100755 if card else 0
@@ -6884,7 +6949,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[1]),m.text(w[2])) for w in writes]==[(1,'IPOD','THEME')]
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==1
+    assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # The Accent row changed the list's count, which would drop the selection: Theme (after the three
     # stock rows) keeps it, painted.
@@ -6901,7 +6966,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal'
     m.paint(view); assert m.selected(view)==3
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],rows[1],cf,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Split'
+    assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0 and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     click(3); home_bounds(False,True); click(3); home_bounds(False); passed()
@@ -7049,7 +7114,7 @@ if variant=='ipod':
     # shows it; then the next layout places it right after Theme as a whole settings row (mapped at
     # 0x0 it was an empty gap on the device), and hiding it again leaves no gap. However often Theme
     # flips, the wheel and Centre reach the row after Theme, and a tap selects it.
-    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-8:-6]  # then Home, Artist albums, Battery, Shortcut, Hold Return, Wheel sensitivity
+    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-10:-8]  # then Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
     button=lambda i: m.nodes[i]['children'][0]
     cached=m.node('list_view'); library=m.node('list_view')
     m.word(cached+O['LIST_DEFAULT_ITEM_HEIGHT'],SET['ROW']); m.word(cached+O['ROW_HEIGHT'],0); m.word(cached+O['W_Y'],SET['TOP'])
@@ -7061,7 +7126,7 @@ if variant=='ipod':
         assert m.get(cached+O['W_Y'])==(0 if classic else SET['TOP'])  # cached page, before any layout
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         assert m.get(library+O['W_Y'])==0
-        assert lay(m,view)==0 and m.nodes[view]['children'][-8:-6]==[theme,accent] and m.nodes[accent]['visible']==classic
+        assert lay(m,view)==0 and m.nodes[view]['children'][-10:-8]==[theme,accent] and m.nodes[accent]['visible']==classic
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         shown=[i for i in items if m.nodes[i]['visible']]; after=shown[shown.index(theme)+1]
         assert (after==accent)==bool(classic)
@@ -9313,6 +9378,16 @@ assert list(rows)==['Spotify','Deezer','File Browser','Soulseek','Tidal Download
 for t in ('Deezer','File Browser','Soulseek'):
     icon=m.nodes[rows[t]]['children'][0]; assert m.nodes[icon]['image']=='stream_app' and not m.nodes[rows[t]].get('name')
 passed()
+# Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
+# TIDAL row stays first.
+m=AppMachine(); view=m.node('scroll_view','scroll_view_streamsset')
+def stock_row(icon,label):
+    item,b=m.node('list_item'),m.node('button'); m.nodes[b]['children']=[m.node('image',image=icon),m.node('hscroll_label',text=label)]
+    m.nodes[item]['children']=[b]; return item
+tidal,baidu=stock_row('list_tidal','TIDAL'),stock_row('list_baidu','Baidu Netdisk'); m.nodes[view]['children']=[tidal,baidu]
+m.top=m.node('window','stream_page',[view])
+assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+kids=m.nodes[view]['children']; assert kids[0]==tidal and baidu not in kids and m.nodes[baidu].get('destroyed') and len(kids)==7,len(kids); passed()
 # Soulseek: q2-soulseek from the card's .soulseek folder.
 SBIN,SBROWSE,SSTATE,SPID='/mnt/mmc/.soulseek/q2-soulseek','/tmp/q2-soulseek.browse.sock','/tmp/q2-soulseek.state','/tmp/q2-soulseek'
 class SlskMachine(AppMachine): pass
@@ -9358,7 +9433,11 @@ m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','
 m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=0; m.press(80)
 assert m.hold()==11; m.answer('ok','Downloading the folder','',[]); assert m.requests[-1]==('downloadfolder','12.3') and m.toasts[-1][3]=='Downloading the folder'
 m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','downloadfolder')])
-m.pick(1); m.answer('ok','','',[]); assert m.requests[-1]==('search','aphex%09twin','50'),m.requests[-1]; passed()
+m.pick(1); m.answer('ok','','100',[('info','','Second','','','')]); assert m.requests[-1]==('search','aphex%09twin','50'),m.requests[-1]
+# More… again: the list's own arguments and the newest cursor alone, Q2SPOT/1's last argument (to 1.4.1 each
+# cursor followed the ones before, "search aphex 50 100", which q2-deezer read as the second page again).
+m.pick(1); m.answer('ok','','',[]); assert m.requests[-1]==('search','aphex%09twin','100'),m.requests[-1]
+m.back(); m.answer('ok','','100',[('info','','Second','','','')]); assert m.requests[-1]==('search','aphex%09twin','50'); passed()
 # Back twice to the menu; Phone Remote shows the QR code page from the add-on's status file.
 m.back(); m.answer('ok','refresh','50',[]); m.back(); m.answer('ok','refresh','',SMENU); assert m.labels()==SLABELS
 code=[[(x*7+y*3)%5<2 for x in range(21)] for y in range(21)]
@@ -9485,6 +9564,40 @@ assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play_names==['Corporeal - B
 m.destroy(songs); m.top=m.page; m.found=recs[:1]; m.advance(2000); m.answer('ok','refresh','',DZMENU)
 m.pick(1); m.answer('ok','refresh','',LIKED); n=len(m.toasts); m.pick(2)
 assert m.toasts[n:] and m.toasts[-1][3]=="It isn't on the card any more",m.toasts[n:]; passed()
+# Stream mode (q2-deezer's stream.go, addon.c stream_poll): its .play file names a session's folder; its
+# first song, once there, plays as a local album does (Now Playing opening); songs that come later join the
+# queue's end, as Add to Queue does, while the queue is still the session's; the song playing is left in
+# .playing for the app; once another queue plays, the session is left alone.
+STREAM='/mnt/mmc/.deezer/stream/1700'
+def stream_songs(*names):
+    m.tree[STREAM]=[(n,8) for n in names]; rs=[]
+    for n in names:
+        if n.endswith('.part'): continue
+        r=m.song(n); m.word(r+O['REC_PATH'],m.string(f'{STREAM}/{n}')); m.stats[f'{STREAM}/{n}']=1; rs.append(r)
+    m.found=rs; return rs
+m.files[DZPID]=bytearray(b'4242')  # running: its loop's pid
+m.plays=[]; m.files['/tmp/q2-deezer.play']=bytearray(f'1700 {STREAM}\n'.encode()); stream_songs('01 - Snow [12].flac.part')
+m.poll(); m.advance(0); assert not m.plays  # nothing whole yet
+recs=stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac.part')
+m.poll(); m.advance(0)
+assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Snow [12].flac'],(m.plays,m.play_names); passed()
+m.word(syms['mcl_pdeqplaylist'],m.deque(recs)); m.word(O['MCL_POOL'],m.deque([0],'int')); m.word(O['MCL_POS'],0)
+m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{STREAM}/01 - Snow [12].flac\n'.encode() and len(m.plays)==1
+stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac','03 - Chateau [14].flac'); m.poll()
+assert m.names()==['01 - Snow [12].flac','02 - Oakwood [13].flac','03 - Chateau [14].flac'] and len(m.plays)==1,m.names()
+m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{STREAM}/02 - Oakwood [13].flac\n'.encode(); passed()
+# Played on past the first ones, which the app deleted: a later song still joins, after the last queued.
+stream_songs('03 - Chateau [14].flac','04 - Cellar Door [15].flac'); m.poll()
+assert m.names()[-2:]==['03 - Chateau [14].flac','04 - Cellar Door [15].flac'] and len(m.names())==4; passed()
+# Another queue: no song joins it, and a new session plays again.
+m.word(syms['mcl_pdeqplaylist'],m.deque([m.song('Valerie - Broadcast [5].flac')])); stream_songs('05 - Snow [16].flac'); m.poll()
+assert m.names()==['Valerie - Broadcast [5].flac'] and len(m.plays)==1
+STREAM='/mnt/mmc/.deezer/stream/1800'; m.files['/tmp/q2-deezer.play']=bytearray(f'1800 {STREAM}\n'.encode())
+stream_songs('01 - Bloodhound [20].flac'); m.poll(); m.advance(0)
+assert len(m.plays)==2 and m.play_names==['01 - Bloodhound [20].flac']; passed()
+# Only a hidden folder of the card is played.
+m.files['/tmp/q2-deezer.play']=bytearray(b'1900 /mnt/mmc/Music\n'); m.tree['/mnt/mmc/Music']=[('a.flac',8)]; m.poll(); m.advance(0)
+assert len(m.plays)==2; passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'

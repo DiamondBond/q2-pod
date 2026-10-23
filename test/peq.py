@@ -2536,7 +2536,8 @@ def shelf_check(tmp, lib):
     # What each saved (Deezer's sign-in, settings and queue; Soulseek's settings, transfers and
     # share index; File Browser's settings), never in a release, survives an install over it, an
     # update and a remove.
-    saved = {3: ['.deezer/arl', '.deezer/quality', '.deezer/organize', '.deezer/queue.json'],
+    saved = {3: ['.deezer/arl', '.deezer/quality', '.deezer/organize', '.deezer/mode', '.deezer/layout',
+                 '.deezer/queue.json'],
              4: ['.soulseek/config.json', '.soulseek/downloads.json', '.soulseek/shares.cache'],
              5: ['.filebrowser/config.json']}
     shutil.rmtree(card); card.mkdir(parents=True)

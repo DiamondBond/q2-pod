@@ -176,6 +176,7 @@ void spot_shut(int fd);
  * opens its list, a file plays its folder from it; album, in track order (by name), else newest
  * first. */
 int songs_open(const char *path, const char *title, int album);
+void *app_album_songs(const char *dir); /* navigation.c: a folder's songs by name, for addon.c */
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);

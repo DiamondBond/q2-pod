@@ -265,6 +265,20 @@ GRID_COVER = ((0x4edf1c, 0x4edf18, 'coverflow_album_cover'), (0x4ef018, 0x4ef008
 SCAN_REFRESH = (0x5c981c, 0x0411fd88)  # toolsLoadAllFile's existing-song check, folder scans only
 AUDIO_EXTENSION_CALLS = (0x5c2054, 0x5c3da4)  # toolsLoadDirectory and recursive scan
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
+# Tag text as tagged (docs/internals.md#tag-text): toolsFixId3ErrorCode (0x5c5cf8), which toolsGetMusicInfo
+# runs on each of its six fields, took any field whose every character TagLib decoded below U+0100 ("Lo que
+# la música me enseñó") for GBK bytes and showed it in Chinese ("m" + 鷖...). Its two bal toolsIconvConvert
+# become nops and its Latin-1 test (beqz $fp) a branch to the UTF-8 copy (taglib_tag_<field>(tag, 1)), which
+# it tidies and stores as it does every field TagLib didn't find Latin-1.
+TAG_TEXT = ((0x5c5ddc, 0x0411dbb3, 0), (0x5c5e60, 0x0411db92, 0), (0x5c5e68, 0x13c00009, 0x10000009))
+# The CUE sheet parser (the unnamed function after toolsFreeStSongInfo) ran each field through the same
+# toolsIconvConvert(field, "utf-8", "gbk"); its seven bal become jal ringnav_cue_text.
+CUE_TEXT = (0x5c06d0, 0x5c0794, 0x5c084c, 0x5c0908, 0x5c0bc8, 0x5c0f84, 0x5c130c)
+# The library scan's folder walk (the unnamed recursive function toolsLoadAllFile runs, 0x5c3b64) skips
+# ".", "..", .LOST.DIR, lost+found and the like by name; its first strcmp (jalr, with "." in its delay
+# slot) becomes jal ringnav_scan_dir, which skips every hidden folder, as Folder view's list does: a card
+# app's own (q2-deezer's stream cache) never joins the Library.
+SCAN_DIRS = (0x5c3c0c, 0x0320f809)
 # toolsLoadAllFile stops a scan at 20,000 songs: lw $2,count; slti $2,$2,0x4e20 before each entry. 65,000
 # overflows slti's signed immediate, so the lw becomes jal ringnav_scan_room and the slti loads the count
 # into a0 in its delay slot; the bnez after it, and its delay slot's stop-flag load, stay.
@@ -332,6 +346,7 @@ LABELS = tuple((k.encode(), o.encode(), n.encode()) for k, o, n in (
     ('screenlock_info3', '3.Maximum of 5 images in folder.', '3. Up to 5 pictures.'),
     ('about_sn', 'Serial number', 'Serial Number'), ('about_version', 'FW. Version', 'Version'),
     ('list_baidu', 'Baidu Netdisk(BETA)', 'Baidu Netdisk'), ('msg_poweroff', 'Confirm Shutdown?', 'Shut Down?'),
+    ('system_prove', '技术证明', 'Certification'),  # About's regulatory row, Chinese in stock's English
     ('genre', 'Genres', 'Genre'), ('player_era', 'Era', 'Year'), ('batch_addplaylist', 'Add to playlist', 'Add to Playlist'),
     ('scan_startscan', 'Scanning', 'Scan')))  # Scan specified folders' button; wifi_scan keeps its "Scanning"
 
@@ -467,6 +482,61 @@ def patch_web(path, data):
         text = text.replace(old, new)
     check(not re.search('[　-鿿＀-￯]', text), f'Chinese left in {path}')
     return text.encode()
+
+# Stock's UI assets carry Chinese text (docs/internals.md#english), most of it designers' placeholders that
+# stock replaces, but some shows through in every language (Search's tabs, Now Playing's info labels, Folder's
+# title, Quick Settings' row names, the test-mode pages). Every Chinese text in them is given in English
+# (english_ui); a per-asset entry wins over the shared one. The T9 keyboard's EN key opened its Chinese
+# pinyin page: it toggles case instead (ABC on the lowercase page, abc on the capitals), so that page is
+# never reached, and its 《》 key types «».
+CJK = re.compile('[\u3000-\u9fff\uff00-\uffef]')
+ENGLISH = {
+    '文件夹': 'Folder', '正在播放': 'Now Playing', '本地音乐': 'Library', '更多': 'More', 'AB复读': 'A-B Repeat',
+    '倍速': 'Speed', '*仅对含48KHz以下有效': '*Only for 48 kHz and below', '无歌词': 'No lyrics', '专辑': 'Album',
+    '风格': 'Genre', '大小': 'Size', '年代': 'Year', '编码': 'Format', '位深': 'Bit Depth', '比特率': 'Bit Rate',
+    '采样率': 'Sample Rate', '位置': 'Location', '流媒体': 'Streaming', '自动扫描音乐': 'Auto Scan',
+    '立即更新曲库': 'Update Library Now', '指定文件夹扫描': 'Scan Folders', '确认': 'OK', '确定': 'OK',
+    '取消': 'Cancel', '单曲': 'Songs', '歌手': 'Artists', '蓝牙': 'Bluetooth', '按键锁': 'Key Lock',
+    '低增益': 'Low Gain', 'USB存储': 'USB Storage', '播放设置': 'Playback', '设置': 'Settings',
+    '自定义': 'Custom', '重置': 'Reset', '在浏览器输入以下网址:': 'Open this address in a browser:',
+    '下载中': 'Downloading', '已下载': 'Downloaded', '百度网盘': 'Baidu Netdisk', '退出登录': 'Sign Out',
+    '登录': 'Sign In', '请使用百度网盘或百度App扫码登录': 'Scan with the Baidu app to sign in',
+    '百度加密技术保护您的隐私安全': 'Baidu encryption protects your privacy',
+    '蓝牙定频测试,请操作电脑连接': 'Bluetooth RF test: connect from a computer', '按下一曲退出': 'Press Next to exit',
+    '亮度测试': 'Brightness Test', '下一步': 'Next', '蓝牙测试': 'Bluetooth Test', '右': 'Right', '左': 'Left',
+    '下': 'Down', '上': 'Up', '左滑': 'Swipe Left', '右滑': 'Swipe Right', '按键测试': 'Key Test',
+    '耳机输出测试': 'Headphone Test', '请插单端耳机': 'Plug in single-ended headphones',
+    '播放(男左女右)': 'Play (left male, right female)', '蓝牙接收测试': 'Bluetooth Receiver Test', '完成': 'Done',
+    '电池检测': 'Battery Test', '当前电量：': 'Battery:', '充电状态：': 'Charging:', 'TF测试': 'microSD Test',
+    '触摸测试': 'Touch Test', 'wifi测试': 'Wi-Fi Test', '太阳之子': 'Album', '周杰伦': 'Artist',
+    '播放全部': 'Play All', '导入歌单': 'Import Playlists', '导出歌单': 'Export Playlists', '测试歌单': 'Playlist',
+    '共0首': '0 songs',
+}
+ENGLISH_IN = {'testmode/test_key.bin': {'中': 'Centre'}, 'kb_default_t9.bin': {'中': 'abc', '《》': '«»'},
+              'dialog/search_dialog.bin': {'专辑': 'Albums', '风格': 'Genres'},
+              'systemset/screensaver_about.bin': {}}
+
+def english_ui(rel, data):
+    """rel's widgets' Chinese text in English, and the T9 keyboard's Chinese page out of reach."""
+    from ipod import decode, encode, walk
+    root = decode(data)
+    check(encode(root) == data, f'{rel}: UI round trip differs')
+    upper = {id(n) for page in walk(root) if page[2].get('name') == 'upper' for n in walk(page)}
+    for n in walk(root):
+        props = n[2]
+        if rel == 'kb_default_t9.bin' and props.get('name') == 'page:chinese':  # EN: the case toggle
+            props['name'], props['text'] = ('page:lower', 'abc') if id(n) in upper else ('page:upper', 'ABC')
+        if rel == 'kb_default_t9.bin' and props.get('name') == 'opt:《》':
+            props['name'] = 'opt:«»'
+        text = props.get('text', '')
+        if not CJK.search(text):
+            continue
+        if rel == 'systemset/screensaver_about.bin':  # Polish, with a full-width comma
+            props['text'] = text.replace('，', ', ')
+        else:
+            props['text'] = ENGLISH_IN.get(rel, {}).get(text) or ENGLISH[text]
+    check(not any(CJK.search(n[2].get('text', '')) for n in walk(root)), f'Chinese left in {rel}')
+    return encode(root)
 
 # The stock font (Arial merged with a CJK font) gives curly quotes the CJK em advance, a wide gap
 # inside words wherever a tag has one; its cmaps map them to the straight glyphs instead. Its hearts
@@ -733,6 +803,7 @@ FUNCTIONS = {
  'table_client_scroll_to': ('int', 'void *, int'),
  'scroll_view_scroll_delta_to': ('int', 'void *, int, int, int'),
  'widget_destroy_children': ('int', 'void *'),
+ 'widget_destroy': ('int', 'void *'),  # Streaming's Baidu Netdisk row (navigation.c ringnav_stream)
  'list_item_create': ('void *', 'void *, int, int, int, int'),
  'hscroll_label_create': ('void *', 'void *, int, int, int, int'),
  'set_hscroll_label_attribute': ('void', 'void *'),
@@ -1106,12 +1177,14 @@ def build(zip_path, out, logo, ipod=False, dev=False):
                       STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
-    windows = set()
+    windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
     for line in run('unsquashfs', '-l', sq).splitlines():
         found = re.search(r'/raw/ui/(.+)\.bin$', line)
         if not found: continue
         rel = found.group(1)
         data = cat('release/assets/default/raw/ui/'+rel+'.bin')
+        if CJK.search(data.decode('utf-8', 'replace')) and 'release/assets/default/raw/ui/'+rel+'.bin' not in STOCK_EQ:
+            chinese.add(rel + '.bin')  # the stock EQ pages go
         i = data.find(b'name\x00')
         name = data[i+5:data.find(b'\x00', i+5)].decode('utf-8', 'replace') if i >= 0 else ''
         windows.add(name or rel.split('/')[-1])
@@ -1223,6 +1296,14 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, *BT_STATUS, jal(ps['headset_status_register']), 'Bluetooth: incoming link during a connect')
     patch_word(patched, *BT_AUTOLINK, jal(ps['headset_bt_autolink']), 'Bluetooth: auto-link keeps an incoming link')
     patch_word(patched, *SCAN_REFRESH, jal(ps['ringnav_scan_refresh']), 'folder scan refreshes existing tags')
+    for word in TAG_TEXT:
+        patch_word(patched, *word, 'tag text read as UTF-8, never GBK')
+    for address in CUE_TEXT:
+        patch_word(patched, address, branch(0x04110000, address, syms['toolsIconvConvert']),
+                   jal(ps['ringnav_cue_text']), 'CUE text read as UTF-8 or Windows-1252, never GBK')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, SCAN_DIRS[0] + 4))[0] == 0x24a55110,
+          'library scan: expected the "." exclusion')
+    patch_word(patched, *SCAN_DIRS, jal(ps['ringnav_scan_dir']), 'the library scan skips hidden folders')
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')
@@ -1378,7 +1459,9 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         (out/name).write_bytes(data)
         p = swap_inode(p, path.encode(), out/name)
         changed_assets[path] = dict(original_sha256=sha(original), sha256=sha(data))
-    assets = ['ui/'+rel for rel in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])] + ['strings/en_US.bin']
+    patched_ui = list(UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])
+    check(chinese, 'No Chinese UI text found')
+    assets = ['ui/'+rel for rel in patched_ui + sorted(chinese - set(patched_ui))] + ['strings/en_US.bin']
     if ipod:
         assets += ['styles/'+rel for rel in AUDIT['styles']]
         # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
@@ -1391,7 +1474,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         data = (relabel(original) if kind == 'strings' else
                 patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
                 (sized_art(art, ART_PLACEHOLDERS[name]) if name in ART_PLACEHOLDERS else
-                 status_icon(name, original) if name in STATUS_ICONS else quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else patch_asset(name, original, ipod))
+                 status_icon(name, original) if name in STATUS_ICONS else quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else
+                patch_asset(name, original, ipod) if name in patched_ui else original)
+        if kind == 'ui' and name in chinese:
+            data = english_ui(name, data)
         target = out/rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)

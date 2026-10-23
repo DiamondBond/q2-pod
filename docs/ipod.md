@@ -284,7 +284,7 @@ in the top 210 pixels of the page. The album name sits under them (`CF_TEXT_Y`) 
 the artist under that in 20-pixel grey (`#AAAAAA`, stock secondary text), and both, like the
 track list's title and rows and the progress and empty messages, keep 36 pixels (`CF_EDGE`) from
 each side, where the lowest visible track row's text clears the bottom corners. Long names still
-scroll within that. The Refresh card uses the album line.
+scroll within that. A card (an artist's All albums, the rated albums' Sort) uses the album line.
 Values are `CF_*` in `patch/offsets.inc`; Legacy keeps its track list layout.
 
 ## Rounded corners

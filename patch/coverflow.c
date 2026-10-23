@@ -28,9 +28,10 @@
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
 enum { ARTIST_ALBUMS = 1, RATED_ALBUMS, ALBUM_TRACKS }; /* cf.scoped */
-/* after the albums: Sort, then Refresh library; an artist's All albums (two or more), the rated
- * albums' Sort alone */
-#define CARDS (cf.scoped == ARTIST_ALBUMS ? deque_size(cf.albums) > 1 : cf.scoped ? 1 : 2)
+/* after the albums: an artist's All albums (two or more), the rated albums' Sort; none after the
+ * library's, whose Sort and Refresh are Display settings' Coverflow Sort and Refresh Coverflow
+ * (coverflow_sort_step, coverflow_refresh_art) */
+#define CARDS (cf.scoped == ARTIST_ALBUMS ? deque_size(cf.albums) > 1 : cf.scoped ? 1 : 0)
 
 extern int stock_home_trampoline(void *win, void *ctx), stock_scan_all_trampoline(void *, void *),
     stock_scan_folder_trampoline(void *, void *), stock_delete_song_trampoline(void *, void *);
@@ -48,6 +49,7 @@ static struct {
     int sort, sort_read;   /* the Sort card's order (SORT_*), from SORT_FILE once */
     int year_old, artists; /* the Year order and Artists settings albums was sorted in */
     int on_sort;           /* the next load centres the Sort card */
+    int resort;            /* Display settings changed the library's order: the next load reads it */
     job_t *jobs;
     unsigned long thread;
     unsigned timer;
@@ -85,7 +87,7 @@ void *coverflow_tracks(void *page) {
     return page == cf.page && cf.screen == TRACKS ? cf.tracks : 0;
 }
 
-/* Only a live album card, never Sort, Refresh or a pending screen change. */
+/* Only a live album card, never a Sort or All albums card or a pending screen change. */
 void *coverflow_album(void *page) {
     if (page != cf.page || cf.screen != COVERS || !cf.slide || cf.timer) return 0;
     unsigned i = (unsigned)I(cf.slide, SLIDE_INDEX);
@@ -813,7 +815,7 @@ int coverflow_jump(void *w, int from, int dir, unsigned *letter) {
         if (to < n) *letter = initial(to);
     } else {
         while (to >= 0 && initial(to) == c) --to;
-        if (to < 0) return from + 1; /* Refresh, across the wrap */
+        if (to < 0) return from + 1; /* the last album, across the wrap */
         c = initial(to);
         while (to > 0 && initial(to - 1) == c) --to;
         *letter = c;
@@ -1542,9 +1544,9 @@ static int changed(void *ctx, void *event) {
     }
     void *r = c + CARDS < n ? deque_at(cf.albums, c) : (void *)0;
     if (r && !cf.scoped) cf.saved_album = album_key(r);
-    widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM)
-                                  : c + CARDS != n ? "Refresh library"
-                                  : cf.scoped == ARTIST_ALBUMS ? "All albums" : sort_names[cf.sort]);
+    widget_set_text_utf8(cf.name, r                            ? P(r, REC_ALBUM)
+                                  : cf.scoped == ARTIST_ALBUMS ? "All albums"
+                                                               : sort_names[cf.sort]);
     widget_set_text_utf8(cf.artist, r ? cover_artist(r) : ""); /* NULL leaves the old one */
     /* Stock draws even a centred caption at -xoffset: a long one's scroll would shift the next
      * left. */
@@ -1621,12 +1623,17 @@ static int poll(const void *unused) {
     return 0;
 }
 
-/* On open and Refresh: the albums, then art for the ones with no cache file (PictureFlow's
- * first-launch build; later opens resume). The albums are queried again only on Refresh or after
- * the library changed: stock's sort converts both names to pinyin on every comparison. */
+/* On open: the albums, then art for the ones with no cache file (PictureFlow's first-launch build;
+ * later opens resume). The albums are queried again only after the library changed (or Refresh
+ * Coverflow): stock's sort converts both names to pinyin on every comparison. */
 static void load(void) {
     int on_sort = cf.on_sort; /* taken whatever this load shows */
     cf.on_sort = 0;
+    if (cf.resort && !cf.scoped) { /* Coverflow Sort changed: its order read again */
+        cf.resort = cf.sort_read = 0;
+        if (cf.albums && cf.albums != cf.stock) deque_destroy(cf.albums);
+        cf.albums = 0;
+    }
     drop();
     widget_destroy_children(cf.page);
     cf.covers = cf.slide = cf.name = cf.artist = 0; /* destroyed with the page's children */
@@ -1822,8 +1829,10 @@ static int play_all(const void *unused) {
     return 0;
 }
 
-static int refresh(const void *unused) {
-    cf.timer = 0;
+/* Display settings' Refresh Coverflow (navigation.c): the art cache emptied and the albums queried
+ * again, both at Coverflow's next open (a page open under Settings keeps what it shows). The
+ * library generation's step is a songtable write's, which Most Played reads again too. */
+void coverflow_refresh_art(void) {
     void *dir = opendir(ART_DIR);
     for (struct dirent *e; dir && (e = readdir(dir));) {
         char path[600];
@@ -1831,13 +1840,32 @@ static int refresh(const void *unused) {
         unlink(path); /* "." and ".." fail harmlessly */
     }
     if (dir) closedir(dir);
-    drop_albums();
-    load();
-    return 0;
+    ++library_gen;
 }
 
-/* The Sort card: the next order, saved, and the covers again in it, still on the Sort card. The
- * stock list is kept, so nothing is queried but the order's own ranking. */
+/* The library's order as SORT_FILE holds it, Album when it holds none of all_sorts. */
+static int sort_saved(void) {
+    int sort = SORT_ALBUM;
+    BLOB_IO(SORT_FILE, sort, 0);
+    for (unsigned i = 0; i < sizeof all_sorts; ++i)
+        if (all_sorts[i] == sort) return sort;
+    return SORT_ALBUM;
+}
+
+/* Display settings' Coverflow Sort: its label ("Sort: Album"), and a press's next order, saved,
+ * which Coverflow takes at its next open (load). */
+const char *coverflow_sort_name(void) { return sort_names[sort_saved()]; }
+void coverflow_sort_step(void) {
+    int sort = sort_saved();
+    unsigned i = 0;
+    while (all_sorts[i] != sort) ++i;
+    sort = all_sorts[(i + 1) % sizeof all_sorts];
+    BLOB_IO(SORT_FILE, sort, 1);
+    cf.resort = 1;
+}
+
+/* The rated albums' Sort card: the next order, saved, and the covers again in it, still on the Sort
+ * card. The stock list is kept, so nothing is queried but the order's own ranking. */
 static int resort(const void *unused) {
     cf.timer = 0;
     cf.sort = sort_next(1);
@@ -1855,8 +1883,6 @@ static int pick(void *ctx, void *event) {
     int i = (int)(long)ctx, n = (int)deque_size(cf.albums);
     if (i == n && cf.scoped == ARTIST_ALBUMS)
         rearm(&cf.timer, play_all, 0);
-    else if (i == n + 1)
-        rearm(&cf.timer, refresh, 0);
     else if (i == n)
         rearm(&cf.timer, resort, 0);
     else {
