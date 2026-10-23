@@ -26,6 +26,8 @@ extern void *shim_dir;
 #define parse_cover_mutex ((const unsigned char *)&shim_parse)
 #define g_playcover_mutex ((const unsigned char *)&shim_play)
 #define tools_pdeq_directory ((const unsigned char *)&shim_dir)
+static unsigned char shim_artist_type[4] __attribute__((unused)); /* Artists: Artist */
+#define artist_type shim_artist_type
 #define pthread_mutex_lock shim_lock
 #define pthread_mutex_unlock shim_unlock
 #define statfs shim_statfs

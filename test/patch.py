@@ -5891,6 +5891,12 @@ assert m.call(address=payload_syms['coverflow_shows_album'],args=(m.albums[1],0,
 assert m.call(address=payload_syms['coverflow_shows_album'],args=(m.albums[0],0,0,0),gap=0)==0
 f,ctx=m.handler(m.page,O['EVT_KEY_UP']); assert m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)==11
 assert [c[0] for c in m.calls].count('navigator_back')==1 and not m.find('slide_menu'); passed()
+# The covers' caption is the album artist with Artists: Album Artist, when tagged (a compilation's "Various Artists" or
+# its compiler), else the artist.
+for kind,aa,want in ((1,'Various Artists','Various Artists'),(2,'Various Artists','Bobby Womack'),(1,'','Bobby Womack')):
+    m=CoverflowMachine(); m.word(syms['artist_type'],kind)
+    m.word(m.albums[0]+O['REC_ARTIST'],m.string('Bobby Womack')); m.word(m.albums[0]+O['REC_ALBUM_ARTIST'],m.string(aa))
+    m.open(); assert m.texts()[:2]==['Album 0',want],m.texts(); passed()
 m=CoverflowMachine(); m.found=[]; top=m.top
 assert m.call(address=payload_syms['coverflow_goto_album'],args=(m.albums[0],0,0,0),gap=0)==0 and m.top==top; passed()
 # Its hold menu row: Coverflow open, or Artist albums: Coverflow, goes there; else, or with no tracks, playerjumpinfo_page.

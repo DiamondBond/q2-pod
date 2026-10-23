@@ -109,6 +109,14 @@ static unsigned tags_key(const char *artist, const char *album) {
 
 static unsigned album_key(void *r) { return tags_key(P(r, REC_ARTIST), P(r, REC_ALBUM)); }
 
+/* An album's artist as Artists sets it: with Album Artist (artist_type 1), its album artist tag
+ * when set, so a compilation reads "Various Artists" or its compiler, not its last track's artist.
+ */
+static const char *cover_artist(void *r) {
+    const char *aa = P(r, REC_ALBUM_ARTIST);
+    return I(artist_type, 0) == 1 && aa && *aa ? aa : P(r, REC_ARTIST);
+}
+
 /* Track selection uses ringnav's existing position memory, keyed by this album. */
 unsigned coverflow_scope(void *page) {
     return coverflow_tracks(page) ? album_key(deque_at(cf.albums, (unsigned)cf.album)) : 0;
@@ -998,7 +1006,7 @@ static void *sorted(void) {
         void *r = v[i].r = deque_at(cf.stock, i);
         v[i].rank = ~0u, v[i].idx = (int)i;
         if (keys) {
-            const char *a = P(r, REC_ARTIST);
+            const char *a = cover_artist(r);
             snprintf(keys + i * ARTIST_KEY, ARTIST_KEY, "%s", a ? a : "");
             ringnav_sort_key(keys + i * ARTIST_KEY);
             v[i].artist = keys + i * ARTIST_KEY;
@@ -1537,8 +1545,9 @@ static int changed(void *ctx, void *event) {
     widget_set_text_utf8(cf.name, r ? P(r, REC_ALBUM)
                                   : c + CARDS != n ? "Refresh library"
                                   : cf.scoped == ARTIST_ALBUMS ? "All albums" : sort_names[cf.sort]);
-    widget_set_text_utf8(cf.artist, r ? P(r, REC_ARTIST) : ""); /* NULL leaves the old one */
-    /* Stock draws even a centred caption at -xoffset: a long one's scroll would shift the next left. */
+    widget_set_text_utf8(cf.artist, r ? cover_artist(r) : ""); /* NULL leaves the old one */
+    /* Stock draws even a centred caption at -xoffset: a long one's scroll would shift the next
+     * left. */
     widget_set_prop_int(cf.name, "xoffset", 0);
     widget_set_prop_int(cf.artist, "xoffset", 0);
     return 0;
