@@ -655,9 +655,10 @@ void playback_clear(void) {
 }
 int ringnav_mode(int mode) {
     /* player_initconfig re-applies the saved mode each time hciplayer connects, after a boot
-     * resume too: not a choice, so advanced play stays. */
-    if (s.restoring || __builtin_return_address(0) == (void *)INITCONFIG_MODE_RET)
-        return stock_mode_trampoline(mode);
+     * resume too: not a choice, so advanced play stays. The new hciplayer gets MQA's too. */
+    int initconfig = __builtin_return_address(0) == (void *)INITCONFIG_MODE_RET;
+    if (initconfig) mqa_sync();
+    if (s.restoring || initconfig) return stock_mode_trampoline(mode);
     unshuffle = 0; /* a mode choice outlasts Shuffle Songs */
     /* Stock Shuffle (2) on Shuffle Albums/Folders keeps the groups; any other mode ends them. */
     if (!(s.active && s.shuffle >= 3 && mode == 2)) playback_clear();

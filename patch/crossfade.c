@@ -5,7 +5,7 @@
  * switch, the wheel a ten a tick and Centre back, as on Brightness (navigation.c edit_key). Audio
  * settings' Resume Songs row opens it too (xf.ctx 2): Off and RS_MIN..RS_MAX minutes in fives, the
  * same way, the length a music track needs to keep its place (navigation.c resume_poll). Mono
- * Audio's row and its shared flag live here too (mono_sync). */
+ * Audio's and MQA's rows live here too (mono_sync, mqa_sync). */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -25,9 +25,9 @@ static struct {
     int read, on, seconds, done, key[4];
     int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs */
     int rs_read, rs_min;
-    int mono_read, mono, swap_read, swap;
+    int mono_read, mono, swap_read, swap, mqa_read, mqa;
     volatile int *flag, *mono_flag, *swap_flag;
-    void *swap_label;
+    void *swap_label, *mqa_label;
     void *mono_label; /* the Mono Audio row's, while Audio settings is open */
     void *page, *sw, *view, *slider, *dec, *add, *label;
     unsigned press, press_at;
@@ -169,6 +169,35 @@ int swap_click(void *ctx, void *event) {
     write_int_config(xf.swap, "Q2POD", "SWAPLR");
     mono_sync();
     swap_text();
+    return 0;
+}
+
+/* MQA (Q2POD MQA, read once, default off). hciplayer's start-of-track probe decodes about 2 s of a
+ * FLAC or PCM track before it plays (docs/internals.md#mqa-detection), long enough to break a gapless
+ * change. Off sends stock's {mcl-mqadecodemode\2}, which skips the probe, so MQA plays undecoded;
+ * On sends 0, hciplayer's default. hciplayer keeps it until it restarts, and ringnav_mode sends it
+ * again from player_initconfig, which runs on every connect. A change applies from the next track. */
+static int mqa_on(void) {
+    if (!xf.mqa_read) xf.mqa = config_value("Q2POD", "MQA", 2, 0), xf.mqa_read = 1;
+    return xf.mqa;
+}
+void mqa_sync(void) {
+    static const char on[] = "{mcl-mqadecodemode\\0}", off[] = "{mcl-mqadecodemode\\2}";
+    int fd = *(volatile int *)MCL_FD;
+    if (fd != -1) send(fd, mqa_on() ? on : off, sizeof on - 1, 0);
+}
+static void mqa_text(void) {
+    widget_set_text_utf8(xf.mqa_label, mqa_on() ? "MQA: On" : "MQA: Off");
+}
+void mqa_row(void *label) {
+    xf.mqa_label = label;
+    mqa_text();
+}
+int mqa_click(void *ctx, void *event) {
+    xf.mqa = !mqa_on();
+    write_int_config(xf.mqa, "Q2POD", "MQA");
+    mqa_sync();
+    mqa_text();
     return 0;
 }
 

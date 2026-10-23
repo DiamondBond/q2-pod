@@ -18,6 +18,7 @@ void playback_speed_start(void);
 void playback_track_speed(void); /* a track's start: the folder's speed, to the decoder */
 void xfade_poll(int next); /* crossfade.c */
 void mono_sync(void);      /* crossfade.c */
+void mqa_sync(void);       /* crossfade.c */
 int playback_resumed(void *r);
 void playback_save(void);
 void playback_clear(void);

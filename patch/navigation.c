@@ -114,8 +114,9 @@ extern void up_next(int (*closed)(void *, void *), int (*keyup)(void *, void *))
 extern int un_hold(void *top);
 extern void radio_poll(void);
 extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label),
-    mono_row(void *label), swap_row(void *label);
-extern int mono_click(void *ctx, void *event), swap_click(void *ctx, void *event);
+    mono_row(void *label), swap_row(void *label), mqa_row(void *label);
+extern int mono_click(void *ctx, void *event), swap_click(void *ctx, void *event),
+    mqa_click(void *ctx, void *event);
 extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key), resume_min(void);
 extern int eq_key(void *top, unsigned key); /* peq_ui.c */
 extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
@@ -2474,6 +2475,7 @@ static const unsigned char playset_order[] = {
     19 /* Folder Root */,
     12 /* Enlarged art */,
     6 /* DSD Output */,
+    23 /* MQA */,
     7 /* USB Audio */,
 };
 /* System Setting: connections and display first, set-once items next, Reset last. */
@@ -2551,6 +2553,7 @@ int ringnav_audioset(void *win, void *ctx) {
         resume_row(list_row(view, "playset_memplay", xfade_open, (void *)2)); /* crossfade.c */
         mono_row(list_row(view, "playset_balance", mono_click, 0));
         swap_row(list_row(view, "playset_balance", swap_click, 0));
+        mqa_row(list_row(view, "playset_dsdoutput", mqa_click, 0)); /* crossfade.c */
     }
     reorder(view, playset_order, sizeof playset_order);
     return result;
