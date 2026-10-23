@@ -2175,17 +2175,26 @@ void coverflow_sort_step(void), coverflow_refresh_art(void), toast(const char *t
  * Standby limit (STANDBYLIMIT, ringnav_standby; docs/internals.md#standby-limit). */
 #define STR_(x) #x
 #define STR(x) STR_(x)
-static int *const pod_values[] = { &st.charge_limit, &st.low_power,  &st.wake_double,
-                                   &st.artist_cf,    &st.year_old,   0,
-                                   &st.resume,       &st.lock_clock, &st.artist_az,
-                                   &wheel_guard,     &st.hold_home,  &st.standby_limit,
-                                   0,                0 };
+static int *const pod_values[] = { &st.charge_limit,
+                                   &st.low_power,
+                                   &st.wake_double,
+                                   &st.artist_cf,
+                                   &st.year_old,
+                                   0,
+                                   &st.resume,
+                                   &st.lock_clock,
+                                   &st.artist_az,
+                                   &wheel_guard,
+                                   &st.hold_home,
+                                   &st.standby_limit,
+                                   0,
+                                   0 };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 _Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
-static const char *const pod_keys[] = { "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",
-                                        "YEAROLD",     0,          "RESUME",     "LOCKCLOCK",
-                                        "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT",
-                                        0,             0 };
+static const char *const pod_keys[] = {
+    "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",   "YEAROLD",      0, "RESUME",
+    "LOCKCLOCK",   "ARTISTAZ", "VOLGUARD",   "HOLDRETURN", "STANDBYLIMIT", 0, 0
+};
 _Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
 /* a row's choices: Artist albums three, Standby limit four, every other row off and on */
 static int pod_choices(unsigned i) { return i == POD_ARTIST_CF ? 3 : i == POD_STANDBY ? 4 : 2; }
@@ -2295,8 +2304,8 @@ char *ringnav_id3_path(char *id3, const char *path) {
     return id3;
 }
 /* The library scan's folder walk (SCAN_DIRS in tools/build.py): its first exclusion, strcmp(name,
- * "."), here skips every hidden folder, as Folder view's list does, so a card app's own (q2-deezer's
- * stream cache in .deezer/stream) never joins the Library. */
+ * "."), here skips every hidden folder, as Folder view's list does, so a card app's own
+ * (q2-deezer's stream cache in .deezer/stream) never joins the Library. */
 int ringnav_scan_dir(const char *name, const char *dot) {
     return name[0] == '.' ? 0 : strcmp(name, dot);
 }
@@ -2305,23 +2314,29 @@ int ringnav_scan_dir(const char *name, const char *dot) {
  * nothing past U+10FFFF. */
 static int utf8_text(const char *s) {
     for (const unsigned char *p = (const unsigned char *)s; *p;) {
-        unsigned c = *p++, n = c < 0x80 ? 0 : c >= 0xc2 && c < 0xe0 ? 1 : c >= 0xe0 && c < 0xf0 ? 2 : c >= 0xf0 && c < 0xf5 ? 3 : 4;
+        unsigned c = *p++, n = c < 0x80                ? 0
+                               : c >= 0xc2 && c < 0xe0 ? 1
+                               : c >= 0xe0 && c < 0xf0 ? 2
+                               : c >= 0xf0 && c < 0xf5 ? 3
+                                                       : 4;
         if (n == 4) return 0;
         unsigned v = c & (0x3f >> n);
         for (unsigned i = 0; i < n; ++i, ++p) {
             if ((*p & 0xc0) != 0x80) return 0;
             v = v << 6 | (*p & 63);
         }
-        if ((n == 2 && (v < 0x800 || (v >= 0xd800 && v < 0xe000))) || (n == 3 && (v < 0x10000 || v > 0x10ffff)))
+        if ((n == 2 && (v < 0x800 || (v >= 0xd800 && v < 0xe000))) ||
+            (n == 3 && (v < 0x10000 || v > 0x10ffff)))
             return 0;
     }
     return 1;
 }
 
-/* The CUE sheet parser's fields (CUE_TEXT in tools/build.py), up to 500 bytes each in buffers of 512 or
- * more: stock took any field that wasn't Chinese UTF-8 for GBK ("Café" became Chinese). UTF-8 stays
- * as it is; anything else is Windows-1252, the code page Western rippers write, re-encoded as UTF-8 in
- * place and cut at a whole character to 511 bytes. Stock's returned 1 for kept text; so does this. */
+/* The CUE sheet parser's fields (CUE_TEXT in tools/build.py), up to 500 bytes each in buffers of
+ * 512 or more: stock took any field that wasn't Chinese UTF-8 for GBK ("Café" became Chinese).
+ * UTF-8 stays as it is; anything else is Windows-1252, the code page Western rippers write,
+ * re-encoded as UTF-8 in place and cut at a whole character to 511 bytes. Stock's returned 1 for
+ * kept text; so does this. */
 int ringnav_cue_text(char *s, const char *to, const char *from) {
     (void)to, (void)from;
     if (!s || utf8_text(s)) return 1;
@@ -2333,14 +2348,17 @@ int ringnav_cue_text(char *s, const char *to, const char *from) {
     char out[512];
     unsigned n = 0;
     for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
-        unsigned c = *p >= 0x80 && *p < 0xa0 ? cp1252[*p - 0x80] : *p, k = c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+        unsigned c = *p >= 0x80 && *p < 0xa0 ? cp1252[*p - 0x80] : *p, k = c < 0x80    ? 1
+                                                                           : c < 0x800 ? 2
+                                                                                       : 3;
         if (n + k >= sizeof out) break;
         if (k == 1)
             out[n++] = (char)c;
         else if (k == 2)
             out[n++] = (char)(0xc0 | c >> 6), out[n++] = (char)(0x80 | (c & 63));
         else
-            out[n++] = (char)(0xe0 | c >> 12), out[n++] = (char)(0x80 | (c >> 6 & 63)), out[n++] = (char)(0x80 | (c & 63));
+            out[n++] = (char)(0xe0 | c >> 12), out[n++] = (char)(0x80 | (c >> 6 & 63)),
+            out[n++] = (char)(0x80 | (c & 63));
     }
     out[n] = 0;
     memcpy(s, out, n + 1);
@@ -2661,13 +2679,14 @@ static void keep_selected(void *target) {
 }
 
 /* Lyrics from tags: stock reads a local track's lyrics only from a .lrc beside it. Without one,
- * the track's LYRICS tag (else UNSYNCEDLYRICS) fills stock's list. A tag in LRC form, a "[mm:ss.xx]"
- * stamp before each line (q2-deezer's, and most taggers' for synced lyrics), gives each line its time
- * as stock's .lrc parser does (toolsTimeConvert: whole seconds), in time order, a line with several
- * stamps once for each, and lines without one (LRC's "[ar:...]" tags) left out. Plain text fills it a
- * line each, at a time no track reaches, so the page stays at its top as before a .lrc's first
- * stamp. libtag_c's property calls are found from taglib_file_new's address, which that call binds
- * in demo's GOT. ponytail: no SYLT frame, and lines starting in its first LYRIC_TAG_MAX bytes. */
+ * the track's LYRICS tag (else UNSYNCEDLYRICS) fills stock's list. A tag in LRC form, a
+ * "[mm:ss.xx]" stamp before each line (q2-deezer's, and most taggers' for synced lyrics), gives
+ * each line its time as stock's .lrc parser does (toolsTimeConvert: whole seconds), in time order,
+ * a line with several stamps once for each, and lines without one (LRC's "[ar:...]" tags) left out.
+ * Plain text fills it a line each, at a time no track reaches, so the page stays at its top as
+ * before a .lrc's first stamp. libtag_c's property calls are found from taglib_file_new's address,
+ * which that call binds in demo's GOT. ponytail: no SYLT frame, and lines starting in its first
+ * LYRIC_TAG_MAX bytes. */
 #define LYRIC_TAG_MAX 65536
 extern int stock_lyric_trampoline(void);
 
@@ -2721,7 +2740,8 @@ int ringnav_lyric(void) {
         }
     }
     unsigned cap = 1, n = 0;
-    for (const char *s = v && *v ? *v : ""; *s && s - *v < LYRIC_TAG_MAX; ++s) /* a line, or a stamp */
+    for (const char *s = v && *v ? *v : ""; *s && s - *v < LYRIC_TAG_MAX;
+         ++s) /* a line, or a stamp */
         cap += *s == '\n' || *s == '\r' || *s == '[';
     lrc_line *l = v && *v && **v ? calloc(cap, sizeof *l) : 0;
     if (l) {
@@ -2731,9 +2751,11 @@ int ringnav_lyric(void) {
             int t[8], k;
             while (*e && *e != '\n' && *e != '\r') ++e;
             c = *e, *e = 0;
-            if ((k = lrc_stamps(&text, t, 8)) && !synced) synced = 1, n = 0; /* LRC: the lines before go */
+            if ((k = lrc_stamps(&text, t, 8)) && !synced)
+                synced = 1, n = 0; /* LRC: the lines before go */
             for (int i = 0; i < (k ? k : !synced) && n < cap; ++i)
-                l[n] = (lrc_line){ k ? t[i] : 0x7fffffff, (int)n, *text ? text : " " }, ++n; /* " ": stock's for a stamp alone */
+                l[n] = (lrc_line){ k ? t[i] : 0x7fffffff, (int)n, *text ? text : " " },
+                ++n; /* " ": stock's for a stamp alone */
             s = e + (c != 0) + (c == '\r' && e[1] == '\n');
         }
         if (synced) qsort(l, n, sizeof *l, lrc_order);
@@ -5256,7 +5278,8 @@ static void *card_songs(const char *dir, int album) {
     deque_destroy(rows);
     return songs;
 }
-/* A card app's stream folder's songs in play order (addon.c stream_poll), a deque the caller destroys. */
+/* A card app's stream folder's songs in play order (addon.c stream_poll), a deque the caller
+ * destroys. */
 void *app_album_songs(const char *dir) { return card_songs(dir, 1); }
 
 /* A song's label from its file: Tidal's after its "<id>-<quality> ", a card app's before a
@@ -6328,11 +6351,11 @@ static int shows_image(void *w, const char *name) {
     return 0;
 }
 
-/* stream_page_init: stock's rows but Baidu Netdisk (a Chinese cloud drive, signed in to from Baidu's
- * app: its row, the one with list_baidu's icon, removed), then Spotify (spotify.c), which opens its
- * browser, the card apps on the card (addon.c: Deezer, Soulseek, File Browser… as System settings'
- * Apps or the user put them there), Tidal Downloads, Internet Radio (radio.c), AirPlay and
- * Configuration. Their buttons have no name, so stock's row click never sees them. */
+/* stream_page_init: stock's rows but Baidu Netdisk (a Chinese cloud drive, signed in to from
+ * Baidu's app: its row, the one with list_baidu's icon, removed), then Spotify (spotify.c), which
+ * opens its browser, the card apps on the card (addon.c: Deezer, Soulseek, File Browser… as System
+ * settings' Apps or the user put them there), Tidal Downloads, Internet Radio (radio.c), AirPlay
+ * and Configuration. Their buttons have no name, so stock's row click never sees them. */
 int ringnav_stream(void *win, void *ctx) {
     int result = stock_stream_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;

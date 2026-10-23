@@ -850,11 +850,13 @@ Card apps (`patch/addon.c`, apps on the card that Q2 Pod knows only by their fol
 Each line is `owner/repo [Name]` (`#` starts a comment), and `shelf_sources` reads up to 16 (`SH_MAX`). The owner is `A-Za-z0-9-`, the repo also allows `._`, and the name defaults to the repo's. A line is skipped when any of these fail or its id repeats an earlier one's. The id is the repo's name less `q2-`, and must be 1 to 15 of `a-z0-9-`, addon.c's rule, since it goes into shell commands. A card app's folder is `.<id>`, its binary `.<id>/q2-<id>`, and nothing in it is kept from unzip.
 
 Q2 Pod's own apps are matched by the repo's name, so a fork is the same app; another repo whose id would be one of theirs is skipped:
+
 - `q2-rockbox` → `rockbox`: binary `.rockbox/rockbox`, keeps `.rockbox/config.cfg`.
 - `q2-rockbox-themes` → `themes`: folder `.rockbox`, no binary, keeps the same file.
 - `q2-librespot` → `spotify`: binary `.spotify/librespot`, keeps `.spotify/cache/*` and `.spotify/.cache-size`.
 
 The rows follow the list's order. Each row shows its app's state as the row's detail:
+
 - **Installed** with a tag in `/mnt/mmc/.q2/apps/<id>.tag`.
 - **Update** when that tag differs from the latest release's (string equality, not order), or when the app's binary is there without a tag (a manual install).
 - Otherwise **Install**.
