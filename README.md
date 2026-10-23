@@ -68,7 +68,7 @@
 
 ## Extras
 
-- **Spotify (optional, Premium):** with the Q2 on Wi-Fi, open **System settings → Apps → Spotify** and press the row to install it. Then open **Streaming → Spotify** and, the first time, pick the Q2 in the Spotify app on your phone on the same Wi-Fi. Without Wi-Fi, unzip `q2-librespot-*.zip` from [q2-librespot's latest release](https://github.com/DiamondBond/q2-librespot/releases/latest) (v1.3 or later to browse on the Q2, v1.6 to download playlists) to the card's root instead. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
+- **Spotify (optional, Premium):** with the Q2 on Wi-Fi, open **System settings → Apps → Spotify** and press the row to install it. Then open **Streaming → Spotify** and, the first time, pick the Q2 in the Spotify app on your phone on the same Wi-Fi. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Scrobbling:** connect Last.fm or ListenBrainz with the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Lock screen:** six built-in wallpapers, a large clock, or your own images ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
 - **Boot logo:** put your own JPEG at `/Q2Pod/boot/boot-logo.jpg` on the card. It shows from the next power-on ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
