@@ -220,6 +220,8 @@ int ipod_classic(void); /* navigation.c: Theme: Classic */
 #define SPOT_GREY 0xffaaaaaau
 void radio_search(void);       /* radio.c */
 void toast(const char *text); /* navigation.c */
+const char *coverflow_sort_name(void); /* coverflow.c */
+void coverflow_sort_step(void), coverflow_refresh_art(void);
 int rockbox_available(void);  /* navigation.c: a regular Rockbox binary on the card */
 int page_keyup(void *ctx, void *event); /* navigation.c: Return leaves a payload page */
 int shelf_open(void *ctx, void *event); /* netupdate.c: System settings' Apps page */

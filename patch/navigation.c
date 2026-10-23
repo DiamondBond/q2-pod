@@ -2160,9 +2160,6 @@ int ringnav_quick_settings(void *win, void *ctx) {
     return result;
 }
 
-const char *coverflow_sort_name(void);
-void coverflow_sort_step(void), coverflow_refresh_art(void), toast(const char *text);
-
 /* Power's Charge limit, Low power and Wake (docs/internals.md#charge-limit, #low-power,
  * #wake), Q2POD CHARGELIMIT, LOWPOWER and WAKEDOUBLE in config.ini, Display's Artist albums
  * (ARTISTCF), Audio settings' Year order (YEAROLD, coverflow.c's year ranks) and Artists, which
@@ -3901,7 +3898,6 @@ int ringnav_display(void *win, void *ctx) {
     return result;
 }
 
-void toast(const char *text);
 #define BOOT_TARGET "/mnt/data/boot-target"
 static int boot_rockbox __attribute__((section(".scratch")));
 static void boot_text(void *label) {

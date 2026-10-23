@@ -132,11 +132,18 @@ static struct {
     char playing[256]; /* the .playing path written last */
     int state;         /* S_WAIT for its first song, S_PLAY its queue playing, S_DONE another queue */
     unsigned timer;    /* the first song's start, on a timer (a window opens) */
+    long seen;         /* the folder's mtime at the last scan that came well after it */
 } sm __attribute__((section(".scratch")));
 enum { S_WAIT, S_PLAY, S_DONE };
 
 /* An audio file in dir named after last ("": any), not a hidden one or a download's .part. */
 static int stream_newer(const char *dir, const char *last) {
+    /* ponytail: only once the folder changes (o32 stat, st_mtime word 16), not a scan every poll; a
+     * scan in the second of a change is not trusted, as a file could land later in that second. */
+    unsigned st[36];
+    if (__xstat(3, dir, st)) return 0;
+    if ((long)st[16] == sm.seen) return 0;
+    if ((long)st[16] < time((void *)0) - 1) sm.seen = (long)st[16];
     void *d = opendir(dir);
     int found = 0;
     for (struct dirent *e; d && !found && (e = readdir(d));) {
@@ -180,6 +187,7 @@ static void stream_poll(app_t *a) {
         for (char *c = sm.dir; *c; ++c)
             if (*c == '\n' || *c == '\r') *c = 0;
         sm.last[0] = sm.playing[0] = 0;
+        sm.seen = 0;
         /* a hidden folder of the card, as the app's own are */
         sm.state = tk_str_start_with(sm.dir, CARD "/.") && !strstr(sm.dir, "..") ? S_WAIT : S_DONE;
         stop_timer(&sm.timer);

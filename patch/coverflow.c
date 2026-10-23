@@ -271,7 +271,7 @@ int coverflow_album_cover(const char *track, const char *dst, int w, int h) {
 
 /* One album: embedded art, then beside_art, then ffmpeg's read of the embedded art, last as it
  * costs a process for every album without art; written to .tmp and renamed. An empty file marks
- * "no art", so the placeholder shows and the album is not retried until Refresh. */
+ * "no art", so the placeholder shows and the album is not retried until Refresh Coverflow. */
 static void build_art(const job_t *j) {
     char dst[512], tmp[512];
     if (access(j->track, 0)) return; /* storage gone: no marker, the next open retries */
@@ -433,7 +433,8 @@ static void drop_unknown(void) {
     deque_destroy(songs);
 }
 
-/* Sort, the card before Refresh (docs/internals.md#coverflow-sort): Album is the stock order;
+/* Sort, Display settings' Coverflow Sort and the rated albums' card
+ * (docs/internals.md#coverflow-sort): Album is the stock order;
  * Artist sorts by artist without a leading article, as every library list does (ringnav_sort_key),
  * then year, then album; Year in Playback settings' Year order (year_sql), undated last; Recently Added by the newest song's time_create; Most Played by the
  * album's listens (navigation.c album_plays); Random by playback.c's rand_below, reshuffled whenever
@@ -1450,7 +1451,7 @@ static int fx_open(void) {
     return 1;
 }
 
-/* Album a's cached art in buf, else the placeholder (no art, or the Refresh card). */
+/* Album a's cached art in buf, else the placeholder (no art, or a card). */
 static const unsigned *fx_load(int a, unsigned *buf) {
     char url[600] = "file://";
     if ((unsigned)a < deque_size(cf.albums)) {

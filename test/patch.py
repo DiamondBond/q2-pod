@@ -9569,8 +9569,8 @@ assert m.toasts[n:] and m.toasts[-1][3]=="It isn't on the card any more",m.toast
 # queue's end, as Add to Queue does, while the queue is still the session's; the song playing is left in
 # .playing for the app; once another queue plays, the session is left alone.
 STREAM='/mnt/mmc/.deezer/stream/1700'
-def stream_songs(*names):
-    m.tree[STREAM]=[(n,8) for n in names]; rs=[]
+def stream_songs(*names):  # the folder's mtime steps with each change: stream_newer scans only then
+    m.tree[STREAM]=[(n,8) for n in names]; rs=[]; m.stats[STREAM]=m.stats.get(STREAM,0)+1
     for n in names:
         if n.endswith('.part'): continue
         r=m.song(n); m.word(r+O['REC_PATH'],m.string(f'{STREAM}/{n}')); m.stats[f'{STREAM}/{n}']=1; rs.append(r)
@@ -9583,6 +9583,8 @@ m.poll(); m.advance(0)
 assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Snow [12].flac'],(m.plays,m.play_names); passed()
 m.word(syms['mcl_pdeqplaylist'],m.deque(recs)); m.word(O['MCL_POOL'],m.deque([0],'int')); m.word(O['MCL_POS'],0)
 m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{STREAM}/01 - Snow [12].flac\n'.encode() and len(m.plays)==1
+seen=m.stats[STREAM]; stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac'); m.stats[STREAM]=seen
+m.poll(); assert len(m.names())==1  # the folder's mtime unchanged: not scanned
 stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac','03 - Chateau [14].flac'); m.poll()
 assert m.names()==['01 - Snow [12].flac','02 - Oakwood [13].flac','03 - Chateau [14].flac'] and len(m.plays)==1,m.names()
 m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{STREAM}/02 - Oakwood [13].flac\n'.encode(); passed()
