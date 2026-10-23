@@ -166,6 +166,7 @@ def parser_check(lib, tmp):
     assert scoped.preamp == -3.5 and scoped.balance == 1  # left 1 dB below right
     # v1 files (no balance) still load, with the balance centred.
     v1 = tmp/'v1'
+    q.automatic = 0  # older files lack it; parse sets 2
     v1.write_bytes(b'Q2PEQ01\0' + bytes(q)[:16 + 10*32])
     assert lib.peq_load(bytes(v1), C.byref(p)) and bytes(p) == bytes(q)  # q's bands 11-30 are the defaults
     v1.write_bytes(b'Q2PEQ02\0' + bytes(q)[:V2])  # 1.3.5's, before automatic: unknown (0)
@@ -377,7 +378,7 @@ def headroom_check(lib, ui):
         # A set preamp plays as set at every rate, though it is the saved preset's -8.5 dB.
         manual.preamp = -8.5; lib.peq_reset(C.byref(b), rate, 2, C.byref(manual))
         assert all(b.current.gain[ch] == 10**(-8.5/20) for ch in range(2)) and bytes(b.current.c) == bytes(e.c)
-    p.automatic = 0  # as imported
+    p.automatic = 2  # as imported
     assert bytes(p) == before
     ui.check_headroom.argtypes = [C.POINTER(Preset)]
     ui.check_headroom.restype = C.c_double
@@ -872,16 +873,22 @@ def editor_check(lib, tmp):
     reopen(-1, 0, v2=True)  # 1.3.5's state loads; never picked, so Auto, in the editor and playing
     assert lib.eq_load(C.byref(t)) and t.peq.automatic == 0 and bytes(t.eq3) == bytes(s.eq3) and shown(True)
     assert ui.shim_click(b'Nothing to apply', 2) and read().automatic == 1
-    # An import's own preamp gives way to Auto; picking a preamp afterwards sticks across a restart.
+    # An import plays its own preamp; Auto, once picked, sticks to the saved preset, not the card's file.
     (tmp/'root/mnt/mmc/EQ').mkdir(parents=True, exist_ok=True)
-    (tmp/'root/mnt/mmc/EQ/Imp.txt').write_text('Preamp: -2 dB\nFilter 1: ON PK Fc 1000 Hz Gain 6 dB Q 1.41\n')
+    text = 'Preamp: -2 dB\nFilter 1: ON PK Fc 1000 Hz Gain 6 dB Q 1.41\n'
+    (tmp/'root/mnt/mmc/EQ/Imp.txt').write_text(text)
     click('Presets'); click('Import from SD /EQ'); click('Imp.txt'); ui.shim_close(); advanced()
+    click('Presets'); click('Imp.peq'); assert ui.shim_click(b'Preamp -2.0 dB', 2)
+    click('Preamp -2.0 dB'); click(auto(p)); assert shown(True)
+    r = Preset(); assert lib.peq_load(bytes(saved/'Imp.peq'), C.byref(r)) and r.automatic == 1
+    assert (tmp/'root/mnt/mmc/EQ/Imp.txt').read_text() == text
     click('Presets'); click('Imp.peq'); assert shown(True)
     click(f'Preamp {auto(p)}'); click('-3.0 dB'); click('Apply changes')
     ui.shim_close(); advanced(); assert ui.shim_click(b'Preamp -3.0 dB', 2) and not shown(True)
     (tmp/'root/mnt/mmc/EQ/Imp.txt').unlink(); (saved/'Imp.peq').unlink()
     # The reported preset: the Preamp row and its picker label the 44.1 and 48 kHz cuts; an edit refreshes them.
-    rep = parse(lib, REPORTED_PRESET); assert lib.peq_save(bytes(saved/'Rep.peq'), C.byref(rep), 1) == 1
+    rep = parse(lib, REPORTED_PRESET); assert rep.automatic == 2  # an import's preamp is set
+    rep.automatic = 1; assert lib.peq_save(bytes(saved/'Rep.peq'), C.byref(rep), 1) == 1
     click('Presets'); click('Rep.peq'); assert ui.shim_click(b'Preamp Auto (44.1: -9.2 / 48: -8.8)', 2)
     click('Preamp Auto'); assert ui.shim_selection() == 0 and ui.shim_click(b'Auto (44.1: -9.2 / 48: -8.8)', 2)
     ui.shim_return(); click('7  Peaking 10160 Hz L'); click('Band On'); ui.shim_return()

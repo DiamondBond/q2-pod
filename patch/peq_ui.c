@@ -228,6 +228,18 @@ static void auto_text(char *s, unsigned n) {
     snprintf(s, n, "Auto (44.1: %.1f / 48: %.1f)", autos()[0], autos()[1]);
 }
 
+/* A Preamp pick sticks to the saved preset it was loaded from (its copy in PEQ_SAVED, never the
+ * card's .txt); its bands stay as saved until Save. ponytail: keyed on ui.name, so a stock preset
+ * named like a saved one ("Rock") writes to that file; keep the loaded path if that matters. */
+static void remember_preamp(void) {
+    char path[600];
+    peq_preset p;
+    snprintf(path, sizeof(path), PEQ_SAVED "/%s.peq", ui.name);
+    if (!ui.name[0] || !peq_load(path, &p)) return; /* a stock preset, Reset or none */
+    p.automatic = ui.draft.automatic, p.preamp = ui.draft.preamp;
+    peq_save(path, &p, 1);
+}
+
 static int compare_names(const void *a, const void *b) { return strcmp(a, b); }
 
 static void list_files(const char *folder, const char *extension) {
@@ -431,7 +443,7 @@ static int action(void *ctx, void *event) {
             *picked() = ui.pick == PREAMP && !id
                             ? autos()[1]
                             : picks[ui.pick - BALANCE].first + picks[ui.pick - BALANCE].step * id;
-            if (ui.pick == PREAMP) ui.draft.automatic = id ? 2 : 1;
+            if (ui.pick == PREAMP) ui.draft.automatic = id ? 2 : 1, remember_preamp();
             if (ui.pick == GAIN && !b->enabled) b->enabled = 1; /* picking a gain is using the band */
             ui.dirty = 1;
             ui.screen = ui.pick == GAIN ? BAND : HOME;

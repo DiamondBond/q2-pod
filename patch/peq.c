@@ -178,6 +178,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
     p.balance = side[3] - side[2];
     if (!between(p.preamp, -60, 24)) return error_at(error, preamp_line, "summed preamp outside -60..24 dB");
     if (!between(p.balance, -12, 12)) return error_at(error, preamp_line, "L/R preamp differ by more than 12 dB");
+    p.automatic = 2; /* the file's preamp, as if picked */
     *out = p; /* Commit only after the complete file validates. */
     return 1;
 }

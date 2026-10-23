@@ -6,6 +6,7 @@
   - Advanced EQ: reopen the keyboard even when the value field kept focus after Done, and detach it before replacing the field.
   - Era: bound SQLite cache memory while counting the entire library, including libraries above 20,000 songs.
   - Advanced EQ: Q and Frequency accept typed decimals and zero digits without the stock numeric editor rewriting the entry. Completed values keep the EQ limits (Q 0.1–10; Frequency 20–20,000 Hz).
+  - Advanced EQ: imported presets play the preamp written in their file instead of Auto. Switching a saved preset's preamp to Auto (or another value) is kept with that preset; the file on the card is not changed. Presets imported before stay on Auto until imported again.
   - Era and Coverflow year sorting use the year from full-date tags such as `20220510`, so these albums appear under **2020s**.
 
 - **1.4.3**:
