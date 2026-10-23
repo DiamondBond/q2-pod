@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.4.2**:
+  - Games: **Snake**. Turn with the wheel, one click left or right, or with Previous/Next. Each apple adds length and a little speed, and the best score is kept.
   - Library: **Era**, after Genre, lists each decade with dated albums, oldest first. A decade has **Play All**, **Shuffle** and its albums by year, each with its artist and year; an album opens its tracks in Cover Flow.
   - Cover Flow: with **Artists** set to Album Artist, a compilation shows its album artist ("Various Artists", or whoever compiled it) under the cover, not the artist of its last track; sorting by Artist uses the same name.
   - Go to Album from a song played in Cover Flow, or with **Artist Albums** set to Coverflow, opens the album's tracks in Cover Flow, as Go to Artist opens the artist's covers. Return goes back to where you were.

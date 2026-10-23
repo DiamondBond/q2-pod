@@ -1908,7 +1908,7 @@ def books_check(tmp):
 def games_check(tmp):
     """Games (games.c): every bundled Sudoku and 200 shuffled ones have one solution, clues stay,
     conflicts and completion; saves' magic and checksum; Vortex's paddle, bricks, lives, levels,
-    speed cap, no tunnelling and determinism."""
+    speed cap, no tunnelling and determinism; Snake's turns, growth, collisions and food."""
     import random
     lib = compile_host(tmp, 'games.so', ROOT/'patch/games.c')
     class Sudoku(C.Structure):
@@ -2019,6 +2019,47 @@ def games_check(tmp):
             lib.vortex_step(C.byref(w), rng.randrange(-9, 10))
         return bytes(w)
     assert play(1) == play(1) and play(1) != play(2)
+    # Snake: 20 x 20, a cell y * 20 + x; the body a ring from the tail, the head last; dir 0 up, 1 right, 2 down, 3 left
+    class Snake(C.Structure):
+        _fields_ = [('body', C.c_ushort * 400), ('tail', C.c_ushort), ('len', C.c_ushort), ('food', C.c_ushort),
+                    ('dir', C.c_ubyte), ('turned', C.c_ubyte), ('state', C.c_ubyte), ('pad', C.c_ubyte), ('score', C.c_int)]
+    assert C.sizeof(Snake) == 816
+    body = lambda s: [s.body[(s.tail + i) % 400] for i in range(s.len)]
+    def fresh(food=0):
+        s = Snake(); lib.snake_new(C.byref(s)); s.food = food; return s
+    s = fresh(); assert (body(s), s.dir, s.state, s.score) == ([207, 208, 209], 1, 1, 0)
+    assert s.food not in body(s) and lib.snake_ms(C.byref(s)) == 160
+    # one turn a step: a quick spin can't reverse it into itself; the next step takes another
+    lib.snake_turn(C.byref(s), 1); lib.snake_turn(C.byref(s), 1); assert s.dir == 2
+    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [208, 209, 229] and s.state == 1
+    lib.snake_turn(C.byref(s), -1); assert s.dir == 1 and lib.snake_step(C.byref(s)) == 0 and body(s)[-1] == 230
+    lib.snake_turn(C.byref(s), -1); lib.snake_turn(C.byref(s), -1); assert s.dir == 0
+    # an apple grows it by one, scores and speeds it up; the next apple is off the body
+    s = fresh(210); assert lib.snake_step(C.byref(s)) == 1 and body(s) == [207, 208, 209, 210] and s.score == 1
+    assert s.food not in body(s) and lib.snake_ms(C.byref(s)) == 156
+    s.score = 99; assert lib.snake_ms(C.byref(s)) == 70
+    # walls: off the right edge it dies, and a dead snake stays put
+    s = fresh(); s.body[2] = 219
+    assert lib.snake_step(C.byref(s)) == -1 and s.state == 2 and lib.snake_step(C.byref(s)) == -1 and body(s)[-1] == 219
+    for d, head in ((0, 5), (3, 20), (2, 395)):
+        s = fresh(); s.body[2] = head; s.dir = d; assert lib.snake_step(C.byref(s)) == -1 and s.state == 2, d
+    # its own body kills, but the cell the tail is leaving doesn't
+    s = fresh(); s.len = 5; s.body[:5] = [209, 189, 188, 208, 228]; s.dir = 0  # head 228 under 208
+    assert lib.snake_step(C.byref(s)) == -1 and s.state == 2
+    s = fresh(); s.len = 4; s.body[:4] = [208, 188, 189, 209]; s.dir = 3  # into 208, the tail's cell
+    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [188, 189, 209, 208]
+    # food never lands on the body: eating with one cell left free puts the apple there, whichever it is
+    for n, free in enumerate((2, 57, 399, 380)):
+        seed.value = n + 1; s = fresh(0); cells = [c for c in range(400) if c not in (0, 1, free)] + [1]
+        s.tail = 0; s.len = 398; s.body[:398] = cells; s.dir = 3  # the head at 1 eats the apple at 0
+        assert lib.snake_step(C.byref(s)) == 1 and s.len == 399 and s.food == free and s.state == 1
+    rng = random.Random(3)
+    for trial in range(200):
+        seed.value = trial + 1; s = fresh()
+        for _ in range(400):
+            lib.snake_turn(C.byref(s), rng.choice((-1, 0, 0, 1)))
+            if lib.snake_step(C.byref(s)) < 0: break
+            assert s.food not in body(s) and len(set(body(s))) == s.len
     # Solitaire: piles 0 stock, 1 waste, 2-5 foundations, 6-12 the columns; a card suit * 13 + rank, 64 face up
     class Sol(C.Structure):
         _fields_ = [('magic', C.c_uint), ('card', (C.c_ubyte * 24) * 13), ('len', C.c_ubyte * 13), ('cur', C.c_ubyte),
@@ -2081,7 +2122,7 @@ def games_check(tmp):
             lib.sol_finish(C.byref(s)); sound(s)
             if lib.sol_won(C.byref(s)): won += 1; break
     assert won > 10, won
-    print('Games: Sudoku uniqueness, clues, conflicts, completion and saves; Vortex paddle, bricks, lives, levels, speed, tunnelling and determinism; Solitaire deal, draw, moves, finish and random play passed.')
+    print('Games: Sudoku uniqueness, clues, conflicts, completion and saves; Vortex paddle, bricks, lives, levels, speed, tunnelling and determinism; Solitaire deal, draw, moves, finish and random play; Snake turns, growth, walls, self collision and food placement passed.')
 
 def video_check(tmp):
     """Videos' player (video.c): ffmpeg's argv for the Q2's framebuffer, frame pacing and BT volume."""

@@ -1,7 +1,7 @@
-/* Games (docs/internals.md#games), iPod: the Library's Games, Sudoku and Vortex. The logic comes
- * first, host-tested (test/peq.py games_check); the page below draws both on a bare sheet
- * (games_paint) and takes a game's keys in ringnav() before stock does (games_key). The state is on
- * the heap only while the page is open; the scratch holds its pointer. */
+/* Games (docs/internals.md#games), iPod: the Library's Games, Sudoku, Vortex, Solitaire and Snake.
+ * The logic comes first, host-tested (test/peq.py games_check); the page below draws both on a bare
+ * sheet (games_paint) and takes a game's keys in ringnav() before stock does (games_key). The state
+ * is on the heap only while the page is open; the scratch holds its pointer. */
 #include "offsets.inc"
 #include "peq.h"
 #ifndef PEQ_HOST
@@ -412,11 +412,89 @@ void sol_finish(struct solitaire *s) {
     }
 }
 
+/* Snake: SN_N x SN_N cells, a cell y * SN_N + x; the body a ring of cells from the tail, the head
+ * last. Walls and the body kill. A turn is relative (+1 right, -1 left), one a step, so a quick
+ * spin can't fold the snake back into itself. Each apple adds one and a little speed.
+ * ponytail: no wrap mode, levels or obstacles. */
+#define SN_N 20
+#define SN_CELLS (SN_N * SN_N)
+#define SN_MS 160 /* the first step's period; SN_FAST at most, SN_FASTER less an apple */
+#define SN_FAST 70
+#define SN_FASTER 4
+struct snake {
+    unsigned short body[SN_CELLS], tail, len, food;
+    unsigned char dir, turned, state, pad; /* dir 0 up, 1 right, 2 down, 3 left; state PLAY, OVER */
+    int score;
+};
+
+static void sn_food(struct snake *s) {
+    unsigned char taken[SN_CELLS] = { 0 };
+    for (int i = 0; i < s->len; ++i) taken[s->body[(s->tail + i) % SN_CELLS]] = 1;
+    int k = SN_CELLS - s->len ? (int)rand_below((unsigned)(SN_CELLS - s->len)) : -1;
+    for (int c = 0; c < SN_CELLS; ++c)
+        if (!taken[c] && !k--) {
+            s->food = (unsigned short)c;
+            return;
+        }
+    s->state = OVER; /* the board is full */
+}
+
+void snake_new(struct snake *s) {
+    memset(s, 0, sizeof *s);
+    s->len = 3;
+    s->dir = 1;
+    for (int i = 0; i < 3; ++i) s->body[i] = (unsigned short)(SN_N / 2 * SN_N + SN_N / 2 - 3 + i);
+    s->state = PLAY;
+    sn_food(s);
+}
+
+void snake_turn(struct snake *s, int d) {
+    if (s->turned || s->state != PLAY) return;
+    s->dir = (unsigned char)((s->dir + d + 4) & 3);
+    s->turned = 1;
+}
+
+/* The step's period, ms. */
+int snake_ms(const struct snake *s) {
+    int ms = SN_MS - SN_FASTER * s->score;
+    return ms < SN_FAST ? SN_FAST : ms;
+}
+
+/* 0 moved, 1 ate, -1 died (or nothing, after). */
+int snake_step(struct snake *s) {
+    if (s->state != PLAY) return -1;
+    int head = s->body[(s->tail + s->len - 1) % SN_CELLS], x = head % SN_N, y = head / SN_N;
+    s->turned = 0;
+    x += s->dir == 1 ? 1 : s->dir == 3 ? -1 : 0;
+    y += s->dir == 2 ? 1 : s->dir == 0 ? -1 : 0;
+    int next = y * SN_N + x, ate = next == s->food;
+    if (x < 0 || x >= SN_N || y < 0 || y >= SN_N) {
+        s->state = OVER;
+        return -1;
+    }
+    for (int i = !ate; i < s->len; ++i) /* the tail moves off its cell unless the snake grows */
+        if (s->body[(s->tail + i) % SN_CELLS] == next) {
+            s->state = OVER;
+            return -1;
+        }
+    s->body[(s->tail + s->len) % SN_CELLS] = (unsigned short)next;
+    if (!ate) {
+        s->tail = (unsigned short)((s->tail + 1) % SN_CELLS);
+        return 0;
+    }
+    ++s->len;
+    ++s->score;
+    sn_food(s);
+    return 1;
+}
+
 #ifndef PEQ_HOST
 #define GAMES_SUDOKU "/mnt/data/ringnav-sudoku"
 #define GAMES_VORTEX "/mnt/data/ringnav-vortex"
 #define GAMES_SOLITAIRE "/mnt/data/ringnav-solitaire"
-#define BEST_MAGIC 0x31585456u /* "VTX1" */
+#define GAMES_SNAKE "/mnt/data/ringnav-snake"
+#define BEST_MAGIC 0x31585456u  /* "VTX1" */
+#define SNAKE_MAGIC 0x314b4e53u /* "SNK1": Snake's best, as Vortex's */
 /* The paddle's turn for the wheel's, in percent: 100 is a whole turn for a whole turn (200 raw
  * units, wheel_sample). The hardware's calibration knob. */
 #define VORTEX_GAIN 100
@@ -427,8 +505,15 @@ void sol_finish(struct solitaire *s) {
 #define POP_MS 240 /* Vortex: a broken brick's flash fading out */
 #define TRAIL 4    /* Vortex: the ball's last frames, fading behind it */
 #define HUD_X 24   /* Vortex: the score, best, level and lives, clear of the glass's corners */
-enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE };
-enum { RUN, HELD, MENU }; /* Vortex: playing, paused by Play/Pause or the screen, Return's menu */
+#define SN_CELL 11 /* Snake: the board, under the HUD and clear of the glass's corners */
+#define SN_X ((375 - SN_N * SN_CELL) / 2)
+#define SN_Y 36
+enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE };
+enum {
+    RUN,
+    HELD,
+    MENU
+}; /* Vortex, Snake: playing, paused by Play/Pause or the screen, Return's menu */
 struct best {
     unsigned magic, score, sum;
 };
@@ -444,6 +529,8 @@ static struct game {
     unsigned save;
     unsigned pop_at; /* Vortex: when the last brick broke, which pop_ring, pop_seg */
     int pop_ring, pop_seg, trail[TRAIL][2], record; /* record: the last game set Best */
+    struct best sn_best;
+    struct snake sn;
 } *g __attribute__((section(".scratch")));
 
 static int sud_started(const struct sudoku *s) {
@@ -483,11 +570,27 @@ static void hold(int paused) {
     stop_timer(&g->frame);
 }
 
+/* A record score saved; an unfinished game never is. */
 static void game_over(void) {
-    if (!(g->record = g->vx.score > (int)g->best.score)) return;
-    g->best.score = (unsigned)g->vx.score;
-    games_seal(&g->best, sizeof g->best, BEST_MAGIC);
-    if (!BLOB_IO(GAMES_VORTEX, g->best, 1)) toast("Couldn't save");
+    int snake = g->screen == SNAKE, score = snake ? g->sn.score : g->vx.score;
+    struct best *b = snake ? &g->sn_best : &g->best;
+    if (!(g->record = score > (int)b->score)) return;
+    b->score = (unsigned)score;
+    games_seal(b, sizeof *b, snake ? SNAKE_MAGIC : BEST_MAGIC);
+    if (!(snake ? BLOB_IO(GAMES_SNAKE, g->sn_best, 1) : BLOB_IO(GAMES_VORTEX, g->best, 1)))
+        toast("Couldn't save");
+}
+
+/* Snake's steps, each its period of the time passed (2 a frame at most); 1 when it ended. */
+static int snake_frame(unsigned elapsed) {
+    struct snake *s = &g->sn;
+    int moved = 0;
+    g->acc += elapsed;
+    for (int n = 0; n < 2 && s->state == PLAY && g->acc >= (unsigned)snake_ms(s); ++n, moved = 1)
+        g->acc -= (unsigned)snake_ms(s), snake_step(s);
+    if (g->acc >= (unsigned)snake_ms(s)) g->acc = 0;
+    if (moved) widget_invalidate_force(g->page, 0);
+    return s->state == OVER;
 }
 
 /* 60 steps a second, at most 4 a frame; the screen going off or another window on top pauses. */
@@ -499,6 +602,15 @@ static int frame(const void *unused) {
         return 0;
     }
     unsigned now = (unsigned)time_now_ms();
+    if (g->screen == SNAKE) {
+        unsigned elapsed = now - g->at;
+        g->at = now;
+        if (!snake_frame(elapsed)) return 8; /* RET_REPEAT */
+        g->frame = 0;
+        hold(RUN);
+        game_over();
+        return 0;
+    }
     int travel = __sync_lock_test_and_set(&wheel_travel, 0), n = 0;
     struct vortex was = g->vx;
     g->acc += (now - g->at) * 60;
@@ -532,7 +644,7 @@ static void run(void) {
     g->acc = 0;
     g->carry = 0;
     __sync_lock_test_and_set(&wheel_travel, 0);
-    wheel_raw = 1;
+    wheel_raw = g->screen == VORTEX; /* Snake turns on the wheel's ticks, as keys */
     if (!g->frame) g->frame = timer_add(frame, 0, FRAME_MS);
 }
 
@@ -547,9 +659,11 @@ static int show(const void *unused) {
     widget_set_visible(g->sheet, g->screen != CHOOSER, 0);
     if (g->screen == CHOOSER) {
         flush(1);
-        ringnav_select(g->view, from - 1, 3);
+        ringnav_select(g->view, from - 1, 4);
     } else if (g->screen == VORTEX)
         vortex_new(&g->vx), run();
+    else if (g->screen == SNAKE)
+        snake_new(&g->sn), run();
     widget_invalidate_force(g->page, 0);
     return 0;
 }
@@ -600,8 +714,9 @@ static void sudoku_key(unsigned key) {
         to(CHOOSER);
 }
 
-static void vortex_key(unsigned key) {
-    struct vortex *v = &g->vx;
+/* Vortex's and Snake's shared keys: Return's Continue/Quit menu, Play/Pause's pause, Centre again
+ * after game over. 0 for a key left to the game. */
+static int arcade_key(unsigned key, int over) {
     if (g->paused == MENU) {
         if (key == KEY_NEXT || key == KEY_PREV)
             g->choice = !g->choice;
@@ -609,9 +724,11 @@ static void vortex_key(unsigned key) {
             to(CHOOSER);
         else if (key == KEY_CENTER || key == KEY_RETURN || key == KEY_PLAY)
             run();
-    } else if (v->state == OVER) {
-        if (key == KEY_CENTER)
-            vortex_new(v), run();
+    } else if (over) {
+        if (key == KEY_CENTER && g->screen == SNAKE)
+            snake_new(&g->sn), run();
+        else if (key == KEY_CENTER)
+            vortex_new(&g->vx), run();
         else if (key == KEY_RETURN)
             to(CHOOSER);
     } else if (key == KEY_RETURN)
@@ -620,8 +737,20 @@ static void vortex_key(unsigned key) {
         run();
     else if (key == KEY_PLAY)
         hold(HELD);
-    else if (key == KEY_CENTER)
-        vortex_launch(v);
+    else
+        return 0;
+    return 1;
+}
+
+static void vortex_key(unsigned key) {
+    if (!arcade_key(key, g->vx.state == OVER) && key == KEY_CENTER) vortex_launch(&g->vx);
+}
+
+/* The wheel clockwise or Next turns right, anticlockwise or Previous left. */
+static void snake_key(unsigned key) {
+    if (arcade_key(key, g->sn.state == OVER) || g->paused) return;
+    if (key == KEY_NEXT || key == KEY_FWD_BTN) snake_turn(&g->sn, 1);
+    if (key == KEY_PREV || key == KEY_BACK_BTN) snake_turn(&g->sn, -1);
 }
 
 /* A pile's column on screen: the stock, the waste, a gap and the foundations over the tableau. */
@@ -672,6 +801,8 @@ int games_key(void *top, unsigned key) {
         sudoku_key(key);
     else if (g->screen == SOLITAIRE)
         solitaire_key(key);
+    else if (g->screen == SNAKE)
+        snake_key(key);
     else
         vortex_key(key);
     /* a moved cursor is kept on leaving; a key the game ignored paints nothing */
@@ -881,6 +1012,41 @@ static void solitaire_paint(void *canvas, unsigned tone) {
 }
 
 /* ringnav_paint: a game's sheet, after stock painted it. */
+/* The board dark in a grey frame, the body rounded in the tone, the head brighter, the apple round
+ * and red, the score and best over it. */
+static void snake_paint(void *canvas, unsigned tone) {
+    const struct snake *s = &g->sn;
+    void *vg = canvas_get_vgcanvas(canvas);
+    int w = SN_N * SN_CELL;
+    char line[24];
+    round_box(canvas, SN_X - 4, SN_Y - 4, w + 8, w + 8, 0x111111, 8);
+    frame_rect(canvas, SN_X - 4, SN_Y - 4, w + 8, w + 8, 0x333333, 8);
+    for (int i = 0; i < s->len; ++i) {
+        int c = s->body[(s->tail + i) % SN_CELLS], head = i == s->len - 1;
+        round_box(canvas, SN_X + c % SN_N * SN_CELL + 1, SN_Y + c / SN_N * SN_CELL + 1, SN_CELL - 2,
+                  SN_CELL - 2, head ? mix(tone, 0xffffff, 1, 3) : tone, 3);
+    }
+    if (vg && s->state == PLAY) {
+        vgcanvas_save(vg);
+        vgcanvas_translate(vg, (float)I(canvas, CANVAS_X), (float)I(canvas, CANVAS_Y));
+        dot(vg, SN_X + (s->food % SN_N + 0.5f) * SN_CELL, SN_Y + (s->food / SN_N + 0.5f) * SN_CELL,
+            SN_CELL / 2.0f - 1, rgba(0xe04848, 255));
+        vgcanvas_restore(vg);
+    }
+    tk_snprintf(line, sizeof line, "Score %d", s->score);
+    caption(canvas, line, HUD_X, 6, 110, 24, 16, SPOT_GREY);
+    tk_snprintf(line, sizeof line, "Best %u", g->sn_best.score);
+    caption(canvas, line, 375 - HUD_X - 110, 6, 110, 24, 16, SPOT_GREY);
+    if (g->paused == MENU)
+        banner(canvas, tone, "Continue", g->choice ? 0xaaaaaa : tone, "Quit",
+               g->choice ? tone : 0xaaaaaa);
+    else if (s->state == OVER)
+        banner(canvas, tone, g->record ? "New best!" : "Game over", 0xffffff, "Centre: play again",
+               0xaaaaaa);
+    else if (g->paused)
+        banner(canvas, tone, "Paused", 0xffffff, "Play/Pause: resume", 0xaaaaaa);
+}
+
 void games_paint(void *w, void *canvas) {
     if (!g || w != g->sheet || g->screen == CHOOSER || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), tone = accent_tone(2);
@@ -888,6 +1054,8 @@ void games_paint(void *w, void *canvas) {
         sudoku_paint(canvas, tone);
     else if (g->screen == SOLITAIRE)
         solitaire_paint(canvas, tone);
+    else if (g->screen == SNAKE)
+        snake_paint(canvas, tone);
     else
         vortex_paint(canvas, tone);
     canvas_set_fill_color(canvas, fill);
@@ -902,7 +1070,8 @@ static int closed(void *ctx, void *event) {
     return 0;
 }
 
-/* The Library's Games row: the chooser, the Sudoku in progress and Vortex's best score read. */
+/* The Library's Games row: the chooser, the Sudoku in progress and Vortex's and Snake's best scores
+ * read. */
 int games_open(void *ctx, void *event) {
     if (g || !(g = calloc(1, sizeof *g))) return 0;
     void *page = g->page = page_open("games_page", closed, keyup);
@@ -916,15 +1085,19 @@ int games_open(void *ctx, void *event) {
     g->list = widget_factory_create_widget(f, "view", page, 0, 0, 375, g->h);
     g->sheet = widget_factory_create_widget(f, "view", page, 0, 0, 375, g->h);
     widget_set_visible(g->sheet, 0, 0);
-    g->view = page_list(page, g->list, 0, "Games", 3, 48);
+    g->view = page_list(page, g->list, 0, "Games", 4, 48);
     page_row_into(g->view, 0, "Sudoku", pick_game);
     page_row_into(g->view, 1, "Vortex", pick_game);
     page_row_into(g->view, 2, "Solitaire", pick_game);
+    page_row_into(g->view, 3, "Snake", pick_game);
     if (!BLOB_IO(GAMES_SUDOKU, g->sud, 0) || !games_ok(&g->sud, sizeof g->sud, SUD_MAGIC) ||
         g->sud.cur > 80)
         sud_new(&g->sud);
     if (!BLOB_IO(GAMES_VORTEX, g->best, 0) || !games_ok(&g->best, sizeof g->best, BEST_MAGIC))
         g->best.score = 0;
+    if (!BLOB_IO(GAMES_SNAKE, g->sn_best, 0) ||
+        !games_ok(&g->sn_best, sizeof g->sn_best, SNAKE_MAGIC))
+        g->sn_best.score = 0;
     int bad = !BLOB_IO(GAMES_SOLITAIRE, g->sol, 0) ||
               !games_ok(&g->sol, sizeof g->sol, SOL_MAGIC) || g->sol.cur >= PILES;
     for (int p = 0; p < PILES; ++p) bad |= g->sol.len[p] > SOL_MAX;
