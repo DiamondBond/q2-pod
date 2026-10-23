@@ -100,12 +100,16 @@ int addon_scan(void) {
 
 const char *addon_name(int k) { return k >= 0 && k < ap.shown ? ap.a[ap.order[k]].name : 0; }
 
+/* A pid file whose loop is gone (crashed, or killed) is removed, so no wait spends AWAY_MS on it.
+ * ponytail: trusts the pid in the file; a loop that died without removing it, its pid since reused,
+ * would TERM that process. A flock in run would close this. */
 static void stop_cmd(const char *pid, char *cmd, unsigned n) {
-    snprintf(cmd, n, "kill $(cat %s) 2>/dev/null",
-             pid); /* libc's: addon_quit runs it off the UI thread */
+    snprintf(cmd, n, "kill $(cat %s) 2>/dev/null || rm -f %s", pid, pid);
 }
 
 static void launch(app_t *a) {
+    const char *busy = shelf_busy();
+    if (busy && !strcmp(busy + 1, a->id)) return; /* the Apps page is replacing its files */
     a->launched = 1;
     a->launch_at = time_now_ms();
     system(a->run); /* exits at once when the app runs already */
@@ -138,7 +142,7 @@ void addon_poll(void) {
 /* Streaming's Stop Streaming Services, and Home's Rockbox row: each asked to end (its downloads
  * or queue saved). */
 void addon_stop(void) {
-    char cmd[64];
+    char cmd[96];
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
         if (a->launched || !access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd);
@@ -146,27 +150,24 @@ void addon_stop(void) {
     }
 }
 
-/* An end asked of the app whose launcher's loop left pid, then up to AWAY_MS for the loop to be
- * gone (it removes the file once the app has exited): its card files are closed by then. On the UI
- * thread; addon_quit is the Apps page's worker's. */
-static void stop_wait(const char *pid) {
-    char cmd[64];
-    if (access(pid, 0)) return;
-    stop_cmd(pid, cmd, sizeof cmd);
-    system(cmd);
-    for (unsigned start = time_now_ms(); !access(pid, 0) && time_now_ms() - start < AWAY_MS;)
-        sleep_ms(50);
-}
-
-/* usbmode_page_init's hook (navigation.c), before stock unmounts the card for USB storage: each
- * app ends, so nothing of it holds the card, and starts again after (addon_poll). */
+/* usbmode_page_init's hook (navigation.c), before stock unmounts the card for USB storage: every
+ * app asked to end at once, then up to AWAY_MS in all for their loops to be gone (each removes its
+ * pid file once the app has exited), so nothing of them holds the card; each starts again after
+ * (addon_poll). On the UI thread; addon_quit is the Apps page's worker's. */
 void addon_card_away(void) {
+    char cmd[96];
+    int left = 0;
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
         int running = a->launched || !access(a->pid, 0);
-        stop_wait(a->pid);
+        if (!access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd), left = 1;
         a->launched = a->hold = 0;
         a->relaunch = running;
+    }
+    for (unsigned start = time_now_ms(); left && time_now_ms() - start < AWAY_MS;) {
+        sleep_ms(50);
+        left = 0;
+        for (int i = 0; i < ap.n; ++i) left |= !access(ap.a[i].pid, 0);
     }
 }
 
@@ -177,8 +178,8 @@ void addon_forget(const char *dir) {
     for (int i = 0; dir && dir[0] == '.' && i < ap.n; ++i)
         if (!strcmp(ap.a[i].id, dir + 1)) ap.a[i].launched = ap.a[i].hold = ap.a[i].relaunch = 0;
 }
-void addon_quit(const char *dir) { /* stop_wait with libc's clock and sleep, off the UI thread */
-    char pid[32], cmd[64];
+void addon_quit(const char *dir) { /* addon_card_away's wait, libc's clock and sleep, one app */
+    char pid[32], cmd[96];
     if (!dir || dir[0] != '.' || !valid_id(dir + 1)) return;
     snprintf(pid, sizeof pid, "/tmp/q2-%s", dir + 1);
     if (access(pid, 0)) return;

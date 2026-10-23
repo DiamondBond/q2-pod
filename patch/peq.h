@@ -222,5 +222,6 @@ void toast(const char *text); /* navigation.c */
 int rockbox_available(void);  /* navigation.c: a regular Rockbox binary on the card */
 int page_keyup(void *ctx, void *event); /* navigation.c: Return leaves a payload page */
 int shelf_open(void *ctx, void *event); /* netupdate.c: System settings' Apps page */
+const char *shelf_busy(void);           /* netupdate.c: the app folder a job replaces */
 
 #endif

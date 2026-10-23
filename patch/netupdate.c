@@ -436,6 +436,11 @@ static struct {
     void *page, *row[SH_APPS + 1];
 } sh __attribute__((section(".scratch")));
 
+/* The folder (".deezer") an install or remove is replacing, else 0: addon.c starts no app there. */
+const char *shelf_busy(void) {
+    return sh.running && sh.job != JOB_CHECK && sh.job != JOB_ERASE ? apps[sh.app].dir : 0;
+}
+
 /* glibc 2.28 MIPS o32 stat v3: st_mode at byte 20; 0 when path is missing. */
 static unsigned file_mode(const char *path) {
     unsigned info[36];
