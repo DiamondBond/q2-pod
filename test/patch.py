@@ -8412,7 +8412,7 @@ if variant=='ipod':
     before_sol=sol(); key(O['KEY_PLAY']); assert word(52); paint(); key(O['KEY_RETURN']); assert not word(52) and sol()==before_sol
     key(O['KEY_RETURN']); m.advance(0); assert word(G_SCREEN)==0 and m.nodes[chooser]['visible']; passed()
     # Snake (the body a ring of cells y*20+x, head last; dir 0 up 1 right 2 down 3 left): its frame timer steps it
-    # with no raw wheel, so the wheel's ticks come as keys; one turns it, a second in the same step waits. Play/Pause
+    # with no raw wheel, so the wheel's ticks come as keys; one turns it, a second waits for the next step. Play/Pause
     # pauses, Return's menu quits; a wall ends it, a record saves Best and says so, Centre plays again.
     G_SN=G_SOL+336+52+12; sn=lambda o: m.get(G+G_SN+o)&0xffff; body=lambda: [sn(2*((sn(800)+i)%400)) for i in range(sn(802))]
     def skey(k): r=m.call(k,gap=0,count=2_000_000); assert r==11 and not stock,(k,stock)  # no time between keys
@@ -8420,12 +8420,12 @@ if variant=='ipod':
     m.page=m.top; pick(3); assert word(G_SCREEN)==4 and len(frames())==1 and m.get(payload_syms['wheel_raw'])==0
     assert body()==[207,208,209] and sdir()==1 and sstate()==1; paint()
     skey(O['KEY_NEXT']); skey(O['KEY_NEXT']); assert sdir()==2
-    m.advance(170); assert body()[-1]==229 and made('widget_invalidate_force')
-    skey(O['KEY_BACK_BTN']); assert sdir()==1
+    m.advance(170); assert body()[-1]==229 and sdir()==3 and made('widget_invalidate_force')  # the second turn, waiting
+    skey(O['KEY_BACK_BTN']); assert sdir()==3  # waits for the next step
     skey(O['KEY_PLAY']); assert word(G_PAUSED)==1 and not frames(); was=body(); m.advance(500); assert body()==was; paint()
-    skey(O['KEY_NEXT']); assert sdir()==1  # no turning while paused
+    skey(O['KEY_NEXT']); assert sdir()==3  # no turning while paused
     skey(O['KEY_PLAY']); assert word(G_PAUSED)==0 and len(frames())==1
-    m.word(G+G_SN+812,5); m.advance(170*12); assert sstate()==2 and not frames() and body()[-1]%20==19  # the right wall
+    m.word(G+G_SN+812,5); m.advance(170*12); assert sstate()==2 and not frames() and body()[-1]==388  # left, then down to the wall
     best=bytes(m.files['/mnt/data/ringnav-snake']); assert len(best)==12 and best[:8]==b'SNK1'+struct.pack('<I',5)
     paint(); skey(O['KEY_CENTER']); assert sstate()==1 and body()==[207,208,209] and len(frames())==1
     skey(O['KEY_RETURN']); assert word(G_PAUSED)==2; skey(O['KEY_NEXT']); paint(); skey(O['KEY_CENTER']); m.advance(0)

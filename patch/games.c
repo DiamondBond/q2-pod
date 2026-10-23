@@ -413,8 +413,9 @@ void sol_finish(struct solitaire *s) {
 }
 
 /* Snake: SN_N x SN_N cells, a cell y * SN_N + x; the body a ring of cells from the tail, the head
- * last. Walls and the body kill. A turn is relative (+1 right, -1 left), one a step, so a quick
- * spin can't fold the snake back into itself. Each apple adds one and a little speed.
+ * last. Walls and the body kill. A turn is relative (+1 right, -1 left), one a step and a second
+ * waiting for the next, so a quick spin can't fold the snake back into itself. Each apple adds one
+ * and a little speed.
  * ponytail: no wrap mode, levels or obstacles. */
 #define SN_N 20
 #define SN_CELLS (SN_N * SN_N)
@@ -423,7 +424,8 @@ void sol_finish(struct solitaire *s) {
 #define SN_FASTER 4
 struct snake {
     unsigned short body[SN_CELLS], tail, len, food;
-    unsigned char dir, turned, state, pad; /* dir 0 up, 1 right, 2 down, 3 left; state PLAY, OVER */
+    unsigned char dir, turned, state; /* dir 0 up, 1 right, 2 down, 3 left; state PLAY, OVER */
+    signed char next;                 /* a turn waiting for the next step, 0 none */
     int score;
 };
 
@@ -449,7 +451,11 @@ void snake_new(struct snake *s) {
 }
 
 void snake_turn(struct snake *s, int d) {
-    if (s->turned || s->state != PLAY) return;
+    if (s->state != PLAY) return;
+    if (s->turned) {
+        if (!s->next) s->next = (signed char)d; /* one waits; any more are dropped */
+        return;
+    }
     s->dir = (unsigned char)((s->dir + d + 4) & 3);
     s->turned = 1;
 }
@@ -478,6 +484,7 @@ int snake_step(struct snake *s) {
             return -1;
         }
     s->body[(s->tail + s->len) % SN_CELLS] = (unsigned short)next;
+    if (s->next) snake_turn(s, s->next), s->next = 0; /* the waiting turn, for the next step */
     if (!ate) {
         s->tail = (unsigned short)((s->tail + 1) % SN_CELLS);
         return 0;
@@ -509,11 +516,8 @@ int snake_step(struct snake *s) {
 #define SN_X ((375 - SN_N * SN_CELL) / 2)
 #define SN_Y 36
 enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE };
-enum {
-    RUN,
-    HELD,
-    MENU
-}; /* Vortex, Snake: playing, paused by Play/Pause or the screen, Return's menu */
+/* Vortex, Snake: playing, paused by Play/Pause or the screen, Return's menu */
+enum { RUN, HELD, MENU };
 struct best {
     unsigned magic, score, sum;
 };
@@ -1011,7 +1015,6 @@ static void solitaire_paint(void *canvas, unsigned tone) {
         banner(canvas, tone, "You win!", tone, "Play/Pause: new game", 0xaaaaaa);
 }
 
-/* ringnav_paint: a game's sheet, after stock painted it. */
 /* The board dark in a grey frame, the body rounded in the tone, the head brighter, the apple round
  * and red, the score and best over it. */
 static void snake_paint(void *canvas, unsigned tone) {
@@ -1047,6 +1050,7 @@ static void snake_paint(void *canvas, unsigned tone) {
         banner(canvas, tone, "Paused", 0xffffff, "Play/Pause: resume", 0xaaaaaa);
 }
 
+/* ringnav_paint: a game's sheet, after stock painted it. */
 void games_paint(void *w, void *canvas) {
     if (!g || w != g->sheet || g->screen == CHOOSER || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), tone = accent_tone(2);

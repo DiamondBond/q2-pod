@@ -2022,18 +2022,22 @@ def games_check(tmp):
     # Snake: 20 x 20, a cell y * 20 + x; the body a ring from the tail, the head last; dir 0 up, 1 right, 2 down, 3 left
     class Snake(C.Structure):
         _fields_ = [('body', C.c_ushort * 400), ('tail', C.c_ushort), ('len', C.c_ushort), ('food', C.c_ushort),
-                    ('dir', C.c_ubyte), ('turned', C.c_ubyte), ('state', C.c_ubyte), ('pad', C.c_ubyte), ('score', C.c_int)]
+                    ('dir', C.c_ubyte), ('turned', C.c_ubyte), ('state', C.c_ubyte), ('next', C.c_byte), ('score', C.c_int)]
     assert C.sizeof(Snake) == 816
     body = lambda s: [s.body[(s.tail + i) % 400] for i in range(s.len)]
     def fresh(food=0):
         s = Snake(); lib.snake_new(C.byref(s)); s.food = food; return s
     s = fresh(); assert (body(s), s.dir, s.state, s.score) == ([207, 208, 209], 1, 1, 0)
     assert s.food not in body(s) and lib.snake_ms(C.byref(s)) == 160
-    # one turn a step: a quick spin can't reverse it into itself; the next step takes another
-    lib.snake_turn(C.byref(s), 1); lib.snake_turn(C.byref(s), 1); assert s.dir == 2
-    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [208, 209, 229] and s.state == 1
-    lib.snake_turn(C.byref(s), -1); assert s.dir == 1 and lib.snake_step(C.byref(s)) == 0 and body(s)[-1] == 230
-    lib.snake_turn(C.byref(s), -1); lib.snake_turn(C.byref(s), -1); assert s.dir == 0
+    # one turn a step and one waiting for the next, any more dropped: a quick spin U-turns into the next lane,
+    # never back into itself
+    for _ in range(3): lib.snake_turn(C.byref(s), 1)
+    assert (s.dir, s.next) == (2, 1)
+    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [208, 209, 229] and (s.dir, s.next, s.state) == (3, 0, 1)
+    lib.snake_turn(C.byref(s), 1); assert s.dir == 3 and s.next == 1
+    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [209, 229, 228] and s.dir == 0
+    assert lib.snake_step(C.byref(s)) == 0 and body(s)[-1] == 208 and s.state == 1 and s.dir == 0  # the waiting turn was spent
+    lib.snake_turn(C.byref(s), -1); assert s.dir == 3 and lib.snake_step(C.byref(s)) == 0 and body(s)[-1] == 207
     # an apple grows it by one, scores and speeds it up; the next apple is off the body
     s = fresh(210); assert lib.snake_step(C.byref(s)) == 1 and body(s) == [207, 208, 209, 210] and s.score == 1
     assert s.food not in body(s) and lib.snake_ms(C.byref(s)) == 156
