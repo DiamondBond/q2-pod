@@ -46,7 +46,7 @@ static struct {
     void *albums, *tracks; /* our copies of the stock query results; albums in the Sort's order */
     void *stock;           /* the albums in stock order, which albums is, or is sorted from */
     int sort, sort_read;   /* the Sort card's order (SORT_*), from SORT_FILE once */
-    int year_old;          /* the Year order setting albums was sorted in */
+    int year_old, artists; /* the Year order and Artists settings albums was sorted in */
     int on_sort;           /* the next load centres the Sort card */
     job_t *jobs;
     unsigned long thread;
@@ -779,7 +779,7 @@ static const unsigned initial_misc[][2] = {
 static unsigned initial(int i) {
     void *r = deque_at(cf.albums, (unsigned)i);
     if (I(r, REC_ID) == -1) return '#';
-    const char *name = P(r, cf.sort == SORT_ARTIST ? REC_ARTIST : REC_ALBUM);
+    const char *name = cf.sort == SORT_ARTIST ? cover_artist(r) : P(r, REC_ALBUM);
     char key[ARTIST_KEY];
     snprintf(key, sizeof key, "%s", name ? name : "");
     ringnav_sort_key(key);
@@ -991,7 +991,8 @@ static void *sorted(void) {
     unsigned n = deque_size(cf.stock);
     int artist = cf.sort == SORT_ARTIST, played = cf.sort == SORT_PLAYED;
     order_t *v = cf.sort == SORT_ALBUM ? 0 : calloc(n + 1, sizeof *v);
-    if (!cf.scoped) cf.year_old = ringnav_year_old(); /* the rated page's sort is its own */
+    if (!cf.scoped) /* the rated page's sort is its own */
+        cf.year_old = ringnav_year_old(), cf.artists = I(artist_type, 0);
     unsigned *sum = v && played ? calloc(n + 1, sizeof *sum) : 0;
     char *keys = v && artist ? calloc(n + 1, ARTIST_KEY) : 0;
     int ranked = cf.sort != SORT_RATING && cf.sort != SORT_RANDOM; /* uses album_index */
@@ -1646,7 +1647,8 @@ static void load(void) {
         n = (int)deque_size(cf.stock);
     }
     if (cf.albums && !cf.scoped && (cf.sort == SORT_YEAR || cf.sort == SORT_ARTIST) &&
-        cf.year_old != ringnav_year_old()) { /* Year order changed */
+        (cf.year_old != ringnav_year_old() || /* Year order changed, or Artists for its names */
+         (cf.sort == SORT_ARTIST && cf.artists != I(artist_type, 0)))) {
         if (cf.albums != cf.stock) deque_destroy(cf.albums);
         cf.albums = 0;
     }
@@ -1979,8 +1981,7 @@ int coverflow_goto_album(void *r) {
 
 /* The open page shows r's album alone (coverflow_goto_album): Go to Album has nowhere new to go. */
 int coverflow_shows_album(void *r) {
-    return cf.page && cf.scoped == ALBUM_TRACKS &&
-           album_key(deque_at(cf.albums, 0)) == album_key(r);
+    return cf.page && cf.scoped == ALBUM_TRACKS && !album_cmp(deque_at(cf.albums, 0), r);
 }
 
 /* Library Ratings' Albums (navigation.c): the albums hearts gives 1 to 5 hearts, as covers with the
