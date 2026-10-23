@@ -9141,6 +9141,9 @@ class BrowseMachine(RadioMachine):
     def answer(self,*reply):
         """The request in flight answered with reply, and the page's tick."""
         self.serve=(lambda op,args: reply[0]) if len(reply)==1 else (lambda op,args: reply); self.worker()
+        if self.page_name == 'spotbrowse_page' and self.get(payload_syms['wk']+32) and self.asked() == ('caps',):
+            self.serve=lambda op,args: ('ok','','',[('op',name,'','','','') for name in getattr(self,'caps',('download','downloadstatus','downloaded','playdownload'))])
+            self.worker()
     def pick(self,i):
         self.nodes[self.find('scroll_view')]['_ringnav_index']=i; self.row(i)
 OK=('ok','','')
@@ -9149,15 +9152,15 @@ def track(uri,title,ctx='',pos=''): return ('track',uri,title,'An Artist',ctx,po
 # The row opens the browser and asks for the account, written, shut for writing and read on the worker;
 # signed in, the menu: Now Playing, Queue and Playback settings only with a track.
 m=BrowseMachine(); m.open(); assert m.labels()==['Loading…'] and m.systems==['/bin/sh /mnt/mmc/.spotify/run']
-m.answer(*ME); assert m.wire==[b'Q2SPOT/1\n1\taccount\n']
+m.answer(*ME); assert m.wire==[b'Q2SPOT/1\n1\taccount\n',b'Q2SPOT/1\n2\tcaps\n']
 MENU=['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account','Downloaded Tracks','Downloads']
 assert m.labels()==MENU
 m.state('playing'); m.poll(); m.advance(250)
 assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account','Downloaded Tracks','Downloads']
 m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.state('none',track=''); m.poll(); m.advance(250); assert m.labels()==MENU; passed()
-m.row(7); assert m.asked()==('downloadstatus',)
-m.answer('ok','Downloaded 2 of 5 tracks','',[])
-assert m.labels()==MENU and m.toasts[-1][3]=='Downloaded 2 of 5 tracks'; passed()
+m.row(7)
+assert m.labels()==['Downloads','Downloaded Tracks','Update Spotify on the card','for saved playlists and download controls']
+m.back(); assert m.labels()==MENU; passed()
 # Downloaded tracks stay reachable while the service cannot answer catalogue requests, and a row
 # uses the cache-only play operation.
 m.row(6); assert m.asked()==('downloaded',)
@@ -9385,6 +9388,55 @@ info,msg=m.nodes[m.top]['children']; assert texts(msg)==['Open Spotify on your p
 passed()
 
 def run(m,name,*args): return m.call(address=payload_syms[name],args=(*args,0,0,0,0)[:4],gap=0,clear=False)
+
+# Saved-collection capabilities replace the legacy flat Downloads action with a persistent hub.
+m=BrowseMachine(); m.caps=('collections','collection','playcollection','downloadliked','jobs','job','remove','download')
+m.open(); m.answer(*ME)
+assert m.labels()==['Spotify','Liked Songs','Playlists','Albums','Artists','Search','Account','Downloads']
+m.row(0); m.answer(*OK,[])
+assert m.labels()==['Liked Songs','Download Liked Songs','For offline listening']
+m.row(0); assert m.asked()==('downloadliked',); m.answer('ok','Queued','',[]); m.back()
+m.row(6); assert m.labels()==['Downloads','Downloaded Playlists','Downloaded Tracks','Download Progress','Storage Management']
+m.row(0); assert m.asked()==('collections',)
+m.answer(*OK,[('collection','liked','Liked Songs','2/3 · partial','','')]); m.row(0)
+assert m.asked()==('collection','liked')
+m.answer('ok','One unavailable','next',[track('spotify:track:one','One','liked','49'),('missing','local:missing','Missing','Unavailable','liked','50'),track('spotify:track:one','One','liked','51')])
+m.row(2); assert m.asked()==('playcollection','liked','51')
+m.answer(*OK,[]); m.destroy(m.top); m.top=m.page
+m.row(1); assert m.toasts[-1][3]=='Unavailable'
+m.row(3); assert m.asked()==('collection','liked','next'); m.answer(*OK,[])
+m.back(); m.row(4); assert m.labels()==['Download Controls','Pause','','Resume','','Cancel Download','','Retry Failed','','Update Download','']
+m.row(3); assert m.asked()==('job','liked','retry'); m.answer('ok','Retry queued','',[])
+m.back(); m.back(); m.back()
+assert m.labels()[0]=='Downloads'
+m.row(2); assert m.asked()==('jobs',)
+m.answer(*OK,[('job','liked','paused','2/3 · Choose Resume','Liked Songs','2')])
+m.advance(2250); assert m.asked()==('jobs',)
+m.answer(*OK,[('job','liked','downloading','2/3 · Saving 3','Liked Songs','2')]); m.row(0); m.row(0)
+assert m.asked()==('job','liked','pause'); m.answer('ok','Paused','',[])
+m.back(); m.back(); m.row(3); assert m.labels()[0]=='Storage Management'
+m.row(0); assert m.asked()==('collections',)
+m.answer('ok','','p2',[('collection','a','A','1/1','',''),('collection','b','B','1/1','','')])
+m.row(0); assert 'Selected' in m.labels()
+m.row(1); m.row(0); assert m.labels().count('Selected')==1  # toggle A off, B remains
+m.row(2); assert m.asked()==('collections','p2')
+m.answer(*OK,[('collection','c','C','1/1','','')]); m.row(0); m.row(1)
+assert m.asked()==('remove','collections','b,c')
+m.answer('ok','Remove 2 playlists, 1 tracks?','',[])
+assert m.labels()[0]=='Remove Downloads?' and 'Remove 2 playlists, 1 tracks?' in m.labels()
+m.row(2); assert m.asked()==('remove','collections','b,c','confirm')
+m.answer('ok','Removed','',[]); assert m.labels()[0]=='Storage Management'
+m.row(2); assert m.asked()==('remove','all','')
+m.answer('ok','Remove 1 playlists, 3 tracks?','',[]); m.row(1)  # Cancel preserves downloads
+assert m.labels()[0]=='Storage Management'
+m.row(1); m.answer(*OK,[track('spotify:track:a','A')]); m.row(0); m.row(1)
+assert m.asked()==('remove','tracks','spotify:track:a')
+m.answer('ok','Remove 0 playlists, 1 tracks? 2 playlists may become incomplete','',[])
+assert 'Track removal can make playlists incomplete' in m.labels(); m.row(1); passed()
+# Backends that don't advertise download support hide the action, with an update explanation in Downloads.
+m=BrowseMachine(); m.caps=(); m.open(); m.answer(*ME); m.row(1)
+m.answer(*OK,[('playlist','spotify:playlist:a','A','','','')]); m.row(0); m.answer(*OK,[])
+assert m.labels()==['Nothing here']; passed()
 
 # Card apps (patch/addon.c): programs on the card Q2 Pod knows only by their folder, .<id> holding its
 # manifest q2app, its launcher run and its binary q2-<id>; Streaming lists them after Spotify, by name,

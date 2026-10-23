@@ -26,7 +26,11 @@ The port lives in [DiamondBond/q2-librespot](https://github.com/DiamondBond/q2-l
 
 The fork adds three options for this: `--status-file`, the player's state, track, position and cover for the page, `--control-socket`, the commands from the keys, and `--browse-socket`, the browser's requests (below). How they fit together is in [internals.md](internals.md#spotify).
 
-In a playlist, **Download Playlist** saves its tracks in the background without interrupting playback. **Downloads** on Spotify's menu shows progress; **Downloaded Tracks** plays completed tracks offline. These actions require q2-librespot v1.6 or later and the matching updated Q2 Pod firmware. Downloads use the selected cache limit, so a playlist larger than the cache may evict its earlier tracks. Keep the cache folder when updating. A saved login also opens the offline menu when the cache is empty.
+**Downloads** is a persistent hub for Downloaded Playlists, Downloaded Tracks, live progress and Storage Management. **Download Playlist** and **Download Liked Songs** preserve names, source order and duplicate positions. Partial collections remain browsable; playback skips missing entries without fetching online. Controls offer **Update Download**, **Retry Failed**, **Pause**, **Resume** and **Cancel Download**. Updates and resuming after reboot are manual; repeated requests do not duplicate jobs. Collections queue sequentially.
+
+Explicit downloads use protected storage under `.spotify/cache/offline/audio/<account>/`, separate from the evictable playback cache. The Spotify Cache setting caps temporary playback storage and cannot evict protected downloads. Existing cached tracks remain available without invented playlist grouping: download that playlist again. Storage Management selects multiple tracks/playlists or clears all music after showing a count and confirmation. Removing a playlist keeps shared audio; removing tracks warns about incomplete playlists. Clearing downloads preserves login/settings; signing out removes login and offline music. Keep `.spotify/cache` when updating.
+
+Collection controls require matching firmware and a backend advertising the saved-download capabilities (`q2-v1.9` development build). Older backends retain supported flat-list actions and an update explanation; older firmware's original operations still work with the new backend. See the [shared download UX/protocol contract](downloads.md) for examples, job states, removal semantics and Deezer/Qobuz guidance. Build artifacts are staged for review; implementation does not publish or install them.
 
 ## Browsing protocol (Q2SPOT/1)
 
@@ -61,32 +65,32 @@ Statuses: `ok`; `login` (no saved login: pair from the phone); `offline` (Spotif
 
 Ops (`[cursor]` is optional):
 
-| Op               | Arguments                  | Rows                                                                                  |
-| ---------------- | -------------------------- | ------------------------------------------------------------------------------------- |
-| `caps`           |                            | `op` rows, one per supported op; `message` is the backend's version, e.g. `q2-v1.3`   |
-| `account`        |                            | one `account` row: the user's URI, display name, `Premium`; or status `login`         |
-| `playlists`      | `[cursor]`                 | the user's `playlist` rows                                                            |
-| `playlist`       | `uri [cursor]`             | its `track` rows                                                                      |
-| `liked`          | `[cursor]`                 | Liked Songs' `track` rows                                                             |
-| `albums`         | `[cursor]`                 | saved `album` rows                                                                    |
-| `artists`        | `[cursor]`                 | followed `artist` rows                                                                |
-| `album`          | `uri [cursor]`             | its `track` rows                                                                      |
-| `artist`         | `uri`                      | its top `track` rows, then its `album` rows                                           |
-| `search`         | `category term [cursor]`   | `category` is `tracks`, `albums`, `artists` or `playlists`                            |
-| `play`           | `context [position [uri]]` | none: Q2 becomes the active device and plays                                          |
-| `queue`          |                            | the next `track` rows, `position` its index in this list                              |
-| `skip`           | `position uri`             | none: plays that queue row; `unavailable` if the queue changed                        |
-| `enqueue`        | `uri`                      | none: the track is added to the queue                                                 |
-| `settings`       |                            | `setting` rows `shuffle` (`on`/`off`) and `repeat` (`off`/`context`/`track`) as title |
-| `shuffle`        | `on\|off`                  | none                                                                                  |
-| `repeat`         | `off\|context\|track`      | none                                                                                  |
-| `signout`        |                            | none: playback stops, the saved login is removed, and the backend waits for pairing   |
-| `downloaded`     | `[cursor]`                 | complete cached `track` rows, most recently played first; works without Wi-Fi         |
-| `playdownload`   | `uri`                      | none: starts that cached track without requesting its stream URL                      |
-| `download`       | `uri`                      | none: starts one background playlist download; message reports acceptance or failure  |
-| `downloadstatus` |                            | none: message reports progress or the completed job's result                          |
+| Op               | Arguments                  | Rows                                                                                            |
+| ---------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `caps`           |                            | `op` rows, one per supported op; `message` is the backend's version, e.g. `q2-v1.3`             |
+| `account`        |                            | one `account` row: the user's URI, display name, `Premium`; or status `login`                   |
+| `playlists`      | `[cursor]`                 | the user's `playlist` rows                                                                      |
+| `playlist`       | `uri [cursor]`             | its `track` rows                                                                                |
+| `liked`          | `[cursor]`                 | Liked Songs' `track` rows                                                                       |
+| `albums`         | `[cursor]`                 | saved `album` rows                                                                              |
+| `artists`        | `[cursor]`                 | followed `artist` rows                                                                          |
+| `album`          | `uri [cursor]`             | its `track` rows                                                                                |
+| `artist`         | `uri`                      | its top `track` rows, then its `album` rows                                                     |
+| `search`         | `category term [cursor]`   | `category` is `tracks`, `albums`, `artists` or `playlists`                                      |
+| `play`           | `context [position [uri]]` | none: Q2 becomes the active device and plays                                                    |
+| `queue`          |                            | the next `track` rows, `position` its index in this list                                        |
+| `skip`           | `position uri`             | none: plays that queue row; `unavailable` if the queue changed                                  |
+| `enqueue`        | `uri`                      | none: the track is added to the queue                                                           |
+| `settings`       |                            | `setting` rows `shuffle` (`on`/`off`) and `repeat` (`off`/`context`/`track`) as title           |
+| `shuffle`        | `on\|off`                  | none                                                                                            |
+| `repeat`         | `off\|context\|track`      | none                                                                                            |
+| `signout`        |                            | none: playback stops, the saved login is removed, and the backend waits for pairing             |
+| `downloaded`     | `[cursor]`                 | complete cached `track` rows, most recently played first; works without Wi-Fi                   |
+| `playdownload`   | `uri`                      | none: starts that cached track without requesting its stream URL                                |
+| `download`       | `uri`                      | none: idempotently queues a background playlist download; message reports acceptance or failure |
+| `downloadstatus` |                            | none: message reports progress or the completed job's result                                    |
 
-Playlist downloads publish `/tmp/q2-librespot.download` atomically, with `downloading=1` while active and `0` when finished. Q2 Pod keeps the service and power timers alive during the job, without claiming the audio output. Stop Streaming Services or signing out stops the job.
+Playlist downloads publish `/tmp/q2-librespot.download` atomically, with `downloading=1` while active and `0` when finished, paused, backing off or waiting for a rate-limit cooldown. Q2 Pod keeps the service and power timers alive during the job, without claiming the audio output. Stop Streaming Services or signing out stops the job.
 
 Example, Liked Songs' first page:
 
@@ -96,3 +100,5 @@ Example, Liked Songs' first page:
     Q2SPOT/1
     7	ok		Cg4IARIK…
     track	spotify:track:4uLU6hMCjMI75M1A2tKUQC	Never Gonna Give You Up	Rick Astley	spotify:user:alice:collection	0
+
+Saved collection operations extend these existing operations through advertised capabilities; see [downloads.md](downloads.md#protocol).

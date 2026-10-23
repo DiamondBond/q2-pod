@@ -108,3 +108,7 @@ A track row's subtitle ends in ` · Hi-Res` when its `maximum_bit_depth` is 24.
 **Configuration.** Streaming → Configuration gets **Qobuz Cache** (`.qobuz/.cache-size`, the same five sizes, read with `state_read`, written with `blob_io`). **Stop Streaming Services** also stops Qobuz (`SPOT_KILL` with Qobuz's pid file and `killall -9 q2-qobuz ffmpeg q2video`). Home's Rockbox row kills it as it kills librespot.
 
 **Checks.** `test/peq.py` (host build): the sink's 32-bit gain and bit-perfect pass-through. `test/patch.py`: the Qobuz row and its icon, the page without the daemon, the source table's hand-over both ways (Spotify ↔ Qobuz, radio → Qobuz), the out file per source, the fourth line present and absent, Qobuz Cache, and Stop Streaming Services stopping it. The daemon's repository has its own tests: the request signature, the bundle's secret extraction against a saved bundle, the cache names, eviction, the follow read, and the Q2SPOT/1 replies.
+
+## Saved collection downloads
+
+Follow the [shared download UX/protocol contract](downloads.md), including its Qobuz mapping, capability negotiation, ordered manifests, protected storage and conformance scenarios. This extends the existing integration; it does not claim q2-qobuz already implements these collection controls.
