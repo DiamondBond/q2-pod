@@ -747,6 +747,7 @@ FUNCTIONS = {
  'widget_set_prop_int': ('int', 'void *, const char *, int'),
  'widget_set_prop_str': ('int', 'void *, const char *, const char *'),
  'pages_set_active_by_name': ('int', 'void *, const char *'),
+ 'edit_set_select': ('int', 'void *, unsigned, unsigned'),
  'widget_invalidate_force': ('int', 'void *, void *'),
  'widget_animator_start': ('int', 'void *'),
  'widget_animator_prop_create': ('void *', 'void *, unsigned, unsigned, int, const char *'),  # Home's Settings slide

@@ -412,7 +412,7 @@ list_item_create label_create list_view_create scroll_view_create widget_use_sty
 widget_set_text_utf8 widget_on widget_get_prop_int widget_set_prop_int widget_destroy_children
 widget_resize scroll_view_set_offset widget_invalidate_force timer_add timer_remove
 navigator_back write_int_config widget_factory widget_factory_create_widget widget_set_prop_str
-widget_get_text_utf8 widget_set_focused widget_lookup window_manager pages_set_active_by_name
+widget_get_text_utf8 widget_set_focused widget_lookup window_manager pages_set_active_by_name edit_set_select
 canvas_set_fill_color canvas_fill_rect canvas_get_vgcanvas vgcanvas_save vgcanvas_restore vgcanvas_translate
 vgcanvas_begin_path vgcanvas_close_path vgcanvas_move_to vgcanvas_line_to vgcanvas_arc vgcanvas_fill vgcanvas_stroke
 vgcanvas_set_fill_color vgcanvas_set_stroke_color vgcanvas_set_fill_linear_gradient vgcanvas_set_line_width
@@ -496,6 +496,10 @@ void *widget_lookup(void *x, const char *name, int recursive) {
 }
 int pages_set_active_by_name(void *x, const char *name) { if ((long)x == 4001) snprintf(page, sizeof(page), "%s", name); return 0; }
 const char *shim_page(void) { return page; }
+/* The edit's selection, as start and end (stock's ufloat refuses "." where its text less this has one). */
+static unsigned selected[2];
+int edit_set_select(void *x, unsigned start, unsigned end) { selected[0] = start, selected[1] = end; return 0; }
+unsigned shim_selected(int i) { return selected[i]; }
 const char *shim_edit(void) { return edit_widget ? w[edit_widget].text : ""; }
 const char *shim_keyboard(void) { return keyboard; }
 int shim_focused(void) { return focused; }
@@ -761,6 +765,7 @@ def editor_check(lib, tmp):
     ui.shim_return(); assert title() == 'Band 1'
     click('Q 1.41'); assert title() == 'Band 1 Q' and edit() == '1.41'
     click('Raise 0.05'); assert edit() == '1.46'
+    click('1.46'); assert (ui.shim_selected(0), ui.shim_selected(1)) == (0, 4)  # selected: a key replaces it, "." too
     ui.shim_type(b'0.7'); assert edit() == '0.70'
     ui.shim_return(); ui.shim_return(); click('Apply changes')
     r = read(); assert (r.bands[0].frequency, round(r.bands[0].q, 9)) == (1000.5, 0.7), (r.bands[0].frequency, r.bands[0].q)

@@ -189,10 +189,14 @@ static int named(void *ctx, void *event) {
 }
 
 /* The T9 keyboard opens on its letters; a value only needs its "123" page (symnum). The keyboard can open a
- * moment after the focus, so look for its window every 16 ms, up to 20 times. */
+ * moment after the focus, so look for its window every 16 ms, up to 20 times. The value is selected too, so
+ * the first key replaces it: stock's ufloat edit takes "." only where the text, less its selection, has none,
+ * so typing a Q after "0.70" could never add its point. */
 static int numbers(const void *unused) {
     void *kb = widget_lookup(window_manager(), "kb_default_t9", 0);
+    char s[16];
     if (kb) pages_set_active_by_name(widget_lookup(kb, "panel", 1), "symnum");
+    if (kb && ui.edit && !widget_get_text_utf8(ui.edit, s, sizeof s)) edit_set_select(ui.edit, 0, strlen(s));
     return kb || ++ui.tries >= 20 ? 7 : 8; /* RET_REMOVE, else RET_REPEAT */
 }
 
