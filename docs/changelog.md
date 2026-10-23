@@ -18,6 +18,7 @@
   - Deezer's **Stream** mode: a pressed song plays straight away, the rest of its list after it, without filling the library (needs q2-deezer v3.3).
   - Lyrics: embedded lyrics in LRC form (a `[01:03.01]` stamp a line, as q2-deezer v3.3 embeds them) show in time on Now Playing.
   - Library: **Update Local Music** skips hidden folders (apps' caches).
+  - iPod: the full-screen art (a tap on Now Playing's cover) shows the whole cover, centred and rounded, instead of filling the screen's height with its corners hidden under the screen's rounded glass; the song name sits on the cover's foot.
 
 - **1.4.1**:
   - Home's **Shortcut** setting includes **Games**.

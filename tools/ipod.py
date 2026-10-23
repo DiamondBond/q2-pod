@@ -42,6 +42,12 @@ def corner_x(y, h):
     return max(corner_inset(y), corner_inset(y + h)) + CORNER_SLACK
 
 
+# iPod: the full-screen art (bigcover_page) is the largest centred square, even so its top and bottom
+# margins match, whose square corners clear the glass by CORNER_SLACK: the whole cover shows. Stock fits it
+# to the 375x320 window, where a square cover is 320 high and the glass hides its corners.
+BC_ART = max(s for s in range(2, 321, 2) if (375 - s) // 2 >= corner_x((320 - s) // 2, s))
+
+
 # iPod status bar (system_bar.bin, 375x30). Its 16px icons sit at y 7 to 23, so both groups keep
 # clear of the top corners. The play state and EQ are on the left, as in stock; Bluetooth/codec,
 # Wi-Fi and the battery on the right. The clock is centred on the screen, between the wider
@@ -461,6 +467,28 @@ def playing_page(root):
     root[3].insert(3, remain)
 
 
+# iPod only. The full-screen art (a tap on Now Playing's opens it, any tap closes it): stock's art, shade and
+# song name, the art a centred BC_ART square on the window's black (bigcover_page_init only loads its image
+# and sets its draw type, scale_auto as here), the shade and the name on its foot as stock has them on the
+# screen's. The covers it shows are the playing ones ringnav_image_add rounds.
+BIGCOVER = 'bigcover_page.bin'
+BC_TITLE_PAD = 12
+
+
+def bigcover_page(root):
+    check(root[2].get('fullscreen') == 'true' and [n[2].get('name') for n in root[3]] == [
+        'img_bigcover', 'view_shade', 'scrlabel_title'], 'Unexpected full-screen art page')
+    art, shade, title = root[3]
+    check(art[2].get('self_layout') == 'default(x=0,y=0,w=100%,h=100%)' and art[2].get('draw_type') == 'scale_auto' and
+          shade[1] == [0, 270, 375, 50] and title[1] == [42, 281, 290, 28], 'Unexpected full-screen art layout')
+    x, y = (375 - BC_ART) // 2, (320 - BC_ART) // 2
+    art[1] = [x, y, BC_ART, BC_ART]
+    art[2]['self_layout'] = f'default(x={x},y={y},w={BC_ART},h={BC_ART})'
+    foot = y + BC_ART - shade[1][3]
+    title[1] = [x + BC_TITLE_PAD, foot + title[1][1] - shade[1][1], BC_ART - 2 * BC_TITLE_PAD, title[1][3]]
+    shade[1] = [x, foot, BC_ART, shade[1][3]]
+
+
 # iPod only. Quick settings (the pull-down statusbar_dialog, which covers the whole screen): the eight
 # stock 60px controls stay in their four columns, two rows from QS_TOP. Each label gets the same
 # two-line QS_LABEL_H area in the stock 16px style, top-aligned so single- and two-line labels start
@@ -616,12 +644,12 @@ def row_icon(data):
                        *PNG_OUT, data=data)
 
 
-# Each stock placeholder's replacement size: stock's own, but Now Playing's at the art it fills (stock's
-# 188 scaled down there on the device, jagged), and the full-screen art's the disc centred on black.
+# Each stock placeholder's replacement size: stock's own, but Now Playing's and the full-screen art's at
+# the art they fill (stock's 188 scaled down there on the device, jagged).
 # The square ones keep the disc's transparent corners, so a selected row's bar shows through them.
 ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
                     'play_defaultcover.png': NP_ART, 'scrsaver_playcover.png': 60,
-                    'default_smallcover.png': 140, 'default_bigcover.png': (375, 320)}
+                    'default_smallcover.png': 140, 'default_bigcover.png': BC_ART}
 
 
 def sized_art(data, size):
@@ -691,7 +719,7 @@ def patch_asset(path, data, ipod):
     if path == ARTIST_PAGE:
         artist_tabs(root)
     whole = ({HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page, QUICK_SETTINGS: quick_settings,
-              CONFIRM: confirm_dialog, VOLUME: volume_dialog} if ipod else {HOME_PAGE: home_card})
+              CONFIRM: confirm_dialog, VOLUME: volume_dialog, BIGCOVER: bigcover_page} if ipod else {HOME_PAGE: home_card})
     if path in whole:
         whole[path](root)
     if path in whole or not ipod:

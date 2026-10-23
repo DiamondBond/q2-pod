@@ -102,7 +102,7 @@ logo_check()
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_TS_READ, PDR
-    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
+    from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, BIGCOVER, BC_ART, BC_TITLE_PAD, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
@@ -111,7 +111,7 @@ def validate_assets(directory):
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
     demo = (directory/'demo').read_bytes()
-    from build import patch_timezones, EXTRA_TIMEZONES
+    from build import patch_timezones, EXTRA_TIMEZONES, CJK, english_ui
     zones = bytearray(stock)
     patch_timezones(zones)
     start = fileoff(stock, 0x76b5d0)
@@ -169,11 +169,18 @@ def validate_assets(directory):
         assert stock[off-8:off-4] == struct.pack('<I', 0x8f99f950)
     changed = manifest['changed_assets']
     xx = 'release/assets/default/raw/images/xx/'
-    assert set(changed) == {'release/assets/default/raw/ui/'+p for p in (UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])} | {
-        'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
-        xx+n for n in (SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C, *WEB}
     def read(image, rel):
         return subprocess.check_output(['unsquashfs', '-cat', str(directory/image), rel])
+    # Every stock UI asset with Chinese text is given in English (english_ui), the edited ones after their edit.
+    ui = 'release/assets/default/raw/ui/'
+    chinese = {l.removeprefix('squashfs-root/'+ui) for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
+               if l.startswith('squashfs-root/'+ui) and l.endswith('.bin') and l.removeprefix('squashfs-root/') not in STOCK_EQ}
+    chinese = {rel for rel in chinese if CJK.search(read('stock.squashfs', ui+rel).decode('utf-8', 'replace'))}
+    assert chinese and {'testmode/test_key.bin', 'kb_default_t9.bin', 'dialog/search_dialog.bin'} <= chinese
+    patched_ui = set(UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])
+    assert set(changed) == {ui+p for p in patched_ui | chinese} | {
+        'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
+        xx+n for n in (SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C, *WEB}
     master = (ROOT/'assets/icons/default_album_home.png').read_bytes()
     for name, size in ART_PLACEHOLDERS.items():
         old, new = read('stock.squashfs', xx+name), read('rootfs.squashfs', xx+name)
@@ -431,7 +438,12 @@ def validate_assets(directory):
             else: assert name in SETTINGS_ICONS and new==settings_icon(name,original)
             continue
         short = rel.split('/raw/ui/')[1]
-        assert new == patch_asset(short, original, ipod), short
+        edited = patch_asset(short, original, ipod) if short in patched_ui else original
+        assert new == (english_ui(short, edited) if short in chinese else edited), short
+        if short not in patched_ui:
+            continue
+        if short in chinese:  # the checks below are of the edits: compare with stock given in English
+            original = english_ui(short, original)
         if short == 'dialog/addplaylist_dialog.bin':
             expected = decode(original)
             expected[3][0][3][0][2]['sensitive'] = 'true'
@@ -452,10 +464,11 @@ def validate_assets(directory):
             assert root == plain
             continue
         # iPod: browsing, settings and the PEQ editor slide; Home, Now Playing, the bar and dialogs don't.
-        slides = ipod and short not in (HOME_PAGE, STATUS_BAR, PLAYING_PAGE, QUICK_SETTINGS, CONFIRM)
+        slides = ipod and short not in (HOME_PAGE, STATUS_BAR, PLAYING_PAGE, QUICK_SETTINGS, CONFIRM, BIGCOVER)
         assert root[2].get('anim_hint') == (SLIDE if slides else None), short
         if ipod:  # screen coordinates: the bar, full-screen dialogs (quick settings slides down from -320), windows
-            origin, window = {STATUS_BAR: (0, (0, 30)), QUICK_SETTINGS: (320, (0, 320)), CONFIRM: (0, (0, 320))}.get(short, (30, (30, 320)))
+            origin, window = {STATUS_BAR: (0, (0, 30)), QUICK_SETTINGS: (320, (0, 320)), CONFIRM: (0, (0, 320)),
+                              BIGCOVER: (0, (0, 320))}.get(short, (30, (30, 320)))
             corners(short, root, 0, origin, window)
         if short == QUICK_SETTINGS:  # iPod only: the stock 4x2 grid, even label areas, a slim brightness track
             menu, light = root[3]
@@ -482,6 +495,16 @@ def validate_assets(directory):
             assert [n[0] for n in root[3]] == ['button', 'button'] and [n[2]['name'] for n in root[3]] == ['img_cancel', 'img_enter']
             assert cancel[1] == [0, 208, 375, 48] and enter[1] == [0, 256, 375, 48] and enter[1][1] + enter[1][3] <= 320
             assert [n[2]['text'] for n in root[3]] == ['Cancel', 'OK']
+            continue
+        if short == BIGCOVER:  # iPod only: a centred square of art clear of the glass (corners above), the name on its foot
+            art, shade, title = root[3]
+            x, y = (375 - BC_ART) // 2, (320 - BC_ART) // 2
+            assert root[2] == decode(original)[2] and art[2]['image'] == 'default_bigcover' and art[2]['draw_type'] == 'scale_auto'
+            assert art[1] == [x, y, BC_ART, BC_ART] and art[2]['self_layout'] == f'default(x={x},y={y},w={BC_ART},h={BC_ART})'
+            assert abs((375 - x - BC_ART) - x) <= 1 and 320 - y - BC_ART == y and BC_ART > 280  # centred, and still most of the height
+            assert (375 - BC_ART - 2) // 2 < corner_x((320 - BC_ART - 2) // 2, BC_ART + 2)  # the largest that clears
+            assert shade[1] == [x, y + BC_ART - 50, BC_ART, 50] and shade[2] == decode(original)[3][1][2]
+            assert title[1] == [x + BC_TITLE_PAD, y + BC_ART - 50 + 11, BC_ART - 2 * BC_TITLE_PAD, 28] and title[2] == decode(original)[3][2][2]
             continue
         if short == HOME_PAGE and not ipod:  # only the Coverflow card is added
             cards = [n[2]['name'] for n in root[3][0][3]]

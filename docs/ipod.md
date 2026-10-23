@@ -434,8 +434,11 @@ The asset holds Graphite's; `ringnav_playing` sets the current accent's. Tap or 
 is stock's label; the remaining time replaces stock's total. Sizes are `NP_*` constants in
 `tools/ipod.py`; see [internals.md](internals.md#now-playing-ipod).
 
-A tap on the art opens stock's full-screen art (`bigcover_page`; any tap closes it). Its song name
-and the shade band behind it show for `BC_MS` (3 s), then fade out together over `BC_STEPS` steps
+A tap on the art opens stock's full-screen art (`bigcover_page`; any tap closes it). Stock fits the
+cover to the whole screen, 320 pixels high, so the glass hid its corners; iPod centres it on black as
+the largest square whose corners clear the glass by `CORNER_SLACK` (`BC_ART` in `tools/ipod.py`, 292
+pixels with the defaults: 41 from the sides, 14 from the top and bottom), so the whole cover shows,
+rounded as Now Playing's is. Its song name and the shade band behind it sit on the art's foot, show for `BC_MS` (3 s), then fade out together over `BC_STEPS` steps
 `BC_STEP_MS` apart (`ringnav_bigcover`, after stock's init). They show again for each new song while it is open.
 
 **Scrub.** A double press of the centre button starts scrubbing, as on an iPod classic (with the screen off it only
