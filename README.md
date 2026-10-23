@@ -54,8 +54,6 @@
 **Optional:** The [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 
 > [!IMPORTANT]
-> Charge the Q2 before you start. Only insert or remove the microSD card while the Q2 is **fully shut down** (not asleep), or the card can be corrupted.
->
 > Flashing firmware carries risk. Back up anything on the card you can't lose before you start.
 
 1. **Download** `update.tar` from the [latest release](https://github.com/DiamondBond/q2-pod/releases/latest).
@@ -72,9 +70,9 @@
 - **Scrobbling:** connect Last.fm or ListenBrainz with the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Lock screen:** six built-in wallpapers, a large clock, or your own images ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
 - **Boot logo:** put your own JPEG at `/Q2Pod/boot/boot-logo.jpg` on the card. It shows from the next power-on ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
-- **Rockbox (optional):** a separate player. With the Q2 on Wi-Fi, open **System settings → Apps → Rockbox**. The first press says that Rockbox becomes what the Q2 starts at power-on; press again to install it. Then open **Rockbox Themes** to install the [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). Hold Play/Pause while powering on to use Q2 Pod for that session. Without Wi-Fi, unzip [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root instead. See the [setup guide](docs/setup.md).
+- **Rockbox (optional):** a separate player. With the Q2 on Wi-Fi, open **System settings → Apps → Rockbox**. The first press says that Rockbox becomes what the Q2 starts at power-on; press again to install it.
 
-**System settings → Apps** installs, updates and removes Rockbox, its themes and Spotify over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later), keeping your Rockbox settings and Spotify's login. From Q2 Pod 1.4.2 the page's list comes from [`sources.list`](sources.list), fetched over Wi-Fi, and also holds card apps, which then appear in **Streaming**. To remove an installed app, press its row twice. Keep USB storage unplugged until a download finishes.
+**System settings → Apps** installs, updates and removes Rockbox, its themes and Spotify over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later), keeping your Rockbox settings and Spotify's login.
 
 ## Controls
 
@@ -92,10 +90,6 @@ The user guide covers every control, EQ, Coverflow and more tips.
 Copy your music to the card over USB-C, then run **Library → Update Local Music** on the Q2.
 
 These folders at the card's root each add their own Library entry: `Podcasts/`, `Audiobooks/`, `Photos/`, `Books/` and `Videos/`; `EQ/` holds EQ presets to import. See the user guide for supported formats.
-
-On iPod, **Library → Games** has Sudoku, Vortex and Solitaire, playable while music plays.
-
-Settings, play counts, ratings and resume points are stored on the Q2 itself, so they stay put when you swap cards.
 
 ## Updating
 
