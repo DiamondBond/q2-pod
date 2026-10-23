@@ -414,7 +414,7 @@ void sol_finish(struct solitaire *s) {
 
 /* Snake: SN_N x SN_N cells, a cell y * SN_N + x; the body a ring of cells from the tail, the head
  * last. Walls and the body kill. A turn is relative (+1 right, -1 left), one a step and a second
- * waiting for the next, so a quick spin can't fold the snake back into itself. Each apple adds one
+ * waiting for the next, so quick turns can't fold the snake back into itself. Each apple adds one
  * and a little speed.
  * ponytail: no wrap mode, levels or obstacles. */
 #define SN_N 20
@@ -648,7 +648,7 @@ static void run(void) {
     g->acc = 0;
     g->carry = 0;
     __sync_lock_test_and_set(&wheel_travel, 0);
-    wheel_raw = g->screen == VORTEX; /* Snake turns on the wheel's ticks, as keys */
+    wheel_raw = g->screen == VORTEX;
     if (!g->frame) g->frame = timer_add(frame, 0, FRAME_MS);
 }
 
@@ -750,11 +750,14 @@ static void vortex_key(unsigned key) {
     if (!arcade_key(key, g->vx.state == OVER) && key == KEY_CENTER) vortex_launch(&g->vx);
 }
 
-/* The wheel clockwise or Next turns right, anticlockwise or Previous left. */
+/* Only the side keys steer Snake and pick Continue/Quit; ignore wheel ticks. */
 static void snake_key(unsigned key) {
+    if (key == KEY_NEXT || key == KEY_PREV) return;
+    if (key == KEY_FWD_BTN) key = KEY_NEXT;
+    if (key == KEY_BACK_BTN) key = KEY_PREV;
     if (arcade_key(key, g->sn.state == OVER) || g->paused) return;
-    if (key == KEY_NEXT || key == KEY_FWD_BTN) snake_turn(&g->sn, 1);
-    if (key == KEY_PREV || key == KEY_BACK_BTN) snake_turn(&g->sn, -1);
+    if (key == KEY_NEXT) snake_turn(&g->sn, 1);
+    if (key == KEY_PREV) snake_turn(&g->sn, -1);
 }
 
 /* A pile's column on screen: the stock, the waste, a gap and the foundations over the tableau. */

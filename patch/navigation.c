@@ -5479,9 +5479,9 @@ static int rate_keep(int album, unsigned key, int n) {
     return -1;
 }
 
-/* The toast for rate_keep's result k: done (if any) on success. */
-static int rate_saved(int k, const char *done) {
-    if (k <= 0 || done) toast(k > 0 ? done : k ? "Rating not saved" : "Ratings are full");
+/* Report only failures from rate_keep. */
+static int rate_saved(int k) {
+    if (k <= 0) toast(k ? "Rating not saved" : "Ratings are full");
     return k > 0;
 }
 
@@ -5570,21 +5570,19 @@ static void rate_close(int save) {
     widget_set_visible(panel, 0, 0);
     widget_set_sensitive(panel, 0); /* stock's hit test skips only the insensitive, hidden or not */
     int n = st.rate_pick;
-    char hs[16], done[40];
     if (save && st.rate_album) { /* the menu's album, still on its page */
         void *a = window_manager_get_top_window(window_manager()) == win ? qm_record() : (void *)0;
         if (!a || qm_album_id(a) != st.rate_album) {
             toast("Album changed");
             return;
         }
-        tk_snprintf(done, sizeof done, n ? "Album rated  %s" : "Album unrated", hearts_text(hs, n));
-        rate_saved(rate_keep(1, st.rate_album, n), done);
+        rate_saved(rate_keep(1, st.rate_album, n));
         return;
     }
     void *r = save ? rate_track() : (void *)0;
     if (!r) return;
     int fav = checkFavExist(r) != 0;
-    if (!rate_saved(rate_keep(0, listen_key(r), n), (void *)0)) return;
+    if (!rate_saved(rate_keep(0, listen_key(r), n))) return;
     if ((n == 5) != fav) FAV_CLICK(st.rate_ctx, (void *)0);
     rate_badge();
 }
@@ -6929,8 +6927,7 @@ static int qm_run(const void *unused) {
     } else if (aid && a == QA_RATE) {
         rate_show(window_manager_get_top_window(window_manager()), rate_kept(1, aid), aid);
     } else if (aid && (a == QA_FAV || a == QA_UNFAV)) {
-        rate_saved(rate_keep(1, aid, a == QA_FAV ? 5 : 0),
-                   a == QA_FAV ? "Added to Favourites" : "Removed from Favourites");
+        rate_saved(rate_keep(1, aid, a == QA_FAV ? 5 : 0));
     } else if (r && a == QA_RATE) {
         rate_open();
     } else if (r && a >= QA_ADV_SHUFFLE && a <= QA_GROUP) {
@@ -6939,12 +6936,10 @@ static int qm_run(const void *unused) {
     } else if (r && a == QA_FAV) { /* tags a folder file as batch-select's Add to My Fav does */
         qm_select();
         batch_add_file(cls, 0xf00a, qm_list(), P(p_vector_select_record, 0), 0);
-        toast("Added to Favourites");
     } else if (r && a == QA_UNFAV) {
         deleteMusicFromFav(r);
         if (cls == 0xf00a)
-            g_delete_flag = 1; /* My Fav reloads, as Now Playing's heart (0x52b2e8) */
-        toast("Removed from Favourites");
+            g_delete_flag = 1;          /* My Fav reloads, as Now Playing's heart (0x52b2e8) */
     } else if (r && a == QA_PLAYLIST) { /* the playlist page's add mode adds the selected row */
         qm_select();
         navigator_to_with_context(
@@ -6985,8 +6980,6 @@ static int qm_run(const void *unused) {
         void *add = r ? qm_collect(r) : (void *)0;
         if (!add || !(a == QA_SHUFFLE ? shuffle_play(add) : qm_apply(add, a == QA_NEXT)))
             toast("Queue unchanged");
-        else if (a != QA_SHUFFLE) /* as Favourites confirms; Shuffle answers by playing */
-            toast(a == QA_NEXT ? "Playing Next" : "Added to Queue");
         if (add) deque_destroy(add);
     }
     return 0;

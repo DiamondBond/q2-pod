@@ -52,7 +52,7 @@ void up_next(int (*closed)(void *, void *), int (*keyup)(void *, void *)) {
 }
 /* A Play/Pause hold on a row (un_hold, deferred out of its dispatch): the row's track plays next
  * (playback_move) and the rows are taken again with it at row 0, the selection there. A row already
- * next only says so. A queue changed under the page, or a row no longer up next (played since),
+ * next stays there. A queue changed under the page, or a row no longer up next (played since),
  * takes the rows again and says "Queue changed"; a page gone or a row out of range does nothing. */
 static int un_move(const void *unused) {
     unsigned row = un.row, up[UP_NEXT_ROWS], n = playback_upcoming(up, UP_NEXT_ROWS), i = 0;
@@ -62,7 +62,7 @@ static int un_move(const void *unused) {
     while (i < n && up[i] != at) ++i;
     int stale = queue_hash(q) != un.hash || i == n || (i && playback_move(at) < 0);
     un_fill(0);
-    toast(stale ? "Queue changed" : "Playing Next");
+    if (stale) toast("Queue changed");
     return 0;
 }
 int un_hold(void *top) {

@@ -926,9 +926,9 @@ static void got(void) {
             br.removing = 0;
             tk_snprintf(br.remove_note, sizeof br.remove_note, "%s", msg);
             push(L_REMOVE, "", "", "", "");
-        } else if (!ok || act == A_ENQUEUE || act == A_DOWNLOAD) {
+        } else if (!ok || act == A_DOWNLOAD) {
             br.removing = 0;
-            toast(ok && act == A_ENQUEUE ? "Added to Queue" : msg);
+            toast(msg);
         }
     } else if (l->id != wk.id) {
     } else if (wk.fail == W_NOSOCK && (int)(br.until - time_now_ms()) > 0) {
