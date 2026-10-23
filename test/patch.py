@@ -9606,7 +9606,8 @@ def apps_open(m):
 def shelf_job(m,ms=500):
     worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_000_000)==0; m.advance(ms,clear=False)
 KILL='killall -9 librespot aplay'
-m=ShelfMachine({SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
+LIST='/mnt/mmc/.q2/sources.list'
+m=ShelfMachine({LIST:bytearray((ROOT/'sources.list').read_bytes()),SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
                 '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
 m.rockbox_mode=0; m.wifi=-1; apps_open(m)
 assert m.labels()==['Apps','Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
@@ -9652,6 +9653,16 @@ assert m.labels()==['Apps','Rockbox','Installed','Rockbox Themes','Install','Spo
 m.listing='        1  10-06-2026 13:18   .rockbox/../../x\n'; m.files.pop('/mnt/mmc/.q2/apps/rockbox.tag'); m.row(0); shelf_job(m)
 assert m.toasts[-1][3]=='The download is not a usable app' and m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2'; passed()
 m.close(); passed()
+# No list on the card yet: one row, which loads it with Wi-Fi. The fetched list (its bad lines
+# skipped) is kept on the card and its rows shown; a list with no app leaves the one in use.
+m=ShelfMachine(); m.rockbox_mode=0; m.wifi=-1; apps_open(m)
+assert m.labels()==['Apps','App list','Connect to Wi-Fi to load the list'] and not m.threads
+m.row(0); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; passed()
+m.wifi=3; m.row(0); assert m.labels()[2]=='Loading…' and len(m.threads)==1; m.row(0); assert len(m.threads)==1  # loading already
+m.reply=b'# apps\nme/q2-foo Foo\nme/q2-Bad\n'; shelf_job(m)
+assert m.labels()==['Apps','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; passed()
+m.close(); m.now+=11*60*1000; m.reply=b'nothing'; apps_open(m); shelf_job(m)
+assert m.labels()==['Apps','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; m.close(); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or
 # longer keeps its place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S

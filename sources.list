@@ -1,0 +1,8 @@
+# The Apps page's list (System settings → Apps): one GitHub repo with a release zip per line,
+# "owner/repo Name", the name optional. The device fetches this file; see docs/internals.md#q2-shelf.
+DiamondBond/q2-rockbox Rockbox
+DiamondBond/q2-rockbox-themes Rockbox Themes
+DiamondBond/q2-librespot Spotify
+group-a-study/q2-deezer Deezer
+group-a-study/q2-soulseek Soulseek
+group-a-study/q2-filebrowser File Browser

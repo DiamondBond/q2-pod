@@ -171,7 +171,7 @@ void addon_card_away(void) {
     }
 }
 
-/* The Apps page (netupdate.c) replaces or removes the files in dir (".deezer"): the app there, if
+/* The Apps page (netupdate.c) replaces or removes the files in dir (".<id>"): the app there, if
  * one, forgotten on the UI thread, so its row starts the new one (or none); then, on the Apps
  * page's worker, asked to end and waited for, so its files are closed before they move. */
 void addon_forget(const char *dir) {

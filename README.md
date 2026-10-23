@@ -74,7 +74,7 @@
 - **Boot logo:** put your own JPEG at `/Q2Pod/boot/boot-logo.jpg` on the card. It shows from the next power-on ([user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf)).
 - **Rockbox (optional):** a separate player. With the Q2 on Wi-Fi, open **System settings → Apps → Rockbox**. The first press says that Rockbox becomes what the Q2 starts at power-on; press again to install it. Then open **Rockbox Themes** to install the [ported themes](https://github.com/DiamondBond/q2-rockbox-themes/releases). Hold Play/Pause while powering on to use Q2 Pod for that session. Without Wi-Fi, unzip [`rockbox.zip`](https://github.com/DiamondBond/q2-rockbox/releases) to the card's root instead. See the [setup guide](docs/setup.md).
 
-**System settings → Apps** installs, updates and removes Rockbox, its themes and Spotify over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later), keeping your Rockbox settings and Spotify's login. From Q2 Pod 1.4.2 it also installs the card apps Deezer, Soulseek and File Browser, which then appear in **Streaming**. To remove an installed app, press its row twice. Keep USB storage unplugged until a download finishes.
+**System settings → Apps** installs, updates and removes Rockbox, its themes and Spotify over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later), keeping your Rockbox settings and Spotify's login. From Q2 Pod 1.4.2 the page's list comes from [`sources.list`](sources.list), fetched over Wi-Fi, and also holds card apps, which then appear in **Streaming**. To remove an installed app, press its row twice. Keep USB storage unplugged until a download finishes.
 
 ## Controls
 

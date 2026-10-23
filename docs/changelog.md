@@ -10,7 +10,7 @@
   - System settings: **Apps** comes before **System Update**.
   - Games: Solitaire's corner cards and Vortex's score, level and lives no longer hide under the screen's rounded corners.
   - Games: Solitaire has rounded cards with a bordered back; Sudoku highlights every cell holding the selected digit, or the digit you're picking; Vortex's bricks flash as they break, the ball leaves a short trail, lives show as balls, and a record score says "New best!".
-  - **System settings → Apps** installs, updates and removes Deezer, Soulseek and File Browser, card apps from their own GitHub releases, keeping each one's saved settings. Once on the card each gets a row in **Streaming**; File Browser's opens a QR code to scan with a phone. Plugging in USB storage stops them and they start again after.
+  - **System settings → Apps** lists its apps from a list it fetches over Wi-Fi and keeps on the card, so the firmware no longer names any app beyond its own. Besides Rockbox, its themes and Spotify, the list holds card apps from their own GitHub releases, which keep their saved settings over an update. Once on the card each gets a row in **Streaming**, and one with a phone page opens a QR code to scan. Plugging in USB storage stops them and they start again after.
 
 - **1.4.1**:
   - Home's **Shortcut** setting includes **Games**.

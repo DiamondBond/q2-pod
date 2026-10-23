@@ -2472,7 +2472,27 @@ def shelf_check(tmp, lib):
                                               ('__MACOSX/.rockbox/._wps', b'mac')]),
                  2: zip_of(tmp/'spotify.zip', [('.spotify/run', b'#!/bin/sh'), ('.spotify/librespot', b'ELF'),
                                                ('.spotify/cache/credentials.json', b'theirs'), ('.spotify/.cache-size', b'1M')])}
-    ids = ('rockbox', 'themes', 'spotify', 'deezer', 'soulseek', 'filebrowser')  # netupdate.c's apps
+    # sources.list's lines into the apps: the id less "q2-", Q2 Pod's own by their repo's name.
+    class App(C.Structure):
+        _fields_ = [('name', C.c_char * 32), ('id', C.c_char * 16), ('repo', C.c_char * 80), ('dir', C.c_char * 17),
+                    ('bin', C.c_char * 40), ('latest', C.c_char * 32), ('keep', C.c_char_p)]
+    apps = (App * 16).in_dll(lib, 'shelf_apps')
+    def sources(text, into=apps):
+        n = lib.shelf_sources(text.encode(), into, 16)
+        return [(a.repo.decode(), a.name.decode(), a.id.decode(), a.dir.decode(), a.bin.decode(), a.keep.decode()) for a in into[:n]]
+    scratch = (App * 16)()
+    assert sources('# a comment\n\n  me/q2-foo  Foo Bar \r\nme/plain\nx/q2-librespot\nx/q2-rockbox-themes Themes\n', scratch) == [
+        ('me/q2-foo', 'Foo Bar', 'foo', '.foo', '.foo/q2-foo', ''), ('me/plain', 'plain', 'plain', '.plain', '.plain/q2-plain', ''),
+        ('x/q2-librespot', 'q2-librespot', 'spotify', '.spotify', '.spotify/librespot', "'.spotify/cache/*' .spotify/.cache-size"),
+        ('x/q2-rockbox-themes', 'Themes', 'themes', '.rockbox', '', '.rockbox/config.cfg')]
+    for bad in ('me/q2-Foo', 'me/q2-a;b', 'me/q2-' + 'a' * 16, 'me', '/q2-x', 'm e/q2-x', 'me/q2-x/y', 'me/q2-x a\x01b',
+                'me/q2-spotify', 'me/q2-x N' + 'n' * 31, 'a.b/q2-x', 'me/..'):
+        assert sources(bad, scratch) == [], bad
+    assert [a[2] for a in sources('a/q2-x\nb/q2-x\nc/x\n', scratch)] == ['x']  # a repeated id: the first
+    assert len(sources(''.join(f'me/q2-a{i}\n' for i in range(20)), scratch)) == 16
+    C.c_int.in_dll(lib, 'shelf_n').value = len(sources((ROOT/'sources.list').read_text()))
+    ids = [a.id.decode() for a in apps[:6]]
+    assert ids == ['rockbox', 'themes', 'spotify', 'deezer', 'soulseek', 'filebrowser'], ids
     def install(i, zip_path):
         shutil.rmtree(staging, ignore_errors=True); staging.mkdir(parents=True); (card/'.q2/apps').mkdir(exist_ok=True)
         shutil.copy(zip_path, staging/f'{ids[i]}.part')
@@ -2514,7 +2534,8 @@ def shelf_check(tmp, lib):
 
     # The card apps (patch/addon.c), zipped as their releases are: the app, its launcher and manifest.
     # What each saved (Deezer's sign-in, settings and queue; Soulseek's settings, transfers and
-    # share index; File Browser's settings) survives an install over it, an update and a remove.
+    # share index; File Browser's settings), never in a release, survives an install over it, an
+    # update and a remove.
     saved = {3: ['.deezer/arl', '.deezer/quality', '.deezer/organize', '.deezer/queue.json'],
              4: ['.soulseek/config.json', '.soulseek/downloads.json', '.soulseek/shares.cache'],
              5: ['.filebrowser/config.json']}
@@ -2523,8 +2544,7 @@ def shelf_check(tmp, lib):
         d = '.' + ids[i]
         for f in kept: (card/f).parent.mkdir(exist_ok=True); (card/f).write_bytes(b'mine')
         z = zip_of(tmp/f'{ids[i]}.zip', [(f'{d}/q2-{ids[i]}', b'ELF'), (f'{d}/run', b'#!/bin/sh'),
-                                         (f'{d}/q2app', b'name=x\n'), (f'{d}/README.txt', b'r'),
-                                         *[(f, b'release') for f in kept]])  # a careless release's
+                                         (f'{d}/q2app', b'name=x\n'), (f'{d}/README.txt', b'r')])
         assert install(i, z) == 0 and install(i, z) == 0, i
         assert sorted(files(i)) == sorted(f'{d}/{n}' for n in (f'q2-{ids[i]}', 'run', 'q2app', 'README.txt'))
         assert all((card/f).read_bytes() == b'mine' for f in kept), i
