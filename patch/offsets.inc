@@ -425,6 +425,9 @@ static inline int arc_out(int r, int y) {
  * 0 when browsing the Playlists list, whose rows' trailing dots open playlistsmore_page. */
 #define PLAYLIST_ADD_MODE 0xa27894
 #define MUSIC_WHERE "fileurl not like '/mnt/mmc/audiobooks/%' and fileurl not like '/mnt/mmc/podcasts/%' and fileurl not like '%.m4b'"
+/* One row per album, as album_cmp tells them apart (coverflow.c; navigation.c's Era). */
+#define ALBUM_GROUP " group by album COLLATE NOCASE," \
+    "ifnull(albumsonger,'') COLLATE NOCASE,case ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end"
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */
 #define ALBUMINFO_ROW 0xa27200  /* the albums row localmusic_albuminfo_page_init opened (0x4a7ab4) */
 /* Static mcl queue state (mclLoadPlayList @0x5aa8d4, mclNextSong @0x5adbbc). */

@@ -939,7 +939,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4,
                 'bt_connectstatus': 4}  # a link thread runs (1), ended (2), checked (3)
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
-PAYLOAD_WINDOWS = {'playlistedit_page', 'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'games_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'spotify_page',
+PAYLOAD_WINDOWS = {'playlistedit_page', 'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'games_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'era_page', 'era_albums_page', 'rated_page', 'longsongs_page', 'spotify_page',
                    'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads', 'apps_page',
                    'addon_page', 'app_songs', 'qrcode_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
@@ -1333,7 +1333,7 @@ def build(zip_path, out, logo, ipod=False, dev=False):
                                      else cat(xx+like)) for n, like in dict(
         shuffle='playset_playmode.png', scrobble='wifiset_wifi.png', podcasts='netservice_dlna.png',
         audiobooks='playset_foldercover.png', photos='playset_covermode.png', books='system_language.png',
-        videos='system_display.png', longsongs='system_time.png').items()})
+        videos='system_display.png', longsongs='system_time.png', era='local_genre.png').items()})
     if ipod:
         icons['local_games.png'] = ('system_language.png', (ROOT/'assets/icons/local_games.png').read_bytes())
         # Minimal's selected Wi-Fi and Bluetooth rows draw this grey copy over stock's white delete mark

@@ -5605,6 +5605,154 @@ static int ratings_menu(void *ctx, void *event) {
     return 0;
 }
 
+/* Era (docs/internals.md#era): a row per decade with dated music, oldest first, and a decade's
+ * albums by year. An album's year is its tracks' latest, as Coverflow's Year sort; undated albums
+ * and the untagged have none. ponytail: decades only, no year level or covers, and the album rows
+ * have no hold menu; a year page, or the decade as a scoped Coverflow, if asked for. */
+#define ERA_DECADES 32
+#define ERA_ALBUMS                                                                                 \
+    "select album,ifnull(nullif(albumsonger,''),songer),max(year),fileurl from songtable "         \
+    "where " MUSIC_WHERE " and ifnull(album,'')<>''" ALBUM_GROUP
+typedef struct {
+    char *album, *artist, *path;
+    int year;
+} era_t;
+static struct {
+    void *page, *albums; /* the decades page, a decade's page */
+    int decade[ERA_DECADES], count[ERA_DECADES], n;
+    era_t *v; /* the open decade's albums, oldest first, room for cap */
+    unsigned m, cap;
+} era __attribute__((section(".scratch")));
+
+static int era_sql(const char *sql, int (*row)(void *, int, char **, char **)) {
+    void *db = 0;
+    int bad = sqlite3_open("/mnt/data/database.db", &db) || sqlite3_exec(db, sql, row, 0, 0);
+    if (db) sqlite3_close(db);
+    return !bad;
+}
+static int era_decade_row(void *ctx, int n, char **v, char **c) {
+    if (n == 2 && v[0] && v[1] && era.n < ERA_DECADES)
+        era.decade[era.n] = atoi(v[0]), era.count[era.n++] = atoi(v[1]);
+    return 0;
+}
+static int era_album_row(void *ctx, int n, char **v, char **c) {
+    if (n != 4 || !v[0] || !v[2] || !v[3] || era.m == era.cap) return 0;
+    era_t *e = &era.v[era.m];
+    e->album = strdup(v[0]), e->artist = strdup(v[1] ? v[1] : ""), e->path = strdup(v[3]);
+    e->year = atoi(v[2]);
+    if (!e->album || !e->artist || !e->path) {
+        free(e->album), free(e->artist), free(e->path);
+        return 1;
+    }
+    ++era.m;
+    return 0;
+}
+static void era_free(void) {
+    for (unsigned i = 0; i < era.m; ++i)
+        free(era.v[i].album), free(era.v[i].artist), free(era.v[i].path);
+    free(era.v);
+    era.v = 0, era.m = era.cap = 0;
+}
+static int era_closed(void *ctx, void *event) {
+    if (ctx == era.page) era.page = 0;
+    if (ctx == era.albums) era.albums = 0, era_free();
+    return 0;
+}
+/* "60s" to "90s", then "2000s" on. */
+static const char *era_name(char *buf, int decade) {
+    tk_snprintf(buf, 16, decade < 2000 ? "%02ds" : "%ds", decade < 2000 ? decade % 100 : decade);
+    return buf;
+}
+
+/* Album i's record: the album name's songs, the one at its path. *songs holds it, the caller's. */
+static int era_by_name(void *name) { return getMusicByAlbum(name); }
+static void *era_record(unsigned i, void **songs) {
+    int n;
+    *songs = staged_music(era_by_name, era.v[i].album, &n);
+    for (unsigned k = 0; k < deque_size(*songs); ++k)
+        if (!strcmp(P(deque_at(*songs, k), REC_PATH), era.v[i].path)) return deque_at(*songs, k);
+    return 0;
+}
+/* Every album's tracks, in the page's order, each in album order. ponytail: two queries an album,
+ * as Coverflow's All albums; one decade query split back into albums if a large decade drags. */
+static void *era_songs(void) {
+    void *all = _create_deque("stSongInfo");
+    deque_init(all);
+    for (unsigned i = 0; i < era.m; ++i) {
+        void *songs, *r = era_record(i, &songs);
+        void *t = r ? coverflow_album_tracks(r) : 0;
+        for (unsigned j = 0; t && j < deque_size(t); ++j) _deque_push_back(all, deque_at(t, j));
+        if (t) deque_destroy(t);
+        deque_destroy(songs);
+    }
+    return all;
+}
+/* Play All from the first song as a library queue, as Coverflow's All albums; Shuffle is Shuffle
+ * Songs over them; an album opens its tracks in Coverflow. */
+static int era_pick(void *ctx, void *event) {
+    int i = (int)(long)ctx;
+    if (i < 2) {
+        void *all = era_songs();
+        if (!deque_size(all) || access(P(deque_at(all, 0), REC_PATH), 0))
+            toast("Storage unavailable");
+        else if (i)
+            shuffle_play(all);
+        else
+            play_folder(all, 0, 0xf001);
+        deque_destroy(all);
+        return 0;
+    }
+    void *songs, *r = (unsigned)(i - 2) < era.m ? era_record((unsigned)(i - 2), &songs) : 0;
+    if (!r || !coverflow_goto_album(r)) toast("Album not found");
+    if ((unsigned)(i - 2) < era.m) deque_destroy(songs);
+    return 0;
+}
+static int era_open_decade(void *ctx, void *event) {
+    int k = (int)(long)ctx, from = era.decade[k];
+    if (era.albums || !(era.albums = page_open("era_albums_page", era_closed, page_keyup)))
+        return 0;
+    char sql[1024], name[16], detail[300];
+    tk_snprintf(sql,
+                sizeof sql, /* MUSIC_WHERE's like patterns hold '%': an argument, not the format */
+                "%s having max(year) between %d and %d order by max(year),album COLLATE NOCASE",
+                ERA_ALBUMS, from, from + 9);
+    era.v =
+        calloc((unsigned)era.count[k] + 1, sizeof *era.v); /* the decade's count, from era_menu */
+    era.cap = era.v ? (unsigned)era.count[k] : 0;
+    era_sql(sql, era_album_row);
+    void *view = page_list(era.albums, era.albums, 0, era_name(name, from), (int)era.m + 2, 64);
+    tk_snprintf(detail, sizeof detail, era.m == 1 ? "%u album" : "%u albums", era.m);
+    page_row_detail(view, 0, "Play All", detail, era_pick);
+    page_row_detail(view, 1, "Shuffle", "Every song, shuffled", era_pick);
+    for (unsigned i = 0; i < era.m; ++i) {
+        tk_snprintf(detail, sizeof detail, *era.v[i].artist ? "%s \xe2\x80\xa2 %d" : "%s%d",
+                    era.v[i].artist, era.v[i].year);
+        page_row_detail(view, (int)i + 2, era.v[i].album, detail, era_pick);
+    }
+    return 0;
+}
+static int era_menu(void *ctx, void *event) {
+    if (era.page) return 0;
+    era.n = 0;
+    era_sql(
+        "select year/10*10,count(*) from (select max(year) year from songtable where " MUSIC_WHERE
+        " and ifnull(album,'')<>''" ALBUM_GROUP ") where year>0 group by 1 order by 1",
+        era_decade_row);
+    if (!era.n) {
+        toast("No dated albums yet");
+        return 0;
+    }
+    if (!(era.page = page_open("era_page", era_closed, page_keyup))) return 0;
+    void *view = page_list(era.page, era.page, 0, "Era", era.n, 64);
+    char name[16], detail[32];
+    for (int i = 0; i < era.n; ++i) {
+        tk_snprintf(detail, sizeof detail, era.count[i] == 1 ? "%d album" : "%d albums",
+                    era.count[i]);
+        page_row_detail(view, i, era_name(name, era.decade[i]), detail, era_open_decade);
+    }
+    return 0;
+}
+
 /* Long Songs (docs/internals.md#long-songs): the library's songs over LONG_SONG_S, longest first.
  * The database keeps no length, so each file's is probed once, through stock's TagLib, on a worker
  * thread, and kept in LENGTHS_FILE by path hash: {key, seconds} pairs sorted by key, 0 seconds for
@@ -6006,7 +6154,10 @@ int ringnav_localmusic(void *win, void *ctx) {
     static const unsigned char middle[] = { L_ARTISTS,   L_ALBUMS, L_SONGS, L_GENRES,
                                             L_PLAYLISTS, L_FAV,    L_ADDED, L_RECENT };
     for (unsigned i = 0; i < sizeof middle; i++)
-        if (middle[i] == L_FAV) { /* My Fav is Ratings' Loved, its row kept hidden */
+        if (middle[i] == L_GENRES) { /* browsing by a tag, as Genre */
+            widget_restack(stock[L_GENRES], n++);
+            widget_restack(library_into(view, "local_era", era_menu, 0, "Era"), n++);
+        } else if (middle[i] == L_FAV) { /* My Fav is Ratings' Loved, its row kept hidden */
             widget_restack(library_into(view, "local_fav", ratings_menu, 0, "Ratings"), n++);
             widget_set_visible(stock[L_FAV], 0, 0);
             widget_restack(stock[L_FAV], n++);

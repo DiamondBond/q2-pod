@@ -443,9 +443,8 @@ enum { SORT_ALBUM, SORT_ARTIST, SORT_ADDED, SORT_PLAYED, SORT_RANDOM, SORT_RATIN
 #define RATED_SORT_FILE PEQ_ROOT "/mnt/data/ringnav-ratedsort"
 static const unsigned char rated_sorts[] = { SORT_RATING, SORT_ALBUM, SORT_ARTIST, SORT_YEAR };
 /* The library's Sort: Year after Artist; saved values are the enum's. */
-static const unsigned char all_sorts[] = { SORT_ALBUM, SORT_ARTIST, SORT_YEAR, SORT_ADDED, SORT_PLAYED, SORT_RANDOM };
-#define ALBUM_GROUP " group by album COLLATE NOCASE," \
-    "ifnull(albumsonger,'') COLLATE NOCASE,case ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end"
+static const unsigned char all_sorts[] = { SORT_ALBUM, SORT_ARTIST, SORT_YEAR,
+                                           SORT_ADDED, SORT_PLAYED, SORT_RANDOM };
 #define ALBUM_SQL "select id,album,songer,fileurl,albumsonger from songtable" ALBUM_GROUP
 #define MUSIC_ALBUM_SQL "select case when ifnull(album,'')='' then -1 else id end," \
     "case when ifnull(album,'')='' then 'Unknown Album' else album end," \

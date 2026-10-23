@@ -24,6 +24,8 @@
 { "chapters_page", CTX_DYNAMIC, 0 }, /* runtime chapter list */
 { "upnext_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
 { "ratings_page", CTX_DYNAMIC, 0 },   /* runtime window (patch/navigation.c) */
+{ "era_page", CTX_DYNAMIC, 0 },       /* runtime window (patch/navigation.c) */
+{ "era_albums_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/navigation.c) */
 { "rated_page", CTX_FIXED, 0 },      /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "longsongs_page", CTX_FIXED, 0 },  /* runtime window (patch/navigation.c); fixed: the hold menu */
 { "radio_page", CTX_DYNAMIC, 0 },     /* runtime window (patch/radio.c) */

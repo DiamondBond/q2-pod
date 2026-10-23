@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.4.2**:
+  - Library: **Era**, after Genre, lists each decade with dated albums, oldest first. A decade has **Play All**, **Shuffle** and its albums by year, each with its artist and year; an album opens its tracks in Cover Flow.
   - Cover Flow: with **Artists** set to Album Artist, a compilation shows its album artist ("Various Artists", or whoever compiled it) under the cover, not the artist of its last track; sorting by Artist uses the same name.
   - Go to Album from a song played in Cover Flow, or with **Artist Albums** set to Coverflow, opens the album's tracks in Cover Flow, as Go to Artist opens the artist's covers. Return goes back to where you were.
   - Gapless albums no longer have a short gap between FLAC and WAV tracks. The cause was the MQA check at the start of every track. **Audio settings → MQA**, after DSD Output, turns MQA decoding back on. It is off by default, and MQA files play as ordinary FLAC while it's off.
