@@ -1022,9 +1022,9 @@ int spot_hold(void *w) {
                 ? widget_get_prop_int(br.view, "_ringnav_index", -1)
                 : -1;
     char a[sizeof l->args] = "";
-    int track = i >= 0 && i < l->n && !strcmp(cell(l, i, 0), "track"),
-        playlist = i >= 0 && i < l->n && !strcmp(cell(l, i, 0), "playlist");
-    if ((!track && !playlist) || !put(a, sizeof a, cell(l, i, 1))) return 0;
+    const char *kind = i >= 0 && i < l->n ? cell(l, i, 0) : "";
+    int track = !strcmp(kind, "track");
+    if ((!track && strcmp(kind, "playlist")) || !put(a, sizeof a, cell(l, i, 1))) return 0;
     /* a playlist downloads, as its own Download Playlist row; its reply is toasted */
     request(track ? "enqueue" : "download", a, track ? A_ENQUEUE : A_DOWNLOAD);
     return 1;
