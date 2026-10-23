@@ -10,6 +10,7 @@
   - System settings: **Apps** comes before **System Update**.
   - Games: Solitaire's corner cards and Vortex's score, level and lives no longer hide under the screen's rounded corners.
   - Games: Solitaire has rounded cards with a bordered back; Sudoku highlights every cell holding the selected digit, or the digit you're picking; Vortex's bricks flash as they break, the ball leaves a short trail, lives show as balls, and a record score says "New best!".
+  - **System settings → Apps** installs Deezer, Soulseek and File Browser, card apps from their own GitHub releases; once on the card each gets a row in **Streaming**.
 
 - **1.4.0**:
   - **System settings → Apps** installs, updates and removes Rockbox, the Rockbox themes and Spotify over Wi-Fi from their GitHub releases, keeping Rockbox's settings and Spotify's login and cache. Removing Spotify keeps its login unless you also pick **Erase Spotify Data**.

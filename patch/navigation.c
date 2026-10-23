@@ -89,7 +89,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_power_trampoline(void *, void *), stock_systemset_trampoline(void *, void *),
     stock_audioset_trampoline(void *, void *), stock_btrows_trampoline(void *, void *),
     stock_playlist_trampoline(void *), stock_stream_trampoline(void *, void *),
-    stock_start_player_trampoline(void), stock_standby_trampoline(void);
+    stock_start_player_trampoline(void), stock_standby_trampoline(void),
+    stock_usbmode_trampoline(void *, void *, void *, void *);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -1985,6 +1986,7 @@ int ringnav_paint(void *w, void *canvas) {
     photos_paint(w, canvas);
     books_paint(w, canvas);
     spot_paint(w, canvas);
+    addon_paint(w, canvas);
     peq_paint(w, canvas);
 #if IPOD
     visualizer_paint(w, canvas);
@@ -5082,9 +5084,12 @@ static void chapters_open(void *r) {
     page_list(st.ch_page, st.ch_page, 0, "Loading chapters…", 0, 64);
 }
 
-/* Tidal Downloads (docs/internals.md#tidal-cache): Streaming's row lists tidal.c's complete
- * downloads, newest first, and plays them from the card as a folder queue, without Wi-Fi.
- * ponytail: newest download first, not last played; demo imports no utime to touch a replay. */
+/* Songs on the card, played from it as a folder queue, without Wi-Fi: Tidal Downloads
+ * (docs/internals.md#tidal-cache), Streaming's row listing tidal.c's complete downloads, and an
+ * add-on's local rows (songs_open: q2-deezer's downloads). A folder lists its songs newest first,
+ * or, an album's (q2-deezer's Artist/Album folders, their files "01 - Title [id].flac"), by name:
+ * in track order. ponytail: newest download first, not last played; demo imports no utime to touch
+ * a replay. */
 typedef struct {
     long mtime;
     void *r;
@@ -5093,42 +5098,89 @@ static int td_newer(const void *a, const void *b) {
     long x = ((const td_row *)a)->mtime, y = ((const td_row *)b)->mtime;
     return (y > x) - (y < x);
 }
+static int td_named(const void *a, const void *b) {
+    const char *x = P(((const td_row *)a)->r, REC_NAME), *y = P(((const td_row *)b)->r, REC_NAME);
+    return strcmp(x ? x : "", y ? y : "");
+}
 static int td_play(void *ctx, void *event) {
     void *t = deque_at(st.td_list, (unsigned)(long)ctx);
     if (t && !access(P(t, REC_PATH), 0)) play_folder(st.td_list, (int)(long)ctx, 0xf001);
     return 0;
 }
-static int tidal_downloads(void *ctx, void *event) {
-    if (st.td_page || !(st.td_page = page_open("tidal_downloads", page_closed, page_keyup)))
-        return 0;
+/* dir's songs, newest first (or, album, by name), a deque the caller destroys. */
+static void *card_songs(const char *dir, int album) {
     int n = 0;
-    void *rows = staged(directory, TIDAL_DIR, &n);
+    void *rows = staged(directory, (void *)dir, &n);
     unsigned size = deque_size(rows), info[36];
     td_row *v = calloc(size + 1, sizeof *v);
     n = 0;
-    for (unsigned i = 0; v && i < size; i++) { /* songs only: .tmp and folders aren't audio */
+    for (unsigned i = 0; v && i < size; i++) { /* songs only: .tmp, .part, folders aren't audio */
         void *r = deque_at(rows, i);
         if (I(r, REC_TYPE) == 8 && P(r, REC_PATH) && !__xstat(3, P(r, REC_PATH), info))
             v[n++] = (td_row){ (long)info[16], r };
     }
-    if (n) qsort(v, (unsigned)n, sizeof *v, td_newer);
-    st.td_list = _create_deque("stSongInfo");
-    deque_init(st.td_list);
-    for (int i = 0; i < n; i++) _deque_push_back(st.td_list, v[i].r);
+    if (n) qsort(v, (unsigned)n, sizeof *v, album ? td_named : td_newer);
+    void *songs = _create_deque("stSongInfo");
+    deque_init(songs);
+    for (int i = 0; i < n; i++) _deque_push_back(songs, v[i].r);
     free(v);
     deque_destroy(rows);
-    void *view =
-        page_list(st.td_page, st.td_page, 0, n ? "Tidal Downloads" : "No downloads yet", n, 48);
+    return songs;
+}
+/* A song's label from its file: Tidal's after its "<id>-<quality> ", a card app's before a
+ * trailing " [<id>]" (q2-deezer's, as OpenDeezer names them), either less its extension. */
+static void song_label(const char *f, int tidal, char *out, unsigned size) {
+    const char *sp = tidal && f ? strstr(f, " ") : 0;
+    tk_snprintf(out, size, "%s", sp ? sp + 1 : f ? f : "");
+    char *dot = strrchr(out, '.'), *id;
+    if (dot && dot != out) *dot = 0;
+    if (!tidal && (id = strrchr(out, '[')) && id > out + 1 && id[-1] == ' ' &&
+        id[strlen(id) - 1] == ']')
+        id[-1] = 0;
+}
+static int songs_page(const char *window, const char *dir, const char *title, int tidal,
+                      int album) {
+    if (st.td_page || !(st.td_page = page_open(window, page_closed, page_keyup))) return 0;
+    st.td_list = card_songs(dir, album);
+    int n = (int)deque_size(st.td_list);
+    void *view = page_list(st.td_page, st.td_page, 0, n ? title : "No downloads yet", n, 48);
     char name[256];
-    for (int i = 0; i < n;
-         i++) { /* tidal_name's label: the name after "<id>-<quality> ", less its extension */
-        const char *f = P(deque_at(st.td_list, (unsigned)i), REC_NAME),
-                   *sp = f ? strstr(f, " ") : 0;
-        tk_snprintf(name, sizeof name, "%s", sp ? sp + 1 : f ? f : "");
-        char *dot = strrchr(name, '.');
-        if (dot && dot != name) *dot = 0;
+    for (int i = 0; i < n; i++) {
+        song_label(P(deque_at(st.td_list, (unsigned)i), REC_NAME), tidal, name, sizeof name);
         page_row_detail(view, i, name, 0, td_play);
     }
+    return 0;
+}
+static int tidal_downloads(void *ctx, void *event) {
+    (void)ctx, (void)event;
+    return songs_page("tidal_downloads", TIDAL_DIR, "Tidal Downloads", 1, 0);
+}
+/* A card app's local row (addon.c): a folder ("/" last) lists its songs; a song plays its folder
+ * from it, as Tidal Downloads does. album: the folder is an album's, listed and played in track
+ * order. */
+int songs_open(const char *path, const char *title, int album) {
+    char dir[256];
+    unsigned k = strlen(path);
+    if (!k || k >= sizeof dir) return 0;
+    tk_snprintf(dir, sizeof dir, "%s", path);
+    if (dir[k - 1] == '/') {
+        if (k > 1) dir[k - 1] = 0;
+        return songs_page("app_songs", dir, title, 0, album);
+    }
+    char *slash = strrchr(dir, '/');
+    if (!slash || slash == dir) return 0;
+    *slash = 0;
+    void *songs = card_songs(dir, album);
+    int at = -1;
+    for (unsigned i = 0; at < 0 && i < deque_size(songs); i++) {
+        const char *p = P(deque_at(songs, i), REC_PATH);
+        if (p && !strcmp(p, path)) at = (int)i;
+    }
+    if (at >= 0)
+        play_folder(songs, at, 0xf001); /* playing_page copies the queue at once */
+    else
+        toast("It isn't on the card any more");
+    deque_destroy(songs);
     return 0;
 }
 
@@ -5136,7 +5188,7 @@ static int tidal_downloads(void *ctx, void *event) {
  * cache caps, 512 MB to 8 GB, each kept in its folder's .cache-size as "<MB>M", librespot's
  * --cache-size-limit form, which the card's Spotify launcher reads when it starts librespot. Files,
  * not config.ini: tidal.c's trim reads Tidal's on its download thread, and blob_io renames it into
- * place, so a half-written one is never read. And a row that stops every stream. */
+ * place, so a half-written one is never read. And a row that stops every stream and add-on. */
 static const char *const sc_dirs[] = { TIDAL_DIR, SPOT_DIR };
 
 /* The choice i, the cap being 512 << i MB: 2 (2 GB) when the file is missing or holds another. */
@@ -5159,14 +5211,15 @@ static void sc_text(int i) {
 
 /* A cache row steps to the next size and saves it: Tidal's applies at the next download's trim,
  * Spotify's when librespot next starts. Stop Streaming Services ends librespot and its restart
- * loop, a radio station and a stock stream (Tidal's) queue, so the keys and the output are local
- * music's again; local music already stopped is left as it is. */
+ * loop, a radio station, the card apps (addon.c) and a stock stream (Tidal's) queue, so the keys
+ * and the output are local music's again; local music already stopped is left as it is. */
 static int sc_click(void *ctx, void *event) {
     int i = (int)(long)ctx;
     if (i == 2) {
         unsigned type = (unsigned)MCL(MCL_TYPE);
         spot_stop();
         radio_stop();
+        addon_stop();
         if (type != 1 && (type & 0xf000) != 0xf000 && mclGetPlayStatus() != 1) player_stop();
         toast("Streaming stopped");
         return 0;
@@ -5984,20 +6037,31 @@ static int airplay_open(void *ctx, void *event) {
     return 0;
 }
 
-/* stream_page_init: stock's rows, then Spotify (spotify.c), which opens its Now Playing page,
- * Tidal Downloads, Internet Radio (radio.c), AirPlay and Configuration. Their buttons have no
- * name, so stock's row click never sees them. */
+/* stream_page_init: stock's rows, then Spotify (spotify.c), which opens its browser, the card apps
+ * on the card (addon.c: Deezer, Soulseek, File Browser… as System settings' Apps or the user put
+ * them there), Tidal Downloads, Internet Radio (radio.c), AirPlay and Configuration. Their buttons
+ * have no name, so stock's row click never sees them. */
 int ringnav_stream(void *win, void *ctx) {
     int result = stock_stream_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;
     if (view) {
         library_into(view, "stream_spotify", spot_open, 0, "Spotify");
+        for (int k = 0, n = addon_scan(); k < n; ++k)
+            library_into(view, "stream_app", addon_open, (void *)(long)k, addon_name(k));
         library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads");
         library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
         library_into(view, "stream_airplay", airplay_open, 0, "AirPlay");
         library_into(view, "stream_config", stream_config, 0, "Configuration");
     }
     return result;
+}
+
+/* usbmode_page_init, as a cable to a computer opens USB mode, before stock unmounts the card for
+ * USB storage: the card apps, which write to it (downloads, uploads), end first, so nothing of
+ * theirs keeps it busy (they run from /tmp: addon.c). */
+int ringnav_usbmode(void *a, void *b, void *c, void *d) {
+    addon_card_away();
+    return stock_usbmode_trampoline(a, b, c, d);
 }
 
 /* mclStartPlayer, every local track's start: a playing librespot or radio station lets the DAC's
@@ -6856,14 +6920,15 @@ static int quick_wheel_toggle(void *top) {
 }
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. On an
  * Internet Radio station it is the favourite toggle, on a Spotify track Add to Queue (its reply
- * toasts), in Quick Settings the wheel's brightness/volume switch, on View Queue's shuffle list
+ * toasts), on a card app's row its hold op (addon_hold: a Deezer list downloaded whole), in Quick
+ * Settings the wheel's brightness/volume switch, on View Queue's shuffle list
  * Play Next (un_hold), the release latched as the queue menu's. */
 int ringnav_keylong(void *ctx, void *event) {
     if (event && ple_key((unsigned)I(event, EVENT_KEY), 3)) return STOP;
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
     void *top = window_manager_get_top_window(window_manager());
     const char *fav = radio_hold(top);
-    int taken = fav || quick_wheel_toggle(top) || spot_hold(top) || un_hold(top);
+    int taken = fav || quick_wheel_toggle(top) || spot_hold(top) || addon_hold(top) || un_hold(top);
     char *key = taken ? play_key() : (char *)0;
     if (taken) {
         if (key) st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
@@ -7343,6 +7408,7 @@ int rockbox_open(void *ctx, void *event) {
     save_memoryplay_info();
     player_stop();
     radio_stop();
+    addon_stop(); /* the card apps' loops run on past demo: each asked to end */
     if (st.charge_held) switch_charge_enable(1);
     if (st.cpu_off) cpu1_write(1);
     /* Rockbox's volume is pcm-alsa's software mixer alone, so the headset's absolute volume, left
@@ -7500,6 +7566,7 @@ int ringnav_sleep(void *loop) {
     video_poll();
     spot_poll();
     radio_poll();
+    addon_poll();
     playback_poll();
     resume_poll();
     power_poll();

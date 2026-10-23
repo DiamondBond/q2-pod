@@ -31,6 +31,8 @@
 { "streamconf_page", CTX_DYNAMIC, 0 }, /* runtime window (patch/navigation.c) */
 { "apps_page", CTX_DYNAMIC, 0 },       /* runtime window (patch/netupdate.c) */
 { "tidal_downloads", CTX_DYNAMIC, 0 }, /* runtime window (patch/navigation.c) */
+{ "app_songs", CTX_DYNAMIC, 0 },       /* runtime window (patch/navigation.c) */
+{ "addon_page", CTX_DYNAMIC, 0 },      /* runtime window (patch/addon.c) */
 { "album_page", CTX_LOCAL, 0 },
 { "albuminfo_page", CTX_LOCAL, RING },
 { "allmusic_page", CTX_LOCAL, RING },

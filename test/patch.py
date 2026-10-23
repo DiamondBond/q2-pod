@@ -98,6 +98,7 @@ class Machine:
                   'fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0',  # blob_io's sync before rename
                   'fopen@GLIBC_2.2')  # no /proc/mounts: the boot logo's poll sees no card
         self.present=set()  # paths access finds (the UI loop's Spotify poll asks for its login)
+        self.stats={}  # paths stat finds, with their mtime (songs on the card: a card app's)
         self.image_size=(50,50)  # what widget_load_image decodes
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
         self.rockbox_mode=0o100755
@@ -249,6 +250,7 @@ class Machine:
         elif name=='rockbox_stat':
             assert a==3
             if self.text(b) in ['/mnt/mmc/'+n for n,t in self.card if t==4] or self.text(b) in self.dirs: self.word(c+20,0o40755); ret=0  # a card folder
+            elif self.text(b) in self.stats: self.word(c+64,self.stats[self.text(b)]); ret=0  # its mtime: info[16]
             elif self.text(b)!='/mnt/mmc/.rockbox/rockbox': ret=-1  # Tidal Downloads' rows: no such files here
             else: self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
         elif name=='strlen@GLIBC_2.0': ret=len(self.raw(a))  # bytes: stock strips a path's UTF-8 name byte by byte
@@ -8130,6 +8132,10 @@ class BooksMachine(DepthMachine):
         name=self.handlers.get(address,'')
         a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
         if name=='c:calloc@GLIBC_2.0': ret=self.alloc((a*b+7)&~3) if a*b<=0x10000 else self.big_alloc(a*b)  # word-aligned
+        elif name=='b:qsort@GLIBC_2.0' and c!=4:  # not names (Tidal's and a card app's songs): the payload's comparator
+            self.handlers[address]='c:qsort@GLIBC_2.0'
+            try: return super().hook(u,address,size,unused)
+            finally: self.handlers[address]=name
         elif not name.startswith('b:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]
         if name=='opendir':
@@ -8500,6 +8506,14 @@ for index, name in [(22,'Asia/Shanghai'), *[(27+i,name) for i,(_,name) in enumer
     zones.call(address=HOOKS['select_timezone'][0],args=(0,0,0,0),gap=0)
     assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[name]
 passed()
+def stream_rows(m):
+    """Streaming's page over stock's one Tidal row: the hook's rows' buttons by their labels, in order."""
+    view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
+    assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+    rows={}
+    for r in m.nodes[view]['children'][1:]:
+        b=m.nodes[r]['children'][0]; rows[m.nodes[m.nodes[b]['children'][1]]['text']]=b
+    return rows
 def stream_page(m):
     """Stock Streaming's one Tidal row, then the hook's Spotify, Tidal Downloads, Internet Radio and AirPlay
     rows; returns Spotify's button."""
@@ -8883,9 +8897,11 @@ m.back(); m.calls=[]; m.back(); assert 'navigator_back' in [c[0] for c in m.call
 BROWSE='/tmp/q2-librespot.browse.sock'
 class BrowseMachine(RadioMachine):
     """RadioMachine's helpers, librespot on the card and a fake backend on its browse socket: serve(op,
-    args) answers (status, message, cursor, rows), or raw bytes; no serve, no socket."""
+    args) answers (status, message, cursor, rows), or raw bytes; no serve, no socket. A subclass names
+    another app: its socket, its Streaming row and the page it opens."""
+    browse,bin,page_name=BROWSE,BIN,'spotbrowse_page'
     def __init__(self,files=None):
-        super().__init__({BIN:bytearray(),**(files or {})})
+        super().__init__({self.bin:bytearray(),**(files or {})})
         for n in ('socket@GLIBC_2.0','connect@GLIBC_2.0','send@GLIBC_2.0','select@GLIBC_2.0','recv@GLIBC_2.0','fcntl@GLIBC_2.28'):
             self.handlers[syms[n]]='x:'+n
         shut=payload_syms['spot_shut']; self.handlers[shut]='x:spot_shut'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=shut,end=shut)  # fast(): payload hooks are per address
@@ -8900,7 +8916,7 @@ class BrowseMachine(RadioMachine):
             assert a==1 and b in (1,2); ret=9 if b==2 else 7
             if b==2: self.out=b''; self.pending=b''
         elif name=='connect' and a!=9: assert self.text(b+2)==SOCK; ret=0 if self.alive else -1  # spot_alive's
-        elif name=='connect': assert self.text(b+2)==BROWSE; ret=0 if self.serve else -1
+        elif name=='connect': assert self.text(b+2)==self.browse; ret=0 if self.serve else -1
         elif name=='fcntl': assert (a,b,c)==(9,4,0x80)  # nonblocking before connect
         elif name=='send':
             if a==9: self.out+=bytes(u.mem_read(b,c))
@@ -8921,12 +8937,12 @@ class BrowseMachine(RadioMachine):
         elif name=='recv': chunk=self.pending[:min(c,1000)]; self.pending=self.pending[len(chunk):]; u.mem_write(b,chunk); ret=len(chunk)
         self.calls.append((name,a,b,c))
         self.returns(ret,clobber=True)
+    def add_on_row(self):
+        """Its Streaming row, as RadioMachine.stream: Spotify's."""
+        return stream_rows(self)['Spotify']
     def open(self):
-        if not getattr(self,'button',0):  # Streaming, as RadioMachine.stream: Spotify's row
-            view=self.node('scroll_view','scroll_view_streamsset',[self.node('list_item')]); self.top=self.node('window','stream_page',[view])
-            assert self.call(address=HOOKS['stream_page_init'][0],args=(self.top,5,0,0),gap=0,count=5_000_000)==0
-            self.button=self.nodes[self.nodes[view]['children'][1]]['children'][0]
-        self.click(self.button); self.page=self.top; assert self.nodes[self.page]['name']=='spotbrowse_page'
+        if not getattr(self,'button',0): self.button=self.add_on_row()
+        self.click(self.button); self.page=self.top; assert self.nodes[self.page]['name']==self.page_name
     def asked(self):
         """The request the worker is about to send (spotify.c's wk: buf at 32, len at 28), split."""
         wk=payload_syms['wk']; head,line,_=bytes(self.u.mem_read(self.get(wk+32),self.get(wk+28))).decode().split('\n')
@@ -9174,6 +9190,228 @@ m.call(address=payload_syms['spot_np'],args=(0,0,0,0),gap=0,count=5_000_000)
 info,msg=m.nodes[m.top]['children']; assert texts(msg)==['Open Spotify on your phone','and choose Q2']
 passed()
 
+def run(m,name,*args): return m.call(address=payload_syms[name],args=(*args,0,0,0,0)[:4],gap=0,clear=False)
+
+# Card apps (patch/addon.c): programs on the card Q2 Pod knows only by their folder, .<id> holding its
+# manifest q2app, its launcher run and its binary q2-<id>; Streaming lists them after Spotify, by name,
+# and a row's page is the app's list over Q2SPOT/1 on its own socket, each row's kind saying what a
+# press does.
+def card_app(m,app,manifest):
+    """App `app` on the card: its folder in the card's listing, its manifest and its binary."""
+    m.tree.setdefault('/mnt/mmc',[]).append(('.'+app,4))
+    m.files[f'/mnt/mmc/.{app}/q2app']=bytearray(manifest.encode()); m.files[f'/mnt/mmc/.{app}/q2-{app}']=bytearray()
+class AppMachine(BrowseMachine):
+    """BrowseMachine with a card app in Spotify's place: on the card, its socket, its row, its page."""
+    app,manifest,page_name='soulseek','name=Soulseek\nsearch=Search Soulseek\nqr=0\n','addon_page'
+    def __init__(self,files=None):
+        self.bin,self.browse=f'/mnt/mmc/.{self.app}/q2-{self.app}',f'/tmp/q2-{self.app}.browse.sock'
+        super().__init__(files); card_app(self,self.app,self.manifest)
+        self.row_text=re.search(r'name=(.*)',self.manifest)[1]
+    def add_on_row(self): return stream_rows(self)[self.row_text]
+    def gone(self):
+        """Its row, then its binary gone from the card before the press."""
+        self.button=self.add_on_row(); self.files.pop(self.bin)
+# Streaming: the card apps after Spotify, by name, each with the shared icon and no name (stock's row
+# click never sees it); a folder without its binary or its manifest, or an id that can't be one (it
+# goes into shell commands), is no app.
+m=AppMachine(); card_app(m,'filebrowser','name=File Browser\nqr=1\n'); card_app(m,'deezer','name=Deezer\n')
+card_app(m,'gone','name=Gone\n'); m.files.pop('/mnt/mmc/.gone/q2-gone'); card_app(m,'Bad_Id','name=Bad\n')
+m.tree['/mnt/mmc']+=[('.spotify',4),('Music',4)]; m.files['/mnt/mmc/.spotify/librespot']=bytearray()
+rows=stream_rows(m)
+assert list(rows)==['Spotify','Deezer','File Browser','Soulseek','Tidal Downloads','Internet Radio','AirPlay','Configuration'],list(rows)
+for t in ('Deezer','File Browser','Soulseek'):
+    icon=m.nodes[rows[t]]['children'][0]; assert m.nodes[icon]['image']=='stream_app' and not m.nodes[rows[t]].get('name')
+passed()
+# Soulseek: q2-soulseek from the card's .soulseek folder.
+SBIN,SBROWSE,SSTATE,SPID='/mnt/mmc/.soulseek/q2-soulseek','/tmp/q2-soulseek.browse.sock','/tmp/q2-soulseek.state','/tmp/q2-soulseek'
+class SlskMachine(AppMachine): pass
+SMENU=[('remote','','Phone Remote','192.168.1.23:8080','',''),('search','','Search','Online as alice','',''),
+       ('list','downloads','Downloads','None yet','',''),('action','set','Sharing: Off','Nothing is shared','sharing',''),
+       ('action','stop','Stop Soulseek','','','')]
+SLABELS=['Soulseek','Phone Remote','192.168.1.23:8080','Search','Online as alice','Downloads','None yet','Sharing: Off',
+         'Nothing is shared','Stop Soulseek','']
+# Gone from the card since Streaming listed it: the page says so and nothing starts.
+m=SlskMachine(); m.gone(); m.open()
+assert m.labels()==["Soulseek isn't on the card",'Install it again in System settings → Apps'] and not m.systems and not m.threads
+m.row(0); assert not m.threads; m.poll(); assert not m.systems; m.close(); passed()
+# With it: started, the menu asked; no socket yet is the add-on starting, asked again; its rows.
+m=SlskMachine(); m.open(); assert m.systems==['/bin/sh /mnt/mmc/.soulseek/run'] and m.labels()==['Loading…']
+m.worker(); assert m.labels()==['Starting Soulseek…']; m.advance(500)
+m.answer('ok','refresh','',SMENU); assert m.requests[-1]==('menu',) and m.labels()==SLABELS; passed()
+# A live level is asked again every 2 s while on top; the same rows aren't rebuilt, changed ones are,
+# their selected row kept.
+rows=m.rows(); m.nodes[m.find('scroll_view')]['_ringnav_index']=2; m.advance(2000); m.worker()
+assert len(m.requests)==2 and m.requests[-1]==("menu",) and m.rows()==rows
+changed=[*SMENU[:2],('list','downloads','Downloads','1 downloading','',''),*SMENU[3:]]
+m.advance(2000); m.answer('ok','refresh','',changed)
+assert m.rows()!=rows and m.labels()[6]=='1 downloading' and m.nodes[m.find('scroll_view')]['_ringnav_index']==2,(m.labels(),m.nodes[m.find('scroll_view')].get('_ringnav_index')); passed()
+# A list row opens its level; Back asks for the menu again, the row kept.
+m.pick(2); m.answer('ok','refresh','',[('info','','No downloads yet','Search, then press a file','','')])
+assert m.requests[-1]==('downloads',) and m.labels()==['Downloads','No downloads yet','Search, then press a file']; asked=len(m.threads); m.row(0); assert len(m.threads)==asked
+m.back(); m.answer('ok','refresh','',changed)
+assert m.requests[-1]==('menu',) and m.nodes[m.find('scroll_view')]['_ringnav_index']==2,(m.requests[-1],m.nodes[m.find('scroll_view')].get('_ringnav_index'))
+# An action row sends its op with its context, toasts the reply's message and asks for the level again.
+m.pick(3); m.answer('ok','Sharing: While charging','',[])
+assert m.requests[-1]==('set','sharing') and m.toasts[-1][3]=='Sharing: While charging',(m.requests[-1],m.toasts[-1:])
+m.answer('ok','refresh','',SMENU); assert m.requests[-1]==('menu',) and m.labels()==SLABELS; passed()
+# Search: the T9 box, its OK opening "search" for the text, escaped.
+m.pick(1); edit=m.find('edit'); assert m.nodes[edit]['tips']=='Search Soulseek'
+m.nodes[edit]['text']='aphex\ttwin'; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED'])
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
+m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob · FLAC 16/44.1 · 31 MB · free','12.3','downloadfolder')])
+assert m.wire[-1].endswith(b'\tsearch\taphex%09twin\n'),m.wire[-1]
+assert m.labels()==['aphex\ttwin','01 Xtal.flac','bob · FLAC 16/44.1 · 31 MB · free','More…'],m.labels()
+# A press downloads the file; Play/Pause held, the hold op (its whole folder); More… the next page.
+m.pick(0); m.answer('ok','Downloading 01 Xtal.flac','',[]); assert m.requests[-1]==('download','12.3') and m.toasts[-1][3]=='Downloading 01 Xtal.flac'
+m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','downloadfolder')])
+m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=0; m.press(80)
+assert m.hold()==11; m.answer('ok','Downloading the folder','',[]); assert m.requests[-1]==('downloadfolder','12.3') and m.toasts[-1][3]=='Downloading the folder'
+m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','downloadfolder')])
+m.pick(1); m.answer('ok','','',[]); assert m.requests[-1]==('search','aphex%09twin','50'),m.requests[-1]; passed()
+# Back twice to the menu; Phone Remote shows the QR code page from the add-on's status file.
+m.back(); m.answer('ok','refresh','50',[]); m.back(); m.answer('ok','refresh','',SMENU); assert m.labels()==SLABELS
+code=[[(x*7+y*3)%5<2 for x in range(21)] for y in range(21)]
+hexed=''.join(''.join('%x'%sum(8>>b for b in range(4) if d*4+b<21 and row[d*4+b]) for d in range(6)) for row in code)
+m.files[SSTATE]=bytearray(f'addr=192.168.1.23:8080\ndl=0\nhold=0\nnote=Online as alice\npin=548001\nqr={hexed}\nqrsize=21\n'.encode())
+m.pick(0); qp=m.top; assert m.nodes[qp]['name']=='qrcode_page'
+assert {'Soulseek','192.168.1.23:8080','548 001','Online as alice','Scan with your',"phone's camera"}<=set(texts(qp)),texts(qp)
+qr=next(w for w in m.nodes if m.nodes[w]['type']=='view' and m.get(w+O['W_PARENT'])==qp and cf_geometry(m,w)==(16,40,186,186))
+m.bands.clear(); m.rounded.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(qr,m.canvas,0,0))
+mod,off=186//25,(186-186//25*21)//2; want=[]
+for y,row in enumerate(code):
+    x=0
+    while x<21:
+        r=0
+        while x+r<21 and row[x+r]: r+=1
+        if r: want.append((off+x*mod,off+y*mod,r*mod,mod))
+        x+=r or 1
+assert [b[:4] for b in m.bands]==want and {b[4] for b in m.bands}=={color_t(0)} and m.rounded[0]['rect']==(0,0,186,186),(m.bands[:3],want[:3],m.rounded[:1]); passed()
+# No address (no Wi-Fi): the code hides and the page says so; a second later it follows the file.
+m.files[SSTATE]=bytearray(b'dl=0\nhold=0\nnote=Connect the Q2 to Wi-Fi\npin=548001\nqr=\nqrsize=0\n'); m.advance(1000)
+assert not m.nodes[qr]['visible'] and 'Connect the Q2 to Wi-Fi' in texts(qp),texts(qp); m.destroy(qp); m.top=m.page; passed()
+# Holding standby off: while the add-on asks (hold=1), each poll resets standby and auto power-off
+# (not the screen's); once it stops by itself (its loop's pid gone), it is let go.
+m.files[SSTATE]=bytearray(b'addr=x\ndl=1\nhold=1\n'); names=m.poll()
+assert ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls]
+m.files[SSTATE]=bytearray(b'addr=x\ndl=0\nhold=0\n'); m.poll(); assert 'reset_poweroptions_timer' not in [c[0] for c in m.calls]
+m.files[SPID]=bytearray(b'123'); m.poll(11000); m.files[SSTATE]=bytearray(b'hold=1\n'); m.files.pop(SPID); m.poll(); m.poll()
+assert 'reset_poweroptions_timer' not in [c[0] for c in m.calls]; passed()
+# USB mode, before stock unmounts the card: the add-on asked to end and waited for (its loop's pid
+# file gone), then stock's page; started again once USB mode is over and the card is back.
+m=SlskMachine(); m.open(); m.answer('ok','refresh','',SMENU); m.destroy(m.page); m.files[SPID]=bytearray(b'123')
+m.on_sleep=lambda: m.files.pop(SPID,None) if m.now>=t0+300 else None; t0=m.now; m.systems=[]
+tramp=int(manifest['patch_symbols']['stock_usbmode_trampoline'],16); m.handlers[tramp]='stock_usbmode'; m.u.hook_add(UC_HOOK_CODE,m.hook,begin=tramp,end=tramp)
+m.call(address=HOOKS['usbmode_page_init'][0],args=(0x55,0x66,0,0),gap=0,count=5_000_000); m.on_sleep=None
+names=[c[0] for c in m.calls]
+assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null'] and names.index('stock_usbmode')>names.index('sleep_ms') and SPID not in m.files,(m.systems,names[-12:])
+m.open_pages={'usbmode_page'}; m.poll(); assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null']
+m.open_pages=set(); m.poll(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.soulseek/run'; passed()
+# Stop Streaming Services stops it too.
+m.systems=[]; run(m,'addon_stop'); assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null']; passed()
+
+# File Browser: q2-filebrowser from the card's .filebrowser folder, the same page on its own socket.
+# Its manifest's qr=1: turned on by its row, its QR code page opens once it answers, the menu behind
+# it; opened again while it runs, the menu alone.
+FBIN,FBROWSE,FSTATE,FPID='/mnt/mmc/.filebrowser/q2-filebrowser','/tmp/q2-filebrowser.browse.sock','/tmp/q2-filebrowser.state','/tmp/q2-filebrowser'
+class FileBrowserMachine(AppMachine):
+    app,manifest='filebrowser','name=File Browser\nsearch=Search\nqr=1\n'
+FMENU=[('remote','','Open on Your Phone','http://192.168.1.23:8000 · PIN 548 001','',''),('info','','Card: 12.3 GB free','of 59.4 GB','',''),
+       ('action','readonly','Read Only: Off','The phone can upload, rename, move and delete','',''),
+       ('action','stop','Turn Off File Browser','It also turns off after 15 minutes unused','','')]
+FLABELS=['File Browser','Open on Your Phone','http://192.168.1.23:8000 · PIN 548 001','Card: 12.3 GB free','of 59.4 GB','Read Only: Off',
+         'The phone can upload, rename, move and delete','Turn Off File Browser','It also turns off after 15 minutes unused']
+m=FileBrowserMachine(); m.gone(); m.open()
+assert m.labels()==["File Browser isn't on the card",'Install it again in System settings → Apps'] and not m.systems; m.close(); passed()
+m=FileBrowserMachine(); m.open(); assert m.systems==['/bin/sh /mnt/mmc/.filebrowser/run'] and m.labels()==['Loading…']
+m.worker(); assert m.labels()==['Starting File Browser…']; m.advance(500)
+m.files[FSTATE]=bytearray(f"addr=192.168.1.23:8000\nhold=0\nnote=Manage the card's files there\npin=548001\nqr={hexed}\nqrsize=21\nversion=q2f-v1.0\n".encode())
+m.answer('ok','refresh','',FMENU); assert m.requests[-1]==('menu',) and m.labels()==FLABELS
+qp=m.top; assert m.nodes[qp]['name']=='qrcode_page'
+assert {'File Browser','192.168.1.23:8000','548 001',"Manage the card's files there",'Scan with your'}<=set(texts(qp)),texts(qp)
+m.destroy(qp); m.top=m.page
+# Asked again while on top: the same rows, and no second code page.
+m.advance(2000); m.worker(); assert m.requests[-1]==('menu',) and m.top==m.page and m.labels()==FLABELS; passed()
+# Read Only from the Q2; Open on Your Phone shows the code again.
+m.pick(2); m.answer('ok','Read only','',[]); assert m.requests[-1]==('readonly',) and m.toasts[-1][3]=='Read only'
+m.answer('ok','refresh','',FMENU); m.pick(0); assert m.nodes[m.top]['name']=='qrcode_page'; m.destroy(m.top); m.top=m.page; passed()
+# Opened again while it runs (its loop's pid there): nothing started, the menu alone.
+m.close(); m.systems=[]; m.files[FPID]=bytearray(b'9'); m.open(); assert not m.systems
+m.answer('ok','refresh','',FMENU); assert m.top==m.page and m.labels()==FLABELS; passed()
+# Turn Off: its reply toasted, the page left.
+m.calls=[]; m.pick(3); m.answer('ok','File Browser off','',[])
+assert m.requests[-1]==('stop',) and m.toasts[-1][3]=='File Browser off' and 'navigator_back' in [c[0] for c in m.calls]; m.close()
+# Stop Streaming Services stops it too.
+m.systems=[]; run(m,'addon_stop'); assert m.systems==['kill $(cat /tmp/q2-filebrowser) 2>/dev/null']; passed()
+
+# Deezer: q2-deezer from the card's .deezer folder. Nothing streams: a press downloads, to Deezer/ on
+# the card, and a song on the card, a local row, plays from it as local music (navigation.c songs_open).
+DZBIN,DZBROWSE,DZSTATE,DZPID='/mnt/mmc/.deezer/q2-deezer','/tmp/q2-deezer.browse.sock','/tmp/q2-deezer.state','/tmp/q2-deezer'
+class DeezerMachine(AppMachine):
+    app,manifest='deezer','name=Deezer\nsearch=Search Deezer\nqr=0\n'
+m=DeezerMachine(); m.gone(); m.open()
+assert m.labels()==["Deezer isn't on the card",'Install it again in System settings → Apps'] and not m.systems; m.close(); passed()
+# Started, the menu asked; signed out, its sign-in row opens the code over its status file (and only
+# then: Deezer's row doesn't open it by itself).
+m=DeezerMachine(); m.open(); assert m.systems==['/bin/sh /mnt/mmc/.deezer/run'] and m.labels()==['Loading…']
+m.worker(); assert m.labels()==['Starting Deezer…']; m.advance(500)
+DZOUT=[('remote','','Sign In from Your Phone','Press to show the code','',''),('action','stop','Stop Deezer','Downloads carry on next time','','')]
+m.files[DZSTATE]=bytearray(f"addr=192.168.1.23:8090\nhold=0\nnote=Paste your Deezer ARL there\npin=135790\nqr={hexed}\nqrsize=21\n".encode())
+m.answer('ok','refresh','',DZOUT); assert m.requests[-1]==('menu',) and m.top==m.page
+assert m.labels()==['Deezer','Sign In from Your Phone','Press to show the code','Stop Deezer','Downloads carry on next time']
+m.pick(0); qp=m.top; assert m.nodes[qp]['name']=='qrcode_page'
+assert {'Deezer','192.168.1.23:8090','135 790','Paste your Deezer ARL there'}<=set(texts(qp)),texts(qp); m.destroy(qp); m.top=m.page; passed()
+# Signed in: Play/Pause held on a list downloads all of it; a list's song row, pressed, downloads it.
+SONGS='/mnt/mmc/Deezer'
+DZMENU=[('local',SONGS+'/','Downloaded Songs','2 songs on the card','',''),('list','tracks','Liked Songs','','liked','download'),
+        ('search','','Search Deezer','','',''),('action','stop','Stop Deezer','Downloads carry on next time','','')]
+m.advance(2000); m.answer('ok','refresh','',DZMENU)
+assert m.labels()==['Deezer','Downloaded Songs','2 songs on the card','Liked Songs','','Search Deezer','','Stop Deezer','Downloads carry on next time'],m.labels()
+m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=1; m.press(80)
+assert m.hold()==11; m.answer('ok','Downloading 12 songs','',[])
+assert m.requests[-1]==('download','liked') and m.toasts[-1][3]=='Downloading 12 songs'
+m.answer('ok','refresh','',DZMENU); m.pick(2); assert m.nodes[m.find('edit')]['tips']=='Search Deezer'
+f,ctx=m.handler(m.find('edit'),O['EVT_BLUR']); m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000); m.advance(0,clear=False)
+LIKED=[('action','download','Download All','12 songs','liked',''),('action','download','Valerie','Broadcast','liked#5','download'),
+       ('local',SONGS+'/Corporeal - Broadcast [6].flac','Corporeal','Broadcast · on the card','','')]
+m.pick(1); m.answer('ok','refresh','',LIKED); assert m.requests[-1]==('tracks','liked') and m.labels()[:3]==['Liked Songs','Download All','12 songs'],m.labels()
+m.pick(1); m.answer('ok','Downloading','',[]); assert m.requests[-1]==('download','liked#5') and m.toasts[-1][3]=='Downloading'
+m.answer('ok','refresh','',LIKED); passed()
+# A song on the card plays its folder from it, newest first, as local music: the card's songs only.
+names=('Valerie - Broadcast [5].flac','Corporeal - Broadcast [6].flac','.Valerie - Broadcast [5]-1.flac.part')
+recs=[m.song(n) for n in names]
+for r,n,t in zip(recs,names,(100,200,300)):
+    m.word(r+O['REC_PATH'],m.string(f'{SONGS}/{n}')); m.files[f'{SONGS}/{n}']=bytearray(); m.stats[f'{SONGS}/{n}']=t
+m.word(recs[2]+O['REC_TYPE'],0)  # a download's .part isn't a song
+m.found=recs; m.plays=[]; m.pick(2)
+assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['Corporeal - Broadcast [6].flac','Valerie - Broadcast [5].flac'],(m.plays,m.play_names)
+assert [m.text(c[1]) for c in m.calls if c[0]=='toolsLoadDirectory'][-1]==SONGS; passed()
+# Downloaded Songs (its uri a folder) lists them, newest first, labelled as OpenDeezer names them,
+# and a row plays from it; a song gone from the card says so.
+m.back(); m.answer('ok','refresh','',DZMENU); m.plays=[]; m.pick(0); songs=m.top
+assert m.nodes[songs]['name']=='app_songs' and [l for l in m.labels(songs) if l]==['Downloaded Songs','Corporeal - Broadcast','Valerie - Broadcast'],m.labels(songs)
+m.click(m.nodes[m.find('scroll_view',songs)]['children'][1])
+assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play_names==['Corporeal - Broadcast [6].flac','Valerie - Broadcast [5].flac'],(m.plays,m.play_names)
+m.destroy(songs); m.top=m.page; m.found=recs[:1]; m.advance(2000); m.answer('ok','refresh','',DZMENU)
+m.pick(1); m.answer('ok','refresh','',LIKED); n=len(m.toasts); m.pick(2)
+assert m.toasts[n:] and m.toasts[-1][3]=="It isn't on the card any more",m.toasts[n:]; passed()
+# An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
+# its songs listed and played in track order, by name, whatever their dates.
+ALBUM=SONGS+'/Broadcast/Tender Buttons'
+names=('02 - Valerie [5].flac','01 - Tears in the Typing Pool [4].flac','03 - Corporeal [6].flac')
+recs=[m.song(n) for n in names]
+for r,n,t in zip(recs,names,(300,200,100)):
+    m.word(r+O['REC_PATH'],m.string(f'{ALBUM}/{n}')); m.files[f'{ALBUM}/{n}']=bytearray(); m.stats[f'{ALBUM}/{n}']=t
+m.found=recs; m.back(); m.answer('ok','refresh','',[('local',ALBUM+'/','Tender Buttons','3 songs','album','')])
+m.plays=[]; m.pick(0); songs=m.top
+assert m.nodes[songs]['name']=='app_songs' and [l for l in m.labels(songs) if l]==['Tender Buttons','01 - Tears in the Typing Pool','02 - Valerie','03 - Corporeal'],m.labels(songs)
+m.click(m.nodes[m.find('scroll_view',songs)]['children'][1])
+assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play_names==list(sorted(names)),(m.plays,m.play_names)
+m.destroy(songs); m.top=m.page; m.advance(2000); m.answer('ok','refresh','',[('local',f'{ALBUM}/{names[0]}','Valerie','Broadcast · on the card','album','')])
+m.plays=[]; m.pick(0); assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play_names==list(sorted(names)),(m.plays,m.play_names); passed()
+# Stop Streaming Services, USB storage and Rockbox stop it as the other apps (it writes to the card).
+m.close(); m.files[DZPID]=bytearray(b'7'); m.systems=[]; run(m,'addon_stop')
+assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null' in m.systems,m.systems; passed()
+
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
 # Version, so the added row is checked against the real stock widgets, geometry and styles.
@@ -9280,11 +9518,11 @@ KILL='killall -9 librespot aplay'
 m=ShelfMachine({SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
                 '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
 m.rockbox_mode=0; m.wifi=-1; apps_open(m)
-assert m.labels()==['Apps','Rockbox','Install','Spotify','Installed'] and not m.threads; passed()  # no themes without Rockbox
+assert m.labels()==['Apps','Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
 m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; apps_open(m)
-assert m.labels()==['Apps','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache']
+assert m.labels()==['Apps','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache','Deezer','Install','Soulseek','Install','File Browser','Install']
 m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
-assert m.opts[10002]=='https://api.github.com/repos/DiamondBond/q2-librespot/releases/latest' and m.opts[10018]=='Q2Pod'
+assert m.opts[10002]=='https://api.github.com/repos/group-a-study/q2-filebrowser/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of six
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2
 assert m.labels()[6]=='Update' and '/tmp/q2-shelf.json' not in m.files; passed()  # q2-v1.8 against the latest q2-v1.9
 m.close(); m.now+=9*60*1000; apps_open(m); assert len(m.threads)==1 and m.labels()[6]=='Update'; passed()  # still fresh: no requests
@@ -9305,7 +9543,7 @@ assert 'rm -rf /mnt/mmc/.spotify/cache /mnt/mmc/.spotify/.cache-size' in m.syste
 m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==6
 m.row(1); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==6; passed()
 m.close(); m.rockbox_mode=0; m.dirs.pop('/mnt/mmc/.spotify'); m.reply=(ROOT/'test/shelf/q2-rockbox.json').read_bytes()
-apps_open(m); shelf_job(m); assert m.labels()==['Apps','Rockbox','Install','Spotify','Install']  # not stopped: checked again
+apps_open(m); shelf_job(m); assert m.labels()==['Apps','Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']  # not stopped: checked again
 m.row(0); assert m.labels()[2]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==7
 m.row(0); assert len(m.threads)==8 and m.labels()[2]=='Checking…'; m.row(0); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
 m.free=10<<20; m.row(0); m.row(0); shelf_job(m)  # the zip (13018581 bytes) and 64 MB left over
@@ -9319,7 +9557,7 @@ assert m.moves[-2:]==['/mnt/mmc/.q2/apps/rockbox.files','/mnt/mmc/.q2/apps/rockb
 assert m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2' and m.files['/mnt/mmc/.rockbox/fonts/a b.fnt']==b'f'
 assert m.files['/mnt/mmc/.q2/apps/rockbox.files']==b'.rockbox/rockbox\n.rockbox/codecs/flac.codec\n.rockbox/fonts/a b.fnt\n'
 assert not [f for f in m.files if '.q2/staging' in f] and 'sync' in m.systems; passed()
-assert m.labels()==['Apps','Rockbox','Installed','Rockbox Themes','Install','Spotify','Install']; passed()  # the rows built again
+assert m.labels()==['Apps','Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']; passed()  # the rows built again
 m.listing='        1  10-06-2026 13:18   .rockbox/../../x\n'; m.files.pop('/mnt/mmc/.q2/apps/rockbox.tag'); m.row(0); shelf_job(m)
 assert m.toasts[-1][3]=='The download is not a usable app' and m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2'; passed()
 m.close(); passed()
@@ -10526,9 +10764,9 @@ assert 'killall -9 librespot aplay' in m.systems[-1] and 'player_stop' in [c[0] 
 assert [m.text(c[2]+8) for c in m.calls if c[0]=='navigator_to_with_context']==['Streaming stopped']
 assert endpoint(m,'radio_status')==0 and endpoint(m,'spot_status')==0 and m.key(O['KEY_PLAY'])!=11; m.close(); passed()
 # The wheel drives only allowlisted windows (patch/contexts.inc), so every runtime list page needs an
-# entry; the two streaming Now Playing pages handle their own keys.
+# entry; the two streaming Now Playing pages and a card app's QR code page (no list) handle their own keys.
 pages=set(re.findall(r'page_open\("(\w+)"',''.join(p.read_text() for p in (ROOT/'patch').glob('*.c'))))
-assert pages-set(re.findall(r'"(\w+)"',(ROOT/'patch/contexts.inc').read_text()))=={'radionp_page','spotify_page'}; passed()
+assert pages-set(re.findall(r'"(\w+)"',(ROOT/'patch/contexts.inc').read_text()))=={'radionp_page','spotify_page','qrcode_page'}; passed()
 m=BooksMachine({},{}); vid=payload_syms['vid']; m.word(vid+12,4242); m.word(vid+16,7)
 for playing,command in ((0,'a'),(1,'r')):
     m.sent=[]; endpoint(m,'video_set_playing',playing); endpoint(m,'video_set_playing',playing)

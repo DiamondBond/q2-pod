@@ -2379,7 +2379,8 @@ def netupdate_check(tmp):
 
 def shelf_check(tmp, lib):
     """Q2 Shelf (netupdate.c): GitHub's release JSON, the unzip listing's checks, and an install and
-    remove of Rockbox, its themes and Spotify on a scratch card, host unzip (Info-ZIP) for busybox's."""
+    remove of Rockbox, its themes, Spotify and the card apps on a scratch card, host unzip (Info-ZIP)
+    for busybox's."""
     import shutil, zipfile
     def release(json):
         tag, url, size = C.create_string_buffer(32), C.create_string_buffer(256), C.c_uint()
@@ -2426,16 +2427,17 @@ def shelf_check(tmp, lib):
                                               ('__MACOSX/.rockbox/._wps', b'mac')]),
                  2: zip_of(tmp/'spotify.zip', [('.spotify/run', b'#!/bin/sh'), ('.spotify/librespot', b'ELF'),
                                                ('.spotify/cache/credentials.json', b'theirs'), ('.spotify/.cache-size', b'1M')])}
+    ids = ('rockbox', 'themes', 'spotify', 'deezer', 'soulseek', 'filebrowser')  # netupdate.c's apps
     def install(i, zip_path):
         shutil.rmtree(staging, ignore_errors=True); staging.mkdir(parents=True); (card/'.q2/apps').mkdir(exist_ok=True)
-        shutil.copy(zip_path, staging/f'{("rockbox", "themes", "spotify")[i]}.part')
+        shutil.copy(zip_path, staging/f'{ids[i]}.part')
         total = C.c_uint(); r = lib.shelf_list(i, C.byref(total))
         if r: return r
         assert total.value > 0 and lib.shelf_unpack(i) == 0
         r = lib.shelf_place(i); shutil.rmtree(staging); return r
     def tree():
         return sorted(str(f.relative_to(card)) for f in card.rglob('*') if f.is_file() and '.q2' not in f.parts)
-    def files(i): return (card/f'.q2/apps/{("rockbox", "themes", "spotify")[i]}.files').read_text().split('\n')[:-1]
+    def files(i): return (card/f'.q2/apps/{ids[i]}.files').read_text().split('\n')[:-1]
     shutil.rmtree(card, ignore_errors=True); (card/'.rockbox').mkdir(parents=True); (card/'.spotify/cache').mkdir(parents=True)
     (card/'.rockbox/config.cfg').write_bytes(b'mine'); (card/'.spotify/cache/credentials.json').write_bytes(b'login')
     (card/'.spotify/.cache-size').write_bytes(b'4096M'); (card/'Music').mkdir(); (card/'Music/a.flac').write_bytes(b'song')
@@ -2464,7 +2466,26 @@ def shelf_check(tmp, lib):
     evil = zip_of(tmp/'evil.zip', [('.rockbox/ok', b'x'), ('.rockbox/../../../escaped', b'x')])
     assert install(0, evil) == 5 and not (tmp/'escaped').exists() and not (card.parent/'escaped').exists()  # SH_BAD, nothing unpacked
     assert install(1, zip_of(tmp/'empty.zip', [('INSTALL.txt', b'readme')])) == 5  # nothing for the app's folder
-    print("Q2 Shelf: release JSON, unzip listing checks, install, update, failed move and remove passed.")
+
+    # The card apps (patch/addon.c), zipped as their releases are: the app, its launcher and manifest.
+    # What each saved (Deezer's sign-in, settings and queue; Soulseek's settings, transfers and
+    # share index; File Browser's settings) survives an install over it, an update and a remove.
+    saved = {3: ['.deezer/arl', '.deezer/quality', '.deezer/organize', '.deezer/queue.json'],
+             4: ['.soulseek/config.json', '.soulseek/downloads.json', '.soulseek/shares.cache'],
+             5: ['.filebrowser/config.json']}
+    shutil.rmtree(card); card.mkdir(parents=True)
+    for i, kept in saved.items():
+        d = '.' + ids[i]
+        for f in kept: (card/f).parent.mkdir(exist_ok=True); (card/f).write_bytes(b'mine')
+        z = zip_of(tmp/f'{ids[i]}.zip', [(f'{d}/q2-{ids[i]}', b'ELF'), (f'{d}/run', b'#!/bin/sh'),
+                                         (f'{d}/q2app', b'name=x\n'), (f'{d}/README.txt', b'r'),
+                                         *[(f, b'release') for f in kept]])  # a careless release's
+        assert install(i, z) == 0 and install(i, z) == 0, i
+        assert sorted(files(i)) == sorted(f'{d}/{n}' for n in (f'q2-{ids[i]}', 'run', 'q2app', 'README.txt'))
+        assert all((card/f).read_bytes() == b'mine' for f in kept), i
+        lib.shelf_remove(i)
+        assert sorted(str(f.relative_to(card)) for f in (card/d).rglob('*')) == sorted(kept), i
+    print("Q2 Shelf: release JSON, unzip listing checks, install, update, failed move, remove and card apps passed.")
 
 
 def online_check(tmp):

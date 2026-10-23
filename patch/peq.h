@@ -158,6 +158,24 @@ void play_folder(void *dq, int idx, int cls);
 int directory(void *path); /* playback.c: toolsLoadDirectory, for staged */
 #define TIDAL_DIR "/mnt/mmc/.tidal" /* tidal.c's cache, Tidal Downloads' list */
 #define SPOT_DIR "/mnt/mmc/.spotify" /* librespot and its launcher, spotify.c's */
+/* addon.c: card apps, each a card folder .<id> holding its manifest q2app, its
+ * launcher run and its binary q2-<id>. addon_scan finds them again (how many slots: a slot's index
+ * stays its app's), addon_name is one's while it is on the card (else 0), addon_open its Streaming
+ * row's click (ctx: the slot). addon_forget and addon_quit: the Apps page replaces or removes the
+ * files of the app in folder dir (".deezer"): forgotten on the UI thread, then asked to end and
+ * waited for on the Apps page's worker. */
+int addon_scan(void), addon_open(void *ctx, void *event), addon_hold(void *top);
+const char *addon_name(int a);
+void addon_poll(void), addon_stop(void), addon_paint(void *w, void *canvas), addon_card_away(void);
+void addon_forget(const char *dir), addon_quit(const char *dir);
+/* spotify.c's Q2SPOT/1 framing (docs/librespot.md), which the card apps speak too */
+int spot_escape(const char *s, char *out, unsigned size);
+int spot_reply(char *buf, unsigned len, char **f, int max);
+void spot_shut(int fd);
+/* navigation.c: a card folder's songs played from the card (a card app's local row): a folder
+ * opens its list, a file plays its folder from it; album, in track order (by name), else newest
+ * first. */
+int songs_open(const char *path, const char *title, int album);
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);

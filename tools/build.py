@@ -112,6 +112,8 @@ HOOKS = {
     'mclStartPlayer': (0x5ad6ac, 'ringnav_start_player', 'start_player'),
     # View Queue's row and Up Next's (navigation.c): a picked queue index, kept in advanced play's order
     'player_start_queue': (0x5160dc, 'ringnav_start_queue', 'start_queue'),
+    # Card apps (patch/addon.c): USB mode's page, before it unmounts the card, ends them first
+    'usbmode_page_init': (0x530cd4, 'ringnav_usbmode', 'usbmode'),
     # Tidal cache (patch/tidal.c): the stream URL thread's player start, with its song id in $s2
     'mcl_tidalStartPlayer': (0x5ad240, 'tidal_start', 'tidal'),
     # Ratings (navigation.c rate_bind): Now Playing's heart, held, opens the picker
@@ -938,7 +940,8 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'bt_connectstatus': 4}  # a link thread runs (1), ended (2), checked (3)
 # Windows the payload creates at runtime (window_create), so no rootfs asset names them.
 PAYLOAD_WINDOWS = {'playlistedit_page', 'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'games_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'rated_page', 'longsongs_page', 'spotify_page',
-                   'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads', 'apps_page'}
+                   'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads', 'apps_page',
+                   'addon_page', 'app_songs', 'qrcode_page'}
 ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
@@ -1335,13 +1338,13 @@ def build(zip_path, out, logo, ipod=False, dev=False):
         icons['local_games.png'] = ('system_language.png', (ROOT/'assets/icons/local_games.png').read_bytes())
         # Minimal's selected Wi-Fi and Bluetooth rows draw this grey copy over stock's white delete mark
         icons['list_delete.png'] = ('navbar_delete.png', cat(xx+'navbar_delete.png'))
-    for n in ('spotify', 'radio'):  # Streaming's Spotify and Internet Radio rows
+    for n in ('spotify', 'radio', 'app'):  # Streaming's Spotify, Internet Radio and card app rows
         icons[f'stream_{n}.png'] = ('list_tidal.png', (ROOT/'assets/icons'/f'stream_{n}.png').read_bytes())
     icons['stream_airplay.png'] = ('list_tidal.png', cat(xx+'netservice_airplay.png'))  # iPod resizes stock's
     icons['stream_config.png'] = ('list_tidal.png', cat(xx+'system_netservice.png'))  # Configuration's
     art = (ROOT/'assets/icons/default_album_home.png').read_bytes() if ipod else None
     if ipod:  # Streaming's rows draw them at SET_ICON; Home's placeholder at the art panel's 290px
-        for n in ('spotify', 'radio', 'airplay', 'config'):
+        for n in ('spotify', 'radio', 'app', 'airplay', 'config'):
             like, data = icons[f'stream_{n}.png']
             icons[f'stream_{n}.png'] = (like, row_icon(data))
         icons['default_album_home.png'] = ('default_album_big.png', art)

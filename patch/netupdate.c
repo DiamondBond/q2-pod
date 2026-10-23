@@ -8,9 +8,9 @@ const char *netupdate_tag(const char *location) {
     return slash && strstr(location, "/releases/tag/") && slash[1] ? slash + 1 : 0;
 }
 
-/* Q2 Shelf (docs/internals.md#q2-shelf): Rockbox, its themes and Spotify from their GitHub
- * releases' zips, unpacked by unzip into the card's staging folder, then moved into place file by
- * file. */
+/* Q2 Shelf (docs/internals.md#q2-shelf): Rockbox, its themes, Spotify and the card apps
+ * (addon.c) from their GitHub releases' zips, unpacked by unzip into the card's staging
+ * folder, then moved into place file by file. */
 #ifdef PEQ_HOST
 #include <sys/stat.h>
 /* Info-ZIP's takes the same options; quiet, as it warns of -x patterns nothing matched. */
@@ -23,18 +23,28 @@ const char *netupdate_tag(const char *location) {
 #define STAGING SH_DIR "/staging"
 #define SH_CAP (1u << 30) /* the most an install may unpack */
 
-enum { SH_ROCKBOX, SH_THEMES, SH_SPOTIFY, SH_APPS };
+enum { SH_ROCKBOX, SH_THEMES, SH_SPOTIFY, SH_DEEZER, SH_SOULSEEK, SH_FILEBROWSER, SH_APPS };
 enum { SH_OK, SH_NET, SH_SPACE, SH_CARD, SH_MISSING, SH_BAD, SH_CANCELLED, SH_BUSY };
-/* keep: unzip -x patterns an update never writes (the user's); bin: the app's binary, present
- * without a tag file meaning a manual install, and moved after every other file: power-on runs
- * Rockbox's. */
+/* repo: its GitHub owner/name; keep: unzip -x patterns an update never writes (the user's); bin:
+ * the app's binary, present without a tag file meaning a manual install, and moved after every
+ * other file: power-on runs Rockbox's. Deezer, Soulseek and File Browser are card apps (addon.c),
+ * which Streaming lists once they are on the card. */
 static const struct {
     const char *name, *id, *repo, *dir, *keep, *bin;
 } apps[SH_APPS] = {
-    { "Rockbox", "rockbox", "q2-rockbox", ".rockbox", ".rockbox/config.cfg", ".rockbox/rockbox" },
-    { "Rockbox Themes", "themes", "q2-rockbox-themes", ".rockbox", ".rockbox/config.cfg", 0 },
-    { "Spotify", "spotify", "q2-librespot", ".spotify", "'.spotify/cache/*' .spotify/.cache-size",
-      ".spotify/librespot" },
+    { "Rockbox", "rockbox", "DiamondBond/q2-rockbox", ".rockbox", ".rockbox/config.cfg",
+      ".rockbox/rockbox" },
+    { "Rockbox Themes", "themes", "DiamondBond/q2-rockbox-themes", ".rockbox",
+      ".rockbox/config.cfg", 0 },
+    { "Spotify", "spotify", "DiamondBond/q2-librespot", ".spotify",
+      "'.spotify/cache/*' .spotify/.cache-size", ".spotify/librespot" },
+    { "Deezer", "deezer", "group-a-study/q2-deezer", ".deezer",
+      ".deezer/arl .deezer/quality .deezer/organize .deezer/queue.json", ".deezer/q2-deezer" },
+    { "Soulseek", "soulseek", "group-a-study/q2-soulseek", ".soulseek",
+      ".soulseek/config.json .soulseek/downloads.json .soulseek/shares.cache",
+      ".soulseek/q2-soulseek" },
+    { "File Browser", "filebrowser", "group-a-study/q2-filebrowser", ".filebrowser",
+      ".filebrowser/config.json", ".filebrowser/q2-filebrowser" },
 };
 
 /* The value after key in json, past its colon; 0 if none. */
@@ -407,8 +417,8 @@ int ringnav_fwupdate(void *win, void *ctx) {
 }
 
 /* The Apps page (System settings): a row per app, its state as the row's detail. One job at a time
- * on one thread: the page's opening check of the three latest tags, an install, a remove or
- * Spotify's erase. Leaving the page leaves it running; its progress shows when the page opens
+ * on one thread: the page's opening check of the latest tags, an install, a remove or Spotify's
+ * erase. Leaving the page leaves it running; its progress shows when the page opens
  * again. */
 #define SH_JSON "/tmp/q2-shelf.json"
 #define SH_RESERVE (64ull << 20) /* left free on the card beyond a download or what it unpacks */
@@ -437,8 +447,7 @@ static int release(int i, char *tag, char *url, unsigned *size) {
     char api[96];
     unsigned n = 0;
     long code = 0;
-    snprintf(api, sizeof api, "https://api.github.com/repos/DiamondBond/%s/releases/latest",
-             apps[i].repo);
+    snprintf(api, sizeof api, "https://api.github.com/repos/%s/releases/latest", apps[i].repo);
     void *f = fopen(SH_JSON, "wb");
     int err = !f || fetch(api, f, 0, 0, &code, &sh.cancel);
     err = (f && fclose(f)) || err;
@@ -490,6 +499,7 @@ static int install(int i) {
     if (!r) {
         sh.stage = 3;
         if (i == SH_SPOTIFY) system(SPOT_KILL); /* librespot runs from .spotify, if started since */
+        addon_quit(apps[i].dir);                /* a card app, the same: its files closed first */
         app_file(path, sizeof path, i, ".tag");
         r = shelf_place(i);
         char tmp[100];
@@ -515,7 +525,7 @@ static void *sh_worker(void *unused) {
             system("rm -rf " SPOT_DIR "/cache " SPOT_DIR "/.cache-size"), rmdir(SPOT_DIR);
         else if (i == SH_ROCKBOX)
             shelf_remove(SH_THEMES); /* no themes without Rockbox */
-        if (sh.job == JOB_REMOVE) shelf_remove(i);
+        if (sh.job == JOB_REMOVE) addon_quit(apps[i].dir), shelf_remove(i);
         system("sync");
     }
     sh.running = 0;
@@ -577,6 +587,9 @@ static int sh_wait(const void *unused) {
         IPOD ? "Rockbox is ready. Find it on Home" : "Rockbox is ready. It starts at power-on",
         "Rockbox Themes are ready in Rockbox's Theme Settings",
         "Spotify is ready in Streaming",
+        "Deezer is ready in Streaming",
+        "Soulseek is ready in Streaming",
+        "File Browser is ready in Streaming",
     };
     char s[48];
     if (sh.running) {
@@ -603,6 +616,7 @@ static int sh_wait(const void *unused) {
 static void sh_start(int job, int i) {
     if (i == SH_SPOTIFY && job != JOB_CHECK)
         spot_stop(); /* on this thread: spotify.c's state too */
+    if (job != JOB_CHECK) addon_forget(apps[i].dir);
     sh.job = job, sh.app = i, sh.cancel = sh.percent = sh.result = 0, sh.running = 1;
     sh.stage = job == JOB_REMOVE ? 4 : 0;
     if (pthread_create(&sh.thread, 0, sh_worker, 0)) {
@@ -648,14 +662,15 @@ static int sh_closed(void *ctx, void *event) {
     return 0;
 }
 
-/* The rows: Rockbox Themes only with Rockbox on the card, Erase only with a .spotify folder; built
- * again when a job ends changes which. */
+/* The rows: Rockbox Themes only with Rockbox on the card, Erase only with a .spotify folder, then
+ * the card apps; built again when a job ends changes which. */
 static void sh_rows(void) {
     int map[SH_APPS + 1] = { 0 }, n = 0;
     map[n++] = SH_ROCKBOX;
     if (rockbox_available()) map[n++] = SH_THEMES;
     map[n++] = SH_SPOTIFY;
     if (file_mode(SPOT_DIR) == 0040000) map[n++] = SH_APPS;
+    for (int i = SH_DEEZER; i < SH_APPS; ++i) map[n++] = i;
     if (sh.page && (n != sh.rows || memcmp(map, sh.map, sizeof map))) {
         memcpy(sh.map, map, sizeof map);
         sh.rows = 0;
