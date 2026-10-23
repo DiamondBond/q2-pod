@@ -2445,7 +2445,7 @@ int ringnav_btrows(void *win, void *ctx) {
  * its click looks up, so order is free) and then ours, restacked into order; any other count is
  * left as built. */
 static void reorder(void *view, const unsigned char *order, unsigned n) {
-    void *rows[24];
+    void *rows[32];
     if (!view || n > sizeof rows / sizeof *rows || widget_count_children(view) != n) return;
     for (unsigned i = 0; i < n; i++) rows[i] = widget_get_child(view, i);
     for (unsigned i = 0; i < n; i++) widget_restack(rows[order[i]], i);

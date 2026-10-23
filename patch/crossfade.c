@@ -176,7 +176,7 @@ int swap_click(void *ctx, void *event) {
  * FLAC or PCM track before it plays (docs/internals.md#mqa-detection), long enough to break a gapless
  * change. Off sends stock's {mcl-mqadecodemode\2}, which skips the probe, so MQA plays undecoded;
  * On sends 0, hciplayer's default. hciplayer keeps it until it restarts, and ringnav_mode sends it
- * again from player_initconfig, which runs on every connect. A change applies from the next track. */
+ * again from player_initconfig, which runs on every connect. A change applies at the next audio init. */
 static int mqa_on(void) {
     if (!xf.mqa_read) xf.mqa = config_value("Q2POD", "MQA", 2, 0), xf.mqa_read = 1;
     return xf.mqa;

@@ -650,10 +650,17 @@ for folder in (0,1):
         assert r.files['/mnt/data/ringnav-queue']==m.files['/mnt/data/ringnav-queue']
         at=r.fn('ringnav_memory',out); assert at==want[0] and r.seek==37
         r.fn('ringnav_load',out,at,0xf001)
+        r.word(O['MCL_FD'],9); r.sent=[]
+        if mode==3: r.config['MQA']='1'
         r.call(address=0x513374,args=(0,0,0,0),gap=0) # player_initconfig
         assert '/mnt/data/ringnav-queue' in r.files and r.sequence()==want
-        # A real mode choice still clears the snapshot after startup.
+        # The connected hciplayer gets MQA's mode: off (2) skips its start-of-track probe.
+        mqa=lambda: [x[1] for x in r.sent if x[1].startswith(b'{mcl-mqa')]
+        assert mqa()==[b'{mcl-mqadecodemode\\0}' if mode==3 else b'{mcl-mqadecodemode\\2}']
+        # A real mode choice still clears the snapshot after startup, and sends no MQA mode.
+        r.sent=[]
         r.call(address=syms['config_playmode'],args=(mode,0,0,0),gap=0)
+        assert not mqa()
         # Stock Shuffle (2) keeps Shuffle Albums/Folders; every other mode ends them.
         assert ('/mnt/data/ringnav-queue' in r.files) == (mode == 2)
         checks+=1

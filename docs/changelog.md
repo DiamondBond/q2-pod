@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.4.2**:
+  - Gapless albums no longer have a short gap between FLAC and WAV tracks. The cause was the MQA check at the start of every track. **Audio settings → MQA**, after DSD Output, turns MQA decoding back on. It is off by default, and MQA files play as ordinary FLAC while it's off.
   - System settings: **Apps** comes before **System Update**.
   - Games: Solitaire's corner cards and Vortex's score, level and lives no longer hide under the screen's rounded corners.
   - Games: Solitaire has rounded cards with a bordered back; Sudoku highlights every cell holding the selected digit, or the digit you're picking; Vortex's bricks flash as they break, the ball leaves a short trail, lives show as balls, and a record score says "New best!".

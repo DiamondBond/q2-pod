@@ -9984,8 +9984,8 @@ assert m.get(payload_syms['wheel_guard'])==1; passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'STANDBYLIMIT':'4'})
 assert texts()[4]=='Standby Limit: Off'; passed()  # out of range: Off
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
-assert len(rows)==8 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump','playset_memplay','playset_balance','playset_balance']
-assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min','Mono Audio: Off','Swap L/R: Off']
+assert len(rows)==9 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump','playset_memplay','playset_balance','playset_balance','playset_dsdoutput']
+assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min','Mono Audio: Off','Swap L/R: Off','MQA: Off']
 assert click(2)==[(1,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: A–Z'
 assert click(2)==[(0,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: Year'
 assert click(0)==[(1,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Oldest First'
@@ -10075,7 +10075,7 @@ m.call(address=payload_syms['mono_sync'],args=(0,0,0,0),gap=0)
 assert 'mono:peq_attach' not in [c[0] for c in m.calls]; passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
 def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
-assert stacked(m,'scroll_view_playset')==[3,2,0,18,9,10,4,5,11,21,22,1,8,20,16,15,17,13,14,19,12,6,7]; passed()
+assert stacked(m,'scroll_view_playset')==[3,2,0,18,9,10,4,5,11,21,22,1,8,20,16,15,17,13,14,19,12,6,23,7]; passed()
 # Swap L/R uses its own persistent flag, immediately below Mono Audio.
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15,cls=MonoMachine)
 assert texts()[7]=='Swap L/R: Off'
@@ -10083,6 +10083,17 @@ assert click(7)==[(1,'Q2POD','SWAPLR')] and texts()[7]=='Swap L/R: On' and m.get
 assert click(7)==[(0,'Q2POD','SWAPLR')] and texts()[7]=='Swap L/R: Off' and m.get(m.flag)==0
 m,rows,texts,*_=settings_page('audioset','scroll_view_playset',{'SWAPLR':'1'},stock_rows=15)
 assert texts()[7]=='Swap L/R: On'; passed()
+# MQA (crossfade.c mqa_click): off by default, saved as Q2POD MQA, and sent to a connected hciplayer
+# at once: 2 skips its start-of-track probe, 0 is its default. No player socket, nothing sent.
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
+assert texts()[8]=='MQA: Off' and icons[8]=='playset_dsdoutput'
+m.word(O['MCL_FD'],9)
+assert click(8)==[(1,'Q2POD','MQA')] and texts()[8]=='MQA: On' and m.sent[-1]==(9,b'{mcl-mqadecodemode\\0}',21,0)
+assert click(8)==[(0,'Q2POD','MQA')] and texts()[8]=='MQA: Off' and m.sent[-1]==(9,b'{mcl-mqadecodemode\\2}',21,0)
+m.word(O['MCL_FD'],-1); sent=len(m.sent)
+assert click(8)==[(1,'Q2POD','MQA')] and len(m.sent)==sent
+m,rows,texts,*_=settings_page('audioset','scroll_view_playset',{'MQA':'1'},stock_rows=15)
+assert texts()[8]=='MQA: On'; passed()
 # Folder Root (#49): the row cycles the card's top-level folders, case aside, then the card, saving Q2POD
 # FOLDERROOT each time. Not offered: files, dot-folders, names with an edge space or over 200 bytes (a
 # config.ini line can't keep them). A saved folder gone moves on to the next name after it.
