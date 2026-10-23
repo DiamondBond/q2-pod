@@ -1,15 +1,11 @@
 # Changelog
 
-- **1.4.2**:
+- **1.4.3**:
   - Spotify: holding **Play/Pause** on a playlist in a list downloads it, as its Download Playlist row does.
   - Games: **Snake**. Turn with the wheel, one click left or right, or with Previous/Next. Each apple adds length and a little speed, and the best score is kept.
   - Library: **Era**, after Genre, lists each decade with dated albums, oldest first. A decade has **Play All**, **Shuffle** and its albums by year, each with its artist and year; an album opens its tracks in Cover Flow.
   - Cover Flow: with **Artists** set to Album Artist, a compilation shows its album artist ("Various Artists", or whoever compiled it) under the cover, not the artist of its last track; sorting by Artist uses the same name.
   - Go to Album from a song played in Cover Flow, or with **Artist Albums** set to Coverflow, opens the album's tracks in Cover Flow, as Go to Artist opens the artist's covers. Return goes back to where you were.
-  - Gapless albums no longer have a short gap between FLAC and WAV tracks. The cause was the MQA check at the start of every track. **Audio settings → MQA**, after DSD Output, turns MQA decoding back on. It is off by default, and MQA files play as ordinary FLAC while it's off.
-  - System settings: **Apps** comes before **System Update**.
-  - Games: Solitaire's corner cards and Vortex's score, level and lives no longer hide under the screen's rounded corners.
-  - Games: Solitaire has rounded cards with a bordered back; Sudoku highlights every cell holding the selected digit, or the digit you're picking; Vortex's bricks flash as they break, the ball leaves a short trail, lives show as balls, and a record score says "New best!".
   - **System settings → Apps** lists its apps from a list it fetches over Wi-Fi and keeps on the card, so the firmware no longer names any app beyond its own. Besides Rockbox, its themes and Spotify, the list holds card apps from their own GitHub releases, which keep their saved settings over an update. Once on the card each gets a row in **Streaming**, and one with a phone page opens a QR code to scan. Plugging in USB storage stops them and they start again after.
   - Library: titles, artists and albums with accented letters (Lo que la música me enseñó, Café, Ölüdeniz) show as tagged instead of as Chinese characters, in FLAC, MP3 and every other format, and in CUE sheets. Chinese tags and CUE sheets saved in GBK still show in Chinese. Run **Library → Update Local Music** once to read the tags again.
   - English throughout: Search's tabs, Now Playing's info labels, Quick Settings, About's **Certification** row and the other pages that showed Chinese text are in English; the keyboard's Chinese input page is gone (its key switches between lower and upper case), and **Baidu Netdisk** is off Streaming.
@@ -20,6 +16,13 @@
   - Library: **Update Local Music** skips hidden folders (apps' caches).
   - EQ: Advanced's band **Q** takes a typed value with a decimal point. Opening the keyboard on **Q** or **Frequency** selects the value, so the first key replaces it instead of adding to it.
   - iPod: the full-screen art (a tap on Now Playing's cover) shows the whole cover, centred and rounded, instead of filling the screen's height with its corners hidden under the screen's rounded glass; the song name sits on the cover's foot.
+
+- **1.4.2**:
+  - Gapless albums no longer have a short gap between FLAC and WAV tracks. The cause was the MQA check at the start of every track. **Audio settings → MQA**, after DSD Output, turns MQA decoding back on. It is off by default, and MQA files play as ordinary FLAC while it's off.
+  - System settings: **Apps** comes before **System Update**.
+  - Games: Solitaire's corner cards and Vortex's score, level and lives no longer hide under the screen's rounded corners.
+  - Games: Solitaire has rounded cards with a bordered back; Sudoku highlights every cell holding the selected digit, or the digit you're picking; Vortex's bricks flash as they break, the ball leaves a short trail, lives show as balls, and a record score says "New best!".
+  - **System settings → Apps** installs, updates and removes Deezer, Soulseek and File Browser, card apps from their own GitHub releases, keeping each one's saved settings. Once on the card each gets a row in **Streaming**; File Browser's opens a QR code to scan with a phone. Plugging in USB storage stops them and they start again after.
 
 - **1.4.1**:
   - Home's **Shortcut** setting includes **Games**.
