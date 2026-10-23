@@ -775,12 +775,12 @@ static void sorting(void) {
     assert(saved_sort() == 6);
     order_is((const char *const[]){ "New", "A", "Cover", "Folder", "Embedded", "None", "B", "C", "Tight", 0 });
     assert(coverflow_jump(slide(), 0, 1, &letter) == 1 && !letter);
-    assert(strstr(rank_sql, "max(year) desc"));
+    assert(strstr(rank_sql, "else 0 end) desc"));
     /* Year order: Oldest first: the next open ranks again, ascending (the query's order still). */
     close_page();
     year_old = 1, q = queries;
     open_page();
-    assert(queries == q + 1 && strstr(rank_sql, "max(year),album") && !strstr(rank_sql, "desc"));
+    assert(queries == q + 1 && strstr(rank_sql, "else 0 end),album") && !strstr(rank_sql, "desc"));
     order_is((const char *const[]){ "New", "A", "Cover", 0 });
     q = queries;
     close_page();
