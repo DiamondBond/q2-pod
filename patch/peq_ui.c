@@ -60,7 +60,7 @@ enum { BACK = 1000, APPLY, RESET, BYPASS, MENU, IMPORT, SAVE, ENABLE, TYPE, RAIS
 enum { SIMPLE, ADVANCED };
 static struct {
     void *page, *view, *edit, *graph, *bar; /* bar: the title, which shows the tabs on the top screens */
-    unsigned timer;
+    unsigned timer, keyboard_timer;
     int screen, band, step, count, previous, rendered, dirty, pick, adjust, tries;
     int capacity, file_page;
     int tab, tabs; /* tabs: the wheel is on the tab bar, over Advanced's list */
@@ -175,8 +175,9 @@ static double *picked(void) {
 
 /* The value menu's edit closed with new text: apply it if it is a number (clamped like Raise/Lower), else restore it. */
 static int typed(void *ctx, void *event) {
+    if (!ui.edit) return 0;
     char s[16];
-    if (!ui.edit || widget_get_text_utf8(ui.edit, s, sizeof s)) s[0] = 0;
+    if (widget_get_text_utf8(ui.edit, s, sizeof s)) s[0] = 0;
     if (peq_number(s, &ui.typed)) action((void *)(long)TYPED, 0);
     else if (!ui.timer) ui.timer = timer_add(render, 0, 1); /* show the value again */
     return 0;
@@ -184,25 +185,25 @@ static int typed(void *ctx, void *event) {
 
 /* The rename edit closed with new text. */
 static int named(void *ctx, void *event) {
-    action((void *)(long)NAMED, 0);
+    if (ui.edit) action((void *)(long)NAMED, 0);
     return 0;
 }
 
-/* The T9 keyboard opens on its letters; a value only needs its "123" page (symnum). The keyboard can open a
- * moment after the focus, so look for its window every 16 ms, up to 20 times. The value is selected too, so
- * the first key replaces it: stock's ufloat edit takes "." only where the text, less its selection, has none,
- * so typing a Q after "0.70" could never add its point. */
+/* Open T9's "123" page and select the old value so the first key replaces it.
+ * The keyboard may open after focus; look for it every 16 ms, up to 20 times. */
 static int numbers(const void *unused) {
     void *kb = widget_lookup(window_manager(), "kb_default_t9", 0);
     char s[16];
     if (kb) pages_set_active_by_name(widget_lookup(kb, "panel", 1), "symnum");
     if (kb && ui.edit && !widget_get_text_utf8(ui.edit, s, sizeof s)) edit_set_select(ui.edit, 0, strlen(s));
-    return kb || ++ui.tries >= 20 ? 7 : 8; /* RET_REMOVE, else RET_REPEAT */
+    if (kb || ++ui.tries >= 20) { ui.keyboard_timer = 0; return 7; }
+    return 8; /* RET_REPEAT */
 }
 
 static int focused(void *ctx, void *event) {
+    stop_timer(&ui.keyboard_timer);
     ui.tries = 0;
-    timer_add(numbers, 0, 16);
+    ui.keyboard_timer = timer_add(numbers, 0, 16);
     return 0;
 }
 
@@ -338,7 +339,12 @@ static int action(void *ctx, void *event) {
     if (id < 0) return 0; /* display-only rows */
     int screen = ui.screen;
     /* The centre button on the value row; no render, which would destroy the edit and close the keyboard. */
-    if (id == KEYBOARD) { widget_set_focused(ui.edit, 1); return 0; }
+    if (id == KEYBOARD) {
+        widget_set_focused(ui.edit, 1);
+        /* Done can close T9 while the edit stays focused; focus alone won't reopen it. */
+        input_method_request(input_method(), ui.edit);
+        return 0;
+    }
     peq_band *b = &ui.draft.bands[ui.band];
     ui.status[0] = 0;
     ui.tabs = 0;
@@ -474,6 +480,12 @@ static int e3_touch(void *ctx, void *event);
 static int render(const void *unused) {
     ui.timer = 0;
     if (!ui.page) return 7;
+    stop_timer(&ui.keyboard_timer);
+    /* Release T9 before replacing its editing target, as the search fields do. */
+    if (ui.edit) {
+        ui.edit = 0; /* Ignore blur callbacks from the field being replaced. */
+        input_method_request(input_method(), 0);
+    }
     if (ui.tab == SIMPLE) { /* the sliders' view, under the tabs */
         ui.view = ui.graph = ui.edit = 0;
         ui.rendered = -1;
@@ -563,7 +575,8 @@ static int render(const void *unused) {
         void *item = list_item_create(view, 0, 0, 375, 48);
         widget_use_style(item, "s_listitem_black");
         widget_on(item, EVT_CLICK, action, (void *)(long)KEYBOARD);
-        ui.edit = edit_create(item, "ufloat", 4, 40);
+        /* Validate on Done in typed(): stock's numeric edit also rewrites unfinished decimals. */
+        ui.edit = edit_create(item, "text", 4, 40);
         peq_band *b = &ui.draft.bands[ui.band];
         snprintf(text, sizeof(text), ui.adjust == QUALITY ? "%.2f" : "%.0f", ui.adjust == QUALITY ? b->q : b->frequency);
         widget_set_text_utf8(ui.edit, text);
@@ -757,7 +770,12 @@ static int closed(void *ctx, void *event) {
     memset(&e3, 0, sizeof e3);
     ui.bar = 0;
     stop_timer(&ui.timer);
+    stop_timer(&ui.keyboard_timer);
     ui.page = 0;
+    if (ui.edit) {
+        ui.edit = 0;
+        input_method_request(input_method(), 0);
+    }
     ui.view = 0;
     ui.graph = 0;
     free(ui.names);

@@ -5790,7 +5790,7 @@ static int ratings_menu(void *ctx, void *event) {
  * have no hold menu; a year page, or the decade as a scoped Coverflow, if asked for. */
 #define ERA_DECADES 32
 #define ERA_ALBUMS                                                                                 \
-    "select album,ifnull(nullif(albumsonger,''),songer),max(year),fileurl from songtable "         \
+    "select album,ifnull(nullif(albumsonger,''),songer)," ALBUM_YEAR " as release_year,fileurl from songtable " \
     "where " MUSIC_WHERE " and ifnull(album,'')<>''" ALBUM_GROUP
 typedef struct {
     char *album, *artist, *path;
@@ -5805,7 +5805,10 @@ static struct {
 
 static int era_sql(const char *sql, int (*row)(void *, int, char **, char **)) {
     void *db = 0;
-    int bad = sqlite3_open("/mnt/data/database.db", &db) || sqlite3_exec(db, sql, row, 0, 0);
+    /* Keep a full-library grouping query from competing with the player's song records for RAM. */
+    int bad = sqlite3_open("/mnt/data/database.db", &db) ||
+              sqlite3_exec(db, "PRAGMA cache_size=64;PRAGMA temp_store=FILE", 0, 0, 0) ||
+              sqlite3_exec(db, sql, row, 0, 0);
     if (db) sqlite3_close(db);
     return !bad;
 }
@@ -5893,7 +5896,7 @@ static int era_open_decade(void *ctx, void *event) {
     char sql[1024], name[16], detail[300];
     tk_snprintf(sql,
                 sizeof sql, /* MUSIC_WHERE's like patterns hold '%': an argument, not the format */
-                "%s having max(year) between %d and %d order by max(year),album COLLATE NOCASE",
+                "%s having release_year between %d and %d order by release_year,album COLLATE NOCASE",
                 ERA_ALBUMS, from, from + 9);
     era.v =
         calloc((unsigned)era.count[k] + 1, sizeof *era.v); /* the decade's count, from era_menu */
@@ -5913,10 +5916,13 @@ static int era_open_decade(void *ctx, void *event) {
 static int era_menu(void *ctx, void *event) {
     if (era.page) return 0;
     era.n = 0;
-    era_sql(
-        "select year/10*10,count(*) from (select max(year) year from songtable where " MUSIC_WHERE
+    if (!era_sql(
+        "select year/10*10,count(*) from (select " ALBUM_YEAR " year from songtable where " MUSIC_WHERE
         " and ifnull(album,'')<>''" ALBUM_GROUP ") where year>0 group by 1 order by 1",
-        era_decade_row);
+        era_decade_row)) {
+        toast("Era unavailable");
+        return 0;
+    }
     if (!era.n) {
         toast("No dated albums yet");
         return 0;

@@ -457,8 +457,8 @@ static const unsigned char all_sorts[] = { SORT_ALBUM, SORT_ARTIST, SORT_YEAR,
 extern int ringnav_year_old(void);
 /* Albums by year, Playback settings' Year order (navigation.c): newest or oldest first, undated last. */
 static const char *year_sql(void) {
-    return ringnav_year_old() ? SORT_SQL "ifnull(max(year),0)=0,max(year),album COLLATE NOCASE"
-                              : SORT_SQL "ifnull(max(year),0)=0,max(year) desc,album COLLATE NOCASE";
+    return ringnav_year_old() ? SORT_SQL ALBUM_YEAR "=0," ALBUM_YEAR ",album COLLATE NOCASE"
+                              : SORT_SQL ALBUM_YEAR "=0," ALBUM_YEAR " desc,album COLLATE NOCASE";
 }
 static const char *const sort_names[] = { "Sort: Album", "Sort: Artist", "Sort: Recently Added",
                                           "Sort: Most Played", "Sort: Random", "Sort: Rating", "Sort: Year" };

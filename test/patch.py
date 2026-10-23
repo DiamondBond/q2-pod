@@ -5969,6 +5969,23 @@ m=EraMachine(SONGS); assert m.open_era()==['Era','80s','1 album','90s','2 albums
 assert m.nodes[m.top]['name']=='era_page' and m.closed_db==1; passed()
 assert m.decade(1)==['90s','Play All','2 albums','Shuffle','Every song, shuffled','Alpha','A1 \u2022 1990','Beta','Beta Band \u2022 1999']
 assert m.nodes[m.top]['name']=='era_albums_page'; passed()
+# The full library is counted past stock's old 20,000-song limit, with a bounded SQLite cache.
+m=EraMachine((f'Large {i//10}','Artist','Artist',f'/mnt/mmc/music/large/{i}.flac',2020) for i in range(65000))
+assert m.open_era()==['Era','2020s','6500 albums']
+assert m.db.execute('PRAGMA cache_size').fetchone()==(64,)
+assert m.db.execute('PRAGMA temp_store').fetchone()==(1,); passed()
+for failure in ('open','PRAGMA','select'):
+    m=EraMachine(SONGS); m.fail=failure; top=m.top; m.open_era()
+    assert m.top==top and m.toasts[-1][3]=='Era unavailable' and m.closed_db==1; passed()
+# Full-date tags belong to their year; normalize each track before picking the album's latest.
+dates=[('Dates','Artist','','/mnt/mmc/music/d1.flac',20220510),
+       ('Dates','Artist','','/mnt/mmc/music/d2.flac',2023),
+       ('ISO','Artist','','/mnt/mmc/music/i.flac','2021-05-10'),
+       ('Month','Artist','','/mnt/mmc/music/m.flac',202004),
+       ('Bad','Artist','','/mnt/mmc/music/b.flac','unknown')]
+m=EraMachine(dates); assert m.open_era()==['Era','2020s','3 albums']
+assert m.decade(0)==['2020s','Play All','3 albums','Shuffle','Every song, shuffled',
+                     'Month','Artist \u2022 2020','ISO','Artist \u2022 2021','Dates','Artist \u2022 2023']; passed()
 # Play All plays the decade's albums from the first song, each in album order; an album opens its tracks in Coverflow.
 class EraPlay(EraMachine):
     def hook(self,u,address,size,unused):
@@ -8503,6 +8520,11 @@ if variant=='ipod':
     m.word(G+G_SN+812,5); m.advance(170*12); assert sstate()==2 and not frames() and body()[-1]==388  # left, then down to the wall
     best=bytes(m.files['/mnt/data/ringnav-snake']); assert len(best)==12 and best[:8]==b'SNK1'+struct.pack('<I',5)
     paint(); skey(O['KEY_CENTER']); assert sstate()==1 and body()==[207,208,209] and len(frames())==1
+    skey(O['KEY_BACK_BTN']); assert sdir()==0  # side Previous turns left, without the wheel
+    m.advance(170); assert body()[-1]==189
+    skey(O['KEY_FWD_BTN']); assert sdir()==1  # side Next turns right
+    skey(O['KEY_PLAY']); skey(O['KEY_BACK_BTN']); skey(O['KEY_FWD_BTN']); assert sdir()==1
+    skey(O['KEY_PLAY'])
     skey(O['KEY_RETURN']); assert word(G_PAUSED)==2; skey(O['KEY_NEXT']); paint(); skey(O['KEY_CENTER']); m.advance(0)
     assert word(G_SCREEN)==0 and not frames(); passed()
     # Closing frees the state, also mid-game; opening again starts clean and resumes the Sudoku.
