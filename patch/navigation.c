@@ -94,6 +94,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
+extern int coverflow_goto_album(void *r), coverflow_shows_album(void *r);
 extern unsigned coverflow_scope(void *page);
 extern void coverflow_home_art(void *top);
 extern void coverflow_home_layout(void);
@@ -6482,10 +6483,15 @@ static int qm_restore(void *page, void *event) {
 }
 
 /* Now Playing's More rows, for this record: Album info (0x5283b0) fills the album query and opens
- * playerjumpinfo_page; Artist info opens artistinfo_page with {class, record}. */
+ * playerjumpinfo_page; Artist info opens artistinfo_page with {class, record}. A song played in
+ * Coverflow, or with Artist albums: Coverflow, goes to the album's tracks in Coverflow instead, as
+ * Go to Artist reaches its covers. */
 static void qm_goto(void *r, int album) {
     unsigned char *info = (unsigned char *)g_local_classinfo_save;
     void *wm = window_manager(), *page = window_manager_get_top_window(wm);
+    if (album && (navigator_window_is_exist("coverflow_page") || ringnav_artist_view()) &&
+        coverflow_goto_album(r))
+        return;
     memcpy(st.qm_classinfo, info, sizeof st.qm_classinfo);
     if (album) {
         info[9] = 0;
@@ -6750,7 +6756,8 @@ static int qm_open(const void *unused) {
     if (aid) acts[n++] = album_hearts == 5 ? QA_UNFAV : QA_FAV, acts[n++] = QA_RATE;
     if (st.qm_kind < QM_COVERFLOW || st.qm_kind == QM_PLAYING) acts[n++] = QA_PLAYLIST;
     if ((st.qm_kind == QM_SONG || st.qm_kind == QM_PLAYING) && album && *album &&
-        (cls & 0xfff0) != 0xff10 && !navigator_window_is_exist("playerjumpinfo_page"))
+        (cls & 0xfff0) != 0xff10 && !navigator_window_is_exist("playerjumpinfo_page") &&
+        !coverflow_shows_album(r))
         acts[n++] = QA_ALBUM;
     if ((song || cls == CLASS_ALBUMS) && artist && *artist &&
         !navigator_window_is_exist("artistinfo_page"))

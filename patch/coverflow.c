@@ -27,7 +27,7 @@
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
-enum { ARTIST_ALBUMS = 1, RATED_ALBUMS }; /* cf.scoped */
+enum { ARTIST_ALBUMS = 1, RATED_ALBUMS, ALBUM_TRACKS }; /* cf.scoped */
 /* after the albums: Sort, then Refresh library; an artist's All albums (two or more), the rated
  * albums' Sort alone */
 #define CARDS (cf.scoped == ARTIST_ALBUMS ? deque_size(cf.albums) > 1 : cf.scoped ? 1 : 2)
@@ -54,9 +54,10 @@ static struct {
     unsigned saved_album, albums_gen; /* albums_gen: library_gen when albums was queried */
     int screen, album, running, text_albums;
     volatile int done, total, cancel;
-    /* Scoped (ARTIST_ALBUMS or RATED_ALBUMS, else 0): an artist's albums (coverflow_artist), albums
-     * holding them, or the rated ones (coverflow_rated), stock holding them in the library's order
-     * and sort their own order; all_albums, all_stock and all_sort the library's, back on close.
+    /* Scoped (ARTIST_ALBUMS, RATED_ALBUMS or ALBUM_TRACKS, else 0): an artist's albums
+     * (coverflow_artist), albums holding them, the rated ones (coverflow_rated), stock holding them
+     * in the library's order and sort their own order, or one album's tracks alone
+     * (coverflow_goto_album); all_albums, all_stock and all_sort the library's, back on close.
      * No saved album; hearts gives a rated album's. */
     int scoped, all_sort;
     void *all_albums, *all_stock;
@@ -1866,10 +1867,10 @@ static void *artist_under(void) {
 }
 
 /* Return: tracks -> covers (the slide_menu kept its album), preparing -> cancel and covers,
- * covers or the message -> Home, or back out of a scoped page. */
+ * covers or the message -> Home, or back out of a scoped page (one album's tracks too). */
 static int keyup(void *ctx, void *event) {
     if (I(event, EVENT_KEY) != KEY_RETURN) return 0;
-    if (cf.screen == TRACKS || cf.screen == PREPARING)
+    if ((cf.screen == TRACKS && cf.scoped != ALBUM_TRACKS) || cf.screen == PREPARING)
         rearm(&cf.timer, to_covers, 0);
     else if (cf.scoped) {
         /* An artist's covers: the unseen artist page under them closes first, unanimated (its
@@ -1943,6 +1944,35 @@ int coverflow_artist(void *albums) {
     cf.text_albums = ringnav_artist_view() == 2;
     load();
     return 1;
+}
+
+/* Go to Album from a Coverflow song (navigation.c's qm_goto) and Era's albums: r's tracks alone, no
+ * covers under them, so Return closes the page; 0 when it has none. */
+int coverflow_goto_album(void *r) {
+    void *t = coverflow_album_tracks(r), *one;
+    unsigned n = deque_size(t);
+    deque_destroy(t);
+    if (!n || !(one = _create_deque("stSongInfo"))) return 0;
+    deque_init(one);
+    _deque_push_back(one, r);
+    if (!scoped_open()) {
+        deque_destroy(one);
+        return 0;
+    }
+    cf.all_albums = cf.albums;
+    cf.albums = one;
+    cf.scoped = ALBUM_TRACKS;
+    cf.covers = cf.slide = cf.name = cf.artist = 0;
+    cf.album = 0;
+    cf.body = widget_factory_create_widget(widget_factory(), "view", cf.page, 0, 0, 375, 290);
+    to_tracks(0);
+    return 1;
+}
+
+/* The open page shows r's album alone (coverflow_goto_album): Go to Album has nowhere new to go. */
+int coverflow_shows_album(void *r) {
+    return cf.page && cf.scoped == ALBUM_TRACKS &&
+           album_key(deque_at(cf.albums, 0)) == album_key(r);
 }
 
 /* Library Ratings' Albums (navigation.c): the albums hearts gives 1 to 5 hearts, as covers with the

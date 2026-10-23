@@ -3280,7 +3280,7 @@ m=playing_menu(); m.run(4)
 assert m.opened[-1]==('localmusic/playlist_page',0x2f001)
 assert sel(m)==[('batch_init_selectrecord',3),('batch_set_selectitem',1)]; passed()
 for action,page in ((5,'playerjumpinfo_page'),(6,'localmusic/artistinfo_page')):
-    m=playing_menu(); m.run(action); assert m.opened[-1][0]==page
+    m=playing_menu(); m.config['ARTISTCF']='0'; m.run(action); assert m.opened[-1][0]==page
     if action==6: assert m.opened[-1][2]==m.items(m.get(syms['mcl_pdeqplaylist']))[1]
     passed()
 for stage in ('open','action'):
@@ -3549,7 +3549,7 @@ m=QueueMachine(cls=0xf004,page='localclass_page'); m.found=[]; assert m.run(2)==
 # artist opens artistinfo_page with {class, record}. Closing either puts the browsing state back.
 info=syms['g_local_classinfo_save']
 for row,want in ((4,'playerjumpinfo_page'),(5,'localmusic/artistinfo_page')):
-    m=QueueMachine(); m.u.mem_write(info,bytes(range(256))*3+bytes(144)); before=bytes(m.u.mem_read(info,912))
+    m=QueueMachine(); m.config['ARTISTCF']='0'; m.u.mem_write(info,bytes(range(256))*3+bytes(144)); before=bytes(m.u.mem_read(info,912))
     page=m.top; assert m.run(row,steps=2) is None and m.opened[-1][0]==want and m.top!=page
     if row==4:
         assert m.get(info)==0xff10 and m.u.mem_read(info+9,1)==b'\0' and m.text(info+0xd)=='Album' and m.text(info+0x10d)=='Artist'
@@ -5881,6 +5881,26 @@ f,ctx=m.handler(m.page,O['EVT_KEY_UP'])
 assert m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)==11
 calls=[c for c in m.calls if c[0] in ('window_manager_close_window_force','navigator_back')]
 assert [c[0] for c in calls]==['window_manager_close_window_force','navigator_back'] and calls[0][1:3]==(m.wm,artist); passed()
+# Go to Album from a song played in Coverflow: one coverflow_page, on the album's tracks with no covers under them
+# (the open one closes); Return goes back to where you were. An album with no tracks opens nothing.
+m=CoverflowMachine(); old=m.open(); m.tracks(); m.mock('navigator_back','window_manager_close_window_force',prefix='c:')
+assert m.call(address=payload_syms['coverflow_goto_album'],args=(m.albums[1],0,0,0),gap=0)==1
+m.page=m.top; assert m.page!=old and [c[2] for c in m.calls if c[0]=='window_manager_close_window_force']==[old]
+assert not m.find('slide_menu') and m.texts()[:3]==['Album 1','T1','T2']
+assert m.call(address=payload_syms['coverflow_shows_album'],args=(m.albums[1],0,0,0),gap=0)==1
+assert m.call(address=payload_syms['coverflow_shows_album'],args=(m.albums[0],0,0,0),gap=0)==0
+f,ctx=m.handler(m.page,O['EVT_KEY_UP']); assert m.call(O['KEY_RETURN'],address=f,args=(ctx,m.event,0,0),gap=0)==11
+assert [c[0] for c in m.calls].count('navigator_back')==1 and not m.find('slide_menu'); passed()
+m=CoverflowMachine(); m.found=[]; top=m.top
+assert m.call(address=payload_syms['coverflow_goto_album'],args=(m.albums[0],0,0,0),gap=0)==0 and m.top==top; passed()
+# Its hold menu row: Coverflow open, or Artist albums: Coverflow, goes there; else, or with no tracks, playerjumpinfo_page.
+for cf_open,view,found,want in ((True,'0',True,'coverflow_page'),(False,'1',True,'coverflow_page'),(False,'0',True,'playerjumpinfo_page'),
+                                (True,'1',False,'playerjumpinfo_page')):
+    m=CoverflowMachine(cls=0xf001); m.config['ARTISTCF']=view
+    if cf_open: m.open_pages.add('coverflow_page')
+    if not found: m.found=[]
+    page=m.top; assert m.run(4,steps=2) is None and m.top!=page
+    assert m.nodes[m.top].get('name')==want or m.opened[-1][0]==want; passed()
 # An artist's All albums card, after the covers, plays every album from the first song as a library queue: the
 # covers' order, each album's songs in album order. A Play/Pause hold on it opens nothing; one album has no card.
 class AllAlbums(CoverflowMachine):

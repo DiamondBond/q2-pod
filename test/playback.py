@@ -180,6 +180,11 @@ for shuffles,chosen in ((1,None),(2,None),(1,0)):
     if chosen is not None: mode(chosen)
     m.fn('ringnav_load',m.deque([m.song('album')]),0,1)
     assert m.mcl('MCL_MODE')==(3 if chosen is None else chosen) and m.fn('playback_option',0)==0; checks+=1
+# The album class (0xff10: Coverflow, the stock album page and Go to Album) restores it the same way, its shuffle ended.
+m=PlaybackMachine(); m.handlers.pop(syms['config_playmode'],None); mode(3)
+was=m.fn('playback_unshuffle'); mode(2,1); m.fn('ringnav_load',m.deque([m.song('a'),m.song('b')]),0,0xf001); m.fn('playback_shuffle',was)
+m.fn('ringnav_load',m.deque([m.song('album')]),0,0xff10)
+assert m.mcl('MCL_MODE')==3 and m.fn('playback_option',0)==0; checks+=1
 # Shuffle Albums straight after restores it too, and keeps its groups.
 m=PlaybackMachine(); m.handlers.pop(syms['config_playmode'],None); all=m.deque(list(m.items(m.get(syms['mcl_pdeqplaylist'])))); mode(3)
 was=m.fn('playback_unshuffle'); mode(2,1); m.fn('ringnav_load',m.deque([m.song('a'),m.song('b')]),0,0xf001); m.fn('playback_shuffle',was)
