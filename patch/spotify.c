@@ -1014,16 +1014,19 @@ int spot_open(void *ctx, void *event) {
     return 0;
 }
 
-/* ringnav_keylong: Play/Pause held on a track row adds it to Spotify's queue, the reply toasted;
- * 1 when it was one. */
+/* ringnav_keylong: Play/Pause held on a track row adds it to Spotify's queue, on a playlist row
+ * downloads it, the reply toasted; 1 when it was one. */
 int spot_hold(void *w) {
     level_t *l = br.page && w == br.page ? top() : 0;
     int i = l && l->kind == L_LIST && l->state == S_READY && br.view
                 ? widget_get_prop_int(br.view, "_ringnav_index", -1)
                 : -1;
     char a[sizeof l->args] = "";
-    if (i < 0 || i >= l->n || strcmp(cell(l, i, 0), "track") || !put(a, sizeof a, cell(l, i, 1))) return 0;
-    request("enqueue", a, A_ENQUEUE);
+    int track = i >= 0 && i < l->n && !strcmp(cell(l, i, 0), "track"),
+        playlist = i >= 0 && i < l->n && !strcmp(cell(l, i, 0), "playlist");
+    if ((!track && !playlist) || !put(a, sizeof a, cell(l, i, 1))) return 0;
+    /* a playlist downloads, as its own Download Playlist row; its reply is toasted */
+    request(track ? "enqueue" : "download", a, track ? A_ENQUEUE : A_DOWNLOAD);
     return 1;
 }
 

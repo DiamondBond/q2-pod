@@ -9143,12 +9143,15 @@ m.advance(0,clear=False); assert m.labels()==MENU and not m.find('edit')
 search('50%\toff'); assert len(m.threads)==asked and m.labels()==['50%\toff','Tracks','Albums','Artists','Playlists']
 m.row(1); assert m.asked()==('search','albums','50%25%09off'); m.answer(*OK,[('album','spotify:album:q','Q','R','','')])
 assert m.labels()==['Albums','Q','R']; m.back(); m.back(); assert m.labels()==MENU; passed()
-# Holding Play/Pause on a track row adds it to the queue, its reply toasted; on another row, or
-# another page, the hold is stock's.
-m.row(0); m.answer(*OK,[track('spotify:track:1','One','c','0'),('album','spotify:album:a','A','B','','')])
+# Holding Play/Pause on a track row adds it to the queue, on a playlist row downloads it, its reply
+# toasted; on another row, or another page, the hold is stock's.
+m.row(0); m.answer(*OK,[track('spotify:track:1','One','c','0'),('album','spotify:album:a','A','B','',''),
+                        ('playlist','spotify:playlist:p','P','Q','','')])
 m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=0; m.press(77)
 assert m.hold()==11 and m.asked()==('enqueue','spotify:track:1'); m.answer(*OK,[]); assert m.toasts[-1][3]=='Added to Queue'
 m.press(78); assert m.hold()==11; m.answer('unavailable','Nothing is playing on Q2','',[]); assert m.toasts[-1][3]=='Nothing is playing on Q2'
+m.nodes[m.find('scroll_view')]['_ringnav_index']=2; m.press(80)
+assert m.hold()==11 and m.asked()==('download','spotify:playlist:p'); m.answer('ok','Downloading P','',[]); assert m.toasts[-1][3]=='Downloading P'
 m.nodes[m.find('scroll_view')]['_ringnav_index']=1; m.press(79); asked=len(m.threads); m.hold(); assert len(m.threads)==asked; m.back(); passed()
 # Playing: Queue's rows play by their place and URI, then Now Playing. Playback settings: shuffle and
 # repeat as they are, a press setting the next and reading them again; never sent again on failure.
