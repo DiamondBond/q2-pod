@@ -267,10 +267,10 @@ AUDIO_EXTENSION_CALLS = (0x5c2054, 0x5c3da4)  # toolsLoadDirectory and recursive
 SORT_TRIMS = (0x5b9e38, 0x5b9ea4, 0x5ba750, 0x5ba7bc)
 # Tag text as tagged (docs/internals.md#tag-text): toolsFixId3ErrorCode (0x5c5cf8), which toolsGetMusicInfo
 # runs on each of its six fields, took any field whose every character TagLib decoded below U+0100 ("Lo que
-# la música me enseñó") for GBK bytes and showed it in Chinese ("m" + 鷖...). Its two bal toolsIconvConvert
-# become nops and its Latin-1 test (beqz $fp) a branch to the UTF-8 copy (taglib_tag_<field>(tag, 1)), which
-# it tidies and stores as it does every field TagLib didn't find Latin-1.
-TAG_TEXT = ((0x5c5ddc, 0x0411dbb3, 0), (0x5c5e60, 0x0411db92, 0), (0x5c5e68, 0x13c00009, 0x10000009))
+# la música me enseñó") for GBK bytes when they went to UTF-8 and back unchanged, and showed it in Chinese
+# ("m" + 鷖...). That round trip's strcmp (jalr, with the round trip's copy in its delay slot) becomes jal
+# ringnav_gbk_tag, which also asks that the bytes read as GBK; otherwise TagLib's UTF-8 copy is kept.
+TAG_TEXT = (0x5c5e7c, 0x0320f809)
 # The CUE sheet parser (the unnamed function after toolsFreeStSongInfo) ran each field through the same
 # toolsIconvConvert(field, "utf-8", "gbk"); its seven bal become jal ringnav_cue_text.
 CUE_TEXT = (0x5c06d0, 0x5c0794, 0x5c084c, 0x5c0908, 0x5c0bc8, 0x5c0f84, 0x5c130c)
@@ -1296,11 +1296,10 @@ def build(zip_path, out, logo, ipod=False, dev=False):
     patch_word(patched, *BT_STATUS, jal(ps['headset_status_register']), 'Bluetooth: incoming link during a connect')
     patch_word(patched, *BT_AUTOLINK, jal(ps['headset_bt_autolink']), 'Bluetooth: auto-link keeps an incoming link')
     patch_word(patched, *SCAN_REFRESH, jal(ps['ringnav_scan_refresh']), 'folder scan refreshes existing tags')
-    for word in TAG_TEXT:
-        patch_word(patched, *word, 'tag text read as UTF-8, never GBK')
+    patch_word(patched, *TAG_TEXT, jal(ps['ringnav_gbk_tag']), 'tag text GBK only when it reads as GBK')
     for address in CUE_TEXT:
         patch_word(patched, address, branch(0x04110000, address, syms['toolsIconvConvert']),
-                   jal(ps['ringnav_cue_text']), 'CUE text read as UTF-8 or Windows-1252, never GBK')
+                   jal(ps['ringnav_cue_text']), 'CUE text read as UTF-8, GBK or Windows-1252')
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, SCAN_DIRS[0] + 4))[0] == 0x24a55110,
           'library scan: expected the "." exclusion')
     patch_word(patched, *SCAN_DIRS, jal(ps['ringnav_scan_dir']), 'the library scan skips hidden folders')

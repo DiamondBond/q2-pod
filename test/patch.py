@@ -6262,40 +6262,49 @@ m.word(r+O['REC_CUE_START'],10); m.word(r+O['REC_TITLE'],m.string('Chapter')); m
 m.call(address=syms['player_get_id3info'],args=(0,0,0,0),gap=0)
 assert [m.text(id3+O[k]) for k in ('ID3_TITLE','ID3_ARTIST','ID3_ALBUM')]==['Chapter','Artist','Book']; passed()
 
-# Tag text (TAG_TEXT): stock toolsFixId3ErrorCode, run as patched, keeps a field TagLib found all Latin-1
-# ("Lo que la música me enseñó", every character below U+0100) as its UTF-8 copy, where stock read its
-# Latin-1 bytes as GBK and showed Chinese; it never converts (toolsIconvConvert untouched), and stores the
-# field as for any other, through its tidy-up (0x5b5a30) into the 256-byte field.
+# Tag text (TAG_TEXT): stock toolsFixId3ErrorCode, run as patched, took a field TagLib found all Latin-1
+# for GBK when its Latin-1 bytes went to UTF-8 and back unchanged ("Lo que la música me enseñó" does) and
+# showed Chinese; now only when they also read as GBK (ringnav_gbk_tag): a GBK-tagged MP3's Latin-1 frame
+# still shows Chinese, Western text its UTF-8 copy. Either is stored through its tidy-up (0x5b5a30) into
+# the 256-byte field.
 from build import TAG_TEXT, CUE_TEXT, SCAN_DIRS
-for address,old,new in TAG_TEXT: assert struct.unpack_from('<I',demo,fileoff(demo,address))[0]==new
+assert struct.unpack_from('<I',demo,fileoff(demo,TAG_TEXT[0]))[0]==jal(payload_syms['ringnav_gbk_tag'])
 class TagTextMachine(Machine):
     def __init__(self):
         super().__init__()
         self.word(0xa26cc0-0xabc,0x1000014); self.handlers[0x1000014]='t:malloc'  # lazy-bound, as RolloverMachine's
         self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='t:free'
         self.handlers[syms['strcpy@GLIBC_2.0']]='t:strcpy'; self.handlers[syms['toolsIconvConvert']]='t:iconv'
+        self.handlers[syms['strcmp@GLIBC_2.0']]='t:strcmp'  # on bytes: GBK isn't UTF-8
         self.mock('snprintf@GLIBC_2.0'); self.iconv=0
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('t:'): return super().hook(u,address,size,unused)
-        a,b=[u.reg_read(r) for r in REGS[:2]]; ret=0
+        a,b,c=[u.reg_read(r) for r in REGS[:3]]; ret=0
         if name=='t:malloc': ret=self.alloc((a+3)&~3)
         elif name=='t:strcpy': u.mem_write(a,self.raw(b)+b'\0'); ret=a
-        elif name=='t:iconv': self.iconv+=1
+        elif name=='t:strcmp': x,y=self.raw(a),self.raw(b); ret=(x>y)-(x<y)
+        elif name=='t:iconv':  # toolsIconvConvert(s, to, from) in place; a failed one leaves s
+            self.iconv+=1
+            try: u.mem_write(a,self.raw(a).decode(self.text(c)).encode(self.text(b))+b'\0'); ret=1
+            except UnicodeError: pass
         self.returns(ret,clobber=True)
-for utf8,latin1 in (('Lo que la música me enseñó',1),('Ciencia Ficción',1),('Mateo Nieto',1),('今',0),('Ölüdeniz',1)):
-    m=TagTextMachine(); out=m.alloc(0x100)
-    raw=utf8.encode('latin-1') if latin1 else utf8.encode()  # taglib_tag_<field>(tag, 0): its Latin-1 bytes
+for utf8,raw in (('Lo que la música me enseñó',None),('Ciencia Ficción',None),('Mateo Nieto',None),('今','今'.encode()),
+                 ('Ölüdeniz',None),('周杰伦','周杰伦'.encode('gbk')),('Jay 周杰伦 - 晴天','Jay 周杰伦 - 晴天'.encode('gbk'))):
+    m=TagTextMachine(); out=m.alloc(0x100); latin1=raw is None or raw!=utf8.encode()
+    raw=utf8.encode('latin-1') if raw is None else raw  # taglib_tag_<field>(tag, 0): its Latin-1 bytes
+    copy=raw.decode('latin-1') if latin1 else utf8  # (tag, 1): TagLib's UTF-8, of the bytes as Latin-1
     rawp=m.alloc(len(raw)+4); m.u.mem_write(rawp,raw+b'\0')
-    m.call(address=0x5c5cf8,args=(latin1,rawp,m.string(utf8),out),stack=(1,),gap=0)
-    assert m.raw(out).decode()==utf8 and not m.iconv,(utf8,m.raw(out)); passed()
-# CUE sheets (CUE_TEXT): its seven field conversions go to ringnav_cue_text: UTF-8 stays, any other text
-# is Windows-1252 re-encoded as UTF-8, cut at a whole character to 511 bytes.
+    m.call(address=0x5c5cf8,args=(int(latin1),rawp,m.string(copy),out),stack=(1,),gap=0)
+    assert m.raw(out).decode()==utf8,(utf8,m.raw(out)); passed()
+# CUE sheets (CUE_TEXT): its seven field conversions go to ringnav_cue_text: UTF-8 stays, GBK goes through
+# stock's conversion, any other text is Windows-1252 re-encoded as UTF-8, cut at a whole character to 511 bytes.
 for address in CUE_TEXT: assert struct.unpack_from('<I',demo,fileoff(demo,address))[0]==jal(payload_syms['ringnav_cue_text'])
 for given,want in ((b'Caf\xc3\xa9 \xc3\x91and\xc3\xba','Café Ñandú'),(b'Caf\xe9 \x93Hi\x94 \x80','Café “Hi” €'),
-                   (b'\xc3(','Ã('),(b'\xe9'*400,'é'*255),(b'plain','plain'),(b'\xed\xa0\x80','í\xa0€')):
-    m=Machine(); buf=m.alloc(512); m.u.mem_write(buf,given+b'\0')
-    assert m.call(address=payload_syms['ringnav_cue_text'],args=(buf,0,0,0),gap=0)==1 and m.raw(buf).decode()==want,(given,m.raw(buf)); passed()
+                   (b'\xc3(','Ã('),(b'a\xe9'*200,'aé'*170+'a'),(b'plain','plain'),(b'\xed\xa0\x80','í\xa0€'),
+                   ('周杰伦 晴天'.encode('gbk'),'周杰伦 晴天'),('Lo que la música'.encode('cp1252'),'Lo que la música')):
+    m=TagTextMachine(); buf=m.alloc(512); m.u.mem_write(buf,given+b'\0')
+    assert m.call(address=payload_syms['ringnav_cue_text'],args=(buf,m.string('utf-8'),m.string('gbk'),0),gap=0)==1 and m.raw(buf).decode()==want,(given,m.raw(buf)); passed()
 # The library scan (SCAN_DIRS) skips every hidden folder: q2-deezer's .deezer/stream never joins the Library.
 assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_DIRS[0]))[0]==jal(payload_syms['ringnav_scan_dir'])
 m=Machine(); dot=m.string('.')
