@@ -5634,6 +5634,7 @@ static int sc_click(void *ctx, void *event) {
         spot_stop();
         radio_stop();
         addon_stop();
+        tidal_stop_poll();
         if (type != 1 && (type & 0xf000) != 0xf000 && mclGetPlayStatus() != 1) player_stop();
         toast("Streaming stopped");
         return 0;

@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '1.4.5'  # major.minor.patch, single digits, shown as is (About and release tag)
+VERSION = '1.4.6'  # major.minor.patch, single digits, shown as is (About and release tag)
 REPO = 'DiamondBond/q2-pod'  # whose releases Network Update fetches (--update-repo) and release.py publishes
 # The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
 # differ from the installed one, so it packs the digits: 1.0.1 is V101I. About shows the stock
@@ -96,6 +96,10 @@ HOOKS = {
     'online_setkeyword_info': (0x511c94, 'ringnav_lyric_keys', 'lyrickeys'),
     # its ⋯ page: Download Album Lyrics under stock's Download Cover & Lyrics (onlinematch.c)
     'playermore_page_init': (0x528c14, 'ringnav_playermore', 'playermore'),
+    # Streaming's Tidal page opens: its stream thread starts polling (tidal.c)
+    'tidal_tidal_main_page_init': (0x4dea50, 'ringnav_tidal_main', 'tidalmain'),
+    # and any Tidal track asked for, from a queue or Now Playing (tidal.c)
+    'get_tidal_trackurl': (0x483188, 'ringnav_tidal_track', 'tidaltrack'),
     # its cover match: MusicBrainz/Cover Art Archive and iTunes candidates, then stock's Kugou search
     'kugou_obtaincover': (0x5112c4, 'ringnav_cover_search', 'kugoucover'),
     'mclPrevSong': (0x5ada98, 'ringnav_prev', 'prev'),
@@ -331,10 +335,12 @@ LDAC_HQ = ((0x4f033c, 0x00042080, 0x00041880),   # sll $3,$4,2
 # check_mem_thd (platform_init's detached thread) returns NULL on entry: it never opens drop_caches,
 # writes 3 to it or wakes each second. lui/addiu $gp -> jr $ra; move $v0,$zero.
 DROP_CACHES = ((0x512050, 0x3c1c0051, 0x03e00008), (0x512054, 0x279c4c70, 0x00001025))
-# Two threads started at boot poll a start flag with usleep(10000) for the life of the player: Baidu
-# Pan's (baidu_pthread_playurl) and Tidal's URL worker (static, after tidalGetFavoritesIdsThd), 200
-# wakes a second between them, dark or not. li $4,10000 -> lui $4,3: 196 ms, a stream starts that much later.
-STREAM_POLLS = ((0x47f828, 0x24042710, 0x3c040003), (0x486408, 0x24042710, 0x3c040003))
+# Two threads started at boot polled a start flag with usleep(10000) for the life of the player: Baidu
+# Pan's (baidu_pthread_playurl) and Tidal's URL worker (after tidalGetFavoritesIdsThd). Each poll call
+# (jalr $25) becomes jal to its payload function (tidal.c), which parks the thread while idle: no wakes.
+# Tidal's, while its page is open, still sleeps the 196 ms its delay slot holds (li $4,10000 -> lui $4,3).
+STREAM_POLL_CALLS = ((0x47f824, 'ringnav_baidu_poll'), (0x486404, 'ringnav_tidal_poll'))
+STREAM_POLLS = ((0x486408, 0x24042710, 0x3c040003),)
 # The jalr usleep (lw $t9,-0x59c($gp)) of mclSyncPlayerStatus' 200 ms loop, parse_albumcovertask_thd's 50 ms
 # and player_parsecover_thd's 100 ms wait becomes jal ringnav_dark_usleep (its argument set in the delay
 # slot): at least DARK_POLL_US while ringnav_sleep finds the Q2 dark, quiet and the DAC off, else stock's.
@@ -1078,6 +1084,7 @@ def compile_payload(out, ipod):
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
+        '--undefined=ringnav_baidu_poll', '--undefined=ringnav_tidal_poll',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
         '--undefined=headset_status_register', '--undefined=headset_bt_autolink',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
@@ -1339,6 +1346,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')
     for address, old, new in DROP_CACHES:
         patch_word(patched, address, old, new, 'keep the page cache')
+    for address, name in STREAM_POLL_CALLS:
+        patch_word(patched, address, 0x0320f809, jal(ps[name]), 'stream threads park while idle')
     for address, old, new in STREAM_POLLS:
         patch_word(patched, address, old, new, 'stream start polls 5 a second')
     for address in DARK_POLLS:

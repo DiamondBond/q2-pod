@@ -211,4 +211,35 @@ int tidal_play(const char *url, const char *id) {
         pthread_detach(td.thread);
     return stock_tidal_trampoline(url);
 }
+
+/* Stock's stream thread (docs/internals.md#tidal-cache) and Baidu's both polled a flag every 10 ms
+ * from power-on. Now each parks on a semaphore with no timer while idle: Tidal's wakes when its
+ * page opens (tidal_start_poll) and polls every 196 ms until Stop Streaming Services
+ * (tidal_stop_poll) clears the flag, and it parks at its next poll. Baidu's is never posted, so it
+ * parks for good. A zeroed sem_t is a semaphore at 0. */
+static volatile int stream_wanted;
+static unsigned stream_gate[8], baidu_gate[8];
+
+int ringnav_tidal_poll(unsigned us) { return stream_wanted ? usleep(us) : sem_wait(stream_gate); }
+int ringnav_baidu_poll(unsigned us) { return sem_wait(baidu_gate); }
+
+void tidal_start_poll(void) {
+    if (!stream_wanted) stream_wanted = 1, sem_post(stream_gate);
+}
+void tidal_stop_poll(void) { stream_wanted = 0; }
+
+extern int stock_tidalmain_trampoline(void *win, void *ctx);
+/* tidal_tidal_main_page_init, the Streaming row's page: the stream thread starts polling. */
+int ringnav_tidal_main(void *win, void *ctx) {
+    tidal_start_poll();
+    return stock_tidalmain_trampoline(win, ctx);
+}
+
+extern int stock_tidaltrack_trampoline(void *a, void *b, void *c, void *d);
+/* get_tidal_trackurl: any Tidal track asked for (a queue restored at power-on, a pick in Now
+ * Playing) wakes the stream thread, as the page does. */
+int ringnav_tidal_track(void *a, void *b, void *c, void *d) {
+    tidal_start_poll();
+    return stock_tidaltrack_trampoline(a, b, c, d);
+}
 #endif

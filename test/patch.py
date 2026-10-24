@@ -11513,4 +11513,17 @@ for polls in (0,1,2):  # before first resume poll, during settling, or with a re
     m.poll(0,225,n=2); m.poll(1,225,n=3)
     assert m.seeks==[0], (polls,m.seeks); passed()
 
+# Stream threads (tidal.c): Tidal's poll sleeps only once its page is open, else it parks on its gate;
+# Stop Streaming Services parks it again. Baidu's poll only ever waits, so it never wakes.
+m=Machine(); m.mock('usleep@GLIBC_2.0','sem_wait@GLIBC_2.2','sem_post@GLIBC_2.2')
+def stream_calls(name,*args):
+    m.calls=[]; m.call(address=payload_syms[name],args=(*args,0,0,0,0)[:4],gap=0,clear=False)
+    return [c[0].split('@')[0] for c in m.calls]
+assert stream_calls('ringnav_tidal_poll',196608)==['sem_wait']
+assert stream_calls('tidal_start_poll')==['sem_post'] and stream_calls('tidal_start_poll')==[]
+assert stream_calls('ringnav_tidal_poll',196608)==['usleep']
+assert stream_calls('tidal_stop_poll')==[] and stream_calls('ringnav_tidal_poll',196608)==['sem_wait']
+assert stream_calls('ringnav_baidu_poll',10000)==['sem_wait']
+passed()
+
 print(f'{checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')

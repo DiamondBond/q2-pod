@@ -71,6 +71,7 @@ LIBC = {
     # Coverflow's art thread (coverflow.c)
     'pthread_create': ('int', 'unsigned long *, const void *, void *(*)(void *), void *'),
     'pthread_join': ('int', 'unsigned long, void **'), 'pthread_detach': ('int', 'unsigned long'), 'pthread_mutex_lock': ('int', 'void *'),
+    'sem_wait': ('int', 'void *'), 'sem_post': ('int', 'void *'),  # tidal.c: the idle stream threads park on these
     'pthread_mutex_unlock': ('int', 'void *'), 'statfs': ('int', 'const char *, void *'),
     'strdup': ('char *', 'const char *'),
     'strrchr': ('char *', 'const char *, int'), 'strcasecmp': ('int', 'const char *, const char *'),

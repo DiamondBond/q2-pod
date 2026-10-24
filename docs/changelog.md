@@ -1,6 +1,7 @@
 # Changelog
 
-- **Unreleased**:
+- **1.4.6**:
+  - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - Lyrics: **Download Cover & Lyrics** (Now Playing's ⋯ menu) finds LRCLIB's lyrics for your track's own length, so a live, remastered or edited version's timing no longer comes back for the album track. An instrumental gets no lyrics instead of another song's, and without internet the search gives up after one wait instead of two.
   - Lyrics: **Download Album Lyrics**, under Download Cover & Lyrics in Now Playing's ⋯ menu, saves synced lyrics beside every song of the playing album, matched the same way. Songs that already have lyrics (a .lrc file, or in their tags) are left alone, a song LRCLIB lacks is skipped, and the row shows how far it has got; press it again to cancel. It carries on if you leave the menu, and stops for USB storage.
 
