@@ -16,6 +16,7 @@
   - Set date and time: **Next** and **Previous** move between the fields and OK, as Centre moves on (the sleep timer's fields too). OK, pressed with Centre or tapped, sets the clock and goes back to the Time settings.
   - iPod: Now Playing's art sits higher, clear of the page dots, and the shuffle and heart buttons line up with its bottom edge. Spotify's and Internet Radio's art moves up to match.
   - Streaming's **Configuration** row has a new icon. The old globe looked frayed at the row's size.
+  - Lyrics: **Download Cover & Lyrics** (Now Playing's ⋯ menu) finds LRCLIB's lyrics for your track's own length, so a live, remastered or edited version's timing no longer comes back for the album track. An instrumental gets no lyrics instead of another song's, and without internet the search gives up after one wait instead of two.
 
 - **1.4.3**:
   - Spotify: holding **Play/Pause** on a playlist in a list downloads it, as its Download Playlist row does.

@@ -2626,8 +2626,9 @@ def shelf_check(tmp, lib):
 
 
 def online_check(tmp):
-    """Lyrics and cover search (onlinematch.c): LRCLIB's, MusicBrainz's and iTunes's search URLs,
-    percent-encoded, iTunes artwork's 600 px size, and LRCLIB lyrics less their opening credits."""
+    """Lyrics and cover search (onlinematch.c): LRCLIB's search and exact-match URLs, MusicBrainz's
+    and iTunes's, percent-encoded, the LRCLIB result nearest the track's length, iTunes artwork's
+    600 px size, and LRCLIB lyrics less their opening credits."""
     lib = compile_host(tmp, 'onlinematch.so', ROOT/'patch/onlinematch.c')
     def call(f, t, a, n=256):
         out = C.create_string_buffer(n)
@@ -2637,6 +2638,17 @@ def online_check(tmp):
         b'https://lrclib.net/api/search?track_name=Caf%C3%A9%20%26%20Co%2F2&artist_name=AC~DC'
     assert url(b'Solo', b'') == b'https://lrclib.net/api/search?track_name=Solo&artist_name='
     assert url(b'x' * 300, b'a') is None and url(b'Solo', b'a', 59) is None and url(b'Solo', b'a', 60)  # too long for out
+    def exact(t, a, al, s, n=512):
+        out = C.create_string_buffer(n)
+        return out.value if lib.lrclib_get_url(out, n, t, a, al, s) else None
+    assert exact(b'Bohemian Rhapsody', b'Queen', b'A Night at the Opera', 355) == b'https://lrclib.net/api/get?' \
+        b'track_name=Bohemian%20Rhapsody&artist_name=Queen&album_name=A%20Night%20at%20the%20Opera&duration=355'
+    assert exact(b'Solo', b'A', b'B', 61, 81) is None and exact(b'Solo', b'A', b'B', 61, 82)  # too long for out
+    near = lambda secs, s: lib.lrc_nearest((C.c_int * max(len(secs), 1))(*secs), len(secs), s)
+    versions = [351, 317, 354, 263, 358, 359, 356, 335, 318, 338, 355, 329]  # LRCLIB's "Bohemian Rhapsody" search
+    assert near(versions, 355) == 10 and near(versions, 0) == 0  # the album's length; unknown: the first, as before
+    assert near([300, 0, 302], 301) == 0 and near([0, 400], 300) == 1 and near([0, -1], 300) == 0  # first of equals; unknowns last
+    assert near([], 300) == -1
     mb = 'https://musicbrainz.org/ws/2/release/?fmt=json&limit=10&query=release%3A%22'
     assert call(lib.mb_url, b'OK Computer', b'Radiohead') == (mb + 'OK%20Computer%22%20AND%20artist%3A%22Radiohead%22').encode()
     assert call(lib.mb_url, b'Say "Hi" \\o', b'') == (mb + 'Say%20%5C%22Hi%5C%22%20%5C%5Co%22').encode()  # Lucene-escaped, no artist clause
