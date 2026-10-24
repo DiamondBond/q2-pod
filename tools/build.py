@@ -92,8 +92,6 @@ HOOKS = {
     'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
     # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB first, then stock's Kugou search
     'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', 'kugou'),
-    # its keywords, set on the UI thread: the playing song's length too, for LRCLIB's match
-    'online_setkeyword_info': (0x511c94, 'ringnav_lyric_keys', 'lyrickeys'),
     # Streaming's Tidal page opens: its stream thread starts polling (tidal.c)
     'tidal_tidal_main_page_init': (0x4dea50, 'ringnav_tidal_main', 'tidalmain'),
     # and any Tidal track asked for, from a queue or Now Playing (tidal.c)

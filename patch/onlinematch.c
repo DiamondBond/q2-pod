@@ -30,31 +30,6 @@ int lrclib_url(char *out, unsigned n, const char *title, const char *artist) {
     return url_join(out, n, part, 4, 0);
 }
 
-/* LRCLIB's one exact match for title, artist, album and the track's seconds, which it takes to
- * within 2; 0 if it does not fit in n. */
-int lrclib_get_url(char *out, unsigned n, const char *title, const char *artist, const char *album,
-                   int seconds) {
-    char sec[12];
-    snprintf(sec, sizeof sec, "%d", seconds);
-    const char *part[] = { "https://lrclib.net/api/get?track_name=", title, "&artist_name=", artist,
-                           "&album_name=", album, "&duration=", sec };
-    return url_join(out, n, part, 8, 0);
-}
-
-/* Of n results' lengths (secs, 0 or less unknown), the index of the nearest to the track's seconds,
- * the first of equals and an unknown one last; without the track's (0), the first. -1 if n is 0. */
-int lrc_nearest(const int *secs, int n, int seconds) {
-    int best = -1;
-    unsigned gap = 0;
-    for (int i = 0; i < n; ++i) {
-        unsigned d = seconds <= 0  ? 0
-                     : secs[i] <= 0 ? ~0u
-                                    : (unsigned)(secs[i] > seconds ? secs[i] - seconds : seconds - secs[i]);
-        if (best < 0 || d < gap) best = i, gap = d;
-    }
-    return best;
-}
-
 /* MusicBrainz's release search, release:"ALBUM" AND artist:"ARTIST" (no artist clause without one). */
 int mb_url(char *out, unsigned n, const char *album, const char *artist) {
     const char *part[] = { "https://musicbrainz.org/ws/2/release/?fmt=json&limit=10&query=release%3A%22", album,
@@ -159,96 +134,35 @@ static const char *str(void *json, const char *name) {
     return v ? *(const char **)((char *)v + 16) : 0; /* cJSON valuestring, 0 unless a string */
 }
 
-/* A number member of a cJSON object, or 0. */
-static int num(void *json, const char *name) {
-    void *v = json ? cJSON_GetObjectItem(json, name) : 0;
-    return v ? *(int *)((char *)v + 20) : 0; /* cJSON valueint: a number's, 1 for true, else 0 */
-}
-
-/* text, less its opening credits, to out, UTF-8 with a BOM as Kugou's; 1 if written. */
-static int save(const char *out, const char *text) {
-    void *f = text && *(text = lrc_body(text)) ? fopen(out, "w") : 0;
-    if (!f) return 0;
-    fputs("\xef\xbb\xbf", f), fputs(text, f);
-    return !fclose(f); /* a failed write shows at close */
-}
-
-#define LRC_RESULTS 20 /* LRCLIB's search answers 20 at most */
-
-/* LRCLIB's synced lyrics for a track to out: its exact match by title, artist, album and length
- * (seconds, 0 unknown), else the search result by title and artist nearest that length. 1 if
- * written, 0 if none, -1 if none worth asking elsewhere for: LRCLIB unreachable (likely offline),
- * or the track instrumental (its exact match, or every search result). */
-static int lrclib(const char *title, const char *artist, const char *album, int seconds, const char *out) {
-    char url[3 * 0x400 + 128]; /* keyinfo's title, album and artist, a byte encoding to at most 3 */
+/* The first result's synced lyrics to out, UTF-8 with a BOM as Kugou's; 1 if written. */
+static int lrclib(const char *out) {
+    /* stock's keyinfo, copied under its lock: file name, title (+0x200), album, artist (+0x500) */
+    char key[0x600], url[3 * 0x300 + 64]; /* a byte encodes to at most 3 */
     char *body;
-    void *json;
-    int found = 0;
-    if (!*title) return 0;
-    if (seconds > 0 && *album && lrclib_get_url(url, sizeof url, title, artist, album, seconds)) {
-        if (!(body = get(url, LRCLIB_MAX))) return -1;
-        json = cJSON_Parse(body); /* a miss is a 404's {"code":404,...} */
-        found = num(json, "instrumental") ? -1 : save(out, str(json, "syncedLyrics"));
-        cJSON_Delete(json);
-        free(body);
-        if (found) return found;
+    int ok = 0;
+    online_getkeyword_info(key);
+    if (!key[0x200] || !lrclib_url(url, sizeof url, key + 0x200, key + 0x500) || !(body = get(url, LRCLIB_MAX)))
+        return 0;
+    void *json = cJSON_Parse(body);
+    for (int i = 0, n = json ? cJSON_GetArraySize(json) : 0; i < n && !ok; ++i) {
+        const char *text = str(cJSON_GetArrayItem(json, i), "syncedLyrics");
+        void *f = text && *(text = lrc_body(text)) ? fopen(out, "w") : 0;
+        if (f) {
+            fputs("\xef\xbb\xbf", f), fputs(text, f);
+            ok = !fclose(f); /* a failed write shows at close */
+        }
     }
-    if (!lrclib_url(url, sizeof url, title, artist)) return 0;
-    if (!(body = get(url, LRCLIB_MAX))) return -1;
-    json = cJSON_Parse(body);
-    const char *text[LRC_RESULTS];
-    int secs[LRC_RESULTS], n = 0, k = json ? cJSON_GetArraySize(json) : 0, instrumental = 0;
-    for (int i = 0; i < k && n < LRC_RESULTS; ++i) {
-        void *r = cJSON_GetArrayItem(json, i);
-        const char *t = str(r, "syncedLyrics");
-        instrumental += num(r, "instrumental") != 0;
-        if (t && *lrc_body(t)) text[n] = t, secs[n++] = num(r, "duration"); /* something sung */
-    }
-    int pick = lrc_nearest(secs, n, seconds);
-    found = pick >= 0 ? save(out, text[pick]) : k && instrumental == k ? -1 : 0;
     cJSON_Delete(json);
     free(body);
-    return found;
-}
-
-/* r's length in seconds: a CUE track's own span (its file's rest for the last), else its file's,
- * probed as Long Songs does (AudioProperties::length, vtable +0xc); 0 if unknown. */
-static int song_seconds(void *r) {
-    int start = I(r, REC_CUE_START), end = I(r, REC_CUE_END);
-    if (end > start) return end - start;
-    const char *path = I(r, REC_TYPE) == 8 ? P(r, REC_PATH) : 0;
-    void *f = path && *path == '/' ? taglib_file_new(path, 1) : 0;
-    void *p = f ? taglib_file_audioproperties(f) : 0;
-    int sec = p ? ((int (*)(void *))(*(void ***)p)[3])(p) : 0;
-    if (f) taglib_file_free(f);
-    return sec > start ? sec - start : 0;
-}
-
-/* The playing song's length for the lyrics search, found on the UI thread as its keywords are set,
- * so the search's thread never reads the queue; 0 if unknown. */
-static volatile int om_seconds;
-
-/* online_setkeyword_info(name, title, album, artist), from stock's ⋯ Download Cover & Lyrics: the
- * playing record's REC_NAME and the player's tags into keyinfo, then the onlinematching_page. */
-extern void stock_lyrickeys_trampoline(const char *name, const char *title, const char *album, const char *artist);
-void ringnav_lyric_keys(const char *name, const char *title, const char *album, const char *artist) {
-    stock_lyrickeys_trampoline(name, title, album, artist);
-    void *q = P(mcl_pdeqplaylist, 0), *r = 0;
-    unsigned pos = (unsigned)I(MCL_POS, 0);
-    if (q && pos < deque_size(q)) r = deque_at(q, pos);
-    om_seconds = r && name && P(r, REC_NAME) && !strcmp(P(r, REC_NAME), name) ? song_seconds(r) : 0;
+    return ok;
 }
 
 /* kugou_obtainlyric(keyword, out), online_lyricthd's first source: nonzero once out is written.
- * LRCLIB first; Kugou only when LRCLIB answered without lyrics, so an instrumental track gets none
- * and an offline search waits one connect timeout, not two. */
+ * ponytail: LRCLIB's first synced result by title and artist, no duration check; pass the track's
+ * length (/api/get) if wrong versions come back. */
 extern int stock_kugou_trampoline(const char *keyword, const char *out);
 int ringnav_lyric_search(const char *keyword, const char *out) {
-    /* stock's keyinfo, copied under its lock: file name, title (+0x200), album (+0x400), artist (+0x500) */
-    char key[0x600];
-    online_getkeyword_info(key);
-    int found = lrclib(key + 0x200, key + 0x500, key + 0x400, om_seconds, out);
-    return found > 0 || (!found && stock_kugou_trampoline(keyword, out));
+    return lrclib(out) || stock_kugou_trampoline(keyword, out);
 }
 
 /* The Cover Art Archive's 500 px front (a JPEG thumbnail) of release group id, as the archive.org URL
