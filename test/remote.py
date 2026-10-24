@@ -2,8 +2,10 @@
 """Host transport and pure q2remote protocol checks."""
 import os
 import contextlib
+import hashlib
 import io
 import pathlib
+import re
 import signal
 import socket
 import struct
@@ -30,11 +32,43 @@ assert q.wheel_positions(-1)[-1] == 142 and q.wheel_positions(1, start=5)[0] == 
 assert q.wheel_positions(-3, 7)[-1] == 100 + round(3.5 * 7)
 assert [q.wheel_units(c) for c in ("WHEELSENSITIVITY=200\n", "x\nWHEELSENSITIVITY=100\n", "WHEELSENSITIVITY=55\n",
                                    "WHEELSENSITIVITY=050\n", "WHEELSENSITIVITY=210\n", "")] == [7, 14, 28, 28, 28, 28]
-saved_host, saved_key = os.environ.pop("Q2_HOST", None), os.environ.pop("Q2_KEY", None)
+saved = {k: os.environ.pop(k, None) for k in ("Q2_HOST", "Q2_KEY", "Q2_KEY_FILE")}
 try: q.shell("true")
-except ValueError as e: assert "Q2_HOST and Q2_KEY" in str(e)
-else: raise AssertionError("missing configuration accepted")
-os.environ.update({k: v for k, v in (("Q2_HOST", saved_host), ("Q2_KEY", saved_key)) if v is not None})
+except ValueError as e: assert "Q2_HOST" in str(e)
+else: raise AssertionError("missing host accepted")
+with tempfile.NamedTemporaryFile("w") as f:
+    f.write("filekey0123456789\n"); f.flush()
+    os.environ["Q2_KEY_FILE"] = f.name
+    assert q.load_key() == "filekey0123456789"
+    os.environ["Q2_KEY_FILE"] = f.name + ".missing"
+    try: q.load_key()
+    except ValueError as e: assert "Q2_KEY" in str(e)
+    else: raise AssertionError("missing key file accepted")
+    os.environ["Q2_KEY"] = "envkey0123456789"
+    assert q.load_key() == "envkey0123456789"
+for k, v in saved.items():
+    if v is None: os.environ.pop(k, None)
+    else: os.environ[k] = v
+# Touch: a tap is press and lift; a swipe moves every SAMPLE_US between its ends; 0 ms writes a gesture at once.
+assert len(q.touch_batches([(10, 20)])) == 2
+swipe = q.swipe_points(0, 0, 100, 300, 100)
+assert swipe[0] == (0, 0) and swipe[-1] == (100, 300) and len(swipe) == 100 * 1000 // q.SAMPLE_US + 1
+assert q.decode_events(q.touch_batches(swipe)[-2])[:2] == [(0, 0, q.EV_ABS, q.ABS_X, 19), (0, 0, q.EV_ABS, q.ABS_Y, 100)]
+for bad in ((375, 0), (0, 320), (-1, 0)):
+    try: q.touch_xy(*bad)
+    except ValueError: pass
+    else: raise AssertionError("off-screen point accepted")
+assert q.event_writer("/x", [b"a", b"b"], 0).count("printf") == 1 and q.event_writer("/x", [b"a", b"b"]).count("printf") == 2
+assert q.parse_state("1072\n92.41\n00\n01\n-\n00\n1e\n") == {
+    "demo": 1072, "uptime": 92.41, "backlight": 0, "usb": 1, "keylock": None, "lockscreen": 0, "volume": 30}
+try: q.parse_state("")
+except ValueError: pass
+else: raise AssertionError("missing demo accepted")
+# demo's global addresses match every generated platform header in build/ that has them.
+for header in pathlib.Path(__file__).resolve().parents[1].glob("build/*/peq_platform.h"):
+    for symbol, addr in q.GLOBALS.values():
+        for found in re.findall(rf"^#define {symbol} \(\*\(volatile unsigned char \*\)(0x[0-9a-f]+)u\)$", header.read_text(), re.M):
+            assert int(found, 16) == addr, (header, symbol)
 gpio = q.parse_devices('''I: Bus=0019 Vendor=0001 Product=0001 Version=0100
 N: Name="md-gpio-keys"
 H: Handlers=kbd event1
@@ -97,6 +131,34 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
             output = io.TextIOWrapper(io.BytesIO())
             with contextlib.redirect_stdout(output): assert q.main(["sh", command]) == 0
             assert output.buffer.getvalue() == expected
+        # sh reports the exit status, keeps output without a trailing newline, and kills what outlives its timeout.
+        assert q.run("false") == (b"", 1) and q.run("printf x; exit 3") == (b"x", 3) and q.run("printf '\\0a'") == (b"\0a", 0)
+        assert q.main(["sh", "--timeout", "5", "exit 4"]) == 4
+        try: q.run("sleep 37", timeout=1)
+        except TimeoutError as e: group = re.search(r"process group (\d+)", str(e)).group(1)
+        else: raise AssertionError("timeout ignored")
+        # A timeout leaves the command running (it may be writing a file); kill stops its group.
+        assert subprocess.run(["pgrep", "-f", "sleep 37"], capture_output=True).returncode == 0, "timed-out command killed"
+        assert q.run(f"kill -- -{group}")[1] == 0; time.sleep(.3)
+        assert subprocess.run(["pgrep", "-f", "sleep 37"], capture_output=True).returncode == 1, "process group survived kill"
+        # A job left in the background holding the output doesn't hold the reply; nor is a big script too big.
+        started = time.monotonic()
+        assert q.run("sleep 38 & printf bg") == (b"bg", 0) and time.monotonic() - started < 5
+        subprocess.run(["pkill", "-f", "sleep 38"])
+        assert q.run("#" + "x" * 200000 + "\nprintf big") == (b"big", 0)
+        # push and pull: binary data, a checked MD5, and no write to an unmounted card.
+        blob = root / "blob"; blob.write_bytes(b"\0" + bytes(range(256)) * 300)
+        assert q.push(blob, str(root / "pushed")) == hashlib.md5(blob.read_bytes()).hexdigest()
+        assert (root / "pushed").read_bytes() == blob.read_bytes() and not (root / "pushed.part").exists()
+        q.pull(str(root / "pushed"), str(root / "pulled"))
+        assert (root / "pulled").read_bytes() == blob.read_bytes()
+        try: q.pull(str(root / "absent"), str(root / "pulled"))
+        except ValueError: pass
+        else: raise AssertionError("missing file pulled")
+        try: q.push(blob, q.CARD + "/x")
+        except ValueError as e: assert "not mounted" in str(e)
+        else: raise AssertionError("pushed to an unmounted card")
+        assert q.find(["127.0.0.1", "192.0.2.1"]) == ["127.0.0.1"]
 
         os.environ["Q2_KEY"] = "ffffffffffffffff"
         try: q.shell("printf should-not-run")

@@ -192,6 +192,11 @@ LOGO_HOOK = (b'   \tdisplay_logo /release/assets/default/raw/images/xx/logo.jpg\
              b'   \tl=/mnt/data/boot-logo.jpg; [ -f $l ] || l=/release/assets/default/raw/images/xx/logo.jpg; display_logo $l\n')
 REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
                b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n')
+# --dev only (docs/remote.md#log): demo's console output, and hciplayer's, which inherits it, in RAM, so
+# emptied once a minute past 4 MB (O_APPEND keeps demo writing at its end). In BOOT_HOOK's start path.
+LOG_HOOK = (b'        while :; do\n            /release/bin/demo\n',
+            b'        (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.log); [ "${n:-0}" -gt 4000000 ] && : >/tmp/q2-demo.log; done) &\n'
+            b'        while :; do\n            /release/bin/demo >>/tmp/q2-demo.log 2>&1\n')
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 # Its launcher: keep the A2DP transport open 5 s after hciplayer closes the PCM between songs, so
@@ -1399,7 +1404,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     s90play = cat(S90PLAY)
     check(s90play.count(BOOT_HOOK[0]) == 1 and s90play.count(REMOTE_HOOK[0]) == 1, 'Unexpected S90play')
     s90play = s90play.replace(*BOOT_HOOK)
-    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK) if dev else s90play)
+    check(s90play.count(LOG_HOOK[0]) == 1, 'Unexpected demo loop')
+    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK) if dev else s90play)
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')
     (out/'S11logo').write_bytes(s11logo.replace(*LOGO_HOOK))
