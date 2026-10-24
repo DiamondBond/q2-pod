@@ -8,6 +8,9 @@ PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
 PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
 # demux_audio_open's branch to the whole-file frame walk for Xing/VBRI MP3s; see docs/internals.md.
 VBR_SCAN = 0x48fb3c
+# MPlayer's pause loop sleeps usec_sleep(20000) between command checks: 50 wakes a second for as long as the
+# track stays paused. li $4,20000 -> li $4,50000 (ori): 20 a second, Play answered at most 30 ms later.
+PAUSE_SLEEP = (0x430234, 0x24044e20, 0x3404c350)
 # The audio demuxer's seek slot (demuxer_desc_audio at 0x89fd90) holds demux_audio_seek; see docs/internals.md.
 SEEK_SLOT, STOCK_SEEK = 0x89fdbc, 0x48d1ac
 # demux_audio_open's calls to the ID3v2 frame walker (0x48e6b0) that feeds ReplayGain; see docs/internals.md.
@@ -172,6 +175,7 @@ def patch_player(raw, out):
     off = fileoff(raw, EQ_OPEN_SLOT)
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
     patch_word(data, VBR_SCAN, 0x144008a8, 0, 'VBR scan')  # bnez $v0, 0x491de0 -> nop
+    patch_word(data, *PAUSE_SLEEP, 'pause loop sleep')
     for address, stock, patched in EQ_RATE_GATES:
         patch_word(data, address, stock, patched, 'Equalizer rate gate')
     for address, stock, patched in (*MQA_GATE, *MQA_PROBE):

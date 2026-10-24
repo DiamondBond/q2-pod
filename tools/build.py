@@ -327,6 +327,14 @@ LDAC_HQ = ((0x4f033c, 0x00042080, 0x00041880),   # sll $3,$4,2
 # check_mem_thd (platform_init's detached thread) returns NULL on entry: it never opens drop_caches,
 # writes 3 to it or wakes each second. lui/addiu $gp -> jr $ra; move $v0,$zero.
 DROP_CACHES = ((0x512050, 0x3c1c0051, 0x03e00008), (0x512054, 0x279c4c70, 0x00001025))
+# Two threads started at boot poll a start flag with usleep(10000) for the life of the player: Baidu
+# Pan's (baidu_pthread_playurl) and Tidal's URL worker (static, after tidalGetFavoritesIdsThd), 200
+# wakes a second between them, dark or not. li $4,10000 -> lui $4,3: 196 ms, a stream starts that much later.
+STREAM_POLLS = ((0x47f828, 0x24042710, 0x3c040003), (0x486408, 0x24042710, 0x3c040003))
+# The jalr usleep (lw $t9,-0x59c($gp)) of mclSyncPlayerStatus' 200 ms loop, parse_albumcovertask_thd's 50 ms
+# and player_parsecover_thd's 100 ms wait becomes jal ringnav_dark_usleep (its argument set in the delay
+# slot): at least DARK_POLL_US while ringnav_sleep finds the Q2 dark, quiet and the DAC off, else stock's.
+DARK_POLLS = (0x5a958c, 0x4edbe0, 0x512fac)
 # The encoder thread's ts_read call (jalr $t9) becomes jal ringnav_ts_read, which makes the wheel's
 # ticks from the samples (playback.c wheel_sample).
 WHEEL_TS_READ = (0x625b6c, 0x0320f809)
@@ -1327,6 +1335,10 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')
     for address, old, new in DROP_CACHES:
         patch_word(patched, address, old, new, 'keep the page cache')
+    for address, old, new in STREAM_POLLS:
+        patch_word(patched, address, old, new, 'stream start polls 5 a second')
+    for address in DARK_POLLS:
+        patch_word(patched, address, 0x0320f809, jal(ps['ringnav_dark_usleep']), 'stock polls idle while dark')
     for word in FOLDER_NAME:
         patch_word(patched, *word, 'folder names are literal text')
     patch_word(patched, NP_INFO_CALL, branch(0x04110000, NP_INFO_CALL, PRIVATE_FUNCTIONS['np_info']),

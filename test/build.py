@@ -101,7 +101,7 @@ logo_check()
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, WHEEL_TS_READ, PDR
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, STREAM_POLLS, DARK_POLLS, WHEEL_TS_READ, PDR
     from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, BIGCOVER, BC_ART, BC_TITLE_PAD, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
@@ -302,19 +302,25 @@ def validate_assets(directory):
     # The crash watchdog only sleeps longer; check_mem_thd returns on entry, so it never drops caches.
     old, new = read('stock.squashfs', WATCHDOG), read('rootfs.squashfs', WATCHDOG)
     assert new == old.replace(*WATCHDOG_SLEEP) and new != old
-    for address, word, patched in DROP_CACHES:
+    for address, word, patched in DROP_CACHES + STREAM_POLLS:
         off = fileoff(stock, address)
         assert struct.unpack_from('<I', stock, off)[0] == word and struct.unpack_from('<I', demo, off)[0] == patched
+    # Stock's status sync and cover pollers sleep through ringnav_dark_usleep.
+    for address in DARK_POLLS:
+        off = fileoff(stock, address)
+        assert struct.unpack_from('<I', stock, off)[0] == 0x0320f809
+        assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')['ringnav_dark_usleep'])
     # The encoder thread's ts_read call goes through ringnav_ts_read (playback.c wheel_sample).
     off = fileoff(stock, WHEEL_TS_READ[0])
     assert struct.unpack_from('<I', stock, off)[0] == WHEEL_TS_READ[1]
     assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')['ringnav_ts_read'])
     # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop, the 48 kHz EQ gates,
-    # the ID3v2 walker calls, now id3_gain (MP3 ReplayGain), and the MQA side chain's gate and probe length.
-    from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS, MQA_GATE, MQA_PROBE
+    # the ID3v2 walker calls, now id3_gain (MP3 ReplayGain), the MQA side chain's gate and probe length and
+    # the pause loop's sleep.
+    from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS, MQA_GATE, MQA_PROBE, PAUSE_SLEEP
     old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
     off = fileoff(old, VBR_SCAN)
-    words = (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE)
+    words = (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE, PAUSE_SLEEP)
     gates = [fileoff(old, a) for a in (*(a for a, _, _ in words), *ID3_CALLS)]
     differ = [i for i in range(0x3e40, 0x485250) if old[i] != new[i]]
     assert set(differ) <= {*range(off, off+4), *(i for g in gates for i in range(g, g+4))} and not any(new[off:off+4])

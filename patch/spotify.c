@@ -1088,8 +1088,9 @@ static int br_tick(const void *unused) {
         if (wk.running) pthread_join(wk.thread, 0);
         wk.running = wk.done = 0;
         got();
-    } else if (!wk.running && (l->state == S_PAIR || l->state == S_OLD || l->state == S_WAIT) &&
-               (int)(time_now_ms() - br.poll_at) >= 0)
+    } else if (!wk.running && (int)(time_now_ms() - br.poll_at) >= 0 &&
+               (l->state == S_WAIT || ((l->state == S_PAIR || l->state == S_OLD) && g_backlight_status &&
+                                       window_manager_get_top_window(window_manager()) == br.page)))
         fetch(l);
     else if (!wk.running && !br.go && !br.edit && br.depth == 1 && l->state == S_READY && !br.caps_checked &&
              (int)(time_now_ms() - br.poll_at) >= 0 && g_backlight_status &&

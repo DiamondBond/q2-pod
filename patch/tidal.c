@@ -164,7 +164,7 @@ static int cached(const char *key, const char *ext, char *path, unsigned n) {
 void tidal_clear(void) {
     char path[300];
     pthread_mutex_lock(td.lock);
-    ++td.cleared, td.job = 0;
+    ++td.cleared, td.job = 0, ++td.gen; /* gen: the running transfer stops (progress) */
     void *d = opendir(TIDAL_DIR);
     for (struct dirent *e; d && (e = readdir(d));)
         if (e->d_name[0] != '.') tk_snprintf(path, sizeof path, TIDAL_DIR "/%s", e->d_name), unlink(path);

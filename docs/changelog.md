@@ -4,6 +4,12 @@
   - Buttons Lock works with the lock screen on again. 1.4.4 changed how the screen wakes to the lock screen, and with the lock screen on the locked buttons could act after the screen turned off. That change is gone: the screen wakes as it did in 1.4.3, the page you left shows for a moment, then the lock screen.
   - Snake: with the pause menu open the wheel picks Continue or Quit, as Previous and Next do. In play the wheel still does nothing.
   - iPod: Now Playing's lyrics no longer lose their last letters on the right when a line nearly fills the width.
+  - Battery: the player wakes the processor far less often in the background. Shanling's Baidu and Tidal streaming helpers checked for work 100 times a second each from power-on, whatever the Q2 was doing; they now check 5 times a second, so a Tidal stream can take up to 0.2 s longer to start. A paused track checks for Play 20 times a second instead of 50. With the screen off and nothing playing, the player's status check and the album art loaders run once a second.
+  - Videos: starting a video while Spotify plays pauses Spotify first, so the video has sound.
+  - Spotify: the pairing screen stops asking every 2 s while the screen is off or another page covers it.
+  - Tidal Downloads: **Clear All Downloads** also stops the download in progress instead of letting it finish into a deleted file.
+  - iPod: Now Playing's scrolling album name stops while the screen is off or another page covers Now Playing.
+  - iPod: dragging a list with a finger no longer redraws the whole screen on every move.
 - **1.4.4**:
   - Search boxes and text fields (Internet Radio, Spotify and card-app search, Advanced EQ's Frequency, Q and preset name): **Return** with the keyboard up closes the keyboard and leaves the box as it was, instead of crashing the player; the next Return goes back. The EQ's number keys open on the keyboard that is showing, every time.
   - Advanced EQ: the Frequency, Q and preset-name fields sit at the top of the screen, above the keyboard, so what you type shows and is kept. They used to sit under the keyboard, which hid the typing and lost it. The row below names the field; Centre on it opens the keyboard.

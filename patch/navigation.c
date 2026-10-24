@@ -978,7 +978,7 @@ static int load_rows(menu_t *m, void *w) {
     if (m->kind == 1 && I(w, VIEW_CONTENT_H) < 0) return 0;
     if (m->kind == 1 || m->kind == 4) {
         entries_t s = { m->at, 0, MAX_ENTRIES, 4096 };
-        for (unsigned i = 0; i < n; ++i) collect(widget_get_child(w, i), &s, 1);
+        for (unsigned i = 0; i < n && s.n < s.cap && s.budget >= 0; ++i) collect(widget_get_child(w, i), &s, 1);
         m->n = s.n;
         m->rows = s.n;
         for (int i = 0; i < m->n; ++i) m->id[i] = i;
@@ -1772,7 +1772,10 @@ static int draw_spaced(void *canvas, const unsigned *s, int x, int y, unsigned p
 #define MARQUEE_HOLD_MS 1500
 static int np_marquee(const void *info) {
     st.np_marquee = 0;
-    if (!st.np_album || st.np_over <= 0) return 0;
+    /* Covered or dark, paint_caps restarts it on Now Playing's next paint. */
+    if (!st.np_album || st.np_over <= 0 || !g_backlight_status ||
+        window_manager_get_top_window(window_manager()) != st.np_win)
+        return 0;
     int end = st.np_off >= st.np_over;
     st.np_off = end ? 0 : st.np_off + MARQUEE_PX > st.np_over ? st.np_over : st.np_off + MARQUEE_PX;
     widget_invalidate_force(st.np_album, (void *)0);
@@ -4090,6 +4093,7 @@ static int untouch(const void *info) {
 #endif
 
 static void hide_outline(void) {
+    if (st.touch_mode && !st.untouch_timer) return; /* already hidden: each touch move comes here */
     stop_timer(&st.untouch_timer);
     st.touch_mode = 1;
     void *top = window_manager_get_top_window(window_manager());
@@ -8154,6 +8158,9 @@ static void bt_volume_poll(void) {
  * it, it also restarts Wake's window for a dropped press (woke_at). With the screen on, a pass
  * idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except while
  * Now Playing animates. */
+static volatile int dark_quiet; /* read by ringnav_dark_usleep on stock's threads */
+int ringnav_dark_usleep(unsigned us) { return usleep(dark_quiet && us < DARK_POLL_US ? DARK_POLL_US : us); }
+
 int ringnav_sleep(void *loop) {
     headset_poll();
     bt_volume_poll();
@@ -8172,8 +8179,10 @@ int ringnav_sleep(void *loop) {
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
                     airplayGetFlag() != 2 && (signed char)bt__recv_pageflag != 2 &&
                     time_now_ms() - st.wake_at >= WAKE_MS;
+        dark_quiet = quiet;
         sleep_ms(quiet ? DARK_IDLE_SLEEP_MS : SCREEN_OFF_SLEEP_MS);
     } else if (st.dark) {
+        dark_quiet = 0;
         wheel_guard_reset();
         if (st.dark & 2) st.woke_at = (unsigned)time_now_ms();
         st.dark = 0;

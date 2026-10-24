@@ -291,6 +291,9 @@ static inline int arc_out(int r, int y) {
 /* With the screen off the UI loop idles this long a turn instead of stock's 8 ms, about 10 turns a
  * second; screen-off keys (volume, play/pause, wake) wait at most this much longer. */
 #define SCREEN_OFF_SLEEP_MS 100
+/* Stock's player status sync (5 a second) and cover pollers (20 and 10) sleep at least this long a
+ * turn while ringnav_sleep finds the Q2 dark and quiet (ringnav_dark_usleep, DARK_POLLS in tools/build.py). */
+#define DARK_POLL_US 1000000
 /* Screen off, nothing playing (media_playing) and the DAC already off (check_dacoff_state, about 31
  * s after playback stops; g_dacoff_time -1): the turn idles DARK_IDLE_SLEEP_MS, about 4 turns a
  * second, so a Q2 left dark without Standby stops waking the CPU for nothing. The first key waits
