@@ -33,7 +33,7 @@ void child_exit(int status) __attribute__((noreturn));
  * balance: dB, above 0 turns the left channel down, below 0 the right (v2 only).
  * automatic: the preamp is 1 Auto (the player cuts each rate's own peak; preamp holds the 48 kHz
  * cut), 2 picked (an import's own preamp too), 0 never picked (saved before 1.3.6: PEQ_PRESET_V2
- * bytes, or imported before 1.4.5), which the UI and PEQ playback also take as Auto. */
+ * bytes, or imported before 1.4.4), which the UI and PEQ playback also take as Auto. */
 typedef struct { int enabled, type; double frequency, gain, q; } peq_band;
 typedef struct {
     int count, bypass;

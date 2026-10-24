@@ -647,7 +647,7 @@ Checks in `test/peq.py` (host build): `spot_reply` on escapes in any case, UTF-8
 
 Stock's receiver is `/usr/bin/shairport`, Shanling's Shairport 1.1.1 (`1.1.1-22-shanling`): AirPlay 1 (RAOP) only, with its own mDNS responder, started and stopped by demo (`airplayStartService`, `airplayStopService`) from Network service's switch (`on_airplayset_onclick`, `0x51e8f0`), with its now-playing page `airplay_page`. Streaming's **AirPlay** row (`ringnav_stream`, stock's `netservice_airplay` icon) only opens `systemset/netservice_page`. ponytail: the row doesn't toggle the service itself; stock's `airplay_switch` (`0x50ef44`) is the way in if it should. AirPlay 2 would be a shairport-sync 4.x add-on with nqptp, an add-on on the card like librespot.
 
-**Open device check (1.4.5):** missing AirPlay title/art has not been reproduced. Both editions keep stock V1.32's `airplay_page.bin` byte for byte, including `img_playcover`, `label_title` and `label_artist`. During a phone stream, check whether the page retains the stock title/artist or shows real text without art; check the receiver's `-M /tmp/dirairplay` argument, cover files there, `/tmp/airplaypic.png` and free space in `/tmp`. This is a diagnostic follow-up, not a confirmed firmware fix.
+**Open device check (1.4.4):** missing AirPlay title/art has not been reproduced. Both editions keep stock V1.32's `airplay_page.bin` byte for byte, including `img_playcover`, `label_title` and `label_artist`. During a phone stream, check whether the page retains the stock title/artist or shows real text without art; check the receiver's `-M /tmp/dirairplay` argument, cover files there, `/tmp/airplaypic.png` and free space in `/tmp`. This is a diagnostic follow-up, not a confirmed firmware fix.
 
 ## Internet Radio
 
