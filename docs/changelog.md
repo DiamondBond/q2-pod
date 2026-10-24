@@ -2,6 +2,7 @@
 
 - **1.4.6**:
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
+  - Streaming: an app installed from **System settings → Apps** (Deezer, Soulseek, File Browser) shows its own icon again, instead of the shared square one, when it ships an `icon.png` (Legacy) or `icon-40.png` (iPod). In the Minimal theme the icon turns grey like Streaming's other icons; Classic keeps its colours.
 
 - **1.4.5**:
   - Buttons Lock works with the lock screen on again. 1.4.4 changed how the screen wakes to the lock screen, and with the lock screen on the locked buttons could act after the screen turned off. That change is gone: the screen wakes as it did in 1.4.3, the page you left shows for a moment, then the lock screen.

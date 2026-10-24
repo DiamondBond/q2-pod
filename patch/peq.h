@@ -167,14 +167,16 @@ void tidal_clear(void);
 void tidal_stop_poll(void);          /* tidal.c: Stop Streaming Services; the stream parks */
 #define SPOT_DIR "/mnt/mmc/.spotify" /* librespot and its launcher, spotify.c's */
 /* addon.c: card apps, each a card folder .<id> holding its manifest q2app, its
- * launcher run and its binary q2-<id>. addon_scan finds them again (how many slots: a slot's index
- * stays its app's), addon_name and addon_id are one's while it is on the card (else 0), addon_open
+ * launcher run, its binary q2-<id> and its icons. addon_scan finds them again (how many slots: a
+ * slot's index stays its app's), addon_name, addon_id and addon_icon (an image name: file://… or the
+ * shared stream_app) are one's while it is on the card (else 0), addon_open
  * its Streaming row's click (ctx: the slot). addon_forget and addon_quit: the Apps page replaces or
  * removes the files of the app in folder dir (".<id>"): forgotten on the UI thread, then asked to
  * end and waited for on the Apps page's worker. */
 #define APPS_MAX 8 /* card apps on the card at once */
 int addon_scan(void), addon_open(void *ctx, void *event), addon_hold(void *top);
-const char *addon_name(int a), *addon_id(int a);
+const char *addon_name(int a), *addon_id(int a), *addon_icon(int a);
+int addon_is_icon(const char *name); /* a card app's Streaming icon, by its file:// name */
 void addon_poll(void), addon_stop(void), addon_paint(void *w, void *canvas), addon_card_away(void);
 void addon_forget(const char *dir), addon_quit(const char *dir);
 /* spotify.c's Q2SPOT/1 framing (docs/librespot.md), which the card apps speak too */

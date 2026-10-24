@@ -3860,6 +3860,21 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
             }
         bitmap_unlock_buffer(bitmap);
     }
+    /* Minimal: a card app's Streaming icon (addon.c, a file:// image) greys as Streaming's own
+     * stream_ icons do (mono, above), so its row matches theirs; Classic keeps its colours. */
+    unsigned char *app = format < 4 && !ipod_classic() && addon_is_icon(name)
+                             ? bitmap_lock_buffer_for_write(bitmap)
+                             : (void *)0;
+    if (app) {
+        const unsigned char *o = at[format];
+        for (int y = 0; y < I(bitmap, 4); ++y)
+            for (unsigned char *p = app + y * bitmap_get_line_length(bitmap),
+                               *end = p + 4 * I(bitmap, 0);
+                 p < end; p += 4)
+                p[o[0]] = p[o[1]] = p[o[2]] =
+                    (unsigned char)((p[o[0]] * 299 + p[o[1]] * 587 + p[o[2]] * 114) / 1000);
+        bitmap_unlock_buffer(bitmap);
+    }
     return stock_image_trampoline(manager, name, bitmap);
 }
 
@@ -6628,7 +6643,7 @@ int ringnav_stream(void *win, void *ctx) {
                 svc_row(widget_get_child(view, c), 0, hide);
         svc_row(library_into(view, "stream_spotify", spot_open, 0, "Spotify"), i++, hide);
         for (int k = 0; k < st.svc_n; ++k)
-            svc_row(library_into(view, "stream_app", addon_open, (void *)(long)k, addon_name(k)),
+            svc_row(library_into(view, addon_icon(k), addon_open, (void *)(long)k, addon_name(k)),
                     i++, hide);
         svc_row(library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads"), i++, hide);
         svc_row(library_into(view, "stream_radio", radio_open, 0, "Internet Radio"), i++, hide);
