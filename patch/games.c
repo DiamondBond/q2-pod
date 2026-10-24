@@ -750,12 +750,12 @@ static void vortex_key(unsigned key) {
     if (!arcade_key(key, g->vx.state == OVER) && key == KEY_CENTER) vortex_launch(&g->vx);
 }
 
-/* Only the side keys steer Snake and pick Continue/Quit; ignore wheel ticks. */
+/* The side keys steer Snake; the wheel picks Continue/Quit in the menu and is ignored otherwise. */
 static void snake_key(unsigned key) {
-    if (key == KEY_NEXT || key == KEY_PREV) return;
+    int wheel = key == KEY_NEXT || key == KEY_PREV;
     if (key == KEY_FWD_BTN) key = KEY_NEXT;
     if (key == KEY_BACK_BTN) key = KEY_PREV;
-    if (arcade_key(key, g->sn.state == OVER) || g->paused) return;
+    if (arcade_key(key, g->sn.state == OVER) || g->paused || wheel) return;
     if (key == KEY_NEXT) snake_turn(&g->sn, 1);
     if (key == KEY_PREV) snake_turn(&g->sn, -1);
 }

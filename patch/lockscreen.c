@@ -271,22 +271,6 @@ int lockscreen_cover(void *win) {
     return result;
 }
 
-/* Waking to the lock screen: stock unblanked the panel (enable_fb) before it opened the lock
- * window, which showed the page left at screen-off until the lock window was painted, and that
- * waited for the backlight (ringnav_wm_paint draws nothing while it is off). The build drops that
- * enable_fb (LOCK_WAKE); the lock window's timer, its countdown over with the screen still dark,
- * calls this in place of its usleep before it sets g_backlight_status and the backlight: the lock
- * window is painted, then the panel unblanked. ponytail: if the lock window never opens, the panel
- * stays blank until a stock awake_screen (a held centre press, for one) unblanks it. */
-int lockscreen_light(unsigned us) {
-    void *wm = window_manager();
-    g_backlight_status = 1; /* stock sets it after this sleep; the paint gate opens now */
-    widget_invalidate_force(wm, (void *)0);
-    ringnav_wm_paint(wm);
-    enable_fb();
-    return usleep(us);
-}
-
 /* The Lock screen page's list (stock 0x4c9134), rebuilt whole when its switch turns: Time show and
  * About, then the picture grid with the switch on. Clock (navigation.c's POD_LOCKCLOCK) follows
  * Time show, 78 high as stock's rows, and the built-ins' thumbnails are found for lockscreen_paint. */

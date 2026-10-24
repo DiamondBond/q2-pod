@@ -8577,7 +8577,7 @@ if variant=='ipod':
     skey(O['KEY_PLAY']); skey(O['KEY_BACK_BTN']); skey(O['KEY_FWD_BTN']); assert sdir()==1
     skey(O['KEY_PLAY'])
     skey(O['KEY_RETURN']); assert word(G_PAUSED)==2 and word(60)==0
-    skey(O['KEY_NEXT']); assert word(60)==0
+    skey(O['KEY_NEXT']); assert word(60)==1  # the wheel picks in the menu
     skey(O['KEY_PREV']); assert word(60)==0
     skey(O['KEY_BACK_BTN']); assert word(60)==1
     skey(O['KEY_FWD_BTN']); assert word(60)==0
@@ -10436,18 +10436,9 @@ m.byte(syms['g_backlight_status'],0)
 m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and not wake(UP,gap=50) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0'
 assert wake(DOWN,gap=100) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP,gap=50)
 assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
-# Waking to the lock screen (LOCK_WAKE, LOCK_LIGHT): the centre release and Standby's resume no longer
-# unblank the panel on the page left at screen-off; the lock window's timer paints the screen, then
-# unblanks it, and stock's 50 ms sleep, g_backlight_status and backlight follow.
-from build import LOCK_WAKE, LOCK_LIGHT, PLAY_HOLD
-assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in LOCK_WAKE+PLAY_HOLD)
-assert struct.unpack_from('<I',demo,fileoff(demo,LOCK_LIGHT[0]))[0]==jal(payload_syms['lockscreen_light'])
-vt=m.alloc(16); m.word(m.wm+0x94,vt); m.word(vt+0xc,0x400100); m.handlers[0x400100]='wm_vt_paint'
-m.byte(syms['g_backlight_status'],0); m.calls=[]
-m.call(address=payload_syms['lockscreen_light'],args=(50000,0,0,0),gap=0,clear=False)
-order=[c for c in m.calls if c[0] in ('widget_invalidate_force','wm_vt_paint','enable_fb','usleep@GLIBC_2.0')]
-assert [c[0] for c in order]==['widget_invalidate_force','wm_vt_paint','enable_fb','usleep@GLIBC_2.0'] and order[0][1]==order[1][1]==m.wm and order[3][1]==50000,order
-assert m.u.mem_read(syms['g_backlight_status'],1)==b'\1'; m.byte(syms['g_backlight_status'],0); passed()
+# Play/Pause hold time (PLAY_HOLD) is patched into the demo.
+from build import PLAY_HOLD
+assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in PLAY_HOLD); passed()
 # Lighting the screen stalls the UI loop about WAKE_MS (stock's on_wm_keyup_fun, the paint), so a
 # blind double press's last press is dispatched only after the first lit loop pass: still dropped.
 for double in ('0','1'):

@@ -242,13 +242,6 @@ PLAY_HOLD = ((0x6a007c, 0x240201f4, 0x24020000 | PLAY_HOLD_MS), (0x6a008c, 0x3a7
 # device_standby's bal awake_screen after the resume from Standby becomes li $v0, 1: the screen stays dark,
 # so the resuming key acts as it does dark (Play plays, centre wakes).
 STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
-# Waking to the lock screen (on_wm_keyup_fun's centre release, device_standby's resume): stock's bal enable_fb
-# before navigator_to("saverscreen_page") unblanked the panel on the page left at screen-off. Both become nop;
-# the lock window's timer unblanks once the lock screen is painted (LOCK_LIGHT, docs/internals.md#lock-screen).
-LOCK_WAKE = ((0x4e8a98, 0x04112c19, 0), (0x4f7f04, 0x0411eefe, 0))
-# The lock window's 20 ms timer, its countdown over with the screen dark: jalr usleep(50000) (lw $t9 at 0x52da50)
-# before it sets g_backlight_status and the backlight becomes jal lockscreen_light.
-LOCK_LIGHT = (0x52da54, 0x0320f809)
 # checkBluetoothStatus' jalr player_save_start once a headset's A2DP comes up (a0 0: the queue restarts
 # unpaused, whatever it was doing). It becomes jal ringnav_bt_connect_start (docs/internals.md#resume-on-connect).
 BT_CONNECT_START = (0x4f358c, 0x0320f809)
@@ -834,7 +827,6 @@ FUNCTIONS = {
  'navigator_to_with_context': ('int', 'const char *, const void *'),
  'window_manager_get_input_device_status': ('char *', 'void *'),
  'airplayGetFlag': ('int', 'void'),
- 'enable_fb': ('int', 'void'),  # FBIOBLANK unblank: the panel shows the framebuffer (lockscreen_light)
  'tk_snprintf': ('int', 'char *, unsigned, const char *, ...'),
  'toolsTimeItoa': ('int', 'char *, int'),
  'getMusicByAlbum': ('int', 'const char *'),
@@ -1068,7 +1060,7 @@ def compile_payload(out, ipod):
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
-        f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access', '--undefined=lockscreen_light', '--undefined=ringnav_ts_read',
+        f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
         '--undefined=headset_status_register', '--undefined=headset_bt_autolink',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
@@ -1293,11 +1285,6 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     patch_word(patched, *STANDBY_WAKE, 'Standby resume stays dark')
     for hold in PLAY_HOLD:
         patch_word(patched, *hold, 'Play/Pause hold time')
-    for wake in LOCK_WAKE:
-        patch_word(patched, *wake, 'lock screen wake stays dark until it is painted')
-    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x52da50))[0] == 0x8f99fa64,
-          'lock light: expected usleep import')
-    patch_word(patched, *LOCK_LIGHT, jal(ps['lockscreen_light']), 'lock screen painted before it lights')
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x51300c))[0] == 0x8f99b6e4,
           'player cover: expected toolsGetExternCover import')
     patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')
