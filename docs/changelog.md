@@ -1,5 +1,8 @@
 # Changelog
 
+- **Unreleased**:
+  - Lyrics: **Download Cover & Lyrics** (Now Playing's ⋯ menu) finds LRCLIB's lyrics for your track's own length, so a live, remastered or edited version's timing no longer comes back for the album track. An instrumental gets no lyrics instead of another song's, and without internet the search gives up after one wait instead of two.
+
 - **1.4.5**:
   - Buttons Lock works with the lock screen on again. 1.4.4 changed how the screen wakes to the lock screen, and with the lock screen on the locked buttons could act after the screen turned off. That change is gone: the screen wakes as it did in 1.4.3, the page you left shows for a moment, then the lock screen.
   - Snake: with the pause menu open the wheel picks Continue or Quit, as Previous and Next do. In play the wheel still does nothing.
