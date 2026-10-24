@@ -296,7 +296,7 @@ void shelf_remove(int i) {
 #include "offsets.inc"
 #include "stock.h"
 
-#define NU_REPO "https://github.com/DiamondBond/q2-pod/releases/latest"
+#define NU_REPO "https://github.com/" Q2POD_REPO "/releases/latest" /* tools/build.py --update-repo */
 #if IPOD /* tools/release.py ASSETS */
 #define NU_ASSET "update.tar"
 #else
