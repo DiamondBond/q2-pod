@@ -2789,6 +2789,38 @@ static int lrc_order(const void *a, const void *b) {
     const lrc_line *x = a, *y = b;
     return x->time != y->time ? (x->time > y->time) - (x->time < y->time) : x->at - y->at;
 }
+/* libtag_c's base, found from taglib_file_new's address, which that call binds in demo's GOT; 0
+ * while the entry still holds demo's stub. */
+static unsigned taglib_lib(void) {
+    unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0);
+    return at != (unsigned)taglib_file_new ? at - TAGLIB_FILE_NEW : 0;
+}
+static void tag_free(unsigned lib, char **v) {
+    if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+}
+
+/* f's LYRICS tag, else its UNSYNCEDLYRICS, as libtag_c's property list (tag_free it). */
+static char **tag_lyrics(void *f, unsigned lib) {
+    char **(*get)(void *, const char *) =
+        (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
+    char **v = get(f, "LYRICS");
+    if (!v || !*v || !**v) {
+        tag_free(lib, v);
+        v = get(f, "UNSYNCEDLYRICS");
+    }
+    return v;
+}
+
+/* Whether open file f's tags hold lyrics, as ringnav_lyric reads them; Download Album Lyrics
+ * (onlinematch.c) leaves such a song be. */
+int lyric_tagged(void *f) {
+    unsigned lib = taglib_lib();
+    char **v = lib ? tag_lyrics(f, lib) : 0;
+    int has = v && *v && **v;
+    tag_free(lib, v);
+    return has;
+}
+
 int ringnav_lyric(void) {
     int ret = stock_lyric_trampoline();
     void *q = P(mcl_pdeqplaylist, 0), *r;
@@ -2799,17 +2831,8 @@ int ringnav_lyric(void) {
         return ret;
     void *f = taglib_file_new(P(r, REC_PATH), 0);
     if (!f) return ret;
-    unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0), lib = at - TAGLIB_FILE_NEW;
-    char **(*get)(void *, const char *) =
-        (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
-    char **v = 0; /* an unbound entry still holds demo's stub */
-    if (at != (unsigned)taglib_file_new) {
-        v = get(f, "LYRICS");
-        if (!v || !*v || !**v) {
-            if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
-            v = get(f, "UNSYNCEDLYRICS");
-        }
-    }
+    unsigned lib = taglib_lib();
+    char **v = lib ? tag_lyrics(f, lib) : 0;
     unsigned cap = 1, n = 0;
     for (const char *s = v && *v ? *v : ""; *s && s - *v < LYRIC_TAG_MAX;
          ++s) /* a line, or a stamp */
@@ -2843,7 +2866,7 @@ int ringnav_lyric(void) {
         free(l);
         ret = 1;
     }
-    if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+    tag_free(lib, v);
     taglib_file_free(f);
     return ret;
 }
@@ -6561,9 +6584,10 @@ int ringnav_stream(void *win, void *ctx) {
 
 /* usbmode_page_init, as a cable to a computer opens USB mode, before stock unmounts the card for
  * USB storage: the card apps, which write to it (downloads, uploads), end first, so nothing of
- * theirs keeps it busy (they run from /tmp: addon.c). */
+ * theirs keeps it busy (they run from /tmp: addon.c), as does Download Album Lyrics' job. */
 int ringnav_usbmode(void *a, void *b, void *c, void *d) {
     addon_card_away();
+    album_lyrics_stop();
     return stock_usbmode_trampoline(a, b, c, d);
 }
 

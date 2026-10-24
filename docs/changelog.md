@@ -17,6 +17,7 @@
   - iPod: Now Playing's art sits higher, clear of the page dots, and the shuffle and heart buttons line up with its bottom edge. Spotify's and Internet Radio's art moves up to match.
   - Streaming's **Configuration** row has a new icon. The old globe looked frayed at the row's size.
   - Lyrics: **Download Cover & Lyrics** (Now Playing's ⋯ menu) finds LRCLIB's lyrics for your track's own length, so a live, remastered or edited version's timing no longer comes back for the album track. An instrumental gets no lyrics instead of another song's, and without internet the search gives up after one wait instead of two.
+  - Lyrics: **Download Album Lyrics**, under Download Cover & Lyrics in Now Playing's ⋯ menu, saves synced lyrics beside every song of the playing album, matched the same way. Songs that already have lyrics (a .lrc file, or in their tags) are left alone, a song LRCLIB lacks is skipped, and the row shows how far it has got; press it again to cancel. It carries on if you leave the menu, and stops for USB storage.
 
 - **1.4.3**:
   - Spotify: holding **Play/Pause** on a playlist in a list downloads it, as its Download Playlist row does.
