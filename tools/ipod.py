@@ -434,7 +434,9 @@ def playing_page(root):
     named['view_album'][3] += [title, artist, album, named['img_playmode'], named['img_fav']]
     column = (375 - 225) // 2
     named['label_lyricmsg'][1][0] += column
-    named['view_lrc'][2]['self_layout'] = f'default(x={column},y=0,w=225,h=178)'
+    # scroll_lrc is the list less 10px (w=-10): 235 leaves it the rows' 225, so no line is cut on the right
+    check(named['view_lrc'][3][0][2]['self_layout'].startswith('default(x=0,y=0,w=-10,'), 'Unexpected lyrics scroll view')
+    named['view_lrc'][2]['self_layout'] = f'default(x={column},y=0,w=235,h=178)'
     for n in named['view_info'][3]:
         n[1][0] += column
     named['slide_view_view'][1] = [0, NP_TOP, 375, NP_SLIDE_H + 6]
