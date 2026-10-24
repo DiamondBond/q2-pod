@@ -90,14 +90,14 @@ HOOKS = {
     'mclNextSong': (0x5adbbc, 'ringnav_next', 'next'),
     # Lyrics: a local track without a .lrc takes its LYRICS tag (navigation.c ringnav_lyric)
     'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
-    # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB first, then stock's Kugou search
-    'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', 'kugou'),
+    # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB alone, in place of stock's Kugou search
+    'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', None),
+    # its ⋯ page: Download Album Lyrics under stock's Download Cover & Lyrics (onlinematch.c)
+    'playermore_page_init': (0x528c14, 'ringnav_playermore', 'playermore'),
     # Streaming's Tidal page opens: its stream thread starts polling (tidal.c)
     'tidal_tidal_main_page_init': (0x4dea50, 'ringnav_tidal_main', 'tidalmain'),
     # and any Tidal track asked for, from a queue or Now Playing (tidal.c)
     'get_tidal_trackurl': (0x483188, 'ringnav_tidal_track', 'tidaltrack'),
-    # its ⋯ page: Download Album Lyrics under stock's Download Cover & Lyrics (onlinematch.c)
-    'playermore_page_init': (0x528c14, 'ringnav_playermore', 'playermore'),
     # its cover match: MusicBrainz/Cover Art Archive and iTunes candidates, then stock's Kugou search
     'kugou_obtaincover': (0x5112c4, 'ringnav_cover_search', 'kugoucover'),
     'mclPrevSong': (0x5ada98, 'ringnav_prev', 'prev'),

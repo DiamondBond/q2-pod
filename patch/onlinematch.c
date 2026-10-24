@@ -1,6 +1,6 @@
-/* Online match (docs/internals.md#lyrics-search, #cover-search): Now Playing's ⋯ lyrics and cover
- * match ask LRCLIB, and MusicBrainz's Cover Art Archive and iTunes, before stock's Kugou search;
- * NetEase, stock's next source, no longer answers. */
+/* Online match (docs/internals.md#lyrics-search, #cover-search): Now Playing's ⋯ lyrics match asks
+ * LRCLIB alone (no Kugou or NetEase), and its cover match MusicBrainz's Cover Art Archive and iTunes
+ * before stock's Kugou search. */
 #include "peq.h"
 
 /* part joined into out, the odd ones percent-encoded and, with lucene, a backslash before each " and \
@@ -278,15 +278,17 @@ static int lrclib(const char *title, const char *artist, const char *out, volati
     return found;
 }
 
-/* kugou_obtainlyric(keyword, out), online_lyricthd's first source: nonzero once out is written.
- * ponytail: LRCLIB's first synced result by title and artist, no duration check; pass the track's
- * length (/api/get) if wrong versions come back. */
-extern int stock_kugou_trampoline(const char *keyword, const char *out);
+/* kugou_obtainlyric(keyword, out), online_lyricthd's first source, in its place: LRCLIB alone, as
+ * Kugou's often came back for another song. Nonzero ends the thread's search, so NetEase, its next
+ * source, is skipped too (its search asks for a phone-bound account and finds nothing); the page
+ * shows whatever out holds. ponytail: LRCLIB's first synced result by title and artist, no
+ * duration check. */
 int ringnav_lyric_search(const char *keyword, const char *out) {
     /* stock's keyinfo, copied under its lock: file name, title (+0x200), album, artist (+0x500) */
     char key[0x600];
     online_getkeyword_info(key);
-    return lrclib(key + 0x200, key + 0x500, out, 0) == LRC_SAVED || stock_kugou_trampoline(keyword, out);
+    lrclib(key + 0x200, key + 0x500, out, 0);
+    return 1;
 }
 
 /* Download Album Lyrics (docs/internals.md#album-lyrics): a row under stock's Download Cover &

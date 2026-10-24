@@ -9210,6 +9210,49 @@ m.row(0); m.code=0; m.worker(); assert m.labels()==['Directory unavailable'] and
 m.back(); assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.back(); m.calls=[]; m.back(); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
 
+# Download Cover & Lyrics' lyrics (onlinematch.c ringnav_lyric_search, at kugou_obtainlyric's entry): LRCLIB
+# alone. keyinfo's title and artist are searched; the first result with synced lyrics goes to out with a BOM,
+# less its opening credits. Found or not, offline or busy, it returns 1, so online_lyricthd skips NetEase, and
+# Kugou's own search (past the entry's jump) never runs. demo's cJSON is stood in for by Python's json.
+class LyricSearchMachine(RadioMachine):
+    def __init__(self):
+        super().__init__(); self.written={}; self.json={}
+        for n in ('fopen@GLIBC_2.2','fputs@GLIBC_2.0','fclose@GLIBC_2.2','cJSON_Parse','cJSON_GetArraySize',
+                  'cJSON_GetArrayItem','cJSON_GetObjectItem','cJSON_Delete'):
+            self.handlers[syms[n]]='ls:'+n
+        self.handlers[HOOKS['kugou_obtainlyric'][0]+12]='ls:kugou'  # past the hook's jump: Kugou's search itself
+        self.handlers.pop(syms['online_getkeyword_info'],None)  # stock's copy of keyinfo runs, under its (mocked) lock
+        self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
+    def item(self,v):
+        a=self.alloc(0x30); self.json[a]=v; self.word(a+16,self.string(v) if isinstance(v,str) else 0); return a  # +16: valuestring
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('ls:'): return super().hook(u,address,size,unused)
+        name=name[3:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='fopen': self.fpath=self.text(a); self.written[self.fpath]=b''; ret=0x2000100
+        elif name=='fputs': self.written[self.fpath]+=self.raw(a)
+        elif name=='cJSON_Parse': ret=self.item(json.loads(self.text(a)))
+        elif name=='cJSON_GetArraySize': ret=len(self.json[a])
+        elif name=='cJSON_GetArrayItem': ret=self.item(self.json[a][b])
+        elif name=='cJSON_GetObjectItem': v=self.json[a]; key=self.text(b); ret=self.item(v[key]) if isinstance(v,dict) and key in v else 0
+        self.calls.append((name,a,b,c))
+        self.returns(ret,clobber=True)
+    def search(self,title,artist,reply,code=200):
+        key=0xa40424  # stock's keyinfo: file name, title (+0x200), album (+0x400), artist (+0x500)
+        self.u.mem_write(key,bytes(0x600)); self.u.mem_write(key+0x200,title.encode()); self.u.mem_write(key+0x500,artist.encode())
+        self.reply,self.code,self.written,self.calls=reply,code,{},[]
+        return self.call(address=HOOKS['kugou_obtainlyric'][0],args=(self.string(f'{title}/{artist}'),self.string('/tmp/oslyric_7'),0,0),gap=0,count=5_000_000)
+m=LyricSearchMachine()
+found=json.dumps([{'syncedLyrics':None,'plainLyrics':'x'},{'syncedLyrics':'[00:00.00] Lyrics : A\n[00:12.00]Look at the stars'},
+                  {'syncedLyrics':'[00:01.00]Second'}]).encode()
+assert m.search('Yellow','Coldplay',found)==1 and m.opts[10002]=='https://lrclib.net/api/search?track_name=Yellow&artist_name=Coldplay'
+assert m.written=={'/tmp/oslyric_7':'﻿[00:12.00]Look at the stars'.encode()}  # the first synced result, its credit cut
+for reply,code in ((b'[]',200),(json.dumps([{'syncedLyrics':None,'instrumental':True}]).encode(),200),
+                   (b'{"message":"The server is busy","statusCode":503}',200),(b'',0)):  # none, instrumental, busy, offline
+    assert m.search('Hataałii','Hataałii',reply,code)==1 and not m.written
+    assert 'kugou' not in [c[0] for c in m.calls] and [c[0] for c in m.calls].count('curl_easy_perform')==1
+assert m.search('','Coldplay',found)==1 and not m.written and 'curl_easy_perform' not in [c[0] for c in m.calls]; passed()  # no title: no request
+
 # Spotify's browser (patch/spotify.c, docs/librespot.md's Q2SPOT/1): the row opens spotbrowse_page,
 # each level a request on the fork's --browse-socket, sent and read on a pthread.
 BROWSE='/tmp/q2-librespot.browse.sock'
