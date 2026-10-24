@@ -9827,11 +9827,12 @@ def press():
     f,ctx=[(f,c) for t,f,c in m.nodes[online]['handlers'] if t==O['EVT_CLICK']][-1]
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 UPDATE='/mnt/mmc/update.tar'; ASSET='update.tar' if variant=='ipod' else 'update-legacy.tar'
+RELEASES=f"https://github.com/{manifest['update_repo']}/releases"  # build.py --update-repo
 m.files[UPDATE]=bytearray(b'old')
 m.wifi=-1; press(); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; m.wifi=3
 def fetch(codes,tag,reply=b'',done=500):
     press(); assert m.nodes[label]['text']=='Checking…'
-    m.codes=list(codes); m.location=f'https://github.com/DiamondBond/q2-pod/releases/tag/{tag}'; m.reply=reply
+    m.codes=list(codes); m.location=f'{RELEASES}/tag/{tag}'; m.reply=reply
     m.advance(500,clear=False)  # while it runs: the percentage, and standby and auto power-off wait
     assert m.nodes[label]['text']=='Checking…' and ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls]
     worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
@@ -9839,7 +9840,7 @@ def fetch(codes,tag,reply=b'',done=500):
     m.advance(done,clear=False)
     assert ('widget_set_tr_text',label) in [c[:2] for c in m.calls] and UPDATE+'.part' not in m.files
 fetch([302,200],'9.9.9',b'TAR'*100)
-assert m.opts[10002]==f'https://github.com/DiamondBond/q2-pod/releases/latest/download/{ASSET}' and m.opts[52]==1
+assert m.opts[10002]==f'{RELEASES}/latest/download/{ASSET}' and m.opts[52]==1
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
 assert bytes(m.files[UPDATE])==b'TAR'*100 and 'fwupdate_tf' in [c[0] for c in m.calls]
 m.files[UPDATE]=bytearray(b'old')
@@ -9849,7 +9850,7 @@ if not manifest['dev']:  # --dev builds have no release tag, so always fetch
     fetch([302],VERSION); assert m.toasts[-1][3]=='Latest firmware installed' and m.files[UPDATE]==b'old'
     fetch([302],'1.0.0'); assert m.toasts[-1][3]=='Latest firmware installed'  # older: never a downgrade
 # Leaving the page cancels before the download starts: the card may be unmounted or shared next.
-press(); m.codes=[302,200]; m.location='https://github.com/DiamondBond/q2-pod/releases/tag/9.9.9'; m.reply=b'NEW'
+press(); m.codes=[302,200]; m.location=f'{RELEASES}/tag/9.9.9'; m.reply=b'NEW'
 f,ctx=m.handler(label,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
 m.advance(500,clear=False); assert m.toasts[-1][3]=='Download cancelled' and m.files[UPDATE]==b'old'
