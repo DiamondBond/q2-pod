@@ -137,6 +137,7 @@ extern int stock_saver_trampoline(void *, void *), stock_saverrows_trampoline(vo
     stock_saverlist_trampoline(void), stock_savercover_trampoline(void *);
 extern void pod_rows(void *win, const char *view_name, int first, int n, const char *const *icons);
 extern int ringnav_lock_clock(void); /* navigation.c: Q2POD LOCKCLOCK, 1 Large, else Standard */
+extern int ringnav_wm_paint(void *wm); /* navigation.c: window_manager_paint's leaf */
 
 /* The built-ins' names in the picture list and SYSSET SCREENSAVERPATH, by id. None is a file:
  * stock's lock window falls back to the name as an asset, finds none and draws nothing, and these
@@ -268,6 +269,22 @@ int lockscreen_cover(void *win) {
     void *img = widget_lookup(win, "img_playcover", 1);
     if (img) widget_invalidate_force(img, 0);
     return result;
+}
+
+/* Waking to the lock screen: stock unblanked the panel (enable_fb) before it opened the lock
+ * window, which showed the page left at screen-off until the lock window was painted, and that
+ * waited for the backlight (ringnav_wm_paint draws nothing while it is off). The build drops that
+ * enable_fb (LOCK_WAKE); the lock window's timer, its countdown over with the screen still dark,
+ * calls this in place of its usleep before it sets g_backlight_status and the backlight: the lock
+ * window is painted, then the panel unblanked. ponytail: if the lock window never opens, the panel
+ * stays blank until a stock awake_screen (a held centre press, for one) unblanks it. */
+int lockscreen_light(unsigned us) {
+    void *wm = window_manager();
+    g_backlight_status = 1; /* stock sets it after this sleep; the paint gate opens now */
+    widget_invalidate_force(wm, (void *)0);
+    ringnav_wm_paint(wm);
+    enable_fb();
+    return usleep(us);
 }
 
 /* The Lock screen page's list (stock 0x4c9134), rebuilt whole when its switch turns: Time show and

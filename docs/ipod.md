@@ -391,11 +391,11 @@ album, and a four-pixel progress line:
     | 3 of 12 (16,0 287x40)                          more 303 |  icon 50x40
  40 +---------------------------------------------------------+
     |  .-----------.                                          |  slide_view 0,40 375x186
-    |  |    art    |  Title   (194,75 165x28, white 22)       |
-    |  |   16,50   |  Artist  (194,107 165x20, grey 16)       |
-    |  |  166x166  |  Album   (194,131 165x20, grey 16)       |
-    |  '-----------'              mode 270  fav 320 (y 176)   |  icons 50x50
-228 |                     . o .   (page dots)                 |
+    |  |    art    |  Title   (194,58 165x28, white 22)       |
+    |  |   16,42   |  Artist  (194,92 165x22, grey 18)        |
+    |  |  166x166  |  Album   (194,120 165x22, grey 18)       |
+    |  '-----------'              mode 247  fav 303 (y 158)   |  icons 50x50
+222 |                     . o .   (page dots)                 |
 253 |  (=========================------------------------)   |  line 21,253 333x4
 265 |      01:23 (46 80x16)           -02:34 (249 80x16)      |  grey 14
 290 +---------------------------------------------------------+
@@ -403,8 +403,9 @@ album, and a four-pixel progress line:
 
 The art and the metadata keep 16 pixels from the sides (`NP_MARGIN`) and 12 from each other; the
 art is 166 pixels, as large as that leaves while the text column keeps its 165 pixels, and
-"3 of 12" starts in line with it. Each band has its own space: the top row, then the art 10
-pixels below it, the page dots 12 pixels under the art, the bar with the stock A-B markers
+"3 of 12" starts in line with it. Each band has its own space: the top row, then the art 2
+pixels below it, so it has 14 pixels to "3 of 12"'s text above and to the page dots below
+(`NP_ART_Y`), the bar with the stock A-B markers
 (y 250 to 260) and the quiet time labels at y 265.
 
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own

@@ -8,6 +8,13 @@
   - Advanced EQ: Q and Frequency accept typed decimals and zero digits without the stock numeric editor rewriting the entry. Completed values keep the EQ limits (Q 0.1–10; Frequency 20–20,000 Hz).
   - Advanced EQ: imported presets play the preamp written in their file instead of Auto. Switching a saved preset's preamp to Auto (or another value) is kept with that preset; the file on the card is not changed. Presets imported before stay on Auto until imported again.
   - Era and Coverflow year sorting use the year from full-date tags such as `20220510`, so these albums appear under **2020s**.
+  - Lock screen: with a lock screen picture set, turning the screen on goes straight to the lock screen. It used to show the page you left for a moment, then a black screen, before the lock screen appeared.
+  - Streaming: **Configuration** lists the services under **Stop Streaming Services**, each with a tick. Untick the ones you don't use to hide them from Streaming; tick them again to bring them back.
+  - Cover Flow: the rated albums' **Sort** card (**Library → Ratings → Albums**) adds **Most Played**, after Year, as Display's Coverflow Sort has.
+  - Quick Settings: a swipe down while the player is still starting could leave Quick Settings open but not shown, so the wheel changed the volume or brightness on Home. The next wheel turn or button press now closes it and Home takes the wheel again.
+  - Set date and time: **Next** and **Previous** move between the fields and OK, as Centre moves on (the sleep timer's fields too). OK, pressed with Centre or tapped, sets the clock and goes back to the Time settings.
+  - iPod: Now Playing's art sits higher, clear of the page dots, and the shuffle and heart buttons line up with its bottom edge. Spotify's and Internet Radio's art moves up to match.
+  - Streaming's **Configuration** row has a new icon. The old globe looked frayed at the row's size.
 
 - **1.4.3**:
   - Spotify: holding **Play/Pause** on a playlist in a list downloads it, as its Download Playlist row does.

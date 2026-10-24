@@ -28,7 +28,6 @@
 #define REPLY_MAX (64 << 10) /* Q2SPOT/1's limits */
 #define REQ_MAX (8 << 10)
 #define AWAY_MS 3000 /* USB storage waits at most this long for an app to let the card go */
-#define APPS_MAX 8
 #define APP_ID 16  /* an id's bytes, its NUL included */
 #define QR_PX 186  /* the code's white plate: 5 px modules up to a 33-module code */
 #define QR_COL 214 /* the text beside it */
@@ -102,6 +101,7 @@ int addon_scan(void) {
 }
 
 const char *addon_name(int k) { return k >= 0 && k < ap.shown ? ap.a[ap.order[k]].name : 0; }
+const char *addon_id(int k) { return k >= 0 && k < ap.shown ? ap.a[ap.order[k]].id : 0; }
 
 /* A pid file whose loop is gone (crashed, or killed) is removed, so no wait spends AWAY_MS on it.
  * ponytail: trusts the pid in the file; a loop that died without removing it, its pid since reused,

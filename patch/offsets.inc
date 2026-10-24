@@ -236,7 +236,9 @@ static inline int arc_out(int r, int y) {
 /* Spotify's and Internet Radio's Now Playing layout (tools/ipod.py NP_*, which checks they match):
  * the art and the text 16px from the sides, 12 apart, the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16
-#define SPOT_ART_Y 50
+/* iPod: Now Playing's art top, clear of the page dots (tools/ipod.py NP_ART_Y) */
+#define NP_ART_TOP 42
+#define SPOT_ART_Y (IPOD ? NP_ART_TOP : 50)
 #define SPOT_ART_PX 166
 #define SPOT_TEXT_X 194
 #define SPOT_TEXT_W 165

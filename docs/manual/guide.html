@@ -313,7 +313,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   <ul>
     <li><b>List ends:</b> Library lists, Playback settings and System settings stop at the end; pause, then turn again to wrap around.</li>
     <li><b>Position memory:</b> recent folders, albums, searches and menus reopen where you were, until power-off.</li>
-    <li><b>Wheel-adjusted settings:</b> brightness, volume limits, balance, date and time and the sleep timer take the wheel: turn to change, press Centre to go back or move to the next field, and then OK.</li>
+    <li><b>Wheel-adjusted settings:</b> brightness, volume limits, balance, date and time and the sleep timer take the wheel: turn to change, press Centre to go back or move to the next field, and then OK. Next and Previous also move between the fields. The date and time's OK goes back to the Time settings.</li>
     <li><b>Key Tone:</b> the Q2’s speaker clicks, playing or not, whenever no headphones (3.5/4.4 mm), Bluetooth or USB DAC are connected; once per row, not per tick.</li>
   </ul>
 
@@ -417,7 +417,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   <p>Albums have 0 to 5 hearts of their own, separate from their songs’.</p>
   <ul>
     <li><b>Rate an album:</b> in Coverflow (also an artist’s), <b>Library → Album</b> or an artist’s albums, hold <b>Play/Pause</b> on the album. <b>Add to Favourites</b> gives it five hearts, <b>Remove from Favourites</b> takes them away, and <b>Rate Album</b> opens the same picker. The row shows the album’s hearts.</li>
-    <li><b>Library → Ratings → Albums</b> shows the rated albums in Coverflow, most hearts first. Its <b>Sort</b> card cycles <b>Rating</b>, <b>Album</b>, <b>Artist</b> and <b>Year</b> (as <b>Year Order</b>), and is remembered. Return goes back to Ratings.</li>
+    <li><b>Library → Ratings → Albums</b> shows the rated albums in Coverflow, most hearts first. Its <b>Sort</b> card cycles <b>Rating</b>, <b>Album</b>, <b>Artist</b>, <b>Year</b> (as <b>Year Order</b>) and <b>Most Played</b>, and is remembered. Return goes back to Ratings.</li>
     <li>An album is its name with its album artist, or its folder when it has none (disc folders count as one), so a rating survives Update Local Music, but retagging or moving the album starts it unrated.</li>
   </ul>
 
@@ -671,10 +671,11 @@ http://stream.radioparadise.com/mp3-128</pre>
   </div>
   <div class="sec">
   <h2 id="stream-config">Configuration</h2>
-  <p><b>Streaming → Configuration</b> holds three rows; turn the wheel to pick one and press Centre, or tap it:</p>
+  <p><b>Streaming → Configuration</b> holds these rows; turn the wheel to pick one and press Centre, or tap it:</p>
   <ul>
     <li><b>Tidal Cache</b> and <b>Spotify Cache:</b> how much of the card each service’s downloads may use: 512 MB, 1 GB, 2 GB (the default), 4 GB or 8 GB; press to step to the next. When Tidal’s folder is over the new size, its oldest downloads are deleted after the next download. Spotify’s takes effect the next time Spotify starts (after <b>Stop Streaming Services</b>, or the next power-on), with q2-librespot v1.5 or later.</li>
     <li><b>Stop Streaming Services:</b> stops Spotify, Internet Radio and a playing Tidal queue at once, so the playback buttons and the output are free for local music; pick something in your library to play. Use it when local music misbehaves after streaming. Open Streaming → Spotify to start Spotify again.</li>
+    <li><b>The services:</b> one row per service in Streaming (TIDAL, Spotify, your card apps, Tidal Downloads, Internet Radio and AirPlay), each ticked. Press one to untick it and hide it from Streaming; press again to bring it back. Configuration itself always stays.</li>
   </ul>
   </div>
 </section>

@@ -94,6 +94,9 @@ NP_TITLE_PX = inc('NP_TITLE_PX')  # the title over the NP_META_PX artist and alb
 NP_META_PX = inc('NP_META_PX')
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
+NP_DOTS_Y = NP_SLIDE_H - 4       # above the seek bar's NP_TOUCH target
+# The art's gap below to the dots matches its gap above to "3 of 12"'s 16px text.
+NP_ART_Y = (NP_DOTS_Y - NP_ART - (NP_TOP - 16) // 2) // 2
 NP_BAR_X = max(MARGIN, corner_x(30 + 251, 8))
 NP_BAR = [NP_BAR_X, 253, 375 - 2 * NP_BAR_X, 4]
 NP_TOUCH = 44
@@ -102,6 +105,7 @@ NP_TIME_X = max(MARGIN, corner_x(30 + NP_TIMES_Y + 1, 14))
 NP_TEXT_X = NP_MARGIN + NP_ART + 12
 check([NP_MARGIN, NP_ART, NP_TEXT_X, NP_TEXT_W, *NP_BAR[::2], NP_TIMES_Y, NP_TIME_X] ==  # Spotify's and Radio's
       [inc('SPOT_' + n) for n in 'ART_X ART_PX TEXT_X TEXT_W BAR_X BAR_W TIMES_Y TIME_X'.split()], 'SPOT_* != NP_*')
+check(inc('NP_ART_TOP') == NP_TOP + NP_ART_Y, 'NP_ART_TOP != NP_TOP + NP_ART_Y')
 NP_GREY = '#AAAAAA'              # stock secondary text (s_scrlabel_gray24l)
 # The track is TRACK_COLOR; the fill is Graphite's light tone until ringnav_playing sets the
 # accent's (3.3:1 or more on the track for every preset).
@@ -397,10 +401,11 @@ def playing_page(root):
         'name': 'label_ipod_pos', 'style:normal:font_size': '16', 'style:normal:text_color': NP_GREY,
         'style:normal:text_align_h': 'left'}, []])
 
-    art_y = (NP_SLIDE_H - NP_ART) // 2
+    art_y = NP_ART_Y
     text_w = 375 - NP_MARGIN - NP_TEXT_X
-    # Favourite centres beneath More; leave 6px between its target and shuffle/order.
-    icons_y = NP_SLIDE_H - NP_ICON
+    # Favourite centres beneath More; leave 6px between its target and shuffle/order. The row ends
+    # with the art, clear of the dots.
+    icons_y = art_y + NP_ART - NP_ICON
     fav_x = named['img_more'][1][0]
     for name, x in (('img_playmode', fav_x - NP_ICON - 6), ('img_fav', fav_x)):
         buttons[3].remove(named[name])
@@ -438,8 +443,8 @@ def playing_page(root):
     for key in dots[2]:
         if key.endswith(':selected_fg_color'): dots[2][key] = '#eeeeee'
         elif key.endswith(':fg_color'): dots[2][key] = '#555555'
-    dots[1][1] = NP_SLIDE_H - 4
-    dots[2]['self_layout'] = f'default(x=0,y={NP_SLIDE_H - 4},w=100%,h=10)'
+    dots[1][1] = NP_DOTS_Y
+    dots[2]['self_layout'] = f'default(x=0,y={NP_DOTS_Y},w=100%,h=10)'
     named['image_wait'][1] = [NP_MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
 
     slider = named['slider_play']

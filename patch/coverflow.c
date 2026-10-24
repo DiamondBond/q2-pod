@@ -442,9 +442,10 @@ static void drop_unknown(void) {
  * matched back to the rows by album_cmp. */
 enum { SORT_ALBUM, SORT_ARTIST, SORT_ADDED, SORT_PLAYED, SORT_RANDOM, SORT_RATING, SORT_YEAR };
 #define SORT_FILE PEQ_ROOT "/mnt/data/ringnav-coversort"
-/* The rated albums' Sort: most hearts first, Album, Artist, then Year. */
+/* The rated albums' Sort: most hearts first, Album, Artist, Year, then Most Played. */
 #define RATED_SORT_FILE PEQ_ROOT "/mnt/data/ringnav-ratedsort"
-static const unsigned char rated_sorts[] = { SORT_RATING, SORT_ALBUM, SORT_ARTIST, SORT_YEAR };
+static const unsigned char rated_sorts[] = { SORT_RATING, SORT_ALBUM, SORT_ARTIST, SORT_YEAR,
+                                             SORT_PLAYED };
 /* The library's Sort: Year after Artist; saved values are the enum's. */
 static const unsigned char all_sorts[] = { SORT_ALBUM, SORT_ARTIST, SORT_YEAR,
                                            SORT_ADDED, SORT_PLAYED, SORT_RANDOM };

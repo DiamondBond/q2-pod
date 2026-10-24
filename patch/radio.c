@@ -446,7 +446,9 @@ static void np_open(void) {
     np.info = label(page, SPOT_TIME_X, SPOT_TIMES_Y, 375 - 2 * SPOT_TIME_X - 80, 16, "s_scrlabel_white20l", 14, SPOT_GREY);
     np.elapsed = label(page, 375 - SPOT_TIME_X - 80, SPOT_TIMES_Y, 80, 16, "s_scrlabel_white20r",
                        14, SPOT_GREY);
-    np.heart = image_create(page, IPOD ? 303 : 320, 176, 50, 50); /* local Now Playing's heart (tools/ipod.py img_fav) */
+    /* local Now Playing's heart (tools/ipod.py img_fav) */
+    np.heart =
+        image_create(page, IPOD ? 303 : 320, IPOD ? SPOT_ART_Y + SPOT_ART_PX - 50 : 176, 50, 50);
     image_set_draw_type(np.heart, IMAGE_DRAW_CENTER);
     widget_set_prop_str(np.heart, "clickable", "true");
     widget_on(np.heart, EVT_CLICK, np_heart, 0);

@@ -261,6 +261,13 @@ typedef struct {
     chapters *ch;
     unsigned ch_timer, ch_track, ch_key;
     void *sc_page, *sc_row[2]; /* Streaming's Configuration page and its two cache rows */
+/* Streaming's services (svc): five fixed, and at most APPS_MAX card apps. */
+#define SVC_FIXED 5
+#define SVC_MAX (SVC_FIXED + APPS_MAX)
+#define SVC_HIDE 260 /* STREAMHIDE, read as ",key,key," */
+#define SVC_PROP "ringnav_svc"
+    void *sc_check[SVC_MAX]; /* the Configuration page's check marks, by service */
+    int svc_n;               /* the card apps Streaming listed at its last build */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
      * is up on (0 when down), the hearts picked, the heart's hold timer (rate_held once it fired),
@@ -4091,6 +4098,14 @@ int ringnav_touch(void *ctx, void *event) {
     return result; /* The very same touch continues through the stock tap/drag handlers. */
 }
 
+/* Set date and time's OK sets the clock (stock) and stays; it goes back to the Time page instead,
+ * as Return does, after a tap (ringnav_dispatch) or Centre's click (edit_single). */
+static int time_ok(void *target) {
+    void *top = window_manager_get_top_window(window_manager());
+    return top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "manualtime_page") &&
+           !tk_strcmp(widget_get_prop_str(target, "name", ""), "btn_enter");
+}
+
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
  * Do not turn pointer-down into selection: a swipe is not a tap. */
 int ringnav_dispatch(void *target, void *event) {
@@ -4177,6 +4192,12 @@ int ringnav_dispatch(void *target, void *event) {
         fx_cancel();
         keep_selected(
             target); /* a tap owns its live row: recall could scroll/rebind it before delivery */
+        if (time_ok(target)) {
+            void *page = window_manager_get_top_window(window_manager());
+            int result = stock_dispatch_trampoline(target, event);
+            if (window_manager_get_top_window(window_manager()) == page) navigator_back();
+            return result;
+        }
     }
     return stock_dispatch_trampoline(target, event);
 }
@@ -5449,12 +5470,71 @@ static void sc_text(int i) {
     widget_set_text_utf8(widget_get_child(st.sc_row[i], 0), s);
 }
 
+/* The services Streaming lists, each shown or hidden by a check row on its Configuration page:
+ * 0 stock's Tidal, 1 Spotify, the card apps (addon.c's order), then Tidal Downloads, Internet
+ * Radio and AirPlay. Q2POD STREAMHIDE in config.ini holds the hidden ones' keys, comma separated:
+ * a fixed row's upper case one, a card app's id (lower case, so never one of those), so a hidden
+ * app stays hidden whatever its place. Missing, every row shows. Configuration is never hidden. */
+static const char *const svc_fixed[][2] = { { "TIDAL", "TIDAL" },
+                                            { "SPOTIFY", "Spotify" },
+                                            { "DOWNLOADS", "Tidal Downloads" },
+                                            { "RADIO", "Internet Radio" },
+                                            { "AIRPLAY", "AirPlay" } };
+/* Service i's key (label 0) or row label (1), as Streaming last listed them. */
+static const char *svc(int i, int label) {
+    if (i >= 2 && i < 2 + st.svc_n) return label ? addon_name(i - 2) : addon_id(i - 2);
+    return svc_fixed[i < 2 ? i : i - st.svc_n][label];
+}
+/* STREAMHIDE as ",key,key," ("," for none), so a key matches as ",key,". */
+static void svc_hidden(char *s) {
+    char v[256] = "";
+    toolsReadConfig("/mnt/data/config.ini", "Q2POD", "STREAMHIDE", v, "");
+    tk_snprintf(s, SVC_HIDE, v[0] ? ",%s," : ",", v);
+}
+static char *svc_find(char *hide, int i) {
+    char t[24];
+    const char *key = svc(i, 0);
+    if (!key) return 0;
+    tk_snprintf(t, sizeof t, ",%s,", key);
+    return strstr(hide, t);
+}
+/* A check row's Centre: the service hidden, or shown again, and saved; its tick and its row on
+ * Streaming (the page under this one) follow at once. ponytail: an uninstalled app's key stays
+ * in STREAMHIDE (hidden again if it comes back); a list full of them (ROOT_MAX) refuses more. */
+static int svc_toggle(int i) {
+    char hide[SVC_HIDE], *p;
+    const char *key = svc(i, 0);
+    if (!key) return 0;
+    svc_hidden(hide);
+    unsigned k = strlen(hide), n = strlen(key) + 1;
+    if ((p = svc_find(hide, i))) {
+        for (char *to = p, *from = p + n; (*to++ = *from++);) { /* ",key" out */
+        }
+    } else if (k + n < ROOT_MAX) {
+        tk_snprintf(hide + k, SVC_HIDE - k, "%s,", key);
+    } else {
+        toast("Could not save setting");
+        return 0;
+    }
+    k = strlen(hide);
+    if (k > 1) hide[k - 1] = 0; /* the trailing comma; hide + 1 is then the value */
+    toolsWriteConfig("/mnt/data/config.ini", "Q2POD", "STREAMHIDE", hide + 1);
+    widget_set_visible(st.sc_check[i], p != 0, 0);
+    void *view = widget_lookup(window_manager(), "scroll_view_streamsset", 1);
+    for (unsigned c = 0, rows = view ? widget_count_children(view) : 0; c < rows; ++c)
+        if (widget_get_prop_int(widget_get_child(view, c), SVC_PROP, 0) == i + 1)
+            widget_set_visible(widget_get_child(view, c), p != 0, 0);
+    if (view) widget_layout(view);
+    return 0;
+}
+
 /* A cache row steps to the next size and saves it: Tidal's applies at the next download's trim,
  * Spotify's when librespot next starts. Stop Streaming Services ends librespot and its restart
  * loop, a radio station, the card apps (addon.c) and a stock stream (Tidal's) queue, so the keys
  * and the output are local music's again; local music already stopped is left as it is. */
 static int sc_click(void *ctx, void *event) {
     int i = (int)(long)ctx;
+    if (i > 2) return svc_toggle(i - 3);
     if (i == 2) {
         unsigned type = (unsigned)MCL(MCL_TYPE);
         spot_stop();
@@ -5474,13 +5554,21 @@ static int sc_click(void *ctx, void *event) {
     return 0;
 }
 
+static void *ple_tick(void *item);
 static int stream_config(void *ctx, void *event) {
     if (st.sc_page || !(st.sc_page = page_open("streamconf_page", page_closed, page_keyup)))
         return 0;
-    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 3, 48);
+    int n = SVC_FIXED + st.svc_n;
+    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 3 + n, 48);
     for (int i = 0; i < 2; ++i)
         st.sc_row[i] = page_row_detail(view, i, "", 0, sc_click), sc_text(i);
     page_row_detail(view, 2, "Stop Streaming Services", 0, sc_click);
+    char hide[SVC_HIDE];
+    svc_hidden(hide);
+    for (int i = 0; i < n; ++i) {
+        st.sc_check[i] = ple_tick(page_row_detail(view, 3 + i, svc(i, 1), 0, sc_click));
+        if (svc_find(hide, i)) widget_set_visible(st.sc_check[i], 0, 0);
+    }
     return 0;
 }
 
@@ -6441,6 +6529,12 @@ static int shows_image(void *w, const char *name) {
     return 0;
 }
 
+/* A Streaming row tagged as service i (svc), hidden when STREAMHIDE holds it. */
+static void svc_row(void *row, int i, char *hide) {
+    prop(row, SVC_PROP, i + 1);
+    if (svc_find(hide, i)) widget_set_visible(row, 0, 0);
+}
+
 /* stream_page_init: stock's rows but Baidu Netdisk (a Chinese cloud drive, signed in to from
  * Baidu's app: its row, the one with list_baidu's icon, removed), then Spotify (spotify.c), which
  * opens its browser, the card apps on the card (addon.c: Deezer, Soulseek, File Browser… as System
@@ -6453,13 +6547,24 @@ int ringnav_stream(void *win, void *ctx) {
         if (shows_image(widget_get_child(view, (unsigned)i), "list_baidu"))
             widget_destroy(widget_get_child(view, (unsigned)i));
     if (view) {
-        library_into(view, "stream_spotify", spot_open, 0, "Spotify");
-        for (int k = 0, n = addon_scan(); k < n; ++k)
-            library_into(view, "stream_app", addon_open, (void *)(long)k, addon_name(k));
-        library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads");
-        library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
-        library_into(view, "stream_airplay", airplay_open, 0, "AirPlay");
+        unsigned stock = widget_count_children(view); /* stock's Tidal */
+        void *rows[SVC_MAX];
+        int i = 0;
+        st.svc_n = addon_scan(); /* at most APPS_MAX */
+        rows[i++] = library_into(view, "stream_spotify", spot_open, 0, "Spotify");
+        for (int k = 0; k < st.svc_n; ++k)
+            rows[i++] =
+                library_into(view, "stream_app", addon_open, (void *)(long)k, addon_name(k));
+        rows[i++] = library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads");
+        rows[i++] = library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
+        rows[i++] = library_into(view, "stream_airplay", airplay_open, 0, "AirPlay");
         library_into(view, "stream_config", stream_config, 0, "Configuration");
+        char hide[SVC_HIDE];
+        svc_hidden(hide);
+        for (unsigned c = 0; c < stock; ++c)
+            if (shows_image(widget_get_child(view, c), "list_tidal"))
+                svc_row(widget_get_child(view, c), 0, hide);
+        for (int j = 0; j < i; ++j) svc_row(rows[j], j + 1, hide);
     }
     return result;
 }
@@ -6622,11 +6727,13 @@ static void ple_filter(void) {
 }
 /* Stock's "select" check at the row's end, as the Shuffle and Repeat menus; the caption stops short
  * of it. */
-static void ple_tick(void *item) {
+static void *ple_tick(void *item) {
     void *label = item ? widget_get_child(item, 0) : 0;
-    if (!label) return;
+    if (!label) return 0;
     widget_move_resize(label, I(label, W_X), I(label, W_Y), 330 - I(label, W_X), I(label, W_H));
-    image_base_set_image(image_create(item, 340, 0, 24, 48), "select");
+    void *tick = image_create(item, 340, 0, 24, 48);
+    image_base_set_image(tick, "select");
+    return tick;
 }
 static void ple_show(void);
 static int ple_closed(void *ctx, void *event) {
@@ -7327,6 +7434,19 @@ static int quick_wheel_toggle(void *top) {
     write_int_config(volume, "Q2POD", "QSVOLUME");
     return 1;
 }
+/* Stock's swipe down opens Quick Settings at g_dropdown_menu_state 1 and starts its slide only on
+ * the touch's release reaching the dialog (its pointer-up handler adds the timer_idex timer). A
+ * release the dialog never gets, as when the window opens slowly at boot, leaves it on top but off
+ * screen, holding the wheel. With no touch down and no slide running it is closed, as Return closes
+ * the open one; the key that finds it is used up. ponytail: only keys check it; a touch on it shows
+ * it, as stock already does. */
+static int quick_stuck(void *top) {
+    return usable() && top &&
+           !tk_strcmp(widget_get_prop_str(top, "name", ""), "statusbar_dialog") &&
+           (unsigned)(I(g_dropdown_menu_state, 0) - 1) < 2 &&
+           !window_manager_get_pointer_pressed(window_manager()) &&
+           widget_get_prop_int(top, "timer_idex", -1) == -1;
+}
 /* Stock long-key callback: everything except a taken Play/Pause hold runs the stock body. On an
  * Internet Radio station it is the favourite toggle, on a Spotify track Add to Queue (its reply
  * toasts), on a card app's row its hold op (addon_hold: a Deezer list downloaded whole), in Quick
@@ -7336,6 +7456,7 @@ int ringnav_keylong(void *ctx, void *event) {
     if (event && ple_key((unsigned)I(event, EVENT_KEY), 3)) return STOP;
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
     void *top = window_manager_get_top_window(window_manager());
+    if (quick_stuck(top)) return STOP; /* the release closes it (ringnav) */
     const char *fav = radio_hold(top);
     int taken = fav || quick_wheel_toggle(top) || spot_hold(top) || addon_hold(top) || un_hold(top);
     char *key = taken ? play_key() : (char *)0;
@@ -8131,6 +8252,7 @@ int ringnav_keydown(void *ctx, void *event) {
     unsigned key = event ? (unsigned)I(event, EVENT_KEY) : 0;
     if (ple_key(key, 1)) return STOP;
     void *top = window_manager_get_top_window(window_manager());
+    if (quick_stuck(top)) return STOP; /* the release closes it (ringnav) */
 #if IPOD
     unsigned char tone = g_keytone_flag;
     void *row = (void *)0;
@@ -8196,6 +8318,15 @@ static void field_set(void *top, int f) {
     widget_invalidate_force(top, (void *)0);
 }
 
+/* The side keys move between the fields and OK: Next on, Previous back, stopping at the ends. */
+static int field_key(void *top, unsigned key) {
+    int n = fields(top);
+    if (!n || (key != KEY_FWD_BTN && key != KEY_BACK_BTN)) return 0;
+    cancel_center(); /* a pending Centre would step (or press OK) again */
+    field_set(top, clamp_step(field_at(top), n, key == KEY_FWD_BTN ? 1 : -1));
+    return 1;
+}
+
 static int edit_single(const void *info) {
     st.edit_press = 0;
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
@@ -8211,6 +8342,7 @@ static int edit_single(const void *info) {
         void *ok = field_widget(top, n);
         char click[0x30];
         if (ok) stock_dispatch_trampoline(ok, pointer_event_init(click, EVT_CLICK, ok, 0, 0));
+        if (ok && time_ok(ok)) navigator_back();
     }
     return 0;
 }
@@ -8356,6 +8488,13 @@ int ringnav(void *ctx, void *event) {
         *(volatile signed char *)KEY_LOCKOUT <= 8 - LOCKOUT_KEEP)
         *(volatile unsigned char *)KEY_LOCKOUT = 0;
     if (key == KEY_CENTER || key == KEY_RETURN) st.held = 0; /* a button ends a held turn */
+    void *front = window_manager_get_top_window(window_manager());
+    if (quick_stuck(front)) {
+        drop_input();
+        dialog_quit(front, 0);
+        return STOP;
+    }
+    if (usable() && field_key(front, key)) return STOP; /* before stock's track skip */
     /* The rating picker's keys, before the page's own (its Return would leave it) */
     if (usable() && rate_key(window_manager_get_top_window(window_manager()), key)) return STOP;
 #if IPOD

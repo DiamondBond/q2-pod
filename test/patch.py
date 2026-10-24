@@ -1703,6 +1703,17 @@ assert m.call(O['KEY_PREV'])==11 and m.nodes[bright]['value']==99
 for key in ('KEY_CENTER','KEY_RETURN')*(variant=='ipod'):  # Legacy keeps stock's keys
     assert m.call(O[key])==11 and [c[1:3] for c in m.calls if c[0]=='dialog_quit']==[(m.top,0)]
 passed()
+# A swipe down whose release the pull-down never got (stock state 1 or 2, no touch, no slide timer)
+# leaves it on top off screen: the next key closes it untouched; a live drag or slide keeps it.
+for state,pressed,timer,stuck in ((1,0,None,1),(2,0,-1,1),(3,0,None,0),(1,1,None,0),(1,0,7,0)):
+    m=Machine(); bright=m.node('slider','slider_backlight',value=50)
+    m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])],**({} if timer is None else {'timer_idex':timer}))
+    m.mock('dialog_quit'); m.word(syms['g_dropdown_menu_state'],state); m.pressed=pressed
+    down=m.call(address=HOOKS['on_wm_keydown_before_fun'][0],event_type=O['EVT_KEY_DOWN_BEFORE'],gap=0)
+    m.call()
+    assert (down==11 and m.nodes[bright]['value']==50)==bool(stuck)
+    assert [c[1:3] for c in m.calls if c[0]=='dialog_quit']==[(m.top,0)]*stuck, (state,pressed,timer)
+passed()
 # A held Play/Pause there switches its wheel to stock's volume and back, kept as Q2POD QSVOLUME.
 m=Machine(); bright=m.node('slider','slider_backlight',value=50)
 m.top=m.node('dialog','statusbar_dialog',[m.node('view','view_backlight',[bright])])
@@ -1789,14 +1800,26 @@ assert m.nodes[slide]['value']==1 and not m.clicks
 m.word(ok+O['W_W'],287); m.word(ok+O['W_H'],40); m.nodes[ok]['text']='OK'; m.paint(ok)
 assert not m.strokes and [(r['rect'],r['radius']) for r in m.rounded]==[((0,0,287,40),O['SEL_RADIUS'])]
 assert [l['text'] for l in m.letters]==['OK'] and m.lcd_colors()==LCD_COLORS
-assert m.confirm()==11 and m.clicks==[ok]
+backs=lambda: [c[0] for c in m.calls].count('navigator_back')
+assert m.confirm()==11 and m.clicks==[ok] and backs()==1  # OK sets the time, then back to Time
 assert m.call(O['KEY_PREV'])==11 and m.nodes[m.top]['_edit_field']==4
 for _ in range(9): m.call()
 assert m.get(sels[4]+O['SELECTOR_INDEX'])==11
 m.nodes[slide]['value']=0; assert m.call(O['KEY_PREV'])==11 and m.get(sels[0]+O['SELECTOR_INDEX'])==5; passed()
+# The side keys move between the fields and OK, stopping at the ends; a tap on OK goes back too.
+m,sels,ok,slide=time_page('manualtime_page'); field=lambda: m.nodes[m.top].get('_edit_field',0)
+assert m.call(O['KEY_BACK_BTN'])==11 and field()==0
+for f in (1,2,3,4,5,5): assert m.call(O['KEY_FWD_BTN'])==11 and field()==f
+assert m.nodes[slide]['value']==1 and not m.clicks
+assert m.call(O['KEY_BACK_BTN'])==11 and field()==4 and m.call(O['KEY_BACK_BTN'])==11 and field()==3
+assert not any(c[0] in ('media_key','stock_input') for c in m.calls)
+m.call(address=HOOKS['widget_dispatch'][0],args=(ok,m.event,0,0),event_type=O['EVT_CLICK'],gap=0)
+assert m.clicks==[ok] and [c[0] for c in m.calls].count('navigator_back')==1; passed()
 m,sels,ok,slide=time_page('sleepshutdown_page')
 assert m.call()==11 and m.get(sels[0]+O['SELECTOR_INDEX'])==6
-assert m.confirm()==11 and m.confirm()==11 and m.confirm()==11 and m.clicks==[ok]; passed()
+assert m.call(O['KEY_FWD_BTN'])==11 and m.nodes[m.top]['_edit_field']==1 and m.call(O['KEY_BACK_BTN'])==11
+assert m.confirm()==11 and m.confirm()==11 and m.confirm()==11 and m.clicks==[ok]
+assert 'navigator_back' not in [c[0] for c in m.calls]; passed()  # the sleep timer's OK stays stock's
 
 # A picker opens on its checked option, not the row last chosen there.
 m=Machine(); w,es=m.page_list(4,name='playmode_page')
@@ -6035,6 +6058,12 @@ shown(m,0); assert m.menu()[3:5]==['Remove from Favourites','Rate Album  ♥♥�
 f,ctx=m.handler(m.nodes[m.slide]['children'][2],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.advance(0)
 m.slide=m.find('slide_menu'); assert [shown(m,i) for i in range(3)]==['Album 0','Album 2','Sort: Album']
 assert [v for k,v in m.files.items() if k.endswith('ringnav-ratedsort')]==[struct.pack('<i',0)]; passed()
+# Then Artist, Year and Most Played (saved as the library's SORT_PLAYED, 3), round again to Rating.
+for want,saved in (('Sort: Artist',1),('Sort: Year',6),('Sort: Most Played',3),('Sort: Rating',5)):
+    f,ctx=m.handler(m.nodes[m.slide]['children'][2],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000); m.advance(0)
+    m.slide=m.find('slide_menu'); assert shown(m,2)==want
+    assert [v for k,v in m.files.items() if k.endswith('ringnav-ratedsort')]==[struct.pack('<i',saved)]
+passed()
 m.close(); m.stack.remove(m.page); m.top=m.stack[-1]; m.open(); assert len(m.nodes[m.slide]['children'])==3
 assert shown(m,2)=='Album 2'; passed()
 # Display settings' Coverflow Sort (navigation.c's pod rows): each press saves the next of Album, Artist,
@@ -8714,7 +8743,8 @@ for index, name in [(22,'Asia/Shanghai'), *[(27+i,name) for i,(_,name) in enumer
 passed()
 def stream_rows(m):
     """Streaming's page over stock's one Tidal row: the hook's rows' buttons by their labels, in order."""
-    view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
+    tidal=m.node('list_item','',[m.node('image',image='list_tidal')])
+    view=m.node('scroll_view','scroll_view_streamsset',[tidal]); m.top=m.node('window','stream_page',[view])
     assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
     rows={}
     for r in m.nodes[view]['children'][1:]:
@@ -8999,11 +9029,12 @@ m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' an
 m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']
 # The heart, at local Now Playing's place: Three is no favourite.
 heart=next(w for w in m.nodes[np]['children'] if m.nodes[w].get('image') in ('play_fav','play_unfav'))
-heart_x=320
+heart_x,heart_y=320,176
 if variant=='ipod':
+    heart_y=O['NP_ART_TOP']+O['SPOT_ART_PX']-50
     from ipod import NP_ICONS_END, NP_ICON
     heart_x=NP_ICONS_END-NP_ICON
-assert m.nodes[heart]['image']=='play_unfav' and [m.get(heart+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[heart_x,176,50,50]; passed()
+assert m.nodes[heart]['image']=='play_unfav' and [m.get(heart+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[heart_x,heart_y,50,50]; passed()
 # Playing: its tags (the StreamTitle as artist - title), the stream and the time since the sound
 # started; standby and auto power-off held (not the screen's timer) and the DAC kept on.
 m.word(syms['g_dacoff_time'],5)
@@ -9494,6 +9525,34 @@ tidal,baidu=stock_row('list_tidal','TIDAL'),stock_row('list_baidu','Baidu Netdis
 m.top=m.node('window','stream_page',[view])
 assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 kids=m.nodes[view]['children']; assert kids[0]==tidal and baidu not in kids and m.nodes[baidu].get('destroyed') and len(kids)==7,len(kids); passed()
+# Streaming's Configuration: after Stop Streaming Services, a check row per service Streaming lists
+# (stock's TIDAL, Spotify, the card apps, Tidal Downloads, Internet Radio, AirPlay), all ticked when
+# Q2POD STREAMHIDE is missing. Centre unticks one and hides its Streaming row at once, again shows
+# it; card apps are kept by id, the others by a fixed upper-case key. Configuration always shows.
+m=AppMachine(); card_app(m,'deezer','name=Deezer\n'); rows=stream_rows(m); stream=m.top
+m.nodes[m.wm]=dict(type='window_manager',name='',children=[stream],visible=1)
+view=m.find('scroll_view',stream)
+def streaming():
+    kids=m.nodes[view]['children']
+    return [m.nodes[kids[0]]['visible']]+[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in kids[1:] if m.nodes[r]['visible']]
+assert streaming()==[1,'Spotify','Deezer','Soulseek','Tidal Downloads','Internet Radio','AirPlay','Configuration']
+m.click(rows['Configuration']); m.page=m.top; assert m.nodes[m.page]['name']=='streamconf_page'
+SVC=['TIDAL','Spotify','Deezer','Soulseek','Tidal Downloads','Internet Radio','AirPlay']
+assert m.labels()==['Configuration','Tidal Cache: 2 GB','Spotify Cache: 2 GB','Stop Streaming Services',*SVC]
+def ticks(): return [m.nodes[m.nodes[r]['children'][-1]]['image']=='select' and m.nodes[m.nodes[r]['children'][-1]]['visible'] for r in m.rows()[3:]]
+assert ticks()==[True]*7
+m.row(5); assert m.config['STREAMHIDE']=='deezer' and ticks()==[True,True,False,True,True,True,True]
+assert streaming()==[1,'Spotify','Soulseek','Tidal Downloads','Internet Radio','AirPlay','Configuration']
+m.row(8); m.row(3); assert m.config['STREAMHIDE']=='deezer,RADIO,TIDAL'
+assert streaming()==[0,'Spotify','Soulseek','Tidal Downloads','AirPlay','Configuration']
+m.row(5); assert m.config['STREAMHIDE']=='RADIO,TIDAL' and ticks()==[False,True,True,True,True,False,True]
+assert streaming()==[0,'Spotify','Deezer','Soulseek','Tidal Downloads','AirPlay','Configuration']
+m.row(8); m.row(3); assert m.config['STREAMHIDE']=='' and ticks()==[True]*7; passed()
+# Saved: the next Streaming leaves them out, an app by its id whatever its place by name.
+m=AppMachine(); card_app(m,'deezer','name=Deezer\n'); m.config['STREAMHIDE']='soulseek,AIRPLAY,SPOTIFY'
+rows=stream_rows(m); view=m.find('scroll_view',m.top)
+assert streaming()==[1,'Deezer','Tidal Downloads','Internet Radio','Configuration']
+m.click(rows['Configuration']); m.page=m.top; assert ticks()==[True,False,True,False,True,True,False]; passed()
 # Soulseek: q2-soulseek from the card's .soulseek folder.
 SBIN,SBROWSE,SSTATE,SPID='/mnt/mmc/.soulseek/q2-soulseek','/tmp/q2-soulseek.browse.sock','/tmp/q2-soulseek.state','/tmp/q2-soulseek'
 class SlskMachine(AppMachine): pass
@@ -10294,6 +10353,18 @@ m.byte(syms['g_backlight_status'],0)
 m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and not wake(UP,gap=50) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0'
 assert wake(DOWN,gap=100) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP,gap=50)
 assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
+# Waking to the lock screen (LOCK_WAKE, LOCK_LIGHT): the centre release and Standby's resume no longer
+# unblank the panel on the page left at screen-off; the lock window's timer paints the screen, then
+# unblanks it, and stock's 50 ms sleep, g_backlight_status and backlight follow.
+from build import LOCK_WAKE, LOCK_LIGHT
+assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in LOCK_WAKE)
+assert struct.unpack_from('<I',demo,fileoff(demo,LOCK_LIGHT[0]))[0]==jal(payload_syms['lockscreen_light'])
+vt=m.alloc(16); m.word(m.wm+0x94,vt); m.word(vt+0xc,0x400100); m.handlers[0x400100]='wm_vt_paint'
+m.byte(syms['g_backlight_status'],0); m.calls=[]
+m.call(address=payload_syms['lockscreen_light'],args=(50000,0,0,0),gap=0,clear=False)
+order=[c for c in m.calls if c[0] in ('widget_invalidate_force','wm_vt_paint','enable_fb','usleep@GLIBC_2.0')]
+assert [c[0] for c in order]==['widget_invalidate_force','wm_vt_paint','enable_fb','usleep@GLIBC_2.0'] and order[0][1]==order[1][1]==m.wm and order[3][1]==50000,order
+assert m.u.mem_read(syms['g_backlight_status'],1)==b'\1'; m.byte(syms['g_backlight_status'],0); passed()
 # Lighting the screen stalls the UI loop about WAKE_MS (stock's on_wm_keyup_fun, the paint), so a
 # blind double press's last press is dispatched only after the first lit loop pass: still dropped.
 for double in ('0','1'):
@@ -11101,7 +11172,7 @@ m.top=m.node('window','home_page'); m.stream(); view=m.nodes[m.top]['children'][
 conf=m.nodes[m.nodes[view]['children'][5]]['children'][0]; icon,label=m.nodes[conf]['children'][:2]
 assert m.nodes[icon]['image']=='stream_config' and m.nodes[label]['text']=='Configuration'
 m.click(conf); m.page=m.top; assert m.nodes[m.page]['name']=='streamconf_page'
-assert m.labels()==['Configuration','Tidal Cache: 2 GB','Spotify Cache: 2 GB','Stop Streaming Services']
+assert m.labels()==['Configuration','Tidal Cache: 2 GB','Spotify Cache: 2 GB','Stop Streaming Services','TIDAL','Spotify','Tidal Downloads','Internet Radio','AirPlay']
 m.row(0); assert m.files[TCAP]==b'4096M' and m.labels()[1]=='Tidal Cache: 4 GB' and endpoint(m,'stream_cache',0)==3
 m.row(0); m.row(0); assert m.files[TCAP]==b'512M' and m.labels()[1]=='Tidal Cache: 512 MB'
 m.row(1); assert m.files[SCAP]==b'4096M' and m.labels()[2]=='Spotify Cache: 4 GB' and endpoint(m,'stream_cache',1)==3
