@@ -3,7 +3,6 @@
 - **1.4.6**:
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - Lyrics: **Download Cover & Lyrics** (Now Playing's ⋯ menu) finds LRCLIB's lyrics for your track's own length, so a live, remastered or edited version's timing no longer comes back for the album track. An instrumental gets no lyrics instead of another song's, and without internet the search gives up after one wait instead of two.
-  - Lyrics: **Download Album Lyrics**, under Download Cover & Lyrics in Now Playing's ⋯ menu, saves synced lyrics beside every song of the playing album, matched the same way. Songs that already have lyrics (a .lrc file, or in their tags) are left alone, a song LRCLIB lacks is skipped, and the row shows how far it has got; press it again to cancel. It carries on if you leave the menu, and stops for USB storage.
 
 - **1.4.5**:
   - Buttons Lock works with the lock screen on again. 1.4.4 changed how the screen wakes to the lock screen, and with the lock screen on the locked buttons could act after the screen turned off. That change is gone: the screen wakes as it did in 1.4.3, the page you left shows for a moment, then the lock screen.
