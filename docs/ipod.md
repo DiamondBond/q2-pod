@@ -194,13 +194,11 @@ and full-row tap targets. The `navbar_only` assets set their
 `list_view`'s `default_item_height` from 78 to 68, which no stock asset uses, and nothing else.
 Constants are `SET_*` in `patch/offsets.inc`.
 
-System Settings groups Personalise, Connections, Device, and Apps & Maintenance, with Reset last.
-Playback groups Listening, Volume & Channels, Library & Artwork, and Audio Output. Short 32-pixel
-headings separate these groups; they have no click handler, so the wheel skips them. Play Mode,
-EQ, Gapless and Crossfade come first; specialist output controls come last. Added binary settings
+System Settings puts Wireless and Network first, then personal and daily controls, then device
+maintenance, with Reset last; neither list has headings. Play Mode, EQ, Gapless and Crossfade come first; specialist output controls come last. Added binary settings
 use Shanling's `switch_on` / `switch_off` images with the whole row as the tap target. Settings
 that cycle between named choices retain their value labels. Crossfade, Resume Songs, Wheel
-Sensitivity and Apps show a chevron, as do the added Library browsing rows.
+Sensitivity and App Store show a chevron, as do the added Library browsing rows.
 
 Every row is built natively, about 60 builders in all, one pattern throughout: a
 `list_item_create(view, 0, 0, 0, 0)` (some pass 78 as the height) holding a `button_create(item,

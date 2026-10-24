@@ -2076,13 +2076,13 @@ void list_toggle(void *label, const char *title, int on) {
     image_base_set_image(image, on ? "switch_on" : "switch_off");
 }
 
-/* Headings are short, noninteractive rows; wheel navigation collects only click handlers. */
-static void settings_heading(void *view, unsigned at, const char *title) {
-    void *row = list_item_create(view, 0, 0, 0, 32);
-    void *label = label_create(row, 20, 0, 335, 32);
-    widget_use_style(label, "s_label_white18c");
+/* A grey 16px page_list row naming the rows below; no click, so the wheel passes over it. */
+static void list_caption(void *view, int index, const char *title) {
+    void *label = label_create(list_item_create(view, 0, index * 48, 375, 48), 20, 0, 335, 48);
+    widget_use_style(label, "s_label_white20l");
+    widget_set_prop_int(label, "style:normal:text_color", (int)0xffaaaaaau);
+    widget_set_prop_int(label, "style:normal:font_size", 16);
     widget_set_text_utf8(label, title);
-    widget_restack(row, at);
 }
 
 /* Stock modes, only with the screen off: 1 locks wheel volume, 2 the buttons, 3 both.
@@ -2639,12 +2639,12 @@ static const unsigned char playset_order[] = {
     23 /* MQA */,
     7 /* USB Audio */,
 };
-/* Personalisation and daily controls, connections, then device maintenance; Reset stays last. */
+/* Connections, personalisation and daily controls, then device maintenance; Reset stays last. */
 static const unsigned char sysset_order[] = {
-    3 /* Display */,    4 /* Power */,    8 /* Buttons lock */,  7 /* Key tone */,
-    1 /* Wireless */,   2 /* Network */,  5 /* Date and time */, 0 /* Language */,
-    6 /* In-Vehicle */, 13 /* Boot to */, 12 /* Apps */,         9 /* Update */,
-    11 /* About */,     10 /* Reset */,
+    1 /* Wireless */,     2 /* Network */,  3 /* Display */,       4 /* Power */,
+    8 /* Buttons lock */, 7 /* Key tone */, 5 /* Date and time */, 0 /* Language */,
+    6 /* In-Vehicle */,   13 /* Boot to */, 12 /* Apps */,         9 /* Update */,
+    11 /* About */,       10 /* Reset */,
 };
 
 /* Folder Root (Q2POD FOLDERROOT): the card's top-level folder Home's Folder opens in, "" the card
@@ -2720,12 +2720,6 @@ int ringnav_audioset(void *win, void *ctx) {
         mqa_row(list_row(view, "playset_dsdoutput", mqa_click, 0)); /* crossfade.c */
     }
     reorder(view, playset_order, sizeof playset_order);
-    if (view && widget_count_children(view) == sizeof playset_order) {
-        settings_heading(view, 0, "Listening");
-        settings_heading(view, 8, "Volume & Channels");
-        settings_heading(view, 15, "Library & Artwork");
-        settings_heading(view, 23, "Audio Output");
-    }
     return result;
 }
 
@@ -4011,7 +4005,8 @@ int ringnav_systemset(void *win, void *ctx) {
     int result = stock_systemset_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_sysset", 1) : (void *)0;
     if (view)
-        widget_set_text_utf8(list_row_core(view, "system_update", shelf_open, 0, 202, 1), "Apps");
+        widget_set_text_utf8(list_row_core(view, "system_update", shelf_open, 0, 202, 1),
+                             "App Store");
     if (view && rockbox_available()) {
         char value[16];
         void *f = fopen(BOOT_TARGET, "rb");
@@ -4037,12 +4032,6 @@ int ringnav_systemset(void *win, void *ctx) {
     for (unsigned i = 0; i < sizeof sysset_order; i++)
         if (sysset_order[i] < rows) order[n++] = sysset_order[i];
     reorder(view, order, n);
-    if (view && (rows == 13 || rows == 14)) {
-        settings_heading(view, 0, "Personalise");
-        settings_heading(view, 5, "Connections");
-        settings_heading(view, 8, "Device");
-        settings_heading(view, rows - 1, "Apps & Maintenance");
-    }
     return result;
 }
 
@@ -5534,7 +5523,7 @@ static int svc_toggle(int i) {
  * and the output are local music's again; local music already stopped is left as it is. */
 static int sc_click(void *ctx, void *event) {
     int i = (int)(long)ctx;
-    if (i > 2) return svc_toggle(i - 3);
+    if (i > 3) return svc_toggle(i - 4);
     if (i == 2) {
         unsigned type = (unsigned)MCL(MCL_TYPE);
         spot_stop();
@@ -5559,14 +5548,15 @@ static int stream_config(void *ctx, void *event) {
     if (st.sc_page || !(st.sc_page = page_open("streamconf_page", page_closed, page_keyup)))
         return 0;
     int n = SVC_FIXED + st.svc_n;
-    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 3 + n, 48);
+    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 4 + n, 48);
     for (int i = 0; i < 2; ++i)
         st.sc_row[i] = page_row_detail(view, i, "", 0, sc_click), sc_text(i);
     page_row_detail(view, 2, "Stop Streaming Services", 0, sc_click);
+    list_caption(view, 3, "Show in Streaming");
     char hide[SVC_HIDE];
     svc_hidden(hide);
     for (int i = 0; i < n; ++i) {
-        st.sc_check[i] = ple_tick(page_row_detail(view, 3 + i, svc(i, 1), 0, sc_click));
+        st.sc_check[i] = ple_tick(page_row_detail(view, 4 + i, svc(i, 1), 0, sc_click));
         if (svc_find(hide, i)) widget_set_visible(st.sc_check[i], 0, 0);
     }
     return 0;

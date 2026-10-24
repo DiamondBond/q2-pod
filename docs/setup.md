@@ -19,7 +19,7 @@ Spotify needs Spotify Premium and a separate add-on, not included in Q2 Pod.
 2. Unzip it onto the card's main folder. It adds a `.spotify` folder.
 3. On the Q2, open **Streaming → Spotify**, then pick **Q2** in the Spotify app on a phone on the same Wi-Fi.
 
-Or, with the Q2 on Wi-Fi, skip steps 1 and 2: **System settings → Apps → Spotify** downloads and installs it.
+Or, with the Q2 on Wi-Fi, skip steps 1 and 2: **System settings → App Store → Spotify** downloads and installs it.
 
 ## 3. Optional: Rockbox
 
@@ -30,7 +30,7 @@ Rockbox is a separate player and is not needed for Q2 Pod. Skip this step unless
 3. Turn the Q2 on. Rockbox starts.
 4. Optional themes: download the zip here: https://github.com/DiamondBond/q2-rockbox-themes/releases, unzip it onto the card (it fills in the `.rockbox` folder), then on the Q2: **Settings → Theme Settings → Browse Theme Files**. Pick one and load it.
 
-Or, with Q2 Pod on Wi-Fi: **System settings → Apps → Rockbox** installs it (press twice: it becomes what the Q2 starts at power-on), then **Rockbox Themes** installs the themes. The same page updates and removes them.
+Or, with Q2 Pod on Wi-Fi: **System settings → App Store → Rockbox** installs it (press twice: it becomes what the Q2 starts at power-on), then **Rockbox Themes** installs the themes. The same page updates and removes them.
 
 ## How to use it
 
