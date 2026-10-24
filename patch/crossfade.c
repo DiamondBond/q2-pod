@@ -11,6 +11,8 @@
 #include "playback.h"
 #include "stock.h"
 
+extern void list_toggle(void *label, const char *title, int on);
+
 #define XF_MIN 1
 #define XF_MAX 10
 #define XF_DEFAULT 5
@@ -115,7 +117,8 @@ static volatile int *shared_int(const char *tmp, const char *path) {
 /* The PEQ filter into the chain, in bypass, for the visualizer's tap, a fade or Mono Audio: boot
  * leaves it out with the EQ off, and any peq_stock_eq since (the EQ switched) has put it in. Only
  * while something plays (1 stopped), so a call while stopped is simply made again later.
- * ponytail: whether an attach while stopped would stick is unknown; waiting for play covers both. */
+ * ponytail: whether an attach while stopped would stick is unknown; waiting for play covers both.
+ */
 void peq_chain(void) {
     if (!peq_chained && !g_equalizer_flag && mclGetPlayStatus() != 1) peq_attach();
 }
@@ -140,9 +143,7 @@ void mono_sync(void) {
     if (xf.mono) peq_chain();
 }
 
-static void mono_text(void *label) {
-    widget_set_text_utf8(label, mono_on() ? "Mono Audio: On" : "Mono Audio: Off");
-}
+static void mono_text(void *label) { list_toggle(label, "Mono Audio", mono_on()); }
 
 /* Audio settings' row (navigation.c ringnav_audioset makes it): the label, kept for mono_click. */
 void mono_row(void *label) {
@@ -157,9 +158,7 @@ int mono_click(void *ctx, void *event) {
     return 0;
 }
 
-static void swap_text(void) {
-    widget_set_text_utf8(xf.swap_label, swap_on() ? "Swap L/R: On" : "Swap L/R: Off");
-}
+static void swap_text(void) { list_toggle(xf.swap_label, "Swap L/R", swap_on()); }
 void swap_row(void *label) {
     xf.swap_label = label;
     swap_text();
@@ -173,10 +172,11 @@ int swap_click(void *ctx, void *event) {
 }
 
 /* MQA (Q2POD MQA, read once, default off). hciplayer's start-of-track probe decodes about 2 s of a
- * FLAC or PCM track before it plays (docs/internals.md#mqa-detection), long enough to break a gapless
- * change. Off sends stock's {mcl-mqadecodemode\2}, which skips the probe, so MQA plays undecoded;
- * On sends 0, hciplayer's default. hciplayer keeps it until it restarts, and ringnav_mode sends it
- * again from player_initconfig, which runs on every connect. A change applies at the next audio init. */
+ * FLAC or PCM track before it plays (docs/internals.md#mqa-detection), long enough to break a
+ * gapless change. Off sends stock's {mcl-mqadecodemode\2}, which skips the probe, so MQA plays
+ * undecoded; On sends 0, hciplayer's default. hciplayer keeps it until it restarts, and
+ * ringnav_mode sends it again from player_initconfig, which runs on every connect. A change applies
+ * at the next audio init. */
 static int mqa_on(void) {
     if (!xf.mqa_read) xf.mqa = config_value("Q2POD", "MQA", 2, 0), xf.mqa_read = 1;
     return xf.mqa;
@@ -186,9 +186,7 @@ void mqa_sync(void) {
     int fd = *(volatile int *)MCL_FD;
     if (fd != -1) send(fd, mqa_on() ? on : off, sizeof on - 1, 0);
 }
-static void mqa_text(void) {
-    widget_set_text_utf8(xf.mqa_label, mqa_on() ? "MQA: On" : "MQA: Off");
-}
+static void mqa_text(void) { list_toggle(xf.mqa_label, "MQA", mqa_on()); }
 void mqa_row(void *label) {
     xf.mqa_label = label;
     mqa_text();

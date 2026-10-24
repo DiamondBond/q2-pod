@@ -77,6 +77,7 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_output_trampoline(int), stock_write_config_trampoline(int, const char *, const char *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
+    stock_showface_trampoline(void *),
     stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
     stock_bigcover_trampoline(void *, void *), stock_localmusic_trampoline(void *, void *),
     stock_keydown_trampoline(void *, void *), stock_btvol_trampoline(int, int),
@@ -2054,6 +2055,29 @@ void *list_row(void *view, const char *icon, int (*click)(void *, void *), void 
     return list_row_core(view, icon, click, ctx, 260, 0);
 }
 
+/* Use the same trailing switch images and hit target as Shanling's settings rows. */
+void list_toggle(void *label, const char *title, int on) {
+    void *button = P(label, W_PARENT);
+    void *image = widget_lookup(button, "_setting_switch", 0);
+    if (!image) {
+        image = image_create(button, 282, 0, 50, 70);
+        widget_set_name(image, "_setting_switch");
+        image_set_draw_type(image, IMAGE_DRAW_CENTER);
+        widget_resize(label, 282 - I(label, W_X) - 8, I(label, W_H));
+    }
+    widget_set_text_utf8(label, title);
+    image_base_set_image(image, on ? "switch_on" : "switch_off");
+}
+
+/* Headings are short, noninteractive rows; wheel navigation collects only click handlers. */
+static void settings_heading(void *view, unsigned at, const char *title) {
+    void *row = list_item_create(view, 0, 0, 0, 32);
+    void *label = label_create(row, 20, 0, 335, 32);
+    widget_use_style(label, "s_label_white18c");
+    widget_set_text_utf8(label, title);
+    widget_restack(row, at);
+}
+
 /* Stock modes, only with the screen off: 1 locks wheel volume, 2 the buttons, 3 both.
  * KEY_LOCKOUT is the separate, temporary debounce after a button press. */
 static const char *const lock_names[] = { "Off", "Everything", "Buttons only", "Volume only" };
@@ -2499,7 +2523,15 @@ static void pod_text(int i) {
         return;
     }
     int v = i == POD_ARTISTS ? I(artist_type, 0) == 1 : pod_values[i] ? *pod_values[i] : 0;
-    widget_set_text_utf8(st.pod_label[i], names[i][v]);
+    const char *toggle = i == POD_CHARGE      ? "Charge Limit (" STR(CHARGE_STOP) "%)"
+                         : i == POD_LOW       ? "Low Power"
+                         : i == POD_RESUME    ? "Resume on Connect"
+                         : i == POD_VOL_GUARD ? "Volume Guard"
+                                              : 0;
+    if (toggle)
+        list_toggle(st.pod_label[i], toggle, v);
+    else
+        widget_set_text_utf8(st.pod_label[i], names[i][v]);
 }
 /* Centre or tap toggles and saves. Charge limit and Low power take effect on the next UI loop pass
  * (power_poll); Artists on the next load of an artist list, as the artist page's switch does;
@@ -2573,39 +2605,39 @@ static void reorder(void *view, const unsigned char *order, unsigned n) {
     for (unsigned i = 0; i < n; i++) widget_restack(rows[order[i]], i);
 }
 
-/* Playback Setting: what is changed while listening first, then library behaviour, then output. */
+/* Everyday listening, volume, library behaviour, then specialist output controls. */
 static const unsigned char playset_order[] = {
     3 /* Play Mode */,
     2 /* EQ */,
-    0 /* Gain */,
-    18 /* Crossfade */,
     9 /* Gapless */,
+    18 /* Crossfade */,
     10 /* ReplayGain */,
+    8 /* Memory play */,
+    20 /* Resume Songs */,
+    0 /* Gain */,
     4 /* Max Volume */,
     5 /* Default Vol */,
     11 /* Balance */,
     21 /* Mono Audio */,
     22 /* Swap L/R */,
-    1 /* Filters */,
-    8 /* Memory play */,
-    20 /* Resume Songs */,
     16 /* Artists */,
-    15 /* Year order */,
     17 /* Artist album order */,
-    13 /* Folder art */,
-    14 /* Folder skip */,
+    15 /* Year order */,
     19 /* Folder Root */,
+    14 /* Folder skip */,
+    13 /* Folder art */,
     12 /* Enlarged art */,
+    1 /* Filters */,
     6 /* DSD Output */,
     23 /* MQA */,
     7 /* USB Audio */,
 };
-/* System Setting: connections and display first, set-once items next, Reset last. */
+/* Personalisation and daily controls, connections, then device maintenance; Reset stays last. */
 static const unsigned char sysset_order[] = {
-    1 /* Wireless */,     3 /* Display */,  4 /* Power */,   5 /* Date and time */,
-    8 /* Buttons lock */, 7 /* Key tone */, 2 /* Network */, 0 /* Language */,
-    6 /* In-Vehicle */,   13 /* Boot to */, 12 /* Apps */,   9 /* Update */,
-    11 /* About */,       10 /* Reset */,
+    3 /* Display */,    4 /* Power */,    8 /* Buttons lock */,  7 /* Key tone */,
+    1 /* Wireless */,   2 /* Network */,  5 /* Date and time */, 0 /* Language */,
+    6 /* In-Vehicle */, 13 /* Boot to */, 12 /* Apps */,         9 /* Update */,
+    11 /* About */,     10 /* Reset */,
 };
 
 /* Folder Root (Q2POD FOLDERROOT): the card's top-level folder Home's Folder opens in, "" the card
@@ -2666,18 +2698,27 @@ int ringnav_audioset(void *win, void *ctx) {
     pod_rows(win, "scroll_view_playset", POD_YEAR_OLD, 2, icons);
     pod_rows(win, "scroll_view_playset", POD_ARTIST_AZ, 1, icons);
     void *view = win ? widget_lookup(win, "scroll_view_playset", 1) : (void *)0;
-    if (view) xfade_row(list_row(view, "playset_gapless", xfade_open, (void *)0)); /* crossfade.c */
+    if (view)
+        xfade_row(list_row_core(view, "playset_gapless", xfade_open, (void *)0, 202,
+                                1)); /* crossfade.c */
     if (view) {
         char name[256];
         root_read(name);
         st.root_label = list_row(view, "playset_folderjump", root_click, 0);
         root_text(name);
-        resume_row(list_row(view, "playset_memplay", xfade_open, (void *)2)); /* crossfade.c */
+        resume_row(list_row_core(view, "playset_memplay", xfade_open, (void *)2, 202,
+                                 1)); /* crossfade.c */
         mono_row(list_row(view, "playset_balance", mono_click, 0));
         swap_row(list_row(view, "playset_balance", swap_click, 0));
         mqa_row(list_row(view, "playset_dsdoutput", mqa_click, 0)); /* crossfade.c */
     }
     reorder(view, playset_order, sizeof playset_order);
+    if (view && widget_count_children(view) == sizeof playset_order) {
+        settings_heading(view, 0, "Listening");
+        settings_heading(view, 8, "Volume & Channels");
+        settings_heading(view, 15, "Library & Artwork");
+        settings_heading(view, 23, "Audio Output");
+    }
     return result;
 }
 
@@ -2993,6 +3034,15 @@ static void bar_sync(void *bar) {
     st.batt_mode = mode;
     st.batt_key = key;
     widget_invalidate_force(st.bar_slot, (void *)0);
+}
+
+/* systembar_showface, each second: stock hides img_state whenever its own player is stopped, so
+ * with Spotify, radio or a video playing it went off here and back on at the next paint, two
+ * relayouts a second and a frame with EQ drawn in the play icon's place. Correct it before paint. */
+int ringnav_showface(void *bar) {
+    int result = stock_showface_trampoline(bar);
+    bar_sync(bar);
+    return result;
 }
 
 /* Mode 1 is the percentage alone; mode 3 uses a compact solid battery with dark digits; mode 2
@@ -3926,7 +3976,7 @@ int ringnav_display(void *win, void *ctx) {
     pod_rows(win, "scroll_view_display", POD_CF_SORT, 2, cf_icons);
 #endif
     pod_rows(win, "scroll_view_display", POD_HOLD_HOME, 1, hold_icon);
-    if (view) wheel_row(list_row(view, "system_display", xfade_open, (void *)1));
+    if (view) wheel_row(list_row_core(view, "system_display", xfade_open, (void *)1, 202, 1));
     return result;
 }
 
@@ -3953,7 +4003,8 @@ static int boot_click(void *label, void *event) {
 int ringnav_systemset(void *win, void *ctx) {
     int result = stock_systemset_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_sysset", 1) : (void *)0;
-    if (view) widget_set_text_utf8(list_row(view, "system_update", shelf_open, 0), "Apps");
+    if (view)
+        widget_set_text_utf8(list_row_core(view, "system_update", shelf_open, 0, 202, 1), "Apps");
     if (view && rockbox_available()) {
         char value[16];
         void *f = fopen(BOOT_TARGET, "rb");
@@ -3979,6 +4030,12 @@ int ringnav_systemset(void *win, void *ctx) {
     for (unsigned i = 0; i < sizeof sysset_order; i++)
         if (sysset_order[i] < rows) order[n++] = sysset_order[i];
     reorder(view, order, n);
+    if (view && (rows == 13 || rows == 14)) {
+        settings_heading(view, 0, "Personalise");
+        settings_heading(view, 5, "Connections");
+        settings_heading(view, 8, "Device");
+        settings_heading(view, rows - 1, "Apps & Maintenance");
+    }
     return result;
 }
 
@@ -6347,10 +6404,10 @@ int ringnav_localmusic(void *win, void *ctx) {
             widget_restack(stock[L_FAV], n++);
         } else
             widget_restack(stock[middle[i]], n++);
-    widget_restack(library_row(view, "local_frequentplay", most_played, 0, "Most Played"), n++);
+    widget_restack(library_into(view, "local_frequentplay", most_played, 0, "Most Played"), n++);
     widget_restack(stock[L_FREQUENT], n++);
     widget_restack(stock[L_HIRES], n++);
-    widget_restack(library_row(view, "local_longsongs", long_songs, 0, "Long Songs"), n++);
+    widget_restack(library_into(view, "local_longsongs", long_songs, 0, "Long Songs"), n++);
     /* Podcasts, Audiobooks, Photos, Books and Videos, each only with its folder; then iPod's Games.
      */
     static const char *const icons[] = { "local_podcasts", "local_audiobooks", "local_photos",
@@ -6359,9 +6416,9 @@ int ringnav_localmusic(void *win, void *ctx) {
     for (int k = 0; k < VIDEOS; k++)
         if (media_find(k + 1, path))
             widget_restack(
-                library_row(view, icons[k], media_click, (void *)(long)(k + 1), MEDIA[k]), n++);
+                library_into(view, icons[k], media_click, (void *)(long)(k + 1), MEDIA[k]), n++);
 #if IPOD
-    widget_restack(library_row(view, "local_games", games_open, 0, "Games"), n++);
+    widget_restack(library_into(view, "local_games", games_open, 0, "Games"), n++);
 #endif
     if (scrobble_ready())
         widget_restack(library_row(view, "local_scrobble", upload_scrobbles, 0, "Upload Scrobbles"),

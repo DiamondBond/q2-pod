@@ -4648,6 +4648,13 @@ if variant=='ipod':
         assert m.nodes[idle]['visible']==int(not playing and not equalizer)
         assert tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==clock_box
     passed()
+    # Stock's 1 s tick (systembar_showface) hides img_state while its own player is stopped, as it
+    # is under Spotify or radio; the hook shows the payload's state again before any paint.
+    m.handlers[payload_syms['stock_showface_trampoline']]='stock_showface'
+    m.word(0xa3beac,2); m.nodes[eq]['visible']=1; m.nodes[state]['visible']=0
+    assert m.call(address=IPOD_HOOKS['systembar_showface'][0],args=(bar,0,0,0),gap=0)==0
+    assert ('stock_showface',bar) in [c[:2] for c in m.calls] and m.nodes[state]['visible']==1 and m.nodes[state]['image']=='bar_play'
+    passed()
     for mode in (1,2,3,0,1,2,3,0):
         m.call(address=payload_syms['setting_click'],args=(2,m.event,0,0),gap=0)
         m.calls=[]; paint_live_bar()
@@ -6914,7 +6921,7 @@ if variant=='ipod':
     m,view,rows=display({})
     kids=m.nodes[view]['children'][3:]; cf,cf_sort,cf_refresh,shortcut,hold,wheel=kids[3],kids[4],kids[5],kids[7],kids[8],kids[9]
     assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]]['visible']==0  # Theme, hidden Accent, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
-    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','playset_covermode','system_update','system_powermanager','playset_covermode','playset_folderjump','system_display'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','playset_covermode','system_update','system_powermanager','playset_covermode','playset_folderjump','system_display','list_into'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7517,12 +7524,12 @@ assert [kids[i] for i in (*range(1,5),6,8,9,10,12,13,15+GAMES)]==[stock[i] for i
 icon,label,into=m.nodes[m.nodes[era]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_era' and m.nodes[label]['text']=='Era' and m.nodes[into]['image']=='list_into'
 if GAMES:
-    icon,label=m.nodes[m.nodes[kids[15]]['children'][0]]['children']
+    icon,label,into=m.nodes[m.nodes[kids[15]]['children'][0]]['children']
     assert m.nodes[icon]['image']=='local_games' and m.nodes[label]['text']=='Games' and len(kids)==17
-icon,label=m.nodes[m.nodes[long]['children'][0]]['children']
+icon,label,into=m.nodes[m.nodes[long]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_longsongs' and m.nodes[label]['text']=='Long Songs'
 assert m.nodes[stock[6]]['visible']==0 and all(m.nodes[k].get('visible',1) for k in kids if k!=stock[6])
-icon,label=m.nodes[m.nodes[top]['children'][0]]['children']
+icon,label,into=m.nodes[m.nodes[top]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_frequentplay' and m.nodes[label]['text']=='Most Played'
 icon,label,into=m.nodes[m.nodes[rated]['children'][0]]['children']
 assert m.nodes[icon]['image']=='local_fav' and m.nodes[label]['text']=='Ratings' and m.nodes[into]['image']=='list_into'
@@ -7926,7 +7933,7 @@ m.handlers[int(manifest['patch_symbols']['stock_folder_trampoline'],16)]='stock_
 m.handlers[int(manifest['patch_symbols']['stock_folder_back_trampoline'],16)]='stock_folder_back'
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)==0 and len(m.nodes[view]['children'])==17+GAMES
-button=m.nodes[m.nodes[view]['children'][-2-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+button=m.nodes[m.nodes[view]['children'][-2-GAMES]]['children'][0]; icon,label,into=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_podcasts' and m.nodes[label]['text']=='Podcasts' and not m.nodes[button].get('name')
 f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['folder_page']
@@ -8201,7 +8208,7 @@ data={R+'/b.jpg':exif(6),R+'/A.png':b'\x89PNG',R+'/Trip/1.jpg':b'corrupt',R+'/Tr
 m=PhotosMachine(tree,data)
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label,into=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_photos' and m.nodes[label]['text']=='Photos' and len(m.nodes[view]['children'])==17+GAMES
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.top; assert m.nodes[page]['name']=='photos_page' and m.nodes[page]['style:normal:bg_color']==-0x1000000
@@ -8374,7 +8381,7 @@ files={R+'/Zed.txt':bytearray(txt.encode()),R+'/Series/A Tale.EPUB':bytearray(bu
 m=BooksMachine(tree,files)
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label,into=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_books' and m.nodes[label]['text']=='Books' and len(m.nodes[view]['children'])==17+GAMES
 library_geometry(m,m.nodes[view]['children'][-1-GAMES])
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
@@ -8432,7 +8439,7 @@ if variant=='ipod':
     def games_open():
         view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
         assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-        button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label=m.nodes[button]['children']
+        button=m.nodes[m.nodes[view]['children'][-1]]['children'][0]; icon,label,into=m.nodes[button]['children']
         assert m.nodes[icon]['image']=='local_games' and m.nodes[label]['text']=='Games'
         library_geometry(m,m.nodes[view]['children'][-1])
         f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
@@ -8563,7 +8570,7 @@ tree={'/mnt/mmc':[('Music',4),('VIDEOS',4)],R:[('b.MKV',8),('a.mp4',8),('notes.t
 m=BooksMachine(tree,{})
 view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in range(11)]); m.top=m.node('window','localmusic_page',[view])
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
-button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label=m.nodes[button]['children']
+button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label,into=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==17+GAMES
 f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
 page=m.page=m.top; videos,_=m.nodes[page]['children']
@@ -10056,7 +10063,7 @@ m.byte(syms['g_keylock_flag'],1); m.byte(syms['g_keylock_mode'],2)  # stock's bu
 m.top=m.node('window','keylock_page',[view])
 assert m.call(address=HOOKS['keylock_rows'][0],args=(m.top,0,0,0),gap=0)==0
 rows=m.nodes[view]['children']; buttons=[m.nodes[r]['children'][0] for r in rows]
-labels=[m.nodes[b]['children'][-1] for b in buttons]; icons=[m.nodes[b]['children'][0] for b in buttons]
+labels=[next(c for c in m.nodes[b]['children'] if m.nodes[c]['type']=='hscroll_label') for b in buttons]; icons=[m.nodes[b]['children'][0] for b in buttons]
 assert [m.nodes[l]['text'] for l in labels]==LOCK_NAMES
 assert [m.nodes[i]['image'] for i in icons]==['unselect','unselect','select','unselect']
 assert not [c for c in m.calls if c[0]=='write_int_config']
@@ -10149,21 +10156,28 @@ def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False,cls=Queu
     m.top=m.node('window','page',[m.node('list_view','list_view',[view])])
     target={'power':'systemset_powermanager_page_init','audioset':'playset_playset_page_init','btrows':'btmenu_rows','display':'systemset_display_page_init'}[hook]
     assert m.call(address=HOOKS[target][0],args=(m.top,5,0,0),gap=0)==0 and m.calls[0][:3]==('stock_'+hook,m.top,5)
-    rows=sorted(set(m.nodes[view]['children'])-set(entries))  # ours, as made (the page may restack)
-    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][-1] for b in buttons]
+    rows=sorted(r for r in set(m.nodes[view]['children'])-set(entries) if m.nodes[r]['children'] and m.nodes[m.nodes[r]['children'][0]]['type']=='button')  # ours, as made (the page may restack)
+    buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[next(c for c in m.nodes[b]['children'] if m.nodes[c]['type']=='hscroll_label') for b in buttons]
     icons=[m.nodes[m.nodes[b]['children'][0]].get('image') for b in buttons]  # None: no icon
     def click(i):
         m.calls=[]; f,ctx=m.handler(buttons[i],O['EVT_CLICK'])
         assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
         return [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
     m.entries=entries
+    m.settings_view=view
     return m,rows,lambda:[m.nodes[l]['text'] for l in labels],icons,click
 m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager')
+def switch_image(m,row):
+    button=m.nodes[row]['children'][0]
+    images=[c for c in m.nodes[button]['children'] if m.nodes[c].get('name')=='_setting_switch']
+    assert len(images)==1
+    return m.nodes[images[0]]['image']
+assert all(switch_image(m,rows[i])=='switch_off' for i in (0,1,3))
 assert len(rows)==5 and icons==['usb_chargeswitch','system_powermanager','system_keylock','system_keylock','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
-assert texts()==['Charge Limit: Off','Low Power: Off','Wake: Single Press','Volume Guard: Off','Standby Limit: Off']
-assert click(0)==[(1,'Q2POD','CHARGELIMIT')] and texts()[0]==f"Charge Limit: {O['CHARGE_STOP']}%"
-assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low Power: On'
-assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit: Off','Low Power: On','Wake: Single Press','Volume Guard: Off','Standby Limit: Off']; passed()
+assert texts()==['Charge Limit (80%)','Low Power','Wake: Single Press','Volume Guard','Standby Limit: Off']
+assert click(0)==[(1,'Q2POD','CHARGELIMIT')] and texts()[0]==f"Charge Limit ({O['CHARGE_STOP']}%)"
+assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low Power' and switch_image(m,rows[1])=='switch_on'
+assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit (80%)','Low Power','Wake: Single Press','Volume Guard','Standby Limit: Off']; passed()
 # Standby limit (its alarm with the power poll's tests): each click steps to the next limit, then Off.
 limits=[f"Standby Limit: {O[f'STANDBY_LIMIT_{i}']} h" for i in (1,2,3)]
 for v,want in ((1,limits[0]),(2,limits[1]),(3,limits[2]),(0,'Standby Limit: Off')):
@@ -10172,8 +10186,8 @@ passed()
 # Volume guard (#46; its wheel engine in test/playback.py): off by default, the dark wheel as stock;
 # the row saves VOLGUARD and sets wheel_guard, which the encoder thread reads.
 guard=lambda: m.get(payload_syms['wheel_guard'])
-assert guard()==0 and click(3)==[(1,'Q2POD','VOLGUARD')] and texts()[3]=='Volume Guard: On' and guard()==1
-assert click(3)==[(0,'Q2POD','VOLGUARD')] and texts()[3]=='Volume Guard: Off' and guard()==0; passed()
+assert guard()==0 and click(3)==[(1,'Q2POD','VOLGUARD')] and texts()[3]=='Volume Guard' and guard()==1
+assert click(3)==[(0,'Q2POD','VOLGUARD')] and texts()[3]=='Volume Guard' and guard()==0; passed()
 # Wake (docs/internals.md#wake): screen off, a lone centre press and its release never reach the UI;
 # a second press within WAKE_MS passes, press and release. Other keys, the screen on, or the
 # setting off pass untouched, except one more centre press within WAKE_MS of the waking one (#45).
@@ -10295,13 +10309,13 @@ for double in ('0','1'):
     assert not press(DOWN,0) and not press(UP,50) and press(DOWN,O['WAKE_MS']) and press(UP,50),double
 passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1','WAKEDOUBLE':'1','VOLGUARD':'1','STANDBYLIMIT':'2'})
-assert texts()==[f"Charge Limit: {O['CHARGE_STOP']}%",'Low Power: On','Wake: Double Press','Volume Guard: On',limits[1]]
+assert texts()==[f"Charge Limit ({O['CHARGE_STOP']}%)",'Low Power','Wake: Double Press','Volume Guard',limits[1]]
 assert m.get(payload_syms['wheel_guard'])==1; passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'STANDBYLIMIT':'4'})
 assert texts()[4]=='Standby Limit: Off'; passed()  # out of range: Off
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
 assert len(rows)==9 and icons==['playset_covermode','playset_folderjump','playset_covermode','playset_gapless','playset_folderjump','playset_memplay','playset_balance','playset_balance','playset_dsdoutput']
-assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min','Mono Audio: Off','Swap L/R: Off','MQA: Off']
+assert texts()==['Year Order: Newest First','Artists: Artist','Artist Album Order: Year','Crossfade: Off','Folder Root: Card','Resume Songs: 30 min','Mono Audio','Swap L/R','MQA']
 assert click(2)==[(1,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: A–Z'
 assert click(2)==[(0,'Q2POD','ARTISTAZ')] and texts()[2]=='Artist Album Order: Year'
 assert click(0)==[(1,'Q2POD','YEAROLD')] and texts()[0]=='Year Order: Oldest First'
@@ -10362,8 +10376,8 @@ class MonoMachine(QueueMachine):
         self.calls.append((name,)); self.returns(self.flag if name=='mono:mmap' else 3 if name=='mono:open' else 0)
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15,cls=MonoMachine)
 assert not [c for c in m.calls if c[0]=='mono:open']
-assert click(6)==[(1,'Q2POD','MONO')] and texts()[6]=='Mono Audio: On' and m.get(m.flag)==1
-assert click(6)==[(0,'Q2POD','MONO')] and texts()[6]=='Mono Audio: Off' and m.get(m.flag)==0
+assert click(6)==[(1,'Q2POD','MONO')] and texts()[6]=='Mono Audio' and m.get(m.flag)==1
+assert click(6)==[(0,'Q2POD','MONO')] and texts()[6]=='Mono Audio' and m.get(m.flag)==0 and switch_image(m,rows[6])=='switch_off'
 assert [c[0] for c in m.calls if c[0]=='mono:open']==[]; passed()  # mapped once
 # A failed map must never publish an inode that consumers could retain forever.
 class FailedMapMachine(MonoMachine):
@@ -10390,26 +10404,33 @@ m.word(payload_syms['peq_chained'],1)  # what the attach's peq_stock_eq leaves, 
 m.call(address=payload_syms['mono_sync'],args=(0,0,0,0),gap=0)
 assert 'mono:peq_attach' not in [c[0] for c in m.calls]; passed()
 # Playback Setting restacks by use (navigation.c playset_order): stock's rows by id, then ours.
-def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children']]
-assert stacked(m,'scroll_view_playset')==[3,2,0,18,9,10,4,5,11,21,22,1,8,20,16,15,17,13,14,19,12,6,23,7]; passed()
+def stacked(m,view_name): return [(m.entries+rows).index(c) for c in m.nodes[named(m,m.top,view_name)]['children'] if c in m.entries+rows]
+assert stacked(m,'scroll_view_playset')==[3,2,9,18,10,8,20,0,4,5,11,21,22,16,17,15,19,14,13,12,1,6,23,7]; passed()
+headings=[r for r in m.nodes[m.settings_view]['children'] if r not in m.entries+rows]
+assert [m.nodes[m.nodes[r]['children'][0]]['text'] for r in headings]==['Listening','Volume & Channels','Library & Artwork','Audio Output']
+assert all(m.get(r+O['W_H'])==32 for r in headings)
+for i in (3,5):
+    button=m.nodes[rows[i]]['children'][0]
+    assert m.nodes[m.nodes[button]['children'][-1]]['image']=='list_into'
+passed()
 # Swap L/R uses its own persistent flag, immediately below Mono Audio.
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15,cls=MonoMachine)
-assert texts()[7]=='Swap L/R: Off'
-assert click(7)==[(1,'Q2POD','SWAPLR')] and texts()[7]=='Swap L/R: On' and m.get(m.flag)==1
-assert click(7)==[(0,'Q2POD','SWAPLR')] and texts()[7]=='Swap L/R: Off' and m.get(m.flag)==0
+assert texts()[7]=='Swap L/R'
+assert click(7)==[(1,'Q2POD','SWAPLR')] and texts()[7]=='Swap L/R' and m.get(m.flag)==1
+assert click(7)==[(0,'Q2POD','SWAPLR')] and texts()[7]=='Swap L/R' and m.get(m.flag)==0
 m,rows,texts,*_=settings_page('audioset','scroll_view_playset',{'SWAPLR':'1'},stock_rows=15)
-assert texts()[7]=='Swap L/R: On'; passed()
+assert texts()[7]=='Swap L/R'; passed()
 # MQA (crossfade.c mqa_click): off by default, saved as Q2POD MQA, and sent to a connected hciplayer
 # at once: 2 skips its start-of-track probe, 0 is its default. No player socket, nothing sent.
 m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
-assert texts()[8]=='MQA: Off' and icons[8]=='playset_dsdoutput'
+assert texts()[8]=='MQA' and icons[8]=='playset_dsdoutput'
 m.word(O['MCL_FD'],9)
-assert click(8)==[(1,'Q2POD','MQA')] and texts()[8]=='MQA: On' and m.sent[-1]==(9,b'{mcl-mqadecodemode\\0}',21,0)
-assert click(8)==[(0,'Q2POD','MQA')] and texts()[8]=='MQA: Off' and m.sent[-1]==(9,b'{mcl-mqadecodemode\\2}',21,0)
+assert click(8)==[(1,'Q2POD','MQA')] and texts()[8]=='MQA' and m.sent[-1]==(9,b'{mcl-mqadecodemode\\0}',21,0)
+assert click(8)==[(0,'Q2POD','MQA')] and texts()[8]=='MQA' and m.sent[-1]==(9,b'{mcl-mqadecodemode\\2}',21,0)
 m.word(O['MCL_FD'],-1); sent=len(m.sent)
 assert click(8)==[(1,'Q2POD','MQA')] and len(m.sent)==sent
 m,rows,texts,*_=settings_page('audioset','scroll_view_playset',{'MQA':'1'},stock_rows=15)
-assert texts()[8]=='MQA: On'; passed()
+assert texts()[8]=='MQA'; passed()
 # Folder Root (#49): the row cycles the card's top-level folders, case aside, then the card, saving Q2POD
 # FOLDERROOT each time. Not offered: files, dot-folders, names with an edge space or over 200 bytes (a
 # config.ini line can't keep them). A saved folder gone moves on to the next name after it.
@@ -10438,7 +10459,7 @@ passed()
 for config,pct in (({},50),({'WHEELSENSITIVITY':'130'},130),({'WHEELSENSITIVITY':'200'},200),({'WHEELSENSITIVITY':'40'},50),
                    ({'WHEELSENSITIVITY':'135'},50),({'WHEELSENSITIVITY':'210'},50),({'WHEELSENSITIVITY':'x'},50)):
     m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3)
-    label=m.nodes[m.nodes[rows[-1]]['children'][0]]['children'][-1]
+    label=m.nodes[m.nodes[rows[-1]]['children'][0]]['children'][1]
     assert texts()[-1]==f'Wheel Sensitivity: {pct}%' and icons[-1]=='system_display' and m.nodes[label]['name']=='label_wheel'
     assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-1]==rows[-1],config  # the list's end
 passed()
@@ -10492,14 +10513,14 @@ assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1; p
 # right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon, 78 high.
 # Off unless Q2POD RESUME is 1 (docs/internals.md#resume-on-connect).
 m,rows,texts,icons,click=settings_page('btrows','scroll_view_bluetooth',stock_rows=7)  # 5 rows, 2 devices
-assert len(rows)==1 and icons==[None] and texts()==['Resume on Connect: Off']
-kids=m.nodes[m.nodes[rows[0]]['children'][0]]['children']  # the label alone
-assert len(kids)==1 and m.get(kids[0]+O['W_X'])==10 and m.get(rows[0]+O['W_H'])==78
+assert len(rows)==1 and icons==[None] and texts()==['Resume on Connect']
+kids=m.nodes[m.nodes[rows[0]]['children'][0]]['children']  # the label and its switch
+assert len(kids)==2 and m.get(kids[0]+O['W_X'])==10 and m.get(rows[0]+O['W_H'])==78 and switch_image(m,rows[0])=='switch_off'
 assert m.nodes[named(m,m.top,'scroll_view_bluetooth')]['children'].index(rows[0])==4
-assert click(0)==[(1,'Q2POD','RESUME')] and texts()==['Resume on Connect: On']
-assert click(0)==[(0,'Q2POD','RESUME')] and texts()==['Resume on Connect: Off']; passed()
+assert click(0)==[(1,'Q2POD','RESUME')] and texts()==['Resume on Connect'] and switch_image(m,rows[0])=='switch_on'
+assert click(0)==[(0,'Q2POD','RESUME')] and texts()==['Resume on Connect'] and switch_image(m,rows[0])=='switch_off'; passed()
 m,rows,texts,*_=settings_page('btrows','scroll_view_bluetooth',{'RESUME':'1'},stock_rows=7)
-assert texts()==['Resume on Connect: On']; passed()
+assert texts()==['Resume on Connect']; passed()
 m,rows,*_=settings_page('btrows','scroll_view_bluetooth',stock_rows=1,bt=0)  # just the switch
 assert rows==[]; passed()
 
@@ -10902,14 +10923,14 @@ def boot_row(value=None,mode=0o100755):
     m.top=m.node('window','sysset_page',[m.node('list_view','list_view_sysset',[view])])
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
-    kids=m.nodes[view]['children']
+    kids=[r for r in m.nodes[view]['children'] if not m.nodes[r]['children'] or m.nodes[m.nodes[r]['children'][0]]['type']!='label']  # rows, not headings
     if mode!=0o100755:  # Apps (System Update's icon, netupdate.c's page) before Update; no Boot to
-        assert kids[:9]+kids[10:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
+        assert kids[:9]+kids[10:]==[entries[i] for i in (3,4,8,7,1,2,5,0,6,9,11,10)]
         apps=m.nodes[kids[9]]['children'][0]; icon,label=m.nodes[apps]['children'][:2]
         assert m.nodes[icon]['image']=='system_update' and m.nodes[label]['text']=='Apps' and m.handler(apps,O['EVT_CLICK'])[0]==payload_syms['shelf_open']
         return m,None,None
     assert len(kids)==14
-    assert kids[:9]+kids[11:]==[entries[i] for i in (1,3,4,5,8,7,2,0,6,9,11,10)]
+    assert kids[:9]+kids[11:]==[entries[i] for i in (3,4,8,7,1,2,5,0,6,9,11,10)]
     button=m.nodes[kids[9]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label

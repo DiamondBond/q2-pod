@@ -126,6 +126,8 @@ HOOKS = {
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist', 'playlist'),
               'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg', 'paint_bg'),
               'bigcover_page_init': (0x5200ec, 'ringnav_bigcover', 'bigcover'),
+              # Status bar's 1 s tick: the payload's play state, before any paint (navigation.c bar_sync)
+              'systembar_showface': (0x52f610, 'ringnav_showface', 'showface'),
               'style_get_color': (0x649f6c, 'ringnav_style_color', 'color'),
               'image_manager_add': (0x6445d4, 'ringnav_image_add', 'image'),
               # Song rows: no format badge (navigation.c ringnav_badge)

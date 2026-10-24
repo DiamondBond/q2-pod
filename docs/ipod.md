@@ -130,7 +130,7 @@ so parents and order are free to change. Every tick it re-shows the volume,
 EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
 never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
 and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
-battery in `view_right`. EQ uses an explicit 16 px font and a 28 px cell: its text is 24 px wide in the shipped font, so stock's 20 px cell clips it. A 16 px `Q2` label at the left inset appears only when both playback state and EQ are hidden. `bar_sync` updates its visibility without moving the centred clock. The volume icon and number and SyncLink move to `x = -200`, where they
+battery in `view_right`. EQ uses an explicit 16 px font and a 28 px cell: its text is 24 px wide in the shipped font, so stock's 20 px cell clips it. A 16 px `Q2` label at the left inset appears only when both playback state and EQ are hidden. Stock's tick also hides `img_state` whenever its own player is stopped, as it is under Spotify, radio or a video; `ringnav_showface` (iPod only) runs `bar_sync` straight after the tick, so the payload's play state is back before any paint. Correcting it at paint time instead relaid the row twice a second, and EQ was drawn for a frame in the play icon's place. `bar_sync` updates its visibility without moving the centred clock. The volume icon and number and SyncLink move to `x = -200`, where they
 draw off-screen. Both groups sit 54 pixels
 from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
 ([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass. A new
@@ -187,12 +187,20 @@ tabs 50 pixels lower ([internals.md](internals.md#artist-albums-in-coverflow)).
 
 ## Settings
 
-Settings, Playback, Audio settings and Streaming lists hold four complete 68-pixel rows
+Settings, Playback, Audio settings and Streaming lists use 68-pixel controls
 (`SET_ROW`, `SET_ROWS`). Minimal starts 8 pixels (`SET_TOP`) below the status bar; Classic
 starts directly below it. The list stays 272 pixels high in both themes, preserving scrolling
 and full-row tap targets. The `navbar_only` assets set their
 `list_view`'s `default_item_height` from 78 to 68, which no stock asset uses, and nothing else.
 Constants are `SET_*` in `patch/offsets.inc`.
+
+System Settings groups Personalise, Connections, Device, and Apps & Maintenance, with Reset last.
+Playback groups Listening, Volume & Channels, Library & Artwork, and Audio Output. Short 32-pixel
+headings separate these groups; they have no click handler, so the wheel skips them. Play Mode,
+EQ, Gapless and Crossfade come first; specialist output controls come last. Added binary settings
+use Shanling's `switch_on` / `switch_off` images with the whole row as the tap target. Settings
+that cycle between named choices retain their value labels. Crossfade, Resume Songs, Wheel
+Sensitivity and Apps show a chevron, as do the added Library browsing rows.
 
 Every row is built natively, about 60 builders in all, one pattern throughout: a
 `list_item_create(view, 0, 0, 0, 0)` (some pass 78 as the height) holding a `button_create(item,
