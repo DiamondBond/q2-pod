@@ -5595,6 +5595,72 @@ assert m.load()==1 and m.lines==[(3,'One'),(12,'Two'),(20,'Both'),(30,' '),(62,'
 m=LyricMachine({'LYRICS':'[Chorus]\nLa la\n[1:2]\n[00:61]x'}); assert m.load()==1
 assert m.lines==[(FAR,'[Chorus]'),(FAR,'La la'),(FAR,'[1:2]'),(FAR,'[00:61]x')],m.lines; passed()
 
+# Download Album Lyrics (onlinematch.c ringnav_playermore): after stock's 8 ⋯ rows (its init mocked), one
+# more in stock's row widgets and 20 px label, under Download Cover & Lyrics (PLAYMORE_ROWS' kind 4), its
+# button unnamed so stock's row click (an atoi of the name) never sees it; only for a playing song on the
+# card with an album. A press asks for Wi-Fi first, copies the album's tracks off stock's records (a CUE
+# track left out) and starts the worker; the row shows its progress, a press while it runs cancels, the
+# page's end leaves it running, and the timer joins it and toasts the summary. USB storage stops it quietly.
+# The job's own steps are test/peq.py's album_check.
+assert [m.get(O['PLAYMORE_ROWS']+4*i) for i in range(O['PLAYMORE_COUNT'])]==[2,3,4,5,6,7,0,1]  # Download Cover & Lyrics third
+class AlbumLyricsMachine(CoverflowMachine):
+    def __init__(self,**queue):
+        super().__init__(**queue); self.wifi=3; self.restack=True; self.accessed=[]
+        self.handlers[int(manifest['patch_symbols']['stock_playermore_trampoline'],16)]='stock_playermore'
+        self.handlers[syms['get_wifisignal']]='al:get_wifisignal'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='c:access@GLIBC_2.0': self.accessed.append(self.text(u.reg_read(REGS[0])))
+        if name!='al:get_wifisignal': return super().hook(u,address,size,unused)
+        self.returns(self.wifi,clobber=True)
+    def playing(self): return self.items(self.get(syms['mcl_pdeqplaylist']))[0]
+    def more(self,rows=8):
+        self.stock=[self.node('list_item') for _ in range(rows)]
+        view=self.node('scroll_view','scroll_view_more',list(self.stock)); self.top=self.node('window','playermore_page',[view])
+        assert self.call(address=HOOKS['playermore_page_init'][0],args=(self.top,0,0,0),gap=0)==0
+        assert self.calls[0][:2]==('stock_playermore',self.top)
+        return self.nodes[view]['children']
+m=AlbumLyricsMachine(); kids=m.more(); row=kids[3]
+assert len(kids)==9 and [k for k in kids if k!=row]==m.stock and m.nodes[row]['style']=='s_listitem_black'
+button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[button]['style']=='s_btn_listitem' and not m.nodes[button].get('name')
+assert [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
+assert m.nodes[icon]['image']=='player_onlinesearch' and [m.get(icon+O[k]) for k in ('W_X','W_W','W_H')]==[10,52,70]
+assert m.nodes[label]['style']=='s_scrlabel_white20l' and m.nodes[label]['text']=='Download Album Lyrics'
+assert [m.get(label+O[k]) for k in ('W_X','W_W','W_H')]==[72,253,70]; passed()
+m=AlbumLyricsMachine(cls=0xf1); assert len(m.more())==8; passed()  # an online queue
+for off,v in (('REC_TYPE',4),('REC_ALBUM',0),('REC_PATH',0)):  # a folder, no album tag, no path
+    m=AlbumLyricsMachine(); m.word(m.playing()+O[off],v); assert len(m.more())==8,off; passed()
+m=AlbumLyricsMachine(); m.word(m.playing()+O['REC_PATH'],m.string('http://x/y')); assert len(m.more())==8; passed()
+m=AlbumLyricsMachine(); assert len(m.more(7))==7; passed()  # not stock's rows: left as they are
+def album_lyrics_page(**queue):
+    m=AlbumLyricsMachine(**queue); button=m.nodes[m.more()[3]]['children'][0]; label=m.nodes[button]['children'][1]
+    cue=m.song('Cue'); m.word(cue+O['REC_CUE_END'],90)
+    m.found=[m.song('T1'),cue,m.song('T2')]
+    def press():
+        f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+    return m,label,press
+m,label,press=album_lyrics_page()
+m.wifi=-1; press(); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; m.wifi=3
+press(); assert len(m.threads)==1 and m.nodes[label]['text']=='Downloading 1 of 2'
+worker,arg=m.threads[-1]; press(); assert len(m.threads)==1  # a second press: cancelling, no second job
+assert m.nodes[label]['text']=='Cancelling…'; passed()
+m,label,press=album_lyrics_page(); press(); worker,arg=m.threads[-1]
+m.advance(500,clear=False); assert ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls] and m.nodes[label]['text']=='Downloading 1 of 2'
+f,ctx=m.handler(label,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)  # the page closes: the job goes on
+m.missing=False; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
+assert m.accessed==['/p/T1','/p/T1.lrc','/p/T2','/p/T2.lrc'],m.accessed  # each song's own .lrc found: none fetched
+n=len(m.toasts); m.advance(500,clear=False)
+assert len(m.toasts)==n+1 and m.toasts[-1][3]=='Album lyrics: 2 already had lyrics' and m.joins==[77]; passed()
+press_count=len(m.threads); m.advance(1000); assert len(m.threads)==press_count and len(m.toasts)==n+1; passed()  # the timer has ended
+m,label,press=album_lyrics_page(); press(); worker,arg=m.threads[-1]; press()  # cancelled before its first song
+assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0 and not m.accessed
+m.advance(500,clear=False); assert m.toasts[-1][3]=='Cancelled' and m.nodes[label]['text']=='Download Album Lyrics'; passed()
+m,label,press=album_lyrics_page(); press(); worker,arg=m.threads[-1]; n=len(m.toasts)
+assert m.call(address=payload_syms['album_lyrics_stop'],args=(0,0,0,0),gap=0)==0 and m.joins==[77]  # USB storage: joined first
+m.advance(500,clear=False); assert len(m.toasts)==n and m.nodes[label]['text']=='Download Album Lyrics'; passed()
+m.found=[]; press(); assert m.toasts[-1][3]=='No album songs on the card' and len(m.threads)==1; passed()
+
 # Sparse populated initials: one destination per sustained tick, both directions, utilities
 # and wrap edges. Album and Artist share article handling; nonalphabetical sorts stay single-step.
 def cf_jump(m,at,direction):

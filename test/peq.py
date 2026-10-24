@@ -2702,6 +2702,99 @@ def online_check(tmp):
     assert body('[00:00.00] Lyrics : X\n[00:01.00]\n') == b''  # nothing sung: lrclib tries the next result
 
 
+class LyrTrack(C.Structure):
+    _fields_ = [('path', C.c_char * 0x200), ('title', C.c_char * 0x200), ('artist', C.c_char * 0x100)]
+
+class LyrJob(C.Structure):
+    _fields_ = [(n, C.c_int) for n in ('cancel', 'done', 'total', 'saved', 'had', 'none', 'failed', 'state')]
+
+LRC_CANCELLED, LRC_CARD, LRC_OFFLINE, LRC_BUSY, LRC_NONE, LRC_SAVED = range(-4, 2)
+LJ_DONE, LJ_OFFLINE, LJ_CARD, LJ_CANCELLED = range(4)
+
+
+def album_check(tmp):
+    """Download Album Lyrics (onlinematch.c): the .lrc beside a song, each track of an incomplete
+    album on its own (gone, already with a .lrc, not found), LRCLIB's busy replies asked again, the
+    retry once LRCLIB has answered, offline, busy and card-full ends, a cancel, no .part left behind,
+    and the summary toast."""
+    lib = compile_host(tmp, 'onlinematch.so', ROOT/'patch/onlinematch.c')
+    def lrc(path, ext=b'.lrc', n=256):
+        out = C.create_string_buffer(n)
+        return out.value if lib.lrc_path(out, n, path, ext) else None
+    assert lrc(b'/mnt/mmc/A/01 x.flac') == b'/mnt/mmc/A/01 x.lrc' and lrc(b'/mnt/mmc/A/b.mp3', b'.LRC') == b'/mnt/mmc/A/b.LRC'
+    assert lrc(b'/mnt/mmc/A.b/song') == b'/mnt/mmc/A.b/song.lrc' and lrc(b'/mnt/mmc/.hidden') == b'/mnt/mmc/.hidden.lrc'
+    assert lrc(b'a.tar.gz') == b'a.tar.lrc' and lrc(b'/x/song.flac', n=11) is None and lrc(b'/x/song.flac', n=12)
+
+    FETCH = C.CFUNCTYPE(C.c_int, C.POINTER(LyrTrack), C.c_char_p, C.POINTER(C.c_int))
+    def run(name, songs, answers, cancel_at=None):
+        """songs: (file, extra files beside it, on the card); answers: title -> fetch results, in turn."""
+        album = tmp/name
+        album.mkdir()
+        tracks = (LyrTrack * len(songs))()
+        for t, (file, extra, present) in zip(tracks, songs):
+            t.path, t.title, t.artist = str(album/file).encode(), file.split('.')[0].encode(), b'Artist'
+            if present: (album/file).write_bytes(b'audio')
+            for e in extra: (album/e).write_bytes(b'[00:01.00]mine\n')
+        calls, left = [], {k: list(v) for k, v in answers.items()}
+        def fetch(t, out, cancel):
+            title = t.contents.title.decode(); calls.append((title, t.contents.artist.decode(), out.decode()))
+            got = left[title].pop(0)
+            if got == LRC_SAVED: pathlib.Path(out.decode()).write_text(f'[00:00.10]{title}\n')
+            if got == LRC_CARD: pathlib.Path(out.decode()).write_text('[00:0')  # a write cut short
+            if title == cancel_at: cancel[0] = 1; got = LRC_CANCELLED
+            return got
+        job, cb = LyrJob(), FETCH(fetch)
+        state = lib.album_lyrics(C.byref(job), tracks, len(songs), cb)
+        assert not [p for p in album.iterdir() if p.name.endswith('.part')], name
+        assert all(not left[k] for k in left), (name, left)  # every scripted answer asked for
+        return state, job, calls, album
+    # An incomplete album: a file gone since the scan, two with a .lrc (either case).
+    songs = [('01 Intro.flac', (), True), ('02 Song.flac', (), True), ('03 Gone.flac', (), False),
+             ('04 Had.flac', ('04 Had.lrc',), True), ('05 Upper.mp3', ('05 Upper.LRC',), True),
+             ('06 Tagged.m4a', (), True), ('07 NoExt', (), True)]
+    state, job, calls, album = run('incomplete', songs, {'01 Intro': [LRC_NONE], '02 Song': [LRC_SAVED],
+                                   '06 Tagged': [LRC_SAVED], '07 NoExt': [LRC_SAVED]})
+    assert state == LJ_DONE and (job.total, job.done, job.saved, job.had, job.none, job.failed) == (7, 7, 3, 2, 1, 0)
+    assert [c[0] for c in calls] == ['01 Intro', '02 Song', '06 Tagged', '07 NoExt'] and calls[1] == ('02 Song', 'Artist', str(album/'02 Song.lrc.part'))
+    assert (album/'02 Song.lrc').read_text() == '[00:00.10]02 Song\n' and (album/'07 NoExt.lrc').exists()
+    assert (album/'04 Had.lrc').read_text() == '[00:01.00]mine\n' and not (album/'01 Intro.lrc').exists()
+    # Offline from the start: no retry before LRCLIB has answered; two tracks unanswered end it.
+    three = [(f'{i} T{i}.flac', (), True) for i in range(3)]
+    state, job, calls, _ = run('offline', three, {'0 T0': [LRC_OFFLINE], '1 T1': [LRC_OFFLINE]})
+    assert state == LJ_OFFLINE and (job.saved, job.failed, job.done) == (0, 2, 1) and len(calls) == 2
+    # LRCLIB gone mid-album: each unanswered track retried once, then the job ends.
+    state, job, calls, _ = run('drop', three, {'0 T0': [LRC_SAVED], '1 T1': [LRC_OFFLINE] * 2, '2 T2': [LRC_OFFLINE] * 2})
+    assert state == LJ_OFFLINE and (job.saved, job.failed) == (1, 2) and len(calls) == 5
+    # A blip: the retry answers.
+    state, job, calls, album = run('blip', three, {'0 T0': [LRC_SAVED], '1 T1': [LRC_OFFLINE, LRC_SAVED], '2 T2': [LRC_NONE]})
+    assert state == LJ_DONE and (job.saved, job.none, job.failed) == (2, 1, 0) and (album/'1 T1.lrc').exists()
+    # LRCLIB busy (its 503): asked again, three requests at most; still busy counts as failed. A busy
+    # reply is an answer, so the next unanswered request is retried too.
+    state, job, calls, album = run('busy', three, {'0 T0': [LRC_BUSY, LRC_SAVED], '1 T1': [LRC_BUSY] * 3,
+                                   '2 T2': [LRC_OFFLINE, LRC_SAVED]})
+    assert state == LJ_DONE and (job.saved, job.failed) == (2, 1) and len(calls) == 7
+    assert (album/'0 T0.lrc').exists() and not (album/'1 T1.lrc').exists() and (album/'2 T2.lrc').exists()
+    # Busy for two tracks in a row ends the job.
+    state, job, calls, _ = run('overloaded', three, {'0 T0': [LRC_BUSY] * 3, '1 T1': [LRC_BUSY] * 3})
+    assert state == LJ_OFFLINE and (job.saved, job.failed, job.done) == (0, 2, 1) and len(calls) == 6
+    # A card that can't be written ends the job, its cut-short .part removed.
+    state, job, calls, album = run('card', three, {'0 T0': [LRC_CARD]})
+    assert state == LJ_CARD and job.saved == 0 and len(calls) == 1 and not (album/'0 T0.lrc').exists()
+    # A cancel mid-transfer keeps what was saved before it.
+    state, job, calls, album = run('cancel', three, {'0 T0': [LRC_SAVED], '1 T1': [LRC_SAVED]}, cancel_at='1 T1')
+    assert state == LJ_CANCELLED and job.saved == 1 and job.done == 1 and (album/'0 T0.lrc').exists() and not (album/'1 T1.lrc').exists()
+
+    def note(state, saved=0, none=0, had=0, failed=0):
+        job, out = LyrJob(state=state, saved=saved, none=none, had=had, failed=failed), C.create_string_buffer(96)
+        lib.album_note(out, 96, C.byref(job))
+        return out.value.decode()
+    assert note(LJ_DONE, 9, 2, 1) == 'Album lyrics: 9 saved, 2 not found, 1 already had lyrics'
+    assert note(LJ_DONE, had=12) == 'Album lyrics: 12 already had lyrics' and note(LJ_DONE) == 'Album lyrics: no songs on the card'
+    assert note(LJ_OFFLINE, failed=2) == "Can't reach LRCLIB" and note(LJ_OFFLINE, 1, failed=2) == 'LRCLIB stopped answering: 1 saved, 2 failed'
+    assert note(LJ_CARD, 3) == "Can't write to the card: 3 saved" and note(LJ_CANCELLED) == 'Cancelled'
+    print('Album lyrics: .lrc paths, incomplete albums, busy retries, offline, card and cancel ends, and summaries passed.')
+
+
 def tidal_check(tmp):
     """Tidal cache (tidal.c): the cached file's extension comes from the stream URL's path."""
     lib = compile_host(tmp, 'tidal.so', ROOT/'patch/tidal.c')
@@ -2787,6 +2880,7 @@ if __name__ == '__main__':
         tidal_check(tmp)
         shelf_check(tmp, netupdate_check(tmp))
         online_check(tmp)
+        album_check(tmp)
         if args.captures:
             args.captures.mkdir(parents=True, exist_ok=True)
             (tmp/'captures').mkdir()
