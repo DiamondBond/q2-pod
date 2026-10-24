@@ -130,7 +130,7 @@ so parents and order are free to change. Every tick it re-shows the volume,
 EQ, Bluetooth, SyncLink and Wi-Fi widgets and sets their images and text, but
 never their geometry. `system_bar.bin` (iPod) therefore keeps the play state
 and EQ in `view_left`, as stock does, and puts Bluetooth/codec, Wi-Fi and the
-battery in `view_right`. EQ uses an explicit 16 px font and a 28 px cell: its text is 24 px wide in the shipped font, so stock's 20 px cell clips it. A 16 px `Q2` label at the left inset appears only when both playback state and EQ are hidden. Stock's tick also hides `img_state` whenever its own player is stopped, as it is under Spotify, radio or a video; `ringnav_showface` (iPod only) runs `bar_sync` straight after the tick, so the payload's play state is back before any paint. Correcting it at paint time instead relaid the row twice a second, and EQ was drawn for a frame in the play icon's place. `bar_sync` updates its visibility without moving the centred clock. The volume icon and number and SyncLink move to `x = -200`, where they
+battery in `view_right`. EQ uses an explicit 16 px font and a 28 px cell: its text is 24 px wide in the shipped font, so stock's 20 px cell clips it. A 16 px `Q2` label at the left inset appears only when both playback state and EQ are hidden. Stock's tick also hides `img_state` whenever its own player is stopped, as it is under Spotify, radio or a video; `ringnav_showface` (iPod only) runs `bar_state_sync`, the play state and the `Q2` label alone, straight after the tick, so the payload's play state is back before any paint, dark or not (no file reads; a relayout waits for the paint); the codec badge, accent, Rockbox check and battery wait for paint (`bar_sync`). Correcting it at paint time instead relaid the row twice a second, and EQ was drawn for a frame in the play icon's place. `bar_sync` updates its visibility without moving the centred clock. The volume icon and number and SyncLink move to `x = -200`, where they
 draw off-screen. Both groups sit 54 pixels
 from the edges (`STATUS_MARGIN`): the 50 where the 16-pixel icons clear the top corners
 ([Rounded corners](#rounded-corners)) plus 2 (`STATUS_PAD`) so they don't crowd the glass. A new
@@ -365,6 +365,16 @@ than half the list (playlist Import/Export) get none. Those two tiles, built by 
 have no icon: the build gives the icon no width and stretches the label across the tile in stock's
 centred `s_scrlabel_white24c` (`tools/ipod.py`). The artist page's Albums tab drills but has no
 stock chevron or payload row layouter, so it has none.
+
+The payload's own pages (`page_list`, in both builds) draw the same `list_into` at x 302 on every row
+that opens another page or screen: Spotify's menu, its Downloads hub and Storage Management, its
+albums, playlists, artists, saved playlists and download jobs, and Download Controls; a card app's
+lists, folders and phone-remote rows; Internet Radio's lists, Games, Photos, Ratings, Era's decades and
+albums; Books; and the equalizer's Balance, Preamp, Presets, band, Frequency, Gain and Q rows and the
+Presets menu, the value moved left of it (`patch/peq_ui.c` `INTO`). A 64 px row with an empty detail
+centres its caption beside it. Rows that act in place (play, toggle, cycle a value) have none; on/off
+rows (EQ Enabled, a band's Band, Spotify's Shuffle, Streaming Configuration's services) carry stock's
+`switch_on`/`switch_off` (`list_toggle`), as Shanling's settings rows do.
 
 ## Fast-scroll letter
 

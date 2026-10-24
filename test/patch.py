@@ -4804,7 +4804,9 @@ class CoverflowMachine(QueueMachine):
         elif name=='qsort': self.qsort(a,b,c,d)  # sorted by the payload's comparator, run nested
         elif name=='calloc': ret=self.alloc(a*b+4)
         elif name=='strdup': ret=self.string(self.text(a))
-        elif name=='free': self.freed+=a!=0
+        elif name=='free':
+            self.freed+=a!=0
+            if a in getattr(self,'poison',{}): self.u.mem_write(a,b'\0'*self.poison.pop(a))
         elif name=='statfs': self.word(b+4,4096); self.word(b+28,1<<20)
         elif name=='pthread_create': self.word(a,77); self.threads.append((c,d))
         elif name=='pthread_join': self.joins.append(a)
@@ -6004,8 +6006,10 @@ SONGS=[('Alpha','A1','','/mnt/mmc/m/a/1.mp3',1990),('Beta','B1','Beta Band','/mn
        ('Pod','P1','','/mnt/mmc/podcasts/p/1.mp3',1996),('','U1','','/mnt/mmc/m/u.mp3',1994)]
 m=EraMachine(SONGS); assert m.open_era()==['Era','80s','1 album','90s','2 albums','2000s','1 album']
 assert m.nodes[m.top]['name']=='era_page' and m.closed_db==1; passed()
+into=lambda: [m.nodes[m.nodes[r]['children'][-1]].get('image')=='list_into' for r in m.nodes[m.find('scroll_view')]['children']]
+assert into()==[True]*3  # a decade opens its albums
 assert m.decade(1)==['90s','Play All','2 albums','Shuffle','Every song, shuffled','Alpha','A1 \u2022 1990','Beta','Beta Band \u2022 1999']
-assert m.nodes[m.top]['name']=='era_albums_page'; passed()
+assert m.nodes[m.top]['name']=='era_albums_page' and into()==[False,False,True,True]; passed()  # an album opens Coverflow
 # The full library is counted past stock's old 20,000-song limit, with a bounded SQLite cache.
 m=EraMachine((f'Large {i//10}','Artist','Artist',f'/mnt/mmc/music/large/{i}.flac',2020) for i in range(65000))
 assert m.open_era()==['Era','2020s','6500 albums']
@@ -8335,7 +8339,9 @@ class BooksMachine(DepthMachine):
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
-        if name=='c:calloc@GLIBC_2.0': ret=self.alloc((a*b+7)&~3) if a*b<=0x10000 else self.big_alloc(a*b)  # word-aligned
+        if name=='c:calloc@GLIBC_2.0':
+            ret=self.alloc((a*b+7)&~3) if a*b<=0x10000 else self.big_alloc(a*b)  # word-aligned
+            if hasattr(self,'poison'): self.poison[ret]=a*b  # zeroed again when freed: a use after free reads ""
         elif name=='b:qsort@GLIBC_2.0' and c!=4:  # not names (Tidal's and a card app's songs): the payload's comparator
             self.handlers[address]='c:qsort@GLIBC_2.0'
             try: return super().hook(u,address,size,unused)
@@ -9193,6 +9199,11 @@ class BrowseMachine(RadioMachine):
     def pick(self,i):
         self.nodes[self.find('scroll_view')]['_ringnav_index']=i; self.row(i)
 OK=('ok','','')
+def chevron(m,i):
+    """Row i ends in stock's list_into (page_row_detail_into), its labels ending before the glyph (x 322)."""
+    *labels,last=m.nodes[m.rows()[i]]['children']
+    return m.nodes[last].get('image')=='list_into' and all(m.get(l+O['W_X'])+m.get(l+O['W_W'])<=316 for l in labels)
+def switch(m,i): return m.nodes[m.nodes[m.rows()[i]]['children'][-1]].get('image')
 ME=OK+([('account','spotify:user:alice','Alice','Premium','','')],)
 def track(uri,title,ctx='',pos=''): return ('track',uri,title,'An Artist',ctx,pos)
 # The row opens the browser and asks for the account, written, shut for writing and read on the worker;
@@ -9204,8 +9215,11 @@ assert m.labels()==MENU
 m.state('playing'); m.poll(); m.advance(250)
 assert m.labels()==['Spotify','Now Playing','Liked Songs','Playlists','Albums','Artists','Search','Queue','Playback Settings','Account','Downloaded Tracks','Downloads']
 m.row(0); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.state('none',track=''); m.poll(); m.advance(250); assert m.labels()==MENU; passed()
-m.row(7)
-assert m.labels()==['Downloads','Downloaded Tracks','Update Spotify on the card','for saved playlists and download controls']
+m.row(7)  # an older add-on: its message-only Download Status stays reachable
+assert m.labels()==['Downloads','Downloaded Tracks','','Download Status',"The latest download's progress",'Update Spotify on the card','for saved playlists and download controls']
+assert [chevron(m,i) for i in range(3)]==[True,False,False]
+m.row(1); assert m.asked()==('downloadstatus',); m.answer('ok','Mix B: 3 of 10 saved','',[])
+assert m.toasts[-1][3]=='Mix B: 3 of 10 saved' and m.labels()[0]=='Downloads'
 m.back(); assert m.labels()==MENU; passed()
 # Downloaded tracks stay reachable while the service cannot answer catalogue requests, and a row
 # uses the cache-only play operation.
@@ -9312,10 +9326,10 @@ m.state('playing'); m.poll(); m.advance(250); m.row(6); assert m.asked()==('queu
 m.answer(*OK,[track('spotify:track:q','Q',pos='3')]); m.row(0); assert m.asked()==('skip','3','spotify:track:q')
 m.answer(*OK,[]); assert m.nodes[m.top]['name']=='spotify_page'; m.destroy(m.top); m.top=m.page; m.back()
 m.row(7); m.answer(*OK,[('setting','shuffle','off','','',''),('setting','repeat','context','','','')])
-assert m.labels()==['Playback Settings','Shuffle','Off','Repeat','All']
+assert m.labels()==['Playback Settings','Shuffle','','Repeat','All'] and switch(m,0)=='switch_off' and switch(m,1)!='switch_off'
 m.row(0); assert m.asked()==('shuffle','on'); m.answer(*OK,[]); assert m.labels()==['Loading…'] and m.asked()==('settings',)
 freed=m.freed
-m.answer(*OK,[('setting','shuffle','on','','',''),('setting','repeat','track','','','')]); assert m.labels()==['Playback Settings','Shuffle','On','Repeat','One'] and m.freed==freed+1
+m.answer(*OK,[('setting','shuffle','on','','',''),('setting','repeat','track','','','')]); assert m.labels()==['Playback Settings','Shuffle','','Repeat','One'] and switch(m,0)=='switch_on' and m.freed==freed+1
 m.row(1); assert m.asked()==('repeat','off'); t=len(m.threads); m.answer('offline',"Spotify didn't answer in time",'',[]); m.advance(1000)
 assert m.toasts[-1][3]=="Spotify didn't answer in time" and len(m.threads)==t and m.labels()[1]=='Shuffle'; m.back(); passed()
 # Account: the name, Premium, and Sign out after a confirmation; then the pairing prompt.
@@ -9443,7 +9457,8 @@ assert m.labels()==['Spotify','Liked Songs','Playlists','Albums','Artists','Sear
 m.row(0); m.answer(*OK,[])
 assert m.labels()==['Liked Songs','Download Liked Songs','For offline listening']
 m.row(0); assert m.asked()==('downloadliked',); m.answer('ok','Queued','',[]); m.back()
-m.row(6); assert m.labels()==['Downloads','Downloaded Playlists','Downloaded Tracks','Download Progress','Storage Management']
+m.row(6); assert m.labels()==['Downloads','Downloaded Playlists','','Downloaded Tracks','','Download Progress','','Storage Management','']
+assert all(chevron(m,i) for i in range(4))  # each opens a page
 m.row(0); assert m.asked()==('collections',)
 m.answer(*OK,[('collection','liked','Liked Songs','2/3 · partial','','')]); m.row(0)
 assert m.asked()==('collection','liked')
@@ -9452,14 +9467,21 @@ m.row(2); assert m.asked()==('playcollection','liked','51')
 m.answer(*OK,[]); m.destroy(m.top); m.top=m.page
 m.row(1); assert m.toasts[-1][3]=='Unavailable'
 m.row(3); assert m.asked()==('collection','liked','next'); m.answer(*OK,[])
-m.back(); m.row(4); assert m.labels()==['Download Controls','Pause','','Resume','','Cancel Download','','Retry Failed','','Update Download','']
+m.back(); m.row(4); assert m.labels()==['Download Controls','Pause','Resume','Cancel Download','Retry Failed','Update Download']
+assert [(m.get(r+O['W_Y']),m.get(r+O['W_H'])) for r in m.rows()]==[(48*i,48) for i in range(5)]
 m.row(3); assert m.asked()==('job','liked','retry'); m.answer('ok','Retry queued','',[])
 m.back(); m.back(); m.back()
 assert m.labels()[0]=='Downloads'
 m.row(2); assert m.asked()==('jobs',)
 m.answer(*OK,[('job','liked','paused','2/3 · Choose Resume','Liked Songs','2')])
 m.advance(2250); assert m.asked()==('jobs',)
-m.answer(*OK,[('job','liked','downloading','2/3 · Saving 3','Liked Songs','2')]); m.row(0); m.row(0)
+m.answer('ok','','p2',[('job','liked','downloading','2/3 · Saving 3','Liked Songs','2')])
+# A failed refresh keeps the list, its fields (the cursor too) still on the reply it shows, not the
+# failed one, which is freed.
+shown=m.labels(); m.poison={}; m.advance(2250); assert m.asked()==('jobs',); m.answer('offline','No Wi-Fi','',[])
+assert m.labels()==shown and shown[-2]=='More…'; del m.poison
+m.row(1); assert m.asked()==('jobs','p2'); m.answer(*OK,[]); m.back()
+m.row(0); m.row(0)
 assert m.asked()==('job','liked','pause'); m.answer('ok','Paused','',[])
 m.back(); m.back(); m.row(3); assert m.labels()[0]=='Storage Management'
 m.row(0); assert m.asked()==('collections',)
@@ -9476,10 +9498,48 @@ m.answer('ok','Removed','',[]); assert m.labels()[0]=='Storage Management'
 m.row(2); assert m.asked()==('remove','all','')
 m.answer('ok','Remove 1 playlists, 3 tracks?','',[]); m.row(1)  # Cancel preserves downloads
 assert m.labels()[0]=='Storage Management'
+# Return before Clear All's preview answers: a later action's ok reply never opens Remove Downloads?.
+m.row(2); assert m.asked()==('remove','all',''); m.back(); assert m.labels()[0]=='Downloads'
+m.row(2); m.answer(*OK,[('job','liked','paused','2/3','Liked Songs','2')]); assert chevron(m,0); m.row(0); m.row(0)
+assert m.asked()==('job','liked','pause'); m.answer('ok','Paused','',[])
+assert m.labels()[0]=='Liked Songs' and m.toasts[-1][3]=='Paused'
+m.back(); m.back(); m.row(3); assert m.labels()[0]=='Storage Management'
 m.row(1); m.answer(*OK,[track('spotify:track:a','A')]); m.row(0); m.row(1)
 assert m.asked()==('remove','tracks','spotify:track:a')
 m.answer('ok','Remove 0 playlists, 1 tracks? 2 playlists may become incomplete','',[])
 assert 'Track removal can make playlists incomplete' in m.labels(); m.row(1); passed()
+# caps answered after Downloads opened (asked again once the base was idle, a request having cancelled
+# it): the open level is laid out again, so its rows and what a press opens agree.
+HUB=('collections','collection','playcollection','downloadliked','jobs','job','remove','download')
+m=BrowseMachine(); m.caps=HUB; m.open(); m.answer(*ME)
+br=payload_syms['br']; m.word(br+96,0); m.word(br+100,0)  # caps_checked, downloads: as a cancelled caps leaves them
+m.advance(2250); assert m.asked()==('caps',)
+m.row(6); assert m.labels()[:4]==['Downloads','Downloaded Tracks','','Download Status']
+m.serve=lambda op,args: ('ok','','',[('op',n,'','','','') for n in HUB]); m.worker()
+assert m.labels()==['Downloads','Downloaded Playlists','','Downloaded Tracks','','Download Progress','','Storage Management',''],m.labels()
+m.row(3); assert m.labels()[0]=='Storage Management'; passed()
+# A transport or temporary caps failure retries after two seconds; a valid unsupported response
+# is terminal for an older add-on, without repeatedly probing it.
+for failure in (None, b'Q2SPOT/1\nmalformed', ('offline','Starting','',[]), ('throttled','Wait','',[])):
+    m=BrowseMachine(); m.open(); m.serve=lambda op,args: ME; m.worker(); assert m.asked()==('caps',)
+    m.serve=(lambda op,args: failure) if failure is not None else None; m.worker()
+    assert m.labels()==MENU and m.get(br+96)==0
+    threads=len(m.threads); m.advance(1750); assert len(m.threads)==threads
+    m.advance(250); assert len(m.threads)==threads+1 and m.asked()==('caps',)
+    m.serve=lambda op,args: ('ok','','',[('op',n,'','','','') for n in HUB]); m.worker()
+    m.row(6); assert m.labels()[1]=='Downloaded Playlists'; passed()
+m=BrowseMachine(); m.open(); m.serve=lambda op,args: ME; m.worker()
+m.serve=lambda op,args: ('error','Unsupported operation','',[]); m.worker()
+threads=len(m.threads); m.advance(5000); assert m.get(br+96)==1 and len(m.threads)==threads; passed()
+# A jobs refresh that shrinks the list must cancel a click queued against its previous rows.
+m=BrowseMachine(); m.caps=HUB; m.open(); m.answer(*ME); m.row(6); m.row(2)
+jobs=[('job',k,'paused','1/2',k,'1') for k in ('a','b')]
+m.answer(*OK,jobs); m.advance(2250); assert m.asked()==('jobs',)
+f,ctx=m.handler(m.rows()[1],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+m.serve=lambda op,args: (*OK,jobs[:1]); worker,arg=m.threads[-1]
+m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)
+m.call(address=payload_syms['br_tick'],args=(0,0,0,0),gap=0); m.advance(0)
+assert m.labels()==['Download Progress','paused','1/2'] and m.get(br+16)==0; passed()
 # Backends that don't advertise download support hide the action, with an update explanation in Downloads.
 m=BrowseMachine(); m.caps=(); m.open(); m.answer(*ME); m.row(1)
 m.answer(*OK,[('playlist','spotify:playlist:a','A','','','')]); m.row(0); m.answer(*OK,[])
@@ -9525,9 +9585,9 @@ tidal,baidu=stock_row('list_tidal','TIDAL'),stock_row('list_baidu','Baidu Netdis
 m.top=m.node('window','stream_page',[view])
 assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 kids=m.nodes[view]['children']; assert kids[0]==tidal and baidu not in kids and m.nodes[baidu].get('destroyed') and len(kids)==7,len(kids); passed()
-# Streaming's Configuration: after Stop Streaming Services, a check row per service Streaming lists
-# (stock's TIDAL, Spotify, the card apps, Tidal Downloads, Internet Radio, AirPlay), all ticked when
-# Q2POD STREAMHIDE is missing. Centre unticks one and hides its Streaming row at once, again shows
+# Streaming's Configuration: after Stop Streaming Services, a switch row per service Streaming lists
+# (stock's TIDAL, Spotify, the card apps, Tidal Downloads, Internet Radio, AirPlay), all on when
+# Q2POD STREAMHIDE is missing. Centre switches one off and hides its Streaming row at once, again shows
 # it; card apps are kept by id, the others by a fixed upper-case key. Configuration always shows.
 m=AppMachine(); card_app(m,'deezer','name=Deezer\n'); rows=stream_rows(m); stream=m.top
 m.nodes[m.wm]=dict(type='window_manager',name='',children=[stream],visible=1)
@@ -9540,7 +9600,7 @@ m.click(rows['Configuration']); m.page=m.top; assert m.nodes[m.page]['name']=='s
 SVC=['TIDAL','Spotify','Deezer','Soulseek','Tidal Downloads','Internet Radio','AirPlay']
 assert m.labels()==['Configuration','Tidal Cache: 2 GB','Spotify Cache: 2 GB','Stop Streaming Services',*SVC]
 cap=m.rows()[3]; assert m.nodes[m.nodes[cap]['children'][0]]['text']=='Show in Streaming' and not m.nodes[cap].get('handlers')
-def ticks(): return [m.nodes[m.nodes[r]['children'][-1]]['image']=='select' and m.nodes[m.nodes[r]['children'][-1]]['visible'] for r in m.rows()[4:]]
+def ticks(): return [switch(m,i)=='switch_on' for i in range(4,len(m.rows()))]  # Shanling's switches
 assert ticks()==[True]*7
 m.row(6); assert m.config['STREAMHIDE']=='deezer' and ticks()==[True,True,False,True,True,True,True]
 assert streaming()==[1,'Spotify','Soulseek','Tidal Downloads','Internet Radio','AirPlay','Configuration']
@@ -9592,7 +9652,7 @@ m.nodes[edit]['text']='aphex\ttwin'; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED']
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0; m.advance(0,clear=False)
 m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob · FLAC 16/44.1 · 31 MB · free','12.3','downloadfolder')])
 assert m.wire[-1].endswith(b'\tsearch\taphex%09twin\n'),m.wire[-1]
-assert m.labels()==['aphex\ttwin','01 Xtal.flac','bob · FLAC 16/44.1 · 31 MB · free','More…'],m.labels()
+assert m.labels()==['aphex\ttwin','01 Xtal.flac','bob · FLAC 16/44.1 · 31 MB · free','More…',''],m.labels()
 # A press downloads the file; Play/Pause held, the hold op (its whole folder); More… the next page.
 m.pick(0); m.answer('ok','Downloading 01 Xtal.flac','',[]); assert m.requests[-1]==('download','12.3') and m.toasts[-1][3]=='Downloading 01 Xtal.flac'
 m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','downloadfolder')])
@@ -9694,6 +9754,7 @@ DZOUT=[('remote','','Sign In from Your Phone','Press to show the code','',''),('
 m.files[DZSTATE]=bytearray(f"addr=192.168.1.23:8090\nhold=0\nnote=Paste your Deezer ARL there\npin=135790\nqr={hexed}\nqrsize=21\n".encode())
 m.answer('ok','refresh','',DZOUT); assert m.requests[-1]==('menu',) and m.top==m.page
 assert m.labels()==['Deezer','Sign In from Your Phone','Press to show the code','Stop Deezer','Downloads carry on next time']
+assert [chevron(m,i) for i in range(2)]==[True,False]  # remote opens the QR page
 m.pick(0); qp=m.top; assert m.nodes[qp]['name']=='qrcode_page'
 assert {'Deezer','192.168.1.23:8090','135 790','Paste your Deezer ARL there'}<=set(texts(qp)),texts(qp); m.destroy(qp); m.top=m.page; passed()
 # Signed in: Play/Pause held on a list downloads all of it; a list's song row, pressed, downloads it.
@@ -9702,6 +9763,7 @@ DZMENU=[('local',SONGS+'/','Downloaded Songs','2 songs on the card','',''),('lis
         ('search','','Search Deezer','','',''),('action','stop','Stop Deezer','Downloads carry on next time','','')]
 m.advance(2000); m.answer('ok','refresh','',DZMENU)
 assert m.labels()==['Deezer','Downloaded Songs','2 songs on the card','Liked Songs','','Search Deezer','','Stop Deezer','Downloads carry on next time'],m.labels()
+assert [chevron(m,i) for i in range(4)]==[True,True,False,False]  # a folder and a list open pages; search and actions don't
 m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=1; m.press(80)
 assert m.hold()==11; m.answer('ok','Downloading 12 songs','',[])
 assert m.requests[-1]==('download','liked') and m.toasts[-1][3]=='Downloading 12 songs'
@@ -9730,6 +9792,25 @@ assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play_names==['Corporeal - B
 m.destroy(songs); m.top=m.page; m.found=recs[:1]; m.advance(2000); m.answer('ok','refresh','',DZMENU)
 m.pick(1); m.answer('ok','refresh','',LIKED); n=len(m.toasts); m.pick(2)
 assert m.toasts[n:] and m.toasts[-1][3]=="It isn't on the card any more",m.toasts[n:]; passed()
+# Tidal Downloads ends in Clear All Downloads…, which asks first, as Spotify's Storage Management does:
+# Cancel or Return keeps the songs; Remove deletes the files in .tidal, a .tmp too, but not .cache-size
+# (Configuration's cap), and the page lists what is left: none.
+T='/mnt/mmc/.tidal'; names=('11-2 A - One.flac','12-2 B - Two.m4a'); recs=[m.song(n) for n in names]
+for r,n,t in zip(recs,names,(100,200)):
+    m.word(r+O['REC_PATH'],m.string(f'{T}/{n}')); m.files[f'{T}/{n}']=bytearray(); m.stats[f'{T}/{n}']=t
+m.files[T+'/13-2 C.flac.tmp']=bytearray(); m.files[T+'/.cache-size']=bytearray(b'2048M'); m.files['/mnt/mmc/Music/keep.flac']=bytearray()
+m.tree[T]=[(n,8) for n in (*names,'13-2 C.flac.tmp','.cache-size')]; m.found=recs
+assert run(m,'tidal_downloads',0,0)==0; td=m.top; tdrows=lambda: m.nodes[m.find('scroll_view',td)]['children']
+LIST=['Tidal Downloads','B - Two','A - One','Clear All Downloads…']
+assert m.nodes[td]['name']=='tidal_downloads' and [l for l in m.labels(td) if l]==LIST,m.labels(td)
+ASK=['Remove Downloads?','2 tracks','Keeps settings','Cancel','Remove']
+m.click(tdrows()[2]); assert [l for l in m.labels(td) if l]==ASK,m.labels(td)
+m.click(tdrows()[1]); assert [l for l in m.labels(td) if l]==LIST  # Cancel, back on the Clear row
+assert m.nodes[m.find('scroll_view',td)]['_ringnav_index']==2
+m.click(tdrows()[2]); m.back(td); assert [l for l in m.labels(td) if l]==LIST and m.top==td  # Return is Cancel
+m.click(tdrows()[2]); m.found=[]  # stock's listing of the emptied folder
+m.click(tdrows()[2]); assert [p for p in m.files if p.startswith(T)]==[T+'/.cache-size'] and '/mnt/mmc/Music/keep.flac' in m.files
+assert [l for l in m.labels(td) if l]==['No downloads yet']; m.destroy(td); passed()
 # Stream mode (q2-deezer's stream.go, addon.c stream_poll): its .play file names a session's folder; its
 # first song, once there, plays as a local album does (Now Playing opening); songs that come later join the
 # queue's end, as Add to Queue does, while the queue is still the session's; the song playing is left in
@@ -10358,8 +10439,8 @@ assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
 # Waking to the lock screen (LOCK_WAKE, LOCK_LIGHT): the centre release and Standby's resume no longer
 # unblank the panel on the page left at screen-off; the lock window's timer paints the screen, then
 # unblanks it, and stock's 50 ms sleep, g_backlight_status and backlight follow.
-from build import LOCK_WAKE, LOCK_LIGHT
-assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in LOCK_WAKE)
+from build import LOCK_WAKE, LOCK_LIGHT, PLAY_HOLD
+assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in LOCK_WAKE+PLAY_HOLD)
 assert struct.unpack_from('<I',demo,fileoff(demo,LOCK_LIGHT[0]))[0]==jal(payload_syms['lockscreen_light'])
 vt=m.alloc(16); m.word(m.wm+0x94,vt); m.word(vt+0xc,0x400100); m.handlers[0x400100]='wm_vt_paint'
 m.byte(syms['g_backlight_status'],0); m.calls=[]

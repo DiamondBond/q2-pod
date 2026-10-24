@@ -1137,10 +1137,29 @@ void *page_row_detail(void *view, int index, const char *caption, const char *de
     return item;
 }
 
-/* A page_list row that opens another list: iPod adds stock's list_into chevron, as the Library's. */
+/* Stock's list_into chevron at the right of a full-width row h high, as the Library's (its glyph
+ * at x 322 to 332), the row's labels narrowed to end before it. Shared with peq_ui.c. */
+void row_into(void *item, int h) {
+    for (unsigned i = 0, n = widget_count_children(item); i < n; ++i) {
+        void *label = widget_get_child(item, i);
+        widget_move_resize(label, I(label, W_X), I(label, W_Y), 316 - I(label, W_X), I(label, W_H));
+    }
+    image_base_set_image(image_create(item, 302, 0, 50, h), "list_into");
+}
+
+/* A page_row_detail row that opens another page, with row_into's chevron. An empty detail centres
+ * the caption in its 64px row, beside the chevron. */
+void *page_row_detail_into(void *view, int index, const char *caption, const char *detail,
+                           int (*click)(void *, void *)) {
+    void *item = page_row_detail(view, index, caption, detail, click);
+    int h = detail ? 64 : 48;
+    if (detail && !*detail) widget_move_resize(widget_get_child(item, 0), CF_ROW_X, 0, CF_ROW_W, h);
+    row_into(item, h);
+    return item;
+}
+
 void page_row_into(void *view, int index, const char *caption, int (*click)(void *, void *)) {
-    void *item = page_row_detail(view, index, caption, 0, click);
-    if (IPOD) image_base_set_image(image_create(item, 302, 0, 50, 48), "list_into");
+    page_row_detail_into(view, index, caption, 0, click);
 }
 
 /* clip: the canvas clip, read into old, narrowed to x, y, w, h; false when nothing shows. Shared

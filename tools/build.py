@@ -7,7 +7,7 @@ import argparse, hashlib, io, json, pathlib, re, shlex, struct, subprocess, tarf
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '154c17822d09be001be35c03d2d3488424dee195221790bd70864480d55b0f00'
 DEMO_SHA = '2c5f06142850b4fc168f82b44a81550cce0a5b4b9fe1c179dced4a08a3049138'
-VERSION = '1.4.4'  # major.minor.patch, single digits, shown as is (About and release tag)
+VERSION = '1.4.5'  # major.minor.patch, single digits, shown as is (About and release tag)
 REPO = 'DiamondBond/q2-pod'  # whose releases Network Update fetches (--update-repo) and release.py publishes
 # The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
 # differ from the installed one, so it packs the digits: 1.0.1 is V101I. About shows the stock
@@ -233,6 +233,12 @@ SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a
 # Hold Return: only on_wm_keylong_fun's final Home call (bal) changes; all stock gates and its release
 # guard precede it. It becomes jal compact_now_playing (docs/ipod.md#hold-return).
 HOLD_RETURN = (0x4e8924, 0x04110fdf)
+# Hold Play/Pause: input_device_status' long press is 1000 ms for every key but 232 (unused on the Q2), which
+# gets 500. The key-down's timer interval and the callback's threshold both move that case to Play/Pause (171)
+# at PLAY_HOLD_MS; Centre and Return keep 1000 (docs/internals.md#queue-menu).
+PLAY_HOLD_MS = 700
+PLAY_HOLD = ((0x6a007c, 0x240201f4, 0x24020000 | PLAY_HOLD_MS), (0x6a008c, 0x3a7300e8, 0x3a7300ab),
+             (0x6a0404, 0x240401f4, 0x24040000 | PLAY_HOLD_MS), (0x6a0408, 0x384200e8, 0x384200ab))
 # device_standby's bal awake_screen after the resume from Standby becomes li $v0, 1: the screen stays dark,
 # so the resuming key acts as it does dark (Play plays, centre wakes).
 STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
@@ -1285,6 +1291,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     patch_word(patched, *HOLD_RETURN, jal(ps['compact_now_playing']),
                'long Return destination after stock input gates')
     patch_word(patched, *STANDBY_WAKE, 'Standby resume stays dark')
+    for hold in PLAY_HOLD:
+        patch_word(patched, *hold, 'Play/Pause hold time')
     for wake in LOCK_WAKE:
         patch_word(patched, *wake, 'lock screen wake stays dark until it is painted')
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x52da50))[0] == 0x8f99fa64,

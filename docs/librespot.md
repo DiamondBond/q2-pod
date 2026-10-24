@@ -30,7 +30,7 @@ The fork adds three options for this: `--status-file`, the player's state, track
 
 Explicit downloads use protected storage under `.spotify/cache/offline/audio/<account>/`, separate from the evictable playback cache. The Spotify Cache setting caps temporary playback storage and cannot evict protected downloads. Existing cached tracks remain available without invented playlist grouping: download that playlist again. Storage Management selects multiple tracks/playlists or clears all music after showing a count and confirmation. Removing a playlist keeps shared audio; removing tracks warns about incomplete playlists. Clearing downloads preserves login/settings; signing out removes login and offline music. Keep `.spotify/cache` when updating.
 
-Collection controls require matching firmware and a backend advertising the saved-download capabilities (`q2-v1.9` development build). Older backends retain supported flat-list actions and an update explanation; older firmware's original operations still work with the new backend. See the [shared download UX/protocol contract](downloads.md) for examples, job states, removal semantics and Deezer/Qobuz guidance. Build artifacts are staged for review; implementation does not publish or install them.
+Collection controls require matching firmware and a backend advertising the saved-download capabilities (`q2-v1.10` or later). Older backends retain supported flat-list actions and an update explanation; older firmware's original operations still work with the new backend. See the [shared download UX/protocol contract](downloads.md) for examples, job states, removal semantics and Deezer/Qobuz guidance.
 
 ## Browsing protocol (Q2SPOT/1)
 

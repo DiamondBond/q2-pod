@@ -33,7 +33,7 @@ void child_exit(int status) __attribute__((noreturn));
  * balance: dB, above 0 turns the left channel down, below 0 the right (v2 only).
  * automatic: the preamp is 1 Auto (the player cuts each rate's own peak; preamp holds the 48 kHz
  * cut), 2 picked (an import's own preamp too), 0 never picked (saved before 1.3.6: PEQ_PRESET_V2
- * bytes, or imported before 1.4.4), which the UI and PEQ playback also take as Auto. */
+ * bytes, or imported before 1.4.5), which the UI and PEQ playback also take as Auto. */
 typedef struct { int enabled, type; double frequency, gain, q; } peq_band;
 typedef struct {
     int count, bypass;
@@ -126,7 +126,13 @@ void *page_title(void *body, const char *caption);
 void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h);
 void *page_row_detail(void *view, int index, const char *caption, const char *detail,
                       int (*click)(void *, void *));
+void *page_row_detail_into(void *view, int index, const char *caption, const char *detail,
+                           int (*click)(void *, void *));
 void page_row_into(void *view, int index, const char *caption, int (*click)(void *, void *));
+void row_into(void *item, int h);
+void list_toggle(void *label, const char *title, int on); /* navigation.c: a row's switch */
+char *csv_find(char *list, const char *item);                /* navigation.c: comma lists */
+int csv_toggle(char *list, unsigned size, const char *item);
 void *bottom_caption(void *parent, int h);
 int text_differs(void *w, const char *s);
 long file_size(const char *path); /* coverflow.c: -1 when it can't be opened */
@@ -157,6 +163,7 @@ int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);
 void play_folder(void *dq, int idx, int cls);
 int directory(void *path); /* playback.c: toolsLoadDirectory, for staged */
 #define TIDAL_DIR "/mnt/mmc/.tidal" /* tidal.c's cache, Tidal Downloads' list */
+void tidal_clear(void);
 #define SPOT_DIR "/mnt/mmc/.spotify" /* librespot and its launcher, spotify.c's */
 /* addon.c: card apps, each a card folder .<id> holding its manifest q2app, its
  * launcher run and its binary q2-<id>. addon_scan finds them again (how many slots: a slot's index

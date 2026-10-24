@@ -446,6 +446,14 @@ static void action(const char *op, const char *ctx) {
 
 static int clicked(void *ctx, void *event);
 
+/* Whether row i opens a page (go()): a list, the phone remote's QR page or a folder on the card. Its
+ * row has a chevron. */
+static int opens(lv_t *l, int i) {
+    const char *kind = cell(l, i, 0), *uri = cell(l, i, 1);
+    return !strcmp(kind, "list") || !strcmp(kind, "remote") ||
+           (!strcmp(kind, "local") && *uri && uri[strlen(uri) - 1] == '/');
+}
+
 /* The top level: its rows, or what it waits for. */
 static void show(void) {
     lv_t *l = top();
@@ -467,8 +475,8 @@ static void show(void) {
         int more = l->f[3][0] != 0;
         pg.view = page_list(pg.page, pg.page, 0, l->title, n = l->n + more, 64);
         for (int i = 0; i < l->n; ++i)
-            page_row_detail(pg.view, i, cell(l, i, 2), cell(l, i, 3), clicked);
-        if (more) page_row_detail(pg.view, l->n, "More…", 0, clicked);
+            (opens(l, i) ? page_row_detail_into : page_row_detail)(pg.view, i, cell(l, i, 2), cell(l, i, 3), clicked);
+        if (more) page_row_detail(pg.view, l->n, "More…", "", clicked);
     }
     if (n) ringnav_select(pg.view, l->sel < n ? l->sel : n - 1, n);
 }
@@ -615,7 +623,7 @@ static int go(const void *unused) {
         if (put(a, sizeof a, l->f[3])) push(l->op, a, l->base, l->title);
     } else {
         const char *kind = cell(l, i, 0), *uri = cell(l, i, 1), *ctx = cell(l, i, 4);
-        if (!strcmp(kind, "list")) {
+        if (!strcmp(kind, "list")) { /* with remote and a local folder, opens()'s pages */
             if (!ctx[0] || put(a, sizeof a, ctx)) push(uri, a, strlen(a), cell(l, i, 2));
         } else if (!strcmp(kind, "action"))
             action(uri, ctx);

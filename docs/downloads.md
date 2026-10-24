@@ -1,6 +1,6 @@
 # Saved downloads: UX and Q2SPOT/1 contract
 
-This contract describes Spotify's saved collections and gives Deezer and Qobuz maintainers the same user experience to implement in their own integrations. It requires no shared daemon, storage implementation or credentials. Tidal is unchanged.
+This contract describes Spotify's saved collections and gives Deezer and Qobuz maintainers the same user experience to implement in their own integrations. It requires no shared daemon, storage implementation or credentials. Tidal Downloads ends with the same **Clear All Downloads…** and **Remove Downloads?** confirmation for its own cache.
 
 ## User experience and storage
 
@@ -18,7 +18,7 @@ Stop and **join** download work before deleting audio/references, including sign
 
 Use [existing Q2SPOT/1 framing and escaping](librespot.md#browsing-protocol-q2spot1): one request/reply per Unix stream connection, 8 KiB requests, 64 KiB replies, at most 50 six-field rows per page. Source IDs/cursors are opaque; titles never identify collections. Positions are zero-based absolute manifest positions. Spotify uses `liked` for account-scoped Liked Songs and stable playlist URIs for playlists.
 
-Advertise each operation through `caps` as an `op` row. The firmware enables the new hub with `collections`, `collection`, `playcollection`, `downloadliked`, `jobs`, `job` and `remove`; otherwise it exposes supported legacy actions and an update explanation. Older firmware keeps using `download`, `downloadstatus`, `downloaded` and `playdownload` unchanged.
+Advertise each operation through `caps` as an `op` row. The firmware enables the new hub with `collections`, `collection`, `playcollection`, `downloadliked`, `jobs`, `job` and `remove`; otherwise it exposes supported legacy actions (with `download`, Downloads keeps a **Download Status** row sending `downloadstatus`) and an update explanation. Older firmware keeps using `download`, `downloadstatus`, `downloaded` and `playdownload` unchanged. Firmware polls `jobs` only while Download Progress is on screen with the display on, and a failed poll keeps the list.
 
 | Operation        | Arguments            | Reply                                                                                                                                                                     |
 | ---------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

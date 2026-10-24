@@ -1,6 +1,6 @@
 # Changelog
 
-- **1.4.4**:
+- **1.4.5**:
   - Search boxes and text fields (Internet Radio, Spotify and card-app search, Advanced EQ's Frequency, Q and preset name): **Return** with the keyboard up closes the keyboard and leaves the box as it was, instead of crashing the player; the next Return goes back. The EQ's number keys open on the keyboard that is showing, every time.
   - Advanced EQ: the Frequency, Q and preset-name fields sit at the top of the screen, above the keyboard, so what you type shows and is kept. They used to sit under the keyboard, which hid the typing and lost it. The row below names the field; Centre on it opens the keyboard.
   - Advanced EQ: reopen the keyboard even when the value field kept focus after Done, and detach it before replacing the field.
@@ -16,6 +16,14 @@
   - Set date and time: **Next** and **Previous** move between the fields and OK, as Centre moves on (the sleep timer's fields too). OK, pressed with Centre or tapped, sets the clock and goes back to the Time settings.
   - iPod: Now Playing's art sits higher, clear of the page dots, and the shuffle and heart buttons line up with its bottom edge. Spotify's and Internet Radio's art moves up to match.
   - Streaming's **Configuration** row has a new icon. The old globe looked frayed at the row's size.
+  - Holding **Play/Pause** (queue menu, radio favourite, Spotify's Add to Queue, card-app downloads) takes 0.7 s instead of 1 s. Holding Centre or Return still takes 1 s.
+  - System settings and Playback: on/off settings use switches.
+  - iPod: the status bar's EQ icon no longer flashes in the play icon's place while Spotify, Internet Radio or a video plays.
+  - Spotify: **Downloads** has **Downloaded Playlists** (each playlist under its own name, its tracks in the playlist's order), **Downloaded Tracks**, **Download Progress** (with Pause, Resume and Retry Failed) and **Storage Management** (remove playlists or tracks, or clear all downloads; your login stays). **Liked Songs** can be downloaded too. When Spotify limits downloads, they wait and carry on instead of failing. Needs q2-librespot v1.10 from the App Store.
+  - Snake: the side **Previous** and **Next** buttons turn; the wheel no longer does.
+  - Adding to Favourites, Play Next, Add to Queue and ratings no longer show a message when they work; a message shows only when one fails.
+  - Rows that open a page show the **>** arrow everywhere: Spotify, card apps, Era, Books, the EQ, and on Legacy every list page. On/off rows in Streaming's **Configuration**, the EQ (**Enabled**, a band's **Band**) and Spotify's **Shuffle** are switches.
+  - Tidal Downloads: **Clear All Downloads…** at the end of the list removes every downloaded Tidal track after asking, as Spotify's does. Your Tidal settings stay.
 
 - **1.4.3**:
   - Spotify: holding **Play/Pause** on a playlist in a list downloads it, as its Download Playlist row does.

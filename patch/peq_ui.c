@@ -97,18 +97,23 @@ static struct {
 static int action(void *ctx, void *event);
 static int render(const void *unused);
 
-/* A row: the caption on the left, white or, for display-only rows and off bands (dim), grey, and
- * the value, if any, in grey against the right edge. Returns the last label, the value's if any. */
-static void *row_dim(void *view, int index, const char *text, const char *value, int id, int dim) {
+/* A row: the caption on the left, white or, for display-only rows and off bands (DIM), grey, and
+ * the value, if any, in grey against the right edge, or left of stock's list_into chevron on a row
+ * that opens a screen or picker (INTO: coverflow.c's row_into). Returns the last label, the
+ * value's if any. */
+enum { DIM = 1, INTO = 2, SMALL = 4 };
+static void *row_dim(void *view, int index, const char *text, const char *value, int id, int flags) {
     void *item = list_item_create(view, 0, index * 48, 375, 48), *label = 0;
     widget_use_style(item, "s_listitem_black");
     for (int i = 0; i < 1 + !!value; ++i) {
         label = label_create(item, ROW_X, 0, 375 - 2 * ROW_X, 48);
         widget_use_style(label, "s_label_white20l");
-        if (i || dim || id < 0) widget_set_prop_int(label, "style:normal:text_color", (int)CF_GREY);
+        if (i || flags & DIM || id < 0) widget_set_prop_int(label, "style:normal:text_color", (int)CF_GREY);
         if (i) widget_set_prop_str(label, "style:normal:text_align_h", "right");
+        if (!i && flags & SMALL) widget_set_prop_int(label, "style:normal:font_size", 16);
         widget_set_text_utf8(label, i ? value : text);
     }
+    if (flags & INTO) row_into(item, 48);
     widget_on(item, EVT_CLICK, action, (void *)(long)id);
     return label;
 }
@@ -362,8 +367,10 @@ static int action(void *ctx, void *event) {
     /* The centre button on the value row; no render, which would destroy the edit and close the keyboard. */
     if (id == KEYBOARD) {
         widget_set_focused(ui.edit, 1);
-        /* Done can close T9 while the edit stays focused; focus alone won't reopen it. */
+        /* Done can close T9 while the edit stays focused; focus alone won't reopen it, nor send
+         * EVT_FOCUS, so the number page and selection are asked for here too. */
         input_method_request(input_method(), ui.edit);
+        if (ui.screen == ADJUST) focused(0, 0);
         return 0;
     }
     peq_band *b = &ui.draft.bands[ui.band];
@@ -555,38 +562,38 @@ static int render(const void *unused) {
     if (ui.screen == HOME) {
         row(view, n++, ui.dirty ? "Apply changes" : "Nothing to apply", ui.dirty ? APPLY : -1);
         row(view, n++, "Reset to defaults", RESET);
-        row_dim(view, n++, "Enabled", ui.draft.bypass ? "Off" : "On", BYPASS, 0);
+        list_toggle(row(view, n++, "", BYPASS), "Enabled", !ui.draft.bypass);
         /* Balance turns one side down: R 1.0 dB is the left 1 dB quieter. */
         snprintf(value, sizeof(value), __builtin_fabs(ui.draft.balance) >= 0.05 ? "%s %.1f dB" : "Centre",
                  ui.draft.balance > 0 ? "R" : "L", __builtin_fabs(ui.draft.balance));
-        row_dim(view, n++, "Balance", value, BALANCE, 0);
+        row_dim(view, n++, "Balance", value, BALANCE, INTO);
         if (on_auto())
             auto_text(value, sizeof(value));
         else
             snprintf(value, sizeof(value), "%.1f dB", ui.draft.preamp);
-        void *shown = row_dim(view, n++, "Preamp", value, PREAMP, 0);
-        /* At 20px two double-digit cuts overrun the iPod's 303px column beside the caption; at 18
-         * the longest, -60.0 at both, leaves 6px (the stock font's widths). */
-        if (on_auto()) widget_set_prop_int(shown, "style:normal:font_size", 18);
-        row_dim(view, n++, "Presets", ui.name[0] ? ui.name : 0, MENU, 0); /* the draft's preset */
-        /* Ten rows, then one spare past the last used band to add another. */
+        void *shown = row_dim(view, n++, "Preamp", value, PREAMP, INTO);
+        /* At 20px two double-digit cuts overrun the iPod's 280px column beside the caption and
+         * chevron; at 16 the longest, -60.0 at both, leaves 6px (the stock font's widths). */
+        if (on_auto()) widget_set_prop_int(shown, "style:normal:font_size", 16);
+        row_dim(view, n++, "Presets", ui.name[0] ? ui.name : 0, MENU, INTO); /* the draft's preset */
+        /* 16px band captions leave room for the gain and chevron, even at 20000 Hz on one channel. */
         for (int i = 0; i < PEQ_BANDS && (i < 10 || i <= ui.draft.count); ++i) {
             peq_band *b = &ui.draft.bands[i];
             snprintf(text, sizeof(text), "%d  %s %.0f Hz%s", i + 1, types[b->type], b->frequency,
                      (const char *[]){"", "", " L", " R"}[b->enabled]);
             snprintf(value, sizeof(value), b->enabled ? "%+.1f dB" : "Off", b->gain);
-            row_dim(view, n++, text, value, i, !b->enabled);
+            row_dim(view, n++, text, value, i, (b->enabled ? 0 : DIM) | INTO | SMALL);
         }
     } else if (ui.screen == BAND) {
         peq_band *b = &ui.draft.bands[ui.band];
         /* Imported missing bands already have valid defaults from peq_default. */
         if (ui.draft.count <= ui.band) ui.draft.count = ui.band + 1;
-        row_dim(view, n++, "Band", b->enabled ? "On" : "Off", ENABLE, 0);
+        list_toggle(row(view, n++, "", ENABLE), "Band", b->enabled);
         if (b->enabled) row_dim(view, n++, "Channels", (const char *[]){0, "Both", "Left", "Right"}[b->enabled], CHANNEL, 0);
         row_dim(view, n++, "Type", types[b->type], TYPE, 0);
-        snprintf(value, sizeof(value), "%.0f Hz", b->frequency); row_dim(view, n++, "Frequency", value, FREQUENCY, 0);
-        snprintf(value, sizeof(value), "%+.1f dB", b->gain); row_dim(view, n++, "Gain", value, GAIN, 0);
-        snprintf(value, sizeof(value), "%.2f", b->q); row_dim(view, n++, "Q", value, QUALITY, 0);
+        snprintf(value, sizeof(value), "%.0f Hz", b->frequency); row_dim(view, n++, "Frequency", value, FREQUENCY, INTO);
+        snprintf(value, sizeof(value), "%+.1f dB", b->gain); row_dim(view, n++, "Gain", value, GAIN, INTO);
+        snprintf(value, sizeof(value), "%.2f", b->q); row_dim(view, n++, "Q", value, QUALITY, INTO);
     } else if (ui.screen == ADJUST) {
         /* Row 0 names the value; it and the centre button open the keyboard on the edit over the
          * title (below). */
@@ -626,11 +633,11 @@ static int render(const void *unused) {
         }
     } else {
         if (ui.screen == PRESETS) {
-            row(view, n++, "Stock presets", STOCK);
-            row(view, n++, "Import from SD /EQ", IMPORT);
-            row(view, n++, "Save editor preset", SAVE);
-            row(view, n++, "Rename a preset", RENAME);
-            row(view, n++, "Delete a preset", DELETE);
+            row_dim(view, n++, "Stock presets", 0, STOCK, INTO);
+            row_dim(view, n++, "Import from SD /EQ", 0, IMPORT, INTO);
+            row_dim(view, n++, "Save editor preset", 0, SAVE, INTO);
+            row_dim(view, n++, "Rename a preset", 0, RENAME, INTO);
+            row_dim(view, n++, "Delete a preset", 0, DELETE, INTO);
         }
         list_files(ui.screen == IMPORTS ? PEQ_IMPORT : PEQ_SAVED, ui.screen == IMPORTS ? ".txt" : ".peq");
         int last = ui.count ? (ui.count - 1) / FILE_PAGE : 0;

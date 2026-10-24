@@ -556,7 +556,7 @@ static void spot_np(void) {
  * base: "account" asked first, then the menu, the pairing prompt or an old add-on's rows. */
 enum { L_BASE, L_LIST, L_CATS, L_CONFIRM, L_DOWNLOADS, L_JOB, L_STORAGE, L_SELECT, L_REMOVE };
 enum { S_LOAD, S_READY, S_ERROR, S_PAIR, S_OLD, S_WAIT }; /* S_WAIT: no socket yet, asked again */
-enum { A_FETCH, A_PLAY, A_ENQUEUE, A_SET, A_SIGNOUT, A_DOWNLOAD, A_CAPS, A_REMOVE };
+enum { A_FETCH, A_PLAY, A_ENQUEUE, A_SET, A_SIGNOUT, A_DOWNLOAD, A_CAPS, A_REMOVE, A_PREVIEW };
 enum { M_PLAYING, M_LIKED, M_PLAYLISTS, M_ALBUMS, M_ARTISTS, M_SEARCH, M_QUEUE, M_SETTINGS, M_ACCOUNT, M_DOWNLOADED, M_DOWNLOADS };
 enum { G_ROW, G_SHOW, G_SEARCH };
 
@@ -582,7 +582,7 @@ enum { W_OK, W_NOSOCK, W_FAIL };
 static struct {
     void *page, *view, *edit;
     unsigned timer, go, leave, poll_at, until; /* until: no socket before it is librespot starting */
-    int depth, act, next, arg, playing, rows[11], caps_checked, downloads, removing, can_download;
+    int depth, act, next, arg, playing, rows[11], caps_checked, downloads, can_download;
     char selected[6500], remove_kind[16], remove_note[128];
     char term[64];
     level_t *lv; /* SPOT_DEPTH of them, calloc'd */
@@ -605,43 +605,11 @@ static int put(char *out, unsigned size, const char *s) {
 
 static void request(const char *op, const char *tail, int act);
 
-static int selected(const char *uri) {
-    const char *p = br.selected;
-    unsigned n = strlen(uri);
-    while (*p) {
-        const char *e = strstr(p, ",");
-        unsigned k = e ? (unsigned)(e - p) : strlen(p);
-        if (k == n && !memcmp(p, uri, n)) return 1;
-        p += k + !!e;
-    }
-    return 0;
-}
-
-static void toggle(const char *uri) {
-    unsigned n = strlen(uri);
-    char *p = br.selected;
-    while (*p) {
-        char *e = strstr(p, ",");
-        unsigned k = e ? (unsigned)(e - p) : strlen(p);
-        if (k == n && !memcmp(p, uri, n)) {
-            if (e) { char *from = e + 1; do { *p++ = *from; } while (*from++); }
-            else if (p != br.selected) p[-1] = 0;
-            else *p = 0;
-            return;
-        }
-        p += k + !!e;
-    }
-    unsigned k = strlen(br.selected);
-    if (k + n + 2 >= sizeof br.selected) { toast("Selection full. Remove these first"); return; }
-    if (k) br.selected[k++] = ',';
-    memcpy(br.selected + k, uri, n + 1);
-}
-
 static void remove_request(int confirm) {
     char tail[7000] = "";
     if (put(tail, sizeof tail, br.remove_kind) && put(tail, sizeof tail, br.selected) &&
         (!confirm || put(tail, sizeof tail, "confirm")))
-        request("remove", tail, confirm ? A_REMOVE : A_DOWNLOAD);
+        request("remove", tail, confirm ? A_REMOVE : A_PREVIEW);
 }
 
 static void fetch_cancel(void) {
@@ -728,8 +696,19 @@ static int clicked(void *ctx, void *event);
 /* A list's row after its items: More…, or Sign out. */
 static int more(const level_t *l) { return l->f[3][0] || !strcmp(l->op, "account"); }
 
-static void row(int i, const char *caption, const char *detail) {
-    page_row_detail(br.view, i, caption, detail, clicked);
+static void *row(int i, const char *caption, const char *detail) {
+    return page_row_detail(br.view, i, caption, detail, clicked);
+}
+
+/* A list row's kind that opens a level (go()), drawn with a chevron. */
+static int opens(const char *kind) {
+    return !strcmp(kind, "album") || !strcmp(kind, "playlist") || !strcmp(kind, "artist") ||
+           !strcmp(kind, "collection") || !strcmp(kind, "job");
+}
+
+/* A row that opens a list, with its chevron. */
+static void *into(int i, const char *caption, const char *detail) {
+    return page_row_detail_into(br.view, i, caption, detail, clicked);
 }
 
 /* The top level: its rows, or "Loading…", its error, the pairing prompt or the menu. */
@@ -759,28 +738,29 @@ static void show(void) {
             if ((r != M_DOWNLOADED || !br.downloads) && ((r != M_PLAYING && r != M_QUEUE && r != M_SETTINGS) || br.playing)) br.rows[n++] = r;
         br.view = page_list(br.page, br.page, 0, "Spotify", n, 48);
         for (int i = 0; i < n; ++i) /* Now Playing and Search open no list */
-            if (br.rows[i] == M_PLAYING || br.rows[i] == M_SEARCH || br.rows[i] == M_DOWNLOADS)
+            if (br.rows[i] == M_PLAYING || br.rows[i] == M_SEARCH)
                 row(i, MENU[br.rows[i]], 0);
             else
-                page_row_into(br.view, i, MENU[br.rows[i]], clicked);
+                into(i, MENU[br.rows[i]], 0);
     } else if (l->kind == L_CATS) {
         br.view = page_list(br.page, br.page, 0, l->title, n = 4, 48);
-        for (int i = 0; i < n; ++i) page_row_into(br.view, i, CATS[i], clicked);
+        for (int i = 0; i < n; ++i) into(i, CATS[i], 0);
     } else if (l->kind == L_DOWNLOADS) {
-        br.view = page_list(br.page, br.page, 0, "Downloads", n = br.downloads ? 4 : 2, 64);
+        br.view = page_list(br.page, br.page, 0, "Downloads", n = br.downloads ? 4 : 2 + br.can_download, 64);
         if (br.downloads) {
-            page_row_into(br.view, 0, "Downloaded Playlists", clicked);
-            page_row_into(br.view, 1, "Downloaded Tracks", clicked);
-            page_row_into(br.view, 2, "Download Progress", clicked);
-            page_row_into(br.view, 3, "Storage Management", clicked);
+            into(0, "Downloaded Playlists", "");
+            into(1, "Downloaded Tracks", "");
+            into(2, "Download Progress", "");
+            into(3, "Storage Management", "");
         } else {
-            page_row_into(br.view, 0, "Downloaded Tracks", clicked);
-            row(1, "Update Spotify on the card", "for saved playlists and download controls");
+            into(0, "Downloaded Tracks", "");
+            if (br.can_download) row(1, "Download Status", "The latest download's progress"); /* older add-ons' */
+            row(n - 1, "Update Spotify on the card", "for saved playlists and download controls");
         }
     } else if (l->kind == L_STORAGE) {
         br.view = page_list(br.page, br.page, 0, "Storage Management", n = 3, 64);
-        page_row_into(br.view, 0, "Remove Playlists…", clicked);
-        page_row_into(br.view, 1, "Remove Tracks…", clicked);
+        into(0, "Remove Playlists…", "");
+        into(1, "Remove Tracks…", "");
         row(2, "Clear All Downloads…", "Keeps login and settings");
     } else if (l->kind == L_REMOVE) {
         br.view = page_list(br.page, br.page, 0, "Remove Downloads?", n = 3, 64);
@@ -790,7 +770,7 @@ static void show(void) {
     } else if (l->kind == L_JOB) {
         static const char *const actions[] = { "Pause", "Resume", "Cancel Download", "Retry Failed", "Update Download" };
         br.view = page_list(br.page, br.page, 0, l->title, n = 5, 48);
-        for (int i = 0; i < n; ++i) row(i, actions[i], "");
+        for (int i = 0; i < n; ++i) row(i, actions[i], 0);
     } else if (l->kind == L_CONFIRM) {
         br.view = page_list(br.page, br.page, 0, "Sign Out of Spotify?", n = 2, 48);
         row(0, "Cancel", 0);
@@ -804,16 +784,19 @@ static void show(void) {
         }
         br.view = page_list(br.page, br.page, 0, l->title, n, 64);
         for (int i = 0; i < l->n; ++i) {
-            const char *v = cell(l, i, 2);
-            if (strcmp(cell(l, i, 0), "setting"))
-                row(i, v, l->kind == L_SELECT ? selected(cell(l, i, 1)) ? "Selected" : "Press to select" : cell(l, i, 3));
-            else
-                row(i, strcmp(cell(l, i, 1), "shuffle") ? "Repeat" : "Shuffle",
-                    !strcmp(v, "on") ? "On" : !strcmp(v, "context") ? "All" : !strcmp(v, "track") ? "One" : "Off");
+            const char *v = cell(l, i, 2), *kind = cell(l, i, 0);
+            if (l->kind == L_SELECT)
+                row(i, v, csv_find(br.selected, cell(l, i, 1)) ? "Selected" : "Press to select");
+            else if (strcmp(kind, "setting"))
+                (opens(kind) ? into : row)(i, v, cell(l, i, 3));
+            else if (strcmp(cell(l, i, 1), "shuffle"))
+                row(i, "Repeat", !strcmp(v, "context") ? "All" : !strcmp(v, "track") ? "One" : "Off");
+            else /* the switch, as Shanling's settings */
+                list_toggle(widget_get_child(row(i, "", ""), 0), "Shuffle", !strcmp(v, "on"));
         }
         if (more(l)) row(l->n, l->f[3][0] ? "More…" : "Sign Out", "");
         if (download) row(n - 1, !strcmp(l->op, "liked") ? "Download Liked Songs" : "Download Playlist", "For offline listening");
-        if (manage) row(n - 1, "Download Controls", "Update, retry, pause, resume or cancel");
+        if (manage) into(n - 1, "Download Controls", "Update, retry, pause, resume or cancel");
         if (l->kind == L_SELECT) row(n - 1, "Remove Selected…", "Confirm the affected count");
     }
     if (n) ringnav_select(br.view, l->sel < n ? l->sel : n - 1, n);
@@ -874,7 +857,9 @@ static void pop(void) {
  * reply without the request's id, or for a level since left, is dropped. */
 static void got(void) {
     level_t *l = top();
-    char id[12], *head[4 + 6 * SPOT_ROWS], **f = br.act ? head : l->f, *reply = wk.buf; /* ours: a request below takes wk */
+    /* A shown level's refresh (Download Progress) is cut into head too, so a failed one leaves its
+     * fields on the reply it shows. */
+    char id[12], *head[4 + 6 * SPOT_ROWS], **f = br.act || l->state == S_READY ? head : l->f, *reply = wk.buf; /* ours: a request below takes wk */
     int act = br.act, n = wk.fail == W_OK ? spot_reply(reply, wk.n, f, act && act != A_CAPS ? 0 : SPOT_ROWS) : -1;
     wk.buf = 0;
     tk_snprintf(id, sizeof id, "%u", wk.id);
@@ -895,16 +880,20 @@ static void got(void) {
     }
     br.act = A_FETCH;
     if (act == A_CAPS) {
-        br.caps_checked = 1;
-        unsigned capabilities = 0;
-        static const char *const required[] = { "collections", "collection", "playcollection", "downloadliked", "jobs", "job", "remove" };
-        if (ok) for (int i = 0; i < n; ++i) for (int j = 0; j < 7; ++j)
-            if (!strcmp(f[4 + 6 * i], "op") && !strcmp(f[5 + 6 * i], required[j])) capabilities |= 1u << j;
-        br.can_download = 0;
-        if (ok) for (int i = 0; i < n; ++i)
-            if (!strcmp(f[4 + 6 * i], "op") && !strcmp(f[5 + 6 * i], "download")) br.can_download = 1;
-        br.downloads = capabilities == 127;
-        show();
+        br.caps_checked = n >= 0 && strcmp(status, "offline") && strcmp(status, "throttled");
+        if (!br.caps_checked) br.poll_at = time_now_ms() + SPOT_PAIR_MS;
+        /* download alone: Download Playlist; every other one: the Downloads hub */
+        static const char *const ops[] = { "download", "collections", "collection", "playcollection", "downloadliked", "jobs", "job", "remove" };
+        unsigned caps = 0, hub = (1u << sizeof ops / sizeof *ops) - 2;
+        if (ok) for (int i = 0; i < n; ++i) for (unsigned j = 0; j < sizeof ops / sizeof *ops; ++j)
+            if (!strcmp(f[4 + 6 * i], "op") && !strcmp(f[5 + 6 * i], ops[j])) caps |= 1u << j;
+        br.can_download = caps & 1;
+        br.downloads = (caps & hub) == hub;
+        if (!br.edit) { /* the level shown again, a click on its old rows dropped, so rows and go() agree */
+            stop_timer(&br.go);
+            if (br.view) top()->sel = widget_get_prop_int(br.view, "_ringnav_index", 0);
+            show();
+        }
     } else if (act) { /* never sent again: play, enqueue, shuffle, repeat and signout change things */
         if (ok && act == A_SIGNOUT) br.until = time_now_ms() + SPOT_SIGNOUT_MS;
         if (login || (ok && act == A_SIGNOUT))
@@ -922,14 +911,11 @@ static void got(void) {
             while (br.depth > 1 && top()->kind != L_STORAGE) drop(&br.lv[--br.depth]);
             show();
             toast(msg);
-        } else if (ok && act == A_DOWNLOAD && br.removing) {
-            br.removing = 0;
+        } else if (ok && act == A_PREVIEW) { /* its own act: no other reply opens Remove */
             tk_snprintf(br.remove_note, sizeof br.remove_note, "%s", msg);
             push(L_REMOVE, "", "", "", "");
-        } else if (!ok || act == A_DOWNLOAD) {
-            br.removing = 0;
+        } else if (!ok || act == A_DOWNLOAD)
             toast(msg);
-        }
     } else if (l->id != wk.id) {
     } else if (wk.fail == W_NOSOCK && (int)(br.until - time_now_ms()) > 0) {
         if (l->state != S_PAIR) l->state = S_WAIT, show(); /* librespot starting */
@@ -939,12 +925,18 @@ static void got(void) {
     else if (login)
         base(S_PAIR);
     else if (ok) {
-        if (l->kind == L_LIST || l->kind == L_SELECT) free(l->buf), l->buf = reply, reply = 0, l->n = n;
+        if (l->kind == L_LIST || l->kind == L_SELECT) {
+            stop_timer(&br.go); /* a queued click belongs to the old rows, before this refresh */
+            if (f != l->f) memcpy(l->f, f, sizeof l->f);
+            free(l->buf), l->buf = reply, reply = 0, l->n = n;
+        }
         l->state = S_READY;
         br.poll_at = time_now_ms() + 2000;
         if (l->kind == L_BASE && !br.caps_checked) request("caps", "", A_CAPS);
         else show();
-    } else {
+    } else if (l->state == S_READY) /* Download Progress's refresh: the list stays */
+        br.poll_at = time_now_ms() + 2000;
+    else {
         l->state = S_ERROR;
         l->retry = n < 0 || !strcmp(status, "offline") || !strcmp(status, "throttled") || !strcmp(status, "error");
         tk_snprintf(l->note, sizeof l->note, "%s", msg);
@@ -1016,13 +1008,16 @@ static int go(const void *unused) {
     } else if (l->kind == L_CATS) {
         if (put(a, sizeof a, cats[i]) && put(a, sizeof a, br.term)) push(L_LIST, "search", a, "", CATS[i]);
     } else if (l->kind == L_DOWNLOADS) {
-        if (!br.downloads) { if (!i) push(L_LIST, "downloaded", "", "", "Downloaded Tracks"); }
+        if (!br.downloads) {
+            if (!i) push(L_LIST, "downloaded", "", "", "Downloaded Tracks");
+            else if (i == 1 && br.can_download) request("downloadstatus", "", A_DOWNLOAD);
+        }
         else if (i == 3) push(L_STORAGE, "", "", "", "Storage Management");
         else push(L_LIST, i == 0 ? "collections" : i == 1 ? "downloaded" : "jobs", "", "", i == 0 ? "Downloaded Playlists" : i == 1 ? "Downloaded Tracks" : "Download Progress");
     } else if (l->kind == L_STORAGE) {
         br.selected[0] = 0;
         tk_snprintf(br.remove_kind, sizeof br.remove_kind, "%s", i == 0 ? "collections" : i == 1 ? "tracks" : "all");
-        if (i == 2) { br.removing = 1; remove_request(0); }
+        if (i == 2) remove_request(0);
         else push(L_SELECT, i ? "downloaded" : "collections", "", "", i ? "Select Tracks" : "Select Playlists");
     } else if (l->kind == L_REMOVE) {
         if (i == 2) remove_request(1);
@@ -1032,11 +1027,12 @@ static int go(const void *unused) {
         tk_snprintf(a, sizeof a, "%s", l->args);
         if (put(a, sizeof a, actions[i])) request("job", a, A_DOWNLOAD);
     } else if (l->kind == L_SELECT && i == l->n + more(l)) {
-        if (br.selected[0]) { br.removing = 1; remove_request(0); }
+        if (br.selected[0]) remove_request(0);
         else toast("Select at least one item");
     } else if (l->kind == L_SELECT && i < l->n) {
         l->sel = i;
-        toggle(cell(l, i, 1)); show();
+        if (csv_toggle(br.selected, sizeof br.selected, cell(l, i, 1)) < 0) toast("Selection full. Remove these first");
+        show();
     } else if (!strcmp(l->op, "collection") && i == l->n + more(l)) {
         push(L_JOB, "", l->args, "", "Download Controls");
     } else if (!strcmp(l->op, "liked") && br.downloads && i == l->n + more(l)) {
@@ -1057,10 +1053,9 @@ static int go(const void *unused) {
     } else {
         const char *kind = cell(l, i, 0), *uri = cell(l, i, 1), *v = cell(l, i, 2), *ctx = cell(l, i, 4);
         int queue = !strcmp(l->op, "queue"), dl = !strcmp(l->op, "downloaded"), shuffle = !strcmp(uri, "shuffle");
-        if (!strcmp(kind, "collection")) {
-            if (put(a, sizeof a, uri)) push(L_LIST, "collection", a, "", v);
-        } else if (!strcmp(kind, "job")) {
-            if (put(a, sizeof a, uri)) push(L_JOB, "", a, "", ctx);
+        if (opens(kind)) { /* a job its controls; an album, playlist, artist or collection its list */
+            int job = !strcmp(kind, "job");
+            if (put(a, sizeof a, uri)) push(job ? L_JOB : L_LIST, job ? "" : kind, a, "", job ? ctx : v);
         } else if (!strcmp(kind, "track") && !strcmp(l->op, "collection")) {
             if (put(a, sizeof a, ctx) && put(a, sizeof a, cell(l, i, 5))) {
                 request("playcollection", a, A_PLAY);
@@ -1080,15 +1075,13 @@ static int go(const void *unused) {
                     : !strcmp(v, "context") ? "\ttrack"
                                             : "\toff",
                     A_SET);
-        else if ((!strcmp(kind, "album") || !strcmp(kind, "playlist") || !strcmp(kind, "artist")) &&
-                 put(a, sizeof a, uri))
-            push(L_LIST, kind, a, "", v);
     }
     return 0;
 }
 
-/* The page's timer: a finished request taken, the pairing prompt asking again, and the menu
- * following Now Playing. */
+/* The page's timer: a finished request taken, the pairing prompt asking again, caps asked again
+ * when a request cancelled it, Download Progress refreshed while it shows, and the menu following
+ * Now Playing. */
 static int br_tick(const void *unused) {
     level_t *l = top();
     if (wk.done) {
@@ -1098,8 +1091,13 @@ static int br_tick(const void *unused) {
     } else if (!wk.running && (l->state == S_PAIR || l->state == S_OLD || l->state == S_WAIT) &&
                (int)(time_now_ms() - br.poll_at) >= 0)
         fetch(l);
+    else if (!wk.running && !br.go && !br.edit && br.depth == 1 && l->state == S_READY && !br.caps_checked &&
+             (int)(time_now_ms() - br.poll_at) >= 0 && g_backlight_status &&
+             window_manager_get_top_window(window_manager()) == br.page)
+        request("caps", "", A_CAPS);
     else if (!wk.running && !br.go && l->state == S_READY && !strcmp(l->op, "jobs") &&
-             (int)(time_now_ms() - br.poll_at) >= 0) {
+             (int)(time_now_ms() - br.poll_at) >= 0 && g_backlight_status &&
+             window_manager_get_top_window(window_manager()) == br.page) {
         if (br.view) l->sel = widget_get_prop_int(br.view, "_ringnav_index", 0);
         fetch(l);
     } else if (br.depth == 1 && l->state == S_READY && !br.edit && has_track() != br.playing)

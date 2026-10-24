@@ -164,6 +164,8 @@ def parser_check(lib, tmp):
     assert [b.enabled for b in scoped.bands[:4]] == [2, 3, 1, 0]
     assert parse(lib, single * 30 + 'Filter: OFF PK Fc 0 Hz Gain 0 dB Q 0').count == 30  # blank slots do not count
     assert scoped.preamp == -3.5 and scoped.balance == 1  # left 1 dB below right
+    # A file's Preamp line is kept as picked (2); without one the preamp stays Auto (1), so boosts never clip.
+    assert scoped.automatic == 2 and parse(lib, single).automatic == 1
     # v1 files (no balance) still load, with the balance centred.
     v1 = tmp/'v1'
     q.automatic = 0  # older files lack it; parse sets 2
@@ -226,6 +228,7 @@ def dsp_check(lib):
     e = Engine(); assert lib.peq_compile(C.byref(p), 8000, C.byref(e)) and not e.bypass
     assert (e.c[9].b0, e.c[9].a1) == (1, 0)  # only the unrepresentable band is skipped
     p = parse(lib, '\n'.join(f'Filter: ON PK Fc {100+i*1000} Hz Gain 6 dB Q 1' for i in range(10)))
+    p.automatic = 2  # a picked 0 dB preamp, not the file's Auto: the boosts pass full scale unclamped
     d = DSP(); lib.peq_reset(C.byref(d), 48000, 2, C.byref(p))
     boosted = process(lib, d, [1., -1.] * 20000, 2)
     assert all(math.isfinite(x) for x in boosted) and max(boosted) > 1 and min(boosted) < -1
@@ -271,7 +274,7 @@ def dsp_check(lib):
     fade = [1 - (1 - 10**(-6/20)) * min(i + 1, 960) / 960 for i in range(10000)]
     assert max(abs(x - r*f) for x, r, f in zip(after, reference, fade)) < 1e-6
     # A band switched off mid-play drains its carried memory before it is skipped, then passes x through.
-    p = parse(lib, 'Filter: ON PK Fc 100 Hz Gain 6 dB Q 1')
+    p = parse(lib, 'Filter: ON PK Fc 100 Hz Gain 6 dB Q 1'); p.automatic = 2  # 0 dB picked, as below
     lib.peq_reset(C.byref(a), 48000, 1, C.byref(p))
     process(lib, a, tone[:10000])
     p.bands[0].gain = 0; assert lib.peq_update(C.byref(a), C.byref(p))
@@ -279,7 +282,7 @@ def dsp_check(lib):
     assert all(a.current.z[0][i][j] == 0 for i in range(30) for j in range(2)) and a.current.used == 1
     assert process(lib, a, tone) == list((C.c_float * len(tone))(*tone))
     # One-channel bands and balance: left gets the band and 2 dB less, right neither.
-    p = parse(lib, 'Channel: L\nFilter: ON PK Fc 1000 Hz Gain 6 dB Q 1'); p.balance = 2
+    p = parse(lib, 'Channel: L\nFilter: ON PK Fc 1000 Hz Gain 6 dB Q 1'); p.balance, p.automatic = 2, 2
     e = Engine(); assert lib.peq_compile(C.byref(p), 48000, C.byref(e))
     assert abs(20*math.log10(response(e, 48000, 1000, 0)) - 4) < 1e-7
     assert abs(20*math.log10(response(e, 48000, 1000, 1))) < 1e-12
@@ -424,13 +427,13 @@ widget_to_local on_wm_keyup_fun
 """
 SHIM = r"""
 static struct { int parent, h, bg; char text[160]; handler click, destroy, keyup, change, focus, down, move, up; void *ctx; } w[4096];
-static int count = 1, timers, removed, backs;
+static int count = 1, timers, removed, backs, chevrons[4096];
 static int (*timer_fn)(const void *);
 volatile unsigned char g_equalizer_flag, g_backlight_status = 1;
 int stock_eq_trampoline(int mode) { return mode; }
 static void *make(void *parent, int h) {
     ++count; w[count].parent = (int)(long)parent; w[count].h = h;
-    w[count].text[0] = 0; w[count].click = w[count].change = w[count].focus = w[count].down = 0; w[count].bg = 0; return (void *)(long)count;
+    w[count].text[0] = 0; chevrons[count] = 0; w[count].click = w[count].change = w[count].focus = w[count].down = 0; w[count].bg = 0; return (void *)(long)count;
 }
 /* The value menu's edit: its text, the keyboard it asks for, whether it took focus. */
 static int edit_widget, edit_parent, edit_bottom, focused, keyboard_owner;
@@ -518,10 +521,12 @@ void *widget_lookup(void *x, const char *name, int recursive) {
 }
 int pages_set_active_by_name(void *x, const char *name) { if ((long)x == 4001) snprintf(page, sizeof(page), "%s", name); return 0; }
 const char *shim_page(void) { return page; }
+void shim_page_reset(void) { page[0] = 0; }
 /* The edit's selection, as start and end (stock's ufloat refuses "." where its text less this has one). */
 static unsigned selected[2];
 int edit_set_select(void *x, unsigned start, unsigned end) { selected[0] = start, selected[1] = end; return 0; }
 unsigned shim_selected(int i) { return selected[i]; }
+void shim_select_reset(void) { selected[0] = selected[1] = 0; }
 const char *shim_edit(void) { return edit_widget ? w[edit_widget].text : ""; }
 const char *shim_keyboard(void) { return keyboard; }
 const char *shim_input_type(void) { return input_type; }
@@ -545,6 +550,30 @@ void shim_type(const char *text) {
 }
 void *list_item_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
 void *label_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
+/* coverflow.c's chevron: a textless child, marked. */
+void row_into(void *item, int h) { chevrons[(long)make(item, h)] = 1; }
+/* Whether the row reading text (as shim_click finds it) ends in list_into. */
+int shim_chevron(const char *text) {
+    for (int p = 2; p <= count; ++p) {
+        char joined[400] = "";
+        int into = 0;
+        for (int i = p + 1; i <= count; ++i)
+            if (w[i].parent == p) {
+                into |= chevrons[i];
+                if (w[i].text[0]) snprintf(joined + strlen(joined), sizeof(joined) - strlen(joined), "%s%s", *joined ? " " : "", w[i].text);
+            }
+        if (w[p].click && *joined && !strncmp(joined, text, strlen(text))) return into;
+    }
+    return -1;
+}
+/* navigation.c's switch beside label: here a child after it reading On or Off, so a row reads
+ * "Enabled On" as the value rows read. */
+void list_toggle(void *label, const char *title, int on) {
+    int row = w[(long)label].parent, sw = (long)label + 1;
+    if (sw > count || w[sw].parent != row) sw = (int)(long)make((void *)(long)row, 48);
+    snprintf(w[(long)label].text, 160, "%s", title);
+    snprintf(w[sw].text, 160, "%s", on ? "On" : "Off");
+}
 void *list_view_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
 void *scroll_view_create(void *p, int x, int y, int ww, int h) { return make(p, h); }
 int widget_use_style(void *x, const char *s) { return 0; }
@@ -595,7 +624,7 @@ int shim_click(const char *text, int run) {
     for (int p = 2; p <= count; ++p) {
         char joined[400] = "";
         for (int i = p + 1; i <= count; ++i)
-            if (w[i].parent == p) snprintf(joined + strlen(joined), sizeof(joined) - strlen(joined), "%s%s", *joined ? " " : "", w[i].text);
+            if (w[i].parent == p && w[i].text[0]) snprintf(joined + strlen(joined), sizeof(joined) - strlen(joined), "%s%s", *joined ? " " : "", w[i].text);
         if (w[p].click && *joined && !strncmp(joined, text, strlen(text))) {
             if (run == 2) return 1; /* only look */
             w[p].click(w[p].ctx, 0);
@@ -770,7 +799,11 @@ def editor_check(lib, tmp):
     assert auto(read()) == 'Auto (44.1: -12.5 / 48: -12.5)'
     click(auto(read())); click('Apply changes')
     assert abs(read().preamp + 12.5) < 0.05 and read().automatic == 1, read().preamp
-    click('1  '); click('Band On'); ui.shim_return(); click('2  '); click('Band On'); ui.shim_return(); click('Apply changes')
+    # Rows that open a screen or picker end in list_into; the switches and cyclers don't.
+    got = [ui.shim_chevron(t) for t in (b'Balance', b'Preamp', b'Presets', b'1  ', b'Enabled', b'Reset')]; assert got == [1, 1, 1, 1, 0, 0], got
+    click('1  ')
+    assert [ui.shim_chevron(t) for t in (b'Band', b'Type', b'Frequency', b'Gain', b'Q ')] == [0, 0, 1, 1, 1]
+    click('Band On'); ui.shim_return(); click('2  '); click('Band On'); ui.shim_return(); click('Apply changes')
     assert math.copysign(1, read().preamp) == 1 and read().preamp == 0, read().preamp  # +0: shown as 0.0
     # Channels cycle on enabled bands; headroom takes the louder side, balance only turns one down.
     click('1  Peaking 31 Hz Off'); click('Gain +6.5 dB'); click('+7.5 dB'); click('Channels Both')  # picking a gain turns the band on
@@ -801,8 +834,9 @@ def editor_check(lib, tmp):
     assert not ui.shim_focused(); click('Band 1 '); assert ui.shim_focused()  # the centre button opens the keyboard
     assert ui.shim_keyboard_owner()
     ui.shim_dismiss_keyboard(); assert ui.shim_focused()  # stock keeps focus after T9 closes
-    click('Band 1 '); assert ui.shim_keyboard_owner()  # reopen the same focused field
-    assert ui.shim_page() == b'symnum'  # on its number keys
+    ui.shim_page_reset(); ui.shim_select_reset()
+    click('Band 1 '); assert ui.shim_keyboard_owner()  # reopen the same focused field, no EVT_FOCUS
+    assert ui.shim_page() == b'symnum' and (ui.shim_selected(0), ui.shim_selected(1)) == (0, 3)  # numbers, value selected
     type_value(b'2500'); assert edit() == '2500'
     ui.shim_edit_name.restype = C.c_char_p; assert ui.shim_edit_name() == b'q2_edit'  # search_key's cancel
     click('Band 1 '); ui.shim_cancel()  # Return with the keyboard up: the value and the screen stay
@@ -2460,6 +2494,14 @@ int main(void) {
     finish(5); assert(!has("D") && has("E"));
     gate = 1; play("F"); wait_for(&performing, 1); /* G's job overtaken by a cached play: dropped */
     play("G"); play("A"); finish(6); usleep(50000); assert(!has("F") && !has("G") && performs == 6);
+    /* Clear All under a running download: every file but .cache-size goes, and the copy that then
+     * finishes is dropped, not renamed into place. */
+    FILE *f = fopen(TIDAL_DIR "/.cache-size", "w"); fputs("2048M", f); fclose(f);
+    gate = 1; play("H"); wait_for(&performing, 1);
+    tidal_clear(); int e = ended; finish(e + 1);
+    int left = 0; DIR *d = opendir(TIDAL_DIR);
+    for (struct dirent *x; (x = readdir(d));) left += strcmp(x->d_name, ".") && strcmp(x->d_name, "..");
+    closedir(d); assert(left == 1 && !access(TIDAL_DIR "/.cache-size", 0) && !has("H"));
     return 0;
 }
 '''
@@ -2714,7 +2756,7 @@ int main(void) {
     subprocess.run(['cc', '-pthread', '-D_GNU_SOURCE', f'-DTIDAL_DIR="{tmp}/tidal"', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
                     str(tmp/'tidal_dl.c'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
-    print('Tidal cache: stream file extensions, eviction at the chosen cap, failed deletion, Stop, re-fetch and skip downloads passed.')
+    print('Tidal cache: stream file extensions, eviction at the chosen cap, failed deletion, Stop, re-fetch and skip downloads, Clear All under a download passed.')
 
 if __name__ == '__main__':
     import argparse

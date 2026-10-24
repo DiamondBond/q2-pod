@@ -67,7 +67,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
     peq_default(&p);
     p.count = 0;
     p.bypass = 0;
-    unsigned pos = 0, line = 0, preamp_line = 1;
+    unsigned pos = 0, line = 0, preamp_line = 0;
     int scope = 1; /* APO Channel: 1 both, 2 left, 3 right, as peq_band.enabled */
     double side[4] = {0}; /* Preamp under Channel: L or R */
     if (size > PEQ_FILE_LIMIT) return error_at(error, 1, "file exceeds 16384 bytes");
@@ -178,7 +178,7 @@ int peq_parse(const char *text, unsigned size, peq_preset *out, peq_error *error
     p.balance = side[3] - side[2];
     if (!between(p.preamp, -60, 24)) return error_at(error, preamp_line, "summed preamp outside -60..24 dB");
     if (!between(p.balance, -12, 12)) return error_at(error, preamp_line, "L/R preamp differ by more than 12 dB");
-    p.automatic = 2; /* the file's preamp, as if picked */
+    p.automatic = preamp_line ? 2 : 1; /* the file's preamp, as if picked; without one, Auto */
     *out = p; /* Commit only after the complete file validates. */
     return 1;
 }

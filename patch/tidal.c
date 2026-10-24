@@ -42,6 +42,7 @@ static struct {
     unsigned lock[16]; /* a zeroed pthread mutex, 24 bytes on MIPS glibc */
     int busy, job;     /* a download thread runs; tidal_play's job waits in id, url and path */
     volatile unsigned gen, want, job_gen; /* tidal_play's count; the download's and the job's, from it */
+    unsigned cleared; /* tidal_clear's count, under lock */
     unsigned long thread;
     char id[48], url[2048], path[296];
 } td __attribute__((section(".scratch")));
@@ -98,6 +99,7 @@ static void *download(void *unused) {
     for (;;) {
         pthread_mutex_lock(td.lock);
         int job = td.job && td.job_gen == td.gen; /* a later track's start drops it */
+        unsigned cleared = td.cleared;
         td.busy = job, td.job = 0;
         if (job) memcpy(url, td.url, sizeof url), memcpy(path, td.path, sizeof path), td.want = td.job_gen;
         pthread_mutex_unlock(td.lock);
@@ -130,7 +132,10 @@ static void *download(void *unused) {
             ok = ok && !fflush(f) && !fsync(fileno(f)) && !ferror(f);
             ok = !fclose(f) && ok;
         }
-        if (ok && !rename(tmp, path))
+        pthread_mutex_lock(td.lock); /* a Clear All since the job began drops it */
+        ok = ok && cleared == td.cleared && !rename(tmp, path);
+        pthread_mutex_unlock(td.lock);
+        if (ok)
             trim();
         else
             unlink(tmp);
@@ -149,6 +154,22 @@ static int cached(const char *key, const char *ext, char *path, unsigned n) {
     }
     if (d) closedir(d);
     return found;
+}
+
+/* Tidal Downloads' Clear All Downloads: every file in TIDAL_DIR, finished copies and .tmp ones;
+ * .cache-size (a dot file, as trim and cached skip them) stays. There is no index: the list is the
+ * folder. Under td.lock, with cleared counted: a download running or queued now renames nothing
+ * into place after (download() checks cleared under the lock), and its .tmp is gone. A play after
+ * caches as ever. ponytail: on the UI thread, holding the lock, a moment for a full 8 GB cache. */
+void tidal_clear(void) {
+    char path[300];
+    pthread_mutex_lock(td.lock);
+    ++td.cleared, td.job = 0;
+    void *d = opendir(TIDAL_DIR);
+    for (struct dirent *e; d && (e = readdir(d));)
+        if (e->d_name[0] != '.') tk_snprintf(path, sizeof path, TIDAL_DIR "/%s", e->d_name), unlink(path);
+    if (d) closedir(d);
+    pthread_mutex_unlock(td.lock);
 }
 
 int tidal_play(const char *url, const char *id) {

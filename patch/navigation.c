@@ -77,11 +77,11 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_output_trampoline(int), stock_write_config_trampoline(int, const char *, const char *),
     stock_paint_trampoline(void *, void *), stock_dispatch_trampoline(void *, void *),
     stock_keylong_trampoline(void *, void *), stock_paint_bg_trampoline(void *, void *),
-    stock_showface_trampoline(void *),
-    stock_playing_trampoline(void *, void *), stock_display_trampoline(void *, void *),
-    stock_bigcover_trampoline(void *, void *), stock_localmusic_trampoline(void *, void *),
-    stock_keydown_trampoline(void *, void *), stock_btvol_trampoline(int, int),
-    stock_sleep_trampoline(void *), stock_color_trampoline(void *, void *, const char *, unsigned),
+    stock_showface_trampoline(void *), stock_playing_trampoline(void *, void *),
+    stock_display_trampoline(void *, void *), stock_bigcover_trampoline(void *, void *),
+    stock_localmusic_trampoline(void *, void *), stock_keydown_trampoline(void *, void *),
+    stock_btvol_trampoline(int, int), stock_sleep_trampoline(void *),
+    stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
     stock_folder_top_trampoline(void), stock_input_trampoline(void *, void *),
@@ -255,6 +255,8 @@ typedef struct {
     /* Most Played's page and its tracks: the last ranking plus the songs counted since, kept across
      * opens while the library is at mp_gen (~library_gen once stale). */
     void *mp_page, *mp_list, *td_page, *td_list;
+    unsigned td_timer;
+    int td_asking; /* Tidal Downloads shows Clear All Downloads' confirmation */
     unsigned mp_gen;
     void *sp_page; /* the Library Shuffle menu's page, kept across picks */
     void *ch_page;
@@ -264,9 +266,9 @@ typedef struct {
 /* Streaming's services (svc): five fixed, and at most APPS_MAX card apps. */
 #define SVC_FIXED 5
 #define SVC_MAX (SVC_FIXED + APPS_MAX)
-#define SVC_HIDE 260 /* STREAMHIDE, read as ",key,key," */
+#define SVC_HIDE 260 /* STREAMHIDE, "key,key" */
 #define SVC_PROP "ringnav_svc"
-    void *sc_check[SVC_MAX]; /* the Configuration page's check marks, by service */
+    void *sc_check[SVC_MAX]; /* the Configuration page's switch labels, by service */
     int svc_n;               /* the card apps Streaming listed at its last build */
     /* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
      * window, its heart and the heart's stock click context, the 1-4 badge, the window the picker
@@ -2062,18 +2064,56 @@ void *list_row(void *view, const char *icon, int (*click)(void *, void *), void 
     return list_row_core(view, icon, click, ctx, 260, 0);
 }
 
-/* Use the same trailing switch images and hit target as Shanling's settings rows. */
+/* A settings row that opens a page, its label clear of the chevron. */
+static void *list_row_into(void *view, const char *icon, int (*click)(void *, void *), void *ctx) {
+    return list_row_core(view, icon, click, ctx, 202, 1);
+}
+
+/* Use the same trailing switch images and hit target as Shanling's settings rows: at screen x 302
+ * whether the label sits in a settings button (x 20) or a full-width page row (page_row_detail,
+ * peq_ui.c's). */
 void list_toggle(void *label, const char *title, int on) {
     void *button = P(label, W_PARENT);
     void *image = widget_lookup(button, "_setting_switch", 0);
     if (!image) {
-        image = image_create(button, 282, 0, 50, 70);
+        int x = 302 - I(button, W_X);
+        image = image_create(button, x, 0, 50, I(button, W_H));
         widget_set_name(image, "_setting_switch");
         image_set_draw_type(image, IMAGE_DRAW_CENTER);
-        widget_resize(label, 282 - I(label, W_X) - 8, I(label, W_H));
+        widget_move_resize(label, I(label, W_X), 0, x - I(label, W_X) - 8, I(button, W_H));
     }
     widget_set_text_utf8(label, title);
     image_base_set_image(image, on ? "switch_on" : "switch_off");
+}
+
+/* item's place in list, comma separated, or 0; an empty item is never in it. Shared with
+ * spotify.c. */
+char *csv_find(char *list, const char *item) {
+    unsigned n = strlen(item);
+    for (char *p = list, *e; n && *p; p = e + !!*e) {
+        for (e = p; *e && *e != ','; ++e) { /* demo imports no strchr */
+        }
+        if ((unsigned)(e - p) == n && !memcmp(p, item, n)) return p;
+    }
+    return 0;
+}
+
+/* item taken out of list, or added within size bytes: 1 added, 0 taken out (or empty, left
+ * out), -1 no room. */
+int csv_toggle(char *list, unsigned size, const char *item) {
+    char *p = csv_find(list, item), *from;
+    unsigned n = strlen(item), k = strlen(list);
+    if (!n) return 0;
+    if (p) {
+        from = p + n + (p[n] == ',');
+        if (!p[n] && p != list) --p; /* the last: its comma goes with it */
+        while ((*p++ = *from++)) {}
+        return 0;
+    }
+    if (k + !!k + n >= size) return -1;
+    if (k) list[k++] = ',';
+    memcpy(list + k, item, n + 1);
+    return 1;
 }
 
 /* A grey 16px page_list row naming the rows below; no click, so the wheel passes over it. */
@@ -2706,15 +2746,13 @@ int ringnav_audioset(void *win, void *ctx) {
     pod_rows(win, "scroll_view_playset", POD_ARTIST_AZ, 1, icons);
     void *view = win ? widget_lookup(win, "scroll_view_playset", 1) : (void *)0;
     if (view)
-        xfade_row(list_row_core(view, "playset_gapless", xfade_open, (void *)0, 202,
-                                1)); /* crossfade.c */
+        xfade_row(list_row_into(view, "playset_gapless", xfade_open, (void *)0)); /* crossfade.c */
     if (view) {
         char name[256];
         root_read(name);
         st.root_label = list_row(view, "playset_folderjump", root_click, 0);
         root_text(name);
-        resume_row(list_row_core(view, "playset_memplay", xfade_open, (void *)2, 202,
-                                 1)); /* crossfade.c */
+        resume_row(list_row_into(view, "playset_memplay", xfade_open, (void *)2)); /* crossfade.c */
         mono_row(list_row(view, "playset_balance", mono_click, 0));
         swap_row(list_row(view, "playset_balance", swap_click, 0));
         mqa_row(list_row(view, "playset_dsdoutput", mqa_click, 0)); /* crossfade.c */
@@ -2952,12 +2990,9 @@ static int pct_width(unsigned level) {
     return (level >= 100 ? 3 : level >= 10 ? 2 : 1) * st.pct_digit + st.pct_sign;
 }
 
-/* The status bar's codec badge, then the Battery setting (docs/ipod.md#status-bar-and-clock):
- * view_battery paints the charge-level icon, the percentage, both, or the percentage inside, sized
- * to its ink so every gap is STATUS_GAP, and the icon wherever the group's ink would reach more
- * than BATT_ROOM (a wide badge while it shows). widget_set_visible does nothing for an unchanged
- * state and relayouts the view for a new one. */
-static void bar_sync(void *bar) {
+/* img_state follows whichever player plays, stock's or Spotify's, radio's or a video's, and
+ * label_idle shows when neither it nor label_eq does. */
+static void bar_state_sync(void *bar) {
     if (!st.bar_bt) {
         st.bar_bt = widget_lookup(bar, "img_bt", 1);
         st.bar_wifi = widget_lookup(bar, "img_wifi", 1);
@@ -2981,6 +3016,15 @@ static void bar_sync(void *bar) {
     if (st.bar_idle && st.bar_state && st.bar_eq)
         widget_set_visible(st.bar_idle,
                            !widget_get_visible(st.bar_state) && !widget_get_visible(st.bar_eq), 0);
+}
+
+/* The status bar's codec badge, then the Battery setting (docs/ipod.md#status-bar-and-clock):
+ * view_battery paints the charge-level icon, the percentage, both, or the percentage inside, sized
+ * to its ink so every gap is STATUS_GAP, and the icon wherever the group's ink would reach more
+ * than BATT_ROOM (a wide badge while it shows). widget_set_visible does nothing for an unchanged
+ * state and relayouts the view for a new one. */
+static void bar_sync(void *bar) {
+    bar_state_sync(bar);
     if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon) return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
@@ -3039,10 +3083,11 @@ static void bar_sync(void *bar) {
 
 /* systembar_showface, each second: stock hides img_state whenever its own player is stopped, so
  * with Spotify, radio or a video playing it went off here and back on at the next paint, two
- * relayouts a second and a frame with EQ drawn in the play icon's place. Correct it before paint. */
+ * relayouts a second and a frame with EQ drawn in the play icon's place. Correct it before paint,
+ * dark or not, so a wake never shows stock's hidden icon; the badge and battery wait for paint. */
 int ringnav_showface(void *bar) {
     int result = stock_showface_trampoline(bar);
-    bar_sync(bar);
+    bar_state_sync(bar); /* no I/O, and a relayout waits for a paint */
     return result;
 }
 
@@ -3977,7 +4022,7 @@ int ringnav_display(void *win, void *ctx) {
     pod_rows(win, "scroll_view_display", POD_CF_SORT, 2, cf_icons);
 #endif
     pod_rows(win, "scroll_view_display", POD_HOLD_HOME, 1, hold_icon);
-    if (view) wheel_row(list_row_core(view, "system_display", xfade_open, (void *)1, 202, 1));
+    if (view) wheel_row(list_row_into(view, "system_display", xfade_open, (void *)1));
     return result;
 }
 
@@ -4005,8 +4050,7 @@ int ringnav_systemset(void *win, void *ctx) {
     int result = stock_systemset_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_sysset", 1) : (void *)0;
     if (view)
-        widget_set_text_utf8(list_row_core(view, "system_update", shelf_open, 0, 202, 1),
-                             "App Store");
+        widget_set_text_utf8(list_row_into(view, "system_update", shelf_open, 0), "App Store");
     if (view && rockbox_available()) {
         char value[16];
         void *f = fopen(BOOT_TARGET, "rb");
@@ -4087,12 +4131,16 @@ int ringnav_touch(void *ctx, void *event) {
     return result; /* The very same touch continues through the stock tap/drag handlers. */
 }
 
-/* Set date and time's OK sets the clock (stock) and stays; it goes back to the Time page instead,
- * as Return does, after a tap (ringnav_dispatch) or Centre's click (edit_single). */
-static int time_ok(void *target) {
-    void *top = window_manager_get_top_window(window_manager());
-    return top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "manualtime_page") &&
-           !tk_strcmp(widget_get_prop_str(target, "name", ""), "btn_enter");
+/* target's click, to stock. Set date and time's OK sets the clock (stock) and stays; it goes back
+ * to the Time page instead, as Return does, after a tap (ringnav_dispatch) or Centre's click
+ * (edit_single). */
+static int time_click(void *target, void *event) {
+    void *page = window_manager_get_top_window(window_manager());
+    int ok = page && !tk_strcmp(widget_get_prop_str(page, "name", ""), "manualtime_page") &&
+             !tk_strcmp(widget_get_prop_str(target, "name", ""), "btn_enter");
+    int result = stock_dispatch_trampoline(target, event);
+    if (ok && window_manager_get_top_window(window_manager()) == page) navigator_back();
+    return result;
 }
 
 /* Observe actual clicks BEFORE app callbacks can navigate or destroy/rebind their widgets.
@@ -4181,12 +4229,7 @@ int ringnav_dispatch(void *target, void *event) {
         fx_cancel();
         keep_selected(
             target); /* a tap owns its live row: recall could scroll/rebind it before delivery */
-        if (time_ok(target)) {
-            void *page = window_manager_get_top_window(window_manager());
-            int result = stock_dispatch_trampoline(target, event);
-            if (window_manager_get_top_window(window_manager()) == page) navigator_back();
-            return result;
-        }
+        return time_click(target, event);
     }
     return stock_dispatch_trampoline(target, event);
 }
@@ -5091,6 +5134,8 @@ static int page_closed(void *ctx, void *event) {
     if (ctx == st.mp_page) st.mp_page = 0;
     if (ctx == st.td_page) {
         st.td_page = 0;
+        st.td_asking = 0;
+        stop_timer(&st.td_timer);
         if (st.td_list) deque_destroy(st.td_list);
         st.td_list = 0;
     }
@@ -5388,17 +5433,62 @@ static void song_label(const char *f, int tidal, char *out, unsigned size) {
         id[strlen(id) - 1] == ']')
         id[-1] = 0;
 }
-static int songs_page(const char *window, const char *dir, const char *title, int tidal,
-                      int album) {
-    if (st.td_page || !(st.td_page = page_open(window, page_closed, page_keyup))) return 0;
+static int td_show(const void *unused);
+/* Clear All Downloads…, then on its confirmation Cancel or Remove (row 2: tidal_clear), each
+ * through td_show, from a timer, as a row's click may not rebuild the list it is in. */
+static int td_clear(void *ctx, void *event) {
+    if (st.td_asking && (long)ctx == 2) tidal_clear();
+    st.td_asking = !st.td_asking;
+    rearm(&st.td_timer, td_show, 0);
+    return 0;
+}
+/* The page's songs, read again; Tidal's end with Clear All Downloads…, as Spotify's Storage
+ * Management does. Returns the list. */
+static void *songs_rows(const char *dir, const char *title, int tidal, int album) {
+    if (st.td_list) deque_destroy(st.td_list);
     st.td_list = card_songs(dir, album);
     int n = (int)deque_size(st.td_list);
-    void *view = page_list(st.td_page, st.td_page, 0, n ? title : "No downloads yet", n, 48);
+    void *view =
+        page_list(st.td_page, st.td_page, 0, n ? title : "No downloads yet", n + (tidal && n), 48);
     char name[256];
     for (int i = 0; i < n; i++) {
         song_label(P(deque_at(st.td_list, (unsigned)i), REC_NAME), tidal, name, sizeof name);
         page_row_detail(view, i, name, 0, td_play);
     }
+    if (tidal && n) page_row_detail(view, n, "Clear All Downloads…", 0, td_clear);
+    return view;
+}
+/* Clear All Downloads' confirmation in the list's place, as Spotify's Remove Downloads?, on Cancel;
+ * or the list again, on its Clear row. */
+static int td_show(const void *unused) {
+    st.td_timer = 0;
+    if (!st.td_page) return 0;
+    unsigned n = deque_size(st.td_list);
+    if (!st.td_asking) {
+        void *view = songs_rows(TIDAL_DIR, "Tidal Downloads", 1, 0);
+        if ((n = deque_size(st.td_list))) ringnav_select(view, (int)n, (int)n + 1);
+        return 0;
+    }
+    char note[32];
+    tk_snprintf(note, sizeof note, n == 1 ? "%u track" : "%u tracks", n);
+    void *view = page_list(st.td_page, st.td_page, 0, "Remove Downloads?", 3, 64);
+    page_row_detail(view, 0, note, "Keeps settings", 0);
+    page_row_detail(view, 1, "Cancel", "", td_clear);
+    page_row_detail(view, 2, "Remove", "", td_clear);
+    ringnav_select(view, 1, 3);
+    return 0;
+}
+/* Return on the confirmation is its Cancel. */
+static int td_keyup(void *ctx, void *event) {
+    if (!st.td_asking || I(event, EVENT_KEY) != KEY_RETURN) return page_keyup(ctx, event);
+    td_clear((void *)1, event);
+    return STOP;
+}
+static int songs_page(const char *window, const char *dir, const char *title, int tidal,
+                      int album) {
+    if (st.td_page || !(st.td_page = page_open(window, page_closed, tidal ? td_keyup : page_keyup)))
+        return 0;
+    songs_rows(dir, title, tidal, album);
     return 0;
 }
 static int tidal_downloads(void *ctx, void *event) {
@@ -5474,45 +5564,33 @@ static const char *svc(int i, int label) {
     if (i >= 2 && i < 2 + st.svc_n) return label ? addon_name(i - 2) : addon_id(i - 2);
     return svc_fixed[i < 2 ? i : i - st.svc_n][label];
 }
-/* STREAMHIDE as ",key,key," ("," for none), so a key matches as ",key,". */
 static void svc_hidden(char *s) {
-    char v[256] = "";
-    toolsReadConfig("/mnt/data/config.ini", "Q2POD", "STREAMHIDE", v, "");
-    tk_snprintf(s, SVC_HIDE, v[0] ? ",%s," : ",", v);
+    toolsReadConfig("/mnt/data/config.ini", "Q2POD", "STREAMHIDE", s, "");
 }
 static char *svc_find(char *hide, int i) {
-    char t[24];
     const char *key = svc(i, 0);
-    if (!key) return 0;
-    tk_snprintf(t, sizeof t, ",%s,", key);
-    return strstr(hide, t);
+    return key ? csv_find(hide, key) : 0;
 }
-/* A check row's Centre: the service hidden, or shown again, and saved; its tick and its row on
+/* A switch row's Centre: the service hidden, or shown again, and saved; its switch and its row on
  * Streaming (the page under this one) follow at once. ponytail: an uninstalled app's key stays
  * in STREAMHIDE (hidden again if it comes back); a list full of them (ROOT_MAX) refuses more. */
 static int svc_toggle(int i) {
-    char hide[SVC_HIDE], *p;
+    char hide[SVC_HIDE];
     const char *key = svc(i, 0);
     if (!key) return 0;
     svc_hidden(hide);
-    unsigned k = strlen(hide), n = strlen(key) + 1;
-    if ((p = svc_find(hide, i))) {
-        for (char *to = p, *from = p + n; (*to++ = *from++);) { /* ",key" out */
-        }
-    } else if (k + n < ROOT_MAX) {
-        tk_snprintf(hide + k, SVC_HIDE - k, "%s,", key);
-    } else {
+    /* ROOT_MAX, not sizeof hide: stock's config line (a 257-byte sprintf, a 255-byte fgets) */
+    int hidden = csv_toggle(hide, ROOT_MAX, key);
+    if (hidden < 0) {
         toast("Could not save setting");
         return 0;
     }
-    k = strlen(hide);
-    if (k > 1) hide[k - 1] = 0; /* the trailing comma; hide + 1 is then the value */
-    toolsWriteConfig("/mnt/data/config.ini", "Q2POD", "STREAMHIDE", hide + 1);
-    widget_set_visible(st.sc_check[i], p != 0, 0);
+    toolsWriteConfig("/mnt/data/config.ini", "Q2POD", "STREAMHIDE", hide);
+    list_toggle(st.sc_check[i], svc(i, 1), !hidden);
     void *view = widget_lookup(window_manager(), "scroll_view_streamsset", 1);
     for (unsigned c = 0, rows = view ? widget_count_children(view) : 0; c < rows; ++c)
         if (widget_get_prop_int(widget_get_child(view, c), SVC_PROP, 0) == i + 1)
-            widget_set_visible(widget_get_child(view, c), p != 0, 0);
+            widget_set_visible(widget_get_child(view, c), !hidden, 0);
     if (view) widget_layout(view);
     return 0;
 }
@@ -5543,7 +5621,6 @@ static int sc_click(void *ctx, void *event) {
     return 0;
 }
 
-static void *ple_tick(void *item);
 static int stream_config(void *ctx, void *event) {
     if (st.sc_page || !(st.sc_page = page_open("streamconf_page", page_closed, page_keyup)))
         return 0;
@@ -5556,8 +5633,8 @@ static int stream_config(void *ctx, void *event) {
     char hide[SVC_HIDE];
     svc_hidden(hide);
     for (int i = 0; i < n; ++i) {
-        st.sc_check[i] = ple_tick(page_row_detail(view, 4 + i, svc(i, 1), 0, sc_click));
-        if (svc_find(hide, i)) widget_set_visible(st.sc_check[i], 0, 0);
+        st.sc_check[i] = widget_get_child(page_row_detail(view, 4 + i, "", 0, sc_click), 0);
+        list_toggle(st.sc_check[i], svc(i, 1), !svc_find(hide, i));
     }
     return 0;
 }
@@ -6043,7 +6120,7 @@ static int era_open_decade(void *ctx, void *event) {
     for (unsigned i = 0; i < era.m; ++i) {
         tk_snprintf(detail, sizeof detail, *era.v[i].artist ? "%s \xe2\x80\xa2 %d" : "%s%d",
                     era.v[i].artist, era.v[i].year);
-        page_row_detail(view, (int)i + 2, era.v[i].album, detail, era_pick);
+        page_row_detail_into(view, (int)i + 2, era.v[i].album, detail, era_pick);
     }
     return 0;
 }
@@ -6067,7 +6144,7 @@ static int era_menu(void *ctx, void *event) {
     for (int i = 0; i < era.n; ++i) {
         tk_snprintf(detail, sizeof detail, era.count[i] == 1 ? "%d album" : "%d albums",
                     era.count[i]);
-        page_row_detail(view, i, era_name(name, era.decade[i]), detail, era_open_decade);
+        page_row_detail_into(view, i, era_name(name, era.decade[i]), detail, era_open_decade);
     }
     return 0;
 }
@@ -6537,24 +6614,21 @@ int ringnav_stream(void *win, void *ctx) {
         if (shows_image(widget_get_child(view, (unsigned)i), "list_baidu"))
             widget_destroy(widget_get_child(view, (unsigned)i));
     if (view) {
-        unsigned stock = widget_count_children(view); /* stock's Tidal */
-        void *rows[SVC_MAX];
-        int i = 0;
-        st.svc_n = addon_scan(); /* at most APPS_MAX */
-        rows[i++] = library_into(view, "stream_spotify", spot_open, 0, "Spotify");
-        for (int k = 0; k < st.svc_n; ++k)
-            rows[i++] =
-                library_into(view, "stream_app", addon_open, (void *)(long)k, addon_name(k));
-        rows[i++] = library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads");
-        rows[i++] = library_into(view, "stream_radio", radio_open, 0, "Internet Radio");
-        rows[i++] = library_into(view, "stream_airplay", airplay_open, 0, "AirPlay");
-        library_into(view, "stream_config", stream_config, 0, "Configuration");
         char hide[SVC_HIDE];
+        int i = 1;
+        st.svc_n = addon_scan(); /* at most APPS_MAX */
         svc_hidden(hide);
-        for (unsigned c = 0; c < stock; ++c)
+        for (unsigned c = 0, stock = widget_count_children(view); c < stock; ++c)
             if (shows_image(widget_get_child(view, c), "list_tidal"))
                 svc_row(widget_get_child(view, c), 0, hide);
-        for (int j = 0; j < i; ++j) svc_row(rows[j], j + 1, hide);
+        svc_row(library_into(view, "stream_spotify", spot_open, 0, "Spotify"), i++, hide);
+        for (int k = 0; k < st.svc_n; ++k)
+            svc_row(library_into(view, "stream_app", addon_open, (void *)(long)k, addon_name(k)),
+                    i++, hide);
+        svc_row(library_into(view, "list_tidal", tidal_downloads, 0, "Tidal Downloads"), i++, hide);
+        svc_row(library_into(view, "stream_radio", radio_open, 0, "Internet Radio"), i++, hide);
+        svc_row(library_into(view, "stream_airplay", airplay_open, 0, "AirPlay"), i, hide);
+        library_into(view, "stream_config", stream_config, 0, "Configuration");
     }
     return result;
 }
@@ -8331,8 +8405,7 @@ static int edit_single(const void *info) {
     else {
         void *ok = field_widget(top, n);
         char click[0x30];
-        if (ok) stock_dispatch_trampoline(ok, pointer_event_init(click, EVT_CLICK, ok, 0, 0));
-        if (ok && time_ok(ok)) navigator_back();
+        if (ok) time_click(ok, pointer_event_init(click, EVT_CLICK, ok, 0, 0));
     }
     return 0;
 }

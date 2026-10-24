@@ -11,8 +11,6 @@
 #include "playback.h"
 #include "stock.h"
 
-extern void list_toggle(void *label, const char *title, int on);
-
 #define XF_MIN 1
 #define XF_MAX 10
 #define XF_DEFAULT 5
