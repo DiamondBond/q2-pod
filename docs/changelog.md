@@ -1,12 +1,15 @@
 # Changelog
 
-- **1.4.6**:
-  - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
+- **1.4.7**:
   - Battery: with the screen off, the album art loaders check for work once a second while music plays too, not only when nothing plays; they were waking the player 30 times a second for art nobody could see. Waking the screen right after a track change can show the old cover for up to a second. Tidal's helper, once you've used Tidal, checks once a second instead of 5 times while the Q2 sits dark and silent.
   - Games: Vortex and Snake keep their full frame rate. Two seconds after the last button press they dropped to about 19 frames a second, so the ball juddered and the paddle lagged, because turning the wheel in Vortex didn't count as using the Q2.
-  - iPod: **Accent** now works in the Minimal theme too. Minimal's own off-white is its first choice and stays the default, so Minimal looks the same until you pick another; any other accent colours Minimal's selection, progress bar and switches. Each theme remembers its own accent, and Classic keeps its Graphite default.
-  - iPod: the selection bar can be a pill, inset from the screen's edges, so the rounded glass no longer cuts off its corners. Turn it on with **Display → Corners: Rounded** (the pill, and rounded album grid tiles and pop-up buttons). **Square**, the full-width bar from before with square tiles, stays the default in both themes, and changing theme leaves your choice alone.
+  - iPod: 1.4.6's pill-shaped selection bar is now a choice, **Display → Corners**. **Square**, the full-width bar with square album grid tiles and pop-up buttons from before 1.4.6, is the default in both themes; **Rounded** gives the pill and rounded tiles and buttons. Changing theme leaves your choice alone.
   - iPod: in Classic, album and artist grids frame the selected album in the accent colour, with the cover inside, as Minimal does. Before, the cover hid the top of the selection.
+
+- **1.4.6**:
+  - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
+  - iPod: **Accent** now works in the Minimal theme too. Minimal's own off-white is its first choice and stays the default, so Minimal looks the same until you pick another; any other accent colours Minimal's selection, progress bar and switches. Each theme remembers its own accent, and Classic keeps its Graphite default.
+  - iPod: the selection bar is a pill, inset from the screen's edges, so the rounded glass no longer cuts off its corners. In Classic and Minimal alike; album grids keep their rounded squares.
   - iPod: two new accents, **Tangerine** and **Plum**, after the orange and purple Q2.
   - iPod: Now Playing's heart and shuffle/repeat icons line up with the bottom of the album art again, on Internet Radio too; since 1.4.5 they sat higher.
   - iPod: on Now Playing's lyrics page the wheel scrolls the lyrics smoothly, following your finger a pixel at a time, instead of jumping a line per click. A turn still moves them as far as before, and Wheel Sensitivity still sets how far. When you lift your finger they settle on the nearest whole line, so the top line is never cut in half. When the song reaches the next line, the lyrics glide to it.
