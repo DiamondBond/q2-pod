@@ -189,8 +189,9 @@ class Machine:
         if variant=='ipod':
             if self.rounded and self.rounded[0]['kind']=='fill' and self.rounded[0]['color']==color_t(0xeeeeec):
                 x,y,w,h=self.rounded[0]['rect']; return (x-O['SEL_INSET'],y,w+2*O['SEL_INSET'],h)  # Minimal's card
-            ys=[b[1] for b in self.bands]
-            return (self.bands[0][0],min(ys),self.bands[0][2],max(ys)-min(ys)+1)
+            ys=[b[1] for b in self.bands]; x=min(b[0] for b in self.bands); w=max(b[2] for b in self.bands)
+            if x==O['SEL_INSET']: x,w=0,w+2*O['SEL_INSET']  # Classic's list pill, inset as Minimal's card
+            return (x,min(ys),w,max(ys)-min(ys)+1)
         x,y,w,h=self.rounded[0]['rect'] if self.rounded else self.strokes[0][:4]
         return (x-1,y-1,w+2,h+2)
     def touch(self): return self.call(address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'])
@@ -743,13 +744,17 @@ else:
     assert not m.bands and not m.strokes and m.global_alpha==0
     # Minimal: one off-white card over the full surface width, SEL_INSET in from each side, rounded.
     [card]=m.rounded; inset=O['SEL_INSET']
-    assert card['kind']=='fill' and card['rect']==(inset,0,240-2*inset,48) and card['radius']==O['SEL_RADIUS']
+    assert card['kind']=='fill' and card['rect']==(inset,0,240-2*inset,48) and card['radius']==24  # a pill
     assert card['color']==color_t(0xeeeeec) and card['clip']==(0,0,240,96)
     assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
     assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
-    # Theme: Classic draws the accent's bar (Graphite's flat fill, then its highlight) instead.
+    # Theme: Classic draws the accent's bar (its highlight, then Graphite's flat fill) instead, the
+    # same inset pill: each band is a chord of a 48px circle at either end.
     k=Machine(); k.config['THEME']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
-    assert len(k.bands)==49 and [k.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[0][i]) for i in (0,1,4)]; passed()
+    assert len(k.bands)==48 and [k.bands[i][4] for i in (0,1,47)]==[color_t(ACCENTS[0][i]) for i in (4,0,1)]
+    def chord(j,h): v=h*h-(2*j+1-h)**2; return (h-math.isqrt(v))//2
+    assert [b[:3] for b in k.bands]==[(inset+chord(j,48),j,240-2*inset-2*chord(j,48)) for j in range(48)]
+    assert k.bands[24][0]==inset and k.bands[0][0]>inset+15; passed()
     # Cards stay two pixels inside all three columns, including scrolled first/last rows.
     for classic in (0,1):
         for offset in (0, 24):
@@ -2320,7 +2325,7 @@ if variant=='stock':
     assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
 else:
     # The bands reach the LCD only for the row pixels inside the clip.
-    assert [(c[2],c[3]) for c in m.calls if c[0]==sink]==[(10,y) for y in range(30,40)]
+    assert [(c[2],c[3]) for c in m.calls if c[0]==sink]==[(7+O['SEL_INSET']+chord(j,20),20+j) for j in range(10,20)]
 assert [m.get(m.canvas+off) for off in (0x10,0x14,0x18,0x1c)]==[10,30,229,199]
 assert m.lcd_colors()==LCD_COLORS; passed()
 # Wheel selection is immediate even when restoration animations would still be running.
@@ -4597,7 +4602,7 @@ if variant=='ipod':
     m.paint(view)
     cbar=lambda: [(HOME_LIST_W-half+O['HOME_CHEVRON_SHIFT'],m.sel()[1]+HOME_ROW//2,(0,0,HOME_LIST_W,7*HOME_ROW))]
     assert m.sel()==(0,0,HOME_LIST_W,HOME_ROW) and m.icons==cbar() and not m.rounded
-    assert m.bands[0][4]==color_t(ACCENTS[0][0]) and loaded(m)==['list_into'] and m.clip==(0,0,375,320)
+    assert m.bands[1][4]==color_t(ACCENTS[0][0]) and loaded(m)==['list_into'] and m.clip==(0,0,375,320)
     m.call(); m.paint(view); assert m.selected(view)==1 and m.sel()[1]>0 and m.icons==cbar(); passed()
     # Playlists: every row follows the scroll, clipped to the viewport; the half-width
     # Import/Export tiles get none.
@@ -7219,8 +7224,8 @@ if variant=='ipod':
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
         assert texts()[0]=='Accent: '+name
         m.paint(view)
-        assert {b[4] for b in m.bands[:-1]}=={color_t(ACCENTS[value][0])}
-        assert m.bands[-1][4]==color_t(ACCENTS[value][4]); passed()
+        assert {b[4] for b in m.bands[1:]}=={color_t(ACCENTS[value][0])}
+        assert m.bands[0][4]==color_t(ACCENTS[value][4]); passed()
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal'
     m.paint(view); assert m.selected(view)==3
     kids=m.nodes[view]['children'][3:]
@@ -7426,9 +7431,9 @@ if variant=='ipod':
     m,view,rows=display({'ACCENT':'2'}); m.paint(view)
     assert not m.bands and m.rounded[-1]['color']==color_t(0xeeeeec); passed()
     m,view,rows=display({'ACCENT':'2','THEME':'1'}); m.paint(view)
-    assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[2][i]) for i in (0,1,4)]; passed()
+    assert [m.bands[i][4] for i in (0,1,47)]==[color_t(ACCENTS[2][i]) for i in (4,0,1)]; passed()
     f,ctx=m.handler(m.nodes[rows[0]]['children'][0],O['EVT_CLICK']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    m.paint(view); assert [m.bands[i][4] for i in (0,47,48)]==[color_t(ACCENTS[3][i]) for i in (0,1,4)]; passed()
+    m.paint(view); assert [m.bands[i][4] for i in (0,1,47)]==[color_t(ACCENTS[3][i]) for i in (4,0,1)]; passed()
     CONFIG.clear(); CONFIG.update(ACCENT='3'); m=scrub_page()
     assert m.nodes[m.slider][FG]==FILL_HI; passed()  # Minimal: no accent
     CONFIG.update(THEME='1'); m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'

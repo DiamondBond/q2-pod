@@ -68,11 +68,11 @@ The pinned style edits in `patch/ipod.json` remove list fills and corners and ma
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
 In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default) is off-white (`#EEEEEC`): a card inset
-`SEL_INSET` (6) pixels from each side of the row with `SEL_RADIUS` (6) corners, as Sudo Music's,
+`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height; grid tiles keep `SEL_RADIUS`, 6),
 drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
 card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
 secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
-Classic** draws the accent's full-width bar instead and leaves the rows' own (white) ink. The background
+Classic** draws the accent's gradient bar instead, the same inset pill (its ends in whole-pixel bands, not anti-aliased), and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over

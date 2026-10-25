@@ -1451,7 +1451,8 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent, Home, Battery and Theme settings; each theme keeps its own accent (docs/ipod.md#display-settings). */
+/* The Accent, Home, Battery and Theme settings; each theme keeps its own accent
+ * (docs/ipod.md#display-settings). */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson",
@@ -1475,9 +1476,7 @@ static int accent(void) {
     return st.classic ? st.accent : st.minimal_accent;
 }
 /* 1 while Minimal draws its own accent: the off-white card with dark ink. */
-static int minimal_card(void) {
-    return !ipod_classic() && st.minimal_accent == MINIMAL_ACCENT;
-}
+static int minimal_card(void) { return !ipod_classic() && st.minimal_accent == MINIMAL_ACCENT; }
 /* Shortcut with no key is Rockbox while the card has it, else Favorites: asked each time, as the
  * card may mount after the first read. */
 static int shortcut(void) {
@@ -1565,15 +1564,20 @@ unsigned accent_map(unsigned c, int preset, int tone) {
 }
 
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; equal ends give a solid
- * fill. r.h is at least 2.
- * Plain fills keep this off the stock gradient_t ABI, which is not audited. */
-static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi) {
+ * fill. r.h is at least 2. A pill insets each band to a circle of diameter r.h at either end.
+ * Plain fills keep this off the stock gradient_t ABI, which is not audited.
+ * ponytail: the pill's ends are not antialiased (whole-pixel bands). */
+static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi, int pill) {
     for (int j = 0; j < r.h; ++j) {
-        canvas_set_fill_color(canvas, RGBA(mix(top, bottom, j, r.h - 1)));
-        canvas_fill_rect(canvas, r.x, r.y + j, r.w, 1);
+        int in = 0;
+        if (pill) { /* half-pixel units: d from the centre, k = sqrt(h^2 - d^2) the band's chord */
+            int d = 2 * j + 1 - r.h, v = r.h * r.h - d * d, k = 0;
+            while ((k + 1) * (k + 1) <= v) ++k;
+            in = (r.h - k) / 2;
+        }
+        canvas_set_fill_color(canvas, RGBA(j ? mix(top, bottom, j, r.h - 1) : hi));
+        canvas_fill_rect(canvas, r.x + in, r.y + j, r.w - 2 * in, 1);
     }
-    canvas_set_fill_color(canvas, RGBA(hi));
-    canvas_fill_rect(canvas, r.x, r.y, r.w, 1);
 }
 #endif
 
@@ -1896,7 +1900,9 @@ static void paint_selection(void *w, void *canvas) {
     st.sel_home = home && !classic;
     if (classic && (!tile || g_menu.kind == 4)) {
         const unsigned *a = accents[accent()];
-        gradient(canvas, r, a[0], a[1], a[4]);
+        rect_t bar = r; /* a list row's bar is a pill, inset like Minimal's card */
+        if (!tile) bar.x += SEL_INSET, bar.w -= 2 * SEL_INSET;
+        gradient(canvas, bar, a[0], a[1], a[4], !tile);
     } else if (home) {
         rect_t dot = { HOME_DOT_X, r.y + (r.h - HOME_DOT) / 2, HOME_DOT, HOME_DOT };
         fill_box(canvas, &dot, 0xffffffff, HOME_DOT / 2);
@@ -1904,7 +1910,8 @@ static void paint_selection(void *w, void *canvas) {
         int grid = tile && g_menu.kind != 4; /* pop-up buttons keep their row inset */
         int in = grid ? TILE_INSET : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
-        fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]), SEL_RADIUS);
+        fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]),
+                 grid ? SEL_RADIUS : card.h / 2);
     }
     st.sel_w = w;
     st.sel_row = i;
