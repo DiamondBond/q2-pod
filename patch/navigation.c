@@ -361,8 +361,9 @@ typedef struct {
     unsigned lyric_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut;
-    void *setting_label[5];
+    int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
+        rounded;
+    void *setting_label[6];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1460,17 +1461,20 @@ static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson
                                             "Accent: Cobalt",   "Accent: Tangerine",
                                             "Accent: Plum",     "Accent: Ivory" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-/* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
-static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
-static const int setting_counts[] = { ACCENT_N - 1, 2, 4, 2, 7 }; /* Classic's accents */
-static int *const setting_values[] = { &st.accent, &st.home_full, &st.battery, &st.classic,
-                                       &st.shortcut };
+/* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
+ * 4 Shortcut, 5 Corners. */
+static const char *const setting_keys[] = { "ACCENT", "HOME",     "BATTERY",
+                                            "THEME",  "SHORTCUT", "ROUNDED" };
+static const int setting_counts[] = { ACCENT_N - 1, 2, 4, 2, 7, 2 }; /* Classic's accents */
+static int *const setting_values[] = { &st.accent,  &st.home_full, &st.battery,
+                                       &st.classic, &st.shortcut,  &st.rounded };
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
             *setting_values[i] = config_value("IPOD", setting_keys[i], setting_counts[i], 0);
         st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
+        st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : st.minimal_accent;
@@ -1900,18 +1904,21 @@ static void paint_selection(void *w, void *canvas) {
     st.sel_home = home && !classic;
     if (classic && (!tile || g_menu.kind == 4)) {
         const unsigned *a = accents[accent()];
-        rect_t bar = r; /* a list row's bar is a pill, inset like Minimal's card */
-        if (!tile) bar.x += SEL_INSET, bar.w -= 2 * SEL_INSET;
-        gradient(canvas, bar, a[0], a[1], a[4], !tile);
+        /* Corners: Rounded makes a list row's bar a pill, inset like Minimal's card */
+        rect_t bar = r;
+        int pill = !tile && st.rounded;
+        if (pill) bar.x += SEL_INSET, bar.w -= 2 * SEL_INSET;
+        gradient(canvas, bar, a[0], a[1], a[4], pill);
     } else if (home) {
         rect_t dot = { HOME_DOT_X, r.y + (r.h - HOME_DOT) / 2, HOME_DOT, HOME_DOT };
         fill_box(canvas, &dot, 0xffffffff, HOME_DOT / 2);
     } else { /* Sudo's card: inset from the glass's edges, its corners rounded */
         int grid = tile && g_menu.kind != 4; /* pop-up buttons keep their row inset */
-        int in = grid ? TILE_INSET : SEL_INSET, vertical = grid ? TILE_INSET : 0;
+        int square = !tile && !st.rounded;   /* Corners: Square, a full-width bar as Classic's */
+        int in = grid ? TILE_INSET : square ? 0 : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
-        fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]),
-                 tile ? SEL_RADIUS : card.h / 2);
+        int radius = !st.rounded ? 0 : tile ? SEL_RADIUS : card.h / 2;
+        fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]), radius);
     }
     st.sel_w = w;
     st.sel_row = i;
@@ -3684,30 +3691,23 @@ static void vol_paint(void *top, void *canvas) {
 }
 
 /* Both native album constructors use 110px square covers, with playing overlays either
- * beside the cover or nested inside it. Keep their local origins together when padding the tile. */
-static void album_children(void *w, int nested, int classic) {
-    int pad = TILE_INSET + TILE_CLEARANCE, size = classic ? 110 : 110 - 2 * pad;
+ * beside the cover or nested inside it. Keep their local origins together when padding the tile.
+ * Both themes inset the cover, so the selection card frames it rather than hiding under it. */
+static void album_children(void *w, int nested) {
+    int pad = TILE_INSET + TILE_CLEARANCE, size = 110 - 2 * pad;
     for (unsigned i = 0; i < widget_count_children(w); ++i) {
         void *c = widget_get_child(w, i);
         int x = I(c, W_X), y = I(c, W_Y), cw = I(c, W_W), h = I(c, W_H);
-        if ((cw == 110 || cw == 110 - 2 * pad) && cw == h) {
-            album_children(c, 1, classic);
-            x = y = nested || classic ? 0 : pad;
+        if ((cw == 110 || cw == size) && cw == h) {
+            album_children(c, 1);
+            x = y = nested ? 0 : pad;
             cw = h = size;
-            if (!tk_strcmp(widget_get_type(c), "image")) {
-                int draw = widget_get_prop_int(c, "_album_draw", -1);
-                if (draw < 0) {
-                    draw = widget_get_prop_int(c, "draw_type", 0);
-                    widget_set_prop_int(c, "_album_draw", draw);
-                }
-                int target = classic ? draw : IMAGE_DRAW_SCALE_DOWN;
-                if (widget_get_prop_int(c, "draw_type", 0) != target)
-                    image_set_draw_type(c, target);
-            }
+            if (!tk_strcmp(widget_get_type(c), "image") &&
+                widget_get_prop_int(c, "draw_type", 0) != IMAGE_DRAW_SCALE_DOWN)
+                image_set_draw_type(c, IMAGE_DRAW_SCALE_DOWN);
         } else if (!nested && !tk_strcmp(widget_get_type(c), "hscroll_label")) {
-            int mapped = x == pad;
-            if (mapped != !classic) y += classic ? TILE_INSET : -TILE_INSET;
-            x = classic ? 0 : pad;
+            if (x != pad) y -= TILE_INSET;
+            x = pad;
             cw = size;
         } else
             continue;
@@ -3721,8 +3721,7 @@ static void album_tile(void *w) {
         return;
     void *win = window_of(w);
     const char *name = win ? widget_get_prop_str(win, "name", "") : "";
-    if (!tk_strcmp(name, "album_page") || !tk_strcmp(name, "artistinfo_page"))
-        album_children(w, 0, ipod_classic());
+    if (!tk_strcmp(name, "album_page") || !tk_strcmp(name, "artistinfo_page")) album_children(w, 0);
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
@@ -4044,10 +4043,15 @@ static void setting_text(int i) {
                              *const battery[] = { "Battery: Icon", "Battery: Percent",
                                                   "Battery: Icon + Percent",
                                                   "Battery: Percent Inside" },
-                             *const theme[] = { "Theme: Minimal", "Theme: Classic" };
+                             *const theme[] = { "Theme: Minimal", "Theme: Classic" },
+                             *const corners[] = { "Corners: Square", "Corners: Rounded" };
     accent(); /* reads the settings */
     const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
-                                  home[st.home_full], battery[st.battery], theme[st.classic] };
+                                  home[st.home_full],
+                                  battery[st.battery],
+                                  theme[st.classic],
+                                  (const char *)0,
+                                  corners[st.rounded] };
     char shortcut[64];
     if (i == 4) {
         tk_snprintf(shortcut, sizeof shortcut, "Shortcut: %s", ipod_home_shortcut());
@@ -4091,6 +4095,8 @@ static int setting_click(void *ctx, void *event) {
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
     else if (i == 1 || i == 4)
         coverflow_home_layout();
+    else if (i == 5)
+        widget_invalidate_force(window_manager(), (void *)0);
     else {
         if (i == 3) {
             coverflow_home_layout();
@@ -4186,6 +4192,10 @@ int ringnav_display(void *win, void *ctx) {
         }
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
+        if (!i) { /* Corners, after Accent */
+            st.setting_label[5] = list_row(view, "system_display", setting_click, (void *)5);
+            setting_text(5);
+        }
     }
     if (view) {
         st.setting_label[4] = list_row(view, "playset_covermode", setting_click, (void *)4);

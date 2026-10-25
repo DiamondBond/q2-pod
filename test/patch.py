@@ -188,7 +188,8 @@ class Machine:
         """The selected row's rectangle, from the outline (inset 1) or the bar's bands."""
         if variant=='ipod':
             if self.rounded and self.rounded[0]['kind']=='fill' and self.rounded[0]['color']==color_t(0xeeeeec):
-                x,y,w,h=self.rounded[0]['rect']; return (x-O['SEL_INSET'],y,w+2*O['SEL_INSET'],h)  # Minimal's card
+                x,y,w,h=self.rounded[0]['rect']
+                return (x-O['SEL_INSET'],y,w+2*O['SEL_INSET'],h) if x else (x,y,w,h)  # Minimal's card; a square list row's spans the surface
             ys=[b[1] for b in self.bands]; x=min(b[0] for b in self.bands); w=max(b[2] for b in self.bands)
             if x==O['SEL_INSET']: x,w=0,w+2*O['SEL_INSET']  # Classic's list pill, inset as Minimal's card
             return (x,min(ys),w,max(ys)-min(ys)+1)
@@ -742,15 +743,20 @@ else:
     bg,border=names.index('stock_paint_bg'),names.index('stock_paint')
     assert all(bg<i<border for i,n in enumerate(names) if n=='canvas_fill_rounded_rect')
     assert not m.bands and not m.strokes and m.global_alpha==0
-    # Minimal: one off-white card over the full surface width, SEL_INSET in from each side, rounded.
+    # Minimal: one off-white card over the full surface width, square (Corners: Square, no key).
     [card]=m.rounded; inset=O['SEL_INSET']
-    assert card['kind']=='fill' and card['rect']==(inset,0,240-2*inset,48) and card['radius']==24  # a pill
+    assert card['kind']=='fill' and card['rect']==(0,0,240,48) and card['radius']==0
     assert card['color']==color_t(0xeeeeec) and card['clip']==(0,0,240,96)
     assert m.clip==(0,0,240,240) and m.lcd_colors()==LCD_COLORS
     assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
-    # Theme: Classic draws the accent's bar (its highlight, then Graphite's flat fill) instead, the
-    # same inset pill: each band is a chord of a 48px circle at either end.
+    # Corners: Rounded insets it SEL_INSET from each side, a pill.
+    k=Machine(); k.config['ROUNDED']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
+    assert [(c['rect'],c['radius']) for c in k.rounded]==[((inset,0,240-2*inset,48),24)]
+    # Theme: Classic draws the accent's bar (its highlight, then Graphite's flat fill) instead, full
+    # width; under Corners: Rounded the same inset pill, each band a chord of a 48px circle at either end.
     k=Machine(); k.config['THEME']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
+    assert [b[:3] for b in k.bands]==[(0,j,240) for j in range(48)]
+    k=Machine(); k.config.update(THEME='1',ROUNDED='1'); kw,_=k.page_list(5,extent=1000); k.paint(kw)
     assert len(k.bands)==48 and [k.bands[i][4] for i in (0,1,47)]==[color_t(ACCENTS[0][i]) for i in (4,0,1)]
     def chord(j,h): v=h*h-(2*j+1-h)**2; return (h-math.isqrt(v))//2
     assert [b[:3] for b in k.bands]==[(inset+chord(j,48),j,240-2*inset-2*chord(j,48)) for j in range(48)]
@@ -770,7 +776,7 @@ else:
                 assert g.selected(gw)==selected, (offset,selected,g.selected(gw),g.rounded)
                 assert (x,width,height)==(80*(selected%3)+2,76,44)
                 assert y==48*(selected//3)-g.get(gw+O['SCROLL_Y'])+2
-                assert g.rounded[-1]['radius']==O['SEL_RADIUS']
+                assert g.rounded[-1]['radius']==0  # Corners: Square
                 assert g.rounded[-1]['color']==color_t(ACCENTS[2][0] if classic else O['MINIMAL_FILL']); passed()
     # Touch mode draws nothing; the wheel brings the bar back.
     c=Machine(); cw,_=c.page_list(5,extent=1000); c.paint(cw)
@@ -1073,19 +1079,18 @@ def check_album_tile(m, button):
     def geometry(w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
     children=descendants(button)
     original={c:geometry(c) for c in children}
-    draw_types={c:m.nodes[c].get('draw_type',0) for c in children if m.nodes[c]['type']=='image' and original[c][2:]==(110,110)}
+    draw_types=[c for c in children if m.nodes[c]['type']=='image' and original[c][2:]==(110,110)]
     tile=geometry(button)
     for c in children:
         if m.nodes[c]['type']=='hscroll_label': m.nodes[c]['text']='A very long album or artist label '*10
-    for theme in ('0','0','1','0'):
-        # Repeated paint and theme changes must neither compound padding nor lose stock geometry.
-        m.call(address=payload_syms['album_children'],args=(button,0,int(theme),0),gap=0)
+    for _ in range(3):
+        # Both themes inset the cover inside the selection card; repeated paints never compound it.
+        m.call(address=payload_syms['album_children'],args=(button,0,0,0),gap=0)
         assert geometry(button)==tile
-        for c,draw in draw_types.items(): assert m.nodes[c].get('draw_type',0)==(draw if theme=='1' else O['IMAGE_DRAW_SCALE_DOWN'])
+        for c in draw_types: assert m.nodes[c].get('draw_type',0)==O['IMAGE_DRAW_SCALE_DOWN']
         for c,(x,y,w,h) in original.items():
             actual=geometry(c)
-            if theme=='1': assert actual==(x,y,w,h), (m.nodes[c],actual,(x,y,w,h))
-            elif w==h==110:
+            if w==h==110:
                 inset=6 if m.get(c+O['W_PARENT'])==button else 0
                 assert actual==(inset,inset,98,98), actual
             elif m.nodes[c]['type']=='hscroll_label':
@@ -1093,10 +1098,10 @@ def check_album_tile(m, button):
                 assert actual[1]+h<=154
                 assert m.nodes[c]['text'].startswith('A very long')
             else: assert actual==(x,y,w,h)
-    m.call(address=payload_syms['album_children'],args=(button,0,0,0),gap=0)
+    m.calls=[]; m.call(address=payload_syms['album_children'],args=(button,0,0,0),gap=0)
     assert not any(c[0] in ('widget_move_resize','image_set_draw_type') for c in m.calls)
-    # The public paint hook must reach the same geometry for static and native-created tiles.
-    m.call(address=payload_syms['album_children'],args=(button,0,1,0),gap=0)
+    # The public paint hook keeps the same geometry, in Classic too.
+    m.config['THEME']='1'
     m.paint(button)
     assert all(geometry(c)[2]==98 for c in children if original[c][2]==110)
     passed()
@@ -2307,7 +2312,7 @@ m.click(m.node('button')); assert m.selected(w)==0; passed()
 # Real canvas ABI, translation and clip code execute; only the LCD rectangle sink is mocked.
 # A 20px row at canvas origin (7,20) under a (10,30)-(229,199) clip; iPod in Classic, whose bar is bands.
 m=Machine(); w=m.page(); m.word(w+O['W_H'],96)
-if variant=='ipod': m.config['THEME']='1'
+if variant=='ipod': m.config.update(THEME='1',ROUNDED='1')
 e=m.entry(w,0); m.word(e+O['W_H'],20); m.nodes[w]['children']=[e]
 sink='lcd_stroke_rect' if variant=='stock' else 'lcd_fill_rect'
 for name in ('canvas_get_clip_rect','canvas_set_clip_rect',
@@ -6842,7 +6847,7 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==6  # every key, once, on first use
+        assert len(m.config_reads)==7  # every key, once, on first use
         passed()
     # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
     # recycled text, touch hiding, Home siblings, and every accent.
@@ -6893,7 +6898,7 @@ if variant=='ipod':
     passed()
 
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -7142,9 +7147,9 @@ if variant=='ipod':
         kids=m.nodes[view]['children'][3:]
         return [next(r for r in kids if lab(r).startswith(k)) for k in ('Accent','Home','Battery','Theme')]
     m,view,rows=display({})
-    kids=m.nodes[view]['children'][3:]; cf,cf_sort,cf_refresh,shortcut,hold,wheel=kids[3],kids[4],kids[5],kids[7],kids[8],kids[9]
-    assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
-    assert m.icons_set==['system_display','system_display','playset_covermode','playset_covermode','playset_covermode','system_update','system_powermanager','playset_covermode','playset_folderjump','system_display','list_into'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    kids=m.nodes[view]['children'][3:]; corners,cf,cf_sort,cf_refresh,shortcut,hold,wheel=kids[2],kids[4],kids[5],kids[6],kids[8],kids[9],kids[10]
+    assert kids==[rows[3],rows[0],corners,rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Corners, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
+    assert m.icons_set==['system_display','system_display','system_display','playset_covermode','playset_covermode','playset_covermode','system_update','system_powermanager','playset_covermode','playset_folderjump','system_display','list_into'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7210,10 +7215,18 @@ if variant=='ipod':
     click(1); assert texts()[1]=='Home: Split'; home_bounds(False); passed()
     # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
     # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.
+    # Corners: no key is Square; a click saves Rounded, and Theme leaves it alone.
+    corners_label=m.nodes[m.nodes[corners]['children'][0]]['children'][1]; assert m.nodes[corners_label]['text']=='Corners: Square'
+    f,ctx=m.handler(m.nodes[corners]['children'][0],O['EVT_CLICK']); m.calls=[]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.nodes[corners_label]['text']=='Corners: Rounded'
+    assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'ROUNDED')] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
+    # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
+    # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.
     writes=click(3); assert [(w[0],m.text(w[1]),m.text(w[2])) for w in writes]==[(1,'IPOD','THEME')]
+    assert m.nodes[corners_label]['text']=='Corners: Rounded'
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]].get('visible',1)==1
+    assert kids==[rows[3],rows[0],corners,rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]].get('visible',1)==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # Theme (after the three stock rows) keeps the selection, painted.
     m.paint(view); assert m.selected(view)==3; passed()
@@ -7226,10 +7239,10 @@ if variant=='ipod':
         m.paint(view)
         assert {b[4] for b in m.bands[1:]}=={color_t(ACCENTS[value][0])}
         assert m.bands[0][4]==color_t(ACCENTS[value][4]); passed()
-    writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal'
+    writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and m.nodes[corners_label]['text']=='Corners: Rounded'
     m.paint(view); assert m.selected(view)==3
     kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
+    assert kids==[rows[3],rows[0],corners,rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.
@@ -7381,7 +7394,7 @@ if variant=='ipod':
     # However often Theme flips, the Accent row stays right after Theme as a whole settings row, the
     # cached pages take the new inset, the wheel and Centre reach the row after Theme, and a tap
     # selects it.
-    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-10:-8]  # then Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
+    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-11:-9]  # then Corners, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
     button=lambda i: m.nodes[i]['children'][0]
     cached=m.node('list_view'); library=m.node('list_view')
     m.word(cached+O['LIST_DEFAULT_ITEM_HEIGHT'],SET['ROW']); m.word(cached+O['ROW_HEIGHT'],0); m.word(cached+O['W_Y'],SET['TOP'])
@@ -7392,7 +7405,7 @@ if variant=='ipod':
         assert m.get(cached+O['W_Y'])==(0 if classic else SET['TOP'])  # cached page, before any layout
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         assert m.get(library+O['W_Y'])==0
-        assert lay(m,view)==0 and m.nodes[view]['children'][-10:-8]==[theme,accent] and m.nodes[accent].get('visible',1)==1
+        assert lay(m,view)==0 and m.nodes[view]['children'][-11:-9]==[theme,accent] and m.nodes[accent].get('visible',1)==1
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         shown=[i for i in items if m.nodes[i]['visible']]; after=shown[shown.index(theme)+1]
         assert after==accent

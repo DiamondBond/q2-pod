@@ -67,12 +67,12 @@ unchanged; Classic keeps its existing colour handling.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
-In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default) is off-white (`#EEEEEC`): a card inset
-`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height; grid tiles keep `SEL_RADIUS`, 6),
+In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default) is off-white (`#EEEEEC`): a card, under **Corners: Rounded** inset
+`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height; grid tiles `SEL_RADIUS`, 6), and under **Corners: Square** (the default) a full-width square bar with square tiles,
 drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
 card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
 secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
-Classic** draws the accent's gradient bar instead, the same inset pill (its ends in whole-pixel bands, not anti-aliased), and leaves the rows' own (white) ink. The background
+Classic** draws the accent's gradient bar instead, full width, or under **Corners: Rounded** the same inset pill (its ends in whole-pixel bands, not anti-aliased), and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
@@ -559,7 +559,7 @@ builds three rows with `0x4c19bc`: a `list_item_create(view, 0, 0, 0, 0)` in `s_
 `s_scrlabel_white24l` `hscroll_label` at (72, 0, 210, 70) and `list_into` at x 282. The rows
 show no value; each opens a sub-page (iPod's [settings rows](#settings) then lay them out 68
 pixels high). iPod runs the stock init, then adds seven rows the same way: "Theme: Minimal" and
-"Accent: Graphite" with the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
+"Accent: Graphite" and "Corners: Square" with the System settings Display icon (`system_display`), "Home: Split" with Play settings' cover
 mode icon (`playset_covermode`), "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon; Coverflow ends with an All albums card, see [internals.md](internals.md#artist-albums-in-coverflow)),
 "Battery: Icon" (Icon, Percent, Icon + Percent, Percent Inside; see
 [Status bar and clock](#status-bar-and-clock)) with the power manager icon
@@ -572,14 +572,14 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `HOME`, `BATTERY` and `THEME`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `HOME`, `BATTERY` and `THEME`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split, Icon and Minimal; a missing `MINIMAL_ACCENT` is Minimal (7). A
+one valid digit, is Graphite, Split, Icon and Minimal; a missing `MINIMAL_ACCENT` is Minimal (7), and a missing `ROUNDED` is Square in both themes. A
 card from 1.0.1 or earlier, which has no `THEME`, keeps 1.0.1's look, and a Minimal card from before
 1.4.6 keeps its off-white look whatever `ACCENT` holds.
 
@@ -611,6 +611,8 @@ Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the ex
 (`1`) is the iPod look before 1.0.1, drawn at runtime over the same assets: the accent's
 full-width selection bar under white text, with Home's chevron on its bar, coloured settings icons and the stock `list_into`, and Now Playing's 8-pixel capsule and play/pause
 glyph. Its status bar is black, as Minimal's.
+
+Corners is one setting for both themes, Square until chosen, and Theme leaves it alone. Both themes inset an album grid's cover inside the tile (`album_children`), so the selection card frames it.
 
 Each theme keeps its own accent, and the Accent row follows Theme in both. Minimal's
 (`MINIMAL_ACCENT`) cycles Ivory, Graphite, Crimson, Tidal, Champagne, Cobalt, Tangerine, Plum;
