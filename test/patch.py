@@ -3139,7 +3139,7 @@ class QueueMachine(Machine):
         self.word(syms['tools_pdeq_directory'],self.deque([self.song('staged')]))
         self.word(O['MCL_POOL'],self.deque(list(range(queue)),'int'))
         for k,v in (('MCL_POS',pos),('MCL_MODE',mode),('MCL_TYPE',cls),('MCL_LASTPOS',-1),('MCL_PRELOAD',0),('MCL_FD',-1)): self.word(O[k],v)
-        self.found=[self.song('T1'),self.song('dir',4),self.song('T2')]; self.stack=[self.top]
+        self.found=[self.song('T1'),self.song('dir',4),self.song('T2')]; self.listings={}; self.stack=[self.top]
         self.folder('/mnt/sd/Music'); self.paint(self.surface)
     def song(self,name,kind=8):
         r=self.alloc(0x60)
@@ -3210,7 +3210,8 @@ class QueueMachine(Machine):
         elif name=='qsort@GLIBC_2.0': self.qsort(a,b,c,d)  # Albums' sorted lookups, the payload's comparator run nested
         else:  # the album/folder queries fill the staging deque
             self.query=(name,self.text(a) if a else None,(self.text(b) if b else None) if 'And' in name else None,c)
-            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]; ret=3
+            found=self.listings.get(self.text(a),self.found) if name=='toolsLoadDirectory' else self.found
+            self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in found]; ret=3
             if name=='getMusicByAlbum' and a:  # songs of that album name
                 for e in self.items(self.get(syms['tools_pdeq_directory'])): self.word(e+O['REC_ALBUM'],a)
         self.returns(ret,clobber=True)
@@ -3525,14 +3526,18 @@ assert m.run(0,steps=4) is None and m.names()==['A','Row 4','B','C']
 assert m.pool()==[0,2,3,1] and m.mcl('MCL_LASTPOS')==3 and m.mcl('MCL_POS')==0
 m.run(0); assert m.names()==['A','Row 4','Row 4','B','C'] and not m.playback(); passed()
 # An artist's albums use the stock detail queries (Albums, below Coverflow's); a folder row loads
-# like folder_enter. Only songs join, in order, and the staging deque is restored.
+# like folder_enter, then its subfolders in listing order, dot folders skipped. Only songs join, in
+# order, and the staging deque is restored.
 for cls,artist_type,page,query in ((0xff01,1,'album_page',('getMusicByAlbumAndAlbumSonger','Album','Artist')),
         (0xff01,0,'localclass_page',('getMusicByAlbumAndSonger','Album','Artist')),
-        (0xf001,0,'folder_page',('toolsLoadDirectory','/mnt/sd/Music/Row 0',None))):
+        (0xf001,0,'folder_page',('toolsLoadDirectory','/mnt/sd/Music/Row 0/dir',None))):
     m=QueueMachine(page=page,cls=cls,pos=2); m.word(syms['g_artist_type'],artist_type)
-    if page=='folder_page': m.word(m.row(0)+O['REC_TYPE'],4)
-    assert m.run(1) is None and m.names()==['A','B','C','T1','T2'] and m.query[:3]==query, m.query
-    assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==[0,1,2,3,4]
+    if page=='folder_page':
+        m.word(m.row(0)+O['REC_TYPE'],4); m.listings['/mnt/sd/Music/Row 0/dir']=[m.song('T3'),m.song('.hidden',4)]
+    want=['A','B','C','T1','T3','T2'] if page=='folder_page' else ['A','B','C','T1','T2']
+    assert m.run(1) is None and m.names()==want and m.query[:3]==query, m.query
+    assert page!='folder_page' or [m.text(c[1]) for c in m.calls if c[0]=='toolsLoadDirectory']==['/mnt/sd/Music/Row 0','/mnt/sd/Music/Row 0/dir']
+    assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==list(range(len(want)))
     passed()
 # Artist, composer and genre rows, and their album lists, use batch_add_file's per-class queries.
 for cls,artist_type,query in ((0xf004,0,('getMusicBySonger','Artist',None)),(0xf004,1,('getMusicByAlbumArtist','Artist',None)),
