@@ -310,11 +310,11 @@ def validate_assets(directory):
         off = fileoff(stock, address)
         assert struct.unpack_from('<I', stock, off)[0] == 0x0320f809
         assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')[name])
-    # Stock's status sync and cover pollers sleep through ringnav_dark_usleep.
-    for address in DARK_POLLS:
+    # Stock's status sync and cover pollers sleep through the dark usleeps (navigation.c).
+    for address, name in DARK_POLLS:
         off = fileoff(stock, address)
         assert struct.unpack_from('<I', stock, off)[0] == 0x0320f809
-        assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')['ringnav_dark_usleep'])
+        assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')[name])
     # The encoder thread's ts_read call goes through ringnav_ts_read (playback.c wheel_sample).
     off = fileoff(stock, WHEEL_TS_READ[0])
     assert struct.unpack_from('<I', stock, off)[0] == WHEEL_TS_READ[1]

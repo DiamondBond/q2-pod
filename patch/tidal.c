@@ -215,12 +215,16 @@ int tidal_play(const char *url, const char *id) {
 /* Stock's stream thread (docs/internals.md#tidal-cache) and Baidu's both polled a flag every 10 ms
  * from power-on. Now each parks on a semaphore with no timer while idle: Tidal's wakes when its
  * page opens (tidal_start_poll) and polls every 196 ms until Stop Streaming Services
- * (tidal_stop_poll) clears the flag, and it parks at its next poll. Baidu's is never posted, so it
+ * (tidal_stop_poll) clears the flag, and it parks at its next poll; dark and quiet, it polls once a
+ * second (ringnav_dark_usleep). Baidu's is never posted, so it
  * parks for good. A zeroed sem_t is a semaphore at 0. */
 static volatile int stream_wanted;
+extern int ringnav_dark_usleep(unsigned us);
 static unsigned stream_gate[8], baidu_gate[8];
 
-int ringnav_tidal_poll(unsigned us) { return stream_wanted ? usleep(us) : sem_wait(stream_gate); }
+int ringnav_tidal_poll(unsigned us) {
+    return stream_wanted ? ringnav_dark_usleep(us) : sem_wait(stream_gate);
+}
 int ringnav_baidu_poll(unsigned us) { return sem_wait(baidu_gate); }
 
 void tidal_start_poll(void) {

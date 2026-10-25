@@ -2434,6 +2434,7 @@ TIDAL_DL = r'''#include <assert.h>
 #define pthread_mutex_unlock(m) pthread_mutex_unlock((pthread_mutex_t *)(m))
 #define sem_wait(s) sem_wait((sem_t *)(s))
 #define sem_post(s) sem_post((sem_t *)(s))
+#define ringnav_dark_usleep usleep
 #define I(p, o) (*(int *)((char *)(p) + (o)))
 #define P(p, o) (*(void **)((char *)(p) + (o)))
 #define REC_TIDAL_ID 0

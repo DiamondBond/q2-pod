@@ -339,10 +339,12 @@ DROP_CACHES = ((0x512050, 0x3c1c0051, 0x03e00008), (0x512054, 0x279c4c70, 0x0000
 # Tidal's, while its page is open, still sleeps the 196 ms its delay slot holds (li $4,10000 -> lui $4,3).
 STREAM_POLL_CALLS = ((0x47f824, 'ringnav_baidu_poll'), (0x486404, 'ringnav_tidal_poll'))
 STREAM_POLLS = ((0x486408, 0x24042710, 0x3c040003),)
-# The jalr usleep (lw $t9,-0x59c($gp)) of mclSyncPlayerStatus' 200 ms loop, parse_albumcovertask_thd's 50 ms
-# and player_parsecover_thd's 100 ms wait becomes jal ringnav_dark_usleep (its argument set in the delay
-# slot): at least DARK_POLL_US while ringnav_sleep finds the Q2 dark, quiet and the DAC off, else stock's.
-DARK_POLLS = (0x5a958c, 0x4edbe0, 0x512fac)
+# The jalr usleep (lw $t9,-0x59c($gp)) of mclSyncPlayerStatus' 200 ms loop becomes jal ringnav_dark_usleep
+# (its argument set in the delay slot): at least DARK_POLL_US while ringnav_sleep finds the Q2 dark, quiet and
+# the DAC off, else stock's. parse_albumcovertask_thd's 50 ms and player_parsecover_thd's 100 ms waits become
+# jal ringnav_dark_cover_usleep: at least DARK_POLL_US whenever the screen is off, playing or not.
+DARK_POLLS = ((0x5a958c, 'ringnav_dark_usleep'), (0x4edbe0, 'ringnav_dark_cover_usleep'),
+              (0x512fac, 'ringnav_dark_cover_usleep'))
 # Download Cover & Lyrics' accept (0x524f20) snprintfs cp -rf /tmp/oslyric_N "/mnt/mmc/.downpic/<name>" for
 # system(); that jalr snprintf becomes jal ringnav_lyric_save (onlinematch.c), which writes the lyrics beside
 # the song instead. The word before it, addiu $a2,$a2,0x2630 (the format at 0x772630), is pinned.
@@ -1352,8 +1354,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
         patch_word(patched, address, 0x0320f809, jal(ps[name]), 'stream threads park while idle')
     for address, old, new in STREAM_POLLS:
         patch_word(patched, address, old, new, 'stream start polls 5 a second')
-    for address in DARK_POLLS:
-        patch_word(patched, address, 0x0320f809, jal(ps['ringnav_dark_usleep']), 'stock polls idle while dark')
+    for address, name in DARK_POLLS:
+        patch_word(patched, address, 0x0320f809, jal(ps[name]), 'stock polls idle while dark')
     check(struct.unpack_from('<I', patched, fileoff(patched, LYRIC_SAVE_FMT[0]))[0] == LYRIC_SAVE_FMT[1],
           'Unexpected Download Cover & Lyrics save')
     patch_word(patched, LYRIC_SAVE_CALL, 0x0320f809, jal(ps['ringnav_lyric_save']), 'lyrics saved beside the song')

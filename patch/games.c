@@ -642,6 +642,9 @@ static int frame(const void *unused) {
     return 0;
 }
 
+/* A frame timer runs: ringnav_sleep keeps stock's pace. */
+int games_live(void) { return g && g->frame; }
+
 static void run(void) {
     g->paused = RUN;
     g->at = (unsigned)time_now_ms();

@@ -124,7 +124,7 @@ extern int eq_key(void *top, unsigned key); /* peq_ui.c */
 extern int radio_media(unsigned key), radio_open(void *ctx, void *event);
 extern const char *radio_hold(void *top);
 extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
-extern int visualizer_live(void);
+extern int visualizer_live(void), games_live(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
@@ -8212,11 +8212,13 @@ static int now_playing(void) {
 
 /* Now Playing's visualizer repainting, its album marquee moving or its lyrics gliding: their 40 and
  * 50 ms timers and the glide's steps would run late on an idle pass. Its progress and the lyrics'
- * follow tick every 250 ms and keep up. */
+ * follow tick every 250 ms and keep up. A game's 33 ms frame timer too: Vortex's raw wheel posts no
+ * input to stamp. */
 static int np_animating(void) {
 #if IPOD
-    return now_playing() && (visualizer_live() || st.lyric_glide ||
-                             (st.np_marquee && st.np_off > 0 && st.np_off < st.np_over));
+    return games_live() ||
+           (now_playing() && (visualizer_live() || st.lyric_glide ||
+                              (st.np_marquee && st.np_off > 0 && st.np_off < st.np_over)));
 #else
     return 0;
 #endif
@@ -8342,9 +8344,14 @@ static void bt_volume_poll(void) {
  * it, it also restarts Wake's window for a dropped press (woke_at). With the screen on, a pass
  * idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except while
  * Now Playing animates. */
-static volatile int dark_quiet; /* read by ringnav_dark_usleep on stock's threads */
+static volatile int dark_quiet, dark_any; /* read by the dark usleeps on stock's threads */
 int ringnav_dark_usleep(unsigned us) {
     return usleep(dark_quiet && us < DARK_POLL_US ? DARK_POLL_US : us);
+}
+/* The cover pollers feed only what is painted, so they slow down whenever the screen is off,
+ * playing or not. ponytail: art parsed while dark can show up to DARK_POLL_US late after wake. */
+int ringnav_dark_cover_usleep(unsigned us) {
+    return usleep(dark_any && us < DARK_POLL_US ? DARK_POLL_US : us);
 }
 
 int ringnav_sleep(void *loop) {
@@ -8363,13 +8370,14 @@ int ringnav_sleep(void *loop) {
 #endif
     if (!g_backlight_status) {
         st.dark |= 1;
+        dark_any = 1;
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
                     airplayGetFlag() != 2 && (signed char)bt__recv_pageflag != 2 &&
                     time_now_ms() - st.wake_at >= WAKE_MS;
         dark_quiet = quiet;
         sleep_ms(quiet ? DARK_IDLE_SLEEP_MS : SCREEN_OFF_SLEEP_MS);
     } else if (st.dark) {
-        dark_quiet = 0;
+        dark_quiet = dark_any = 0;
         wheel_guard_reset();
         if (st.dark & 2) st.woke_at = (unsigned)time_now_ms();
         st.dark = 0;
