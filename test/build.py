@@ -104,7 +104,7 @@ def validate_assets(directory):
     from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, STREAM_POLLS, STREAM_POLL_CALLS, DARK_POLLS, WHEEL_TS_READ, PDR
     from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, BIGCOVER, BC_ART, BC_TITLE_PAD, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
-                      NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
+                      NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, NP_LRC_GUTTER, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
                       patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
@@ -605,7 +605,21 @@ def validate_assets(directory):
             # Distinct bands: top row, art, page dots, bar (A-B markers y 250 to 260), then the times.
             dots = named['slide_indicator1'][1]
             assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
-            assert named['slide_view'][1] == [0, 0, 375, 186] and named['view_lrc'][2]['self_layout'].startswith('default(x=75,')
+            assert named['slide_view'][1] == [0, 0, 375, 186]
+            # The lyric rows: stock's 225px, centred, NP_LRC_GUTTER clear of scroll_lrc's edges each side.
+            lrc = named['view_lrc'][3][0][2]
+            assert named['view_lrc'][2]['self_layout'] == f'default(x={75 - NP_LRC_GUTTER},y=0,w={235 + 2 * NP_LRC_GUTTER},h=178)'
+            assert lrc['self_layout'].startswith('default(x=0,y=0,w=-10,') and lrc['children_layout'] == f'list_view(x={NP_LRC_GUTTER},y=0,s=0)'
+            # The gutter holds any Latin glyph's ink past its advance at 20px, laid out as stock's stb_truetype
+            # does: scaled to the pixel height (ascent - descent), advances truncated, ink rounded outwards.
+            import math
+            from fontTools.ttLib import TTFont
+            font = TTFont(io.BytesIO(read('rootfs.squashfs', FONT)))
+            px, cmap, glyf = 20 / (font['hhea'].ascent - font['hhea'].descent), font.getBestCmap(), font['glyf']
+            ink = [max(math.ceil(glyf[g].xMax * px) - int(font['hmtx'][g][0] * px), -math.floor(glyf[g].xMin * px))
+                   for g in (cmap.get(c) for c in [*range(0x21, 0x7f), *range(0xa1, 0x180), 0x2018, 0x2019, 0x201c, 0x201d])
+                   if g and glyf[g].numberOfContours]
+            assert 0 < max(ink) <= NP_LRC_GUTTER, max(ink)
             slider = named['slider_play']
             assert slider[1] == [NP_BAR[0], 233, NP_BAR[2], NP_TOUCH] and NP_TOUCH >= 44
             assert slider[2]['bar_size'] == '4' and slider[2]['slide_with_bar'] == 'true'
