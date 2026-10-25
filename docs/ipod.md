@@ -67,7 +67,7 @@ unchanged; Classic keeps its existing colour handling.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
-In Minimal, wheel selection under its own accent (**Accent: Minimal**, the default) is off-white (`#EEEEEC`): a card inset
+In Minimal, wheel selection under its own accent (**Accent: Slate**, the default) is off-white (`#EEEEEC`): a card inset
 `SEL_INSET` (6) pixels from each side of the row with `SEL_RADIUS` (6) corners, as Sudo Music's,
 drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
 card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
@@ -613,14 +613,14 @@ full-width selection bar under white text, with Home's chevron on its bar, colou
 glyph. Its status bar is black, as Minimal's.
 
 Each theme keeps its own accent, and the Accent row follows Theme in both. Minimal's
-(`MINIMAL_ACCENT`) cycles Minimal, Graphite, Crimson, Tidal, Champagne, Cobalt, Tangerine, Plum;
-its default, Minimal, draws Graphite's greys with its own fills (the progress bars, Spotify's, the
+(`MINIMAL_ACCENT`) cycles Slate, Graphite, Crimson, Tidal, Champagne, Cobalt, Tangerine, Plum;
+its default, Slate, draws Graphite's greys with its own fills (the progress bars, Spotify's, the
 PEQ curve and the visualizer) in `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure
 white. Another accent colours the selection card, those fills and every mapped red, as in Classic,
 and the card keeps the rows' own ink and stock's `#AAAAAA` metadata. Minimal's grey icons and
 codec badges stay grey, but `list_into`, the Bluetooth marks and `list_delete` stay white, as
 their grey copies were only for the off-white card; the edit pages' OK stays off-white in both
-themes. Classic's (`ACCENT`) skips Minimal, so switching
+themes. Classic's (`ACCENT`) skips Slate, so switching
 to Classic shows Classic's own accent, Graphite until another is chosen. Now Playing's bar has no thumb:
 stock draws its dragger (a box and knob, the stock theme's blue) unless `border_color` is clear,
 so `playing_page` clears it in every state. 1.3.9 first painted it white, which drew the box at rest.
