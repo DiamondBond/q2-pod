@@ -84,14 +84,14 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_color_trampoline(void *, void *, const char *, unsigned),
     stock_image_trampoline(void *, const char *, void *), stock_about_trampoline(void *, void *),
     stock_folder_trampoline(void *, void *), stock_folder_back_trampoline(void *, void *),
-    stock_folder_top_trampoline(void), stock_input_trampoline(void *, void *),
-    stock_buzzer_trampoline(int), stock_localclass_trampoline(int),
-    stock_detail_trampoline(int, void *), stock_artist_trampoline(int),
-    stock_power_trampoline(void *, void *), stock_systemset_trampoline(void *, void *),
-    stock_audioset_trampoline(void *, void *), stock_btrows_trampoline(void *, void *),
-    stock_playlist_trampoline(void *), stock_stream_trampoline(void *, void *),
-    stock_start_player_trampoline(void), stock_standby_trampoline(void),
-    stock_usbmode_trampoline(void *, void *, void *, void *);
+    stock_folder_top_trampoline(void), stock_folder_click_trampoline(void *, void *),
+    stock_input_trampoline(void *, void *), stock_buzzer_trampoline(int),
+    stock_localclass_trampoline(int), stock_detail_trampoline(int, void *),
+    stock_artist_trampoline(int), stock_power_trampoline(void *, void *),
+    stock_systemset_trampoline(void *, void *), stock_audioset_trampoline(void *, void *),
+    stock_btrows_trampoline(void *, void *), stock_playlist_trampoline(void *),
+    stock_stream_trampoline(void *, void *), stock_start_player_trampoline(void),
+    stock_standby_trampoline(void), stock_usbmode_trampoline(void *, void *, void *, void *);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -105,7 +105,7 @@ extern void lockscreen_paint(void *w, void *canvas);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
     photos_open(const char *root), books_paint(void *w, void *canvas),
     books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
-extern int books_key(void *top, unsigned key), video_on(void);
+extern int books_key(void *top, unsigned key), video_on(void), books_video(const char *path);
 extern void games_paint(void *w, void *canvas);
 extern int games_key(void *top, unsigned key), games_open(void *ctx, void *event);
 extern void spot_poll(void), spot_yield(void), spot_paint(void *w, void *canvas), *spot_art(void);
@@ -190,6 +190,7 @@ enum {
     POD_VOL_GUARD,
     POD_HOLD_HOME,
     POD_STANDBY,
+    POD_BT_LINK,
     POD_CF_SORT,    /* Display's Coverflow Sort: coverflow.c's SORT_FILE, not config.ini */
     POD_CF_REFRESH, /* and Refresh Coverflow, an action */
     POD_COUNT
@@ -2270,7 +2271,10 @@ int ringnav_quick_settings(void *win, void *ctx) {
  * lockscreen.c; docs/internals.md#lock-screen), and Playback's Artist album order (ARTISTAZ), and
  * Power's Volume guard (VOLGUARD, playback.c's wheel_guard; docs/internals.md#volume-guard), and
  * Display's Hold Return (HOLDRETURN, compact_now_playing; docs/ipod.md#hold-return), and Power's
- * Standby limit (STANDBYLIMIT, ringnav_standby; docs/internals.md#standby-limit). */
+ * Standby limit (STANDBYLIMIT, ringnav_standby; docs/internals.md#standby-limit), and Bluetooth's
+ * Control Device Volume (BTVOLLINK, bt_audio_ready; docs/internals.md#headset-controls-and-volume). */
+/* Bluetooth's Control Device Volume on: the Q2's volume is the device's own (bt_audio_ready). */
+static int bt_vol_link __attribute__((section(".scratch")));
 #define STR_(x) #x
 #define STR(x) STR_(x)
 static int *const pod_values[] = { &st.charge_limit,
@@ -2285,13 +2289,14 @@ static int *const pod_values[] = { &st.charge_limit,
                                    &wheel_guard,
                                    &st.hold_home,
                                    &st.standby_limit,
+                                   &bt_vol_link,
                                    0,
                                    0 };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 _Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
 static const char *const pod_keys[] = {
-    "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",   "YEAROLD",      0, "RESUME",
-    "LOCKCLOCK",   "ARTISTAZ", "VOLGUARD",   "HOLDRETURN", "STANDBYLIMIT", 0, 0
+    "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",     "YEAROLD",   0, "RESUME", "LOCKCLOCK",
+    "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT", "BTVOLLINK", 0, 0
 };
 _Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
 /* a row's choices: Artist albums three, Standby limit four, every other row off and on */
@@ -2322,6 +2327,10 @@ int ringnav_lock_clock(void) {
 int ringnav_bt_resume(void) {
     pod_settings();
     return st.resume;
+}
+static int bt_link(void) {
+    pod_settings();
+    return bt_vol_link;
 }
 /* read_artistype_value (a Library list's or artist page's init) and boot (playback.c
  * ringnav_bootmode): Artists as stock reads it, PLAYSET ARTISTTYPE, but Album Artist when no choice
@@ -2589,6 +2598,7 @@ static void pod_text(int i) {
         { "Standby Limit: Off", "Standby Limit: " STR(STANDBY_LIMIT_1) " h",
           "Standby Limit: " STR(STANDBY_LIMIT_2) " h",
           "Standby Limit: " STR(STANDBY_LIMIT_3) " h" },
+        { 0 }, /* Control Device Volume: a switch */
         { 0 }, /* Coverflow Sort's from coverflow.c */
         { "Refresh Coverflow" },
     };
@@ -2604,6 +2614,7 @@ static void pod_text(int i) {
                          : i == POD_LOW       ? "Low Power"
                          : i == POD_RESUME    ? "Resume on Connect"
                          : i == POD_VOL_GUARD ? "Volume Guard"
+                         : i == POD_BT_LINK   ? "Control Device Volume"
                                               : 0;
     if (toggle)
         list_toggle(st.pod_label[i], toggle, v);
@@ -2631,6 +2642,10 @@ static int pod_click(void *ctx, void *event) {
         *value = (*value + 1) % pod_choices(i);
         write_int_config(*value, "Q2POD", pod_keys[i]);
         st.charge_at = 0;
+        /* Control Device Volume: off, stock's gain back at once; on, bt_volume_poll's next pass
+         * sends the Q2's level to the device. */
+        if (i == POD_BT_LINK && mclGetOutputWay() == 1)
+            headset_volume_reset(), device_set_volume(g_volume, 0);
     }
     pod_text(i);
     return 0;
@@ -2657,19 +2672,22 @@ int ringnav_powermanager(void *win, void *ctx) {
 }
 /* The Bluetooth page's list (stock's local builder, btmenu_rows), rebuilt whole on every search and
  * link change: its rows, five with Bluetooth on (one, the switch, off), then the device lists.
- * With Bluetooth on, Resume on connect follows the fourth, Bluetooth Headset Volume Control
- * (bt_adjvol), each time, iconless and 78 high as stock's rows. */
+ * With Bluetooth on, Resume on connect and Control Device Volume follow the fourth, Bluetooth
+ * Headset Volume Control (bt_adjvol), each time, iconless and 78 high as stock's rows. */
 int ringnav_btrows(void *win, void *ctx) {
     static const char *const icons[] = { 0 };
     int result = stock_btrows_trampoline(win, ctx);
     if (!g_bluetoothflag) return result;
     pod_rows(win, "scroll_view_bluetooth", POD_RESUME, 1, icons);
+    pod_rows(win, "scroll_view_bluetooth", POD_BT_LINK, 1, icons);
     void *view = win ? widget_lookup(win, "scroll_view_bluetooth", 1) : (void *)0;
     unsigned n = view ? widget_count_children(view) : 0;
-    if (!n) return result;
-    void *row = widget_get_child(view, n - 1);
-    widget_resize(row, I(row, W_W), 78);
-    widget_restack(row, 4);
+    if (n < 2) return result;
+    for (unsigned k = 0; k < 2; ++k) {
+        void *row = widget_get_child(view, n - 2 + k);
+        widget_resize(row, I(row, W_W), 78);
+        widget_restack(row, 4 + k);
+    }
     return result;
 }
 /* A settings list's rows, stock's (ids 0.. in its table order, each button named by its id, which
@@ -4166,47 +4184,64 @@ int ringnav_np_info(void *win) {
     return result;
 }
 
+/* The Display sub-page the next display_page is to be (DISPLAY_*), 0 for Display itself. */
+enum { DISPLAY_APPEARANCE = 1, DISPLAY_COVERFLOW, DISPLAY_CONTROLS };
+static int display_sub __attribute__((section(".scratch")));
+static int display_open(void *ctx, void *event) {
+    display_sub = (int)(long)ctx;
+    navigator_to("systemset/display_page");
+    display_sub = 0;
+    return 0;
+}
+
 /* systemset_display_page_init: stock builds its three rows (0x4c19bc: a s_listitem_black list_item
- * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into); the
- * Theme, Accent, Home and Battery rows follow with the same widgets and styles, borrowing the
- * Display (Theme and Accent), cover mode and power manager icons, the value in the label and no
- * chevron, since they change in place. Artist Albums, Coverflow Sort and Refresh Coverflow (cover
- * mode and update icons) sit together; Hold Return (folder jump icon) and Wheel sensitivity end the
- * list in both builds, the latter opening its slider page (crossfade.c). */
+ * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into);
+ * Appearance (iPod), Coverflow and Controls follow with the same widgets and styles, each opening
+ * stock's page again (display_open) with its stock rows dropped and its own instead: Theme,
+ * Accent, Corners, Home and Battery; Artist Albums, Coverflow Sort and Refresh Coverflow; Shortcut
+ * (iPod), Hold Return and Wheel Sensitivity, the last opening its slider page (crossfade.c). The
+ * value rows show it in the label and have no chevron, since they change in place.
+ * ponytail: stock's page opened over itself; its own rows' state is never touched on a sub-page. */
 int ringnav_display(void *win, void *ctx) {
-    int result = stock_display_trampoline(win, ctx);
-    /* Artist albums: Grid or Coverflow, a layout as Home's, so it sits after Home; Coverflow's own
-     * two after it. */
-    static const char *const cf_icon[] = { "playset_covermode" };
-    static const char *const cf_icons[] = { "playset_covermode", "system_update" };
+    static const char *const titles[] = { 0, "Appearance", "Coverflow", "Controls" },
+                             *const sub_icons[] = { 0, "system_display", "playset_covermode",
+                                                    "playset_folderjump" };
+    static const char *const cf_icons[] = { "playset_covermode", "playset_covermode",
+                                            "system_update" };
     static const char *const hold_icon[] = { "playset_folderjump" };
+    int sub = display_sub, result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
+    if (!view) return result;
+    if (!sub) {
+        for (int i = IPOD ? DISPLAY_APPEARANCE : DISPLAY_COVERFLOW; i <= DISPLAY_CONTROLS; ++i)
+            widget_set_text_utf8(list_row_into(view, sub_icons[i], display_open, (void *)(long)i),
+                                 titles[i]);
+        return result;
+    }
+    widget_destroy_children(view);
+    void *nav = widget_lookup(win, "view_navbar", 1), *title = nav ? widget_get_child(nav, 0) : 0;
+    if (title) widget_set_text_utf8(title, titles[sub]);
+    if (sub == DISPLAY_COVERFLOW) {
+        pod_rows(win, "scroll_view_display", POD_ARTIST_CF, 1, cf_icons);
+        pod_rows(win, "scroll_view_display", POD_CF_SORT, 2, cf_icons + 1);
+        return result;
+    }
 #if IPOD
-    static const char *const icons[] = { "system_display", "playset_covermode",
-                                         "system_powermanager", "system_display" };
-    for (int k = 0; view && k < 4; ++k) {
-        int i = (k + 3) % 4; /* Theme, Accent, Home, Battery */
-        if (i == 2) {
-            pod_rows(win, "scroll_view_display", POD_ARTIST_CF, 1, cf_icon);
-            pod_rows(win, "scroll_view_display", POD_CF_SORT, 2, cf_icons);
-        }
+    /* Theme, Accent, Corners, Home, Battery; Shortcut. */
+    static const unsigned char appearance[] = { 3, 0, 5, 1, 2 }, controls[] = { 4 };
+    static const char *const icons[] = { "system_display",      "playset_covermode",
+                                         "system_powermanager", "system_display",
+                                         "playset_covermode",   "system_display" };
+    const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
+    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 5 : 1; k < n; ++k) {
+        int i = rows[k];
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
-        if (!i) { /* Corners, after Accent */
-            st.setting_label[5] = list_row(view, "system_display", setting_click, (void *)5);
-            setting_text(5);
-        }
     }
-    if (view) {
-        st.setting_label[4] = list_row(view, "playset_covermode", setting_click, (void *)4);
-        setting_text(4);
-    }
-#else
-    pod_rows(win, "scroll_view_display", POD_ARTIST_CF, 1, cf_icon);
-    pod_rows(win, "scroll_view_display", POD_CF_SORT, 2, cf_icons);
 #endif
+    if (sub != DISPLAY_CONTROLS) return result;
     pod_rows(win, "scroll_view_display", POD_HOLD_HOME, 1, hold_icon);
-    if (view) wheel_row(list_row_into(view, "system_display", xfade_open, (void *)1));
+    wheel_row(list_row_into(view, "system_display", xfade_open, (void *)1));
     return result;
 }
 
@@ -6687,6 +6722,21 @@ int ringnav_folder_back(void *yoffset, void *index) {
     return stock_folder_back_trampoline(yoffset, index);
 }
 
+/* folder_page's row click (stock's, 0x521bc4: the tapped or Centre-pressed row's index into
+ * p_deque_showlist, then folder_enter, whose 8, a file, it queues as songs): a video plays as from
+ * Library's Videos row (books_video). Select mode (g_navbar_status) and everything else is stock's.
+ */
+int ringnav_folder_click(void *ctx, void *event) {
+    void *row = event && !g_navbar_status ? table_row_of(P(event, EVENT_TARGET)) : (void *)0;
+    void *list = P(p_deque_showlist, 0);
+    unsigned i = row ? (unsigned)I(row, ROW_INDEX) : ~0u;
+    if (i < deque_size(list)) {
+        void *r = deque_at(list, i);
+        if (I(r, REC_TYPE) == 8 && books_video(P(r, REC_PATH))) return 0;
+    }
+    return stock_folder_click_trampoline(ctx, event);
+}
+
 /* A list_row titled text; returns its list_item. */
 static void *library_row(void *view, const char *icon, int (*click)(void *, void *), void *ctx,
                          const char *text) {
@@ -8195,7 +8245,8 @@ int rockbox_open(void *ctx, void *event) {
     /* Rockbox's volume is pcm-alsa's software mixer alone, so the headset's absolute volume, left
      * at the Q2's, would cap it: open it to the maximum volume limit. Demo syncs it back on return.
      */
-    if (g_bluetoothflag && bt_linkstatus && (unsigned)btctl_transport_get_volume() <= 127)
+    if (bt_link() && g_bluetoothflag && bt_linkstatus &&
+        (unsigned)btctl_transport_get_volume() <= 127)
         btctl_transport_set_volume(((g_maxvolume < 100 ? g_maxvolume : 100) * 127 + 50) / 100);
     system("killall checkappprocess.sh; killall -9 hciplayer; " SPOT_KILL "; sync; kill -9 $PPID");
     return 0;
@@ -8255,8 +8306,8 @@ int ringnav_output(int way) {
 /* AVRCP absolute volume, as in PR #3. libbtctl returns 0 on a successful write.
  * Keep stock software gain unless the headset accepted the requested level. */
 static int bt_audio_ready(void) {
-    return g_bluetoothflag && bt_linkstatus && *(const volatile int *)bt_showcoding > 0 &&
-           !bt__recv_pageflag && mclGetOutputWay() == 1;
+    return bt_link() && g_bluetoothflag && bt_linkstatus &&
+           *(const volatile int *)bt_showcoding > 0 && !bt__recv_pageflag && mclGetOutputWay() == 1;
 }
 
 static struct {

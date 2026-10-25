@@ -790,12 +790,13 @@ int video_start(const char *file, int radio) {
     return pid > 0 ? pid : 0;
 }
 
-static int play_video(void *ctx, void *event) {
-    if (vid.pid) return 0;
+/* path played from its saved place, from the Videos list or Folder view (books_video). */
+static void video_play(const char *path) {
+    if (vid.pid) return;
     headset_manual();
     spot_yield(); /* librespot and radio hold the PCM too, as for local music */
     radio_stop();
-    const char *path = bk.path[(int)(long)ctx];
+    if (!bk.page) BLOB_IO(BOOK_MARKS, bk.marks, 0); /* Folder view: no list read them */
     vid.key = fnv(FNV_SEED, (const unsigned char *)path);
     vid.key |= !vid.key;
     vid.at = 0;
@@ -809,7 +810,18 @@ static int play_video(void *ctx, void *event) {
     vid.gain = headset_gain();
     unlink("/tmp/q2video.state");
     if (vid.pid) vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
+}
+static int play_video(void *ctx, void *event) {
+    video_play(bk.path[(int)(long)ctx]);
     return 0;
+}
+/* Folder view's file (navigation.c ringnav_folder_click): a video plays as from the Videos list;
+ * 0 for anything else, left to stock. */
+int books_video(const char *path) {
+    const char *name = path ? strrchr(path, '/') : 0;
+    if (!name || book_kind(name + 1) != 3) return 0;
+    video_play(path);
+    return 1;
 }
 
 /* the helper's soft volume and gain (its bar), and what it was last sent */
@@ -850,8 +862,12 @@ void video_poll(void) {
     close(vid.sock);
     vid.pid = 0;
     unsigned at;
-    /* where it stopped; a video never resumed takes no slot from the books */
-    if (bk.page && BLOB_IO(VIDEO_PLACE, at, 0) && (at || vid.at)) mark(vid.key, at);
+    /* where it stopped; a video never resumed takes no slot from the books. From Folder view no
+     * page holds the marks, so they are read again first: mark writes them whole. */
+    if (BLOB_IO(VIDEO_PLACE, at, 0) && (at || vid.at)) {
+        if (!bk.page) BLOB_IO(BOOK_MARKS, bk.marks, 0);
+        mark(vid.key, at);
+    }
     widget_invalidate_force(window_manager(), 0);
 }
 

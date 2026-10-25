@@ -67,6 +67,8 @@ HOOKS = {
     'folder_back': (0x507ac8, 'ringnav_folder_back', 'folder_back'),
     # Folder's roots: OTG only with a drive plugged in (g_otg_status)
     'folder_load_top': (0x507348, 'ringnav_folder_top', 'folder_top'),
+    # Videos from Folder view: a video row plays in q2video, not as a song (navigation.c)
+    'folder_click': (0x521bc4, 'ringnav_folder_click', 'folder_click'),
     # Videos: no input reaches the UI while q2video plays
     'window_manager_dispatch_input_event': (0x66d49c, 'ringnav_input', 'input'),
     # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
@@ -834,6 +836,7 @@ FUNCTIONS = {
  'slide_menu_scroll_to_prev': ('int', 'void *'),
  'table_client_stop_animator_scroll': ('int', 'void *'),
  'table_client_set_yoffset': ('int', 'void *, int'),
+ 'table_row_of': ('void *', 'void *'),  # the table row holding a widget, or 0
  'widget_dispatch_simple_event': ('int', 'void *, unsigned'),
  'scroll_view_set_offset': ('int', 'void *, int, int'),
  'scroll_view_scroll_to': ('int', 'void *, int, int, int'),
@@ -1013,6 +1016,7 @@ PRIVATE_FUNCTIONS = {
     "folder_refresh": 0x52176c,  # folder_page's navbar and table from p_deque_showlist (its init, back)
     "class_icon": 0x4afc14,  # a category row's picture: the head for Artists, a genre icon, else .downpic
     "screensaver_rows": HOOKS['screensaver_rows'][0],  # the Lock screen page's rows and picture grid
+    "folder_click": HOOKS['folder_click'][0],  # folder_page's row click (folder_enter, then a file's queue)
     "saver_cover": HOOKS['saver_cover'][0],  # the lock window's img_playcover from the playing track
     "np_info": 0x52a508,  # Now Playing's info page labels, from the track (NP_INFO_CALL)
     "fwupdate_tf": 0x4c2994,  # systemset_fwupdate_page's row 0 click (0x4c2fac): stock's TF card update

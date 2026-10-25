@@ -3296,6 +3296,28 @@ for callback,button,pages in (
             assert m.closed==((list(reversed(pages)) if variant=='ipod' else [])+['playing_page'] if unwind else [])
             passed()
 
+# Folder view's row click (ringnav_folder_click over stock's 0x521bc4): a video file goes to books_video,
+# as Library's Videos row plays it, and stock never queues it as a song; a song row, a video books_video
+# refuses and any row in select mode stay stock's (folder_enter's 8, then the queue and Now Playing).
+class FolderClickMachine(LookupMachine):
+    def __init__(self,*a):
+        super().__init__(*a); self.videos=[]
+        self.handlers[payload_syms['books_video']]='lookup:books_video'; self.handlers[syms['folder_enter']]='lookup:folder_enter'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='lookup:books_video':
+            path=self.text(u.reg_read(UC_MIPS_REG_A0)); self.videos.append(path); self.returns(int(path.endswith('.mp4')),clobber=True); return
+        if name=='lookup:folder_enter': self.returns(8,clobber=True); return
+        return super().hook(u,address,size,unused)
+for selected,name,navbar,played in ((1,'clip.mp4',0,True),(1,'clip.mp4',1,True),(0,'Row 0',0,False)):  # select mode selects
+    m=FolderClickMachine(['home_page','folder_page'],selected,False); m.byte(syms['g_navbar_status'],navbar)
+    m.items(m.get(syms['p_deque_showlist']))[1]=m.song('clip.mp4')
+    w=m.node('button','row'); m.word(w+O['ROW_INDEX'],selected); m.word(m.event+O['EVENT_TARGET'],w)
+    m.call(address=payload_syms['ringnav_folder_click'],args=(w,m.event,0,0),gap=0)
+    assert m.videos==([] if navbar else ['/p/'+name]),(name,navbar,m.videos)
+    assert played==(not any(o[0]=='playing_page' for o in m.opened)),(name,navbar)
+passed()
+
 SONG_MENU=['Play Next','Add to Queue','Add to Favourites','Add to Playlist','Go to Album','Go to Artist']
 # Now Playing targets the queue even when the last browsed list has unrelated rows.
 def playing_menu(**kw):
@@ -3738,8 +3760,9 @@ ov=OutputVolumeMachine(); ov.output(1); ov.save(7,'OTHER','VOLUME'); ov.save(8,'
 assert ov.config=={'VOLUME':'7','OTHER':'8'}; passed()  # other writes keep their section/key
 
 class BtVolumeMachine(Machine):
-    def __init__(self):
+    def __init__(self,link=True):
         super().__init__()
+        if link: self.config['BTVOLLINK']='1'  # Bluetooth's Control Device Volume
         self.absolute=10; self.write_result=0; self.way=1
         self.byte(syms['g_bluetoothflag'],1); self.byte(syms['bt_linkstatus'],1)
         self.word(syms['bt_showcoding'],1); self.byte(syms['g_volume'],20); self.byte(syms['g_maxvolume'],100)
@@ -3770,6 +3793,10 @@ for left,right,want in ((0,0,0),(0,20,25),(20,0,25),(1,1,1),(20,20,25),(40,30,51
     gain=(max(0,left)*100//max(left,right),max(0,right)*100//max(left,right)) if want else (left,right)  # AVRCP 0 isn't silent on every headset: keep stock's mute
     b=BtVolumeMachine(); assert b.volume(left,right)==[gain] and b.writes()==[want]
     assert b.volume(left,right)==[gain] and not b.writes(); passed()
+# Control Device Volume off (the default): the Q2's volume is stock's gain alone, the device's own
+# volume is never read or written, and the poll leaves it be.
+b=BtVolumeMachine(link=False); assert b.volume(20,20)==[(20,20)] and b.volume(40,30)==[(40,30)]
+b.poll(); b.poll(); assert not [c for c in b.calls if c[0].startswith('btctl_')]; passed()
 # Volume 0 and back up: the headset gets 0 then 1, stock gain 0 then full.
 b=BtVolumeMachine(); assert b.volume(0,0)==[(0,0)] and b.writes()==[0]
 assert b.volume(1,1)==[(100,100)] and b.writes()==[1]; passed()
@@ -7128,28 +7155,46 @@ if variant=='ipod':
         if name in ('list_folder','list_tidal','player_playlist'): assert got==sample,name
     passed()
 
-    # Display settings: after the stock rows, Theme, Accent, Home, Artist albums and Battery rows in the
-    # native row widgets and styles, with the Display (Theme and Accent), cover mode and power manager icons;
-    # Centre or tap cycles and saves each; a new theme or accent drops the image cache and repaints, a
-    # new Battery mode repaints the bar. The Accent row, after Theme, shows in both themes.
-    def display(config,card=True):
-        CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.restack=True; m.rockbox_mode=0o100755 if card else 0; m.handlers[tramp['display']]='stock_display'
+    # Display settings: after the stock rows, Appearance, Coverflow and Controls, each opening stock's page
+    # again (display_sub) with its stock rows dropped and its own rows instead. Appearance holds Theme,
+    # Accent, Corners, Home and Battery in the native row widgets and styles, with the Display (Theme and
+    # Accent), cover mode and power manager icons; Centre or tap cycles and saves each; a new theme or
+    # accent drops the image cache and repaints, a new Battery mode repaints the bar.
+    def display_page(m,sub):
+        m.word(payload_syms['display_sub'],sub)
         view=m.node('scroll_view','scroll_view_display',[m.entry(0) for _ in range(3)])
         for e in m.nodes[view]['children']: m.word(e+O['W_PARENT'],view)
         m.top=m.node('window','display_page',[m.node('list_view','list_view_display',[view])])
         m.nodes[m.wm]={'type':'window_manager','children':[m.top]}
-        assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+        m.calls=[]; assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         assert m.calls[0][:3]==('stock_display',m.top,5)
         m.icons_set=[m.text(c[2]) for c in m.calls if c[0]=='image_base_set_image']
-        return m,view,setting_rows(m,view)
+        return view
+    def display(config,card=True,sub=1):
+        CONFIG.clear(); CONFIG.update(config); m=QueueMachine(); m.restack=True; m.rockbox_mode=0o100755 if card else 0; m.handlers[tramp['display']]='stock_display'
+        view=display_page(m,sub)
+        return m,view,setting_rows(m,view) if sub==1 else None
     def setting_rows(m,view):  # Accent, Home, Battery, Theme: as ringnav_display's index
         lab=lambda r: m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]].get('text','')
-        kids=m.nodes[view]['children'][3:]
+        kids=m.nodes[view]['children']
         return [next(r for r in kids if lab(r).startswith(k)) for k in ('Accent','Home','Battery','Theme')]
-    m,view,rows=display({})
-    kids=m.nodes[view]['children'][3:]; corners,cf,cf_sort,cf_refresh,shortcut,hold,wheel=kids[2],kids[4],kids[5],kids[6],kids[8],kids[9],kids[10]
-    assert kids==[rows[3],rows[0],corners,rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Corners, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
-    assert m.icons_set==['system_display','system_display','system_display','playset_covermode','playset_covermode','playset_covermode','system_update','system_powermanager','playset_covermode','playset_folderjump','system_display','list_into'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    def row_text(r): return m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text']
+    m,main,_=display({},sub=0)
+    kids=m.nodes[main]['children']
+    assert len(kids)==6 and [row_text(r) for r in kids[3:]]==['Appearance','Coverflow','Controls']
+    assert m.icons_set==['system_display','list_into','playset_covermode','list_into','playset_folderjump','list_into']
+    f,ctx=m.handler(m.nodes[kids[4]]['children'][0],O['EVT_CLICK']); m.calls=[]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.opened[-1]==('systemset/display_page',None) and m.get(payload_syms['display_sub'])==0; passed()
+    # Coverflow: Artist Albums, Coverflow Sort, Refresh Coverflow; Controls: Shortcut, Hold Return, Wheel.
+    cfv=display_page(m,2); cf,cf_sort,cf_refresh=m.nodes[cfv]['children']
+    assert m.icons_set==['playset_covermode','playset_covermode','system_update']
+    ctl=display_page(m,3); shortcut,hold,wheel=m.nodes[ctl]['children']
+    assert m.icons_set==['playset_covermode','playset_folderjump','system_display','list_into']
+    assert [row_text(r) for r in (shortcut,hold)]==['Shortcut: Rockbox','Hold Return: Recent']; passed()
+    view=display_page(m,1); rows=setting_rows(m,view)
+    kids=m.nodes[view]['children']; corners=kids[2]
+    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Corners, Home, Battery
+    assert m.icons_set==['system_display','system_display','system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7225,11 +7270,11 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[1]),m.text(w[2])) for w in writes]==[(1,'IPOD','THEME')]
     assert m.nodes[corners_label]['text']=='Corners: Rounded'
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
-    kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],corners,rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and m.nodes[rows[0]].get('visible',1)==1
+    kids=m.nodes[view]['children']
+    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
-    # Theme (after the three stock rows) keeps the selection, painted.
-    m.paint(view); assert m.selected(view)==3; passed()
+    # Theme, the first row, keeps the selection, painted.
+    m.paint(view); assert m.selected(view)==0; passed()
     click(1); assert texts()[1]=='Home: Full'; home_bounds(True,True); click(1); home_bounds(False,True); passed()
     for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Cobalt'),(5,'Tangerine'),(6,'Plum'),(0,'Graphite'),(1,'Crimson')):  # Minimal's own skipped
         writes=click(0)
@@ -7240,9 +7285,9 @@ if variant=='ipod':
         assert {b[4] for b in m.bands[1:]}=={color_t(ACCENTS[value][0])}
         assert m.bands[0][4]==color_t(ACCENTS[value][4]); passed()
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and m.nodes[corners_label]['text']=='Corners: Rounded'
-    m.paint(view); assert m.selected(view)==3
-    kids=m.nodes[view]['children'][3:]
-    assert kids==[rows[3],rows[0],corners,rows[1],cf,cf_sort,cf_refresh,rows[2],shortcut,hold,wheel] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
+    m.paint(view); assert m.selected(view)==0
+    kids=m.nodes[view]['children']
+    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.
@@ -7259,7 +7304,7 @@ if variant=='ipod':
     m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Ivory','Home: Full','Battery: Icon + Percent','Theme: Minimal']; passed()
     m,view,rows=display({'BATTERY':'3'}); assert m.nodes[m.nodes[m.nodes[rows[2]]['children'][0]]['children'][1]]['text']=='Battery: Percent Inside'; passed()
     m,view,rows=display({'ACCENT':'2','HOME':'1','THEME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]
-    assert got==['Accent: Tidal','Home: Full','Battery: Icon','Theme: Classic'] and m.nodes[view]['children'][3:5]==[rows[3],rows[0]]; passed()
+    assert got==['Accent: Tidal','Home: Full','Battery: Icon','Theme: Classic'] and m.nodes[view]['children'][0:2]==[rows[3],rows[0]]; passed()
     # Home's Rockbox row (docs/boot.md#rockbox-from-home): its click saves the queue as power-off does,
     # stops the player, leaves S90play's flag and kills demo; without Rockbox on the card it says so.
     class RockboxMachine(Machine):
@@ -7289,10 +7334,10 @@ if variant=='ipod':
     m.rockbox_mode=0o100755
     assert m.call(address=payload_syms['ipod_home_rockbox'],args=(0,0,0,0),gap=0)==1; passed()
     # The wheel walks onto the new rows and Centre clicks them, as any fixed settings list.
-    m,view,rows=display({})
+    m,view,_=display({},sub=0)
     m.paint(view)
     for _ in range(3): m.call()
-    assert m.selected(view)==3 and m.confirm()==11 and m.dispatched()[0][1]==m.nodes[rows[3]]['children'][0]; passed()
+    assert m.selected(view)==3 and m.confirm()==11 and m.dispatched()[0][1]==m.nodes[m.nodes[view]['children'][3]]['children'][0]; passed()
     # PEQ's value edit has action_text "done": stock edit_on_event reports the keyboard's OK only for it (or "next").
     stock=(B/'stock-demo').read_bytes()
     def at(va,n): return next(stock[o+va-v:o+va-v+n] for _,(t,o,v,_,f,*_) in segments(stock) if t==1 and v<=va<v+f)
@@ -7327,7 +7372,7 @@ if variant=='ipod':
             return super().hook(u,address,size,x)
     SET={k:O['SET_'+k] for k in ('ROW','TOP','ROWS','ICON','ICON_X','GAP','TEXT_X','EDGE','STOCK_ROW')}
     def geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
-    def settings(builder,default=SET['ROW']):
+    def settings(builder,default=SET['ROW'],sub=0):
         m=SettingsMachine(); m.layouts=0
         m.mock('list_item_create','button_create','image_create','hscroll_label_create','label_create','widget_use_style',
                'widget_set_name','image_set_draw_type','image_base_set_image','set_hscroll_label_attribute','widget_on',
@@ -7343,7 +7388,7 @@ if variant=='ipod':
         m.nodes[m.wm]={'type':'window_manager','children':[m.top]}
         m.word(view+O['W_W'],375); m.word(view+O['W_H'],SET['ROWS']*SET['ROW'])
         if builder=='display':  # the payload's Accent and Home rows, after three stock-shaped ones
-            m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'
+            m.handlers[tramp['display']]='stock_display'; m.nodes[view]['name']='scroll_view_display'; m.word(payload_syms['display_sub'],sub)
             assert m.call(address=HOOKS['systemset_display_page_init'][0],args=(m.top,5,0,0),gap=0)==0
         else:
             m.call(address=builder,args=(m.top,0,0,0),gap=0)  # learn the name it looks up
@@ -7394,7 +7439,7 @@ if variant=='ipod':
     # However often Theme flips, the Accent row stays right after Theme as a whole settings row, the
     # cached pages take the new inset, the wheel and Centre reach the row after Theme, and a tap
     # selects it.
-    CONFIG.clear(); m,view=settings('display'); items=m.nodes[view]['children']; theme,accent=items[-11:-9]  # then Corners, Home, Artist albums, Coverflow Sort, Refresh Coverflow, Battery, Shortcut, Hold Return, Wheel sensitivity
+    CONFIG.clear(); m,view=settings('display',sub=1); items=m.nodes[view]['children']; theme,accent=items[0:2]  # Appearance: then Corners, Home, Battery
     button=lambda i: m.nodes[i]['children'][0]
     cached=m.node('list_view'); library=m.node('list_view')
     m.word(cached+O['LIST_DEFAULT_ITEM_HEIGHT'],SET['ROW']); m.word(cached+O['ROW_HEIGHT'],0); m.word(cached+O['W_Y'],SET['TOP'])
@@ -7405,7 +7450,7 @@ if variant=='ipod':
         assert m.get(cached+O['W_Y'])==(0 if classic else SET['TOP'])  # cached page, before any layout
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         assert m.get(library+O['W_Y'])==0
-        assert lay(m,view)==0 and m.nodes[view]['children'][-11:-9]==[theme,accent] and m.nodes[accent].get('visible',1)==1
+        assert lay(m,view)==0 and m.nodes[view]['children'][0:2]==[theme,accent] and m.nodes[accent].get('visible',1)==1
         assert m.get(m.get(view+O['W_PARENT'])+O['W_Y'])==(0 if classic else SET['TOP'])
         shown=[i for i in items if m.nodes[i]['visible']]; after=shown[shown.index(theme)+1]
         assert after==accent
@@ -8822,6 +8867,12 @@ def play(i):
 m.forked=0; names=play(1)  # the child
 assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
 assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',R+'/a.mp4',0)]; passed()
+# Folder view's video (books_video) starts the same q2video, with no Videos page open; anything else is left to stock.
+for path,ok in ((R+'/b.MKV',1),(R+'/notes.txt',0),(R+'/._a.mp4',0)):
+    v=BooksMachine(tree,{}); assert v.call(address=payload_syms['books_video'],args=(v.string(path),0,0,0),gap=0)==ok,path
+    v=BooksMachine(tree,{}); v.forked=0; v.call(address=payload_syms['books_video'],args=(v.string(path),0,0,0),gap=0)  # the child
+    assert v.execs==([('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',path,0)] if ok else []),path
+passed()
 # The headphone output is readied as stock's player_start readies it (config_outputchannel, PCM
 # mode, unmuted, the volume) before q2video starts; a DAC check_dacoff_state powered off comes on with it. Bluetooth (way 1) plays on hciplayer's
 # plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on "usb" (q2video
@@ -10629,8 +10680,9 @@ for radio,page in (('wifi','systemset/wifi_page'),('bt','systemset/bluetooth_pag
 # Settings rows (docs/internals.md#charge-limit, #low-power, #album-artists): Power management gains
 # Charge limit and Low power, Audio settings gains Artists, after the stock rows in the same widgets
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
-def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False,cls=QueueMachine):
+def settings_page(hook,view_name,config={},stock_rows=2,bt=1,boot=False,cls=QueueMachine,sub=0):
     m=cls(); m.config.update(config); m.restack=True
+    if hook=='display': m.word(payload_syms['display_sub'],sub)  # 3: Display's Controls page
     if boot:
         m.handlers[payload_syms['peq_boot']]='stock_peq_boot'  # FP64 storage checked by test/peq.py
         m.call(address=payload_syms['ringnav_bootmode'],args=(3,0,0,0),gap=0)  # config_init's play mode
@@ -10941,19 +10993,19 @@ for config,text in (({},'30 min'),({'RESUMEMIN':'0'},'Off'),({'RESUMEMIN':'120'}
     m,rows,texts,*_=settings_page('audioset','scroll_view_playset',config,stock_rows=15)
     assert texts()[5]=='Resume Songs: '+text and m.nodes[m.nodes[m.nodes[rows[5]]['children'][0]]['children'][1]].get('name')=='label_resumemin',config
 passed()
-# Wheel sensitivity (playback.c wheel_pct, test/playback.py's travel): Display's last row in both
+# Wheel sensitivity (playback.c wheel_pct, test/playback.py's travel): Display → Controls' last row in both
 # builds, Q2POD WHEELSENSITIVITY as 1.0.6 saved it, 50% unless a canonical ten in 50-200.
 for config,pct in (({},50),({'WHEELSENSITIVITY':'130'},130),({'WHEELSENSITIVITY':'200'},200),({'WHEELSENSITIVITY':'40'},50),
                    ({'WHEELSENSITIVITY':'135'},50),({'WHEELSENSITIVITY':'210'},50),({'WHEELSENSITIVITY':'x'},50)):
-    m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3)
+    m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3,sub=3)
     label=m.nodes[m.nodes[rows[-1]]['children'][0]]['children'][1]
     assert texts()[-1]==f'Wheel Sensitivity: {pct}%' and icons[-1]=='system_display' and m.nodes[label]['name']=='label_wheel'
     assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-1]==rows[-1],config  # the list's end
 passed()
-# Hold Return (Q2POD HOLDRETURN; compact_now_playing): Display's row before Wheel sensitivity in both
+# Hold Return (Q2POD HOLDRETURN; compact_now_playing): Controls' row before Wheel sensitivity in both
 # builds, Recent unless set; Centre or tap toggles and saves it.
 for config,text in (({},'Recent'),({'HOLDRETURN':'1'},'Home')):
-    m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3)
+    m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3,sub=3)
     assert texts()[-2]=='Hold Return: '+text and icons[-2]=='playset_folderjump'
     assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-2]==rows[-2],config
 assert click(-2)==[(0,'Q2POD','HOLDRETURN')] and texts()[-2]=='Hold Return: Recent'
@@ -10962,7 +11014,7 @@ passed()
 # Its row opens stock's Boot volume page re-dressed (crossfade.c): titled, no switch, the percent
 # beside the slider, which runs 50-200 in tens. The wheel and +/- step 10%, live and saved, the
 # slider snaps to a ten, and Centre goes back (edit_key, as on Brightness).
-m,rows,texts,icons,click=settings_page('display','scroll_view_display',stock_rows=3)
+m,rows,texts,icons,click=settings_page('display','scroll_view_display',stock_rows=3,sub=3)
 display_page=m.top; m.stack=[m.top]; m.nodes[m.wm]=dict(type='window_manager',name='',children=m.stack,visible=1)
 assert click(-1)==[] and m.top!=display_page and m.nodes[m.top]['name']=='bootvol_page'
 assert m.nodes[m.title]['text']=='Wheel Sensitivity' and m.nodes[m.switch]['visible']==0 and m.nodes[m.vol]['text']=='50%'
@@ -10996,18 +11048,23 @@ m.nodes[m.slider]['value']=63; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(
 m.nodes[m.slider]['value']=300; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[(120,*R)] and turn()==[]
 m.nodes[m.slider]['value']=15; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(0,*R)] and texts()[5]=='Resume Songs: Off'
 assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1; passed()
-# Bluetooth's list (btmenu_rows, rebuilt on every search) gains Resume on connect with Bluetooth on,
-# right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon, 78 high.
-# Off unless Q2POD RESUME is 1 (docs/internals.md#resume-on-connect).
+# Bluetooth's list (btmenu_rows, rebuilt on every search) gains Resume on connect and Control Device Volume
+# with Bluetooth on, right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon,
+# 78 high. Both off unless Q2POD RESUME / BTVOLLINK is 1 (docs/internals.md#resume-on-connect,
+# #headset-controls-and-volume); off, the Q2's volume is its own gain and the device keeps its own volume.
 m,rows,texts,icons,click=settings_page('btrows','scroll_view_bluetooth',stock_rows=7)  # 5 rows, 2 devices
-assert len(rows)==1 and icons==[None] and texts()==['Resume on Connect']
-kids=m.nodes[m.nodes[rows[0]]['children'][0]]['children']  # the label and its switch
-assert len(kids)==2 and m.get(kids[0]+O['W_X'])==10 and m.get(rows[0]+O['W_H'])==78 and switch_image(m,rows[0])=='switch_off'
-assert m.nodes[named(m,m.top,'scroll_view_bluetooth')]['children'].index(rows[0])==4
-assert click(0)==[(1,'Q2POD','RESUME')] and texts()==['Resume on Connect'] and switch_image(m,rows[0])=='switch_on'
-assert click(0)==[(0,'Q2POD','RESUME')] and texts()==['Resume on Connect'] and switch_image(m,rows[0])=='switch_off'; passed()
-m,rows,texts,*_=settings_page('btrows','scroll_view_bluetooth',{'RESUME':'1'},stock_rows=7)
-assert texts()==['Resume on Connect']; passed()
+assert len(rows)==2 and icons==[None,None] and texts()==['Resume on Connect','Control Device Volume']
+for k,row in enumerate(rows):
+    kids=m.nodes[m.nodes[row]['children'][0]]['children']  # the label and its switch
+    assert len(kids)==2 and m.get(kids[0]+O['W_X'])==10 and m.get(row+O['W_H'])==78 and switch_image(m,row)=='switch_off'
+    assert m.nodes[named(m,m.top,'scroll_view_bluetooth')]['children'].index(row)==4+k
+assert click(0)==[(1,'Q2POD','RESUME')] and switch_image(m,rows[0])=='switch_on'
+assert click(0)==[(0,'Q2POD','RESUME')] and switch_image(m,rows[0])=='switch_off'
+assert click(1)==[(1,'Q2POD','BTVOLLINK')] and switch_image(m,rows[1])=='switch_on'
+assert click(1)==[(0,'Q2POD','BTVOLLINK')] and switch_image(m,rows[1])=='switch_off'
+assert texts()==['Resume on Connect','Control Device Volume']; passed()
+m,rows,texts,*_=settings_page('btrows','scroll_view_bluetooth',{'RESUME':'1','BTVOLLINK':'1'},stock_rows=7)
+assert [switch_image(m,r) for r in rows]==['switch_on','switch_on']; passed()
 m,rows,*_=settings_page('btrows','scroll_view_bluetooth',stock_rows=1,bt=0)  # just the switch
 assert rows==[]; passed()
 
@@ -11556,7 +11613,7 @@ print('M4B recognition/resume and headset routing, ear masks, manual cancellatio
 def endpoint(m,name,value=0):
     return m.call(address=payload_syms[name],args=(value,0,0,0),gap=0,clear=False)
 def ready_gain(m,ready,volume):
-    m.way=1
+    m.way=1; m.config['BTVOLLINK']='1'; m.word(payload_syms['bt_vol_link'],1)  # Control Device Volume on, read or not
     for name in ('g_bluetoothflag','bt_linkstatus'): m.byte(syms[name],1)
     m.word(syms['bt_showcoding'],1); m.byte(syms['g_volume'],volume)
     m.word(payload_syms['btvol']+4 if 'btvol' in payload_syms else payload_syms['btvol.1'],ready)  # clang may split scalar fields
