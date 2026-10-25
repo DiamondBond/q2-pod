@@ -978,7 +978,8 @@ static int load_rows(menu_t *m, void *w) {
     if (m->kind == 1 && I(w, VIEW_CONTENT_H) < 0) return 0;
     if (m->kind == 1 || m->kind == 4) {
         entries_t s = { m->at, 0, MAX_ENTRIES, 4096 };
-        for (unsigned i = 0; i < n && s.n < s.cap && s.budget >= 0; ++i) collect(widget_get_child(w, i), &s, 1);
+        for (unsigned i = 0; i < n && s.n < s.cap && s.budget >= 0; ++i)
+            collect(widget_get_child(w, i), &s, 1);
         m->n = s.n;
         m->rows = s.n;
         for (int i = 0; i < m->n; ++i) m->id[i] = i;
@@ -8160,7 +8161,9 @@ static void bt_volume_poll(void) {
  * idles IDLE_SLEEP_MS once input and window animations have been still for IDLE_MS, except while
  * Now Playing animates. */
 static volatile int dark_quiet; /* read by ringnav_dark_usleep on stock's threads */
-int ringnav_dark_usleep(unsigned us) { return usleep(dark_quiet && us < DARK_POLL_US ? DARK_POLL_US : us); }
+int ringnav_dark_usleep(unsigned us) {
+    return usleep(dark_quiet && us < DARK_POLL_US ? DARK_POLL_US : us);
+}
 
 int ringnav_sleep(void *loop) {
     headset_poll();
