@@ -1911,7 +1911,7 @@ static void paint_selection(void *w, void *canvas) {
         int in = grid ? TILE_INSET : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
         fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]),
-                 grid ? SEL_RADIUS : card.h / 2);
+                 tile ? SEL_RADIUS : card.h / 2);
     }
     st.sel_w = w;
     st.sel_row = i;
@@ -4021,7 +4021,9 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
     }
     /* Minimal: a card app's Streaming icon (addon.c, a file:// image) greys as Streaming's own
      * stream_ icons do (mono, above), so its row matches theirs; Classic keeps its colours. */
-    unsigned char *app = format < 4 && !ipod_classic() && addon_is_icon(name)
+    unsigned char *app = format < 4 && !ipod_classic() && addon_is_icon(name) && I(bitmap, 0) > 0 &&
+                                 I(bitmap, 0) <= 4096 && I(bitmap, 4) <= 4096 &&
+                                 (int)bitmap_get_line_length(bitmap) >= 4 * I(bitmap, 0)
                              ? bitmap_lock_buffer_for_write(bitmap)
                              : (void *)0;
     if (app) {

@@ -1,7 +1,6 @@
 # Changelog
 
 - **1.4.6**:
-  - Battery: the crash watchdog checks every 10 s instead of 2 s, so it forks far less often; a crashed player still reboots within 10 s.
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - iPod: **Accent** now works in the Minimal theme too. Minimal's own off-white is its first choice and stays the default, so Minimal looks the same until you pick another; any other accent colours Minimal's selection, progress bar and switches. Each theme remembers its own accent, and Classic keeps its Graphite default.
   - iPod: the selection bar is a pill, inset from the screen's edges, so the rounded glass no longer cuts off its corners. In Classic and Minimal alike; album grids keep their rounded squares.

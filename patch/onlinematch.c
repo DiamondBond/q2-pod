@@ -205,7 +205,8 @@ int album_lyrics(lyr_job *job, const lyr_track *t, int n,
             if (got == LRC_BUSY) answered = 1; /* there, just busy */
             int again = got == LRC_BUSY ? ++busy < LJ_BUSY_TRIES : got == LRC_OFFLINE && answered && !lost++;
             if (!again) break;
-            usleep(LJ_RETRY_US);
+            /* in steps, so USB storage's stop does not wait out the whole pause */
+            for (unsigned us = 0; us < LJ_RETRY_US && !job->cancel; us += 100000) usleep(100000);
         }
         if (got == LRC_SAVED && !rename(part, lrc)) {
             if (*t[i].shadow) unlink(t[i].shadow);
