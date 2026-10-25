@@ -8228,7 +8228,8 @@ static void *logo_sync(void *unused) {
 static void logo_poll(void) {
     unsigned now = time_now_ms();
     if (st.logo_err) toast(st.logo_err), st.logo_err = 0;
-    /* Mount edges (boot, USB storage's end) come lit; dark it keeps its edge for the first lit poll. */
+    /* Mount edges (boot, USB storage's end) come lit; dark it keeps its edge for the first lit
+     * poll. */
     if (!g_backlight_status || st.logo_busy || (st.logo_at && now - st.logo_at < CHARGE_POLL_MS))
         return;
     st.logo_at = now | !now;
