@@ -4,6 +4,10 @@
 MCU firmware as a single development experiment. Normal builds keep all three
 stock files. The boot script loads PWM before MCU, as stock already does.
 
+This document describes the polling park protocol. The optional additional
+`--mcu-idle-sleep` uses a version2 protocol and two IRQ hooks; see
+[MCU sleep](mcu-sleep.md) for its wake, timeout and validation behavior.
+
 ```sh
 export PATH=/usr/lib/llvm-18/bin:$PATH
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-pwm --dev --pwm-idle-clock

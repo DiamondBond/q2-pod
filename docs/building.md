@@ -52,6 +52,9 @@ for the exact module guard, tests, and hardware-validation limits.
 It requires all three matching files and a reboot; see [PWM clock gating](pwm-clock-gating.md)
 for its ownership protocol, conservative fallbacks and validation limits.
 
+Add `--mcu-idle-sleep` to the development PWM option to test interruptible MCU
+sleep with an explicit wake handshake. See [MCU sleep](mcu-sleep.md).
+
 ## Tests
 
 ```sh

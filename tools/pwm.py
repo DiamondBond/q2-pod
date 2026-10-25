@@ -75,10 +75,10 @@ def permanent(elf):
     require(removed==1,'Expected one module exit pointer')
     rel['data']=bytearray(b''.join(struct.pack('<II',*r) for r in kept))
 
-def link(elf,source,extra_include=None):
+def link(elf,source,extra_include=None,sleep=False):
     with tempfile.TemporaryDirectory(prefix='q2-pwm-') as directory:
         p=pathlib.Path(directory); (p/'stock.ko').write_bytes(elf.pack())
-        includes=['-I',str(ROOT)]
+        includes=['-I',str(ROOT)]+(['-DQ2_MCU_SLEEP=1'] if sleep else [])
         if extra_include is not None:
             (p/'mcu_park_expected.h').write_text(extra_include)
             includes += ['-I',str(p)]
@@ -86,6 +86,7 @@ def link(elf,source,extra_include=None):
         subprocess.run(['ld.lld','-r','--build-id=sha1',str(p/'stock.ko'),str(p/'helper.o'),'-o',str(p/'linked.ko')],check=True)
         result=Elf((p/'linked.ko').read_bytes())
         result.by_name['.modinfo']['data'].extend(b'q2_clock_policy=cooperative-pwm-v1\0')
+        if sleep: result.by_name['.modinfo']['data'].extend(b'q2_mcu_sleep=irq-epc-recheck-v1\0')
         note=result.by_name['.note.gnu.build-id']['data']
         require(len(note)==36 and note[12:16]==b'GNU\0','Unexpected build ID')
         note[16:36]=bytes(20); note[16:36]=hashlib.sha256(result.pack()).digest()[:20]
@@ -121,7 +122,7 @@ def expected_header(image,helper_size):
     lines += [f'{{{start},{end-start},q2_expected_{i}}},' for i,(start,end) in enumerate(ranges)]
     return '\n'.join(lines+['};',''])
 
-def patch_mcu(data,image,helper_size):
+def patch_mcu(data,image,helper_size,sleep=False):
     require(hashlib.sha256(data).hexdigest()==MCU_SHA256,'Unsupported or already patched MCU module')
     elf=Elf(data)
     for name in ['mcu_init','mcu_bootup','mcu_reset','mcu_shutdown','mcu_write_data','mcu_ioctl']:
@@ -130,20 +131,20 @@ def patch_mcu(data,image,helper_size):
     info=elf.by_name['.modinfo']['data']
     require(info.count(b'depends=utils\0')==1, 'Unexpected MCU dependencies')
     info[:]=info.replace(b'depends=utils\0',b'depends=utils,soc_pwm\0')
-    return link(elf,'mcu_pwm_clock.c',expected_header(image,helper_size))
+    return link(elf,'mcu_pwm_clock.c',expected_header(image,helper_size),sleep=sleep)
 
-def patch_bundle(cat):
+def patch_bundle(cat,sleep=False):
     import mcu_park
-    helper,symbols=mcu_park.compile_helper()
+    helper,symbols=mcu_park.compile_helper(sleep=sleep)
     old_image=cat('usr/data/libmcu-bare.bin')
-    image=mcu_park.patch_image(old_image,helper)
+    image=mcu_park.patch_image(old_image,helper,sleep=sleep,symbols=symbols)
     originals={path:cat(path) for path in ('module_driver/soc_pwm.ko','module_driver/soc_mcu.ko')}
     files={'module_driver/soc_pwm.ko':patch_pwm(originals['module_driver/soc_pwm.ko']),
-           'module_driver/soc_mcu.ko':patch_mcu(originals['module_driver/soc_mcu.ko'],image,len(helper)),
+           'module_driver/soc_mcu.ko':patch_mcu(originals['module_driver/soc_mcu.ko'],image,len(helper),sleep=sleep),
            'usr/data/libmcu-bare.bin':image}
     originals['usr/data/libmcu-bare.bin']=old_image
     manifest=dict(policy='cooperative-pwm-v1', normal_module_unload=False,
-        mcu=mcu_park.make_manifest(old_image,image,helper,symbols),
+        mcu=mcu_park.make_manifest(old_image,image,helper,symbols,sleep=sleep),
         files={path:dict(original_sha256=hashlib.sha256(originals[path]).hexdigest(),
                         sha256=hashlib.sha256(data).hexdigest()) for path,data in files.items()})
     # Source paths are not part of reproducible build metadata.

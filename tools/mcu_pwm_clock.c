@@ -18,6 +18,19 @@ struct q2_clocks q2_mcu_clocks;
 u32 q2_mcu_known, q2_mcu_running, q2_mcu_fault, q2_mcu_parks, q2_mcu_wakes;
 #define REQ (*(volatile u32 *)0xb3429f00u)
 #define ACK (*(volatile u32 *)0xb3429f04u)
+#ifdef Q2_MCU_SLEEP
+#define WAKE (*(volatile u32 *)0xb3429f10u)
+#define SFTINT (*(volatile u32 *)0xb00000bcu)
+/* Same latch as exact stock mcu_write_data. No DMA/reset/clock registers. */
+static void q2_mcu_kick(void) {
+    q2_barrier();
+    if (!SFTINT) SFTINT=1;
+    q2_barrier();
+}
+static void q2_mcu_request_wake(void) {
+    WAKE=1; q2_barrier(); REQ=0; q2_barrier(); q2_mcu_kick();
+}
+#endif
 #define PWM(off) (*(volatile u32 *)(0xb34c0000u+(off)))
 
 static int q2_mcu_image_matches(int pristine) {
@@ -34,7 +47,16 @@ static int q2_mcu_image_matches(int pristine) {
 static int q2_mcu_ack(u32 value) {
     u32 i;
     for (i=0;i<1000;i++) {
-        if (ACK==value) { q2_barrier(); return 0; }
+        if (ACK==value
+#ifdef Q2_MCU_SLEEP
+            && (value || !WAKE)
+#endif
+        ) { q2_barrier(); return 0; }
+#ifdef Q2_MCU_SLEEP
+        /* A coalesced IRQ can be cleared while a kick is published. Retry the
+         * idempotent wake token only while no command may be written. */
+        if (!value && WAKE) q2_mcu_kick();
+#endif
         usleep_range(100,200);
     }
     return -110;
@@ -43,15 +65,26 @@ static void q2_mcu_abandon(void) {
     q2_mcu_fault=1;
     if (q2_mcu_known && q2_mcu_running) {
         /* Clocks are still owned. Do not leave a timed-out MCU parked. */
+#ifdef Q2_MCU_SLEEP
+        q2_mcu_request_wake();
+#else
         REQ=0; q2_barrier();
+#endif
     }
 }
 static int q2_mcu_wake(void) {
     int r=q2_clocks_up(&q2_mcu_clocks);
     if (r) return r;
     if (!q2_mcu_known || !q2_mcu_running) return 0;
+#ifdef Q2_MCU_SLEEP
+    /* Once this paired protocol faults, retain clocks and reject additional
+     * commands until reboot. Never publish into a possibly sleeping MCU. */
+    if (q2_mcu_fault) return -110;
+    q2_mcu_request_wake();
+#else
     REQ=0; q2_barrier();
     if (q2_mcu_fault) return 0;
+#endif
     r=q2_mcu_ack(0);
     if (r) q2_mcu_abandon();
     else q2_mcu_wakes++;
@@ -87,7 +120,11 @@ static int q2_mcu_start(u32 a,u32 b,u32 c,u32 d,int reset) {
     if (q2_mcu_known) {
         /* SRAM is uncached and reset is asserted. ACK cannot be inherited
          * across a reboot; this area is outside the stock BSS clear. */
-        REQ=1; ACK=0; q2_barrier();
+        REQ=1; ACK=0;
+#ifdef Q2_MCU_SLEEP
+        WAKE=0;
+#endif
+        q2_barrier();
     } else q2_mcu_fault=1;
     /* park() may have released refs above: acquire before releasing reset. */
     r=q2_clocks_up(&q2_mcu_clocks);

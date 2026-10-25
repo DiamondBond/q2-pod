@@ -1175,9 +1175,10 @@ def patch_bluealsa(raw):
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
-def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_clock=False, pwm_idle_clock=False):
+def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_clock=False, pwm_idle_clock=False, mcu_idle_sleep=False):
     check(not rotator_lazy_clock or dev, '--rotator-lazy-clock requires --dev')
     check(not pwm_idle_clock or dev, '--pwm-idle-clock requires --dev')
+    check(not mcu_idle_sleep or (dev and pwm_idle_clock), '--mcu-idle-sleep requires --dev --pwm-idle-clock')
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
     check(re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9._-]+', repo), f'{repo}: not a GitHub owner/name')  # a C string
@@ -1458,7 +1459,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_cl
     pwm = None
     if pwm_idle_clock:
         from pwm import patch_bundle
-        files, pwm = patch_bundle(cat)
+        files, pwm = patch_bundle(cat, sleep=mcu_idle_sleep)
         for path, data in files.items():
             src = out/pathlib.Path(path).name
             src.write_bytes(data)
@@ -1587,6 +1588,8 @@ if __name__ == '__main__':
     ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
                     help='development build: tag from the next .build-number (V001i, V002i...); never a release input')
+    ap.add_argument('--mcu-idle-sleep', action='store_true',
+                    help='experimental: sleep parked MCU with explicit IRQ wake (requires --dev --pwm-idle-clock)')
     ap.add_argument('--update-repo', default=REPO, metavar='OWNER/NAME',
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
     ap.add_argument('--rotator-lazy-clock', action='store_true',
@@ -1595,6 +1598,6 @@ if __name__ == '__main__':
                     help='experimental: cooperative Linux/MCU PWM clock gating (requires --dev)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.rotator_lazy_clock,a.pwm_idle_clock)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.rotator_lazy_clock,a.pwm_idle_clock,a.mcu_idle_sleep)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

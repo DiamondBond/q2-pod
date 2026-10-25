@@ -12,14 +12,20 @@ with tempfile.TemporaryDirectory() as directory:
     except ValueError as exc: assert str(exc)=='--pwm-idle-clock requires --dev'
     else: raise AssertionError('PWM experiment accepted without --dev')
     assert not (root/'output').exists()
+    for flags in ({}, {'dev':True}, {'pwm_idle_clock':True}):
+        try: build(root/'missing.zip',root/'output',root/'missing.jpg',mcu_idle_sleep=True,**flags)
+        except ValueError as exc: assert 'requires --dev' in str(exc)
+        else: raise AssertionError('MCU sleep experiment accepted without paired dev PWM option')
+        assert not (root/'output').exists()
 
 ap=argparse.ArgumentParser(description=__doc__)
 ap.add_argument('stockfs',type=pathlib.Path)
+ap.add_argument('--sleep',action='store_true')
 ap.add_argument('builds',nargs='*',type=pathlib.Path)
 a=ap.parse_args()
 cat=lambda path:(a.stockfs/path).read_bytes()
-files,manifest=patch_bundle(cat)
-repeat,second=patch_bundle(cat)
+files,manifest=patch_bundle(cat,sleep=a.sleep)
+repeat,second=patch_bundle(cat,sleep=a.sleep)
 assert files==repeat and manifest==second, 'Paired patch is not reproducible'
 
 def info(data):return dict(x.split(b'=',1) for x in bytes(Elf(data).by_name['.modinfo']['data']).split(b'\0') if b'=' in x)
