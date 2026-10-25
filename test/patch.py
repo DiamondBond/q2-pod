@@ -9213,7 +9213,7 @@ m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting
 heart=next(w for w in m.nodes[np]['children'] if m.nodes[w].get('image') in ('play_fav','play_unfav'))
 heart_x,heart_y=320,176
 if variant=='ipod':
-    heart_y=O['NP_ART_TOP']+O['SPOT_ART_PX']-50
+    heart_y=O['NP_ART_TOP']+O['SPOT_ART_PX']-50+O['NP_ICON_PAD']
     from ipod import NP_ICONS_END, NP_ICON
     heart_x=NP_ICONS_END-NP_ICON
 assert m.nodes[heart]['image']=='play_unfav' and [m.get(heart+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[heart_x,heart_y,50,50]; passed()

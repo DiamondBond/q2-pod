@@ -448,7 +448,7 @@ static void np_open(void) {
                        14, SPOT_GREY);
     /* local Now Playing's heart (tools/ipod.py img_fav) */
     np.heart =
-        image_create(page, IPOD ? 303 : 320, IPOD ? SPOT_ART_Y + SPOT_ART_PX - 50 : 176, 50, 50);
+        image_create(page, IPOD ? 303 : 320, IPOD ? SPOT_ART_Y + SPOT_ART_PX - 50 + NP_ICON_PAD : 176, 50, 50);
     image_set_draw_type(np.heart, IMAGE_DRAW_CENTER);
     widget_set_prop_str(np.heart, "clickable", "true");
     widget_on(np.heart, EVT_CLICK, np_heart, 0);

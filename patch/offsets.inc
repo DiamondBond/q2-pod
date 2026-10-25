@@ -240,6 +240,9 @@ static inline int arc_out(int r, int y) {
 #define NP_ART_TOP 42
 #define SPOT_ART_Y (IPOD ? NP_ART_TOP : 50)
 #define SPOT_ART_PX 166
+/* iPod: the 50px heart/play-mode frame sits this far below the art's bottom edge, so the centred
+ * 28px glyph (4px clear at its foot) ends level with the art (tools/ipod.py NP_ICON_PAD) */
+#define NP_ICON_PAD 15
 #define SPOT_TEXT_X 194
 #define SPOT_TEXT_W 165
 #define SPOT_BAR_X 21
