@@ -60,6 +60,12 @@ static int library_query(int content, const char *db, const char *sql, void *row
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
+    /* getAllPlayList's playlist headers: by name, not creation (stock Rename sets name too) */
+    if (sql && !strcmp(sql, "select * from playlist where id <= 100")) {
+        int n = tk_snprintf(filtered, sizeof filtered, "%s order by name collate nocase, id", sql);
+        if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
+        sql = filtered;
+    }
     if (content == 2) return stock_sorted_query_trampoline(db, sql, row, (int)arg);
     return content ? stock_content_query_trampoline(db, sql, row, arg, sort)
                    : stock_dbquery_trampoline(db, sql, row, (int)arg);
@@ -4803,15 +4809,7 @@ static int class_query(unsigned cls, void *r) {
         id == -2);
 }
 
-static int qm_query(void *r) {
-    if (st.qm_kind == QM_FOLDER) {
-        char path[1024];
-        tk_snprintf(path, sizeof(path), "%s/%s", (const char *)g_folder_path,
-                    (const char *)P(r, REC_NAME));
-        return toolsLoadDirectory(path);
-    }
-    return class_query(st.qm_cls, r);
-}
+static int qm_query(void *r) { return class_query(st.qm_cls, r); }
 
 /* An Albums row (load_album_detaillist) or Go to album opens its name's songs, 0xff10 with
  * classinfo +0xd the name and +0x10d the artist: r is kept, a copy, to keep its album alone. */
@@ -5227,10 +5225,38 @@ int ringnav_localclass(int cls) {
     return n;
 }
 
-/* The tracks stock would play for that row, in its order. */
+static int dir_query(void *path) { return toolsLoadDirectory((const char *)path); }
+/* A folder's songs and, in stock's listing order, its subfolders' (dot folders such as .tidal
+ * left out), so a folder of albums queues them all.
+ * ponytail: one toolsLoadDirectory per folder on the UI thread; a big tree takes a while. */
+static void folder_tracks(const char *path, void *add, int depth) {
+    int n;
+    void *rows = staged(dir_query, (void *)path, &n);
+    for (unsigned i = 0; i < deque_size(rows); ++i) {
+        void *t = deque_at(rows, i);
+        const char *name = P(t, REC_NAME);
+        if (I(t, REC_TYPE) == 8)
+            _deque_push_back(add, t);
+        else if (I(t, REC_TYPE) == 4 && depth < 8 && name && *name != '.') {
+            char sub[1024];
+            if ((unsigned)tk_snprintf(sub, sizeof sub, "%s/%s", path, name) < sizeof sub)
+                folder_tracks(sub, add, depth + 1);
+        }
+    }
+    deque_destroy(rows);
+}
+
+/* The tracks stock would play for that row, in its order; a folder's take in its subfolders. */
 static void qm_tracks(void *r, void *add) {
     int n;
-    void *rows = (st.qm_kind == QM_FOLDER ? staged : staged_music)(qm_query, r, &n);
+    if (st.qm_kind == QM_FOLDER) {
+        char path[1024];
+        tk_snprintf(path, sizeof(path), "%s/%s", (const char *)g_folder_path,
+                    (const char *)P(r, REC_NAME));
+        folder_tracks(path, add, 0);
+        return;
+    }
+    void *rows = staged_music(qm_query, r, &n);
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
