@@ -93,8 +93,8 @@ int spot_reply(char *buf, unsigned len, char **f, int max) {
 
 /* librespot as last read; kept for the life of demo. */
 static struct {
-    int launched, sock, playing, paused, local, active, played, dead; /* dead: its socket refused */
-    unsigned polled, idle_at, duration, position, cover, launch_at, alive_at;
+    int launched, pending, sock, playing, paused, local, active, played, dead; /* dead: its socket refused */
+    unsigned polled, idle_at, duration, position, cover, launch_at, alive_at, wifi_lease;
     unsigned long long at;
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
@@ -229,7 +229,23 @@ static int spot_started(void) {
 }
 
 static void spot_launch(void) {
-    if (sp.launched || access(SPOT_BIN, 0)) return;
+    if (sp.launched) return;
+    if (access(SPOT_BIN, 0)) {
+        smart_wifi_release(sp.wifi_lease);
+        sp.wifi_lease = sp.pending = 0;
+        return;
+    }
+    if (!sp.wifi_lease) sp.wifi_lease = smart_wifi_acquire(SW_SPOTIFY);
+    int state = smart_wifi_ready(sp.wifi_lease);
+    if (state == SW_WAIT) { sp.pending = 1; return; }
+    sp.pending = 0;
+    /* Manual Wi-Fi off still permits the add-on's existing offline startup. */
+    if (state < 0 && state != SW_USER_OFF) {
+        smart_wifi_release(sp.wifi_lease);
+        sp.wifi_lease = 0;
+        toast("Could not connect to Wi-Fi");
+        return;
+    }
     sp.launched = 1;
     sp.idle_at = sp.launch_at = time_now_ms();
     system(SPOT_RUN);
@@ -250,6 +266,7 @@ static int browsing(void);
  * music's. Streaming's Spotify row starts it again. */
 void spot_stop(void) {
     int sock = sp.sock;
+    smart_wifi_release(sp.wifi_lease);
     system(SPOT_KILL);
     memset(&sp, 0, sizeof sp);
     sp.sock = sock;
@@ -269,10 +286,11 @@ static int spot_alive(void) {
  * auto-power-off timers held and the DAC kept on (check_dacoff_state). The screen's own timer runs,
  * so the screen still turns off. */
 void spot_poll(void) {
-    if (!sp.launched) return;
+    if (!sp.launched && !sp.pending) return;
     unsigned now = time_now_ms();
     if (now - sp.polled < SPOT_POLL_MS) return;
     sp.polled = now;
+    if (!sp.launched) { spot_launch(); return; }
     spot_output();
     char raw[sizeof sp.raw];
     if (spot_read(raw, sizeof raw)) {
@@ -383,7 +401,7 @@ static void times(unsigned ms) {
 static void spot_refresh(void) {
     if (sp.loading == 1 && time_now_ms() - sp.load_at >= SPOT_WAIT_MS) sp.loading = 2;
     if (sp.loading == 2 && spot_started()) sp.loading = 0; /* a paused track writes no new state */
-    int track = sp.auth >= 0 && !sp.loading && sp.track[0] && strcmp(sp.state, "none"), installed = sp.launched;
+    int track = sp.auth >= 0 && !sp.loading && sp.track[0] && strcmp(sp.state, "none"), installed = sp.launched || sp.pending;
     widget_set_visible(ui.info, track, 0);
     widget_set_visible(ui.msg, !track, 0);
     if (!track) {
@@ -392,6 +410,7 @@ static void spot_refresh(void) {
         else if (sp.auth < 0) note = "Open Spotify on your phone", sub = "and choose Q2";
         else if (sp.loading == 2) note = "Playback didn't start", sub = "Go back and try again";
         else if (sp.loading) sub = "Starting playback";
+        else if (sp.pending) sub = "Connecting to Wi-Fi";
         else if (sp.old) note = "Update Spotify on the card", sub = "See the Q2 Pod guide";
         else if (sp.auth > 0) note = "Nothing playing", sub = "Choose music in Spotify";
         widget_set_text_utf8(ui.note, note);
@@ -582,7 +601,7 @@ enum { W_OK, W_NOSOCK, W_FAIL };
 static struct {
     void *page, *view, *edit;
     unsigned timer, go, leave, poll_at, until; /* until: no socket before it is librespot starting */
-    int depth, act, next, arg, playing, rows[11], caps_checked, downloads, can_download;
+    int depth, act, next, arg, playing, wifi, rows[11], caps_checked, downloads, can_download;
     char selected[6500], remove_kind[16], remove_note[128];
     char term[64];
     level_t *lv; /* SPOT_DEPTH of them, calloc'd */
@@ -719,7 +738,7 @@ static void show(void) {
     if (l->state == S_LOAD && !((wk.running || wk.done) && br.act == A_FETCH && wk.id == l->id))
         fetch(l);
     if (l->state == S_LOAD || l->state == S_WAIT) {
-        page_list(br.page, br.page, 0, "Loading…", 0, 48);
+        page_list(br.page, br.page, 0, br.wifi ? "Connecting to Wi-Fi..." : "Loading…", 0, 48);
         return;
     }
     if (l->state == S_ERROR) {
@@ -1084,6 +1103,18 @@ static int go(const void *unused) {
  * Now Playing. */
 static int br_tick(const void *unused) {
     level_t *l = top();
+    if (br.wifi) {
+        if (sp.pending) return 8;
+        br.wifi = 0;
+        if (!sp.launched) {
+            l->state = S_ERROR; l->retry = 0;
+            tk_snprintf(l->note, sizeof l->note, "Connection failed. Reopen Spotify to retry.");
+            show();
+            return 8;
+        }
+        br.until = sp.launch_at + SPOT_OLD_MS;
+        br.poll_at = time_now_ms();
+    }
     if (wk.done) {
         if (wk.running) pthread_join(wk.thread, 0);
         wk.running = wk.done = 0;
@@ -1123,6 +1154,7 @@ static int br_keyup(void *ctx, void *event) {
 }
 
 static int br_closed(void *ctx, void *event) {
+    if (sp.pending) { smart_wifi_release(sp.wifi_lease); sp.wifi_lease = sp.pending = 0; }
     fetch_cancel();
     stop_timer(&br.timer);
     stop_timer(&br.go);
@@ -1142,8 +1174,15 @@ int spot_open(void *ctx, void *event) {
     if (!(br.page = page_open("spotbrowse_page", br_closed, br_keyup))) return free(br.lv), br.lv = 0, 0;
     br.depth = 1;
     br.until = sp.launch_at + SPOT_OLD_MS;
+    if ((br.wifi = sp.pending)) br.lv[0].state = S_WAIT;
     tk_snprintf(br.lv[0].op, sizeof br.lv[0].op, "account");
     br.timer = timer_add(br_tick, 0, 250);
+    if (!br.timer && sp.pending) {
+        smart_wifi_release(sp.wifi_lease);
+        sp.wifi_lease = sp.pending = br.wifi = 0;
+        br.lv[0].state = S_ERROR;
+        tk_snprintf(br.lv[0].note, sizeof br.lv[0].note, "Could not start the connection");
+    }
     show();
     return 0;
 }
@@ -1184,5 +1223,8 @@ void spot_set_playing(int playing) {
         control.playing = playing;
     }
 }
+
+/* Conservative until the add-on publishes explicit offline/network demand. */
+int spot_running(void) { return sp.launched || sp.pending; }
 
 #endif

@@ -4,6 +4,12 @@
 
 It listens on TCP port 2302 and sends the key and every command **unencrypted**. Use it only on a network you trust, such as your own phone's hotspot, and never leave a key on a card you lend or sell.
 
+## Smart Wi-Fi maintenance hold
+
+A running development server keeps Smart Wi-Fi awake even without a connected client, so it can accept the next command. The server and its commands inherit a shared lock on `/tmp/q2remote.wifi.lock`. The kernel releases each hold when its last owning descriptor closes; a stale file alone does not keep the radio on. Restarting the server while older commands finish retains their hold. Probe errors keep Wi-Fi available.
+
+Manual Wi-Fi Off still wins. Smart Wi-Fi cannot receive a remote wake command after turning the radio off. For power measurements that include radio shutdown, stop remote access locally or use a release build; USB also holds the radio while attached. Never delete or replace the lease file while a holder is alive, because that would separate existing holders from new probes.
+
 ## Setup
 
 1. Install a `--dev` update on the Q2 and join it to the same Wi-Fi network as your PC.
@@ -50,6 +56,47 @@ Each connection rereads `/mnt/mmc/q2remote.key` while the card is mounted, so re
 | `devices`                    | Lists the input devices and their key and axis codes.                                                                                                                                                                                      |
 | `find`                       | Lists the addresses on this network where q2remote answers.                                                                                                                                                                                |
 | `reboot [--wait]`            | Syncs and reboots into the saved boot target; q2remote answers again once the Q2 rejoins Wi-Fi, which can take a few minutes. `--wait` returns once it does.                                                                               |
+
+## Guarded TF updates
+
+`tools/q2update.py` validates and stages a locally built development update for
+an agent operating the normal **System Update → TF card update** menu. It never
+writes flash or bypasses the stock updater. Keep the USB cable connected for
+power and Wi-Fi connected for control.
+
+If Windows currently owns the card, safely eject the correct removable volume
+first, then use `key return` and inspect the screen. Dismiss an optional music
+rescan and verify that `/mnt/mmc` is mounted. Subsequent transfers can use Wi-Fi
+without taking the card away from the player.
+
+```sh
+python3 tools/q2update.py inspect BUILD --stock-zip 'Q2 Firmware V1.32.zip' --work WORK
+python3 tools/q2update.py stage BUILD --stock-zip 'Q2 Firmware V1.32.zip' --work WORK
+python3 tools/q2update.py ready BUILD --stock-zip 'Q2 Firmware V1.32.zip' --work WORK --journal WORK/stage-ID/journal.json
+# After the normal TF update and reboot:
+python3 tools/q2update.py verify BUILD --stock-zip 'Q2 Firmware V1.32.zip' --work WORK --journal WORK/stage-ID/journal.json
+```
+
+Use the exact journal path returned by `stage`. Package validation checks the
+pinned stock ZIP, unchanged kernel, model, development tag, embedded checksums,
+rootfs size and packed binary hashes. Staging backs up the previous card update
+locally, uploads under a fresh temporary name, verifies it before promotion, and
+checks the final card file. It does not drop caches.
+
+`ready` requires that the card file still matches the candidate, USB storage is
+off, the card is mounted, and the battery is at least 80% and reports Charging or
+Full. A low-charge check exits 2; it does not start an update. Repeat `ready`
+immediately before selecting TF card update. An operator who explicitly chooses
+a different charging threshold can pass `--min-battery N` to `check` or `ready`;
+the journal records it, power must still report Charging or Full, and the stock
+updater's own checks remain in place. Inspect a settled screenshot after each
+menu action; unexpected screens require inspection instead of blind taps.
+
+After reboot, `verify` checks a changed kernel boot ID and the installed player,
+UI and remote-helper hashes against the candidate. A successful file transfer or
+version label alone does not count as a verified installation. Keep the rollback
+package and journal until playback, pause, seek, track change and remote access
+have also been checked on the device.
 
 ## Input
 

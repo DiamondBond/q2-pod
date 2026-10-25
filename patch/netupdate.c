@@ -295,6 +295,7 @@ void shelf_remove(int i) {
 #ifndef PEQ_HOST
 #include "offsets.inc"
 #include "stock.h"
+#include "smartwifi.h"
 
 #define NU_REPO "https://github.com/" Q2POD_REPO "/releases/latest" /* tools/build.py --update-repo */
 #if IPOD /* tools/release.py ASSETS */
@@ -309,6 +310,7 @@ enum { NU_IDLE, NU_RUNNING, NU_DONE, NU_LATEST, NU_NET, NU_MISSING, NU_CARD, NU_
 
 static struct {
     unsigned long thread;
+    unsigned wifi;
     volatile int state, cancel, percent; /* cancel, percent: progress()'s pair */
     void *label; /* the row's label while System Update is open, for the percentage */
 } nu __attribute__((section(".scratch")));
@@ -364,24 +366,29 @@ static int fetch(const char *url, void *file, char *tag, unsigned n, long *code,
     return err;
 }
 
-static void *worker(void *unused) {
+/* Only workers wait for wake/link readiness; the UI remains responsive to cancel.
+ * The lease was acquired before pthread_create, so policy cannot race job startup. */
+static int wifi_wait(unsigned token, volatile int *cancel) {
+    int ready = SW_INVALID;
+    while (!*cancel && (ready = smart_wifi_ready(token)) == SW_WAIT) usleep(50000);
+    return !*cancel && ready == SW_READY && get_wifisignal() > 0;
+}
+
+static int download(void) {
     char tag[64] = "";
     long code = 0;
     if (fetch(NU_REPO, 0, tag, sizeof tag, &code, &nu.cancel) || code != 302 || !*tag) {
-        nu.state = NU_NET;
-        return 0;
+        return NU_NET;
     }
     /* Tags are single-digit x.y.z, so strcmp orders them: nothing older than this build, which
      * stock's updater would flash. Q2POD_TAG is empty in --dev builds, which take any tag. */
     if (*Q2POD_TAG && strcmp(tag, Q2POD_TAG) <= 0) {
-        nu.state = NU_LATEST;
-        return 0;
+        return NU_LATEST;
     }
     /* The old update.tar stays until the new one is whole. ponytail: needs the tar's ~55 MB free
      * beside it; TLS and curl's length check are the only integrity checks before stock's own MD5s. */
     if (nu.cancel) { /* pressed while checking, or the page was left */
-        nu.state = NU_CANCELLED;
-        return 0;
+        return NU_CANCELLED;
     }
     void *f = fopen(NU_FILE ".part", "wb");
     int err = !f, state = NU_CARD;
@@ -397,7 +404,14 @@ static void *worker(void *unused) {
         state = NU_DONE;
     } else
         unlink(NU_FILE ".part");
-    nu.state = state;
+    return state;
+}
+
+static void *worker(void *unused) {
+    int state = wifi_wait(nu.wifi, &nu.cancel) ? download() : nu.cancel ? NU_CANCELLED : NU_NET;
+    smart_wifi_release(nu.wifi);
+    nu.wifi = 0;
+    nu.state = state; /* publish completion only after the network demand is released */
     return 0;
 }
 
@@ -438,18 +452,19 @@ static int online_click(void *ctx, void *event) {
         show("Cancelling…");
     } else if (nu.state != NU_IDLE) {
         /* ended, not yet joined by wait_done */
-    } else if (get_wifisignal() <= 0) {
-        toast("Connect to Wi-Fi first");
     } else {
         nu.cancel = nu.percent = 0;
         nu.state = NU_RUNNING;
-        if (pthread_create(&nu.thread, 0, worker, 0)) {
+        nu.wifi = smart_wifi_acquire(SW_NETUPDATE);
+        unsigned timer = timer_add(wait_done, (void *)0, 500);
+        if (!timer || pthread_create(&nu.thread, 0, worker, 0)) {
+            stop_timer(&timer);
+            smart_wifi_release(nu.wifi);
+            nu.wifi = 0;
             nu.state = NU_IDLE;
             toast("Can't start the download");
-        } else {
+        } else
             show("Checking…");
-            timer_add(wait_done, (void *)0, 500);
-        }
     }
     return 0;
 }
@@ -492,6 +507,7 @@ enum { ROW_ERASE = SH_MAX, ROW_NONE }; /* map's rows that are no app: Erase, and
 
 static struct {
     unsigned long thread;
+    unsigned wifi;
     volatile int running, cancel, percent, stage, result; /* cancel, percent: progress()'s pair */
     int job, app, armed, rows, n, map[SH_MAX + 1];        /* map: a row's app or ROW_ */
     unsigned need;                                        /* SH_SPACE's MB */
@@ -621,7 +637,9 @@ static int install(int i) {
 
 static void *sh_worker(void *unused) {
     int i = sh.app, t = sh_find("themes");
-    if (sh.job == JOB_CHECK) {
+    if ((sh.job == JOB_CHECK || sh.job == JOB_INSTALL) && !wifi_wait(sh.wifi, &sh.cancel))
+        sh.result = sh.cancel ? SH_CANCELLED : SH_NET;
+    else if (sh.job == JOB_CHECK) {
         if (check() && !sh.cancel) sh.checked = now_ms();
     } else if (sh.job == JOB_INSTALL)
         sh.result = install(i);
@@ -633,6 +651,8 @@ static void *sh_worker(void *unused) {
         if (sh.job == JOB_REMOVE) addon_quit(apps[i].dir), shelf_remove(i);
         system("sync");
     }
+    if (sh.wifi) smart_wifi_release(sh.wifi);
+    sh.wifi = 0;
     sh.running = 0;
     return 0;
 }
@@ -723,16 +743,24 @@ static int sh_wait(const void *unused) {
 }
 
 static void sh_start(int job, int i) {
+    if (sh.job) return;
     if (is(i, "spotify") && job != JOB_CHECK)
         spot_stop(); /* on this thread: spotify.c's state too */
     if (job != JOB_CHECK) addon_forget(apps[i].dir);
     sh.job = job, sh.app = i, sh.cancel = sh.percent = sh.result = 0, sh.running = 1;
     sh.stage = job == JOB_REMOVE ? 4 : 0;
-    if (pthread_create(&sh.thread, 0, sh_worker, 0)) {
+    /* A check cancelled before fetching keeps the cached list. Its page may close while
+     * the worker continues; only the worker, never page destruction, releases the lease. */
+    if (job == JOB_CHECK) memcpy(sh.next, apps, sizeof apps), sh.n = shelf_n;
+    sh.wifi = job == JOB_CHECK || job == JOB_INSTALL ? smart_wifi_acquire(SW_SHELF) : 0;
+    unsigned timer = timer_add(sh_wait, (void *)0, 500);
+    if (!timer || pthread_create(&sh.thread, 0, sh_worker, 0)) {
+        stop_timer(&timer);
+        if (sh.wifi) smart_wifi_release(sh.wifi);
+        sh.wifi = 0;
         sh.job = sh.running = 0;
         toast("Can't start the download");
-    } else
-        timer_add(sh_wait, (void *)0, 500);
+    }
 }
 
 /* Install and Update at once; Installed's Remove, Rockbox's first Install (it becomes the power-on
@@ -757,9 +785,7 @@ static int sh_click(void *ctx, void *event) {
         else
             sh_start(i == ROW_ERASE ? JOB_ERASE : JOB_REMOVE,
                      i == ROW_ERASE ? sh_find("spotify") : i);
-    } else if (get_wifisignal() <= 0)
-        toast("Connect to Wi-Fi first");
-    else if (i == ROW_NONE)
+    } else if (i == ROW_NONE)
         sh_start(JOB_CHECK, 0);
     else if (is(i, "themes") && !rockbox_available())
         toast("Install Rockbox first");
@@ -814,7 +840,7 @@ int shelf_open(void *ctx, void *event) {
         free(list);
     }
     sh_rows();
-    if (!sh.job && get_wifisignal() > 0 && (!sh.checked || now_ms() - sh.checked > SH_STALE_MS))
+    if (!sh.job && (!sh.checked || now_ms() - sh.checked > SH_STALE_MS))
         sh_start(JOB_CHECK, 0), sh_refresh();
     return 0;
 }

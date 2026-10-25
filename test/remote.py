@@ -2,6 +2,7 @@
 """Host transport and pure q2remote protocol checks."""
 import os
 import contextlib
+import ctypes
 import hashlib
 import io
 import pathlib
@@ -107,20 +108,59 @@ for bad in (frame[:20], frame[:-1], frame[:5] + struct.pack("<IIII", w + 1, h, s
 with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
     root = pathlib.Path(td); keyfile = root / "key"; keyfile.write_text("0123456789abcdef\n")
     mounts, cache = root / "mounts", root / "cache"
+    lease = root / "wifi.lock"
     card = lambda on: mounts.write_text(f"/dev/mmcblk4p1 {root} vfat rw 0 0\n" if on else "")
     card(True)
     port = 32000 + os.getpid() % 20000
     q.PORT = port
     exe = root / "q2remote"
     subprocess.run(["cc", "-DREMOTE_HOST", f'-DKEY_FILE="{keyfile}"', f'-DCARD="{root}"', f'-DMOUNTS="{mounts}"',
-                    f'-DCACHE_FILE="{cache}"', f"-DPORT={port}",
+                    f'-DCACHE_FILE="{cache}"', f'-DQ2_REMOTE_LEASE_PATH="{lease}"', f"-DPORT={port}",
                     str(pathlib.Path(__file__).resolve().parents[1] / "patch/remote.c"), "-o", str(exe)], check=True)
-    proc = subprocess.Popen([exe], start_new_session=True)  # its own group: forked children die with it
+    probe = root / "probe.c"
+    probe.write_text('#include "remotelease.h"\nstatic int guard = -1;\n'
+                     'int busy(void) { return remote_lease_busy(); }\n'
+                     'int begin(void) { return remote_lease_probe(&guard); }\n'
+                     'void end(void) { if (guard >= 0) close(guard); guard = -1; }\n')
+    subprocess.run(["cc", "-shared", "-fPIC", "-DREMOTE_HOST",
+                    f'-DQ2_REMOTE_LEASE_PATH="{lease}"',
+                    "-I", str(pathlib.Path(__file__).resolve().parents[1] / "patch"),
+                    str(probe), "-o", str(root / "probe.so")], check=True)
+    probe_lib = ctypes.CDLL(str(root / "probe.so"))
+    busy = probe_lib.busy
+    assert not busy()  # no daemon, no lock file
+    lease.touch()
+    assert not busy()  # an unlocked stale file never represents demand
+    lease.unlink(); lease.mkdir()
+    assert busy()  # unexpected probe open failure is conservative, never permission to sleep
+    lease.rmdir(); lease.touch()
+    # A transaction probe owns EX until the policy's STOP commit has finished. A
+    # new daemon cannot listen in the sample-to-commit gap, even on the first run.
+    lease.unlink()
+    assert not probe_lib.begin()
+    proc = subprocess.Popen([exe], start_new_session=True)  # its own fixture group
+    time.sleep(.05)
+    assert proc.poll() is None
+    try:
+        with socket.create_connection(("127.0.0.1", port), .1):
+            raise AssertionError("daemon listened during the policy transition")
+    except OSError:
+        pass
+    probe_lib.end()  # simulated stock switch + smart_wifi_done completed
+    # The lease fd must survive serve's stdio dup2 even with initially closed stdio.
+    closed = root / "closed.c"
+    closed.write_text('#include "remotelease.h"\nint main(void) { close(0); close(1); close(2); '
+                      'int fd = remote_lease_open(); return fd < 3; }\n')
+    subprocess.run(["cc", "-DREMOTE_HOST", f'-DQ2_REMOTE_LEASE_PATH="{lease}"',
+                    "-I", str(pathlib.Path(__file__).resolve().parents[1] / "patch"),
+                    str(closed), "-o", str(root / "closed")], check=True)
+    subprocess.run([root / "closed"], check=True)
     try:
         for _ in range(100):  # a forked child writes it: up to 5 s on a loaded host
             if cache.exists() and cache.read_text(): break
             time.sleep(.05)
         assert cache.read_text() == "0123456789abcdef\n"  # kept at start, before any client
+        assert busy()  # idle daemon availability is intentionally held
         os.environ.update(Q2_HOST="127.0.0.1", Q2_KEY="0123456789abcdef")
         assert q.shell("cat", b"\x00binary\xff") == b"\x00binary\xff"
         for _ in range(3): assert q.shell("printf repeated") == b"repeated"
@@ -143,8 +183,9 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         assert subprocess.run(["pgrep", "-f", "sleep 37"], capture_output=True).returncode == 1, "process group survived kill"
         # A job left in the background holding the output doesn't hold the reply; nor is a big script too big.
         started = time.monotonic()
-        assert q.run("sleep 38 & printf bg") == (b"bg", 0) and time.monotonic() - started < 5
-        subprocess.run(["pkill", "-f", "sleep 38"])
+        background, status = q.run('sleep 38 & printf "bg:%s" "$!"')
+        assert status == 0 and background.startswith(b"bg:") and time.monotonic() - started < 5
+        os.kill(int(background[3:]), signal.SIGTERM)  # this test's exact child only
         assert q.run("#" + "x" * 200000 + "\nprintf big") == (b"big", 0)
         # push and pull: binary data, a checked MD5, and no write to an unmounted card.
         blob = root / "blob"; blob.write_bytes(b"\0" + bytes(range(256)) * 300)
@@ -212,7 +253,56 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
             s.sendall(b"fedcba9876543210\n")
             s.settimeout(12)
             assert s.recv(16) == b""  # 10-second handshake timeout
+
+        # The daemon's fd survives fork+exec. Two live commands retain availability after
+        # the daemon exits; normal completion of one cannot release the other's demand.
+        clients = []
+        replacement = None
+        try:
+            for _ in range(2):
+                client = socket.create_connection(("127.0.0.1", port), 2)
+                client.sendall(b"fedcba9876543210\nexec /bin/sh -c 'printf \"%s\\n\" $$; read line'\n")
+                reader = client.makefile("rb")
+                assert reader.readline() == b"OK\n"
+                pid = int(reader.readline())
+                clients.append((client, reader, pid))
+            proc.terminate()  # this fixture's daemon only; its exec children survive
+            proc.wait(timeout=2)
+            assert busy()
+            # Restart while predecessor commands still own shared leases.
+            replacement = subprocess.Popen([exe], start_new_session=True)
+            for _ in range(100):
+                try:
+                    with socket.create_connection(("127.0.0.1", port), .1): break
+                except OSError: time.sleep(.01)
+            assert replacement.poll() is None and busy()
+            replacement.terminate()
+            replacement.wait(timeout=2)
+            first, reader, _ = clients[0]
+            first.sendall(b"done\n")
+            assert reader.read() == b""
+            reader.close(); first.close()
+            clients[0] = (first, reader, 0)
+            assert busy()
+            # Abnormal process exit also closes the inherited fd, without file deletion.
+            last, reader, pid = clients[1]
+            os.kill(pid, signal.SIGTERM)
+            assert reader.read() == b""
+            reader.close(); last.close()
+            clients[1] = (last, reader, 0)
+            for _ in range(100):
+                if not busy(): break
+                time.sleep(.01)
+            assert lease.exists() and not busy()
+        finally:
+            for client, reader, pid in clients:
+                reader.close(); client.close()
+                if pid:
+                    with contextlib.suppress(ProcessLookupError): os.kill(pid, signal.SIGTERM)
+            if replacement is not None:
+                with contextlib.suppress(ProcessLookupError): os.killpg(replacement.pid, signal.SIGTERM)
+                replacement.wait(timeout=2)
     finally:
         with contextlib.suppress(ProcessLookupError): os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=2)
-print("Remote auth, rotation/removal, USB-storage key cache, fragmented requests, binary stdin/output, timeout, devices and framebuffer checks passed.")
+print("Remote live availability, concurrent fork/exec leases and crash cleanup; auth, rotation/removal, USB-storage key cache, fragmented requests, binary stdin/output, timeout, devices and framebuffer checks passed.")

@@ -336,3 +336,6 @@ int scrobble_poll(int *sent) {
     *sent = up.sent;
     return up.ok ? 1 : -1;
 }
+
+/* UI-thread state: the worker stays reserved until scrobble_poll joins it. */
+int scrobble_busy(void) { return up.running; }

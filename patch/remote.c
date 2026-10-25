@@ -48,6 +48,8 @@ int strcmp(const char*,const char*);
 int unlink(const char*), rename(const char*,const char*), fsync(int), memcmp(const void*,const void*,unsigned);
 char *strstr(const char*,const char*);
 #endif
+#include "remotelease.h"
+
 #define FBIOGET_VSCREENINFO 0x4600
 #define FBIOGET_FSCREENINFO 0x4602
 
@@ -148,14 +150,20 @@ static int capture(void) {
 
 int main(int argc,char **argv) {
     if (argc==2 && !strcmp(argv[1],"--shot")) return capture();
+    /* Hold availability before listening; children inherit it through /bin/sh exec.
+     * Closing the last fd (normal exit or crash) clears demand without stale PID files. */
+    int lease=remote_lease_open();
+    if (lease<0) { SAY(2,"q2remote: cannot reserve Wi-Fi availability\n"); return 1; }
     int s=socket(AF_INET,SOCK_STREAM,0), one=1;
-    if (s<0) return 1;
+    if (s<0) { close(lease); return 1; }
     struct sockaddr_in a={.sin_family=AF_INET,.sin_port=(PORT&255)<<8|PORT>>8};
-    if (setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&one,sizeof one) || bind(s,(void*)&a,sizeof a) || listen(s,4)) { close(s); return 1; }
+    if (setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&one,sizeof one) || bind(s,(void*)&a,sizeof a) || listen(s,4)) { close(s); close(lease); return 1; }
     signal(SIGCHLD,SIG_IGN);
     /* Keep the key from boot: the card mounts around now, and with a USB cable in demo soon
      * unmounts it, before any client may connect. */
     if (!fork()) {
+        close(lease); /* key caching is local work, not a remote availability owner */
+        close(s);
         for (int i=0;i<150 && !card_mounted();++i) usleep(200000);
         char key[128];
         key_read(key);

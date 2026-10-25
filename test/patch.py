@@ -10327,12 +10327,12 @@ def switch_image(m,row):
     images=[c for c in m.nodes[button]['children'] if m.nodes[c].get('name')=='_setting_switch']
     assert len(images)==1
     return m.nodes[images[0]]['image']
-assert all(switch_image(m,rows[i])=='switch_off' for i in (0,1,3))
-assert len(rows)==5 and icons==['usb_chargeswitch','system_powermanager','system_keylock','system_keylock','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
-assert texts()==['Charge Limit (80%)','Low Power','Wake: Single Press','Volume Guard','Standby Limit: Off']
+assert all(switch_image(m,rows[i])=='switch_off' for i in (0,1,3,5))
+assert len(rows)==6 and icons==['usb_chargeswitch','system_powermanager','system_keylock','system_keylock','system_powermanager','wifiset_wifi'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
+assert texts()==['Charge Limit (80%)','Low Power','Wake: Single Press','Volume Guard','Standby Limit: Off','Smart Wi-Fi']
 assert click(0)==[(1,'Q2POD','CHARGELIMIT')] and texts()[0]==f"Charge Limit ({O['CHARGE_STOP']}%)"
 assert click(1)==[(1,'Q2POD','LOWPOWER')] and texts()[1]=='Low Power' and switch_image(m,rows[1])=='switch_on'
-assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit (80%)','Low Power','Wake: Single Press','Volume Guard','Standby Limit: Off']; passed()
+assert click(0)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Charge Limit (80%)','Low Power','Wake: Single Press','Volume Guard','Standby Limit: Off','Smart Wi-Fi']; passed()
 # Standby limit (its alarm with the power poll's tests): each click steps to the next limit, then Off.
 limits=[f"Standby Limit: {O[f'STANDBY_LIMIT_{i}']} h" for i in (1,2,3)]
 for v,want in ((1,limits[0]),(2,limits[1]),(3,limits[2]),(0,'Standby Limit: Off')):
@@ -10467,7 +10467,7 @@ for double in ('0','1'):
     assert not press(DOWN,0) and not press(UP,50) and press(DOWN,O['WAKE_MS']) and press(UP,50),double
 passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','LOWPOWER':'1','WAKEDOUBLE':'1','VOLGUARD':'1','STANDBYLIMIT':'2'})
-assert texts()==[f"Charge Limit ({O['CHARGE_STOP']}%)",'Low Power','Wake: Double Press','Volume Guard',limits[1]]
+assert texts()==[f"Charge Limit ({O['CHARGE_STOP']}%)",'Low Power','Wake: Double Press','Volume Guard',limits[1],'Smart Wi-Fi']
 assert m.get(payload_syms['wheel_guard'])==1; passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'STANDBYLIMIT':'4'})
 assert texts()[4]=='Standby Limit: Off'; passed()  # out of range: Off
@@ -10943,6 +10943,179 @@ m=StandbyMachine({'STANDBYLIMIT':'1'},key=7200,refuse=True); assert m.standby()=
 for usb,play in ((1,3),(0,2)):  # a cable in, or playing: it stays on, and no later pass powers off
     m=StandbyMachine({'STANDBYLIMIT':'1'}); m.standby(); m.byte(syms['g_usbdet_value'],usb); m.word(0xa3beac,play)
     assert not m.off() and not m.off(); passed()
+# Smart Wi-Fi: execute the actual stock switch and the new MIPS/UI controller.
+class SmartMixin:
+    def __init__(self,*a,smart='1',**k):
+        super().__init__(*a,**k)
+        self.handlers[payload_syms['remote_wifi_busy']]='w:remote_wifi_busy'
+        if smart: self.config['SMARTWIFI']=smart
+        self.handlers.pop(syms['wifi_switch'],None)  # stock's switch runs; its WIFI= tail jumps to the payload
+        self.mock('remove@GLIBC_2.0','stop_wifisynclink','networkStart','networkStop')
+        for n in ('networkGetConnectStatus','get_wifisignal'): self.handlers[syms[n]]='w:'+n
+        self.link=0
+        self.nodes[self.wm]=dict(type='window_manager',name='',children=[],visible=1,enable=1)
+        self.byte(syms['g_wififlag'],1); self.word(O['NET_TYPE'],2)  # the user's Wi-Fi on, the module up
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('w:'): return super().hook(u,address,size,unused)
+        self.calls.append((name[2:],0,0,0))
+        self.returns(0 if name=='w:remote_wifi_busy' else self.link if name=='w:networkGetConnectStatus' else 3 if self.link else -1,clobber=True)
+    def windows(self,*names): self.nodes[self.wm]['children']=[self.node('window',n) for n in names]
+    def switch(self): return [c[0] for c in self.calls if c[0] in ('networkStart','networkStop','write_int_config')]
+    def flag(self): return self.u.mem_read(syms['g_wififlag'],1)[0]
+class SmartMachine(SmartMixin,PowerMachine):
+    def __init__(self,smart='1'): super().__init__(smart=smart); self.mock('system@GLIBC_2.0')
+SMART_HEADER=(ROOT/'patch/smartwifi.h').read_text()
+IDLE,POLL,CONNECT=(int(re.search(r'#define SMART_IDLE_MS (\d+)', SMART_HEADER)[1]), O['SMART_POLL_MS'],
+                   int(re.search(r'#define SMART_CONNECT_MS (\d+)', SMART_HEADER)[1]))
+INIT_FILE='/tmp/wpasupplicant_initsuccess'
+def wifi_calls(m):  # wifi_switch's own: its file, SyncLink, the name, the network and the write; the first argument
+    calls=[(c[0].split('@')[0],c[1]) for c in m.calls]
+    keep=lambda c: (c[0] in ('networkStop','networkStart','write_int_config','stop_wifisynclink') or
+                    (c[0] in ('access','remove') and m.text(c[1])==INIT_FILE) or (c[0]=='memset' and c[1]==syms['wifi_name']))
+    return [c if c[0] in ('access','remove','memset','write_int_config') else c[:1] for c in calls if keep(c)]
+def wifi_state(m):
+    return [m.u.mem_read(a,1)[0] for a in (syms['g_wififlag'],syms['wifi_connectstatus'],syms['wifi_initstatus'],0xa39bca,
+                                           syms['wifilink_timeout'])]+[bytes(m.u.mem_read(syms['wifi_name'],4))]
+def connected(m):  # stock's state on a link: its name, the connect state, the init file, SyncLink over Bluetooth
+    m.files[INIT_FILE]=b''; m.byte(syms['g_synclinkflag'],1); m.byte(syms['wifi_connectstatus'],2)
+    m.byte(0xa39bca,5); m.byte(syms['wifilink_timeout'],7); m.u.mem_write(syms['wifi_name'],b'Home\0')
+# The user's switch, for the record: Quick Settings' tap with Wi-Fi on.
+user=SmartMachine(smart=''); connected(user); user.calls=[]
+assert user.call(address=syms['wifi_switch'],args=(1,0,0,0),gap=0)==0; user_calls=wifi_calls(user)
+assert [c[0] for c in user_calls]==['access','remove','stop_wifisynclink','memset','networkStop','write_int_config']
+assert [(c[1],user.text(c[2]),user.text(c[3])) for c in user.calls if c[0]=='write_int_config']==[(0,'SYSSET','WIFI')]
+# Smart Wi-Fi: armed on the first poll, nothing before SMART_IDLE_MS (no link here, as an unassociated
+# radio), then exactly that switch, in its order, without the write; the same state after.
+m=SmartMachine(); connected(m)
+m.pass_(1); assert not m.switch()
+m.pass_(IDLE-POLL); assert not m.switch() and m.flag()==1
+m.pass_(POLL); assert wifi_calls(m)==user_calls[:-1]
+assert wifi_state(m)==wifi_state(user)==[0,0,0,0,30,b'\0\0\0\0']; passed()
+# network_checkstatus (stock's 500 ms timer) then finds Wi-Fi's flag clear and no link, and with the
+# latch its connect set (it sent ips=0 and lps=0) sends ips=1, as after the user's switch.
+m.byte(0xa39bc9,1); m.calls=[]; m.call(address=syms['network_checkstatus'],args=(0,0,0,0),gap=0)
+assert [m.text(c[1]) for c in m.calls if c[0]=='system@GLIBC_2.0']==['rtwpriv wlan0 pm_set ips=1'] and m.u.mem_read(0xa39bc9,1)==b'\0'; passed()
+# A page needing the network wakes it at the next poll: the switch's on branch, networkStart's
+# background connect, still without the write. Tidal Downloads (the card's) does not.
+m.windows('home_page','tidal_downloads'); m.pass_(POLL); assert not m.switch() and m.flag()==0
+m.windows('home_page','netdisklogin_page'); m.pass_(POLL)
+assert m.switch()==['networkStart'] and [c[1] for c in m.calls if c[0]=='networkStart']==[1] and m.flag()==1
+# A new link counts as a use: SMART_IDLE_MS from it, not from the wake.
+m.windows('home_page'); m.link=1; m.pass_(POLL); assert not m.switch()
+m.pass_(IDLE-POLL); assert not m.switch(); m.pass_(POLL); assert m.switch()==['networkStop'] and m.flag()==0; passed()
+# The user's own tap after that (Quick Settings shows Wi-Fi off: the radio is): Wi-Fi on and saved as
+# stock saves it, Smart Wi-Fi's hold gone, and SMART_IDLE_MS from the tap before it acts again.
+m.link=0; m.calls=[]; assert m.call(address=syms['wifi_switch'],args=(1,0,0,0),gap=0)==0
+assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'SYSSET','WIFI')]
+assert 'networkStart' in m.switch() and m.flag()==1
+m.pass_(IDLE-1); assert not m.switch(); m.pass_(POLL); assert m.switch()==['networkStop']; passed()
+# The row turned off while Smart Wi-Fi has the radio off: the user's Wi-Fi back, unsaved, and left alone.
+def power_click(m,i):
+    m.handlers[int(manifest['patch_symbols']['stock_power_trampoline'],16)]='stock_power'
+    view=m.node('scroll_view','scroll_view_powermanager',[]); m.top=m.node('window','page',[m.node('list_view','list_view',[view])])
+    assert m.call(address=HOOKS['systemset_powermanager_page_init'][0],args=(m.top,5,0,0),gap=0)==0
+    f,ctx=m.handler(m.nodes[m.nodes[view]['children'][i]]['children'][0],O['EVT_CLICK'])
+    m.calls=[]; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+    return [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
+assert power_click(m,5)==[(0,'Q2POD','SMARTWIFI')]
+m.pass_(POLL); assert m.switch()==['networkStart'] and m.flag()==1
+m.pass_(IDLE); m.pass_(IDLE); assert not m.switch(); passed()
+# The user's own off: saved, and Smart Wi-Fi never brings it back.
+m=SmartMachine(); m.pass_(1); m.calls=[]; m.call(address=syms['wifi_switch'],args=(1,0,0,0),gap=0)
+assert m.switch()==['networkStop','write_int_config'] and m.flag()==0
+m.windows('stream_page'); m.pass_(IDLE); m.pass_(IDLE); assert not m.switch(); passed()
+# Off by default: nothing, however long.
+m=SmartMachine(smart=''); m.pass_(1); m.pass_(IDLE); assert not m.switch(); m.pass_(IDLE); assert not m.switch() and m.flag()==1; passed()
+# What keeps it on (or, for a few, what doesn't): USB in, AirPlay or DLNA on, SyncLink over Wi-Fi or a
+# SyncLink session (not SyncLink over Bluetooth), Wi-Fi transfer; a stream queue (Tidal, Baidu: the
+# types stock stops offline), paused or stopped, but not a local one; a network page; a time sync
+# pending on a link (not without one); and stock's own gates on its switch.
+def stream_queue(kind,status):
+    def setup(m):
+        m.handlers.pop(syms['mclGetPlayType'],None); m.handlers.pop(syms['mclGetPlayStatus'],None)
+        m.word(O['MCL_TYPE'],kind); m.word(0xa3beac,status)
+    return setup
+def setb(name,value): return lambda m: m.byte(syms[name],value)
+CASES=[('usb',setb('g_usbdet_value',1),True),('airplay',setb('g_airplayflag',1),True),('dlna',setb('g_dlnaflag',1),True),
+       ('synclink wifi',setb('g_synclinkflag',2),True),('synclink session',setb('g_syncLink_status',1),True),
+       ('synclink bt',setb('g_synclinkflag',1),False),('wifi transfer',setb('g_wifitransport_flag',1),True),
+       ('paused tidal',stream_queue(0xf1,3),True),('stopped stream',stream_queue(2,1),True),('baidu',stream_queue(3,2),True),
+       ('paused local',stream_queue(0xf001,3),False),('streaming page',lambda m: m.windows('home_page','stream_page'),True),
+       ('tidal page',lambda m: m.windows('tidal_main_page'),True),('wifi page',lambda m: m.windows('wifi_page'),True),
+       ('configuration',lambda m: m.windows('streamconf_page'),False),
+       ('time sync',lambda m: (m.byte(syms['g_syncnettime_flag'],1),setattr(m,'link',1)),True),
+       ('time sync, no link',setb('g_syncnettime_flag',1),False),
+       ('module down',lambda m: m.word(O['NET_TYPE'],1),True),('first scan',setb('wifi_initstatus',2),True),
+       ('connecting',setb('wifi_connectstatus',1),True),('test mode',setb('g_testmode_flag',1),True),
+       ('Wi-Fi off',setb('g_wififlag',0),True),
+       ('now playing more',lambda m: m.windows('playing_page','playermore_page'),False),
+       ('firmware update',lambda m: m.windows('fwupdate_page'),False)]
+for case,setup,kept in CASES:
+    m=SmartMachine(); setup(m); m.pass_(1); m.pass_(IDLE)
+    assert (not m.switch())==kept and (kept or m.flag()==0),case
+passed()
+# The Wi-Fi page builds its switch from g_wififlag: its init (systemset_wifi_page_init) brings the
+# radio back first, so it shows the user's setting.
+m=SmartMachine(); m.pass_(1); m.pass_(IDLE); assert m.flag()==0
+m.handlers[int(manifest['patch_symbols']['stock_wifi_page_trampoline'],16)]='stock_wifi_page'
+m.calls=[]; assert m.call(address=HOOKS['systemset_wifi_page_init'][0],args=(m.top,0,0,0),gap=0)==0
+names=[c[0] for c in m.calls]; assert names.index('networkStart')<names.index('stock_wifi_page') and 'write_int_config' not in names
+assert m.flag()==1; passed()
+# Deferred stock actions: one invocation, bounded readiness, page cancellation and timer failure.
+class SmartRadio(SmartMixin,RadioMachine): pass
+HELD=[('stream_row','stream_row','stream_page','0'),('stream_row','stream_row','stream_page','1'),
+      ('netservice_row','netservice_row','netservice_page','2'),
+      ('playermore_online','online_match','playermore_page',None)]
+def held_machine(page):
+    m=SmartRadio(); m.poll(1); m.poll(IDLE); assert m.flag()==0
+    items=[]
+    for n in '012':
+        b=m.node('button',n); item=m.node('list_item',n,[b]); items.append(item)
+        for w in (item,b): m.word(w+0x10,m.string(n))
+    win=m.node('window',page,[m.node('scroll_view','scroll_view',items)])
+    m.nodes[m.wm]['children']=[m.node('window','home_page'),win]
+    for t in ('stream_row','netservice_row','online_match'):
+        a=int(manifest['patch_symbols'][f'stock_{t}_trampoline'],16); m.handlers[a]='stock_'+t
+        m.u.hook_add(UC_HOOK_CODE,m.hook,begin=a,end=a)
+    return m,win
+def held_row(m,win,row): return m.nodes[m.nodes[win]['children'][0]]['children'][int(row)]
+def held_press(m,hook,win,row):
+    arg=win if hook=='playermore_online' else m.nodes[held_row(m,win,row)]['children'][0]
+    assert m.call(address=HOOKS[hook][0],args=(arg,m.event,0,0),gap=0)==0
+    return held_row(m,win,row) if row else arg
+def held_runs(m,t): return [c[1] for c in m.calls if c[0]=='stock_'+t]
+for hook,t,page,row in HELD:
+    m,win=held_machine(page); held_press(m,hook,win,row)
+    assert not held_runs(m,t) and m.toasts[-1][3]=='Connecting to Wi-Fi...'
+    m.poll(POLL); assert m.flag()==1
+    m.advance(250); assert not held_runs(m,t)
+    m.link=1; m.poll(POLL); m.advance(250)
+    assert len(held_runs(m,t))==1 and not m.timers,(hook,'ready')
+    m.advance(500); assert not held_runs(m,t); passed()
+    m,win=held_machine(page); held_press(m,hook,win,row)
+    m.poll(POLL); m.advance(CONNECT)
+    assert not held_runs(m,t) and not m.timers and m.toasts[-1][3]=='Could not connect to Wi-Fi'; passed()
+    m,win=held_machine(page); held_press(m,hook,win,row)
+    m.nodes[m.wm]['children'].remove(win); m.advance(250)
+    assert not held_runs(m,t) and not m.timers
+    m.link=1; m.poll(POLL); m.advance(250); assert not held_runs(m,t); passed()
+    m,win=held_machine(page); m.timer_fail=True; held_press(m,hook,win,row)
+    assert not held_runs(m,t) and not m.timers and m.toasts[-1][3]=='Could not start the connection'; passed()
+    # Explicit user Off cancels wake, preserves stock's offline action and saves only the user change.
+    m,win=held_machine(page)
+    m.call(address=payload_syms['smart_wifi_manual'],args=(0,0,0,0),gap=0)
+    held_press(m,hook,win,row); assert len(held_runs(m,t))==1 and not m.timers and m.flag()==0; passed()
+# Repeated presses replace a held choice without duplicating the timer or extending its deadline.
+m,win=held_machine('stream_page'); held_press(m,'stream_row',win,'0'); m.advance(CONNECT-500)
+held_press(m,'stream_row',win,'1'); m.advance(500)
+assert not held_runs(m,'stream_row') and not m.timers and m.toasts[-1][3]=='Could not connect to Wi-Fi'; passed()
+# An online-match worker may outlive its page: the unknown-consumer hold remains after invocation.
+m,win=held_machine('playermore_page'); held_press(m,'playermore_online',win,None)
+m.link=1; m.poll(POLL); m.advance(250)
+assert m.call(address=payload_syms['smart_wifi_diagnostic'],gap=0)&4
+m.windows('home_page'); m.poll(IDLE); m.poll(IDLE); assert m.flag()==1; passed()
+
 # The Wi-Fi signal (navigation.c ringnav_wifi_signal): networkGetWifiSignal, which the status bar and
 # the network monitor thread each call about once a second, reads the driver's rx_signal and never
 # sends stock's SIOCGIWSTATS, whose TX report takes the radio out of power save. It answers stock's

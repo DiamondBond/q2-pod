@@ -1,5 +1,6 @@
 #ifndef Q2_PEQ_H
 #define Q2_PEQ_H
+#include "smartwifi.h"
 
 #ifdef PEQ_HOST
 #ifndef _GNU_SOURCE

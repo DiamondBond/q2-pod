@@ -21,6 +21,8 @@
 #include "peq.h"
 #include "playback.h"
 #include "stock.h"
+#include "smartwifi.h"
+#include "remotelease.h"
 
 #define ADDON_POLL_MS 500
 #define ADDON_START_MS 10000 /* no socket this long after the start: it isn't running */
@@ -41,13 +43,40 @@
 typedef struct {
     char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48], icon[56];
     int qr, present, launched, hold, relaunch;
-    unsigned polled, launch_at;
+    unsigned polled, launch_at, wifi; /* wifi: pending launch's bounded readiness lease */
 } app_t;
 
 static struct {
     app_t a[APPS_MAX];
     int n, shown, order[APPS_MAX]; /* order: the slots on the card, by name */
 } ap __attribute__((section(".scratch")));
+
+/* Legacy apps can be idle incoming servers, so hold for their launched/relaunch
+ * lifetime, independent of their standby hold= status. A stale PID is conservative. */
+int addon_wifi_busy(void) {
+    for (int i = 0; i < ap.n; ++i)
+        if (ap.a[i].launched || ap.a[i].relaunch || ap.a[i].wifi || !access(ap.a[i].pid, 0))
+            return 1;
+    return 0;
+}
+
+static int remote_guard __attribute__((section(".scratch"))); /* fd + 1, zero: none */
+void remote_wifi_end(void) {
+    if (remote_guard) close(remote_guard - 1);
+    remote_guard = 0;
+}
+int remote_wifi_busy(void) {
+    int fd;
+    remote_wifi_end();
+    int busy = remote_lease_probe(&fd);
+    remote_guard = fd + 1;
+    return busy;
+}
+
+static void launch_cancel(app_t *a) {
+    if (a->wifi) smart_wifi_release(a->wifi);
+    a->wifi = 0;
+}
 
 /* An id goes into shell commands: lowercase letters, digits and '-' only. */
 static int valid_id(const char *s) {
@@ -139,9 +168,13 @@ static void stop_cmd(const char *pid, char *cmd, unsigned n) {
 static void launch(app_t *a) {
     const char *busy = shelf_busy();
     if (busy && !strcmp(busy + 1, a->id)) return; /* the Apps page is replacing its files */
+    if (a->wifi) return;
+    a->wifi = smart_wifi_acquire(SW_ADDON);
+    if (!a->wifi) { toast("Can't start the app"); return; }
     a->launched = 1;
     a->launch_at = time_now_ms();
-    system(a->run); /* exits at once when the app runs already */
+    smart_wifi_hold(SW_ADDON, 1);
+    /* poll_one starts the app only once wake/link readiness has resolved. */
 }
 
 /* Stream mode (q2-deezer's stream.go): an app's /tmp/q2-<id>.play holds "<seq> <folder>", a hidden
@@ -261,6 +294,20 @@ static void poll_one(app_t *a) {
     unsigned now = time_now_ms();
     if ((!a->launched && !a->relaunch) || now - a->polled < ADDON_POLL_MS) return;
     a->polled = now;
+    if (a->wifi) {
+        int ready = smart_wifi_ready(a->wifi);
+        a->launch_at = now; /* starting timeout begins after Wi-Fi readiness */
+        if (ready == SW_WAIT) return;
+        launch_cancel(a);
+        if (ready != SW_READY && ready != SW_USER_OFF) {
+            a->launched = a->hold = 0;
+            toast("Wi-Fi connection timed out");
+            return;
+        }
+        /* Explicit Wi-Fi off still permits cached/local apps, as before this policy.
+         * USER_OFF never wakes the radio; an app's own network request will fail. */
+        system(a->run); /* exits at once when the app runs already */
+    }
     if (a->relaunch) {
         if (!navigator_window_is_exist("usbmode_page") && !access(a->bin, 0))
             a->relaunch = 0, launch(a);
@@ -285,6 +332,7 @@ void addon_stop(void) {
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
         if (a->launched || !access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd);
+        launch_cancel(a);
         a->launched = a->hold = a->relaunch = 0;
     }
 }
@@ -300,6 +348,7 @@ void addon_card_away(void) {
         app_t *a = &ap.a[i];
         int running = a->launched || !access(a->pid, 0);
         if (!access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd), left = 1;
+        launch_cancel(a);
         a->launched = a->hold = 0;
         a->relaunch = running;
     }
@@ -315,7 +364,10 @@ void addon_card_away(void) {
  * page's worker, asked to end and waited for, so its files are closed before they move. */
 void addon_forget(const char *dir) {
     for (int i = 0; dir && dir[0] == '.' && i < ap.n; ++i)
-        if (!strcmp(ap.a[i].id, dir + 1)) ap.a[i].launched = ap.a[i].hold = ap.a[i].relaunch = 0;
+        if (!strcmp(ap.a[i].id, dir + 1)) {
+            launch_cancel(&ap.a[i]);
+            ap.a[i].launched = ap.a[i].hold = ap.a[i].relaunch = 0;
+        }
 }
 void addon_quit(const char *dir) { /* addon_card_away's wait, libc's clock and sleep, one app */
     char pid[32], cmd[96];

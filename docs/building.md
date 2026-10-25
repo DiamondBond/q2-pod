@@ -44,6 +44,33 @@ About's **FW. Version** row reads the same literal, so it shows the stock firmwa
 
 Development builds also start `q2remote`, a key-gated root shell with screenshots and input over Wi-Fi, for developers and agents; see [remote.md](remote.md).
 
+### FLAC experiments
+
+The stock decoder can be tested with three independent, development-only changes:
+
+```sh
+python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-flac --ipod --dev --flac-experiments sync,lpc,output
+```
+
+Use any comma-separated subset to compare one change at a time. With no option,
+all three remain disabled. The manifest records the selected experiments and
+`test/build.py --build BUILD` verifies their exact instruction patches. Release
+builds reject this option.
+
+- `sync` coalesces redundant heartbeat publication while retaining the stock
+  cancellation checks after every residual sample.
+- `lpc` specializes predictor orders 1–12 and retains the original callbacks
+  for other orders or unsupported shifts.
+- `output` caches channel pointers for independent mono/stereo output. Other
+  channel counts and stereo decorrelation modes keep their stock functions.
+
+`test/flac_sync.py`, `test/flac_lpc.py` and `test/flac_output.py` execute the emitted
+MIPS against the pinned stock player. Their integrated-payload options are
+`--payload BUILD/peq/peq.elf` for sync and `--elf BUILD/peq/peq.elf` for LPC/output.
+Executed-instruction counts are not cycle counts or measured battery savings.
+Full-frame regression and device playback/control checks are also needed before
+using an experimental build as daily firmware.
+
 ## Tests
 
 ```sh
@@ -55,6 +82,8 @@ python3 test/mp3.py                        # native Xing seek bounds, CRC and tr
 python3 test/build.py                      # JPEG header checks; no emulator required
 python3 test/build.py 'Q2 Firmware V1.32.zip'   # packaging checks (custom logo, quoted paths)
 python3 test/remote.py                     # q2remote protocol, auth, event and framebuffer checks
+python3 test/smartwifi.py                  # network-demand leases, idle/wake policy and transition races (host pthreads)
+python3 test/smartwifi_consumers.py        # updater, app, Tidal and legacy consumer lease lifetimes
 python3 test/playback.py /tmp/q2-build     # grouped traversal, snapshots and the wheel's ticks
 python3 test/patch.py /tmp/q2-build        # the patched MIPS payload, wheel and UI scenarios
 python3 test/chapters.py                   # embedded chapter parsing, both MP4 formats and async extraction

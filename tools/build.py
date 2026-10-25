@@ -126,6 +126,11 @@ HOOKS = {
     # The Wi-Fi signal (navigation.c ringnav_wifi_signal): the driver's rx_signal instead of an ioctl
     # that takes the radio out of power save; the status bar and the network monitor (a bal) poll it
     'networkGetWifiSignal': (0x5afb48, 'ringnav_wifi_signal', None),
+    # Smart Wi-Fi: defer stock link-dependent actions while policy-slept Wi-Fi reconnects.
+    'systemset_wifi_page_init': (0x4cda08, 'ringnav_wifi_page', 'wifi_page'),
+    'stream_row': (0x52ee8c, 'ringnav_stream_row', 'stream_row'),
+    'netservice_row': (0x4c6728, 'ringnav_netservice_row', 'netservice_row'),
+    'playermore_online': (0x5281f8, 'ringnav_online_match', 'online_match'),
 }
 # Hooked in iPod builds only, so Stock keeps these entry points stock.
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist', 'playlist'),
@@ -344,6 +349,17 @@ DARK_POLLS = (0x5a958c, 0x4edbe0, 0x512fac)
 # The encoder thread's ts_read call (jalr $t9) becomes jal ringnav_ts_read, which makes the wheel's
 # ticks from the samples (playback.c wheel_sample).
 WHEEL_TS_READ = (0x625b6c, 0x0320f809)
+# Smart Wi-Fi (docs/internals.md#smart-wi-fi): wifi_switch's last act, both branches', is its tail call
+# write_int_config(g_wififlag, "SYSSET", "WIFI") (b, the frame popped in its delay slot). It becomes j
+# ringnav_wifi_config, which drops the write for Smart Wi-Fi's own toggles and passes the user's on.
+# Pinned with it: the arguments' set-up (lbu $a0,0($s0) the flag; "SYSSET", "WIFI"), the delay slot and
+# both branches' jumps to the set-up.
+WIFI_WRITE = (0x50e5f8, 0x10009654)
+WIFI_WRITE_WORDS = ((0x50e5dc, 0x92040000), (0x50e5e4, 0x24c6dad0), (0x50e5ec, 0x24a564f0), (0x50e5fc, 0x27bd0028),
+                    (0x50e614, 0x1620ffef), (0x50e64c, 0x1000ffe1))
+# networkStart and networkStop act only when initNetworkModule's type, the unnamed word NET_TYPE
+# (patch/offsets.inc), is 2: lw $v1,-0x40fc($v0) off GOT page 0xa40000; li $v0,2.
+NET_TYPE_READS = ((0x5af2dc, 0x8c43bf04), (0x5af2e0, 0x24020002), (0x5af5e8, 0x8c43bf04), (0x5af5ec, 0x24020002))
 # English labels renamed, as an iPod words them: Now Playing More's queue, which stock calls "Playlists"
 # (player_playlist, used nowhere else); the Library's plural categories; settings rows in title case
 # and plain words; the Lock screen help; and Baidu without its (BETA).
@@ -988,6 +1004,12 @@ FUNCTIONS = {
  # the cover match's candidate URLs (onlinematching_page shows each), under the same lock
  'online_addcoverlist': ('void', 'const char *'), 'online_getsize_coverlist': ('int', 'void'),
  'mclSetSeek': ('int', 'int'),  # the player's seek in file seconds; it plays on from there, or on Play once paused
+ # Smart Wi-Fi (navigation.c smart_poll): stock's Wi-Fi switch, a toggle of g_wififlag (its callers pass 1,
+ # the background connect), the link, the queue's type and Baidu's download
+ 'wifi_switch': ('int', 'int'),
+ 'networkGetConnectStatus': ('int', 'void'),  # 0 no link (networkStop), above 0 connected
+ 'mclGetPlayType': ('int', 'void'),  # the queue's type: 2, 3, 0xf1 and 0xf2 stream (on_wm_timer_networkstatus)
+ 'get_baidu_download_state': ('int', 'void'),  # 1 while a Baidu download runs (check_to_poweroption's test)
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
@@ -1007,6 +1029,9 @@ PRIVATE_FUNCTIONS = {
     "screensaver_rows": HOOKS['screensaver_rows'][0],  # the Lock screen page's rows and picture grid
     "saver_cover": HOOKS['saver_cover'][0],  # the lock window's img_playcover from the playing track
     "np_info": 0x52a508,  # Now Playing's info page labels, from the track (NP_INFO_CALL)
+    "stream_row": HOOKS['stream_row'][0],
+    "netservice_row": HOOKS['netservice_row'][0],
+    "playermore_online": HOOKS['playermore_online'][0],
     "fwupdate_tf": 0x4c2994,  # systemset_fwupdate_page's row 0 click (0x4c2fac): stock's TF card update
 }
 GLOBALS = ['g_time_zone', 'g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
@@ -1019,7 +1044,12 @@ GLOBALS = ['g_time_zone', 'g_playspeed_mode', 'g_time24h_flag', 'g_backlight_sta
            'g_usbdac_chargeflag',  # USB mode's charge choice, which switch_charge_enable gets there
            'g_memory_play', 'g_carmode',
            'g_headset_output',  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth
-           'g_usbdet_value']  # 1 while a USB cable is in (USB mode's scan prompt outlives it)
+           'g_usbdet_value',  # 1 while a USB cable is in (USB mode's scan prompt outlives it)
+           # Smart Wi-Fi (navigation.c smart_poll): the Wi-Fi switch's state and stock's own gates on
+           # toggling it (wifi_initstatus 0, wifi_connectstatus not 1, connecting), Network service's
+           # AirPlay and DLNA, SyncLink (2: over Wi-Fi) and its session, Wi-Fi transfer and a pending time sync
+           'g_wififlag', 'wifi_initstatus', 'wifi_connectstatus', 'g_airplayflag', 'g_dlnaflag',
+           'g_synclinkflag', 'g_syncLink_status', 'g_wifitransport_flag', 'g_syncnettime_flag']
 # Audited stock browsing state, deque pointers, art locks, the status bar widget
 # (system_bar_init stores it), the playing cover's track path and the playing track's tags as
 # player_get_id3info parsed them; sizes are checked against the ELF.
@@ -1082,7 +1112,7 @@ def compile_payload(out, ipod):
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
         '--undefined=ringnav_baidu_poll', '--undefined=ringnav_tidal_poll',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
-        '--undefined=headset_status_register', '--undefined=headset_bt_autolink',
+        '--undefined=headset_status_register', '--undefined=headset_bt_autolink', '--undefined=ringnav_wifi_config',
         out/'navigation.o',out/'trampoline.o',*extra,'-o',out/'patch.elf')
     run('llvm-objcopy','-O','binary',out/'patch.elf',out/'patch.bin')
     return symbols(out/'patch.elf')
@@ -1174,7 +1204,10 @@ def patch_bluealsa(raw):
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
-def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
+def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, flac_experiments=()):
+    from flac import selection
+    flac_experiments = selection(flac_experiments)
+    check(not flac_experiments or dev, 'FLAC experiments require --dev; they are not release inputs')
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
     check(re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9._-]+', repo), f'{repo}: not a GitHub owner/name')  # a C string
@@ -1292,7 +1325,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
                'wallpaper list accepts built-in wallpapers')
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
-    audio = patch_player(raw_player, out/'peq')
+    audio = patch_player(raw_player, out/'peq', flac_experiments)
     bluealsa = patch_bluealsa(cat(BLUEALSA))
     (out/'bluealsa').write_bytes(bluealsa)
     (out/'watchdog').write_bytes(cat(WATCHDOG).replace(*WATCHDOG_SLEEP))
@@ -1355,6 +1388,14 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     for address, old, new in LDAC_HQ:
         patch_word(patched, address, old, new, 'LDAC HQ sends 990 kbps')
     patch_word(patched, WHEEL_TS_READ[0], WHEEL_TS_READ[1], jal(ps['ringnav_ts_read']), 'wheel ticks')
+    check(WIFI_WRITE[1] == branch(0x10000000, WIFI_WRITE[0], syms['write_int_config']) and
+          struct.unpack_from('<I', raw_demo, fileoff(raw_demo, GP - 0x5280))[0] == syms['write_int_config'] and
+          all(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, a))[0] == w for a, w in WIFI_WRITE_WORDS),
+          "wifi_switch: unexpected WIFI= write")
+    patch_word(patched, *WIFI_WRITE, j(ps['ringnav_wifi_config']), 'Smart Wi-Fi keeps the saved Wi-Fi switch')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, GP - 0x7f44))[0] == 0xa40000 and
+          all(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, a))[0] == w for a, w in NET_TYPE_READS),
+          'networkStart/networkStop: unexpected network type gate')
     for address in AUDIO_EXTENSION_CALLS:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, address-8))[0] == 0x8f99f950,
               'audio extension: expected strstr import')
@@ -1568,8 +1609,10 @@ if __name__ == '__main__':
                     help='development build: tag from the next .build-number (V001i, V002i...); never a release input')
     ap.add_argument('--update-repo', default=REPO, metavar='OWNER/NAME',
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
+    ap.add_argument('--flac-experiments', default='', metavar='sync,lpc,output',
+                    help='opt-in FLAC experiments (comma-separated subset); requires --dev')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.flac_experiments)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

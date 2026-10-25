@@ -94,7 +94,24 @@ static int progress(void *stopped_at, long long a, long long b, long long c, lon
 }
 
 /* Downloads tidal_play's job, then the job a track started meanwhile left, until none waits. */
-static void *download(void *unused) {
+static void *download(void *arg) {
+    unsigned lease = (unsigned)(unsigned long)arg;
+    int state;
+    while ((state = smart_wifi_ready(lease)) == SW_WAIT) {
+        pthread_mutex_lock(td.lock);
+        int pending = td.job && td.job_gen == td.gen;
+        if (!pending) td.busy = td.job = 0;
+        pthread_mutex_unlock(td.lock);
+        if (!pending) { smart_wifi_release(lease); return 0; }
+        sleep_ms(100); /* this worker only; the UI controller must keep running */
+    }
+    if (state != SW_READY) {
+        pthread_mutex_lock(td.lock);
+        td.busy = td.job = 0;
+        pthread_mutex_unlock(td.lock);
+        smart_wifi_release(lease);
+        return 0;
+    }
     char url[sizeof td.url], path[sizeof td.path], tmp[sizeof td.path + 4];
     for (;;) {
         pthread_mutex_lock(td.lock);
@@ -103,7 +120,7 @@ static void *download(void *unused) {
         td.busy = job, td.job = 0;
         if (job) memcpy(url, td.url, sizeof url), memcpy(path, td.path, sizeof path), td.want = td.job_gen;
         pthread_mutex_unlock(td.lock);
-        if (!job) return 0;
+        if (!job) { smart_wifi_release(lease); return 0; }
         tk_snprintf(tmp, sizeof tmp, "%s.tmp", path);
         unsigned stopped_at = 0;
         long code = 0;
@@ -177,6 +194,7 @@ int tidal_play(const char *url, const char *id) {
     char ext[8], key[64], name[256], path[sizeof td.path];
     if (!id || strcmp(id, td.id)) ++td.gen; /* another track: cancels the download of the one before */
     int level = I(tidalStreamingLevelNow, 0), start = 0;
+    unsigned lease = 0;
     if (!url || !id || !*id || strstr(id, "/") || strlen(id) > 40 || !tidal_ext(url, ext, sizeof ext))
         return stock_tidal_trampoline(url);
     /* AAC comes in an .mp4, which stock's file lists skip: kept as .m4a, so Tidal Downloads lists it. */
@@ -203,10 +221,15 @@ int tidal_play(const char *url, const char *id) {
         tk_snprintf(td.path, sizeof td.path, TIDAL_DIR "/%s", name);
         td.job_gen = td.gen, td.job = 1;
         start = !td.busy, td.busy = 1;
+        if (start) lease = smart_wifi_acquire(SW_TIDAL);
     }
     pthread_mutex_unlock(td.lock);
-    if (start && pthread_create(&td.thread, 0, download, 0))
+    if (start && pthread_create(&td.thread, 0, download, (void *)(unsigned long)lease)) {
+        pthread_mutex_lock(td.lock);
         td.busy = td.job = 0;
+        pthread_mutex_unlock(td.lock);
+        smart_wifi_release(lease);
+    }
     else if (start)
         pthread_detach(td.thread);
     return stock_tidal_trampoline(url);
@@ -241,5 +264,12 @@ extern int stock_tidaltrack_trampoline(void *a, void *b, void *c, void *d);
 int ringnav_tidal_track(void *a, void *b, void *c, void *d) {
     tidal_start_poll();
     return stock_tidaltrack_trampoline(a, b, c, d);
+}
+/* A background cache download also needs the radio after its page closes. */
+int tidal_busy(void) {
+    pthread_mutex_lock(td.lock);
+    int busy = td.busy;
+    pthread_mutex_unlock(td.lock);
+    return busy;
 }
 #endif

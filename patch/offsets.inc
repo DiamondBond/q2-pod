@@ -559,3 +559,7 @@ static inline int arc_out(int r, int y) {
 #define VIS_FLOOR_DB 60
 #define VIS_VU_REF_DB -14
 #define VIS_LED_DB -1
+
+/* Smart Wi-Fi controller cadence; deadlines and idle interval are in smartwifi.h. */
+#define SMART_POLL_MS 1000
+#define NET_TYPE 0xa3bf04 /* initNetworkModule type: 2 is Wi-Fi */

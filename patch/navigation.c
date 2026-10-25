@@ -91,7 +91,9 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_audioset_trampoline(void *, void *), stock_btrows_trampoline(void *, void *),
     stock_playlist_trampoline(void *), stock_stream_trampoline(void *, void *),
     stock_start_player_trampoline(void), stock_standby_trampoline(void),
-    stock_usbmode_trampoline(void *, void *, void *, void *);
+    stock_usbmode_trampoline(void *, void *, void *, void *),
+    stock_wifi_page_trampoline(void *, void *), stock_stream_row_trampoline(void *, void *),
+    stock_netservice_row_trampoline(void *, void *), stock_online_match_trampoline(void *);
 extern void *coverflow_tracks(void *page);
 extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
@@ -192,6 +194,7 @@ enum {
     POD_STANDBY,
     POD_CF_SORT,    /* Display's Coverflow Sort: coverflow.c's SORT_FILE, not config.ini */
     POD_CF_REFRESH, /* and Refresh Coverflow, an action */
+    POD_SMART_WIFI,
     POD_COUNT
 };
 
@@ -293,7 +296,7 @@ typedef struct {
     int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat,
         wake_down, /* 1: the held Centre press passes; 2: it is dropped */
         charge_held, cpu_off, cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock,
-        artist_az, hold_home, standby_limit, standby_off;
+        artist_az, hold_home, standby_limit, standby_off, smart_wifi;
     void *pod_label[POD_COUNT];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
     void *art_cf_veil;              /* the artist page unseen until they show, and its anim_hint */
@@ -2260,12 +2263,13 @@ static int *const pod_values[] = { &st.charge_limit,
                                    &st.hold_home,
                                    &st.standby_limit,
                                    0,
-                                   0 };
+                                   0,
+                                   &st.smart_wifi };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 _Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
 static const char *const pod_keys[] = {
     "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",   "YEAROLD",      0, "RESUME",
-    "LOCKCLOCK",   "ARTISTAZ", "VOLGUARD",   "HOLDRETURN", "STANDBYLIMIT", 0, 0
+    "LOCKCLOCK",   "ARTISTAZ", "VOLGUARD",   "HOLDRETURN", "STANDBYLIMIT", 0, 0, "SMARTWIFI"
 };
 _Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
 /* a row's choices: Artist albums three, Standby limit four, every other row off and on */
@@ -2565,6 +2569,7 @@ static void pod_text(int i) {
           "Standby Limit: " STR(STANDBY_LIMIT_3) " h" },
         { 0 }, /* Coverflow Sort's from coverflow.c */
         { "Refresh Coverflow" },
+        { "Smart Wi-Fi: Off", "Smart Wi-Fi: On" },
     };
     _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
     if (i == POD_CF_SORT) {
@@ -2578,6 +2583,7 @@ static void pod_text(int i) {
                          : i == POD_LOW       ? "Low Power"
                          : i == POD_RESUME    ? "Resume on Connect"
                          : i == POD_VOL_GUARD ? "Volume Guard"
+                         : i == POD_SMART_WIFI ? "Smart Wi-Fi"
                                               : 0;
     if (toggle)
         list_toggle(st.pod_label[i], toggle, v);
@@ -2627,6 +2633,8 @@ int ringnav_powermanager(void *win, void *ctx) {
     pod_rows(win, "scroll_view_powermanager", POD_CHARGE, 3, icons);
     pod_rows(win, "scroll_view_powermanager", POD_VOL_GUARD, 1, icons + 2);
     pod_rows(win, "scroll_view_powermanager", POD_STANDBY, 1, icons + 1);
+    static const char *const wifi_icon[] = { "wifiset_wifi" };
+    pod_rows(win, "scroll_view_powermanager", POD_SMART_WIFI, 1, wifi_icon);
     return result;
 }
 /* The Bluetooth page's list (stock's local builder, btmenu_rows), rebuilt whole on every search and
@@ -6361,9 +6369,190 @@ static int long_songs(void *ctx, void *event) {
     return 0;
 }
 
+/* Smart Wi-Fi's sole controller. Consumers reserve demand through smartwifi.h.
+ * The mutex in smartwifi.c is released before stock runs; its committed transition
+ * makes concurrent acquisitions WAIT until completion, never stale-ready. */
+extern int spot_running(void), tidal_busy(void), scrobble_busy(void), radio_busy(void);
+extern int remote_wifi_busy(void), addon_wifi_busy(void);
+extern void remote_wifi_end(void);
+static unsigned smart_at __attribute__((section(".scratch")));
+static int smart_quiet __attribute__((section(".scratch")));
+static void smart_poll(int force);
+
+static int smart_can_switch(void) {
+    return *(volatile int *)NET_TYPE == 2 && !wifi_initstatus && wifi_connectstatus != 1 &&
+           !g_testmode_flag && g_poweroff_state != 2 && (signed char)g_guideflag <= 0;
+}
+static int net_page_open(void) {
+    static const char *const pages[] = {
+        "stream_page", "spotify_page", "spotbrowse_page", "radio_page", "radionp_page",
+        "airplay_page", "netservice_page", "synclink_page", "wifi_page",
+        "wifitransport_page", "editwifi_dialog", "kbwifiadd_dialog", "kbwifipass_dialog",
+        "fwdownload_page", "checkfw_dialog", "onlinematching_page", "tidal_", "netdisk"
+    };
+    void *wm = window_manager();
+    for (unsigned i = 0, n = widget_count_children(wm); i < n; ++i) {
+        const char *name = widget_get_prop_str(widget_get_child(wm, i), "name", "");
+        if (!tk_strcmp(name, "tidal_downloads")) continue;
+        for (unsigned k = 0; k < sizeof pages / sizeof *pages; ++k)
+            if (tk_str_start_with(name, pages[k])) return 1;
+    }
+    return 0;
+}
+static void smart_poll(int force) {
+    unsigned now = time_now_ms();
+    if (!force && smart_at && now - smart_at < SMART_POLL_MS) return;
+    smart_at = now | !now;
+    pod_settings();
+    if (!st.smart_wifi && !(smart_wifi_diagnostic() & SW_DIAG_ASLEEP)) {
+        smart_wifi_step(0, 0, g_wififlag, 0);
+        return;
+    }
+    unsigned type = (unsigned)mclGetPlayType();
+    smart_wifi_hold(SW_USB, g_usbdet_value != 0);
+    smart_wifi_hold(SW_SERVICES, g_airplayflag || g_dlnaflag || g_synclinkflag == 2 ||
+                    g_syncLink_status || g_wifitransport_flag || airplayGetFlag() == 2 ||
+                    type - 2 < 2 || type - 0xf1 < 2 || get_baidu_download_state() == 1 ||
+                    (g_syncnettime_flag && networkGetConnectStatus() > 0) || net_page_open());
+    smart_wifi_hold(SW_SPOTIFY, spot_running());
+    smart_wifi_hold(SW_RADIO, radio_busy());
+    smart_wifi_hold(SW_TIDAL, tidal_busy());
+    smart_wifi_hold(SW_SCROBBLE, scrobble_busy());
+    smart_wifi_hold(SW_REMOTE, remote_wifi_busy());
+    smart_wifi_hold(SW_ADDON, addon_wifi_busy());
+    int action = smart_wifi_step(st.smart_wifi, smart_can_switch(), g_wififlag,
+                                networkGetConnectStatus() > 0);
+    if (action) {
+        /* A target, not an unconditional toggle: stock may already have changed it. */
+        int wanted = action == SW_TURN_ON;
+        if (!!g_wififlag != wanted) {
+            smart_quiet = 1;
+            wifi_switch(1);
+            smart_quiet = 0;
+        }
+        smart_wifi_done(g_wififlag, networkGetConnectStatus() > 0);
+    }
+    /* A successful exclusive probe stays held across STOP. A new remote daemon
+     * acquires its shared lifetime lock before listening, so it cannot appear
+     * between our availability snapshot and the physical transition. */
+    remote_wifi_end();
+}
+int ringnav_wifi_config(int value, const char *section, const char *key) {
+    if (smart_quiet) return 0;
+    smart_wifi_manual(value);
+    return write_int_config(value, section, key);
+}
+/* Opening a network page requests wake immediately on the UI thread. The page's
+ * real actions still acquire their own lease and wait for the connection. */
+static void smart_wake(void) {
+    unsigned lease = smart_wifi_acquire(SW_STOCK);
+    smart_poll(1);
+    smart_wifi_release(lease);
+}
+int ringnav_wifi_page(void *win, void *ctx) {
+    smart_wake();
+    return stock_wifi_page_trampoline(win, ctx);
+}
+
+/* Stock actions have no cancellable worker interface. Hold one UI invocation while
+ * waking, and discard it if its originating page goes away. A new press replaces
+ * the pending action without extending its deadline. */
+enum { HOLD_STREAM = 1, HOLD_TRANSFER, HOLD_MATCH };
+static const char *const hold_pages[] = { 0, "stream_page", "netservice_page", "playermore_page" };
+static struct {
+    unsigned lease, timer;
+    int kind, row;
+    void *win;
+} smart_action __attribute__((section(".scratch")));
+static void *smart_page(void) {
+    void *wm = window_manager();
+    for (int i = (int)widget_count_children(wm) - 1; i >= 0; --i) {
+        void *w = widget_get_child(wm, i);
+        const char *name = widget_get_prop_str(w, "name", "");
+        if (tk_strcmp(name, "msginfo_dialog") && tk_strcmp(name, "volume_dialog")) return w;
+    }
+    return (void *)0;
+}
+static int smart_action_tick(const void *unused) {
+    void *win = smart_action.win;
+    int same = smart_page() == win;
+    int state = smart_wifi_ready(smart_action.lease);
+    if (same && state == SW_WAIT) return 8;
+    /* Animation must not hide an expired wake forever. */
+    if (same && state == SW_READY && window_manager_is_animating(window_manager())) return 8;
+    unsigned lease = smart_action.lease;
+    int kind = smart_action.kind, row_index = smart_action.row;
+    smart_action.lease = smart_action.timer = 0;
+    smart_action.win = 0;
+    if (same && !tk_strcmp(widget_get_prop_str(win, "name", ""), hold_pages[kind])) {
+        if (state == SW_READY || state == SW_USER_OFF) {
+            char name[2] = { (char)('0' + row_index), 0 };
+            void *row = kind <= HOLD_TRANSFER ? widget_lookup(win, name, 1) : (void *)0;
+            if (kind == HOLD_STREAM && row) stock_stream_row_trampoline(row, (void *)0);
+            else if (kind == HOLD_TRANSFER && row) stock_netservice_row_trampoline(row, (void *)0);
+            else if (kind == HOLD_MATCH) {
+                /* Stock fallback/download lifetime has no verified completion signal.
+                 * Keep connectivity for this demo lifetime instead of guessing at page close. */
+                smart_wifi_hold(SW_UNKNOWN, 1);
+                stock_online_match_trampoline(win);
+            }
+        } else toast("Could not connect to Wi-Fi");
+    }
+    smart_wifi_release(lease);
+    return 0;
+}
+static int smart_hold(int kind, void *win, int row) {
+    if (!win || tk_strcmp(widget_get_prop_str(win, "name", ""), hold_pages[kind])) return 0;
+    if (!smart_action.lease) smart_action.lease = smart_wifi_acquire(SW_STOCK);
+    int state = smart_wifi_ready(smart_action.lease);
+    if (!smart_action.timer && (state == SW_READY || state == SW_USER_OFF)) {
+        smart_wifi_release(smart_action.lease);
+        smart_action.lease = 0;
+        return 0; /* same UI call runs stock before the controller can idle */
+    }
+    smart_action.kind = kind;
+    smart_action.win = win;
+    smart_action.row = row;
+    if (state < 0) {
+        smart_wifi_release(smart_action.lease);
+        smart_action.lease = 0;
+        if (smart_action.timer) timer_remove(smart_action.timer);
+        smart_action.timer = 0;
+        toast("Could not connect to Wi-Fi");
+    } else if (!smart_action.timer &&
+               !(smart_action.timer = timer_add(smart_action_tick, (void *)0, 250))) {
+        smart_wifi_release(smart_action.lease);
+        smart_action.lease = 0;
+        toast("Could not start the connection");
+    } else toast("Connecting to Wi-Fi...");
+    return 1;
+}
+static int smart_row(void *button) {
+    const char *name = widget_get_prop_str(button, "name", "");
+    return name[0] >= '0' && name[0] <= '9' && !name[1] ? name[0] - '0' : -1;
+}
+int ringnav_stream_row(void *button, void *event) {
+    int row = smart_row(button);
+    return row >= 0 && smart_hold(HOLD_STREAM, smart_page(), row) ? 0
+        : stock_stream_row_trampoline(button, event);
+}
+int ringnav_netservice_row(void *button, void *event) {
+    return smart_row(button) == 2 && smart_hold(HOLD_TRANSFER, smart_page(), 2) ? 0
+        : stock_netservice_row_trampoline(button, event);
+}
+int ringnav_online_match(void *win) {
+    if (smart_hold(HOLD_MATCH, win, 0)) return 0;
+    smart_wifi_hold(SW_UNKNOWN, 1);
+    return stock_online_match_trampoline(win);
+}
+
+static unsigned upload_lease __attribute__((section(".scratch")));
+static int upload_fallback __attribute__((section(".scratch")));
+
 /* Upload Scrobbles: the log goes up on scrobble.c's thread, and a timer reports how it went. */
 static int upload_wait(const void *unused) {
     int sent = 0, done = scrobble_poll(&sent);
+    if (done) { smart_wifi_release(upload_lease); upload_lease = 0; }
     if (!done) return 8; /* RET_REPEAT */
     char s[48];
     tk_snprintf(s, sizeof s, done < 0 ? "Upload failed, %d sent" : "Scrobbles sent: %d", sent);
@@ -6371,13 +6560,30 @@ static int upload_wait(const void *unused) {
     return 0;
 }
 
+static int upload_start(const void *unused) {
+    int state = smart_wifi_ready(upload_lease);
+    if (state == SW_WAIT) return 8;
+    int started = state == SW_READY && get_wifisignal() > 0 ? scrobble_start() : -2;
+    if (started > 0) {
+        if (!timer_add(upload_wait, (void *)0, 500)) {
+            upload_fallback = 1;
+            /* Polling from power_poll still joins the worker if a UI timer fails. */
+            toast("Uploading scrobbles");
+            return 0;
+        }
+    } else { smart_wifi_release(upload_lease); upload_lease = 0; }
+    toast(started > 0 ? "Uploading scrobbles" : !started ? "Already uploading"
+          : started == -2 ? "Connect to Wi-Fi first" : "Upload failed");
+    return 0;
+}
 static int upload_scrobbles(void *ctx, void *event) {
-    int started = get_wifisignal() > 0 ? scrobble_start() : -2;
-    if (started > 0) timer_add(upload_wait, (void *)0, 500);
-    toast(started > 0     ? "Uploading scrobbles"
-          : !started      ? "Already uploading"
-          : started == -2 ? "Connect to Wi-Fi first"
-                          : "Upload failed");
+    if (upload_lease || scrobble_busy()) { toast("Already uploading"); return 0; }
+    upload_lease = smart_wifi_acquire(SW_SCROBBLE);
+    if (smart_wifi_ready(upload_lease) != SW_WAIT) return upload_start((void *)0);
+    if (!timer_add(upload_start, (void *)0, 250)) {
+        smart_wifi_release(upload_lease); upload_lease = 0;
+        toast("Could not start the connection");
+    } else toast("Connecting to Wi-Fi...");
     return 0;
 }
 
@@ -6629,6 +6835,7 @@ static void svc_row(void *row, int i, char *hide) {
  * settings' Apps or the user put them there), Tidal Downloads, Internet Radio (radio.c), AirPlay
  * and Configuration. Their buttons have no name, so stock's row click never sees them. */
 int ringnav_stream(void *win, void *ctx) {
+    smart_wake();
     int result = stock_stream_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_streamsset", 1) : (void *)0;
     for (int i = view ? (int)widget_count_children(view) : 0; i-- > 0;)
@@ -8001,6 +8208,8 @@ static void power_poll(void) {
     cpu_poll();
     standby_poll();
     logo_poll();
+    smart_poll(0);
+    if (upload_fallback && upload_wait((void *)0) != 8) upload_fallback = 0;
 }
 
 #if IPOD

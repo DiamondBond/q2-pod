@@ -101,7 +101,7 @@ logo_check()
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, STREAM_POLLS, STREAM_POLL_CALLS, DARK_POLLS, WHEEL_TS_READ, PDR
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, WIFI_WRITE, WIFI_WRITE_WORDS, NET_TYPE_READS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, STREAM_POLLS, STREAM_POLL_CALLS, DARK_POLLS, WHEEL_TS_READ, PDR
     from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, BIGCOVER, BC_ART, BC_TITLE_PAD, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
@@ -141,6 +141,16 @@ def validate_assets(directory):
     assert [i for i in range(0x371300, 0x371360) if demo[i] != stock[i]] == [0x37133d] and demo[0x37133d:0x37133e] == b'2'
     off = fileoff(stock, HOOKS['networkGetWifiSignal'][0])
     assert demo[off:off+8] == j(symbols(directory/'patch.elf')['ringnav_wifi_signal']).to_bytes(4, 'little') + bytes(4)
+    # Only policy-owned switches suppress the persistent preference write. The branch and
+    # stock argument setup are pinned by build.py before any modification is permitted.
+    off = fileoff(stock, WIFI_WRITE[0])
+    assert struct.unpack_from('<I', stock, off)[0] == WIFI_WRITE[1]
+    assert struct.unpack_from('<I', demo, off)[0] == j(symbols(directory/'patch.elf')['ringnav_wifi_config'])
+    for address, word in (*WIFI_WRITE_WORDS, *NET_TYPE_READS):
+        off = fileoff(stock, address)
+        assert struct.unpack_from('<I', stock, off)[0] == word
+        assert demo[off:off+4] == stock[off:off+4]
+
     # The lock window's 12-hour clock reads hour:minutes (H:mm), in stock HH:TT's slot after its 24-hour hh:mm.
     assert demo.index(LOCK_CLOCK_12H[1]) == stock.index(LOCK_CLOCK_12H[0]) and LOCK_CLOCK_12H[0] not in demo
     # The slide hint names a stock animator and gives it a duration (a missing one means stock's 500 ms).
@@ -325,10 +335,16 @@ def validate_assets(directory):
     from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS, MQA_GATE, MQA_PROBE, PAUSE_SLEEP
     old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
     off = fileoff(old, VBR_SCAN)
-    words = (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE, PAUSE_SLEEP)
+    from flac import patch_words, selection
+    experiments = manifest['peq'].get('flac_experiments', [])
+    assert list(selection(experiments)) == experiments
+    assert not experiments or manifest['dev'], 'Experimental FLAC in a release'
+    flac_words = patch_words(experiments, symbols(directory/'peq'/'peq.elf'))
+    words = (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE, PAUSE_SLEEP, *flac_words)
     gates = [fileoff(old, a) for a in (*(a for a, _, _ in words), *ID3_CALLS)]
     differ = [i for i in range(0x3e40, 0x485250) if old[i] != new[i]]
     assert set(differ) <= {*range(off, off+4), *(i for g in gates for i in range(g, g+4))} and not any(new[off:off+4])
+    assert [struct.unpack_from('<I', old, fileoff(old, a))[0] for a, s, p in flac_words] == [s for _, s, _ in flac_words]
     assert [struct.unpack_from('<I', new, fileoff(old, a))[0] for a, _, _ in words] == [p for _, _, p in words]
     id3_gain = symbols(directory/'peq'/'peq.elf')['id3_gain']
     assert {struct.unpack_from('<I', new, fileoff(old, a))[0] for a in ID3_CALLS} == {jal(id3_gain)}

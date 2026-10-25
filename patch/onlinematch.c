@@ -81,6 +81,7 @@ const char *lrc_body(const char *t) {
 #ifndef PEQ_HOST
 #include "offsets.inc"
 #include "stock.h"
+#include "smartwifi.h"
 
 #define OM_CA "/etc/scrobble-ca.pem" /* scrobble.c's: GTS Root R4 signs LRCLIB, ISRG the Cover Art Archive,
                                        * DigiCert G2 MusicBrainz and iTunes */
@@ -161,8 +162,19 @@ static int lrclib(const char *out) {
  * ponytail: LRCLIB's first synced result by title and artist, no duration check; pass the track's
  * length (/api/get) if wrong versions come back. */
 extern int stock_kugou_trampoline(const char *keyword, const char *out);
+/* These hooks execute on stock's match workers. Keep demand through our HTTP calls
+ * and the stock source fallback; navigation retains the outer stock-job guard. */
+static int match_ready(unsigned token) {
+    int ready;
+    while ((ready = smart_wifi_ready(token)) == SW_WAIT) usleep(50000);
+    return ready == SW_READY;
+}
+
 int ringnav_lyric_search(const char *keyword, const char *out) {
-    return lrclib(out) || stock_kugou_trampoline(keyword, out);
+    unsigned wifi = smart_wifi_acquire(SW_STOCK);
+    int ok = match_ready(wifi) && (lrclib(out) || stock_kugou_trampoline(keyword, out));
+    smart_wifi_release(wifi);
+    return ok;
 }
 
 /* The Cover Art Archive's 500 px front (a JPEG thumbnail) of release group id, as the archive.org URL
@@ -227,7 +239,11 @@ static void covers(void) {
  * image URLs to stock's list (online_addcoverlist), which the page downloads and shows. ours go first. */
 extern void stock_kugoucover_trampoline(const char *keyword);
 void ringnav_cover_search(const char *keyword) {
-    covers();
-    stock_kugoucover_trampoline(keyword);
+    unsigned wifi = smart_wifi_acquire(SW_STOCK);
+    if (match_ready(wifi)) {
+        covers();
+        stock_kugoucover_trampoline(keyword);
+    }
+    smart_wifi_release(wifi);
 }
 #endif
