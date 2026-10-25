@@ -141,10 +141,73 @@ volatile int wheel_travel __attribute__((section(".scratch")));
 volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the wheel */
 #endif
 
+/* Quick Settings from the wheel: a swipe straight across it, as on a touchpad. The ring has no
+ * middle, so the swipe is a touch at one edge and then, within QS_GAP_MS, one at the opposite edge
+ * (lifted over Centre) or a jump there mid-touch. Each touch travels under QS_SLACK units, so no
+ * turn counts. The payload writes q2remote's screen swipe (docs/remote.md) to hyn_ts, so stock
+ * opens or closes the pull-down and slides it as for a finger.
+ * ponytail: either way across toggles it, as the wheel's x has no known top; gate on the first
+ * touch's x once a device trace finds the top. */
+#define QS_SPAN 70 /* of 100 units: the opposite edge */
+#define QS_SLACK 20
+#define QS_GAP_MS 400
+#define QS_STEPS 15 /* one sample every 20 ms, q2remote's 300 ms swipe */
+static int qs_fd __attribute__((section(".scratch"))); /* hyn_ts + 1; 0 not found yet */
+static int qs_x __attribute__((section(".scratch")));  /* where the last touch left */
+static unsigned qs_at __attribute__((section(".scratch")));
+static int qs_left __attribute__((section(".scratch"))),
+    qs_travel __attribute__((section(".scratch"))), qs_armed __attribute__((section(".scratch")));
+
+static void qs_swipe(void) {
+    int state = *(volatile int *)g_dropdown_menu_state;
+    if (!g_backlight_status || (state && state != 3)) return; /* dark, or sliding */
+    char path[32], name[16];
+    for (int i = 0; !qs_fd && i < 16; ++i) {
+        tk_snprintf(path, sizeof path, "/dev/input/event%d", i);
+        int fd = open(path, 0x80001); /* O_WRONLY | O_CLOEXEC, MIPS */
+        if (fd < 0) continue;
+        memset(name, 0, sizeof name);
+        if (ioctl(fd, 0x40104506u, name) > 0 && !strcmp(name, "hyn_ts"))
+            qs_fd = fd + 1;
+        else
+            close(fd);
+    }
+    if (!qs_fd) return;
+    /* Upright x 187, y 5 to 220 opens it and 310 to 0 closes it; the panel's ABS_X is 319 - y. */
+    int from = state ? 310 : 5, to = state ? 0 : 220;
+    for (int i = 0; i <= QS_STEPS + 1; ++i) {
+        int y = from + (to - from) * (i > QS_STEPS ? QS_STEPS : i) / QS_STEPS, n = 0,
+            ev[5][4] = { 0 };
+#define EV(type, code, value) ev[n][2] = (type) | (code) << 16, ev[n++][3] = (value)
+        if (i > QS_STEPS) { /* lift */
+            EV(3, 0x18, 0), EV(1, 0x14a, 0);
+        } else {
+            EV(3, 0, 319 - y), EV(3, 1, 187);
+            if (!i) EV(3, 0x18, 1), EV(1, 0x14a, 1); /* ABS_PRESSURE, BTN_TOUCH */
+        }
+        EV(0, 0, 0);
+#undef EV
+        write(qs_fd - 1, ev, n * sizeof ev[0]);
+        if (i <= QS_STEPS) usleep(20000);
+    }
+}
+static void qs_end(int x) {
+    if (qs_armed && qs_travel < QS_SLACK) qs_swipe();
+    qs_armed = 0, qs_x = x, qs_left = qs_travel, qs_at = (unsigned)time_now_ms();
+}
+static void qs_start(int x) {
+    int span = x > qs_x ? x - qs_x : qs_x - x;
+    if (span > 100) span = 200 - span;
+    qs_armed = qs_at && (unsigned)time_now_ms() - qs_at < QS_GAP_MS && qs_left < QS_SLACK &&
+               span >= QS_SPAN;
+    qs_travel = 0;
+}
+
 /* struct ts_sample {int x, y; unsigned pressure; struct timeval tv;} */
 void wheel_sample(int *s, int ret, char *info) {
     if (ret <= 0) return;
     if (!s[2]) { /* lifted */
+        if (wh_anchor) qs_end(wh_last);
         if (wh_anchor) s[0] = wh_anchor;
         wh_anchor = 0;
         if (wh_guard != DARK_OPEN) wh_guard = 0;
@@ -156,13 +219,22 @@ void wheel_sample(int *s, int ret, char *info) {
     if (!wh_anchor) {
         wh_anchor = wh_last = s[0];
         wh_acc = 0;
+        qs_start(s[0]);
 #if IPOD
         wheel_held = 1;
 #endif
         return;
     }
     int d = s[0] - wh_last, units = wheel_units ? wheel_units : WHEEL_TICK_UNITS * WHEEL_FINE;
-    d = (d < -100 ? d + 200 : d > 100 ? d - 200 : d) * WHEEL_FINE;
+    d = d < -100 ? d + 200 : d > 100 ? d - 200 : d;
+    if (g_backlight_status &&
+        (d >= QS_SPAN || d <= -QS_SPAN)) { /* across the middle: two touches */
+        qs_end(wh_last);
+        qs_start(s[0]);
+        d = 0;
+    }
+    qs_travel += d < 0 ? -d : d;
+    d *= WHEEL_FINE;
     wh_last = s[0];
 #if IPOD
     if (wheel_raw) { /* games.c's Vortex reads the travel itself; nothing is queued for a menu */
