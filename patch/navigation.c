@@ -5828,7 +5828,6 @@ static int sc_click(void *ctx, void *event) {
         spot_stop();
         radio_stop();
         addon_stop();
-        tidal_stop_poll();
         if (type != 1 && (type & 0xf000) != 0xf000 && mclGetPlayStatus() != 1) player_stop();
         toast("Streaming stopped");
         return 0;
@@ -8190,7 +8189,9 @@ static void *logo_sync(void *unused) {
 static void logo_poll(void) {
     unsigned now = time_now_ms();
     if (st.logo_err) toast(st.logo_err), st.logo_err = 0;
-    if (st.logo_busy || (st.logo_at && now - st.logo_at < CHARGE_POLL_MS)) return;
+    /* Mount edges (boot, USB storage's end) come lit; dark it keeps its edge for the first lit poll. */
+    if (!g_backlight_status || st.logo_busy || (st.logo_at && now - st.logo_at < CHARGE_POLL_MS))
+        return;
     st.logo_at = now | !now;
     char m[4096]; /* ponytail: the Q2's few mounts fit (remote.c's card_mounted) */
     int mounted = 0;

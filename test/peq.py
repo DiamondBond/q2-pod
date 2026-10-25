@@ -2471,7 +2471,6 @@ static void headset_manual(void) {}
 static int card_space(const char *d) { return 1; }
 static int stream_cache(int s) { return 2; }
 int stock_tidal_trampoline(const char *u) { return 0; }
-int stock_tidalmain_trampoline(void *win, void *ctx) { return 0; }
 int stock_tidaltrack_trampoline(void *a, void *b, void *c, void *d) { return 0; }
 static int __xstat(int v, const char *p, unsigned *st) {
     struct stat s; if (stat(p, &s)) return -1; st[12] = s.st_size, st[16] = s.st_mtime; return 0;

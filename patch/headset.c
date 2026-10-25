@@ -194,7 +194,7 @@ static void *headset_worker(void *arg) {
         if (aap < 0 && !(tries % 5)) aap = aap_open(address, generation);
         if (input < 0 && (tries < 10 || !(tries % 2))) input = avrcp_open();
         if (aap < 0 && input < 0) {
-            for (int i = 0; i < 5 && generation == hs.generation; ++i) usleep(200000);
+            usleep(1000000); /* a stale worker exits at the loop head; headset_poll ignores it */
             ++tries;
             continue;
         }

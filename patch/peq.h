@@ -164,7 +164,6 @@ void play_folder(void *dq, int idx, int cls);
 int directory(void *path); /* playback.c: toolsLoadDirectory, for staged */
 #define TIDAL_DIR "/mnt/mmc/.tidal" /* tidal.c's cache, Tidal Downloads' list */
 void tidal_clear(void);
-void tidal_stop_poll(void);          /* tidal.c: Stop Streaming Services; the stream parks */
 #define SPOT_DIR "/mnt/mmc/.spotify" /* librespot and its launcher, spotify.c's */
 /* addon.c: card apps, each a card folder .<id> holding its manifest q2app, its
  * launcher run, its binary q2-<id> and its icons. addon_scan finds them again (how many slots: a

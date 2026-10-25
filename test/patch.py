@@ -10469,7 +10469,9 @@ class ResumeMachine(QueueMachine):
         if not name.startswith('r:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0; self.calls.append((name,a,b,c))
         if name=='fopen':
-            path,mode=self.text(a),self.text(b); self.opens+=path!='/proc/mounts'  # the boot logo's poll
+            path,mode=self.text(a),self.text(b)
+            # the boot logo's lit-only mount poll; dark, any open counts
+            self.opens+=path!='/proc/mounts' or not self.u.mem_read(syms['g_backlight_status'],1)[0]
             if mode=='rb' and path not in self.files: ret=0
             else: ret=0x2000000+len(self.calls); self.open[ret]=[path,mode,0,b'' if mode=='wb' else self.files.get(path,b'')]
         elif name=='fread':
@@ -11875,16 +11877,18 @@ for polls in (0,1,2):  # before first resume poll, during settling, or with a re
     m.poll(0,225,n=2); m.poll(1,225,n=3)
     assert m.seeks==[0], (polls,m.seeks); passed()
 
-# Stream threads (tidal.c): Tidal's poll sleeps only once its page is open, else it parks on its gate;
-# Stop Streaming Services parks it again. Baidu's poll only ever waits, so it never wakes.
+# Stream threads (tidal.c): Tidal's poll always parks on its gate, lit or dark, whatever the queue;
+# a Tidal track asked for posts it once stock's get_tidal_trackurl has run. Baidu's poll only ever
+# waits, so it never wakes.
 m=Machine(); m.mock('usleep@GLIBC_2.0','sem_wait@GLIBC_2.2','sem_post@GLIBC_2.2')
+m.handlers[payload_syms['stock_tidaltrack_trampoline']]='stock_tidaltrack'
 def stream_calls(name,*args):
     m.calls=[]; m.call(address=payload_syms[name],args=(*args,0,0,0,0)[:4],gap=0,clear=False)
     return [c[0].split('@')[0] for c in m.calls]
-assert stream_calls('ringnav_tidal_poll',196608)==['sem_wait']
-assert stream_calls('tidal_start_poll')==['sem_post'] and stream_calls('tidal_start_poll')==[]
-assert stream_calls('ringnav_tidal_poll',196608)==['usleep']
-assert stream_calls('tidal_stop_poll')==[] and stream_calls('ringnav_tidal_poll',196608)==['sem_wait']
+for lit,queue in ((1,0x20),(0,0xf001),(0,0x20)):
+    m.byte(syms['g_backlight_status'],lit); m.word(O['MCL_TYPE'],queue)
+    assert stream_calls('ringnav_tidal_poll',196608)==['sem_wait']
+assert stream_calls('ringnav_tidal_track')==['stock_tidaltrack','sem_post']
 assert stream_calls('ringnav_baidu_poll',10000)==['sem_wait']
 passed()
 

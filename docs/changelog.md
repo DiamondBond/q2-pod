@@ -2,6 +2,7 @@
 
 - **1.4.8**:
   - Spotify: when Spotify refuses to unlock your account's tracks, the Q2 now says so ("Spotify refused this account") within a second, instead of "Loading…" and, 15 s later, "Playback didn't start". It also stops librespot skipping through your whole playlist meanwhile. Spotify does this to some accounts, mostly new ones, and nothing on the Q2 can change it; another Premium account may work.
+  - Battery: Tidal's helper sleeps until a Tidal track is asked for and goes back to sleep once it starts. Before, opening Tidal once kept it waking 5 times a second, through local music too, until Stop Streaming Services. A linked Bluetooth device whose buttons the Q2 can't find no longer wakes the player 5 times a second, and the player stops checking the memory card every 5 seconds while the screen is off.
   - Tidal: playlists, albums and My Collection's Tracks show every track, up to 2,000, instead of stopping at 50. Stock asks Tidal for 50 at a time; playlists and albums never asked for more, and favourite tracks only did when you dragged the touchscreen to the end of the list. A long list takes longer to open, as each 50 is another request.
 
 - **1.4.7**:
