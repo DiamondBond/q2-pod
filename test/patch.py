@@ -82,7 +82,8 @@ class Machine:
         for name in FUNCTIONS: self.handlers[syms[name]]=name
         # canvas_get_vgcanvas runs stock, down to the mocked lcd_get_vgcanvas, as the rounded wrappers need
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done','canvas_get_vgcanvas',
-                     'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun'):
+                     'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun',
+                     'mclGetPlayType'):  # preserve the stock queue-type getter, now also a policy import
             self.handlers.pop(syms[name],None)
         self.mock('widget_is_instance_of','widget_animator_scroll_create','widget_animator_on',
                   'widget_set_focused','widget_layout_children','event_init','value_set_int')
@@ -90,6 +91,8 @@ class Machine:
             for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('pthread_create@GLIBC_2.2','pthread_detach@GLIBC_2.0')
+        # The shared Smart Wi-Fi policy uses the same libc mutex boundary on every UI poll.
+        self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0',
                   'strlen@GLIBC_2.0','strncpy@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
@@ -8769,7 +8772,9 @@ def stream_page(m):
     """Stock Streaming's one Tidal row, then the hook's Spotify, Tidal Downloads, Internet Radio and AirPlay
     rows; returns Spotify's button."""
     view=m.node('scroll_view','scroll_view_streamsset',[m.node('list_item')]); m.top=m.node('window','stream_page',[view])
-    assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0 and m.calls[0][0]=='stock_stream'
+    assert m.call(address=HOOKS['stream_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
+    # Smart Wi-Fi's wake preflight runs before stock builds the page.
+    assert [c[:3] for c in m.calls if c[0]=='stock_stream']==[('stock_stream',m.top,5)]
     assert len(m.nodes[view]['children'])==6
     # Tidal Downloads, after Spotify: the card's cached Tidal tracks, here none.
     tidal=m.nodes[m.nodes[view]['children'][2]]['children'][0]; icon,label=m.nodes[tidal]['children'][:2]
@@ -8935,6 +8940,7 @@ class RadioMachine(SpotMachine):
                   'mkdir@GLIBC_2.0'):
             self.handlers[syms[n]]='r:'+n
         self.mock('fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','ferror@GLIBC_2.0')
+        self.byte(syms['g_wififlag'],1)  # match the connected radio reported by self.wifi
         self.wifi=3; self.reply=b''; self.code=200; self.codes=[]; self.location=''; self.opts={}
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
@@ -9521,7 +9527,9 @@ assert 'Track removal can make playlists incomplete' in m.labels(); m.row(1); pa
 # it): the open level is laid out again, so its rows and what a press opens agree.
 HUB=('collections','collection','playcollection','downloadliked','jobs','job','remove','download')
 m=BrowseMachine(); m.caps=HUB; m.open(); m.answer(*ME)
-br=payload_syms['br']; m.word(br+96,0); m.word(br+100,0)  # caps_checked, downloads: as a cancelled caps leaves them
+# o32 br layout: 3 pointers, 5 unsigneds, 6 ints (including wifi), then rows[11].
+BR_CAPS,BR_DOWNLOADS=100,104
+br=payload_syms['br']; m.word(br+BR_CAPS,0); m.word(br+BR_DOWNLOADS,0)  # as a cancelled caps leaves them
 m.advance(2250); assert m.asked()==('caps',)
 m.row(6); assert m.labels()[:4]==['Downloads','Downloaded Tracks','','Download Status']
 m.serve=lambda op,args: ('ok','','',[('op',n,'','','','') for n in HUB]); m.worker()
@@ -9532,14 +9540,14 @@ m.row(3); assert m.labels()[0]=='Storage Management'; passed()
 for failure in (None, b'Q2SPOT/1\nmalformed', ('offline','Starting','',[]), ('throttled','Wait','',[])):
     m=BrowseMachine(); m.open(); m.serve=lambda op,args: ME; m.worker(); assert m.asked()==('caps',)
     m.serve=(lambda op,args: failure) if failure is not None else None; m.worker()
-    assert m.labels()==MENU and m.get(br+96)==0
+    assert m.labels()==MENU and m.get(br+BR_CAPS)==0
     threads=len(m.threads); m.advance(1750); assert len(m.threads)==threads
     m.advance(250); assert len(m.threads)==threads+1 and m.asked()==('caps',)
     m.serve=lambda op,args: ('ok','','',[('op',n,'','','','') for n in HUB]); m.worker()
     m.row(6); assert m.labels()[1]=='Downloaded Playlists'; passed()
 m=BrowseMachine(); m.open(); m.serve=lambda op,args: ME; m.worker()
 m.serve=lambda op,args: ('error','Unsupported operation','',[]); m.worker()
-threads=len(m.threads); m.advance(5000); assert m.get(br+96)==1 and len(m.threads)==threads; passed()
+threads=len(m.threads); m.advance(5000); assert m.get(br+BR_CAPS)==1 and len(m.threads)==threads; passed()
 # A jobs refresh that shrinks the list must cancel a click queued against its previous rows.
 m=BrowseMachine(); m.caps=HUB; m.open(); m.answer(*ME); m.row(6); m.row(2)
 jobs=[('job',k,'paused','1/2',k,'1') for k in ('a','b')]
@@ -9570,6 +9578,10 @@ class AppMachine(BrowseMachine):
         super().__init__(files); card_app(self,self.app,self.manifest)
         self.row_text=re.search(r'name=(.*)',self.manifest)[1]
     def add_on_row(self): return stream_rows(self)[self.row_text]
+    def open(self):
+        super().open()
+        self.advance(500)
+        self.poll(0)  # process due UI timers before resolving the deferred launch lease
     def gone(self):
         """Its row, then its binary gone from the card before the press."""
         self.button=self.add_on_row(); self.files.pop(self.bin)
@@ -9714,7 +9726,9 @@ m.call(address=HOOKS['usbmode_page_init'][0],args=(0x55,0x66,0,0),gap=0,count=5_
 names=[c[0] for c in m.calls]
 assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null || rm -f /tmp/q2-soulseek'] and names.index('stock_usbmode')>names.index('sleep_ms') and SPID not in m.files,(m.systems,names[-12:])
 m.open_pages={'usbmode_page'}; m.poll(); assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null || rm -f /tmp/q2-soulseek']
-m.open_pages=set(); m.poll(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.soulseek/run'; passed()
+m.open_pages=set(); m.poll()  # card back: acquire the relaunch lease, then resolve it next UI poll
+assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null || rm -f /tmp/q2-soulseek']
+m.poll(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.soulseek/run'; passed()
 # Stop Streaming Services stops it too.
 m.systems=[]; run(m,'addon_stop'); assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null || rm -f /tmp/q2-soulseek']; passed()
 
@@ -9923,7 +9937,11 @@ def press():
 UPDATE='/mnt/mmc/update.tar'; ASSET='update.tar' if variant=='ipod' else 'update-legacy.tar'
 RELEASES=f"https://github.com/{manifest['update_repo']}/releases"  # build.py --update-repo
 m.files[UPDATE]=bytearray(b'old')
-m.wifi=-1; press(); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; m.wifi=3
+m.wifi=-1; press(); assert m.nodes[label]['text']=='Checking…' and len(m.threads)==1
+worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
+m.advance(500)
+assert m.toasts[-1][3]=="Can't reach GitHub" and not m.opts and not any(c[0].startswith('curl_') for c in m.calls) and m.files[UPDATE]==b'old' and UPDATE+'.part' not in m.files
+m.wifi=3  # readiness runs on the worker; no curl or package write while disconnected
 def fetch(codes,tag,reply=b'',done=500):
     press(); assert m.nodes[label]['text']=='Checking…'
     m.codes=list(codes); m.location=f'{RELEASES}/tag/{tag}'; m.reply=reply
@@ -9985,21 +10003,23 @@ KILL='killall -9 librespot aplay'
 LIST='/mnt/mmc/.q2/sources.list'
 m=ShelfMachine({LIST:bytearray((ROOT/'sources.list').read_bytes()),SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
                 '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
-m.rockbox_mode=0; m.wifi=-1; apps_open(m)
-assert m.labels()==['Q2 App Store','Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
+m.rockbox_mode=0; m.wifi=-1; apps_open(m); assert len(m.threads)==1; shelf_job(m)
+assert m.labels()==['Q2 App Store','Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install'] and not m.opts and not any(c[0].startswith('curl_') for c in m.calls); passed()  # no themes without Rockbox; the card apps last
 m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; apps_open(m)
 assert m.labels()==['Q2 App Store','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache','Deezer','Install','Soulseek','Install','File Browser','Install']
 m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
 assert m.opts[10002]=='https://api.github.com/repos/group-a-study/q2-filebrowser/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of six
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2
 assert m.labels()[6]=='Update' and '/tmp/q2-shelf.json' not in m.files; passed()  # q2-v1.8 against the latest q2-v1.9
-m.close(); m.now+=9*60*1000; apps_open(m); assert len(m.threads)==1 and m.labels()[6]=='Update'; passed()  # still fresh: no requests
-m.row(2); assert m.labels()[6]=='Checking…' and len(m.threads)==2 and KILL in m.systems[-1]; m.row(2); assert m.labels()[6]=='Cancelling…'
+jobs=len(m.threads); m.close(); m.now+=9*60*1000; apps_open(m); assert len(m.threads)==jobs and m.labels()[6]=='Update'; passed()  # still fresh: no requests
+m.row(2); assert m.labels()[6]=='Checking…' and len(m.threads)==jobs+1 and KILL in m.systems[-1]; m.row(2); assert m.labels()[6]=='Cancelling…'
 shelf_job(m); assert m.toasts[-1][3]=='Download cancelled' and m.labels()[6]=='Update'; passed()
-m.wifi=-1; m.row(2); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and len(m.threads)==2; m.wifi=3; passed()
+jobs=len(m.threads); old_opts=dict(m.opts); m.wifi=-1; m.row(2); assert len(m.threads)==jobs+1; shelf_job(m)
+assert m.toasts[-1][3]=="Can't reach GitHub" and m.opts==old_opts and not any(c[0].startswith('curl_') for c in m.calls) and m.files[SPOT_TAG]==b'q2-v1.8'
+m.wifi=3; passed()
 m.codes=[403]; m.row(2); shelf_job(m); assert m.toasts[-1][3]=='GitHub is busy, try later'; passed()  # the API's rate limit
-m.files[SPOT_TAG]=bytearray(b'q2-v1.9'); m.close(); m.wifi=-1; apps_open(m); assert m.labels()[6]=='Installed' and len(m.threads)==3
-m.row(2); assert m.labels()[6]=='Press again to remove' and len(m.threads)==3
+jobs=len(m.threads); m.files[SPOT_TAG]=bytearray(b'q2-v1.9'); m.close(); m.wifi=-1; apps_open(m); assert m.labels()[6]=='Installed' and len(m.threads)==jobs
+m.row(2); assert m.labels()[6]=='Press again to remove' and len(m.threads)==jobs
 m.row(3); assert m.labels()[6]=='Installed' and m.labels()[8]=='Press again to erase the login and cache'  # one row armed at a time
 m.row(2); m.row(2); assert m.labels()[6]=='Removing…' and m.labels()[8]=='Login and cache'; shelf_job(m)
 assert m.toasts[-1][3]=='Spotify removed' and KILL in m.systems[-3] and m.systems[-2]=='sync' and KILL in m.systems[-1]  # spot_stop: before and after
@@ -10008,12 +10028,12 @@ m.row(3); assert m.labels()[8]=='Press again to erase the login and cache'; m.ro
 assert m.labels()[6]=='Install' and m.labels()[8]=='Erasing…'; shelf_job(m)
 assert 'rm -rf /mnt/mmc/.spotify/cache /mnt/mmc/.spotify/.cache-size' in m.systems and m.toasts[-1][3]=="Spotify's login and cache erased"; passed()
 # A stale check, stopped by a press (it needs no answer); then Rockbox from its release to "ready".
-m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==6
-m.row(1); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==6; passed()
+jobs=len(m.threads); m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==jobs+1
+m.row(1); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==jobs+1; passed()
 m.close(); m.rockbox_mode=0; m.dirs.pop('/mnt/mmc/.spotify'); m.reply=(ROOT/'test/shelf/q2-rockbox.json').read_bytes()
-apps_open(m); shelf_job(m); assert m.labels()==['Q2 App Store','Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']  # not stopped: checked again
-m.row(0); assert m.labels()[2]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==7
-m.row(0); assert len(m.threads)==8 and m.labels()[2]=='Checking…'; m.row(0); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
+apps_open(m); shelf_job(m); jobs=len(m.threads); assert m.labels()==['Q2 App Store','Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']  # not stopped: checked again
+m.row(0); assert m.labels()[2]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==jobs
+m.row(0); assert len(m.threads)==jobs+1 and m.labels()[2]=='Checking…'; m.row(0); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
 m.free=10<<20; m.row(0); m.row(0); shelf_job(m)  # the zip (13018581 bytes) and 64 MB left over
 assert m.toasts[-1][3]==f'Needs {(13018581+(54<<20)+(1<<20)-1)>>20} MB more space' and not [f for f in m.files if '.q2/staging/' in f]; passed()
 m.free=1<<32; m.staged=[('.rockbox/rockbox',b'ELF3.2'),('.rockbox/codecs/flac.codec',b'c'),('.rockbox/fonts/a b.fnt',b'f')]
@@ -10032,9 +10052,11 @@ m.close(); passed()
 # No list on the card yet: one row, which loads it with Wi-Fi. The fetched list (its bad lines
 # skipped) is kept on the card and its rows shown; a list with no app leaves the one in use.
 m=ShelfMachine(); m.rockbox_mode=0; m.wifi=-1; apps_open(m)
-assert m.labels()==['Q2 App Store','App list','Connect to Wi-Fi to load the list'] and not m.threads
-m.row(0); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; passed()
-m.wifi=3; m.row(0); assert m.labels()[2]=='Loading…' and len(m.threads)==1; m.row(0); assert len(m.threads)==1  # loading already
+assert m.labels()==['Q2 App Store','App list','Loading…'] and len(m.threads)==1; shelf_job(m)
+assert m.labels()==['Q2 App Store','App list','Connect to Wi-Fi to load the list'] and not m.opts and not any(c[0].startswith('curl_') for c in m.calls)
+m.row(0); assert len(m.threads)==2; shelf_job(m)
+assert m.labels()==['Q2 App Store','App list','Connect to Wi-Fi to load the list'] and not m.opts and not any(c[0].startswith('curl_') for c in m.calls) and LIST not in m.files; passed()
+m.wifi=3; m.row(0); assert m.labels()[2]=='Loading…' and len(m.threads)==3; m.row(0); assert len(m.threads)==3  # loading already
 m.reply=b'# apps\nme/q2-foo Foo\nme/q2-Bad\n'; shelf_job(m)
 assert m.labels()==['Q2 App Store','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; passed()
 m.close(); m.now+=11*60*1000; m.reply=b'nothing'; apps_open(m); shelf_job(m)
@@ -10948,6 +10970,8 @@ class SmartMixin:
     def __init__(self,*a,smart='1',**k):
         super().__init__(*a,**k)
         self.handlers[payload_syms['remote_wifi_busy']]='w:remote_wifi_busy'
+        remote_probe=payload_syms['remote_wifi_busy']
+        self.u.hook_add(UC_HOOK_CODE,self.hook,begin=remote_probe,end=remote_probe)
         if smart: self.config['SMARTWIFI']=smart
         self.handlers.pop(syms['wifi_switch'],None)  # stock's switch runs; its WIFI= tail jumps to the payload
         self.mock('remove@GLIBC_2.0','stop_wifisynclink','networkStart','networkStop')
