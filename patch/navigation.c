@@ -3059,8 +3059,12 @@ static int seek_position(int to) {
  * a second (systembar_showface), and the label is written only when the minute shown changes.
  * struct tm: tm_min @4, tm_hour @8. */
 static void clock_sync(void *bar) {
-    long now = time((void *)0);
-    const int *tm = now == -1 ? (void *)0 : localtime(&now);
+    long long wall = wall_time();
+    unsigned back = (unsigned)wall; /* 32-bit: the payload has no 64-bit division */
+    /* Past 2038, 28 years back for stock's 32-bit localtime: the same calendar until 2100. */
+    while (back > 0x7fffffff) back -= 883612800;
+    long now = (long)back;
+    const int *tm = wall == -1 ? (void *)0 : localtime(&now);
     int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
     int full = g_time24h_flag != 0;
     unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11
@@ -7888,15 +7892,15 @@ static void scrobble(void *r, int total, int heard) {
         album_artist = P(r, REC_ALBUM_ARTIST); /* CUE: none parsed */
     if (album_artist && *album_artist && scrobble_album_artist()) artist = album_artist;
     if (!artist || !*artist) return;
-    long now = time((void *)0);
+    long long now = wall_time();
     if (now < 1600000000) return; /* clock never set: Last.fm would reject the time */
     char line[800], name[512], *end = line + sizeof line - 48, *o = line; /* 48: the numbers */
     o = scrobble_tag(o, end, artist);
     o = scrobble_tag(o, end, now_tag(r, REC_ALBUM));
     o = scrobble_tag(o, end, track_name(name, sizeof name, r));
     if (I(r, REC_TRACK) > 0) o += tk_snprintf(o, 12, "%d", I(r, REC_TRACK));
-    o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%d\t\n", total,
-                     (int)now - heard);
+    o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%u\t\n", total,
+                     (unsigned)(now - heard));
     scrobble_append(line, (unsigned)(o - line));
 }
 

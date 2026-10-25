@@ -341,6 +341,7 @@ static int fetch(const char *url, void *file, char *tag, unsigned n, long *code,
     curl_easy_setopt(c, 10065, NU_CA);        /* CAINFO */
     curl_easy_setopt(c, 64, 1L);              /* SSL_VERIFYPEER */
     curl_easy_setopt(c, 81, 2L);              /* SSL_VERIFYHOST */
+    curl_easy_setopt(c, 20108, tls_untimed);  /* SSL_CTX_FUNCTION: no date checks */
     if (file) {
         curl_easy_setopt(c, 52, 1L);          /* FOLLOWLOCATION: to the asset host */
         curl_easy_setopt(c, 20011, save);     /* WRITEFUNCTION */

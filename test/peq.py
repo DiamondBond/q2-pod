@@ -1728,7 +1728,7 @@ int toolsReadConfig(const char *path, const char *section, const char *key, char
 /* libcurl: every request is dumped as url, headers, verify, body; replies are scripted. */
 typedef unsigned (*writer)(const char *, unsigned, unsigned, void *);
 typedef struct node { const char *s; struct node *next; } node;
-static struct { const char *url, *body; node *h; writer w; void *ctx; long verify, code; } easy;
+static struct { const char *url, *body; node *h; writer w; void *ctx; long verify, code; int untimed; } easy;
 static int requests, fail_at = -1, no_key, append_at = -1;
 static FILE *dump;
 void *curl_easy_init(void) { memset(&easy, 0, sizeof easy); return &easy; }
@@ -1753,11 +1753,18 @@ int curl_easy_setopt(void *c, int opt, ...) {
     else if (opt == 64) { easy.verify = va_arg(a, long); assert(easy.verify == 1); }
     else if (opt == 81) assert(va_arg(a, long) == 2);
     else if (opt == 10065) assert(strstr(va_arg(a, const char *), "/etc/scrobble-ca.pem"));
-    else assert(opt == 99 || opt == 13 || opt == 78 || opt == 81);
+    else if (opt == 20108) { /* SSL_CTX_FUNCTION: X509_V_FLAG_NO_CHECK_TIME into SSL_CTX->param->flags */
+        unsigned flags[4] = {0, 0, 0, 1};
+        void *ctx[0x100 / sizeof(void *) + 1];
+        ctx[0x100 / sizeof(void *)] = flags;
+        assert(!va_arg(a, int (*)(void *, void *, void *))(c, ctx, 0) && flags[3] == 0x200001);
+        easy.untimed = 1;
+    } else assert(opt == 99 || opt == 13 || opt == 78 || opt == 81);
     va_end(a);
     return 0;
 }
 int curl_easy_perform(void *c) {
+    assert(easy.untimed);
     int i = requests++;
     if (i == append_at) scrobble_append("New\tB\tListen\t\t100\tL\t1700009999\t\n", 33); /* a listen meanwhile */
     fprintf(dump, "%s\t", easy.url);

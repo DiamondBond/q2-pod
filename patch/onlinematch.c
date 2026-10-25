@@ -277,6 +277,7 @@ static void *easy(const char *url) {
     curl_easy_setopt(c, 78, 10L);         /* CONNECTTIMEOUT */
     curl_easy_setopt(c, 13, 20L);         /* TIMEOUT */
     curl_easy_setopt(c, 10065, OM_CA);    /* CAINFO */
+    curl_easy_setopt(c, 20108, tls_untimed); /* SSL_CTX_FUNCTION: no date checks */
     return c;
 }
 

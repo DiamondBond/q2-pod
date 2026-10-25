@@ -103,6 +103,7 @@ class Machine:
         self.stats={}  # paths stat finds, with their mtime (songs on the card: a card app's)
         self.image_size=(50,50)  # what widget_load_image decodes
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
+        self.wall=(86400,86400)  # time's result, and the seconds localtime must be given
         self.rockbox_mode=0o100755
         self.handlers[syms['__xstat@GLIBC_2.0']]='rockbox_stat'
         self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
@@ -266,12 +267,12 @@ class Machine:
             fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
             result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
         elif name=='time@GLIBC_2.0':
-            ret=-1 if self.clock=='time' else 86400
+            ret=-1 if self.clock=='time' else self.wall[0]
             if a and ret!=-1: self.word(a,ret)
         elif name=='localtime@GLIBC_2.0':  # struct tm: sec, min, hour, ...
             ret=0
             if self.clock!='localtime':
-                assert self.get(a)==86400; ret=self.alloc(44)
+                assert self.get(a)==self.wall[1]; ret=self.alloc(44)
                 for i,v in enumerate((59,self.clock[1],self.clock[0])): self.word(ret+4*i,v)
         elif name=='widget_set_children_layout':
             n['children_layout']=self.text(b)
@@ -822,6 +823,9 @@ else:
         bg(bar); assert not writes()
         s.clock=(7,30); bg(bar); assert clock()=='7:30 AM'
     passed()
+    # Past 2038 time() wraps; read unsigned and taken 28 years back, localtime keeps the 32-bit range.
+    s.wall=(86400+3*883612800,86400+2*883612800); s.clock=(7,31); bg(bar); assert clock()=='7:31 AM'
+    s.wall=(86400,86400); s.clock=(7,30); bg(bar); assert clock()=='7:30 AM'; passed()
     # Pages, a dialog on top and pages with their own navbar all keep the clock; only a minute change
     # writes it, from any top-level paint.
     heading=s.node('hscroll_label',text='System Setting')
@@ -9376,6 +9380,8 @@ m.reply=b'#EXTM3U\n#RADIOBROWSERUUID:7\n#EXTINF:1,MANGORADIO\nhttps://mango/r\n\
 m.worker(); assert m.labels()==['Top Stations','MANGORADIO','Dance Wave!']
 assert m.opts[10002]=='https://all.api.radio-browser.info/m3u/stations/topvote/100?hidebroken=true'
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
+ctx,param=m.alloc(0x104),m.alloc(16); m.word(ctx+0x100,param); m.word(param+12,1)  # OpenSSL 1.1.1f's offsets
+assert m.nested(m.opts[20108],0x5150,ctx,0)==0 and m.get(param+12)==0x200001  # | X509_V_FLAG_NO_CHECK_TIME
 m.back(); assert m.labels()[0]=='Internet Radio'
 m.wifi=-1; m.row(3); assert m.labels()==['No Wi-Fi'] and len(m.threads)==1; m.back(); m.wifi=3; passed()
 # By Genre: the tags' CSV, then a tag's stations by its name, %-encoded.
@@ -10344,7 +10350,7 @@ def fetch(codes,tag,reply=b'',done=500):
     assert ('widget_set_tr_text',label) in [c[:2] for c in m.calls] and UPDATE+'.part' not in m.files
 fetch([302,200],'9.9.9',b'TAR'*100)
 assert m.opts[10002]==f'{RELEASES}/latest/download/{ASSET}' and m.opts[52]==1
-assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1
+assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[99]==1 and m.opts[20108]
 assert bytes(m.files[UPDATE])==b'TAR'*100 and 'fwupdate_tf' in [c[0] for c in m.calls]
 m.files[UPDATE]=bytearray(b'old')
 fetch([302,404],'9.9.9'); assert m.toasts[-1][3]=='No update for this build' and m.files[UPDATE]==b'old'
@@ -10400,7 +10406,7 @@ m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; ap
 assert m.labels()==['Q2 App Store','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache','Deezer','Install','Soulseek','Install','File Browser','Install']
 m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
 assert m.opts[10002]=='https://api.github.com/repos/group-a-study/q2-filebrowser/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of six
-assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2
+assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[20108]
 assert m.labels()[6]=='Update' and '/tmp/q2-shelf.json' not in m.files; passed()  # q2-v1.8 against the latest q2-v1.9
 m.close(); m.now+=9*60*1000; apps_open(m); assert len(m.threads)==1 and m.labels()[6]=='Update'; passed()  # still fresh: no requests
 m.row(2); assert m.labels()[6]=='Checking…' and len(m.threads)==2 and KILL in m.systems[-1]; m.row(2); assert m.labels()[6]=='Cancelling…'
@@ -10596,6 +10602,8 @@ playing(m,0,3600,pos=1,n=242); assert counts(m)[0]==(fnv('/p/B'),1); passed()  #
 log=m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')  # the same listens, scrobbled
 assert log[:3]==['#AUDIOSCROBBLER/1.1','#TZ/UTC','#CLIENT/Q2 Pod'] and log[-1]=='' and len(log)==7
 assert log[3]==f'Artist\tAlbum\tA\t\t200\tL\t{1700000000-100}\t' and log[4]==log[3] and log[5].startswith('Artist\tAlbum\tB\t\t3600\tL\t'); passed()
+m=ResumeMachine(); m.epoch=2**32-1000; playing(m,0,200,pos=0,n=101); playing(m,100,200,n=50)  # 2106: time() wrapped
+assert m.files['/mnt/mmc/.scrobbler.log'].decode().split('\n')[3].endswith(f'\tL\t{2**32-1000-100}\t'); passed()
 m=ResumeMachine(); r=m.items(m.get(syms['mcl_pdeqplaylist']))[0]
 m.word(r+O['REC_ARTIST'],m.string('')); m.word(r+O['REC_TITLE'],m.string('Tab\tbed')); m.word(r+O['REC_TRACK'],7)
 playing(m,0,200,pos=0,n=110); assert counts(m) and '/mnt/mmc/.scrobbler.log' not in m.files  # no artist: counted only

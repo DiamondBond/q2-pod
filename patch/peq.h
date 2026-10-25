@@ -241,4 +241,21 @@ int shelf_open(void *ctx, void *event); /* netupdate.c: System settings' Apps pa
 const char *shelf_busy(void);           /* netupdate.c: the app folder a job replaces */
 void album_lyrics_stop(void);           /* onlinematch.c: Download Album Lyrics before USB storage */
 
+/* 2038 (docs/internals.md#2038). glibc 2.28's time() truncates the kernel's 64-bit seconds to 32
+ * bits, so read unsigned it is right until 2106; -1 still means it failed. */
+static inline long long wall_time(void) {
+    long t = time((void *)0);
+    return t == -1 ? -1 : (long long)(unsigned long)t;
+}
+/* CURLOPT_SSL_CTX_FUNCTION: sets X509_V_FLAG_NO_CHECK_TIME on the SSL_CTX's X509_VERIFY_PARAM, so
+ * chains still verify against the pinned roots after they expire (2035 on) and after the 32-bit
+ * clock wraps. The rootfs's OpenSSL 1.1.1f exports these but demo does not import them, so this
+ * writes its fields: SSL_CTX->param at 0x100, ->flags at 0xc, which tools/build.py audits.
+ * ponytail: an expired server certificate is accepted too; the firmware has no revocation anyway.
+ */
+static inline int tls_untimed(void *curl, void *ctx, void *unused) {
+    (*(unsigned **)((char *)ctx + 0x100))[3] |= 0x200000;
+    return 0; /* CURLE_OK */
+}
+
 #endif

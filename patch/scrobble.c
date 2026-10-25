@@ -154,6 +154,7 @@ static long post(const char *url, const char *body, const char *auth, reply_t *r
     curl_easy_setopt(c, 10065, CA_FILE);              /* CAINFO */
     curl_easy_setopt(c, 64, 1L);                 /* SSL_VERIFYPEER */
     curl_easy_setopt(c, 81, 2L);             /* SSL_VERIFYHOST */
+    curl_easy_setopt(c, 20108, tls_untimed); /* SSL_CTX_FUNCTION: no date checks */
     if (!curl_easy_perform(c)) curl_easy_getinfo(c, 0x200002, &code); /* RESPONSE_CODE */
     curl_easy_cleanup(c);
     curl_slist_free_all(h);
