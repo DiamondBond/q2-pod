@@ -2155,15 +2155,6 @@ int csv_toggle(char *list, unsigned size, const char *item) {
     return 1;
 }
 
-/* A grey 16px page_list row naming the rows below; no click, so the wheel passes over it. */
-static void list_caption(void *view, int index, const char *title) {
-    void *label = label_create(list_item_create(view, 0, index * 48, 375, 48), 20, 0, 335, 48);
-    widget_use_style(label, "s_label_white20l");
-    widget_set_prop_int(label, "style:normal:text_color", (int)0xffaaaaaau);
-    widget_set_prop_int(label, "style:normal:font_size", 16);
-    widget_set_text_utf8(label, title);
-}
-
 /* Stock modes, only with the screen off: 1 locks wheel volume, 2 the buttons, 3 both.
  * KEY_LOCKOUT is the separate, temporary debounce after a button press. */
 static const char *const lock_names[] = { "Off", "Everything", "Buttons only", "Volume only" };
@@ -5889,7 +5880,7 @@ static int stream_config(void *ctx, void *event) {
     for (int i = 0; i < 2; ++i)
         st.sc_row[i] = page_row_detail(view, i, "", 0, sc_click), sc_text(i);
     page_row_detail(view, 2, "Stop Streaming Services", 0, sc_click);
-    list_caption(view, 3, "Show in Streaming");
+    list_item_create(view, 0, 3 * 48, 375, 48); /* a gap before the toggles */
     char hide[SVC_HIDE];
     svc_hidden(hide);
     for (int i = 0; i < n; ++i) {

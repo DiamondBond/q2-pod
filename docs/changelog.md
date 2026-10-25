@@ -55,7 +55,7 @@
   - Advanced EQ: imported presets play the preamp written in their file instead of Auto. Switching a saved preset's preamp to Auto (or another value) is kept with that preset; the file on the card is not changed. Presets imported before stay on Auto until imported again.
   - Era and Coverflow year sorting use the year from full-date tags such as `20220510`, so these albums appear under **2020s**.
   - Lock screen: with a lock screen picture set, turning the screen on goes straight to the lock screen. It used to show the page you left for a moment, then a black screen, before the lock screen appeared.
-  - Streaming: **Configuration** lists the services under a **Show in Streaming** caption, each with a tick. Untick the ones you don't use to hide them from Streaming; tick them again to bring them back.
+  - Streaming: **Configuration** lists the services after a gap below Stop Streaming Services, each with a tick. Untick the ones you don't use to hide them from Streaming; tick them again to bring them back.
   - System settings: Wireless and Network come first, and **Apps** is now **App Store**, its page titled **Q2 App Store**. System settings and Playback drop their section headings; the rows keep their order.
   - Cover Flow: the rated albums' **Sort** card (**Library → Ratings → Albums**) adds **Most Played**, after Year, as Display's Coverflow Sort has.
   - Quick Settings: a swipe down while the player is still starting could leave Quick Settings open but not shown, so the wheel changed the volume or brightness on Home. The next wheel turn or button press now closes it and Home takes the wheel again.

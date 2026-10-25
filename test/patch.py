@@ -10013,7 +10013,7 @@ assert streaming()==[1,'Spotify','Deezer','Soulseek','Tidal Downloads','Internet
 m.click(rows['Configuration']); m.page=m.top; assert m.nodes[m.page]['name']=='streamconf_page'
 SVC=['TIDAL','Spotify','Deezer','Soulseek','Tidal Downloads','Internet Radio','AirPlay']
 assert m.labels()==['Configuration','Tidal Cache: 2 GB','Spotify Cache: 2 GB','Stop Streaming Services',*SVC]
-cap=m.rows()[3]; assert m.nodes[m.nodes[cap]['children'][0]]['text']=='Show in Streaming' and not m.nodes[cap].get('handlers')
+cap=m.rows()[3]; assert not m.nodes[cap]['children'] and not m.nodes[cap].get('handlers')
 def ticks(): return [switch(m,i)=='switch_on' for i in range(4,len(m.rows()))]  # Shanling's switches
 assert ticks()==[True]*7
 m.row(6); assert m.config['STREAMHIDE']=='deezer' and ticks()==[True,True,False,True,True,True,True]
