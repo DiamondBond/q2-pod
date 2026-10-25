@@ -1174,7 +1174,8 @@ def patch_bluealsa(raw):
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
-def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
+def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_clock=False):
+    check(not rotator_lazy_clock or dev, '--rotator-lazy-clock requires --dev')
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
     check(re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9._-]+', repo), f'{repo}: not a GitHub owner/name')  # a C string
@@ -1444,6 +1445,14 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
                       (BLUEALSA2.encode(), out/'bluealsa2'),
                       (b'release/assets/default/raw/images/xx/logo.jpg', logo)):
         p = swap_inode(p, path, src)
+    rotator = None
+    if rotator_lazy_clock:
+        from rotator import MODULE_PATH, STOCK_SHA256, patch_module
+        module = patch_module(cat(MODULE_PATH))
+        (out/'soc_rotator.ko').write_bytes(module)
+        p = swap_inode(p, MODULE_PATH.encode(), out/'soc_rotator.ko')
+        rotator = dict(policy='lazy-first-use-v1', path=MODULE_PATH,
+                       original_sha256=STOCK_SHA256, sha256=sha(module))
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
     # the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
     # (not the copies iPod pre-sizes for Settings), and q2video.
@@ -1551,6 +1560,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
         version=version, variant=variant, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        **({'rotator_clock': rotator} if rotator else {}),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
               ({'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]} if ipod else {}))
@@ -1568,8 +1578,10 @@ if __name__ == '__main__':
                     help='development build: tag from the next .build-number (V001i, V002i...); never a release input')
     ap.add_argument('--update-repo', default=REPO, metavar='OWNER/NAME',
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
+    ap.add_argument('--rotator-lazy-clock', action='store_true',
+                    help='experimental: defer rotator clock until first conversion (requires --dev)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.rotator_lazy_clock)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

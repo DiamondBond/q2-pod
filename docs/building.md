@@ -44,6 +44,10 @@ About's **FW. Version** row reads the same literal, so it shows the stock firmwa
 
 Development builds also start `q2remote`, a key-gated root shell with screenshots and input over Wi-Fi, for developers and agents; see [remote.md](remote.md).
 
+`--dev --rotator-lazy-clock` opts into the experimental first-use rotator clock policy.
+Normal builds keep the stock module byte for byte. See [clock gating](clock-gating.md)
+for the exact module guard, tests, and hardware-validation limits.
+
 ## Tests
 
 ```sh
@@ -55,6 +59,8 @@ python3 test/mp3.py                        # native Xing seek bounds, CRC and tr
 python3 test/build.py                      # JPEG header checks; no emulator required
 python3 test/build.py 'Q2 Firmware V1.32.zip'   # packaging checks (custom logo, quoted paths)
 python3 test/remote.py                     # q2remote protocol, auth, event and framebuffer checks
+python3 test/rotator.py STOCK_MODULE        # actual MIPS rotator clock ownership and failure paths
+python3 test/rotator_build.py BUILD...      # dev-only guard and packed/default module isolation
 python3 test/playback.py /tmp/q2-build     # grouped traversal, snapshots and the wheel's ticks
 python3 test/patch.py /tmp/q2-build        # the patched MIPS payload, wheel and UI scenarios
 python3 test/chapters.py                   # embedded chapter parsing, both MP4 formats and async extraction
