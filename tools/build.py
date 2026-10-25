@@ -125,6 +125,10 @@ HOOKS = {
     'usbmode_page_init': (0x530cd4, 'ringnav_usbmode', 'usbmode'),
     # Tidal cache (patch/tidal.c): the stream URL thread's player start, with its song id in $s2
     'mcl_tidalStartPlayer': (0x5ad240, 'tidal_start', 'tidal'),
+    # Tidal's playlist, album and favourite-tracks threads: every page, not stock's first 50 (tidal.c)
+    'tidalPlaylistDetailThd': (0x48b3d8, 'ringnav_tidal_playlist', 'tidalplaylist'),
+    'tidalAlbumDetailThd': (0x48b59c, 'ringnav_tidal_album', 'tidalalbum'),
+    'tidalColTracksThd': (0x4882d4, 'ringnav_tidal_favs', 'tidalfavs'),
     # Ratings (navigation.c rate_bind): Now Playing's heart, held, opens the picker
     'playing_page_init': (0x52ca88, 'ringnav_playing', 'playing'),
     # The Wi-Fi signal (navigation.c ringnav_wifi_signal): the driver's rx_signal instead of an ioctl
@@ -319,6 +323,9 @@ ALBUM_ART_ROW = ((0x4a3890, 0x24c66c04, 0x02603025), (0x4ab808, 0x24c66c04, 0x02
 CLASS_ICON = 0x4b0cec
 # Album grids' and Songs' scroll start no longer pauses the cover worker (sw $3,0($2) -> nop); see docs/internals.md.
 COVER_PAUSE = ((0x4aab60, 0xac430000, 0), (0x4a22d0, 0xac430000, 0), (0x4a7bb0, 0xac430000, 0))
+# The playlist, album and favourite-tracks threads' done store (sb $3,0($2) -> nop): their hooks
+# (tidal.c tidal_pages) run them once per page and set the page's flag after the last.
+TIDAL_PAGE_DONE = ((0x48b57c, 0xa0430000, 0), (0x48b70c, 0xa0430000, 0), (0x488434, 0xa0430000, 0))
 # An artist's albums scroll end divides yoffset by its 160 px rows, not 256; see docs/internals.md.
 ARTIST_COVER_ROW = ((0x4ad878, 0x244400ff, 0x240400a0),   # addiu $4,$2,0xff -> li $4,160
                     (0x4ad880, 0x28430000, 0x0044001a),   # slti $3,$2,0 -> div $zero,$2,$4
@@ -1021,7 +1028,8 @@ PRIVATE_FUNCTIONS = {
     "np_info": 0x52a508,  # Now Playing's info page labels, from the track (NP_INFO_CALL)
     "fwupdate_tf": 0x4c2994,  # systemset_fwupdate_page's row 0 click (0x4c2fac): stock's TF card update
 }
-GLOBALS = ['g_time_zone', 'g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
+GLOBALS = ['tidal_albuminfo_thread_run', 'tidal_collection_thread_run',  # 2: a Tidal list loaded
+           'g_time_zone','g_playspeed_mode', 'g_time24h_flag', 'g_backlight_status', 'g_lockscreen_pageflag', 'g_testmode_flag',
            'g_keylock_flag', 'g_keylock_mode',
            'g_bluetoothflag', 'bt_linkstatus', 'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
@@ -1046,6 +1054,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'artist_type': 4, 'g_power_capacity': 4, 'g_power_chargestate': 4,
                 'pdeq_albumcoverlist': 4, 'aclist_mutex': 24,
                 'tidalStreamingLevelNow': 4,  # the quality the Tidal URL thread asked for
+                'stTidalTracks': 16,  # a Tidal track list: total, limit, offset, its deque
                 'g_dropdown_menu_state': 4,  # Quick Settings: 1, 2 while it slides or follows a swipe, 3 open
                 # the lock screen's picture (SYSSET SCREENSAVERPATH) and the picker's list
                 'g_screensaver_picture': 256, 'p_deque_screensaverlist': 4,
@@ -1386,6 +1395,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
                jal(ps['ringnav_class_icon']), 'Artists rows without the head picture')
     for word in COVER_PAUSE:
         patch_word(patched, *word, 'album grids never pause the cover worker')
+    for word in TIDAL_PAGE_DONE:
+        patch_word(patched, *word, 'Tidal lists load every page')
     for word in ARTIST_COVER_ROW:
         patch_word(patched, *word, "an artist's albums request the covers in view")
     # Local art completion: pass the worker's copied key, then validate the row under aclist_mutex.

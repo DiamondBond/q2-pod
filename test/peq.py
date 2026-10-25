@@ -2448,8 +2448,25 @@ static _Atomic unsigned long long clk = 1000;
 static char last[64];
 static int mclGetPlayStatus(void) { return status; }
 static unsigned long long now_ms(void) { return clk; }
-static int deque_size(void *q) { return 0; }
+/* stTidalTracks as on MIPS: total, limit, offset and the deque at byte 12, here rows' address. */
+static unsigned char tracks[24], tidal_albuminfo_thread_run, tidal_collection_thread_run;
+static int rows, runs, fail_at, reopen_at;
+#define stTidalTracks tracks
+static int deque_size(void *q) { return q == &rows ? rows : 0; }
 static void *deque_at(void *q, unsigned i) { return 0; }
+static int page(void) { /* a stock list thread: appends the page at the offset, unless scripted not to */
+    if (++runs == reopen_at) I(tracks, 8) = 0;
+    if (runs != fail_at) rows = I(tracks, 8) + I(tracks, 4) < I(tracks, 0) ? I(tracks, 8) + I(tracks, 4) : I(tracks, 0);
+    return 0;
+}
+int stock_tidalplaylist_trampoline(void *id) { assert(id == &runs); return page(); }
+int stock_tidalalbum_trampoline(void *id) { return page(); }
+int stock_tidalfavs_trampoline(void *offset) { assert((long)offset == I(tracks, 8)); return page(); }
+static void list(int total, int offset, int fail, int reopen) {
+    I(tracks, 0) = total, I(tracks, 4) = 50, I(tracks, 8) = offset, P(tracks, 12) = &rows;
+    rows = offset, runs = 0, fail_at = fail, reopen_at = reopen;
+    tidal_albuminfo_thread_run = tidal_collection_thread_run = 1;
+}
 static void headset_manual(void) {}
 static int card_space(const char *d) { return 1; }
 static int stream_cache(int s) { return 2; }
@@ -2508,6 +2525,16 @@ int main(void) {
     int left = 0; DIR *d = opendir(TIDAL_DIR);
     for (struct dirent *x; (x = readdir(d));) left += strcmp(x->d_name, ".") && strcmp(x->d_name, "..");
     closedir(d); assert(left == 1 && !access(TIDAL_DIR "/.cache-size", 0) && !has("H"));
+    /* Track lists: every page, then the done flag; a failed page or a re-open ends the run. */
+    list(120, 0, 0, 0); ringnav_tidal_playlist(&runs);
+    assert(rows == 120 && runs == 3 && I(tracks, 8) == 100 && tidal_albuminfo_thread_run == 2);
+    list(50, 0, 0, 0); ringnav_tidal_album(0); assert(rows == 50 && runs == 1 && I(tracks, 8) == 0);
+    list(300, 0, 2, 0); ringnav_tidal_album(0); assert(rows == 50 && runs == 2 && tidal_albuminfo_thread_run == 2);
+    list(300, 0, 0, 2); ringnav_tidal_playlist(&runs); assert(runs == 2);
+    list(5000, 0, 0, 0); ringnav_tidal_playlist(&runs); assert(rows == 2000 && runs == 40);
+    /* favourites from the scroll handler's second page: the offset is the thread's argument */
+    list(175, 50, 0, 0); ringnav_tidal_favs((void *)50L);
+    assert(rows == 175 && runs == 3 && I(tracks, 8) == 150 && tidal_collection_thread_run == 2);
     return 0;
 }
 '''
@@ -2886,7 +2913,7 @@ int main(void) {
     subprocess.run(['cc', '-pthread', '-D_GNU_SOURCE', f'-DTIDAL_DIR="{tmp}/tidal"', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
                     str(tmp/'tidal_dl.c'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
-    print('Tidal cache: stream file extensions, eviction at the chosen cap, failed deletion, Stop, re-fetch and skip downloads, Clear All under a download passed.')
+    print('Tidal cache: stream file extensions, eviction at the chosen cap, failed deletion, Stop, re-fetch and skip downloads, Clear All under a download, Tidal lists paged to the end passed.')
 
 if __name__ == '__main__':
     import argparse

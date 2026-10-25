@@ -239,6 +239,45 @@ int ringnav_tidal_main(void *win, void *ctx) {
     return stock_tidalmain_trampoline(win, ctx);
 }
 
+/* Tidal track lists (docs/internals.md#tidal-track-lists): stock's playlist, album and favourite-tracks
+ * threads each fetch one page of stTidalTracks (total, limit 50, offset, deque) and append it; the
+ * build drops their done store, so each runs here once per page until the list is whole. A page
+ * that adds nothing (a failed request) or an offset moved under it (the page opened again, which
+ * resets it) ends the run. ponytail: TIDAL_MAX_TRACKS caps a list at 40 requests, the wait before
+ * it shows; raise it if long lists load quickly enough. */
+#define TIDAL_MAX_TRACKS 2000
+extern int stock_tidalplaylist_trampoline(void *id);
+extern int stock_tidalalbum_trampoline(void *id);
+extern int stock_tidalfavs_trampoline(void *offset);
+
+static void tidal_pages(int (*page)(void *), void *arg, int offset, int by_offset) {
+    int *t = (int *)stTidalTracks;
+    for (unsigned had = P(t, 12) ? deque_size(P(t, 12)) : 0;;) {
+        page(by_offset ? (void *)(long)offset : arg);
+        unsigned n = P(t, 12) ? deque_size(P(t, 12)) : 0;
+        if (t[1] <= 0 || offset + t[1] >= t[0] || n <= had || n >= TIDAL_MAX_TRACKS || t[2] != offset) return;
+        had = n, t[2] = offset += t[1];
+    }
+}
+
+int ringnav_tidal_playlist(void *id) {
+    tidal_pages(stock_tidalplaylist_trampoline, id, I(stTidalTracks, 8), 0);
+    tidal_albuminfo_thread_run = 2;
+    return 0;
+}
+int ringnav_tidal_album(void *id) {
+    tidal_pages(stock_tidalalbum_trampoline, id, I(stTidalTracks, 8), 0);
+    tidal_albuminfo_thread_run = 2;
+    return 0;
+}
+/* My Collection's Tracks: stock pages these on a touch scroll to the list's end, which the wheel
+ * evidently doesn't reach (inferred from #101, not traced); after the whole list stTidalTracks' offset is the last page's, so that check finds no more. */
+int ringnav_tidal_favs(void *offset) {
+    tidal_pages(stock_tidalfavs_trampoline, 0, (int)(long)offset, 1);
+    tidal_collection_thread_run = 2;
+    return 0;
+}
+
 extern int stock_tidaltrack_trampoline(void *a, void *b, void *c, void *d);
 /* get_tidal_trackurl: any Tidal track asked for (a queue restored at power-on, a pick in Now
  * Playing) wakes the stream thread, as the page does. */
