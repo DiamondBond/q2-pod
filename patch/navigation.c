@@ -1451,12 +1451,7 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
     return c;
 }
 
-/* The Accent, Home, Battery and Theme settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME,
- * BATTERY and THEME in the stock config.ini: toolsReadConfig(path, section, key, out,
- * default) copies the value, or the default. A card without THEME is Minimal (0). Each theme keeps
- * its own accent: Classic (1) ACCENT, Minimal MINIMAL_ACCENT, whose default MINIMAL_ACCENT draws
- * Graphite's greys with MINIMAL_FILL fills and the off-white card, as Minimal did before it had
- * accents. Classic never takes it, so its cycle stops at Plum. */
+/* The Accent, Home, Battery and Theme settings; each theme keeps its own accent (docs/ipod.md#display-settings). */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson",
@@ -1477,12 +1472,11 @@ static int accent(void) {
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.settings_read = 1;
     }
-    return st.classic ? st.accent : st.minimal_accent; /* MINIMAL_ACCENT's row is Graphite's */
+    return st.classic ? st.accent : st.minimal_accent;
 }
 /* 1 while Minimal draws its own accent: the off-white card with dark ink. */
 static int minimal_card(void) {
-    accent();
-    return !st.classic && st.minimal_accent == MINIMAL_ACCENT;
+    return !ipod_classic() && st.minimal_accent == MINIMAL_ACCENT;
 }
 /* Shortcut with no key is Rockbox while the card has it, else Favorites: asked each time, as the
  * card may mount after the first read. */
@@ -1897,7 +1891,7 @@ static void paint_selection(void *w, void *canvas) {
     }
     /* Classic: the accent's bar under the rows' own ink. Minimal: its card (sel_widget), off-white
      * with dark ink under its own accent, else the accent's under the rows' own ink. */
-    int classic = ipod_classic(), light = minimal_card();
+    int classic = ipod_classic();
     st.sel_widget = classic ? (void *)0 : home ? P(g_menu.at[i], W_PARENT) : g_menu.at[i];
     st.sel_home = home && !classic;
     if (classic && (!tile || g_menu.kind == 4)) {
@@ -1910,7 +1904,7 @@ static void paint_selection(void *w, void *canvas) {
         int grid = tile && g_menu.kind != 4; /* pop-up buttons keep their row inset */
         int in = grid ? TILE_INSET : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
-        fill_box(canvas, &card, RGBA(light ? MINIMAL_FILL : accents[accent()][0]), SEL_RADIUS);
+        fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]), SEL_RADIUS);
     }
     st.sel_w = w;
     st.sel_row = i;
@@ -4078,12 +4072,12 @@ static void settings_layout(void *w) {
 static int setting_click(void *ctx, void *event) {
     int i = (int)(long)ctx, minimal = !i && !ipod_classic();
     int *value = minimal ? &st.minimal_accent : setting_values[i];
+    int count = minimal ? ACCENT_N : setting_counts[i];
+    const char *key = minimal ? "MINIMAL_ACCENT" : setting_keys[i];
     /* Rockbox, Favorites, Shuffle, Rated Albums, Artists, Albums, Games */
     static const int shortcut_next[] = { 3, 2, 6, 5, 1, 4, 0 };
-    /* Minimal's accents run Minimal, Graphite, ..., Plum: MINIMAL_ACCENT is the last row. */
-    *value = i == 4 ? shortcut_next[shortcut()]
-                    : (*value + 1) % (minimal ? ACCENT_N : setting_counts[i]);
-    write_int_config(*value, "IPOD", minimal ? "MINIMAL_ACCENT" : setting_keys[i]);
+    *value = i == 4 ? shortcut_next[shortcut()] : (*value + 1) % count;
+    write_int_config(*value, "IPOD", key);
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
     else if (i == 1 || i == 4)
