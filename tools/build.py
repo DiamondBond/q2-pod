@@ -90,8 +90,10 @@ HOOKS = {
     'mclNextSong': (0x5adbbc, 'ringnav_next', 'next'),
     # Lyrics: a local track without a .lrc takes its LYRICS tag (navigation.c ringnav_lyric)
     'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
-    # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB first, then stock's Kugou search
-    'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', 'kugou'),
+    # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB alone, in place of stock's Kugou search
+    'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', None),
+    # its ⋯ page: Download Album Lyrics under stock's Download Cover & Lyrics (onlinematch.c)
+    'playermore_page_init': (0x528c14, 'ringnav_playermore', 'playermore'),
     # Streaming's Tidal page opens: its stream thread starts polling (tidal.c)
     'tidal_tidal_main_page_init': (0x4dea50, 'ringnav_tidal_main', 'tidalmain'),
     # and any Tidal track asked for, from a queue or Now Playing (tidal.c)
@@ -341,6 +343,10 @@ STREAM_POLLS = ((0x486408, 0x24042710, 0x3c040003),)
 # and player_parsecover_thd's 100 ms wait becomes jal ringnav_dark_usleep (its argument set in the delay
 # slot): at least DARK_POLL_US while ringnav_sleep finds the Q2 dark, quiet and the DAC off, else stock's.
 DARK_POLLS = (0x5a958c, 0x4edbe0, 0x512fac)
+# Download Cover & Lyrics' accept (0x524f20) snprintfs cp -rf /tmp/oslyric_N "/mnt/mmc/.downpic/<name>" for
+# system(); that jalr snprintf becomes jal ringnav_lyric_save (onlinematch.c), which writes the lyrics beside
+# the song instead. The word before it, addiu $a2,$a2,0x2630 (the format at 0x772630), is pinned.
+LYRIC_SAVE_CALL, LYRIC_SAVE_FMT = 0x525484, (0x525480, 0x24c62630)
 # The encoder thread's ts_read call (jalr $t9) becomes jal ringnav_ts_read, which makes the wheel's
 # ticks from the samples (playback.c wheel_sample).
 WHEEL_TS_READ = (0x625b6c, 0x0320f809)
@@ -1079,7 +1085,7 @@ def compile_payload(out, ipod):
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
-        f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
+        f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_lyric_save', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
         '--undefined=ringnav_baidu_poll', '--undefined=ringnav_tidal_poll',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
         '--undefined=headset_status_register', '--undefined=headset_bt_autolink',
@@ -1348,6 +1354,9 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
         patch_word(patched, address, old, new, 'stream start polls 5 a second')
     for address in DARK_POLLS:
         patch_word(patched, address, 0x0320f809, jal(ps['ringnav_dark_usleep']), 'stock polls idle while dark')
+    check(struct.unpack_from('<I', patched, fileoff(patched, LYRIC_SAVE_FMT[0]))[0] == LYRIC_SAVE_FMT[1],
+          'Unexpected Download Cover & Lyrics save')
+    patch_word(patched, LYRIC_SAVE_CALL, 0x0320f809, jal(ps['ringnav_lyric_save']), 'lyrics saved beside the song')
     for word in FOLDER_NAME:
         patch_word(patched, *word, 'folder names are literal text')
     patch_word(patched, NP_INFO_CALL, branch(0x04110000, NP_INFO_CALL, PRIVATE_FUNCTIONS['np_info']),

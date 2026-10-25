@@ -451,6 +451,12 @@ static inline int arc_out(int r, int y) {
 #define TAGLIB_FILE_NEW 0x98e0
 #define TAGLIB_PROPERTY_GET 0xb4dc
 #define TAGLIB_PROPERTY_FREE 0xb700
+/* Now Playing's ⋯ page (playermore_page_init @0x528c14): its 8 rows' kinds by position, which the
+ * row click (0x528a70) reads at the button name's atoi, and Download Cover & Lyrics' kind
+ * (get_playmore_showinfo @0x501208: player_onlinesearch). */
+#define PLAYMORE_ROWS 0x7728a0
+#define PLAYMORE_COUNT 8
+#define PLAYMORE_SEARCH 4
 #define MCL_LASTPOS 0xa3be90    /* shuffle "previous" index, -1 none */
 #define MCL_PREPOS 0xa3be94
 #define MCL_PRELOAD 0xa3be98    /* 1 preloaded, 0 none, -1 closed for this track */
