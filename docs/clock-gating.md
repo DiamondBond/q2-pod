@@ -114,3 +114,39 @@ radio policy and temperature, with charging excluded and no remote polling insid
 the measurement windows. Until that measurement, no mW or battery-percentage claim
 is justified. The most useful next step is proving unused-session gating first;
 only pursue per-conversion gating if real workloads actually use this block.
+
+## Device check, 2026-10-25
+
+Installed development V02Yi with this module layered onto the previously tested
+Smart Wi-Fi/FLAC firmware. The player, remote helper and kernel image stayed byte
+identical. The normal TF updater completed, installed hashes matched, the boot ID
+changed, and the loaded module's GNU build ID matched the patched file:
+`bb773a7f6bfe17a818595215742bb0a3a8add9d2`.
+Patched module SHA-256:
+`d310e7d7dffccea49209a017bd7983a0e63f5b6fc00c7a32a98265901c2d39b6`.
+
+| Observed state | gate_rot enable/prepare | div_ahb0 enable/prepare |
+| --- | --- | --- |
+| Stock module, screen off | 1 / 1 | 1 / 1 |
+| Patched module, local FLAC, screen on | 0 / 0 | 1 / 1 |
+| Patched module, local FLAC, screen off | 0 / 0 | 0 / 0 |
+| Patched module, after wake, track change and pause | 0 / 0 | 1 / 1 |
+
+Both clocks still report a nominal 300 MHz when their reference counts are zero;
+that field is a configured rate, not measured switching activity. The display
+continues to take its own references when it wakes. No rotator IRQ registered in
+this tested boot, and the player/UI processes remained stable with no observed
+kernel Oops. These checks establish normal unused-session behavior and real module
+loading. They do **not** exercise the first hardware conversion; that path remains
+covered by instruction tests only. Longer use and less common consumers remain
+unverified.
+
+This kernel did not expose the optional `gate_rot/hwdesc` register description.
+The snapshots therefore establish software clock ownership, not a direct physical
+gate measurement. No system-power or battery-runtime measurement was made.
+
+Final software checks: 84 module cases plus 2 branch-delay controls; 1,837 iPod
+payload scenarios; opt-in/default module packaging for both editions; Legacy asset
+validation; two byte-identical default packages. The iPod asset suite still flags
+`scrsaver_playcover.png` corner alpha: that exact image is byte-identical to the
+upstream baseline, so it is an existing unrelated failure.
