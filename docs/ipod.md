@@ -605,13 +605,15 @@ card from 1.0.1 or earlier, which has no `THEME`, keeps 1.0.1's look, and a Mini
 | Cobalt (4)            | `#447CDD`                            | `#447CDD`        |
 | Tangerine (5)         | `#CB681E`                            | `#CB681E`        |
 | Plum (6)              | `#9D4F7A`                            | `#9D4F7A`        |
-| Minimal (7)           | `#EEEEEC` (Graphite's elsewhere)     | `#D8D8D8`        |
+| Ivory (7)             | `#EEEEEC` (Graphite's elsewhere)     | `#D8D8D8`        |
+| Green (8)             | `#478D4B`                            | `#478D4B`        |
 
 The bars are Graphite `#424242`, Crimson `#E8123F`, Tidal `#13838D`, Champagne `#8C732C`, Cobalt
-`#2A6AD8`, Tangerine `#C45400` (the orange Q2) and Plum `#903868` (the purple Q2). Tangerine and
-Plum are as close to the shells as white text at 4.5:1 allows, and no shade of theirs reads as
-stock red to the mapper, so nothing is mapped twice. Minimal (7) is Minimal's only: Classic's
-cycle stops at Plum, and a Classic `ACCENT` of 7 reads as Graphite.
+`#2A6AD8`, Tangerine `#C45400` (the orange Q2), Plum `#903868` (the purple Q2) and Green `#2E7D32`
+(the green Q2). Tangerine, Plum and Green are as close to the shells as white text at 4.5:1 allows,
+and no shade of theirs reads as stock red to the mapper, so nothing is mapped twice. Ivory (7) is
+Minimal's only: Classic's cycle goes from Plum to Green, and a Classic `ACCENT` of 7 reads as
+Graphite. Green is row 8, after Ivory, so cards that saved 7 keep Ivory.
 
 Existing accent preference values and the red-tone mapping stay compatible; greys and artwork
 remain unchanged by the live accent mapper. See [internals.md](internals.md#accent) for the mapping.
@@ -628,7 +630,7 @@ glyph. Its status bar is black, as Minimal's.
 Corners is one setting for both themes, Square until chosen, and Theme leaves it alone. Both themes inset an album grid's cover inside the tile (`album_children`), so the selection card frames it.
 
 Each theme keeps its own accent, and the Accent row follows Theme in both. Minimal's
-(`MINIMAL_ACCENT`) cycles Ivory, Graphite, Crimson, Tidal, Champagne, Cobalt, Tangerine, Plum;
+(`MINIMAL_ACCENT`) cycles Ivory, Graphite, Crimson, Tidal, Champagne, Cobalt, Tangerine, Plum, Green;
 its default, Ivory, draws Graphite's greys with its own fills (the progress bars, Spotify's, the
 PEQ curve and the visualizer) in `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure
 white. Another accent colours the selection card, those fills and every mapped red, as in Classic,

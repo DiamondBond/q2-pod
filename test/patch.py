@@ -27,8 +27,9 @@ from ipod import INC, O  # patch/offsets.inc and its integer #defines
 DC=O['DOUBLE_CLICK_MS']  # centre double-press window
 # iPod accent presets: {gradient top, bottom, light tone, red tone, highlight} per Accent setting value.
 ACCENTS=[tuple(int(v,16) for v in g) for g in re.findall(r'\{ 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+), 0x(\w+) \}',INC)]
-# Classic's; the last row, MINIMAL_ACCENT (Minimal only), draws as Graphite.
-assert ACCENTS[O['MINIMAL_ACCENT']]==ACCENTS[0] and len(ACCENTS)==O['MINIMAL_ACCENT']+1; ACCENTS=ACCENTS[:-1]
+# MINIMAL_ACCENT's row (Minimal only, Ivory) draws as Graphite.
+assert ACCENTS[O['MINIMAL_ACCENT']]==ACCENTS[0]
+CLASSIC=[p for p in range(len(ACCENTS)) if p!=O['MINIMAL_ACCENT']]  # the values Classic's Accent row takes
 def color_t(rgb): return 0xff000000|(rgb&255)<<16|(rgb>>8&255)<<8|rgb>>16
 O_GLYPH=re.search(r'#define BT_GLYPH "(\w+)"',INC)[1]  # the plain Bluetooth glyph a codec badge fades into
 CONFIG={}  # config.ini [IPOD] keys a new Machine starts with; the payload reads them on first use
@@ -6821,7 +6822,7 @@ if variant=='ipod':
     def ratio(a,b): return (max(lum(a),lum(b))+0.05)/(min(lum(a),lum(b))+0.05)
     for i,(top,bottom,light,tone,_) in enumerate(ACCENTS):
         assert ratio(0xffffff,top)>=4.5 and ratio(0xffffff,bottom)>=4.5 and ratio(light,O['TRACK_COLOR'])>=3,i
-        assert i in (0,O['CRIMSON']) or ratio(0xffffff,tone)>=3,i
+        assert i in (0,O['CRIMSON'],O['MINIMAL_ACCENT']) or ratio(0xffffff,tone)>=3,i
     assert ACCENTS[0][:2] == (0x424242, 0x424242)
     assert all(top==bottom for top,bottom,*_ in ACCENTS)
     assert ratio(O['NP_ARTIST_RGB'], 0) > ratio(0xaaaaaa, 0) >= 7
@@ -6868,7 +6869,7 @@ if variant=='ipod':
     C={'THEME':'1'}
     for config,preset in (({},0),({**C,'ACCENT':'1'},1),({**C,'ACCENT':'2'},2),({**C,'ACCENT':'3','HOME':'1'},3),({**C,'ACCENT':'7'},0),
                           ({**C,'ACCENT':'12'},0),({**C,'ACCENT':'4'},4),({**C,'ACCENT':'5'},5),({**C,'ACCENT':'6'},6),({'ACCENT':'1'},0),
-                          ({'MINIMAL_ACCENT':'1'},1),({'MINIMAL_ACCENT':'6'},6),({'MINIMAL_ACCENT':'7'},0),({**C,'MINIMAL_ACCENT':'2'},0),({'ACCENT':'2','THEME':'0'},0),({'ACCENT':'2','THEME':'2'},0)):  # 4 is Cobalt (once Custom, gone before 0.9.9)
+                          ({'MINIMAL_ACCENT':'1'},1),({'MINIMAL_ACCENT':'6'},6),({'MINIMAL_ACCENT':'7'},0),({'MINIMAL_ACCENT':'8'},8),({**C,'ACCENT':'8'},8),({**C,'MINIMAL_ACCENT':'2'},0),({'ACCENT':'2','THEME':'0'},0),({'ACCENT':'2','THEME':'2'},0)):  # 4 is Cobalt (once Custom, gone before 0.9.9)
         m=Machine(); m.config=config
         ret,got,out=style_color(m,red)
         assert ret==out and got==(red if preset==O['CRIMSON'] else color_t(ACCENTS[preset][3])),(config,hex(got))
@@ -7028,7 +7029,7 @@ if variant=='ipod':
     def pixels(config,name,colors):
         return [c for c,_ in rgba(config,name,[(c,255) for c in colors])]
     S=O['CONFIRM_SURFACE']
-    for preset in range(len(ACCENTS)):
+    for preset in CLASSIC:
         config={'ACCENT':str(preset),'THEME':'1'}
         disc,glyph=pixels(config,'confirm_ok',[0xff1448,0xffffff])
         assert disc==S and glyph==0xffffff and ratio(glyph,disc)>=4.5,(preset,hex(disc))
@@ -7048,7 +7049,7 @@ if variant=='ipod':
     INACTIVE=('drop_wifi','drop_bt','drop_keylock','drop_lowgain','drop_po','drop_usbstorage','drop_playset','drop_sysset')
     disc=[(0xff1448,255),(0xffffff,255),(0xffc0d0,255),(0xff1448,0),(0x000000,0)]  # disc, glyph, glyph edge, transparent
     def perceived(c): return ((c>>16)*299+(c>>8&255)*587+(c&255)*114)//1000
-    for preset in range(len(ACCENTS)):
+    for preset in CLASSIC:
         config={'ACCENT':str(preset),'THEME':'1'}
         tone=0xff1448 if preset==O['CRIMSON'] else ACCENTS[preset][3]
         light=preset!=O['CRIMSON'] and perceived(tone)>O['GLYPH_LIGHT_MAX']
@@ -7280,7 +7281,7 @@ if variant=='ipod':
     # Theme, the first row, keeps the selection, painted.
     m.paint(view); assert m.selected(view)==0; passed()
     click(1); assert texts()[1]=='Home: Full'; home_bounds(True,True); click(1); home_bounds(False,True); passed()
-    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Cobalt'),(5,'Tangerine'),(6,'Plum'),(0,'Graphite'),(1,'Crimson')):  # Minimal's own skipped
+    for value,name in ((1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Cobalt'),(5,'Tangerine'),(6,'Plum'),(8,'Green'),(0,'Graphite'),(1,'Crimson')):  # Ivory skipped
         writes=click(0)
         assert len(writes)==1 and writes[0][0]==value and m.text(writes[0][1])=='IPOD' and m.text(writes[0][2])=='ACCENT'
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
@@ -7295,7 +7296,7 @@ if variant=='ipod':
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.
-    for value,name in ((0,'Graphite'),(1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Cobalt'),(5,'Tangerine'),(6,'Plum'),(7,'Ivory')):
+    for value,name in ((0,'Graphite'),(1,'Crimson'),(2,'Tidal'),(3,'Champagne'),(4,'Cobalt'),(5,'Tangerine'),(6,'Plum'),(8,'Green'),(7,'Ivory')):
         writes=click(0); assert [(w[0],m.text(w[2])) for w in writes]==[(value,'MINIMAL_ACCENT')] and texts()[0]=='Accent: '+name
         m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec if value==7 else ACCENTS[value][0])
     passed()

@@ -98,7 +98,8 @@
                 { 0x2a6ad8, 0x2a6ad8, 0x447cdd, 0x447cdd, 0x447cdd }, /* Cobalt, the iPod's blue */ \
                 { 0xc45400, 0xc45400, 0xcb681e, 0xcb681e, 0xcb681e }, /* Tangerine, the orange Q2 */ \
                 { 0x903868, 0x903868, 0x9d4f7a, 0x9d4f7a, 0x9d4f7a }, /* Plum, the purple Q2 */ \
-                { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }  /* Minimal: Graphite, MINIMAL_FILL fills */
+                { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }, /* Ivory: Graphite, MINIMAL_FILL fills */ \
+                { 0x2e7d32, 0x2e7d32, 0x478d4b, 0x478d4b, 0x478d4b }  /* Green, the green Q2; after Ivory so saved values keep */
 #define CRIMSON 1
 #define MINIMAL_ACCENT 7 /* Minimal theme only; its default */
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take

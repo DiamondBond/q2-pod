@@ -1463,22 +1463,24 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
  * (docs/ipod.md#display-settings). */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
-static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson",
-                                            "Accent: Tidal",    "Accent: Champagne",
-                                            "Accent: Cobalt",   "Accent: Tangerine",
-                                            "Accent: Plum",     "Accent: Ivory" };
+static const char *const accent_names[] = {
+    "Accent: Graphite",  "Accent: Crimson", "Accent: Tidal", "Accent: Champagne", "Accent: Cobalt",
+    "Accent: Tangerine", "Accent: Plum",    "Accent: Ivory", "Accent: Green"
+};
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
  * 4 Shortcut, 5 Corners. */
 static const char *const setting_keys[] = { "ACCENT", "HOME",     "BATTERY",
                                             "THEME",  "SHORTCUT", "ROUNDED" };
-static const int setting_counts[] = { ACCENT_N - 1, 2, 4, 2, 7, 2 }; /* Classic's accents */
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2 };
 static int *const setting_values[] = { &st.accent,  &st.home_full, &st.battery,
                                        &st.classic, &st.shortcut,  &st.rounded };
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
             *setting_values[i] = config_value("IPOD", setting_keys[i], setting_counts[i], 0);
+        if (st.accent == MINIMAL_ACCENT) /* Classic has no Ivory: Graphite */
+            st.accent = 0;
         st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
@@ -4114,11 +4116,18 @@ static void settings_layout(void *w) {
 static int setting_click(void *ctx, void *event) {
     int i = (int)(long)ctx, minimal = !i && !ipod_classic();
     int *value = minimal ? &st.minimal_accent : setting_values[i];
-    int count = minimal ? ACCENT_N : setting_counts[i];
     const char *key = minimal ? "MINIMAL_ACCENT" : setting_keys[i];
     /* Rockbox, Favorites, Shuffle, Rated Albums, Artists, Albums, Games */
     static const int shortcut_next[] = { 3, 2, 6, 5, 1, 4, 0 };
-    *value = i == 4 ? shortcut_next[shortcut()] : (*value + 1) % count;
+    /* Graphite, ..., Plum, Green, then Ivory in Minimal or Graphite in Classic */
+    static const int accent_next[] = { 1, 2, 3, 4, 5, 6, 8, 0, MINIMAL_ACCENT };
+    _Static_assert(sizeof accent_next / sizeof *accent_next == ACCENT_N, "one per ACCENTS row");
+    if (i == 4)
+        *value = shortcut_next[shortcut()];
+    else if (i)
+        *value = (*value + 1) % setting_counts[i];
+    else
+        *value = accent_next[*value] == MINIMAL_ACCENT && !minimal ? 0 : accent_next[*value];
     write_int_config(*value, "IPOD", key);
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
