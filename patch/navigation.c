@@ -1457,7 +1457,7 @@ static const unsigned accents[][5] = { ACCENTS };
 static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson",
                                             "Accent: Tidal",    "Accent: Champagne",
                                             "Accent: Cobalt",   "Accent: Tangerine",
-                                            "Accent: Plum",     "Accent: Slate" };
+                                            "Accent: Plum",     "Accent: Ivory" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
