@@ -2420,6 +2420,8 @@ def spotify_check(tmp):
 
 TIDAL_DL = r'''#include <assert.h>
 #include <dirent.h>
+#include <errno.h>
+#include <sys/wait.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdarg.h>
@@ -2440,6 +2442,12 @@ TIDAL_DL = r'''#include <assert.h>
 #define REC_TIDAL_ID 0
 #define REC_TITLE 0
 #define REC_ARTIST 0
+#define REC_ALBUM 0
+#define REC_COVER 0
+#define fork() (-1) /* tag's ffmpeg: no remux here, the copy stays as downloaded */
+#define child_exit _exit
+static int thumb(const char *s, const char *d, int w, int h) { return 0; }
+static long file_size(const char *p) { return -1; }
 static int quality = 27; static void *queue;
 #define tidalStreamingLevelNow (&quality)
 #define mcl_pdeqplaylist (&queue)

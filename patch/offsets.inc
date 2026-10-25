@@ -424,6 +424,7 @@ static inline int arc_out(int r, int y) {
 #define REC_ALBUM 0x14
 #define REC_ARTIST 0x18
 #define REC_ALBUM_ARTIST 0x24   /* albumsonger; empty or null in folder-queue records */
+#define REC_COVER 0x28          /* an online row's cover, a Tidal row's a jpg in /tmp/tidal (player_get_id3info 0x5149d8) */
 #define REC_TYPE 0x34           /* 8 song, 4 directory */
 #define REC_TRACK 0x3c          /* the tag's track and disc numbers, 0 when untagged */
 #define REC_DISC 0x40
