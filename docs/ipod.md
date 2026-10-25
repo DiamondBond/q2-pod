@@ -67,9 +67,10 @@ unchanged; Classic keeps its existing colour handling.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
-In Minimal, wheel selection is consistently off-white (`#EEEEEC`), with no accent: a card inset
+In Minimal, wheel selection under its own accent (**Accent: Minimal**, the default) is off-white (`#EEEEEC`): a card inset
 `SEL_INSET` (6) pixels from each side of the row with `SEL_RADIUS` (6) corners, as Sudo Music's,
-drawn with the anti-aliased rounded fill (square without a vgcanvas). Minimal's unselected
+drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
+card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
 secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
 Classic** draws the accent's full-width bar instead and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
@@ -571,15 +572,16 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT`, `HOME`, `BATTERY` and `THEME`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `HOME`, `BATTERY` and `THEME`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
 (`strcasecmp` on the section and the key), copies the trimmed value to `out` and returns 1; a
 missing key copies the default and returns -1. The default must not be null (stock reads its
 first byte). The payload passes `"0"`, so a missing or unreadable entry, or any value that is not
-one valid digit, is Graphite, Split, Icon and Minimal: a card from 1.0.1 or earlier, which has
-no `THEME`, keeps 1.0.1's look.
+one valid digit, is Graphite, Split, Icon and Minimal; a missing `MINIMAL_ACCENT` is Minimal (7). A
+card from 1.0.1 or earlier, which has no `THEME`, keeps 1.0.1's look, and a Minimal card from before
+1.4.6 keeps its off-white look whatever `ACCENT` holds.
 
 | Accent                | Progress / active-control light tone | Red text / marks |
 | --------------------- | ------------------------------------ | ---------------- |
@@ -588,6 +590,15 @@ no `THEME`, keeps 1.0.1's look.
 | Tidal (2)             | `#30929B`                            | `#30929B`        |
 | Champagne (3)         | `#9A8446`                            | `#9A8446`        |
 | Cobalt (4)            | `#447CDD`                            | `#447CDD`        |
+| Tangerine (5)         | `#CB681E`                            | `#CB681E`        |
+| Plum (6)              | `#9D4F7A`                            | `#9D4F7A`        |
+| Minimal (7)           | `#EEEEEC` (Graphite's elsewhere)     | `#D8D8D8`        |
+
+The bars are Graphite `#424242`, Crimson `#E8123F`, Tidal `#13838D`, Champagne `#8C732C`, Cobalt
+`#2A6AD8`, Tangerine `#C45400` (the orange Q2) and Plum `#903868` (the purple Q2). Tangerine and
+Plum are as close to the shells as white text at 4.5:1 allows, and no shade of theirs reads as
+stock red to the mapper, so nothing is mapped twice. Minimal (7) is Minimal's only: Classic's
+cycle stops at Plum, and a Classic `ACCENT` of 7 reads as Graphite.
 
 Existing accent preference values and the red-tone mapping stay compatible; greys and artwork
 remain unchanged by the live accent mapper. See [internals.md](internals.md#accent) for the mapping.
@@ -601,18 +612,23 @@ Now Playing uses 24 px monochrome control glyphs on 28 px canvases inside the ex
 full-width selection bar under white text, with Home's chevron on its bar, coloured settings icons and the stock `list_into`, and Now Playing's 8-pixel capsule and play/pause
 glyph. Its status bar is black, as Minimal's.
 
-Minimal has no accent: the Accent row hides (the list's layout skips a hidden row, so it leaves
-no gap) and the stored accent is kept for Classic. Its drawing takes Graphite's greys,
-whatever `ACCENT` holds, and its own fills (the progress bars, Spotify's, the PEQ curve and the
-visualizer) are `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure white. In Classic
-the Accent row follows Theme and every accent applies as before. Now Playing's bar has no thumb:
+Each theme keeps its own accent, and the Accent row follows Theme in both. Minimal's
+(`MINIMAL_ACCENT`) cycles Minimal, Graphite, Crimson, Tidal, Champagne, Cobalt, Tangerine, Plum;
+its default, Minimal, draws Graphite's greys with its own fills (the progress bars, Spotify's, the
+PEQ curve and the visualizer) in `MINIMAL_FILL`, white on the dark track; a scrub's fill is pure
+white. Another accent colours the selection card, those fills and every mapped red, as in Classic,
+and the card keeps the rows' own ink and stock's `#AAAAAA` metadata. Minimal's grey icons and
+codec badges stay grey, but `list_into`, the Bluetooth marks and `list_delete` stay white, as
+their grey copies were only for the off-white card; the edit pages' OK stays off-white in both
+themes. Classic's (`ACCENT`) skips Minimal, so switching
+to Classic shows Classic's own accent, Graphite until another is chosen. Now Playing's bar has no thumb:
 stock draws its dragger (a box and knob, the stock theme's blue) unless `border_color` is clear,
 so `playing_page` clears it in every state. 1.3.9 first painted it white, which drew the box at rest.
 
 A change applies at once, as Accent does: the image cache is dropped and the screen repaints
 (icons and chevrons reload in the new theme's colours), Home re-lays its menus and art, and all
 open settings lists (including cached pages behind Display) take the new top inset. An open
-Now Playing gets its bar and glyph, and the Display page shows or hides the Accent row, the
+Now Playing gets its bar and glyph, and the Accent row shows the new theme's accent, the
 selection staying on Theme. Nothing needs a restart.
 
 What Classic does not restore: the pinned theme edit of `s_btn_listitem`'s pressed colour

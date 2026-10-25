@@ -191,7 +191,7 @@ void *app_album_songs(const char *dir); /* navigation.c: a folder's songs by nam
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
-unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal: MINIMAL_FILL) */
+unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal's own: MINIMAL_FILL) */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
 void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color);
 void peq_paint(void *w, void *canvas);

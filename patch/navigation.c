@@ -361,7 +361,7 @@ typedef struct {
     unsigned lyric_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, home_full, battery, home_rockbox, classic, shortcut;
+    int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut;
     void *setting_label[5];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
@@ -1453,16 +1453,20 @@ unsigned mix(unsigned from, unsigned to, int j, int n) {
 
 /* The Accent, Home, Battery and Theme settings (docs/ipod.md#display-settings), IPOD/ACCENT, HOME,
  * BATTERY and THEME in the stock config.ini: toolsReadConfig(path, section, key, out,
- * default) copies the value, or the default. A card without THEME is Minimal (0), which has no
- * accent: its drawing takes Graphite's greys and its fills MINIMAL_FILL; Classic (1) the accent. */
+ * default) copies the value, or the default. A card without THEME is Minimal (0). Each theme keeps
+ * its own accent: Classic (1) ACCENT, Minimal MINIMAL_ACCENT, whose default MINIMAL_ACCENT draws
+ * Graphite's greys with MINIMAL_FILL fills and the off-white card, as Minimal did before it had
+ * accents. Classic never takes it, so its cycle stops at Plum. */
 static const unsigned accents[][5] = { ACCENTS };
 #define ACCENT_N (int)(sizeof accents / sizeof *accents)
-static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson", "Accent: Tidal",
-                                            "Accent: Champagne", "Accent: Cobalt" };
+static const char *const accent_names[] = { "Accent: Graphite", "Accent: Crimson",
+                                            "Accent: Tidal",    "Accent: Champagne",
+                                            "Accent: Cobalt",   "Accent: Tangerine",
+                                            "Accent: Plum",     "Accent: Minimal" };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme. */
 static const char *const setting_keys[] = { "ACCENT", "HOME", "BATTERY", "THEME", "SHORTCUT" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7 };
+static const int setting_counts[] = { ACCENT_N - 1, 2, 4, 2, 7 }; /* Classic's accents */
 static int *const setting_values[] = { &st.accent, &st.home_full, &st.battery, &st.classic,
                                        &st.shortcut };
 static int accent(void) {
@@ -1470,9 +1474,15 @@ static int accent(void) {
         for (int i = 0; i < 4; ++i)
             *setting_values[i] = config_value("IPOD", setting_keys[i], setting_counts[i], 0);
         st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
+        st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.settings_read = 1;
     }
-    return st.classic ? st.accent : 0; /* Graphite */
+    return st.classic ? st.accent : st.minimal_accent; /* MINIMAL_ACCENT's row is Graphite's */
+}
+/* 1 while Minimal draws its own accent: the off-white card with dark ink. */
+static int minimal_card(void) {
+    accent();
+    return !st.classic && st.minimal_accent == MINIMAL_ACCENT;
 }
 /* Shortcut with no key is Rockbox while the card has it, else Favorites: asked each time, as the
  * card may mount after the first read. */
@@ -1523,7 +1533,7 @@ int home_shortcut_open(void *ctx, void *event) {
 }
 enum { TONE_LIGHT = 2, TONE_RED = 3 }; /* columns of ACCENTS */
 unsigned accent_tone(int tone) {
-    return tone == TONE_LIGHT && !ipod_classic() ? MINIMAL_FILL : accents[accent()][tone];
+    return tone == TONE_LIGHT && minimal_card() ? MINIMAL_FILL : accents[accent()][tone];
 }
 
 /* A color_t (bytes r, g, b, a) that is stock red blended with a neutral, t * red + k * white per
@@ -1885,8 +1895,9 @@ static void paint_selection(void *w, void *canvas) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
     }
-    /* Classic: the accent's bar under the rows' own ink. */
-    int classic = ipod_classic();
+    /* Classic: the accent's bar under the rows' own ink. Minimal: its card (sel_widget), off-white
+     * with dark ink under its own accent, else the accent's under the rows' own ink. */
+    int classic = ipod_classic(), light = minimal_card();
     st.sel_widget = classic ? (void *)0 : home ? P(g_menu.at[i], W_PARENT) : g_menu.at[i];
     st.sel_home = home && !classic;
     if (classic && (!tile || g_menu.kind == 4)) {
@@ -1899,7 +1910,7 @@ static void paint_selection(void *w, void *canvas) {
         int grid = tile && g_menu.kind != 4; /* pop-up buttons keep their row inset */
         int in = grid ? TILE_INSET : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
-        fill_box(canvas, &card, RGBA(classic ? accents[accent()][0] : MINIMAL_FILL), SEL_RADIUS);
+        fill_box(canvas, &card, RGBA(light ? MINIMAL_FILL : accents[accent()][0]), SEL_RADIUS);
     }
     st.sel_w = w;
     st.sel_row = i;
@@ -1944,13 +1955,14 @@ static void paint_selection(void *w, void *canvas) {
 static void edit_paint(void *w, void *canvas);
 
 #if IPOD
-/* Minimal: stock's white radio images (select, unselect: a 26 px ring, a 12 px dot when checked)
- * vanish on the selected row's off-white card, so they are drawn again over it in the card's ink.
- * So does the Wi-Fi, Bluetooth and Tidal rows' navbar_delete, drawn again as list_delete, its copy
- * in list_into's grey; navbar_delete itself stays white for the playlist page's Delete.
+/* Minimal's own accent: stock's white radio images (select, unselect: a 26 px ring, a 12 px dot
+ * when checked) vanish on the selected row's off-white card, so they are drawn again over it in the
+ * card's ink. So does the Wi-Fi, Bluetooth and Tidal rows' navbar_delete, drawn again as
+ * list_delete, its copy in list_into's grey; navbar_delete itself stays white for the playlist
+ * page's Delete.
  */
 static void paint_radio(void *w, void *canvas) {
-    if (!w || !st.sel_widget || st.sel_home || ipod_classic() || !P(canvas, CANVAS_LCD)) return;
+    if (!w || !st.sel_widget || st.sel_home || !minimal_card() || !P(canvas, CANVAS_LCD)) return;
     const char *image = widget_get_prop_str(w, "image", "");
     int more = tk_str_start_with(widget_get_prop_str(w, "name", ""), "img_more");
     int dot = !tk_strcmp(image, "select"), del = !tk_strcmp(image, "navbar_delete");
@@ -2782,8 +2794,7 @@ static int selects(menu_t *m, void *target) {
     return -1;
 }
 
-/* target's row takes the selection, painted: a tap's, or Theme's after the Accent row came or went
- * (the list's count changed, which load() takes for new content, dropping the selection). */
+/* target's row takes the selection, painted: a tap's, or Theme's after its relayout. */
 static void keep_selected(void *target) {
     void *other = (void *)0, *w = surface(target, &other);
     int i = w && load(&g_menu, w, 0) ? selects(&g_menu, target) : -1;
@@ -3247,8 +3258,8 @@ static void np_sync(void *top) {
 /* Scrub (docs/internals.md#scrub-ipod) follows stock's own key seek (0x52c754): the page's 250 ms
  * timer stops, the slider and label_playtime preview the target, player_seek_time commits it once
  * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
-/* The accent's light tone (Minimal's MINIMAL_FILL) fills the progress bar in every state a touch
- * passes through; a white fill (Minimal: a thicker line) marks the scrub. */
+/* The accent's light tone (Minimal's own accent: MINIMAL_FILL) fills the progress bar in every
+ * state a touch passes through; a white fill (Minimal: a thicker line) marks the scrub. */
 static void np_fill(int scrub) {
     if (!st.np_slider) return;
     static const char *const fill[] = { "style:normal:fg_color", "style:pressed:fg_color",
@@ -3780,7 +3791,8 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
                 if (!widget_get_prop_bool(w, "enable", 1)) enabled = 0;
             *color = (*color & 0xff000000u) | (enabled ? 0xffffff : 0xaaaaaa);
         }
-        if (selected_ink()) {
+        int selected = selected_ink();
+        if (selected && (st.sel_home || minimal_card())) {
             unsigned alpha = *color & 0xff000000u;
             *color =
                 alpha |
@@ -3794,8 +3806,8 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
                     return color;
                 }
         }
-        /* Minimal's secondary text is Sudo's quieter grey. */
-        if (!ipod_classic() && (*color & 0xffffff) == 0xaaaaaa)
+        /* Minimal's secondary text is Sudo's quieter grey, but stock's on an accent's card. */
+        if (!ipod_classic() && !selected && (*color & 0xffffff) == 0xaaaaaa)
             *color = (*color & 0xff000000u) | SUDO_MUTED;
     }
     int a = accent();
@@ -3901,11 +3913,11 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
         tone = SUDO_MUTED;
     /* Minimal: the settings icons' coloured discs all turn MINIMAL_CHEVRON, like list_into's ink
      * and stock's grey list discs. The Bluetooth rows' white marks (device, refresh) and
-     * list_delete (paint_radio's) take list_into's ink too, or they vanish on the selected row's
-     * off-white card. A pixel's
-     * saturation (max - min) against the disc's (the icon's most saturated) says how far it blends
-     * towards the white glyph, so edges stay smooth; alpha kept. */
-    int into = s && !*s &&
+     * list_delete (paint_radio's) take list_into's ink too under Minimal's own accent, or they
+     * vanish on the selected row's off-white card; another accent's card keeps them white. A
+     * pixel's saturation (max - min) against the disc's (the icon's most saturated) says how far it
+     * blends towards the white glyph, so edges stay smooth; alpha kept. */
+    int into = s && !*s && minimal_card() &&
                (!tk_strcmp(name, "list_into") || !tk_strcmp(name, "bt_lefticon") ||
                 !tk_strcmp(name, "bt_refresh") || !tk_strcmp(name, "list_delete"));
     int icon = s && !*s &&
@@ -4031,8 +4043,8 @@ static void setting_text(int i) {
                                                   "Battery: Percent Inside" },
                              *const theme[] = { "Theme: Minimal", "Theme: Classic" };
     accent(); /* reads the settings */
-    const char *const names[] = { accent_names[st.accent], home[st.home_full], battery[st.battery],
-                                  theme[st.classic] };
+    const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
+                                  home[st.home_full], battery[st.battery], theme[st.classic] };
     char shortcut[64];
     if (i == 4) {
         tk_snprintf(shortcut, sizeof shortcut, "Shortcut: %s", ipod_home_shortcut());
@@ -4040,13 +4052,6 @@ static void setting_text(int i) {
         return;
     }
     widget_set_text_utf8(st.setting_label[i], names[i]);
-}
-
-/* The Accent row, right after Theme, shows only in Classic. The list's layout (list_view(m=0,s=0),
- * no keep_invisible) skips a hidden row, so it leaves no gap, and the wheel skips it too. */
-static void accent_row(void) {
-    if (st.setting_label[0])
-        widget_set_visible(P(P(st.setting_label[0], W_PARENT), W_PARENT), st.classic, 0);
 }
 
 static int settings_list(void *w) {
@@ -4071,11 +4076,14 @@ static void settings_layout(void *w) {
  * and the screen repaints; Home takes its new layout and Streaming label at once (never
  * recreated), and an open Now Playing its progress bar. */
 static int setting_click(void *ctx, void *event) {
-    int i = (int)(long)ctx, *value = setting_values[i];
+    int i = (int)(long)ctx, minimal = !i && !ipod_classic();
+    int *value = minimal ? &st.minimal_accent : setting_values[i];
     /* Rockbox, Favorites, Shuffle, Rated Albums, Artists, Albums, Games */
     static const int shortcut_next[] = { 3, 2, 6, 5, 1, 4, 0 };
-    *value = i == 4 ? shortcut_next[shortcut()] : (*value + 1) % setting_counts[i];
-    write_int_config(*value, "IPOD", setting_keys[i]);
+    /* Minimal's accents run Minimal, Graphite, ..., Plum: MINIMAL_ACCENT is the last row. */
+    *value = i == 4 ? shortcut_next[shortcut()]
+                    : (*value + 1) % (minimal ? ACCENT_N : setting_counts[i]);
+    write_int_config(*value, "IPOD", minimal ? "MINIMAL_ACCENT" : setting_keys[i]);
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
     else if (i == 1 || i == 4)
@@ -4085,8 +4093,8 @@ static int setting_click(void *ctx, void *event) {
             coverflow_home_layout();
             settings_layout(window_manager());
             np_theme();
-            accent_row();
             keep_selected(st.setting_label[3]);
+            setting_text(0);
             setting_text(1);
         }
         np_fill(0);
@@ -4179,7 +4187,6 @@ int ringnav_display(void *win, void *ctx) {
     if (view) {
         st.setting_label[4] = list_row(view, "playset_covermode", setting_click, (void *)4);
         setting_text(4);
-        accent_row();
     }
 #else
     pod_rows(win, "scroll_view_display", POD_ARTIST_CF, 1, cf_icon);

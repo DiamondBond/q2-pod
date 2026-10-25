@@ -278,7 +278,7 @@ The iPod border hook also draws the fast-scroll letter over the list. A step of 
 
 ## Accent
 
-iPod's accent ([ipod.md](ipod.md#display-settings); Theme: Minimal uses Graphite's, whatever is stored) replaces Shanling red wherever it is drawn:
+iPod's accent ([ipod.md](ipod.md#display-settings); each theme keeps its own; Minimal's own accent uses Graphite's) replaces Shanling red wherever it is drawn:
 the theme's style colors, inline `style:*` colors (a mutable style answers through the same
 vtable), decoded images, and the payload's own selection bar and progress fill, which read
 `ACCENTS` directly. `accent_map` (`patch/navigation.c`) is a pure function on one `color_t` (bytes

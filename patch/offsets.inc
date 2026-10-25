@@ -95,8 +95,12 @@
                 { 0xe8123f, 0xe8123f, 0xeb2f56, 0xff1448, 0xeb2f56 }, /* Crimson */ \
                 { 0x13838d, 0x13838d, 0x30929b, 0x30929b, 0x30929b }, /* Tidal */ \
                 { 0x8c732c, 0x8c732c, 0x9a8446, 0x9a8446, 0x9a8446 }, /* Champagne */ \
-                { 0x2a6ad8, 0x2a6ad8, 0x447cdd, 0x447cdd, 0x447cdd }  /* Cobalt, the iPod's blue */
+                { 0x2a6ad8, 0x2a6ad8, 0x447cdd, 0x447cdd, 0x447cdd }, /* Cobalt, the iPod's blue */ \
+                { 0xc45400, 0xc45400, 0xcb681e, 0xcb681e, 0xcb681e }, /* Tangerine, the orange Q2 */ \
+                { 0x903868, 0x903868, 0x9d4f7a, 0x9d4f7a, 0x9d4f7a }, /* Plum, the purple Q2 */ \
+                { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }  /* Minimal: Graphite, MINIMAL_FILL fills */
 #define CRIMSON 1
+#define MINIMAL_ACCENT 7 /* Minimal theme only; its default */
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
  * this dark surface under every accent, Crimson included, through the same red-blend mapping: the
  * OK disc becomes CONFIRM_SURFACE, Cancel's lighter tint a mid grey, and the near-white glyphs stay
@@ -198,8 +202,8 @@ static inline int arc_out(int r, int y) {
  * chevron's glyph (x 20 to 30 of list_into) sits close to the panel edge without touching the
  * glass on the bottom row. Labels start at HOME_CLASSIC_TEXT_X and leave room for the glyph.
  * The progress bar is an NP_BAR_CLASSIC capsule
- * (Minimal's NP_BAR_MINIMAL line). Minimal has no accent: its fills are MINIMAL_FILL, its
- * settings icons grey and list_into MINIMAL_CHEVRON. */
+ * (Minimal's NP_BAR_MINIMAL line). Minimal's settings icons are grey and list_into
+ * MINIMAL_CHEVRON under every accent; its own accent (MINIMAL_ACCENT) fills with MINIMAL_FILL. */
 #define HOME_SPLIT_W 187
 #define HOME_CLASSIC_ROW 369
 #define HOME_TOP 8 /* Minimal's decorative inset; Classic starts below the status bar. */
