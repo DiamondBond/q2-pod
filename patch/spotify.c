@@ -90,6 +90,8 @@ int spot_reply(char *buf, unsigned len, char **f, int max) {
 #define SPOT_OLD_MS 3000   /* no browse socket this long after the start, but a state file: an old add-on */
 #define SPOT_SIGNOUT_MS 15000 /* librespot exits on signout; its launcher restarts it within this */
 #define SPOT_ALIVE_MS 10000   /* while it holds the timers, librespot's socket is checked this often */
+#define SPOT_LOG SPOT_DIR "/spot.log" /* librespot's stderr, which run appends to */
+#define SPOT_REFUSED "error audio key" /* Spotify refused a track's key: librespot-org/librespot#1649 */
 
 /* librespot as last read; kept for the life of demo. */
 static struct {
@@ -99,8 +101,10 @@ static struct {
     char raw[1536]; /* the file as last read, behind a '\n' so every key follows one */
     char state[12], track[64], title[256], artist[256], album[256];
     char out[24]; /* SPOT_OUT as last written */
-    int auth, loading, old; /* auth: 0 unknown, 1 authenticated, -1 pairing; loading: 1 waiting, 2 timeout */
+    int auth, loading, old; /* auth: 0 unknown, 1 authenticated, -1 pairing; loading: 1 waiting, 2 timeout,
+                             * 3 key refused */
     unsigned load_at;
+    long log_from; /* SPOT_LOG's bytes before this play's */
     char wanted[64], from[64]; /* the track asked for, and the one there when it was */
 } sp __attribute__((section(".scratch")));
 
@@ -244,6 +248,31 @@ static void scrub_commit(void) {
 
 static void spot_refresh(void);
 static int browsing(void);
+static void spot_restarting(void);
+
+/* SPOT_LOG's length, 0 without one. */
+static long log_size(void) {
+    void *f = fopen(SPOT_LOG, "rb");
+    long n = f && !fseek(f, 0, 2) ? ftell(f) : 0;
+    if (f) fclose(f);
+    return n;
+}
+
+/* While a play loads: 1 once librespot has logged SPOT_REFUSED since sp.log_from, which moves on
+ * (less a match's length, for a line cut between two reads). Only the last 4 KB new are read. */
+static int spot_refused(void) {
+    char buf[4096];
+    void *f = fopen(SPOT_LOG, "rb");
+    long end = f && !fseek(f, 0, 2) ? ftell(f) : 0, from = sp.log_from;
+    if (end < from) from = 0; /* a new log */
+    if (end - from > (long)sizeof buf - 1) from = end - (long)sizeof buf + 1;
+    unsigned n = f && end > from && !fseek(f, from, 0) ? fread(buf, 1, (unsigned)(end - from), f) : 0;
+    if (f) fclose(f);
+    buf[n] = 0;
+    long keep = end - (long)sizeof SPOT_REFUSED + 2;
+    if (keep > sp.log_from) sp.log_from = keep;
+    return strstr(buf, SPOT_REFUSED) != 0;
+}
 
 /* SPOT_IDLE_MS after playback ended with the browser shut, or Streaming's Stop Streaming Services
  * row: librespot and its restart loop killed, as Home's Rockbox row does, and the keys local
@@ -286,6 +315,13 @@ void spot_poll(void) {
     if ((playing || downloading) && now - sp.alive_at >= SPOT_ALIVE_MS)
         sp.alive_at = now, sp.dead = !spot_alive();
     if (sp.dead) playing = downloading = 0; /* a crash's last word: no hold, so it idles out */
+    /* Refused, librespot skips on to the next track and the next, through the whole list, and no
+     * pause stops it while it loads; killed, run starts it again with no track. */
+    if (sp.loading == 1 && spot_refused()) {
+        sp.loading = 3;
+        system("killall -9 librespot aplay");
+        spot_restarting();
+    }
     if (playing && !sp.playing) {
         sp.playing = 1;
         spot_take();
@@ -390,6 +426,7 @@ static void spot_refresh(void) {
         const char *note = "Loading…", *sub = "Waiting for Spotify";
         if (!installed) note = "Spotify isn't on the card", sub = "See the Q2 Pod guide to add it";
         else if (sp.auth < 0) note = "Open Spotify on your phone", sub = "and choose Q2";
+        else if (sp.loading == 3) note = "Spotify refused this account", sub = "Its tracks can't play on the Q2";
         else if (sp.loading == 2) note = "Playback didn't start", sub = "Go back and try again";
         else if (sp.loading) sub = "Starting playback";
         else if (sp.old) note = "Update Spotify on the card", sub = "See the Q2 Pod guide";
@@ -589,6 +626,8 @@ static struct {
 } br __attribute__((section(".scratch")));
 
 static int browsing(void) { return br.page != 0; }
+/* librespot killed: no socket for a while is it starting again, as after a sign-out. */
+static void spot_restarting(void) { br.until = time_now_ms() + SPOT_SIGNOUT_MS; }
 
 static level_t *top(void) { return &br.lv[br.depth - 1]; }
 static const char *cell(const level_t *l, int i, int k) { return l->f[4 + 6 * i + k]; }
@@ -904,6 +943,7 @@ static void got(void) {
             sp.loading = 1; /* not a timed-out play's 2, which spot_started takes as any track */
             sp.loading = !spot_started();
             sp.load_at = time_now_ms();
+            sp.log_from = log_size();
             spot_np();
         }
         else if (ok && act == A_REMOVE) {

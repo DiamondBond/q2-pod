@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.4.7**:
+  - Spotify: when Spotify refuses to unlock your account's tracks, the Q2 now says so ("Spotify refused this account") within a second, instead of "Loading…" and, 15 s later, "Playback didn't start". It also stops librespot skipping through your whole playlist meanwhile. Spotify does this to some accounts, mostly new ones, and nothing on the Q2 can change it; another Premium account may work.
+
 - **1.4.6**:
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - iPod: **Accent** now works in the Minimal theme too. Minimal's own off-white is its first choice and stays the default, so Minimal looks the same until you pick another; any other accent colours Minimal's selection, progress bar and switches. Each theme remembers its own accent, and Classic keeps its Graphite default.
