@@ -5564,6 +5564,27 @@ if variant=='ipod':
         follow(m,20); assert settle(m)[-1]==20; passed()
     # The same song (its queue place and file) leaves them where they are.
     m=lyric_page(); loop(m); loop(m,-56); settle(m); m.word(O['MCL_POS'],1); assert loop(m)==40 and follow(m,0)==40; passed()
+    # The page's row rebuild (LYRIC_ROWS, stock's mocked) keeps the same song's place; another song's
+    # rows start at the top whatever moved the view since, and drop the hold.
+    def rows(m): m.call(address=payload_syms['ringnav_lyric_rows'],args=(m.win,0,0,0),gap=0,clear=False); return y(m)
+    m=lyric_page(); m.handlers[0x529f0c]='stock_lyric_rows'; loop(m); loop(m,-56); settle(m)
+    assert rows(m)==40 and follow(m,0)==40; passed()
+    m.word(O['MCL_POS'],2); m.word(m.lrc+O['SCROLL_Y'],60); assert rows(m)==0 and loop(m)==0
+    follow(m,20); assert settle(m)[-1]==20; passed()  # the follow is back
+    # A swipe that brings the lyrics in holds nothing, even while something else moves them (stock's
+    # scroll animation, ending after the screen comes on); a finger that lands on them stops that.
+    m=lyric_page(page=0); loop(m); m.pressed=1; loop(m); m.nodes[m.slide]['value']=1; loop(m)
+    m.word(m.lrc+O['SCROLL_Y'],60); loop(m); m.pressed=0; loop(m); follow(m,0); assert settle(m)[-1]==0; passed()
+    m=lyric_page(); loop(m); a=m.alloc(0x80); m.word(m.lrc+O['VIEW_ANIMATOR'],a); m.pressed=1; loop(m)
+    assert m.get(m.lrc+O['VIEW_ANIMATOR'])==0 and ('widget_animator_destroy',a) in [c[:2] for c in m.calls]; passed()
+    # The report: scroll, swipe away, screen off, next song, screen on, swipe back: the new song's top.
+    m=lyric_page(); m.handlers[0x529f0c]='stock_lyric_rows'; loop(m); loop(m,-56); settle(m)
+    m.nodes[m.slide]['value']=0; loop(m); assert follow(m,20)==20  # off the page: stock's jump
+    m.byte(syms['g_backlight_status'],0); loop(m); m.word(O['MCL_POS'],2); assert loop(m)==0
+    m.word(m.lrc+O['SCROLL_Y'],60); assert rows(m)==0  # a stale follow, then the new song's rows
+    m.byte(syms['g_backlight_status'],1); loop(m); m.pressed=1; loop(m); m.nodes[m.slide]['value']=1; loop(m)
+    m.word(m.lrc+O['SCROLL_Y'],20); loop(m); m.pressed=0; loop(m)
+    follow(m,0); assert settle(m)[-1]==0; passed()
     # Let go, the wheel snaps them to the nearest row top, down or up, gliding; held, they stay.
     m=lyric_page(); loop(m); loop(m,-36); assert settle(m,200)[-1]==26  # tops 0 20 70: 26 is nearer 20
     m.word(payload_syms['wheel_held'],0); ys=settle(m); assert ys[-1]==20 and ys[0]>20,ys

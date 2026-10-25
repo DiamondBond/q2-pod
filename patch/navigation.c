@@ -352,13 +352,13 @@ typedef struct {
     int scrub, scrub_to, scrub_moved, settle_played;
     int held_sec; /* a paused seek to scrub_to on scrub_track: the player's second then, +1; 0 none
                    */
-    /* The lyrics (lyric_poll), of the song lyric_song: lyric_raw while their page holds the wheel's
-     * raw travel; lyric_held once the wheel or a drag moved them; lyric_spun once the wheel moved
-     * them since it was let go; lyric_touch while a finger is on the screen, lyric_drag_y the
-     * offset it found; the glide's target lyric_to (1/16 px), its last step lyric_at, and
-     * lyric_glide while it moves. */
+    /* The lyrics (lyric_poll), of the song lyric_song, their rows built for lyric_rows_song:
+     * lyric_raw while their page holds the wheel's raw travel; lyric_held once the wheel or a drag
+     * moved them; lyric_spun once the wheel moved them since it was let go; lyric_touch while a
+     * finger is on Now Playing, 1 if it came down on the lyrics, lyric_drag_y the offset then; the
+     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves. */
     int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
-    unsigned lyric_at, lyric_song;
+    unsigned lyric_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, home_full, battery, home_rockbox, classic, shortcut;
@@ -2912,6 +2912,8 @@ static void lyric_pad(void *lrc) {
 }
 
 #if IPOD
+static unsigned np_track(void);
+
 /* The lyrics page in front: Now Playing on top, lit, not sliding and untouched, on the lyrics. */
 static int lyrics_shown(void) {
     void *wm = window_manager();
@@ -2928,6 +2930,14 @@ static void lyric_still(void *lrc) {
     widget_animator_pause(a);
     widget_animator_destroy(a);
     P(lrc, VIEW_ANIMATOR) = (void *)0;
+}
+
+/* Another song: its lyrics at the top, nothing held or gliding, and stock's animator, which would
+ * carry them on to where the last song's follow sent them, stopped. */
+static void lyric_top(void *lrc) {
+    st.lyric_held = st.lyric_spun = st.lyric_glide = st.lyric_to = 0;
+    lyric_still(lrc);
+    scroll_view_set_offset(lrc, I(lrc, SCROLL_X), 0);
 }
 
 /* The lyrics glide to `to` (1/16 px) within their content; lyric_step moves them, every UI pass. */
@@ -2961,10 +2971,19 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
 /* The page's refresh rebuilds scroll_lrc's rows (0x529f0c, LYRIC_ROWS in tools/build.py) whenever
  * g_forcerefresh_flag is set, as Play/Pause (playpause_quick_click) and the page's return to the
  * front do, and the rebuild ends at offset 0: the lyrics flicked to the top until the next follow.
- * The offset stays; the follow moves it if the line did. */
+ * The offset stays; the follow moves it if the line did. iPod: rows for another song than the last
+ * rows' start at the top (lyric_top), whatever moved the old ones since the song changed. */
 int ringnav_lyric_rows(void *win) {
     void *lrc = widget_lookup(win, "scroll_lrc", 1);
     int y = lrc ? I(lrc, SCROLL_Y) : 0, ret = ((int (*)(void *))0x529f0c)(win);
+#if IPOD
+    unsigned song = lrc && lrc == st.np_lrc ? np_track() : st.lyric_rows_song;
+    if (song != st.lyric_rows_song) {
+        st.lyric_rows_song = st.lyric_song = song;
+        lyric_top(lrc);
+        return ret;
+    }
+#endif
     if (y) scroll_view_set_offset(lrc, I(lrc, SCROLL_X), y);
     return ret;
 }
@@ -3348,29 +3367,32 @@ static void lyric_snap(void *lrc) {
  * time: a tick's worth of travel at the Wheel Sensitivity moves them LYRIC_ROW_PX, stock's row, as
  * far as a tick did. No key event comes, so the travel times the loop's idle and the screen's
  * timeout itself. While a finger stays on the wheel they stay where it put them; let go, they glide
- * to the nearest row top (lyric_snap). A finger lifted from a drag on the screen that moved them
- * holds them as the wheel does. Leaving the page drops the hold; the next follow, off the page,
- * jumps to the current line. Another song starts at the top, its hold gone. */
+ * to the nearest row top (lyric_snap). A finger that came down on the lyrics and dragged them holds
+ * them as the wheel does; stock's scroll animation stops as it lands, so only the finger moves
+ * them, and a swipe that brings the page in holds nothing. Leaving the page drops the hold; the
+ * next follow, off the page, jumps to the current line. Another song starts at the top, its hold
+ * gone. */
 #define LYRIC_ROW_PX 20
 static void lyric_poll(void) {
     void *lrc = st.np_lrc, *wm = window_manager();
     unsigned song = lrc ? np_track() : st.lyric_song;
     if (song != st.lyric_song) {
         st.lyric_song = song;
-        st.lyric_held = st.lyric_spun = st.lyric_glide = st.lyric_to = 0;
-        lyric_still(lrc);
-        scroll_view_set_offset(lrc, I(lrc, SCROLL_X), 0);
+        lyric_top(lrc);
     }
     int page = lrc && st.np_slide && widget_get_prop_int(st.np_slide, "value", 0) == 1;
-    int touch = page && window_manager_get_top_window(wm) == st.np_win &&
+    int touch = lrc && window_manager_get_top_window(wm) == st.np_win &&
                 window_manager_get_pointer_pressed(wm);
     int shown = page && lyrics_shown(),
         on = shown && widget_count_children(lrc) && mclGetLyricSize() > 0;
     if (!page) st.lyric_held = 0;
-    if (touch != st.lyric_touch) {
-        if (!touch && page && I(lrc, SCROLL_Y) != st.lyric_drag_y) lyric_hold();
-        st.lyric_touch = touch;
+    if (touch && !st.lyric_touch) {
+        st.lyric_touch = page ? 1 : 2;
         st.lyric_drag_y = page ? I(lrc, SCROLL_Y) : 0;
+        if (page) lyric_still(lrc);
+    } else if (!touch && st.lyric_touch) {
+        if (st.lyric_touch == 1 && page && I(lrc, SCROLL_Y) != st.lyric_drag_y) lyric_hold();
+        st.lyric_touch = 0;
     }
     if (on != st.lyric_raw) {
         __sync_lock_test_and_set(&wheel_travel, 0);
@@ -3507,7 +3529,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_cover = widget_lookup(win, "img_cover", 1);
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
-    st.lyric_song = np_track(); /* lyric_poll's: no song change at the start */
+    st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
