@@ -56,16 +56,21 @@ class Module:
             self.symbols.append((cstring(strings, n), value, size, info, section))
         self.named = {s[0]: i for i, s in enumerate(self.symbols) if s[0]}
 
-    def load(self, machine, base):
-        cursor = base
+    def load(self, machine, base, *, init_base=None):
+        cursors = dict(core=base)
+        if init_base is not None:cursors["init"]=init_base
         addresses = {}
         for i, s in enumerate(self.sections):
             if s[2] & 2:
+                group="init" if init_base is not None and self.names[i].startswith(".init") else "core"
                 align = max(s[8], 4)
-                cursor = (cursor + align - 1) & -align
+                cursor = (cursors[group] + align - 1) & -align
                 addresses[i] = cursor
-                cursor += max(s[5], 4) + 0x40
-        machine.uc.mem_map(base & ~0xfff, ((cursor + 0xfff) & ~0xfff) - (base & ~0xfff))
+                cursors[group] = cursor + max(s[5], 4) + 0x40
+        for group,cursor in cursors.items():
+            start=init_base if group=="init" else base
+            if cursor>start:
+                machine.uc.mem_map(start & ~0xfff, ((cursor+0xfff)&~0xfff)-(start&~0xfff))
         values = []
         for name, value, size, info, section in self.symbols:
             if section == 0:
@@ -89,7 +94,10 @@ class Module:
                     patched = (word + value) & 0xffffffff
                 elif kind == 4:  # R_MIPS_26
                     address = ((word & 0x3ffffff) << 2) + value
-                    assert (address & 0xf0000000) == ((addresses[s[7]] + off + 4) & 0xf0000000)
+                    site=addresses[s[7]]+off
+                    assert 0<=address<=0xffffffff and address%4==0, ('Invalid R_MIPS_26 target',hex(address))
+                    assert (address & 0xf0000000) == ((site+4) & 0xf0000000), (
+                        'R_MIPS_26 region overflow',self.symbols[symbol][0],hex(site),hex(address))
                     patched = (word & 0xfc000000) | ((address >> 2) & 0x3ffffff)
                 elif kind == 5:  # R_MIPS_HI16: final low addend comes later.
                     pending.append((off, word, value))

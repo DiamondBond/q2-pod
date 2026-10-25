@@ -48,6 +48,10 @@ Development builds also start `q2remote`, a key-gated root shell with screenshot
 Normal builds keep the stock module byte for byte. See [clock gating](clock-gating.md)
 for the exact module guard, tests, and hardware-validation limits.
 
+`--dev --pwm-idle-clock` selects the paired PWM/MCU clock experiment.
+It requires all three matching files and a reboot; see [PWM clock gating](pwm-clock-gating.md)
+for its ownership protocol, conservative fallbacks and validation limits.
+
 ## Tests
 
 ```sh

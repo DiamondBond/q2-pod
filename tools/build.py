@@ -620,7 +620,8 @@ def source_sha256():
     h = hashlib.sha256()
     manual = [ROOT/'docs/manual'/f for f in ('build.py', 'guide.html')]
     for path in sorted([*(p for p in ROOT.glob('assets/**/*') if p.is_file()), *ROOT.glob('patch/*'),
-                        *ROOT.glob('tools/*.py'), *manual]):
+                        *ROOT.glob('tools/*.py'), *ROOT.glob('tools/*.c'),
+                        *ROOT.glob('tools/*.h'), *ROOT.glob('tools/*.S'), *manual]):
         h.update(str(path.relative_to(ROOT)).encode() + b'\0')
         h.update(path.read_bytes())
     return h.hexdigest()
@@ -1174,8 +1175,9 @@ def patch_bluealsa(raw):
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
-def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_clock=False):
+def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_clock=False, pwm_idle_clock=False):
     check(not rotator_lazy_clock or dev, '--rotator-lazy-clock requires --dev')
+    check(not pwm_idle_clock or dev, '--pwm-idle-clock requires --dev')
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
     check(re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9._-]+', repo), f'{repo}: not a GitHub owner/name')  # a C string
@@ -1453,6 +1455,14 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_cl
         p = swap_inode(p, MODULE_PATH.encode(), out/'soc_rotator.ko')
         rotator = dict(policy='lazy-first-use-v1', path=MODULE_PATH,
                        original_sha256=STOCK_SHA256, sha256=sha(module))
+    pwm = None
+    if pwm_idle_clock:
+        from pwm import patch_bundle
+        files, pwm = patch_bundle(cat)
+        for path, data in files.items():
+            src = out/pathlib.Path(path).name
+            src.write_bytes(data)
+            p = swap_inode(p, path.encode(), src)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
     # the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
     # (not the copies iPod pre-sizes for Settings), and q2video.
@@ -1561,6 +1571,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, rotator_lazy_cl
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
         version=version, variant=variant, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         **({'rotator_clock': rotator} if rotator else {}),
+        **({'pwm_clock': pwm} if pwm else {}),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
               ({'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]} if ipod else {}))
@@ -1580,8 +1591,10 @@ if __name__ == '__main__':
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
     ap.add_argument('--rotator-lazy-clock', action='store_true',
                     help='experimental: defer rotator clock until first conversion (requires --dev)')
+    ap.add_argument('--pwm-idle-clock', action='store_true',
+                    help='experimental: cooperative Linux/MCU PWM clock gating (requires --dev)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.rotator_lazy_clock)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.rotator_lazy_clock,a.pwm_idle_clock)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))
