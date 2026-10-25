@@ -3,6 +3,8 @@
 - **1.4.6**:
   - Battery: the crash watchdog checks every 10 s instead of 2 s, so it forks far less often; a crashed player still reboots within 10 s.
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
+  - iPod: on Now Playing's lyrics page the wheel scrolls the lyrics smoothly, following your finger a pixel at a time, instead of jumping a line per click. A turn still moves them as far as before, and Wheel Sensitivity still sets how far. When the song reaches the next line, the lyrics glide to it.
+  - iPod: lyrics you scroll, with the wheel or a finger, stay where you left them instead of jumping back to the playing line after 3 seconds, and the progress bar and times keep going meanwhile. Swipe to another page and back, or play another song, and they follow the song again.
   - Streaming: an app installed from **System settings → Apps** (Deezer, Soulseek, File Browser) shows its own icon again, instead of the shared square one, when it ships an `icon.png` (Legacy) or `icon-40.png` (iPod). In the Minimal theme the icon turns grey like Streaming's other icons; Classic keeps its colours.
 
 - **1.4.5**:

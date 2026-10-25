@@ -5496,13 +5496,16 @@ if variant=='ipod':
         elif end=='timeout': step(m,O['SCRUB_MS'],wait=True)
         else: assert step(m,O['KEY_RETURN'],gap=50)==11
         ended(m,[],end); passed()
-    # The lyrics page (slide value 1) with lyrics: the wheel scrolls scroll_lrc a row a tick, to the next
-    # or previous row's top (stock's rows are 20 px, 25 a wrapped line) within its content, ahead of scrub
-    # and the volume, with stock's timer (which re-pins the current line) stopped until SCRUB_MS after the
-    # last tick. Another page or no lyrics leaves the wheel on volume.
+    # The lyrics page (slide value 1) with lyrics. Each UI loop pass (ringnav_sleep) takes the wheel
+    # raw (wheel_raw: nothing ticks) and glides scroll_lrc by its travel, a pixel at a time: a tick's
+    # 28 units at 50% are a 20 px row, eased in over the passes, within the content padded to a row
+    # top. Stock's timer keeps the bar going, but its follow leaves lyrics the wheel moved where they
+    # are until the slide_view leaves the lyrics page or the track changes. Another page, no lyrics,
+    # another window, the screen off or a finger down gives the wheel back to its ticks and the volume.
     ROWS=(20,50,20,20,25)+(20,)*7  # tops 0 20 70 90 110 ...; 275 px of content, at most 97 down
-    def lyric_page(page=1,size=9,lines=len(ROWS)):
-        m=scrub_page(); m.lyric_size=size
+    sleep_hook=HOOKS['main_loop_sleep_default'][0]
+    def lyric_page(page=1,size=9,lines=len(ROWS),config=None):
+        m=scrub_page(); m.lyric_size=size; m.handlers[sleep_hook+12]='stock_sleep'; m.config.update(config or {})
         rows=[m.node('label') for _ in range(lines)]
         for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
         m.lrc=m.node('scroll_view','scroll_lrc',rows)
@@ -5511,28 +5514,88 @@ if variant=='ipod':
         m.nodes[m.win]['children'].append(m.slide)
         assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0; m.calls=[]
         return m
+    def y(m): return m.get(m.lrc+O['SCROLL_Y'])
+    def raw(m): return m.get(payload_syms['wheel_raw'])
+    def loop(m,travel=None,ms=8):  # a UI loop pass ms on, the wheel turned travel raw units since the last
+        if travel is not None: m.word(payload_syms['wheel_travel'],travel&0xffffffff)
+        n=len(m.calls); m.advance(ms,clear=False); m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False)
+        for name,seen in (('player_seek_time','seeks'),('playing_timer_start','starts')):
+            setattr(m,seen,getattr(m,seen,[])+[c[1] for c in m.calls[n:] if c[0]==name])
+        return y(m)
+    def settle(m,n=60): return [loop(m) for _ in range(n)]
+    def follow(m,to): m.call(address=payload_syms['ringnav_lyric_follow'],args=(m.lrc,0,to,10),gap=0,clear=False); return y(m)
     for kw in ({'page':0},{'size':0},{'lines':0}):
-        m=lyric_page(**kw); assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
+        m=lyric_page(**kw); loop(m); assert raw(m)==0 and m.get(payload_syms['wheel_travel'])==0
+        assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
+    # Clockwise (x falling) scrolls down: a tick's travel glides one row, never a jump, slowing in.
+    m=lyric_page(); assert loop(m)==0 and raw(m)==1; m.calls=[]
+    ys=[loop(m,-28)]+settle(m); steps=[b-a for a,b in zip([0]+ys,ys)]
+    assert ys[-1]==20 and 0<ys[0]<5 and all(0<=s<=4 for s in steps) and steps[-1]==0,ys
+    assert ('reset_poweroptions_timer',1,1,1) in [c[:4] for c in m.calls]  # the screen stays on
+    assert not did(m,'playing_timer_clear') and not did(m,'sleep_ms'); passed()  # nor does the loop idle
+    # A pixel's worth moves a pixel, fractions carried: three single units are 34/16 px.
+    for _ in range(3): loop(m,-1)
+    settle(m); assert y(m)==22; passed()
+    # A spin keeps gliding and stops at the padded end, a row top: 110 + 178, not 275 - 178 = 97.
+    for _ in range(60): loop(m,-12)
+    assert settle(m)[-1]==110 and m.get(m.lrc+O['VIEW_CONTENT_H'])==288; passed()
+    # Anticlockwise back up, to the top.
+    for _ in range(60): loop(m,12)
+    assert settle(m)[-1]==0; passed()
+    # Wheel Sensitivity sets the travel per row as per tick: 14 units at 100%.
+    m=lyric_page(config={'WHEELSENSITIVITY':'100'}); loop(m); loop(m,-14); assert settle(m)[-1]==20; passed()
+    # Held: stock's follow leaves them, also after SCRUB_MS, while the bar keeps going.
+    m=lyric_page(); loop(m); loop(m,-56); settle(m); assert y(m)==40
+    assert follow(m,0)==40; m.advance(O['SCRUB_MS']+1000); assert settle(m)[-1]==40 and follow(m,0)==40
+    assert not did(m,'playing_timer_clear') and not m.starts; passed()
+    # Swiped away, the hold goes and the follow jumps (stock's scroll_to) while the page is hidden;
+    # back on the page the follow glides.
+    m.nodes[m.slide]['value']=0; loop(m); assert raw(m)==0 and follow(m,70)==70
+    m.nodes[m.slide]['value']=1; loop(m); assert raw(m)==1 and follow(m,90)==70
+    ys=settle(m); assert ys[-1]==90 and ys[0]<90,ys; passed()
+    # Another track drops the hold: its follow glides to its line.
+    m=lyric_page(); loop(m); loop(m,-56); settle(m); assert follow(m,0)==40
+    m.word(O['MCL_POS'],2); follow(m,20); assert settle(m)[-1]==20; passed()
+    # Another window, the screen off, a finger down or no lyrics hand the wheel back to the ticks,
+    # dropping travel from before; on the page again the wheel is the lyrics' once more.
+    def other(m): m.top=m.node('window','home_page')
+    def back(m): m.top=m.win
+    def dark(m,on=0): m.byte(syms['g_backlight_status'],on)
+    def touch(m,on=1): m.pressed=on
+    def bare(m,on=0): m.lyric_size=9 if on else 0
+    for off,on in ((other,back),(dark,lambda m: dark(m,1)),(touch,lambda m: touch(m,0)),(bare,lambda m: bare(m,1))):
+        m=lyric_page(); loop(m); assert raw(m)==1
+        off(m); loop(m,-28); settle(m); assert raw(m)==0 and y(m)==0,off
+        m.word(payload_syms['wheel_travel'],-99&0xffffffff); on(m); loop(m); assert raw(m)==1 and settle(m)[-1]==0,off
+        loop(m,-28); assert settle(m)[-1]==20,off; passed()
+    # A finger that drags them holds them as the wheel does; the follow waits while it is down. A tap
+    # that moves nothing holds nothing.
+    m=lyric_page(); loop(m); m.pressed=1; loop(m); m.word(m.lrc+O['SCROLL_Y'],40)
+    assert follow(m,0)==40; m.pressed=0; loop(m); assert follow(m,0)==40 and settle(m)[-1]==40; passed()
+    m=lyric_page(); loop(m); m.pressed=1; loop(m); m.pressed=0; loop(m); follow(m,20); assert settle(m)[-1]==20; passed()
+    m=lyric_page(); loop(m); m.top=m.node('window','home_page'); m.pressed=1; loop(m); m.word(m.lrc+O['SCROLL_Y'],40)
+    m.pressed=0; loop(m); m.top=m.win; loop(m); follow(m,0); assert settle(m)[-1]==0; passed()  # another window's touch
+    # A tick (before a pass took the wheel raw) glides to the next or previous row's top, quick ticks
+    # adding up from the glide's target, ahead of scrub and the volume.
     m=lyric_page()
-    assert step(m)==11 and m.get(m.lrc+O['SCROLL_Y'])==20 and did(m,'playing_timer_clear')==[m.win]
+    assert step(m)==11 and y(m)==0 and settle(m)[-1]==20
     ys=[]
-    for _ in range(5): assert step(m,gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
-    assert ys==[70,90,110,110,110] and not did(m,'playing_timer_clear'),ys  # row tops, the last the end's
-    assert m.get(m.lrc+O['VIEW_CONTENT_H'])==288  # padded: 110 + 178, not 275 - 178 = 97 cutting a row
-    ys=[]
-    for _ in range(5): assert step(m,O['KEY_PREV'],gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
-    assert ys==[90,70,20,0,0] and not m.starts,ys
-    step(m,O['SCRUB_MS']-1,wait=True); assert not m.starts
-    step(m,1,wait=True); assert m.starts==[m.win] and not m.timers and m.seeks==[]; passed()
-    # A scrub begun on the lyrics page ends at the next tick, committing once, and the tick scrolls.
+    for _ in range(5): assert step(m,gap=200)==11; ys.append(settle(m)[-1])
+    assert ys==[70,90,110,110,110],ys
+    for _ in range(3): assert step(m,O['KEY_PREV'],gap=200)==11
+    assert settle(m)[-1]==20 and not did(m,'playing_timer_clear') and not m.starts and follow(m,0)==20; passed()
+    # A scrub begun on the lyrics page ends at the next tick, committing once, and the tick scrolls;
+    # the seek's settle wait brings stock's timer back.
     m=lyric_page(); centre(m); m.nodes[m.slide]['value']=0; step(m); m.nodes[m.slide]['value']=1
-    assert step(m)==11 and m.seeks==[105] and m.get(m.lrc+O['SCROLL_Y'])==20
-    step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win] and not m.timers; passed()  # lyrics drop the settle wait
-    # Touch ends it at once; the page's destruction keeps stock's timer off.
-    m=lyric_page(); step(m); step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
-    assert m.starts==[m.win] and not m.timers; passed()
-    m=lyric_page(); step(m); f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
-    assert not m.starts and not m.timers; passed()
+    assert step(m)==11 and m.seeks==[105] and settle(m)[-1]==20
+    step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win] and not m.timers; passed()
+    # The scrub's own touch end (np_cancel) keeps the hold; the page's destruction drops it and the
+    # wheel's raw travel.
+    m=lyric_page(); loop(m); loop(m,-28); settle(m)
+    step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
+    assert follow(m,0)==20 and not m.starts and not m.timers; passed()
+    f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
+    loop(m); assert raw(m)==0 and not m.starts and not m.timers; passed()
 
 # Lyrics from tags (navigation.c ringnav_lyric): stock's loader (mocked) runs first; only when it left no
 # lines for a local song does TagLib open the file, LYRICS then UNSYNCEDLYRICS, a line each into stock's

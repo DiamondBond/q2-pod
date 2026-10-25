@@ -477,11 +477,12 @@ The top row's text and icons, the bar's ends and the times keep clear of the cor
 **Lyrics.** Stock already highlights the current line and scrolls to keep it in view. The top row is
 always whole: near the end the lines stop with up to a row of space below the last, not with the top
 one cut. On the
-lyrics page, while the track has lyrics, the wheel scrolls them a row
-per tick, to the next row's top, instead of changing the volume or scrubbing; a scrub under way ends first, as any other end
-does. Both times, the bar and the highlight wait meanwhile, and 3 seconds (`SCRUB_MS`) after the
-last tick, or at a touch, the page follows the current line again; see
-[internals.md](internals.md#scrub-ipod).
+lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixel at a time as it
+turns and as far a turn as a row a tick, instead of changing the volume or scrubbing; a scrub under
+way ends first, as any other end does. On the page, the follow to a new line glides too. Lyrics
+moved by the wheel or a finger stay where they are, while the bar and the highlight go on, until the
+page swipes away from them or the track changes; back on the lyrics page they are on the current
+line again. See [internals.md](internals.md#scrub-ipod).
 
 ### Visualizer
 
