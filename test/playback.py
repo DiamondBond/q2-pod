@@ -849,6 +849,7 @@ m=PlaybackMachine(); m.handlers[ps['stock_display_trampoline']]='stock_display'
 view=m.node('scroll_view','scroll_view_display'); lst=m.node('list_view','list_view_display',[view])
 m.top=m.node('window','display_page',[lst]); m.stack=[m.top]
 for child,parent in ((view,lst),(lst,m.top),(m.top,m.wm)): m.word(child+O['W_PARENT'],parent)
+m.word(ps['display_sub'],3)  # Display's Controls page
 assert m.fn('ringnav_display',m.top,0)==0
 assert [n['text'] for n in m.nodes.values() if 'Wheel' in str(n.get('text'))]==['Wheel Sensitivity: 50%']  # the row, test/patch.py's
 checks+=1
