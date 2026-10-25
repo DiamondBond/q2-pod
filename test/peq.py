@@ -2703,7 +2703,8 @@ def online_check(tmp):
 
 
 class LyrTrack(C.Structure):
-    _fields_ = [('path', C.c_char * 0x200), ('title', C.c_char * 0x200), ('artist', C.c_char * 0x100)]
+    _fields_ = [('path', C.c_char * 0x200), ('title', C.c_char * 0x200), ('artist', C.c_char * 0x100),
+                ('shadow', C.c_char * (len('/mnt/mmc/.downpic/') + 1 + 0x200))]
 
 class LyrJob(C.Structure):
     _fields_ = [(n, C.c_int) for n in ('cancel', 'done', 'total', 'saved', 'had', 'none', 'failed', 'state')]
@@ -2724,15 +2725,23 @@ def album_check(tmp):
     assert lrc(b'/mnt/mmc/A/01 x.flac') == b'/mnt/mmc/A/01 x.lrc' and lrc(b'/mnt/mmc/A/b.mp3', b'.LRC') == b'/mnt/mmc/A/b.LRC'
     assert lrc(b'/mnt/mmc/A.b/song') == b'/mnt/mmc/A.b/song.lrc' and lrc(b'/mnt/mmc/.hidden') == b'/mnt/mmc/.hidden.lrc'
     assert lrc(b'a.tar.gz') == b'a.tar.lrc' and lrc(b'/x/song.flac', n=11) is None and lrc(b'/x/song.flac', n=12)
+    def name(file, n=256):  # stock's .downpic name (modifystringtolrcsuffix): the last '.' on, else as it is
+        out = C.create_string_buffer(n)
+        return out.value if lib.lrc_name(out, n, file) else None
+    assert name(b'01 x.flac') == b'01 x.lrc' and name(b'a.tar.gz') == b'a.tar.lrc' and name(b'.hidden') == b'.lrc'
+    assert name(b'song') == b'song' and name(b'song.mp3', 8) is None and name(b'song.mp3', 9) == b'song.lrc'
 
     FETCH = C.CFUNCTYPE(C.c_int, C.POINTER(LyrTrack), C.c_char_p, C.POINTER(C.c_int))
-    def run(name, songs, answers, cancel_at=None):
-        """songs: (file, extra files beside it, on the card); answers: title -> fetch results, in turn."""
+    def run(name, songs, answers, cancel_at=None, shadows=()):
+        """songs: (file, extra files beside it, on the card); answers: title -> fetch results, in turn;
+        shadows: files with a .downpic copy of their lyrics."""
         album = tmp/name
-        album.mkdir()
+        (album/'downpic').mkdir(parents=True)
         tracks = (LyrTrack * len(songs))()
         for t, (file, extra, present) in zip(tracks, songs):
             t.path, t.title, t.artist = str(album/file).encode(), file.split('.')[0].encode(), b'Artist'
+            t.shadow = str(album/'downpic'/(file.rsplit('.', 1)[0] + '.lrc')).encode()
+            if file in shadows: pathlib.Path(t.shadow.decode()).write_text('[00:00.00]Kugou')
             if present: (album/file).write_bytes(b'audio')
             for e in extra: (album/e).write_bytes(b'[00:01.00]mine\n')
         calls, left = [], {k: list(v) for k, v in answers.items()}
@@ -2758,6 +2767,12 @@ def album_check(tmp):
     assert [c[0] for c in calls] == ['01 Intro', '02 Song', '06 Tagged', '07 NoExt'] and calls[1] == ('02 Song', 'Artist', str(album/'02 Song.lrc.part'))
     assert (album/'02 Song.lrc').read_text() == '[00:00.10]02 Song\n' and (album/'07 NoExt.lrc').exists()
     assert (album/'04 Had.lrc').read_text() == '[00:01.00]mine\n' and not (album/'01 Intro.lrc').exists()
+    # A .downpic copy, which stock's loader would show first, goes once the song's own .lrc is saved;
+    # a song LRCLIB lacks keeps its copy.
+    state, job, calls, album = run('shadowed', [('0 T0.flac', (), True), ('1 T1.flac', (), True)],
+                                   {'0 T0': [LRC_SAVED], '1 T1': [LRC_NONE]}, shadows={'0 T0.flac', '1 T1.flac'})
+    assert state == LJ_DONE and (job.saved, job.none) == (1, 1) and (album/'0 T0.lrc').exists()
+    assert not (album/'downpic'/'0 T0.lrc').exists() and (album/'downpic'/'1 T1.lrc').exists()
     # Offline from the start: no retry before LRCLIB has answered; two tracks unanswered end it.
     three = [(f'{i} T{i}.flac', (), True) for i in range(3)]
     state, job, calls, _ = run('offline', three, {'0 T0': [LRC_OFFLINE], '1 T1': [LRC_OFFLINE]})

@@ -95,10 +95,27 @@ int lrc_path(char *out, unsigned n, const char *path, const char *ext) {
     return 1;
 }
 
+/* Where stock's Download Cover & Lyrics saved lyrics: .downpic/<name>, which its loader tries before
+ * the .lrc beside the song, so a copy there hides ours (docs/internals.md#lyrics-search). */
+#define DOWNPIC "/mnt/mmc/.downpic/"
+
+/* stock's name there for a song's file name (modifystringtolrcsuffix @0x511df8): its last '.' on
+ * made ".lrc", as it is without one; 0 if it does not fit in n. */
+int lrc_name(char *out, unsigned n, const char *name) {
+    const char *dot = strrchr(name, '.');
+    unsigned keep = dot ? (unsigned)(dot - name) : strlen(name), e = dot ? 4 : 0;
+    if (keep + e >= n) return 0;
+    memcpy(out, name, keep);
+    memcpy(out + keep, ".lrc", e);
+    out[keep + e] = 0;
+    return 1;
+}
+
 /* Download Album Lyrics (docs/internals.md#album-lyrics): the tracks it copies off stock's records,
  * and its job, which the row's timer reads while the worker runs. */
 typedef struct {
     char path[0x200], title[0x200], artist[0x100]; /* keyinfo's sizes */
+    char shadow[sizeof DOWNPIC + 0x200];          /* stock's .downpic copy of its lyrics, if any */
 } lyr_track;
 typedef struct {
     volatile int cancel, done; /* done: tracks finished */
@@ -116,7 +133,8 @@ enum { LJ_DONE, LJ_OFFLINE, LJ_CARD, LJ_CANCELLED };
 /* Each of n tracks' lyrics beside it, each on its own, as Download Cover & Lyrics would find them: a
  * file gone from the card since the library's scan is passed over; one with a .lrc (or .LRC) is left
  * as it is; one LRCLIB has none for, or never answered for, is counted and the next tried. fetch
- * writes to <name>.lrc.part, renamed once whole. A busy reply is asked again after a pause, up to
+ * writes to <name>.lrc.part, renamed once whole, and then the track's shadow, a .downpic copy that
+ * would hide it, goes (one LRCLIB lacks keeps its copy). A busy reply is asked again after a pause, up to
  * LJ_BUSY_TRIES in all; an unanswered request is retried once after LRCLIB has answered in this job
  * (before, a failure likely means offline). LJ_OFFLINE_RUN tracks unanswered (or still busy) in a
  * row end the job, as does a card that can't be written. job->cancel ends it between requests
@@ -147,6 +165,7 @@ int album_lyrics(lyr_job *job, const lyr_track *t, int n,
             usleep(LJ_RETRY_US);
         }
         if (got == LRC_SAVED && !rename(part, lrc)) {
+            if (*t[i].shadow) unlink(t[i].shadow);
             ++job->saved, answered = 1, unanswered = 0;
             continue;
         }
@@ -291,6 +310,54 @@ int ringnav_lyric_search(const char *keyword, const char *out) {
     return 1;
 }
 
+/* The queue's local song stock names name in .downpic (lrc_name of its REC_NAME), the playing one
+ * first; not a CUE track, which shares its file's .lrc. 0 if none. */
+static void *lrc_song(const char *name) {
+    char own[0x200];
+    void *q = P(mcl_pdeqplaylist, 0);
+    unsigned n = q && (unsigned)(I(MCL_TYPE, 0) - 0xf1) >= 2 ? deque_size(q) : 0, pos = (unsigned)I(MCL_POS, 0);
+    for (unsigned k = 0; k <= n; ++k) {
+        unsigned i = k ? k - 1 : pos; /* 0xf1/0xf2 above: an online queue */
+        void *r = i < n ? deque_at(q, i) : 0;
+        const char *path = r && I(r, REC_TYPE) == 8 ? P(r, REC_PATH) : 0, *file = r ? P(r, REC_NAME) : 0;
+        if (path && *path == '/' && file && !I(r, REC_CUE_START) && !I(r, REC_CUE_END) &&
+            lrc_name(own, sizeof own, file) && !strcmp(own, name))
+            return r;
+    }
+    return 0;
+}
+
+/* tmp copied to lrc through lrc.part, renamed once whole; 1 if it was. */
+static int lrc_copy(const char *tmp, const char *lrc) {
+    char part[0x200 + 16], buf[4096];
+    unsigned got;
+    snprintf(part, sizeof part, "%s.part", lrc);
+    void *in = fopen(tmp, "rb"), *out = in ? fopen(part, "wb") : 0;
+    int ok = out != 0;
+    while (ok && (got = fread(buf, 1, sizeof buf, in))) ok = fwrite(buf, 1, got, out) == got;
+    if (in) fclose(in);
+    if (out && fclose(out)) ok = 0; /* a failed write shows at close */
+    if (ok && !rename(part, lrc)) return 1;
+    unlink(part);
+    return 0;
+}
+
+/* Download Cover & Lyrics' accept (0x524f20) builds cp -rf /tmp/oslyric_N "/mnt/mmc/.downpic/<name>"
+ * for system() with snprintf, whose call (LYRIC_SAVE_CALL) jumps here: the lyrics (tmp) go beside the
+ * song instead, as <path less extension>.lrc, as Download Album Lyrics saves them, and a .downpic copy
+ * that would hide them goes; cmd becomes ":", which system() runs as nothing, and stock reloads the
+ * lyrics as before. Stock's command when the song isn't in the queue (or is a CUE track) or the card
+ * can't be written. */
+int ringnav_lyric_save(char *cmd, unsigned n, const char *fmt, const char *tmp, const char *name) {
+    char lrc[0x200 + 8], shadow[sizeof DOWNPIC + 0x200];
+    void *r = lrc_song(name);
+    if (!r || !lrc_path(lrc, sizeof lrc, P(r, REC_PATH), ".lrc") || !lrc_copy(tmp, lrc))
+        return snprintf(cmd, n, fmt, tmp, name);
+    snprintf(shadow, sizeof shadow, DOWNPIC "%s", name);
+    unlink(shadow);
+    return snprintf(cmd, n, ":");
+}
+
 /* Download Album Lyrics (docs/internals.md#album-lyrics): a row under stock's Download Cover &
  * Lyrics on Now Playing's ⋯ page saves LRCLIB's lyrics beside every song of the playing song's
  * album, found as that search finds them, on a thread of its own that outlives the page. */
@@ -395,6 +462,9 @@ static int al_click(void *ctx, void *event) {
         const char *path = I(s, REC_TYPE) == 8 ? P(s, REC_PATH) : 0;
         if (!path || *path != '/' || strlen(path) >= sizeof t->path || I(s, REC_CUE_START) || I(s, REC_CUE_END))
             continue;
+        char name[0x200];
+        const char *file = P(s, REC_NAME);
+        if (file && lrc_name(name, sizeof name, file)) snprintf(t[k].shadow, sizeof t->shadow, DOWNPIC "%s", name);
         al_put(t[k].path, sizeof t->path, path);
         al_put(t[k].title, sizeof t->title, P(s, REC_TITLE));
         al_put(t[k++].artist, sizeof t->artist, P(s, REC_ARTIST));

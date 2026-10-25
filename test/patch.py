@@ -9253,6 +9253,52 @@ for reply,code in ((b'[]',200),(json.dumps([{'syncedLyrics':None,'instrumental':
     assert 'kugou' not in [c[0] for c in m.calls] and [c[0] for c in m.calls].count('curl_easy_perform')==1
 assert m.search('','Coldplay',found)==1 and not m.written and 'curl_easy_perform' not in [c[0] for c in m.calls]; passed()  # no title: no request
 
+# Its accept (onlinematch.c ringnav_lyric_save, at LYRIC_SAVE_CALL): stock's snprintf of cp -rf /tmp/oslyric_N
+# "/mnt/mmc/.downpic/<name>" for system() becomes a copy beside the song, through .part, as Download Album Lyrics
+# saves, the .downpic copy stock's loader would show first goes, and system() gets ":". The song is the queue's
+# whose file name stock turns into name. Not in the queue, a CUE track's, or a card that can't be written: stock's.
+from build import LYRIC_SAVE_CALL
+class LyricSaveMachine(AlbumLyricsMachine):
+    def __init__(self,files):
+        super().__init__(); self.files=dict(files); self.open_files={}; self.unlinked=[]; self.fail_write=False
+        for n in ('fopen@GLIBC_2.2','fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0','unlink@GLIBC_2.0'):
+            self.handlers[syms[n]]='lv:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('lv:'): return super().hook(u,address,size,unused)
+        name=name[3:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='fopen':
+            path,mode=self.text(a),self.text(b)
+            if mode=='rb' and path in self.files or mode=='wb' and not self.fail_write:
+                ret=0x2000000+16*len(self.open_files); self.open_files[ret]=[path,mode,0,b'']
+        elif name=='fread':
+            f=self.open_files[d]; data=self.files[f[0]][f[2]:f[2]+b*c]; f[2]+=len(data); u.mem_write(a,data); ret=len(data)//b
+        elif name=='fwrite': self.open_files[d][3]+=bytes(u.mem_read(a,b*c)); ret=c
+        elif name=='fclose':
+            path,mode,_,data=self.open_files.pop(a)
+            if mode=='wb': self.files[path]=data
+        elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
+        elif name=='unlink': self.unlinked.append(self.text(a)); self.files.pop(self.text(a),None)
+        self.returns(ret,clobber=True)
+    def save(self,name):
+        cmd=self.alloc(0x400); fmt=0x772630  # stock's cp -rf %s "/mnt/mmc/.downpic/%s"
+        self.call(address=payload_syms['ringnav_lyric_save'],args=(cmd,0x400,fmt,self.string('/tmp/oslyric_7')),stack=(self.string(name),),gap=0)
+        return self.text(cmd)
+assert m.text(0x772630)=='cp -rf %s "/mnt/mmc/.downpic/%s"' and m.get(LYRIC_SAVE_CALL)==jal(payload_syms['ringnav_lyric_save'])
+LRC=b'\xef\xbb\xbf[00:12.00]Look at the stars\n'*700  # over one 4 KB read
+def lyric_save(**rec):
+    m=LyricSaveMachine({'/tmp/oslyric_7':LRC,'/mnt/mmc/.downpic/01 Yellow.lrc':b'[00:00.00]Kugou'}); r=m.playing()
+    for off,v in (('REC_NAME','01 Yellow.flac'),('REC_PATH','/mnt/mmc/Coldplay/01 Yellow.flac'))+tuple(rec.items()):
+        m.word(r+O[off],m.string(v) if isinstance(v,str) else v)
+    return m
+stock='cp -rf /tmp/oslyric_7 "/mnt/mmc/.downpic/01 Yellow.lrc"'
+m=lyric_save(); assert m.save('01 Yellow.lrc')==':' and m.files['/mnt/mmc/Coldplay/01 Yellow.lrc']==LRC
+assert m.unlinked==['/mnt/mmc/.downpic/01 Yellow.lrc'] and '/mnt/mmc/.downpic/01 Yellow.lrc' not in m.files
+assert not [p for p in m.files if p.endswith('.part')]; passed()
+m=lyric_save(); assert m.save('02 Other.lrc')==stock.replace('01 Yellow','02 Other') and not m.unlinked; passed()  # not in the queue
+m=lyric_save(REC_CUE_END=90); assert m.save('01 Yellow.lrc')==stock and '/mnt/mmc/Coldplay/01 Yellow.lrc' not in m.files; passed()
+m=lyric_save(); m.fail_write=True; assert m.save('01 Yellow.lrc')==stock and '/mnt/mmc/.downpic/01 Yellow.lrc' in m.files; passed()  # can't write the card
+
 # Spotify's browser (patch/spotify.c, docs/librespot.md's Q2SPOT/1): the row opens spotbrowse_page,
 # each level a request on the fork's --browse-socket, sent and read on a pthread.
 BROWSE='/tmp/q2-librespot.browse.sock'
