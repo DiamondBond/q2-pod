@@ -352,12 +352,13 @@ typedef struct {
     int scrub, scrub_to, scrub_moved, settle_played;
     int held_sec; /* a paused seek to scrub_to on scrub_track: the player's second then, +1; 0 none
                    */
-    /* The lyrics (lyric_poll): lyric_raw while their page holds the wheel's raw travel; lyric_held
-     * once the wheel or a drag moved them on lyric_track; lyric_touch while a finger is down,
-     * lyric_drag_y the offset it found; the glide's target lyric_to (1/16 px), its last step
-     * lyric_at, and lyric_glide while it moves. */
-    int lyric_raw, lyric_held, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
-    unsigned lyric_at, lyric_track;
+    /* The lyrics (lyric_poll), of the song lyric_song: lyric_raw while their page holds the wheel's
+     * raw travel; lyric_held once the wheel or a drag moved them; lyric_spun once the wheel moved
+     * them since it was let go; lyric_touch while a finger is on the screen, lyric_drag_y the
+     * offset it found; the glide's target lyric_to (1/16 px), its last step lyric_at, and
+     * lyric_glide while it moves. */
+    int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
+    unsigned lyric_at, lyric_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, home_full, battery, home_rockbox, classic, shortcut;
@@ -2911,8 +2912,6 @@ static void lyric_pad(void *lrc) {
 }
 
 #if IPOD
-static unsigned np_track(void);
-
 /* The lyrics page in front: Now Playing on top, lit, not sliding and untouched, on the lyrics. */
 static int lyrics_shown(void) {
     void *wm = window_manager();
@@ -2921,15 +2920,19 @@ static int lyrics_shown(void) {
            widget_get_prop_int(st.np_slide, "value", 0) == 1;
 }
 
-/* The lyrics glide to `to` (1/16 px) within their content; lyric_step moves them, every UI pass.
- * Stock's scroll animator stops, a drag's fling among them. */
-static void lyric_glide(void *lrc, int to) {
+/* Stock's scroll animator on the lyrics stops, a drag's fling among them (stock
+ * table_client_stop_animator_scroll's sequence, as stop_scroll). */
+static void lyric_still(void *lrc) {
     void *a = P(lrc, VIEW_ANIMATOR);
-    if (a) { /* stock table_client_stop_animator_scroll's sequence, as stop_scroll */
-        widget_animator_pause(a);
-        widget_animator_destroy(a);
-        P(lrc, VIEW_ANIMATOR) = (void *)0;
-    }
+    if (!a) return;
+    widget_animator_pause(a);
+    widget_animator_destroy(a);
+    P(lrc, VIEW_ANIMATOR) = (void *)0;
+}
+
+/* The lyrics glide to `to` (1/16 px) within their content; lyric_step moves them, every UI pass. */
+static void lyric_glide(void *lrc, int to) {
+    lyric_still(lrc);
     st.lyric_to = clamp_step(to, (I(lrc, VIEW_CONTENT_H) - I(lrc, W_H)) * 16, 0);
     if (!st.lyric_glide) st.lyric_at = (unsigned)time_now_ms();
     st.lyric_glide = 1;
@@ -2938,16 +2941,13 @@ static void lyric_glide(void *lrc, int to) {
 
 /* The Now Playing timer's follow (LYRIC_FOLLOW in tools/build.py): stock scrolls to the row three
  * lines above the current one, which past the end clamps to it. iPod: lyrics the wheel or a finger
- * moved stay (lyric_held) until the page leaves them or the track changes, and a finger down keeps
- * them too; on the page, the follow glides. */
+ * moved stay (lyric_held) until the page leaves them or another song starts, and a finger on the
+ * screen keeps them too; on the page, the follow glides. */
 int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     lyric_pad(lrc);
 #if IPOD
     if (lrc == st.np_lrc) {
-        if (window_manager_get_pointer_pressed(window_manager()) ||
-            (st.lyric_held && np_track() == st.lyric_track))
-            return 0;
-        st.lyric_held = 0;
+        if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return 0;
         if (lyrics_shown()) {
             lyric_glide(lrc, y * 16);
             return 0;
@@ -3305,12 +3305,11 @@ static int scrub_expire(const void *info) {
 
 /* The lyrics: stock's 250 ms timer scrolls scroll_lrc to the current line whenever it is elsewhere.
  * Once the wheel or a finger moves them they stay (ringnav_lyric_follow), while the timer keeps the
- * bar and the highlight going, until the slide_view leaves the lyrics page or the track changes;
+ * bar and the highlight going, until the slide_view leaves the lyrics page or another song starts;
  * back on the page they follow again. A scrub under way ends first. */
 static void lyric_hold(void) {
     scrub_end();
     st.lyric_held = 1;
-    st.lyric_track = np_track();
 }
 
 /* The glide's step, every UI pass: a dt / (dt + LYRIC_EASE_MS) share of the way left, at least a
@@ -3332,15 +3331,36 @@ static void lyric_step(void *lrc) {
     scroll_view_set_offset(lrc, I(lrc, SCROLL_X), y + (step ? step : to > y ? 1 : -1));
 }
 
+/* The wheel let go: the glide ends on the row top nearest its target, so no row is cut at the top.
+ * The end is one (lyric_pad). */
+static void lyric_snap(void *lrc) {
+    lyric_pad(lrc);
+    int at = st.lyric_glide ? st.lyric_to : I(lrc, SCROLL_Y) * 16, to = 0;
+    for (int i = 0, n = widget_count_children(lrc); i < n; ++i) {
+        int top = I(widget_get_child(lrc, i), W_Y) * 16;
+        if ((top > at ? top - at : at - top) < (to > at ? to - at : at - to)) to = top;
+    }
+    lyric_glide(lrc, to);
+}
+
 /* Every UI loop pass (ringnav_sleep). On the lyrics page in front, while the track has lyrics, the
  * wheel posts no ticks (wheel_raw) and its raw travel, 200 units a turn, glides them a pixel at a
  * time: a tick's worth of travel at the Wheel Sensitivity moves them LYRIC_ROW_PX, stock's row, as
  * far as a tick did. No key event comes, so the travel times the loop's idle and the screen's
- * timeout itself. A finger lifted from a drag that moved them holds them as the wheel does. Leaving
- * the page drops the hold; the next follow, off the page, jumps to the current line. */
+ * timeout itself. While a finger stays on the wheel they stay where it put them; let go, they glide
+ * to the nearest row top (lyric_snap). A finger lifted from a drag on the screen that moved them
+ * holds them as the wheel does. Leaving the page drops the hold; the next follow, off the page,
+ * jumps to the current line. Another song starts at the top, its hold gone. */
 #define LYRIC_ROW_PX 20
 static void lyric_poll(void) {
     void *lrc = st.np_lrc, *wm = window_manager();
+    unsigned song = lrc ? np_track() : st.lyric_song;
+    if (song != st.lyric_song) {
+        st.lyric_song = song;
+        st.lyric_held = st.lyric_spun = st.lyric_glide = st.lyric_to = 0;
+        lyric_still(lrc);
+        scroll_view_set_offset(lrc, I(lrc, SCROLL_X), 0);
+    }
     int page = lrc && st.np_slide && widget_get_prop_int(st.np_slide, "value", 0) == 1;
     int touch = page && window_manager_get_top_window(wm) == st.np_win &&
                 window_manager_get_pointer_pressed(wm);
@@ -3366,6 +3386,13 @@ static void lyric_poll(void) {
             from = st.lyric_glide || (st.lyric_to + 8) >> 4 == y ? st.lyric_to : y * 16;
         /* x rises anticlockwise: back up the lyrics */
         lyric_glide(lrc, from - travel * LYRIC_ROW_PX * 16 * wheel_pct() / (WHEEL_TICK_UNITS * 50));
+        st.lyric_spun = 1;
+    }
+    if (!page)
+        st.lyric_spun = 0;
+    else if (shown && st.lyric_spun && !wheel_held) {
+        st.lyric_spun = 0;
+        lyric_snap(lrc);
     }
     if (!shown)
         st.lyric_glide = 0;
@@ -3480,6 +3507,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_cover = widget_lookup(win, "img_cover", 1);
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
+    st.lyric_song = np_track(); /* lyric_poll's: no song change at the start */
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);

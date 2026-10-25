@@ -5500,8 +5500,10 @@ if variant=='ipod':
     # raw (wheel_raw: nothing ticks) and glides scroll_lrc by its travel, a pixel at a time: a tick's
     # 28 units at 50% are a 20 px row, eased in over the passes, within the content padded to a row
     # top. Stock's timer keeps the bar going, but its follow leaves lyrics the wheel moved where they
-    # are until the slide_view leaves the lyrics page or the track changes. Another page, no lyrics,
-    # another window, the screen off or a finger down gives the wheel back to its ticks and the volume.
+    # are until the slide_view leaves the lyrics page or another song starts, at the top. Let go, the
+    # wheel snaps them to the nearest row top; until then a finger stays on it (wheel_held). Another
+    # page, no lyrics, another window, the screen off or a finger on the screen gives the wheel back
+    # to its ticks and the volume.
     ROWS=(20,50,20,20,25)+(20,)*7  # tops 0 20 70 90 110 ...; 275 px of content, at most 97 down
     sleep_hook=HOOKS['main_loop_sleep_default'][0]
     def lyric_page(page=1,size=9,lines=len(ROWS),config=None):
@@ -5513,6 +5515,7 @@ if variant=='ipod':
         m.slide=m.node('slide_view','slide_view',[m.lrc],value=page)
         m.nodes[m.win]['children'].append(m.slide)
         assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0; m.calls=[]
+        m.word(payload_syms['wheel_held'],1)
         return m
     def y(m): return m.get(m.lrc+O['SCROLL_Y'])
     def raw(m): return m.get(payload_syms['wheel_raw'])
@@ -5553,9 +5556,23 @@ if variant=='ipod':
     m.nodes[m.slide]['value']=0; loop(m); assert raw(m)==0 and follow(m,70)==70
     m.nodes[m.slide]['value']=1; loop(m); assert raw(m)==1 and follow(m,90)==70
     ys=settle(m); assert ys[-1]==90 and ys[0]<90,ys; passed()
-    # Another track drops the hold: its follow glides to its line.
-    m=lyric_page(); loop(m); loop(m,-56); settle(m); assert follow(m,0)==40
-    m.word(O['MCL_POS'],2); follow(m,20); assert settle(m)[-1]==20; passed()
+    # Another song starts at the top, on the page or off it, the hold gone: its follow glides to its line.
+    for off in (0,1):
+        m=lyric_page(); loop(m); loop(m,-56); settle(m); assert follow(m,0)==40
+        if off: m.top=m.node('window','home_page')
+        m.word(O['MCL_POS'],2); assert loop(m)==0; m.top=m.win; loop(m)
+        follow(m,20); assert settle(m)[-1]==20; passed()
+    # The same song (its queue place and file) leaves them where they are.
+    m=lyric_page(); loop(m); loop(m,-56); settle(m); m.word(O['MCL_POS'],1); assert loop(m)==40 and follow(m,0)==40; passed()
+    # Let go, the wheel snaps them to the nearest row top, down or up, gliding; held, they stay.
+    m=lyric_page(); loop(m); loop(m,-36); assert settle(m,200)[-1]==26  # tops 0 20 70: 26 is nearer 20
+    m.word(payload_syms['wheel_held'],0); ys=settle(m); assert ys[-1]==20 and ys[0]>20,ys
+    m.word(payload_syms['wheel_held'],1); loop(m,-50); assert settle(m)[-1]==56  # nearer 70
+    m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==70 and follow(m,0)==70; passed()  # still held
+    # Let go during the glide, it snaps from the glide's target; a still finger let go moves nothing.
+    m=lyric_page(); loop(m); loop(m,-36); m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==20
+    m.word(payload_syms['wheel_held'],1); m.word(m.lrc+O['SCROLL_Y'],30); loop(m); m.word(payload_syms['wheel_held'],0)
+    assert settle(m)[-1]==30; passed()  # not the wheel's doing: no snap
     # Another window, the screen off, a finger down or no lyrics hand the wheel back to the ticks,
     # dropping travel from before; on the page again the wheel is the lyrics' once more.
     def other(m): m.top=m.node('window','home_page')

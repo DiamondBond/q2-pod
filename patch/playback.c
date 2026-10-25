@@ -138,6 +138,7 @@ static void wheel_post(char *info, int key) {
 #if IPOD
 volatile int wheel_raw __attribute__((section(".scratch")));
 volatile int wheel_travel __attribute__((section(".scratch")));
+volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the wheel */
 #endif
 
 /* struct ts_sample {int x, y; unsigned pressure; struct timeval tv;} */
@@ -147,11 +148,17 @@ void wheel_sample(int *s, int ret, char *info) {
         if (wh_anchor) s[0] = wh_anchor;
         wh_anchor = 0;
         if (wh_guard != DARK_OPEN) wh_guard = 0;
+#if IPOD
+        wheel_held = 0;
+#endif
         return;
     }
     if (!wh_anchor) {
         wh_anchor = wh_last = s[0];
         wh_acc = 0;
+#if IPOD
+        wheel_held = 1;
+#endif
         return;
     }
     int d = s[0] - wh_last, units = wheel_units ? wheel_units : WHEEL_TICK_UNITS * WHEEL_FINE;

@@ -739,6 +739,10 @@ if 'wheel_raw' in ps:  # iPod: while games.c's Vortex sets wheel_raw, nothing ti
     m=PlaybackMachine()
     assert wheel([raw(1),(195,1),(5,1),(5+2*U,1),(5+U,1),(5+U,0)],m)==([],[195]*5) and m.get(ps['wheel_travel'])==10+U
     assert wheel([raw(0),(10,1),(10+U,1)],m)[0]==[P] and m.get(ps['wheel_travel'])==10+U
+    # wheel_held: set from a finger's first sample to its lift, raw or not (the lyrics' snap).
+    for on in (0,1):
+        held=[]; h=lambda m: held.append(m.get(ps['wheel_held']))
+        wheel([raw(on),(10,0),h,(10,1),h,(10+U,1),h,(10+U,0),h],m); assert held==[0,1,1,0],(on,held)
     checks+=1
 # Wheel sensitivity (Q2POD WHEELSENSITIVITY, 50-200% in tens, 1.0.6's key and scale): the travel
 # per tick is 50/pct of U, in sixteenths of a unit, so 50% is exactly U (28), the wheel before the
