@@ -6899,6 +6899,15 @@ if variant=='ipod':
             got=rgba(config,name,[(0x158bcd,255),(0xff1448,128),(0xffffff,0)])
             assert all(c>>16 == (c>>8&255) == (c&255) for c,a in got), (name,got)
             assert [a for c,a in got]==[255,128,0]
+        # A card app's Streaming icon (addon.c, by its path on the card) greys as stream_spotify does,
+        # its white glyph white and alpha kept; Classic keeps it, and the app's other images stay.
+        for name in ('file:///mnt/mmc/.deezer/icon-40.png','file:///mnt/mmc/.deezer/icon.png'):
+            got=rgba(config,name,[(0xa238ff,255),(0xffffff,255),(0x2800ff,128)])
+            assert all(c>>16 == (c>>8&255) == (c&255) for c,a in got) and got[1]==(0xffffff,255),(name,got)
+            assert [a for c,a in got]==[255,255,128] and got[0]!=got[2]
+            assert rgba({**config,'THEME':'1'},name,[(0xa238ff,255)])==[(0xa238ff,255)]
+        for name in ('file:///mnt/mmc/.deezer/cover.png','file:///mnt/mmc/Music/icon.png','file:///mnt/mmc/.deezer/icon.png.jpg'):
+            assert rgba(config,name,[(0xa238ff,255)])==[(0xa238ff,255)],name
         for name in ('local_album','local_shuffle','list_tidal','small_stream','player_playlist'):
             assert rgba(config,name,px)==[(ink,255),(0xbcbcbc,255),(0xffffff,255),(ink,128),(0xffffff,0)],name
             grey=[(0x777777,255),(0xffffff,255),(0xbcbcbc,128),(0xffffff,0)]
@@ -9564,16 +9573,20 @@ class AppMachine(BrowseMachine):
     def gone(self):
         """Its row, then its binary gone from the card before the press."""
         self.button=self.add_on_row(); self.files.pop(self.bin)
-# Streaming: the card apps after Spotify, by name, each with the shared icon and no name (stock's row
+# Streaming: the card apps after Spotify, by name, each with its icon and no name (stock's row
 # click never sees it); a folder without its binary or its manifest, or an id that can't be one (it
 # goes into shell commands), is no app.
 m=AppMachine(); card_app(m,'filebrowser','name=File Browser\nqr=1\n'); card_app(m,'deezer','name=Deezer\n')
 card_app(m,'gone','name=Gone\n'); m.files.pop('/mnt/mmc/.gone/q2-gone'); card_app(m,'Bad_Id','name=Bad\n')
 m.tree['/mnt/mmc']+=[('.spotify',4),('Music',4)]; m.files['/mnt/mmc/.spotify/librespot']=bytearray()
+# Its own icon when it ships one: the edition's size (iPod's rows 40 px, Legacy's 52), else the other.
+for f in ('/mnt/mmc/.deezer/icon.png','/mnt/mmc/.deezer/icon-40.png','/mnt/mmc/.soulseek/icon.png'): m.files[f]=bytearray()
 rows=stream_rows(m)
 assert list(rows)==['Spotify','Deezer','File Browser','Soulseek','Tidal Downloads','Internet Radio','AirPlay','Configuration'],list(rows)
-for t in ('Deezer','File Browser','Soulseek'):
-    icon=m.nodes[rows[t]]['children'][0]; assert m.nodes[icon]['image']=='stream_app' and not m.nodes[rows[t]].get('name')
+icons={'Deezer':'file:///mnt/mmc/.deezer/'+('icon-40.png' if variant=='ipod' else 'icon.png'),
+       'Soulseek':'file:///mnt/mmc/.soulseek/icon.png','File Browser':'stream_app'}
+for t,want in icons.items():
+    icon=m.nodes[rows[t]]['children'][0]; assert m.nodes[icon]['image']==want and not m.nodes[rows[t]].get('name'),(t,m.nodes[icon]['image'])
 passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.

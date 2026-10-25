@@ -5,7 +5,10 @@
  *            hint) and qr (1: its row turns it on and shows its QR code once it answers);
  *   run      its launcher, which copies the app to /tmp and runs it there in a restart loop, so
  *            the card is never kept busy, leaving the loop's pid in /tmp/q2-<id>;
- *   q2-<id>  the app.
+ *   q2-<id>  the app;
+ *   icon.png, icon-40.png
+ *            its Streaming row's icon, 52 px (Legacy's rows) and 40 px (iPod's, SET_ICON), each
+ *            drawn 1:1; without them, the shared stream_app.
  * Streaming lists those on the card (navigation.c ringnav_stream). A row starts its app and opens
  * addon_page, a list the app draws over Q2SPOT/1 (docs/librespot.md) on /tmp/q2-<id>.browse.sock:
  * each row's kind says what a press does (a local row plays a song or folder from the card,
@@ -36,7 +39,7 @@
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again. */
 typedef struct {
-    char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48];
+    char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48], icon[56];
     int qr, present, launched, hold, relaunch;
     unsigned polled, launch_at;
 } app_t;
@@ -87,6 +90,15 @@ int addon_scan(void) {
         if (!a->tips[0]) tk_snprintf(a->tips, sizeof a->tips, "Search");
         a->qr = number(raw, "qr") == 1;
         a->present = !access(a->bin, 0);
+        /* the edition's size first, the other scaled to fit (navigation.c set_child), else
+         * stream_app */
+        static const char *const icons[2] = { IPOD ? "icon-40.png" : "icon.png",
+                                              IPOD ? "icon.png" : "icon-40.png" };
+        tk_snprintf(a->icon, sizeof a->icon, "stream_app");
+        for (int i = 1; i >= 0; --i) {
+            tk_snprintf(path, sizeof path, CARD "/%s/%s", e->d_name, icons[i]);
+            if (!access(path, 0)) tk_snprintf(a->icon, sizeof a->icon, "file://%s", path);
+        }
     }
     if (d) closedir(d);
     ap.shown = 0;
@@ -102,6 +114,20 @@ int addon_scan(void) {
 
 const char *addon_name(int k) { return k >= 0 && k < ap.shown ? ap.a[ap.order[k]].name : 0; }
 const char *addon_id(int k) { return k >= 0 && k < ap.shown ? ap.a[ap.order[k]].id : 0; }
+const char *addon_icon(int k) { return k >= 0 && k < ap.shown ? ap.a[ap.order[k]].icon : 0; }
+
+/* Whether an image's name is a card app's Streaming icon, file:///mnt/mmc/.<id>/icon*.png
+ * (navigation.c ringnav_image_add: Minimal greys it as Streaming's own icons). */
+int addon_is_icon(const char *name) {
+    static const char *const ends[] = { "/icon.png", "/icon-40.png" };
+    unsigned n = name ? strlen(name) : 0;
+    if (!n || !tk_str_start_with(name, "file://" CARD "/.")) return 0;
+    for (unsigned i = 0; i < 2; ++i) {
+        unsigned k = strlen(ends[i]);
+        if (n > k && !strcmp(name + n - k, ends[i])) return 1;
+    }
+    return 0;
+}
 
 /* A pid file whose loop is gone (crashed, or killed) is removed, so no wait spends AWAY_MS on it.
  * ponytail: trusts the pid in the file; a loop that died without removing it, its pid since reused,
