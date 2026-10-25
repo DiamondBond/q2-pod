@@ -247,7 +247,7 @@ static void scrub_commit(void) {
 }
 
 static void spot_refresh(void);
-static int browsing(void);
+static void *browsing(void);
 static void spot_restarting(void);
 
 /* SPOT_LOG's length, 0 without one. */
@@ -336,10 +336,12 @@ void spot_poll(void) {
     } else if (mclGetPlayStatus() == 2)
         sp.local = 1; /* local music plays: the keys are its again */
     sp.active = (playing || sp.paused) && !sp.local;
-    if (playing || downloading || browsing())
+    if (playing || downloading || (browsing() && g_backlight_status))
         sp.played |= playing, sp.idle_at = now;
-    else if (now - sp.idle_at >= (sp.played ? SPOT_IDLE_MS : SPOT_CAST_MS))
+    else if (now - sp.idle_at >= (sp.played ? SPOT_IDLE_MS : SPOT_CAST_MS)) {
+        if (browsing()) window_close(browsing()); /* left open dark: shut, as Back would */
         spot_stop();
+    }
     if (ui.scrub && now - ui.scrub_at >= SCRUB_MS) scrub_commit();
 }
 
@@ -625,7 +627,7 @@ static struct {
     level_t *lv; /* SPOT_DEPTH of them, calloc'd */
 } br __attribute__((section(".scratch")));
 
-static int browsing(void) { return br.page != 0; }
+static void *browsing(void) { return br.page; }
 /* librespot killed: no socket for a while is it starting again, as after a sign-out. */
 static void spot_restarting(void) { br.until = time_now_ms() + SPOT_SIGNOUT_MS; }
 

@@ -732,7 +732,7 @@ void books_paint(void *w, void *canvas) {
 #define VIDEO_BIN "/usr/bin/q2video"
 #define VIDEO_SOCK "/tmp/q2video.sock" /* video.c Q2VIDEO_SOCK */
 #define VIDEO_PLACE "/tmp/q2video.place" /* video.c Q2VIDEO_PLACE: the second to start at, then left */
-#define VIDEO_PAUSE_QUIT_MS 300000 /* a pause this long without a key quits, as Return, so the device can sleep */
+#define VIDEO_PAUSE_QUIT_MS 30000 /* paused this long, no key: quit as Return, so it sleeps */
 static struct {
     int paused, volume, gain, pid, sock, seek; /* seek: the wheel seeks, since seek_at (time_now_ms) */
     unsigned polled, control_at, seek_at, key, at; /* key: the video's in BOOK_MARKS, at its second there */

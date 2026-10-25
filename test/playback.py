@@ -479,7 +479,7 @@ m.advance_song(0); m.fn('playback_poll')
 assert m.write_opens==writes+3
 checks+=1
 
-# Failed writes preserve the prior snapshot and retry even if playback has since paused.
+# Failed writes preserve the prior snapshot and retry, every 30 s, even if playback has since paused.
 # Repeated UI passes do not hammer allocation/storage while the checkpoint is pending.
 for failure in ('alloc','open','write','close','rename'):
     m=PlaybackMachine(); m.options(4,5,0)
@@ -487,7 +487,7 @@ for failure in ('alloc','open','write','close','rename'):
     m.fail=failure; m.fn('playback_poll')
     attempts=(m.allocations,m.write_opens)
     assert m.files['/mnt/data/ringnav-queue']==previous
-    for delta in (1,100,1000,3000,898):
+    for delta in (1,100,1000,3000,898,25000):
         m.now+=delta; m.fn('playback_poll')
         assert (m.allocations,m.write_opens)==attempts
     m.fail=''; m.now+=1; m.fn('playback_poll')

@@ -312,6 +312,7 @@ static inline int arc_out(int r, int y) {
  * hold, or after the headset refused it (bt_volume_poll); 400 ms otherwise. A headset's own volume
  * keys show on the Q2 that late. */
 #define BT_VOLUME_SLOW_MS 2000
+#define BT_VOLUME_LIMIT_MS 1000
 /* Screen on, once IDLE_MS pass without input or a window animation, each turn idles IDLE_SLEEP_MS
  * (about 30 passes a second; the first input after waits at most that). */
 #define IDLE_MS 2000

@@ -1225,10 +1225,10 @@ void playback_poll(void) {
     if (!s.active) return;
     /* playback_save writes only what changed, at most every 5 s. A track that just plays on
      * writes its elapsed second every 30 s instead (a synced flash write each); a new track, a
-     * pause, a seek or a failed write go within 5 s, and power-off saves exactly
-     * (ringnav_savequeue). */
+     * pause or a seek go within 5 s, a failed write retries every 30 s, and power-off saves
+     * exactly (ringnav_savequeue). */
     if (!(s.dirty && !s.save_failed)) {
-        if (now - s.stamp < 5000 || now - s.poll_stamp < 5000) return;
+        if (now - s.stamp < (s.save_failed ? 30000u : 5000u) || now - s.poll_stamp < 5000) return;
         s.poll_stamp = now;
         int sec = 0, total = 0;
         mclGetPlayTime(&sec, &total);

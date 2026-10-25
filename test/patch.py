@@ -3821,7 +3821,7 @@ for way in (0,2):
     assert b.volume(20,30)==[(20,30)] and not b.writes(); passed()
 b=BtVolumeMachine(); b.absolute=-1; b.poll()
 assert not b.writes()
-b.absolute=10; b.poll(399); assert not b.writes()
+b.absolute=10; b.poll(O['BT_VOLUME_SLOW_MS']-1); assert not b.writes()  # no absolute volume yet: the slow pace
 b.poll(1); assert b.writes()==[25]
 b.absolute=5; b.poll(); assert not b.writes()  # exact rounded remote value
 b.byte(syms['bt_linkstatus'],0); b.poll(); assert not b.writes()
@@ -3835,9 +3835,14 @@ b.poll(O['BT_VOLUME_SLOW_MS']-400); assert b.writes()==[25]; passed()
 b=BtVolumeMachine(); b.poll(); b.calls=[]; b.byte(syms['g_backlight_status'],0); b.absolute=50
 b.poll(); assert not any(c[0]=='btctl_transport_get_volume' for c in b.calls)
 b.poll(O['BT_VOLUME_SLOW_MS']-400); assert any(c[0]=='btctl_transport_get_volume' for c in b.calls); passed()
-# Dark with a volume limit, the headset's own keys are still held to it at the lit pace.
+# Dark with a volume limit, the headset's own keys are still held to it, every BT_VOLUME_LIMIT_MS.
 b=BtVolumeMachine(); b.byte(syms['g_maxvolume'],60); b.poll(); b.byte(syms['g_backlight_status'],0); b.absolute=127
-b.poll(); assert b.writes()==[76] and b.u.mem_read(syms['g_volume'],1)[0]==60; passed()
+b.poll(); assert not b.writes()
+b.poll(O['BT_VOLUME_LIMIT_MS']-400); assert b.writes()==[76] and b.u.mem_read(syms['g_volume'],1)[0]==60; passed()
+# A headset that can't report absolute volume is asked again at the slow pace, lit too, not every 400 ms.
+b=BtVolumeMachine(); b.absolute=-1; asks=[]
+for _ in range(2*O['BT_VOLUME_SLOW_MS']//400): b.poll(); asks.append(sum(c[0]=='stock_btvol' for c in b.calls))
+assert asks==[1,0,0,0,0]*2; passed()
 # Native device_set_volume calls LocalVol and BtVol for the DAC/Bluetooth, USB's own
 # setter for USB. g_output_way=0 avoids stock's fixed line-out branch; notify is covered too.
 for way,soft in ((0,0),(1,0),(2,0),(2,1)):
@@ -9715,6 +9720,11 @@ m.state('playing'); m.poll(); m.state('paused'); m.poll(60000); assert len(m.sys
 m.destroy(m.page); m.poll(29500); assert len(m.systems)==1; m.poll(500); assert 'killall -9 librespot aplay' in m.systems[-1]
 m.serve=None; m.open(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.spotify/run'; m.worker(); assert m.labels()==['Loading…']
 m.advance(500); m.answer(*ME); assert m.labels()==MENU; passed()
+# Left open with the screen off, the browser holds nothing: SPOT_IDLE_MS on, it shuts and librespot stops.
+m.state('playing'); m.poll(); m.state('paused'); m.poll(); m.byte(syms['g_backlight_status'],0); kills=len(m.systems)
+m.poll(29500); assert len(m.systems)==kills
+names=m.poll(500); assert 'window_close' in names and 'killall -9 librespot aplay' in m.systems[-1]
+m.byte(syms['g_backlight_status'],1); m.destroy(m.page); passed()
 
 # Downloads outlive the browser without taking the audio output or stopping local playback.
 m=BrowseMachine(); m.open(); m.answer(*ME); m.state('playing'); m.poll()

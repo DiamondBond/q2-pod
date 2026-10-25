@@ -8360,7 +8360,7 @@ void headset_volume_reset(void) { btvol.ready = 0; }
 
 static int bt_sync_volume(int left, int right) {
     unsigned cur = (unsigned)btctl_transport_get_volume();
-    if (cur > 127) return 0;
+    if (cur > 127) return btvol.failed = 1, 0; /* no absolute volume (yet): the slow pace */
     int v = left > right ? left : right;
     v = v < 0 ? 0 : v > 100 ? 100 : v;
     /* 128 headset steps onto 101: one that already reads as v stays, so the headset's own steps
@@ -8390,13 +8390,18 @@ int ringnav_btvol(int left, int right) {
     return stock_btvol_trampoline(left, right);
 }
 
-/* Every 400 ms lit, or while a volume limit has to be held on the headset's own keys; else every
- * BT_VOLUME_SLOW_MS dark, or while the headset refuses absolute volume, so a long dark session
- * doesn't wake libbtctl 2.5 times a second for a volume nobody sees. */
+/* Every 400 ms lit; dark, every BT_VOLUME_LIMIT_MS while a volume limit has to be held on the
+ * headset's own keys, else BT_VOLUME_SLOW_MS, so a long dark session doesn't wake libbtctl 2.5
+ * times a second for a volume nobody sees. A headset that refuses or can't report absolute volume
+ * gets the slow pace lit too. ponytail: dark, the headset's keys can pass the limit for up to
+ * BT_VOLUME_LIMIT_MS before it is pulled back. */
 static void bt_volume_poll(void) {
     unsigned now = time_now_ms();
-    int fast = (g_backlight_status || (btvol.ready && g_maxvolume < 100)) && !btvol.failed;
-    if (now - btvol.checked < (fast ? 400u : BT_VOLUME_SLOW_MS)) return;
+    unsigned gap = btvol.failed                       ? BT_VOLUME_SLOW_MS
+                   : g_backlight_status               ? 400u
+                   : btvol.ready && g_maxvolume < 100 ? BT_VOLUME_LIMIT_MS
+                                                      : BT_VOLUME_SLOW_MS;
+    if (now - btvol.checked < gap) return;
     btvol.checked = now;
     if (!bt_audio_ready()) {
         btvol.ready = btvol.failed = 0;
