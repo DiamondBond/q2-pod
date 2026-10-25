@@ -9717,6 +9717,36 @@ m.open_pages={'usbmode_page'}; m.poll(); assert m.systems==['kill $(cat /tmp/q2-
 m.open_pages=set(); m.poll(); assert m.systems[-1]=='/bin/sh /mnt/mmc/.soulseek/run'; passed()
 # Stop Streaming Services stops it too.
 m.systems=[]; run(m,'addon_stop'); assert m.systems==['kill $(cat /tmp/q2-soulseek) 2>/dev/null || rm -f /tmp/q2-soulseek']; passed()
+# Requests no longer answered while the app may still run (its socket gone, or the app frozen): the
+# error page offers Stop Soulseek beside Retry. It ends the app through its loop, which a frozen app
+# can't refuse as it could its own stop, toasts and leaves the page; nothing starts it again.
+SKILL='kill $(cat /tmp/q2-soulseek) 2>/dev/null || rm -f /tmp/q2-soulseek'
+def slsk_gone():
+    """Soulseek's menu, then its loop still running (its pid file) but its socket gone."""
+    m=SlskMachine(); m.open(); m.answer('ok','refresh','',SMENU); m.files[SPID]=bytearray(b'123')
+    m.serve=None; m.advance(10000); m.worker(); return m
+m=slsk_gone(); assert m.labels()==["Soulseek isn't running",'Retry','Stop Soulseek'],m.labels()
+m.systems=[]; m.row(1)
+assert m.systems==[SKILL] and m.toasts[-1][3]=='Soulseek stopped' and 'navigator_back' in [c[0] for c in m.calls],(m.systems,m.toasts[-1:])
+m.close(); m.files.pop(SPID); m.poll(); m.poll(); assert m.systems==[SKILL]; passed()
+# Retry there restarts it: its loop asked to end, the page waiting as for a start, and the app started
+# again once the loop's pid file is gone; then its rows.
+m=slsk_gone(); m.systems=[]; m.row(0); m.worker()
+assert m.systems==[SKILL] and m.labels()==['Starting Soulseek…'],(m.systems,m.labels())
+m.poll(); assert m.systems==[SKILL]  # the old loop still there
+m.files.pop(SPID); m.poll(); assert m.systems==[SKILL,'/bin/sh /mnt/mmc/.soulseek/run'],m.systems
+m.advance(500); m.answer('ok','refresh','',SMENU); assert m.labels()==SLABELS,m.labels(); passed()
+# A level loading for 3 s (a frozen app holding the request, which gives up at 15 s) shows Stop
+# Soulseek under Loading….
+m=SlskMachine(); m.open(); m.answer('ok','refresh','',SMENU); m.files[SPID]=bytearray(b'123'); m.pick(2)
+assert m.labels()==['Loading…']; m.advance(2900); assert m.labels()==['Loading…']
+m.advance(400); assert m.labels()==['Loading…','Stop Soulseek'],m.labels()  # the page's next 250 ms tick
+m.systems=[]; m.row(0); assert m.systems==[SKILL] and m.toasts[-1][3]=='Soulseek stopped' and 'navigator_back' in [c[0] for c in m.calls]
+m.close(); passed()
+# An app that isn't running (it stopped by itself) has nothing to stop: Retry alone, which starts it.
+m=SlskMachine(); m.open(); m.answer('ok','refresh','',SMENU); m.serve=None; m.advance(10000); m.poll(); m.worker()
+assert m.labels()==["Soulseek isn't running",'Retry'],m.labels()
+m.systems=[]; m.row(0); assert m.systems==['/bin/sh /mnt/mmc/.soulseek/run'],m.systems; m.close(); passed()
 
 # File Browser: q2-filebrowser from the card's .filebrowser folder, the same page on its own socket.
 # Its manifest's qr=1: turned on by its row, its QR code page opens once it answers, the menu behind

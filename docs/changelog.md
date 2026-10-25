@@ -3,6 +3,7 @@
 - **1.4.6**:
   - Battery: the crash watchdog checks every 10 s instead of 2 s, so it forks far less often; a crashed player still reboots within 10 s.
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
+  - Streaming: an app's page can always stop it. When Deezer, Soulseek or File Browser doesn't answer, its page offers **Stop Soulseek** (or Deezer, File Browser) beside **Retry**, as does a page still loading after 3 s, and it ends the app even when it's frozen. **Retry** on "Soulseek isn't running" while the app still runs, its link to the Q2 lost, restarts it instead of asking again in vain.
   - Streaming: an app installed from **System settings → Apps** (Deezer, Soulseek, File Browser) shows its own icon again, instead of the shared square one, when it ships an `icon.png` (Legacy) or `icon-40.png` (iPod). In the Minimal theme the icon turns grey like Streaming's other icons; Classic keeps its colours.
 
 - **1.4.5**:

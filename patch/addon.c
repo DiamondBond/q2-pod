@@ -31,17 +31,20 @@
 #define REPLY_MAX (64 << 10) /* Q2SPOT/1's limits */
 #define REQ_MAX (8 << 10)
 #define AWAY_MS 3000 /* USB storage waits at most this long for an app to let the card go */
+#define SLOW_MS 3000 /* a page loading or starting this long offers to stop the app */
+#define RESTART_MS 20000 /* Retry's restart starts the app by then, its old loop gone or not */
 #define APP_ID 16  /* an id's bytes, its NUL included */
 #define QR_PX 186  /* the code's white plate: 5 px modules up to a 33-module code */
 #define QR_COL 214 /* the text beside it */
 #define CARD "/mnt/mmc"
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
- * last scan; relaunch: stopped for USB storage, to start again. */
+ * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
+ * socket gone), to start again once its loop is gone. */
 typedef struct {
     char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48], icon[56];
-    int qr, present, launched, hold, relaunch;
-    unsigned polled, launch_at;
+    int qr, present, launched, hold, relaunch, restart;
+    unsigned polled, launch_at, restart_at;
 } app_t;
 
 static struct {
@@ -259,8 +262,12 @@ static void stream_poll(app_t *a) {
  * one stopped for USB storage starts again once the card is back. */
 static void poll_one(app_t *a) {
     unsigned now = time_now_ms();
-    if ((!a->launched && !a->relaunch) || now - a->polled < ADDON_POLL_MS) return;
+    if ((!a->launched && !a->relaunch && !a->restart) || now - a->polled < ADDON_POLL_MS) return;
     a->polled = now;
+    if (a->restart) { /* its loop gone (the launcher kills a frozen app 15 s after its TERM) */
+        if (access(a->pid, 0) || now - a->restart_at > RESTART_MS) a->restart = 0, launch(a);
+        return;
+    }
     if (a->relaunch) {
         if (!navigator_window_is_exist("usbmode_page") && !access(a->bin, 0))
             a->relaunch = 0, launch(a);
@@ -278,6 +285,15 @@ void addon_poll(void) {
     for (int i = 0; i < ap.n; ++i) poll_one(&ap.a[i]);
 }
 
+/* An app asked to end through its loop, not its socket, so a frozen one stops too; restart: started
+ * again once its loop is gone (poll_one). */
+static void app_stop(app_t *a, int restart) {
+    char cmd[96];
+    stop_cmd(a->pid, cmd, sizeof cmd), system(cmd);
+    a->launched = a->hold = a->relaunch = 0;
+    a->restart = restart, a->restart_at = time_now_ms();
+}
+
 /* Streaming's Stop Streaming Services, and Home's Rockbox row: each asked to end (its downloads
  * or queue saved). */
 void addon_stop(void) {
@@ -285,7 +301,7 @@ void addon_stop(void) {
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
         if (a->launched || !access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd);
-        a->launched = a->hold = a->relaunch = 0;
+        a->launched = a->hold = a->relaunch = a->restart = 0;
     }
 }
 
@@ -298,9 +314,9 @@ void addon_card_away(void) {
     int left = 0;
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
-        int running = a->launched || !access(a->pid, 0);
+        int running = a->launched || a->restart || !access(a->pid, 0);
         if (!access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd), left = 1;
-        a->launched = a->hold = 0;
+        a->launched = a->hold = a->restart = 0;
         a->relaunch = running;
     }
     for (unsigned start = time_now_ms(); left && time_now_ms() - start < AWAY_MS;) {
@@ -315,7 +331,8 @@ void addon_card_away(void) {
  * page's worker, asked to end and waited for, so its files are closed before they move. */
 void addon_forget(const char *dir) {
     for (int i = 0; dir && dir[0] == '.' && i < ap.n; ++i)
-        if (!strcmp(ap.a[i].id, dir + 1)) ap.a[i].launched = ap.a[i].hold = ap.a[i].relaunch = 0;
+        if (!strcmp(ap.a[i].id, dir + 1))
+            ap.a[i].launched = ap.a[i].hold = ap.a[i].relaunch = ap.a[i].restart = 0;
 }
 void addon_quit(const char *dir) { /* addon_card_away's wait, libc's clock and sleep, one app */
     char pid[32], cmd[96];
@@ -426,8 +443,12 @@ static int req_done(void) {
 enum { K_LOAD, K_READY, K_ERROR, K_WAIT }; /* K_WAIT: no socket yet, the app starting */
 enum { G_ROW, G_SHOW, G_SEARCH };
 
+/* A level's page that can't show the app's rows (an error, or a load or start taking SLOW_MS) has a
+ * Stop row whenever the app may be running, so a frozen one can always be ended. */
 typedef struct {
     int state, n, sel, live, retry;
+    int nosock, slow; /* nosock: the error is no socket; slow: the wait's Stop row shown */
+    unsigned since;   /* when it began loading or waiting, 0 once done */
     unsigned base;     /* args' bytes before a More…'s cursor: the list's own */
     unsigned id, hash; /* id: the fetch whose reply this level takes; hash: its rows' bytes */
     char *buf;         /* the reply (the top level's), or 0 */
@@ -480,6 +501,17 @@ static int opens(lv_t *l, int i) {
            (!strcmp(kind, "local") && *uri && uri[strlen(uri) - 1] == '/');
 }
 
+/* Whether the app may be running, so a Stop row can end it. */
+static int stoppable(void) {
+    return app()->launched || app()->restart || !access(app()->pid, 0);
+}
+
+static void stop_row(int i) {
+    char t[48];
+    tk_snprintf(t, sizeof t, "Stop %s", app()->name);
+    page_row_detail(pg.view, i, t, 0, clicked);
+}
+
 /* The top level: its rows, or what it waits for. */
 static void show(void) {
     lv_t *l = top();
@@ -489,14 +521,17 @@ static void show(void) {
     if (l->state == K_LOAD || l->state == K_WAIT) {
         char t[48];
         tk_snprintf(t, sizeof t, "Starting %s…", app()->name);
-        page_list(pg.page, pg.page, 0, l->state == K_WAIT ? t : "Loading…", 0, 48);
-        return;
-    }
-    if (l->state == K_ERROR) {
-        pg.view = page_list(pg.page, pg.page, 0, l->note, n = 1, 48);
+        if (!l->since) l->since = time_now_ms() | 1;
+        l->slow = (int)(time_now_ms() - l->since) >= SLOW_MS && stoppable(); /* since: now + 1 */
+        void *v =
+            page_list(pg.page, pg.page, 0, l->state == K_WAIT ? t : "Loading…", n = l->slow, 48);
+        if (n) pg.view = v, stop_row(0);
+    } else if (l->state == K_ERROR) {
+        pg.view = page_list(pg.page, pg.page, 0, l->note, n = 1 + stoppable(), 48);
         page_row_detail(pg.view, 0,
                         l->retry ? "Retry" : "Install it again in System settings → Apps", 0,
                         clicked);
+        if (n > 1) stop_row(1);
     } else {
         int more = l->f[3][0] != 0;
         pg.view = page_list(pg.page, pg.page, 0, l->title, n = l->n + more, 64);
@@ -507,8 +542,10 @@ static void show(void) {
     if (n) ringnav_select(pg.view, l->sel < n ? l->sel : n - 1, n);
 }
 
+/* The selected row kept, from a page showing the level's own rows (not an error or a wait's). */
 static void keep_sel(void) {
-    if (pg.view) top()->sel = widget_get_prop_int(pg.view, "_ringnav_index", 0);
+    if (pg.view && top()->state == K_READY)
+        top()->sel = widget_get_prop_int(pg.view, "_ringnav_index", 0);
 }
 
 /* A level over the top one, which lets its reply go (Back asks for it again); base: args' bytes that
@@ -573,16 +610,20 @@ static void got(void) {
         } else
             keep_sel(), l->state = K_LOAD, show(); /* the level as the action left it */
     } else if (l->id != req.id) {
-    } else if (req.fail == REQ_NOSOCK && now - app()->launch_at < ADDON_START_MS) {
+    } else if (req.fail == REQ_NOSOCK &&
+               (app()->restart || now - app()->launch_at < ADDON_START_MS)) {
         if (l->state != K_WAIT && l->state != K_READY) l->state = K_WAIT, show();
         pg.again = now + 500;
     } else if (!ok) {
         l->state = K_ERROR;
         l->retry = 1;
+        l->nosock = req.fail == REQ_NOSOCK;
+        l->since = l->slow = 0;
         tk_snprintf(l->note, sizeof l->note, "%s",
                     req.fail != REQ_NOSOCK && n >= 0 && f[2][0] ? f[2] : why);
         show();
     } else {
+        l->since = l->slow = 0;
         l->live = !strcmp(f[2], "refresh");
         pg.again = now + ADDON_LIVE_MS;
         if (l->state != K_READY || hash != l->hash) {
@@ -638,9 +679,18 @@ static int go(const void *unused) {
         show();
     else if (pg.next == G_SEARCH) {
         if (put(a, sizeof a, pg.term)) push("search", a, strlen(a), pg.term);
+    } else if (l->state == K_ERROR ? i == 1 : l->state != K_READY && l->slow) { /* Stop <name> */
+        char t[48];
+        tk_snprintf(t, sizeof t, "%s stopped", app()->name);
+        app_stop(app(), 0);
+        toast(t);
+        navigator_back();
     } else if (l->state == K_ERROR) {
         if (l->retry) {
-            if (!app()->launched || access(app()->pid, 0)) launch(app());
+            if (l->nosock && !access(app()->pid, 0)) /* running, its socket gone: started again */
+                app_stop(app(), 1);
+            else if (!app()->launched || access(app()->pid, 0))
+                launch(app());
             l->state = K_LOAD, show();
         }
     } else if (l->state != K_READY) {
@@ -680,6 +730,9 @@ static int tick(const void *unused) {
     unsigned now = time_now_ms();
     if (req_done())
         got();
+    else if ((l->state == K_LOAD || l->state == K_WAIT) && !l->slow && l->since &&
+             (int)(now - l->since) >= SLOW_MS && stoppable())
+        show();
     else if (!req.running && (int)(now - pg.again) >= 0 && !pg.edit &&
              (l->state == K_WAIT || (l->state == K_READY && l->live && g_backlight_status &&
                                      window_manager_get_top_window(window_manager()) == pg.page)))
