@@ -1002,6 +1002,9 @@ FUNCTIONS = {
  'online_getkeyword_info': ('void', 'char *'),  # stock's lyric keywords (0x600 bytes), copied under its lock
  # the cover match's candidate URLs (onlinematching_page shows each), under the same lock
  'online_addcoverlist': ('void', 'const char *'), 'online_getsize_coverlist': ('int', 'void'),
+ # Tidal's list replies (tidal.c tidal_pages): /tmp/tidal_<thread> parsed into stTidalTracks
+ 'parseTidalPlaylistDetailJson': ('int', 'const char *'), 'parseTidalAlbumDetailJson': ('int', 'const char *'),
+ 'parseTidalColTracksJson': ('int', 'const char *'),
  'mclSetSeek': ('int', 'int'),  # the player's seek in file seconds; it plays on from there, or on Play once paused
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.

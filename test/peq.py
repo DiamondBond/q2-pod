@@ -2469,10 +2469,25 @@ static int rows, runs, fail_at, reopen_at;
 #define stTidalTracks tracks
 static int deque_size(void *q) { return q == &rows ? rows : 0; }
 static void *deque_at(void *q, unsigned i) { return 0; }
-static int page(void) { /* a stock list thread: appends the page at the offset, unless scripted not to */
+static int fetched; /* a stock list thread only saves the reply; its page's parser appends it */
+static int page(void) { /* the page at the offset, unless scripted to fail */
     if (++runs == reopen_at) I(tracks, 8) = 0;
-    if (runs != fail_at) rows = I(tracks, 8) + I(tracks, 4) < I(tracks, 0) ? I(tracks, 8) + I(tracks, 4) : I(tracks, 0);
+    fetched = runs != fail_at;
     return 0;
+}
+static int parse(const char *path) {
+    char want[32]; snprintf(want, sizeof want, "/tmp/tidal_%u", (unsigned)pthread_self()); assert(!strcmp(path, want));
+    if (!fetched) return -1;
+    fetched = 0, rows = I(tracks, 8) + I(tracks, 4) < I(tracks, 0) ? I(tracks, 8) + I(tracks, 4) : I(tracks, 0);
+    return 1;
+}
+#define parseTidalPlaylistDetailJson parse
+#define parseTidalAlbumDetailJson parse
+#define parseTidalColTracksJson parse
+static int stubbed(void) { /* the page's own parse is left an empty reply; removes it */
+    char p[32], b[32] = ""; snprintf(p, sizeof p, "/tmp/tidal_%u", (unsigned)pthread_self());
+    FILE *f = fopen(p, "r"); if (!f) return 0;
+    fgets(b, sizeof b, f); fclose(f); remove(p); return !strcmp(b, "{\"items\":[]}");
 }
 int stock_tidalplaylist_trampoline(void *id) { assert(id == &runs); return page(); }
 int stock_tidalalbum_trampoline(void *id) { return page(); }
@@ -2541,14 +2556,15 @@ int main(void) {
     closedir(d); assert(left == 1 && !access(TIDAL_DIR "/.cache-size", 0) && !has("H"));
     /* Track lists: every page, then the done flag; a failed page or a re-open ends the run. */
     list(120, 0, 0, 0); ringnav_tidal_playlist(&runs);
-    assert(rows == 120 && runs == 3 && I(tracks, 8) == 100 && tidal_albuminfo_thread_run == 2);
-    list(50, 0, 0, 0); ringnav_tidal_album(0); assert(rows == 50 && runs == 1 && I(tracks, 8) == 0);
-    list(300, 0, 2, 0); ringnav_tidal_album(0); assert(rows == 50 && runs == 2 && tidal_albuminfo_thread_run == 2);
-    list(300, 0, 0, 2); ringnav_tidal_playlist(&runs); assert(runs == 2);
-    list(5000, 0, 0, 0); ringnav_tidal_playlist(&runs); assert(rows == 2000 && runs == 40);
+    assert(rows == 120 && runs == 3 && I(tracks, 8) == 100 && tidal_albuminfo_thread_run == 2 && stubbed());
+    list(50, 0, 0, 0); ringnav_tidal_album(0); assert(rows == 50 && runs == 1 && I(tracks, 8) == 0 && stubbed());
+    list(300, 0, 2, 0); ringnav_tidal_album(0); assert(rows == 50 && runs == 2 && tidal_albuminfo_thread_run == 2 && stubbed());
+    list(300, 0, 1, 0); ringnav_tidal_album(0); assert(rows == 0 && runs == 1 && !stubbed()); /* stock's own error */
+    list(300, 0, 0, 2); ringnav_tidal_playlist(&runs); assert(runs == 2 && stubbed());
+    list(5000, 0, 0, 0); ringnav_tidal_playlist(&runs); assert(rows == 2000 && runs == 40 && stubbed());
     /* favourites from the scroll handler's second page: the offset is the thread's argument */
     list(175, 50, 0, 0); ringnav_tidal_favs((void *)50L);
-    assert(rows == 175 && runs == 3 && I(tracks, 8) == 150 && tidal_collection_thread_run == 2);
+    assert(rows == 175 && runs == 3 && I(tracks, 8) == 150 && tidal_collection_thread_run == 2 && stubbed());
     return 0;
 }
 '''
