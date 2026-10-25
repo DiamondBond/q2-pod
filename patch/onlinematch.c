@@ -95,6 +95,49 @@ int lrc_path(char *out, unsigned n, const char *path, const char *ext) {
     return 1;
 }
 
+/* s without accents, to out: each Latin letter of U+00C0-U+017F and U+1E00-U+1EFF (Vietnamese's
+ * among them) and Vietnamese's ơ and ư as its plain letter, a stroke or ligature too (ł l, ø o, đ d,
+ * æ ae, ß ss, þ th), and combining marks dropped; other text as it is. LRCLIB's search folds é but
+ * not ł or ø, so "Hataałii" misses its "Hataalii" entries. Never longer than s; 0 if it does not
+ * fit in n. */
+int lrc_fold(char *out, unsigned n, const char *s) {
+    /* A letter for each code point; '.' kept, a digit a wide[] pair (tools: Python's NFD bases). */
+    static const char latin[] = "AAAAAA0CEEEEIIIIDNOOOOO.OUUUUY24aaaaaa1ceeeeiiiidnooooo.ouuuuy3y"
+                                "AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIi56JjKkkLlLlLlLlLlNnNnNnnNnOoOoOo78"
+                                "RrRrRrSsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs"; /* U+00C0-U+017F */
+    static const char ext[] = "AaBbBbBbCcDdDdDdDdDdEeEeEeEeEeFfGgHhHhHhHhHhIiIiKkKkKkLlLlLlLlMmMmMmNnNnNnNnOoOoOoOo"
+                              "PpPpRrRrRrRrSsSsSsSsSsTtTtTtTtUuUuUuUuUuVvVvWwWwWwWwWwXxXxYyZzZzZzhtwy......AaAaAaAa"
+                              "AaAaAaAaAaAaAaAaEeEeEeEeEeEeEeEeIiIiOoOoOoOoOoOoOoOoOoOoOoOoUuUuUuUuUuUuUuYyYyYyYy......"; /* U+1E00-U+1EFF */
+    static const char wide[][3] = { "AE", "ae", "TH", "th", "ss", "IJ", "ij", "OE", "oe" };
+    unsigned at = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p;) {
+        unsigned c = *p, len = 1;
+        if (c >= 0xc0 && c < 0xe0 && (p[1] & 0xc0) == 0x80)
+            c = (c & 0x1f) << 6 | (p[1] & 0x3f), len = 2;
+        else if (c >= 0xe0 && c < 0xf0 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80)
+            c = (c & 0x0f) << 12 | (p[1] & 0x3f) << 6 | (p[2] & 0x3f), len = 3;
+        char k = len == 1                      ? '.' /* ASCII, or a byte not decoded here */
+                 : c >= 0xc0 && c < 0x180      ? latin[c - 0xc0]
+                 : c >= 0x1e00 && c < 0x1f00   ? ext[c - 0x1e00]
+                 : c == 0x1a0 || c == 0x1af    ? (c == 0x1a0 ? 'O' : 'U')
+                 : c == 0x1a1 || c == 0x1b0    ? (c == 0x1a1 ? 'o' : 'u')
+                 : c >= 0x300 && c < 0x370     ? 0 /* combining marks */
+                                               : '.';
+        const char *to = k >= '0' && k <= '8' ? wide[k - '0'] : 0;
+        unsigned w = k == '.' ? len : to ? 2 : k != 0;
+        if (at + w >= n) return 0;
+        if (k == '.')
+            memcpy(out + at, p, len);
+        else if (to)
+            memcpy(out + at, to, 2);
+        else if (k)
+            out[at] = k;
+        at += w, p += len;
+    }
+    out[at] = 0;
+    return 1;
+}
+
 /* Where stock's Download Cover & Lyrics saved lyrics: .downpic/<name>, which its loader tries before
  * the .lrc beside the song, so a copy there hides ours (docs/internals.md#lyrics-search). */
 #define DOWNPIC "/mnt/mmc/.downpic/"
@@ -272,7 +315,7 @@ static const char *str(void *json, const char *name) {
  * with a BOM as Kugou's: LRC_SAVED, LRC_NONE, LRC_OFFLINE if LRCLIB never answered, LRC_BUSY if it
  * answered with no results array (an error object), LRC_CARD if out could not be written, or
  * LRC_CANCELLED once *cancel (when given) stopped the transfer. */
-static int lrclib(const char *title, const char *artist, const char *out, volatile int *cancel) {
+static int lrclib_search(const char *title, const char *artist, const char *out, volatile int *cancel) {
     char url[3 * 0x300 + 64]; /* keyinfo's title and artist; a byte encodes to at most 3 */
     char *body;
     int found = LRC_NONE;
@@ -297,16 +340,28 @@ static int lrclib(const char *title, const char *artist, const char *out, volati
     return found;
 }
 
+/* LRCLIB's lyrics for title and artist (lrclib_search), else, when that finds none and taking their
+ * accents off changes them, for those (lrc_fold): LRCLIB has some songs only under the plain names. */
+static int lrclib(const char *title, const char *artist, const char *out, volatile int *cancel) {
+    char t[0x200], a[0x100]; /* keyinfo's sizes; folding never lengthens */
+    int found = lrclib_search(title, artist, out, cancel);
+    if (found != LRC_NONE || !lrc_fold(t, sizeof t, title) || !lrc_fold(a, sizeof a, artist) ||
+        (!strcmp(t, title) && !strcmp(a, artist)))
+        return found;
+    return lrclib_search(t, a, out, cancel);
+}
+
 /* kugou_obtainlyric(keyword, out), online_lyricthd's first source, in its place: LRCLIB alone, as
- * Kugou's often came back for another song. Nonzero ends the thread's search, so NetEase, its next
- * source, is skipped too (its search asks for a phone-bound account and finds nothing); the page
- * shows whatever out holds. ponytail: LRCLIB's first synced result by title and artist, no
- * duration check. */
+ * Kugou's often came back for another song, asked again while busy as Download Album Lyrics does.
+ * Nonzero ends the thread's search, so NetEase, its next source, is skipped too (its search asks for
+ * a phone-bound account and finds nothing); the page shows whatever out holds. ponytail: LRCLIB's
+ * first synced result by title and artist, no duration check. */
 int ringnav_lyric_search(const char *keyword, const char *out) {
     /* stock's keyinfo, copied under its lock: file name, title (+0x200), album, artist (+0x500) */
     char key[0x600];
     online_getkeyword_info(key);
-    lrclib(key + 0x200, key + 0x500, out, 0);
+    for (int k = 1; lrclib(key + 0x200, key + 0x500, out, 0) == LRC_BUSY && k < LJ_BUSY_TRIES; ++k)
+        usleep(LJ_RETRY_US);
     return 1;
 }
 

@@ -9212,8 +9212,9 @@ m.back(); m.calls=[]; m.back(); assert 'navigator_back' in [c[0] for c in m.call
 
 # Download Cover & Lyrics' lyrics (onlinematch.c ringnav_lyric_search, at kugou_obtainlyric's entry): LRCLIB
 # alone. keyinfo's title and artist are searched; the first result with synced lyrics goes to out with a BOM,
-# less its opening credits. Found or not, offline or busy, it returns 1, so online_lyricthd skips NetEase, and
-# Kugou's own search (past the entry's jump) never runs. demo's cJSON is stood in for by Python's json.
+# less its opening credits. None found, the names without accents are searched, if that changes them; a busy
+# reply is asked again, three requests in all. Found or not, it returns 1, so online_lyricthd skips NetEase,
+# and Kugou's own search (past the entry's jump) never runs. demo's cJSON is stood in for by Python's json.
 class LyricSearchMachine(RadioMachine):
     def __init__(self):
         super().__init__(); self.written={}; self.json={}
@@ -9227,6 +9228,7 @@ class LyricSearchMachine(RadioMachine):
         a=self.alloc(0x30); self.json[a]=v; self.word(a+16,self.string(v) if isinstance(v,str) else 0); return a  # +16: valuestring
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
+        if name=='r:curl_easy_perform': self.reply=self.replies.pop(0) if self.replies else b'[]'; self.urls.append(self.opts[10002])
         if not name.startswith('ls:'): return super().hook(u,address,size,unused)
         name=name[3:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
         if name=='fopen': self.fpath=self.text(a); self.written[self.fpath]=b''; ret=0x2000100
@@ -9237,21 +9239,35 @@ class LyricSearchMachine(RadioMachine):
         elif name=='cJSON_GetObjectItem': v=self.json[a]; key=self.text(b); ret=self.item(v[key]) if isinstance(v,dict) and key in v else 0
         self.calls.append((name,a,b,c))
         self.returns(ret,clobber=True)
-    def search(self,title,artist,reply,code=200):
+    def search(self,title,artist,*replies,code=200):
+        """replies: one a request, in turn (then [])."""
         key=0xa40424  # stock's keyinfo: file name, title (+0x200), album (+0x400), artist (+0x500)
         self.u.mem_write(key,bytes(0x600)); self.u.mem_write(key+0x200,title.encode()); self.u.mem_write(key+0x500,artist.encode())
-        self.reply,self.code,self.written,self.calls=reply,code,{},[]
+        self.replies,self.code,self.written,self.calls,self.urls=list(replies),code,{},[],[]
+        # Each request's 512 KB reply buffer is freed, but the mock's free keeps it: start over, zeroed as calloc's.
+        self.u.mem_write(BIG,bytes(self.big-BIG)); self.big=BIG
         return self.call(address=HOOKS['kugou_obtainlyric'][0],args=(self.string(f'{title}/{artist}'),self.string('/tmp/oslyric_7'),0,0),gap=0,count=5_000_000)
 m=LyricSearchMachine()
 found=json.dumps([{'syncedLyrics':None,'plainLyrics':'x'},{'syncedLyrics':'[00:00.00] Lyrics : A\n[00:12.00]Look at the stars'},
                   {'syncedLyrics':'[00:01.00]Second'}]).encode()
-assert m.search('Yellow','Coldplay',found)==1 and m.opts[10002]=='https://lrclib.net/api/search?track_name=Yellow&artist_name=Coldplay'
-assert m.written=={'/tmp/oslyric_7':'﻿[00:12.00]Look at the stars'.encode()}  # the first synced result, its credit cut
-for reply,code in ((b'[]',200),(json.dumps([{'syncedLyrics':None,'instrumental':True}]).encode(),200),
-                   (b'{"message":"The server is busy","statusCode":503}',200),(b'',0)):  # none, instrumental, busy, offline
-    assert m.search('Hataałii','Hataałii',reply,code)==1 and not m.written
-    assert 'kugou' not in [c[0] for c in m.calls] and [c[0] for c in m.calls].count('curl_easy_perform')==1
-assert m.search('','Coldplay',found)==1 and not m.written and 'curl_easy_perform' not in [c[0] for c in m.calls]; passed()  # no title: no request
+stars='﻿[00:12.00]Look at the stars'.encode()  # the first synced result, its credit cut
+LRCLIB='https://lrclib.net/api/search?track_name=%s&artist_name=%s'
+busy=b'{"message":"The server is busy, please retry in a moment","name":"ServerOverloaded","statusCode":503}'
+def kugou(): return 'kugou' in [c[0] for c in m.calls]
+assert m.search('Yellow','Coldplay',found)==1 and m.urls==[LRCLIB%('Yellow','Coldplay')] and m.written=={'/tmp/oslyric_7':stars}
+assert m.search('Yellow','Coldplay',b'[]')==1 and len(m.urls)==1 and not m.written and not kugou()  # nothing to fold
+# Hataałii: none under its own name, so its folded one, Hataalii; an instrumental counts as none.
+plain=LRCLIB%('Rains%20Over%20Dzil','Hataalii')
+assert m.search('Rains Over Dził','Hataałii',b'[]',found)==1 and m.urls[1:]==[plain] and m.written=={'/tmp/oslyric_7':stars}
+assert m.urls[0]==LRCLIB%('Rains%20Over%20Dzi%C5%82','Hataa%C5%82ii')
+for none in (b'[]',json.dumps([{'syncedLyrics':None,'instrumental':True}]).encode()):
+    assert m.search('Rains Over Dził','Hataałii',none,none)==1 and len(m.urls)==2 and not m.written and not kugou()
+# Busy: asked again, three requests at most, the fold only after an answer; offline: one request.
+assert m.search('Yellow','Coldplay',busy,found)==1 and len(m.urls)==2 and m.written=={'/tmp/oslyric_7':stars}
+assert m.search('Rains Over Dził','Hataałii',b'[]',busy,b'[]',found)==1 and m.urls[1::2]==[plain,plain] and m.written
+assert m.search('Yellow','Coldplay',busy,busy,busy,found)==1 and len(m.urls)==3 and not m.written and not kugou()
+assert m.search('Yellow','Coldplay',found,code=0)==1 and len(m.urls)==1 and not m.written and not kugou()
+assert m.search('','Coldplay',found)==1 and not m.written and not m.urls; passed()  # no title: no request
 
 # Its accept (onlinematch.c ringnav_lyric_save, at LYRIC_SAVE_CALL): stock's snprintf of cp -rf /tmp/oslyric_N
 # "/mnt/mmc/.downpic/<name>" for system() becomes a copy beside the song, through .part, as Download Album Lyrics

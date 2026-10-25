@@ -2700,6 +2700,22 @@ def online_check(tmp):
     assert body(sung) == sung.encode() and body('[offset:+200]\n[00:00.00] A : B\n' + sung).startswith(b'[offset')  # tags stay
     assert body('[00:00.00]男：你好\n') == '[00:00.00]男：你好\n'.encode()  # a duet's label is sung
     assert body('[00:00.00] Lyrics : X\n[00:01.00]\n') == b''  # nothing sung: lrclib tries the next result
+    def fold(s, n=256):
+        out = C.create_string_buffer(n)
+        return out.value.decode() if lib.lrc_fold(out, n, s.encode()) else None
+    # Each folded code point against Python's own NFD base letters, strokes and ligatures spelled out.
+    import unicodedata
+    special = dict(zip('ÆæÞþßĲĳŒœ', ('AE', 'ae', 'TH', 'th', 'ss', 'IJ', 'ij', 'OE', 'oe')))
+    special |= dict(zip('ÐðØøĐđĦħıĸĿŀŁłŉŊŋŦŧſ', 'DdOoDdHhikLlLlnNnTts'))
+    for cp in [*range(0xc0, 0x180), *range(0x1e00, 0x1f00), 0x1a0, 0x1a1, 0x1af, 0x1b0]:
+        ch = chr(cp); base = unicodedata.normalize('NFD', ch)[0]
+        want = special.get(ch, base if base.isascii() and base.isalpha() else ch)
+        assert fold(ch) == want, (hex(cp), fold(ch), want)
+    assert fold('ẹ́x') == 'ex' and fold('×÷ẞ') == '×÷ẞ'  # combining marks dropped; no letter kept
+    assert fold('Hataałii') == 'Hataalii' and fold('Rains Over Dził') == 'Rains Over Dzil' and fold('Sjøen') == 'Sjoen'
+    assert fold('Straße') == 'Strasse' and fold('Æon') == 'AEon' and fold('Nơi Này Có Anh') == 'Noi Nay Co Anh'
+    assert fold('Sơn Tùng M-TP') == 'Son Tung M-TP' and fold('東京 🎵 Ñu') == '東京 🎵 Nu' and fold('plain') == 'plain'
+    assert fold('Hataałii', 9) == 'Hataalii' and fold('Hataałii', 8) is None  # folds into n, never longer
 
 
 class LyrTrack(C.Structure):
