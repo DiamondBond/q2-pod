@@ -7568,6 +7568,18 @@ for kw,want in (({'status':1},1),({},1),({'status':2},1),({'po':1},0),({'bal':1}
     m=routed(audible(Machine()),**kw); m.call(address=syms['buzzeer_switch'],args=(1,0,0,0))
     assert buzzes(m)==want,kw
 m=routed(audible(Machine(),tone=0)); m.call(address=syms['buzzeer_switch'],args=(1,0,0,0)); assert not buzzes(m); passed()
+# A reboot keeps the place (playback.c ringnav_reboot): Restart (device_reboot) and the firmware update's
+# dialog, which stops the player before it flashes, save as power-off does (save_memoryplay_info, which
+# ringnav_savequeue hooks) before stock runs, with the dialog's arguments; a stopped player (1) saves nothing.
+for entry,stock in (('device_reboot','reboot'),('dialog_checkfw_dialog_init','checkfw')):
+    for status in (1,2,3):
+        m=Machine(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(PLAY_STATUS,status)
+        m.handlers[payload_syms[f'stock_{stock}_trampoline']]='stock_'+stock
+        m.call(address=syms[entry],args=(0x1234,0x5678,0,0),gap=0)
+        got=[c for c in m.calls if c[0] in ('save_memoryplay_info','stock_'+stock)]
+        assert [c[0] for c in got]==['save_memoryplay_info'][:status!=1]+['stock_'+stock],(entry,status)
+        assert stock!='checkfw' or got[-1][1:3]==(0x1234,0x5678)
+passed()
 
 if variant=='ipod':
     def long_list(n=40,m=None):

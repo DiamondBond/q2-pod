@@ -18,6 +18,7 @@
 extern int stock_load_trampoline(void *, int, int), stock_next_trampoline(int),
     stock_prev_trampoline(void), stock_mode_trampoline(int), stock_preload_trampoline(void),
     stock_memory_trampoline(void *), stock_savequeue_trampoline(void), stock_change_trampoline(int),
+    stock_reboot_trampoline(void), stock_checkfw_trampoline(void *, void *),
     stock_speed_trampoline(int), stock_open_preload_trampoline(void), stock_start_queue_trampoline(int);
 extern void *staged(int (*)(void *), void *, int *);
 extern int album_before(const void *, const void *), folder_cmp(void *, void *),
@@ -1242,6 +1243,23 @@ void playback_poll(void) {
 int ringnav_savequeue(void) {
     playback_save();
     return stock_savequeue_trampoline();
+}
+
+/* into_poweroff is stock's only save_memoryplay_info call, so a reboot (device_reboot: Restart, a
+ * Bluetooth recovery) or a firmware update came back to the queue and second of the last power-off.
+ * Both save first. The update's dialog (dialog_checkfw_dialog_init, the TF card update's and
+ * Network Update's) stops the player before its thread flashes and reboots, so it saves on open.
+ * Stopped, nothing is saved: stock's save skips it and the snapshot keeps its second. */
+static void reboot_save(void) {
+    if (mclGetPlayStatus() != 1) save_memoryplay_info(); /* ringnav_savequeue */
+}
+int ringnav_reboot(void) {
+    reboot_save();
+    return stock_reboot_trampoline();
+}
+int ringnav_checkfw(void *win, void *ctx) {
+    reboot_save();
+    return stock_checkfw_trampoline(win, ctx);
 }
 
 /* Stock passes its audio extension list and the final dot suffix in folder and scan paths.
