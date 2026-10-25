@@ -8,6 +8,7 @@
   - Display settings are split into sub-menus. After Brightness, Screen off and Lock screen come **Appearance** (Theme, Accent, Corners, Home, Battery; iPod), **Coverflow** (Artist Albums, Coverflow Sort, Refresh Coverflow) and **Controls** (Shortcut on iPod, Hold Return, Wheel Sensitivity).
   - Videos: a video picked in Folder view plays, as it does from Library's Videos row, instead of failing as a song. Both start the same player and remember where you stopped.
   - Bluetooth: the Q2's volume no longer changes your speaker's or headphones' own volume by default, as on stock firmware, so turning the Q2 down doesn't leave the speaker weak and thin. **Bluetooth → Control Device Volume**, under Resume on Connect, brings back the linked volume: the Q2's volume sets the device's, and the device's buttons move the Q2's.
+  - Spotify: when Spotify refuses to unlock your account's tracks, the Q2 now says so ("Spotify refused this account") within a second, instead of "Loading…" and, 15 s later, "Playback didn't start". It also stops librespot skipping through your whole playlist meanwhile. Spotify does this to some accounts, mostly new ones, and nothing on the Q2 can change it; another Premium account may work.
 
 - **1.4.6**:
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.

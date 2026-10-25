@@ -9809,6 +9809,33 @@ m.call(address=payload_syms['spot_np'],args=(0,0,0,0),gap=0,count=5_000_000)
 info,msg=m.nodes[m.top]['children']; assert texts(msg)==['Open Spotify on your phone','and choose Q2']
 passed()
 
+# A refused key (librespot-org/librespot#1649): librespot logs it and skips on through the list, which
+# no pause stops. At the next poll the page says why and librespot is killed (run starts it again),
+# once, without sending play again; a line from before the play is not this play's.
+LOG='/mnt/mmc/.spotify/spot.log'; REFUSED=b'ERROR librespot_core::audio_key] error audio key 0 1\n'
+m=BrowseMachine({LOG:bytearray(b'[old] '+REFUSED)}); m.open(); m.answer(*ME); m.row(0)
+m.answer(*OK,[track('spotify:track:shut','Shut')]); m.row(0); m.answer(*OK,[])
+np=m.top; info,msg=m.nodes[np]['children']; requests=len(m.requests); m.systems=[]
+m.poll(); m.advance(250); assert texts(msg)==['Loading…','Starting playback'] and not m.systems
+m.files[LOG]+=b'[new] INFO  librespot_playback::player] Loading <Shut>\n[new] '+REFUSED
+m.poll(); m.advance(250)
+assert texts(msg)==['Spotify refused this account',"Its tracks can't play on the Q2"]
+assert m.systems==['killall -9 librespot aplay'] and len(m.requests)==requests
+m.files[LOG]+=b'[new] '+REFUSED; m.poll(); m.advance(15250)
+assert m.systems==['killall -9 librespot aplay'] and texts(msg)[0]=='Spotify refused this account'
+m.state('playing',track='shut'); m.poll(); m.advance(250); assert m.nodes[info]['visible']
+passed()
+# The log line cut between two polls is still found; a log without one times out as before.
+m=BrowseMachine({LOG:bytearray()}); m.open(); m.answer(*ME); m.row(0)
+m.answer(*OK,[track('spotify:track:cut','Cut')]); m.row(0); m.answer(*OK,[]); msg=m.nodes[m.top]['children'][1]
+m.systems=[]; m.files[LOG]+=b'x'*5000+REFUSED[:40]; m.poll(); assert not m.systems
+m.files[LOG]+=REFUSED[40:]; m.poll(); m.advance(250); assert m.systems==['killall -9 librespot aplay']
+m=BrowseMachine({LOG:bytearray()}); m.open(); m.answer(*ME); m.row(0)
+m.answer(*OK,[track('spotify:track:slow','Slow')]); m.row(0); m.answer(*OK,[]); msg=m.nodes[m.top]['children'][1]
+m.systems=[]; m.files[LOG]+=b'[new] WARN  something else\n'; m.poll(); m.advance(15250)
+assert texts(msg)==["Playback didn't start",'Go back and try again'] and not m.systems
+passed()
+
 def run(m,name,*args): return m.call(address=payload_syms[name],args=(*args,0,0,0,0)[:4],gap=0,clear=False)
 
 # Saved-collection capabilities replace the legacy flat Downloads action with a persistent hub.
