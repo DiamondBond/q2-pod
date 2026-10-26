@@ -27,19 +27,18 @@ static long clock_back(long long wall) {
     return (long)back;
 }
 
-/* Each zone's offset from UTC now, in seconds: its standard one (TIMEZONE_MINUTES) unless
- * localtime reads it, with daylight saving, from each zone's TZ set in turn; then the saved zone
- * is set again. rows gets the zones west to east by it, ties in TIMEZONE_ORDER (standard offset,
- * then name). ponytail: another thread's localtime in that moment may read one of these zones. */
+/* Each zone's offset from UTC now, in seconds, daylight saving included: localtime's, with each
+ * zone's TZ set in turn; then the saved zone is set again. rows gets the zones west to east by it,
+ * ties in TIMEZONE_ORDER (standard offset, then name). ponytail: another thread's localtime in that
+ * moment may read one of these zones. */
 static long tz_offset[TZ_COUNT];
 static void tz_now(unsigned char *rows) {
-    static const short minutes[] = TIMEZONE_MINUTES;
     static const unsigned char order[] = TIMEZONE_ORDER;
     long now = clock_back(wall_time());
     for (unsigned i = 0; i < TZ_COUNT; ++i) {
         toolsSetTimeZone(tz_names[i]);
         const long *tm = (const long *)localtime(&now); /* struct tm: tm_gmtoff @36 */
-        tz_offset[i] = tm ? tm[9] : minutes[i] * 60L;
+        tz_offset[i] = tm ? tm[9] : 0;
     }
     ringnav_timezone();
     for (unsigned i = 0; i < TZ_COUNT; ++i) {
@@ -55,8 +54,8 @@ static void tz_now(unsigned char *rows) {
  * page opens. */
 void ringnav_timezone_row(void *item, int i) {
     static const char *const cities[] = TIMEZONE_CITIES;
-    static unsigned char rows[TZ_COUNT], ready;
-    if (i == 1 || !ready) tz_now(rows), ready = 1;
+    static unsigned char rows[TZ_COUNT];
+    if (i == 1) tz_now(rows); /* stock builds rows 0, 1, 2, ... */
     int zone = i > 0 && i <= (int)TZ_COUNT ? rows[i - 1] : -1;
     stock_timezone_row_trampoline(item, zone < 0 ? i : zone + 1);
     void *row = widget_get_child(item, widget_count_children(item) - 1); /* stock's button */

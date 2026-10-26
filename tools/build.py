@@ -719,8 +719,8 @@ def fileoff(b, a):
     raise ValueError(f'Unmapped address {a:x}')
 
 # Every saved g_time_zone index, in stock's order (0-26) then the additions: its label and TZ. Labels
-# are literal, short enough for the 246 px row at 24 px; the offset is the standard one. The rows
-# show the offset in effect now instead (navigation.c's ringnav_timezone_row), daylight saving included. POSIX rules stand in where the rootfs tzdata is out of date: Mexico City
+# are literal, short enough for the 246 px row at 24 px; the offset is the standard one. The
+# rows show the one in effect now instead, daylight saving included (ringnav_timezone_row). POSIX rules stand in where the rootfs tzdata is out of date: Mexico City
 # and Tehran dropped DST in 2022, Fiji suspended it. Stock's GMT-12 row was Kwajalein, which is +12;
 # its +6 Almaty is +5 since 2024, so that row is Dhaka.
 TIMEZONES = (
@@ -1300,7 +1300,6 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     header.append('#define TIMEZONE_NAMES {' + ','.join(json.dumps(zone) for _, zone in TIMEZONES) + '}')
     header.append('#define TIMEZONE_ORDER {' + ','.join(map(str, TIMEZONE_ORDER)) + '}')
     header.append('#define TIMEZONE_CITIES {' + ','.join(json.dumps(label.split(' ', 1)[1]) for label, _ in TIMEZONES) + '}')
-    header.append('#define TIMEZONE_MINUTES {' + ','.join(str(timezone_offset(label)) for label, _ in TIMEZONES) + '}')
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: byte global size mismatch')

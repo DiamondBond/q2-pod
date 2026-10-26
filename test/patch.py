@@ -9263,8 +9263,7 @@ for index, (_, name) in enumerate(TIMEZONES):
 passed()
 # autotime_page's zone rows show the offset each zone has now and run west to east by it, ties in
 # TIMEZONE_ORDER; each is built, ticked and named (image_choice) by its saved index, then the saved
-# zone is set again. Here New York and Halifax are on daylight saving and Kolkata's localtime fails
-# (its standard offset). A label too long for the row keeps its ellipsis rather than scrolling once.
+# zone is set again. Here New York and Halifax are on daylight saving. A label too long for the row keeps its ellipsis rather than scrolling once.
 assert [timezone_offset(TIMEZONES[i][0]) for i in TIMEZONE_ORDER]==sorted(timezone_offset(l) for l,_ in TIMEZONES)
 SUMMER={'America/New_York','America/Halifax'}
 class ZoneRowMachine(TimezoneMachine):
@@ -9272,10 +9271,8 @@ class ZoneRowMachine(TimezoneMachine):
         name=self.handlers.get(address)
         if name=='toolsSetTimeZone': self.tz=self.text(u.reg_read(REGS[0]))
         if name!='localtime@GLIBC_2.0': return super().hook(u,address,size,unused)
-        self.calls.append((name,)); tm=0
-        if self.tz!='Asia/Kolkata':
-            label=next(l for l,z in TIMEZONES if z==self.tz); tm=self.alloc(44)
-            self.word(tm+36,(timezone_offset(label)*60+3600*(self.tz in SUMMER))&0xffffffff)
+        self.calls.append((name,)); label=next(l for l,z in TIMEZONES if z==self.tz); tm=self.alloc(44)
+        self.word(tm+36,(timezone_offset(label)*60+3600*(self.tz in SUMMER))&0xffffffff)
         self.returns(tm,clobber=True)
 zones=ZoneRowMachine(); zones.tz=None
 zones.mock('image_create','hscroll_label_create','widget_use_style','widget_set_name','toolsSetTimeZone',
@@ -9295,7 +9292,7 @@ for row in range(1,len(TIMEZONES)+1):
     assert zones.nodes[image]['name']==f'image_choice{index}' and zones.nodes[image]['image']==('select' if index==saved else 'unselect')
 zone_labels=[zone_label(i) for i in zone_rows]
 assert zone_labels.index('GMT-4 New York')<zone_labels.index("GMT-3:30 St. John's")<zone_labels.index('GMT-3 Halifax')<zone_labels.index('GMT-3 Buenos Aires')
-assert 'GMT+5:30 Kolkata' in zone_labels and 'GMT-5 Chicago' not in zone_labels and 'GMT-6 Chicago' in zone_labels
+assert 'GMT-5 Chicago' not in zone_labels and 'GMT-6 Chicago' in zone_labels
 passed()
 def stream_rows(m):
     """Streaming's page over stock's one Tidal row: the hook's rows' buttons by their labels, in order."""
