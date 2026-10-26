@@ -324,6 +324,8 @@ CLOCK_GAP = 4
 def status_bar(root):
     left, right = root[3]
     root[2]['style:normal:bg_color'] = '#000000'
+    # Clear, not black: AWTK draws the border over the bar's fill, and Light Mode flips black to paper.
+    root[2].update({f'style:{s}:border_color': '#00000000' for s in ('normal', 'disable', 'focused')})
     check([left[2].get('name'), right[2].get('name')] == ['view_left', 'view_right'], 'Unexpected status bar')
     widgets = {n[2]['name']: n for n in left[3] + right[3]}
     check(sorted([*widgets, 'view_battery']) == sorted(STATUS_LEFT + STATUS_RIGHT + STATUS_HIDDEN), 'Unexpected status bar widgets')

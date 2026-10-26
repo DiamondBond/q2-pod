@@ -88,20 +88,29 @@ boot_check()
 def logo_check():
     """S11logo_display_shell's splash choice (build.py LOGO_HOOK) under the host sh."""
     import subprocess, tempfile, pathlib
-    from build import LOGO_HOOK
+    from build import LOGO_HOOK, LOGO, LOGO_LIGHT
     with tempfile.TemporaryDirectory(prefix='q2-logo-') as tmp:
-        user = pathlib.Path(tmp)/'boot-logo.jpg'
-        script = LOGO_HOOK[1].decode().replace('/mnt/data/boot-logo.jpg', str(user)).replace('display_logo', 'echo')
+        tmp = pathlib.Path(tmp)
+        user, config, dark, light = tmp/'boot-logo.jpg', tmp/'config.ini', tmp/'logo.jpg', tmp/'logo-light.jpg'
+        script = (LOGO_HOOK[1].decode().replace('/mnt/data/boot-logo.jpg', str(user)).replace('/mnt/data/config.ini', str(config))
+                  .replace('/'+LOGO_LIGHT, str(light)).replace('/'+LOGO, str(dark)).replace('display_logo', 'echo'))
         def shown(): return subprocess.run(['sh', '-c', script], check=True, capture_output=True, text=True).stdout.strip()
-        assert shown() == '/release/assets/default/raw/images/xx/logo.jpg'  # no card logo: the built-in splash
+        assert shown() == str(dark)  # no card logo, no config: the built-in splash
+        config.write_text('[IPOD]\nLIGHT=1\n')
+        assert shown() == str(dark)  # Light Mode, but no light twin (Legacy, custom --logo)
+        light.write_bytes(b'')
+        assert shown() == str(light)
+        config.write_text('[IPOD]\nLIGHT=0\nBACKLIGHT=1\n')
+        assert shown() == str(dark)
         user.write_bytes(b'')
-        assert shown() == str(user)
-    print('Boot logo: the saved card logo, else the built-in splash, passed.')
+        config.write_text('[IPOD]\nLIGHT=1\n')
+        assert shown() == str(user)  # the card's logo wins in either mode
+    print('Boot logo: the saved card logo, else the light splash under Light Mode, else the built-in one, passed.')
 logo_check()
 
 def validate_assets(directory):
     import functools, json, re, struct, subprocess
-    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, STREAM_POLL_CALLS, DARK_POLLS, WHEEL_TS_READ, PDR
+    from build import sha, run, fileoff, symbols, BLUEALSA, AAC_44K1, IPOD_HOOKS, IPOD_LEAF, WM_PAINT_LEAF, HELPER, HELPER_LIKE, BOOT, BOOT_HOOK, REMOTE, REMOTE_HOOK, LOG_HOOK, S90PLAY, S11LOGO, LOGO_HOOK, LOGO_LIGHT, BLUEALSA2, BT_KEEPALIVE, RTC_WRITE, WIFI_LPS, HOOKS, LOCK_CLOCK_12H, WATCHDOG, WATCHDOG_SLEEP, DROP_CACHES, STREAM_POLL_CALLS, DARK_POLLS, WHEEL_TS_READ, PDR
     from ipod import (ART_PLACEHOLDERS, sized_art, AUDIT, TOOLBAR_SWITCHES, BOTTOM, CONFIRM, VOLUME, BIGCOVER, BC_ART, BC_TITLE_PAD, QUICK_SETTINGS, QS_TOP, QS_LABEL_GAP, QS_LABEL_H,
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
@@ -335,6 +344,10 @@ def validate_assets(directory):
     paths = [l.removeprefix('squashfs-root/') for l in run('unsquashfs', '-l', directory/'stock.squashfs').splitlines()
              if ('/raw/ui/' in l or '/raw/styles/' in l) and l.endswith('.bin') or l.endswith('/config.ini')]
     names = set(run('unsquashfs', '-l', directory/'rootfs.squashfs').splitlines())
+    # Light Mode's splash ships with the default logo in iPod builds only (build.py LOGO_HOOK)
+    light = (ROOT/'assets/boot-logo-light.jpg').read_bytes()
+    default = ipod and manifest['logo_sha256'] == sha((ROOT/'assets/boot-logo.jpg').read_bytes())
+    assert ('squashfs-root/'+LOGO_LIGHT in names) == default and (not default or read('rootfs.squashfs', LOGO_LIGHT) == light)
     assert not {'squashfs-root/'+rel for rel in STOCK_EQ} & names, 'Stock EQ assets remain'
     # The Library's rows, stock's and list_row_core's alike, draw each local_* icon centred in one 52px
     # box (iPod x 8, Legacy x 10): each disc's alpha-weighted centre must sit on its image's.
@@ -559,6 +572,7 @@ def validate_assets(directory):
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
             left, right, *rest = root[3]
+            assert all(root[2][f'style:{s}:border_color'] == '#00000000' for s in ('normal', 'disable', 'focused'))  # Light Mode: no paper line
             assert [n[2]['name'] for n in left[3]] == STATUS_LEFT and [n[2]['name'] for n in right[3]] == STATUS_RIGHT
             title = rest.pop()
             assert title[0] == 'hscroll_label' and title[2]['name'] == 'label_clock'

@@ -203,10 +203,13 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
     ) &
 '''.encode())
 # User boot logo (docs/boot.md#custom-boot-logo): demo copies the card's to /mnt/data, which
-# S10mount_ubifs mounts before the splash; without it, the built-in one.
+# S10mount_ubifs mounts before the splash; without it, the built-in one, or under Light Mode
+# (LIGHT=1 in config.ini, also on /mnt/data) its light twin, which iPod builds of the default logo ship.
 S11LOGO = 'etc/init.d/S11logo_display_shell'
+LOGO, LOGO_LIGHT = 'release/assets/default/raw/images/xx/logo.jpg', 'release/assets/default/raw/images/xx/logo-light.jpg'
 LOGO_HOOK = (b'   \tdisplay_logo /release/assets/default/raw/images/xx/logo.jpg\n',
-             b'   \tl=/mnt/data/boot-logo.jpg; [ -f $l ] || l=/release/assets/default/raw/images/xx/logo.jpg; display_logo $l\n')
+             b'   \tl=/mnt/data/boot-logo.jpg; [ -f $l ] || { l=/%s; grep -qx LIGHT=1 /mnt/data/config.ini 2>/dev/null && [ -f /%s ] && l=/%s; }; display_logo $l\n'
+             % (LOGO.encode(), LOGO_LIGHT.encode(), LOGO_LIGHT.encode()))
 REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
                b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n')
 # --dev only (docs/remote.md#log): demo's console output, and hciplayer's, which inherits it, in RAM, so
@@ -1513,11 +1516,14 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     # Package exactly the validated bytes, even if the input is edited during compression.
     logo = out/'logo.jpg'
     logo.write_bytes(logo_data)
+    # Light Mode's splash: the default logo inverted. A custom --logo has no twin, so it shows either way.
+    light = ipod and logo_data == (ROOT/'assets/boot-logo.jpg').read_bytes() and (ROOT/'assets/boot-logo-light.jpg').read_bytes()
+    check(not light or jpeg_size(light) == (320, 375), 'Light logo must be 320x375 like the stock splash')
     for path, src in ((b'release/bin/demo', out/'demo'), (b'usr/bin/hciplayer', out/'peq/hciplayer'),
                       (BLUEALSA.encode(), out/'bluealsa'), (WATCHDOG.encode(), out/'watchdog'),
                       (S90PLAY.encode(), out/'S90play'), (S11LOGO.encode(), out/'S11logo'),
                       (BLUEALSA2.encode(), out/'bluealsa2'),
-                      (b'release/assets/default/raw/images/xx/logo.jpg', logo)):
+                      (LOGO.encode(), logo)):
         p = swap_inode(p, path, src)
     aic_notifier = None
     if aic_idle_wait:
@@ -1573,6 +1579,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
+                               **({LOGO_LIGHT: (xx+'list_tidal.png', light)} if light else {}),  # the swapped logo.jpg has no stock inode left
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')

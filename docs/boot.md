@@ -4,7 +4,7 @@ The Q2 splash shown on the screen at power-on is a JPEG inside the rootfs. A JPE
 
 | What       | Where                                                                                                        |
 | ---------- | ------------------------------------------------------------------------------------------------------------ |
-| Image      | `/mnt/data/boot-logo.jpg` when present, else `/release/assets/default/raw/images/xx/logo.jpg` (320x375 JPEG) |
+| Image      | `/mnt/data/boot-logo.jpg` when present, else under Light Mode `logo-light.jpg`, else `/release/assets/default/raw/images/xx/logo.jpg` (320x375 JPEGs) |
 | Drawn by   | `/usr/bin/display_logo` (libjpeg, writes `/dev/fb0`)                                                         |
 | Started by | `/etc/init.d/S11logo_display_shell`, as soon as `/dev/fb0` exists                                            |
 
@@ -13,7 +13,7 @@ The Q2 splash shown on the screen at power-on is a JPEG inside the rootfs. A JPE
 BusyBox `init` runs `/etc/init.d/rcS`, which starts the `S??*` scripts in order:
 
 1. `S10mdev`, `S10mount_ubifs`: devices and the data partition.
-2. `S11logo_display_shell`: in the background, polls every 20 ms for `/dev/fb0`, then runs `display_logo` on `/mnt/data/boot-logo.jpg` if it exists, else on the built-in splash.
+2. `S11logo_display_shell`: in the background, polls every 20 ms for `/dev/fb0`, then runs `display_logo` on `/mnt/data/boot-logo.jpg` if it exists, else on the built-in splash ([Light Mode](#light-mode)).
 3. `S11module_driver_default`: `/module_driver/driver_default_init_script.sh` loads the drivers, among them `soc_fb.sh` (the framebuffer, so `/dev/fb0` appears and the splash is drawn) and the LCD panel.
 4. `S20urandom`, `S40network`.
 5. `S90play`: starts `dbus-daemon`, then the player: `/release/bin/demo`, or Rockbox first when the card has it ([Rockbox](#rockbox)).
@@ -73,6 +73,15 @@ python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-logo --logo my-logo
 ```
 
 Flash `/tmp/q2-logo/update.tar` the normal way: copy it to the root of the microSD card, then **System settings → System Update → TF card update**. The update keeps the scroll-wheel patch, and **About** still shows the build on its **CFW. Version** row (`VERSION` in `tools/build.py`).
+
+### Light Mode
+
+iPod builds of the default logo also ship `assets/boot-logo-light.jpg`, the same logo inverted (dark lettering on white), as `release/assets/default/raw/images/xx/logo-light.jpg`. While `/mnt/data/config.ini` has `LIGHT=1` ([Light Mode](ipod.md#light-mode)), the splash hook shows it instead of the built-in one, so a power-on after turning Light Mode on or off matches it. A card logo still wins, and a build with a custom `--logo` ships no light twin and shows its logo in both modes. To regenerate it from the default:
+
+```sh
+magick assets/boot-logo.jpg -negate -colorspace sRGB -type TrueColor -strip -interlace none \
+  -sampling-factor 4:4:4 -quality 92 assets/boot-logo-light.jpg
+```
 
 ## Making a logo that works
 
