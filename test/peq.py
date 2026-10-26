@@ -2469,16 +2469,19 @@ static int rows, runs, fail_at, reopen_at;
 #define stTidalTracks tracks
 static int deque_size(void *q) { return q == &rows ? rows : 0; }
 static void *deque_at(void *q, unsigned i) { return 0; }
-static int fetched; /* a stock list thread only saves the reply; its page's parser appends it */
+/* a stock list thread only saves the reply; its page's parser appends what the file holds, so a
+ * reply left from the last page would append that page again */
 static int page(void) { /* the page at the offset, unless scripted to fail */
     if (++runs == reopen_at) I(tracks, 8) = 0;
-    fetched = runs != fail_at;
+    char p[32]; snprintf(p, sizeof p, "/tmp/tidal_%u", (unsigned)pthread_self());
+    FILE *f = runs != fail_at ? fopen(p, "w") : 0;
+    if (f) fputs("{}", f), fclose(f);
     return 0;
 }
 static int parse(const char *path) {
     char want[32]; snprintf(want, sizeof want, "/tmp/tidal_%u", (unsigned)pthread_self()); assert(!strcmp(path, want));
-    if (!fetched) return -1;
-    fetched = 0, rows = I(tracks, 8) + I(tracks, 4) < I(tracks, 0) ? I(tracks, 8) + I(tracks, 4) : I(tracks, 0);
+    if (access(path, 0)) return -1;
+    rows = I(tracks, 8) + I(tracks, 4) < I(tracks, 0) ? I(tracks, 8) + I(tracks, 4) : I(tracks, 0);
     return 1;
 }
 #define parseTidalPlaylistDetailJson parse

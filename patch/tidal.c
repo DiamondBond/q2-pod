@@ -284,6 +284,7 @@ static void tidal_pages(int (*page)(void *), int (*parse)(const char *), void *a
     snprintf(path, sizeof path, "/tmp/tidal_%u", (unsigned)pthread_self());
     unsigned first = P(t, 12) ? deque_size(P(t, 12)) : 0;
     for (unsigned had = first;;) {
+        unlink(path); /* a failed request must not leave the last page to parse again */
         page(by_offset ? (void *)(long)offset : arg);
         unsigned n = parse(path) > 0 && P(t, 12) ? deque_size(P(t, 12)) : 0;
         if (n <= had && had == first) return;
