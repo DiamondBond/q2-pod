@@ -1292,6 +1292,9 @@ HOT void put(unsigned *px, unsigned colour, unsigned cov) {
     *px = ((*px & 0xffffffu) + shade(colour, w)) | (have > 255 ? 255u : have) << 24;
 }
 
+/* What dimming washes towards: black, or Light Mode's paper (set per frame). */
+static unsigned cf_paper;
+
 /* One texture column (texels ART_SIZE apart) h high (1/256 px) on the horizon at frame column col,
  * its partial end rows by coverage, then its reflection fading out below. */
 static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, int inset) {
@@ -1304,7 +1307,7 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, 
     int first = y, final = end - 1; /* the rows the edges cross */
     int v = (((y << 8) + 128 - top) >> 4) * step >> 4, pitch = f->pitch; /* v: 16.16 texel row */
     if (y < 0) v -= y * step, y = 0;
-    unsigned *px = d + y * pitch;
+    unsigned *px = d + y * pitch, wash = shade(cf_paper, 256u - (unsigned)bright);
     while (y < last) {
         if (y >= solid_top && y < solid_bottom) {
             int skip = solid_bottom - y;
@@ -1320,13 +1323,14 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, 
                     to = (y + 1) << 8 < clipped_bottom ? (y + 1) << 8 : clipped_bottom;
                 cov = (unsigned)(to - from);
             }
-            put(px, shade(tex[row * ART_SIZE], (unsigned)bright), cov);
+            put(px, shade(tex[row * ART_SIZE], (unsigned)bright) + wash, cov);
         }
     }
     /* The reflection starts where the body ends, sharing the row the body only partly covers. */
     int reflect = h * CF_REFLECT / ART_SIZE, stop = (bottom + reflect + 255) >> 8;
     int fade = (256 << 16) / reflect; /* fading per 1/256 px, 16.16 */
     unsigned dim = (unsigned)bright * CF_REFLECT_TOP >> 8;
+    wash = shade(cf_paper, 256u - dim);
     if (stop > CF_VIEW_H) stop = CF_VIEW_H;
     for (y = (bottom + ins) >> 8, px = d + y * pitch; y < stop; ++y, px += pitch) {
         int from = y << 8 > bottom + ins ? y << 8 : bottom + ins,
@@ -1336,7 +1340,7 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, 
         int mirrored = dist * step >> 8 >> 16; /* texel rows up from the bottom edge */
         int row = ART_SIZE - 1 - (mirrored >= ART_SIZE ? ART_SIZE - 1 : mirrored);
         unsigned cov = (unsigned)(((y + 1) << 8) - from) * (256u - (unsigned)(dist * fade >> 16)) >> 8;
-        put(px, shade(tex[row * ART_SIZE], dim), cov);
+        put(px, shade(tex[row * ART_SIZE], dim) + wash, cov);
     }
     /* The rows this body covers whole are opaque now: join them to the known span, or keep the
      * longer of the two. */
@@ -1385,6 +1389,9 @@ void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ri
         for (int k = 0; k < r; ++k)
             cf_inset[k] = cf_inset[ART_SIZE - 1 - k] = (unsigned short)(arc_out(r, k) * 16);
     }
+#endif
+#if IPOD
+    cf_paper = ipod_light() ? LIGHT_PAPER * 0x010101u : 0;
 #endif
     shelf_t f;
     f.d = d, f.pitch = pitch;

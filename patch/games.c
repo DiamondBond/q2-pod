@@ -969,20 +969,29 @@ static void vortex_paint(void *canvas, unsigned tone) {
 #define FAN 20     /* a face-up card's label showing under the next */
 #define FAN_DOWN 6
 
+/* A grey v (0 to 255) that Light Mode's flip (ui_ink) leaves at v: a card is paper-white in either
+ * mode, its black suits black. */
+static unsigned unflipped(unsigned v) {
+#if IPOD
+    if (ipod_light()) v = v < LIGHT_INK ? 255 : (LIGHT_PAPER - v) * 255 / (LIGHT_PAPER - LIGHT_INK);
+#endif
+    return v * 0x010101u;
+}
+
 /* A rounded card: face down in the tone, darker inside a border when nothing covers it, or rank and
  * suit at the top in red or black, its suit large below when nothing covers it. */
 static void card_paint(void *canvas, int x, int y, int c, int whole, unsigned tone) {
     static const unsigned short suit[] = { 0x2660, 0x2665, 0x2666, 0x2663 }; /* ♠♥♦♣ */
     unsigned text[3], n = 0;
     round_box(canvas, x, y, CARD_W, CARD_H, 0x777777, 5);
-    round_box(canvas, x + 1, y + 1, CARD_W - 2, CARD_H - 2, c & UP ? 0xf2f2f2 : mix(tone, 0, 1, 2),
-              4);
+    round_box(canvas, x + 1, y + 1, CARD_W - 2, CARD_H - 2,
+              c & UP ? unflipped(0xf2) : mix(tone, 0, 1, 2), 4);
     if (!(c & UP)) {
         if (whole) round_box(canvas, x + 4, y + 4, CARD_W - 8, CARD_H - 8, mix(tone, 0, 3, 4), 3);
         return;
     }
     c &= ~UP;
-    unsigned ink = rgba(c / 13 % 3 ? 0xd01818 : 0x101010, 255);
+    unsigned ink = rgba(c / 13 % 3 ? 0xd01818 : unflipped(0x10), 255);
     if (c % 13 == 9) text[n++] = '1';
     text[n++] = (unsigned char)"A234567890JQK"[c % 13];
     text[n++] = suit[c / 13];

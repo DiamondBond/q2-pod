@@ -690,12 +690,12 @@ mostly glyph: under 1/`LIGHT_SURFACE` of its area opaque and darker than `LIGHT_
 chevrons, spinners and status icons turn dark, while a grey or dark disc keeps its white glyph.
 Quick Settings' inactive discs (`drop_*`) flip whole, to light discs under dark glyphs, and the
 active ones keep the accent. An image the accent mapped is final, and `switch_off` keeps its white
-knob, as `switch_on` does. Cover Flow's frame composites over paper instead of black. Classic's status bar is an iPod's flat
+knob, as `switch_on` does. Cover Flow's frame composites over paper instead of black, its side covers and reflections fading to paper. Solitaire's face-up cards stay light with black suits (`unflipped`). Classic's status bar is an iPod's flat
 grey (`LIGHT_BAR`, over a `LIGHT_BAR_LINE` hairline); Minimal's is paper. Album art,
 photos, wallpapers and videos are never changed.
 
 ponytail: a non-square or transparent cover in Cover Flow keeps black bars and a black background
-inside its square (`decode`), and Solitaire's face-up cards flip dark like every other light surface.
+inside its square (`decode`).
 
 ## Games
 
