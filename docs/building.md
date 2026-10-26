@@ -39,9 +39,9 @@ event wait, woken by start/resume and teardown. Active PCM notification timing, 
 buffer limits are unchanged. `--no-aic-idle-wait` keeps the stock module. See
 [audio-notifier.md](audio-notifier.md) for the exact scope.
 
-~~~sh
+```sh
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-stock-audio --no-aic-idle-wait
-~~~
+```
 
 ### FLAC fast paths
 

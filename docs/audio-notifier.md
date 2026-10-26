@@ -15,10 +15,10 @@ It is independent of the Smart Wi-Fi/FLAC and PWM/rotator PRs.
 
 Read-only Q2 captures on the previously installed firmware measured:
 
-| Condition | Duration | Notifier voluntary switches | Scheduled CPU time |
-| --- | ---: | ---: | ---: |
-| Playing local 44.1 kHz stereo FLAC | 90.049 s | 4,732 (~52.55/s) | 116.28 ms |
-| Paused, screen off | 30.053 s | 3,001 (~99.86/s) | 24.72 ms |
+| Condition                          | Duration | Notifier voluntary switches | Scheduled CPU time |
+| ---------------------------------- | -------: | --------------------------: | -----------------: |
+| Playing local 44.1 kHz stereo FLAC | 90.049 s |            4,732 (~52.55/s) |          116.28 ms |
+| Paused, screen off                 | 30.053 s |            3,001 (~99.86/s) |           24.72 ms |
 
 The paused PCM pointers stayed unchanged and TF block I/O was zero. It used
 approximately 0.082% of one CPU, so the absolute CPU cost is small. Context
@@ -35,9 +35,9 @@ separate investigation.
 
 The patcher accepts only stock `soc_aic.ko` SHA-256:
 
-~~~text
+```text
 97b141982aa39a0551aa0505cbf041ab4001d4a136bc3b5637ca11a1292d591c
-~~~
+```
 
 It additionally checks section layout, original instructions and relocations.
 The existing per-stream state has exit at +0x28, exit acknowledgement at +0x2c,
@@ -45,10 +45,10 @@ running at +0x30 and its initialized wait queue at +0x34.
 
 Three hooks in the module's original .text are changed:
 
-| Offset | Change |
-| --- | --- |
-| 0x183c | Replace only the stopped 10 ms sleep with `q2_aic_wait_stopped` |
-| 0x21dc | Preserve the running=1 store, then wake the queue |
+| Offset | Change                                                                               |
+| ------ | ------------------------------------------------------------------------------------ |
+| 0x183c | Replace only the stopped 10 ms sleep with `q2_aic_wait_stopped`                      |
+| 0x21dc | Preserve the running=1 store, then wake the queue                                    |
 | 0x1ff0 | Preserve the exit=1 store, then wake the queue before the stock acknowledgement wait |
 
 Trigger commands 1, 4 and 6 share the start/resume path; 0, 3 and 5 retain the
@@ -83,11 +83,11 @@ The manifest records input/output module hashes and policy
 
 ## Validation
 
-~~~sh
+```sh
 python3 test/aic.py /path/to/stockfs
 python3 test/aic.py /path/to/stockfs --module /path/to/experimental-build/soc_aic.ko
 python3 test/aic_build.py /path/to/stockfs /path/to/experimental-build /path/to/default-build
-~~~
+```
 
 The instruction suite passes 97 cases across three module/kernel address placements.
 It executes the relocated MIPS hooks and stock continuations

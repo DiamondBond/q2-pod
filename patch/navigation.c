@@ -214,7 +214,7 @@ enum {
     POD_BT_LINK,
     POD_CF_SORT,    /* Display's Coverflow Sort: coverflow.c's SORT_FILE, not config.ini */
     POD_CF_REFRESH, /* and Refresh Coverflow, an action */
-    POD_WHEEL_QS,   /* Wheel gesture: Quick Settings, a swipe across the wheel (playback.c) */
+    POD_WHEEL_QS,   /* Wheel QS, a swipe across the wheel (playback.c) */
     POD_COUNT
 };
 
@@ -2315,7 +2315,7 @@ _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 _Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
 static const char *const pod_keys[] = {
     "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",     "YEAROLD",   0, "RESUME", "LOCKCLOCK",
-    "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT", "BTVOLLINK", 0, 0, "WHEELQS"
+    "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT", "BTVOLLINK", 0, 0,        "WHEELQS"
 };
 _Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
 /* a row's choices: Artist albums three, Standby limit four, every other row off and on */
@@ -2324,11 +2324,10 @@ static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
         if (pod_keys[i]) /* Artist albums defaults to Coverflow */
-            *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i),
-                                          i == POD_ARTIST_CF);
+            *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i), i == POD_ARTIST_CF);
     st.pod_read = 1;
 }
-/* Wheel gesture: Quick Settings on (Q2POD WHEELQS, default off; playback.c's swipe). */
+/* Wheel QS on (Q2POD WHEELQS, default off; playback.c's swipe). */
 int ringnav_wheel_qs(void) {
     pod_settings();
     return st.wheel_qs;
@@ -2626,7 +2625,7 @@ static void pod_text(int i) {
         { 0 }, /* Control Device Volume: a switch */
         { 0 }, /* Coverflow Sort's from coverflow.c */
         { "Refresh Coverflow" },
-        { 0 }, /* Wheel gesture: a switch */
+        { 0 }, /* Wheel QS: a switch */
     };
     _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
     if (i == POD_CF_SORT) {
@@ -2641,7 +2640,7 @@ static void pod_text(int i) {
                          : i == POD_RESUME    ? "Resume on Connect"
                          : i == POD_VOL_GUARD ? "Volume Guard"
                          : i == POD_BT_LINK   ? "Control Device Volume"
-                         : i == POD_WHEEL_QS  ? "Wheel gesture: Quick Settings"
+                         : i == POD_WHEEL_QS  ? "Wheel QS"
                                               : 0;
     if (toggle)
         list_toggle(st.pod_label[i], toggle, v);

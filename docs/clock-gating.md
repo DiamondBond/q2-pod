@@ -124,12 +124,12 @@ changed, and the loaded module's GNU build ID matched the patched file:
 Patched module SHA-256:
 `d310e7d7dffccea49209a017bd7983a0e63f5b6fc00c7a32a98265901c2d39b6`.
 
-| Observed state | gate_rot enable/prepare | div_ahb0 enable/prepare |
-| --- | --- | --- |
-| Stock module, screen off | 1 / 1 | 1 / 1 |
-| Patched module, local FLAC, screen on | 0 / 0 | 1 / 1 |
-| Patched module, local FLAC, screen off | 0 / 0 | 0 / 0 |
-| Patched module, after wake, track change and pause | 0 / 0 | 1 / 1 |
+| Observed state                                     | gate_rot enable/prepare | div_ahb0 enable/prepare |
+| -------------------------------------------------- | ----------------------- | ----------------------- |
+| Stock module, screen off                           | 1 / 1                   | 1 / 1                   |
+| Patched module, local FLAC, screen on              | 0 / 0                   | 1 / 1                   |
+| Patched module, local FLAC, screen off             | 0 / 0                   | 0 / 0                   |
+| Patched module, after wake, track change and pause | 0 / 0                   | 1 / 1                   |
 
 Both clocks still report a nominal 300 MHz when their reference counts are zero;
 that field is a configured rate, not measured switching activity. The display

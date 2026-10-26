@@ -118,7 +118,6 @@ on the device before the final firmware update. An initial development package
 was rejected by the real kernel, which prompted these full-address fixes and
 regression checks; it is superseded and must not be installed.
 
-
 ## Device check: 2026-10-25
 
 V034i (development build 112) was installed through the stock TF updater with
@@ -139,10 +138,10 @@ With the display off, `mux_pwm`, `div_pwm` and `gate_pwm` each reported zero ena
 and prepare references (previously 2/2, 2/2 and 1/1). Read-only physical register
 checks independently confirmed the gate and divider state:
 
-| State | CPM_CLKGR1 at 0x10000028 | PWMCDR at 0x1000006c |
-| --- | --- | --- |
-| Display awake | 0x11bcfddf: bit 5 clear | 0x40000004: stop bit 27 clear |
-| Display off | 0x31bcfdff: bit 5 set | 0x48000004: stop bit 27 set |
+| State         | CPM_CLKGR1 at 0x10000028 | PWMCDR at 0x1000006c          |
+| ------------- | ------------------------ | ----------------------------- |
+| Display awake | 0x11bcfddf: bit 5 clear  | 0x40000004: stop bit 27 clear |
+| Display off   | 0x31bcfdff: bit 5 set    | 0x48000004: stop bit 27 set   |
 
 The masks come from the exact kernel clock descriptors and agree with the stock
 MCU clock code. PWMCDR busy/change-enable bits were clear in every settled sample.
@@ -153,10 +152,10 @@ the device was left paused at volume 44 with the original brightness restored.
 
 The installed files were:
 
-| File | SHA-256 |
-| --- | --- |
-| soc_pwm.ko | cbc82d18824f9a6b259735e3628cc57cb90e7528c7ea962cbdd3d5c1576b76c7 |
-| soc_mcu.ko | 5edc4d35931eb0b275350149b872343082ee2bb50023d07fe8da57f5eaf87983 |
+| File            | SHA-256                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| soc_pwm.ko      | cbc82d18824f9a6b259735e3628cc57cb90e7528c7ea962cbdd3d5c1576b76c7 |
+| soc_mcu.ko      | 5edc4d35931eb0b275350149b872343082ee2bb50023d07fe8da57f5eaf87983 |
 | libmcu-bare.bin | 76284a0a7327f9af69e0eae70290e9afed728dba38385cb29488f81ec1c9f68c |
 
 Loaded build IDs: PWM `2bbd27190cbc686e8c9bdfd9f5d313f7ba432dff`, MCU
