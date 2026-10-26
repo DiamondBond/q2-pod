@@ -114,7 +114,7 @@ Manual: Repeat the [install steps](#install) with the newest release. Your setti
 
 ## License
 
-[MIT](LICENSE) covers this repository's code and docs. The Shanling firmware included in release images remains Shanling's. Q2 Pod is an independent project and is not affiliated with Shanling.
+[MIT](LICENSE) covers this repository's code and docs. The lyrics page's font, `assets/fonts/lyric.ttf`, is a subset of Inter Display ExtraBold, © The Inter Project Authors, under the [SIL Open Font License 1.1](assets/fonts/OFL.txt). The Shanling firmware included in release images remains Shanling's. Q2 Pod is an independent project and is not affiliated with Shanling.
 
 ## Support
 

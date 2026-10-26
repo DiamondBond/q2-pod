@@ -190,6 +190,28 @@ void *app_album_songs(const char *dir); /* navigation.c: a folder's songs by nam
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);
+unsigned book_char(const unsigned char *t, unsigned n, unsigned *i); /* books.c: UTF-8, else Latin-1 */
+/* Lyrics as navigation.c's loader reads them: each line's start (ms, LRC_FAR unsynced), the order it
+ * came in, its UTF-8 text and its word stamps (A2's <mm:ss.xx>), each the ms a word starts and its
+ * byte offset in the text. */
+#define LRC_FAR 0x7fffffff
+typedef struct {
+    int ms;
+    unsigned at;
+} lrc_mark;
+typedef struct {
+    int time, at;
+    const char *text;
+    unsigned mark, marks;
+} lrc_line;
+/* lyrics.c, iPod: Now Playing's lyrics page, three large lines lit word by word (docs/internals.md#
+ * word-timed-lyrics). lyrics_publish takes each load's lines; lyrics_rows turns stock's rows of lrc
+ * into the page's (whether it is on, as lyrics_on asks); lyrics_now is the playing position in ms,
+ * lyrics_line the playing line there (-1 before the first), repainting it while page shows;
+ * lyrics_paint draws a row's line. */
+void lyrics_publish(const lrc_line *l, unsigned n, const lrc_mark *m);
+int lyrics_rows(void *lrc), lyrics_on(void *lrc), lyrics_now(void), lyrics_line(void *lrc, int ms, int page);
+void lyrics_paint(void *row, void *canvas), lyrics_gone(void);
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal's own: MINIMAL_FILL) */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
 void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color);
