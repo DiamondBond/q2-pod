@@ -1405,8 +1405,8 @@ void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ri
     for (int y = 0; y < CF_VIEW_H; ++y) { /* over black; a count-down loop, which -Oz keeps tight */
         unsigned *p = d + y * pitch;
 #if IPOD
-        if (ipod_light()) { /* over Light Mode's paper, as the page's black flips to it */
-            for (int x = 0; x < CF_VIEW_W; ++x) put(p + x, LIGHT_PAPER * 0x010101u, 256);
+        if (cf_paper) { /* over Light Mode's paper, as the page's black flips to it */
+            for (int x = 0; x < CF_VIEW_W; ++x) put(p + x, cf_paper, 256);
             continue;
         }
 #endif

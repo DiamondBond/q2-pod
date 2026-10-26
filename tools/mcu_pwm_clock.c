@@ -156,6 +156,10 @@ int q2_mcu_shutdown(u32 a,u32 b,u32 c,u32 d) {
     mutex_unlock(&q2_mcu_lock);
     return r;
 }
+/* ponytail: parks before returning, and the MCU acknowledges only after the
+ * synchronous buzzer stops, so a caller (Key Tone's system("cmd_mcu ...") on
+ * the UI thread) waits out each click. Park from delayed work instead if that
+ * latency shows. */
 int q2_mcu_write_data(u32 a,u32 b,u32 c,u32 d) {
     int r;
     mutex_lock(&q2_mcu_lock);
