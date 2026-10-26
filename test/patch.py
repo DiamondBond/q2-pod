@@ -4718,9 +4718,16 @@ if variant=='ipod':
     clock_box=tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))
     # bar_sync shows the play state (here local's, mclGetPlayStatus: 2 playing, 3 paused) itself.
     m.handlers.pop(syms['mclGetPlayStatus'],None)
-    for status,equalizer,icon in ((0,0,''),(2,0,'bar_play'),(3,0,'bar_pause'),(0,1,''),(2,1,'bar_play'),(0,0,'')):
+    m.advance(0); shown=(m.nodes[state]['visible'],m.nodes[state].get('image'))
+    for status,equalizer,icon in ((0,0,''),(2,0,'bar_play'),(3,0,'bar_pause'),(3,0,'bar_pause'),(0,1,''),(2,1,'bar_play'),(0,0,'')):
         m.word(0xa3beac,status); m.nodes[eq]['visible']=equalizer
         paint_live_bar(); playing=int(bool(icon))
+        # #116: a change made mid-paint repaints the whole bar once, after the frame.
+        m.advance(0)
+        now=(playing,m.nodes[state].get('image'))
+        changed=shown[0]!=playing or (playing and shown[1]!=now[1])
+        assert (('widget_invalidate_force',bar) in [c[:2] for c in m.calls])==changed, (status,icon)
+        shown=now
         assert m.nodes[state]['visible']==playing and (not playing or m.nodes[state]['image']==icon)
         assert m.nodes[idle]['visible']==int(not playing and not equalizer)
         assert tuple(m.get(title+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==clock_box

@@ -348,7 +348,7 @@ typedef struct {
      * level, charge and low state. */
     void *bar_bt, *bar_wifi, *bar_pct, *bar_slot, *bar_icon, *bar_idle, *bar_state, *bar_eq;
     int codec, codec_step, batt_mode;
-    unsigned codec_timer, batt_key;
+    unsigned codec_timer, batt_key, bar_timer;
     int pct_digit, pct_sign; /* BATT_PX advances of '0' and '%', measured on the first paint */
     unsigned letter_timer;   /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
@@ -3046,8 +3046,9 @@ static int pct_width(unsigned level) {
 }
 
 /* img_state follows whichever player plays, stock's or Spotify's, radio's or a video's, and
- * label_idle shows when neither it nor label_eq does. */
-static void bar_state_sync(void *bar) {
+ * label_idle shows when neither it nor label_eq does. Returns whether img_state changed. */
+static int bar_state_sync(void *bar) {
+    int changed = 0;
     if (!st.bar_bt) {
         st.bar_bt = widget_lookup(bar, "img_bt", 1);
         st.bar_wifi = widget_lookup(bar, "img_wifi", 1);
@@ -3061,16 +3062,32 @@ static void bar_state_sync(void *bar) {
     if (st.bar_state) {
         int status = media_owner() == 1 ? mclGetPlayStatus() :
                      video_status() ?: radio_status() ?: spot_status();
-        widget_set_visible(st.bar_state, status == 2 || status == 3, 0);
-        if (status == 2 || status == 3) {
+        int on = status == 2 || status == 3;
+        changed = on != !!widget_get_visible(st.bar_state);
+        widget_set_visible(st.bar_state, on, 0);
+        if (on) {
             const char *icon = status == 2 ? "bar_play" : "bar_pause";
-            if (tk_strcmp(widget_get_prop_str(st.bar_state, "image", ""), icon))
+            if (tk_strcmp(widget_get_prop_str(st.bar_state, "image", ""), icon)) {
                 image_base_set_image(st.bar_state, icon);
+                changed = 1;
+            }
         }
     }
     if (st.bar_idle && st.bar_state && st.bar_eq)
         widget_set_visible(st.bar_idle,
                            !widget_get_visible(st.bar_state) && !widget_get_visible(st.bar_eq), 0);
+    return changed;
+}
+
+/* An invalidate made while another window paints is dropped with that frame's dirty rects, and
+ * img_state keeps its dirty flag, so stock's own invalidates skip it until something else repaints
+ * the bar: Now Playing, painting every 250 ms, sees a Play/Pause first and left a stale icon
+ * (#116). Repaint the bar once, after the frame. */
+static int bar_repaint(const void *info) {
+    (void)info;
+    st.bar_timer = 0;
+    widget_invalidate_force(*(void *const *)system_bar, (void *)0);
+    return 0;
 }
 
 /* The status bar's codec badge, then the Battery setting (docs/ipod.md#status-bar-and-clock):
@@ -3079,7 +3096,7 @@ static void bar_state_sync(void *bar) {
  * than BATT_ROOM (a wide badge while it shows). widget_set_visible does nothing for an unchanged
  * state and relayouts the view for a new one. */
 static void bar_sync(void *bar) {
-    bar_state_sync(bar);
+    if (bar_state_sync(bar) && !st.bar_timer) st.bar_timer = timer_add(bar_repaint, (void *)0, 0);
     if (!st.bar_bt || !st.bar_wifi || !st.bar_pct || !st.bar_slot || !st.bar_icon) return;
     int shown = widget_get_visible(st.bar_bt), c = 0;
     const char *image = shown ? widget_get_prop_str(st.bar_bt, "image", "") : "";
