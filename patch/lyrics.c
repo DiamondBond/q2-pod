@@ -208,6 +208,9 @@ int lyrics_rows(void *lrc) {
         widget_resize(row, I(lrc, W_W),
                       (l->rows > 1 ? l->rows : 1) * LY_PITCH(LYRIC_PX) + LYRIC_GAP);
     }
+    char layout[48]; /* only now: out of memory, stock's rows keep stock's layout */
+    tk_snprintf(layout, sizeof layout, "list_view(x=0,y=%d,s=0)", LYRIC_SLOT);
+    widget_set_children_layout(lrc, layout);
     widget_layout_children(lrc);
     return 1;
 }

@@ -3559,14 +3559,7 @@ static void lyric_snap(void *lrc) {
  * page's, or, with none or no memory for their table, stay stock's. */
 static void lyric_init(void) {
     void *lrc = st.np_lrc;
-    if (!lrc) return;
-    char layout[48];
-    tk_snprintf(layout, sizeof layout, "list_view(x=0,y=%d,s=0)", LYRIC_SLOT);
-    widget_set_children_layout(lrc, layout);
-    if (lyrics_rows(lrc))
-        lyric_pad(lrc);
-    else
-        widget_layout_children(lrc);
+    if (lrc && lyrics_rows(lrc)) lyric_pad(lrc);
 }
 
 /* The lyrics page, every pass: its playing line centred, gliding there while the page shows, else

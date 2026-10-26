@@ -5905,9 +5905,10 @@ if variant=='ipod':
     def seen(i): top=SLOT+sum(hs[:i])-off; return max(0,min(top+hs[i],178)-max(top,0))
     assert [seen(i) for i in range(5)]==[0,21,135,22,0]
     assert [{x[3]>>24 for x in m.ink(i)} for i in range(5)]==[set(),{255*21*21//(97*97)},{255},{255*22*22//(SLOT*SLOT)},set()]; passed()
-    # With no memory for its table the page keeps stock's rows, their text, and paints nothing over them.
+    # With no memory for its table the page keeps stock's rows, their text and layout, and paints nothing over them.
     m=karaoke(); m.mock('calloc@GLIBC_2.0'); m.show(9)
     assert [m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']]==['One','Two two','Three','Four','Five']
+    assert 'children_layout' not in m.nodes[m.lrc]
     assert m.ink(1)==[] and loop(m)==0 and m.ink(1)==[]; passed()
     # Now Playing opened again in the last page's scroll view (AWTK's memory reused): its rows become the
     # page's the same way, no stock text left.
