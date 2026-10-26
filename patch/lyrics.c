@@ -543,7 +543,7 @@ int lyrics_line(void *lrc, int ms, int page) {
     int cur = ly_line_at(ms),
         fill = cur >= 0 && ly.tab->line[cur].px ? ly_lit((unsigned)cur, ms) : -1;
     if (page &&
-        (cur != ly.cur || fill < 0 || (fill != ly.fill && now - ly.lit_at >= LYRIC_PAINT_MS))) {
+        (cur != ly.cur || (fill != ly.fill && now - ly.lit_at >= LYRIC_PAINT_MS))) {
         if (cur != ly.cur) ly_dirty(lrc, ly.cur);
         ly_dirty(lrc, cur);
         ly.fill = fill, ly.lit_at = now;

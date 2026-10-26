@@ -3423,7 +3423,7 @@ static void lyric_poll(void) {
     }
     /* The page in front and lit: the clock and the follow every pass (it narrows on each second's
      * change, lyrics_now). Else the follow, which only jumps, at stock's timer's pace on whole
-     * seconds (lyrics_sec), so a dark or covered page reads no clock between. */
+     * seconds (lyrics_sec), so a dark or covered page reads the clock only that often. */
     int front = page && g_backlight_status && window_manager_get_top_window(wm) == st.np_win;
     unsigned now = (unsigned)time_now_ms();
     if (lyrics_on(lrc) && (front || now - st.lyric_follow_at >= LYRIC_FOLLOW_MS)) {
