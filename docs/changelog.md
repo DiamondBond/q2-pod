@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.4.9**:
+  - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.
   - SyncLink: Eddict Player's play/pause, previous and next work while the Q2's screen is off with Buttons Lock on (#113). The Q2 treated them as button presses, so the lock blocked them; it now locks only the buttons.
   - Tidal: long playlists, albums and My Collection's Tracks really do load past 50 now; the first 1.4.8 build still stopped at 50.
   - iPod: an album with no artwork shows a sharp disc in the album grids (Albums, an artist's albums) instead of a jagged one. The placeholder was 110 pixels and the Q2 shrank it to the 98-pixel cover roughly; it's now made at 98.

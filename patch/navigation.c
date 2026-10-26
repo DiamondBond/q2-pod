@@ -124,8 +124,8 @@ extern void coverflow_home_clip(void *w, void *canvas, int begin);
 extern int coverflow_home_back(void *top), coverflow_home_owns(void *w);
 extern void lockscreen_paint(void *w, void *canvas);
 extern void coverflow_paint(void *w, void *canvas), photos_paint(void *w, void *canvas),
-    photos_open(const char *root), books_paint(void *w, void *canvas),
-    books_open(const char *root, int videos), video_poll(void), video_key(unsigned key);
+    photos_open(const char *root), books_paint(void *w, void *canvas), books_open(const char *root),
+    video_poll(void), video_key(unsigned key);
 extern int books_key(void *top, unsigned key), video_on(void), books_video(const char *path);
 extern void games_paint(void *w, void *canvas);
 extern int games_key(void *top, unsigned key), games_open(void *ctx, void *event);
@@ -6601,9 +6601,9 @@ static int upload_scrobbles(void *ctx, void *event) {
     return 0;
 }
 
-/* Podcasts and Audiobooks (docs/internals.md#podcasts-and-audiobooks): the card's top-level
+/* Podcasts, Audiobooks and Videos (docs/internals.md#podcasts-and-audiobooks): the card's top-level
  * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c,
- * Books and Videos books.c. */
+ * Books books.c. */
 enum { PODCASTS = 1, AUDIOBOOKS, PHOTOS, BOOKS, VIDEOS };
 static const char *const MEDIA[] = { "Podcasts", "Audiobooks", "Photos", "Books", "Videos" };
 
@@ -6659,12 +6659,12 @@ static int media_find(int kind, char *path) {
 static int media_click(void *ctx, void *event) {
     int kind = (int)(long)ctx;
     char root[sizeof st.media_root];
-    if (kind >= PHOTOS) {
+    if (kind == PHOTOS || kind == BOOKS) {
         if (!media_find(kind, root)) return 0;
         if (kind == PHOTOS)
             photos_open(root);
         else
-            books_open(root, kind == VIDEOS);
+            books_open(root);
         return 0;
     }
     st.media_open = media_find(kind, st.media_root);
@@ -6694,10 +6694,11 @@ static int song_folder(void *r, char *path) {
 }
 
 /* folder_page_init lists the storage roots at g_folder_layer 1, a root's folders at 2 and deeper
- * folders at 3 on (folder_enter). A media root becomes a layer-3 folder, so stock's reload, title
- * (its name, folder_reinit_navbarname) and entering all treat it as one. Each open starts a fresh
- * visit (folder_reset_variable): folder_back pops the enter history kept for each layer and leaves
- * an M3U before stepping up, and a visit left without Back (Home, playing) keeps both. */
+ * folders at 3 on (folder_enter). Videos browse here too, folder by folder. A media root becomes a
+ * layer-3 folder, so stock's reload, title (its name, folder_reinit_navbarname) and entering all
+ * treat it as one. Each open starts a fresh visit (folder_reset_variable): folder_back pops the
+ * enter history kept for each layer and leaves an M3U before stepping up, and a visit left without
+ * Back (Home, playing) keeps both. */
 int ringnav_folder(void *win, void *ctx) {
     int result = stock_folder_trampoline(win, ctx), layer = 3;
     char root[265];
