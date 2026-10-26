@@ -152,14 +152,18 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
 #define QS_SPAN 70 /* of 100 units: the opposite edge */
 #define QS_SLACK 20
 #define QS_GAP_MS 400
-#define QS_STEPS 15 /* one sample every 20 ms, q2remote's 300 ms swipe */
+#define QS_STEP_MS 20 /* one sample each, as q2remote's screen swipe */
+#define QS_MIN_MS 150 /* the swipe's duration: the gesture's own, clamped */
+#define QS_MAX_MS 500
+int ringnav_wheel_qs(void); /* navigation.c: Q2POD WHEELQS, the Controls row */
 static int qs_fd __attribute__((section(".scratch"))); /* hyn_ts + 1; 0 not found yet */
 static int qs_x __attribute__((section(".scratch")));  /* where the last touch left */
 static unsigned qs_at __attribute__((section(".scratch")));
+static unsigned qs_t0 __attribute__((section(".scratch"))); /* the gesture's first touch down */
 static int qs_left __attribute__((section(".scratch"))),
     qs_travel __attribute__((section(".scratch"))), qs_armed __attribute__((section(".scratch")));
 
-static void qs_swipe(void) {
+static void qs_swipe(unsigned ms) {
     int state = *(volatile int *)g_dropdown_menu_state;
     if (!g_backlight_status || (state && state != 3)) return; /* dark, or sliding */
     char path[32], name[16];
@@ -176,11 +180,11 @@ static void qs_swipe(void) {
     if (!qs_fd) return;
     /* Upright x 187, y 5 to 220 opens it and 310 to 0 closes it; the panel's ABS_X is 319 - y. */
     int from = state ? 310 : 5, to = state ? 0 : 220;
-    for (int i = 0; i <= QS_STEPS + 1; ++i) {
-        int y = from + (to - from) * (i > QS_STEPS ? QS_STEPS : i) / QS_STEPS, n = 0,
-            ev[5][4] = { 0 };
+    int steps = ms / QS_STEP_MS;
+    for (int i = 0; i <= steps + 1; ++i) {
+        int y = from + (to - from) * (i > steps ? steps : i) / steps, n = 0, ev[5][4] = { 0 };
 #define EV(type, code, value) ev[n][2] = (type) | (code) << 16, ev[n++][3] = (value)
-        if (i > QS_STEPS) { /* lift */
+        if (i > steps) { /* lift */
             EV(3, 0x18, 0), EV(1, 0x14a, 0);
         } else {
             EV(3, 0, 319 - y), EV(3, 1, 187);
@@ -189,11 +193,14 @@ static void qs_swipe(void) {
         EV(0, 0, 0);
 #undef EV
         write(qs_fd - 1, ev, n * sizeof ev[0]);
-        if (i <= QS_STEPS) usleep(20000);
+        if (i <= steps) usleep(QS_STEP_MS * 1000);
     }
 }
 static void qs_end(int x) {
-    if (qs_armed && qs_travel < QS_SLACK) qs_swipe();
+    /* the swipe takes as long as the finger did, first touch down to now, within the clamp */
+    unsigned ms = (unsigned)time_now_ms() - qs_t0;
+    if (qs_armed && qs_travel < QS_SLACK && ringnav_wheel_qs())
+        qs_swipe(ms < QS_MIN_MS ? QS_MIN_MS : ms > QS_MAX_MS ? QS_MAX_MS : ms);
     qs_armed = 0, qs_x = x, qs_left = qs_travel, qs_at = (unsigned)time_now_ms();
 }
 static void qs_start(int x) {
@@ -201,6 +208,7 @@ static void qs_start(int x) {
     if (span > 100) span = 200 - span;
     qs_armed = qs_at && (unsigned)time_now_ms() - qs_at < QS_GAP_MS && qs_left < QS_SLACK &&
                span >= QS_SPAN;
+    if (!qs_armed) qs_t0 = (unsigned)time_now_ms(); /* a first touch; the second keeps it */
     qs_travel = 0;
 }
 

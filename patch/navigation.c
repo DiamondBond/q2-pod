@@ -214,6 +214,7 @@ enum {
     POD_BT_LINK,
     POD_CF_SORT,    /* Display's Coverflow Sort: coverflow.c's SORT_FILE, not config.ini */
     POD_CF_REFRESH, /* and Refresh Coverflow, an action */
+    POD_WHEEL_QS,   /* Wheel gesture: Quick Settings, a swipe across the wheel (playback.c) */
     POD_COUNT
 };
 
@@ -315,7 +316,7 @@ typedef struct {
     int pod_read, charge_limit, low_power, wake_double, wake_pass, wake_eat,
         wake_down, /* 1: the held Centre press passes; 2: it is dropped */
         charge_held, cpu_off, cpu_bad, cpu_marked, artist_cf, year_old, resume, lock_clock,
-        artist_az, hold_home, standby_limit, standby_off;
+        artist_az, hold_home, standby_limit, standby_off, wheel_qs;
     void *pod_label[POD_COUNT];
     void *art_cf_win, *art_cf_list; /* the artist page given its Coverflow, the albums pending */
     void *art_cf_veil;              /* the artist page unseen until they show, and its anim_hint */
@@ -2308,12 +2309,13 @@ static int *const pod_values[] = { &st.charge_limit,
                                    &st.standby_limit,
                                    &bt_vol_link,
                                    0,
-                                   0 };
+                                   0,
+                                   &st.wheel_qs };
 _Static_assert(POD_LOCKCLOCK == 7, "lockscreen.c passes pod_rows 7");
 _Static_assert(sizeof pod_values / sizeof *pod_values == POD_COUNT, "a pod_values per row");
 static const char *const pod_keys[] = {
     "CHARGELIMIT", "LOWPOWER", "WAKEDOUBLE", "ARTISTCF",     "YEAROLD",   0, "RESUME", "LOCKCLOCK",
-    "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT", "BTVOLLINK", 0, 0
+    "ARTISTAZ",    "VOLGUARD", "HOLDRETURN", "STANDBYLIMIT", "BTVOLLINK", 0, 0, "WHEELQS"
 };
 _Static_assert(sizeof pod_keys / sizeof *pod_keys == POD_COUNT, "a pod_keys entry per row");
 /* a row's choices: Artist albums three, Standby limit four, every other row off and on */
@@ -2322,8 +2324,14 @@ static void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
         if (pod_keys[i]) /* Artist albums defaults to Coverflow */
-            *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i), i == POD_ARTIST_CF);
+            *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i),
+                                          i == POD_ARTIST_CF || i == POD_WHEEL_QS);
     st.pod_read = 1;
+}
+/* Wheel gesture: Quick Settings on (Q2POD WHEELQS, default on; playback.c's swipe). */
+int ringnav_wheel_qs(void) {
+    pod_settings();
+    return st.wheel_qs;
 }
 int ringnav_year_old(void) {
     pod_settings();
@@ -2618,6 +2626,7 @@ static void pod_text(int i) {
         { 0 }, /* Control Device Volume: a switch */
         { 0 }, /* Coverflow Sort's from coverflow.c */
         { "Refresh Coverflow" },
+        { 0 }, /* Wheel gesture: a switch */
     };
     _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
     if (i == POD_CF_SORT) {
@@ -2632,6 +2641,7 @@ static void pod_text(int i) {
                          : i == POD_RESUME    ? "Resume on Connect"
                          : i == POD_VOL_GUARD ? "Volume Guard"
                          : i == POD_BT_LINK   ? "Control Device Volume"
+                         : i == POD_WHEEL_QS  ? "Wheel gesture: Quick Settings"
                                               : 0;
     if (toggle)
         list_toggle(st.pod_label[i], toggle, v);
@@ -4210,6 +4220,7 @@ int ringnav_display(void *win, void *ctx) {
     static const char *const cf_icons[] = { "playset_covermode", "playset_covermode",
                                             "system_update" };
     static const char *const hold_icon[] = { "playset_folderjump" };
+    static const char *const wheel_icon[] = { "system_display" };
     int sub = display_sub, result = stock_display_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
     if (!view) return result;
@@ -4242,6 +4253,7 @@ int ringnav_display(void *win, void *ctx) {
 #endif
     if (sub != DISPLAY_CONTROLS) return result;
     pod_rows(win, "scroll_view_display", POD_HOLD_HOME, 1, hold_icon);
+    pod_rows(win, "scroll_view_display", POD_WHEEL_QS, 1, wheel_icon);
     wheel_row(list_row_into(view, "system_display", xfade_open, (void *)1));
     return result;
 }

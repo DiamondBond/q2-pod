@@ -1,15 +1,14 @@
 # Rotator clock experiment
 
-`--dev --rotator-lazy-clock` defers `gate_rot` until the first valid conversion.
-The normal build keeps the stock module unchanged. The option is independent of
-Smart Wi-Fi, FLAC decoding, CPU frequency, and audio output.
+The build defers `gate_rot` until the first valid conversion (on by default;
+`--no-rotator-lazy-clock` keeps the stock module). It is independent of FLAC
+decoding, CPU frequency, and audio output.
 
 ```sh
 python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-rotator --dev --rotator-lazy-clock
 python3 test/rotator.py /path/to/stock/soc_rotator.ko
 ```
 
-Add `--ipod` for the iPod UI. This is a development experiment, not a release default.
 The manifest records `rotator_clock`, the policy and both module hashes.
 
 ## Opportunity and limits

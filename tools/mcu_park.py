@@ -40,7 +40,7 @@ def sha256(data: bytes) -> str:
 
 def compile_helper(sleep: bool = False) -> tuple[bytes, dict[str, int]]:
     """Build original assembly, returning actual instruction bytes and symbols."""
-    commands = ["clang-18", "ld.lld-18", "llvm-objcopy-18", "llvm-nm-18"]
+    commands = ["clang", "ld.lld", "llvm-objcopy", "llvm-nm"]
     missing = [name for name in commands if shutil.which(name) is None]
     if missing:
         raise RuntimeError("Missing assembler tools: " + ", ".join(missing))
@@ -48,20 +48,20 @@ def compile_helper(sleep: bool = False) -> tuple[bytes, dict[str, int]]:
         out = Path(directory)
         obj, elf, binary = (out / name for name in ("park.o", "park.elf", "park.bin"))
         subprocess.run([
-            "clang-18", "--target=mipsel-none-elf", "-march=mips32r2",
+            "clang", "--target=mipsel-none-elf", "-march=mips32r2",
             "-msoft-float", "-mno-abicalls", "-fno-pic",
             *(["-DQ2_MCU_SLEEP=1"] if sleep else []),
             "-c", str(SOURCE), "-o", str(obj),
         ], check=True, capture_output=True)
         subprocess.run([
-            "ld.lld-18", "-m", "elf32ltsmip", "-Ttext=0xf4006c00",
+            "ld.lld", "-m", "elf32ltsmip", "-Ttext=0xf4006c00",
             "-e", "q2_pwm_idle", str(obj), "-o", str(elf),
         ], check=True, capture_output=True)
         subprocess.run([
-            "llvm-objcopy-18", "-O", "binary", "--only-section=.text",
+            "llvm-objcopy", "-O", "binary", "--only-section=.text",
             str(elf), str(binary),
         ], check=True, capture_output=True)
-        result = subprocess.run(["llvm-nm-18", "--defined-only", str(elf)],
+        result = subprocess.run(["llvm-nm", "--defined-only", str(elf)],
                                 check=True, capture_output=True, text=True)
         symbols = {}
         for line in result.stdout.splitlines():

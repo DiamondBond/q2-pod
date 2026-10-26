@@ -113,7 +113,7 @@ LIBC = {
     'write': ('int', 'int, const void *, unsigned'),
 }
 
-def compile_common(out, binary, player=False, ipod=False):
+def compile_common(out, binary, player=False, ipod=False, flac_experiments=()):
     got = {}
     for line in run('readelf', '-AW', binary).splitlines():
         words = line.split()
@@ -148,7 +148,7 @@ def compile_common(out, binary, player=False, ipod=False):
     flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
     if player: flags += ['-mnan=2008']
     objects = []
-    for name in ['peq.c', 'peq_player.c'] if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'games.c', 'visualizer.c', 'playback.c', 'upnext.c', 'spotify.c', 'addon.c', 'radio.c', 'tidal.c', 'netupdate.c', 'onlinematch.c', 'crossfade.c', 'headset.c', 'lockscreen.c', 'chapters.c', 'lyrics.c']:
+    for name in (['peq.c', 'peq_player.c'] + [f'flac_{n}.c' for n in flac_experiments]) if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'scrobble.c', 'photos.c', 'books.c', 'games.c', 'visualizer.c', 'playback.c', 'upnext.c', 'spotify.c', 'addon.c', 'radio.c', 'tidal.c', 'netupdate.c', 'onlinematch.c', 'crossfade.c', 'headset.c', 'lockscreen.c', 'chapters.c', 'lyrics.c']:
         obj = out/(name+'.o')
         run('clang', *flags, '-I', out, '-c', ROOT/'patch'/name, '-o', obj)
         objects.append(obj)
@@ -156,20 +156,23 @@ def compile_common(out, binary, player=False, ipod=False):
     run('clang', *flags, '-c', out/'peq_imports.S', '-o', obj)
     return [*objects, obj]
 
-def patch_player(raw, out):
+def patch_player(raw, out, flac_experiments=()):
+    from flac import selection, EXPORTS, patch_words
+    flac_experiments = selection(flac_experiments)
     check(sha(raw) == PLAYER_SHA, 'Unexpected hciplayer')
     out.mkdir(exist_ok=True)
     binary = out/'stock-hciplayer'
     binary.write_bytes(raw)
     check(raw[fileoff(raw, EQ_DESC):fileoff(raw, EQ_DESC)+24].hex() ==
           'ac3d8900cc6388003c3b890098c988000100000024014500', 'EQ descriptor mismatch')
-    objects = compile_common(out, binary, True)
+    objects = compile_common(out, binary, True, flac_experiments=flac_experiments)
     script = out/'link.ld'
     script.write_text('SECTIONS { . = 0xe10000; .text : { *(.text*) } .rodata : { *(.rodata*) } '
                       '.data : { *(.data*) *(.sdata*) } .bss : { *(.bss*) *(.sbss*) } '
                       '__end = .; /DISCARD/ : { *(.comment) *(.note*) *(.pdr) *(.mdebug*) '
                       '*(.MIPS.abiflags) *(.reginfo) } }')
     run('ld.lld', '-m', 'elf32ltsmip', '--gc-sections', '-T', script, '-e', 'peq_open', '--undefined=mp3_seek', '--undefined=id3_gain',
+        *(f'--undefined={symbol}' for n in flac_experiments for symbol in EXPORTS[n]),
         *objects, '-o', out/'peq.elf')
     run('llvm-objcopy', '-O', 'binary', out/'peq.elf', out/'peq.bin')
     ps = symbols(out/'peq.elf')
@@ -186,6 +189,9 @@ def patch_player(raw, out):
     patch_word(data, SEEK_SLOT, STOCK_SEEK, ps['mp3_seek'], 'Audio demuxer seek slot')
     for address in ID3_CALLS:
         patch_word(data, address, jal(STOCK_ID3), jal(ps['id3_gain']), 'MP3 ReplayGain')
+    for address, stock, patched in patch_words(flac_experiments, ps):
+        patch_word(data, address, stock, patched, 'Experimental FLAC')
     append_payload(data, payload, PLAYER_BASE, max(len(payload), ps['__end']-PLAYER_BASE), 'player')
     (out/'hciplayer').write_bytes(data)
-    return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload))
+    return dict(stock_sha256=PLAYER_SHA, sha256=sha(data), payload_sha256=sha(payload),
+                **({'flac_experiments': list(flac_experiments)} if flac_experiments else {}))

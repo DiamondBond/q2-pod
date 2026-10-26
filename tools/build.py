@@ -1231,7 +1231,9 @@ def patch_bluealsa(raw):
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
-def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=True, rotator_lazy_clock=True, pwm_idle_clock=True, mcu_idle_sleep=False):
+def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=True, rotator_lazy_clock=True, pwm_idle_clock=True, mcu_idle_sleep=False, flac_experiments='sync,lpc,output'):
+    from flac import selection
+    flac_experiments = selection(flac_experiments)
     check(not mcu_idle_sleep or (dev and pwm_idle_clock), '--mcu-idle-sleep requires --dev --pwm-idle-clock')
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
@@ -1358,7 +1360,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
                'wallpaper list accepts built-in wallpapers')
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
-    audio = patch_player(raw_player, out/'peq')
+    audio = patch_player(raw_player, out/'peq', flac_experiments)
     bluealsa = patch_bluealsa(cat(BLUEALSA))
     (out/'bluealsa').write_bytes(bluealsa)
     (out/'watchdog').write_bytes(cat(WATCHDOG).replace(*WATCHDOG_SLEEP))
@@ -1667,6 +1669,8 @@ if __name__ == '__main__':
                     help='development build: tag from the next .build-number (V001i, V002i...); never a release input')
     ap.add_argument('--mcu-idle-sleep', action='store_true',
                     help='experimental: sleep parked MCU with explicit IRQ wake (requires --dev --pwm-idle-clock)')
+    ap.add_argument('--flac-experiments', default='sync,lpc,output', metavar='sync,lpc,output',
+                    help='FLAC fast paths (comma-separated subset; empty for stock FLAC)')
     ap.add_argument('--update-repo', default=REPO, metavar='OWNER/NAME',
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
     ap.add_argument('--aic-idle-wait', action=argparse.BooleanOptionalAction, default=True,
@@ -1677,6 +1681,6 @@ if __name__ == '__main__':
                     help='cooperative Linux/MCU PWM clock gating (default on)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.aic_idle_wait,a.rotator_lazy_clock,a.pwm_idle_clock,a.mcu_idle_sleep)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.aic_idle_wait,a.rotator_lazy_clock,a.pwm_idle_clock,a.mcu_idle_sleep,a.flac_experiments)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

@@ -1,9 +1,9 @@
 # Stopped audio notifier: experimental event wait
 
 A configured Q2 PCM stream keeps `aic_dma_notice` polling every 10 ms after pause.
-`--dev --aic-idle-wait` puts that stopped notifier on its existing wait queue until
-start/resume or teardown. The option is off by default and rejected without
-`--dev`. It supports both iPod and Legacy packages.
+The build puts that stopped notifier on its existing wait queue until start/resume or
+teardown. It is on by default; `--no-aic-idle-wait` keeps the stock module. It supports
+both iPod and Legacy packages.
 
 This is a driver experiment for the audited V1.32 firmware. It does not alter
 active notification intervals, PCM period/buffer constraints, DMA descriptors,
@@ -105,8 +105,7 @@ clock modules, rootfs size and update archive checksums.
 
 ## Remaining validation and inherited limits
 
-The experimental notifier has **not been installed or measured on hardware**.
-Before enabling it by default, verify the installed module hash/build ID,
+The notifier wait has **not been measured on hardware for power**. Verify the installed module hash/build ID,
 quiet paused notifier activity, resume latency and PCM progress, repeated
 pause/resume, seek, stop/close/reopen, track/sample-rate transitions, suspend/
 resume, and shutdown. Include local high-rate tracks and a longer mixed session.

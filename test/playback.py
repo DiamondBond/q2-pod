@@ -851,7 +851,7 @@ m.top=m.node('window','display_page',[lst]); m.stack=[m.top]
 for child,parent in ((view,lst),(lst,m.top),(m.top,m.wm)): m.word(child+O['W_PARENT'],parent)
 m.word(ps['display_sub'],3)  # Display's Controls page
 assert m.fn('ringnav_display',m.top,0)==0
-assert [n['text'] for n in m.nodes.values() if 'Wheel' in str(n.get('text'))]==['Wheel Sensitivity: 50%']  # the row, test/patch.py's
+assert [n['text'] for n in m.nodes.values() if 'Wheel Sensitivity' in str(n.get('text'))]==['Wheel Sensitivity: 50%']  # the row, test/patch.py's
 checks+=1
 
 # Manual Next/Prev at the queue ends runs stock player_change_music through ringnav_change. Stock

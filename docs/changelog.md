@@ -1,5 +1,11 @@
 # Changelog
 
+- **1.5.0**:
+  - Quick Settings from the wheel: swipe straight across the wheel, as on a touchpad, to open or close Quick Settings. The pull-down follows the speed of your swipe. Turning the wheel never triggers it. Turn it off under Settings → Display → Controls → Wheel gesture: Quick Settings.
+  - FLAC: local FLAC files play through faster decode paths, on by default.
+  - Battery: the audio driver sleeps while playback is stopped instead of checking every 10 ms. Playback is unchanged.
+  - Battery: the rotator's clock starts only when the rotator first needs it, not at boot, and the backlight's PWM clock is released while the backlight is off.
+
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.
   - SyncLink: Eddict Player's play/pause, previous and next work while the Q2's screen is off with Buttons Lock on (#113). The Q2 treated them as button presses, so the lock blocked them; it now locks only the buttons.

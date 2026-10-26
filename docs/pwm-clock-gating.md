@@ -1,8 +1,7 @@
 # Cooperative PWM clock gating
 
-`--dev --pwm-idle-clock` replaces the exact V1.32 PWM module, MCU module and
-MCU firmware as a single development experiment. Normal builds keep all three
-stock files. The boot script loads PWM before MCU, as stock already does.
+The build replaces the exact V1.32 PWM module, MCU module and MCU firmware as one
+set (on by default; `--no-pwm-idle-clock` keeps all three stock files). The boot script loads PWM before MCU, as stock already does.
 
 This document describes the polling park protocol. The optional additional
 `--mcu-idle-sleep` uses a version2 protocol and two IRQ hooks; see
@@ -166,6 +165,6 @@ Loaded build IDs: PWM `2bbd27190cbc686e8c9bdfd9f5d313f7ba432dff`, MCU
 The final combined iPod payload passed 1,837 MIPS execution scenarios. Packaging
 checks passed for both experimental editions and an unchanged default build;
 the shared loader also passed the existing 84 rotator cases and two delay-slot
-controls. This remains a default-off development experiment. No electrical power
+controls. No electrical power
 or battery-runtime improvement has been measured, and these checks do not cover
 every peripheral workload or long-duration suspend/resume combination.

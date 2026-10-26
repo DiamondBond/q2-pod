@@ -32,17 +32,20 @@ Rebuilt firmware uses `assets/boot-logo.jpg` as the boot splash. Pass another 32
 
 Both variants replace the stock equalizer page with a 30-band PEQ editor (bands, shelves, preamp, on/off, presets, stock's built-in genre presets, `/EQ` import) and patch `hciplayer`'s equalizer filter with the matching DSP. Both also clear the 44.1 kHz AAC capability bit in `bluealsa` (see [internals.md](internals.md#bluetooth-aac)).
 
-### Experimental stopped-audio notifier wait
+### Stopped-audio notifier wait
 
-`--dev --aic-idle-wait` replaces the audited audio driver's stopped-state 10 ms polling
-with an event wait, woken by start/resume and teardown. Active PCM notification timing,
-period and buffer limits are unchanged. Both UI editions support it; default and release
-builds retain the stock module. See [audio-notifier.md](audio-notifier.md) for the exact
-scope, validation and remaining hardware checks.
+On by default. The audited audio driver's stopped-state 10 ms polling is replaced by an
+event wait, woken by start/resume and teardown. Active PCM notification timing, period and
+buffer limits are unchanged. `--no-aic-idle-wait` keeps the stock module. See
+[audio-notifier.md](audio-notifier.md) for the exact scope.
 
 ~~~sh
-python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-aic --ipod --dev --aic-idle-wait
+python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-stock-audio --no-aic-idle-wait
 ~~~
+
+### FLAC fast paths
+
+On by default: `--flac-experiments sync,lpc,output` (all three). Pass a subset to build only some, or `--flac-experiments ""` for the stock decoder paths. Each is checked against the pinned V1.32 player.
 
 ### Versioning
 
@@ -56,16 +59,11 @@ About's **FW. Version** row reads the same literal, so it shows the stock firmwa
 
 Development builds also start `q2remote`, a key-gated root shell with screenshots and input over Wi-Fi, for developers and agents; see [remote.md](remote.md).
 
-`--dev --rotator-lazy-clock` opts into the experimental first-use rotator clock policy.
-Normal builds keep the stock module byte for byte. See [clock gating](clock-gating.md)
-for the exact module guard, tests, and hardware-validation limits.
+On by default: the rotator clock is held only from its first conversion (`--no-rotator-lazy-clock` keeps the stock module byte for byte). See [clock gating](clock-gating.md) for the exact module guard and tests.
 
-`--dev --pwm-idle-clock` selects the paired PWM/MCU clock experiment.
-It requires all three matching files and a reboot; see [PWM clock gating](pwm-clock-gating.md)
-for its ownership protocol, conservative fallbacks and validation limits.
+On by default: `--pwm-idle-clock`, the paired PWM/MCU clock gating. It needs all three matching files and a reboot (`--no-pwm-idle-clock` for stock). See [PWM clock gating](pwm-clock-gating.md) for its ownership protocol and fallbacks.
 
-Add `--mcu-idle-sleep` to the development PWM option to test interruptible MCU
-sleep with an explicit wake handshake. See [MCU sleep](mcu-sleep.md).
+`--dev --mcu-idle-sleep` is off in release builds. It adds an interruptible MCU sleep with an explicit wake handshake. See [MCU sleep](mcu-sleep.md).
 
 ## Tests
 
