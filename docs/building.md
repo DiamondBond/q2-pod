@@ -1,12 +1,12 @@
 # Building
 
-| Path      | Holds                                                                        |
-| --------- | ---------------------------------------------------------------------------- |
-| `patch/`  | The firmware payload (C, MIPS assembly, linker script) and the iPod UI audit |
-| `tools/`  | Build, port and release scripts                                              |
-| `test/`   | Host and MIPS emulator tests, each runnable as `python3 test/<name>.py`      |
+| Path      | Holds                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `patch/`  | The firmware payload (C, MIPS assembly, linker script) and the iPod UI audit               |
+| `tools/`  | Build, port and release scripts                                                            |
+| `test/`   | Host and MIPS emulator tests, each runnable as `python3 test/<name>.py`                    |
 | `assets/` | Boot splash, added icons (`icons/`), the lyrics font (`fonts/`, OFL) and the README banner |
-| `docs/`   | Documentation                                                                |
+| `docs/`   | Documentation                                                                              |
 
 ## Requirements
 
