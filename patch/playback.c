@@ -149,7 +149,7 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
  * opens or closes the pull-down and slides it as for a finger.
  * ponytail: either way across toggles it, as the wheel's x has no known top; gate on the first
  * touch's x once a device trace finds the top. */
-#define QS_SPAN 70 /* of 100 units: the opposite edge */
+#define QS_SPAN 70 /* of the wheel's 200 units: a jump this far is the opposite edge */
 #define QS_SLACK 20
 #define QS_GAP_MS 400
 #define QS_STEP_MS 20 /* one sample each, as q2remote's screen swipe */
@@ -236,7 +236,7 @@ void wheel_sample(int *s, int ret, char *info) {
     }
     int d = s[0] - wh_last, units = wheel_units ? wheel_units : WHEEL_TICK_UNITS * WHEEL_FINE;
     d = d < -100 ? d + 200 : d > 100 ? d - 200 : d;
-    if (g_backlight_status &&
+    if (g_backlight_status && ringnav_wheel_qs() &&
         (d >= QS_SPAN || d <= -QS_SPAN)) { /* across the middle: two touches */
         qs_end(wh_last);
         qs_start(s[0]);
