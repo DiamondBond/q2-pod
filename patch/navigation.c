@@ -2325,10 +2325,10 @@ static void pod_settings(void) {
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
         if (pod_keys[i]) /* Artist albums defaults to Coverflow */
             *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i),
-                                          i == POD_ARTIST_CF || i == POD_WHEEL_QS);
+                                          i == POD_ARTIST_CF);
     st.pod_read = 1;
 }
-/* Wheel gesture: Quick Settings on (Q2POD WHEELQS, default on; playback.c's swipe). */
+/* Wheel gesture: Quick Settings on (Q2POD WHEELQS, default off; playback.c's swipe). */
 int ringnav_wheel_qs(void) {
     pod_settings();
     return st.wheel_qs;

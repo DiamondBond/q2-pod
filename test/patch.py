@@ -7394,7 +7394,7 @@ if variant=='ipod':
     cfv=display_page(m,2); cf,cf_sort,cf_refresh=m.nodes[cfv]['children']
     assert m.icons_set==['playset_covermode','playset_covermode','system_update']
     ctl=display_page(m,3); shortcut,hold,qs,wheel=m.nodes[ctl]['children']
-    assert m.icons_set==['playset_covermode','playset_folderjump','system_display','switch_on','system_display','list_into']
+    assert m.icons_set==['playset_covermode','playset_folderjump','system_display','switch_off','system_display','list_into']
     assert [row_text(r) for r in (shortcut,hold,qs)]==['Shortcut: Rockbox','Hold Return: Recent','Wheel gesture: Quick Settings']; passed()
     view=display_page(m,1); rows=setting_rows(m,view)
     kids=m.nodes[view]['children']; corners=kids[2]
@@ -11295,9 +11295,9 @@ for config,text in (({},'Recent'),({'HOLDRETURN':'1'},'Home')):
 assert click(-3)==[(0,'Q2POD','HOLDRETURN')] and texts()[-3]=='Hold Return: Recent'
 assert click(-3)==[(1,'Q2POD','HOLDRETURN')] and texts()[-3]=='Hold Return: Home'
 passed()
-# Wheel gesture: Quick Settings (Q2POD WHEELQS, playback.c's swipe): on unless set, the row between
-# Hold Return and Wheel sensitivity; Centre or tap turns it off and saves it.
-for config,on in (({},1),({'WHEELQS':'0'},0),({'WHEELQS':'1'},1)):
+# Wheel gesture: Quick Settings (Q2POD WHEELQS, playback.c's swipe): off unless set, the row between
+# Hold Return and Wheel sensitivity; Centre or tap toggles it and saves it.
+for config,on in (({},0),({'WHEELQS':'0'},0),({'WHEELQS':'1'},1)):
     m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3,sub=3)
     assert texts()[-2]=='Wheel gesture: Quick Settings' and icons[-2]=='system_display',config
     assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-2]==rows[-2],config

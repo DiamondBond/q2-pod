@@ -146,7 +146,9 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
  * middle, so the swipe is a touch at one edge and then, within QS_GAP_MS, one at the opposite edge
  * (lifted over Centre) or a jump there mid-touch. Each touch travels under QS_SLACK units, so no
  * turn counts. The payload writes q2remote's screen swipe (docs/remote.md) to hyn_ts, so stock
- * opens or closes the pull-down and slides it as for a finger.
+ * opens or closes the pull-down and slides it as for a finger. The swipe sleeps on the encoder
+ * thread (it posts to the UI's queue, and tslib_thread_run reads hyn_ts), so only the wheel's
+ * samples wait out its 150-500 ms; ticks from them post after it.
  * ponytail: either way across toggles it, as the wheel's x has no known top; gate on the first
  * touch's x once a device trace finds the top. */
 #define QS_SPAN 70 /* of the wheel's 200 units: a jump this far is the opposite edge */

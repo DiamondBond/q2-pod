@@ -1,7 +1,7 @@
 # Changelog
 
 - **1.5.0**:
-  - Quick Settings from the wheel: swipe straight across the wheel, as on a touchpad, to open or close Quick Settings. The pull-down follows the speed of your swipe. Turning the wheel never triggers it. Turn it off under Settings → Display → Controls → Wheel gesture: Quick Settings.
+  - Quick Settings from the wheel: swipe straight across the wheel, as on a touchpad, to open or close Quick Settings. The pull-down follows the speed of your swipe. Turning the wheel never triggers it. Turn it on under Settings → Display → Controls → Wheel gesture: Quick Settings. It is off by default.
   - FLAC: local FLAC files play through faster decode paths, on by default.
   - Battery: the audio driver sleeps while playback is stopped instead of checking every 10 ms. Playback is unchanged.
   - Battery: the rotator's clock starts only when the rotator first needs it, not at boot, and the backlight's PWM clock is released while the backlight is off.
