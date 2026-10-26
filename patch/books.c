@@ -504,18 +504,18 @@ static int book_kind(const char *name) {
     return !strcasecmp(dot + 1, "txt") ? 1 : !strcasecmp(dot + 1, "epub") ? 2 : 0;
 }
 
-/* dir's books (with videos, its videos), and with depth those of its subfolders, as full paths. */
-static void scan(const char *dir, int depth, int videos) {
+/* dir's books, and with depth those of its subfolders, as full paths. */
+static void scan(const char *dir, int depth) {
     void *d = opendir(dir);
     char path[600];
     for (struct dirent *e; d && bk.n < BOOKS_MAX && (e = readdir(d));) {
         if (e->d_name[0] == '.') continue;
         tk_snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
         int kind = book_kind(e->d_name);
-        if ((e->d_type == 8 || !e->d_type) && kind && (kind == 3) == videos) {
+        if ((e->d_type == 8 || !e->d_type) && kind && kind != 3) {
             if ((bk.path[bk.n] = strdup(path))) ++bk.n;
         } else if ((e->d_type == 4 || !e->d_type) && depth)
-            scan(path, 0, videos);
+            scan(path, 0);
     }
     if (d) closedir(d);
 }
@@ -811,10 +811,6 @@ static void video_play(const char *path) {
     unlink("/tmp/q2video.state");
     if (vid.pid) vid.sock = socket(1, 1, 0); /* AF_UNIX, SOCK_DGRAM (MIPS numbering) */
 }
-static int play_video(void *ctx, void *event) {
-    video_play(bk.path[(int)(long)ctx]);
-    return 0;
-}
 /* Folder view's file (navigation.c ringnav_folder_click): a video plays as from the Videos list;
  * 0 for anything else, left to stock. */
 int books_video(const char *path) {
@@ -903,8 +899,8 @@ void video_key(unsigned key) {
     }
 }
 
-/* Local Music's Books and Videos rows (navigation.c media_click): the books or videos, by path. */
-void books_open(const char *root, int videos) {
+/* Local Music's Books row (navigation.c media_click): the books, by path. */
+void books_open(const char *root) {
     if (bk.page) return;
     void *page = bk.page = page_open("books_page", closed, keyup);
     if (!page) return;
@@ -918,14 +914,12 @@ void books_open(const char *root, int videos) {
     widget_set_visible(bk.reader, 0, 0);
     bk.buf = calloc(BOOK_WIN, 1);
     bk.path = calloc(BOOKS_MAX, sizeof *bk.path);
-    if (bk.buf && bk.path) scan(root, 1, videos);
+    if (bk.buf && bk.path) scan(root, 1);
     if (bk.n) qsort(bk.path, (unsigned)bk.n, sizeof *bk.path, by_string);
-    bk.view = page_list(page, bk.list, 0,
-                        videos ? bk.n ? "Videos" : "No videos" : bk.n ? "Books" : "No books", bk.n, 48);
+    bk.view = page_list(page, bk.list, 0, bk.n ? "Books" : "No books", bk.n, 48);
     char name[256];
     for (int k = 0; k < bk.n; ++k)
-        (videos ? page_row_detail : page_row_detail_into)(bk.view, k, title(bk.path[k], name), 0,
-                                                          videos ? play_video : open_book);
+        page_row_detail_into(bk.view, k, title(bk.path[k], name), 0, open_book);
 }
 int video_status(void) { return vid.pid ? (vid.paused ? 3 : 2) : 0; }
 unsigned video_session(void) { return (unsigned)vid.pid; }
