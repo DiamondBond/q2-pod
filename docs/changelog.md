@@ -9,6 +9,7 @@
   - Tidal Downloads: a track played from the card shows its artist and album, and its cover for FLAC (Lossless and above), instead of Unknown Artist and the placeholder (#102). Tidal sends its files without tags, so each download is now tagged from the Tidal track before it's saved. AAC downloads (Low and High quality) get the names but no cover. Tracks downloaded before this stay untagged until Clear All Downloads.
   - Library: Playlists are listed alphabetically, not in the order they were made. Add to Playlist's list follows the same order.
   - Folders: Shuffle, Play Next and Add to Queue on a held folder take in its subfolders too, so a folder of artists or albums shuffles everything in it. Before, they only took songs sitting directly in that folder, so a folder holding only subfolders left the queue unchanged. A very large folder takes a moment to gather.
+  - iPod: Now Playing's page dots stay put while you swipe between the art, lyrics, info and visualizer pages. Now and then they moved sideways with the page.
   - 2038: secure connections (scrobbling, Internet Radio, Update, Apps, lyrics and covers) keep working once the certificates built into the firmware expire, from 2035, and after the clock passes January 2038, where the Q2's 32-bit clock overflows. The iPod status bar clock and scrobble times stay right past 2038 too.
   - iPod: a new accent, **Green**, after the green Q2. It comes after Plum in the Accent row.
 
