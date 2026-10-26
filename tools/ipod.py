@@ -95,7 +95,6 @@ NP_TITLE_PX = inc('NP_TITLE_PX')  # the title over the NP_META_PX artist and alb
 NP_META_PX = inc('NP_META_PX')
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
-NP_LRC_GUTTER = 4                # clear space beside the 225px lyric rows, inside their scroll view
 NP_DOTS_Y = NP_SLIDE_H - 4       # above the seek bar's NP_TOUCH target
 # The art's gap below to the dots matches its gap above to "3 of 12"'s 16px text.
 NP_ART_Y = (NP_DOTS_Y - NP_ART - (NP_TOP - 16) // 2) // 2
@@ -368,8 +367,9 @@ def status_bar(root):
 
 # iPod only. Stock finds every Now Playing widget by name, recursively, so they can move: title, artist
 # and a new album label join the art on the slide_view's first page, so a swipe still swaps all of it for
-# the lyrics or info page. Those keep their stock 225px column (stock creates 225px lyric lines),
-# centred. The payload fills the label_ipod_* labels (ringnav_playing); label_playlen, the total, hides.
+# the lyrics or info page. The info page keeps its stock 225px column, centred; the lyrics page is the
+# payload's (patch/lyrics.c). The payload fills the label_ipod_* labels (ringnav_playing); label_playlen,
+# the total, hides.
 PLAYING_PAGE = 'playing_page.bin'
 
 
@@ -436,15 +436,15 @@ def playing_page(root):
     named['view_album'][3] += [title, artist, album, named['img_playmode'], named['img_fav']]
     column = (375 - 225) // 2
     named['label_lyricmsg'][1][0] += column
-    # scroll_lrc is the list less 10px (w=-10) and clips the rows. Stock measures a line against its rows'
-    # 225px, but a glyph's ink can reach a pixel or two past its advance (an f or y ending a full line), so
-    # rows filling scroll_lrc lost those pixels at its edges. It is NP_LRC_GUTTER wider each side, and its
-    # list layout (stock's list_view(m=0,s=0) otherwise) sets the rows that far in at 225px: the same
-    # lines, breaks and centre.
+    # The payload paints each lyric line over its stock row, a blank label LYRIC_SLOT high for a line of one
+    # row (patch/lyrics.c): the rows span the page, and the list layout (stock's list_view(m=0,s=0) otherwise,
+    # the payload's own once it opens) starts them a slot down, so the first line can sit in the middle.
     lrc = named['view_lrc'][3][0][2]
     check(lrc['self_layout'].startswith('default(x=0,y=0,w=-10,') and 'children_layout' not in lrc, 'Unexpected lyrics scroll view')
-    lrc['children_layout'] = f'list_view(x={NP_LRC_GUTTER},y=0,s=0)'
-    named['view_lrc'][2]['self_layout'] = f'default(x={column - NP_LRC_GUTTER},y=0,w={235 + 2 * NP_LRC_GUTTER},h=178)'
+    check(3 * inc('LYRIC_SLOT') <= 178, 'Three lyric lines must fit the page')
+    lrc['self_layout'] = 'default(x=0,y=0,w=100%,h=100%)'
+    lrc['children_layout'] = f'list_view(x=0,y={inc("LYRIC_SLOT")},s=0)'
+    named['view_lrc'][2]['self_layout'] = 'default(x=0,y=0,w=375,h=178)'
     for n in named['view_info'][3]:
         n[1][0] += column
     named['slide_view_view'][1] = [0, NP_TOP, 375, NP_SLIDE_H + 6]

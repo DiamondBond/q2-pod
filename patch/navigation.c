@@ -2056,6 +2056,7 @@ int ringnav_paint(void *w, void *canvas) {
     paint_radio(w, canvas);
     paint_letter(w, canvas);
     paint_cover(w, canvas);
+    if (w && st.np_lrc && P(w, W_PARENT) == st.np_lrc) lyrics_paint(w, canvas);
     paint_caps(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
@@ -2842,94 +2843,199 @@ static void keep_selected(void *target) {
  * Plain text fills it a line each, at a time no track reaches, so the page stays at its top as
  * before a .lrc's first stamp. libtag_c's property calls are found from taglib_file_new's address,
  * which that call binds in demo's GOT. ponytail: no SYLT frame, and lines starting in its first
- * LYRIC_TAG_MAX bytes. */
+ * LYRIC_TAG_MAX bytes. The lines keep their milliseconds and A2 word stamps ("<mm:ss.xx>" before
+ * a word, cut from the text) for iPod's lyrics page (lyrics.c), lose the spaces at their ends, and
+ * blank ones go; a .lrc's synced lines replace stock's, read alike. */
 #define LYRIC_TAG_MAX 65536
 extern int stock_lyric_trampoline(void);
 
-/* The "[mm:ss]" or "[mm:ss.xx]" stamps leading *s: each one's seconds into t (at most n of them),
- * *s moved past them all; how many. "[ar:Name]" and other bracketed text are no stamp. */
+/* A time at p between open and close: "[mm:ss]", "[mm:ss.xx]" or "[mm:ss:xx]" (A2's word stamps
+ * are "<mm:ss.xx>"). Its milliseconds into *ms and its end, else 0. */
+static char *lrc_time(char *p, char open, char close, int *ms) {
+    int mm = 0, ss = 0, frac = 0, scale = 100, digits = 0;
+    if (*p++ != open) return 0;
+    for (; *p >= '0' && *p <= '9' && digits < 4; ++digits) mm = mm * 10 + *p++ - '0';
+    if (!digits || *p++ != ':') return 0;
+    for (digits = 0; *p >= '0' && *p <= '9' && digits < 2; ++digits) ss = ss * 10 + *p++ - '0';
+    if (digits != 2 || ss > 59) return 0;
+    if (*p == '.' || *p == ':')
+        for (++p; *p >= '0' && *p <= '9'; ++p, scale /= 10) frac += (*p - '0') * scale;
+    if (*p++ != close) return 0;
+    *ms = (mm * 60 + ss) * 1000 + frac;
+    return p;
+}
+
+/* The stamps leading *s: each one's milliseconds into t (at most n of them), *s moved past them
+ * all; how many. "[ar:Name]" and other bracketed text are no stamp. */
 static int lrc_stamps(char **s, int *t, int n) {
-    int k = 0;
-    for (char *p = *s; *p == '[';) {
-        char *q = p + 1;
-        int mm = 0, ss = 0, digits = 0;
-        for (; *q >= '0' && *q <= '9' && digits < 4; ++digits) mm = mm * 10 + *q++ - '0';
-        if (!digits || *q++ != ':') break;
-        for (digits = 0; *q >= '0' && *q <= '9' && digits < 2; ++digits) ss = ss * 10 + *q++ - '0';
-        if (digits != 2 || ss > 59) break;
-        if (*q == '.' || *q == ':')
-            for (++q; *q >= '0' && *q <= '9';) ++q;
-        if (*q++ != ']') break;
-        if (k < n) t[k++] = mm * 60 + ss;
-        *s = p = q;
-    }
+    int k = 0, ms;
+    for (char *q; (q = lrc_time(*s, '[', ']', &ms)); *s = q)
+        if (k < n) t[k++] = ms;
     return k;
 }
 
-typedef struct {
-    int time, at;
-    const char *text;
-} lrc_line;
+/* s with its word stamps cut out, in place; when keep, each one's ms and byte offset into m (up to
+ * cap, counted in *n). */
+static void lrc_words(char *s, lrc_mark *m, unsigned cap, unsigned *n, int keep) {
+    char *text = s, *o = s, *q;
+    for (int ms; *s;)
+        if ((q = lrc_time(s, '<', '>', &ms))) {
+            if (keep && *n < cap) m[(*n)++] = (lrc_mark){ ms, (unsigned)(o - text) };
+            s = q;
+        } else
+            *o++ = *s++;
+    *o = 0;
+}
+
+/* The bytes of the space at p: ASCII's space, tab, vertical tab or form feed, a no-break,
+ * ideographic or zero-width space, or a byte-order mark; else 0. */
+static int lrc_space(const char *p) {
+    const unsigned char *u = (const unsigned char *)p;
+    if (*u == ' ' || *u == '\t' || *u == '\v' || *u == '\f') return 1;
+    if (u[0] == 0xc2 && u[1] == 0xa0) return 2;
+    return (u[0] == 0xe3 && u[1] == 0x80 && u[2] == 0x80) ||
+                   (u[0] == 0xe2 && u[1] == 0x80 && u[2] == 0x8b) ||
+                   (u[0] == 0xef && u[1] == 0xbb && u[2] == 0xbf)
+               ? 3
+               : 0;
+}
+
+/* line without the spaces at either end, in place: its new start, and its n word stamps' offsets
+ * (in m) moved with it, within it. */
+static char *lrc_trim(char *line, lrc_mark *m, unsigned n) {
+    char *start = line, *end;
+    int k;
+    while ((k = lrc_space(line))) line += k;
+    for (end = line + strlen(line); end > line;) /* from the end: the last space's bytes */
+        if (lrc_space(end - 1) == 1)
+            --end;
+        else if (end - line >= 2 && lrc_space(end - 2) == 2)
+            end -= 2;
+        else if (end - line >= 3 && lrc_space(end - 3) == 3)
+            end -= 3;
+        else
+            break;
+    *end = 0;
+    for (unsigned i = 0; i < n; ++i) {
+        int at = (int)m[i].at - (int)(line - start);
+        m[i].at = at < 0 ? 0 : at > end - line ? (unsigned)(end - line) : (unsigned)at;
+    }
+    return line;
+}
+
 static int lrc_order(const void *a, const void *b) {
     const lrc_line *x = a, *y = b;
     return x->time != y->time ? (x->time > y->time) - (x->time < y->time) : x->at - y->at;
 }
+
+/* text's lines, cut in place, into *lp and their word stamps (a line's only when it has one stamp)
+ * into *mp, both calloc'd for the caller to free: how many lines, -1 out of memory. Each line goes
+ * without the spaces at its ends, and a blank one (a stamp alone, an empty line, CR CR LF's) is
+ * left out, so the rows keep an even spacing. */
+static int lrc_parse(char *text, lrc_line **lp, lrc_mark **mp) {
+    unsigned cap = 1, caps = 0, n = 0, nm = 0;
+    for (const char *s = text; *s && s - text < LYRIC_TAG_MAX; ++s) /* a line, or a stamp */
+        cap += *s == '\n' || *s == '\r' || *s == '[', caps += *s == '<';
+    lrc_line *l = *lp = calloc(cap, sizeof *l);
+    lrc_mark *m = *mp = caps ? calloc(caps, sizeof *m) : 0;
+    if (!l || (caps && !m)) return -1;
+    int synced = 0;
+    for (char *s = text; *s && s - text < LYRIC_TAG_MAX;) {
+        char *e = s, c, *line = s;
+        int t[8], k;
+        unsigned first;
+        while (*e && *e != '\n' && *e != '\r') ++e;
+        c = *e, *e = 0;
+        if ((k = lrc_stamps(&line, t, 8)) && !synced)
+            synced = 1, n = 0; /* LRC: the lines before go */
+        first = nm;
+        lrc_words(line, m, caps, &nm, k == 1);
+        line = lrc_trim(line, m + first, nm - first);
+        if (!*line) nm = first; /* blank */
+        for (int i = 0; i < (*line ? k ? k : !synced : 0) && n < cap; ++i)
+            l[n] = (lrc_line){ k ? t[i] : LRC_FAR, (int)n, line, first, nm - first }, ++n;
+        s = e + (c != 0) + (c == '\r' && e[1] == '\n');
+    }
+    if (synced) qsort(l, n, sizeof *l, lrc_order);
+    return (int)n;
+}
+
+/* l's n lines into stock's list at their whole seconds, after its own lines when not clear. */
+static void lrc_push(const lrc_line *l, unsigned n, int clear) {
+    struct {
+        int time;
+        const char *text;
+    } line;
+    pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
+    if (clear) deque_clear(P(MCL_LYRICS, 0));
+    for (unsigned i = 0; i < n; ++i) {
+        line.time = l[i].time == LRC_FAR ? LRC_FAR : l[i].time / 1000, line.text = l[i].text;
+        _deque_push_back(P(MCL_LYRICS, 0), &line);
+    }
+    pthread_mutex_unlock((void *)MCL_LYRIC_LOCK);
+}
+
+/* Stock's .lrc loader (0x5a9718, in mclLoadExLyric) opens the file it parses here (LYRIC_OPEN in
+ * tools/build.py), a UTF-8 copy when it was in another code page: its first LYRIC_TAG_MAX bytes
+ * wait for ringnav_lyric, which reads them again as a tag's, with their milliseconds and word
+ * stamps and without blank lines. */
+static char *lrc_file;
+void *ringnav_lrc_open(const char *path, const char *mode) {
+    void *f = fopen(path, mode), *g = f ? fopen(path, "rb") : 0;
+    free(lrc_file);
+    lrc_file = g ? calloc(1, LYRIC_TAG_MAX + 1) : 0;
+    if (lrc_file) fread(lrc_file, 1, LYRIC_TAG_MAX, g);
+    if (g) fclose(g);
+    return f;
+}
+
 int ringnav_lyric(void) {
-    int ret = stock_lyric_trampoline();
-    void *q = P(mcl_pdeqplaylist, 0), *r;
+    free(lrc_file);
+    lrc_file = 0;
+    int ret = stock_lyric_trampoline(), n = 0;
+    lrc_line *l = 0;
+    lrc_mark *m = 0;
+    char *file = lrc_file, **v = 0;
+    unsigned lib = 0;
+    void *q = P(mcl_pdeqplaylist, 0), *r, *f = 0;
+    lrc_file = 0;
+    if (file && mclGetLyricSize() > 0) { /* a .lrc's synced lines replace stock's */
+        n = lrc_parse(file + 3 * !memcmp(file, "\xef\xbb\xbf", 3), &l, &m);
+        if (n > 0 && l[0].time != LRC_FAR)
+            lrc_push(l, n, 1);
+        else
+            n = 0;
+    }
     unsigned pos = (unsigned)I(MCL_POS, 0);
-    if (mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q ||
-        pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 || !P(r, REC_PATH) ||
-        *(char *)P(r, REC_PATH) != '/')
-        return ret;
-    void *f = taglib_file_new(P(r, REC_PATH), 0);
-    if (!f) return ret;
-    unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0), lib = at - TAGLIB_FILE_NEW;
-    char **(*get)(void *, const char *) =
-        (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
-    char **v = 0; /* an unbound entry still holds demo's stub */
-    if (at != (unsigned)taglib_file_new) {
-        v = get(f, "LYRICS");
-        if (!v || !*v || !**v) {
-            if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
-            v = get(f, "UNSYNCEDLYRICS");
+    if (!(mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q ||
+          pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 ||
+          !P(r, REC_PATH) || *(char *)P(r, REC_PATH) != '/'))
+        f = taglib_file_new(P(r, REC_PATH), 0);
+    if (f) {
+        unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0);
+        char **(*get)(void *, const char *) =
+            (char **(*)(void *, const char *))((lib = at - TAGLIB_FILE_NEW) + TAGLIB_PROPERTY_GET);
+        if (at != (unsigned)taglib_file_new) { /* an unbound entry still holds demo's stub */
+            v = get(f, "LYRICS");
+            if (!v || !*v || !**v) {
+                if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+                v = get(f, "UNSYNCEDLYRICS");
+            }
+        }
+        if (v && *v && **v && (n = lrc_parse(*v, &l, &m)) > 0) {
+            lrc_push(l, n, 0);
+            ret = 1;
         }
     }
-    unsigned cap = 1, n = 0;
-    for (const char *s = v && *v ? *v : ""; *s && s - *v < LYRIC_TAG_MAX;
-         ++s) /* a line, or a stamp */
-        cap += *s == '\n' || *s == '\r' || *s == '[';
-    lrc_line *l = v && *v && **v ? calloc(cap, sizeof *l) : 0;
-    if (l) {
-        int synced = 0;
-        for (char *s = *v; *s && s - *v < LYRIC_TAG_MAX;) {
-            char *e = s, c, *text = s;
-            int t[8], k;
-            while (*e && *e != '\n' && *e != '\r') ++e;
-            c = *e, *e = 0;
-            if ((k = lrc_stamps(&text, t, 8)) && !synced)
-                synced = 1, n = 0; /* LRC: the lines before go */
-            for (int i = 0; i < (k ? k : !synced) && n < cap; ++i)
-                l[n] = (lrc_line){ k ? t[i] : 0x7fffffff, (int)n, *text ? text : " " },
-                ++n; /* " ": stock's for a stamp alone */
-            s = e + (c != 0) + (c == '\r' && e[1] == '\n');
-        }
-        if (synced) qsort(l, n, sizeof *l, lrc_order);
-        struct {
-            int time;
-            const char *text;
-        } line;
-        pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
-        for (unsigned i = 0; i < n; ++i) {
-            line.time = l[i].time, line.text = l[i].text;
-            _deque_push_back(P(MCL_LYRICS, 0), &line);
-        }
-        pthread_mutex_unlock((void *)MCL_LYRIC_LOCK);
-        free(l);
-        ret = 1;
-    }
+#if IPOD
+    /* every load sends its synced lines, or none (the rows hold unsynced ones): never the last's */
+    lyrics_publish(l, n > 0 && l[0].time != LRC_FAR ? n : 0, m);
+#endif
     if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
-    taglib_file_free(f);
+    if (f) taglib_file_free(f);
+    free(file);
+    free(l);
+    free(m);
     return ret;
 }
 
@@ -2938,8 +3044,22 @@ int ringnav_lyric(void) {
  * wheel stop, cut the top row. The content grows to the first row top at or past that end plus the
  * view: under a row of blank space below the last. A relayout (scroll_view's, 0x5f17a8) puts the
  * height back and clamps the offset; the next follow, tick or glide step pads it again. ponytail:
- * the wheel and a drag stop anywhere, so a row can be cut at the top until the page follows. */
+ * the wheel and a drag stop anywhere, so a row can be cut at the top until the page follows. iPod's
+ * lyrics page (lyrics.c) ends with its last line in the middle. */
+#if IPOD
+/* The offset that centres row i of lrc in its view. */
+static int lyric_centre(void *lrc, int i) {
+    void *row = widget_get_child(lrc, i);
+    return I(row, W_Y) + (I(row, W_H) - I(lrc, W_H)) / 2;
+}
+#endif
 static void lyric_pad(void *lrc) {
+#if IPOD
+    if (lyrics_on(lrc)) {
+        I(lrc, VIEW_CONTENT_H) = lyric_centre(lrc, widget_count_children(lrc) - 1) + I(lrc, W_H);
+        return;
+    }
+#endif
     int h = I(lrc, W_H), end = I(lrc, VIEW_CONTENT_H) - h, top = 1 << 30;
     for (int i = widget_count_children(lrc); i-- > 0;) {
         int t = I(widget_get_child(lrc, i), W_Y);
@@ -2989,12 +3109,14 @@ static void lyric_glide(void *lrc, int to) {
 /* The Now Playing timer's follow (LYRIC_FOLLOW in tools/build.py): stock scrolls to the row three
  * lines above the current one, which past the end clamps to it. iPod: lyrics the wheel or a finger
  * moved stay (lyric_held) until the page leaves them or another song starts, and a finger on the
- * screen keeps them too; on the page, the follow glides. */
+ * screen keeps them too; on the page, the follow glides. The lyrics page follows its own playing
+ * line (lyric_follow). */
 int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     lyric_pad(lrc);
 #if IPOD
     if (lrc == st.np_lrc) {
-        if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return 0;
+        if (st.lyric_held || lyrics_on(lrc) || window_manager_get_pointer_pressed(window_manager()))
+            return 0;
         if (lyrics_shown()) {
             lyric_glide(lrc, y * 16);
             return 0;
@@ -3009,11 +3131,13 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
  * g_forcerefresh_flag is set, as Play/Pause (playpause_quick_click) and the page's return to the
  * front do, and the rebuild ends at offset 0: the lyrics flicked to the top until the next follow.
  * The offset stays; the follow moves it if the line did. iPod: rows for another song than the last
- * rows' start at the top (lyric_top), whatever moved the old ones since the song changed. */
+ * rows' start at the top (lyric_top), whatever moved the old ones since the song changed, and they
+ * become the lyrics page's (lyrics_rows). */
 int ringnav_lyric_rows(void *win) {
     void *lrc = widget_lookup(win, "scroll_lrc", 1);
     int y = lrc ? I(lrc, SCROLL_Y) : 0, ret = ((int (*)(void *))0x529f0c)(win);
 #if IPOD
+    if (lrc && lrc == st.np_lrc && lyrics_rows(lrc)) lyric_pad(lrc);
     unsigned song = lrc && lrc == st.np_lrc ? np_track() : st.lyric_rows_song;
     if (song != st.lyric_rows_song) {
         st.lyric_rows_song = st.lyric_song = song;
@@ -3412,8 +3536,42 @@ static void lyric_snap(void *lrc) {
  * them as the wheel does; stock's scroll animation stops as it lands, so only the finger moves
  * them, and a swipe that brings the page in holds nothing. Leaving the page drops the hold; the
  * next follow, off the page, jumps to the current line. Another song starts at the top, its hold
- * gone. */
+ * gone. The lyrics page's rows are its lines, a tick's worth a line. */
 #define LYRIC_ROW_PX 20
+
+/* Now Playing's lyrics are the lyrics page's (lyrics.c): the rows full width after a blank
+ * LYRIC_SLOT. Stock's init built the rows before ringnav_playing knew the page; they become the
+ * page's, or, with none or no memory for their table, stay stock's. */
+static void lyric_init(void) {
+    void *lrc = st.np_lrc;
+    if (!lrc) return;
+    char layout[48];
+    tk_snprintf(layout, sizeof layout, "list_view(x=0,y=%d,s=0)", LYRIC_SLOT);
+    widget_set_children_layout(lrc, layout);
+    if (lyrics_rows(lrc))
+        lyric_pad(lrc);
+    else
+        widget_layout_children(lrc);
+}
+
+/* The lyrics page, every pass: its playing line centred, gliding there while the page shows, else
+ * jumping, unless the wheel or a finger holds them or a finger is on the screen. Its rows repaint
+ * while it is in front (front) and lit. */
+static void lyric_follow(void *lrc, int front, int shown) {
+    int line = lyrics_line(lrc, lyrics_now(), front && usable()),
+        to = lyric_centre(lrc, line > 0 ? line : 0);
+    if (to < 0) to = 0;
+    if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return;
+    lyric_pad(lrc);
+    if (shown) {
+        if (to * 16 != st.lyric_to || (!st.lyric_glide && I(lrc, SCROLL_Y) != to))
+            lyric_glide(lrc, to * 16);
+    } else if (I(lrc, SCROLL_Y) != to) {
+        lyric_still(lrc);
+        scroll_view_set_offset(lrc, I(lrc, SCROLL_X), to);
+    }
+}
+
 static void lyric_poll(void) {
     void *lrc = st.np_lrc, *wm = window_manager();
     unsigned song = lrc ? np_track() : st.lyric_song;
@@ -3448,7 +3606,8 @@ static void lyric_poll(void) {
         int y = I(lrc, SCROLL_Y),
             from = st.lyric_glide || (st.lyric_to + 8) >> 4 == y ? st.lyric_to : y * 16;
         /* x rises anticlockwise: back up the lyrics */
-        lyric_glide(lrc, from - travel * LYRIC_ROW_PX * 16 * wheel_pct() / (WHEEL_TICK_UNITS * 50));
+        int row = lyrics_on(lrc) ? LYRIC_SLOT : LYRIC_ROW_PX;
+        lyric_glide(lrc, from - travel * row * 16 * wheel_pct() / (WHEEL_TICK_UNITS * 50));
         st.lyric_spun = 1;
     }
     if (!page)
@@ -3457,6 +3616,8 @@ static void lyric_poll(void) {
         st.lyric_spun = 0;
         lyric_snap(lrc);
     }
+    if (lyrics_on(lrc))
+        lyric_follow(lrc, page && window_manager_get_top_window(wm) == st.np_win, shown);
     if (!shown)
         st.lyric_glide = 0;
     else if (st.lyric_glide)
@@ -3551,6 +3712,7 @@ static int np_gone(void *win, void *event) {
         st.np_off = 0;
         stop_timer(&st.np_marquee);
         np_cancel();
+        lyrics_gone(); /* the next page's rows may take its rows' place */
     }
     return 0;
 }
@@ -3571,6 +3733,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
+    lyric_init();                                    /* the rows stock's init built */
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);

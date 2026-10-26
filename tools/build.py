@@ -279,6 +279,10 @@ LYRIC_FOLLOW = (0x52bed0, 0x0320f809)
 # The page refresh's bal to the lyric row builder (0x529f0c, which ends at offset 0) becomes jal
 # ringnav_lyric_rows, which keeps the offset: Play/Pause no longer flicks the lyrics to the top.
 LYRIC_ROWS = (0x52b8f8, 0x0411f984)
+# Stock's .lrc loader (0x5a9718) opens the file it parses with jalr fopen (lw $t9 at 0x5a9c54): jal
+# ringnav_lrc_open, which keeps a copy that ringnav_lyric reads again, without its blank lines and, for iPod's
+# lyrics page, with its milliseconds and word stamps.
+LYRIC_OPEN = (0x5a9c5c, 0x0320f809)
 # parse_albumcovertask_thd's jalr toolsGetAlbumCover (Albums grids; Folder view's folder and track rows),
 # each with its lw $t9, become jal coverflow_grid_cover, which gives ffmpeg the Ogg pictures stock skips;
 # the Albums grid's (first, before stock's toolsGetExternCover) jal coverflow_album_cover.
@@ -584,6 +588,9 @@ def english_ui(rel, data):
 # inside words wherever a tag has one; its cmaps map them to the straight glyphs instead. Its hearts
 # mix too: the ratings' ♡ (CJK: smaller, higher, the em advance) is fitted to Arial's ♥ box, both a wider advance.
 FONT = 'release/assets/default/raw/fonts/default.ttf'
+# iPod's lyrics page (patch/lyrics.c) draws Latin lines in Inter Display ExtraBold (OFL, assets/fonts/OFL.txt),
+# subset to the characters lyrics.c's ly_inter accepts; AWTK loads it by name ("lyric") on first use.
+LYRIC_FONT = 'release/assets/default/raw/fonts/lyric.ttf'
 QUOTES = {0x2018: 0x27, 0x2019: 0x27, 0x201c: 0x22, 0x201d: 0x22}
 
 def font_quotes(data):
@@ -767,6 +774,7 @@ FUNCTIONS = {
  'label_create': ('void *', 'void *, int, int, int, int'),
  'stock_search': ('int', 'void *, void *'),
  'widget_set_children_layout': ('int', 'void *, const char *'),
+ 'widget_get_canvas': ('void *', 'void *'),  # the lyrics page measures its lines (lyrics.c)
  'widget_resize': ('int', 'void *, int, int'),
  'widget_layout_children': ('int', 'void *'),
  'widget_lookup': ('void *', 'void *, const char *, int'),
@@ -1099,7 +1107,7 @@ def compile_payload(out, ipod):
     (out/'trampoline.S').write_text('\n'.join(asm)+'\n')
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
-        *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
+        *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod, '--undefined=ringnav_lrc_open',
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_lyric_save', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
         '--undefined=ringnav_baidu_poll', '--undefined=ringnav_tidal_poll',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
@@ -1343,6 +1351,9 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
           'lyric follow: expected scroll_view_scroll_to import')
     patch_word(patched, *LYRIC_FOLLOW, jal(ps['ringnav_lyric_follow']), 'lyric rows whole at the top')
     patch_word(patched, *LYRIC_ROWS, jal(ps['ringnav_lyric_rows']), 'lyrics keep their place on a refresh')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x5a9c54))[0] == 0x8f99f4e8,
+          'lyric file: expected fopen import')
+    patch_word(patched, *LYRIC_OPEN, jal(ps['ringnav_lrc_open']), 'lyric files read as tags are')
     for call, load, fn in GRID_COVER:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, load))[0] == 0x8f99b6e0,
               'grid cover: expected toolsGetAlbumCover import')
@@ -1505,6 +1516,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
+                               **({LYRIC_FONT: (FONT, (ROOT/'assets/fonts/lyric.ttf').read_bytes())} if ipod else {}),
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')

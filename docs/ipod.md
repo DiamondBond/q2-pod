@@ -430,11 +430,8 @@ keeps its existing artist color. Long lines scroll, as stock.
 the label. There is no on-screen transport row: the buttons play, pause and skip.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
-with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
-each lyric line 225 pixels wide, and wraps a line wider than that. The lyrics' scroll view, which
-clips them, is 4 pixels wider on each side (`NP_LRC_GUTTER`, its list layout setting the rows that
-far in), because a letter's ink can reach up to 2 pixels past the width stock measures, as an f
-ending a line does; at the scroll view's edge a full line lost those pixels on either side. The info page's lines read `Label: value`, with spaced units
+with the lyrics or info page. The info page keeps its stock 225-pixel column, centred; the lyrics
+page spans the screen (**Lyrics** below). The info page's lines read `Label: value`, with spaced units
 (`35.92 MB`, `16-bit`, `950 kbps`, `44.1 kHz`), **Genre** and **Year** for stock's Genres and Era,
 `Unknown` for a missing value and `Location:` before the folder (`ringnav_np_info`, both builds). The play/pause overlay has zero opacity, retaining its original gesture target without
 a transport glyph; stock may update its visibility without making it appear. The loading
@@ -478,16 +475,33 @@ scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
 
-**Lyrics.** Stock already highlights the current line and scrolls to keep it in view. The top row is
-always whole: near the end the lines stop with up to a row of space below the last, not with the top
-one cut. On the
+**Lyrics.** The lyrics page shows the lyrics large, for reading at a glance, as Apple Music's do:
+the playing line centred, the one before above it and the next below, its text `LYRIC_X` (16
+pixels, as the art) from the left.
+Every line is 34 pixels, as large as reads well in the page's width; a long one wraps, at a space
+or beside a CJK character, onto as many rows as it takes, up to four, which still fit the page
+(the rest cut). The page is made for English lyrics: a line of Latin text (with its curly quotes,
+dashes and ellipsis) is set in Inter Display ExtraBold, a heavy face like Apple Music's
+(`assets/fonts/lyric.ttf`, installed as `raw/fonts/lyric.ttf`); any other line is set in the system
+font, drawn twice a pixel apart for weight. A line's row is its rows
+(38 pixels apart) plus 21 pixels between lines: `LYRIC_SLOT` (59 pixels) for one row, so three
+such lines fill the 178-pixel page. A line the page's edge cuts fades with the square of the share
+of it out of view, so no sliver of a line shows. The playing line lights white (`LYRIC_LIT`); the other lines are darker (`LYRIC_REST`,
+`#5F5F5F`). A line with word stamps (A2's enhanced LRC, `<mm:ss.xx>` before a word, in a .lrc or a
+LYRICS tag) lights word by word as it is sung, each word from its stamp to the next (the last, with
+no stamp after it, at `LYRIC_UNIT_MS`, 90 ms, a letter, done by the next line), its unsung part
+grey (`LYRIC_DIM`, `#808080`); a line timed by the line alone, as LRCLIB's are, lights whole as it
+starts. Lines that start together, as a line and its translation, play
+together. Blank lines in the lyrics (empty lines between verses, a stamp with no words, lines of
+spaces) are left out and the spaces at a line's ends trimmed, so the lines keep an even spacing. Before the first line the first waits in the middle, unlit. Lines change at their
+hundredths of a second, by a clock of the page's own between the player's whole seconds. On the
 lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixel at a time as it
-turns and as far a turn as a row a tick, instead of changing the volume or scrubbing; a scrub under
-way ends first, as any other end does. While the finger stays on the wheel they stay exactly where
-it put them; let go, they glide to the nearest whole line. On the page, the follow to a new line
-glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
+turns and as far a turn as a line a tick, instead of changing the volume or scrubbing; a scrub
+under way ends first, as any other end does. While the finger stays on the wheel they stay
+exactly where it put them; let go, they glide to the nearest whole line. On the page, the follow
+to a new line glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
 highlight go on, until the page swipes away from them; back on the lyrics page they are on the
-current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod).
+current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod) and [Word-timed lyrics](internals.md#word-timed-lyrics).
 
 ### Visualizer
 
