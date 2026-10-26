@@ -3896,14 +3896,10 @@ int ringnav_paint_bg(void *w, void *canvas) {
     if (!w || P(w, W_PARENT) != wm) return result;
     if (w == bar && P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-        /* Classic in Light Mode: an iPod's grey bar, flat, over a hairline (final colours) */
+        /* Classic in Light Mode: an iPod's grey bar, flat (final colour) */
         int grey = ipod_classic() && ipod_light();
         stock_canvas_set_fill_color(canvas, grey ? RGBA(LIGHT_BAR) : ui_ink(RGBA(BAR_COLOR)));
         canvas_fill_rect(canvas, 0, 0, I(w, W_W), I(w, W_H));
-        if (grey) {
-            stock_canvas_set_fill_color(canvas, RGBA(LIGHT_BAR_LINE));
-            canvas_fill_rect(canvas, 0, I(w, W_H) - 1, I(w, W_W), 1);
-        }
         stock_canvas_set_fill_color(canvas, fill);
     }
     void *top = window_manager_get_top_window(wm);

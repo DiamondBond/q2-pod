@@ -231,7 +231,6 @@ static inline int arc_out(int r, int y) {
 #define LIGHT_GLYPH 0xa0
 #define LIGHT_SURFACE 4
 #define LIGHT_BAR 0xdedede      /* Classic's status bar in Light Mode, as an iPod's, flat */
-#define LIGHT_BAR_LINE 0xc4c4c4 /* and its bottom hairline */
 /* Minimal's small capitals are SUDO_TRACK px apart (draw_spaced); secondary text is SUDO_MUTED. */
 #define SUDO_TRACK 2
 #define SUDO_MUTED 0x8c8c8c
