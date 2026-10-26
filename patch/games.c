@@ -1068,7 +1068,7 @@ void games_paint(void *w, void *canvas) {
         snake_paint(canvas, tone);
     else
         vortex_paint(canvas, tone);
-    canvas_set_fill_color(canvas, fill);
+    stock_canvas_set_fill_color(canvas, fill);
 }
 
 static int closed(void *ctx, void *event) {

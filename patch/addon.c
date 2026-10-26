@@ -943,5 +943,5 @@ void addon_paint(void *w, void *canvas) {
             if (run) canvas_fill_rect(canvas, o + x * m, o + y * m, run * m, m);
             x += run ? run : 1;
         }
-    canvas_set_fill_color(canvas, fill);
+    stock_canvas_set_fill_color(canvas, fill);
 }

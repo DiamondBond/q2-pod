@@ -18,6 +18,57 @@
 #include "peq_platform.h"
 #define PEQ_ROOT "" /* host tests pass a scratch directory */
 void child_exit(int status) __attribute__((noreturn));
+#ifdef canvas_set_fill_color
+/* Light Mode: every colour the payload draws passes ui_ink (navigation.c) on its way to these stock
+ * setters, as stock's own colours pass the style and image hooks. stock_* sets a colour read back
+ * from the LCD, which has passed already. */
+unsigned ui_ink(unsigned rgba);
+static inline int stock_canvas_set_fill_color(void *c, unsigned x) {
+    return canvas_set_fill_color(c, x);
+}
+static inline int stock_canvas_set_text_color(void *c, unsigned x) {
+    return canvas_set_text_color(c, x);
+}
+static inline int stock_canvas_set_stroke_color(void *c, unsigned x) {
+    return canvas_set_stroke_color(c, x);
+}
+static inline int ink_canvas_fill_rounded_rect(void *c, const void *r, const void *g,
+                                               const void *color, unsigned radius) {
+    unsigned v = ui_ink(*(const unsigned *)color);
+    return canvas_fill_rounded_rect(c, r, g, &v, radius);
+}
+static inline int ink_canvas_stroke_rounded_rect(void *c, const void *r, const void *g,
+                                                 const void *color, unsigned radius, unsigned w) {
+    unsigned v = ui_ink(*(const unsigned *)color);
+    return canvas_stroke_rounded_rect(c, r, g, &v, radius, w);
+}
+static inline int ink_vgcanvas_set_fill_color(void *vg, unsigned x) {
+    return vgcanvas_set_fill_color(vg, ui_ink(x));
+}
+static inline int ink_vgcanvas_set_stroke_color(void *vg, unsigned x) {
+    return vgcanvas_set_stroke_color(vg, ui_ink(x));
+}
+static inline int ink_vgcanvas_set_fill_linear_gradient(void *vg, float sx, float sy, float ex,
+                                                        float ey, unsigned from, unsigned to) {
+    return vgcanvas_set_fill_linear_gradient(vg, sx, sy, ex, ey, ui_ink(from), ui_ink(to));
+}
+#undef canvas_set_fill_color
+#undef canvas_set_text_color
+#undef canvas_set_stroke_color
+#undef canvas_fill_rounded_rect
+#undef canvas_stroke_rounded_rect
+#undef vgcanvas_set_fill_color
+#undef vgcanvas_set_stroke_color
+#undef vgcanvas_set_fill_linear_gradient
+#define canvas_set_fill_color(c, x) stock_canvas_set_fill_color(c, ui_ink(x))
+#define canvas_set_text_color(c, x) stock_canvas_set_text_color(c, ui_ink(x))
+#define canvas_set_stroke_color(c, x) stock_canvas_set_stroke_color(c, ui_ink(x))
+#define canvas_fill_rounded_rect ink_canvas_fill_rounded_rect
+#define canvas_stroke_rounded_rect ink_canvas_stroke_rounded_rect
+#define vgcanvas_set_fill_color ink_vgcanvas_set_fill_color
+#define vgcanvas_set_stroke_color ink_vgcanvas_set_stroke_color
+#define vgcanvas_set_fill_linear_gradient ink_vgcanvas_set_fill_linear_gradient
+#endif
 #endif
 
 #define PEQ_BANDS 30 /* 10 per side plus 10 shared, as L/R APO files use */
@@ -249,6 +300,7 @@ const char *output_device(char *vol);         /* books.c */
 void dac_take(void);                          /* books.c */
 #if IPOD
 int ipod_classic(void); /* navigation.c: Theme: Classic */
+int ipod_light(void);   /* navigation.c: Light Mode */
 #define np_bar_h() (ipod_classic() ? NP_BAR_CLASSIC : NP_BAR_MINIMAL)
 #else
 #define np_bar_h() SPOT_BAR_H

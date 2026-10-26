@@ -597,6 +597,6 @@ void lyrics_paint(void *row, void *canvas) {
             ly_ink(canvas, base, s, l->len[r], y, 0, cut, rgba(LYRIC_LIT, alpha));
     }
     canvas_set_clip_rect(canvas, base);
-    canvas_set_text_color(canvas, text);
+    stock_canvas_set_text_color(canvas, text);
 }
 #endif

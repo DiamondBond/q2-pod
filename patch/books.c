@@ -713,7 +713,7 @@ void books_paint(void *w, void *canvas) {
                                  draw_line, canvas);
     bk.prev =
         bk.base + book_back(bk.buf, bk.len, bk.pos - bk.base, BOOK_ROWS, width, measure, canvas);
-    canvas_set_text_color(canvas, color);
+    stock_canvas_set_text_color(canvas, color);
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     int y = BOOK_Y + BOOK_ROWS * BOOK_LH + 6, span = 375 - 16;
     unsigned end = bk.end, size = bk.size;
@@ -723,7 +723,7 @@ void books_paint(void *w, void *canvas) {
     canvas_fill_rect(canvas, 8, y, span, 2);
     canvas_set_fill_color(canvas, rgba(BOOK_TONE, 255));
     canvas_fill_rect(canvas, 8, y, done > span ? span : done, 2);
-    canvas_set_fill_color(canvas, fill);
+    stock_canvas_set_fill_color(canvas, fill);
 }
 
 /* Videos (docs/internals.md#videos): patch/video.c draws on /dev/fb0 and plays the sound while
