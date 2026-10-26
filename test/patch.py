@@ -5846,7 +5846,8 @@ if variant=='ipod':
         def rows(self): self.call(address=payload_syms['ringnav_lyric_rows'],args=(self.win,0,0,0),gap=0,clear=False); return y(self)
         def lyric_row(self,i): return self.nodes[self.lrc]['children'][i]
         def at_ms(self,ms=0): self.advance(ms,clear=False); return self.call(address=payload_syms['lyrics_now'],args=(0,0,0,0),gap=0,clear=False)
-        def ink(self,i): self.k_inks=[]; self.clip=(0,0,375,SLOT); self.paint(self.lyric_row(i),gap=0); return self.k_inks
+        def ink(self,i):  # each row's draws but the bold's (LYRIC_BOLD) a pixel right
+            self.k_inks=[]; self.clip=(0,0,375,SLOT); self.paint(self.lyric_row(i),gap=0); return [x for x in self.k_inks if x[1]==16]
         def dirty(self): return [c[1] for c in self.calls if c[0]=='widget_invalidate_force' and c[1] in self.nodes[self.lrc]['children']]
     def karaoke(lines=((5,'One'),(9,'Two two'),(12,'Three'),(20,'Four'),(30,'Five')),**kw):
         m=KaraokeMachine(**kw); m.lines=list(lines); return m
@@ -5855,14 +5856,15 @@ if variant=='ipod':
     # first line the first sits in the middle, unlit, all LYRIC_REST; the playing line glides there on the page.
     m=karaoke(); assert m.show(4)==0 and m.nodes[m.lrc]['children_layout']==f'list_view(x=0,y={SLOT},s=0)'
     assert [(m.nodes[r]['text'],m.get(r+O['W_H']),m.get(r+O['W_W']),m.get(r+O['W_Y'])) for r in m.nodes[m.lrc]['children']]==[('',SLOT,375,(i+1)*SLOT) for i in range(5)]
-    assert [(x[0],x[3],x[6]) for x in m.ink(0)]==[('One',REST,'lyric')]; passed()  # Inter Display ExtraBold, once
+    assert [(x[0],x[3],x[6]) for x in m.ink(0)]==[('One',REST,'default')]; passed()  # the system font
     assert settle(m)[-1]==0 and m.get(m.lrc+O['VIEW_CONTENT_H'])==4*SLOT+178; passed()  # the last line can reach the middle
     m.playtime=5; assert settle(m)[-1]==0; m.playtime=9; ys=settle(m); assert ys[-1]==SLOT and 0<ys[0]<SLOT,ys; passed()
-    # Off the page it jumps; the wheel moves them a line a tick's worth and holds them, off the follow, until
-    # the page swipes away and back.
-    m.nodes[m.slide]['value']=0; m.playtime=12; assert loop(m)==2*SLOT; m.nodes[m.slide]['value']=1; loop(m)
+    # Off the page it jumps, at stock's timer's pace (LYRIC_FOLLOW_MS); the wheel moves them a line a tick's
+    # worth and holds them, off the follow, until the page swipes away and back.
+    m.nodes[m.slide]['value']=0; m.playtime=12; assert loop(m)==SLOT and loop(m,ms=250)==2*SLOT
+    m.nodes[m.slide]['value']=1; loop(m)
     loop(m,-28); assert settle(m)[-1]==3*SLOT; m.playtime=30; assert settle(m)[-1]==3*SLOT; passed()
-    m.nodes[m.slide]['value']=0; assert loop(m)==4*SLOT; m.nodes[m.slide]['value']=1; assert settle(m)[-1]==4*SLOT; passed()
+    m.nodes[m.slide]['value']=0; assert loop(m,ms=250)==4*SLOT; m.nodes[m.slide]['value']=1; assert settle(m)[-1]==4*SLOT; passed()
     # Another song starts at the top, and its first rows too; a refresh's rows for the same song keep the table
     # and the place; a finger on the screen keeps them where they are.
     m.word(O['MCL_POS'],2); m.playtime=0; assert loop(m)==0 and settle(m)[-1]==0 and m.rows()==0; passed()
@@ -5877,17 +5879,17 @@ if variant=='ipod':
     m.word(PLAY_STATUS,3); assert m.at_ms(500)==9400; m.word(PLAY_STATUS,2); assert m.at_ms()==9400 and m.at_ms(100)==9500
     m.playtime=10; assert m.at_ms(10)==10000+POLL//2; m.playtime=60; assert m.at_ms(10)==60000+(999+POLL)//2; passed()
     # The playing line, timed by the line alone (these lyrics have no word stamps), lit LYRIC_LIT whole as it
-    # starts, in Inter Display ExtraBold ("lyric"): "Two two" one 34 px row (pitch 38) from x 16, centred in
-    # its slot. The other lines are LYRIC_REST; the clip comes back.
+    # starts, in the system font drawn three times a pixel apart: "Two two" one 34 px row (pitch 38) from x 16,
+    # centred in its slot. The other lines are LYRIC_REST; the clip comes back.
     m=karaoke(); m.show(8); m.at_ms(); m.at_ms(1000); m.playtime=9; m.at_ms(); m.at_ms(275); loop(m,ms=0)  # 9400
-    assert m.ink(1)==[('Two two',16,12,LIT,34,(0,0,375,SLOT),'lyric')],m.k_inks
+    assert m.ink(1)==[('Two two',16,12,LIT,34,(0,0,375,SLOT),'default')] and [x[1] for x in m.k_inks]==[16,17,18],m.k_inks
     assert {x[3] for x in m.ink(0)+m.ink(2)}=={REST} and m.clip==(0,0,375,SLOT); passed()
     m.advance(600,clear=False); loop(m,ms=0); assert [(x[3],x[5]) for x in m.ink(1)]==[(LIT,(0,0,375,SLOT))]; passed()
     # Its rows repaint as the lit width moves, and the last line's as the next one starts.
     m.calls=[]; loop(m); assert not m.dirty(); m.playtime=12; m.calls=[]; loop(m); assert m.dirty()[:2]==[m.lyric_row(1),m.lyric_row(2)]; passed()
     # A line too wide for a row wraps at its last space, at the same 34 px (20 characters a row here, pitch 38),
     # its row on the page as high as its rows plus the gap between lines (LYRIC_SLOT less a pitch), its text
-    # centred in it; CJK breaks anywhere, in the system font, drawn twice a pixel apart (a pixel less room);
+    # centred in it, two pixels less room for the bold; CJK breaks anywhere;
     # past LYRIC_ROWS (4) rows the rest is cut.
     m=karaoke([(10,'abcdefghi '*3+'abcdefghi'),(20,'字'*40),(30,'x'*60),(40,'One'),(50,'y'*150)]); m.show()
     gap=SLOT-38; hs=[2*38+gap,2*38+gap,3*38+gap,SLOT,4*38+gap]
@@ -5895,8 +5897,8 @@ if variant=='ipod':
     assert [m.get(m.lyric_row(i)+O['W_Y']) for i in range(5)]==[SLOT+sum(hs[:i]) for i in range(5)]
     def whole(i):  # its row at the top; each row's first draw
         m.word(m.lrc+O['SCROLL_Y'],m.get(m.lyric_row(i)+O['W_Y'])); return [x for x in m.ink(i) if x[1]==16]
-    assert [(x[0],x[2],x[4],x[6]) for x in whole(0)]==[('abcdefghi abcdefghi',12,34,'lyric'),('abcdefghi abcdefghi',50,34,'lyric')]
-    assert [(x[0],x[4],x[6]) for x in whole(1)]==[('字'*20,34,'default'),('字'*20,34,'default')] and [x[1] for x in m.k_inks]==[16,17,16,17]
+    assert [(x[0],x[2],x[4],x[6]) for x in whole(0)]==[('abcdefghi abcdefghi',12,34,'default'),('abcdefghi abcdefghi',50,34,'default')]
+    assert [(x[0],x[4],x[6]) for x in whole(1)]==[('字'*20,34,'default'),('字'*20,34,'default')] and [x[1] for x in m.k_inks]==[16,17,18]*2
     assert [(len(x[0]),x[2]) for x in whole(2)]==[(20,12),(20,50),(20,88)] and [x[2] for x in whole(3)]==[12]
     assert [len(x[0]) for x in whole(4)]==[20]*4; m.word(m.lrc+O['SCROLL_Y'],0); passed()
     # The playing line is centred, however many rows it has: line 2's 135 px centre on the page's.
@@ -5924,6 +5926,9 @@ if variant=='ipod':
     def at13125(m): m.at_ms(); m.at_ms(275); m.playtime=13; m.at_ms(); loop(m,ms=0)
     m=karaoke([],tags={'LYRICS':tag}); m.load(); m.show(12); at13125(m); assert lit(m)==51+51*225//500
     m.advance(675,clear=False); loop(m,ms=0); assert lit(m)==102+85*400//800; passed()  # 800 ms: "world" is 450
+    # Its row repaints as the lit width moves, at most every LYRIC_PAINT_MS (66 ms): 33 passes 8 ms apart, at
+    # the first pass past each, 3 times (it moved on most).
+    m.calls=[]; [loop(m) for _ in range(33)]; assert m.dirty().count(m.lyric_row(0))==3,m.dirty(); passed()
     m.playtime=15; loop(m,ms=0); assert [(x[0],x[3],x[5]) for x in m.ink(1)]==[('Next',LIT,(0,0,375,SLOT))]; passed()
     m=karaoke([(12,'Hello world'),(15,'Next')],tags={'LYRICS':tag}); m.show(12); m.load(); at13125(m); assert lit(m)==51+51*225//500; passed()
     m=karaoke([],tags={'LYRICS':tag}); m.load(); m.lines=[(12,'Hello world'),(15,'Nest')]; m.show(12); at13125(m)

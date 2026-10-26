@@ -481,10 +481,8 @@ the playing line centred, the one before above it and the next below, its text `
 pixels, as the art) from the left.
 Every line is 34 pixels, as large as reads well in the page's width; a long one wraps, at a space
 or beside a CJK character, onto as many rows as it takes, up to four, which still fit the page
-(the rest cut). The page is made for English lyrics: a line of Latin text (with its curly quotes,
-dashes and ellipsis) is set in Inter Display ExtraBold, a heavy face like Apple Music's
-(`assets/fonts/lyric.ttf`, installed as `raw/fonts/lyric.ttf`); any other line is set in the system
-font, drawn twice a pixel apart for weight. A line's row is its rows
+(the rest cut). Every line is set in the system font, drawn three times a pixel apart for a heavy
+weight like Apple Music's. A line's row is its rows
 (38 pixels apart) plus 21 pixels between lines: `LYRIC_SLOT` (59 pixels) for one row, so three
 such lines fill the 178-pixel page. A line the page's edge cuts fades with the square of the share
 of it out of view, so no sliver of a line shows. The playing line lights white (`LYRIC_LIT`); the other lines are darker (`LYRIC_REST`,

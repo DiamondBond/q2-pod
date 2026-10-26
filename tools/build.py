@@ -593,9 +593,6 @@ def english_ui(rel, data):
 # inside words wherever a tag has one; its cmaps map them to the straight glyphs instead. Its hearts
 # mix too: the ratings' ♡ (CJK: smaller, higher, the em advance) is fitted to Arial's ♥ box, both a wider advance.
 FONT = 'release/assets/default/raw/fonts/default.ttf'
-# iPod's lyrics page (patch/lyrics.c) draws Latin lines in Inter Display ExtraBold (OFL, assets/fonts/OFL.txt),
-# subset to the characters lyrics.c's ly_inter accepts; AWTK loads it by name ("lyric") on first use.
-LYRIC_FONT = 'release/assets/default/raw/fonts/lyric.ttf'
 QUOTES = {0x2018: 0x27, 0x2019: 0x27, 0x201c: 0x22, 0x201d: 0x22}
 
 def font_quotes(data):
@@ -1545,7 +1542,6 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
-                               **({LYRIC_FONT: (FONT, (ROOT/'assets/fonts/lyric.ttf').read_bytes())} if ipod else {}),
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')

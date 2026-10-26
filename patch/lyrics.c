@@ -226,7 +226,7 @@ typedef struct {
     int ms;                       /* its start, LRC_FAR when unsynced */
     unsigned text, n;             /* its characters, text[text..text + n) */
     unsigned mark, marks;         /* its word stamps, mark[mark..mark + marks) */
-    unsigned char px, rows, face; /* its layout (px 0 until then): rows of LYRIC_W; face, ly_face */
+    unsigned char px, rows;       /* its layout (px 0 until then): rows of LYRIC_W */
     unsigned short start[LYRIC_ROWS], len[LYRIC_ROWS], w[LYRIC_ROWS];
 } ly_line;
 typedef struct {
@@ -241,15 +241,16 @@ typedef struct {
     unsigned short *adv; /* each character's advance at its line's px */
 } ly_tab;
 
-/* The rows' table, their scroll view, their count and ly_sum; the position the last pass saw, its
- * line (the first of those starting then, -1 before the first) and that line's lit width; and the
- * clock (lyrics_now). next: the loader's latest table, until rows that match it take it. Zero
- * filled, as all the payload's state (patch/link.ld). */
+/* The rows' table, their scroll view, their count and ly_sum; the position the last pass saw and
+ * its line (the first of those starting then, -1 before the first); that line's lit width at its
+ * last repaint, at lit_at; and the clock (lyrics_now). next: the loader's latest table, until
+ * rows that match it take it. Zero filled, as all the payload's state (patch/link.ld). */
 static struct {
     ly_tab *tab, *next;
     void *lrc;
     unsigned rows, sum;
     int ms, cur, fill;
+    unsigned lit_at;
     int sec, run, guess, lo, hi, pos;
 } ly;
 
@@ -323,18 +324,8 @@ int lyrics_on(void *lrc) {
 }
 
 #define LYRIC_W (375 - 2 * LYRIC_X)
-/* A line all of whose characters Inter Display ExtraBold holds, as tools/build.py's LYRIC_FONT
- * subsets it (Latin, its curly quotes, dashes, bullet and ellipsis), is drawn in it ("lyric"),
- * Apple Music's weight; any other line in the system font, drawn LYRIC_BOLD more times a pixel
- * right for weight. */
-#define LYRIC_FACE "lyric"
-#define LYRIC_BOLD 1
-static int ly_inter(unsigned c) {
-    return (c >= 0x20 && c < 0x7f) || (c >= 0xa0 && c < 0x180 && c != 0xad && c != 0x149) ||
-           c == 0x2013 || c == 0x2014 || (c >= 0x2018 && c <= 0x201e) || c == 0x2022 ||
-           c == 0x2026 || c == 0x2032 || c == 0x2033;
-}
-static const char *ly_face(const ly_line *l) { return l->face ? LYRIC_FACE : (const char *)0; }
+/* Lines are drawn in the system font, LYRIC_BOLD more times a pixel right for weight. */
+#define LYRIC_BOLD 2
 static int ly_cjk(unsigned c) {
     return (c >= 0x2e80 && c < 0xa000) || (c >= 0xac00 && c < 0xd7b0) ||
            (c >= 0xff00 && c < 0xfff0);
@@ -354,7 +345,7 @@ static int ly_wrap(ly_line *l, const unsigned *s, const unsigned short *adv) {
                 brk = i, wbrk = x, resume = i + 1;
             else if (i > start && (ly_cjk(s[i]) || ly_cjk(s[i - 1])))
                 brk = i, wbrk = x, resume = i;
-            if (i > start && x + adv[i] + (l->face ? 0 : LYRIC_BOLD) > LYRIC_W) break;
+            if (i > start && x + adv[i] + LYRIC_BOLD > LYRIC_W) break;
         }
         unsigned end = i;
         if (i < l->n && brk > start) end = brk, x = wbrk, i = resume;
@@ -368,9 +359,7 @@ static int ly_wrap(ly_line *l, const unsigned *s, const unsigned short *adv) {
 static void ly_layout(void *canvas, ly_line *l) {
     const unsigned *s = ly.tab->text + l->text;
     unsigned short *adv = ly.tab->adv + l->text;
-    l->face = 1;
-    for (unsigned k = 0; k < l->n; ++k) l->face &= ly_inter(s[k]);
-    canvas_set_font(canvas, ly_face(l), LYRIC_PX); /* else the system default font */
+    canvas_set_font(canvas, (const char *)0, LYRIC_PX); /* the system default font */
     for (unsigned k = 0; k < l->n; ++k)
         adv[k] = (unsigned short)(canvas_measure_text(canvas, s + k, 1) + 0.5f);
     int rows = ly_wrap(l, s, adv);
@@ -532,34 +521,41 @@ static void ly_dirty(void *lrc, int k) {
 
 /* Every UI pass on Now Playing (navigation.c lyric_poll), at ms: the loader's table if it came
  * after the rows, and the playing line, which the follow centres. While the lyrics page shows
- * (page) the playing rows repaint as their lit width moves, and the last ones as it moves on. */
+ * (page) the playing rows repaint as their lit width moves, at most every LYRIC_PAINT_MS, and
+ * the last ones as it moves on: a word-timed line's width moves nearly every pass, and the idle
+ * loop passes every 25 ms. ponytail: LYRIC_PAINT_MS is a guess at a sweep that still looks
+ * smooth; lower it if the light steps, raise it if the page costs too much battery. */
+#define LYRIC_PAINT_MS 66
 int lyrics_line(void *lrc, int ms, int page) {
     if (ly.next && lrc == ly.lrc) ly_take();
     if (!lyrics_on(lrc)) return -1;
+    unsigned now = (unsigned)time_now_ms();
     int cur = ly_line_at(ms),
         fill = cur >= 0 && ly.tab->line[cur].px ? ly_lit((unsigned)cur, ms) : -1;
-    if (page && (cur != ly.cur || fill != ly.fill || fill < 0)) {
+    if (page &&
+        (cur != ly.cur || fill < 0 || (fill != ly.fill && now - ly.lit_at >= LYRIC_PAINT_MS))) {
         if (cur != ly.cur) ly_dirty(lrc, ly.cur);
         ly_dirty(lrc, cur);
+        ly.fill = fill, ly.lit_at = now;
     }
-    ly.ms = ms, ly.cur = cur, ly.fill = fill;
+    ly.ms = ms, ly.cur = cur;
     return cur;
 }
 
 /* One row of text clipped to from..to (the row's x) within its own clip (base). */
 static void ly_ink(void *canvas, const int *base, const unsigned *s, unsigned n, int y, int from,
-                   int to, unsigned color, int bold) {
+                   int to, unsigned color) {
     int x = I(canvas, CANVAS_X),
         clip[4] = { x + from > base[0] ? x + from : base[0], base[1], 0, base[3] };
     clip[2] = (x + to < base[0] + base[2] ? x + to : base[0] + base[2]) - clip[0];
     if (clip[2] <= 0 || clip[3] <= 0) return;
     canvas_set_clip_rect(canvas, clip);
     canvas_set_text_color(canvas, color);
-    for (int b = 0; b <= bold; ++b) canvas_draw_text(canvas, s, n, LYRIC_X + b, y);
+    for (int b = 0; b <= LYRIC_BOLD; ++b) canvas_draw_text(canvas, s, n, LYRIC_X + b, y);
 }
 
-/* ringnav_paint, after stock painted a lyrics row (blank): its line, centred in it, in its face
- * (ly_face), LYRIC_LIT as far as it is sung while it plays and LYRIC_DIM past that; any other line
+/* ringnav_paint, after stock painted a lyrics row (blank): its line, centred in it, bold
+ * (LYRIC_BOLD), LYRIC_LIT as far as it is sung while it plays and LYRIC_DIM past that; any other line
  * LYRIC_REST. A row the page's edge cuts fades with the square of the share of it out of view, so
  * no sliver of a line shows. The text color and clip are restored, the font is not. */
 void lyrics_paint(void *row, void *canvas) {
@@ -578,19 +574,17 @@ void lyrics_paint(void *row, void *canvas) {
     if (!l->px) ly_layout(canvas, l);
     int on = ly.cur >= 0 && l->ms == ly.tab->line[ly.cur].ms,
         lit = on ? ly_lit((unsigned)i, ly.ms) : 0, pitch = LY_PITCH(l->px),
-        y = (h - l->rows * pitch) / 2 + (pitch - l->px) / 2, w = I(row, W_W),
-        bold = l->face ? 0 : LYRIC_BOLD;
+        y = (h - l->rows * pitch) / 2 + (pitch - l->px) / 2, w = I(row, W_W);
     unsigned text = (unsigned)I(P(canvas, CANVAS_LCD), LCD_TEXT_COLOR);
     canvas_get_clip_rect(canvas, base);
-    canvas_set_font(canvas, ly_face(l), l->px);
+    canvas_set_font(canvas, (const char *)0, l->px);
     for (unsigned r = 0; r < l->rows; lit -= l->w[r++], y += pitch) {
         const unsigned *s = ly.tab->text + l->text + l->start[r];
         int cut = lit <= 0 ? LYRIC_X : lit >= l->w[r] ? w : LYRIC_X + lit;
         if (cut < w)
-            ly_ink(canvas, base, s, l->len[r], y, cut, w, rgba(on ? LYRIC_DIM : LYRIC_REST, alpha),
-                   bold);
+            ly_ink(canvas, base, s, l->len[r], y, cut, w, rgba(on ? LYRIC_DIM : LYRIC_REST, alpha));
         if (cut > LYRIC_X)
-            ly_ink(canvas, base, s, l->len[r], y, 0, cut, rgba(LYRIC_LIT, alpha), bold);
+            ly_ink(canvas, base, s, l->len[r], y, 0, cut, rgba(LYRIC_LIT, alpha));
     }
     canvas_set_clip_rect(canvas, base);
     canvas_set_text_color(canvas, text);

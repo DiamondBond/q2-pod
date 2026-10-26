@@ -378,9 +378,10 @@ typedef struct {
      * lyric_raw while their page holds the wheel's raw travel; lyric_held once the wheel or a drag
      * moved them; lyric_spun once the wheel moved them since it was let go; lyric_touch while a
      * finger is on Now Playing, 1 if it came down on the lyrics, lyric_drag_y the offset then; the
-     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves. */
+     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves;
+     * lyric_follow_at the last follow. */
     int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
-    unsigned lyric_at, lyric_song, lyric_rows_song;
+    unsigned lyric_at, lyric_follow_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
@@ -3358,12 +3359,12 @@ static void lyric_init(void) {
     if (lrc && lyrics_rows(lrc)) lyric_pad(lrc);
 }
 
-/* The lyrics page, every pass: its playing line centred, gliding there while the page shows, else
- * jumping, unless the wheel or a finger holds them or a finger is on the screen. Its rows repaint
- * while it is in front (front) and lit. */
-static void lyric_follow(void *lrc, int front, int shown) {
-    int line = lyrics_line(lrc, lyrics_now(), front && usable()),
-        to = lyric_centre(lrc, line > 0 ? line : 0);
+/* The lyrics page, every pass in front, else every LYRIC_FOLLOW_MS: its playing line centred,
+ * gliding there while the page shows, else jumping, unless the wheel or a finger holds them or a
+ * finger is on the screen. Its rows repaint while it is in front (front) and lit. */
+#define LYRIC_FOLLOW_MS 250
+static void lyric_follow(void *lrc, int ms, int front, int shown) {
+    int line = lyrics_line(lrc, ms, front && usable()), to = lyric_centre(lrc, line > 0 ? line : 0);
     if (to < 0) to = 0;
     if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return;
     lyric_pad(lrc);
@@ -3420,8 +3421,17 @@ static void lyric_poll(void) {
         st.lyric_spun = 0;
         lyric_snap(lrc);
     }
-    if (lyrics_on(lrc))
-        lyric_follow(lrc, page && window_manager_get_top_window(wm) == st.np_win, shown);
+    /* The clock every pass (it narrows on each second's change, lyrics_now); the follow, off the
+     * page in front, where it only jumps, at stock's timer's pace. */
+    int front = page && window_manager_get_top_window(wm) == st.np_win;
+    if (lyrics_on(lrc)) {
+        int ms = lyrics_now();
+        unsigned now = (unsigned)time_now_ms();
+        if (front || now - st.lyric_follow_at >= LYRIC_FOLLOW_MS) {
+            st.lyric_follow_at = now;
+            lyric_follow(lrc, ms, front, shown);
+        }
+    }
     if (!shown)
         st.lyric_glide = 0;
     else if (st.lyric_glide)

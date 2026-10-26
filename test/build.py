@@ -297,16 +297,6 @@ def validate_assets(directory):
     assert new['hmtx'][empty] == new['hmtx'][full] == (old['hmtx'][full][0] + 32, g[full].xMin)
     assert abs(g[empty].xMin - g[full].xMin) <= 1 and abs(g[empty].xMax - g[full].xMax) <= 1
     assert abs(g[empty].yMin - g[full].yMin) <= 1 and abs(g[empty].yMax - g[full].yMax) <= 1
-    # iPod's lyrics face (LYRIC_FONT): Inter Display ExtraBold as assets/fonts holds it, its copyright and OFL
-    # notice in its name table, holding every character patch/lyrics.c's ly_inter draws in it.
-    from build import LYRIC_FONT
-    lyric = TTFont(io.BytesIO((ROOT/'assets/fonts/lyric.ttf').read_bytes()))
-    names = {r.nameID: r.toUnicode() for r in lyric['name'].names if r.langID == 0x409}
-    assert names[4] == 'Inter Display ExtraBold' and 'Inter Project Authors' in names[0] and 'Open Font License' in names[13]
-    inter = [*range(0x20, 0x7f), *(c for c in range(0xa0, 0x180) if c not in (0xad, 0x149)), 0x2013, 0x2014,
-             *range(0x2018, 0x201f), 0x2022, 0x2026, 0x2032, 0x2033]
-    assert all(c in lyric.getBestCmap() for c in inter)
-    if ipod: assert read('rootfs.squashfs', LYRIC_FONT) == (ROOT/'assets/fonts/lyric.ttf').read_bytes()
     assert all(new.reader[t] == old.reader[t] for t in old.reader.keys() if t not in ('cmap', 'head', 'glyf', 'loca', 'hmtx'))
     # The crash watchdog only sleeps longer; check_mem_thd returns on entry, so it never drops caches.
     old, new = read('stock.squashfs', WATCHDOG), read('rootfs.squashfs', WATCHDOG)
