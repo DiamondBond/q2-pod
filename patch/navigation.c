@@ -6998,9 +6998,11 @@ static int ple_mutate(int dest, void *a, void *b) {
                 dest, I(a, REC_ID), b ? I(b, REC_ID) : I(a, REC_ID));
     if (sqlite3_exec(db, sql, ple_checked, &check, 0) || check.seen != (b ? 2 : 1)) goto rollback;
     if (b) {
+        /* No HAVING: the firmware's SQLite (3.19.3) refuses one without GROUP BY. The top id gives
+         * NULL, which ple_number refuses. */
         if (sqlite3_exec(db,
-                         "select max(100,ifnull(max(id),100))+1 from playlist "
-                         "having max(100,ifnull(max(id),100))<2147483647",
+                         "select case when ifnull(max(id),100)<2147483647 "
+                         "then max(100,ifnull(max(id),100))+1 end from playlist",
                          ple_number, &temp, 0) ||
             temp <= 100)
             goto rollback;

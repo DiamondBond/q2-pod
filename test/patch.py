@@ -4943,6 +4943,9 @@ class PlaylistEditMachine(CoverflowMachine):
                 for sql in self.text(b).split(';'):
                     self.sql.append(sql)
                     if self.fail and sql.startswith(self.fail): raise sqlite3.OperationalError('injected write failure')
+                    # The firmware's SQLite 3.19.3 refuses this; the host's (3.39 and later) runs it.
+                    if re.search(r'\bhaving\b',sql,re.I) and not re.search(r'\bgroup\s+by\b',sql,re.I):
+                        raise sqlite3.OperationalError('a GROUP BY clause is required before HAVING')
                     cur=self.db.execute(sql)
                     if cur.description and c:
                         for row in cur.fetchall():
