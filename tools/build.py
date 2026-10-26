@@ -88,6 +88,10 @@ HOOKS = {
     # The lock window's cover (unnamed, from its 20 ms timer): repainted once it changes
     'saver_cover': (0x52d844, 'lockscreen_cover', 'savercover'),
     'save_memoryplay_info': (0x516344, 'ringnav_savequeue', 'savequeue'),
+    # A reboot saves the queue first, as power-off does (playback.c ringnav_reboot): Restart and
+    # the firmware update's dialog, which stops the player before it flashes and reboots
+    'device_reboot': (0x4f7874, 'ringnav_reboot', 'reboot'),
+    'dialog_checkfw_dialog_init': (0x4985a4, 'ringnav_checkfw', 'checkfw'),
     'mclLoadPlayList': (0x5aa8d4, 'ringnav_load', 'load'),
     'mclNextSong': (0x5adbbc, 'ringnav_next', 'next'),
     # Lyrics: a local track without a .lrc takes its LYRICS tag (navigation.c ringnav_lyric)

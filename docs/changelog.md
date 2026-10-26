@@ -11,6 +11,7 @@
   - Folders: Shuffle, Play Next and Add to Queue on a held folder take in its subfolders too, so a folder of artists or albums shuffles everything in it. Before, they only took songs sitting directly in that folder, so a folder holding only subfolders left the queue unchanged. A very large folder takes a moment to gather.
   - 2038: secure connections (scrobbling, Internet Radio, Update, Apps, lyrics and covers) keep working once the certificates built into the firmware expire, from 2035, and after the clock passes January 2038, where the Q2's 32-bit clock overflows. The iPod status bar clock and scrobble times stay right past 2038 too.
   - iPod: a new accent, **Green**, after the green Q2. It comes after Plum in the Accent row.
+  - Resume: after a Network Update, a TF card update or Restart, the Q2 comes back to the song and the second you were playing. Stock saved that place only when the Q2 powered off, so these went back to wherever it was at the last power-off, however long ago.
 
 - **1.4.7**:
   - Battery: with the screen off, the album art loaders check for work once a second while music plays too, not only when nothing plays; they were waking the player 30 times a second for art nobody could see. Waking the screen right after a track change can show the old cover for up to a second. Tidal's helper, once you've used Tidal, checks once a second instead of 5 times while the Q2 sits dark and silent.
