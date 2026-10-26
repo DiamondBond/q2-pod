@@ -32,6 +32,18 @@ Rebuilt firmware uses `assets/boot-logo.jpg` as the boot splash. Pass another 32
 
 Both variants replace the stock equalizer page with a 30-band PEQ editor (bands, shelves, preamp, on/off, presets, stock's built-in genre presets, `/EQ` import) and patch `hciplayer`'s equalizer filter with the matching DSP. Both also clear the 44.1 kHz AAC capability bit in `bluealsa` (see [internals.md](internals.md#bluetooth-aac)).
 
+### Experimental stopped-audio notifier wait
+
+`--dev --aic-idle-wait` replaces the audited audio driver's stopped-state 10 ms polling
+with an event wait, woken by start/resume and teardown. Active PCM notification timing,
+period and buffer limits are unchanged. Both UI editions support it; default and release
+builds retain the stock module. See [audio-notifier.md](audio-notifier.md) for the exact
+scope, validation and remaining hardware checks.
+
+~~~sh
+python3 tools/build.py 'Q2 Firmware V1.32.zip' --out /tmp/q2-aic --ipod --dev --aic-idle-wait
+~~~
+
 ### Versioning
 
 The updater refuses only a firmware whose version literal is identical to the installed one (`update_firmware`, `0x4f8440`; the online check `check_otginfo`, `0x4f8968`). So each build carries a 5-character tag, `VERSION` (`x.y.z`, single digits) packed as `V<xyz>S` (Legacy) or `V<xyz>I` (iPod). For example, 1.0.0 is `V100I`. The mod installs over stock and over any other build, and stock V1.32 installs back over it.
@@ -54,6 +66,8 @@ python3 test/coverflow.py --captures /tmp/cf  # the same, plus the renderer's fr
 python3 test/mp3.py                        # native Xing seek bounds, CRC and truncated headers; TXXX encodings
 python3 test/build.py                      # JPEG header checks; no emulator required
 python3 test/build.py 'Q2 Firmware V1.32.zip'   # packaging checks (custom logo, quoted paths)
+python3 test/aic.py STOCKFS               # stopped audio notifier: actual MIPS hooks and modeled wait races
+python3 test/aic_build.py STOCKFS BUILD    # notifier development guard, ABI, default/experimental packaging
 python3 test/remote.py                     # q2remote protocol, auth, event and framebuffer checks
 python3 test/playback.py /tmp/q2-build     # grouped traversal, snapshots and the wheel's ticks
 python3 test/patch.py /tmp/q2-build        # the patched MIPS payload, wheel and UI scenarios
