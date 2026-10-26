@@ -35,6 +35,7 @@ HOOKS = {
     'playset_equalizer_page_init': (0x4b642c, 'peq_page_init', None),
     'set_equalizer_value': (0x4f9230, 'peq_stock_eq', 'eq'),
     'select_timezone': (0x4f93b0, 'ringnav_timezone', 'timezone'),
+    'timezone_row': (0x4bcd1c, 'ringnav_timezone_row', 'timezone_row'),  # autotime_page's row i (0: the switch)
     'home_page_init': (0x523c84, 'coverflow_home', 'home'),
     'localmusic_page_init': (0x524424, 'ringnav_localmusic', 'localmusic'),
     # Library lists: an Unknown row with no songs is dropped
@@ -717,19 +718,41 @@ def fileoff(b, a):
         if t == 1 and v <= a < v+f: return o+a-v
     raise ValueError(f'Unmapped address {a:x}')
 
-EXTRA_TIMEZONES = (
-    ('GMT-09:30 Marquesas', 'Pacific/Marquesas'),
-    ('GMT-02:00 South Georgia', 'Atlantic/South_Georgia'),
-    ('GMT+05:30 Asia/Colombo', 'Asia/Colombo'),
-    ('GMT+05:45 Asia/Kathmandu', 'Asia/Kathmandu'),
-    ('GMT+06:30 Asia/Yangon', 'Asia/Yangon'),
-    ('GMT+08:45 Australia/Eucla', 'Australia/Eucla'),
-    ('GMT+10:30 Lord Howe', 'Australia/Lord_Howe'),
-    ('GMT+11:00 Noumea', 'Pacific/Noumea'),
-    ('GMT+12:45 Chatham', 'Pacific/Chatham'),
-    ('GMT+13:00 Tongatapu', 'Pacific/Tongatapu'),
-    ('GMT+14:00 Kiritimati', 'Pacific/Kiritimati'),
+# Every saved g_time_zone index, in stock's order (0-26) then the additions: its label and TZ. Labels
+# are literal, short enough for the 246 px row at 24 px; the offset is the standard one, the city's
+# daylight saving applies. POSIX rules stand in where the rootfs tzdata is out of date: Mexico City
+# and Tehran dropped DST in 2022, Fiji suspended it. Stock's GMT-12 row was Kwajalein, which is +12;
+# its +6 Almaty is +5 since 2024, so that row is Dhaka.
+TIMEZONES = (
+    ('GMT-12 Baker Island', '<-12>12'), ('GMT-11 Midway', 'Pacific/Midway'),
+    ('GMT-10 Honolulu', 'Pacific/Honolulu'), ('GMT-9 Anchorage', 'America/Anchorage'),
+    ('GMT-8 Los Angeles', 'America/Los_Angeles'), ('GMT-7 Denver', 'America/Denver'),
+    ('GMT-6 Mexico City', 'CST6'), ('GMT-5 New York', 'America/New_York'),
+    ('GMT-4 Halifax', 'America/Halifax'), ("GMT-3:30 St. John's", 'America/St_Johns'),
+    ('GMT-3 Buenos Aires', 'America/Argentina/Buenos_Aires'), ('GMT-1 Azores', 'Atlantic/Azores'),
+    ('GMT+0 London', 'Europe/London'), ('GMT+1 Amsterdam', 'Europe/Amsterdam'),
+    ('GMT+2 Bucharest', 'Europe/Bucharest'), ('GMT+3 Kuwait', 'Asia/Kuwait'),
+    ('GMT+3:30 Tehran', '<+0330>-3:30'), ('GMT+4 Muscat', 'Asia/Muscat'),
+    ('GMT+4:30 Kabul', 'Asia/Kabul'), ('GMT+5 Karachi', 'Asia/Karachi'),
+    ('GMT+6 Dhaka', 'Asia/Dhaka'), ('GMT+7 Bangkok', 'Asia/Bangkok'),
+    ('GMT+8 Shanghai', 'Asia/Shanghai'), ('GMT+9 Tokyo', 'Asia/Tokyo'),
+    ('GMT+9:30 Adelaide', 'Australia/Adelaide'), ('GMT+10 Sydney', 'Australia/Sydney'),
+    ('GMT+12 Fiji', '<+12>-12'),
+    ('GMT-9:30 Marquesas', 'Pacific/Marquesas'), ('GMT-2 South Georgia', 'Atlantic/South_Georgia'),
+    ('GMT+5:30 Colombo', 'Asia/Colombo'), ('GMT+5:45 Kathmandu', 'Asia/Kathmandu'),
+    ('GMT+6:30 Yangon', 'Asia/Yangon'), ('GMT+8:45 Eucla', 'Australia/Eucla'),
+    ('GMT+10:30 L. Howe', 'Australia/Lord_Howe'), ('GMT+11 Noumea', 'Pacific/Noumea'),
+    ('GMT+12:45 Chatham', 'Pacific/Chatham'), ('GMT+13 Tongatapu', 'Pacific/Tongatapu'),
+    ('GMT+14 Kiritimati', 'Pacific/Kiritimati'),
+    ('GMT-6 Chicago', 'America/Chicago'), ('GMT-7 Phoenix', 'America/Phoenix'),
+    ('GMT+5:30 Kolkata', 'Asia/Kolkata'), ('GMT+10 Brisbane', 'Australia/Brisbane'),
+    ('GMT+12 Auckland', 'Pacific/Auckland'),
 )
+def timezone_offset(label):
+    sign, h, m = re.match(r'GMT([+-])(\d+)(?::(\d+))?', label).groups()
+    return (1 if sign == '+' else -1) * (int(h) * 60 + int(m or 0))
+# The rows, west to east: the saved index each row shows.
+TIMEZONE_ORDER = sorted(range(len(TIMEZONES)), key=lambda i: (timezone_offset(TIMEZONES[i][0]), TIMEZONES[i][0]))
 
 def patch_timezones(demo):
     # Keep the stock indices so saved zones survive; fit the extra rows in the existing table.
@@ -737,7 +760,7 @@ def patch_timezones(demo):
     original = demo[start:start+28*64]
     labels = [original[i:i+64].split(b'\0')[0] for i in range(0, len(original), 64)]
     check(labels[0] == b'timedate_auto' and labels[-1] == b'timezone_gmt+12', 'Unexpected timezone labels')
-    labels += [label.encode() for label, _ in EXTRA_TIMEZONES]
+    labels = labels[:1] + [label.encode() for label, _ in TIMEZONES]
     check(len(labels)*32 <= len(original) and all(len(label) < 32 for label in labels), 'Timezone labels exceed stock table')
     demo[start:start+len(original)] = b''.join(label.ljust(32, b'\0') for label in labels).ljust(len(original), b'\0')
     for address, old, new in (
@@ -1022,6 +1045,7 @@ FUNCTIONS = {
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
     'keylock_rows': HOOKS['keylock_rows'][0],
+    'timezone_row': HOOKS['timezone_row'][0],
     'quick_lock': HOOKS['quick_lock'][0],
     "playlist_rebuild": IPOD_HOOKS['playlist_rebuild'][0],  # picker init and re-entry rebuild all rows
     "stock_search": 0x5241c4,
@@ -1270,7 +1294,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     syms = symbols(demo, symbol_table)
     syms.update(PRIVATE_FUNCTIONS)
     header = [f'#define RING_STEP {RING_STEP}']
-    header.append('#define EXTRA_TIMEZONE_NAMES {' + ','.join(json.dumps(zone) for _, zone in EXTRA_TIMEZONES) + '}')
+    header.append('#define TIMEZONE_NAMES {' + ','.join(json.dumps(zone) for _, zone in TIMEZONES) + '}')
+    header.append('#define TIMEZONE_ORDER {' + ','.join(map(str, TIMEZONE_ORDER)) + '}')
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
                         symbol_table, re.M), f'{name}: byte global size mismatch')

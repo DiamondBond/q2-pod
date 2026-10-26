@@ -111,13 +111,12 @@ def validate_assets(directory):
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
     demo = (directory/'demo').read_bytes()
-    from build import patch_timezones, EXTRA_TIMEZONES, CJK, english_ui
+    from build import patch_timezones, TIMEZONES, CJK, english_ui
     zones = bytearray(stock)
     patch_timezones(zones)
     start = fileoff(stock, 0x76b5d0)
-    labels = [zones[start+i*32:start+(i+1)*32].split(b'\0')[0] for i in range(28+len(EXTRA_TIMEZONES))]
-    assert labels[:28] == [stock[start+i*64:start+(i+1)*64].split(b'\0')[0] for i in range(28)]
-    assert labels[28:] == [label.encode() for label, _ in EXTRA_TIMEZONES]
+    labels = [zones[start+i*32:start+(i+1)*32].split(b'\0')[0] for i in range(1+len(TIMEZONES))]
+    assert labels == [b'timedate_auto'] + [label.encode() for label, _ in TIMEZONES]
     assert demo[start:start+28*64] == zones[start:start+28*64]
     for address in (0x4bce34, 0x4bd090, 0x4bd4d0, 0x4fa5dc):
         off = fileoff(stock, address)

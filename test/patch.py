@@ -9192,8 +9192,8 @@ class SpotMachine(BooksMachine):
     def key(self,k):
         self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
 
-# Added timezone indices apply their IANA name; existing saved indices keep stock's mapping.
-from build import EXTRA_TIMEZONES
+# Every saved timezone index applies its TZ; stock's indices keep their city.
+from build import TIMEZONES, TIMEZONE_ORDER, timezone_offset
 class TimezoneMachine(Machine):
     def __init__(self):
         super().__init__()
@@ -9203,10 +9203,24 @@ class TimezoneMachine(Machine):
         a,b=[u.reg_read(r) for r in REGS[:2]]
         self.u.mem_write(a,self.text(b).encode()+b'\0'); self.returns(a,clobber=True)
 zones=TimezoneMachine()
-for index, name in [(22,'Asia/Shanghai'), *[(27+i,name) for i,(_,name) in enumerate(EXTRA_TIMEZONES)]]:
+assert TIMEZONES[22]==('GMT+8 Shanghai','Asia/Shanghai') and TIMEZONES[6][1]=='CST6' and TIMEZONES[27][1]=='Pacific/Marquesas'
+for index, (_, name) in enumerate(TIMEZONES):
     zones.byte(syms['g_time_zone'],index)
     zones.call(address=HOOKS['select_timezone'][0],args=(0,0,0,0),gap=0)
     assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[name]
+passed()
+# autotime_page's zone rows run west to east, each built, ticked and named (image_choice) by its saved
+# index; a label too long for the row keeps its ellipsis rather than scrolling once as the page opens.
+assert [timezone_offset(TIMEZONES[i][0]) for i in TIMEZONE_ORDER]==sorted(timezone_offset(l) for l,_ in TIMEZONES)
+zones.mock('image_create','hscroll_label_create','widget_use_style','widget_set_name',
+           'image_set_draw_type','image_base_set_image','set_hscroll_label_attribute','widget_set_tr_text','widget_on','tk_snprintf')
+zones.byte(syms['g_time_zone'],TIMEZONE_ORDER[5])
+for row in (1,6,len(TIMEZONES)):
+    item=zones.node('list_item'); zones.call(address=HOOKS['timezone_row'][0],args=(item,row,0,0),gap=0)
+    index=TIMEZONE_ORDER[row-1]; button,=zones.nodes[item]['children']; label,image=zones.nodes[button]['children']
+    assert zones.nodes[button]['name']==str(index+1)  # the click handler's atoi, less one, is the saved index
+    assert zones.nodes[label]['text']==TIMEZONES[index][0] and zones.nodes[label]['hscroll_label_set_only_focus']==1
+    assert zones.nodes[image]['name']==f'image_choice{index}' and zones.nodes[image]['image']==('select' if row==6 else 'unselect')
 passed()
 def stream_rows(m):
     """Streaming's page over stock's one Tidal row: the hook's rows' buttons by their labels, in order."""

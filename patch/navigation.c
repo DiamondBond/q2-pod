@@ -10,12 +10,27 @@ extern int stock_dbquery_trampoline(const char *, const char *, void *, int),
     stock_content_query_trampoline(const char *, const char *, void *, void *, int);
 extern int stock_quicksettings_trampoline(void *, void *);
 extern int stock_timezone_trampoline(void);
+extern void stock_timezone_row_trampoline(void *, int);
 
 int ringnav_timezone(void) {
-    static const char *const extra[] = EXTRA_TIMEZONE_NAMES;
+    static const char *const names[] = TIMEZONE_NAMES;
     unsigned n = g_time_zone;
-    return n >= 27 && n - 27 < sizeof extra / sizeof *extra ? toolsSetTimeZone(extra[n - 27])
-                                                            : stock_timezone_trampoline();
+    return n < sizeof names / sizeof *names ? toolsSetTimeZone(names[n])
+                                            : stock_timezone_trampoline();
+}
+
+/* Row i > 0 shows saved zone TIMEZONE_ORDER[i - 1], west to east; stock names, ticks and clicks
+ * by the index it is given. Focus-only, a label too long for the row keeps its ellipsis instead
+ * of scrolling once as the page opens. */
+void ringnav_timezone_row(void *item, int i) {
+    static const unsigned char order[] = TIMEZONE_ORDER;
+    stock_timezone_row_trampoline(item, i > 0 && i <= (int)sizeof order ? order[i - 1] + 1 : i);
+    void *row = widget_get_child(item, widget_count_children(item) - 1); /* stock's button */
+    for (unsigned c = 0; row && c < widget_count_children(row); ++c) {
+        void *label = widget_get_child(row, c);
+        if (!tk_strcmp(widget_get_type(label), "hscroll_label"))
+            hscroll_label_set_only_focus(label, 1);
+    }
 }
 extern int stock_music_info_trampoline(int, char *, const char *);
 static int library_music __attribute__((section(".scratch")));
