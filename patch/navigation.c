@@ -3364,7 +3364,7 @@ static void lyric_init(void) {
  * finger is on the screen. Its rows repaint while it is in front (front) and lit. */
 #define LYRIC_FOLLOW_MS 250
 static void lyric_follow(void *lrc, int ms, int front, int shown) {
-    int line = lyrics_line(lrc, ms, front && usable()), to = lyric_centre(lrc, line > 0 ? line : 0);
+    int line = lyrics_line(lrc, ms, front), to = lyric_centre(lrc, line > 0 ? line : 0);
     if (to < 0) to = 0;
     if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return;
     lyric_pad(lrc);
@@ -3421,10 +3421,10 @@ static void lyric_poll(void) {
         st.lyric_spun = 0;
         lyric_snap(lrc);
     }
-    /* The page in front and lit: the clock and the follow every pass (it narrows on each second's
-     * change, lyrics_now). Else the follow, which only jumps, at stock's timer's pace on whole
-     * seconds (lyrics_sec), so a dark or covered page reads the clock only that often. */
-    int front = page && g_backlight_status && window_manager_get_top_window(wm) == st.np_win;
+    /* The page in front and usable (lit): the clock and the follow every pass (it narrows on each
+     * second's change, lyrics_now). Else the follow, which only jumps, at stock's timer's pace on
+     * whole seconds (lyrics_sec), so a dark or covered page reads the clock only that often. */
+    int front = page && usable() && window_manager_get_top_window(wm) == st.np_win;
     unsigned now = (unsigned)time_now_ms();
     if (lyrics_on(lrc) && (front || now - st.lyric_follow_at >= LYRIC_FOLLOW_MS)) {
         st.lyric_follow_at = now;
