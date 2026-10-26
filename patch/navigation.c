@@ -3723,6 +3723,21 @@ static void album_tile(void *w) {
     if (!tk_strcmp(name, "album_page") || !tk_strcmp(name, "artistinfo_page")) album_children(w, 0);
 }
 
+/* Corners: Rounded: a touched list row's grey (ipod.json's pressed s_btn_listitem, #333333) is the
+ * selection's inset pill, not stock's full-width box. 1 if drawn in place of stock's background. */
+static int pressed_pill(void *w, void *canvas) {
+#if IPOD
+    if (w && (accent(), st.rounded) && I(w, W_W) > 2 * SEL_INSET + I(w, W_H) &&
+        !tk_strcmp(widget_get_prop_str(w, "style", ""), "s_btn_listitem") &&
+        !tk_strcmp(widget_get_prop_str(w, "state_for_style", ""), "pressed")) {
+        rect_t pill = { SEL_INSET, 0, I(w, W_W) - 2 * SEL_INSET, I(w, W_H) };
+        fill_box(canvas, &pill, PH_GREY, pill.h / 2);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
  * The selection work for the surface happens here, once per frame, instead of in the border hook;
  * a BUTTONS dialog is itself top-level. Home's art is clipped to its panel until the border hook.
@@ -3733,7 +3748,7 @@ static void album_tile(void *w) {
 int ringnav_paint_bg(void *w, void *canvas) {
     st.paint_w = w;
     album_tile(w);
-    int result = stock_paint_bg_trampoline(w, canvas);
+    int result = pressed_pill(w, canvas) ? 0 : stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
     paint_selection(w, canvas);
     coverflow_home_clip(w, canvas, 1);

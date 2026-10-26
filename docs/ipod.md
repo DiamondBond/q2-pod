@@ -77,7 +77,8 @@ hook resolves the selected row; the color hook maps its title to `#171717` and m
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
 the selection. Touch hides wheel selection until wheel/centre input; the native pressed state
-remains visible. The same hooks cover settings, streaming, dialogs, PEQ rows and media browser
+remains visible. Under **Corners: Rounded** a pressed list row (`s_btn_listitem`) is that grey as the
+selection's inset pill instead (`pressed_pill`); other pressed widgets keep stock's box. The same hooks cover settings, streaming, dialogs, PEQ rows and media browser
 chrome. Photos, video, book content, EQ plots and visualizers keep their own drawing.
 
 ## Home
