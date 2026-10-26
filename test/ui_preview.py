@@ -197,7 +197,7 @@ with tempfile.TemporaryDirectory(prefix='q2-ui-preview-') as tmp:
                         image(a,p,x+(w-iw)//2,y+(h-ih)//2,iw,ih)
                 elif case in (27,28):
                     rows=[('Boot to: Q2 Pod','system_powermanager')] if case==27 else []
-                    rows += [('Reset Settings','system_reset'),('System Update','system_update'),('About','system_about')]
+                    rows += [('System Update','system_update'),('Reset Settings','system_reset'),('About','system_about')]
                     for i,(label,icon) in enumerate(rows):
                         y=38+i*68; p=asset(build,'images/xx/'+icon+'.png')
                         image(a,p if old else recolour(p),16,y+14,40,40)
