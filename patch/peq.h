@@ -207,10 +207,11 @@ typedef struct {
 /* lyrics.c, iPod: Now Playing's lyrics page, three large lines lit word by word (docs/internals.md#
  * word-timed-lyrics). lyrics_publish takes each load's lines; lyrics_rows turns stock's rows of lrc
  * into the page's (whether it is on, as lyrics_on asks); lyrics_now is the playing position in ms,
- * lyrics_line the playing line there (-1 before the first), repainting it while page shows;
- * lyrics_paint draws a row's line. */
+ * lyrics_sec its whole second (off the page), lyrics_line the playing line there (-1 before the
+ * first), repainting it while page shows; lyrics_paint draws a row's line. */
 void lyrics_publish(const lrc_line *l, unsigned n, const lrc_mark *m);
-int lyrics_rows(void *lrc), lyrics_on(void *lrc), lyrics_now(void), lyrics_line(void *lrc, int ms, int page);
+int lyrics_rows(void *lrc), lyrics_on(void *lrc), lyrics_now(void), lyrics_sec(void),
+    lyrics_line(void *lrc, int ms, int page);
 void lyrics_paint(void *row, void *canvas), lyrics_gone(void);
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal's own: MINIMAL_FILL) */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);

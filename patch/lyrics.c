@@ -450,6 +450,16 @@ int lyrics_now(void) {
     return ly.pos = pos < base ? base : pos > last ? last : pos;
 }
 
+/* The playing position's whole second, ms (0 before one), for the follow off the page in front,
+ * where a line's jump needs no more; the clock lets go of its bounds, which a dark or covered pass
+ * no longer narrows, and starts again on the page. */
+int lyrics_sec(void) {
+    int sec = -1, total = 0;
+    player_playtime_and_length(&sec, &total);
+    ly.sec = -1, ly.run = 0;
+    return sec < 0 ? 0 : sec * 1000;
+}
+
 /* The line playing at ms: the first of those that start when the last started does; -1 before. */
 static int ly_line_at(int ms) {
     int cur = -1;

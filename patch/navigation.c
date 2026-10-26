@@ -3421,16 +3421,14 @@ static void lyric_poll(void) {
         st.lyric_spun = 0;
         lyric_snap(lrc);
     }
-    /* The clock every pass (it narrows on each second's change, lyrics_now); the follow, off the
-     * page in front, where it only jumps, at stock's timer's pace. */
-    int front = page && window_manager_get_top_window(wm) == st.np_win;
-    if (lyrics_on(lrc)) {
-        int ms = lyrics_now();
-        unsigned now = (unsigned)time_now_ms();
-        if (front || now - st.lyric_follow_at >= LYRIC_FOLLOW_MS) {
-            st.lyric_follow_at = now;
-            lyric_follow(lrc, ms, front, shown);
-        }
+    /* The page in front and lit: the clock and the follow every pass (it narrows on each second's
+     * change, lyrics_now). Else the follow, which only jumps, at stock's timer's pace on whole
+     * seconds (lyrics_sec), so a dark or covered page reads no clock between. */
+    int front = page && g_backlight_status && window_manager_get_top_window(wm) == st.np_win;
+    unsigned now = (unsigned)time_now_ms();
+    if (lyrics_on(lrc) && (front || now - st.lyric_follow_at >= LYRIC_FOLLOW_MS)) {
+        st.lyric_follow_at = now;
+        lyric_follow(lrc, front ? lyrics_now() : lyrics_sec(), front, shown);
     }
     if (!shown)
         st.lyric_glide = 0;
@@ -3728,8 +3726,8 @@ static void album_tile(void *w) {
 static int pressed_pill(void *w, void *canvas) {
 #if IPOD
     if (w && (accent(), st.rounded) && I(w, W_W) > 2 * SEL_INSET + I(w, W_H) &&
-        !tk_strcmp(widget_get_prop_str(w, "style", ""), "s_btn_listitem") &&
-        !tk_strcmp(widget_get_prop_str(w, "state_for_style", ""), "pressed")) {
+        !tk_strcmp(widget_get_prop_str(w, "state_for_style", ""), "pressed") &&
+        !tk_strcmp(widget_get_prop_str(w, "style", ""), "s_btn_listitem")) {
         rect_t pill = { SEL_INSET, 0, I(w, W_W) - 2 * SEL_INSET, I(w, W_H) };
         fill_box(canvas, &pill, PH_GREY, pill.h / 2);
         return 1;

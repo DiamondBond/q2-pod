@@ -5865,6 +5865,9 @@ if variant=='ipod':
     m.nodes[m.slide]['value']=1; loop(m)
     loop(m,-28); assert settle(m)[-1]==3*SLOT; m.playtime=30; assert settle(m)[-1]==3*SLOT; passed()
     m.nodes[m.slide]['value']=0; assert loop(m,ms=250)==4*SLOT; m.nodes[m.slide]['value']=1; assert settle(m)[-1]==4*SLOT; passed()
+    # Dark, the page in front follows at that pace too, by the whole second, reading no clock between.
+    m.byte(syms['g_backlight_status'],0); m.playtime=20; assert loop(m)==4*SLOT and loop(m,ms=250)==3*SLOT
+    m.byte(syms['g_backlight_status'],1); m.playtime=30; assert settle(m)[-1]==4*SLOT; passed()
     # Another song starts at the top, and its first rows too; a refresh's rows for the same song keep the table
     # and the place; a finger on the screen keeps them where they are.
     m.word(O['MCL_POS'],2); m.playtime=0; assert loop(m)==0 and settle(m)[-1]==0 and m.rows()==0; passed()
