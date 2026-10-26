@@ -8810,10 +8810,24 @@ int ringnav_wm_paint(void *wm) {
  * (system("cmd_mcu write_str buzzer") when g_keytone_flag is set). Silent while headphones (either
  * jack) or a Bluetooth or USB output listen, since the buzzer is the device's own speaker;
  * hciplayer holds their PCM, so the click has no other way out. Playback alone leaves it clicking.
+ * The command waits out the buzzer and the MCU's park (tools/mcu_pwm_clock.c), so it runs on a
+ * worker, not the UI thread; a click while one sounds is dropped, as the buzzer is busy anyway.
  */
+static volatile int tone_busy;
+static void *tone_worker(void *on) {
+    stock_buzzer_trampoline((int)(long)on);
+    tone_busy = 0;
+    return 0;
+}
 int ringnav_buzzer(int on) {
-    if (g_po_status || g_bal_status || mclGetOutputWay()) return 0;
-    return stock_buzzer_trampoline(on);
+    if (g_po_status || g_bal_status || mclGetOutputWay() || !g_keytone_flag || tone_busy) return 0;
+    unsigned long tid;
+    tone_busy = 1;
+    if (pthread_create(&tid, 0, tone_worker, (void *)(long)on))
+        tone_busy = 0;
+    else
+        pthread_detach(tid);
+    return 0;
 }
 
 /* on_wm_keydown_before_fun. Stock clicks (buzzeer_switch, which reads g_keytone_flag) on the press,
