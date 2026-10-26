@@ -6,6 +6,8 @@
   - Battery: the audio driver sleeps while playback is stopped instead of checking every 10 ms. Playback is unchanged.
   - iPod: the status bar's play/pause icon changes as soon as you press Play/Pause on Now Playing (#116). It often kept the old icon until you left Now Playing.
   - Battery: the rotator's clock starts only when the rotator first needs it, not at boot, and the backlight's PWM clock is released while the backlight is off.
+  - iPod: **Light Mode**, under Settings → Display → Appearance, below Theme. It is off by default. It turns the whole interface light, in Minimal and Classic and under every accent: light backgrounds with dark text and icons, including stock's pages, pop-ups, Quick Settings, Cover Flow, games, the PEQ and the visualizer. Coloured accents keep their colour. As on an iPod classic, the selected row's text and `>` stay white on a coloured bar. Graphite and Ivory turn dark, so they still stand out on the light background. Album art and photos are never changed. In Classic, the status bar turns a flat light grey, as on an iPod classic.
+  - iPod: the Green accent is the green Q2's sage (#119), as close to the shell as white text on it allows.
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.

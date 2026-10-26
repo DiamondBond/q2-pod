@@ -100,7 +100,7 @@
                 { 0xc45400, 0xc45400, 0xcb681e, 0xcb681e, 0xcb681e }, /* Tangerine, the orange Q2 */ \
                 { 0x903868, 0x903868, 0x9d4f7a, 0x9d4f7a, 0x9d4f7a }, /* Plum, the purple Q2 */ \
                 { 0x424242, 0x424242, 0x6e6e6e, 0xd8d8d8, 0x555555 }, /* Ivory: Graphite, MINIMAL_FILL fills */ \
-                { 0x2e7d32, 0x2e7d32, 0x478d4b, 0x478d4b, 0x478d4b }  /* Green, the green Q2; after Ivory so saved values keep */
+                { 0x647f34, 0x647f34, 0x778e4c, 0x778e4c, 0x778e4c }  /* Green, the green Q2 (#119: the shell's sage, darkened for white text); after Ivory so saved values keep */
 #define CRIMSON 1
 #define MINIMAL_ACCENT 7 /* Minimal theme only; its default */
 /* The confirm pop-up's stock red discs (confirm_ok, confirm_cancel and their pressed images) take
@@ -124,6 +124,7 @@
 /* bitmap_t (docs/internals.md#accent): format u16 @0xe, 1 RGBA, 2 ABGR, 3 BGRA, 4 ARGB, 4 bytes a pixel
  * by bitmap_get_bpp_of_format; per format, the byte offsets of r, g, b and a. */
 #define BITMAP_RGBA_AT { { 0, 1, 2, 3 }, { 3, 2, 1, 0 }, { 2, 1, 0, 3 }, { 1, 2, 3, 0 } }
+#define BITMAP_PREMULTI 16 /* AWTK's BITMAP_FLAG_PREMULTI_ALPHA in bitmap_t's u16 flags @0xc */
 #define STYLE_COLOR_GRADIENT_RET 0x649ff0 /* style_get_color's bal style_get_gradient (0x649fe8) returns here */
 #define STOCK_RED 0xff1448
 #define RED_TOLERANCE 8 /* per channel, 0-255: how far a color may sit from a red/neutral blend */
@@ -217,6 +218,20 @@ static inline int arc_out(int r, int y) {
 #define NP_BAR_MINIMAL 4
 #define MINIMAL_FILL 0xeeeeec
 #define MINIMAL_CHEVRON 0x777777
+/* iPod Light Mode (IPOD/LIGHT 1, docs/ipod.md#light-mode): every neutral colour (channels within
+ * LIGHT_SPREAD) flips per channel, black to LIGHT_PAPER and white to LIGHT_INK; hues are kept.
+ * Accents keep their colours, and ink on a coloured selection stays white. A theme image without
+ * colour flips too when it is mostly glyph: under LIGHT_SURFACE (1/n of its area) opaque and darker
+ * than LIGHT_GLYPH, so a grey or dark disc keeps its white glyph. */
+#define LIST_INTO_WHITE "file:///release/assets/default/raw/images/xx/list_into.png"
+#define LIGHT_PAPER 0xf4
+#define LIGHT_INK 0x16
+#define LIGHT_SPREAD 16
+#define LIGHT_CHROMA 40
+#define LIGHT_GLYPH 0xa0
+#define LIGHT_SURFACE 4
+#define LIGHT_BAR 0xdedede      /* Classic's status bar in Light Mode, as an iPod's, flat */
+#define LIGHT_BAR_LINE 0xc4c4c4 /* and its bottom hairline */
 /* Minimal's small capitals are SUDO_TRACK px apart (draw_spaced); secondary text is SUDO_MUTED. */
 #define SUDO_TRACK 2
 #define SUDO_MUTED 0x8c8c8c
@@ -250,7 +265,8 @@ static inline int arc_out(int r, int y) {
 #define LYRIC_DIM 0x808080
 #define LYRIC_REST 0x5f5f5f
 /* Spotify's and Internet Radio's Now Playing layout (tools/ipod.py NP_*, which checks they match):
- * the art and the text 16px from the sides, 12 apart, the bar and times clear of the glass's corners. */
+ * the art and the text 16px from the sides, 12 apart, the bar and times clear of the glass's
+ * corners. */
 #define SPOT_ART_X 16
 /* iPod: Now Playing's art top, clear of the page dots (tools/ipod.py NP_ART_Y) */
 #define NP_ART_TOP 42
@@ -267,8 +283,8 @@ static inline int arc_out(int r, int y) {
 #define SPOT_BAR_H 8 /* the bar's view; iPod's Minimal paints its 4px line at the top (np_bar_h) */
 #define SPOT_TIMES_Y 265
 #define SPOT_TIME_X 46
-/* iPod settings rows (docs/ipod.md#settings): Minimal starts SET_TOP below the status bar, Classic flush, and
- * holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
+/* iPod settings rows (docs/ipod.md#settings): Minimal starts SET_TOP below the status bar, Classic
+ * flush, and holds SET_ROWS complete SET_ROW rows. Stock builds each row as a list_item holding a
  * SET_STOCK_W x SET_STOCK_BODY button at x SET_STOCK_X with a SET_STOCK_ICON icon, a label and a
  * 50px trailing image (chevron, tick or switch); items made SET_STOCK_ROW high are normalised to
  * SET_ROW. The icon shrinks to SET_ICON at SET_ICON_X, the text starts SET_GAP after it (or at
@@ -302,7 +318,8 @@ static inline int arc_out(int r, int y) {
 #define LETTER_PX 60
 #define LETTER_MS 400
 /* iPod Now Playing scrub: SCRUB_STEP seconds per detent times the list ramp, previewed until
- * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on volume. */
+ * centre or Return commits it, or SCRUB_MS without input commits it and puts the wheel back on
+ * volume. */
 #define SCRUB_STEP 5
 #define DOUBLE_CLICK_MS 250 /* a second centre press within this is a double press */
 #define WAKE_MS 500 /* Wake: Double press, the screen-off double press; looser, done blind in a hand */
@@ -396,7 +413,8 @@ static inline int arc_out(int r, int y) {
 /* The poster's target is the info's main loop, whose input queue (stock event_queue_t: u16 r, w,
  * full, capacity) holds 20 events and drops its oldest when full. A tick is two events, so a fast
  * turn while the UI is busy evicted a touch's release and left the pointer pressed, which stops the
- * wheel until the next tap. wheel_post drops ticks that would leave under WHEEL_QUEUE_FREE slots. */
+ * wheel until the next tap. wheel_post drops ticks that would leave under WHEEL_QUEUE_FREE slots.
+ */
 #define WHEEL_INFO_LOOP 0x10
 #define LOOP_QUEUE 0x38
 #define WHEEL_QUEUE_FREE 8

@@ -578,8 +578,8 @@ and **Controls** (Play settings' folder jump icon, `playset_folderjump`). Each o
 Display page again (`display_open`, `display_sub` naming the sub-page while its init runs), which
 drops the stock rows, takes the sub-page's title and builds only its own rows:
 
-- Appearance: "Theme: Minimal", "Accent: Graphite" and "Corners: Square" with the System settings
-  Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
+- Appearance: "Theme: Minimal", "Light Mode: Off" ([Light Mode](#light-mode)), "Accent: Graphite"
+  and "Corners: Square" with the System settings Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
   Percent, Icon + Percent, Percent Inside; see [Status bar and clock](#status-bar-and-clock)) with
   the power manager icon (`system_powermanager`).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
@@ -599,7 +599,7 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `HOME`, `BATTERY` and `THEME`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `LIGHT` (Light Mode: 0 Off, 1 On; missing is Off), `HOME`, `BATTERY` and `THEME`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
@@ -620,10 +620,10 @@ card from 1.0.1 or earlier, which has no `THEME`, keeps 1.0.1's look, and a Mini
 | Tangerine (5)         | `#CB681E`                            | `#CB681E`        |
 | Plum (6)              | `#9D4F7A`                            | `#9D4F7A`        |
 | Ivory (7)             | `#EEEEEC` (Graphite's elsewhere)     | `#D8D8D8`        |
-| Green (8)             | `#478D4B`                            | `#478D4B`        |
+| Green (8)             | `#778E4C`                            | `#778E4C`        |
 
 The bars are Graphite `#424242`, Crimson `#E8123F`, Tidal `#13838D`, Champagne `#8C732C`, Cobalt
-`#2A6AD8`, Tangerine `#C45400` (the orange Q2), Plum `#903868` (the purple Q2) and Green `#2E7D32`
+`#2A6AD8`, Tangerine `#C45400` (the orange Q2), Plum `#903868` (the purple Q2) and Green `#647F34`
 (the green Q2). Tangerine, Plum and Green are as close to the shells as white text at 4.5:1 allows,
 and no shade of theirs reads as stock red to the mapper, so nothing is mapped twice. Ivory (7) is
 Minimal's only: Classic's cycle goes from Plum to Green, and a Classic `ACCENT` of 7 reads as
@@ -665,6 +665,37 @@ selection staying on Theme. Nothing needs a restart.
 What Classic does not restore: the pinned theme edit of `s_btn_listitem`'s pressed colour
 (`#3D1920` to `#333333`), so a touched row flashes grey rather than an accent tint, and the
 status bar asset's own background (`#000000`, not `#161616`), which the payload's fill covers.
+
+### Light Mode
+
+**Light Mode: On** (`LIGHT=1`) turns both themes light at runtime, over the same assets. Every
+neutral colour (channels within `LIGHT_SPREAD`) flips per channel, black to `LIGHT_PAPER` (`#F4F4F4`)
+and white to `LIGHT_INK` (`#161616`), alpha kept; other hues are left as they are. Stock's colours
+flip in the style hooks (`accent_map`, after the accent), the payload's own in `ui_ink`, which
+`patch/peq.h` puts in front of every canvas and vgcanvas colour setter. A colour read back from the
+LCD to restore it goes through `stock_canvas_set_*`, since it has flipped already. Only the outermost
+style hook call maps: a mutable style (inline `style:*`) answers from its default style through
+`style_get_color` again, and the flip is not idempotent. A clear colour (`#00000000`) stays clear,
+because stock tests for it (Now Playing's dragger).
+
+Coloured accents keep their tones. A neutral one (Graphite, Ivory) takes its silver red tone for
+fills as well, so it flips dark on paper; Minimal's own card (`MINIMAL_FILL`) flips to a dark card
+under light ink. On a coloured bar or card the rows' ink stays white, as on an iPod's blue bar
+(`sel_accent`), and so does the `>`: Classic Home's and drill rows' from `LIST_INTO_WHITE`, stock's own
+`list_into` drawn again over the bar (`paint_into`). A red tint over black (stock's pressed tints)
+becomes the same tint of the tone over paper.
+
+A theme image without colour (no pixel more than `LIGHT_CHROMA` saturated) flips too when it is
+mostly glyph: under 1/`LIGHT_SURFACE` of its area opaque and darker than `LIGHT_GLYPH`. White marks,
+chevrons, spinners and status icons turn dark, while a grey or dark disc keeps its white glyph.
+Quick Settings' inactive discs (`drop_*`) flip whole, to light discs under dark glyphs, and the
+active ones keep the accent. An image the accent mapped is final, and `switch_off` keeps its white
+knob, as `switch_on` does. Cover Flow's frame composites over paper instead of black. Classic's status bar is an iPod's flat
+grey (`LIGHT_BAR`, over a `LIGHT_BAR_LINE` hairline); Minimal's is paper. Album art,
+photos, wallpapers and videos are never changed.
+
+ponytail: a non-square or transparent cover in Cover Flow keeps black bars and a black background
+inside its square (`decode`), and Solitaire's face-up cards flip dark like every other light surface.
 
 ## Games
 

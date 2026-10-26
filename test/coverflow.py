@@ -172,9 +172,10 @@ void *widget_lookup(void *x, const char *n, int r) {
     return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
            !strcmp(n, "list_view_home") ? home_list : 0;
 }
-static int home_full, classic;
+static int home_full, classic, light;
 int ipod_home_full(void) { return home_full; }
 int ipod_classic(void) { return classic; }
+int ipod_light(void) { return light; }
 int ipod_home_rockbox(void) { return 0; }
 const char *ipod_home_shortcut(void) { return "Rockbox"; }
 int home_shortcut_open(void *x, void *e) { return 0; }
@@ -558,6 +559,14 @@ static void renderer(void) {
     assert(!memcmp(without, frame, sizeof(frame))); /* the third out is not drawn at rest */
     /* Everything, reflections included, fits the frame with room to spare. */
     for (int x = 0; x < CF_VIEW_W; ++x) assert(!(px(x, 0) & 0xffffff) && !(px(x, CF_VIEW_H - 1) & 0xffffff));
+#if IPOD
+    unsigned centre = px(CF_CX, CF_TOP + 80); /* Light Mode: the same covers over paper */
+    light = 1;
+    render(0, inner);
+    assert(px(0, 0) == (0xff000000u | LIGHT_PAPER * 0x010101u) && px(CF_CX, CF_TOP + 80) == centre);
+    light = 0;
+    render(0, inner);
+#endif
     /* The reflection: CF_REFLECT rows under the cover, from CF_REFLECT_TOP of its brightness down
        to black, never brighter going down; nothing after it. */
     render(0, ring);

@@ -263,7 +263,7 @@ class Machine:
         elif name=='strrchr@GLIBC_2.0': i=self.text(a).encode().rfind(bytes([b&255])); ret=a+i if i>=0 else 0
         elif name=='memcmp@GLIBC_2.0': x,y=bytes(u.mem_read(a,c)),bytes(u.mem_read(b,c)); ret=(x>y)-(x<y)
         elif name in ('strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0'):  # ASCII case, as the C locale
-            x,y=(self.text(v).encode().lower()[:c if name.startswith('strn') else None] for v in (a,b)); ret=(x>y)-(x<y)
+            x,y=(bytes(self.raw(v)).lower()[:c if name.startswith('strn') else None] for v in (a,b)); ret=(x>y)-(x<y)
         elif name=='sprintf@GLIBC_2.0':  # stock toolsTimeItoa's "%02d:%02d[:%02d]"
             fmt=self.text(b); values=(c,d,self.get(u.reg_read(UC_MIPS_REG_SP)+16))
             result=(fmt % tuple(signed(v) for v in values[:fmt.count('%')])).encode(); self.u.mem_write(a,result+b'\0'); ret=len(result)
@@ -6925,6 +6925,7 @@ def host_render(textures,cases):
     from coverflow import SHIM_H
     main=r"""#include <stdio.h>
 void coverflow_render(unsigned *, int, int, const unsigned *const[7]);
+int ipod_light(void) { return 0; }
 static unsigned tex[7][160 * 160], frame[%d * %d];
 int main(void) {
     const unsigned *ring[7];
@@ -7086,7 +7087,7 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==7  # every key, once, on first use
+        assert len(m.config_reads)==8  # every key, once, on first use
         passed()
     # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
     # recycled text, touch hiding, Home siblings, and every accent.
@@ -7137,7 +7138,7 @@ if variant=='ipod':
     passed()
 
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -7170,6 +7171,35 @@ if variant=='ipod':
         m.get_gradient=get; out=m.alloc(4)
         m.call(address=IPOD_HOOKS['style_get_color'][0],args=(out,st,m.string(name),0),gap=0)
         assert m.get(out)==color_t(ACCENTS[0][column]),(name,hex(m.get(out))); passed()
+
+    # Light Mode: neutral colours flip between LIGHT_PAPER and LIGHT_INK, other hues stay; red takes
+    # the accent's own tones (Graphite's: its silver, flipped dark), a red tint over black the same
+    # tint over paper; gradient stops alike.
+    P,K=O['LIGHT_PAPER'],O['LIGHT_INK']
+    flipv=lambda v: P-v*(P-K)//255
+    paper,ink=0xff000000|P*0x010101,0xff000000|K*0x010101
+    g=flipv(0xd8)*0x010101
+    for config,text,fill in (({'LIGHT':'1'},g,g),({'LIGHT':'1','MINIMAL_ACCENT':'4'},ACCENTS[4][3],ACCENTS[4][2]),({'LIGHT':'1','THEME':'1','ACCENT':'1'},ACCENTS[1][3],ACCENTS[1][2])):
+        m=Machine(); m.config=config
+        assert style_color(m,red)[1]==color_t(text) and style_color(m,red,'bg_color')[1]==color_t(fill),config
+        assert style_color(m,0xff000000)[1]==paper and style_color(m,0xffffffff)[1]==ink and style_color(m,grey)[1]==0xff000000|flipv(0x80)*0x010101
+        assert style_color(m,0xffff8000)[1]==0xffff8000  # another hue
+        tint=style_color(m,color_t(0x3d1920),'bg_color')[1]  # stock's pressed tint: light now, of the tone
+        assert all(c>0x90 for c in tint.to_bytes(4,'little')[:3]),hex(tint)
+        assert gradient(config,[0xff000000,0xffffffff])[1]==[paper,ink]; passed()
+    # Theme images flip in Light Mode when colourless and mostly glyph; a disc or a coloured image,
+    # and stock's, stay. 4x4 BGRA: one white pixel on transparent, or on a grey plate.
+    def light_image(config,name,plate):
+        m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
+        bm=m.alloc(0x60); data=m.alloc(64)
+        m.word(bm,4); m.word(bm+4,4); m.word(bm+8,16); m.u.mem_write(bm+0xe,struct.pack('<H',3)); m.word(bm+0x14,data)
+        m.u.mem_write(data,bytes([0xff,0xff,0xff,0xff])+(bytes([0x44,0x44,0x44,0xff]) if plate else bytes(4))*15)
+        m.call(address=IPOD_HOOKS['image_manager_add'][0],args=(0x1000500,m.string(name),bm,0),gap=0)
+        return bytes(m.u.mem_read(data,8))
+    assert light_image({'LIGHT':'1'},'scover_wait0',False)==bytes([K,K,K,0xff])+bytes(4); passed()
+    assert light_image({'LIGHT':'1'},'scover_wait0',True)==bytes([0xff,0xff,0xff,0xff,0x44,0x44,0x44,0xff]); passed()
+    assert light_image({},'scover_wait0',False)==bytes([0xff]*4)+bytes(4); passed()
+    assert light_image({'LIGHT':'1'},'file:///tmp/coverpic.jpg',False)[:4]==bytes([0xff]*4); passed()
 
     # Images: decoded 32-bit theme bitmaps are mapped in place before stock caches them; covers by
     # path or URL, Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
@@ -7404,9 +7434,9 @@ if variant=='ipod':
     assert m.icons_set==['playset_covermode','playset_folderjump','system_display','switch_off','system_display','list_into']
     assert [row_text(r) for r in (shortcut,hold,qs)]==['Shortcut: Rockbox','Hold Return: Recent','Wheel QS']; passed()
     view=display_page(m,1); rows=setting_rows(m,view)
-    kids=m.nodes[view]['children']; corners=kids[2]
-    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Corners, Home, Battery
-    assert m.icons_set==['system_display','system_display','system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    kids=m.nodes[view]['children']; light,corners=kids[1],kids[3]
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Light Mode, Accent, Corners, Home, Battery
+    assert m.icons_set==['system_display','system_display','system_display','system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7477,13 +7507,21 @@ if variant=='ipod':
     f,ctx=m.handler(m.nodes[corners]['children'][0],O['EVT_CLICK']); m.calls=[]
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.nodes[corners_label]['text']=='Corners: Rounded'
     assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'ROUNDED')] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
+    # Light Mode: no key is Off; a click saves On, drops the cached images and repaints, and back.
+    light_label=m.nodes[m.nodes[light]['children'][0]]['children'][1]; assert m.nodes[light_label]['text']=='Light Mode: Off'
+    f,ctx=m.handler(m.nodes[light]['children'][0],O['EVT_CLICK'])
+    for value,text in ((1,'On'),(0,'Off')):
+        m.calls=[]; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.nodes[light_label]['text']=='Light Mode: '+text
+        assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(value,'LIGHT')]
+        assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
+    passed()
     # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
     # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.
     writes=click(3); assert [(w[0],m.text(w[1]),m.text(w[2])) for w in writes]==[(1,'IPOD','THEME')]
     assert m.nodes[corners_label]['text']=='Corners: Rounded'
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children']
-    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # Theme, the first row, keeps the selection, painted.
     m.paint(view); assert m.selected(view)==0; passed()
@@ -7499,7 +7537,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and m.nodes[corners_label]['text']=='Corners: Rounded'
     m.paint(view); assert m.selected(view)==0
     kids=m.nodes[view]['children']
-    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.
@@ -7516,7 +7554,7 @@ if variant=='ipod':
     m,view,rows=display({'ACCENT':'2','HOME':'1','BATTERY':'2','SHORTCUT':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]; assert got==['Accent: Ivory','Home: Full','Battery: Icon + Percent','Theme: Minimal']; passed()
     m,view,rows=display({'BATTERY':'3'}); assert m.nodes[m.nodes[m.nodes[rows[2]]['children'][0]]['children'][1]]['text']=='Battery: Percent Inside'; passed()
     m,view,rows=display({'ACCENT':'2','HOME':'1','THEME':'1'}); got=[m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text'] for r in rows]
-    assert got==['Accent: Tidal','Home: Full','Battery: Icon','Theme: Classic'] and m.nodes[view]['children'][0:2]==[rows[3],rows[0]]; passed()
+    assert got==['Accent: Tidal','Home: Full','Battery: Icon','Theme: Classic'] and m.nodes[view]['children'][0]==rows[3] and m.nodes[view]['children'][2]==rows[0]; passed()
     # Home's Rockbox row (docs/boot.md#rockbox-from-home): its click saves the queue as power-off does,
     # stops the player, leaves S90play's flag and kills demo; without Rockbox on the card it says so.
     class RockboxMachine(Machine):

@@ -513,7 +513,7 @@ void spot_paint(void *w, void *canvas) {
         else
             canvas_fill_rect(canvas, 0, 0, 4, 14), canvas_fill_rect(canvas, 8, 0, 4, 14);
     }
-    canvas_set_fill_color(canvas, fill);
+    stock_canvas_set_fill_color(canvas, fill);
 }
 
 static int leave(const void *unused) {

@@ -477,7 +477,7 @@ void photos_paint(void *w, void *canvas) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
         canvas_set_fill_color(canvas, PH_GREY);
         canvas_fill_rect(canvas, x, y, PH_THUMB_W, PH_THUMB_H);
-        canvas_set_fill_color(canvas, fill);
+        stock_canvas_set_fill_color(canvas, fill);
     } else if (ph.screen == VIEWER && w == ph.slide) {
         int c, frac, stride = visual(w, ph.n, &c, &frac), h = I(w, W_H);
         if (!stride) return;
