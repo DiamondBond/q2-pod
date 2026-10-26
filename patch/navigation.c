@@ -12,24 +12,68 @@ extern int stock_quicksettings_trampoline(void *, void *);
 extern int stock_timezone_trampoline(void);
 extern void stock_timezone_row_trampoline(void *, int);
 
+static const char *const tz_names[] = TIMEZONE_NAMES;
+#define TZ_COUNT (sizeof tz_names / sizeof *tz_names)
+
 int ringnav_timezone(void) {
-    static const char *const names[] = TIMEZONE_NAMES;
     unsigned n = g_time_zone;
-    return n < sizeof names / sizeof *names ? toolsSetTimeZone(names[n])
-                                            : stock_timezone_trampoline();
+    return n < TZ_COUNT ? toolsSetTimeZone(tz_names[n]) : stock_timezone_trampoline();
 }
 
-/* Row i > 0 shows saved zone TIMEZONE_ORDER[i - 1], west to east; stock names, ticks and clicks
- * by the index it is given. Focus-only, a label too long for the row keeps its ellipsis instead
- * of scrolling once as the page opens. */
-void ringnav_timezone_row(void *item, int i) {
+/* Past 2038, 28 years back for stock's 32-bit localtime: the same calendar until 2100. */
+static long clock_back(long long wall) {
+    unsigned back = (unsigned)wall; /* 32-bit: the payload has no 64-bit division */
+    while (back > 0x7fffffff) back -= 883612800;
+    return (long)back;
+}
+
+/* Each zone's offset from UTC now, in seconds: its standard one (TIMEZONE_MINUTES) unless
+ * localtime reads it, with daylight saving, from each zone's TZ set in turn; then the saved zone
+ * is set again. rows gets the zones west to east by it, ties in TIMEZONE_ORDER (standard offset,
+ * then name). ponytail: another thread's localtime in that moment may read one of these zones. */
+static long tz_offset[TZ_COUNT];
+static void tz_now(unsigned char *rows) {
+    static const short minutes[] = TIMEZONE_MINUTES;
     static const unsigned char order[] = TIMEZONE_ORDER;
-    stock_timezone_row_trampoline(item, i > 0 && i <= (int)sizeof order ? order[i - 1] + 1 : i);
+    long now = clock_back(wall_time());
+    for (unsigned i = 0; i < TZ_COUNT; ++i) {
+        toolsSetTimeZone(tz_names[i]);
+        const long *tm = (const long *)localtime(&now); /* struct tm: tm_gmtoff @36 */
+        tz_offset[i] = tm ? tm[9] : minutes[i] * 60L;
+    }
+    ringnav_timezone();
+    for (unsigned i = 0; i < TZ_COUNT; ++i) {
+        unsigned j = i;
+        for (; j && tz_offset[rows[j - 1]] > tz_offset[order[i]]; --j) rows[j] = rows[j - 1];
+        rows[j] = order[i];
+    }
+}
+
+/* Row i > 0 shows zone rows[i - 1] as "GMT-4 New York", the offset it has now, so a zone on
+ * daylight saving reads as its clocks do; stock names, ticks and clicks by the index it is given.
+ * Focus-only, a label too long for the row keeps its ellipsis instead of scrolling once as the
+ * page opens. */
+void ringnav_timezone_row(void *item, int i) {
+    static const char *const cities[] = TIMEZONE_CITIES;
+    static unsigned char rows[TZ_COUNT], ready;
+    if (i == 1 || !ready) tz_now(rows), ready = 1;
+    int zone = i > 0 && i <= (int)TZ_COUNT ? rows[i - 1] : -1;
+    stock_timezone_row_trampoline(item, zone < 0 ? i : zone + 1);
     void *row = widget_get_child(item, widget_count_children(item) - 1); /* stock's button */
     for (unsigned c = 0; row && c < widget_count_children(row); ++c) {
         void *label = widget_get_child(row, c);
-        if (!tk_strcmp(widget_get_type(label), "hscroll_label"))
-            hscroll_label_set_only_focus(label, 1);
+        if (tk_strcmp(widget_get_type(label), "hscroll_label")) continue;
+        hscroll_label_set_only_focus(label, 1);
+        if (zone < 0) continue;
+        long off = tz_offset[zone];
+        int m = (int)((off < 0 ? -off : off) / 60);
+        char s[32];
+        if (m % 60)
+            tk_snprintf(s, sizeof s, "GMT%s%d:%02d %s", off < 0 ? "-" : "+", m / 60, m % 60,
+                        cities[zone]);
+        else
+            tk_snprintf(s, sizeof s, "GMT%s%d %s", off < 0 ? "-" : "+", m / 60, cities[zone]);
+        widget_set_text_utf8(label, s);
     }
 }
 extern int stock_music_info_trampoline(int, char *, const char *);
@@ -3074,10 +3118,7 @@ static int seek_position(int to) {
  * struct tm: tm_min @4, tm_hour @8. */
 static void clock_sync(void *bar) {
     long long wall = wall_time();
-    unsigned back = (unsigned)wall; /* 32-bit: the payload has no 64-bit division */
-    /* Past 2038, 28 years back for stock's 32-bit localtime: the same calendar until 2100. */
-    while (back > 0x7fffffff) back -= 883612800;
-    long now = (long)back;
+    long now = clock_back(wall);
     const int *tm = wall == -1 ? (void *)0 : localtime(&now);
     int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
     int full = g_time24h_flag != 0;

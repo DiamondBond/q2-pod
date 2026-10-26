@@ -9261,18 +9261,41 @@ for index, (_, name) in enumerate(TIMEZONES):
     zones.call(address=HOOKS['select_timezone'][0],args=(0,0,0,0),gap=0)
     assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[name]
 passed()
-# autotime_page's zone rows run west to east, each built, ticked and named (image_choice) by its saved
-# index; a label too long for the row keeps its ellipsis rather than scrolling once as the page opens.
+# autotime_page's zone rows show the offset each zone has now and run west to east by it, ties in
+# TIMEZONE_ORDER; each is built, ticked and named (image_choice) by its saved index, then the saved
+# zone is set again. Here New York and Halifax are on daylight saving and Kolkata's localtime fails
+# (its standard offset). A label too long for the row keeps its ellipsis rather than scrolling once.
 assert [timezone_offset(TIMEZONES[i][0]) for i in TIMEZONE_ORDER]==sorted(timezone_offset(l) for l,_ in TIMEZONES)
-zones.mock('image_create','hscroll_label_create','widget_use_style','widget_set_name',
+SUMMER={'America/New_York','America/Halifax'}
+class ZoneRowMachine(TimezoneMachine):
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address)
+        if name=='toolsSetTimeZone': self.tz=self.text(u.reg_read(REGS[0]))
+        if name!='localtime@GLIBC_2.0': return super().hook(u,address,size,unused)
+        self.calls.append((name,)); tm=0
+        if self.tz!='Asia/Kolkata':
+            label=next(l for l,z in TIMEZONES if z==self.tz); tm=self.alloc(44)
+            self.word(tm+36,(timezone_offset(label)*60+3600*(self.tz in SUMMER))&0xffffffff)
+        self.returns(tm,clobber=True)
+zones=ZoneRowMachine(); zones.tz=None
+zones.mock('image_create','hscroll_label_create','widget_use_style','widget_set_name','toolsSetTimeZone',
            'image_set_draw_type','image_base_set_image','set_hscroll_label_attribute','widget_set_tr_text','widget_on','tk_snprintf')
-zones.byte(syms['g_time_zone'],TIMEZONE_ORDER[5])
-for row in (1,6,len(TIMEZONES)):
-    item=zones.node('list_item'); zones.call(address=HOOKS['timezone_row'][0],args=(item,row,0,0),gap=0)
-    index=TIMEZONE_ORDER[row-1]; button,=zones.nodes[item]['children']; label,image=zones.nodes[button]['children']
+zone_now={i:timezone_offset(l)+60*(z in SUMMER) for i,(l,z) in enumerate(TIMEZONES)}
+zone_rows=sorted(TIMEZONE_ORDER,key=lambda i:zone_now[i])
+def zone_label(i):
+    m=abs(zone_now[i]); return f"GMT{'-' if zone_now[i]<0 else '+'}{m//60}{f':{m%60:02d}' if m%60 else ''} {TIMEZONES[i][0].split(' ',1)[1]}"
+saved=zone_rows[5]; zones.byte(syms['g_time_zone'],saved)
+for row in range(1,len(TIMEZONES)+1):
+    item=zones.node('list_item'); zones.calls=[]; zones.call(address=HOOKS['timezone_row'][0],args=(item,row,0,0),gap=0)
+    if row==1:
+        assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[z for _,z in TIMEZONES]+[TIMEZONES[saved][1]]
+    index=zone_rows[row-1]; button,=zones.nodes[item]['children']; label,image=zones.nodes[button]['children']
     assert zones.nodes[button]['name']==str(index+1)  # the click handler's atoi, less one, is the saved index
-    assert zones.nodes[label]['text']==TIMEZONES[index][0] and zones.nodes[label]['hscroll_label_set_only_focus']==1
-    assert zones.nodes[image]['name']==f'image_choice{index}' and zones.nodes[image]['image']==('select' if row==6 else 'unselect')
+    assert zones.nodes[label]['text']==zone_label(index) and zones.nodes[label]['hscroll_label_set_only_focus']==1
+    assert zones.nodes[image]['name']==f'image_choice{index}' and zones.nodes[image]['image']==('select' if index==saved else 'unselect')
+zone_labels=[zone_label(i) for i in zone_rows]
+assert zone_labels.index('GMT-4 New York')<zone_labels.index("GMT-3:30 St. John's")<zone_labels.index('GMT-3 Halifax')<zone_labels.index('GMT-3 Buenos Aires')
+assert 'GMT+5:30 Kolkata' in zone_labels and 'GMT-5 Chicago' not in zone_labels and 'GMT-6 Chicago' in zone_labels
 passed()
 def stream_rows(m):
     """Streaming's page over stock's one Tidal row: the hook's rows' buttons by their labels, in order."""

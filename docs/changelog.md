@@ -9,6 +9,7 @@
   - iPod: **Light Mode**, under Settings → Display → Appearance, below Theme. It is off by default. It turns the whole interface light, in Minimal and Classic and under every accent: light backgrounds with dark text and icons, including stock's pages, pop-ups, Quick Settings, Cover Flow, games, the PEQ and the visualizer. Coloured accents keep their colour. As on an iPod classic, the selected row's text and `>` stay white on a coloured bar. Graphite and Ivory turn dark, so they still stand out on the light background. In Cover Flow the side covers and reflections fade into the light background, and Solitaire's face-up cards stay white with black suits. Album art and photos are never changed. In Classic, the status bar turns a flat light grey, as on an iPod classic.
   - iPod: the Green accent is the green Q2's sage (#119), as close to the shell as white text on it allows.
   - System settings: About is the last row, below Reset Settings.
+  - Time zones: each row shows the offset its city has right now, daylight saving included, and the rows are ordered by it. New York reads GMT-4 in summer and GMT-5 in winter. Before, a row showed the standard offset, so a New Yorker picking GMT-4 in summer got Halifax, an hour ahead.
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.
