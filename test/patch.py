@@ -9074,41 +9074,36 @@ view=m.node('scroll_view','scroll_view_localmusic',[m.node('list_item') for _ in
 assert m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 button=m.nodes[m.nodes[view]['children'][-1-GAMES]]['children'][0]; icon,label,into=m.nodes[button]['children']
 assert m.nodes[icon]['image']=='local_videos' and m.nodes[label]['text']=='Videos' and len(m.nodes[view]['children'])==17+GAMES
-f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
-page=m.page=m.top; videos,_=m.nodes[page]['children']
-assert m.nodes[page]['name']=='books_page' and labels(videos)==['Videos','c','a','b']; passed()
-rows=m.nodes[m.find('scroll_view',videos)]['children']
-def play(i):
-    m.calls=[]; f,ctx=m.handler(rows[i],O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
-    return [c[0] for c in m.calls]
-m.forked=0; names=play(1)  # the child
-assert names.index('player_stop')<names.index('fork') and 'mclSetDacPwr' not in names and ('exit',127) in [c[:2] for c in m.calls]
-assert m.execs==[('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',R+'/a.mp4',0)]; passed()
+f,ctx=m.handler(button,O['EVT_CLICK']); m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and [m.text(c[1]) for c in m.calls if c[0]=='navigator_to']==['folder_page']; m.page=m.node('window','folder_page'); passed()
 # Folder view's video (books_video) starts the same q2video, with no Videos page open; anything else is left to stock.
 for path,ok in ((R+'/b.MKV',1),(R+'/notes.txt',0),(R+'/._a.mp4',0)):
     v=BooksMachine(tree,{}); assert v.call(address=payload_syms['books_video'],args=(v.string(path),0,0,0),gap=0)==ok,path
     v=BooksMachine(tree,{}); v.forked=0; v.call(address=payload_syms['books_video'],args=(v.string(path),0,0,0),gap=0)  # the child
     assert v.execs==([('/usr/bin/q2video','/usr/bin/q2video','plughw:0,0',path,0)] if ok else []),path
 passed()
+def play(path):  # Folder view's row (books_video), with the child run as the fork's
+    m.calls=[]; m.call(address=payload_syms['books_video'],args=(m.string(path),0,0,0),gap=0)
+    return [c[0] for c in m.calls]
 # The headphone output is readied as stock's player_start readies it (config_outputchannel, PCM
 # mode, unmuted, the volume) before q2video starts; a DAC check_dacoff_state powered off comes on with it. Bluetooth (way 1) plays on hciplayer's
 # plug:bluealsa with the volume for the helper's soft volume. A USB DAC (2) plays on "usb" (q2video
 # finds its card), through plughw: with the volume marked h (the DAC's own control, or a fixed USB volume),
 # or plain when the USB volume is variable and the DAC has no control (USB_MIXER -2: hciplayer's soft volume).
-m.word(syms['g_dacoff_time'],0xffffffff); m.byte(syms['g_headset_output'],1); names=play(2)
+m.forked=0; m.word(syms['g_dacoff_time'],0xffffffff); m.byte(syms['g_headset_output'],1); names=play(R+'/b.MKV')
 take=[n for n in names if n in ('player_stop','config_outputchannel','mclSetPcmMode','mclSetMute','device_set_volume','fork')]
 assert take==['player_stop','config_outputchannel','mclSetPcmMode','mclSetMute','device_set_volume','fork'] and m.execs[-1][2:5]==('plughw:0,0',R+'/b.MKV',0)
 assert ('config_outputchannel',1,2) in [c[:3] for c in m.calls]
 m.word(syms['g_dacoff_time'],5); m.byte(syms['g_volume'],42)
-m.way=1; names=play(0); assert 'mclSetDacPwr' not in names and 'config_outputchannel' not in names and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
+m.way=1; names=play(R+'/Trip/c.avi'); assert 'mclSetDacPwr' not in names and 'config_outputchannel' not in names and m.execs[-1][2:]==('plug:bluealsa',R+'/Trip/c.avi',('42',0))
 m.way=2; m.byte(syms['g_usbvol_mode'],0); m.word(O['USB_MIXER'],0xfffffffe)
-assert 'mclSetDacPwr' not in play(0) and m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
-m.byte(syms['g_usbvol_mode'],1); m.word(O['USB_MIXER'],0); play(0); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
-m.word(O['USB_MIXER'],0xfffffffe); play(0); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('42',0))
+assert 'mclSetDacPwr' not in play(R+'/Trip/c.avi') and m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
+m.byte(syms['g_usbvol_mode'],1); m.word(O['USB_MIXER'],0); play(R+'/Trip/c.avi'); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('h42',0))
+m.word(O['USB_MIXER'],0xfffffffe); play(R+'/Trip/c.avi'); assert m.execs[-1][2:]==('usb',R+'/Trip/c.avi',('42',0))
 passed()
 # Playing: no key or touch reaches the UI; a key's release goes to the player's socket as a datagram:
 # Play/Pause pauses, the side buttons seek, Return quits.
-m.way=0; m.forked=4242; play(1)
+m.way=0; m.forked=4242; play(R+'/Trip/c.avi')
 # The helper starts at the output's level: the first poll sends nothing (no volume bar flash); a change sends v then g.
 def vpoll(): m.now+=500; m.sent=[]; m.call(address=payload_syms['video_poll'],args=(0,0,0,0),gap=0,clear=False); return [x[1] for x in m.sent]
 assert vpoll()==[]; m.byte(syms['g_volume'],43); assert vpoll()==['v+','g+']; passed()
@@ -9156,7 +9151,7 @@ m.waited=4242; m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,c
 assert ('close',7) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm,0) in [c[:3] for c in m.calls]
 assert 'stock_input' in event(O['EVT_KEY_UP'],O['KEY_RETURN']) and not m.sent and wm_paint()==['wm_vt_paint']
 m.calls=[]; m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False); assert 'waitpid' not in [c[0] for c in m.calls]
-m.close(); passed()
+passed()
 
 # Spotify (patch/spotify.c, docs/internals.md#spotify): librespot from the card's .spotify folder, its
 # state from the q2-librespot fork's --status-file, its commands to --control-socket.
