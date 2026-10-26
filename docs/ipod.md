@@ -415,7 +415,8 @@ art is 166 pixels, as large as that leaves while the text column keeps its 165 p
 "3 of 12" starts in line with it. Each band has its own space: the top row, then the art 2
 pixels below it, so it has 14 pixels to "3 of 12"'s text above and to the page dots below
 (`NP_ART_Y`), the bar with the stock A-B markers
-(y 250 to 260) and the quiet time labels at y 265.
+(y 250 to 260) and the quiet time labels at y 265. The page dots keep their place while a swipe
+moves the pages: they are anchored on their own row, at the slide_view's centre.
 
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
 placeholder cover at this size, so real art and the placeholder match. The payload paints them

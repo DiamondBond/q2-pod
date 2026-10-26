@@ -455,6 +455,11 @@ def playing_page(root):
         elif key.endswith(':fg_color'): dots[2][key] = '#555555'
     dots[1][1] = NP_DOTS_Y
     dots[2]['self_layout'] = f'default(x=0,y={NP_DOTS_Y},w=100%,h=10)'
+    # Without an anchor, stock's indicator centres its dots on the slide_view as widget_to_screen places it,
+    # which takes away the view's own xoffset, a swipe's drag: dots laid out mid-swipe (any relayout lays them
+    # out) slid with the page until the next layout. The same point as the indicator's own anchor: the
+    # slide_view's centre, and above the indicator's middle, which puts the dots on its top edge.
+    dots[2].update(anchor_x=f'{375 // 2}px', anchor_y='0px')
     named['image_wait'][1] = [NP_MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
 
     slider = named['slider_play']
