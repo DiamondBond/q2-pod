@@ -8530,6 +8530,31 @@ static int wake_gate(void *e) {
     return !st.wake_pass;
 }
 
+/* main_loop_post_key_event: its one caller, on_wm_idle_status, posts SyncLink's (Eddict Player's)
+ * play/pause, previous and next as a press and a release for the loop to dispatch later, stamped
+ * with time_now_ms. Each post keeps its key and the time around it, so ringnav_input knows it. */
+static struct {
+    unsigned key, from, to;
+} posted[4] __attribute__((section(".scratch")));
+extern int stock_post_key_trampoline(void *, int, int);
+int ringnav_post_key(void *loop, int pressed, int key) {
+    static unsigned next __attribute__((section(".scratch")));
+    unsigned from = time_now_ms();
+    int ret = stock_post_key_trampoline(loop, pressed, key);
+    next = (next + 1) % 4;
+    posted[next].key = key & 255;
+    posted[next].from = from;
+    posted[next].to = time_now_ms();
+    return ret;
+}
+static int remote_key(void *e) {
+    unsigned key = (unsigned)I(e, EVENT_KEY), t = (unsigned)I(e, EVENT_TIME);
+    for (int i = 0; i < 4; i++)
+        if (posted[i].key == key && t - posted[i].from <= posted[i].to - posted[i].from)
+            return posted[i].key = 0, 1;
+    return 0;
+}
+
 /* window_manager_dispatch_input_event: while q2video plays (books.c) no key or touch reaches the
  * UI; a key's release goes to the player instead. Every event times ringnav_sleep's idle. */
 int ringnav(void *ctx, void *event);
@@ -8566,7 +8591,14 @@ int ringnav_input(void *wm, void *e) {
         }
         return 0;
     }
-    return stock_input_trampoline(wm, e);
+    if ((type != EVT_KEY_DOWN && type != EVT_KEY_UP) || !remote_key(e))
+        return stock_input_trampoline(wm, e);
+    /* Buttons lock is the buttons': stock's dark lock filters would drop SyncLink's keys (#113) */
+    unsigned char lock = g_keylock_flag;
+    g_keylock_flag = 0;
+    int ret = stock_input_trampoline(wm, e);
+    g_keylock_flag = lock;
+    return ret;
 }
 
 /* window_manager_paint, a leaf (tools/build.py WM_PAINT_LEAF): the window manager's own paint

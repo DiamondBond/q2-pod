@@ -72,6 +72,8 @@ HOOKS = {
     'folder_click': (0x521bc4, 'ringnav_folder_click', 'folder_click'),
     # Videos: no input reaches the UI while q2video plays
     'window_manager_dispatch_input_event': (0x66d49c, 'ringnav_input', 'input'),
+    # SyncLink's (Eddict Player's) play/pause, previous and next pass the Buttons lock (#113)
+    'main_loop_post_key_event': (0x68b5fc, 'ringnav_post_key', 'post_key'),
     # Key Tone: no click while music plays, and none on the buzzer while headphones or Bluetooth listen
     'buzzeer_switch': (0x4f3cc8, 'ringnav_buzzer', 'buzzer'),
     # Artists (PLAYSET ARTISTTYPE) without a saved choice is Album Artist

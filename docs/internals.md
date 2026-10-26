@@ -32,6 +32,7 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `folder_page_init`                    | `0x523330` | Opens at the SD root (card, no OTG), or at Podcasts/Audiobooks for their shortcuts                           |
 | `folder_back`                         | `0x507ac8` | Back at a bypassed SD root or shortcut root leaves the page                                                  |
 | `window_manager_dispatch_input_event` | `0x66d49c` | No input while a video plays ([Videos](#videos)); [Wake](#wake)'s screen-off gate                            |
+| `main_loop_post_key_event`            | `0x68b5fc` | SyncLink's keys pass the [Buttons lock](#buttons-lock)                                                       |
 | `buzzeer_switch`                      | `0x4f3cc8` | No buzzer while headphones, BT or USB listen ([Key Tone](#key-tone))                                         |
 | `systemset_powermanager_page_init`    | `0x4c72d0` | Adds Charge Limit, Low Power, Wake, Volume Guard and Standby Limit ([Wake](#wake) and after)                 |
 | `toolsIntoStandby`                    | `0x5be57c` | Standby's suspend between the RTC wake alarm's set and clear ([Standby limit](#standby-limit))               |
@@ -573,6 +574,8 @@ All Library music views (Songs, Albums, Artists, Composers, Genres, Hi-Res, Freq
 ## Buttons lock
 
 Settings' Buttons Lock rows and the quick-settings lock tile offer Off, Everything, Buttons only and Volume only. They save stock's `SYSSET LOCKFLAG` and `LOCKMODE`: 3 for Everything, 2 for Buttons only, 1 for Volume only. Stock's key-down and key-up filters already apply these modes only while the screen is off: mode 1 rejects wheel keys 172/173; mode 2 rejects Return, Play/Pause and skip keys 222/223; mode 3 rejects both sets. A mode outside 1–3 is saved as 3. Centre remains the wake key. `KEY_LOCKOUT` is independent, the short debounce after a button press. `ringnav_keylock_rows` replaces the stock row builder; `ringnav_quick_lock` replaces the lock tile callback, and `ringnav_quick_settings` labels the current choice on open.
+
+The lock is the buttons' alone. SyncLink (Eddict Player) has no path of its own to the player: `synclink_mainscheduling` returns a play control as `0x65`, `0x66` or `0x67`, and `on_wm_idle_status` posts it as a press and release of Play/Pause (171), 222 or 223 with `main_loop_post_key_event` (`0x68b5fc`, its only caller), so stock's dark filters dropped them like the buttons (#113). `ringnav_post_key` hooks the poster and keeps each post's key and the `time_now_ms` window around it, which the queued event carries as its stamp (`EVENT_TIME`, low word; four posts kept, a match spent); `ringnav_input` dispatches an event matching one with `g_keylock_flag` cleared, then restores it. A button event never matches: it needs the same key stamped within the same millisecond or two.
 
 ## Photos
 

@@ -38,6 +38,7 @@
 #define VIEW_ANIMATOR 0xe8
 #define EVENT_TYPE 0x00
 #define EVENT_KEY 0x18
+#define EVENT_TIME 0x08 /* low word of the uint64 time_now_ms stamp */
 #define EVENT_TARGET 0x10
 #define EVENT_X 0x18           /* pointer_event_init @0x640298 */
 #define EVENT_Y 0x1c

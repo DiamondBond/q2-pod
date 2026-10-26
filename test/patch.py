@@ -11101,6 +11101,26 @@ m.byte(syms['g_backlight_status'],0)
 m.byte(O['BOOT_KEY_GUARD'],1); assert not wake(DOWN,gap=1000) and not wake(UP,gap=50) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0'
 assert wake(DOWN,gap=100) and m.u.mem_read(O['BOOT_KEY_GUARD'],1)==b'\0' and wake(UP,gap=50)
 assert click(2)==[(0,'Q2POD','WAKEDOUBLE')]; passed()
+# SyncLink (#113): Eddict Player's keys, which stock posts with main_loop_post_key_event, reach
+# stock's lock filters dark with the Buttons lock off; the same keys from the buttons stay locked.
+post=HOOKS['main_loop_post_key_event'][0]
+class LockMachine(Machine):
+    def hook(self,u,address,size,_):
+        if self.handlers.get(address)=='stock_input': self.locks.append(self.u.mem_read(syms['g_keylock_flag'],1)[0])
+        return super().hook(u,address,size,_)
+l=LockMachine(); l.handlers[inp+12]='stock_input'; l.handlers[post+12]='stock_post_key'
+l.byte(syms['g_backlight_status'],0); l.byte(syms['g_keylock_flag'],1)
+def lock_seen(key,kind,posted=None,gap=0):
+    if posted: l.call(address=post,args=(0x1000400,int(kind==DOWN),posted,0),gap=1000)
+    l.advance(gap,clear=False); l.word(l.event+O['EVENT_TIME'],l.now); l.locks=[]
+    l.call(key,address=inp,args=(l.wm,l.event,0,0),event_type=kind,gap=0)
+    return l.locks
+for key in (O['KEY_PLAY'],O['KEY_BACK_BTN'],O['KEY_FWD_BTN']):
+    assert lock_seen(key,DOWN,key)==[0] and lock_seen(key,UP,key)==[0]
+    assert lock_seen(key,DOWN,gap=1000)==[1] and lock_seen(key,UP,gap=1000)==[1]
+assert lock_seen(O['KEY_FWD_BTN'],DOWN,O['KEY_PLAY'])==[1] and lock_seen(O['KEY_PLAY'],DOWN)==[0]  # by key
+assert lock_seen(O['KEY_PLAY'],UP,O['KEY_PLAY'],gap=1)==[1]  # and by its stamp
+assert l.u.mem_read(syms['g_keylock_flag'],1)==b'\1'; passed()
 # Play/Pause hold time (PLAY_HOLD) is patched into the demo.
 from build import PLAY_HOLD
 assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in PLAY_HOLD); passed()
