@@ -665,9 +665,10 @@ def row_icon(data):
 
 
 # Each stock placeholder's replacement size: stock's own, but Now Playing's and the full-screen art's at
-# the art they fill (stock's 188 scaled down there on the device, jagged).
+# the art they fill (stock's 188 scaled down there on the device, jagged), and the album grids' at
+# album_children's inset cover (110 less TILE_INSET + TILE_CLEARANCE a side), drawn 1:1 by its scale-down.
 # The square ones keep the disc's transparent corners, so a selected row's bar shows through them.
-ART_PLACEHOLDERS = {'default_album_big.png': 110, 'default_album_small.png': 52,
+ART_PLACEHOLDERS = {'default_album_big.png': 110 - 2 * (inc('TILE_INSET') + inc('TILE_CLEARANCE')), 'default_album_small.png': 52,
                     'play_defaultcover.png': NP_ART, 'scrsaver_playcover.png': 60,
                     'default_smallcover.png': 140, 'default_bigcover.png': BC_ART}
 
