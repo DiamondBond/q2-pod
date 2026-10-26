@@ -238,8 +238,8 @@ void wheel_sample(int *s, int ret, char *info) {
     }
     int d = s[0] - wh_last, units = wheel_units ? wheel_units : WHEEL_TICK_UNITS * WHEEL_FINE;
     d = d < -100 ? d + 200 : d > 100 ? d - 200 : d;
-    if (g_backlight_status && ringnav_wheel_qs() &&
-        (d >= QS_SPAN || d <= -QS_SPAN)) { /* across the middle: two touches */
+    if ((d >= QS_SPAN || d <= -QS_SPAN) && g_backlight_status &&
+        ringnav_wheel_qs()) { /* across the middle: two touches */
         qs_end(wh_last);
         qs_start(s[0]);
         d = 0;
