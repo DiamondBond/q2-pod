@@ -95,7 +95,7 @@ HOOKS = {
     'dialog_checkfw_dialog_init': (0x4985a4, 'ringnav_checkfw', 'checkfw'),
     'mclLoadPlayList': (0x5aa8d4, 'ringnav_load', 'load'),
     'mclNextSong': (0x5adbbc, 'ringnav_next', 'next'),
-    # Lyrics: a local track without a .lrc takes its LYRICS tag (navigation.c ringnav_lyric)
+    # Lyrics: a local track without a .lrc takes its LYRICS tag (lyrics.c ringnav_lyric)
     'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
     # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB alone, in place of stock's Kugou search
     'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', None),

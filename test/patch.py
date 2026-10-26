@@ -5695,7 +5695,7 @@ if variant=='ipod':
     f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
     loop(m); assert raw(m)==0 and not m.starts and not m.timers; passed()
 
-# Lyrics from tags (navigation.c ringnav_lyric): stock's loader (mocked) runs first; only when it left no
+# Lyrics from tags (lyrics.c ringnav_lyric): stock's loader (mocked) runs first; only when it left no
 # lines for a local song does TagLib open the file, LYRICS then UNSYNCEDLYRICS, a line each into stock's
 # list at a time no track reaches. Online queues, other rows and an unbound GOT entry ask nothing.
 import subprocess

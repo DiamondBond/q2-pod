@@ -1,9 +1,217 @@
-/* iPod Now Playing's lyrics page (docs/ipod.md#lyrics, docs/internals.md#word-timed-lyrics): large
- * lines, the playing one in the middle, lit word by word as it is sung. Stock's rows
- * stay, one blank label a line as high as it, so its scroll view, the wheel and the follow move
- * them as before (navigation.c); each row's line is painted over it here. */
+/* Lyrics: the loader (stock's .lrc, else the track's tags, with milliseconds and word stamps), in
+ * both builds, then iPod Now Playing's lyrics page (docs/ipod.md#lyrics,
+ * docs/internals.md#word-timed-lyrics): large lines, the playing one in the middle, lit word by
+ * word as it is sung. Stock's rows stay, one blank label a line as high as it, so its scroll view,
+ * the wheel and the follow move them as before (navigation.c); each row's line is painted over it
+ * here. */
 #include "offsets.inc"
 #include "peq.h"
+#include "stock.h"
+
+/* Lyrics from tags: stock reads a local track's lyrics only from a .lrc beside it. Without one,
+ * the track's LYRICS tag (else UNSYNCEDLYRICS) fills stock's list. A tag in LRC form, a
+ * "[mm:ss.xx]" stamp before each line (q2-deezer's, and most taggers' for synced lyrics), gives
+ * each line its time as stock's .lrc parser does (toolsTimeConvert: whole seconds), in time order,
+ * a line with several stamps once for each, and lines without one (LRC's "[ar:...]" tags) left out.
+ * Plain text fills it a line each, at a time no track reaches, so the page stays at its top as
+ * before a .lrc's first stamp. libtag_c's property calls are found from taglib_file_new's address,
+ * which that call binds in demo's GOT. ponytail: no SYLT frame, and lines starting in its first
+ * LYRIC_TAG_MAX bytes. The lines keep their milliseconds and A2 word stamps ("<mm:ss.xx>" before
+ * a word, cut from the text) for iPod's lyrics page (lyrics.c), lose the spaces at their ends, and
+ * blank ones go; a .lrc's synced lines replace stock's, read alike. */
+#define LYRIC_TAG_MAX 65536
+extern int stock_lyric_trampoline(void);
+
+/* A time at p between open and close: "[mm:ss]", "[mm:ss.xx]" or "[mm:ss:xx]" (A2's word stamps
+ * are "<mm:ss.xx>"). Its milliseconds into *ms and its end, else 0. */
+static char *lrc_time(char *p, char open, char close, int *ms) {
+    int mm = 0, ss = 0, frac = 0, scale = 100, digits = 0;
+    if (*p++ != open) return 0;
+    for (; *p >= '0' && *p <= '9' && digits < 4; ++digits) mm = mm * 10 + *p++ - '0';
+    if (!digits || *p++ != ':') return 0;
+    for (digits = 0; *p >= '0' && *p <= '9' && digits < 2; ++digits) ss = ss * 10 + *p++ - '0';
+    if (digits != 2 || ss > 59) return 0;
+    if (*p == '.' || *p == ':')
+        for (++p; *p >= '0' && *p <= '9'; ++p, scale /= 10) frac += (*p - '0') * scale;
+    if (*p++ != close) return 0;
+    *ms = (mm * 60 + ss) * 1000 + frac;
+    return p;
+}
+
+/* The stamps leading *s: each one's milliseconds into t (at most n of them), *s moved past them
+ * all; how many. "[ar:Name]" and other bracketed text are no stamp. */
+static int lrc_stamps(char **s, int *t, int n) {
+    int k = 0, ms;
+    for (char *q; (q = lrc_time(*s, '[', ']', &ms)); *s = q)
+        if (k < n) t[k++] = ms;
+    return k;
+}
+
+/* s with its word stamps cut out, in place; when keep, each one's ms and byte offset into m (up to
+ * cap, counted in *n). */
+static void lrc_words(char *s, lrc_mark *m, unsigned cap, unsigned *n, int keep) {
+    char *text = s, *o = s, *q;
+    for (int ms; *s;)
+        if ((q = lrc_time(s, '<', '>', &ms))) {
+            if (keep && *n < cap) m[(*n)++] = (lrc_mark){ ms, (unsigned)(o - text) };
+            s = q;
+        } else
+            *o++ = *s++;
+    *o = 0;
+}
+
+/* The bytes of the space at p: ASCII's space, tab, vertical tab or form feed, a no-break,
+ * ideographic or zero-width space, or a byte-order mark; else 0. */
+static int lrc_space(const char *p) {
+    const unsigned char *u = (const unsigned char *)p;
+    if (*u == ' ' || *u == '\t' || *u == '\v' || *u == '\f') return 1;
+    if (u[0] == 0xc2 && u[1] == 0xa0) return 2;
+    return (u[0] == 0xe3 && u[1] == 0x80 && u[2] == 0x80) ||
+                   (u[0] == 0xe2 && u[1] == 0x80 && u[2] == 0x8b) ||
+                   (u[0] == 0xef && u[1] == 0xbb && u[2] == 0xbf)
+               ? 3
+               : 0;
+}
+
+/* line without the spaces at either end, in place: its new start, and its n word stamps' offsets
+ * (in m) moved with it, within it. */
+static char *lrc_trim(char *line, lrc_mark *m, unsigned n) {
+    char *start = line, *end;
+    int k;
+    while ((k = lrc_space(line))) line += k;
+    for (end = line + strlen(line); end > line;) /* from the end: the last space's bytes */
+        if (lrc_space(end - 1) == 1)
+            --end;
+        else if (end - line >= 2 && lrc_space(end - 2) == 2)
+            end -= 2;
+        else if (end - line >= 3 && lrc_space(end - 3) == 3)
+            end -= 3;
+        else
+            break;
+    *end = 0;
+    for (unsigned i = 0; i < n; ++i) {
+        int at = (int)m[i].at - (int)(line - start);
+        m[i].at = at < 0 ? 0 : at > end - line ? (unsigned)(end - line) : (unsigned)at;
+    }
+    return line;
+}
+
+static int lrc_order(const void *a, const void *b) {
+    const lrc_line *x = a, *y = b;
+    return x->time != y->time ? (x->time > y->time) - (x->time < y->time) : x->at - y->at;
+}
+
+/* text's lines, cut in place, into *lp and their word stamps (a line's only when it has one stamp)
+ * into *mp, both calloc'd for the caller to free: how many lines, -1 out of memory. Each line goes
+ * without the spaces at its ends, and a blank one (a stamp alone, an empty line, CR CR LF's) is
+ * left out, so the rows keep an even spacing. */
+static int lrc_parse(char *text, lrc_line **lp, lrc_mark **mp) {
+    unsigned cap = 1, caps = 0, n = 0, nm = 0;
+    for (const char *s = text; *s && s - text < LYRIC_TAG_MAX; ++s) /* a line, or a stamp */
+        cap += *s == '\n' || *s == '\r' || *s == '[', caps += *s == '<';
+    lrc_line *l = *lp = calloc(cap, sizeof *l);
+    lrc_mark *m = *mp = caps ? calloc(caps, sizeof *m) : 0;
+    if (!l || (caps && !m)) return -1;
+    int synced = 0;
+    for (char *s = text; *s && s - text < LYRIC_TAG_MAX;) {
+        char *e = s, c, *line = s;
+        int t[8], k;
+        unsigned first;
+        while (*e && *e != '\n' && *e != '\r') ++e;
+        c = *e, *e = 0;
+        if ((k = lrc_stamps(&line, t, 8)) && !synced)
+            synced = 1, n = 0; /* LRC: the lines before go */
+        first = nm;
+        lrc_words(line, m, caps, &nm, k == 1);
+        line = lrc_trim(line, m + first, nm - first);
+        if (!*line) nm = first; /* blank */
+        for (int i = 0; i < (*line ? k ? k : !synced : 0) && n < cap; ++i)
+            l[n] = (lrc_line){ k ? t[i] : LRC_FAR, (int)n, line, first, nm - first }, ++n;
+        s = e + (c != 0) + (c == '\r' && e[1] == '\n');
+    }
+    if (synced) qsort(l, n, sizeof *l, lrc_order);
+    return (int)n;
+}
+
+/* l's n lines into stock's list at their whole seconds, after its own lines when not clear. */
+static void lrc_push(const lrc_line *l, unsigned n, int clear) {
+    struct {
+        int time;
+        const char *text;
+    } line;
+    pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
+    if (clear) deque_clear(P(MCL_LYRICS, 0));
+    for (unsigned i = 0; i < n; ++i) {
+        line.time = l[i].time == LRC_FAR ? LRC_FAR : l[i].time / 1000, line.text = l[i].text;
+        _deque_push_back(P(MCL_LYRICS, 0), &line);
+    }
+    pthread_mutex_unlock((void *)MCL_LYRIC_LOCK);
+}
+
+/* Stock's .lrc loader (0x5a9718, in mclLoadExLyric) opens the file it parses here (LYRIC_OPEN in
+ * tools/build.py), a UTF-8 copy when it was in another code page: its first LYRIC_TAG_MAX bytes
+ * wait for ringnav_lyric, which reads them again as a tag's, with their milliseconds and word
+ * stamps and without blank lines. */
+static char *lrc_file;
+void *ringnav_lrc_open(const char *path, const char *mode) {
+    void *f = fopen(path, mode), *g = f ? fopen(path, "rb") : 0;
+    free(lrc_file);
+    lrc_file = g ? calloc(1, LYRIC_TAG_MAX + 1) : 0;
+    if (lrc_file) fread(lrc_file, 1, LYRIC_TAG_MAX, g);
+    if (g) fclose(g);
+    return f;
+}
+
+int ringnav_lyric(void) {
+    free(lrc_file);
+    lrc_file = 0;
+    int ret = stock_lyric_trampoline(), n = 0;
+    lrc_line *l = 0;
+    lrc_mark *m = 0;
+    char *file = lrc_file, **v = 0;
+    unsigned lib = 0;
+    void *q = P(mcl_pdeqplaylist, 0), *r, *f = 0;
+    lrc_file = 0;
+    if (file && mclGetLyricSize() > 0) { /* a .lrc's synced lines replace stock's */
+        n = lrc_parse(file + 3 * !memcmp(file, "\xef\xbb\xbf", 3), &l, &m);
+        if (n > 0 && l[0].time != LRC_FAR)
+            lrc_push(l, n, 1);
+        else
+            n = 0;
+    }
+    unsigned pos = (unsigned)I(MCL_POS, 0);
+    if (!(mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q ||
+          pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 ||
+          !P(r, REC_PATH) || *(char *)P(r, REC_PATH) != '/'))
+        f = taglib_file_new(P(r, REC_PATH), 0);
+    if (f) {
+        unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0);
+        char **(*get)(void *, const char *) =
+            (char **(*)(void *, const char *))((lib = at - TAGLIB_FILE_NEW) + TAGLIB_PROPERTY_GET);
+        if (at != (unsigned)taglib_file_new) { /* an unbound entry still holds demo's stub */
+            v = get(f, "LYRICS");
+            if (!v || !*v || !**v) {
+                if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+                v = get(f, "UNSYNCEDLYRICS");
+            }
+        }
+        if (v && *v && **v && (n = lrc_parse(*v, &l, &m)) > 0) {
+            lrc_push(l, n, 0);
+            ret = 1;
+        }
+    }
+#if IPOD
+    /* every load sends its synced lines, or none (the rows hold unsynced ones): never the last's */
+    lyrics_publish(l, n > 0 && l[0].time != LRC_FAR ? n : 0, m);
+#endif
+    if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+    if (f) taglib_file_free(f);
+    free(file);
+    free(l);
+    free(m);
+    return ret;
+}
+
 #if IPOD
 
 /* Every line LYRIC_PX, as large as reads well in the page's width, as many rows as it takes up to
@@ -64,7 +272,7 @@ static ly_tab *ly_alloc(unsigned n, unsigned marks, unsigned chars) {
     return t;
 }
 
-/* The loader's lines (navigation.c ringnav_lyric, on the player's thread), as it put them in
+/* The loader's lines (ringnav_lyric above, on the player's thread), as it put them in
  * stock's list: the next table, for the rows built from them. */
 void lyrics_publish(const lrc_line *l, unsigned n, const lrc_mark *m) {
     unsigned marks = 0, chars = 0;
