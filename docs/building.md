@@ -56,6 +56,17 @@ About's **FW. Version** row reads the same literal, so it shows the stock firmwa
 
 Development builds also start `q2remote`, a key-gated root shell with screenshots and input over Wi-Fi, for developers and agents; see [remote.md](remote.md).
 
+`--dev --rotator-lazy-clock` opts into the experimental first-use rotator clock policy.
+Normal builds keep the stock module byte for byte. See [clock gating](clock-gating.md)
+for the exact module guard, tests, and hardware-validation limits.
+
+`--dev --pwm-idle-clock` selects the paired PWM/MCU clock experiment.
+It requires all three matching files and a reboot; see [PWM clock gating](pwm-clock-gating.md)
+for its ownership protocol, conservative fallbacks and validation limits.
+
+Add `--mcu-idle-sleep` to the development PWM option to test interruptible MCU
+sleep with an explicit wake handshake. See [MCU sleep](mcu-sleep.md).
+
 ## Tests
 
 ```sh
@@ -69,6 +80,8 @@ python3 test/build.py 'Q2 Firmware V1.32.zip'   # packaging checks (custom logo,
 python3 test/aic.py STOCKFS               # stopped audio notifier: actual MIPS hooks and modeled wait races
 python3 test/aic_build.py STOCKFS BUILD    # notifier development guard, ABI, default/experimental packaging
 python3 test/remote.py                     # q2remote protocol, auth, event and framebuffer checks
+python3 test/rotator.py STOCK_MODULE        # actual MIPS rotator clock ownership and failure paths
+python3 test/rotator_build.py BUILD...      # dev-only guard and packed/default module isolation
 python3 test/playback.py /tmp/q2-build     # grouped traversal, snapshots and the wheel's ticks
 python3 test/patch.py /tmp/q2-build        # the patched MIPS payload, wheel and UI scenarios
 python3 test/chapters.py                   # embedded chapter parsing, both MP4 formats and async extraction

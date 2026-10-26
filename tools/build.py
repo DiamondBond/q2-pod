@@ -645,7 +645,8 @@ def source_sha256():
     h = hashlib.sha256()
     manual = [ROOT/'docs/manual'/f for f in ('build.py', 'guide.html')]
     for path in sorted([*(p for p in ROOT.glob('assets/**/*') if p.is_file()), *ROOT.glob('patch/*'),
-                        *ROOT.glob('tools/*.py'), *ROOT.glob('tools/*.c'), *ROOT.glob('tools/*.S'), *manual]):
+                        *ROOT.glob('tools/*.py'), *ROOT.glob('tools/*.c'),
+                        *ROOT.glob('tools/*.h'), *ROOT.glob('tools/*.S'), *manual]):
         h.update(str(path.relative_to(ROOT)).encode() + b'\0')
         h.update(path.read_bytes())
     return h.hexdigest()
@@ -1230,8 +1231,8 @@ def patch_bluealsa(raw):
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
     return bytes(image)
 
-def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=False):
-    check(not aic_idle_wait or dev, '--aic-idle-wait requires --dev')
+def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=True, rotator_lazy_clock=True, pwm_idle_clock=True, mcu_idle_sleep=False):
+    check(not mcu_idle_sleep or (dev and pwm_idle_clock), '--mcu-idle-sleep requires --dev --pwm-idle-clock')
     variant = 'ipod' if ipod else 'stock'
     version = VERSIONS[variant]
     check(re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9._-]+', repo), f'{repo}: not a GitHub owner/name')  # a C string
@@ -1523,6 +1524,22 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=F
         p = swap_inode(p, MODULE_PATH.encode(), out/'soc_aic.ko')
         aic_notifier = dict(policy=PATCH_POLICY, path=MODULE_PATH,
                             original_sha256=STOCK_SHA256, sha256=sha(module))
+    rotator = None
+    if rotator_lazy_clock:
+        from rotator import MODULE_PATH, STOCK_SHA256, patch_module
+        module = patch_module(cat(MODULE_PATH))
+        (out/'soc_rotator.ko').write_bytes(module)
+        p = swap_inode(p, MODULE_PATH.encode(), out/'soc_rotator.ko')
+        rotator = dict(policy='lazy-first-use-v1', path=MODULE_PATH,
+                       original_sha256=STOCK_SHA256, sha256=sha(module))
+    pwm = None
+    if pwm_idle_clock:
+        from pwm import patch_bundle
+        files, pwm = patch_bundle(cat, sleep=mcu_idle_sleep)
+        for path, data in files.items():
+            src = out/pathlib.Path(path).name
+            src.write_bytes(data)
+            p = swap_inode(p, path.encode(), src)
     # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
     # the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
     # (not the copies iPod pre-sizes for Settings), and q2video.
@@ -1631,6 +1648,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=F
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
         version=version, variant=variant, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        **({'rotator_clock': rotator} if rotator else {}),
+        **({'pwm_clock': pwm} if pwm else {}),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
               ({'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]} if ipod else {}))
@@ -1646,12 +1665,18 @@ if __name__ == '__main__':
     ap.add_argument('--ipod', action='store_true', help='iPod UI: compact local browsing and long Return to Now Playing')
     ap.add_argument('--dev', action='store_true',
                     help='development build: tag from the next .build-number (V001i, V002i...); never a release input')
-    ap.add_argument('--aic-idle-wait', action='store_true',
-                    help='experimental: sleep the stopped PCM notifier until start or teardown (requires --dev)')
+    ap.add_argument('--mcu-idle-sleep', action='store_true',
+                    help='experimental: sleep parked MCU with explicit IRQ wake (requires --dev --pwm-idle-clock)')
     ap.add_argument('--update-repo', default=REPO, metavar='OWNER/NAME',
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
+    ap.add_argument('--aic-idle-wait', action=argparse.BooleanOptionalAction, default=True,
+                    help='sleep the stopped PCM notifier until start or teardown (default on; --no-aic-idle-wait for stock)')
+    ap.add_argument('--rotator-lazy-clock', action=argparse.BooleanOptionalAction, default=True,
+                    help='defer the rotator clock until its first conversion (default on)')
+    ap.add_argument('--pwm-idle-clock', action=argparse.BooleanOptionalAction, default=True,
+                    help='cooperative Linux/MCU PWM clock gating (default on)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.aic_idle_wait)
+        build(a.zip,a.out.resolve(),a.logo,a.ipod,a.dev,a.update_repo,a.aic_idle_wait,a.rotator_lazy_clock,a.pwm_idle_clock,a.mcu_idle_sleep)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))
