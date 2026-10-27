@@ -72,7 +72,7 @@ In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default
 drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
 card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
 secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
-Classic** draws the accent's gradient bar instead, full width, or under **Corners: Rounded** the same inset pill (its ends in whole-pixel bands, not anti-aliased), and leaves the rows' own (white) ink. The background
+Classic** draws the accent's gradient bar instead, full width, or under **Corners: Rounded** the same inset pill with anti-aliased ends, and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
@@ -421,8 +421,8 @@ moves the pages: they are anchored on their own row, at the slide_view's centre.
 
 The art's corners are rounded at 12 pixels (`NP_ART_RADIUS`), the radius of stock's own
 placeholder cover at this size, so real art and the placeholder match. The payload paints them
-over the image in the page's black, with an anti-aliased
-edge pixel. The title is 22 pixels
+over the scaled image in the page's black, with an anti-aliased
+edge pixel, so opposite corners share the same pixel grid. The title is 22 pixels
 white (`NP_TITLE_PX`) over the 18-pixel (`NP_META_PX`) artist, `#CCCCCC` (`NP_ARTIST_RGB`), and
 album, `#BBBBBB` (`NP_ALBUM_RGB`); "3 of 12" and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Legacy
 keeps its existing artist color. Long lines scroll, as stock.

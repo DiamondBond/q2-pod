@@ -1708,18 +1708,31 @@ unsigned accent_map(unsigned c, int preset, int tone) {
 
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; equal ends give a solid
  * fill. r.h is at least 2. A pill insets each band to a circle of diameter r.h at either end.
- * Plain fills keep this off the stock gradient_t ABI, which is not audited.
- * ponytail: the pill's ends are not antialiased (whole-pixel bands). */
+ * Plain fills keep this off the stock gradient_t ABI, which is not audited. */
 static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi, int pill) {
     for (int j = 0; j < r.h; ++j) {
-        int in = 0;
-        if (pill) { /* half-pixel units: d from the centre, k = sqrt(h^2 - d^2) the band's chord */
-            int d = 2 * j + 1 - r.h, v = r.h * r.h - d * d, k = 0;
-            while ((k + 1) * (k + 1) <= v) ++k;
-            in = (r.h - k) / 2;
+        int out = 0;
+        if (pill) { /* 1/16-pixel chord, sampled at the band's centre. */
+            int d = 2 * j + 1 - r.h, v = (r.h * r.h - d * d) * 64, k = 0;
+            int end = 8 * r.h;
+            while (k < end) {
+                int mid = (k + end + 1) / 2;
+                if (mid * mid <= v)
+                    k = mid;
+                else
+                    end = mid - 1;
+            }
+            out = 8 * r.h - k;
         }
-        canvas_set_fill_color(canvas, RGBA(j ? mix(top, bottom, j, r.h - 1) : hi));
+        int in = (out + 15) / 16;
+        unsigned color = RGBA(j ? mix(top, bottom, j, r.h - 1) : hi);
+        canvas_set_fill_color(canvas, color);
         canvas_fill_rect(canvas, r.x + in, r.y + j, r.w - 2 * in, 1);
+        if (out & 15) {
+            canvas_set_fill_color(canvas, (color & 0xffffff) | (unsigned)(16 - (out & 15)) * 17 << 24);
+            canvas_fill_rect(canvas, r.x + in - 1, r.y + j, 1, 1);
+            canvas_fill_rect(canvas, r.x + r.w - in, r.y + j, 1, 1);
+        }
     }
 }
 #endif
@@ -1881,21 +1894,30 @@ static void paint_letter(void *w, void *canvas) {
     canvas_set_clip_rect(canvas, &old);
 }
 
-/* Now Playing's art, and Spotify's, gets NP_ART_RADIUS corners, painted over it in the page's
+/* Playing art is rounded after scaling, so opposite corners share the same pixel grid.
+ * NP_ART_RADIUS at 166px, painted over it in the page's
  * black: each corner row outside the arc, then its edge pixel at the alpha of its uncovered part
  * (1/16 px). */
 static void paint_cover(void *w, void *canvas) {
-    if (!w || (w != st.np_cover && w != spot_art()) || !P(canvas, CANVAS_LCD)) return;
+    if (!w || !P(canvas, CANVAS_LCD)) return;
+    int x = 0, y0 = 0;
+    if (!tk_strcmp(widget_get_prop_str(w, "name", ""), "bigcover_page")) {
+        w = widget_lookup(w, "img_bigcover", 1);
+        if (!w) return;
+        x = I(w, W_X), y0 = I(w, W_Y); /* after the title's shade, in the page's canvas */
+    } else if (w != st.np_cover && w != spot_art())
+        return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-    int r = NP_ART_RADIUS, ww = I(w, W_W), h = I(w, W_H);
+    int ww = I(w, W_W), h = I(w, W_H);
+    int r = (ww < h ? ww : h) * NP_ART_RADIUS / 166;
     for (int i = 0; i < r; ++i) {
         int out = arc_out(r, i), n = out >> 4;
         for (int c = 0; c < 4; ++c) {
             int y = c & 1 ? h - 1 - i : i, left = !(c & 2);
             canvas_set_fill_color(canvas, RGBA(0));
-            canvas_fill_rect(canvas, left ? 0 : ww - n, y, n, 1);
+            canvas_fill_rect(canvas, x + (left ? 0 : ww - n), y0 + y, n, 1);
             canvas_set_fill_color(canvas, (unsigned)(out & 15) * 17 << 24);
-            canvas_fill_rect(canvas, left ? n : ww - n - 1, y, 1, 1);
+            canvas_fill_rect(canvas, x + (left ? n : ww - n - 1), y0 + y, 1, 1);
         }
     }
     stock_canvas_set_fill_color(canvas, fill);
@@ -4065,12 +4087,8 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
              preset = accent();
     unsigned char *data = (void *)0;
     /* Before the manager copies bitmap_t: cached flags must agree with the new alpha. These
-     * paths are stock's album/artist thumbnails and its three local/online playing covers. */
-    if (format < 4 && name &&
-        (tk_str_start_with(name, "file:///mnt/mmc/.sldp/") ||
-         !tk_strcmp(name, "file:///tmp/coverpic.jpg") ||
-         !tk_strcmp(name, "file:///tmp/externpic.jpg") ||
-         !tk_strcmp(name, "file:///tmp/album_tidal.jpg"))) {
+     * paths are stock's album/artist thumbnails; playing covers are rounded after scaling. */
+    if (format < 4 && name && tk_str_start_with(name, "file:///mnt/mmc/.sldp/")) {
         int w = I(bitmap, 0), h = I(bitmap, 4), stride = bitmap_get_line_length(bitmap);
         if (w > 0 && h > 0 && w <= 4096 && h <= 4096 && stride >= w * 4) {
             unsigned char *px = bitmap_lock_buffer_for_write(bitmap);

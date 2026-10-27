@@ -492,7 +492,7 @@ def playing_page(root):
 # iPod only. The full-screen art (a tap on Now Playing's opens it, any tap closes it): stock's art, shade and
 # song name, the art a centred BC_ART square on the window's black (bigcover_page_init only loads its image
 # and sets its draw type, scale_auto as here), the shade and the name on its foot as stock has them on the
-# screen's. The covers it shows are the playing ones ringnav_image_add rounds.
+# screen's. paint_cover rounds the playing art after scaling.
 BIGCOVER = 'bigcover_page.bin'
 BC_TITLE_PAD = 12
 

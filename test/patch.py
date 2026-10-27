@@ -764,10 +764,22 @@ else:
     k=Machine(); k.config['THEME']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
     assert [b[:3] for b in k.bands]==[(0,j,240) for j in range(48)]
     k=Machine(); k.config.update(THEME='1',ROUNDED='1'); kw,_=k.page_list(5,extent=1000); k.paint(kw)
-    assert len(k.bands)==48 and [k.bands[i][4] for i in (0,1,47)]==[color_t(ACCENTS[0][i]) for i in (4,0,1)]
-    def chord(j,h): v=h*h-(2*j+1-h)**2; return (h-math.isqrt(v))//2
-    assert [b[:3] for b in k.bands]==[(inset+chord(j,48),j,240-2*inset-2*chord(j,48)) for j in range(48)]
-    assert k.bands[24][0]==inset and k.bands[0][0]>inset+15; passed()
+    def chord(j,h):
+        out=8*h-math.isqrt((h*h-(2*j+1-h)**2)*64)
+        return (out+15)//16, out&15
+    want=[]
+    for band_y in range(48):
+        n,frac=chord(band_y,48)
+        color=color_t(ACCENTS[0][4 if band_y==0 else 0])
+        want.append((inset+n,band_y,240-2*inset-2*n,1,color))
+        if frac:
+            edge=(color&0xffffff)|((16-frac)*17<<24)
+            want.extend([(inset+n-1,band_y,1,1,edge),(240-inset-n,band_y,1,1,edge)])
+    assert [b[:5] for b in k.bands]==want
+    # Coverage and geometry mirror at both ends and across the horizontal centre.
+    assert any(0<b[4]>>24<255 for b in k.bands)
+    assert [b[:4] for b in k.bands if b[1]==0]==[(inset+20,0,240-2*inset-40,1),(inset+19,0,1,1),(240-inset-20,0,1,1)]
+    passed()
     # Cards stay two pixels inside all three columns, including scrolled first/last rows.
     for classic in (0,1):
         for offset in (0, 24):
@@ -2340,7 +2352,13 @@ if variant=='stock':
     assert m.strokes[1][4:]==((10,30,220,86),OUTLINE)
 else:
     # The bands reach the LCD only for the row pixels inside the clip.
-    assert [(c[2],c[3]) for c in m.calls if c[0]==sink]==[(7+O['SEL_INSET']+chord(j,20),20+j) for j in range(10,20)]
+    want=[]
+    for band_y in range(10,20):
+        n,frac=chord(band_y,20)
+        want.append((7+O['SEL_INSET']+n,20+band_y))
+        if frac: want.extend([(7+O['SEL_INSET']+n-1,20+band_y),(7+240-O['SEL_INSET']-n,20+band_y)])
+    want=[(x,y) for x,y in want if 10<=x<=229]
+    assert [(c[2],c[3]) for c in m.calls if c[0]==sink]==want
 assert [m.get(m.canvas+off) for off in (0x10,0x14,0x18,0x1c)]==[10,30,229,199]
 assert m.lcd_colors()==LCD_COLORS; passed()
 # Wheel selection is immediate even when restoration animations would still be running.
@@ -5442,6 +5460,24 @@ if variant=='ipod':
     assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x12345678; passed()  # restored
     m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(win,m.canvas,0,0)); assert not m.bands; passed()
 
+    # Full-screen corners use destination pixels, independent of source-image scaling.
+    from ipod import BC_ART
+    bigart=m.node('image','img_bigcover')
+    bx,by=(375-BC_ART)//2,(320-BC_ART)//2
+    put(bigart,bx,by,BC_ART,BC_ART)
+    bigwin=m.node('window','bigcover_page',[bigart])
+    m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(bigart,m.canvas,0,0))
+    assert not m.bands  # rounded after all children, including the title's shade
+    m.call(address=HOOKS['widget_on_paint_border'][0],args=(bigwin,m.canvas,0,0))
+    pixels={}
+    for x,y,w,h,color,*_ in m.bands:
+        for xx in range(x,x+w): pixels[xx-bx,y-by]=color>>24
+    assert any(0<a<255 for a in pixels.values())
+    for (x,y),alpha in pixels.items():
+        assert pixels.get((BC_ART-1-x,y))==alpha
+        assert pixels.get((x,BC_ART-1-y))==alpha
+    assert m.get(m.lcd+O['LCD_FILL_COLOR'])==0x12345678; passed()
+
     # Scrub: a double centre press toggles it; the wheel then moves a target of SCRUB_STEP
     # seconds times the ramp, previewed on the slider and both labels however far apart the ticks,
     # and committed once through player_seek_time (track seconds) when the scrub ends. Stock's page
@@ -7240,7 +7276,7 @@ if variant=='ipod':
             args=(0x1000500,m.string(name),bm,0)
             m.call(address=IPOD_HOOKS['image_manager_add'][0],args=args,gap=0)
             rounded=bytes(m.u.mem_read(data,stride*h))
-            if name.endswith('photo.jpg'):
+            if not name.startswith('file:///mnt/mmc/.sldp/'):
                 assert rounded==source and m.get(bm+0xc)&1
             else:
                 assert not m.get(bm+0xc)&1 and m.get(bm+0xc)&2
@@ -7537,7 +7573,7 @@ if variant=='ipod':
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
         assert texts()[0]=='Accent: '+name
         m.paint(view)
-        assert {b[4] for b in m.bands[1:]}=={color_t(ACCENTS[value][0])}
+        assert {b[4]&0xffffff for b in m.bands if b[1]>m.bands[0][1]}=={color_t(ACCENTS[value][0])&0xffffff}
         assert m.bands[0][4]==color_t(ACCENTS[value][4]); passed()
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and m.nodes[corners_label]['text']=='Corners: Rounded'
     m.paint(view); assert m.selected(view)==0
