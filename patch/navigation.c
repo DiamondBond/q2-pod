@@ -8121,6 +8121,20 @@ int ringnav_keylong(void *ctx, void *event) {
     return stock_keylong_trampoline(ctx, event);
 }
 
+/* Hold time (HOLD_KEYS in tools/build.py; docs/internals.md#queue-menu): Play/Pause and Return fire their
+ * long press after KEY_HOLD_MS, every other key stock's 1000 ms (500 for key 232, unused on the Q2).
+ * ringnav_hold_timer replaces the key-down's timer_add, ringnav_hold_info the timer's threshold lookup. */
+#define KEY_HOLD_MS 700
+static const int hold_info[][2] = { { KEY_PLAY, KEY_HOLD_MS }, { KEY_RETURN, KEY_HOLD_MS } };
+const int *ringnav_hold_info(void *ids, int key) {
+    for (unsigned i = 0; i < sizeof hold_info / sizeof *hold_info; i++)
+        if (hold_info[i][0] == key) return hold_info[i];
+    return ((const int *(*)(void *, int))0x6a027c)(ids, key); /* input_device_status_find_key_long_press_info */
+}
+unsigned ringnav_hold_timer(int (*fn)(const void *), void *ids, unsigned ms, int key) {
+    return timer_add(fn, ids, key == KEY_PLAY || key == KEY_RETURN ? KEY_HOLD_MS : ms);
+}
+
 /* Replaces mclNextSong's shuffle pick call: stock picks and bookkeeps, then a pending Play next
  * becomes the next track if it is still at its index. */
 int ringnav_shuffle(int forward) {

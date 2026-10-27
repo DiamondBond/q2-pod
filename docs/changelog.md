@@ -16,6 +16,7 @@
   - iPod: under Rounded Corners, a selected or pressed row's pill no longer cuts across its cover's corners, as it did in Search's results; the pill's ends round less on those rows.
   - Era: a decade's **Shuffle** starts in about the time Shuffle Songs takes, instead of looking frozen for a long while on a decade with many albums.
   - Time zones: each row shows the offset its city has right now, daylight saving included, and the rows are ordered by it. New York reads GMT-4 in summer and GMT-5 in winter. Before, a row showed the standard offset, so a New Yorker picking GMT-4 in summer got Halifax, an hour ahead.
+  - Controls: holding Return now acts after 0.7 seconds, the same as holding Play/Pause, instead of a full second.
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.

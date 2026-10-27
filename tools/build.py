@@ -258,12 +258,12 @@ SHUFFLE_CALL = (0x5addf0, 0x0411e8cb)  # bal mcl_shuffle_pick; its delay slot (a
 # Hold Return: only on_wm_keylong_fun's final Home call (bal) changes; all stock gates and its release
 # guard precede it. It becomes jal compact_now_playing (docs/ipod.md#hold-return).
 HOLD_RETURN = (0x4e8924, 0x04110fdf)
-# Hold Play/Pause: input_device_status' long press is 1000 ms for every key but 232 (unused on the Q2), which
-# gets 500. The key-down's timer interval and the callback's threshold both move that case to Play/Pause (171)
-# at PLAY_HOLD_MS; Centre and Return keep 1000 (docs/internals.md#queue-menu).
-PLAY_HOLD_MS = 700
-PLAY_HOLD = ((0x6a007c, 0x240201f4, 0x24020000 | PLAY_HOLD_MS), (0x6a008c, 0x3a7300e8, 0x3a7300ab),
-             (0x6a0404, 0x240401f4, 0x24040000 | PLAY_HOLD_MS), (0x6a0408, 0x384200e8, 0x384200ab))
+# Hold Play/Pause and Return: input_device_status' long press is 1000 ms for every key but 232 (unused on the
+# Q2). The key-down's lw $t9 timer_add becomes move $a3, $s3 (the key) and its jalr jal ringnav_hold_timer; the
+# timer's bal input_device_status_find_key_long_press_info becomes jal ringnav_hold_info. Both give KEY_HOLD_MS
+# to those two keys (patch/navigation.c, docs/internals.md#queue-menu).
+HOLD_KEYS = ((0x6a0088, 0x8f99b1a4, 0x02603825, None), (0x6a0098, 0x0320f809, None, 'ringnav_hold_timer'),
+             (0x6a03e8, 0x0411ffa4, None, 'ringnav_hold_info'))
 # device_standby's bal awake_screen after the resume from Standby becomes li $v0, 1: the screen stays dark,
 # so the resuming key acts as it does dark (Play plays, centre wakes).
 STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
@@ -1375,8 +1375,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     patch_word(patched, *HOLD_RETURN, jal(ps['compact_now_playing']),
                'long Return destination after stock input gates')
     patch_word(patched, *STANDBY_WAKE, 'Standby resume stays dark')
-    for hold in PLAY_HOLD:
-        patch_word(patched, *hold, 'Play/Pause hold time')
+    for address, old, new, fn in HOLD_KEYS:
+        patch_word(patched, address, old, new or jal(ps[fn]), 'Play/Pause and Return hold time')
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x51300c))[0] == 0x8f99b6e4,
           'player cover: expected toolsGetExternCover import')
     patch_word(patched, *PLAYER_COVER, jal(ps['coverflow_player_cover']), 'Now Playing art through ffmpeg')

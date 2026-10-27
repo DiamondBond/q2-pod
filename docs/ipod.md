@@ -320,7 +320,8 @@ under `CLOCK_MIN` fails the build.
 ## Hold Return
 
 The stock long-key function at 0x4e873c retains all instructions except the final
-Home call at 0x4e8924, in both builds (`HOLD_RETURN`). Stock power, lock, test and key-lock gates and its release
+Home call at 0x4e8924, in both builds (`HOLD_RETURN`). The hold fires after 700 ms, as Play/Pause's does
+([internals.md](internals.md#queue-menu), `HOLD_KEYS`); stock waited 1000 ms. Stock power, lock, test and key-lock gates and its release
 latch execute first. The payload cancels centre confirmation and spin state, checks
 the shared screen/navigation restrictions, and then, on Now Playing, goes back
 (`navigator_back`) when the page it opened over (`np_origin`) lies right under it, or

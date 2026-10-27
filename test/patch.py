@@ -11234,9 +11234,16 @@ for key in (O['KEY_PLAY'],O['KEY_BACK_BTN'],O['KEY_FWD_BTN']):
 assert lock_seen(O['KEY_FWD_BTN'],DOWN,O['KEY_PLAY'])==[1] and lock_seen(O['KEY_PLAY'],DOWN)==[0]  # by key
 assert lock_seen(O['KEY_PLAY'],UP,O['KEY_PLAY'],gap=1)==[1]  # and by its stamp
 assert l.u.mem_read(syms['g_keylock_flag'],1)==b'\1'; passed()
-# Play/Pause hold time (PLAY_HOLD) is patched into the demo.
-from build import PLAY_HOLD
-assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==new for a,_,new in PLAY_HOLD); passed()
+# Play/Pause and Return hold after KEY_HOLD_MS (HOLD_KEYS), every other key at stock's time.
+from build import HOLD_KEYS
+assert all(struct.unpack_from('<I',demo,fileoff(demo,a))[0]==(new or jal(payload_syms[fn])) for a,_,new,fn in HOLD_KEYS)
+for key,ms in ((O['KEY_PLAY'],700),(O['KEY_RETURN'],700),(O['KEY_CENTER'],1000)):
+    l.timers={}; l.call(address=payload_syms['ringnav_hold_timer'],args=(0x1234,l.wm,1000,key),gap=0)
+    assert [t[3] for t in l.timers.values()]==[ms]
+for key in (O['KEY_PLAY'],O['KEY_RETURN']):
+    info=l.call(address=payload_syms['ringnav_hold_info'],args=(l.wm,key),gap=0)
+    assert struct.unpack('<2i',l.u.mem_read(info,8))==(key,700)
+passed()
 # Lighting the screen stalls the UI loop about WAKE_MS (stock's on_wm_keyup_fun, the paint), so a
 # blind double press's last press is dispatched only after the first lit loop pass: still dropped.
 for double in ('0','1'):
