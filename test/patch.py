@@ -9049,7 +9049,7 @@ if variant=='ipod':
     assert m.call(address=payload_syms['home_shortcut_open'],args=(0,m.event,0,0),gap=0,count=5_000_000)==0
     m.page=m.top; assert m.nodes[m.page]['name']=='games_page'
     m.close()
-    chooser,sheet=games_open(); G=m.get(payload_syms['g'])
+    sheet,chooser=games_open(); G=m.get(payload_syms['g'])
     assert labels(chooser)==['Games','Sudoku','Vortex','Solitaire','Snake'] and not m.nodes[sheet]['visible']
     rows=m.nodes[m.find('scroll_view',chooser)]['children']
     def pick(i):
@@ -9150,7 +9150,7 @@ if variant=='ipod':
     assert word(G_SCREEN)==0 and not frames(); passed()
     # Closing frees the state, also mid-game; opening again starts clean and resumes the Sudoku.
     m.close(); assert m.get(payload_syms['g'])==0 and not frames()
-    chooser,sheet=games_open(); G=m.get(payload_syms['g']); rows=m.nodes[m.find('scroll_view',chooser)]['children']
+    sheet,chooser=games_open(); G=m.get(payload_syms['g']); rows=m.nodes[m.find('scroll_view',chooser)]['children']
     pick(0); assert cells()==before
     key(O['KEY_RETURN']); m.advance(0); pick(2); assert sol()[:-4]==before_sol[:-4]  # and the cursor, kept on leaving
     # Moves save once, SAVE_MS after the first unsaved one, not per move; leaving with nothing new writes nothing.

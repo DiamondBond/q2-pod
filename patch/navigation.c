@@ -2230,9 +2230,11 @@ static void paint_into(void *w, void *canvas) {
         tk_strcmp(widget_get_prop_str(w, "image", ""), "list_into") ||
         !painting_in(st.sel_accent) || widget_load_image(w, LIST_INTO_WHITE, bitmap))
         return;
+    /* Only the middle half is cleared, where the glyph's ink is (rows 16-33 of 50): the whole
+     * 50 px image would cross a 48 px row's top, over the bar's highlight and the row above. */
     int x = I(w, W_W) / 2, y = I(w, W_H) / 2;
-    rect_t clear = { x - (int)bitmap[0] / 2, y - (int)bitmap[1] / 2, (int)bitmap[0],
-                     (int)bitmap[1] };
+    rect_t clear = { x - (int)bitmap[0] / 2, y - (int)bitmap[1] / 4, (int)bitmap[0],
+                     (int)bitmap[1] / 2 };
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     fill_box(canvas, &clear, RGBA(accents[accent()][0]), 0);
     canvas_draw_icon(canvas, bitmap, x, y);
@@ -6230,7 +6232,8 @@ static int stream_config(void *ctx, void *event) {
     for (int i = 0; i < 2; ++i)
         st.sc_row[i] = page_row_detail(view, i, "", 0, sc_click), sc_text(i);
     page_row_detail(view, 2, "Stop Streaming Services", 0, sc_click);
-    list_item_create(view, 0, 3 * 48, 375, 48); /* a gap before the toggles */
+    /* a gap before the toggles, clear as the rows (the theme's default list_item fills) */
+    widget_use_style(list_item_create(view, 0, 3 * 48, 375, 48), "s_listitem_black");
     char hide[SVC_HIDE];
     svc_hidden(hide);
     for (int i = 0; i < n; ++i) {

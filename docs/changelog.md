@@ -23,6 +23,8 @@
   - iPod: the Shut Down prompt's text is larger and centred above Cancel (#127).
   - iPod: Folder view's album and track thumbnails have rounded corners, as the Library's do (#127).
   - iPod: Quick Settings' brightness slider uses Now Playing's colours, filled with your Highlight Colour (#127).
+  - Games: tapping a game in the list opens it. Only the wheel and Centre did (#127).
+  - iPod: Light Mode fixes (#127): the selected row's `>` in Games, Spotify, Configuration and the other app lists no longer shows a small box at its top edge; Configuration's gap above the service switches is no longer a black bar.
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.
