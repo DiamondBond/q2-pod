@@ -7561,14 +7561,14 @@ if variant=='ipod':
     f,ctx=m.handler(m.nodes[corners]['children'][0],O['EVT_CLICK']); m.calls=[]
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and corners_switch()==['switch_on']
     assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'ROUNDED')] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
-    # Light Mode: no key is Off; a click saves On, then 7am-7pm (LIGHT=2), then Off; each drops the cached images and repaints.
+    # Light Mode: no key is Off; a click saves On, then Auto (LIGHT=2), then Off; each drops the cached images and repaints.
     light_label=m.nodes[m.nodes[light]['children'][0]]['children'][1]; assert m.nodes[light_label]['text']=='Light Mode: Off'
     f,ctx=m.handler(m.nodes[light]['children'][0],O['EVT_CLICK'])
-    for value,text in ((1,'On'),(2,'7am-7pm'),(0,'Off')):
+    for value,text in ((1,'On'),(2,'Auto'),(0,'Off')):
         m.calls=[]; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.nodes[light_label]['text']=='Light Mode: '+text
         assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(value,'LIGHT')]
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
-        if value==2:  # 7am-7pm: the UI loop drops the images and repaints as the hour crosses, once
+        if value==2:  # Auto: the UI loop drops the images and repaints as the hour crosses, once
             m.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
             for clock,wall,flip in (((6,59),86401,1),((6,59),86402,0),((7,0),86402,0),((7,0),86403,1)):
                 m.clock,m.wall=clock,(wall,wall); m.calls=[]

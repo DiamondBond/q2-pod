@@ -4405,7 +4405,7 @@ static void setting_text(int i) {
                                                   "Battery: Percent Inside" },
                              *const theme[] = { "Theme: Minimal", "Theme: Classic" },
                              *const light[] = { "Light Mode: Off", "Light Mode: On",
-                                                "Light Mode: 7am-7pm" };
+                                                "Light Mode: Auto" };
     accent(); /* reads the settings */
     const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
                                   home[st.home_full],
