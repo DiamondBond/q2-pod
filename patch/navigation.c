@@ -5837,6 +5837,10 @@ static int chapter_poll(const void *unused) {
 }
 static void chapters_open(void *r) {
     if (st.ch || !chapter_file(P(r, REC_PATH))) return;
+    if (!mp4_fits(P(r, REC_PATH))) {
+        toast("Too long to read chapters on the Q2");
+        return;
+    }
     st.ch_track = np_track();
     st.ch = chapters_start(P(r, REC_PATH), time_now_ms());
     if (!st.ch) {
@@ -7145,8 +7149,9 @@ int ringnav_usbmode(void *a, void *b, void *c, void *d) {
 }
 
 /* mclStartPlayer, every local track's start: a playing librespot or radio station lets the DAC's
- * PCM go first. */
+ * PCM go first. A track too long for RAM fails as stock's own checks do, with -1. */
 int ringnav_start_player(void) {
+    if (!playback_start_fits()) return -1;
     headset_manual();
     spot_yield();
     radio_stop();

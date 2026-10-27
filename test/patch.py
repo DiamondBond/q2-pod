@@ -12165,13 +12165,13 @@ for name,number,args,error in (('chapter_pipe2',4328,(0x1001000,0x80000,0,0),Fal
 class ChapterMachine(CoverflowMachine):
     def __init__(self, count=3, failed=False, ready=True):
         super().__init__(page='playing_page', pos=1)
-        self.ready=ready; self.cancelled=0; self.playtime=70
+        self.ready=ready; self.cancelled=0; self.playtime=70; self.fits=1
         self.job=self.alloc(32+512*260)
         for off,v in ((12,0),(16,int(failed)),(20,count)): self.word(self.job+off,v)
         for i,(sec,title) in enumerate(((0,'Opening'),(60,''),(120,'日本語'))):
             self.word(self.job+32+i*260,sec)
             self.u.mem_write(self.job+36+i*260,title.encode()+b'\0')
-        for name in ('chapters_start','chapters_poll','chapters_cancel'):
+        for name in ('chapters_start','chapters_poll','chapters_cancel','mp4_fits'):
             self.handlers[payload_syms[name]]='chapter:'+name
         self.mock('navigator_back')
         self.handlers.pop(syms['mclGetPlayStatus'],None); self.word(0xa3beac,2)
@@ -12183,6 +12183,8 @@ class ChapterMachine(CoverflowMachine):
         a=u.reg_read(REGS[0]); ret=0
         if name=='chapter:chapters_start':
             assert self.text(a)=='/mnt/mmc/Book ; $x.M4B'; ret=self.job
+        elif name=='chapter:mp4_fits':
+            assert self.text(a)=='/mnt/mmc/Book ; $x.M4B'; ret=self.fits
         elif name=='chapter:chapters_poll':
             ret=int(self.ready)
             if ret: self.word(self.job+12,1)
@@ -12213,6 +12215,10 @@ for state in (2,3):
     seeks=[c for c in m.calls if c[0] in ('player_seek_time','mclSetSeek','mclSetResume')]
     assert [(c[0],c[1]) for c in seeks]==[('player_seek_time' if state==2 else 'mclSetSeek',120)]
     assert any(c[0]=='navigator_back' for c in m.calls); passed()
+# A book whose MP4 index would not fit in RAM: a toast, and no ffmpeg.
+m=ChapterMachine(); m.fits=0; m.press(6000); assert m.hold()==11; m.release()
+m.pick(m.labels().index('Chapters')); m.advance(0)
+assert m.nodes[m.top]['name']!='chapters_page' and m.toasts[-1][3]=='Too long to read chapters on the Q2'; passed()
 m=ChapterMachine(); m.open_chapters(); m.advance(50); m.word(O['MCL_POS'],2); m.choose(1)
 assert not any(c[0] in ('player_seek_time','mclSetSeek') for c in m.calls)
 assert any(c[0]=='navigator_back' for c in m.calls); passed()

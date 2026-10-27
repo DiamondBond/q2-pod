@@ -1,6 +1,7 @@
 /* Grouped queue traversal. Indices identify occurrences, including duplicate/CUE entries.
  * Stock still owns the queue, decoder and gapless handoff. */
 #include "playback.h"
+#include "chapters.h"
 #include "offsets.inc"
 #include "peq.h"
 #include "stock.h"
@@ -356,9 +357,24 @@ int ringnav_speed(int mode) {
     return stock_speed_trampoline(mode);
 }
 
+/* A local track whose MP4 index would not fit in RAM (mp4_fits) is never opened: the decoder
+ * would take the whole device down with it, at boot again through Memory Playback. */
+static int track_fits(int at) {
+    void *q = queue();
+    void *r = q && at >= 0 && (unsigned)at < deque_size(q) ? deque_at(q, (unsigned)at) : 0;
+    return !r || I(r, REC_TYPE) != 8 || mp4_fits(P(r, REC_PATH));
+}
+static int too_long; /* set where mclStartPlayer runs, maybe off the UI thread; toasted by the poll */
+int playback_start_fits(void) {
+    if (track_fits(M(MCL_POS))) return 1;
+    too_long = 1;
+    return 0;
+}
+
 int ringnav_open_preload(void) {
-    /* A gapless handoff does not run player_initconfig: reopen at a speed boundary. */
-    if (speed_read(M(MCL_PREPOS)) != g_playspeed_mode) return 1;
+    /* A gapless handoff does not run player_initconfig: reopen at a speed boundary. A track too
+     * long to open goes through mclStartPlayer, whose hook declines it. */
+    if (speed_read(M(MCL_PREPOS)) != g_playspeed_mode || !track_fits(M(MCL_PREPOS))) return 1;
     return stock_open_preload_trampoline();
 }
 static void release(void) {
@@ -1302,6 +1318,10 @@ static int playback_next(void) {
 }
 void playback_poll(void) {
     wheel_pct(); /* the saved sensitivity from the first UI pass */
+    if (too_long) {
+        too_long = 0;
+        toast("Too long to play on the Q2: split it into parts");
+    }
     xfade_poll(playback_next());
     mono_sync();
     unsigned now = time_now_ms();
