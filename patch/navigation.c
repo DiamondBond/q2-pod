@@ -1712,15 +1712,38 @@ unsigned accent_map(unsigned c, int preset, int tone) {
     return preset == CRIMSON ? c : red_map(c, accents[preset][tone], 0xffffff, 0);
 }
 
+/* A pill's end radius on a list row (h tall, its card inset px from the row's left): h / 2, less
+ * where the round end would cut across a leading cover's square corner (search results' art, which
+ * sits closer to the edge than the Library's), so the cover stays inside the card.
+ * ponytail: only the row's direct, non-centred image children on the left; nested or right-hand
+ * art is not checked. */
+static int pill_radius(void *row, int h, int inset) {
+    int r = h / 2;
+    for (unsigned i = 0; row && i < widget_count_children(row); ++i) {
+        void *c = widget_get_child(row, i);
+        if (tk_strcmp(widget_get_type(c), "image") ||
+            widget_get_prop_int(c, "draw_type", 0) == IMAGE_DRAW_CENTER) /* icons: discs */
+            continue;
+        int x = I(c, W_X) - inset, y = I(c, W_Y), ch = I(c, W_H);
+        if (I(c, W_W) <= 0 || ch <= 0 || x < 0 || x >= r) continue;
+        if (h - y - ch < y) y = h - y - ch; /* the nearer of its top and bottom corners */
+        while (r > 2 && y >= 0 && y < r && (r - x) * (r - x) + (r - y) * (r - y) > r * r) --r;
+    }
+    return r;
+}
+
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; equal ends give a solid
- * fill. r.h is at least 2. A pill insets each band to a circle of diameter r.h at either end.
- * Plain fills keep this off the stock gradient_t ABI, which is not audited. */
-static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi, int pill) {
+ * fill. r.h is at least 2. A pill (radius, at most r.h / 2) insets the bands at either end to that
+ * radius's circle; 0 is square. Plain fills keep this off the stock gradient_t ABI, which is not
+ * audited. */
+static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi,
+                     int radius) {
     for (int j = 0; j < r.h; ++j) {
-        int out = 0;
-        if (pill) { /* 1/16-pixel chord, sampled at the band's centre. */
-            int d = 2 * j + 1 - r.h, v = (r.h * r.h - d * d) * 64, k = 0;
-            int end = 8 * r.h;
+        int out = 0, D = 2 * radius, d = 2 * j + 1 - r.h;
+        d = (d < 0 ? -d : d) - (r.h - D); /* half pixels past the end circle's centre */
+        if (radius && d > 0) { /* 1/16-pixel chord, sampled at the band's centre. */
+            int v = (D * D - d * d) * 64, k = 0;
+            int end = 8 * D;
             while (k < end) {
                 int mid = (k + end + 1) / 2;
                 if (mid * mid <= v)
@@ -1728,7 +1751,7 @@ static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsi
                 else
                     end = mid - 1;
             }
-            out = 8 * r.h - k;
+            out = 8 * D - k;
         }
         int in = (out + 15) / 16;
         unsigned color = RGBA(j ? mix(top, bottom, j, r.h - 1) : hi);
@@ -2082,7 +2105,7 @@ static void paint_selection(void *w, void *canvas) {
         const unsigned *a = accents[accent()];
         /* Corners: Rounded makes a list row's bar a pill, inset like Minimal's card */
         rect_t bar = r;
-        int pill = !tile && st.rounded;
+        int pill = !tile && st.rounded ? pill_radius(g_menu.at[i], r.h, SEL_INSET) : 0;
         if (pill) bar.x += SEL_INSET, bar.w -= 2 * SEL_INSET;
         gradient(canvas, bar, a[0], a[1], a[4], pill);
     } else if (home) {
@@ -2093,7 +2116,7 @@ static void paint_selection(void *w, void *canvas) {
         int square = !tile && !st.rounded;   /* Corners: Square, a full-width bar as Classic's */
         int in = grid ? TILE_INSET : square ? 0 : SEL_INSET, vertical = grid ? TILE_INSET : 0;
         rect_t card = { r.x + in, r.y + vertical, r.w - 2 * in, r.h - 2 * vertical };
-        int radius = !st.rounded ? 0 : tile ? SEL_RADIUS : card.h / 2;
+        int radius = !st.rounded ? 0 : tile ? SEL_RADIUS : pill_radius(g_menu.at[i], card.h, in);
         fill_box(canvas, &card, RGBA(minimal_card() ? MINIMAL_FILL : accents[accent()][0]), radius);
     }
     st.sel_w = w;
@@ -3922,7 +3945,7 @@ static int pressed_pill(void *w, void *canvas) {
         !tk_strcmp(widget_get_prop_str(w, "state_for_style", ""), "pressed") &&
         !tk_strcmp(widget_get_prop_str(w, "style", ""), "s_btn_listitem")) {
         rect_t pill = { SEL_INSET, 0, I(w, W_W) - 2 * SEL_INSET, I(w, W_H) };
-        fill_box(canvas, &pill, PH_GREY, pill.h / 2);
+        fill_box(canvas, &pill, PH_GREY, pill_radius(w, pill.h, SEL_INSET));
         return 1;
     }
 #endif
