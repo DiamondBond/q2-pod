@@ -46,7 +46,7 @@ LIBC = {
     'fputs': ('int', 'const char *, void *'),
     'calloc': ('void *', 'unsigned, unsigned'),
     'free': ('void', 'void *'),
-    'realloc': ('void *', 'void *, unsigned'),
+    'memmove': ('void *', 'void *, const void *, unsigned'),
     'pow': ('double', 'double, double'), 'cos': ('double', 'double'),
     'sin': ('double', 'double'), 'log': ('double', 'double'),
     'fopen': ('void *', 'const char *, const char *'),

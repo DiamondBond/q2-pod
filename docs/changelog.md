@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.5.2**:
+  - MP3: removes encoder delay and trailing padding from files with supported Xing/Info and LAME-compatible tags, preserving intentional silence. Keep Audio settings → Gapless on for continuous playback between tracks. Files without usable tags keep stock playback.
+
 - **1.5.1**:
   - iPod: Light Mode has a third setting, **Auto**: the interface is light from 7:00 to 19:00 by the clock and dark the rest of the day, switching by itself. The Light Mode row cycles Off, On and Auto on each click. The boot logo follows it too, by the UTC hour at power-on.
   - iPod: Corners, under Settings → Display → Appearance, is now a **Rounded Corners** switch, like stock's on/off settings, instead of a row reading Square or Rounded.

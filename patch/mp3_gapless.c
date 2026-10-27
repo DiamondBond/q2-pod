@@ -4,8 +4,8 @@
 typedef struct {
     int format, pad;
     double next_pts;
-    unsigned checked, start, skip, padding, rate, channels, held, capacity, unit, seeked, tag_skipped;
-    unsigned char *tail, *output;
+    unsigned checked, start, skip, padding, rate, channels, held, unit, seeked, tag_skipped;
+    unsigned char *tail;
 } mp3_private;
 
 /* Raw MPlayer decoders also emit the Xing frame. FFmpeg's mp3 demuxer removes it instead.
@@ -61,23 +61,34 @@ static void mp3_trim(mp3_private *p, af_data *data) {
     if (p->unit != unit) p->held = 0;
     p->unit = unit;
     unsigned skip = p->skip < n / unit ? p->skip : n / unit;
-    unsigned tail = p->padding * unit, capacity = n + tail;
-    if (capacity > p->capacity) {
-        unsigned char *out = realloc(p->output, capacity);
-        if (!out) { p->start = 0; return; }
-        p->output = out;
-        p->capacity = capacity;
+    if (!p->padding) {
+        p->skip -= skip;
+        data->audio = (unsigned char *)data->audio + skip * unit;
+        data->len -= skip * unit;
+        return;
     }
-    if (tail && !p->tail && !(p->tail = calloc(p->padding, 8))) { p->start = 0; return; }
+    /* Reserve both tail workspaces before holding any audio; later blocks cannot fail to grow. */
+    if (!p->tail && !(p->tail = calloc(p->padding, 16))) { p->start = 0; return; }
+    unsigned tail = p->padding * unit, held = p->held;
+    unsigned char *audio = (unsigned char *)data->audio + skip * unit;
+    unsigned char *saved = p->tail + p->padding * 8;
     p->skip -= skip;
     n -= skip * unit;
-    if (p->held) memcpy(p->output, p->tail, p->held);
-    memcpy(p->output + p->held, (unsigned char *)data->audio + skip * unit, n);
-    n += p->held;
-    p->held = n < tail ? n : tail;
-    data->len = n - p->held;
-    if (p->held) memcpy(p->tail, p->output + data->len, p->held);
-    data->audio = p->output;
+    unsigned emit = held + n > tail ? held + n - tail : 0;
+    if (n >= tail) {
+        memcpy(saved, audio + n - tail, tail);
+        memmove(audio + held, audio, n - tail);
+        if (held) memcpy(audio, p->tail, held);
+        memcpy(p->tail, saved, tail);
+    } else {
+        if (emit) memcpy(saved, p->tail, emit);
+        memmove(p->tail, p->tail + emit, held - emit);
+        memcpy(p->tail + held - emit, audio, n);
+        if (emit) memcpy(audio, saved, emit);
+    }
+    p->held = held + n - emit;
+    data->len = emit;
+    data->audio = audio;
 }
 
 #ifndef PEQ_HOST
@@ -128,7 +139,7 @@ void mp3_gapless_seek(void *d, int at_start) {
 
 void mp3_close(void *d) {
     mp3_private *p = mp3_state(d);
-    if (p) { free(p->tail); free(p->output); }
+    if (p) free(p->tail);
     ((void (*)(void *))0x48b7e4u)(d);
 }
 #endif

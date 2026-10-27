@@ -4,6 +4,7 @@ Usage: python3 test/mp3_gapless_player.py BUILD
 Only libc, file I/O and the downstream audio filters are modelled.
 """
 from pathlib import Path
+from collections import Counter
 import struct
 import subprocess
 import sys
@@ -33,6 +34,7 @@ for line in subprocess.check_output(['readelf', '-rW', out/'hciplayer'], text=Tr
         u.mem_write(int(s[0], 16), struct.pack('<I', address))
 heap, allocations, files, positions, filtered, descriptors = 0x3000000, {}, {}, {}, [], {}
 fail = None
+imports_called = Counter()
 
 
 def w(p, *v): u.mem_write(p, struct.pack('<' + 'I'*len(v), *v))
@@ -55,6 +57,7 @@ def hook(u, address, size, _):
         result = data
     elif address in imports:
         name = imports[address]
+        imports_called[name] += 1
         if name == fail:
             result = 0
         elif name == 'calloc':
@@ -67,7 +70,7 @@ def hook(u, address, size, _):
         elif name == 'free':
             if a(0): allocations.pop(a(0))
             result = 0
-        elif name == 'memcpy':
+        elif name in ('memcpy', 'memmove'):
             u.mem_write(a(0), bytes(u.mem_read(a(1), a(2))))
             result = a(0)
         elif name == 'memcmp':
@@ -161,15 +164,45 @@ assert feed(t, pcm) == pcm[:-671*8]
 for tr in (t, preload): call('mp3_close', tr[0])
 assert not allocations
 
+# Warmed-up playback reuses buffers and never probes the file again.
+tr = track(0)
+assert feed(tr, pcm[:4096*8]) == pcm[2257*8:(4096-671)*8]
+counts = imports_called.copy()
+fail = 'calloc'
+assert feed(tr, pcm) == pcm[(4096-671)*8:4096*8] + pcm[:-671*8]
+for _ in range(20):
+    assert feed(tr, pcm) == pcm[-671*8:] + pcm[:-671*8]
+fail = None
+for name in ('read', 'lseek64', 'calloc', 'realloc'):
+    assert imports_called[name] == counts[name], (name, imports_called, counts)
+call('mp3_close', tr[0])
+assert not allocations
+
+# With no tail padding, even the leading trim needs no buffer or PCM copies.
+zero_tail = bytearray(h)
+zero_tail[69:72] = ((576 << 12) | 529).to_bytes(3, 'big')
+tr = track(0, zero_tail)
+counts = imports_called.copy()
+assert feed(tr, pcm[:2048*8]) == b''
+assert feed(tr, pcm[2048*8:]) == pcm[2257*8:]
+for _ in range(20):
+    assert feed(tr, pcm) == pcm
+for name in ('calloc', 'realloc', 'memcpy', 'memmove'):
+    assert imports_called[name] == counts[name], (name, imports_called, counts)
+assert imports_called['read'] == counts['read'] + 1
+assert imports_called['lseek64'] == counts['lseek64'] + 3
+call('mp3_close', tr[0])
+assert not allocations
+
 # A seek before the first PCM block, untagged files and allocation failure.
-for i, header in enumerate((h, bytes(417), h, h)):
+for i, header in enumerate((h, bytes(417), h)):
     tr = track(0, header)
     if i == 0:
         w(0xb152b4, 1)
         call('mp3_gapless_seek', tr[0], 1)
         assert feed(tr, pcm[1152*8:]) == pcm[2257*8:-671*8]
     else:
-        fail = 'realloc' if i == 2 else 'calloc' if i == 3 else None
+        fail = 'calloc' if i == 2 else None
         assert feed(tr, pcm) == pcm
         fail = None
         assert feed(tr, pcm) == pcm

@@ -31,10 +31,10 @@ void *create(const unsigned char *h, unsigned n) {
 int process(mp3_private *p, unsigned char *a, unsigned n, unsigned bps) {
     af_data d = {a, n, p->rate, p->channels, 0, bps};
     mp3_trim(p, &d);
-    memcpy(a, d.audio, d.len);
+    memmove(a, d.audio, d.len);
     return d.len;
 }
-void destroy(mp3_private *p) { free(p->tail); free(p->output); free(p); }
+void destroy(mp3_private *p) { free(p->tail); free(p); }
 ''')
     run('cc', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', '-fsanitize=undefined',
         '-fno-sanitize-recover=undefined', str(src), '-o', str(tmp/'check.so'))
@@ -195,12 +195,13 @@ int main(int argc, char **argv) {
     rng = random.Random(529)
     for bps in (1, 2, 3, 4):
         for mono in (False, True):
-            h = header(mono=mono)
-            start, tail, _, channels = parse(h)
-            unit = channels * bps
-            pcm = rng.randbytes(20000 * unit)
-            for chunks in ([1], [1, 17, 100, 3000, 7], [25000]):
-                assert trim(h, pcm, bps, chunks) == pcm[start*unit:-tail*unit]
+            for pad in (100, 529, 1200):
+                h = header(mono=mono, pad=pad)
+                start, tail, _, channels = parse(h)
+                unit = channels * bps
+                pcm = rng.randbytes(20000 * unit)
+                for chunks in ([1], [1, 17, 100, 3000, 7], [25000]):
+                    assert trim(h, pcm, bps, chunks) == pcm[start*unit:len(pcm)-tail*unit]
 
     cases = 0
     for rate, channels in ((44100, 1), (44100, 2), (22050, 2), (11025, 1)):
