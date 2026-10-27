@@ -105,6 +105,10 @@ def logo_check():
         user.write_bytes(b'')
         config.write_text('[IPOD]\nLIGHT=1\n')
         assert shown() == str(user)  # the card's logo wins in either mode
+        user.unlink()
+        config.write_text('[IPOD]\nLIGHT=2\n')  # Auto: light from 07:00 to 18:59 by the clock
+        def at(hour): return subprocess.run(['sh', '-c', script.replace('$(date +%H)', hour)], check=True, capture_output=True, text=True).stdout.strip()
+        assert at('06') == str(dark) and at('07') == str(light) and at('18') == str(light) and at('19') == str(dark)
     print('Boot logo: the saved card logo, else the light splash under Light Mode, else the built-in one, passed.')
 logo_check()
 

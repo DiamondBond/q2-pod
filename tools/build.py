@@ -208,7 +208,7 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
 S11LOGO = 'etc/init.d/S11logo_display_shell'
 LOGO, LOGO_LIGHT = 'release/assets/default/raw/images/xx/logo.jpg', 'release/assets/default/raw/images/xx/logo-light.jpg'
 LOGO_HOOK = (b'   \tdisplay_logo /release/assets/default/raw/images/xx/logo.jpg\n',
-             b'   \tl=/mnt/data/boot-logo.jpg; [ -f $l ] || { l=/%s; grep -qx LIGHT=1 /mnt/data/config.ini 2>/dev/null && [ -f /%s ] && l=/%s; }; display_logo $l\n'
+             b'   \tl=/mnt/data/boot-logo.jpg; [ -f $l ] || { l=/%s; light=0; grep -qx LIGHT=1 /mnt/data/config.ini 2>/dev/null && light=1; grep -qx LIGHT=2 /mnt/data/config.ini 2>/dev/null && case $(date +%%H) in 0[7-9]|1[0-8]) light=1;; esac; [ $light = 1 ] && [ -f /%s ] && l=/%s; }; display_logo $l\n'
              % (LOGO.encode(), LOGO_LIGHT.encode(), LOGO_LIGHT.encode()))
 REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
                b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n')

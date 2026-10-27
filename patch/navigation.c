@@ -429,7 +429,8 @@ typedef struct {
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
-        rounded, light;
+        rounded, light, light_day; /* light_day: Auto's answer for now (LIGHT=2) */
+    long long light_wall;          /* the second light_poll last read the clock */
     void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
     int style_depth;  /* nested style hooks (a mutable style's fallback) map nothing */
     void *setting_label[7];
@@ -1564,9 +1565,28 @@ _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name
  * 4 Shortcut, 5 Corners, 6 Light Mode. */
 static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "THEME",
                                             "SHORTCUT", "ROUNDED", "LIGHT" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 2 };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3 };
 static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
                                        &st.shortcut, &st.rounded,   &st.light };
+/* Light Mode's Auto (LIGHT=2) is light from 7:00 to 19:00 by the clock. light_poll runs each UI
+ * pass, reads the clock once a second and repaints when Auto crosses either time. */
+#define LIGHT_FROM 7
+#define LIGHT_UNTIL 19
+static int light_day(void) {
+    long long wall = wall_time();
+    long now = clock_back(wall);
+    const int *tm = wall == -1 ? (void *)0 : localtime(&now); /* struct tm: tm_hour @8 */
+    return tm && tm[2] >= LIGHT_FROM && tm[2] < LIGHT_UNTIL;
+}
+static void light_poll(void) {
+    long long wall = wall_time();
+    if (wall == st.light_wall) return;
+    st.light_wall = wall;
+    int day = light_day();
+    if (day == st.light_day) return;
+    st.light_day = day;
+    if (st.light == 2) widget_invalidate_force(window_manager(), (void *)0);
+}
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
@@ -1576,7 +1596,8 @@ static int accent(void) {
         st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
-        st.light = config_value("IPOD", "LIGHT", 2, 0);     /* dark unless chosen */
+        st.light = config_value("IPOD", "LIGHT", 3, 0);     /* dark unless chosen; 2 Auto */
+        st.light_day = light_day();
         st.settings_read = 1;
     }
     return st.classic ? st.accent : st.minimal_accent;
@@ -1599,7 +1620,7 @@ int ipod_home_full(void) {
 }
 int ipod_light(void) {
     accent();
-    return st.light;
+    return st.light == 2 ? st.light_day : st.light;
 }
 int ipod_battery(void) {
     accent();
@@ -4245,7 +4266,8 @@ static void setting_text(int i) {
                                                   "Battery: Percent Inside" },
                              *const theme[] = { "Theme: Minimal", "Theme: Classic" },
                              *const corners[] = { "Corners: Square", "Corners: Rounded" },
-                             *const light[] = { "Light Mode: Off", "Light Mode: On" };
+                             *const light[] = { "Light Mode: Off", "Light Mode: On",
+                                                "Light Mode: 7am-7pm" };
     accent(); /* reads the settings */
     const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
                                   home[st.home_full],
@@ -4300,6 +4322,7 @@ static int setting_click(void *ctx, void *event) {
     else
         *value = accent_next[*value] == MINIMAL_ACCENT && !minimal ? 0 : accent_next[*value];
     write_int_config(*value, "IPOD", key);
+    if (i == 6) st.light_day = light_day(); /* Auto applies from this click */
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
     else if (i == 1 || i == 4)
@@ -8642,6 +8665,7 @@ int ringnav_sleep(void *loop) {
 #if IPOD
     lyric_poll();
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
+    light_poll();
 #endif
     if (!g_backlight_status) {
         st.dark |= 1;
