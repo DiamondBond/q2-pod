@@ -5465,7 +5465,8 @@ if variant=='ipod':
     bigart=m.node('image','img_bigcover')
     bx,by=(375-BC_ART)//2,(320-BC_ART)//2
     put(bigart,bx,by,BC_ART,BC_ART)
-    bigwin=m.node('window','bigcover_page',[bigart])
+    bigwin=m.node('window','bigcover_page',[bigart]); m.handlers[big+12]='stock_bigcover'
+    m.call(address=big,args=(bigwin,7,0,0),gap=0)  # ringnav_bigcover keeps the window
     m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(bigart,m.canvas,0,0))
     assert not m.bands  # rounded after all children, including the title's shade
     m.call(address=HOOKS['widget_on_paint_border'][0],args=(bigwin,m.canvas,0,0))
@@ -7555,6 +7556,13 @@ if variant=='ipod':
         m.calls=[]; assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.nodes[light_label]['text']=='Light Mode: '+text
         assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(value,'LIGHT')]
         assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
+        if value==2:  # 7am-7pm: the UI loop drops the images and repaints as the hour crosses, once
+            m.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
+            for clock,wall,flip in (((6,59),86401,1),((6,59),86402,0),((7,0),86402,0),((7,0),86403,1)):
+                m.clock,m.wall=clock,(wall,wall); m.calls=[]
+                m.call(address=HOOKS['main_loop_sleep_default'][0],args=(0x1234,0,0,0),gap=0,clear=False)
+                assert [c[:2] for c in m.calls if c[0]=='image_manager_unload_all']==[('image_manager_unload_all',0x1000500)]*flip,(clock,wall)
+            m.clock=(18,14)
     passed()
     # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
     # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.

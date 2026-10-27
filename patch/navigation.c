@@ -397,9 +397,9 @@ typedef struct {
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover;
     void *np_slide, *np_lrc; /* the art/lyrics/info pages and the lyric lines' scroll_view */
-    /* The full-screen art's song name and its shade, the fade's step and timer (ringnav_bigcover)
-     */
-    void *bc[2];
+    /* The full-screen art's song name, its shade and its window, the fade's step and timer
+     * (ringnav_bigcover) */
+    void *bc[3];
     int bc_step;
     unsigned bc_timer, bc_track;
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
@@ -431,8 +431,8 @@ typedef struct {
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
         rounded, light, light_day; /* light_day: Auto's answer for now (LIGHT=2) */
     long long light_wall;          /* the second light_poll last read the clock */
-    void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
-    int style_depth;  /* nested style hooks (a mutable style's fallback) map nothing */
+    void *sel_accent;              /* the row on a coloured selection, for Light Mode's ink */
+    int style_depth;               /* nested style hooks (a mutable style's fallback) map nothing */
     void *setting_label[7];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
@@ -1568,8 +1568,10 @@ static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "T
 static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3 };
 static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
                                        &st.shortcut, &st.rounded,   &st.light };
-/* Light Mode's Auto (LIGHT=2) is light from 7:00 to 19:00 by the clock. light_poll runs each UI
- * pass, reads the clock once a second and repaints when Auto crosses either time. */
+/* Light Mode's Auto (LIGHT=2) is light from 7:00 to 19:00 by the clock. Under Auto only,
+ * light_poll runs each UI pass, checks the hour once a second and, when Auto crosses either time,
+ * drops the cached images (ringnav_image_add bakes the mode into them) and repaints, as
+ * setting_click does. */
 #define LIGHT_FROM 7
 #define LIGHT_UNTIL 19
 static int light_day(void) {
@@ -1578,14 +1580,18 @@ static int light_day(void) {
     const int *tm = wall == -1 ? (void *)0 : localtime(&now); /* struct tm: tm_hour @8 */
     return tm && tm[2] >= LIGHT_FROM && tm[2] < LIGHT_UNTIL;
 }
+static void np_fill(int scrub);
 static void light_poll(void) {
+    if (st.light != 2) return;
     long long wall = wall_time();
     if (wall == st.light_wall) return;
     st.light_wall = wall;
     int day = light_day();
     if (day == st.light_day) return;
     st.light_day = day;
-    if (st.light == 2) widget_invalidate_force(window_manager(), (void *)0);
+    np_fill(0);
+    image_manager_unload_all(image_manager());
+    widget_invalidate_force(window_manager(), (void *)0);
 }
 static int accent(void) {
     if (!st.settings_read) {
@@ -1729,7 +1735,8 @@ static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsi
         canvas_set_fill_color(canvas, color);
         canvas_fill_rect(canvas, r.x + in, r.y + j, r.w - 2 * in, 1);
         if (out & 15) {
-            canvas_set_fill_color(canvas, (color & 0xffffff) | (unsigned)(16 - (out & 15)) * 17 << 24);
+            canvas_set_fill_color(canvas,
+                                  (color & 0xffffff) | (unsigned)(16 - (out & 15)) * 17 << 24);
             canvas_fill_rect(canvas, r.x + in - 1, r.y + j, 1, 1);
             canvas_fill_rect(canvas, r.x + r.w - in, r.y + j, 1, 1);
         }
@@ -1901,7 +1908,7 @@ static void paint_letter(void *w, void *canvas) {
 static void paint_cover(void *w, void *canvas) {
     if (!w || !P(canvas, CANVAS_LCD)) return;
     int x = 0, y0 = 0;
-    if (!tk_strcmp(widget_get_prop_str(w, "name", ""), "bigcover_page")) {
+    if (w == st.bc[2]) {
         w = widget_lookup(w, "img_bigcover", 1);
         if (!w) return;
         x = I(w, W_X), y0 = I(w, W_Y); /* after the title's shade, in the page's canvas */
@@ -3773,7 +3780,7 @@ static int bc_fade(const void *info) {
 
 static int bc_gone(void *win, void *event) {
     stop_timer(&st.bc_timer);
-    st.bc[0] = st.bc[1] = (void *)0;
+    st.bc[0] = st.bc[1] = st.bc[2] = (void *)0;
     return 0;
 }
 
@@ -3795,6 +3802,7 @@ int ringnav_bigcover(void *win, void *ctx) {
     if (!win) return result;
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
     st.bc[1] = widget_lookup(win, "view_shade", 1);
+    st.bc[2] = win;
     bc_show();
     widget_on(win, EVT_DESTROY, bc_gone, win);
     return result;

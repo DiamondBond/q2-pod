@@ -668,7 +668,7 @@ status bar asset's own background (`#000000`, not `#161616`), which the payload'
 
 ### Light Mode
 
-**Light Mode: 7am-7pm** (`LIGHT=2`) is light from 07:00 to 18:59 by the device clock and dark the rest of the day. The row cycles Off, On, 7am-7pm on each click. It switches at 07:00 and 19:00 while the device is on, and an open screen repaints then (`light_poll`, once a second from the UI loop).
+**Light Mode: 7am-7pm** (`LIGHT=2`) is light from 07:00 to 18:59 by the device clock and dark the rest of the day. The row cycles Off, On, 7am-7pm on each click. It switches at 07:00 and 19:00 while the device is on, and the cached images are dropped and an open screen repaints then (`light_poll`, once a second from the UI loop, only under 7am-7pm). The boot logo picks its mode by the UTC hour ([boot](boot.md#light-mode)).
 
 **Light Mode: On** (`LIGHT=1`) turns both themes light at runtime, over the same assets. Every
 neutral colour (channels within `LIGHT_SPREAD`) flips per channel, black to `LIGHT_PAPER` (`#F4F4F4`)
