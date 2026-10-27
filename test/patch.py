@@ -5321,9 +5321,9 @@ if variant=='ipod':
       assert not [c for c in m.calls if c[0] in ('widget_load_image','canvas_draw_image')]; m.top=m.home
       m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')
       m.byte(syms['g_playcover_type'],3); assert art_image(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
-      # Sized to the cover's proportions, just covering the panel and shifted right (native fill then
+      # Sized to the cover's proportions, just covering the panel and centred on it (native fill then
       # draws it whole), and clipped to the panel from the background hook to the border hook, so it
-      # crops without gaps and never stretches.
+      # crops evenly and never stretches.
       assert m.nodes[m.art].get('sensitive')==0
       def geometry(): return [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]
       def cover(w,h):
@@ -5331,8 +5331,8 @@ if variant=='ipod':
           m.u.mem_write(syms['g_lastcover_url'],b'/p/other\0'); art_image(m.home)
           m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); art_image(m.home)
           return geometry()
-      for (w,h),want in (((300,300),[SPLIT+int((PW-290)/2)+12,0,290,290]),((2*PW,580),[SPLIT,0,PW,290]),
-                         ((600,400),[SPLIT+int((PW-435)/2)+12,0,435,290]),((100,400),[SPLIT,int((290-4*PW)/2),PW,4*PW])):
+      for (w,h),want in (((300,300),[SPLIT+int((PW-290)/2),0,290,290]),((2*PW,580),[SPLIT,0,PW,290]),
+                         ((600,400),[SPLIT+int((PW-435)/2),0,435,290]),((100,400),[SPLIT,int((290-4*PW)/2),PW,4*PW])):
           assert cover(w,h)==want,((w,h),geometry(),want)
       passed()
       m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],SPLIT); m.word(m.canvas+O['CANVAS_Y'],30+want[1])

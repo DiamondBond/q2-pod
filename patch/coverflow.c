@@ -2140,8 +2140,9 @@ static int home_repaint(const void *unused) {
     return 0; /* RET_REMOVE */
 }
 
-/* Keep the bitmap's proportions and cover the panel. Oversized art sits up to 12px right of
- * centre without exposing a gap; unknown sizes fill the panel. */
+/* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on
+ * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
+ * panel. */
 static void home_fit(unsigned w, unsigned h) {
     int x = HOME_SPLIT_W, pw = 375 - x, ph = 290, fw = pw, fh = ph;
     if (w && h && w <= 8192 && h <= 8192) {
@@ -2150,9 +2151,7 @@ static void home_fit(unsigned w, unsigned h) {
         else
             fw = (int)(((unsigned)ph * w + h - 1) / h);
     }
-    int shift = (fw - pw) / 2;
-    if (shift > 12) shift = 12;
-    widget_move_resize(home.art, x + (pw - fw) / 2 + shift, (ph - fh) / 2, fw, fh);
+    widget_move_resize(home.art, x + (pw - fw) / 2, (ph - fh) / 2, fw, fh);
 }
 
 /* The player's cover, else the Coverflow cache of the track's album (now_tag), else the

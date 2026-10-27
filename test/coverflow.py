@@ -1313,9 +1313,9 @@ int main(void) {
     /* a paint drops its own invalidations: the whole screen repaints after it */
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
     /* Square, portrait and landscape covers keep their proportions, just cover the panel and are
-       shifted right by up to 12px, without exposing a gap at the left edge. */
-    static const int covers[][6] = { { 160, 160, 148, 0, 290, 290 }, { 206, 290, 187, 0, 206, 290 },
-                                     { 300, 200, 76, 0, 435, 290 }, { 100, 400, 187, -231, 188, 752 } };
+       centred on it; C division leaves an odd overflow's extra pixel on the right or bottom. */
+    static const int covers[][6] = { { 160, 160, 136, 0, 290, 290 }, { 206, 290, 178, 0, 206, 290 },
+                                     { 300, 200, 64, 0, 435, 290 }, { 100, 400, 187, -231, 188, 752 } };
     for (unsigned i = 0; i < 4; ++i) {
         art_w = covers[i][0], art_h = covers[i][1];
         *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
@@ -1395,7 +1395,7 @@ int main(void) {
     assert(*(int *)(label->raw + W_X) == HOME_CLASSIC_TEXT_X &&
            *(int *)(label->raw + W_W) == HOME_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
     coverflow_home_art(win);
-    static const int classic_geo[4] = { 148, 0, 290, 290 };
+    static const int classic_geo[4] = { 136, 0, 290, 290 };
     assert(loads == before + 2 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
     home_full = 1;
     coverflow_home_layout();
