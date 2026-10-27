@@ -7791,7 +7791,7 @@ int ringnav_playlist_delete(void *win, void *event) {
 done:
     if (db) sqlite3_close(db);
     if (ok) {
-        rmPlaylists_flag = 1;
+        g_delete_flag = 1;
         navigator_back();
     }
     toast(ok ? "Playlist deleted" : "Could not delete playlist");

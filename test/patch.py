@@ -5168,6 +5168,17 @@ class PlaylistLifecycleMachine(PlaylistEditMachine):
         return signed(self.call(address=HOOKS['createPlayListItem'][0],args=(self.get(syms['p_deque_playlist']),self.string(name),0,0),gap=0))
     def delete(self):
         return self.call(address=HOOKS['playlist_delete_click'][0],args=(self.more,0,0,0),gap=0)
+    def reload_pending(self):
+        # Run stock's parent-show gate with the playlist category unchanged after More closes.
+        self.word(syms['g_class_type'],0xf00b); self.u.reg_write(UC_MIPS_REG_GP,0xa26cc0)
+        reached=[]
+        def stop(u,address,size,unused):
+            if address in (0x4b321c,0x4b3238): reached.append(address); u.emu_stop()
+        hook=self.u.hook_add(UC_HOOK_CODE,stop)
+        self.u.emu_start(0x4b31fc,0x1000000,count=100)
+        self.u.hook_del(hook)
+        assert len(reached)==1
+        return reached[0]==0x4b321c
 
 m=PlaylistLifecycleMachine(); assert m.create("O'Brien")==6
 assert m.db.execute('select id,filename,name,cd_num from playlist where id=6').fetchone()==(6,"O'Brien","O'Brien",6)
@@ -5186,7 +5197,8 @@ for failure in ('','open','begin','delete','delete from playlist where id>100','
     else:
         assert m.db.execute('select id from playlist where id=0 or id=101').fetchall()==[]
         assert m.db.execute('select id from playlist where id=1 or id=102').fetchall()==[(1,),(102,)]
-        assert m.backs==1 and bytes(m.u.mem_read(syms['rmPlaylists_flag'],1))==b'\x01' and m.toasts[-1][3]=='Playlist deleted'
+        assert m.backs==1 and bytes(m.u.mem_read(syms['g_delete_flag'],1))==b'\x01' and m.toasts[-1][3]=='Playlist deleted'
+    assert m.reload_pending()==(not failure)
     assert not m.db.in_transaction; passed()
 m=PlaylistLifecycleMachine(); m.db.execute('delete from playlist where id=101'); m.delete()
 assert not m.db.execute('select id from playlist where id=0').fetchall() and m.toasts[-1][3]=='Playlist deleted'
@@ -5194,7 +5206,7 @@ assert m.create('Replacement')==0; passed()
 m=PlaylistLifecycleMachine(); m.db.execute('delete from playlist where id=0'); m.delete()
 assert m.db.execute('select id from playlist where id=101').fetchall()==[(101,)] and m.toasts[-1][3]=='Could not delete playlist'; passed()
 m=PlaylistLifecycleMachine(); m.answer=0; before=m.db.execute('select * from playlist').fetchall(); m.delete()
-assert m.db.execute('select * from playlist').fetchall()==before and not m.backs; passed()
+assert m.db.execute('select * from playlist').fetchall()==before and not m.backs and not m.reload_pending(); passed()
 
 # Holding Play/Pause on a playlist row opens the same More page as its trailing dots.
 # The Add to Playlist picker shares playlist_page's name and keeps stock's hold.
