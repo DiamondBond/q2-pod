@@ -13,6 +13,7 @@
   - iPod: Corners, under Settings → Display → Appearance, is now a **Rounded Corners** switch, like stock's on/off settings, instead of a row reading Square or Rounded.
   - System settings: About is the last row, below Reset Settings.
   - Audiobooks: a book too long for the Q2's memory, such as a single 40-hour `.m4b`, no longer freezes the Q2, at start or again at boot (#121). It isn't played, and a message asks you to split it into parts. Opening its Chapters is refused the same way.
+  - Era: a decade's **Shuffle** starts in about the time Shuffle Songs takes, instead of looking frozen for a long while on a decade with many albums.
   - Time zones: each row shows the offset its city has right now, daylight saving included, and the rows are ordered by it. New York reads GMT-4 in summer and GMT-5 in winter. Before, a row showed the standard offset, so a New Yorker picking GMT-4 in summer got Halifax, an hour ahead.
 
 - **1.4.9**:

@@ -6570,12 +6570,66 @@ static void *era_songs(void) {
     }
     return all;
 }
+/* Shuffle's songs: one query for the decade's files, then the library filtered by them; its
+ * order is about to be shuffled, so era_songs' two queries an album would only cost time. */
+static struct {
+    unsigned *v, n, cap;
+} era_keys __attribute__((section(".scratch")));
+static int era_key_row(void *ctx, int n, char **v, char **c) {
+    if (n != 1 || !v[0]) return 0;
+    if (era_keys.n == era_keys.cap) {
+        unsigned cap = era_keys.cap ? era_keys.cap * 2 : 1024, *p = calloc(cap, sizeof *p);
+        if (!p) return 1;
+        if (era_keys.n) memcpy(p, era_keys.v, era_keys.n * sizeof *p);
+        free(era_keys.v);
+        era_keys.v = p, era_keys.cap = cap;
+    }
+    era_keys.v[era_keys.n++] = fnv(FNV_SEED, (const unsigned char *)v[0]);
+    return 0;
+}
+static int era_key_cmp(const void *a, const void *b) {
+    unsigned x = *(const unsigned *)a, y = *(const unsigned *)b;
+    return x < y ? -1 : x > y;
+}
+static void *era_shuffle_songs(void) {
+    char sql[2048];
+    int from = era.m ? era.v[0].year / 10 * 10 : 0, n;
+    void *out = _create_deque("stSongInfo");
+    deque_init(out);
+    /* The songs of ERA_ALBUMS' groups dated in the decade, matched on ALBUM_GROUP's keys. */
+    tk_snprintf(
+        sql, sizeof sql,
+        "%s from songtable s join (select album a,ifnull(albumsonger,'') b,case "
+        "ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end d,"
+        "%s as y from songtable where %s and ifnull(album,'')<>''%s having y between %d and %d) g "
+        "on s.album=g.a COLLATE NOCASE and ifnull(s.albumsonger,'')=g.b COLLATE NOCASE and "
+        "(g.d is null or rtrim(s.fileurl,replace(s.fileurl,'/',''))=g.d)",
+        "select distinct s.fileurl", ALBUM_YEAR, MUSIC_WHERE, ALBUM_GROUP, from, from + 9);
+    era_keys.n = 0;
+    if (era.m && era_sql(sql, era_key_row) && era_keys.n) {
+        qsort(era_keys.v, era_keys.n, sizeof *era_keys.v, era_key_cmp);
+        void *all = staged(songs_unsorted, (void *)1, &n);
+        for (unsigned i = 0; i < deque_size(all); ++i) {
+            unsigned key = fnv(FNV_SEED, P(deque_at(all, i), REC_PATH)), lo = 0, hi = era_keys.n;
+            while (lo < hi) /* the first key not below this one */
+                if (era_keys.v[(lo + hi) / 2] < key)
+                    lo = (lo + hi) / 2 + 1;
+                else
+                    hi = (lo + hi) / 2;
+            if (lo < era_keys.n && era_keys.v[lo] == key) _deque_push_back(out, deque_at(all, i));
+        }
+        deque_destroy(all);
+    }
+    free(era_keys.v);
+    era_keys.v = 0, era_keys.n = era_keys.cap = 0;
+    return out;
+}
 /* Play All from the first song as a library queue, as Coverflow's All albums; Shuffle is Shuffle
  * Songs over them; an album opens its tracks in Coverflow. */
 static int era_pick(void *ctx, void *event) {
     int i = (int)(long)ctx;
     if (i < 2) {
-        void *all = era_songs();
+        void *all = i ? era_shuffle_songs() : era_songs();
         if (!deque_size(all) || access(P(deque_at(all, 0), REC_PATH), 0))
             toast("Storage unavailable");
         else if (i)
