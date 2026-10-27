@@ -17,6 +17,12 @@
   - Era: a decade's **Shuffle** starts in about the time Shuffle Songs takes, instead of looking frozen for a long while on a decade with many albums.
   - Time zones: each row shows the offset its city has right now, daylight saving included, and the rows are ordered by it. New York reads GMT-4 in summer and GMT-5 in winter. Before, a row showed the standard offset, so a New Yorker picking GMT-4 in summer got Halifax, an hour ahead.
   - Controls: holding Return now acts after 0.7 seconds, the same as holding Play/Pause, instead of a full second.
+  - iPod: a selected row now fills its whole row, so with the last row of a list selected no strip of background shows at the bottom of the screen (Library, Folders, Cover Flow's tracks and the apps' lists, #127).
+  - iPod: a touched row's grey now has the selection's shape in every list: the whole row, or the rounded pill under Rounded Corners. The Library and Folders showed a narrower box, and Shuffle, Games and the apps' lists showed none (#127).
+  - iPod: Light Mode fixes (#127): the Shut Down prompt's highlighted row reaches both edges of the screen; the Now Playing More menu's Speed row no longer shows a rounded box under Square corners; Cover Flow's no-cover disc has no dark specks at its corners.
+  - iPod: the Shut Down prompt's text is larger and centred above Cancel (#127).
+  - iPod: Folder view's album and track thumbnails have rounded corners, as the Library's do (#127).
+  - iPod: Quick Settings' brightness slider uses Now Playing's colours, filled with your Highlight Colour (#127).
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.

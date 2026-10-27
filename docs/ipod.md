@@ -266,7 +266,7 @@ The pull-down (`dialog/statusbar_dialog.bin`) covers the whole screen when open.
 controls keep their four columns in two rows from y 20. Every label is the stock 16-pixel white
 style (`s_label_white16c`), 80 pixels wide and 40 high (two lines), top-aligned so one- and
 two-line labels start on the same line, 6 pixels under its icon and 12 above the next row. The
-brightness slider becomes a 6-pixel track (`#3A3A3A`, white fill) in a 48-pixel-high slider that
+brightness slider becomes a 6-pixel track in Now Playing's colours (`TRACK_COLOR`, filled with the accent's light tone as the progress bar, `quick_fill`) in a 48-pixel-high slider that
 still takes a tap or drag anywhere on it (`slide_with_bar`), from x 68 to 307. The stock dim and
 bright suns stay at its ends, in line with the first and last icon columns. Sizes are `QS_*` in
 `tools/ipod.py`. `dialog_statusbar_dialog_init` (`0x4a0d88`) finds every widget by name and

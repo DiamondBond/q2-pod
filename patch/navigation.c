@@ -286,6 +286,9 @@ typedef struct {
     int wheel_ctx;
     /* iPod: a Return by button ends touch mode once stock has handled it */
     unsigned untouch_timer;
+    /* iPod: the row pressed_pill last drew grey, and the repaint once it is released */
+    void *press_row;
+    unsigned press_timer;
     /* wheel ticks held while a page slides or loads (hold_wheel), replayed into it */
     int held;
     unsigned held_at, held_timer;
@@ -2091,6 +2094,13 @@ static void paint_selection(void *w, void *canvas) {
     if (!tile) {
         r.x = 0;
         r.w = I(g_menu.w, W_W);
+        /* The Library's row is a button over the top BODY of its pitch: the bar takes the whole
+         * row, or the last row's leaves a strip at the screen's bottom. */
+        void *row = P(g_menu.at[i], W_PARENT);
+        if (row && !I(g_menu.at[i], W_Y) && I(row, W_H) > r.h &&
+            (!tk_strcmp(widget_get_type(row), "table_row") ||
+             !tk_strcmp(widget_get_type(row), "list_item")))
+            r.h = I(row, W_H);
     }
     /* Classic: the accent's bar under the rows' own ink. Minimal: its card (sel_widget), off-white
      * with dark ink under its own accent, else the accent's under the rows' own ink. */
@@ -3441,13 +3451,15 @@ static void np_sync(void *top) {
  * on exit in track seconds (it adds a CUE track's start), and the timer restarts. */
 /* The accent's light tone (Minimal's own accent: MINIMAL_FILL) fills the progress bar in every
  * state a touch passes through; a white fill (Minimal: a thicker line) marks the scrub. */
-static void np_fill(int scrub) {
-    if (!st.np_slider) return;
+static void slider_fill(void *slider, unsigned color) {
     static const char *const fill[] = { "style:normal:fg_color", "style:pressed:fg_color",
                                         "style:over:fg_color", "style:focused:fg_color" };
-    unsigned color = scrub ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT));
     for (unsigned i = 0; i < sizeof fill / sizeof *fill; ++i)
-        widget_set_prop_int(st.np_slider, fill[i], (int)color);
+        widget_set_prop_int(slider, fill[i], (int)color);
+}
+static void np_fill(int scrub) {
+    if (!st.np_slider) return;
+    slider_fill(st.np_slider, scrub ? 0xffffffff : RGBA(accent_tone(TONE_LIGHT)));
     /* Minimal's fill is near white already: its scrub thickens the line to Classic's. */
     if (!ipod_classic())
         widget_set_prop_int(st.np_slider, "bar_size", scrub ? NP_BAR_CLASSIC : np_bar_h());
@@ -3937,19 +3949,88 @@ static void album_tile(void *w) {
     if (!tk_strcmp(name, "album_page") || !tk_strcmp(name, "artistinfo_page")) album_children(w, 0);
 }
 
-/* Corners: Rounded: a touched list row's grey (ipod.json's pressed s_btn_listitem, #333333) is the
- * selection's inset pill, not stock's full-width box. 1 if drawn in place of stock's background. */
+#if IPOD
+/* Quick Settings' brightness slider fills as Now Playing's bar does (np_fill), set before its
+ * paint; QFILL holds the fill it last got, so a new accent or Light Mode reaches it. */
+#define QFILL "_ringnav_fill"
+static void quick_fill(void *w) {
+    void *win = w && !tk_strcmp(widget_get_prop_str(w, "name", ""), "slider_backlight")
+                    ? window_of(w)
+                    : (void *)0;
+    if (!win || tk_strcmp(widget_get_prop_str(win, "name", ""), "statusbar_dialog")) return;
+    int color = (int)RGBA(accent_tone(TONE_LIGHT));
+    if (widget_get_prop_int(w, QFILL, 0) == color) return;
+    widget_set_prop_int(w, QFILL, color);
+    slider_fill(w, (unsigned)color);
+}
+/* The confirm pop-up's prompt (stock's own child, "Shut Down?"): CONFIRM_PROMPT_PX, centred in the
+ * space above its rows. ponytail: by position, any non-button child above CONFIRM_TOP. */
+static void confirm_prompt(void *w) {
+    if (tk_strcmp(widget_get_prop_str(w, "name", ""), "confirminfo_dialog")) return;
+    for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
+        void *c = widget_get_child(w, i);
+        if (!tk_strcmp(widget_get_type(c), "button") || I(c, W_Y) + I(c, W_H) > CONFIRM_TOP ||
+            (!I(c, W_X) && !I(c, W_Y) && I(c, W_W) == I(w, W_W)))
+            continue;
+        widget_move_resize(c, 0, 0, I(w, W_W), CONFIRM_TOP);
+        widget_set_prop_int(c, "style:normal:font_size", CONFIRM_PROMPT_PX);
+        widget_set_prop_str(c, "style:normal:text_align_h", "center");
+        widget_set_prop_str(c, "style:normal:text_align_v", "middle");
+    }
+}
+static int is_row(void *w) {
+    const char *t = w ? widget_get_type(w) : "";
+    return !tk_strcmp(t, "list_item") || !tk_strcmp(t, "table_row");
+}
+/* A list row's touch target: its own (page rows), else a button over its top (the Library's,
+ * Settings', the More menu's); pressed with its grey (ipod.json's pressed #333333) or none. */
+static int pressed_row(void *b) {
+    const char *s = widget_get_prop_str(b, "style", "");
+    return !tk_strcmp(widget_get_prop_str(b, "state_for_style", ""), "pressed") &&
+           (!tk_strcmp(s, "s_btn_listitem") || !tk_strcmp(s, "s_btn_forwardspeed") ||
+            !tk_strcmp(s, "s_listitem_black"));
+}
+static void *touch_target(void *row) {
+    void *b = widget_count_children(row) ? widget_get_child(row, 0) : (void *)0;
+    return b && !tk_strcmp(widget_get_type(b), "button") && !I(b, W_Y) ? b : row;
+}
+static int press_repaint(const void *info) {
+    st.press_timer = 0;
+    void *top = window_manager_get_top_window(window_manager());
+    if (top) widget_invalidate_force(top, (void *)0);
+    return 0;
+}
+#endif
+
+/* A touched list row's grey is the selection's shape: the whole row, as Classic's bar (the
+ * Library's button leaves x 0-20, 355-375 and the pitch's last 4 px), or under Rounded Corners the
+ * inset pill. Drawn as the row's background; the button's own box is skipped (1). The press
+ * invalidates the whole surface (ringnav_touch), its release only the button, so the row's edges
+ * repaint once after it (press_repaint). */
 static int pressed_pill(void *w, void *canvas) {
 #if IPOD
-    if (w && (accent(), st.rounded) && I(w, W_W) > 2 * SEL_INSET + I(w, W_H) &&
-        !tk_strcmp(widget_get_prop_str(w, "state_for_style", ""), "pressed") &&
-        !tk_strcmp(widget_get_prop_str(w, "style", ""), "s_btn_listitem")) {
-        rect_t pill = { SEL_INSET, 0, I(w, W_W) - 2 * SEL_INSET, I(w, W_H) };
-        fill_box(canvas, &pill, PH_GREY, pill_radius(w, pill.h, SEL_INSET));
-        return 1;
+    if (!w) return 0;
+    if (!is_row(w)) { /* the row drew it: skip its button's box */
+        void *row = P(w, W_PARENT);
+        return is_row(row) && touch_target(row) == w && pressed_row(w) &&
+               I(row, W_W) > 2 * SEL_INSET + I(row, W_H);
     }
-#endif
+    void *b = touch_target(w);
+    if (!pressed_row(b) || I(w, W_W) <= 2 * SEL_INSET + I(w, W_H)) {
+        if (w == st.press_row) {
+            st.press_row = (void *)0;
+            rearm(&st.press_timer, press_repaint, 0);
+        }
+        return 0;
+    }
+    st.press_row = w;
+    int in = (accent(), st.rounded) ? SEL_INSET : 0;
+    rect_t pill = { in, 0, I(w, W_W) - 2 * in, I(w, W_H) };
+    fill_box(canvas, &pill, PH_GREY, in ? pill_radius(b, pill.h, SEL_INSET) : 0);
+    return b == w; /* a page row's own (clear) background */
+#else
     return 0;
+#endif
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
@@ -3961,6 +4042,10 @@ static int pressed_pill(void *w, void *canvas) {
  * under another window. */
 int ringnav_paint_bg(void *w, void *canvas) {
     st.paint_w = w;
+#if IPOD
+    quick_fill(w);
+    confirm_prompt(w);
+#endif
     album_tile(w);
     int result = pressed_pill(w, canvas) ? 0 : stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
@@ -4118,8 +4203,11 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
              preset = accent();
     unsigned char *data = (void *)0;
     /* Before the manager copies bitmap_t: cached flags must agree with the new alpha. These
-     * paths are stock's album/artist thumbnails; playing covers are rounded after scaling. */
-    if (format < 4 && name && tk_str_start_with(name, "file:///mnt/mmc/.sldp/")) {
+     * paths are stock's album/artist thumbnails and Folder view's (.downpic/fd*, its cover
+     * thread's); playing covers are rounded after scaling. */
+    if (format < 4 && name &&
+        (tk_str_start_with(name, "file:///mnt/mmc/.sldp/") ||
+         tk_str_start_with(name, "file:///mnt/mmc/.downpic/fd"))) {
         int w = I(bitmap, 0), h = I(bitmap, 4), stride = bitmap_get_line_length(bitmap);
         if (w > 0 && h > 0 && w <= 4096 && h <= 4096 && stride >= w * 4) {
             unsigned char *px = bitmap_lock_buffer_for_write(bitmap);
