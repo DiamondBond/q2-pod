@@ -5587,7 +5587,7 @@ static void folder_tracks(const char *path, void *add, int depth) {
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         const char *name = P(t, REC_NAME);
-        if (I(t, REC_TYPE) == 8)
+        if (I(t, REC_TYPE) == 8 && !playback_video(t))
             _deque_push_back(add, t);
         else if (I(t, REC_TYPE) == 4 && depth < 8 && name && *name != '.') {
             char sub[1024];
@@ -5623,9 +5623,9 @@ static void *qm_collect(void *r) {
         return coverflow_album_tracks(r);
     void *add = _create_deque("stSongInfo");
     deque_init(add);
-    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_PLAYING)
-        _deque_push_back(add, r);
-    else
+    if (st.qm_kind == QM_SONG || st.qm_kind == QM_COVERFLOW || st.qm_kind == QM_PLAYING) {
+        if (!playback_video(r)) _deque_push_back(add, r);
+    } else
         qm_tracks(r, add);
     return add;
 }
@@ -6698,7 +6698,7 @@ static int era_key_row(void *ctx, int n, char **v, char **c) {
         free(era_keys.v);
         era_keys.v = p, era_keys.cap = cap;
     }
-    era_keys.v[era_keys.n++] = fnv(FNV_SEED, (const unsigned char *)v[0]);
+    era_keys.v[era_keys.n++] = (unsigned)atoi(v[0]);
     return 0;
 }
 static int era_key_cmp(const void *a, const void *b) {
@@ -6718,13 +6718,13 @@ static void *era_shuffle_songs(void) {
         "%s as y from songtable where %s and ifnull(album,'')<>''%s having y between %d and %d) g "
         "on s.album=g.a COLLATE NOCASE and ifnull(s.albumsonger,'')=g.b COLLATE NOCASE and "
         "(g.d is null or rtrim(s.fileurl,replace(s.fileurl,'/',''))=g.d)",
-        "select distinct s.fileurl", ALBUM_YEAR, MUSIC_WHERE, ALBUM_GROUP, from, from + 9);
+        "select distinct s.id", ALBUM_YEAR, MUSIC_WHERE, ALBUM_GROUP, from, from + 9);
     era_keys.n = 0;
     if (era.m && era_sql(sql, era_key_row) && era_keys.n) {
         qsort(era_keys.v, era_keys.n, sizeof *era_keys.v, era_key_cmp);
         void *all = staged(songs_unsorted, (void *)1, &n);
         for (unsigned i = 0; i < deque_size(all); ++i) {
-            unsigned key = fnv(FNV_SEED, P(deque_at(all, i), REC_PATH)), lo = 0, hi = era_keys.n;
+            unsigned key = (unsigned)I(deque_at(all, i), REC_ID), lo = 0, hi = era_keys.n;
             while (lo < hi) /* the first key not below this one */
                 if (era_keys.v[(lo + hi) / 2] < key)
                     lo = (lo + hi) / 2 + 1;
@@ -8147,7 +8147,7 @@ static int qm_hold(void) {
      * (0xff07 songs, 0xff01 albums) but not g_class_type. */
     unsigned cls = (unsigned)(tk_strcmp(name, "artistinfo_page") ? I(g_class_type, 0)
                                                                  : I(g_local_classinfo_save, 0));
-    if (!r || !key) return 0;
+    if (!r || !key || playback_video(r)) return 0;
     st.qm_kind = I(r, REC_TYPE) == 8 ? QM_SONG : 0;
     if (coverflow) {
         if (st.qm_kind) st.qm_kind = QM_COVERFLOW;

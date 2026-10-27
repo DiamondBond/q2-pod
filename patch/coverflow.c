@@ -1424,7 +1424,7 @@ static struct {
     unsigned *tex;                /* CF_RING texture slots, then the placeholder */
     int album[CF_RING];           /* each slot's album + 1; 0 is empty */
     const unsigned *art[CF_RING]; /* its texture: the slot's own, or the placeholder */
-    int c, frac, drawn;           /* the position the frame holds, once drawn */
+    int c, frac, drawn, light;    /* the position and Light Mode the frame holds, once drawn */
 } fx __attribute__((section(".scratch")));
 
 /* A decoded image copied into a texture: fitted whole and centred, nearest sampled to ART_SIZE,
@@ -1479,6 +1479,14 @@ static void fx_close(void) {
     memset(&fx, 0, sizeof(fx));
 }
 
+static void fx_placeholder(void) {
+    unsigned *placeholder = fx.tex + CF_RING * CF_TEXELS;
+    if (!decode(PLACEHOLDER, placeholder, 0)) /* a theme image: the manager keeps it */
+        for (int i = 0; i < CF_TEXELS; ++i) placeholder[i] = 0xff3a3a3au;
+#if IPOD
+    fx.light = ipod_light();
+#endif
+}
 /* The frame and every texture at once, or neither: the flat covers then stand in. */
 static int fx_open(void) {
     fx.frame = bitmap_create_ex(CF_VIEW_W, CF_VIEW_H, CF_VIEW_W * 4, 1 /* RGBA8888 */);
@@ -1488,9 +1496,7 @@ static int fx_open(void) {
         return 0;
     }
     *(unsigned short *)((char *)fx.frame + 0xc) |= 1; /* BITMAP_FLAG_OPAQUE: every pixel is */
-    unsigned *placeholder = fx.tex + CF_RING * CF_TEXELS;
-    if (!decode(PLACEHOLDER, placeholder, 0)) /* a theme image: the manager keeps it */
-        for (int i = 0; i < CF_TEXELS; ++i) placeholder[i] = 0xff3a3a3au;
+    fx_placeholder();
     return 1;
 }
 
@@ -1556,6 +1562,13 @@ void coverflow_paint(void *w, void *canvas) {
         !visual(w, n = (int)widget_count_children(w), &c, &frac))
         return;
     const unsigned *ring[CF_RING];
+#if IPOD
+    if (fx.light != ipod_light()) {
+        fx_placeholder();
+        memset(fx.album, 0, sizeof fx.album); /* decoded art may have transparent corners too */
+        fx.drawn = 0;
+    }
+#endif
     fx_window(c, n, ring);
     if (coverflow_bounded(w)) /* no wrap: only the artist's real neighbours, never repeats */
         for (int j = 0; j < CF_RING; ++j)

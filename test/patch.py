@@ -1672,6 +1672,15 @@ if variant=='ipod':
     m.paint(d); assert m.selected(d)==0 and m.sel()==(0,208,375,48) and not m.strokes
     assert m.call()==11 and m.selected(d)==1; m.paint(d); assert m.sel()==(0,256,375,48)
     assert m.confirm()==11 and m.clicks==[rows[1]]; passed()
+    # A runtime prompt is styled once: stock's style setters invalidate even equal values.
+    prompt=m.node('label','prompt'); m.word(prompt+O['W_H'],40)
+    m.nodes[d]['children'].append(prompt)
+    m.paint(d)
+    assert tuple(m.get(prompt+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==(0,0,375,O['CONFIRM_TOP'])
+    assert m.nodes[prompt]['style:normal:font_size']==O['CONFIRM_PROMPT_PX']
+    assert m.nodes[prompt]['style:normal:text_align_h']=='center' and m.nodes[prompt]['style:normal:text_align_v']=='middle'
+    m.paint(d)
+    assert not [c for c in m.calls if c[0].startswith('widget_set_prop') and c[1]==prompt]; passed()
 else:
     assert m.call()==0 and m.call(O['KEY_CENTER'])==0 and not m.moved(); passed()
 
@@ -3562,6 +3571,17 @@ for cls,artist_type,page,query in ((0xff01,1,'album_page',('getMusicByAlbumAndAl
     assert page!='folder_page' or [m.text(c[1]) for c in m.calls if c[0]=='toolsLoadDirectory']==['/mnt/sd/Music/Row 0','/mnt/sd/Music/Row 0/dir']
     assert m.names(m.get(syms['tools_pdeq_directory']))==['staged'] and m.pool()==list(range(len(want)))
     passed()
+# Videos never enter an audio queue, including through a folder's hold menu.
+for action in (0,1):
+    m=QueueMachine(page='folder_page'); m.word(m.row(0)+O['REC_TYPE'],4)
+    m.found=[m.song('film.mp4'),m.song('song.flac'),m.song('film.MKV')]
+    assert m.run(action) is None
+    assert m.names()==(['A','song.flac','B','C'] if action==0 else ['A','B','C','song.flac']); passed()
+m=QueueMachine(page='folder_page'); m.word(m.row(0)+O['REC_PATH'],m.string('/mnt/mmc/Videos/film.mp4'))
+m.press(100); m.hold(); assert m.nodes[m.top]['name']=='folder_page' and m.names()==['A','B','C']; passed()
+m=QueueMachine(page='folder_page'); m.word(m.row(0)+O['REC_TYPE'],4)
+m.word(m.row(0)+O['REC_PATH'],m.string('/mnt/mmc/Videos/Album.mp4'))
+m.press(100); assert m.hold()==11 and m.nodes[m.top]['name']=='sortselect_dialog'; passed()
 # Artist, composer and genre rows, and their album lists, use batch_add_file's per-class queries.
 for cls,artist_type,query in ((0xf004,0,('getMusicBySonger','Artist',None)),(0xf004,1,('getMusicByAlbumArtist','Artist',None)),
         (0xf005,0,('getMusicByComposer','Comp',None)),(0xf006,0,('getMusicByGenre','Pop',None)),
@@ -5209,11 +5229,11 @@ songs=m.get(payload_syms['ple']+8)
 m.call(address=syms['mclLoadPlayList'],args=(songs,0,0xff13,0),gap=0)
 assert m.names()==['B','A','C']; passed()
 # A Videos folder's listed videos never join a queue (#128): stock loads a copy without them, its start
-# on the same song, or the next after a video; the caller's list stays whole. Videos alone load as given.
+# on the same song, or the next after a video; the caller's list stays whole. Videos alone leave an empty queue.
 for names,at,queued,pos in ((('a.mp3','v.mp4','b.flac','w.MKV'),2,['a.mp3','b.flac'],1),
                             (('a.mp3','v.mp4','b.flac'),1,['a.mp3','b.flac'],1),
                             (('v.mp4','a.mp3'),0,['a.mp3'],0),(('a.mp3','b.flac'),1,['a.mp3','b.flac'],1),
-                            (('v.mp4','w.mkv'),1,['v.mp4','w.mkv'],1)):
+                            (('v.mp4','w.mkv'),1,[],0)):
     m=QueueMachine(); src=m.deque([m.song(n) for n in names])
     m.call(address=syms['mclLoadPlayList'],args=(src,at,1,0),gap=0)
     assert m.names()==queued and m.get(O['MCL_POS'])==pos and len(m.items(src))==len(names),(names,m.names(),m.get(O['MCL_POS']))
@@ -6512,6 +6532,16 @@ f,ctx=row(0); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.plays[-1][2:]==(0,0xf001,2) and m.play_names==['a1','b1','b2']; passed()
 f,ctx=row(3); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.page=m.top
 assert m.nodes[m.top]['name']=='coverflow_page' and m.texts()[:3]==['Beta','b1','b2']; passed()
+# Two valid paths collide under the old FNV32 membership check: only the dated song belongs.
+paths=('/mnt/mmc/Music/z4dmr4cvs8lw.flac','/mnt/mmc/Music/mhf1gqxzbiuf.flac')
+m=EraMachine([('Old','Artist','Artist',paths[0],1990),('New','Artist','Artist',paths[1],2020)])
+m.found=[m.song('old'),m.song('new')]
+for ident,(r,path) in enumerate(zip(m.found,paths),1):
+    m.word(r+O['REC_ID'],ident); m.word(r+O['REC_PATH'],m.string(path))
+m.open_era(); m.decade(0)
+f,ctx=m.handler(m.nodes[m.find('scroll_view')]['children'][1],O['EVT_CLICK'])
+m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+assert m.play_names==['old'] and m.names(m.get(syms['tools_pdeq_directory']))==['staged']; passed()
 m=EraMachine(); top=m.top; assert m.open_era() is not None and m.top==top and m.toasts[-1][3]=='No dated albums yet'; passed()
 m=EraMachine([s for s in SONGS if s[4]==0]); top=m.top; m.open_era(); assert m.top==top and m.toasts[-1][3]=='No dated albums yet'; passed()
 # Library > Ratings > Albums: the rated albums as Coverflow, most hearts first, with the rated Sort card alone

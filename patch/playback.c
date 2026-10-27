@@ -720,23 +720,23 @@ int ringnav_start_queue(int at) {
 }
 /* A video Folder view lists in the Videos folder (ringnav_audio_extension) plays from its row in
  * q2video, never from a queue: stock gets a copy without them, at moved to the same track (or the
- * next song after a video), and q, the caller's showlist, stays whole. 0 when nothing to drop.
- * ponytail: a queue of videos alone loads as given. */
+ * next song after a video), and q, the caller's showlist, stays whole. 0 when nothing to drop. */
 extern int video_ext(const char *ext);
-static int is_video(void *r) {
+int playback_video(void *r) {
     const char *path = P(r, REC_PATH);
-    return path && video_ext(strrchr(path, '.'));
+    return I(r, REC_TYPE) == 8 && path && video_ext(strrchr(path, '.'));
 }
 static void *no_videos(void *q, int *at) {
     unsigned n = q ? deque_size(q) : 0, keep = 0, before = 0;
     for (unsigned i = 0; i < n; ++i)
-        if (!is_video(deque_at(q, i))) keep++, before += (int)i < *at;
-    if (keep == n || !keep) return 0;
+        if (!playback_video(deque_at(q, i))) keep++, before += (int)i < *at;
+    if (keep == n) return 0;
     void *out = _create_deque("stSongInfo");
     deque_init(out);
     for (unsigned i = 0; i < n; ++i)
-        if (!is_video(deque_at(q, i))) _deque_push_back(out, deque_at(q, i));
-    if (*at > 0) *at = (int)(before < keep ? before : keep - 1);
+        if (!playback_video(deque_at(q, i))) _deque_push_back(out, deque_at(q, i));
+    if (!keep) *at = 0;
+    else if (*at > 0) *at = (int)(before < keep ? before : keep - 1);
     return out;
 }
 int ringnav_load(void *q, int at, int type) {
