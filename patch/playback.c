@@ -374,7 +374,10 @@ int playback_start_fits(void) {
 int ringnav_open_preload(void) {
     /* A gapless handoff does not run player_initconfig: reopen at a speed boundary. A track too
      * long to open goes through mclStartPlayer, whose hook declines it. */
-    if (speed_read(M(MCL_PREPOS)) != g_playspeed_mode || !track_fits(M(MCL_PREPOS))) return 1;
+    if (speed_read(M(MCL_PREPOS)) != g_playspeed_mode || !track_fits(M(MCL_PREPOS))) {
+        M(MCL_PRELOAD) = -1; /* stock's failed attempt: do not rescan on every auto-change tick */
+        return 1;
+    }
     return stock_open_preload_trampoline();
 }
 static void release(void) {

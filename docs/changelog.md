@@ -1,7 +1,7 @@
 # Changelog
 
 - **1.5.1**:
-  - iPod: Light Mode has a third setting, **7am-7pm**: the interface is light from 7:00 to 19:00 by the clock and dark the rest of the day, switching by itself. The Light Mode row cycles Off, On and 7am-7pm on each click. The boot logo follows it too, by the UTC hour at power-on.
+  - iPod: Light Mode has a third setting, **Auto**: the interface is light from 7:00 to 19:00 by the clock and dark the rest of the day, switching by itself. The Light Mode row cycles Off, On and Auto on each click. The boot logo follows it too, by the UTC hour at power-on.
   - iPod: Corners, under Settings → Display → Appearance, is now a **Rounded Corners** switch, like stock's on/off settings, instead of a row reading Square or Rounded.
   - Audiobooks: a book too long for the Q2's memory, such as a single 40-hour `.m4b`, no longer freezes the Q2, at start or again at boot (#121). It isn't played, and a message asks you to split it into parts. Opening its Chapters is refused the same way.
   - iPod: under Rounded Corners, a selected or pressed row's pill no longer cuts across its cover's corners, as it did in Search's results; the pill's ends round less on those rows.

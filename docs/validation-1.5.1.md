@@ -40,3 +40,19 @@ Passed:
 - `graphify update .` refreshed the code graph.
 
 The iPod payload is 452,952 bytes, 160 bytes above the pre-review HEAD build. Builds and tests are host/emulator validation; they were not installed on hardware. No release was published.
+
+## Follow-up review through 3e2f850
+
+Two independent Codex reviewers repeated the pstack Interrogate review of the full `1.5.0..3e2f850` range, including the earlier fixes, with battery and performance regressions in scope.
+
+Act on (Reviewer B): rejecting an oversized MP4 preload left `MCL_PRELOAD` at zero. Stock's `mclAutoChange` retries while it is zero during the last five seconds, repeatedly scanning the next MP4 and reading `/proc/meminfo`. The hook now records stock's failed-attempt state, -1, for both RAM and speed-boundary refusals. Stock disassembly confirms successful starts and track transitions reset it; queue and speed edits also clear it through `close_preload`.
+
+Act on (Reviewer A): playback admission lacked direct integration coverage. The playback suite now checks start refusal and recovery, nonlocal bypass, a one-shot toast and gapless refusal/delegation, including ten actual stock `mclAutoChange` ticks that scan a refused successor only once. The host suite continues to check the actual MP4 estimator.
+
+Act on (Reviewer B): update stale descriptions of video-only audio queues, Era's exact ID membership and the Auto label. No other confirmed runtime regression was found. Consider/noted: the existing MP4 RAM calibration remains a hardware validation limit. Dismissed: an early playback refusal bypassing a required decoder stop; stock itself has early error returns before decoder setup.
+
+The regression reproduces nine MP4 scans in ten stock player ticks before the fix and one afterward. Cached 128-track successor lookup remains 25 emulated instructions.
+
+The battery review found no new periodic timer. Auto checks the clock during existing UI passes, and touch-release repaint remains one-shot. The preload correction removes repeated file and memory checks near the track boundary; hardware battery impact was not measured.
+
+Final checks passed: release builds and asset geometry/mismatch checks for both editions; 1,976 iPod and 1,458 Legacy MIPS UI scenarios; both playback suites including the new admission and stock retry regression; Coverflow host checks; chapter/MP4 parser and process checks; basic build checks; `./tools/format.sh`; `git diff --check`; and `graphify update .`. Payloads are 452,968 bytes (iPod) and 365,304 bytes (Legacy), each 16 bytes above the reviewed HEAD. No hardware installation or release publication was performed.
