@@ -1,21 +1,11 @@
 # Changelog
 
-- **1.5.0**:
-  - Quick Settings from the wheel: swipe straight across the wheel, as on a touchpad, to open or close Quick Settings. The pull-down follows the speed of your swipe. Turning the wheel never triggers it. Turn it on under Settings → Display → Controls → Wheel QS. It is off by default.
-  - FLAC: local FLAC files play through faster decode paths, on by default.
-  - Battery: the audio driver sleeps while playback is stopped instead of checking every 10 ms. Playback is unchanged.
-  - iPod: the status bar's play/pause icon changes as soon as you press Play/Pause on Now Playing (#116). It often kept the old icon until you left Now Playing.
-  - Battery: the rotator's clock starts only when the rotator first needs it, not at boot, and the backlight's PWM clock is released while the backlight is off.
-  - Key Tone: fast scrolling no longer hitches with Key Tone on. Each click now plays in the background, and a click that comes while the last one is still sounding is skipped.
-  - iPod: **Light Mode**, under Settings → Display → Appearance, below Theme. It is off by default. It turns the whole interface light, in Minimal and Classic and under every accent: light backgrounds with dark text and icons, including stock's pages, pop-ups, Quick Settings, Cover Flow, games, the PEQ and the visualizer. Coloured accents keep their colour. As on an iPod classic, the selected row's text and `>` stay white on a coloured bar. Graphite and Ivory turn dark, so they still stand out on the light background. In Cover Flow the side covers and reflections fade into the light background, and Solitaire's face-up cards stay white with black suits. Album art and photos are never changed. In Classic, the status bar turns a flat light grey, as on an iPod classic. The boot logo turns light too, dark lettering on white, from the next power-on (a custom boot logo from the card stays as it is).
+- **1.5.1**:
   - iPod: Light Mode has a third setting, **7am-7pm**: the interface is light from 7:00 to 19:00 by the clock and dark the rest of the day, switching by itself. The Light Mode row cycles Off, On and 7am-7pm on each click. The boot logo follows it too, by the UTC hour at power-on.
-  - iPod: the Green accent is the green Q2's sage (#119), as close to the shell as white text on it allows.
   - iPod: Corners, under Settings → Display → Appearance, is now a **Rounded Corners** switch, like stock's on/off settings, instead of a row reading Square or Rounded.
-  - System settings: About is the last row, below Reset Settings.
   - Audiobooks: a book too long for the Q2's memory, such as a single 40-hour `.m4b`, no longer freezes the Q2, at start or again at boot (#121). It isn't played, and a message asks you to split it into parts. Opening its Chapters is refused the same way.
   - iPod: under Rounded Corners, a selected or pressed row's pill no longer cuts across its cover's corners, as it did in Search's results; the pill's ends round less on those rows.
   - Era: a decade's **Shuffle** starts in about the time Shuffle Songs takes, instead of looking frozen for a long while on a decade with many albums.
-  - Time zones: each row shows the offset its city has right now, daylight saving included, and the rows are ordered by it. New York reads GMT-4 in summer and GMT-5 in winter. Before, a row showed the standard offset, so a New Yorker picking GMT-4 in summer got Halifax, an hour ahead.
   - Controls: holding Return now acts after 0.7 seconds, the same as holding Play/Pause, instead of a full second.
   - iPod: a selected row now fills its whole row, so with the last row of a list selected no strip of background shows at the bottom of the screen (Library, Folders, Cover Flow's tracks and the apps' lists, #127).
   - iPod: a touched row's grey now has the selection's shape in every list: the whole row, or the rounded pill under Rounded Corners. The Library and Folders showed a narrower box, and Shuffle, Games and the apps' lists showed none (#127).
@@ -26,6 +16,18 @@
   - Games: tapping a game in the list opens it. Only the wheel and Centre did (#127).
   - iPod: Light Mode fixes (#127): the selected row's `>` in Games, Spotify, Configuration and the other app lists no longer shows a small box at its top edge; Configuration's gap above the service switches is no longer a black bar.
   - Videos: videos play again (#128). The Videos folder, from the Library or Folder view, showed "File Not Found" because Folder view didn't list video files; it now lists them in the Videos folder and its subfolders.
+
+- **1.5.0**:
+  - Quick Settings from the wheel: swipe straight across the wheel, as on a touchpad, to open or close Quick Settings. The pull-down follows the speed of your swipe. Turning the wheel never triggers it. Turn it on under Settings → Display → Controls → Wheel QS. It is off by default.
+  - FLAC: local FLAC files play through faster decode paths, on by default.
+  - Battery: the audio driver sleeps while playback is stopped instead of checking every 10 ms. Playback is unchanged.
+  - iPod: the status bar's play/pause icon changes as soon as you press Play/Pause on Now Playing (#116). It often kept the old icon until you left Now Playing.
+  - Battery: the rotator's clock starts only when the rotator first needs it, not at boot, and the backlight's PWM clock is released while the backlight is off.
+  - Key Tone: fast scrolling no longer hitches with Key Tone on. Each click now plays in the background, and a click that comes while the last one is still sounding is skipped.
+  - iPod: **Light Mode**, under Settings → Display → Appearance, below Theme. It is off by default. It turns the whole interface light, in Minimal and Classic and under every accent: light backgrounds with dark text and icons, including stock's pages, pop-ups, Quick Settings, Cover Flow, games, the PEQ and the visualizer. Coloured accents keep their colour. As on an iPod classic, the selected row's text and `>` stay white on a coloured bar. Graphite and Ivory turn dark, so they still stand out on the light background. In Cover Flow the side covers and reflections fade into the light background, and Solitaire's face-up cards stay white with black suits. Album art and photos are never changed. In Classic, the status bar turns a flat light grey, as on an iPod classic. The boot logo turns light too, dark lettering on white, from the next power-on (a custom boot logo from the card stays as it is).
+  - iPod: the Green accent is the green Q2's sage (#119), as close to the shell as white text on it allows.
+  - System settings: About is the last row, below Reset Settings.
+  - Time zones: each row shows the offset its city has right now, daylight saving included, and the rows are ordered by it. New York reads GMT-4 in summer and GMT-5 in winter. Before, a row showed the standard offset, so a New Yorker picking GMT-4 in summer got Halifax, an hour ahead.
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.
