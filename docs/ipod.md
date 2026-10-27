@@ -255,8 +255,9 @@ build-added icon ([internals.md](internals.md#spotify)), keep their bytes and st
 Spotify row's Now Playing page uses Now Playing's layout (`NP_*`), rounded art included. The Legacy build keeps every icon stock. The recolouring of accent-red artwork
 (`ringnav_image_add`) works on the decoded bitmap, so it applies at either size.
 
-The Brightness, Balance, Maximum Volume, Default Volume and Crossfade editors keep their thick stock sliders,
-fill, ranges and wheel/touch controls, but lose their endpoint icons (`slider_plain`, tools/ipod.py):
+Brightness, Balance, Maximum Volume and Default Volume use eight-pixel rounded, theme-aware bars
+with their original touch areas. Crossfade, Wheel Sensitivity and Resume Songs reuse Default Volume's
+page and inherit its styling. All keep their ranges and wheel/touch controls, but lose their endpoint icons (`slider_plain`, tools/ipod.py):
 the images stay, named, with no image and no size, since stock looks them up. The quick
 settings slider and custom volume overlay retain their layouts.
 

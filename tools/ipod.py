@@ -705,6 +705,11 @@ def slider_plain(path, root):
     named, imageless and empty, as stock looks them up."""
     if path not in SETTINGS_SLIDERS:
         return
+    slider, = [n for n in walk(root) if n[0] == 'slider']
+    slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, 8)
+    for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
+        slider[2].update({f'style:{state}:round_radius': '4',
+                          f'style:{state}:border_color': '#00000000'})
     endpoints = [n for n in walk(root) if n[0] == 'image' and n[2].get('image') in (
         'drop_lighleft', 'drop_lightright', 'balance_left', 'balance_right', 'vol_left', 'vol_right')]
     check(len(endpoints) == 2, f'{path}: unexpected slider endpoints')

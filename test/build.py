@@ -488,7 +488,21 @@ def validate_assets(directory):
             gone = [n for n in walk(root) if n[2].get('name') in before and before[n[2]['name']][2].get('image')]
             assert len(gone) == 2 and all(n[1][2:] == [0, 0] and n[1][:2] == before[n[2]['name']][1][:2] for n in gone)
             for n in walk(root):
-                if n[0] == 'slider' or n[2].get('name') in ('img_add', 'img_dec'):
+                if n[0] == 'slider':
+                    props = n[2]
+                    old = before[props['name']]
+                    assert n[1] == old[1] and props['bar_size'] == '8'
+                    assert not [k for k in props if k.endswith((':bg_image', ':fg_image', ':icon', ':y_offset'))]
+                    assert props['style'] == 's_ipod_progress'
+                    for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
+                        assert props[f'style:{state}:bg_color'] == '#1c1c1c'
+                        assert props[f'style:{state}:fg_color'] == '#6e6e6e'
+                        assert props[f'style:{state}:round_radius'] == '4'
+                        assert props[f'style:{state}:border_color'] == '#00000000'
+                    assert {k: v for k, v in props.items() if not k.startswith('style') and k != 'bar_size'} == {
+                        k: v for k, v in old[2].items() if not k.startswith('style') and k != 'bar_size'}
+                    continue
+                if n[2].get('name') in ('img_add', 'img_dec'):
                     assert n == before[n[2]['name']]  # ranges, touch and wheel controls stay stock
         if short == VOLUME:  # Hidden before the first paint, including transition snapshots.
             plain = decode(original); del plain[2]['highlight']
@@ -659,7 +673,7 @@ def validate_assets(directory):
         if short == ARTIST_PAGE:
             assert [n[2]['value'] for n in walk(root) if n[0] == 'pages'] == ['1'], 'Artist page must show Albums'
         if short in AUDIT['slide_only'] or short in TOOLBAR_SWITCHES:
-            # nothing but the hint changes (and Startup volume's slider glyphs go)
+            # Only the hint and settings slider styling change.
             root[2].pop('anim_hint')
             kept = decode(original)
             slider_plain(short, kept)
@@ -689,6 +703,8 @@ def validate_assets(directory):
         assert len(old_nodes) == len(new_nodes)
         for old, node in zip(old_nodes, new_nodes):
             for key, value in old[2].items():
+                if ipod and short in SETTINGS_SLIDERS and node[0] == 'slider' and key == 'style':
+                    value = 's_ipod_progress'
                 if 'font' in key or key == 'style': assert node[2][key] == value
         if short in ('folder_page.bin', 'localmusic_page.bin', 'localmusic/localclass_page.bin', 'localmusic/playlist_page.bin'):
             surface = next(n for n in root[3] if n[0] in ('list_view', 'table_view'))
