@@ -84,6 +84,7 @@ LIBC = {
     'strncasecmp': ('int', 'const char *, const char *, unsigned'),
     # iPod status bar clock (navigation.c)
     'time': ('long', 'long *'), 'localtime': ('const int *', 'const long *'),
+    'localtime_r': ('const int *', 'const long *, int *'), 'tzset': ('void', 'void'),
     # Scrobble upload (scrobble.c): demo's libcurl and libcrypto
     'fseek': ('int', 'void *, long, int'), 'ftell': ('long', 'void *'), 'atoi': ('int', 'const char *'),
     'strstr': ('char *', 'const char *, const char *'),
@@ -128,6 +129,27 @@ def compile_common(out, binary, player=False, ipod=False, flac_experiments=()):
     for name, (ret, args) in LIBC.items():
         # Unused I/O is removed by --gc-sections in the player payload.
         alias = {'fopen': 'fopen64', 'readdir': 'readdir64', 'pow': '__pow_finite'}.get(name, name) if player else name
+        if name == 'localtime_r' and not player:
+            libc = symbols(out/'libc-2.28.so')
+            delta = libc['localtime_r@@GLIBC_2.0'] - libc['localtime@@GLIBC_2.0']
+            check(delta == -28, 'Unexpected libc localtime_r offset')
+            header.append(f'extern {ret} peq_lib_{name}({args});')
+            header.append(f'#define {name} peq_lib_{name}')
+            address = got['localtime']
+            asm += ['.section .scratch,"aw",@nobits', '.align 2',
+                    'localtime_r_target: .space 4', f'.section .text.peq_lib_{name},"ax",@progbits',
+                    f'.globl peq_lib_{name}', f'peq_lib_{name}:',
+                    'lui $t8, %hi(localtime_r_target)', 'lw $t9, %lo(localtime_r_target)($t8)',
+                    'bnez $t9, 1f', 'nop',
+                    # Resolve localtime's lazy GOT entry once; its shared result is ignored.
+                    'addiu $sp, $sp, -32', 'sw $ra, 28($sp)', 'sw $a0, 20($sp)', 'sw $a1, 24($sp)',
+                    'jal peq_lib_localtime', 'nop', 'lw $ra, 28($sp)', 'lw $a0, 20($sp)',
+                    'lw $a1, 24($sp)', 'addiu $sp, $sp, 32',
+                    f'lui $t8, {address >> 16}', f'ori $t8, $t8, {address & 65535}',
+                    'lw $t9, 0($t8)', f'addiu $t9, $t9, {delta}',
+                    'lui $t8, %hi(localtime_r_target)', 'sw $t9, %lo(localtime_r_target)($t8)',
+                    '1:', 'jr $t9', 'nop']
+            continue
         if alias not in got:
             header.append(f'extern {ret} {name}({args});')
             continue

@@ -17,7 +17,9 @@ static const char *const tz_names[] = TIMEZONE_NAMES;
 
 int ringnav_timezone(void) {
     unsigned n = g_time_zone;
-    return n < TZ_COUNT ? toolsSetTimeZone(tz_names[n]) : stock_timezone_trampoline();
+    int result = n < TZ_COUNT ? toolsSetTimeZone(tz_names[n]) : stock_timezone_trampoline();
+    tzset(); /* localtime_r does not reload TZ itself */
+    return result;
 }
 
 /* Past 2038, 28 years back for stock's 32-bit localtime: the same calendar until 2100. */
@@ -37,7 +39,9 @@ static void tz_now(unsigned char *rows) {
     long now = clock_back(wall_time());
     for (unsigned i = 0; i < TZ_COUNT; ++i) {
         toolsSetTimeZone(tz_names[i]);
-        const long *tm = (const long *)localtime(&now); /* struct tm: tm_gmtoff @36 */
+        tzset();
+        int buf[11];
+        const int *tm = localtime_r(&now, buf); /* struct tm: tm_gmtoff @36 */
         tz_offset[i] = tm ? tm[9] : 0;
     }
     ringnav_timezone();
@@ -1586,7 +1590,8 @@ static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery,
 static int light_day(void) {
     long long wall = wall_time();
     long now = clock_back(wall);
-    const int *tm = wall == -1 ? (void *)0 : localtime(&now); /* struct tm: tm_hour @8 */
+    int buf[11];
+    const int *tm = wall == -1 ? (void *)0 : localtime_r(&now, buf); /* struct tm: tm_hour @8 */
     return tm && tm[2] >= LIGHT_FROM && tm[2] < LIGHT_UNTIL;
 }
 static void np_fill(int scrub);
@@ -3206,7 +3211,8 @@ static int seek_position(int to) {
 static void clock_sync(void *bar) {
     long long wall = wall_time();
     long now = clock_back(wall);
-    const int *tm = wall == -1 ? (void *)0 : localtime(&now);
+    int buf[11];
+    const int *tm = wall == -1 ? (void *)0 : localtime_r(&now, buf);
     int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
     int full = g_time24h_flag != 0;
     unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11
@@ -7707,9 +7713,95 @@ static int ple_open(void *ctx, void *event) {
     return 0;
 }
 extern int stock_playlistsmore_trampoline(void *, void *);
+/* Stock's allocator assumes ID order; Library presents headers in name order. Allocate under
+ * the database lock instead, and report a failed insert instead of pretending it succeeded. */
+static int playlist_used(void *ctx, int n, char **v, char **names) {
+    if (n != 1 || !v[0]) return 1;
+    int id = atoi(v[0]);
+    if (id >= 0 && id < 100) ((unsigned char *)ctx)[id] = 1;
+    return 0;
+}
+int ringnav_playlist_create(void *list, const char *name) {
+    void *db = 0;
+    unsigned char used[100] = { 0 };
+    char title[64], quoted[127], sql[512];
+    int result = -1, id = 0;
+    if (!list || sqlite3_open("/mnt/data/database.db", &db)) goto done;
+    if (sqlite3_exec(db, "begin immediate", 0, 0, 0)) goto done;
+    if (sqlite3_exec(db, "select id from playlist where id <= 100", playlist_used, used, 0))
+        goto rollback;
+    for (; id < 100 && used[id]; ++id) {}
+    if (id == 100) goto rollback;
+    if (name && *name)
+        tk_snprintf(title, sizeof title, "%s", name);
+    else
+        tk_snprintf(title, sizeof title, "Playlist%d", id);
+    unsigned j = 0;
+    for (unsigned i = 0; title[i]; ++i) {
+        quoted[j++] = title[i];
+        if (title[i] == '\'') quoted[j++] = '\'';
+    }
+    quoted[j] = 0;
+    int exists = 0;
+    tk_snprintf(sql, sizeof sql, "select count(*) from playlist where id <= 100 and filename='%s'",
+                quoted);
+    if (sqlite3_exec(db, sql, ple_number, &exists, 0)) goto rollback;
+    if (exists) {
+        result = -2;
+        goto rollback;
+    }
+    tk_snprintf(sql, sizeof sql,
+                "insert into playlist values (%d,'%s','','','','','%s','','',0,0,%d,0,0,0,0,0,0);"
+                "select changes()",
+                id, quoted, quoted, id);
+    if (sqlite3_exec(db, sql, ple_changed, 0, 0) || sqlite3_exec(db, "commit", 0, 0, 0))
+        goto rollback;
+    result = id;
+    goto done;
+rollback:
+    sqlite3_exec(db, "rollback", 0, 0, 0);
+done:
+    if (db) sqlite3_close(db);
+    return result;
+}
+
+int ringnav_playlist_delete(void *win, void *event) {
+    void *list = P(p_deque_playlist, 0), *db = 0;
+    int row = widget_get_prop_int(win, "_playlist", -1), ok = 0;
+    if (!list || row < 0 || (unsigned)row >= deque_size(list)) return 0;
+    int id = I(deque_at(list, (unsigned)row), REC_ID);
+    if (id < 0 || id >= 100) return 0;
+    struct {
+        int kind, ms;
+        char text[0x400];
+    } prompt = { 1, 0, "Delete Playlist?" };
+    if (navigator_to_with_context("dialog/confirminfo_dialog", &prompt) != 10) return 0;
+    char sql[256];
+    if (sqlite3_open("/mnt/data/database.db", &db)) goto done;
+    if (sqlite3_exec(db, "begin immediate", 0, 0, 0)) goto done;
+    tk_snprintf(sql, sizeof sql,
+                "delete from playlist where id=%d;select changes();"
+                "delete from playlist where id>100 and cd_num=%d",
+                id, id);
+    if (sqlite3_exec(db, sql, ple_changed, 0, 0) || sqlite3_exec(db, "commit", 0, 0, 0)) {
+        sqlite3_exec(db, "rollback", 0, 0, 0);
+        goto done;
+    }
+    ok = 1;
+done:
+    if (db) sqlite3_close(db);
+    if (ok) {
+        rmPlaylists_flag = 1;
+        navigator_back();
+    }
+    toast(ok ? "Playlist deleted" : "Could not delete playlist");
+    return 0;
+}
+
 int ringnav_playlistsmore(void *win, void *ctx) {
     int result = stock_playlistsmore_trampoline(win, ctx);
     if (win) {
+        widget_set_prop_int(win, "_playlist", (int)ctx);
         /* Stock's row says Delete Song; this page deletes the whole playlist. Rename only this
          * label, as Now Playing's Delete Song still deletes the song. As its translation key, so a
          * re-translation keeps it (no language has the key, so it reads as given). */

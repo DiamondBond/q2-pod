@@ -25,6 +25,8 @@ BASE = 0xb00000
 SCRATCH = 0xb80000  # 512 KB of payload text below it
 RING_STEP = 48
 HOOKS = {
+    'createPlayListItem': (0x50d32c, 'ringnav_playlist_create', None),
+    'playlist_delete_click': (0x4b35cc, 'ringnav_playlist_delete', None),
     'localmusic_playlistsmore_page_init': (0x4b3918, 'ringnav_playlistsmore', 'playlistsmore'),
     'on_wm_keydown_before_fun': (0x4e8424, 'ringnav_keydown', 'keydown'),
     'on_wm_keyup_before_fun': (0x4e85c8, 'ringnav', 'keyup'),
@@ -376,6 +378,7 @@ WHEEL_TS_READ = (0x625b6c, 0x0320f809)
 # (player_playlist, used nowhere else); the Library's plural categories; settings rows in title case
 # and plain words; the Lock screen help; and Baidu without its (BETA).
 LABELS = tuple((k.encode(), o.encode(), n.encode()) for k, o, n in (
+    ('msg_playlistfull', 'Playlist Is Full', 'Could not create playlist'),
     ('player_playlist', 'Playlists', 'Queue'), ('system_powermanager', 'Idle', 'Power'),
     ('powerm_deep_off', 'standby/shutdown', 'Standby'),
     ('local_songer', 'Artist', 'Artists'), ('local_album', 'Album', 'Albums'),
@@ -1047,6 +1050,7 @@ FUNCTIONS = {
 }
 # Local stock routines in the SHA-256-pinned V1.32 executable.
 PRIVATE_FUNCTIONS = {
+    "playlist_delete_click": 0x4b35cc,
     'keylock_rows': HOOKS['keylock_rows'][0],
     'timezone_row': HOOKS['timezone_row'][0],
     'quick_lock': HOOKS['quick_lock'][0],
@@ -1072,7 +1076,7 @@ GLOBALS = ['tidal_albuminfo_thread_run', 'tidal_collection_thread_run',  # 2: a 
            'g_keylock_flag', 'g_keylock_mode',
            'g_bluetoothflag', 'bt_linkstatus', 'g_guideflag', 'g_poweroff_state', 'g_usblink_status', 'bt__recv_pageflag',
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
-           'g_keytone_flag', 'g_folder_layer', 'g_otg_status', 'g_delete_flag', 'g_volume', 'g_maxvolume',
+           'g_keytone_flag', 'g_folder_layer', 'g_otg_status', 'g_delete_flag', 'rmPlaylists_flag', 'g_volume', 'g_maxvolume',
            'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
            'g_usbvol_mode',  # USB DAC volume: 0 fixed, else the volume (config_usbvolmode, device_set_volume)
            'g_usbdac_chargeflag',  # USB mode's charge choice, which switch_charge_enable gets there
@@ -1263,6 +1267,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     sq = out/'stock.squashfs'; sq.write_bytes(blobs['recovery-update/rootfs.squashfs'])
     def cat(path): return subprocess.check_output(['unsquashfs', '-cat', str(sq), path])
     raw_demo = cat('release/bin/demo')
+    (out/'libc-2.28.so').write_bytes(cat('lib/libc-2.28.so'))
     # peq.h tls_untimed writes OpenSSL 1.1.1f's SSL_CTX->param (0x100) and its ->flags (0xc) itself,
     # as demo imports neither accessor: their first instructions must still read those fields.
     for lib, fn, at, word in (('libssl.so.1.1', 'SSL_CTX_get0_param', 4, 0x8c820100),         # lw v0, 0x100(a0)

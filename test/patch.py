@@ -94,7 +94,7 @@ class Machine:
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('pthread_create@GLIBC_2.2','pthread_detach@GLIBC_2.0')
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0',
-                  'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0',
+                  'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0','tzset@GLIBC_2.0',
                   'strlen@GLIBC_2.0','strncpy@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
                   'strcasestr@GLIBC_2.2',
                   'unlink@GLIBC_2.0','atoi@GLIBC_2.0','memcmp@GLIBC_2.0','access@GLIBC_2.0',
@@ -113,6 +113,7 @@ class Machine:
         self.mock('canvas_set_global_alpha')
         self.mock('sqrtf@GLIBC_2.0','sinf@GLIBC_2.0','acosf@GLIBC_2.0',prefix='float:')
         self.mock(*VG_MOCKS,prefix='vg:')
+        self.handlers[payload_syms['peq_lib_localtime_r']]='localtime_r'
         self.code_hook=self.u.hook_add(UC_HOOK_CODE,self.hook)
         for name in GLOBALS: self.byte(syms[name],0)
         for name,size in CONTEXT_DATA.items(): self.u.mem_write(syms[name],bytes(size))
@@ -205,7 +206,7 @@ class Machine:
             self.calls.append(('widget_animator_scroll_set_params',*[u.reg_read(r) for r in REGS[:3]]))
         if address not in self.handlers: return
         name=self.handlers[address]
-        if not name.startswith('stock_'):
+        if not name.startswith('stock_') and address!=payload_syms['peq_lib_localtime_r']:
             assert u.reg_read(UC_MIPS_REG_T9)==address, (name,'PIC call missing t9')
         a,b,c,d=[u.reg_read(r) for r in REGS]
         n=self.nodes.get(a,{})
@@ -271,14 +272,14 @@ class Machine:
         elif name=='time@GLIBC_2.0':
             ret=-1 if self.clock=='time' else self.wall[0]
             if a and ret!=-1: self.word(a,ret)
-        elif name=='localtime@GLIBC_2.0':  # struct tm: sec, min, hour, ...
+        elif name in ('localtime@GLIBC_2.0','localtime_r'):  # struct tm: sec, min, hour, ...
             ret=0
             if hasattr(self,'epoch'): # ResumeMachine's time(): navigation.c's clock_back of it
                 back=self.epoch
                 while back>0x7fffffff: back-=883612800
                 self.wall=(self.epoch,back)
             if self.clock!='localtime':
-                assert self.get(a)==self.wall[1]; ret=self.alloc(44)
+                assert self.get(a)==self.wall[1]; ret=b if name=='localtime_r' else self.alloc(44)
                 for i,v in enumerate((59,self.clock[1],self.clock[0])): self.word(ret+4*i,v)
         elif name=='widget_set_children_layout':
             n['children_layout']=self.text(b)
@@ -5140,6 +5141,61 @@ ple_search(m,'zzz'); assert m.showlabels()==['Search: zzz','No songs match']
 # Return from the box applies its text, and a filtered pick can close the page cleanly.
 m.choose(0); m.nodes[m.find('edit')]['text']='t1'; assert m.key()==11
 assert m.showlabels()==['Search: t1','T1']; m.close(); passed()
+# Header creation uses the database IDs even when the displayed list is alphabetized.
+class PlaylistLifecycleMachine(PlaylistEditMachine):
+    def __init__(self):
+        super().__init__()
+        self.db.execute('drop table playlist')
+        self.db.execute('create table playlist(id integer primary key,filename,fileurl,album,songer,style,name,composer,albumsonger,year,track,cd_num,time,time_end,time_create,Initial,bitdepth,samprate)')
+        for ident,name in enumerate(('Zulu','Alpha','Echo','Bravo','Delta','Charlie')):
+            self.db.execute('insert into playlist(id,filename,name,cd_num) values(?,?,?,?)',(ident,name,name,ident))
+        self.db.execute("insert into playlist(id,filename,cd_num) values(101,'song',0),(102,'other',1)")
+        records=[]
+        for ident,name in self.db.execute('select id,name from playlist where id<=100 order by name'):
+            r=self.song(name,4); self.word(r+O['REC_ID'],ident); self.word(r+O['REC_DISC'],ident); records.append(r)
+        self.word(syms['p_deque_playlist'],self.deque(records))
+        self.more=self.node('window','playlistsmore_page'); self.nodes[self.more]['_playlist']=5
+        self.answer=10; self.backs=0
+        self.handlers[syms['navigator_back']]='life:back'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='life:back': self.backs+=1; self.returns(0); return
+        if name=='c:navigator_to_with_context' and self.text(u.reg_read(REGS[0]))=='dialog/confirminfo_dialog':
+            assert self.text(u.reg_read(REGS[1])+8)=='Delete Playlist?'
+            self.returns(self.answer); return
+        super().hook(u,address,size,unused)
+    def create(self,name):
+        return signed(self.call(address=HOOKS['createPlayListItem'][0],args=(self.get(syms['p_deque_playlist']),self.string(name),0,0),gap=0))
+    def delete(self):
+        return self.call(address=HOOKS['playlist_delete_click'][0],args=(self.more,0,0,0),gap=0)
+
+m=PlaylistLifecycleMachine(); assert m.create("O'Brien")==6
+assert m.db.execute('select id,filename,name,cd_num from playlist where id=6').fetchone()==(6,"O'Brien","O'Brien",6)
+assert m.create("O'Brien")==-2 and not m.db.in_transaction; passed()
+for failure in ('open','begin','insert','commit'):
+    m=PlaylistLifecycleMachine(); before=m.db.execute('select * from playlist').fetchall(); m.fail=failure
+    assert m.create('New')==-1
+    assert m.db.execute('select * from playlist').fetchall()==before and not m.db.in_transaction; passed()
+m=PlaylistLifecycleMachine(); m.db.executemany('insert into playlist(id) values(?)',[(i,) for i in range(6,100)])
+assert m.create('Full')==-1; passed()
+for failure in ('','open','begin','delete','delete from playlist where id>100','commit'):
+    m=PlaylistLifecycleMachine(); before=m.db.execute('select * from playlist').fetchall(); m.fail=failure; m.delete()
+    if failure:
+        assert m.db.execute('select * from playlist').fetchall()==before and m.backs==0
+        assert m.toasts[-1][3]=='Could not delete playlist'
+    else:
+        assert m.db.execute('select id from playlist where id=0 or id=101').fetchall()==[]
+        assert m.db.execute('select id from playlist where id=1 or id=102').fetchall()==[(1,),(102,)]
+        assert m.backs==1 and bytes(m.u.mem_read(syms['rmPlaylists_flag'],1))==b'\x01' and m.toasts[-1][3]=='Playlist deleted'
+    assert not m.db.in_transaction; passed()
+m=PlaylistLifecycleMachine(); m.db.execute('delete from playlist where id=101'); m.delete()
+assert not m.db.execute('select id from playlist where id=0').fetchall() and m.toasts[-1][3]=='Playlist deleted'
+assert m.create('Replacement')==0; passed()
+m=PlaylistLifecycleMachine(); m.db.execute('delete from playlist where id=0'); m.delete()
+assert m.db.execute('select id from playlist where id=101').fetchall()==[(101,)] and m.toasts[-1][3]=='Could not delete playlist'; passed()
+m=PlaylistLifecycleMachine(); m.answer=0; before=m.db.execute('select * from playlist').fetchall(); m.delete()
+assert m.db.execute('select * from playlist').fetchall()==before and not m.backs; passed()
+
 # Holding Play/Pause on a playlist row opens the same More page as its trailing dots.
 # The Add to Playlist picker shares playlist_page's name and keeps stock's hold.
 # Its context is the playlist index from the dots' name: row positions also count Import/Export.
@@ -5265,9 +5321,9 @@ if variant=='ipod':
       assert not [c for c in m.calls if c[0] in ('widget_load_image','canvas_draw_image')]; m.top=m.home
       m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')
       m.byte(syms['g_playcover_type'],3); assert art_image(m.home).startswith('file:///mnt/mmc/.coverflow/'); passed()
-      # Sized to the cover's proportions, just covering the panel and centred on it (native fill then
+      # Sized to the cover's proportions, just covering the panel and shifted right (native fill then
       # draws it whole), and clipped to the panel from the background hook to the border hook, so it
-      # crops evenly and never stretches.
+      # crops without gaps and never stretches.
       assert m.nodes[m.art].get('sensitive')==0
       def geometry(): return [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]
       def cover(w,h):
@@ -5275,8 +5331,8 @@ if variant=='ipod':
           m.u.mem_write(syms['g_lastcover_url'],b'/p/other\0'); art_image(m.home)
           m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); art_image(m.home)
           return geometry()
-      for (w,h),want in (((300,300),[SPLIT+int((PW-290)/2),0,290,290]),((2*PW,580),[SPLIT,0,PW,290]),
-                         ((600,400),[SPLIT+int((PW-435)/2),0,435,290]),((100,400),[SPLIT,int((290-4*PW)/2),PW,4*PW])):
+      for (w,h),want in (((300,300),[SPLIT+int((PW-290)/2)+12,0,290,290]),((2*PW,580),[SPLIT,0,PW,290]),
+                         ((600,400),[SPLIT+int((PW-435)/2)+12,0,435,290]),((100,400),[SPLIT,int((290-4*PW)/2),PW,4*PW])):
           assert cover(w,h)==want,((w,h),geometry(),want)
       passed()
       m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],SPLIT); m.word(m.canvas+O['CANVAS_Y'],30+want[1])
@@ -9337,6 +9393,25 @@ class SpotMachine(BooksMachine):
     def key(self,k):
         self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
 
+# The reentrant clock import resolves localtime's lazy GOT slot once, then calls localtime_r
+# with the caller's buffer, preserving both arguments and the return address.
+from build import run
+clock_got=next(int(w[0],16) for line in run('readelf','-AW',B/'stock-demo').splitlines()
+               if len(w:=line.split())>=6 and 'UND' in w and w[-1].split('@')[0]=='localtime')
+class ClockImportMachine(Machine):
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)=='localtime@GLIBC_2.0':
+            self.word(clock_got,syms['localtime@GLIBC_2.0']+4+28)  # loader's resolved localtime
+        super().hook(u,address,size,unused)
+m=ClockImportMachine(); del m.handlers[payload_syms['peq_lib_localtime_r']]
+m.handlers[syms['localtime@GLIBC_2.0']+4]='localtime_r'
+now=m.alloc(4); buf=m.alloc(44); m.word(now,m.wall[1])
+assert m.call(address=payload_syms['peq_lib_localtime_r'],args=(now,buf,0,0),gap=0)==buf
+assert m.get(buf+8)==18 and m.get(buf+4)==14
+m.word(clock_got,0); m.clock=(7,30)
+assert m.call(address=payload_syms['peq_lib_localtime_r'],args=(now,buf,0,0),gap=0)==buf
+assert m.get(buf+8)==7 and m.get(buf+4)==30; passed()
+
 # Every saved timezone index applies its TZ; stock's indices keep their city.
 from build import TIMEZONES, TIMEZONE_ORDER, timezone_offset
 class TimezoneMachine(Machine):
@@ -9353,6 +9428,7 @@ for index, (_, name) in enumerate(TIMEZONES):
     zones.byte(syms['g_time_zone'],index)
     zones.call(address=HOOKS['select_timezone'][0],args=(0,0,0,0),gap=0)
     assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[name]
+    assert len([c for c in zones.calls if c[0]=='tzset@GLIBC_2.0'])==1
 passed()
 # autotime_page's zone rows show the offset each zone has now and run west to east by it, ties in
 # TIMEZONE_ORDER; each is built, ticked and named (image_choice) by its saved index, then the saved
@@ -9363,8 +9439,8 @@ class ZoneRowMachine(TimezoneMachine):
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address)
         if name=='toolsSetTimeZone': self.tz=self.text(u.reg_read(REGS[0]))
-        if name!='localtime@GLIBC_2.0': return super().hook(u,address,size,unused)
-        self.calls.append((name,)); label=next(l for l,z in TIMEZONES if z==self.tz); tm=self.alloc(44)
+        if name!='localtime_r': return super().hook(u,address,size,unused)
+        self.calls.append((name,)); label=next(l for l,z in TIMEZONES if z==self.tz); tm=u.reg_read(REGS[1])
         self.word(tm+36,(timezone_offset(label)*60+3600*(self.tz in SUMMER))&0xffffffff)
         self.returns(tm,clobber=True)
 zones=ZoneRowMachine(); zones.tz=None
@@ -9378,6 +9454,7 @@ saved=zone_rows[5]; zones.byte(syms['g_time_zone'],saved)
 for row in range(1,len(TIMEZONES)+1):
     item=zones.node('list_item'); zones.calls=[]; zones.call(address=HOOKS['timezone_row'][0],args=(item,row,0,0),gap=0)
     if row==1:
+        assert len([c for c in zones.calls if c[0]=='tzset@GLIBC_2.0'])==len(TIMEZONES)+1
         assert [zones.text(c[1]) for c in zones.calls if c[0]=='toolsSetTimeZone']==[z for _,z in TIMEZONES]+[TIMEZONES[saved][1]]
     index=zone_rows[row-1]; button,=zones.nodes[item]['children']; label,image=zones.nodes[button]['children']
     assert zones.nodes[button]['name']==str(index+1)  # the click handler's atoi, less one, is the saved index
