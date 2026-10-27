@@ -67,17 +67,17 @@ unchanged; Classic keeps its existing colour handling.
 The pinned style edits in `patch/ipod.json` remove list fills and corners and make pressed
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
-In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default) is off-white (`#EEEEEC`): a card, under **Corners: Rounded** inset
-`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height; grid tiles `SEL_RADIUS`, 6), and under **Corners: Square** (the default) a full-width square bar with square tiles,
+In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default) is off-white (`#EEEEEC`): a card, under **Rounded Corners** on inset
+`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height; grid tiles `SEL_RADIUS`, 6), and under **Rounded Corners** off (the default) a full-width square bar with square tiles,
 drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
 card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
 secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
-Classic** draws the accent's gradient bar instead, full width, or under **Corners: Rounded** the same inset pill with anti-aliased ends, and leaves the rows' own (white) ink. The background
+Classic** draws the accent's gradient bar instead, full width, or under **Rounded Corners** on the same inset pill with anti-aliased ends, and leaves the rows' own (white) ink. The background
 hook resolves the selected row; the color hook maps its title to `#171717` and metadata to
 `#484848`, preserving alpha. Paint ancestry determines the colors, so no style overrides can
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
 the selection. Touch hides wheel selection until wheel/centre input; the native pressed state
-remains visible. Under **Corners: Rounded** a pressed list row (`s_btn_listitem`) is that grey as the
+remains visible. Under **Rounded Corners** on a pressed list row (`s_btn_listitem`) is that grey as the
 selection's inset pill instead (`pressed_pill`); other pressed widgets keep stock's box. The same hooks cover settings, streaming, dialogs, PEQ rows and media browser
 chrome. Photos, video, book content, EQ plots and visualizers keep their own drawing.
 
@@ -579,7 +579,7 @@ Display page again (`display_open`, `display_sub` naming the sub-page while its 
 drops the stock rows, takes the sub-page's title and builds only its own rows:
 
 - Appearance: "Theme: Minimal", "Light Mode: Off" ([Light Mode](#light-mode)), "Accent: Graphite"
-  and "Corners: Square" with the System settings Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
+  and a "Rounded Corners" switch (stock's `switch_on`/`switch_off`, via `list_toggle`) with the System settings Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
   Percent, Icon + Percent, Percent Inside; see [Status bar and clock](#status-bar-and-clock)) with
   the power manager icon (`system_powermanager`).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
@@ -599,7 +599,7 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `LIGHT` (Light Mode: 0 Off, 1 On, 2 7am-7pm; missing is Off), `HOME`, `BATTERY` and `THEME`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Rounded Corners: 0 off, 1 on), `LIGHT` (Light Mode: 0 Off, 1 On, 2 7am-7pm; missing is Off), `HOME`, `BATTERY` and `THEME`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line

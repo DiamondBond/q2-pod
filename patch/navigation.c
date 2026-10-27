@@ -4291,7 +4291,6 @@ static void setting_text(int i) {
                                                   "Battery: Icon + Percent",
                                                   "Battery: Percent Inside" },
                              *const theme[] = { "Theme: Minimal", "Theme: Classic" },
-                             *const corners[] = { "Corners: Square", "Corners: Rounded" },
                              *const light[] = { "Light Mode: Off", "Light Mode: On",
                                                 "Light Mode: 7am-7pm" };
     accent(); /* reads the settings */
@@ -4300,12 +4299,16 @@ static void setting_text(int i) {
                                   battery[st.battery],
                                   theme[st.classic],
                                   (const char *)0,
-                                  corners[st.rounded],
+                                  (const char *)0,
                                   light[st.light] };
     char shortcut[64];
     if (i == 4) {
         tk_snprintf(shortcut, sizeof shortcut, "Shortcut: %s", ipod_home_shortcut());
         widget_set_text_utf8(st.setting_label[i], shortcut);
+        return;
+    }
+    if (i == 5) {
+        list_toggle(st.setting_label[i], "Rounded Corners", st.rounded);
         return;
     }
     widget_set_text_utf8(st.setting_label[i], names[i]);

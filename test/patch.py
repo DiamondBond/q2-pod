@@ -7478,7 +7478,7 @@ if variant=='ipod':
     view=display_page(m,1); rows=setting_rows(m,view)
     kids=m.nodes[view]['children']; light,corners=kids[1],kids[3]
     assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Light Mode, Accent, Corners, Home, Battery
-    assert m.icons_set==['system_display','system_display','system_display','system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert m.icons_set==['system_display','system_display','system_display','system_display','switch_off','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7544,10 +7544,12 @@ if variant=='ipod':
     click(1); assert texts()[1]=='Home: Split'; home_bounds(False); passed()
     # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
     # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.
-    # Corners: no key is Square; a click saves Rounded, and Theme leaves it alone.
-    corners_label=m.nodes[m.nodes[corners]['children'][0]]['children'][1]; assert m.nodes[corners_label]['text']=='Corners: Square'
+    # Rounded Corners: a switch, off with no key; a click saves it on, and Theme leaves it alone.
+    corners_label=m.nodes[m.nodes[corners]['children'][0]]['children'][1]; assert m.nodes[corners_label]['text']=='Rounded Corners'
+    def corners_switch(): return [m.nodes[c]['image'] for c in m.nodes[m.nodes[corners]['children'][0]]['children'] if m.nodes[c].get('name')=='_setting_switch']
+    assert corners_switch()==['switch_off']
     f,ctx=m.handler(m.nodes[corners]['children'][0],O['EVT_CLICK']); m.calls=[]
-    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.nodes[corners_label]['text']=='Corners: Rounded'
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and corners_switch()==['switch_on']
     assert [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'ROUNDED')] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     # Light Mode: no key is Off; a click saves On, then 7am-7pm (LIGHT=2), then Off; each drops the cached images and repaints.
     light_label=m.nodes[m.nodes[light]['children'][0]]['children'][1]; assert m.nodes[light_label]['text']=='Light Mode: Off'
@@ -7567,7 +7569,7 @@ if variant=='ipod':
     # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
     # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.
     writes=click(3); assert [(w[0],m.text(w[1]),m.text(w[2])) for w in writes]==[(1,'IPOD','THEME')]
-    assert m.nodes[corners_label]['text']=='Corners: Rounded'
+    assert corners_switch()==['switch_on']
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children']
     assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
@@ -7583,7 +7585,7 @@ if variant=='ipod':
         m.paint(view)
         assert {b[4]&0xffffff for b in m.bands if b[1]>m.bands[0][1]}=={color_t(ACCENTS[value][0])&0xffffff}
         assert m.bands[0][4]==color_t(ACCENTS[value][4]); passed()
-    writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and m.nodes[corners_label]['text']=='Corners: Rounded'
+    writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and corners_switch()==['switch_on']
     m.paint(view); assert m.selected(view)==0
     kids=m.nodes[view]['children']
     assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
