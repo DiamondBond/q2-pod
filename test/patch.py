@@ -5208,6 +5208,16 @@ assert m.names()==m.before_queue
 songs=m.get(payload_syms['ple']+8)
 m.call(address=syms['mclLoadPlayList'],args=(songs,0,0xff13,0),gap=0)
 assert m.names()==['B','A','C']; passed()
+# A Videos folder's listed videos never join a queue (#128): stock loads a copy without them, its start
+# on the same song, or the next after a video; the caller's list stays whole. Videos alone load as given.
+for names,at,queued,pos in ((('a.mp3','v.mp4','b.flac','w.MKV'),2,['a.mp3','b.flac'],1),
+                            (('a.mp3','v.mp4','b.flac'),1,['a.mp3','b.flac'],1),
+                            (('v.mp4','a.mp3'),0,['a.mp3'],0),(('a.mp3','b.flac'),1,['a.mp3','b.flac'],1),
+                            (('v.mp4','w.mkv'),1,['v.mp4','w.mkv'],1)):
+    m=QueueMachine(); src=m.deque([m.song(n) for n in names])
+    m.call(address=syms['mclLoadPlayList'],args=(src,at,1,0),gap=0)
+    assert m.names()==queued and m.get(O['MCL_POS'])==pos and len(m.items(src))==len(names),(names,m.names(),m.get(O['MCL_POS']))
+    passed()
 # Explicit stock loading order also reaches export and later playback loads through the shared query hook.
 m=LibraryQueryMachine(); m.db.execute('create table playlist(id,cd_num)')
 m.db.executemany('insert into playlist values(?,?)',[(103,0),(101,0),(102,0),(100,0),(104,1)])
@@ -11936,6 +11946,16 @@ for site in AUDIO_EXTENSION_CALLS:
         m.u.hook_add(UC_HOOK_CODE,extension_return,begin=site+8,end=site+8)
         assert bool(m.call(address=site,args=(formats,suffix,0,0),gap=0))==bool(accepted)
         passed()
+    # Folder view lists videos in the card's Videos folder (#128); the library scan and other folders never do.
+    for folder in (b'/mnt/mmc/vIdEoS/Films',b'/mnt/mmc/Videos',b'/mnt/mmc/Music',b'/mnt/mmc/VideosOld',b'/mnt/sda1/Videos'):
+        for ext in ('.mp4','.MKV','.pdf'):
+            m=Machine(); m.mock('strstr@GLIBC_2.0'); m.u.mem_write(syms['g_folder_path'],folder+b'\0')
+            formats=m.string('.mp3 .flac'); suffix=m.string(ext)
+            m.word(0x7000f000+(0xdd4 if site==0x5c2054 else 0xd64),formats)
+            m.u.hook_add(UC_HOOK_CODE,extension_return,begin=site+8,end=site+8)
+            listed=site==0x5c2054 and folder in (b'/mnt/mmc/vIdEoS/Films',b'/mnt/mmc/Videos') and ext!='.pdf'
+            assert bool(m.call(address=site,args=(formats,suffix,0,0),gap=0))==listed,(site,folder,ext)
+            passed()
 
 # M4B is spoken audio anywhere, at short duration; persistence and CUE rules stay shared.
 for path in ('/mnt/mmc/Novel.m4b','/mnt/mmc/Music/Novel.M4B','/mnt/mmc/Novel.m4B'):

@@ -25,6 +25,7 @@
   - iPod: Quick Settings' brightness slider uses Now Playing's colours, filled with your Highlight Colour (#127).
   - Games: tapping a game in the list opens it. Only the wheel and Centre did (#127).
   - iPod: Light Mode fixes (#127): the selected row's `>` in Games, Spotify, Configuration and the other app lists no longer shows a small box at its top edge; Configuration's gap above the service switches is no longer a black bar.
+  - Videos: videos play again (#128). The Videos folder, from the Library or Folder view, showed "File Not Found" because Folder view didn't list video files; it now lists them in the Videos folder and its subfolders.
 
 - **1.4.9**:
   - Videos: Library's Videos row opens the Videos folder in Folder view, as Podcasts and Audiobooks do, so each subfolder is its own row and videos open from their folders, instead of every video in one flat list.
