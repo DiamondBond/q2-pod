@@ -1090,10 +1090,10 @@ void *page_title(void *body, const char *caption) {
 }
 
 /* The peq_ui.c page: a title bar (*title, unless 0) over n item_h rows in body, down to the page's
- * bottom (the last row's selection meets the screen's edge) or shrunk so the list's white
- * background never shows below a short list. Shared with photos.c. */
+ * bottom (iPod: the last row's selection meets the screen's edge; Legacy: whole rows) or shrunk so
+ * the list's white background never shows below a short list. Shared with photos.c. */
 void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h) {
-    int h = widget_get_prop_int(page, "h", 290), rows = h - 48;
+    int h = widget_get_prop_int(page, "h", 290), rows = IPOD ? h - 48 : (h - 48) / item_h * item_h;
     if (n * item_h < rows) rows = n * item_h;
     widget_destroy_children(body);
     widget_set_visible(body, 1, 0);

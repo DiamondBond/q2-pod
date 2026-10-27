@@ -705,6 +705,12 @@ static int home_menu(void *top) {
 }
 
 #if IPOD
+/* A list row: a list_item or table_row. */
+static int is_row(void *w) {
+    const char *t = w ? widget_get_type(w) : "";
+    return !tk_strcmp(t, "list_item") || !tk_strcmp(t, "table_row");
+}
+
 /* A widget's own window: the top-level widget it sits in. */
 static void *window_of(void *w) {
     void *wm = window_manager();
@@ -2097,10 +2103,7 @@ static void paint_selection(void *w, void *canvas) {
         /* The Library's row is a button over the top BODY of its pitch: the bar takes the whole
          * row, or the last row's leaves a strip at the screen's bottom. */
         void *row = P(g_menu.at[i], W_PARENT);
-        if (row && !I(g_menu.at[i], W_Y) && I(row, W_H) > r.h &&
-            (!tk_strcmp(widget_get_type(row), "table_row") ||
-             !tk_strcmp(widget_get_type(row), "list_item")))
-            r.h = I(row, W_H);
+        if (!I(g_menu.at[i], W_Y) && is_row(row) && I(row, W_H) > r.h) r.h = I(row, W_H);
     }
     /* Classic: the accent's bar under the rows' own ink. Minimal: its card (sel_widget), off-white
      * with dark ink under its own accent, else the accent's under the rows' own ink. */
@@ -3978,10 +3981,6 @@ static void confirm_prompt(void *w) {
         widget_set_prop_str(c, "style:normal:text_align_v", "middle");
     }
 }
-static int is_row(void *w) {
-    const char *t = w ? widget_get_type(w) : "";
-    return !tk_strcmp(t, "list_item") || !tk_strcmp(t, "table_row");
-}
 /* A list row's touch target: its own (page rows), else a button over its top (the Library's,
  * Settings', the More menu's); pressed with its grey (ipod.json's pressed #333333) or none. */
 static int pressed_row(void *b) {
@@ -4016,7 +4015,8 @@ static int pressed_pill(void *w, void *canvas) {
                I(row, W_W) > 2 * SEL_INSET + I(row, W_H);
     }
     void *b = touch_target(w);
-    if (!pressed_row(b) || I(w, W_W) <= 2 * SEL_INSET + I(w, W_H)) {
+    /* childless: not a row but a page, such as Now Playing's visualizer */
+    if (!pressed_row(b) || !widget_count_children(w) || I(w, W_W) <= 2 * SEL_INSET + I(w, W_H)) {
         if (w == st.press_row) {
             st.press_row = (void *)0;
             rearm(&st.press_timer, press_repaint, 0);
