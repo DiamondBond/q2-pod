@@ -9018,10 +9018,10 @@ int ringnav_dark_cover_usleep(unsigned us) {
 int ringnav_mainscheduling(void) {
     static unsigned last, end;
     int sec = -1, total = 0;
-    player_playtime_and_length(&sec, &total);
+    if (mclGetPlayStatus() == 2) player_playtime_and_length(&sec, &total);
     unsigned now = (unsigned)time_now_ms(),
              gap = dark_quiet ? DARK_POLL_US / 1000 : MAINSCHEDULING_MS;
-    if (total > 0 && sec >= 0 && total - sec <= 1 && mclGetPlayStatus() == 2) end = now | !now;
+    if (total > 0 && total - sec <= 1) end = now | !now;
     if (last && now - last < gap && !(end && now - end < MAINSCHEDULING_END_MS)) return 0;
     last = now | !now; /* never 0 */
     return player_mainscheduling();
