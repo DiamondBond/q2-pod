@@ -429,68 +429,59 @@ void mp3_seek(void *demuxer, float rel, float delay, int flags) {
 }
 #endif
 
-/* Stopped, the main thread's idle loop (0x42d994) polled the play flag (PLAY_FLAG) with usleep(10000):
- * 100 wakeups a second, more than everything else on a dark, idle Q2 together. IDLE_WAIT makes that
- * usleep a futex wait on the flag, and PLAY_WAKE wakes it after the command thread's store (0x422d80), the
- * only one from another thread; the player's own stores are made before it loops again. The loop still
- * runs its body once after the wait, so MPlayer's interrupt flag (0xb10e68) ends set, as before.
- * docs/internals.md#battery. ponytail: a wake the futex misses waits for IDLE_WAIT_S. */
+/* Stopped, the main thread's idle loop (0x42d994) polled the play flag (PLAY_FLAG) with usleep(10000), and
+ * paused, MPlayer's loop (0x42fff0) checked for a command and slept usec_sleep(20000): 100 or 50 wakeups a
+ * second, more than everything else on a dark, idle Q2 together. IDLE_WAIT and PAUSE_WAIT make both sleeps
+ * futex waits: the stopped loop's on the flag, the paused loop's on cmd_gen. Every command reaches the player
+ * through the command thread's handler (0x42be20), which CMD_DONE wraps: when the handler changed the flag
+ * (set-songurl, set-nexturl) it wakes the stopped loop, and when it changed anything the paused loop reacts
+ * to (cmd_words, and the MPlayer context's state, which mcl-play and mcl-pause set) it moves cmd_gen and
+ * wakes that. demo's status queries, several a second, change none and wake nothing. A cmd_gen that moved
+ * since the last wait (a command handled while the loop checked) returns at once. Both loops still run
+ * their bodies after a wait, so MPlayer's interrupt flag (0xb10e68) ends set, as before.
+ * docs/internals.md#battery. ponytail: anything else the loops watch waits for WAIT_S. */
 #ifndef PEQ_HOST
 #define PLAY_FLAG 0xb10e34u
-#define IDLE_WAIT_S 1
+#define MPCTX_STATE 4 /* mpctx's word: 1 playing (the pause loop returns), 2 paused */
+#define WAIT_S 1
 extern int hci_futex(volatile int *addr, int op, int value, const void *timeout);
 __asm__(".globl hci_futex\nhci_futex:\nli $v0, 4238\nsyscall\njr $ra\nnop\n");
+static const long wait_s[2] = { WAIT_S, 0 };
 int hci_idle_wait(unsigned us) {
     (void)us;
-    const long timeout[2] = { IDLE_WAIT_S, 0 };
-    hci_futex((volatile int *)PLAY_FLAG, 128, 0, timeout); /* FUTEX_WAIT_PRIVATE while 0 */
+    hci_futex((volatile int *)PLAY_FLAG, 128, 0, wait_s); /* FUTEX_WAIT_PRIVATE while 0 */
     return 0;
 }
-/* Paused, MPlayer's loop (0x42fff0) checked for a command and slept usec_sleep(20000): 50 wakeups a
- * second for as long as the track stayed paused. Every command reaches it through the command thread's
- * handler (0x42be20), which CMD_DONE wraps to count one that changed the loop's state and wake it;
- * PAUSE_WAIT makes the loop's sleep a futex wait on that count. A count that moved since the last wait
- * (a command handled while the loop checked) returns at once. ponytail: anything else the loop watches
- * waits for PAUSE_WAIT_S. */
-#define PAUSE_WAIT_S 1
 static volatile int cmd_gen;
 static int cmd_seen;
 int hci_pause_wait(unsigned us) {
     (void)us;
     int g = cmd_gen;
     if (g == cmd_seen) {
-        const long timeout[2] = { PAUSE_WAIT_S, 0 };
-        hci_futex(&cmd_gen, 128, g, timeout); /* FUTEX_WAIT_PRIVATE while unchanged */
+        hci_futex(&cmd_gen, 128, g, wait_s); /* FUTEX_WAIT_PRIVATE while unchanged */
         g = cmd_gen;
     }
     cmd_seen = g;
     return 0;
 }
-/* What a command changes for the loop: MPlayer's queue length, the stop and quit flags. demo's status
- * queries, several a second, change none and wake nothing. */
-static const unsigned cmd_words[] = { 0xb10fa0, 0xb10e34, 0xb10e6c, 0xb10e70, 0xb10e08, 0xb10e40 };
+/* What the two loops read: the play flag (first: hci_command wakes the stopped loop on it), the next and
+ * stop flags, the paused loop's state word (0xb15df0) and the context pointer; then the context's state. */
+static const unsigned cmd_words[] = { PLAY_FLAG, 0xb10e6c, 0xb10e70, 0xb15df0, 0xaf9e30 };
 #define CMD_WORDS (sizeof cmd_words / sizeof *cmd_words)
+static void cmd_state(int *v) {
+    for (unsigned i = 0; i < CMD_WORDS; ++i) v[i] = *(volatile int *)cmd_words[i];
+    char *mp = MPCTX;
+    v[CMD_WORDS] = mp ? *(volatile int *)(mp + MPCTX_STATE) : 0;
+}
 void hci_command(void *buf) {
-    int before[CMD_WORDS], changed = 0;
-    for (unsigned i = 0; i < CMD_WORDS; ++i) before[i] = *(volatile int *)cmd_words[i];
+    int before[CMD_WORDS + 1], after[CMD_WORDS + 1], changed = 0;
+    cmd_state(before);
     ((void (*)(void *))0x42be20u)(buf);
-    for (unsigned i = 0; i < CMD_WORDS; ++i) changed |= before[i] != *(volatile int *)cmd_words[i];
+    cmd_state(after);
+    for (unsigned i = 0; i < CMD_WORDS + 1; ++i) changed |= before[i] != after[i];
     if (!changed) return;
     __atomic_add_fetch(&cmd_gen, 1, __ATOMIC_SEQ_CST);
     hci_futex(&cmd_gen, 129, 1, 0); /* FUTEX_WAKE_PRIVATE */
+    if (before[0] != after[0]) hci_futex((volatile int *)PLAY_FLAG, 129, 1, 0);
 }
-/* In place of the command thread's `b 0x4224b4` after its store: FUTEX_WAKE_PRIVATE, every register as it
- * was (the syscall may clobber $1, $3 and $8-$15, $24, $25, hi, lo besides its arguments). */
-__asm__(".set push\n.set noreorder\n.set noat\n.globl hci_play_wake\nhci_play_wake:\n"
-        "addiu $sp, $sp, -80\n"
-        "sw $1, 0($sp)\nsw $2, 4($sp)\nsw $3, 8($sp)\nsw $4, 12($sp)\nsw $5, 16($sp)\nsw $6, 20($sp)\n"
-        "sw $7, 24($sp)\nsw $8, 28($sp)\nsw $9, 32($sp)\nsw $10, 36($sp)\nsw $11, 40($sp)\n"
-        "sw $12, 44($sp)\nsw $13, 48($sp)\nsw $14, 52($sp)\nsw $15, 56($sp)\nsw $24, 60($sp)\n"
-        "sw $25, 64($sp)\nmfhi $8\nsw $8, 68($sp)\nmflo $8\nsw $8, 72($sp)\n"
-        "lui $4, 0xb1\nori $4, $4, 0x0e34\nli $5, 129\nli $6, 1\nli $2, 4238\nsyscall\n"
-        "lw $8, 68($sp)\nmthi $8\nlw $8, 72($sp)\nmtlo $8\n"
-        "lw $1, 0($sp)\nlw $2, 4($sp)\nlw $3, 8($sp)\nlw $4, 12($sp)\nlw $5, 16($sp)\nlw $6, 20($sp)\n"
-        "lw $7, 24($sp)\nlw $8, 28($sp)\nlw $9, 32($sp)\nlw $10, 36($sp)\nlw $11, 40($sp)\n"
-        "lw $12, 44($sp)\nlw $13, 48($sp)\nlw $14, 52($sp)\nlw $15, 56($sp)\nlw $24, 60($sp)\n"
-        "lw $25, 64($sp)\nj 0x4224b4\naddiu $sp, $sp, 80\n.set pop\n");
 #endif

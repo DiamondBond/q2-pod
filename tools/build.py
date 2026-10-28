@@ -269,6 +269,10 @@ HOLD_KEYS = ((0x6a0088, 0x8f99b1a4, 0x02603825, None), (0x6a0098, 0x0320f809, No
 # device_standby's bal awake_screen after the resume from Standby becomes li $v0, 1: the screen stays dark,
 # so the resuming key acts as it does dark (Play plays, centre wakes).
 STANDBY_WAKE = (0x4f7d24, 0x0411ff26, 0x24020001)
+# on_wm_idle_status, stock's idle callback (every UI pass), calls player_mainscheduling (jalr $t9), whose
+# mclAutoChange asks hciplayer for its status and waits for the answer: 40 to 125 round trips a second.
+# The call goes through ringnav_mainscheduling (navigation.c), which paces it (docs/internals.md#battery).
+MAINSCHEDULING_CALL = (0x4e9d28, 0x0320f809)
 # checkBluetoothStatus' jalr player_save_start once a headset's A2DP comes up (a0 0: the queue restarts
 # unpaused, whatever it was doing). It becomes jal ringnav_bt_connect_start (docs/internals.md#resume-on-connect).
 BT_CONNECT_START = (0x4f358c, 0x0320f809)
@@ -986,6 +990,7 @@ FUNCTIONS = {
  'playing_timer_start': ('int', 'void *'),
  'playing_timer_clear': ('int', 'void *'),
  'player_seek_time': ('int', 'int'),
+ 'player_mainscheduling': ('int', 'void'),
  'player_playtime_and_length': ('int', 'int *, int *'),  # elapsed, total: track seconds; -1 none
  'player_start': ('int', 'void *, int, int, int'),
  'buzzeer_switch': ('int', 'int'),  # the stock key click; it reads g_keytone_flag
@@ -1380,6 +1385,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     patch_word(patched, *HOLD_RETURN, jal(ps['compact_now_playing']),
                'long Return destination after stock input gates')
     patch_word(patched, *STANDBY_WAKE, 'Standby resume stays dark')
+    patch_word(patched, *MAINSCHEDULING_CALL, jal(ps['ringnav_mainscheduling']), 'player scheduling paced')
     for address, old, new, fn in HOLD_KEYS:
         patch_word(patched, address, old, new or jal(ps[fn]), 'Play/Pause and Return hold time')
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x51300c))[0] == 0x8f99b6e4,

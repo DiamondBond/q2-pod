@@ -51,6 +51,7 @@ int strcmp(const char*,const char*);
 int unlink(const char*), rename(const char*,const char*), fsync(int), memcmp(const void*,const void*,unsigned);
 char *strstr(const char*,const char*);
 long ptrace(int,int,void*,void*); int waitpid(int,int*,int), atoi(const char*), snprintf(char*,unsigned,const char*,...);
+int pread(int,void*,unsigned,long);
 #endif
 #define FBIOGET_VSCREENINFO 0x4600
 #define FBIOGET_FSCREENINFO 0x4602
@@ -151,15 +152,15 @@ static int capture(void) {
 }
 
 #define STACK_WORDS 160
-/* --prof MS N TID...: N rounds, MS ms apart, of each thread's state letter, pc and ra, stopped for
- * an instant as a debugger stops it (tools/q2remote.py prof symbolizes them). A thread in D waits
- * until its I/O returns. MIPS PEEKUSR: 29 is $sp, 31 $ra, 64 the pc; then the stack's words that
- * could be code addresses. */
+/* --prof MS N TID...: N rounds, MS ms apart, of each thread's state letter, pc and ra, then the stack's
+ * words that could be code addresses (tools/q2remote.py prof symbolizes them). Each thread is seized and
+ * interrupted for an instant, which queues no SIGSTOP; a signal that arrives meanwhile goes on to it. A
+ * thread in D waits until its I/O returns. MIPS PEEKUSR: 29 is $sp, 31 $ra, 64 the pc. */
 static int prof(int argc, char **argv) {
     int ms=atoi(argv[2]), n=atoi(argv[3]);
     for (int i=0;i<n;++i) {
         for (int t=4;t<argc;++t) {
-            int tid=atoi(argv[t]), w, fd, r;
+            int tid=atoi(argv[t]), w, fd, r, got;
             char buf[512], out[1024], state='?';
             snprintf(buf,sizeof buf,"/proc/%d/stat",tid);
             if ((fd=open(buf,0))<0) continue;
@@ -168,14 +169,18 @@ static int prof(int argc, char **argv) {
             buf[r>0 ? r : 0]=0;
             char *e=strstr(buf,") ");
             if (e) state=e[2];
-            if (ptrace(16,tid,0,0)) continue; /* PTRACE_ATTACH */
-            if (waitpid(tid,&w,0x40000000)!=tid) continue; /* __WALL */
+            if (ptrace(0x4206,tid,0,0)) continue; /* PTRACE_SEIZE */
+            ptrace(0x4207,tid,0,0);               /* PTRACE_INTERRUPT */
+            /* until the interrupt's stop (PTRACE_EVENT_STOP); a signal's stop goes on with it */
+            while ((got=waitpid(tid,&w,0x40000000))==tid && (w&0xff)==0x7f && (w>>16)!=0x80)
+                ptrace(7,tid,0,(void*)(long)(w>>8&0xff)); /* PTRACE_CONT */
+            if (got!=tid || (w&0xff)!=0x7f) { ptrace(17,tid,0,0); continue; } /* gone, or not stopped */
             unsigned long pc=ptrace(3,tid,(void*)64,0), ra=ptrace(3,tid,(void*)31,0),
-                          sp=ptrace(3,tid,(void*)29,0), up[STACK_WORDS];
-            /* stack words that may be return addresses, for the client to filter by its maps */
-            for (int k=0;k<STACK_WORDS;++k) up[k]=ptrace(2,tid,(void*)(sp+4*k),0); /* PEEKDATA */
+                          sp=ptrace(3,tid,(void*)29,0), up[STACK_WORDS]={0};
             ptrace(17,tid,0,0); /* PTRACE_DETACH */
             int m=snprintf(out,sizeof out,"%d %c %lx %lx",tid,state,pc,ra);
+            snprintf(buf,sizeof buf,"/proc/%d/mem",tid);
+            if ((fd=open(buf,0))>=0) { pread(fd,up,sizeof up,(long)sp); close(fd); }
             for (int k=0;k<STACK_WORDS && m<(int)sizeof out-12;++k)
                 if (up[k]>=0x400000 && up[k]<0x80000000 && !(up[k]&3)) m+=snprintf(out+m,sizeof out-m," %lx",up[k]);
             out[m++]='\n';

@@ -9004,6 +9004,20 @@ int ringnav_dark_usleep(unsigned us) {
 int ringnav_dark_cover_usleep(unsigned us) {
     return usleep(!g_backlight_status && us < DARK_POLL_US ? DARK_POLL_US : us);
 }
+/* on_wm_idle_status ran player_mainscheduling every UI pass, and its mclAutoChange asks hciplayer
+ * for its status and waits for the answer on the UI thread: 40 to 125 round trips a second, each
+ * waking both players. It runs every MAINSCHEDULING_MS instead, DARK_POLL_US while dark and quiet:
+ * a track's end, a lyric line and the play-state notifications follow within that, as stock's 200
+ * ms status sync does. */
+#define MAINSCHEDULING_MS 100
+int ringnav_mainscheduling(void) {
+    static unsigned last;
+    unsigned now = (unsigned)time_now_ms(),
+             gap = dark_quiet ? DARK_POLL_US / 1000 : MAINSCHEDULING_MS;
+    if (last && now - last < gap) return 0;
+    last = now | !now; /* never 0 */
+    return player_mainscheduling();
+}
 
 int ringnav_sleep(void *loop) {
     headset_poll();

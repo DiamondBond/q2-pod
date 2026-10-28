@@ -6763,6 +6763,7 @@ passed()
 class RolloverMachine(CoverflowMachine):
     def __init__(self,sizes=(2,2,1,1)):
         super().__init__(queue=0,cls=1)
+        self.handlers.pop(syms['player_mainscheduling'])  # runs stock's, as tick() calls it
         self.native_trace={syms[n]:n for n in ('mclAutoChange','mclNextSong','on_player_autochange','toolsLoadNextDir',
                           'player_refresh_playqueue','mclLoadPlayList','player_get_id3info','player_set_coverinfo','mclClearChangeFlag')}
         self.trace=[]; self.files={}; self.dirs={}; self.artfiles=set(); self.worker=False; self.forks=0
@@ -12317,6 +12318,16 @@ m=InfoMachine(); m.handlers[syms['getFormatString']]='i:format'; m.location=b'(p
 folder='SD:/Music/'+'\u97f3\u697d'*150; label=m.node('label','label_location',text=folder)
 m.call(address=payload_syms['ringnav_np_info'],args=(m.node('window','playing_page',[label]),0,0,0),gap=0)
 assert m.nodes[label]['text']=='Location: '+folder; passed()
+
+# on_wm_idle_status's player_mainscheduling (its status round trip) runs every MAINSCHEDULING_MS, a second
+# while dark with nothing playing.
+m=Machine()
+def scheduled(): return sum(c[0]=='player_mainscheduling' for c in m.calls)
+def schedule(): m.call(address=payload_syms['ringnav_mainscheduling'],args=(0,0,0,0),gap=0,clear=False)
+for wait,runs in ((0,1),(50,0),(50,1),(99,0),(1,1)):
+    m.now+=wait; m.calls=[]; schedule(); assert scheduled()==runs,(wait,runs)
+m.word(payload_syms['dark_quiet'],1); m.now+=100; m.calls=[]; schedule(); assert scheduled()==0
+m.now+=900; schedule(); assert scheduled()==1; m.word(payload_syms['dark_quiet'],0); passed()
 
 # Chapter subprocess syscalls use Linux o32 and pass the filename through argv.
 for name,number,args,error in (('chapter_pipe2',4328,(0x1001000,0x80000,0,0),False),
