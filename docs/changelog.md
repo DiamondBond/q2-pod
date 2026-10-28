@@ -1,17 +1,19 @@
 # Changelog
 
-- **1.5.4**:
-  - Player: starting playback from stopped, and resuming from pause, answer at once instead of waiting up to a second.
-  - Player: a track change without Gapless, and a folder's move to its next track, start as soon as stock's did.
-  - Player: a CUE track's change is no longer delayed by the player's status checks.
-  - EQ: the filter memory carries over only between gapless tracks, so a normal track change starts clean.
-  - Playlists: a name already used by another playlist is refused as a whole name.
+- **1.5.5**:
   - Bluetooth: skipping a track no longer crackles. The Q2 sent the headset nothing for about 0.4 s during a skip, so its buffer ran dry and the next song played on with it near-empty. After 0.1 s it now keeps the stream going with silence until the next song starts.
   - Search: in Light Mode, the letter you are typing in the search box is readable. It was white on light blue.
   - Now Playing: the full-screen art takes the cover's own shape, so a wide or tall cover fills the screen instead of shrinking into a square.
   - Coverflow: a fast spin starts jumping by letter a little later, after about 0.7 s of turning.
   - Crossfade: up to 15 s, was 10.
   - App Store: the page is titled **App Store**, was **Q2 App Store**.
+
+- **1.5.4**:
+  - Player: starting playback from stopped, and resuming from pause, answer at once instead of waiting up to a second.
+  - Player: a track change without Gapless, and a folder's move to its next track, start as soon as stock's did.
+  - Player: a CUE track's change is no longer delayed by the player's status checks.
+  - EQ: the filter memory carries over only between gapless tracks, so a normal track change starts clean.
+  - Playlists: a name already used by another playlist is refused as a whole name.
 
 - **1.5.3**:
   - EQ: gapless albums no longer click between tracks while EQ or PEQ is on. Each track's filter started with empty memory instead of carrying on from the last one (#137).
