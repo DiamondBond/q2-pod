@@ -1504,6 +1504,14 @@ static void carry_check(void) {
     peq_reset(&ref, 44100, 2, &p);
     continues(&a, &ref, &n);
     a.uninit(&a);
+    /* Mid-track with EQ on, once the unwatched tap settles: no clock reads. */
+    peq_length = 60, peq_pts = 10;
+    track(&a, 44100);
+    for (int i = 0; i < 100; ++i) continues(&a, &ref, &n);
+    unsigned reads = clock_reads;
+    for (int i = 0; i < 20; ++i) continues(&a, &ref, &n);
+    assert(clock_reads == reads);
+    a.uninit(&a);
     peq_length = 0, peq_pts = -1;
     assert(!unlink(PEQ_ACTIVE));
 }

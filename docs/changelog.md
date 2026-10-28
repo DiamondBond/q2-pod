@@ -6,7 +6,7 @@
   - Now Playing: the wheel highlight on More's playback-speed buttons fits the visible button instead of covering the note below it (#135).
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
   - Playlists: creating a playlist no longer reuses an occupied ID after sorting by name, and database failures show an error.
-  - Playlists: Delete Playlist confirms before removing the playlist and its entries, refreshes the list after success and reports failures. Music files and the current playback queue stay intact.
+  - Playlists: Delete Playlist removes the playlist and its entries in one step, keeps More open on Cancel, refreshes the list after success and reports failures. Music files and the current playback queue stay intact.
 
 - **1.5.2**:
   - MP3: removes encoder delay and trailing padding from files with supported Xing/Info and LAME-compatible tags, preserving intentional silence. Keep Audio settings → Gapless on for continuous playback between tracks. Files without usable tags keep stock playback.
