@@ -3879,8 +3879,9 @@ static int bc_repaint(const void *info) {
  * and song name on its foot. Checked as the window paints; the image is decoded for its shape only
  * when the track, stock's cover of it or the image changes, and the box is sized again when that
  * shape or the box (a layout back to the square) changes. The player's cover files count only once
- * g_lastcover_url is the track's, as Home's art: until then they hold the last track's cover, and
- * the art keeps its shape rather than decode them. */
+ * g_lastcover_url is the track's, as Home's art (until then they are the last track's, deleted or
+ * half written), and stock's default_bigcover placeholder is the square: both take the square
+ * without a decode. */
 static void bc_fit(void *win) {
     void *img = widget_lookup(win, "img_bigcover", 1), *shade = st.bc[1], *title = st.bc[0];
     const char *name = img ? widget_get_prop_str(img, "image", "") : "";
@@ -3891,13 +3892,14 @@ static void bc_fit(void *win) {
     unsigned box = img ? (unsigned)(I(img, W_W) << 16 | I(img, W_H)) : 0;
     unsigned key = fnv(np_track() ^ type, (const unsigned char *)name);
     if (!img || !shade || !title || (key == st.bc_key && box == st.bc_box)) return;
-    unsigned bitmap[64], stale = !type && (tk_str_end_with(name, "/tmp/coverpic.jpg") ||
-                                           tk_str_end_with(name, "/tmp/externpic.jpg"));
-    if (key != st.bc_key && !stale) {
+    unsigned bitmap[64], square = !tk_strcmp(name, "default_bigcover") ||
+                                  (!type && (tk_str_end_with(name, "/tmp/coverpic.jpg") ||
+                                             tk_str_end_with(name, "/tmp/externpic.jpg")));
+    if (key != st.bc_key) {
         st.bc_shape = 1 << 16 | 1; /* the square when it won't load or is past 4:1 */
-        if (!widget_load_image(img, name, bitmap)) {
-            if (bitmap[0] && bitmap[1] && bitmap[0] <= 4 * bitmap[1] &&
-                bitmap[1] <= 4 * bitmap[0] && bitmap[0] < 1 << 16)
+        if (!square && !widget_load_image(img, name, bitmap)) {
+            if (bitmap[0] && bitmap[1] && bitmap[0] < 1 << 16 && bitmap[1] < 1 << 16 &&
+                bitmap[0] <= 4 * bitmap[1] && bitmap[1] <= 4 * bitmap[0])
                 st.bc_shape = bitmap[0] << 16 | bitmap[1];
             widget_unload_image(img, bitmap);
         }

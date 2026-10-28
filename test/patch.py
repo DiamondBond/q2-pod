@@ -5514,8 +5514,9 @@ if variant=='ipod':
     f,ctx=b.handler(bw,O['EVT_DESTROY']); b.call(address=f,args=(ctx,b.event,0,0),gap=0)
     assert not b.timers; passed()
     # bc_fit: a 16:9 cover takes the widest box clear of the glass, the name and shade on its foot.
-    # The player's cover file is decoded only once it is this track's; an unchanged paint decodes and
-    # moves nothing; a layout back to the square refits without a decode.
+    # The player's cover file is decoded only once it is this track's (until then, and for stock's
+    # placeholder, the square); an unchanged paint decodes and moves nothing; a layout back to the
+    # square refits without a decode.
     from ipod import BC_ART
     b,bw,alpha=bigcover(); shade,title=b.nodes[bw]['children']; b.word(bw+O['W_PARENT'],b.wm)
     img=b.node('image','img_bigcover'); b.nodes[bw]['children'].append(img); b.word(img+O['W_PARENT'],bw)
@@ -5536,7 +5537,13 @@ if variant=='ipod':
     x,y,w,h=geo(img); assert w>BC_ART and h==w*900//1600 and x==(375-w)//2 and y==(320-h)//2,geo(img)
     assert geo(shade)==[x,y+h-60,w,60] and geo(title)==[x+12,y+h-45,w-24,30] and len(b.timers)==2
     assert fit()==[]
-    put(img,*sq); assert fit()==['widget_move_resize']*3 and geo(img)==[x,y,w,h]; passed()
+    put(img,*sq); assert fit()==['widget_move_resize']*3 and geo(img)==[x,y,w,h]
+    b.word(O['MCL_POS'],2); assert fit()==['widget_move_resize']*3 and geo(img)==sq  # a skip: the old file
+    path=b.text(b.get(b.items(b.get(syms['mcl_pdeqplaylist']))[2]+O['REC_PATH'])).encode()
+    b.nodes[img]['image']='file:///tmp/externpic.jpg'; b.image_size=(900,1600); b.byte(syms['g_playcover_type'],2)
+    b.u.mem_write(syms['g_lastcover_url'],path+b'\0'); assert fit()==['widget_load_image']+['widget_move_resize']*3
+    x,y,w,h=geo(img); assert h>BC_ART and w==h*900//1600 and x==(375-w)//2,geo(img)
+    b.nodes[img]['image']='default_bigcover'; assert fit()==['widget_move_resize']*3 and geo(img)==sq; passed()
 
     # Volume: with the stock volume dialog directly over Now Playing, the dialog's own paint draws
     # the band from the progress bar to the times: black, the track, a white fill to the volume and
