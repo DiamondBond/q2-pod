@@ -11,6 +11,7 @@
   - Now Playing: the full-screen art takes the cover's own shape, so a wide or tall cover fills the screen instead of shrinking into a square.
   - Coverflow: a fast spin starts jumping by letter a little later, after about 0.7 s of turning.
   - Crossfade: up to 15 s, was 10.
+  - App Store: the page is titled **App Store**, was **Q2 App Store**.
 
 - **1.5.3**:
   - EQ: gapless albums no longer click between tracks while EQ or PEQ is on. Each track's filter started with empty memory instead of carrying on from the last one (#137).

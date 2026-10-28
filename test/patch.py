@@ -10937,9 +10937,9 @@ LIST='/mnt/mmc/.q2/sources.list'
 m=ShelfMachine({LIST:bytearray((ROOT/'sources.list').read_bytes()),SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
                 '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
 m.rockbox_mode=0; m.wifi=-1; apps_open(m)
-assert m.labels()==['Q2 App Store','Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
+assert m.labels()==['App Store','Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
 m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; apps_open(m)
-assert m.labels()==['Q2 App Store','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache','Deezer','Install','Soulseek','Install','File Browser','Install']
+assert m.labels()==['App Store','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Erase Spotify Data','Login and cache','Deezer','Install','Soulseek','Install','File Browser','Install']
 m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
 assert m.opts[10002]=='https://api.github.com/repos/group-a-study/q2-filebrowser/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of six
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[20108]
@@ -10962,7 +10962,7 @@ assert 'rm -rf /mnt/mmc/.spotify/cache /mnt/mmc/.spotify/.cache-size' in m.syste
 m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==6
 m.row(1); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==6; passed()
 m.close(); m.rockbox_mode=0; m.dirs.pop('/mnt/mmc/.spotify'); m.reply=(ROOT/'test/shelf/q2-rockbox.json').read_bytes()
-apps_open(m); shelf_job(m); assert m.labels()==['Q2 App Store','Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']  # not stopped: checked again
+apps_open(m); shelf_job(m); assert m.labels()==['App Store','Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']  # not stopped: checked again
 m.row(0); assert m.labels()[2]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==7
 m.row(0); assert len(m.threads)==8 and m.labels()[2]=='Checking…'; m.row(0); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
 m.free=10<<20; m.row(0); m.row(0); shelf_job(m)  # the zip (13018581 bytes) and 64 MB left over
@@ -10976,20 +10976,20 @@ assert m.moves[-2:]==['/mnt/mmc/.q2/apps/rockbox.files','/mnt/mmc/.q2/apps/rockb
 assert m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2' and m.files['/mnt/mmc/.rockbox/fonts/a b.fnt']==b'f'
 assert m.files['/mnt/mmc/.q2/apps/rockbox.files']==b'.rockbox/rockbox\n.rockbox/codecs/flac.codec\n.rockbox/fonts/a b.fnt\n'
 assert not [f for f in m.files if '.q2/staging' in f] and 'sync' in m.systems; passed()
-assert m.labels()==['Q2 App Store','Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']; passed()  # the rows built again
+assert m.labels()==['App Store','Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install']; passed()  # the rows built again
 m.listing='        1  10-06-2026 13:18   .rockbox/../../x\n'; m.files.pop('/mnt/mmc/.q2/apps/rockbox.tag'); m.row(0); shelf_job(m)
 assert m.toasts[-1][3]=='The download is not a usable app' and m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2'; passed()
 m.close(); passed()
 # No list on the card yet: one row, which loads it with Wi-Fi. The fetched list (its bad lines
 # skipped) is kept on the card and its rows shown; a list with no app leaves the one in use.
 m=ShelfMachine(); m.rockbox_mode=0; m.wifi=-1; apps_open(m)
-assert m.labels()==['Q2 App Store','App list','Connect to Wi-Fi to load the list'] and not m.threads
+assert m.labels()==['App Store','App list','Connect to Wi-Fi to load the list'] and not m.threads
 m.row(0); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; passed()
 m.wifi=3; m.row(0); assert m.labels()[2]=='Loading…' and len(m.threads)==1; m.row(0); assert len(m.threads)==1  # loading already
 m.reply=b'# apps\nme/q2-foo Foo\nme/q2-Bad\n'; shelf_job(m)
-assert m.labels()==['Q2 App Store','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; passed()
+assert m.labels()==['App Store','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; passed()
 m.close(); m.now+=11*60*1000; m.reply=b'nothing'; apps_open(m); shelf_job(m)
-assert m.labels()==['Q2 App Store','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; m.close(); passed()
+assert m.labels()==['App Store','Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; m.close(); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or
 # longer keeps its place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S
