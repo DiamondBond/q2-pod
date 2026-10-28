@@ -333,12 +333,12 @@ def validate_assets(directory):
     assert struct.unpack_from('<I', demo, off)[0] == jal(symbols(directory/'patch.elf')['ringnav_ts_read'])
     # hciplayer's code (.text) differs from stock only in the VBR scan branch, now a nop, the 48 kHz EQ gates,
     # the ID3v2 walker calls, now id3_gain (MP3 ReplayGain), the MQA side chain's gate and probe length and
-    # the pause loop's sleep and gapless MP3 allocation/pre-filter hooks.
-    from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS, MQA_GATE, MQA_PROBE, PAUSE_SLEEP, MP3_ALLOC, MP3_FILTER, MP3_CLOSE
+    # the pause loop's sleep and gapless MP3 allocation/pre-filter/last-frame hooks.
+    from peq import VBR_SCAN, EQ_RATE_GATES, ID3_CALLS, MQA_GATE, MQA_PROBE, PAUSE_SLEEP, MP3_ALLOC, MP3_FILTER, MP3_CLOSE, MP3_READ
     old, new = read('stock.squashfs', 'usr/bin/hciplayer'), read('rootfs.squashfs', 'usr/bin/hciplayer')
     off = fileoff(old, VBR_SCAN)
     words = (*EQ_RATE_GATES, *MQA_GATE, *MQA_PROBE, PAUSE_SLEEP)
-    gates = [fileoff(old, a) for a in (*(a for a, _, _ in words), *ID3_CALLS, MP3_ALLOC, MP3_FILTER)]
+    gates = [fileoff(old, a) for a in (*(a for a, _, _ in words), *ID3_CALLS, MP3_ALLOC, MP3_FILTER, MP3_READ)]
     # The FLAC fast paths (tools/flac.py, on by default) patch hciplayer's sync calls and LPC/output pointers.
     from flac import patch_words as flac_words
     flac = flac_words('sync,lpc,output', symbols(directory/'peq'/'peq.elf'))

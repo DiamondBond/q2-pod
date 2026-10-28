@@ -17,6 +17,8 @@ SEEK_SLOT, STOCK_SEEK = 0x89fdbc, 0x48d1ac
 ID3_CALLS, STOCK_ID3 = (0x48f704, 0x4923d8), 0x48e6b0
 # Audio private allocation, pre-filter PCM call, and audio demuxer close slot.
 MP3_ALLOC, MP3_FILTER, MP3_CLOSE = 0x48fb90, 0x47f8e0, 0x89fdb8
+# ad_libmad read_frame's demux_read_data call (0x484c0c), which gets the last frame its guard bytes.
+MP3_READ, DEMUX_READ = 0x4b248c, 0x484c0c
 # The equalizer filter's descriptor (pinned) and its open slot, which becomes peq_open.
 EQ_DESC, EQ_OPEN_SLOT = 0x893df8, 0x893e0c
 # Stock skips the equalizer above 48 kHz (address, stock word, patched word); see docs/internals.md.
@@ -201,7 +203,7 @@ def patch_player(raw, out, flac_experiments=()):
                       '__end = .; /DISCARD/ : { *(.comment) *(.note*) *(.pdr) *(.mdebug*) '
                       '*(.MIPS.abiflags) *(.reginfo) } }')
     run('ld.lld', '-m', 'elf32ltsmip', '--gc-sections', '-T', script, '-e', 'peq_open', '--undefined=mp3_seek', '--undefined=id3_gain',
-        '--undefined=mp3_private_alloc', '--undefined=mp3_filter_entry', '--undefined=mp3_close',
+        '--undefined=mp3_private_alloc', '--undefined=mp3_filter_entry', '--undefined=mp3_close', '--undefined=mp3_read',
         *(f'--undefined={symbol}' for n in flac_experiments for symbol in EXPORTS[n]),
         *objects, '-o', out/'peq.elf')
     run('llvm-objcopy', '-O', 'binary', out/'peq.elf', out/'peq.bin')
@@ -220,6 +222,7 @@ def patch_player(raw, out, flac_experiments=()):
     patch_word(data, MP3_ALLOC, jal(0xadaf00), jal(ps['mp3_private_alloc']), 'MP3 gapless private state')
     patch_word(data, MP3_FILTER, jal(0x44d350), jal(ps['mp3_filter_entry']), 'MP3 gapless PCM')
     patch_word(data, MP3_CLOSE, 0x48b7e4, ps['mp3_close'], 'MP3 gapless cleanup')
+    patch_word(data, MP3_READ, jal(DEMUX_READ), jal(ps['mp3_read']), 'MP3 last frame')
     for address in ID3_CALLS:
         patch_word(data, address, jal(STOCK_ID3), jal(ps['id3_gain']), 'MP3 ReplayGain')
     for address, stock, patched in patch_words(flac_experiments, ps):

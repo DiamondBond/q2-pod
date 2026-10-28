@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.5.3**:
+  - MP3: gapless albums no longer tick between tracks. The player dropped each MP3's last frame, cutting the end of the track short (#135).
   - Now Playing: the wheel highlight on More's playback-speed buttons fits the visible button instead of covering the note below it (#135).
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
   - Playlists: creating a playlist no longer reuses an occupied ID after sorting by name, and database failures show an error.
