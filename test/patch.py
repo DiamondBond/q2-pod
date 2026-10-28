@@ -6247,21 +6247,21 @@ for key in (O['KEY_PREV'],O['KEY_NEXT']):
     assert not m.dispatched()
 passed()
 
-# Slow steps stay precise. Continuous 50ms ticks cross the 300ms threshold and jump groups.
-m=CoverflowMachine(albums=10)
-for r,name in zip(m.albums,['A1','A2','A3','D1','D2','D3','G1','G2','Z1','Z2']): m.word(r+O['REC_ALBUM'],m.string(name))
+# Slow steps stay precise. Continuous 50ms ticks cross Coverflow's 700ms threshold and jump groups.
+m=CoverflowMachine(albums=19)
+for r,name in zip(m.albums,['A1','A2','A3','D1','D2','D3']+[f'G{i}' for i in range(1,12)]+['Z1','Z2']): m.word(r+O['REC_ALBUM'],m.string(name))
 m.open()
 stride=m.call(address=syms['slide_menu_item_width'],args=(m.slide,0,0,0),gap=0)+m.get(m.slide+O['SLIDE_SPACER'])
-for _ in range(6): assert m.call(gap=50)==11
-assert m.get(m.slide+O['SLIDE_INDEX'])==0 and slide(m,m.slide)[2]==-6*stride
+for _ in range(14): assert m.call(gap=50)==11
+assert m.get(m.slide+O['SLIDE_INDEX'])==0 and slide(m,m.slide)[2]==-14*stride
 assert m.call(gap=50)==11
-assert slide(m,m.slide)[2]==-8*stride  # intended index 6 jumps to Z at 8
+assert slide(m,m.slide)[2]==-17*stride  # intended index 14 jumps to Z at 17
 m.paint(m.slide,gap=0); assert any(t['text']=='Z' for t in m.letters)
 a=slide(m,m.slide)[0]
-m.advance(400); assert m.get(m.slide+O['SLIDE_INDEX'])==8
+m.advance(400); assert m.get(m.slide+O['SLIDE_INDEX'])==17
 m.paint(m.slide,gap=0); assert not any(t['text']=='Z' for t in m.letters)
 assert m.call(O['KEY_PREV'],gap=50)==11  # reversal resets sustained scrolling
-m.advance(200); assert m.get(m.slide+O['SLIDE_INDEX'])==7; passed()
+m.advance(200); assert m.get(m.slide+O['SLIDE_INDEX'])==16; passed()
 # A reversal while moving reuses the animator and returns to the adjacent live cover.
 m=CoverflowMachine(albums=10); m.open(); m.call(gap=0); m.call(gap=20)
 a=slide(m,m.slide)[0]; assert m.call(O['KEY_PREV'],gap=20)==11 and slide(m,m.slide)[0]==a
@@ -11547,7 +11547,7 @@ for _ in range(6):
 assert [v for v,_ in saved]==['Música ñ','Unknown','Zeta','','alpha','B'*200]
 assert [t for _,t in saved]==['Folder Root: '+(v or 'Card') for v,_ in saved]; passed()
 # Crossfade (crossfade.c): the row shows the saved length while on; an unreadable one is the default.
-for config,text in (({'XFADE':'1','XFADESEC':'7'},'Crossfade: 7 s'),({'XFADE':'1','XFADESEC':'11'},'Crossfade: 5 s'),({'XFADESEC':'7'},'Crossfade: Off')):
+for config,text in (({'XFADE':'1','XFADESEC':'7'},'Crossfade: 7 s'),({'XFADE':'1','XFADESEC':'15'},'Crossfade: 15 s'),({'XFADE':'1','XFADESEC':'16'},'Crossfade: 5 s'),({'XFADESEC':'7'},'Crossfade: Off')):
     m,rows,texts,*_=settings_page('audioset','scroll_view_playset',config,stock_rows=15)
     assert texts()[3]==text and m.nodes[m.nodes[m.nodes[rows[3]]['children'][0]]['children'][1]].get('name')=='label_xfade'
 passed()

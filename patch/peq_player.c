@@ -134,7 +134,7 @@ static void tap(const float *a, unsigned frames, int nch, int rate) {
  * putting out half of what comes in until the hold is full, so the decoder runs ahead at twice real
  * time and no gap opens. The next track's filter (a new instance: the player re-adds it at each file)
  * then mixes the held tail under its own start, equal power. The ring outlives both instances. */
-#define XF_FLOATS (1u << 20) /* ponytail: 4 MB; about 10 s at 44.1 kHz stereo, 4.7 s at 96, 2.3 s at 192 */
+#define XF_FLOATS (6u << 18) /* ponytail: 6 MB; 15 s at 48 kHz stereo, 7.5 s at 96, 3.7 s at 192 */
 #define XF_SLACK (1u << 17)  /* room for one block past the held tail */
 #define XF_LEAD_S 2.0        /* the hold starts this much early, for the length's whole seconds */
 #define XF_STALE_NS 3000000000LL /* a tail not followed this soon (stop, pause) is dropped */

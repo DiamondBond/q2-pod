@@ -233,6 +233,7 @@ static int ple_key(unsigned key, int phase);
 #define WHEEL_MAX_STEP 8  /* one more per this much spin, up to this many */
 #define LIST_FIRST_MS 300 /* iPod row lists: one row per step for this long, */
 #define LIST_RAMP_MS 200  /* then one row more per this much spin */
+#define CF_FIRST_MS 700   /* Coverflow: one cover per step this long before it jumps by letter */
 #define SHORT_LIST_MAX 16
 #define MAX_ENTRIES 512
 #define POS_MEM 64
@@ -416,7 +417,8 @@ typedef struct {
      * (ringnav_bigcover) */
     void *bc[3];
     int bc_step;
-    unsigned bc_timer, bc_track;
+    unsigned bc_timer, bc_track, bc_repaint;
+    unsigned bc_key, bc_box; /* the track, cover and image bc_fit sized for, and the box it left */
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -3850,6 +3852,7 @@ static int bc_fade(const void *info) {
 
 static int bc_gone(void *win, void *event) {
     stop_timer(&st.bc_timer);
+    stop_timer(&st.bc_repaint);
     st.bc[0] = st.bc[1] = st.bc[2] = (void *)0;
     return 0;
 }
@@ -3864,6 +3867,51 @@ static void bc_show(void) {
     st.bc_timer = timer_add(bc_fade, (void *)0, BC_MS);
 }
 
+static int bc_repaint(const void *info) {
+    st.bc_repaint = 0;
+    if (st.bc[2]) widget_invalidate_force(st.bc[2], (void *)0);
+    return 0; /* RET_REMOVE */
+}
+
+/* The full-screen art takes its cover's shape: the largest w:h box centred on the window whose
+ * corners clear the glass by GLASS_SLACK, as tools/ipod.py sizes the square BC_ART, with the shade
+ * and song name on its foot. Checked as the window paints; sized again when the track, stock's
+ * cover of it (only once g_lastcover_url is the track's, as Home's art), the image or the box (a
+ * layout back to the square) changes. */
+static void bc_fit(void *win) {
+    void *img = widget_lookup(win, "img_bigcover", 1), *shade = st.bc[1], *title = st.bc[0];
+    const char *name = img ? widget_get_prop_str(img, "image", "") : "";
+    unsigned at, n, bitmap[64];
+    void *r = queue_now(&at, &n);
+    const char *path = r ? P(r, REC_PATH) : (void *)0;
+    unsigned type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
+    unsigned box = img ? (unsigned)(I(img, W_W) << 16 | I(img, W_H)) : 0;
+    unsigned key = fnv(np_track() ^ type, (const unsigned char *)name);
+    if (!img || !shade || !title || (key == st.bc_key && box == st.bc_box)) return;
+    st.bc_key = key, st.bc_box = box;
+    unsigned w = 1, h = 1; /* the square when the image won't load or is past 4:1 */
+    if (!widget_load_image(img, name, bitmap)) {
+        if (bitmap[0] && bitmap[1] && bitmap[0] <= 4 * bitmap[1] && bitmap[1] <= 4 * bitmap[0])
+            w = bitmap[0], h = bitmap[1];
+        widget_unload_image(img, bitmap);
+    }
+    for (int s = 374; s > 2; s -= 2) {
+        int bw = w >= h ? s : (int)(s * w / h), bh = w >= h ? (int)(s * h / w) : s;
+        int x = (375 - bw) / 2, y = (320 - bh) / 2, dx = GLASS_R + GLASS_SLACK - x,
+            dy = GLASS_R - y;
+        if (bh > 320 || (dx > 0 && dy > 0 && dx * dx + dy * dy > GLASS_R * GLASS_R)) continue;
+        if (I(img, W_X) == x && I(img, W_Y) == y && I(img, W_W) == bw && I(img, W_H) == bh) return;
+        int sh = I(shade, W_H), foot = y + bh - sh;
+        widget_move_resize(title, x + BC_TITLE_PAD, foot + I(title, W_Y) - I(shade, W_Y),
+                           bw - 2 * BC_TITLE_PAD, I(title, W_H));
+        widget_move_resize(shade, x, foot, bw, sh);
+        widget_move_resize(img, x, y, bw, bh);
+        st.bc_box = (unsigned)(bw << 16 | bh);
+        rearm(&st.bc_repaint, bc_repaint, 0); /* AWTK drops what a paint invalidates */
+        return;
+    }
+}
+
 /* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
  * shows the song name BC_MS, then bc_fade fades it out. Stock's own timer writes the next song's
  * name; ringnav_sleep shows it again when the track changes. */
@@ -3873,6 +3921,7 @@ int ringnav_bigcover(void *win, void *ctx) {
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
     st.bc[1] = widget_lookup(win, "view_shade", 1);
     st.bc[2] = win;
+    st.bc_key = 0;
     bc_show();
     widget_on(win, EVT_DESTROY, bc_gone, win);
     return result;
@@ -4096,6 +4145,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
     void *top = window_manager_get_top_window(wm);
     /* Any painted window, not only the top one: Home slides back in from a snapshot. */
     coverflow_home_art(w == bar ? top : w);
+    if (w == st.bc[2]) bc_fit(w);
     if (bar && (w == bar || w == top)) {
         if (!st.clock_timer || (g_time24h_flag != 0) != st.clock_full) { /* not mid-paint */
             st.clock_full = g_time24h_flag != 0;
@@ -4134,6 +4184,9 @@ unsigned *ringnav_style_color(unsigned *color, void *style, const char *name, un
     ++st.style_depth;
     stock_color_trampoline(color, style, name, fallback);
     if (--st.style_depth) return color;
+    /* Text inputs' selected text (an edit's T9 pending letter) is stock near-black on their light
+     * blue selected_bg_color, which Light Mode keeps: it stays, not flipped to paper. */
+    if (name && !tk_strcmp(name, "selected_text_color")) return color;
     if (st.paint_w && name && tk_str_end_with(name, "text_color")) {
         if (!ipod_classic() && (st.paint_w == st.bar_idle || coverflow_home_owns(st.paint_w))) {
             *color &= 0xffffff; /* paint_caps draws it */
@@ -9668,7 +9721,7 @@ int ringnav(void *ctx, void *event) {
     }
     st.touch_mode = 0;
     if (is_home(top, w)) {
-        int speed = ramp(top, w, g_menu.scope, g_menu.ctx, dir, now, LIST_FIRST_MS, LIST_RAMP_MS);
+        int speed = ramp(top, w, g_menu.scope, g_menu.ctx, dir, now, CF_FIRST_MS, LIST_RAMP_MS);
         home_step(w, dir, now, speed > 1);
         widget_invalidate_force(w, (void *)0);
         return STOP;

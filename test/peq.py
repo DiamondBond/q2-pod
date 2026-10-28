@@ -1377,8 +1377,8 @@ static void crossfade_check(void) {
     track(&a, 48000);
     for (n = 0; n < 10 * 48000;) assert(block(&a, buf, 1024, &n, 1, 48000) == 1024);
     a.uninit(&a);
-    /* A 10 s fade: the hold wraps the ring; odd block sizes; order and the equal-power gain hold. */
-    xfade_view(10000);
+    /* A 15 s fade, the longest: the hold wraps the ring; odd block sizes; order and the equal-power gain hold. */
+    xfade_view(15000);
     peq_length = 60;
     static const unsigned sizes[] = {1024, 333, 17, 1000};
     unsigned j = 0;
