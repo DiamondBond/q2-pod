@@ -461,8 +461,10 @@ cover to the whole screen, 320 pixels high, so the glass hid its corners; iPod c
 the largest box of the cover's own shape whose corners clear the glass by `GLASS_SLACK` (`bc_fit`; a
 square cover is `BC_ART` in `tools/ipod.py`, 292 pixels with the defaults: 41 from the sides, 14 from
 the top and bottom; a 16:9 one 360 by 202), so the whole cover shows,
-rounded as Now Playing's is. `bc_fit` sizes it as the window paints, again whenever the track, stock's
-cover or the image changes. Its song name and the shade band behind it sit on the art's foot, show for `BC_MS` (3 s), then fade out together over `BC_STEPS` steps
+rounded as Now Playing's is. `bc_fit` sizes it as the window paints. It decodes the image for its
+shape only when the track, stock's cover or the image changes, and leaves the player's cover files
+alone until `g_lastcover_url` is this track's (until then they hold the last track's cover), so a
+skip costs one extra decode. A layout back to the square refits from the kept shape. Its song name and the shade band behind it sit on the art's foot, show for `BC_MS` (3 s), then fade out together over `BC_STEPS` steps
 `BC_STEP_MS` apart (`ringnav_bigcover`, after stock's init). They show again for each new song while it is open.
 
 **Scrub.** A double press of the centre button starts scrubbing, as on an iPod classic (with the screen off it only

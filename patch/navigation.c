@@ -418,7 +418,8 @@ typedef struct {
     void *bc[3];
     int bc_step;
     unsigned bc_timer, bc_track, bc_repaint;
-    unsigned bc_key, bc_box; /* the track, cover and image bc_fit sized for, and the box it left */
+    unsigned bc_key, bc_box, bc_shape; /* the track, cover and image bc_fit sized for, the box it
+                                        * left and the image's w << 16 | h */
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -3875,26 +3876,34 @@ static int bc_repaint(const void *info) {
 
 /* The full-screen art takes its cover's shape: the largest w:h box centred on the window whose
  * corners clear the glass by GLASS_SLACK, as tools/ipod.py sizes the square BC_ART, with the shade
- * and song name on its foot. Checked as the window paints; sized again when the track, stock's
- * cover of it (only once g_lastcover_url is the track's, as Home's art), the image or the box (a
- * layout back to the square) changes. */
+ * and song name on its foot. Checked as the window paints; the image is decoded for its shape only
+ * when the track, stock's cover of it or the image changes, and the box is sized again when that
+ * shape or the box (a layout back to the square) changes. The player's cover files count only once
+ * g_lastcover_url is the track's, as Home's art: until then they hold the last track's cover, and
+ * the art keeps its shape rather than decode them. */
 static void bc_fit(void *win) {
     void *img = widget_lookup(win, "img_bigcover", 1), *shade = st.bc[1], *title = st.bc[0];
     const char *name = img ? widget_get_prop_str(img, "image", "") : "";
-    unsigned at, n, bitmap[64];
+    unsigned at, n;
     void *r = queue_now(&at, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
     unsigned type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
     unsigned box = img ? (unsigned)(I(img, W_W) << 16 | I(img, W_H)) : 0;
     unsigned key = fnv(np_track() ^ type, (const unsigned char *)name);
     if (!img || !shade || !title || (key == st.bc_key && box == st.bc_box)) return;
-    st.bc_key = key, st.bc_box = box;
-    unsigned w = 1, h = 1; /* the square when the image won't load or is past 4:1 */
-    if (!widget_load_image(img, name, bitmap)) {
-        if (bitmap[0] && bitmap[1] && bitmap[0] <= 4 * bitmap[1] && bitmap[1] <= 4 * bitmap[0])
-            w = bitmap[0], h = bitmap[1];
-        widget_unload_image(img, bitmap);
+    unsigned bitmap[64], stale = !type && (tk_str_end_with(name, "/tmp/coverpic.jpg") ||
+                                           tk_str_end_with(name, "/tmp/externpic.jpg"));
+    if (key != st.bc_key && !stale) {
+        st.bc_shape = 1 << 16 | 1; /* the square when it won't load or is past 4:1 */
+        if (!widget_load_image(img, name, bitmap)) {
+            if (bitmap[0] && bitmap[1] && bitmap[0] <= 4 * bitmap[1] &&
+                bitmap[1] <= 4 * bitmap[0] && bitmap[0] < 1 << 16)
+                st.bc_shape = bitmap[0] << 16 | bitmap[1];
+            widget_unload_image(img, bitmap);
+        }
     }
+    st.bc_key = key, st.bc_box = box;
+    unsigned w = st.bc_shape >> 16, h = st.bc_shape & 0xffff;
     for (int s = 374; s > 2; s -= 2) {
         int bw = w >= h ? s : (int)(s * w / h), bh = w >= h ? (int)(s * h / w) : s;
         int x = (375 - bw) / 2, y = (320 - bh) / 2, dx = GLASS_R + GLASS_SLACK - x,
@@ -3921,7 +3930,7 @@ int ringnav_bigcover(void *win, void *ctx) {
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
     st.bc[1] = widget_lookup(win, "view_shade", 1);
     st.bc[2] = win;
-    st.bc_key = 0;
+    st.bc_key = 0, st.bc_shape = 1 << 16 | 1;
     bc_show();
     widget_on(win, EVT_DESTROY, bc_gone, win);
     return result;
