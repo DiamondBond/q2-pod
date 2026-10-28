@@ -236,43 +236,17 @@ BT_DROP_PAYLOAD = 0x450000
 # is Q2's LDAC loop, which accumulates 256 samples in saved s6/s7 instead of ffb_t.
 BT_PCM_CALLERS = ((0x40649c, 0x74), (0x4150dc, 0x34), (0x41746c, 0x98),
                   (0x418114, 0x34), (0x418c84, 0x60), (0x41a6ec, None))
-# A skip leaves the encoder without PCM for ~400 ms; stock sends no packets, the headset's buffer
-# runs dry and pacing restarts from zero, so it plays on near-empty and crackles. io_poll_and_read_pcm
-# (0x4145d0) instead returns silence once no PCM came for BT_SILENCE_MS while playing, then at the
-# encoder's own pace (asrsync catches up the wait), for up to BT_SILENCE_SAMPLES after the last real
-# PCM. Assembled (llvm-mc, base BT_SILENCE) from:
-#   timeout: lw a2,0x30(s2); li v1,-1; bne a2,v1,1f; lui t0,%hi(quiet); lw t1,%lo(quiet)(t0)
-#            beqz t1,1f; nop; lw t1,%lo(silent)(t0); li a2,BT_SILENCE_MS; movn a2,zero,t1
-#         1: j 0x414664; nop
-#   fill:    jal pthread_setcancelstate; li a0,1; lw v1,0x30(s2); li t0,-1; beq v1,t0,6f; nop
-#            jal pthread_cond_signal; addiu a0,s1,0x78; sw fp,0x30(s2)  (drain's wait: stock's wake)
-#         6: lw t1,quiet; beqz t1,2f; nop; beqz s5,2f; li t1,1; sw t1,silent; quiet = max(quiet - s5, 0)
-#            zero s5 * ((pcm->format >> 8) & 63) bytes at s6; move s0,s5; j 0x4147c8; lw v0,0x1c(s2)
-#         2: j 0x41469c; nop  (return 0, as stock)
-#   read:    (in place of jal io_pcm_read) call it; if v0 > 0: silent = 0, quiet = BT_SILENCE_SAMPLES
-#   quiet: .word 0; silent: .word 0
-# ponytail: a hciplayer stall over BT_SILENCE_MS mid-song now plays as that much silence (stock caught
-# up silently if the headset's buffer covered it); lower it if skips still crackle, raise it if songs drop out.
-BT_SILENCE, BT_SILENCE_MS, BT_SILENCE_SAMPLES = 0x450400, 100, 192000  # 2 s at 48 kHz stereo
-BT_SILENCE_CODE = [  # timeout, fill (+0x30), read (+0xc0)
-    0x8e460030, 0x2403ffff, 0x14c30007, 0x3c080045, 0x8d0904f8, 0x11200004,
-    0x00000000, 0x8d0904fc, 0x24060000 | BT_SILENCE_MS, 0x0009300b, 0x08105199, 0x00000000,
-    0x0c10c2b0, 0x24040001, 0x8e430030, 0x2408ffff, 0x10680004, 0x00000000,
-    0x0c10bfdc, 0x26240078, 0xae5e0030, 0x3c080045, 0x8d0904f8, 0x11200016,
-    0x00000000, 0x12a00014, 0x24090001, 0xad0904fc, 0x8d0904f8, 0x01355023,
-    0x0135482b, 0x0009500b, 0xad0a04f8, 0x9623002a, 0x7c632a00, 0x70751802,
-    0x00761821, 0x02c04825, 0x11230004, 0x00000000, 0xa1200000, 0x1000fffc,
-    0x25290001, 0x02a08025, 0x081051f2, 0x8e42001c, 0x081051a7, 0x00000000,
-    0x27bdffe8, 0xafbf0014, 0x0c105053, 0x00000000, 0x8fbf0014, 0x18400006,
-    0x27bd0018, 0x3c080045, 0xad0004fc,
-    0x3c090000 | BT_SILENCE_SAMPLES >> 16, 0x35290000 | BT_SILENCE_SAMPLES & 0xffff, 0xad0904f8,
-    0x03e00008, 0x00000000,
-    0, 0]  # quiet (BT_SILENCE + 0xf8), silent (+ 0xfc)
-# (address, stock word, patched word): poll's timeout, poll's timeout path, the PCM read.
-BT_SILENCE_SITES = ((0x41465c, 0x8e460030, 0x08000000 | BT_SILENCE >> 2 & 0x3ffffff),
-                    (0x414684, 0x00002825, 0x08000000 | (BT_SILENCE + 0x30) >> 2 & 0x3ffffff),
-                    (0x414688, 0x0c10c2b0, 0x00002825),
-                    (0x414754, 0x0c105053, 0x0c000000 | (BT_SILENCE + 0xc0) >> 2 & 0x3ffffff))
+# A skip left the encoder without PCM for ~400 ms and stock sent no packets, so the headset's buffer
+# ran dry: tools/bt_silence.S, linked at BT_SILENCE, returns silence from Drain's timeout instead,
+# for up to BT_SILENCE_SAMPLES (interleaved: 2 s at 48 kHz stereo, 1 s at 96 kHz) after real PCM.
+BT_SILENCE, BT_SILENCE_SAMPLES = 0x450400, 192000
+# (address, stock word, patched with: j or jal to a bt_silence.S symbol, or a word):
+# poll's timeout, poll's timeout path (its delay slot takes the moved move a1,zero), the PCM read,
+# and the signal jump table's PAUSE entry: demo pauses hciplayer before some skips, so PAUSE takes
+# Drain's case (a 100 ms poll, then the fill) instead of polling again unbounded.
+BT_SILENCE_SITES = ((0x41465c, 0x8e460030, 'j', 'timeout'), (0x414684, 0x00002825, 'j', 'fill'),
+                    (0x414688, 0x0c10c2b0, None, 0x00002825), (0x414754, 0x0c105053, 'jal', 'read'),
+                    (0x42d09c, 0x0041463c, None, 0x004147a0))
 # platform_init's crash watchdog forks pgrep every 2 s; 10 s is still quick to reboot a dead UI.
 WATCHDOG = 'usr/bin/checkappprocess.sh'
 WATCHDOG_SLEEP = (b'\tsleep 2\n', b'\tsleep 10\n')
@@ -1243,6 +1217,17 @@ def patch_m4b_cover(raw):
     struct.pack_into('<I', image, fileoff(raw, site), branch(0x10000000, site, base))
     return bytes(image)
 
+def bt_silence():
+    """tools/bt_silence.S linked at BT_SILENCE: its bytes and symbols."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        run('clang', '--target=mipsel-linux-gnu', '-march=mips32r2', '-mno-abicalls', '-fno-pic',
+            f'-DBUDGET={BT_SILENCE_SAMPLES}', '-c', ROOT/'tools/bt_silence.S', '-o', d/'s.o')
+        run('ld.lld', '-m', 'elf32ltsmip', f'-Ttext={BT_SILENCE:#x}', '-e', 'timeout', d/'s.o', '-o', d/'s.elf')
+        run('llvm-objcopy', '-O', 'binary', '-j', '.text', d/'s.elf', d/'s.bin')
+        return (d/'s.bin').read_bytes(), symbols(d/'s.elf')
+
 def patch_bluealsa(raw):
     """Offer AAC at 48 kHz only. A headset that opens the stream itself (AirPods out of the case)
     picks 44.1 kHz, and bluealsa, still fed 48 kHz, drops about 8% of the AAC frames."""
@@ -1273,15 +1258,17 @@ def patch_bluealsa(raw):
                   0x150a0000 | len(body)+1, 0, *body]
     words += [0x081051e4, 0]  # unknown caller: reset pacing without touching its buffer
     check(len(words)*4 <= BT_SILENCE - BT_DROP_PAYLOAD, 'Bluetooth DROP payload too long')
-    words += [0] * ((BT_SILENCE - BT_DROP_PAYLOAD) // 4 - len(words)) + BT_SILENCE_CODE
-    payload = struct.pack(f'<{len(words)}I', *words)
+    words += [0] * ((BT_SILENCE - BT_DROP_PAYLOAD) // 4 - len(words))
+    code, sym = bt_silence()
+    payload = struct.pack(f'<{len(words)}I', *words) + code
     append_payload(image, payload, BT_DROP_PAYLOAD, len(payload), 'bluealsa')
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP),
                      j(BT_DROP_PAYLOAD), 0)
     # Never flush the new track's FIFO from this asynchronously handled signal.
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
-    for address, old, new in BT_SILENCE_SITES:
+    for address, old, op, target in BT_SILENCE_SITES:
         check(struct.unpack_from('<I', raw, fileoff(raw, address))[0] == old, 'Bluetooth silence site mismatch')
+        new = {'j': j, 'jal': jal}[op](sym[target]) if op else target
         struct.pack_into('<I', image, fileoff(raw, address), new)
     return bytes(image)
 

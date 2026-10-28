@@ -6,7 +6,7 @@
   - Player: a CUE track's change is no longer delayed by the player's status checks.
   - EQ: the filter memory carries over only between gapless tracks, so a normal track change starts clean.
   - Playlists: a name already used by another playlist is refused as a whole name.
-  - Bluetooth: skipping a track no longer crackles. The Q2 sent the headset nothing for about 0.4 s during a skip, so its buffer ran dry and the next song played on with it near-empty; it now keeps the stream going with silence.
+  - Bluetooth: skipping a track no longer crackles. The Q2 sent the headset nothing for about 0.4 s during a skip, so its buffer ran dry and the next song played on with it near-empty. After 0.1 s it now keeps the stream going with silence until the next song starts.
 
 - **1.5.3**:
   - EQ: gapless albums no longer click between tracks while EQ or PEQ is on. Each track's filter started with empty memory instead of carrying on from the last one (#137).

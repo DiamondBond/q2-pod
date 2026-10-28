@@ -288,7 +288,7 @@ def validate_assets(directory):
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     header = segments(old)[-1][0]
     allowed = {AAC_44K1, *range(header, header+32)}
-    for address, size in ((BT_DROP, 8), (BT_DROP_HANDLER, 8), *((a, 4) for a, _, _ in BT_SILENCE_SITES)):
+    for address, size in ((BT_DROP, 8), (BT_DROP_HANDLER, 8), *((a, 4) for a, *_ in BT_SILENCE_SITES)):
         off = fileoff(old, address)
         allowed.update(range(off, off+size))
     assert {i for i in range(len(old)) if old[i] != new[i]} <= allowed
