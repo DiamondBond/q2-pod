@@ -1,5 +1,12 @@
 # Changelog
 
+- **1.5.4**:
+  - Player: starting playback from stopped, and resuming from pause, answer at once instead of waiting up to a second.
+  - Player: a track change without Gapless, and a folder's move to its next track, start as soon as stock's did.
+  - Player: a CUE track's change is no longer delayed by the player's status checks.
+  - EQ: the filter memory carries over only between gapless tracks, so a normal track change starts clean.
+  - Playlists: a name already used by another playlist is refused as a whole name.
+
 - **1.5.3**:
   - EQ: gapless albums no longer click between tracks while EQ or PEQ is on. Each track's filter started with empty memory instead of carrying on from the last one (#137).
   - MP3: gapless albums no longer tick between tracks. The player dropped each MP3's last frame, cutting the end of the track short (#135).
