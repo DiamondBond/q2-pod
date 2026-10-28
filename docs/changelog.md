@@ -7,7 +7,7 @@
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
   - Battery: the player sleeps while paused or stopped instead of checking for a command 50 or 100 times a second; it wakes for the command itself. Play, Pause and skips answer as before.
   - Battery: the status bar's clock and Auto Light Mode read the time once a minute instead of on every frame.
-  - Performance and battery: the interface asks the player for its status 10 times a second instead of on every frame, up to 125 times a second, waiting for each answer. Scrolling and animations no longer stall on it.
+  - Performance and battery: with Gapless on, the interface asks the player for its status 10 times a second instead of on every frame, up to 125 times a second, waiting for each answer. Scrolling and animations no longer stall on it.
   - Playlists: creating a playlist no longer reuses an occupied ID after sorting by name, and database failures show an error.
   - Playlists: Delete Playlist removes the playlist and its entries in one step, keeps More open on Cancel, refreshes the list after success and reports failures. Music files and the current playback queue stay intact.
 
