@@ -77,7 +77,7 @@ class Machine:
         self.timers={}; self.next_timer=1; self.timer_fail=False; self.clicks=[]; self.started=[]
         self.screens=[]
         self.props={}; self.slides={}; self.slide_fail=False; self.slide_on_fail=False; self.slide_callbacks={}
-        self.canvas=0x1000200; self.lcd=0x1000300; self.now=1000
+        self.canvas=0x1000200; self.lcd=0x1000300; self.now=1000; self.play_time=(0,0)
         self.word(self.canvas+O['CANVAS_LCD'],self.lcd)
         for off,v in zip(('LCD_FILL_COLOR','LCD_STROKE_COLOR'),LCD_COLORS): self.word(self.lcd+O[off],v)
         self.clip=(0,0,240,240)
@@ -247,6 +247,7 @@ class Machine:
         elif name=='image_set_draw_type': n['draw_type']=b; ret=a
         elif name=='deque_at': ret=self.row_record
         elif name=='deque_size': ret=1
+        elif name=='mclGetPlayTime': self.word(a,self.play_time[0]); self.word(b,self.play_time[1]); ret=0
         elif name in ('tk_snprintf','snprintf@GLIBC_2.0'):
             fmt=self.text(c); values=iter([d]+[self.get(u.reg_read(UC_MIPS_REG_SP)+off) for off in range(16,80,4)])
             params=[]  # %.*s takes a length, then the string (its bytes)
@@ -12321,13 +12322,21 @@ assert m.nodes[label]['text']=='Location: '+folder; passed()
 
 # on_wm_idle_status's player_mainscheduling (its status round trip) runs every MAINSCHEDULING_MS, a second
 # while dark with nothing playing.
+from build import MAINSCHEDULING_CALL
+assert struct.unpack_from('<I',demo,fileoff(demo,MAINSCHEDULING_CALL[0]))[0]==jal(payload_syms['ringnav_mainscheduling'])
 m=Machine()
 def scheduled(): return sum(c[0]=='player_mainscheduling' for c in m.calls)
 def schedule(): m.call(address=payload_syms['ringnav_mainscheduling'],args=(0,0,0,0),gap=0,clear=False)
 for wait,runs in ((0,1),(50,0),(50,1),(99,0),(1,1)):
     m.now+=wait; m.calls=[]; schedule(); assert scheduled()==runs,(wait,runs)
 m.word(payload_syms['dark_quiet'],1); m.now+=100; m.calls=[]; schedule(); assert scheduled()==0
-m.now+=900; schedule(); assert scheduled()==1; m.word(payload_syms['dark_quiet'],0); passed()
+m.now+=900; schedule(); assert scheduled()==1; m.word(payload_syms['dark_quiet'],0)
+# From a second before a track's end until MAINSCHEDULING_END_MS after, every pass: a change without
+# Gapless starts as soon as stock's did.
+m.play_time=(298,300); m.now+=100; schedule(); m.calls=[]; m.now+=10; schedule(); assert scheduled()==0
+m.play_time=(299,300); m.now+=10; m.calls=[]; schedule(); schedule(); assert scheduled()==2
+m.play_time=(0,0); m.now+=1980; m.calls=[]; schedule(); assert scheduled()==1
+m.now+=20; m.calls=[]; schedule(); assert scheduled()==0; passed()
 
 # Chapter subprocess syscalls use Linux o32 and pass the filename through argv.
 for name,number,args,error in (('chapter_pipe2',4328,(0x1001000,0x80000,0,0),False),

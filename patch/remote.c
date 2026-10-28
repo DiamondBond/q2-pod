@@ -177,10 +177,10 @@ static int prof(int argc, char **argv) {
             if (got!=tid || (w&0xff)!=0x7f) { ptrace(17,tid,0,0); continue; } /* gone, or not stopped */
             unsigned long pc=ptrace(3,tid,(void*)64,0), ra=ptrace(3,tid,(void*)31,0),
                           sp=ptrace(3,tid,(void*)29,0), up[STACK_WORDS]={0};
-            ptrace(17,tid,0,0); /* PTRACE_DETACH */
-            int m=snprintf(out,sizeof out,"%d %c %lx %lx",tid,state,pc,ra);
             snprintf(buf,sizeof buf,"/proc/%d/mem",tid);
             if ((fd=open(buf,0))>=0) { pread(fd,up,sizeof up,(long)sp); close(fd); }
+            ptrace(17,tid,0,0); /* PTRACE_DETACH, once the stack is read */
+            int m=snprintf(out,sizeof out,"%d %c %lx %lx",tid,state,pc,ra);
             for (int k=0;k<STACK_WORDS && m<(int)sizeof out-12;++k)
                 if (up[k]>=0x400000 && up[k]<0x80000000 && !(up[k]&3)) m+=snprintf(out+m,sizeof out-m," %lx",up[k]);
             out[m++]='\n';

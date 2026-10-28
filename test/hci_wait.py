@@ -47,6 +47,14 @@ call(u, 'hci_command'); assert seen == [(4238, GEN, 129, 1), (4238, FLAG, 129, 1
 # mcl-play only sets the context's state to playing: the paused loop is woken.
 u, seen = machine_with(lambda u: word(u, MPCTX + 4, 1))
 call(u, 'hci_command'); assert seen == [(4238, GEN, 129, 1)], seen
+# Next and Stop while paused set only their flags: the paused loop is woken.
+for address in (0xb10e6c, 0xb10e70):
+    u, seen = machine_with(lambda u: word(u, address, 1))
+    call(u, 'hci_command'); assert seen == [(4238, GEN, 129, 1)], (hex(address), seen)
+# The command buffer reaches the handler.
+got = []
+u, seen = machine_with(lambda u: got.append(u.reg_read(UC_MIPS_REG_4)))
+call(u, 'hci_command', 0x2002000); assert got == [0x2002000], got
 # The stopped loop's wait: FUTEX_WAIT_PRIVATE on the flag while 0, with a timeout.
 u, seen = machine_with()
 call(u, 'hci_idle_wait', 10000); assert len(seen) == 1 and seen[0][:4] == (4238, FLAG, 128, 0), seen

@@ -9007,14 +9007,19 @@ int ringnav_dark_cover_usleep(unsigned us) {
 /* on_wm_idle_status ran player_mainscheduling every UI pass, and its mclAutoChange asks hciplayer
  * for its status and waits for the answer on the UI thread: 40 to 125 round trips a second, each
  * waking both players. It runs every MAINSCHEDULING_MS instead, DARK_POLL_US while dark and quiet:
- * a track's end, a lyric line and the play-state notifications follow within that, as stock's 200
- * ms status sync does. */
+ * a lyric line and the play-state notifications follow within that, as stock's 200 ms status sync
+ * does. From a second before a track's end (mclGetPlayTime's cache) until MAINSCHEDULING_END_MS
+ * after, it runs every pass, so a change without Gapless starts as soon as stock's did. */
 #define MAINSCHEDULING_MS 100
+#define MAINSCHEDULING_END_MS 2000
 int ringnav_mainscheduling(void) {
-    static unsigned last;
+    static unsigned last, end;
+    int sec = 0, total = 0;
+    mclGetPlayTime(&sec, &total);
     unsigned now = (unsigned)time_now_ms(),
              gap = dark_quiet ? DARK_POLL_US / 1000 : MAINSCHEDULING_MS;
-    if (last && now - last < gap) return 0;
+    if (total > 0 && total - sec <= 1) end = now | !now;
+    if (last && now - last < gap && !(end && now - end < MAINSCHEDULING_END_MS)) return 0;
     last = now | !now; /* never 0 */
     return player_mainscheduling();
 }

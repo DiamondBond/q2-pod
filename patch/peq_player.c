@@ -438,12 +438,14 @@ void mp3_seek(void *demuxer, float rel, float delay, int flags) {
  * to (cmd_words, and the MPlayer context's state, which mcl-play and mcl-pause set) it moves cmd_gen and
  * wakes that. demo's status queries, several a second, change none and wake nothing. A cmd_gen that moved
  * since the last wait (a command handled while the loop checked) returns at once. Both loops still run
- * their bodies after a wait, so MPlayer's interrupt flag (0xb10e68) ends set, as before.
+ * their bodies after a wait, so the command thread's heartbeat (0xb10e68) is set again within WAIT_S: that
+ * thread clears it each second and exits hciplayer after 6 checks find it clear (0x42d95c).
  * docs/internals.md#battery. ponytail: anything else the loops watch waits for WAIT_S. */
 #ifndef PEQ_HOST
 #define PLAY_FLAG 0xb10e34u
 #define MPCTX_STATE 4 /* mpctx's word: 1 playing (the pause loop returns), 2 paused */
 #define WAIT_S 1
+_Static_assert(WAIT_S <= 2, "stock watchdog: exit after 6 s without 0xb10e68");
 extern int hci_futex(volatile int *addr, int op, int value, const void *timeout);
 __asm__(".globl hci_futex\nhci_futex:\nli $v0, 4238\nsyscall\njr $ra\nnop\n");
 static const long wait_s[2] = { WAIT_S, 0 };
@@ -456,7 +458,7 @@ static volatile int cmd_gen;
 static int cmd_seen;
 int hci_pause_wait(unsigned us) {
     (void)us;
-    int g = cmd_gen;
+    int g = __atomic_load_n(&cmd_gen, __ATOMIC_ACQUIRE);
     if (g == cmd_seen) {
         hci_futex(&cmd_gen, 128, g, wait_s); /* FUTEX_WAIT_PRIVATE while unchanged */
         g = cmd_gen;
@@ -464,14 +466,13 @@ int hci_pause_wait(unsigned us) {
     cmd_seen = g;
     return 0;
 }
-/* What the two loops read: the play flag (first: hci_command wakes the stopped loop on it), the next and
- * stop flags, the paused loop's state word (0xb15df0) and the context pointer; then the context's state. */
-static const unsigned cmd_words[] = { PLAY_FLAG, 0xb10e6c, 0xb10e70, 0xb15df0, 0xaf9e30 };
+/* What the two loops read that a command sets: the play flag (first: hci_command wakes the stopped loop on
+ * it), the next and stop flags; then the context's state. The context (MPCTX) is always the static 0xaf9e38. */
+static const unsigned cmd_words[] = { PLAY_FLAG, 0xb10e6c, 0xb10e70 };
 #define CMD_WORDS (sizeof cmd_words / sizeof *cmd_words)
 static void cmd_state(int *v) {
     for (unsigned i = 0; i < CMD_WORDS; ++i) v[i] = *(volatile int *)cmd_words[i];
-    char *mp = MPCTX;
-    v[CMD_WORDS] = mp ? *(volatile int *)(mp + MPCTX_STATE) : 0;
+    v[CMD_WORDS] = *(volatile int *)((char *)MPCTX + MPCTX_STATE);
 }
 void hci_command(void *buf) {
     int before[CMD_WORDS + 1], after[CMD_WORDS + 1], changed = 0;
