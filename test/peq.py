@@ -1430,6 +1430,52 @@ static void mono_check(void) {
     peq_pts = -1;
 }
 
+/* A gapless change (#137): the next instance, or this one renegotiated, carries on the last one's filter
+ * memory, so a continuous signal comes out as one uninterrupted DSP puts it; another preset starts from
+ * zero. */
+static void sine(float *x, unsigned *n) {
+    for (unsigned i = 0; i < 1024; ++i, ++*n) x[i] = 0.5f * sinf(*n / 2 * 0.05f);
+}
+static void continues(af_instance *af, peq_dsp *ref, unsigned *n) {
+    float x[1024], y[1024];
+    sine(x, n);
+    memcpy(y, x, sizeof x);
+    af_data d = {x, sizeof x, 44100, 2, 0x1d, 4};
+    assert(af->play(af, &d) == &d);
+    peq_process(ref, y, 512);
+    assert(!memcmp(x, y, sizeof x));
+}
+static void carry_check(void) {
+    xfade_view(0);
+    peq_preset p = active(-3, 6);
+    peq_dsp ref;
+    peq_reset(&ref, 44100, 2, &p);
+    af_instance a, b;
+    unsigned n = 0;
+    track(&a, 44100);
+    continues(&a, &ref, &n);
+    a.uninit(&a);
+    track(&b, 44100);
+    continues(&b, &ref, &n);
+    af_data in = {0, 0, 44100, 2, 0x1d, 4};
+    assert(negotiate(&b, &in) == 1);
+    continues(&b, &ref, &n);
+    p = active(-3, 3);
+    peq_reset(&ref, 44100, 2, &p);
+    track(&a, 44100); /* negotiated while b is still there */
+    b.uninit(&b);
+    continues(&a, &ref, &n);
+    a.uninit(&a);
+    track(&b, 44100);
+    continues(&b, &ref, &n);
+    p = active(-3, 6);
+    peq_reset(&ref, 44100, 2, &p);
+    assert(negotiate(&b, &in) == 1);
+    continues(&b, &ref, &n);
+    b.uninit(&b);
+    assert(!unlink(PEQ_ACTIVE));
+}
+
 int main(void) {
     af_instance af;
     tap_view();
@@ -1603,6 +1649,7 @@ int main(void) {
     assert(!af.data && !af.setup);
     crossfade_check();
     mono_check();
+    carry_check();
 
     /* Exact VBR seeking: a 44.1 kHz stereo MPEG-1 Layer III Xing frame, 3600 s long, whose table
      * puts the first half of the time in the first quarter of the bytes. */
@@ -1643,7 +1690,7 @@ def player_check(tmp):
                     '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-I', str(ROOT/'patch'),
                     *map(str, sources), '-Wl,--wrap=clock_gettime', '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, cleanup, crossfade, mono and the Xing seek table passed.')
+    print('PEQ player: negotiation, pass-through, the visualizer tap, live updates, track changes, carried filter memory, cleanup, crossfade, mono and the Xing seek table passed.')
 
 def visualizer_check(tmp):
     """The visualizer's analysis (patch/visualizer.c vis_bands): a sine lands in its band at full scale."""

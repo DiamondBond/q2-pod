@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.5.3**:
+  - EQ: gapless albums no longer click between tracks while EQ or PEQ is on. Each track's filter started with empty memory instead of carrying on from the last one (#137).
   - MP3: gapless albums no longer tick between tracks. The player dropped each MP3's last frame, cutting the end of the track short (#135).
   - Now Playing: the wheel highlight on More's playback-speed buttons fits the visible button instead of covering the note below it (#135).
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
