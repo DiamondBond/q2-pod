@@ -9421,18 +9421,18 @@ class SpotMachine(BooksMachine):
     def key(self,k):
         self.sent=[]; self.calls=[]; return self.call(k,gap=0,clear=False)
 
-# The reentrant clock import resolves localtime's lazy GOT slot once, then calls localtime_r
-# with the caller's buffer, preserving both arguments and the return address.
+# The reentrant clock import resolves tzset's lazy GOT slot once (no shared buffer written), then
+# calls localtime_r with the caller's buffer, preserving both arguments and the return address.
 from build import run
 clock_got=next(int(w[0],16) for line in run('readelf','-AW',B/'stock-demo').splitlines()
-               if len(w:=line.split())>=6 and 'UND' in w and w[-1].split('@')[0]=='localtime')
+               if len(w:=line.split())>=6 and 'UND' in w and w[-1].split('@')[0]=='tzset')
 class ClockImportMachine(Machine):
     def hook(self,u,address,size,unused):
-        if self.handlers.get(address)=='localtime@GLIBC_2.0':
-            self.word(clock_got,syms['localtime@GLIBC_2.0']+4+28)  # loader's resolved localtime
+        if self.handlers.get(address)=='tzset@GLIBC_2.0':
+            self.word(clock_got,syms['tzset@GLIBC_2.0']+4+7724)  # loader's resolved tzset
         super().hook(u,address,size,unused)
 m=ClockImportMachine(); del m.handlers[payload_syms['peq_lib_localtime_r']]
-m.handlers[syms['localtime@GLIBC_2.0']+4]='localtime_r'
+m.handlers[syms['tzset@GLIBC_2.0']+4]='localtime_r'
 now=m.alloc(4); buf=m.alloc(44); m.word(now,m.wall[1])
 assert m.call(address=payload_syms['peq_lib_localtime_r'],args=(now,buf,0,0),gap=0)==buf
 assert m.get(buf+8)==18 and m.get(buf+4)==14

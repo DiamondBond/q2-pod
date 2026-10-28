@@ -26,24 +26,27 @@ static int dsd(void) {
  * a gapless change. The instance that played last leaves its settled filter here when it goes or
  * renegotiates; the next one adopts it on its first block at the same rate, channels and preset.
  * ponytail: a new instance that plays before the old one is freed starts from zero, as before. */
+#define CARRY_STALE_NS 1000000000LL /* older (a pause, a stop) would ring: start from zero */
 static struct {
-    peq_engine e;
+    double z[PEQ_CHANNELS][PEQ_BANDS][2];
     peq_preset p;
     int rate, channels, id;
 } carry;
-static int last_id; /* the instance that played the last block */
+static int last_id;       /* the instance that played the last block, filtered or passed through */
+static long long last_at; /* now_ns of the last block the EQ filtered: no clock read with EQ off */
 static void leave(player_state *s) {
     if (s->id != last_id || s->fresh) return;
     carry.id = 0;
     if (s->dsp.ramp || s->dsp.waiting || s->dsp.current.bypass || !s->dsp.channels) return;
-    carry.e = s->dsp.current, carry.p = s->preset;
+    memcpy(carry.z, s->dsp.current.z, sizeof carry.z), carry.p = s->preset;
     carry.rate = s->dsp.rate, carry.channels = s->dsp.channels, carry.id = s->id;
 }
 static void adopt(player_state *s) {
     s->fresh = 0;
     if (carry.id && carry.id == last_id && carry.rate == s->dsp.rate &&
-        carry.channels == s->dsp.channels && !memcmp(&carry.p, &s->preset, sizeof carry.p))
-        memcpy(s->dsp.current.z, carry.e.z, sizeof carry.e.z);
+        carry.channels == s->dsp.channels && !memcmp(&carry.p, &s->preset, sizeof carry.p) &&
+        now_ns() - last_at < CARRY_STALE_NS)
+        memcpy(s->dsp.current.z, carry.z, sizeof carry.z);
 }
 
 static int control(af_instance *af, int command, void *arg) {
@@ -251,7 +254,7 @@ static af_data *play(af_instance *af, af_data *data) {
         !(data->len % (4 * data->nch))) {
         unsigned frames = (unsigned)data->len / (4 * data->nch);
         if (s->fresh) adopt(s);
-        last_id = s->id;
+        if (!s->dsp.current.bypass) last_at = now_ns();
         peq_process(&s->dsp, data->audio, frames);
         static watched mono = { 0, ~0u }; /* Mono Audio (crossfade.c mono_sync), after the EQ's sides */
         if (data->nch == 2 && watch(&mono, MONO_FILE, data->rate, frames))
@@ -266,6 +269,7 @@ static af_data *play(af_instance *af, af_data *data) {
         data->len = (int)(frames * 4 * data->nch);
         tap(data->audio, frames, data->nch, data->rate);
     }
+    if (data && data->len > 0) last_id = s->id;
     return data;
 }
 

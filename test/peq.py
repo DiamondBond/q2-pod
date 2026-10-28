@@ -1205,10 +1205,13 @@ char *peq_mpctx; /* the player's MPContext pointer; null: no codec to check */
 double peq_pts = -1; /* written_audio_pts: seconds decoded */
 int peq_length;      /* {media-info}'s whole seconds */
 static unsigned clock_reads;
+static long clock_skew; /* seconds added: a pause without waiting for one */
 int __real_clock_gettime(clockid_t clock, struct timespec *t);
 int __wrap_clock_gettime(clockid_t clock, struct timespec *t) {
     ++clock_reads;
-    return __real_clock_gettime(clock, t);
+    int result = __real_clock_gettime(clock, t);
+    t->tv_sec += clock_skew;
+    return result;
 }
 static int left = -1; /* calloc calls before one fails; -1: never */
 void *test_calloc(size_t n, size_t size) {
@@ -1473,6 +1476,23 @@ static void carry_check(void) {
     assert(negotiate(&b, &in) == 1);
     continues(&b, &ref, &n);
     b.uninit(&b);
+    /* A pause or stop before the next track: the old memory would ring into it, so it starts from zero. */
+    clock_skew += 2;
+    track(&a, 44100);
+    peq_reset(&ref, 44100, 2, &p);
+    continues(&a, &ref, &n);
+    a.uninit(&a);
+    /* A passed-through track in between (here a rate the EQ leaves alone): the next starts from zero. */
+    track(&b, 7999);
+    float pass[2] = {0.5f, 0.5f};
+    af_data d = {pass, sizeof pass, 7999, 2, 0x1d, 4};
+    assert(b.play(&b, &d) == &d && pass[0] == 0.5f);
+    b.uninit(&b);
+    track(&a, 44100);
+    peq_reset(&ref, 44100, 2, &p);
+    continues(&a, &ref, &n);
+    a.uninit(&a);
+    clock_skew = 0;
     assert(!unlink(PEQ_ACTIVE));
 }
 
