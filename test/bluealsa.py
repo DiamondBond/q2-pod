@@ -7,7 +7,8 @@ import pathlib, struct, subprocess, sys
 from unicorn import UC_HOOK_CODE
 from unicorn.mips_const import *
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'tools'))
-from build import BLUEALSA, BT_DROP, BT_DROP_HANDLER, BT_PCM_CALLERS, machine, read, word
+from build import (BLUEALSA, BT_DROP, BT_DROP_HANDLER, BT_PCM_CALLERS, BT_SILENCE, BT_SILENCE_MS,
+                   BT_SILENCE_SAMPLES, machine, read, word)
 
 
 def check_drop(raw, queued, caller=None):
@@ -91,6 +92,56 @@ def check_drop(raw, queued, caller=None):
     return empty_at_ack and fifo[0] == 4096 and len(flushes) == flush_count and read(u, state + 0x1c) == 0 and read(u, state + 0x30) == 0xffffffff and rewound
 
 
+def check_silence(raw):
+    """Run io_poll_and_read_pcm: real PCM arms the budget, a 100 ms wait (or drain's) then fills
+    silence without blocking; with the budget spent it blocks and drains as stock."""
+    u = machine(raw, 0x1000000)
+    io, pcm, transport, buffer, stop = 0x1000000, 0x1000100, 0x1000300, 0x1001000, 0x100f000
+    word(u, pcm + 4, transport)
+    u.mem_write(pcm + 0x2a, struct.pack('<H', 0x0210))  # S16: 2 bytes a sample
+    log = {}
+    def hook(u, address, size, _):
+        if address == 0x4307a0:  # poll(fds, 2, timeout): a scripted result
+            log['timeout'] = u.reg_read(UC_MIPS_REG_A2) - (1 << 32 if u.reg_read(UC_MIPS_REG_A2) >> 31 else 0)
+            u.reg_write(UC_MIPS_REG_V0, log['poll'])
+        elif address == 0x41414c:  # io_pcm_read
+            u.reg_write(UC_MIPS_REG_V0, 64)
+        elif address == 0x42ff70:  # pthread_cond_signal: a drain waiter woken
+            log['drained'] = True
+        elif address == 0x42ff00:  # clock_gettime for asrsync_init
+            log['asrs'] = True
+        elif address not in (0x430ac0, 0x40c7a0):  # setcancelstate, pcm active
+            return
+        u.reg_write(UC_MIPS_REG_PC, u.reg_read(UC_MIPS_REG_RA))
+    u.hook_add(UC_HOOK_CODE, hook)
+    def call(poll, timeout=-1, frames=1, samples=256):
+        log.clear()
+        log['poll'] = poll
+        word(u, io + 0x30, timeout)
+        word(u, io + 0x1c, frames)
+        u.mem_write(buffer, b'\xff' * 1024)
+        for register, value in ((UC_MIPS_REG_SP, 0x100e000), (UC_MIPS_REG_A0, io), (UC_MIPS_REG_A1, pcm),
+                                (UC_MIPS_REG_A2, buffer), (UC_MIPS_REG_A3, samples), (UC_MIPS_REG_RA, stop)):
+            u.reg_write(register, value)
+        u.emu_start(0x4145d0, stop, count=20000)
+        v0 = u.reg_read(UC_MIPS_REG_V0)
+        return v0 - (1 << 32 if v0 >> 31 else 0)
+    quiet = BT_SILENCE + 0xf8
+    assert call(1) == 64 and log['timeout'] == -1, 'no budget yet: blocks as stock'
+    assert read(u, quiet) == BT_SILENCE_SAMPLES
+    assert call(0) == 256 and log['timeout'] == BT_SILENCE_MS and not log.get('drained')
+    assert u.mem_read(buffer, 513) == b'\0' * 512 + b'\xff', 'exactly 256 S16 samples of silence'
+    assert call(0, frames=0) == 256 and log['timeout'] == 0 and log.get('asrs'), 'filling: no wait, pacing starts'
+    assert call(0, timeout=100) == 256 and log['timeout'] == 100 and log['drained'] \
+        and read(u, io + 0x30) == 0xffffffff, "drain's wait wakes its waiter, then fills at once"
+    word(u, quiet, 100)
+    assert call(0) == 256 and read(u, quiet) == 0
+    word(u, quiet, 0)
+    assert call(0, timeout=100) == 0 and log['drained'] and read(u, io + 0x30) == 0xffffffff, 'drain as stock'
+    assert call(1) == 64 and log['timeout'] == -1, 'budget spent: blocks as stock'
+    assert call(1) == 64 and log['timeout'] == BT_SILENCE_MS, 'real PCM re-arms it'
+
+
 def check(directory):
     directory = pathlib.Path(directory)
     def extract(name):
@@ -126,6 +177,8 @@ def check(directory):
     for caller in BT_PCM_CALLERS:
         assert not check_drop(stock, 4096, caller)
         assert check_drop(patched, 4096, caller), f'DROP retained partial PCM for {caller[0]:x}'
+    check_silence(patched)
+    print('Bluetooth silence: a skip keeps the A2DP stream fed with silence, budgeted; drain unchanged.')
     print('Bluetooth DROP: delayed encoder signal preserves new PCM, flushes all old PCM and resets pacing; stock reproduces the fault.')
 
 
