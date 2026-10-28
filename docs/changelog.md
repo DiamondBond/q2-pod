@@ -5,6 +5,8 @@
   - MP3: gapless albums no longer tick between tracks. The player dropped each MP3's last frame, cutting the end of the track short (#135).
   - Now Playing: the wheel highlight on More's playback-speed buttons fits the visible button instead of covering the note below it (#135).
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
+  - Battery: the player sleeps while paused or stopped instead of checking for a command 50 or 100 times a second; it wakes for the command itself. Play, Pause and skips answer as before.
+  - Battery: the status bar's clock and Auto Light Mode read the time once a minute instead of on every frame.
   - Playlists: creating a playlist no longer reuses an occupied ID after sorting by name, and database failures show an error.
   - Playlists: Delete Playlist removes the playlist and its entries in one step, keeps More open on Cancel, refreshes the list after success and reports failures. Music files and the current playback queue stay intact.
 

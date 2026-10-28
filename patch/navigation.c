@@ -15,10 +15,16 @@ extern void stock_timezone_row_trampoline(void *, int);
 static const char *const tz_names[] = TIMEZONE_NAMES;
 #define TZ_COUNT (sizeof tz_names / sizeof *tz_names)
 
+#if IPOD
+static void clock_zone(void);
+#endif
 int ringnav_timezone(void) {
     unsigned n = g_time_zone;
     int result = n < TZ_COUNT ? toolsSetTimeZone(tz_names[n]) : stock_timezone_trampoline();
     tzset(); /* localtime_r does not reload TZ itself */
+#if IPOD
+    clock_zone();
+#endif
     return result;
 }
 
@@ -391,7 +397,9 @@ typedef struct {
     int sel_row, sel_y;
     void *paint_w, *sel_widget; /* paint-local color mapping, never stored on recycled widgets */
     int sel_home;
-    unsigned clock_key; /* minute + 1 and format bit; 0 before the first, ~0 for --:-- */
+    unsigned clock_key;   /* minute + 1 and format bit; 0 before the first, ~0 for --:-- */
+    unsigned clock_timer; /* clock_due, at the next minute; 0 until the bar first paints */
+    int clock_full;       /* g_time24h_flag as clock_show last read it */
     /* The status bar's Bluetooth, Wi-Fi and battery widgets, looked up once (the bar is never
      * destroyed); the codec badge shown (index + 1 in BT_CODECS, 0 none), its fade step (0 showing,
      * CODEC_STEPS the glyph fading in, 2 * CODEC_STEPS done) and timer; the battery slot's last
@@ -437,7 +445,6 @@ typedef struct {
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
         rounded, light, light_day; /* light_day: Auto's answer for now (LIGHT=2) */
-    long long light_wall;          /* the second light_poll last read the clock */
     void *sel_accent;              /* the row on a coloured selection, for Light Mode's ink */
     int style_depth;               /* nested style hooks (a mutable style's fallback) map nothing */
     void *setting_label[7];
@@ -1586,28 +1593,23 @@ static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "T
 static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3 };
 static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
                                        &st.shortcut, &st.rounded,   &st.light };
-/* Light Mode's Auto (LIGHT=2) is light from 7:00 to 19:00 by the clock. Under Auto only,
- * light_poll runs each UI pass, checks the hour once a second and, when Auto crosses either time,
- * drops the cached images (ringnav_image_add bakes the mode into them) and repaints, as
- * setting_click does. */
-#define LIGHT_FROM 7
-#define LIGHT_UNTIL 19
-static int light_day(void) {
+/* The local time now into buf (struct tm: tm_sec @0, tm_min @4, tm_hour @8), or 0 when the clock
+ * cannot be read. */
+static const int *clock_now(int *buf) {
     long long wall = wall_time();
     long now = clock_back(wall);
-    int buf[11];
-    const int *tm = wall == -1 ? (void *)0 : localtime_r(&now, buf); /* struct tm: tm_hour @8 */
-    return tm && tm[2] >= LIGHT_FROM && tm[2] < LIGHT_UNTIL;
+    return wall == -1 ? (void *)0 : localtime_r(&now, buf);
 }
+/* Light Mode's Auto (LIGHT=2) is light from 7:00 to 19:00 by the clock. clock_show applies it each
+ * minute: when Auto crosses either time it drops the cached images (ringnav_image_add bakes the
+ * mode into them) and repaints, as setting_click does. */
+#define LIGHT_FROM 7
+#define LIGHT_UNTIL 19
+static int light_day(const int *tm) { return tm && tm[2] >= LIGHT_FROM && tm[2] < LIGHT_UNTIL; }
 static void np_fill(int scrub);
-static void light_poll(void) {
-    if (st.light != 2) return;
-    long long wall = wall_time();
-    if (wall == st.light_wall) return;
-    st.light_wall = wall;
-    int day = light_day();
-    if (day == st.light_day) return;
-    st.light_day = day;
+static void light_apply(const int *tm) {
+    if (st.light != 2 || light_day(tm) == st.light_day) return;
+    st.light_day = !st.light_day;
     np_fill(0);
     image_manager_unload_all(image_manager());
     widget_invalidate_force(window_manager(), (void *)0);
@@ -1622,7 +1624,8 @@ static int accent(void) {
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
         st.light = config_value("IPOD", "LIGHT", 3, 0);     /* dark unless chosen; 2 Auto */
-        st.light_day = light_day();
+        int buf[11];
+        st.light_day = light_day(clock_now(buf));
         st.settings_read = 1;
     }
     return st.classic ? st.accent : st.minimal_accent;
@@ -3210,19 +3213,32 @@ static int seek_position(int to) {
 
 #if IPOD
 /* The status bar's centred label follows stock's 24-hour setting (18:14 or 6:14 PM), without
- * seconds, or --:-- when the time cannot be read. The bar repaints at least once
- * a second (systembar_showface), and the label is written only when the minute shown changes.
- * struct tm: tm_min @4, tm_hour @8. */
-static void clock_sync(void *bar) {
-    long long wall = wall_time();
-    long now = clock_back(wall);
+ * seconds, or --:-- when the time cannot be read. clock_show reads the time once a minute, from a
+ * timer due at the next minute, writes the label when the minute shown changes and applies Auto
+ * Light Mode's hour; nothing reads the time in between. It runs at once for a new zone
+ * (ringnav_timezone), a time set by hand (time_click) and a wake (ringnav_sleep), and on the pass
+ * after the bar first paints or paints with a new 24-hour setting (ringnav_paint_bg). ponytail: a
+ * network time sync while lit shows at the next minute. */
+static void clock_show(void);
+static int clock_due(const void *info) {
+    (void)info;
+    st.clock_timer = 0;
+    clock_show();
+    return 0;
+}
+static void clock_show(void) {
+    stop_timer(&st.clock_timer);
     int buf[11];
-    const int *tm = wall == -1 ? (void *)0 : localtime_r(&now, buf);
-    int ok = tm && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
-    int full = g_time24h_flag != 0;
+    const int *tm = clock_now(buf);
+    int ok = tm && tm[0] >= 0 && tm[0] < 61 && tm[1] >= 0 && tm[1] < 60 && tm[2] >= 0 && tm[2] < 24;
+    int full = st.clock_full = g_time24h_flag != 0;
+    accent(); /* reads Light Mode */
+    light_apply(ok ? tm : (void *)0);
+    st.clock_timer = timer_add(clock_due, (void *)0, ok ? (60u - (unsigned)tm[0]) * 1000u : 60000u);
     unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11
                       : ~0u; /* 0 before the first */
-    void *label = key == st.clock_key ? (void *)0 : widget_lookup(bar, "label_clock", 1);
+    void *bar = *(void *const *)system_bar;
+    void *label = key == st.clock_key || !bar ? (void *)0 : widget_lookup(bar, "label_clock", 1);
     if (!label) return;
     st.clock_key = key;
     char s[16] = "--:--";
@@ -3232,6 +3248,9 @@ static void clock_sync(void *bar) {
         tk_snprintf(s, sizeof s, "%d:%02d %s", (tm[2] + 11) % 12 + 1, tm[1],
                     tm[2] < 12 ? "AM" : "PM");
     widget_set_text_utf8(label, s);
+}
+static void clock_zone(void) {
+    if (st.clock_timer) clock_show(); /* the bar runs; boot's call comes before it */
 }
 
 /* systembar_showface sets img_bt's image each second: a codec badge (BT_CODECS) while stock shows
@@ -4078,7 +4097,10 @@ int ringnav_paint_bg(void *w, void *canvas) {
     /* Any painted window, not only the top one: Home slides back in from a snapshot. */
     coverflow_home_art(w == bar ? top : w);
     if (bar && (w == bar || w == top)) {
-        clock_sync(bar);
+        if (!st.clock_timer || (g_time24h_flag != 0) != st.clock_full) { /* not mid-paint */
+            st.clock_full = g_time24h_flag != 0;
+            rearm(&st.clock_timer, clock_due, 0);
+        }
         bar_sync(bar);
         np_sync(top);
         if (w == top) vol_paint(top, canvas);
@@ -4475,7 +4497,10 @@ static int setting_click(void *ctx, void *event) {
     else
         *value = accent_next[*value] == MINIMAL_ACCENT && !minimal ? 0 : accent_next[*value];
     write_int_config(*value, "IPOD", key);
-    if (i == 6) st.light_day = light_day(); /* Auto applies from this click */
+    if (i == 6) { /* Auto applies from this click */
+        int buf[11];
+        st.light_day = light_day(clock_now(buf));
+    }
     if (i == 2)
         widget_invalidate_force(*(void *const *)system_bar, (void *)0); /* bar_sync applies it */
     else if (i == 1 || i == 4)
@@ -4729,6 +4754,9 @@ static int time_click(void *target, void *event) {
     int ok = page && !tk_strcmp(widget_get_prop_str(page, "name", ""), "manualtime_page") &&
              !tk_strcmp(widget_get_prop_str(target, "name", ""), "btn_enter");
     int result = stock_dispatch_trampoline(target, event);
+#if IPOD
+    if (ok && st.clock_timer) clock_show();
+#endif
     if (ok && window_manager_get_top_window(window_manager()) == page) navigator_back();
     return result;
 }
@@ -8990,7 +9018,6 @@ int ringnav_sleep(void *loop) {
 #if IPOD
     lyric_poll();
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
-    light_poll();
 #endif
     if (!g_backlight_status) {
         st.dark |= 1;
@@ -9004,6 +9031,9 @@ int ringnav_sleep(void *loop) {
         wheel_guard_reset();
         if (st.dark & 2) st.woke_at = (unsigned)time_now_ms();
         st.dark = 0;
+#if IPOD
+        if (st.clock_timer) clock_show(); /* a time set while dark */
+#endif
         widget_invalidate_force(window_manager(), (void *)0);
     } else if (time_now_ms() - st.last_input >= IDLE_MS &&
                !window_manager_is_animating(window_manager()) && !np_animating())

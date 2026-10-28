@@ -1,7 +1,7 @@
 """Checked Q2 V1.32 PEQ hooks and target ABI imports; no vendor code is distributed."""
 import re
 import struct
-from build import ROOT, FLAGS, GP, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_payload, check, fileoff, run, sha, symbols, jal
+from build import ROOT, FLAGS, GP, FUNCTIONS, GLOBALS, PRIVATE_FUNCTIONS, append_payload, check, fileoff, run, sha, symbols, j, jal
 from ipod import patch_word
 
 PLAYER_SHA = '9c3f8c6d01f1ba62392622f6098b06a36b3e4f022a5468eaca6a5803e74f8e11'
@@ -9,8 +9,14 @@ PLAYER_BASE = 0xe10000  # stock final LOAD ends at 0xe03b58
 # demux_audio_open's branch to the whole-file frame walk for Xing/VBRI MP3s; see docs/internals.md.
 VBR_SCAN = 0x48fb3c
 # MPlayer's pause loop sleeps usec_sleep(20000) between command checks: 50 wakes a second for as long as the
-# track stays paused. li $4,20000 -> li $4,50000 (ori): 20 a second, Play answered at most 30 ms later.
-PAUSE_SLEEP = (0x430234, 0x24044e20, 0x3404c350)
+# track stays paused. Its sleep becomes a futex wait that the command thread's handler call wakes
+# (hci_pause_wait, hci_command in peq_player.c, docs/internals.md#battery).
+PAUSE_WAIT = (0x430230, 0x0c12931c)  # jal usec_sleep
+CMD_DONE = (0x42d7c4, 0x0c10af88)  # jal 0x42be20, the command handler
+# Stopped, the idle loop's usleep(10000) becomes a futex wait on the play flag, and the command thread's
+# branch after its store to it goes through hci_play_wake (peq_player.c, docs/internals.md#battery).
+IDLE_WAIT = (0x42d9c8, 0x0c2b6bf4)  # jal usleep
+PLAY_WAKE = (0x422d7c, 0x1000fdcd)  # b 0x4224b4; its delay slot stores the flag
 # The audio demuxer's seek slot (demuxer_desc_audio at 0x89fd90) holds demux_audio_seek; see docs/internals.md.
 SEEK_SLOT, STOCK_SEEK = 0x89fdbc, 0x48d1ac
 # demux_audio_open's calls to the ID3v2 frame walker (0x48e6b0) that feeds ReplayGain; see docs/internals.md.
@@ -204,6 +210,8 @@ def patch_player(raw, out, flac_experiments=()):
                       '*(.MIPS.abiflags) *(.reginfo) } }')
     run('ld.lld', '-m', 'elf32ltsmip', '--gc-sections', '-T', script, '-e', 'peq_open', '--undefined=mp3_seek', '--undefined=id3_gain',
         '--undefined=mp3_private_alloc', '--undefined=mp3_filter_entry', '--undefined=mp3_close', '--undefined=mp3_read',
+        '--undefined=hci_idle_wait', '--undefined=hci_play_wake',
+        '--undefined=hci_pause_wait', '--undefined=hci_command',
         *(f'--undefined={symbol}' for n in flac_experiments for symbol in EXPORTS[n]),
         *objects, '-o', out/'peq.elf')
     run('llvm-objcopy', '-O', 'binary', out/'peq.elf', out/'peq.bin')
@@ -213,7 +221,10 @@ def patch_player(raw, out, flac_experiments=()):
     off = fileoff(raw, EQ_OPEN_SLOT)
     data[off:off+4] = struct.pack('<I', ps['peq_open'])
     patch_word(data, VBR_SCAN, 0x144008a8, 0, 'VBR scan')  # bnez $v0, 0x491de0 -> nop
-    patch_word(data, *PAUSE_SLEEP, 'pause loop sleep')
+    patch_word(data, *PAUSE_WAIT, jal(ps['hci_pause_wait']), 'pause loop waits for a command')
+    patch_word(data, *CMD_DONE, jal(ps['hci_command']), 'a command wakes the pause loop')
+    patch_word(data, *IDLE_WAIT, jal(ps['hci_idle_wait']), 'idle loop waits on the play flag')
+    patch_word(data, *PLAY_WAKE, j(ps['hci_play_wake']), 'play command wakes the idle loop')
     for address, stock, patched in EQ_RATE_GATES:
         patch_word(data, address, stock, patched, 'Equalizer rate gate')
     for address, stock, patched in (*MQA_GATE, *MQA_PROBE):
