@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.5.3**:
+  - Now Playing: the wheel highlight on More's playback-speed buttons fits the visible button instead of covering the note below it (#135).
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
   - Playlists: creating a playlist no longer reuses an occupied ID after sorting by name, and database failures show an error.
   - Playlists: Delete Playlist confirms before removing the playlist and its entries, refreshes the list after success and reports failures. Music files and the current playback queue stay intact.

@@ -1183,6 +1183,11 @@ static int max_top(menu_t *m) {
 static rect_t bounds(menu_t *m, int i) {
     void *e = m->at[i];
     rect_t r = { 0, 0, I(e, W_W), I(e, W_H) };
+    /* Speed images have 61px hit targets, but their visible buttons are only 24px high. */
+    if (!tk_strcmp(widget_get_type(e), "image") &&
+        !tk_strcmp(widget_get_prop_str(P(e, W_PARENT), "style", ""), "s_btn_forwardspeed") &&
+        r.h > 24)
+        r.h = 24;
     for (void *p = e; p && p != m->w; p = P(p, W_PARENT)) {
         r.x += I(p, W_X);
         r.y += I(p, W_Y);

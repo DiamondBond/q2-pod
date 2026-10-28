@@ -637,6 +637,22 @@ m.u.hook_add(UC_HOOK_INTR,child_syscall)
 m.call(address=payload_syms['child_exit'],args=(127,0,0,0),gap=0)
 assert exited==[(4001,127)];passed()
 
+# Speed's 42x61 image hit targets highlight only the visible 42x24 buttons (#135).
+m=Machine(); w=m.page('playermore_page'); row=m.node('button',style='s_btn_forwardspeed')
+m.word(row+O['W_PARENT'],w); m.nodes[w]['children']=[row]
+buttons=[]
+for x in (120,177,231,283):
+    e=m.entry(row,9); m.nodes[e]['type']='image'
+    m.word(e+O['W_X'],x); m.word(e+O['W_W'],42); m.word(e+O['W_H'],61); buttons.append(e)
+m.nodes[row]['children']=buttons; m.word(w+O['W_W'],375)
+m.paint(w)
+for i in range(4):
+    if i: assert m.call()==11
+    m.paint(w)
+    inset=2 if variant=='ipod' else 1
+    assert m.selected(w)==i and m.rounded[0]['rect']==((120,177,231,283)[i]+inset,9+inset,42-2*inset,24-2*inset)
+assert m.confirm()==11 and m.dispatched()[0][1]==buttons[-1]; passed()
+
 # Execute the stock offset setter after cancelling an animator headed to either boundary.
 # Cover selected rows and the pixel-scroll fallback.
 for populated in (False,True):
