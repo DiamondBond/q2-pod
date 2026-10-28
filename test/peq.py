@@ -1434,8 +1434,8 @@ static void mono_check(void) {
 }
 
 /* A gapless change (#137): the next instance, or this one renegotiated, carries on the last one's filter
- * memory, so a continuous signal comes out as one uninterrupted DSP puts it; another preset starts from
- * zero. */
+ * memory, so a continuous signal comes out as one uninterrupted DSP puts it; another preset, a skip
+ * mid-track, a pause and a passed-through track start from zero. */
 static void sine(float *x, unsigned *n) {
     for (unsigned i = 0; i < 1024; ++i, ++*n) x[i] = 0.5f * sinf(*n / 2 * 0.05f);
 }
@@ -1450,6 +1450,7 @@ static void continues(af_instance *af, peq_dsp *ref, unsigned *n) {
 }
 static void carry_check(void) {
     xfade_view(0);
+    peq_length = 1, peq_pts = 0.5; /* each track filtered to its end */
     peq_preset p = active(-3, 6);
     peq_dsp ref;
     peq_reset(&ref, 44100, 2, &p);
@@ -1477,7 +1478,7 @@ static void carry_check(void) {
     continues(&b, &ref, &n);
     b.uninit(&b);
     /* A pause or stop before the next track: the old memory would ring into it, so it starts from zero. */
-    clock_skew += 2;
+    clock_skew += 4;
     track(&a, 44100);
     peq_reset(&ref, 44100, 2, &p);
     continues(&a, &ref, &n);
@@ -1493,6 +1494,17 @@ static void carry_check(void) {
     continues(&a, &ref, &n);
     a.uninit(&a);
     clock_skew = 0;
+    /* A skip mid-track (or a stop): the next track starts from silence, so from zero. */
+    peq_length = 60, peq_pts = 10;
+    track(&b, 44100); /* still after a track that ended */
+    continues(&b, &ref, &n);
+    b.uninit(&b);
+    peq_length = 1, peq_pts = 0.5;
+    track(&a, 44100);
+    peq_reset(&ref, 44100, 2, &p);
+    continues(&a, &ref, &n);
+    a.uninit(&a);
+    peq_length = 0, peq_pts = -1;
     assert(!unlink(PEQ_ACTIVE));
 }
 

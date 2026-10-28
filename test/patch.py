@@ -5199,6 +5199,9 @@ class PlaylistLifecycleMachine(PlaylistEditMachine):
 m=PlaylistLifecycleMachine(); assert m.create("O'Brien")==6
 assert m.db.execute('select id,filename,name,cd_num from playlist where id=6').fetchone()==(6,"O'Brien","O'Brien",6)
 assert m.create("O'Brien")==-2 and not m.db.in_transaction; passed()
+# A name stored cut to 63 bytes never matches the whole one, as in stock: an M3U import takes any
+# result but -1 as the playlist's ID.
+m=PlaylistLifecycleMachine(); assert m.create('L'*70)==6 and m.create('L'*70)==7; passed()
 for failure in ('open','begin','insert','commit'):
     m=PlaylistLifecycleMachine(); before=m.db.execute('select * from playlist').fetchall(); m.fail=failure
     assert m.create('New')==-1

@@ -169,11 +169,11 @@ typedef struct af_instance {
     double delay, mul;
 } af_instance;
 /* id: one per filter instance, for crossfade and the carried filter memory; fresh: negotiated, not
- * yet played */
+ * yet played; ending: its last block was filtered near the track's end */
 typedef struct {
     peq_dsp dsp;
     peq_preset preset;
-    int id, fresh;
+    int id, fresh, ending;
 } player_state;
 
 /* The payload's shared helpers: coverflow.c's pages, hashes and worker, photos.c's, navigation.c's. */

@@ -7750,7 +7750,10 @@ int ringnav_playlist_create(void *list, const char *name) {
     int exists = 0;
     tk_snprintf(sql, sizeof sql, "select count(*) from playlist where id <= 100 and filename='%s'",
                 quoted);
-    if (sqlite3_exec(db, sql, ple_number, &exists, 0)) goto rollback;
+    /* As stock, the whole name: a cut one matching would make importPlayList file its songs
+     * under -2. */
+    if ((!name || strlen(name) < sizeof title) && sqlite3_exec(db, sql, ple_number, &exists, 0))
+        goto rollback;
     if (exists) {
         result = -2;
         goto rollback;
