@@ -5514,36 +5514,41 @@ if variant=='ipod':
     f,ctx=b.handler(bw,O['EVT_DESTROY']); b.call(address=f,args=(ctx,b.event,0,0),gap=0)
     assert not b.timers; passed()
     # bc_fit: a 16:9 cover takes the widest box clear of the glass, the name and shade on its foot.
-    # The player's cover file is decoded only once it is this track's (until then, and for stock's
-    # placeholder, the square); an unchanged paint decodes and moves nothing; a layout back to the
-    # square refits without a decode.
+    # A player file counts once it is its type's and this track's, decoded past the image manager's
+    # cached copy; until then the art keeps the shape of g_lastcover_url's cover (a skip), or the
+    # square once that is another's (as Tidal, whose URL is never a queue path). Stock's placeholder
+    # is the square. An unchanged paint decodes and bc_mv nothing; a layout back to the square
+    # refits without a decode.
     from ipod import BC_ART
     b,bw,alpha=bigcover(); shade,title=b.nodes[bw]['children']; b.word(bw+O['W_PARENT'],b.wm)
     img=b.node('image','img_bigcover'); b.nodes[bw]['children'].append(img); b.word(img+O['W_PARENT'],bw)
     def put(w,*g):
         for k,v in zip(('W_X','W_Y','W_W','W_H'),g): b.word(w+O[k],v)
     def geo(w): return [signed(b.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H')]
+    def bc_track(i): return b.text(b.get(b.items(b.get(syms['mcl_pdeqplaylist']))[i]+O['REC_PATH'])).encode()+b'\0'
     sq=[(375-BC_ART)//2,(320-BC_ART)//2,BC_ART,BC_ART]
     put(img,*sq); put(shade,sq[0],sq[1]+BC_ART-60,BC_ART,60); put(title,sq[0]+12,sq[1]+BC_ART-45,BC_ART-24,30)
     b.nodes[img]['image']='file:///tmp/coverpic.jpg'; b.image_size=(1600,900)
+    bc_dec=['image_manager_unload_bitmap_by_name','widget_load_image']; bc_mv=['widget_move_resize']*3
     def fit():
         b.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(bw,b.canvas,0,0),gap=0)
-        return [c[0] for c in b.calls if c[0] in ('widget_load_image','widget_move_resize')]
-    path=b.text(b.get(b.items(b.get(syms['mcl_pdeqplaylist']))[1]+O['REC_PATH'])).encode()
+        return [c[0] for c in b.calls if c[0] in bc_dec+bc_mv]
     b.byte(syms['g_playcover_type'],1); b.u.mem_write(syms['g_lastcover_url'],b'/p/other\0')
     assert fit()==[] and geo(img)==sq  # the last track's cover file
-    b.u.mem_write(syms['g_lastcover_url'],path+b'\0')
-    assert fit()==['widget_load_image']+['widget_move_resize']*3
+    b.u.mem_write(syms['g_lastcover_url'],bc_track(1)); assert fit()==bc_dec+bc_mv
     x,y,w,h=geo(img); assert w>BC_ART and h==w*900//1600 and x==(375-w)//2 and y==(320-h)//2,geo(img)
     assert geo(shade)==[x,y+h-60,w,60] and geo(title)==[x+12,y+h-45,w-24,30] and len(b.timers)==2
     assert fit()==[]
-    put(img,*sq); assert fit()==['widget_move_resize']*3 and geo(img)==[x,y,w,h]
-    b.word(O['MCL_POS'],2); assert fit()==['widget_move_resize']*3 and geo(img)==sq  # a skip: the old file
-    path=b.text(b.get(b.items(b.get(syms['mcl_pdeqplaylist']))[2]+O['REC_PATH'])).encode()
-    b.nodes[img]['image']='file:///tmp/externpic.jpg'; b.image_size=(900,1600); b.byte(syms['g_playcover_type'],2)
-    b.u.mem_write(syms['g_lastcover_url'],path+b'\0'); assert fit()==['widget_load_image']+['widget_move_resize']*3
+    put(img,*sq); assert fit()==bc_mv and geo(img)==[x,y,w,h]
+    b.word(O['MCL_POS'],2); assert fit()==[] and geo(img)==[x,y,w,h]  # a skip: still the last cover
+    b.byte(syms['g_playcover_type'],1); b.nodes[img]['image']='file:///tmp/externpic.jpg'
+    b.u.mem_write(syms['g_lastcover_url'],bc_track(2)); assert fit()==bc_mv and geo(img)==sq  # not type 1's file
+    b.image_size=(900,1600); b.byte(syms['g_playcover_type'],2); assert fit()==bc_dec+bc_mv
     x,y,w,h=geo(img); assert h>BC_ART and w==h*900//1600 and x==(375-w)//2,geo(img)
-    b.nodes[img]['image']='default_bigcover'; assert fit()==['widget_move_resize']*3 and geo(img)==sq; passed()
+    b.nodes[img]['image']='file:///tmp/album_tidal.jpg'; b.u.mem_write(syms['g_lastcover_url'],b'\0')
+    assert fit()==bc_mv and geo(img)==sq  # Tidal
+    b.u.mem_write(syms['g_lastcover_url'],bc_track(2)); b.nodes[img]['image']='file:///tmp/externpic.jpg'; fit()
+    b.nodes[img]['image']='default_bigcover'; assert fit()==bc_mv and geo(img)==sq; passed()
 
     # Volume: with the stock volume dialog directly over Now Playing, the dialog's own paint draws
     # the band from the progress bar to the times: black, the track, a white fill to the volume and

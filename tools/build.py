@@ -988,6 +988,7 @@ FUNCTIONS = {
  'tk_str_start_with': ('int', 'const char *, const char *'),
  'image_manager': ('void *', 'void'),
  'image_manager_unload_all': ('int', 'void *'),
+ 'image_manager_unload_bitmap_by_name': ('int', 'void *, const char *'),
  'bitmap_get_line_length': ('unsigned', 'void *'),
  'bitmap_lock_buffer_for_write': ('unsigned char *', 'void *'),
  'bitmap_unlock_buffer': ('int', 'void *'),

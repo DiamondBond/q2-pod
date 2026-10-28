@@ -418,8 +418,9 @@ typedef struct {
     void *bc[3];
     int bc_step;
     unsigned bc_timer, bc_track, bc_repaint;
-    unsigned bc_key, bc_box, bc_shape; /* the track, cover and image bc_fit sized for, the box it
-                                        * left and the image's w << 16 | h */
+    unsigned bc_key, bc_box, bc_shape,
+        bc_url; /* the track, cover and image bc_fit sized for, the box
+                 * it left, the image's w << 16 | h and its track */
     /* Volume: the dialog vol_paint last drew, its value and the redraw timer */
     void *vol_dialog;
     int vol_drawn;
@@ -3878,10 +3879,11 @@ static int bc_repaint(const void *info) {
  * corners clear the glass by GLASS_SLACK, as tools/ipod.py sizes the square BC_ART, with the shade
  * and song name on its foot. Checked as the window paints; the image is decoded for its shape only
  * when the track, stock's cover of it or the image changes, and the box is sized again when that
- * shape or the box (a layout back to the square) changes. The player's cover files count only once
- * g_lastcover_url is the track's, as Home's art (until then they are the last track's, deleted or
- * half written), and stock's default_bigcover placeholder is the square: both take the square
- * without a decode. */
+ * shape or the box (a layout back to the square) changes. Stock names the player's one file per
+ * kind by g_playcover_type (0x51fdcc), so one counts only once it is the type's and g_lastcover_url
+ * is this track's, as Home's art; until then the art keeps the shape of g_lastcover_url's cover, or
+ * the square once that changes. The file is decoded past the image manager's cached copy, which may
+ * be the last track's. Stock's default_bigcover placeholder is the square. */
 static void bc_fit(void *win) {
     void *img = widget_lookup(win, "img_bigcover", 1), *shade = st.bc[1], *title = st.bc[0];
     const char *name = img ? widget_get_prop_str(img, "image", "") : "";
@@ -3892,16 +3894,26 @@ static void bc_fit(void *win) {
     unsigned box = img ? (unsigned)(I(img, W_W) << 16 | I(img, W_H)) : 0;
     unsigned key = fnv(np_track() ^ type, (const unsigned char *)name);
     if (!img || !shade || !title || (key == st.bc_key && box == st.bc_box)) return;
-    unsigned bitmap[64], square = !tk_strcmp(name, "default_bigcover") ||
-                                  (!type && (tk_str_end_with(name, "/tmp/coverpic.jpg") ||
-                                             tk_str_end_with(name, "/tmp/externpic.jpg")));
-    if (key != st.bc_key) {
-        st.bc_shape = 1 << 16 | 1; /* the square when it won't load or is past 4:1 */
-        if (!square && !widget_load_image(img, name, bitmap)) {
-            if (bitmap[0] && bitmap[1] && bitmap[0] < 1 << 16 && bitmap[1] < 1 << 16 &&
-                bitmap[0] <= 4 * bitmap[1] && bitmap[1] <= 4 * bitmap[0])
-                st.bc_shape = bitmap[0] << 16 | bitmap[1];
-            widget_unload_image(img, bitmap);
+    int player = tk_str_end_with(name, "/tmp/coverpic.jpg") ||
+                 tk_str_end_with(name, "/tmp/externpic.jpg") ||
+                 tk_str_end_with(name, "/tmp/album_tidal.jpg");
+    const char *own = type == 1                ? "/tmp/coverpic.jpg"
+                      : type == 2 || type == 4 ? "/tmp/externpic.jpg"
+                                               : "";
+    unsigned bitmap[64], url = fnv(0, (const unsigned char *)g_lastcover_url);
+    if (key != st.bc_key && player && !(*own && tk_str_end_with(name, own))) {
+        if (url != st.bc_url) st.bc_shape = 1 << 16 | 1;
+    } else if (key != st.bc_key) {
+        st.bc_shape = 1 << 16 | 1,
+        st.bc_url = url; /* the square when it won't load or is past 4:1 */
+        if (tk_strcmp(name, "default_bigcover")) {
+            image_manager_unload_bitmap_by_name(image_manager(), name);
+            if (!widget_load_image(img, name, bitmap)) {
+                if (bitmap[0] && bitmap[1] && bitmap[0] < 1 << 16 && bitmap[1] < 1 << 16 &&
+                    bitmap[0] <= 4 * bitmap[1] && bitmap[1] <= 4 * bitmap[0])
+                    st.bc_shape = bitmap[0] << 16 | bitmap[1];
+                widget_unload_image(img, bitmap);
+            }
         }
     }
     st.bc_key = key, st.bc_box = box;
