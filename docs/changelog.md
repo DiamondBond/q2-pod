@@ -6,6 +6,7 @@
   - Now Playing: the full-screen art takes the cover's own shape, so a wide or tall cover fills the screen instead of shrinking into a square.
   - Coverflow: a fast spin starts jumping by letter a little later, after about 0.7 s of turning.
   - Crossfade: up to 15 s, was 10.
+  - Crossfade: songs fade into each other smoothly again. Since 1.5.4 the next song came late, after a short skip.
   - App Store: the page is titled **App Store**, was **Q2 App Store**.
 
 - **1.5.4**:

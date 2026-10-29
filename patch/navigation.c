@@ -9086,9 +9086,13 @@ int ringnav_dark_cover_usleep(unsigned us) {
  * a lyric line and the play-state notifications follow within that, as stock's 200 ms status sync
  * does. From a second before the playing track's end (player_playtime_and_length's cache, a CUE
  * track's own end) until MAINSCHEDULING_END_MS after, it runs every pass, so a change without
- * Gapless starts as soon as stock's did; paused, it stays paced. ponytail: a length that overstates
- * the audio (a VBR MP3 without a Xing header) ends outside the window, up to 100 ms late; follow
- * mclAutoChange's own end flag if that shows. */
+ * Gapless starts as soon as stock's did; paused, it stays paced. With a crossfade armed the window
+ * opens a second before its hold (2 x fade + 2 s before the end, peq_player.c crossfade): paced
+ * through the hold, the change came late and skipped before the fade. Any change to this pacing
+ * needs a listen with Crossfade on. ponytail: the cause is inferred, this pacing being the only
+ * change on that path; if a skip remains, trace hciplayer's commands through a crossfade. A length
+ * that overstates the audio (a VBR MP3 without a Xing header) ends outside the window, up to 100 ms
+ * late; follow mclAutoChange's own end flag if that shows. */
 #define MAINSCHEDULING_MS 100
 #define MAINSCHEDULING_END_MS 2000
 int ringnav_mainscheduling(void) {
@@ -9097,7 +9101,8 @@ int ringnav_mainscheduling(void) {
     if (mclGetPlayStatus() == 2) player_playtime_and_length(&sec, &total);
     unsigned now = (unsigned)time_now_ms(),
              gap = dark_quiet ? DARK_POLL_US / 1000 : MAINSCHEDULING_MS;
-    if (total > 0 && total - sec <= 1) end = now | !now;
+    int fade = xfade_armed() / 1000;
+    if (total > 0 && total - sec <= 1 + (fade ? 2 * fade + 2 : 0)) end = now | !now;
     if (last && now - last < gap && !(end && now - end < MAINSCHEDULING_END_MS)) return 0;
     last = now | !now; /* never 0 */
     return player_mainscheduling();
