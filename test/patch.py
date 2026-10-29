@@ -5370,17 +5370,13 @@ if variant=='ipod':
           m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); art_image(m.home)
           return geometry()
       zoom=lambda v: v*O['DRIFT_ZOOM_PCT']//100
-      def at(r,period,t):
-          t%=2*period; f=(t if t<period else 2*period-t)*1024//period
-          return r*(f*f*(3072-2*f)>>20)>>10
-      def panned(t,w=290,h=290):  # w x h: the unzoomed fit; each axis pans at most DRIFT_PAN_MAX, centred
-          fw,fh=zoom(w),zoom(h); rx,ry=min(fw-PW,O['DRIFT_PAN_MAX']),min(fh-290,O['DRIFT_PAN_MAX'])
-          x0,y0=SPLIT+int((PW-fw+rx)/2),int((290-fh+ry)/2)
-          return [x0-at(rx,O['DRIFT_X_MS'],t),y0-at(ry,O['DRIFT_Y_MS'],t),fw,fh]
+      def at(r,period,t): t%=2*period; return r*(t if t<period else 2*period-t)//period
+      def panned(t,w=290,h=290):  # w x h: the unzoomed fit, its crop where the pan starts
+          return [SPLIT+int((PW-w)/2)-at(zoom(w)-w,O['DRIFT_X_MS'],t),int((290-h)/2)-at(zoom(h)-h,O['DRIFT_Y_MS'],t),zoom(w),zoom(h)]
       for (w,h),want in (((300,300),panned(0)),((2*PW,580),panned(0,PW)),((600,400),panned(0,435)),((100,400),panned(0,PW,4*PW))):
           assert cover(w,h)==want,((w,h),geometry(),want)
       passed()
-      m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],SPLIT); m.word(m.canvas+O['CANVAS_Y'],30+want[1])
+      m.clip=(0,0,375,320); m.word(m.canvas+O['CANVAS_X'],want[0]); m.word(m.canvas+O['CANVAS_Y'],30+want[1])
       m.call(address=IPOD_HOOKS['widget_on_paint_background'][0],args=(m.art,m.canvas,0,0),gap=0)
       assert m.clip==(SPLIT,30,PW,290),m.clip
       m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0),gap=0); assert m.clip==(0,0,375,320)
@@ -5396,12 +5392,12 @@ if variant=='ipod':
       # DRIFT_Y_MS) across the cover's overhang; a step repaints only the panel, a still one nothing.
       def drifts(): return [t for t in m.timers.values() if t[1]==payload_syms['home_drift']]
       def invalidated(): return [(c[1],c[2] and tuple(signed(m.get(c[2]+4*i)) for i in range(4))) for c in m.calls if c[0]=='widget_invalidate_force']
-      m.advance(40); assert not drifts()  # the placeholder stays
+      m.advance(O['DRIFT_TICK_MS']); assert not drifts()  # the placeholder stays
       assert cover(300,300)==panned(0) and not drifts()  # it arms on the next paint, home_repaint's
       art_image(m.home); m.advance(0); assert len(drifts())==1  # m.advance(0): home_repaint's repaint
-      m.advance(40); assert geometry()==panned(0) and not invalidated()  # still at its edge
-      m.advance(960); assert geometry()==panned(1000)!=panned(0) and len(drifts())==1
-      assert set(invalidated())=={(m.home,(SPLIT,0,PW,290))}; passed()
+      m.advance(O['DRIFT_TICK_MS']); assert geometry()==panned(0) and not invalidated()  # still at its edge
+      m.advance(1000-O['DRIFT_TICK_MS']); assert geometry()==panned(1000)!=panned(0) and len(drifts())==1
+      assert set(invalidated())=={(m.home,(SPLIT,0,PW,290))},invalidated(); passed()
       # A stalled loop steps at most DRIFT_MAX_STEP_MS.
       tid=next(t for t,v in m.timers.items() if v[1]==payload_syms['home_drift']); m.timers[tid]=(m.now+5000,*m.timers[tid][1:])
       m.advance(5000); assert geometry()==panned(1000+O['DRIFT_MAX_STEP_MS']); passed()
@@ -5410,7 +5406,7 @@ if variant=='ipod':
       # or repaints until Home paints again, resuming at the same phase with one timer.
       for cover_up in (lambda: setattr(m,'top',np),lambda: m.byte(syms['g_backlight_status'],0),
                        lambda: m.byte(syms['g_lockscreen_pageflag'],1),lambda: setattr(m,'animating',1)):
-          cover_up(); m.advance(40); assert not drifts()
+          cover_up(); m.advance(O['DRIFT_TICK_MS']); assert not drifts()
           m.advance(2000); assert not invalidated() and geometry()==panned(t)
           art_image(m.home); assert not drifts()  # still not showing
           m.top=m.home; m.byte(syms['g_backlight_status'],1); m.byte(syms['g_lockscreen_pageflag'],0); m.animating=0; added=0
@@ -5426,7 +5422,7 @@ if variant=='ipod':
       assert cover(600,400)==panned(t,435) and len(drifts())==1
       m.call(address=home_hook[0],args=(m.home,0,0,0),gap=0); assert not drifts(); passed()
       m.u.mem_write(syms['g_lastcover_url'],b'/p/none\0'); m.image_size=None; art_image(m.home)
-      m.advance(40); art_image(m.home); assert not drifts() and geometry()==[SPLIT,0,PW,290]; passed()
+      m.advance(O['DRIFT_TICK_MS']); art_image(m.home); assert not drifts() and geometry()==[SPLIT,0,PW,290]; passed()
     # Full: the art is hidden on the panel and never pans.
     CONFIG.clear(); CONFIG.update(HOME='1'); m=CoverflowMachine(); m.open(); m.top=m.home; CONFIG.clear()
     m.image_size=(300,300); m.byte(syms['g_playcover_type'],1); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')

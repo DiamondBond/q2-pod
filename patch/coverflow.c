@@ -2144,12 +2144,10 @@ static int home_repaint(const void *unused) {
     return 0; /* RET_REMOVE */
 }
 
-/* One axis of the pan (an iPod classic's menu art): 0 to range px and back over 2 x period ms,
- * eased (smoothstep, Q10) so it rests at each edge. */
+/* One axis of the pan (an iPod classic's menu art): 0 to range px and back over 2 x period ms. */
 static int drift_at(int range, unsigned period) {
-    unsigned t = home.drift_ms % (2 * period),
-             f = (t < period ? t : 2 * period - t) * 1024 / period;
-    return (int)((unsigned)range * (f * f * (3072 - 2 * f) >> 20) >> 10);
+    unsigned t = home.drift_ms % (2 * period);
+    return (int)((unsigned)range * (t < period ? t : 2 * period - t) / period);
 }
 
 /* Puts the cover where the pan is. Written in place and only the panel repainted: widget_move
@@ -2161,7 +2159,7 @@ static void drift_place(void) {
     if (x == I(home.art, W_X) && y == I(home.art, W_Y)) return;
     I(home.art, W_X) = x;
     I(home.art, W_Y) = y;
-    int pane[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 }; /* rect_t, in the art's parent */
+    static int pane[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 }; /* rect_t, in the parent */
     widget_invalidate_force(P(home.art, W_PARENT), pane);
 }
 
@@ -2189,8 +2187,8 @@ static int home_drift(const void *unused) {
 /* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on
  * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
  * panel. A cover (drift) is zoomed DRIFT_ZOOM_PCT past that and placed where the pan is, so a new
- * one keeps the pan's phase; the pan spans at most DRIFT_PAN_MAX px per axis, centred, so a wide
- * cover drifts no faster than a square one.
+ * one keeps the pan's phase; it pans across the zoom's margin only, from the old crop, so the
+ * cover's edges never show.
  * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
  * library thumbnails are too small for the panel, so each change would decode a full cover. */
 static void home_fit(unsigned w, unsigned h, int drift) {
@@ -2201,14 +2199,10 @@ static void home_fit(unsigned w, unsigned h, int drift) {
         else
             fw = (int)(((unsigned)ph * w + h - 1) / h);
     }
-    home.rx = home.ry = 0;
-    if (drift) {
-        fw = fw * DRIFT_ZOOM_PCT / 100, fh = fh * DRIFT_ZOOM_PCT / 100;
-        home.rx = fw - pw < DRIFT_PAN_MAX ? fw - pw : DRIFT_PAN_MAX;
-        home.ry = fh - ph < DRIFT_PAN_MAX ? fh - ph : DRIFT_PAN_MAX;
-        home.x0 = x + (pw - fw + home.rx) / 2;
-        home.y0 = (ph - fh + home.ry) / 2;
-    }
+    home.x0 = x + (pw - fw) / 2, home.y0 = (ph - fh) / 2; /* the unzoomed crop */
+    home.rx = drift ? fw * DRIFT_ZOOM_PCT / 100 - fw : 0;
+    home.ry = drift ? fh * DRIFT_ZOOM_PCT / 100 - fh : 0;
+    fw += home.rx, fh += home.ry;
     widget_move_resize(home.art, x + (pw - fw) / 2, (ph - fh) / 2, fw, fh);
     if (drift) drift_place();
 }

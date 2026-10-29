@@ -1318,16 +1318,15 @@ int main(void) {
     /* a paint drops its own invalidations: the whole screen repaints after it */
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
     /* Square, portrait and landscape covers keep their proportions, just cover the panel, are
-       zoomed DRIFT_ZOOM_PCT and placed where the pan is: at rest here (dark), its pan's corner. */
+       zoomed DRIFT_ZOOM_PCT and placed where the pan is: at rest here (dark), the old crop. */
 #define ZOOM(v) ((v) * DRIFT_ZOOM_PCT / 100)
     static const int covers[][4] = { { 160, 160, 290, 290 }, { 206, 290, 206, 290 },
                                      { 300, 200, 435, 290 }, { 100, 400, 188, 752 } };
     for (unsigned i = 0; i < 4; ++i) {
         art_w = covers[i][0], art_h = covers[i][1];
         *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
-        int fw = ZOOM(covers[i][2]), fh = ZOOM(covers[i][3]), pw = 375 - HOME_SPLIT_W;
-        int rx = fw - pw < DRIFT_PAN_MAX ? fw - pw : DRIFT_PAN_MAX, ry = fh - 290 < DRIFT_PAN_MAX ? fh - 290 : DRIFT_PAN_MAX;
-        int want[4] = { HOME_SPLIT_W + (pw - fw + rx) / 2, (290 - fh + ry) / 2, fw, fh };
+        int want[4] = { HOME_SPLIT_W + (375 - HOME_SPLIT_W - covers[i][2]) / 2, (290 - covers[i][3]) / 2,
+                        ZOOM(covers[i][2]), ZOOM(covers[i][3]) };
         for (int k = 0; k < 4; ++k) assert(geo[k] == want[k]);
     }
     art_w = art_h = 160;
@@ -1398,13 +1397,13 @@ int main(void) {
     assert(*(int *)(label->raw + W_W) == HOME_SPLIT_W - dot_x - HOME_SPLIT_LABEL_END && W(home_art)->visible);
     coverflow_home_art(win);
     assert(loads == before + 1 && !strcmp(art, player));
-    classic = 1; /* Classic halves the screen: the 160px cover fills 290px, zoomed, from 187 */
+    classic = 1; /* Classic halves the screen: the 160px cover fills 290px from 187 + (188 - 290) / 2, zoomed */
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
     assert(*(int *)(label->raw + W_X) == HOME_CLASSIC_TEXT_X &&
            *(int *)(label->raw + W_W) == HOME_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
     coverflow_home_art(win);
-    static const int classic_geo[4] = { HOME_SPLIT_W, 0, ZOOM(290), ZOOM(290) };
+    static const int classic_geo[4] = { 136, 0, ZOOM(290), ZOOM(290) };
     assert(loads == before + 2 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
     home_full = 1;
     coverflow_home_layout();

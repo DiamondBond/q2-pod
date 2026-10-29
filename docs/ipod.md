@@ -125,12 +125,11 @@ otherwise the new art and its fit would reach only the regions repainted later. 
 stock-owned. Now Playing and Spotify's page keep their black background behind the art.
 
 In Split a cover pans slowly, as an iPod classic's menu art did: `home_fit` zooms it
-`DRIFT_ZOOM_PCT` (115) past the fit, and each axis runs its own eased ping-pong across the overhang
-(`DRIFT_X_MS` 14 s, `DRIFT_Y_MS` 22 s, smoothstep, so it rests at each edge). An axis pans at most
-`DRIFT_PAN_MAX` (150) pixels, centred on the old crop, so a wide or tall cover moves no faster than
-a square one. The placeholder
+`DRIFT_ZOOM_PCT` (110) past the fit, and each axis runs its own linear ping-pong across that
+margin alone, from the old crop (`DRIFT_X_MS` 20 s, `DRIFT_Y_MS` 26 s): about 1.5 pixels a
+second on a square cover, as iPod.js's recreation moves, and the cover's edges never show. The placeholder
 and Full stay as above, unzoomed. Nothing is stored: the pan's phase counts only time shown, so
-leaving Home, a new cover or a Theme change resumes it where it was. One `DRIFT_TICK_MS` (40 ms)
+leaving Home, a new cover or a Theme change resumes it where it was. One `DRIFT_TICK_MS` (100 ms)
 timer runs it, armed from Home's paint only while Home is the top window and not sliding, the
 screen is lit and the lock screen is off; its next step after any of those changes removes it, and
 `coverflow_home_layout` (Home, Theme, a new Home window) removes it at once. A step is capped
