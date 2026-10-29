@@ -136,7 +136,7 @@ of a pixel, as the iPod's own rendering does. A frame costs about 2.1 million in
 second while Home shows. A cover whose zoomed fit passes `DRIFT_TEXELS` (four panels: wider
 than about 2:1, or taller than 5:1), a decode that is not 32-bit, the placeholder and Full stay still and unzoomed,
 drawn by the stock fill. Nothing is stored: the pan's phase counts only time shown, so leaving
-Home, a new cover or a Theme change resumes it where it was. One `DRIFT_TICK_MS` (100 ms) timer
+Home, a new cover or a Theme change resumes it where it was. One `DRIFT_TICK_MS` (200 ms, 0.3 px a step: half the redraws of 100 ms, still smooth) timer
 runs it, armed from Home's paint only while Home is the top window and not sliding, the screen is
 lit and the lock screen is off; its next step after any of those changes removes it, and
 `coverflow_home_layout` (Home, Theme, a new Home window) removes it at once. A step is capped at

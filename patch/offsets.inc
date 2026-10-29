@@ -224,7 +224,7 @@ static inline int arc_out(int r, int y) {
 #define DRIFT_ZOOM_PCT 110
 #define DRIFT_X_MS 20000
 #define DRIFT_Y_MS 26000
-#define DRIFT_TICK_MS 100
+#define DRIFT_TICK_MS 200
 #define DRIFT_MAX_STEP_MS 250
 #define DRIFT_TEXELS 218080 /* four panels: 4 x 188 x 290 */
 #define HOME_CLASSIC_ROW 369
