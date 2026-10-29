@@ -14,10 +14,10 @@
  * each row's kind says what a press does (a local row plays a song or folder from the card,
  * navigation.c's songs_open). Its status file /tmp/q2-<id>.state says whether to hold standby off
  * (hold=1: files moving, a phone using its page) and carries its web page's QR code, address and
- * PIN, which qr_open's page draws. A TERM to the loop's pid asks it to end. An app that plays as well
- * (q2-deezer's Stream mode) names a card folder of songs in /tmp/q2-<id>.play, which stream_poll
- * plays as it fills. Its features are words in /tmp/q2-addon.caps, written at Streaming's first
- * scan. */
+ * PIN, which qr_open's page draws. A TERM to the loop's pid asks it to end. An app that plays as
+ * well (q2-deezer's Stream mode) names a card folder of songs in /tmp/q2-<id>.play, which
+ * stream_poll plays as it fills. Its features are words in /tmp/q2-addon.caps, written at
+ * Streaming's first scan. */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -39,7 +39,7 @@
 #define QR_COL 214 /* the text beside it */
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
-#define ADDON_CAPS "" /* each feature's PR adds its word: playlist (F1), progress (F2), library (F3), pages (F4) */
+#define ADDON_CAPS "" /* this firmware's card-app features, space-separated */
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -113,7 +113,8 @@ int addon_scan(void) {
             ap.order[k] = ap.order[k - 1];
         ap.order[k] = i;
     }
-    if (access(CAPS_FILE, 0)) blob_io(CAPS_FILE, CAPS_FILE ".tmp", ADDON_CAPS "\n", sizeof ADDON_CAPS, 1);
+    if (access(CAPS_FILE, 0))
+        blob_io(CAPS_FILE, CAPS_FILE ".tmp", ADDON_CAPS "\n", sizeof ADDON_CAPS, 1);
     return ap.shown;
 }
 
