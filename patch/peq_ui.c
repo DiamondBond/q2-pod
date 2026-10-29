@@ -64,7 +64,7 @@ static struct {
     int screen, band, step, count, previous, rendered, dirty, pick, adjust, tries;
     int capacity, file_page;
     int tab, tabs; /* tabs: the wheel is on the tab bar, over Advanced's list */
-    int from_simple; /* Advanced's Presets screens, opened from Simple's Presets */
+    int from_simple; /* Advanced's Stock presets screen, opened from Simple's Presets */
     double typed;
     peq_preset draft, candidate, named; /* named: the preset applied under applied's name */
     char (*names)[256];
@@ -405,7 +405,7 @@ static int action(void *ctx, void *event) {
         if (ui.screen == HOME) { navigator_back(); return 0; }
         if (ui.screen == PICK) ui.screen = ui.pick == GAIN ? BAND : HOME;
         else if (ui.screen == ADJUST) ui.screen = BAND;
-        else ui.screen = ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
+        else ui.screen = ui.from_simple || ui.screen == BAND || ui.screen == PRESETS ? HOME : PRESETS;
     } else if (id == MENU) ui.screen = PRESETS;
     else if (id == IMPORT) ui.screen = IMPORTS;
     else if (id == FILE_PREV || id == FILE_NEXT) {
@@ -979,35 +979,35 @@ static void e3_done(void) {
     e3_flush();
 }
 
-/* On selects 3EQ (PEQ goes off); Off holds the 3EQ's preamp while the page is open, so comparing
- * against bypass is not suddenly louder. */
-static void e3_switch(void) {
+/* On selects 3EQ (PEQ goes off). Turning 3EQ off holds its preamp while the page is open, so
+ * comparing against bypass is not suddenly louder; turning a playing PEQ off holds nothing. */
+static void e3_switch(int on) {
     eq_state s;
     eq_load(&s);
     e3_preset(&s.eq3);
-    s.mode = e3.on ? EQ_OFF : EQ_3;
-    s.hold = e3.on;
+    s.mode = on ? EQ_3 : EQ_OFF;
+    s.hold = !on && e3.on;
     if (!eq_commit(&s)) {
         e3.status = "Switch failed; EQ unchanged";
         return;
     }
-    e3.on = !e3.on;
+    e3.on = on;
     e3.dirty = 0;
     ui.draft.bypass = 1; /* PEQ is off either way */
 }
 
 /* A slider taken, by Centre or touch; over a playing PEQ preset 3EQ takes over first. */
 static void e3_take(void) {
-    if (!ui.draft.bypass) e3_switch();
+    if (!ui.draft.bypass) e3_switch(1);
     e3.adjusting = 1;
 }
 
-/* Advanced's Presets screen, from Simple; unsaved gains keep Simple (as tab_to). */
+/* Advanced's Stock presets screen, from Simple; unsaved gains keep Simple (as tab_to). */
 static void e3_presets(void) {
     e3_done();
     if (e3.dirty) return;
     ui.tab = ADVANCED;
-    ui.screen = PRESETS;
+    ui.screen = STOCKS;
     ui.from_simple = 1;
     ui.tabs = ui.file_page = 0;
     ui.status[0] = 0;
@@ -1017,7 +1017,7 @@ static void e3_presets(void) {
 static void e3_activate(void) {
     e3.status = 0;
     if (e3.focus == E3_TABS) tab_to(ADVANCED);
-    else if (e3.focus == E3_SWITCH) e3_switch();
+    else if (e3.focus == E3_SWITCH) e3_switch(!e3.on && ui.draft.bypass); /* a playing PEQ shows on */
     else if (e3.focus == E3_PRESETS) e3_presets();
     else if (e3.focus == E3_RESET) {
         for (int i = 0; i < 3; ++i) e3_set(i, 0);
@@ -1101,35 +1101,35 @@ static void e3_box(void *canvas, int x, int y, int w, int h, unsigned rgb) {
 
 /* The switch's bar and the gains' bars in the accent's light tone (white in Stock and Minimal), grey
  * while 3EQ is off; the selected control on a lighter card; the slider being adjusted with a white
- * handle and value, the others grey. */
+ * handle and value, the others grey. While PEQ plays the switch shows it on, under the applied
+ * preset's name (Advanced unnamed), and the sliders are dimmed: one takes over as 3EQ. */
 static void e3_paint(void *canvas) {
-    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), tone = e3.on ? TONE : 0x666666;
-    int zero = e3_y(0);
+    int peq = !ui.draft.bypass, zero = e3_y(0);
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), tone = e3.on ? TONE : peq ? 0x444444 : 0x666666;
     char text[16];
-    /* Presets names the preset playing (Advanced's, applied under a name): 12 bytes at most, cut
-     * on a UTF-8 boundary, at 16px past 9 */
+    /* The switch names the preset playing: 12 bytes at most, cut on a UTF-8 boundary, at 16px past 9 */
     char preset[16];
-    int n = snprintf(preset, sizeof preset, "%s", !ui.draft.bypass && ui.applied[0] ? ui.applied : "Presets");
+    int n = snprintf(preset, sizeof preset, "%s", ui.applied[0] ? ui.applied : "Advanced");
     if (n > 12) {
         n = 12;
         while (n && (preset[n] & 0xc0) == 0x80) --n; /* preset[12] continues a character: drop it */
         preset[n] = 0;
     }
-    const char *const names[] = { e3.on ? "Enabled: On" : "Enabled: Off", preset, "R" };
+    const char *const names[] = { peq ? preset : e3.on ? "Enabled: On" : "Enabled: Off", "Presets", "R" };
     for (int i = 0; i < 3; ++i) {
         int x = e3_button[i][0], w = e3_button[i][1];
         e3_box(canvas, x, E3_BUTTONS, w, 40, e3.focus == E3_SWITCH + i ? 0x333333 : 0x1a1a1a);
-        if (!i) e3_box(canvas, x, E3_BUTTONS + 36, w, 4, tone);
-        caption(canvas, names[i], x, E3_BUTTONS, w, 40, i == 1 && n > 9 ? 16 : 20, 0xffffffffu);
+        if (!i) e3_box(canvas, x, E3_BUTTONS + 36, w, 4, e3.on || peq ? TONE : 0x666666);
+        caption(canvas, names[i], x, E3_BUTTONS, w, 40, !i && peq && n > 9 ? 16 : 20, 0xffffffffu);
     }
     for (int i = 0; i < 3; ++i) {
         static const char *const names[] = { "Low", "Mid", "High" };
         int x = 62 + 125 * i, y = e3_y(e3.gain[i]), focus = e3.focus == E3_LOW + i;
         if (focus) e3_box(canvas, x - 56, E3_SLIDERS, 112, e3_bottom() + 36 - E3_SLIDERS, 0x1a1a1a);
-        caption(canvas, names[i], x - 56, E3_SLIDERS, 112, 28, 20, 0xffffffffu);
+        caption(canvas, names[i], x - 56, E3_SLIDERS, 112, 28, 20, peq ? CF_GREY : 0xffffffffu);
         e3_box(canvas, x - 2, e3_top(), 4, e3_bottom() - e3_top(), 0x333333);
         e3_box(canvas, x - 3, y < zero ? y : zero, 6, y < zero ? zero - y : y - zero + 1, tone);
-        e3_box(canvas, x - 20, y - 5, 40, 10, focus && e3.adjusting ? 0xffffff : 0x8a8a8a);
+        e3_box(canvas, x - 20, y - 5, 40, 10, focus && e3.adjusting ? 0xffffff : peq ? 0x555555 : 0x8a8a8a);
         snprintf(text, sizeof text, e3.gain[i] ? "%+.1f dB" : "0 dB", e3.gain[i]);
         caption(canvas, text, x - 56, e3_bottom() + 8, 112, 24, 18, focus && e3.adjusting ? 0xffffffffu : CF_GREY);
     }
