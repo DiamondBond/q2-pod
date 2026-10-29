@@ -272,6 +272,9 @@ static inline int arc_out(int r, int y) {
 #define NP_TITLE_PX 22
 #define NP_META_PX 18
 #define NP_ALBUM_RGB 0xbbbbbb
+/* A line too long to fit holds MARQUEE_HOLD_MS at its start: the Minimal album marquee
+ * (navigation.c) and the stock title and artist labels' delay and lull (tools/ipod.py). */
+#define MARQUEE_HOLD_MS 1500
 /* iPod Now Playing's lyrics (lyrics.c, docs/ipod.md#lyrics): a line of one row is LYRIC_SLOT high,
  * its text and the gap to the next, a longer one more; the first after a blank LYRIC_SLOT
  * (tools/ipod.py's list layout) so it can sit in the middle as the playing line does; text LYRIC_X

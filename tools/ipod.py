@@ -419,6 +419,9 @@ def playing_page(root):
     title[1] = [NP_TEXT_X, top, text_w, 28]
     # every state: the labels are disabled (enable false), so a lone normal size would not apply
     title[2].update({'style': 's_scrlabel_white20l', **{f'style:{s}:font_size': str(NP_TITLE_PX) for s in ('normal', 'disable', 'focused')}})
+    # stock's lull only pauses between loops; delay holds a new song's start too, as the album's marquee
+    for n in (title, artist):
+        n[2].update(delay=str(inc('MARQUEE_HOLD_MS')), lull=str(inc('MARQUEE_HOLD_MS')))
     artist[1] = [NP_TEXT_X, top + 34, text_w, 22]
     for key in artist[2]:
         if key.endswith(':font_size'): artist[2][key] = str(NP_META_PX)

@@ -2028,7 +2028,6 @@ static int draw_spaced(void *canvas, const unsigned *s, int x, int y, unsigned p
  * starts it; it stops once the album fits or the page goes. */
 #define MARQUEE_MS 50
 #define MARQUEE_PX 2
-#define MARQUEE_HOLD_MS 1500
 static int np_marquee(const void *info) {
     st.np_marquee = 0;
     /* Covered or dark, paint_caps restarts it on Now Playing's next paint. */
