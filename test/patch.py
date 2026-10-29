@@ -10812,7 +10812,7 @@ passed()
 CAPS='/tmp/q2-addon.caps'
 m=AppMachine(); stream_rows(m); caps=bytes(m.files[CAPS])
 assert caps.endswith(b'\n') and caps.count(b'\n')==1,caps
-assert set(caps.split())==set(),caps
+assert set(caps.split())=={b'playlist'},caps
 m.files[CAPS]=bytearray(b'stale\n'); stream_rows(m); assert m.files[CAPS]==caps; passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.
@@ -11116,6 +11116,42 @@ assert len(m.plays)==2 and m.play_names==['01 - Bloodhound [20].flac']; passed()
 # Only a hidden folder of the card is played.
 m.files['/tmp/q2-deezer.play']=bytearray(b'1900 /mnt/mmc/Music\n'); m.tree['/mnt/mmc/Music']=[('a.flac',8)]; m.poll(); m.advance(0)
 assert len(m.plays)==2; passed()
+# Any song stock's listing takes streams, not only .flac and .mp3: a new name wakes the scan (but a .part or
+# .tmp, still being written), and stock's listing (REC_TYPE 8) says what is a song.
+STREAM='/mnt/mmc/.deezer/stream/2000'; m.files['/tmp/q2-deezer.play']=bytearray(f'2000 {STREAM}\n'.encode())
+stream_songs('01 - Valerie [5].m4a.tmp'); m.poll(); m.advance(0); assert len(m.plays)==2
+stream_songs('01 - Valerie [5].m4a'); m.poll(); m.advance(0)
+assert len(m.plays)==3 and m.play_names==['01 - Valerie [5].m4a'],(m.plays,m.play_names); passed()
+# A playlist (q2-subsonic's queue.m3u): .play names an .m3u on the card, its lines songs anywhere on the card
+# (synced ones in their album folders, streamed ones in the app's folder), played in its order. A song not
+# there yet is waited for, and nothing after it is queued before it; # lines, a BOM, CRLF and a path off the
+# card are passed over.
+SYNC,STR='/mnt/mmc/Navidrome/Broadcast/Tender Buttons','/mnt/mmc/.deezer/stream'; M3U=STR+'/queue.m3u'
+def card_song(path,listing=True):
+    d,n=path.rsplit('/',1); r=m.song(n); m.word(r+O['REC_PATH'],m.string(path))
+    m.files[path]=bytearray(); m.stats[path]=1
+    if listing: m.listings.setdefault(d,[]).append(r)
+    return r
+def m3u(*lines): m.files[M3U]=bytearray(('﻿#EXTM3U\r\n'+''.join(l+'\r\n' for l in lines)).encode()); m.stats[M3U]=m.stats.get(M3U,0)+1
+S1,S2,S3,S4=f'{SYNC}/01 - Tears.flac',f'{STR}/02 - Valerie [5].opus',f'{SYNC}/03 - Corporeal.flac',f'{SYNC}/04 - Lunch.flac'
+ra,rc=card_song(S1),card_song(S3); m3u(S1,'#EXTINF:182,Broadcast - Valerie',S2,'/etc/passwd',S3)
+m.plays=[]; m.files['/tmp/q2-deezer.play']=bytearray(f'2100 {M3U}\n'.encode()); m.poll(); m.advance(0)
+assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Tears.flac'],(m.plays,m.play_names)
+m.word(syms['mcl_pdeqplaylist'],m.deque([ra])); m.word(O['MCL_POOL'],m.deque([0],'int')); m.word(O['MCL_POS'],0)
+m.poll(); assert m.names()==['01 - Tears.flac'] and m.files['/tmp/q2-deezer.playing']==f'{S1}\n'.encode(); passed()
+# The streamed song lands (renamed into place whole): it and the one after it join the queue's end, in order.
+rb=card_song(S2); m.poll(); assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac'],m.names(); passed()
+# The app appends to the file (written aside and renamed): the new line joins; queued ones aren't again.
+card_song(S4); m3u(S1,S2,'/etc/passwd',S3,S4); m.poll()
+assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac','04 - Lunch.flac'],m.names()
+m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{S2}\n'.encode(); passed()
+# A file there that stock's listing doesn't take as a song is passed over, not waited for.
+S5,S6=f'{SYNC}/05 - cover.jpg',f'{SYNC}/06 - Dream.flac'; card_song(S5,listing=False); card_song(S6); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6); m.poll()
+assert m.names()[-1]=='06 - Dream.flac' and len(m.names())==5,m.names(); passed()
+# Another queue: the playlist's session is left. An .m3u off the card (or with ..) is never played.
+m.word(syms['mcl_pdeqplaylist'],m.deque([m.song('Other.flac')])); m3u(S1,S2,S3,S4,S6,f'{SYNC}/07.flac'); m.poll(); assert m.names()==['Other.flac']
+m.files['/tmp/q2-deezer.play']=bytearray(b'2200 /tmp/evil.m3u\n'); m.files['/tmp/evil.m3u']=bytearray(f'{S1}\n'.encode()); m.poll(); m.advance(0)
+m.files['/tmp/q2-deezer.play']=bytearray(f'2300 {STR}/../x.m3u\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==1; passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'
