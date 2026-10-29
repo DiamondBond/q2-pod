@@ -16,8 +16,8 @@
  * (hold=1: files moving, a phone using its page) and carries its web page's QR code, address and
  * PIN, which qr_open's page draws. A TERM to the loop's pid asks it to end. An app that plays as
  * well (q2-deezer's Stream mode) names a card folder of songs in /tmp/q2-<id>.play, which
- * stream_poll plays as it fills. A list reply with a cursor is followed by its next pages, appended
- * to the same list (page_next), up to ADDON_PAGES.
+ * stream_poll plays as it fills. A list reply whose message is "pages" and that has a cursor is
+ * followed by its next pages, appended to the same list (page_next), up to ADDON_PAGES.
  *
  * The card-app features this firmware has are words in /tmp/q2-addon.caps (ADDON_CAPS), written at
  * every Streaming scan. */
@@ -34,7 +34,7 @@
 #define ADDON_ROWS 50
 #define PROGRESS_H 8            /* a progress row's bar: a flat strip under its text */
 #define PROGRESS_TRACK 0x3a3a3a /* its unfilled part, dim against the black row */
-/* ponytail: replies a level appends (F4), 500 rows, under ringnav's MAX_ENTRIES (512), which
+/* ponytail: replies a level appends (page_next), 500 rows, under ringnav's MAX_ENTRIES (512), which
  * walks every row per wheel event; 2,000 needs MAX_ENTRIES 2048 after measuring, or a table_client
  * page. */
 #define ADDON_PAGES 10
@@ -453,8 +453,9 @@ static int req_done(void) {
  * (progress_row) draws a bar of its position, permille, under its title and subtitle; a press or a
  * held Play/Pause does nothing.
  * A reply whose message is "refresh" is asked again every ADDON_LIVE_MS while its level is on top,
- * and redrawn only when it changed, its selected row kept. Any other reply with a cursor is
- * followed by its next pages (page_next), appended to its list (append) under a Loading… row. */
+ * and redrawn only when it changed, its selected row kept. One whose message is "pages" and that
+ * has a cursor is followed by its next pages (page_next), appended to its list (append) under a
+ * Loading… row; any other keeps More…. */
 enum { K_LOAD, K_READY, K_ERROR, K_WAIT }; /* K_WAIT: no socket yet, the app starting */
 enum { G_ROW, G_SHOW, G_SEARCH };
 
@@ -579,8 +580,8 @@ static void row(lv_t *l, int i) {
         page_row_detail(pg.view, i, l->paging ? "Loading…" : "More…", "", clicked);
         return;
     }
-    void *item = (opens(l, i) ? page_row_detail_into : page_row_detail)(
-        pg.view, i, cell(l, i, 2), cell(l, i, 3), clicked);
+    void *item = (opens(l, i) ? page_row_detail_into : page_row_detail)(pg.view, i, cell(l, i, 2),
+                                                                        cell(l, i, 3), clicked);
     if (!strcmp(cell(l, i, 0), "progress") && pg.bars < ADDON_ROWS)
         progress_row(item, strtol(cell(l, i, 5), 0, 10));
 }
@@ -711,7 +712,7 @@ static void got(void) {
             l->buf[l->pages++] = reply, reply = 0;
             memcpy(l->f + 4 + 6 * from, g + 4, 6 * (unsigned)n * sizeof *g);
             l->f[3] = g[3], l->n += n;
-            if (g[3][0] && l->pages < ADDON_PAGES) page_next(l);
+            if (!strcmp(g[2], "pages") && g[3][0] && l->pages < ADDON_PAGES) page_next(l);
         }
         append(l, from);
     } else if (req.fail == REQ_NOSOCK &&
@@ -738,7 +739,8 @@ static void got(void) {
             l->n = n;
             l->hash = hash;
             l->state = K_READY;
-            if (!l->live && f[3][0]) page_next(l);
+            /* an app opts in; older ones' lists keep More… */
+            if (!strcmp(f[2], "pages") && f[3][0]) page_next(l);
             show();
         }
         if (pg.code) /* turned on by its row: its address at once, the menu behind it */

@@ -56,6 +56,8 @@ Request, after the version line, one line:
 
 The header is followed by 0 to 50 rows. `message` is one line of English for the screen (at most 120 bytes), usually empty on `ok`; capabilities and downloads use it for version or progress. `cursor`, when not empty, fetches the next page when passed as the op's last argument; it is at most 1 KiB. A page may hold fewer than 50 rows to stay within 64 KiB; its cursor then continues after the last row sent. `title` and `subtitle` are display text, at most 255 bytes each, cut on a character boundary; URIs and cursors are never cut.
 
+Card apps (`patch/addon.c`) take two `message` values of an `ok` list response as instructions, not text. `refresh` asks the firmware to ask again every 2 s while the list is on screen. `pages` with a cursor asks it to fetch the following pages itself, each with the list's arguments and the newest cursor last, as More… would, and append them to one list, up to 10 responses (500 rows); it continues while each response says `pages` and has a cursor, and ends at a **More…** row otherwise. Any other message with a cursor shows **More…**. Firmware lists `pages` in `/tmp/q2-addon.caps` when it does this; older firmware ignores the word and keeps More….
+
 Row fields:
 
 - `kind`: `track`, `album`, `artist`, `playlist`, `account`, `setting` or `op`.
