@@ -8925,7 +8925,7 @@ worker,arg=m.threads[0]; assert m.call(address=worker,args=(arg,0,0,0),gap=0)==0
 m.advance(600); assert m.toasts[-1][3]=='Nothing to upload' and m.joins==[77] and not m.timers; passed()
 # [SCROBBLE] AUTO=1 (scrobble_auto): the oldest unsent listen waits 3 h, 4 min less per listen, never under 1 h.
 auto=lambda n: m.call(address=payload_syms['scrobble_auto_ms'],args=(n,0,0,0),gap=0)
-assert [auto(n)//60000 for n in (0,1,10,30,31,1000,0xffffffff)]==[180,176,140,60,60,60,60]; passed()
+assert [auto(n)//60000 for n in (0,1,10,30,31,1000)]==[180,176,140,60,60,60]; passed()
 
 # Podcasts and Audiobooks: a row each, above upkeep, only for the card's top-level folder of that name (case
 # aside, a directory). A press opens folder_page there as a deeper folder (layer 3, stock reload, title

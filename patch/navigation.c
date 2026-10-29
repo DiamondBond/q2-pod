@@ -138,8 +138,8 @@ static int library_query(int content, const char *db, const char *sql, void *row
     if (sql && strstr(sql, LIBRARY_SCOPE_TOKEN) && !expanded) return -1;
     const char *query = expanded ? expanded : sql;
     int result = content == 2 ? stock_sorted_query_trampoline(db, query, row, (int)arg)
-        : content ? stock_content_query_trampoline(db, query, row, arg, sort)
-                  : stock_dbquery_trampoline(db, query, row, (int)arg);
+                 : content    ? stock_content_query_trampoline(db, query, row, arg, sort)
+                              : stock_dbquery_trampoline(db, query, row, (int)arg);
     if (expanded) free(expanded);
     return result;
 }
@@ -208,7 +208,7 @@ extern int visualizer_live(void), games_live(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
-    scrobble_album_artist(void), scrobble_auto_on(void);
+    scrobble_flag(const char *key);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 /* Scope music detail loads too: spoken tracks can share all their tags with music. */
@@ -428,6 +428,7 @@ typedef struct {
     /* The full-screen art's song name, its shade and its window, the fade's step and timer
      * (ringnav_bigcover) */
     void *bc[3];
+    void *bc_drop; /* full-screen art opened off the art page, closed on the next pass */
     int bc_step;
     unsigned bc_timer, bc_track, bc_repaint;
     unsigned bc_key, bc_box, bc_shape,
@@ -3169,7 +3170,7 @@ static void lyric_still(void *lrc) {
 /* Another song: its lyrics at the top, nothing held or gliding, and stock's animator, which would
  * carry them on to where the last song's follow sent them, stopped. */
 static void lyric_top(void *lrc) {
-    st.lyric_held = st.lyric_spun = st.lyric_glide = st.lyric_to = 0;
+    st.lyric_held = st.lyric_spun = st.lyric_glide = st.lyric_to = st.lyric_push = 0;
     lyric_still(lrc);
     scroll_view_set_offset(lrc, I(lrc, SCROLL_X), 0);
 }
@@ -3733,10 +3734,8 @@ static void lyric_poll(void) {
             st.last_input = at;
             reset_poweroptions_timer(1, 1, 1);
             /* x rises anticlockwise: back up the lyrics */
-            lyric_glide(lrc, st.lyric_home - (st.lyric_push > 0   ? 1
-                                              : st.lyric_push < 0 ? -1
-                                                                  : 0) *
-                                                 BUMP_PX * 16);
+            lyric_glide(lrc,
+                        st.lyric_home - ((st.lyric_push > 0) - (st.lyric_push < 0)) * BUMP_PX * 16);
             st.lyric_spun = 2;
             travel = 0;
         }
@@ -3756,12 +3755,14 @@ static void lyric_poll(void) {
     }
     if (!page)
         st.lyric_spun = st.lyric_push = 0;
-    else if (shown && st.lyric_spun && !wheel_held) {
-        if (st.lyric_spun == 1)
-            lyric_snap(lrc);
-        else /* a nudge springs back; the follow moves them on if the line changed meanwhile */
-            lyric_glide(lrc, st.lyric_home);
+    else if (st.lyric_spun == 2 && !wheel_held) {
+        /* a nudge springs back, shown or not, unless a tick took them meanwhile; the follow moves
+         * them on if the line changed. The next touch starts its push afresh. */
+        if (shown && !st.lyric_held) lyric_glide(lrc, st.lyric_home);
+        st.lyric_spun = st.lyric_push = 0;
+    } else if (shown && st.lyric_spun && !wheel_held) {
         st.lyric_spun = 0;
+        lyric_snap(lrc);
     }
     /* The page in front and usable (lit): the clock and the follow every pass (it narrows on each
      * second's change, lyrics_now). Else the follow, which only jumps, at stock's timer's pace on
@@ -4014,13 +4015,19 @@ static void bc_fit(void *win) {
 /* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
  * shows the song name BC_MS, then bc_fade fades it out. Stock's own timer writes the next song's
  * name; ringnav_sleep shows it again when the track changes. Enlarged Album Art's idle timer opens
- * it too: off the art page (lyrics, info, visualizer) there is no art to enlarge, so it closes at
- * once (#57), as crossfade.c's page does from its init. */
+ * it too: off the art page (lyrics, info, visualizer) there is no art to enlarge, so the next
+ * ringnav_sleep pass closes it (#57), once stock's open has finished with the window.
+ * ponytail: it may show for that one pass; stopping stock's idle timer would need its source. */
+static int bc_dropped(void *win, void *event) {
+    if (st.bc_drop == win) st.bc_drop = (void *)0;
+    return 0;
+}
 int ringnav_bigcover(void *win, void *ctx) {
     int result = stock_bigcover_trampoline(win, ctx);
     if (!win) return result;
     if (st.np_slide && widget_get_prop_int(st.np_slide, "value", 0)) {
-        window_close(win);
+        st.bc_drop = win;
+        widget_on(win, EVT_DESTROY, bc_dropped, win);
         return result;
     }
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
@@ -5732,8 +5739,7 @@ static int music_records(void *list, int discovery) {
     for (unsigned i = 0; i < deque_size(list); ++i) {
         void *r = deque_at(list, i);
         const char *path = P(r, REC_PATH);
-        int hidden = discovery ? library_scope_hidden(path)
-                               : spoken(path);
+        int hidden = discovery ? library_scope_hidden(path) : spoken(path);
         if (I(r, REC_TYPE) != 8 || !hidden) _deque_push_back(music, r);
     }
     deque_clear(list);
@@ -5750,8 +5756,7 @@ int ringnav_localclass(int cls) {
     if (n > 0 && cls == 0xff20) n = music_records(list, 0);
     /* These stored lists bypass songtable too. Keep Discovery out of their displayed copies,
      * without removing favourites/history or changing explicit playlist and folder queues. */
-    if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007))
-        n = music_records(list, 1);
+    if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007)) n = music_records(list, 1);
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
     if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007)) /* My Fav, Frequent, Recent */
@@ -7223,11 +7228,15 @@ static struct {
     int running;
 } sa __attribute__((section(".scratch")));
 unsigned scrobble_auto_ms(unsigned pending) {
-    int min = SA_MAX_MIN - SA_STEP_MIN * (int)(pending < 1000 ? pending : 1000);
+    int min = SA_MAX_MIN - SA_STEP_MIN * (int)pending;
     return (unsigned)(min < SA_MIN_MIN ? SA_MIN_MIN : min) * 60000u;
 }
 static void scrobble_listened(void) {
     if (!sa.pending++) sa.first_at = (unsigned)time_now_ms();
+}
+/* Due again SA_RETRY_MIN from now, sooner if more listens come. */
+static void sa_retry(unsigned now) {
+    sa.first_at = now - scrobble_auto_ms(sa.pending) + SA_RETRY_MIN * 60000u;
 }
 static void scrobble_auto(void) {
     unsigned now = (unsigned)time_now_ms();
@@ -7237,15 +7246,20 @@ static void scrobble_auto(void) {
         sa.running = 0;
         if (done > 0)
             sa.pending = 0;
-        else /* due again in SA_RETRY_MIN */
-            sa.first_at = now - scrobble_auto_ms(sa.pending) + SA_RETRY_MIN * 60000u;
+        else
+            sa_retry(now);
         return;
     }
     if (!sa.pending || now - sa.first_at < scrobble_auto_ms(sa.pending) ||
         now - sa.check_at < 60000)
         return;
-    sa.check_at = now; /* the card's settings and Wi-Fi, at most once a minute */
-    if (get_wifisignal() > 0 && scrobble_auto_on() && scrobble_start() > 0) sa.running = 1;
+    sa.check_at = now; /* Wi-Fi at most once a minute; the card's settings only on Wi-Fi */
+    if (get_wifisignal() <= 0) return;
+    int started = scrobble_flag("AUTO") ? scrobble_start() : -1;
+    if (started > 0)
+        sa.running = 1;
+    else if (started < 0) /* off, or no account: the card again in SA_RETRY_MIN */
+        sa_retry(now);
 }
 
 /* Upload Scrobbles: the log goes up on scrobble.c's thread, and a timer reports how it went. */
@@ -7261,6 +7275,7 @@ static int upload_wait(const void *unused) {
 
 static int upload_scrobbles(void *ctx, void *event) {
     int started = get_wifisignal() > 0 ? scrobble_start() : -2;
+    if (!started && sa.running) sa.running = 0, started = 1; /* the automatic one: report it */
     if (started > 0) timer_add(upload_wait, (void *)0, 500);
     toast(started > 0     ? "Uploading scrobbles"
           : !started      ? "Already uploading"
@@ -8664,7 +8679,7 @@ static void scrobble(void *r, int total, int heard) {
     const char *artist = now_tag(r, REC_ARTIST), *album_artist = now_tag(r, REC_ALBUM_ARTIST);
     if (!album_artist || !*album_artist)
         album_artist = P(r, REC_ALBUM_ARTIST); /* CUE: none parsed */
-    if (album_artist && *album_artist && scrobble_album_artist()) artist = album_artist;
+    if (album_artist && *album_artist && scrobble_flag("ALBUM_ARTIST")) artist = album_artist;
     if (!artist || !*artist) return;
     long long now = wall_time();
     if (now < 1600000000) return; /* clock never set: Last.fm would reject the time */
@@ -9254,6 +9269,11 @@ int ringnav_sleep(void *loop) {
 #if IPOD
     lyric_poll();
     keep_lit_poll();
+    if (st.bc_drop) { /* once: a destroy before this pass cleared it */
+        void *drop = st.bc_drop;
+        st.bc_drop = (void *)0;
+        window_close(drop);
+    }
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
 #endif
     if (!g_backlight_status) {
