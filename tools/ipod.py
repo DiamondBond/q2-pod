@@ -493,6 +493,24 @@ def playing_page(root):
     root[3].insert(3, remain)
 
 
+# iPod only. Display's Centred Now Playing (IPOD NPCENTRED) opens stock's own page, its art centred over the
+# title and artist, as PLAYING_STOCK (navigation.c ringnav_ui_load); the payload binds it by the same names.
+# It keeps stock's layout; the title and artist hold at their start as the iPod page's do, and the lyrics
+# span their column, as the iPod page's span the screen (patch/lyrics.c wraps at the rows' width).
+PLAYING_STOCK = 'playing_page_stock.bin'
+def playing_stock(data):
+    check(sha(data) == UI_ASSETS[PLAYING_PAGE], f'{PLAYING_PAGE}: unaudited UI asset')
+    root = decode(data)
+    named = {n[2].get('name'): n for n in walk(root)}
+    check(root[2].get('name') == 'playing_page' and named['slide_view'][1][2] == 225, 'Unexpected stock Now Playing')
+    for name in ('scrlabel_title', 'scrlabel_artist'):
+        named[name][2].update(delay=str(inc('MARQUEE_HOLD_MS')), lull=str(inc('MARQUEE_HOLD_MS')))
+    lrc = named['scroll_lrc'][2]
+    check(lrc['self_layout'].startswith('default(x=0,y=0,w=-10,'), 'Unexpected lyrics scroll view')
+    lrc['self_layout'] = 'default(x=0,y=0,w=100%,h=100%)'
+    return encode(root)
+
+
 # iPod only. The full-screen art (a tap on Now Playing's opens it, any tap closes it): stock's art, shade and
 # song name, the art a centred BC_ART square on the window's black (bigcover_page_init only loads its image
 # and sets its draw type, scale_auto as here), the shade and the name on its foot as stock has them on the

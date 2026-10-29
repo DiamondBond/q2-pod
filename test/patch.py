@@ -5584,7 +5584,7 @@ if variant=='ipod':
     # playing) the track's title and artist show at the bottom.
     m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'
     title,artist=m.node('hscroll_label','scrlabel_title',text='Charge'),m.node('hscroll_label','scrlabel_artist',text='Elbow')
-    vslide=m.node('slide_view','slide_view',value=0); m.word(vslide+O['W_H'],186)
+    vslide=m.node('slide_view','slide_view',value=0); m.word(vslide+O['W_H'],186); m.word(vslide+O['W_W'],375)
     box=m.node('view','slide_view_view',[vslide]); m.word(box+O['W_Y'],40)
     win=m.node('window','playing_page',[box,title,artist])
     for w,parent in ((vslide,box),(box,win),(title,win),(artist,win),(win,m.wm)): m.word(w+O['W_PARENT'],parent)
@@ -7524,7 +7524,7 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==9  # every key, once, on first use
+        assert len(m.config_reads)==10  # every key, once, on first use
         passed()
     # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
     # recycled text, touch hiding, Home siblings, and every accent.
@@ -7575,7 +7575,7 @@ if variant=='ipod':
     passed()
 
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0'),('/mnt/data/config.ini','IPOD','NPCENTRED','0')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -7871,9 +7871,9 @@ if variant=='ipod':
     assert m.icons_set==['playset_covermode','playset_folderjump','system_display','switch_off','system_display','list_into']
     assert [row_text(r) for r in (shortcut,hold,qs)]==['Shortcut: Rockbox','Hold Return: Recent','Wheel QS']; passed()
     view=display_page(m,1); rows=setting_rows(m,view)
-    kids=m.nodes[view]['children']; light,corners,keep_lit=kids[1],kids[3],kids[6]
-    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],keep_lit] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Light Mode, Accent, Corners, Home, Battery, Keep Screen On
-    assert m.icons_set==['system_display','system_display','system_display','system_display','switch_off','playset_covermode','system_powermanager','system_display','switch_off'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    kids=m.nodes[view]['children']; light,corners,centred,keep_lit=kids[1],kids[3],kids[6],kids[7]
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],centred,keep_lit] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing, Keep Screen On
+    assert m.icons_set==['system_display','system_display','system_display','system_display','switch_off','playset_covermode','system_powermanager','playset_covermode','switch_off','system_display','switch_off'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7886,7 +7886,19 @@ if variant=='ipod':
     f,ctx=m.handler(m.nodes[keep_lit]['children'][0],O['EVT_CLICK']); m.calls=[]
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not did(m,'image_manager_unload_all')
     assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','KEEPLIT')]
-    m.call(address=f,args=(ctx,m.event,0,0),gap=0); passed()
+    m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    # Centred Now Playing (IPOD NPCENTRED): a switch that only saves; the next Now Playing opens stock's
+    # own page (PLAYING_STOCK) through the window loader, and no other window changes.
+    centred_label=m.nodes[m.nodes[centred]['children'][0]]['children'][1]; assert m.nodes[centred_label]['text']=='Centred Now Playing'
+    f,ctx=m.handler(m.nodes[centred]['children'][0],O['EVT_CLICK']); m.calls=[]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not did(m,'image_manager_unload_all')
+    assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','NPCENTRED')]
+    load=IPOD_HOOKS['ui_loader_load_widget_with_parent'][0]; m.handlers[int(manifest['patch_symbols']['stock_ui_load_trampoline'],16)]='stock_ui_load'
+    def loaded(name):
+        m.calls=[]; m.call(address=load,args=(m.string(name),0,0,0),gap=0)
+        return [m.text(c[1]) for c in m.calls if c[0]=='stock_ui_load']
+    assert loaded('playing_page')==['playing_page_stock'] and loaded('home_page')==['home_page']
+    m.call(address=f,args=(ctx,m.event,0,0),gap=0); assert loaded('playing_page')==['playing_page']; passed()
     # Artist albums (Q2POD ARTISTCF), the other layout choice, after Home; no key is Coverflow.
     cf_label=m.nodes[m.nodes[cf]['children'][0]]['children'][1]; assert m.nodes[cf_label]['text']=='Artist Albums: Coverflow'
     f,ctx=m.handler(m.nodes[cf]['children'][0],O['EVT_CLICK']); m.calls=[]
@@ -7973,7 +7985,7 @@ if variant=='ipod':
     assert corners_switch()==['switch_on']
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children']
-    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],keep_lit] and m.nodes[rows[0]].get('visible',1)==1
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],centred,keep_lit] and m.nodes[rows[0]].get('visible',1)==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # Theme, the first row, keeps the selection, painted.
     m.paint(view); assert m.selected(view)==0; passed()
@@ -7989,7 +8001,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and corners_switch()==['switch_on']
     m.paint(view); assert m.selected(view)==0
     kids=m.nodes[view]['children']
-    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],keep_lit] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],centred,keep_lit] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.

@@ -146,6 +146,8 @@ HOOKS = {
 IPOD_HOOKS = {'playlist_rebuild': (0x4b2dac, 'ringnav_playlist', 'playlist'),
               'widget_on_paint_background': (0x65c77c, 'ringnav_paint_bg', 'paint_bg'),
               'bigcover_page_init': (0x5200ec, 'ringnav_bigcover', 'bigcover'),
+              # Every window's asset (window_open's): Centred Now Playing's page (navigation.c ringnav_ui_load)
+              'ui_loader_load_widget_with_parent': (0x653d94, 'ringnav_ui_load', 'ui_load'),
               # Status bar's 1 s tick: the payload's play state, before any paint (navigation.c bar_sync)
               'systembar_showface': (0x52f610, 'ringnav_showface', 'showface'),
               'style_get_color': (0x649f6c, 'ringnav_style_color', 'color'),
@@ -1319,7 +1321,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
-                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art)
+                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, playing_stock)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
@@ -1622,8 +1624,10 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
             icons[f'stream_{n}.png'] = (like, row_icon(data))
         icons['default_album_home.png'] = ('default_album_big.png', art)
         icons['default_album_flow.png'] = ('default_album_big.png', sized_art(art, 160))
+    ui = 'release/assets/default/raw/ui/'
+    pages = {ui+PLAYING_STOCK: (ui+'playing_page.bin', playing_stock(cat(ui+'playing_page.bin')))} if ipod else {}
     added = []
-    for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
+    for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()}, **pages,
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),

@@ -465,11 +465,12 @@ typedef struct {
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
         rounded, light, light_day, /* light_day: Auto's answer for now (LIGHT=2) */
-        keep_lit;                  /* Keep Screen On (#57, keep_lit_poll) */
+        keep_lit,                  /* Keep Screen On (#57, keep_lit_poll) */
+        np_centred;                /* Centred Now Playing (ringnav_ui_load) */
     unsigned keep_lit_at;
     void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
     int style_depth;  /* nested style hooks (a mutable style's fallback) map nothing */
-    void *setting_label[8];
+    void *setting_label[9];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1624,12 +1625,13 @@ static const char *const accent_names[] = {
 };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
- * 4 Shortcut, 5 Corners, 6 Light Mode, 7 Keep Screen On. */
-static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "THEME",
-                                            "SHORTCUT", "ROUNDED", "LIGHT",   "KEEPLIT" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3, 2 };
-static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
-                                       &st.shortcut, &st.rounded,   &st.light,   &st.keep_lit };
+ * 4 Shortcut, 5 Corners, 6 Light Mode, 7 Keep Screen On, 8 Centred Now Playing. */
+static const char *const setting_keys[] = { "ACCENT",  "HOME",  "BATTERY", "THEME",    "SHORTCUT",
+                                            "ROUNDED", "LIGHT", "KEEPLIT", "NPCENTRED" };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3, 2, 2 };
+static int *const setting_values[] = { &st.accent,  &st.home_full, &st.battery,
+                                       &st.classic, &st.shortcut,  &st.rounded,
+                                       &st.light,   &st.keep_lit,  &st.np_centred };
 /* The local time now into buf (struct tm: tm_sec @0, tm_min @4, tm_hour @8), or 0 when the clock
  * cannot be read. */
 static const int *clock_now(int *buf) {
@@ -1662,6 +1664,7 @@ static int accent(void) {
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
         st.light = config_value("IPOD", "LIGHT", 3, 0);     /* dark unless chosen; 2 Auto */
         st.keep_lit = config_value("IPOD", "KEEPLIT", 2, 0);
+        st.np_centred = config_value("IPOD", "NPCENTRED", 2, 0);
         int buf[11];
         st.light_day = light_day(clock_now(buf));
         st.settings_read = 1;
@@ -4012,6 +4015,18 @@ static void bc_fit(void *win) {
     }
 }
 
+/* ui_loader_load_widget_with_parent, every window's asset (window_open's): Centred Now Playing
+ * (IPOD NPCENTRED) builds Now Playing from stock's own page (tools/ipod.py PLAYING_STOCK), named
+ * playing_page too, which ringnav_playing binds as the iPod one; any opener comes through here. */
+extern void *stock_ui_load_trampoline(const char *name, void *parent);
+void *ringnav_ui_load(const char *name, void *parent) {
+    if (name && !tk_strcmp(name, "playing_page")) {
+        accent(); /* reads the settings */
+        if (st.np_centred) name = "playing_page_stock";
+    }
+    return stock_ui_load_trampoline(name, parent);
+}
+
 /* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
  * shows the song name BC_MS, then bc_fade fades it out. Stock's own timer writes the next song's
  * name; ringnav_sleep shows it again when the track changes. Enlarged Album Art's idle timer opens
@@ -4612,6 +4627,7 @@ static void setting_text(int i) {
                                   (const char *)0,
                                   (const char *)0,
                                   light[st.light],
+                                  (const char *)0,
                                   (const char *)0 };
     char shortcut[64];
     if (i == 4) {
@@ -4619,9 +4635,10 @@ static void setting_text(int i) {
         widget_set_text_utf8(st.setting_label[i], shortcut);
         return;
     }
-    if (i == 5 || i == 7) {
-        list_toggle(st.setting_label[i], i == 5 ? "Rounded Corners" : "Keep Screen On",
-                    i == 5 ? st.rounded : st.keep_lit);
+    static const char *const toggles[] = { "Rounded Corners", 0, "Keep Screen On",
+                                           "Centred Now Playing" };
+    if (i == 5 || i >= 7) {
+        list_toggle(st.setting_label[i], toggles[i - 5], *setting_values[i]);
         return;
     }
     widget_set_text_utf8(st.setting_label[i], names[i]);
@@ -4674,7 +4691,8 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
-    else if (i != 7) { /* Keep Screen On only needs its toggle drawn */
+    else if (i < 7) { /* Keep Screen On only needs its toggle drawn, Centred Now Playing the next
+                       * open (ringnav_ui_load) */
         if (i == 3) {
             coverflow_home_layout();
             settings_layout(window_manager());
@@ -4787,14 +4805,16 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
 #if IPOD
-    /* Theme, Light Mode, Accent, Corners, Home, Battery, Keep Screen On; Shortcut. */
-    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 7 }, controls[] = { 4 };
+    /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing, Keep Screen On;
+     * Shortcut. */
+    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8, 7 }, controls[] = { 4 };
     static const char *const icons[] = { "system_display",      "playset_covermode",
                                          "system_powermanager", "system_display",
                                          "playset_covermode",   "system_display",
-                                         "system_display",      "system_display" };
+                                         "system_display",      "system_display",
+                                         "playset_covermode" };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
-    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 7 : 1; k < n; ++k) {
+    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 8 : 1; k < n; ++k) {
         int i = rows[k];
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);

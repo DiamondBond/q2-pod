@@ -3,6 +3,7 @@
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.
   - Now Playing: Enlarged Album Art only appears over the art page. It no longer covers the lyrics, info or visualizer pages ([#57](https://github.com/DiamondBond/q2-pod/issues/57)).
+  - Display: **Appearance → Centred Now Playing**, off by default, uses Shanling's own Now Playing layout: the art large in the middle, with the title and artist centred under it. Lyrics, the visualizer, the heart and ratings work there too; the track count, album line and remaining time are only on the iPod layout. It applies the next time Now Playing opens.
   - Display: **Appearance → Keep Screen On**, off by default. While a song plays, the screen stays on while you're on the lyrics, info or visualizer page. When paused, it turns off as usual.
   - Lyrics: one click of the wheel no longer stops the lyrics following the song. It nudges them a little, and they spring back when you let go. Turn the wheel two clicks or more to scroll them yourself.
   - Buttons: after you hold the top button (Back), a second press it sometimes sends as you let go is ignored.

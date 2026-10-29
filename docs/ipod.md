@@ -617,7 +617,13 @@ drops the stock rows, takes the sub-page's title and builds only its own rows:
 - Appearance: "Theme: Minimal", "Light Mode: Off" ([Light Mode](#light-mode)), "Accent: Graphite"
   and a "Rounded Corners" switch (stock's `switch_on`/`switch_off`, via `list_toggle`) with the System settings Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
   Percent, Icon + Percent, Percent Inside; see [Status bar and clock](#status-bar-and-clock)) with
-  the power manager icon (`system_powermanager`), then a "Keep Screen On" switch (`IPOD KEEPLIT`, off;
+  the power manager icon (`system_powermanager`), then a "Centred Now Playing" switch (`IPOD
+NPCENTRED`, off; `playset_covermode`): `ringnav_ui_load`, hooked on every window's asset load
+  (`ui_loader_load_widget_with_parent`), builds the next Now Playing from stock's own page
+  (`tools/ipod.py` `PLAYING_STOCK`, `playing_page_stock.bin`, still named `playing_page`), which
+  `ringnav_playing` binds by the same widget names; it has no "3 of 12", album line or remaining time,
+  so those stay unbound. Its pages are stock's 225 px column: the lyrics wrap at their rows' width and the
+  visualizer draws at its slide's (`lyrics.c` `ly.w`, `visualizer.c` `PAGE_W`). Then a "Keep Screen On" switch (`IPOD KEEPLIT`, off;
   `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page and a song
   playing, it calls `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there;
   paused, it times out as usual. Enlarged Album Art never opens off the art page: `ringnav_bigcover`
