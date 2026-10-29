@@ -2098,6 +2098,18 @@ static void paint_caps(void *w, void *canvas) {
     draw_spaced(canvas, widget_get_text(w), 0, (I(w, W_H) - HOME_CAPS_PX) / 2, HOME_CAPS_PX, color,
                 I(w, W_W));
 }
+
+/* Classic's Home labels are bold, as an iPod's menu: the stock font has no bold face, so each
+ * label's own paint runs again a pixel to the right (a double strike), scrolling and colour
+ * included. */
+static void paint_bold(void *w, void *canvas) {
+    if (!w || !ipod_classic() || tk_strcmp(widget_get_type(w), "hscroll_label") ||
+        !coverflow_home_owns(w))
+        return;
+    canvas_translate(canvas, 1, 0);
+    widget_on_paint_self(w, canvas);
+    canvas_untranslate(canvas, 1, 0);
+}
 #endif
 
 /* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
@@ -2337,6 +2349,7 @@ int ringnav_paint(void *w, void *canvas) {
     paint_cover(w, canvas);
     if (w && st.np_lrc && P(w, W_PARENT) == st.np_lrc) lyrics_paint(w, canvas);
     paint_caps(w, canvas);
+    paint_bold(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
 #else

@@ -879,6 +879,9 @@ FUNCTIONS = {
  'canvas_draw_text_in_rect': ('int', 'void *, const unsigned *, unsigned, const void *'),
  'canvas_draw_text': ('int', 'void *, const unsigned *, unsigned, int, int'),  # Books (books.c)
  'canvas_measure_text': ('float', 'void *, const unsigned *, unsigned'),
+ # Classic Home's bold labels (navigation.c paint_bold)
+ 'canvas_translate': ('int', 'void *, int, int'), 'canvas_untranslate': ('int', 'void *, int, int'),
+ 'widget_on_paint_self': ('int', 'void *, void *'),
  'canvas_fill_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned'),
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
  # The PEQ curve (peq_ui.c) and the visualizer (visualizer.c): AWTK's software nanovg, float_t float, color_t by value

@@ -4821,6 +4821,18 @@ if variant=='ipod':
     assert m.sel()==(0,0,HOME_LIST_W,HOME_ROW) and m.icons==cbar() and not m.rounded
     assert m.bands[1][4]==color_t(ACCENTS[0][0]) and loaded(m)==['list_into'] and m.clip==(0,0,375,320)
     m.call(); m.paint(view); assert m.selected(view)==1 and m.sel()[1]>0 and m.icons==cbar(); passed()
+    # Classic's Home labels are bold: each label's own paint runs again a pixel right; Minimal's aren't.
+    def strikes(theme):
+        k=Machine(); k.config['THEME']=theme; home=asset_tree(k,HOME_PAGE)
+        k.handlers[HOOKS['home_page_init'][0]+12]='stock_home'
+        k.call(address=HOOKS['home_page_init'][0],args=(home,0,0,0),gap=0)
+        menu=named(k,home,'list_view_home'); label=k.nodes[k.nodes[k.nodes[menu]['children'][0]]['children'][0]]['children'][0]
+        k.calls.clear(); k.paint(label)
+        return [x[:1]+tuple(signed(v) for v in x[2:4]) if x[0]!='widget_on_paint_self' else x[:2] for x in k.calls
+                if x[0] in ('canvas_translate','canvas_untranslate','widget_on_paint_self')],label
+    got,label=strikes('1')
+    assert got==[('canvas_translate',1,0),('widget_on_paint_self',label),('canvas_untranslate',1,0)],got
+    assert strikes('0')[0]==[]; passed()
     # Playlists: every row follows the scroll, clipped to the viewport; the half-width
     # Import/Export tiles get none.
     m=Machine(); w,es=m.page_list(10,height=96,extent=480,name='playlist_page'); window(m,'playlist_page',w)
