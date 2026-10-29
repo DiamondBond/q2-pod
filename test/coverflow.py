@@ -57,7 +57,7 @@ widget_count_children widget_get_child widget_lookup widget_move_resize widget_g
 canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
 timer_add timer_remove navigator_back_to_home navigator_back window_manager_close_window_force navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
-canvas_draw_image slide_menu_set_spacer window_manager window_manager_get_top_window time_now_ms
+canvas_draw_image slide_menu_set_spacer window_manager window_manager_get_top_window window_manager_is_animating time_now_ms
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
@@ -169,6 +169,7 @@ int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
 static int wm_repaints; /* whole-screen invalidations, from outside a paint */
 void *window_manager(void) { return &wm_repaints; }
 void *window_manager_get_top_window(void *wm) { return 0; }
+int window_manager_is_animating(void *wm) { return 0; }
 unsigned time_now_ms(void) { return 0; }
 int widget_invalidate_force(void *x, void *y) { wm_repaints += x == &wm_repaints; return 0; }
 unsigned widget_count_children(void *x) { return x == &wm_repaints ? 0 : W(x)->nkids; } /* no window stack */
@@ -1317,14 +1318,16 @@ int main(void) {
     /* a paint drops its own invalidations: the whole screen repaints after it */
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
     /* Square, portrait and landscape covers keep their proportions, just cover the panel, are
-       zoomed DRIFT_ZOOM_PCT and placed where the pan is: at rest here (dark), on the panel's corner. */
+       zoomed DRIFT_ZOOM_PCT and placed where the pan is: at rest here (dark), its pan's corner. */
 #define ZOOM(v) ((v) * DRIFT_ZOOM_PCT / 100)
     static const int covers[][4] = { { 160, 160, 290, 290 }, { 206, 290, 206, 290 },
                                      { 300, 200, 435, 290 }, { 100, 400, 188, 752 } };
     for (unsigned i = 0; i < 4; ++i) {
         art_w = covers[i][0], art_h = covers[i][1];
         *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
-        int want[4] = { HOME_SPLIT_W, 0, ZOOM(covers[i][2]), ZOOM(covers[i][3]) };
+        int fw = ZOOM(covers[i][2]), fh = ZOOM(covers[i][3]), pw = 375 - HOME_SPLIT_W;
+        int rx = fw - pw < DRIFT_PAN_MAX ? fw - pw : DRIFT_PAN_MAX, ry = fh - 290 < DRIFT_PAN_MAX ? fh - 290 : DRIFT_PAN_MAX;
+        int want[4] = { HOME_SPLIT_W + (pw - fw + rx) / 2, (290 - fh + ry) / 2, fw, fh };
         for (int k = 0; k < 4; ++k) assert(geo[k] == want[k]);
     }
     art_w = art_h = 160;
