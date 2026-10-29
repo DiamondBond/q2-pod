@@ -363,5 +363,5 @@ void xfade_poll(int next) {
     xf.done = 1;
 }
 
-/* The next change's fade in ms, as xfade_poll last told the player; 0 none. */
+/* The next change's fade in ms; 0 none. */
 int xfade_armed(void) { return xf.flag ? *xf.flag : 0; }
