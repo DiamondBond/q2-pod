@@ -1444,6 +1444,7 @@ int main(void) {
     deque queue = {0};
     shim_queue = &queue;
     home_art = make(0, "image");
+    frame_fail = 1; /* no pan frame: covers show still (as a 16-bit or too long one), the image named */
     int *geo = (int *)W(home_art)->raw, asset[4] = { 0, 0, 375, 290 }, /* W_X, W_Y, W_W, W_H */
         split[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 };
     memcpy(geo, asset, sizeof asset);
@@ -1468,16 +1469,15 @@ int main(void) {
     assert(!strcmp(art, player));
     /* a paint drops its own invalidations: the whole screen repaints after it */
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
-    /* Square, portrait and landscape covers keep their proportions, just cover the panel, are
-       zoomed DRIFT_ZOOM_PCT and placed where the pan is: at rest here (dark), the old crop. */
-#define ZOOM(v) ((v) * DRIFT_ZOOM_PCT / 100)
+    /* Square, portrait and landscape still covers keep their proportions, just cover the panel and
+       centre on it. */
     static const int covers[][4] = { { 160, 160, 290, 290 }, { 206, 290, 206, 290 },
                                      { 300, 200, 435, 290 }, { 100, 400, 188, 752 } };
     for (unsigned i = 0; i < 4; ++i) {
         art_w = covers[i][0], art_h = covers[i][1];
         *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
         int want[4] = { HOME_SPLIT_W + (375 - HOME_SPLIT_W - covers[i][2]) / 2, (290 - covers[i][3]) / 2,
-                        ZOOM(covers[i][2]), ZOOM(covers[i][3]) };
+                        covers[i][2], covers[i][3] };
         for (int k = 0; k < 4; ++k) assert(geo[k] == want[k]);
     }
     art_w = art_h = 160;
@@ -1547,15 +1547,15 @@ int main(void) {
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
     assert(*(int *)(label->raw + W_W) == HOME_SPLIT_W - dot_x - HOME_SPLIT_LABEL_END && W(home_art)->visible);
     coverflow_home_art(win);
-    assert(loads == before + 1 && !strcmp(art, player));
-    classic = 1; /* Classic halves the screen: the 160px cover fills 290px from 187 + (188 - 290) / 2, zoomed */
+    assert(loads == before + 2 && !strcmp(art, player)); /* home_tex tries it, then the still fill */
+    classic = 1; /* Classic halves the screen: the 160px cover fills 290px from 187 + (188 - 290) / 2 */
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
     assert(*(int *)(label->raw + W_X) == HOME_CLASSIC_TEXT_X &&
            *(int *)(label->raw + W_W) == HOME_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
     coverflow_home_art(win);
-    static const int classic_geo[4] = { 136, 0, ZOOM(290), ZOOM(290) };
-    assert(loads == before + 2 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
+    static const int classic_geo[4] = { 136, 0, 290, 290 };
+    assert(loads == before + 4 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
     home_full = 1;
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_CLASSIC_ROW));
@@ -1563,6 +1563,14 @@ int main(void) {
     classic = 0; home_full = 0;
     coverflow_home_layout();
     assert(*(int *)(label->raw + W_X) == dot_x && !memcmp(geo, split, sizeof split) && loads == unloads);
+    /* A cover that pans: the art's image is empty and fills the panel, the pan's frame drawn over it. */
+    frame_fail = 0;
+    *(volatile int *)MCL_POS = 0;
+    coverflow_home_art(win);
+    assert(!*art && !memcmp(geo, split, sizeof split) && loads == unloads);
+    int drew = draws;
+    coverflow_home_clip(home_art, canvas, 0);
+    assert(draws == drew + 1);
 
 #endif
     embedded_first();
