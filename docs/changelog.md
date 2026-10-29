@@ -9,6 +9,7 @@
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
   - Card apps: the firmware lists the card-app features it has in `/tmp/q2-addon.caps`, so apps can use new features and fall back on older firmware.
   - Card apps: a progress row shows a bar in Q2 Pod's style, for an app's sync or download progress.
+  - Card apps: long lists load in full, up to 500 rows, instead of stopping at 50 behind More…, so the wheel speeds up and shows the big letter through the whole list, as in the Library. Lists that keep updating (such as downloads) still show More….
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.

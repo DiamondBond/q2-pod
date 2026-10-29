@@ -10812,7 +10812,7 @@ passed()
 CAPS='/tmp/q2-addon.caps'
 m=AppMachine(); stream_rows(m); caps=bytes(m.files[CAPS])
 assert caps.endswith(b'\n') and caps.count(b'\n')==1,caps
-assert set(caps.split())=={b'progress'},caps
+assert set(caps.split())=={b'progress',b'pages'},caps
 m.files[CAPS]=bytearray(b'stale\n'); stream_rows(m); assert m.files[CAPS]==caps; passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.
@@ -10915,11 +10915,40 @@ m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','
 m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=0; m.press(80)
 assert m.hold()==11; m.answer('ok','Downloading the folder','',[]); assert m.requests[-1]==('downloadfolder','12.3') and m.toasts[-1][3]=='Downloading the folder'
 m.answer('ok','refresh','50',[('action','download','01 Xtal.flac','bob','12.3','downloadfolder')])
-m.pick(1); m.answer('ok','','100',[('info','','Second','','','')]); assert m.requests[-1]==('search','aphex%09twin','50'),m.requests[-1]
+m.pick(1); m.answer('ok','refresh','100',[('info','','Second','','','')]); assert m.requests[-1]==('search','aphex%09twin','50'),m.requests[-1]
 # More… again: the list's own arguments and the newest cursor alone, Q2SPOT/1's last argument (to 1.4.1 each
 # cursor followed the ones before, "search aphex 50 100", which q2-deezer read as the second page again).
 m.pick(1); m.answer('ok','','',[]); assert m.requests[-1]==('search','aphex%09twin','100'),m.requests[-1]
-m.back(); m.answer('ok','','100',[('info','','Second','','','')]); assert m.requests[-1]==('search','aphex%09twin','50'); passed()
+m.back(); m.answer('ok','refresh','100',[('info','','Second','','','')]); assert m.requests[-1]==('search','aphex%09twin','50'); passed()
+# Full lists (F4, addon.c page_next): a reply with a cursor that isn't live is followed by its next pages, each
+# asked with the list's own arguments and the newest cursor (as More… asks), their rows added to the same list
+# under a Loading… row that does nothing, the rows on screen, the selected row and the scroll left as they are,
+# until no cursor is left. A live level keeps More… (above): its 2 s refresh asks the first page alone.
+def arts(k,n=50): return [('list','artist',f'Artist {k*50+i:03}','',f'ar-{k*50+i}','playartist') for i in range(n)]
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','','c1',arts(0))
+view=s.find('scroll_view'); rows=s.rows(); assert len(rows)==51 and s.labels()[-2:]==['Loading…',''],s.labels()[-2:]
+asked=len(s.threads); s.pick(50); assert len(s.threads)==asked
+s.nodes[view]['_ringnav_index']=7; s.word(view+O['SCROLL_Y'],6*64); y=s.get(view+O['SCROLL_Y'])  # row 7 on screen
+s.answer('ok','','c2',arts(1)); assert s.requests[-1]==('downloads','c1') and s.rows()[:50]==rows[:50] and len(s.rows())==101,s.requests[-1]
+assert s.nodes[view]['_ringnav_index']==7 and s.get(view+O['SCROLL_Y'])==y and s.get(view+O['VIEW_CONTENT_H'])==101*64
+s.answer('ok','','',arts(2,20)); assert s.requests[-1]==('downloads','c2') and len(s.rows())==120 and s.labels()[-2:]==['Artist 119','']
+t=len(s.threads); s.advance(2000); assert len(s.threads)==t; passed()
+# Play/Pause held on an appended row sends its hold op; the level is asked again from its first page (the action
+# may change it) and the row comes back once its page is there, as after Back from a row's level.
+s.top=s.page; s.status=s.alloc(0x200); s.nodes[view]['_ringnav_index']=70; s.press(80); assert s.hold()==11
+s.answer('ok','Playing Artist 070','',[]); assert s.requests[-1]==('playartist','ar-70'),s.requests[-1]
+s.answer('ok','','c1',arts(0)); view=s.find('scroll_view'); assert s.nodes[view]['_ringnav_index']==50
+s.answer('ok','','c2',arts(1)); assert s.nodes[view]['_ringnav_index']==70; s.answer('ok','','',arts(2,20))
+s.pick(105); s.answer('ok','','',[]); s.back(); s.answer('ok','','c1',arts(0)); s.answer('ok','','c2',arts(1)); s.answer('ok','','',arts(2,20))
+assert s.requests[-3:]==[('downloads',),('downloads','c1'),('downloads','c2')] and s.nodes[s.find('scroll_view')]['_ringnav_index']==105; passed()
+# At ADDON_PAGES replies (500 rows, under ringnav's 512) the list stops at More…, which asks for the rest as a
+# level of its own; a page that fails ends the list at More… too, its rows kept, nothing asked again.
+s.back(); s.answer('ok','refresh','',SMENU); s.pick(2)
+for k in range(10): s.answer('ok','',f'c{k+1}',arts(k))
+assert len(s.rows())==501 and s.labels()[-2:]==['More…',''] and s.requests[-1]==('downloads','c9'); t=len(s.threads); s.advance(2000); assert len(s.threads)==t
+s.pick(500); s.answer('ok','','c11',arts(10,30)); assert s.requests[-1]==('downloads','c10')
+s.answer('error','Server down','',[]); assert s.requests[-1]==('downloads','c11') and len(s.rows())==31 and s.labels()[-2:]==['More…','']
+t=len(s.threads); s.advance(2000); assert len(s.threads)==t; passed()
 # Back twice to the menu; Phone Remote shows the QR code page from the add-on's status file.
 m.back(); m.answer('ok','refresh','50',[]); m.back(); m.answer('ok','refresh','',SMENU); assert m.labels()==SLABELS
 code=[[(x*7+y*3)%5<2 for x in range(21)] for y in range(21)]
