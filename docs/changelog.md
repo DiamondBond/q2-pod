@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.5.6**:
+  - Now Playing: Enlarged Album Art (10s wait) is off by default. It still applies after a reset or on a new setup; a saved setting is kept.
+
 - **1.5.5**:
   - Bluetooth: gapless changes no longer click. For songs not at 48 kHz, the Q2 dropped about 0.2 ms of audio at every change between songs; it now plays through.
   - Bluetooth: skipping a track no longer crackles. The Q2 sent the headset nothing for about 0.4 s during a skip, so its buffer ran dry and the next song played on with it near-empty. After 0.1 s it now keeps the stream going with silence until the next song starts.
