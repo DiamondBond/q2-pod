@@ -156,9 +156,9 @@ static void launch(app_t *a) {
 /* Stream mode (q2-deezer's stream.go): an app's /tmp/q2-<id>.play holds "<seq> <folder>", a hidden
  * card folder it fills with a list's songs, named in play order ("01 - Title [id].flac"), as they
  * download. A new one is played from its first song once one is there (the folder's songs in name
- * order, as a local row's album is: songs_open), Now Playing opening as for a press. While the queue
- * is still that folder's, songs that come later (named after the last one queued) join its end, as Add
- * to Queue adds them (playback_queue_insert); the path of the one playing is left in
+ * order, as a local row's album is: songs_open), Now Playing opening as for a press. While the
+ * queue is still that folder's, songs that come later (named after the last one queued) join its
+ * end, as Add to Queue adds them (playback_queue_insert); the path of the one playing is left in
  * /tmp/q2-<id>.playing, so the app fetches only a few ahead and deletes the ones long played. Or
  * .play names an .m3u on the card (q2-subsonic's queue), one card path a line: its songs are queued
  * in its order, each waited for until it is there (m3u_songs). */
