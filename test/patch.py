@@ -10807,6 +10807,12 @@ icons={'Deezer':'file:///mnt/mmc/.deezer/icon-40.png',
 for t,want in icons.items():
     icon=m.nodes[rows[t]]['children'][0]; assert m.nodes[icon]['image']==want and not m.nodes[rows[t]].get('name'),(t,m.nodes[icon]['image'])
 passed()
+# Capabilities (addon.c addon_scan): Streaming's first scan leaves /tmp/q2-addon.caps, the card-app features
+# this firmware has as words on one line (none yet), so an app tells it from older firmware, which has no file;
+# written once, while absent.
+CAPS='/tmp/q2-addon.caps'
+m=AppMachine(); stream_rows(m); assert m.files[CAPS]==b'\n',m.files.get(CAPS)
+m.files[CAPS]=bytearray(b'x\n'); stream_rows(m); assert m.files[CAPS]==b'x\n'; passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.
 m=AppMachine(); view=m.node('scroll_view','scroll_view_streamsset')

@@ -16,7 +16,8 @@
  * (hold=1: files moving, a phone using its page) and carries its web page's QR code, address and
  * PIN, which qr_open's page draws. A TERM to the loop's pid asks it to end. An app that plays as well
  * (q2-deezer's Stream mode) names a card folder of songs in /tmp/q2-<id>.play, which stream_poll
- * plays as it fills. */
+ * plays as it fills. Its features are words in /tmp/q2-addon.caps, written at Streaming's first
+ * scan. */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -37,6 +38,8 @@
 #define QR_PX 186  /* the code's white plate: 5 px modules up to a 33-module code */
 #define QR_COL 214 /* the text beside it */
 #define CARD "/mnt/mmc"
+#define CAPS_FILE "/tmp/q2-addon.caps"
+#define ADDON_CAPS "" /* each feature's PR adds its word: playlist (F1), progress (F2), library (F3), pages (F4) */
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -110,6 +113,7 @@ int addon_scan(void) {
             ap.order[k] = ap.order[k - 1];
         ap.order[k] = i;
     }
+    if (access(CAPS_FILE, 0)) blob_io(CAPS_FILE, CAPS_FILE ".tmp", ADDON_CAPS "\n", sizeof ADDON_CAPS, 1);
     return ap.shown;
 }
 

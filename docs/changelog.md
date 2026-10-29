@@ -7,6 +7,7 @@
   - Now Playing: in Centred Now Playing, tap the lyrics to show them full screen, across the whole width, with the art, title, buttons and progress bar out of the way. Tap again or press Back to return; swiping to another page returns too.
   - Home: **Display → Appearance → Home** has a third choice, **Carousel**: Shanling's card carousel, with the Pod's cards (Coverflow and your Shortcut among them) in your accent and Theme.
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
+  - Card apps: the firmware lists the card-app features it has in `/tmp/q2-addon.caps`, so apps can use new features and fall back on older firmware.
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.
