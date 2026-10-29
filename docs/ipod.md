@@ -627,7 +627,7 @@ NPCENTRED`, off; `playset_covermode`): `ringnav_ui_load`, hooked on every window
   (`tools/ipod.py` `PLAYING_STOCK`, `playing_page_stock.bin`, still named `playing_page`), which
   `ringnav_playing` binds by the same widget names; it has no "3 of 12", album line or remaining time,
   so those stay unbound. Its pages are stock's 225 px column: the lyrics wrap at their rows' width and the
-  visualizer draws at its slide's (`lyrics.c` `ly.w`, `visualizer.c` `PAGE_W`). Then a "Keep Screen On" switch (`IPOD KEEPLIT`, off;
+  visualizer draws at its slide's (`lyrics.c` `ly.w`, `visualizer.c` `PAGE_W`). Then a "Smart Awake" switch (`IPOD KEEPLIT`, off;
   `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page and a song
   playing, it calls `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there;
   paused, it times out as usual. Enlarged Album Art never opens off the art page: `ringnav_bigcover`

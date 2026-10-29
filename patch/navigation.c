@@ -467,7 +467,7 @@ typedef struct {
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
         rounded, light, light_day, /* light_day: Auto's answer for now (LIGHT=2) */
-        keep_lit,                  /* Keep Screen On (#57, keep_lit_poll) */
+        keep_lit,                  /* Smart Awake (#57, keep_lit_poll) */
         np_centred;                /* Centred Now Playing (ringnav_ui_load) */
     unsigned keep_lit_at;
     void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
@@ -1627,7 +1627,7 @@ static const char *const accent_names[] = {
 };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
- * 4 Shortcut, 5 Corners, 6 Light Mode, 7 Keep Screen On, 8 Centred Now Playing. */
+ * 4 Shortcut, 5 Corners, 6 Light Mode, 7 Smart Awake, 8 Centred Now Playing. */
 static const char *const setting_keys[] = { "ACCENT",  "HOME",  "BATTERY", "THEME",    "SHORTCUT",
                                             "ROUNDED", "LIGHT", "KEEPLIT", "NPCENTRED" };
 static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3, 2, 2 };
@@ -3683,7 +3683,7 @@ static void lyric_follow(void *lrc, int ms, int front, int shown) {
     }
 }
 
-/* Keep Screen On (#57): Now Playing lit in front, a song playing, on its lyrics, info or
+/* Smart Awake (#57): Now Playing lit in front, a song playing, on its lyrics, info or
  * visualizer page holds the screen on as the lyrics wheel does; paused, it times out as usual. */
 static void keep_lit_poll(void) {
     unsigned now = (unsigned)time_now_ms();
@@ -4637,7 +4637,7 @@ static void setting_text(int i) {
         widget_set_text_utf8(st.setting_label[i], shortcut);
         return;
     }
-    static const char *const toggles[] = { "Rounded Corners", 0, "Keep Screen On",
+    static const char *const toggles[] = { "Rounded Corners", 0, "Smart Awake",
                                            "Centred Now Playing" };
     if (i == 5 || i >= 7) {
         list_toggle(st.setting_label[i], toggles[i - 5], *setting_values[i]);
@@ -4693,7 +4693,7 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
-    else if (i < 7) { /* Keep Screen On only needs its toggle drawn, Centred Now Playing the next
+    else if (i < 7) { /* Smart Awake only needs its toggle drawn, Centred Now Playing the next
                        * open (ringnav_ui_load) */
         if (i == 3) {
             coverflow_home_layout();
@@ -4807,7 +4807,7 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
 #if IPOD
-    /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing, Keep Screen On;
+    /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing, Smart Awake;
      * Shortcut. */
     static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8, 7 }, controls[] = { 4 };
     static const char *const icons[] = { "system_display",      "playset_covermode",

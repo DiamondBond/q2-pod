@@ -508,6 +508,12 @@ def playing_stock(data):
     lrc = named['scroll_lrc'][2]
     check(lrc['self_layout'].startswith('default(x=0,y=0,w=-10,'), 'Unexpected lyrics scroll view')
     lrc['self_layout'] = 'default(x=0,y=0,w=100%,h=100%)'
+    # Stock's art meets the status bar: it starts 8 px below it, 8 px smaller so its bottom stays
+    # put, with the play-state badge still centred on it.
+    check(named['img_cover'][1] == [18, 0, 188, 188] and named['img_playstate'][1] == [52, 34, 120, 120],
+          'Unexpected stock cover')
+    named['img_cover'][1] = [22, 8, 180, 180]
+    named['img_playstate'][1] = [52, 38, 120, 120]
     return encode(root)
 
 
