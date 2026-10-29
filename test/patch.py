@@ -11663,6 +11663,18 @@ hold=700
 assert wake(DOWN,RET,gap=1000) and wake(UP,RET,gap=hold) and not wake(DOWN,RET,gap=60) and not wake(UP,RET,gap=30)
 assert wake(DOWN,RET,gap=1000) and wake(UP,RET,gap=hold) and wake(DOWN,RET,gap=200) and wake(UP,RET,gap=30)
 assert wake(DOWN,RET,gap=1000) and wake(UP,RET,gap=100) and wake(DOWN,RET,gap=60) and wake(UP,RET,gap=30); passed()
+# Every edge button guards Centre as Return does: a thumb on the rim closes Centre with Play/Pause,
+# Previous or Next too. Centre pressed first passes, but an edge press within CHORD_MS of it ends
+# Centre's hold timer, so stock's Centre hold (Shut Down) never comes; a later one leaves it.
+for k in (O['KEY_PLAY'],O['KEY_BACK_BTN'],O['KEY_FWD_BTN']):
+    assert wake(DOWN,k,gap=1000) and not wake(DOWN,gap=30) and not wake(UP,gap=50) and wake(UP,k),k
+hold_timer=payload_syms['ringnav_hold_timer']
+def centre_hold(): return m.call(address=hold_timer,args=(0x1234,m.wm,1000,O['KEY_CENTER']),gap=0,clear=False)
+FWD=O['KEY_FWD_BTN']
+assert wake(DOWN,gap=1000); t=centre_hold(); assert t in m.timers
+assert wake(DOWN,FWD,gap=100) and t not in m.timers and wake(UP,gap=50) and wake(UP,FWD)
+assert wake(DOWN,gap=1000); t=centre_hold(); assert wake(DOWN,FWD,gap=600) and t in m.timers
+m.timers.pop(t); assert wake(UP,gap=50) and wake(UP,FWD); passed()
 # Standby's resume (STANDBY_WAKE, device_standby's awake_screen) stays dark in both modes, so the
 # resuming key acts as dark (#27); a wake press clears stock's resume guard, which would drop its release.
 from build import STANDBY_WAKE

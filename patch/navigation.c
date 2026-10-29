@@ -387,11 +387,13 @@ typedef struct {
     unsigned art_cf_timer;
     unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
     unsigned woke_at; /* the centre press that woke the screen, then its first lit loop pass */
-    unsigned return_at; /* chord_gate: Return's press while held, else 0 */
-    int chord_eat;      /* 1: the held Centre press is dropped; -1: it passes */
-    unsigned chord_at;  /* the last Centre event chord_gate saw */
-    unsigned return_up; /* chord_gate: a hold's release, else 0 */
-    int return_eat;     /* 1: a ghost Return press is dropped */
+    unsigned return_at;          /* chord_gate: Return's press while held, else 0 */
+    int chord_eat;               /* 1: the held Centre press is dropped; -1: it passes */
+    unsigned chord_at;           /* the last Centre event chord_gate saw */
+    unsigned return_up;          /* chord_gate: a hold's release, else 0 */
+    unsigned edge_held, edge_at; /* chord_gate: edge buttons held (bits), the last one's press */
+    unsigned centre_at, centre_hold; /* a passing Centre press, and its hold timer */
+    int return_eat;                  /* 1: a ghost Return press is dropped */
     unsigned return_eat_at;
     void *np_origin; /* the page Hold Return opened Now Playing over */
     void *dc_top;    /* the page of the last centre press no list click took, and its time */
@@ -8607,7 +8609,9 @@ const int *ringnav_hold_info(void *ids, int key) {
         ids, key); /* input_device_status_find_key_long_press_info */
 }
 unsigned ringnav_hold_timer(int (*fn)(const void *), void *ids, unsigned ms, int key) {
-    return timer_add(fn, ids, key == KEY_PLAY || key == KEY_RETURN ? KEY_HOLD_MS : ms);
+    unsigned id = timer_add(fn, ids, key == KEY_PLAY || key == KEY_RETURN ? KEY_HOLD_MS : ms);
+    if (key == KEY_CENTER) st.centre_hold = id; /* chord_gate may end it */
+    return id;
 }
 
 /* Replaces mclNextSong's shuffle pick call: stock picks and bookkeeps, then a pending Play next
@@ -9380,20 +9384,37 @@ static int wake_gate(void *e) {
     return !st.wake_pass;
 }
 
-/* A loose wheel can close Centre with the top button (Return). A Centre press that starts while
- * Return is held, within CHORD_MS of Return's press, is dropped whole (its repeats and release
- * too), before the wake gate sees it; Return keeps its own. Centre held first passes as before.
- * Return's hold (Now Playing, Home) can ghost a second press as it lets go: a Return press
- * starting within RETURN_GHOST_MS of a hold's release is dropped whole too.
- * ponytail: CHORD_MS bounds a Return release that never came (Standby while held);
- * RETURN_GHOST_MS is the tuning knob, and only a ghost after the release is caught. Returns 1 to
- * drop the event. */
+/* A loose wheel, or a thumb on its rim between two buttons, can close Centre with an edge button
+ * (Return, Play/Pause, Previous, Next). A Centre press that starts while one is held, within
+ * CHORD_MS of its press, is dropped whole (its repeats and release too), before the wake gate sees
+ * it; the edge button keeps its own. Centre pressed first passes, but an edge press within
+ * CHORD_MS of it ends Centre's hold timer (ringnav_hold_timer), so a rim press held near a corner
+ * never reaches stock's Centre hold, the Shut Down dialog. Return's hold (Now Playing, Home) can
+ * ghost a second press as it lets go: a Return press starting within RETURN_GHOST_MS of a hold's
+ * release is dropped whole too. ponytail: CHORD_MS bounds a Return release that never came (Standby
+ * while held); RETURN_GHOST_MS is the tuning knob, and only a ghost after the release is caught.
+ * Returns 1 to drop the event. */
 #define CHORD_MS 500
 #define RETURN_GHOST_MS 135
 static int chord_gate(void *e) {
     unsigned type = (unsigned)I(e, EVENT_TYPE), key = (unsigned)I(e, EVENT_KEY);
     unsigned now = (unsigned)time_now_ms();
     if (type != EVT_KEY_DOWN && type != EVT_KEY_LONG && type != EVT_KEY_UP) return 0;
+    unsigned edge = key == KEY_RETURN     ? 1
+                    : key == KEY_PLAY     ? 2
+                    : key == KEY_BACK_BTN ? 4
+                    : key == KEY_FWD_BTN  ? 8
+                                          : 0;
+    if (edge && type == EVT_KEY_UP)
+        st.edge_held &= ~edge;
+    else if (edge && !(st.edge_held & edge)) {
+        st.edge_held |= edge;
+        st.edge_at = now;
+        if (st.centre_at && now - st.centre_at < CHORD_MS && st.centre_hold) {
+            timer_remove(st.centre_hold); /* the rim's Centre: no hold */
+            st.centre_hold = 0;
+        }
+    }
     if (key == KEY_RETURN) {
         /* a repeat follows its press within 258 ms; a later down is a new press */
         if (type == EVT_KEY_DOWN && !st.return_at &&
@@ -9415,10 +9436,12 @@ static int chord_gate(void *e) {
     if (key != KEY_CENTER) return 0;
     /* a repeat follows its press within 258 ms; a later down is a new press (a lost release) */
     if (type == EVT_KEY_DOWN && (!st.chord_eat || now - st.chord_at > 300))
-        st.chord_eat = st.return_at && now - st.return_at < CHORD_MS ? 1 : -1;
+        st.chord_eat = st.edge_held && now - st.edge_at < CHORD_MS ? 1 : -1;
     st.chord_at = now;
     int eat = st.chord_eat > 0;
-    if (type == EVT_KEY_UP) st.chord_eat = 0;
+    if (type == EVT_KEY_UP) st.chord_eat = st.centre_hold = 0;
+    /* a passing press: its time, for an edge press after it; its release ends that */
+    if (!eat) st.centre_at = type == EVT_KEY_UP ? 0 : st.centre_at ? st.centre_at : now | 1;
     return eat;
 }
 
