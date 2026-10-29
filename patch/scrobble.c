@@ -64,6 +64,13 @@ int scrobble_album_artist(void) {
     return atoi(v) == 1;
 }
 
+/* [SCROBBLE] AUTO=1: uploads start by themselves (navigation.c's scrobble_auto). */
+int scrobble_auto_on(void) {
+    char v[256] = "";
+    toolsReadConfig(INI_FILE, "SCROBBLE", "AUTO", v, "");
+    return atoi(v) == 1;
+}
+
 /* The UI thread's listen; the upload's rewrite holds the same lock. */
 void scrobble_append(const char *line, unsigned n) {
     pthread_mutex_lock(up.lock);

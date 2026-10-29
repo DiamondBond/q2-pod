@@ -203,7 +203,7 @@ extern int visualizer_live(void), games_live(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
-    scrobble_album_artist(void);
+    scrobble_album_artist(void), scrobble_auto_on(void);
 extern void scrobble_append(const char *line, unsigned n);
 extern void *staged(int (*query)(void *), void *arg, int *count);
 /* Scope music detail loads too: spoken tracks can share all their tags with music. */
@@ -7192,10 +7192,51 @@ static int long_songs(void *ctx, void *event) {
     return 0;
 }
 
+/* [SCROBBLE] AUTO=1 (docs/internals.md#scrobbling): on Wi-Fi the log goes up by itself, silently,
+ * once its oldest unsent listen is SA_MAX_MIN old, SA_STEP_MIN sooner per listen since, at least
+ * every SA_MIN_MIN: a listen on its own waits three hours, an afternoon's album goes within the
+ * hour, and with no listens nothing goes. A failed upload tries again after SA_RETRY_MIN.
+ * ponytail: only listens since boot and outside an upload count; any others stay in the log and
+ * go with the next upload, so the loop never reads the card for them. */
+#define SA_MAX_MIN 180
+#define SA_MIN_MIN 60
+#define SA_STEP_MIN 4
+#define SA_RETRY_MIN 30
+static struct {
+    unsigned pending, first_at, check_at;
+    int running;
+} sa __attribute__((section(".scratch")));
+unsigned scrobble_auto_ms(unsigned pending) {
+    int min = SA_MAX_MIN - SA_STEP_MIN * (int)(pending < 1000 ? pending : 1000);
+    return (unsigned)(min < SA_MIN_MIN ? SA_MIN_MIN : min) * 60000u;
+}
+static void scrobble_listened(void) {
+    if (!sa.pending++) sa.first_at = (unsigned)time_now_ms();
+}
+static void scrobble_auto(void) {
+    unsigned now = (unsigned)time_now_ms();
+    if (sa.running) {
+        int sent = 0, done = scrobble_poll(&sent);
+        if (!done) return;
+        sa.running = 0;
+        if (done > 0)
+            sa.pending = 0;
+        else /* due again in SA_RETRY_MIN */
+            sa.first_at = now - scrobble_auto_ms(sa.pending) + SA_RETRY_MIN * 60000u;
+        return;
+    }
+    if (!sa.pending || now - sa.first_at < scrobble_auto_ms(sa.pending) ||
+        now - sa.check_at < 60000)
+        return;
+    sa.check_at = now; /* the card's settings and Wi-Fi, at most once a minute */
+    if (get_wifisignal() > 0 && scrobble_auto_on() && scrobble_start() > 0) sa.running = 1;
+}
+
 /* Upload Scrobbles: the log goes up on scrobble.c's thread, and a timer reports how it went. */
 static int upload_wait(const void *unused) {
     int sent = 0, done = scrobble_poll(&sent);
     if (!done) return 8; /* RET_REPEAT */
+    if (done > 0) sa.pending = 0;
     char s[48];
     tk_snprintf(s, sizeof s, done < 0 ? "Upload failed, %d sent" : "Scrobbles sent: %d", sent);
     toast(done > 0 && !sent ? "Nothing to upload" : s);
@@ -8619,6 +8660,7 @@ static void scrobble(void *r, int total, int heard) {
     o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%u\t\n", total,
                      (unsigned)(now - heard));
     scrobble_append(line, (unsigned)(o - line));
+    scrobble_listened();
 }
 
 /* The polled track's place at sec, its file's seconds. A CUE track becomes the book's place only
@@ -9191,6 +9233,7 @@ int ringnav_sleep(void *loop) {
     addon_poll();
     playback_poll();
     resume_poll();
+    scrobble_auto();
     power_poll();
 #if IPOD
     lyric_poll();
