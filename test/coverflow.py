@@ -77,7 +77,7 @@ int coverflow_home(void *, void *), coverflow_player_cover(const char *, const c
 const char *track_name(char *, unsigned, void *);
 
 /* Widgets: raw memory first, so the payload's field reads (SLIDE_INDEX) land in it. */
-typedef struct { char raw[0x100]; int parent, visible, kids[512], nkids, bg; char type[32], text[160], image[600];
+typedef struct { char raw[0x100]; int parent, visible, numb, kids[512], nkids, bg; char type[32], text[160], image[600];
                  handler click; void *ctx; } widget;
 static widget w[8192];
 static int nw;
@@ -207,7 +207,7 @@ int widget_move_resize(void *x, int left, int top, int ww, int h) {
     return 0;
 }
 static int insensitive; /* the widget last made insensitive */
-int widget_set_sensitive(void *x, int v) { if (!v) insensitive = W(x) - w; return 0; }
+int widget_set_sensitive(void *x, int v) { W(x)->numb = !v; if (!v) insensitive = W(x) - w; return 0; }
 static int clip_rect[4] = { 0, 0, 375, 320 }; /* the canvas clip, screen x, y, w, h */
 int canvas_get_clip_rect(void *c, void *r) { memcpy(r, clip_rect, sizeof clip_rect); return 0; }
 int canvas_set_clip_rect(void *c, const void *r) { memcpy(clip_rect, r, sizeof clip_rect); return 0; }
@@ -823,8 +823,9 @@ static void depth(void) {
     assert(timer_fn != waiting);
     run();
     assert(!strcmp(title(), names[6]) && !covers_view->visible && last_album(6)); /* kept for a reboot */
+    assert(covers_view->numb); /* stock hit-tests hidden widgets: the list below takes the touch */
     key(KEY_RETURN); /* back to the same album, still drawn */
-    assert(covers_view->visible && *(int *)(raw + SLIDE_INDEX) == 6);
+    assert(covers_view->visible && !covers_view->numb && *(int *)(raw + SLIDE_INDEX) == 6);
     coverflow_paint(s, canvas);
     touches(s, covers_view);
 #if IPOD

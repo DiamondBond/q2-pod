@@ -1843,6 +1843,7 @@ static void covers(void) {
         for (unsigned k = 0; k < sizeof kinds / sizeof *kinds; ++k) widget_on(cf.covers, kinds[k], touch, 0);
     }
     widget_set_visible(cf.covers, 1, 0);
+    widget_set_sensitive(cf.covers, 1);
     widget_invalidate_force(cf.page, 0);
 }
 
@@ -2043,7 +2044,11 @@ static int to_tracks(const void *unused) {
     cf.tracks = coverflow_album_tracks(r);
     n = (int)deque_size(cf.tracks);
     cf.screen = TRACKS;
-    if (cf.covers) widget_set_visible(cf.covers, 0, 0); /* none in the text list */
+    if (cf.covers) { /* none in the text list; stock's hit test skips insensitive, not hidden,
+                      * widgets, and the covers' view over the list would take its taps and swipes */
+        widget_set_visible(cf.covers, 0, 0);
+        widget_set_sensitive(cf.covers, 0);
+    }
     void *view = list(P(r, REC_ALBUM), n);
     /* the album over its tracks, all centred */
     widget_set_prop_int(cf.title, "style:normal:font_size", CF_NAME_PX);
