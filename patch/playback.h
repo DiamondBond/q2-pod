@@ -25,6 +25,8 @@ void mqa_sync(void);       /* crossfade.c */
 int playback_resumed(void *r);
 void playback_save(void);
 void playback_clear(void);
+/* mclLoadPlayList's loads so far: a queue loaded later is another one (addon.c stream_queue) */
+extern unsigned playback_loads;
 int wheel_pct(void); /* Wheel sensitivity, 50-200% */
 void wheel_set_pct(int n);
 void wheel_guard_reset(void);

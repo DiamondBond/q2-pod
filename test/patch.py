@@ -5356,9 +5356,9 @@ m.top=page; m.move(); assert m.order()==['B','A','C']; passed()
 # A subsequent stock playback load takes the saved order; editing itself left the queue alone.
 m=PlaylistEditMachine(); assert m.mutate()==1; m.open_editor()
 assert m.names()==m.before_queue
-songs=m.get(payload_syms['ple']+8)
+songs=m.get(payload_syms['ple']+8); loads=m.get(payload_syms['playback_loads'])
 m.call(address=syms['mclLoadPlayList'],args=(songs,0,0xff13,0),gap=0)
-assert m.names()==['B','A','C']; passed()
+assert m.names()==['B','A','C'] and m.get(payload_syms['playback_loads'])==loads+1; passed()  # a card app's stream counts loads
 # A Videos folder's listed videos never join a queue (#128): stock loads a copy without them, its start
 # on the same song, or the next after a video; the caller's list stays whole. Videos alone leave an empty queue.
 for names,at,queued,pos in ((('a.mp3','v.mp4','b.flac','w.MKV'),2,['a.mp3','b.flac'],1),
@@ -11140,7 +11140,7 @@ assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Tears.fl
 m.word(syms['mcl_pdeqplaylist'],m.deque([ra])); m.word(O['MCL_POOL'],m.deque([0],'int')); m.word(O['MCL_POS'],0)
 m.poll(); assert m.names()==['01 - Tears.flac'] and m.files['/tmp/q2-deezer.playing']==f'{S1}\n'.encode(); passed()
 # The streamed song lands (renamed into place whole): it and the one after it join the queue's end, in order.
-rb=card_song(S2); m.poll(); assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac'],m.names(); passed()
+card_song(S2); m.poll(); assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac'],m.names(); passed()
 # The app appends to the file (written aside and renamed): the new line joins; queued ones aren't again.
 card_song(S4); m3u(S1,S2,'/etc/passwd',S3,S4); m.poll()
 assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac','04 - Lunch.flac'],m.names()
@@ -11148,6 +11148,23 @@ m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{S
 # A file there that stock's listing doesn't take as a song is passed over, not waited for.
 S5,S6=f'{SYNC}/05 - cover.jpg',f'{SYNC}/06 - Dream.flac'; card_song(S5,listing=False); card_song(S6); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6); m.poll()
 assert m.names()[-1]=='06 - Dream.flac' and len(m.names())==5,m.names(); passed()
+# An entry too long to be a path here (cut, it would be waited for forever) is passed over; a long one that
+# fits (about 400 bytes: an app's Artist/Album/Title folders) plays and is left in .playing.
+LONG,FIT=f'{SYNC}/{"x"*600}.flac',f'{SYNC}/{"y"*120}/{"z"*120}/{"w"*100}.flac'
+card_song(FIT); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6,LONG,FIT); m.poll()
+assert m.names()[-1]==FIT.rsplit('/',1)[1] and len(m.names())==6,m.names()
+m.word(O['MCL_POS'],5); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{FIT}\n'.encode(); passed()
+# A playlist longer than M3U_MAX (256 KB) is read that far: its cut last line is dropped, not taken as a path,
+# even when what is left of it names a song.
+CUT=f'{SYNC}/08 - Cut.flac'; card_song(CUT); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6,LONG,FIT); body=m.files[M3U]
+pad=(256<<10)-2-len(body)-len(CUT.encode())-2; m.files[M3U]=body+b'#'+b'p'*(pad-1)+b'\r\n'+CUT.encode()+b'.part\r\n'
+m.stats[M3U]+=1; m.poll(); assert len(m.names())==6,m.names(); passed()
+# The user plays that album from the Library (a queue loaded since the session's, its first song the
+# playlist's): it is the user's. Nothing joins it, and .playing no longer follows it.
+m.word(syms['mcl_pdeqplaylist'],m.deque([ra,rc])); m.word(O['MCL_POOL'],m.deque([0,1],'int')); m.word(O['MCL_POS'],1)
+m.word(payload_syms['playback_loads'],m.get(payload_syms['playback_loads'])+1)
+m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6,LONG,FIT,S4); m.poll()
+assert m.names()==['01 - Tears.flac','03 - Corporeal.flac'] and m.files['/tmp/q2-deezer.playing']==f'{FIT}\n'.encode(); passed()
 # Another queue: the playlist's session is left. An .m3u off the card (or with ..) is never played.
 m.word(syms['mcl_pdeqplaylist'],m.deque([m.song('Other.flac')])); m3u(S1,S2,S3,S4,S6,f'{SYNC}/07.flac'); m.poll(); assert m.names()==['Other.flac']
 m.files['/tmp/q2-deezer.play']=bytearray(b'2200 /tmp/evil.m3u\n'); m.files['/tmp/evil.m3u']=bytearray(f'{S1}\n'.encode()); m.poll(); m.advance(0)

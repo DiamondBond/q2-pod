@@ -168,15 +168,16 @@ static struct {
     char play[192];    /* the .play file as read last */
     char dir[160];     /* its folder */
     char last[192];    /* the name of the last of its songs queued */
-    char playing[256]; /* the .playing path written last */
+    char playing[512]; /* the .playing path written last */
     int state;         /* S_WAIT for its first song, S_PLAY its queue playing, S_DONE another queue */
     unsigned timer;    /* the first song's start, on a timer (a window opens) */
     long seen;         /* the folder's mtime at the last scan that came well after it */
     int m3u;           /* sm.dir is a playlist file */
     int next;          /* its entries passed so far */
     int more;          /* a batch filled, so the next poll goes on */
-    char first[256];   /* the session's first song */
-    char want[256];    /* the entry waited for */
+    char first[512];   /* the session's first song */
+    char want[512];    /* the entry waited for */
+    unsigned loads;    /* playback_loads once its queue was loaded */
 } sm __attribute__((section(".scratch")));
 enum { S_WAIT, S_PLAY, S_DONE };
 
@@ -208,13 +209,14 @@ static int stream_newer(const char *dir, const char *last) {
 
 /* The playlist's songs from entry sm.next on, in its order, a deque the caller destroys: up to the
  * first one not there yet (sm.want), at most M3U_BATCH. An entry off the card, or there but not a
- * song in its folder's listing, is passed over.
+ * song in its folder's listing, is passed over, as is one too long to be a path here. A file longer
+ * than M3U_MAX is read that far, its cut last line dropped, so it is never waited for.
  * ponytail: the file is read whole each time it changes or a waited song lands; fine to M3U_MAX. */
 static void *m3u_songs(void) {
     void *out = _create_deque("stSongInfo"), *songs = 0;
     char *raw = calloc(1, M3U_MAX), dir[sizeof sm.want] = "", *line, *end;
     deque_init(out);
-    if (raw) state_read(sm.dir, raw, M3U_MAX);
+    if (raw && state_read(sm.dir, raw, M3U_MAX) == M3U_MAX - 2) strrchr(raw, '\n')[1] = 0;
     sm.want[0] = 0, sm.more = 0; /* at its end, unless a missing song or a full batch stops it */
     int entry = 0, pushed = 0;
     for (line = raw ? raw + 1 : 0; line && *line; line = end) {
@@ -223,7 +225,7 @@ static void *m3u_songs(void) {
         unsigned k = strlen(line);
         if (k && line[k - 1] == '\r') line[--k] = 0;
         if (!k || line[0] == '#' || entry++ < sm.next) continue;
-        if (!tk_str_start_with(line, CARD "/") || strstr(line, "..")) {
+        if (!tk_str_start_with(line, CARD "/") || strstr(line, "..") || k >= sizeof sm.want) {
             ++sm.next;
             continue;
         }
@@ -278,17 +280,20 @@ static int stream_start(const void *unused) {
                         (const char *)P(deque_at(songs, n - 1), REC_NAME));
         sm.state = S_PLAY;
         play_folder(songs, 0, 0xf001); /* playing_page copies the queue at once */
+        sm.loads = playback_loads;     /* its load, which play_folder has done (playback_groups) */
     }
     deque_destroy(songs);
     return 0;
 }
 
-/* Whether the queue playing is the session's: its first song in its folder (or the playlist's). */
+/* Whether the queue playing is the session's: no queue loaded since its own (a Library play of the
+ * same album is the user's), its first song in its folder (or the playlist's). */
 static void *stream_queue(void) {
     void *q = P(mcl_pdeqplaylist, 0);
     const char *p = q && deque_size(q) ? P(deque_at(q, 0), REC_PATH) : 0;
-    return p && (sm.m3u ? !strcmp(p, sm.first)
-                        : tk_str_start_with(p, sm.dir) && p[strlen(sm.dir)] == '/')
+    return p && playback_loads == sm.loads &&
+                   (sm.m3u ? !strcmp(p, sm.first)
+                           : tk_str_start_with(p, sm.dir) && p[strlen(sm.dir)] == '/')
                ? q
                : 0;
 }
