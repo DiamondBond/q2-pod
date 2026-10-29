@@ -381,8 +381,11 @@ typedef struct {
     unsigned art_cf_timer;
     unsigned wake_at; /* Wake: Double press, the screen-off centre press a second one must follow */
     unsigned woke_at; /* the centre press that woke the screen, then its first lit loop pass */
-    void *np_origin;  /* the page Hold Return opened Now Playing over */
-    void *dc_top;     /* the page of the last centre press no list click took, and its time */
+    unsigned return_at; /* chord_gate: Return's press while held, else 0 */
+    int chord_eat;      /* 1: the held Centre press is dropped; -1: it passes */
+    unsigned chord_at;  /* the last Centre event chord_gate saw */
+    void *np_origin;    /* the page Hold Return opened Now Playing over */
+    void *dc_top;       /* the page of the last centre press no list click took, and its time */
     unsigned dc_at;
     unsigned charge_at, last_input, cpu_retry;
     /* the boot logo's poll: last check, card seen mounted, its sync thread, its failure to toast */
@@ -9201,6 +9204,33 @@ static int wake_gate(void *e) {
     return !st.wake_pass;
 }
 
+/* A loose wheel can close Centre with the top button (Return). A Centre press that starts while
+ * Return is held, within CHORD_MS of Return's press, is dropped whole (its repeats and release
+ * too), before the wake gate sees it; Return keeps its own. Centre held first passes as before.
+ * ponytail: CHORD_MS bounds a Return release that never came (Standby while held). Returns 1 to
+ * drop the event. */
+#define CHORD_MS 500
+static int chord_gate(void *e) {
+    unsigned type = (unsigned)I(e, EVENT_TYPE), key = (unsigned)I(e, EVENT_KEY);
+    unsigned now = (unsigned)time_now_ms();
+    if (type != EVT_KEY_DOWN && type != EVT_KEY_LONG && type != EVT_KEY_UP) return 0;
+    if (key == KEY_RETURN) {
+        if (type == EVT_KEY_UP)
+            st.return_at = 0;
+        else if (!st.return_at)
+            st.return_at = now | 1; /* never 0 while held */
+        return 0;
+    }
+    if (key != KEY_CENTER) return 0;
+    /* a repeat follows its press within 258 ms; a later down is a new press (a lost release) */
+    if (type == EVT_KEY_DOWN && (!st.chord_eat || now - st.chord_at > 300))
+        st.chord_eat = st.return_at && now - st.return_at < CHORD_MS ? 1 : -1;
+    st.chord_at = now;
+    int eat = st.chord_eat > 0;
+    if (type == EVT_KEY_UP) st.chord_eat = 0;
+    return eat;
+}
+
 /* main_loop_post_key_event: its one caller, on_wm_idle_status, posts SyncLink's (Eddict Player's)
  * play/pause, previous and next as a press and a release for the loop to dispatch later, stamped
  * with time_now_ms. Each post keeps its key and the time around it, so ringnav_input knows it. */
@@ -9230,7 +9260,7 @@ static int remote_key(void *e) {
  * UI; a key's release goes to the player instead. Every event times ringnav_sleep's idle. */
 int ringnav(void *ctx, void *event);
 int ringnav_input(void *wm, void *e) {
-    if (e && wake_gate(e)) return 0;
+    if (e && (chord_gate(e) || wake_gate(e))) return 0;
     st.last_input = time_now_ms();
     if (video_on()) {
         if (e && I(e, EVENT_TYPE) == EVT_KEY_UP) video_key((unsigned)I(e, EVENT_KEY));

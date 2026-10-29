@@ -11492,6 +11492,13 @@ assert wake(DOWN,gap=100) and wake(UP,gap=50) and eaten()  # the double press; a
 assert not wake(DOWN,gap=O['WAKE_MS']) and not wake(UP) and not wake(DOWN,gap=O['WAKE_MS']) and not wake(UP)  # too slow
 assert wake(DOWN,O['KEY_PLAY'],gap=1000) and wake(UP,O['KEY_PLAY']) and wake(UP,O['KEY_NEXT'])  # media and wheel work dark
 m.byte(syms['g_backlight_status'],1); assert wake(DOWN,gap=1000) and wake(UP) and all(wake(t,RET,gap=1000) for t in (DOWN,LONG,UP)); passed()
+# A loose wheel's Centre under a held Return (chord_gate): the press is dropped whole, Return passes;
+# Centre held first, or long after Return's press (a lost release), passes.
+assert wake(DOWN,RET,gap=1000) and not wake(DOWN,gap=30) and not wake(DOWN,gap=258) and not wake(UP,gap=50) and wake(UP,RET)
+assert wake(DOWN,gap=1000) and wake(DOWN,RET,gap=30) and wake(UP) and wake(UP,RET)
+assert wake(DOWN,RET,gap=1000) and wake(DOWN,gap=600) and wake(UP) and wake(UP,RET)
+assert wake(DOWN,RET,gap=1000) and not wake(DOWN,gap=30) and wake(UP,RET) and wake(DOWN,gap=1000)  # its release lost
+assert wake(DOWN,gap=1000) and wake(UP); passed()
 # Standby's resume (STANDBY_WAKE, device_standby's awake_screen) stays dark in both modes, so the
 # resuming key acts as dark (#27); a wake press clears stock's resume guard, which would drop its release.
 from build import STANDBY_WAKE

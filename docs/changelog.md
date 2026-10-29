@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.5.7**:
+  - Buttons: a Centre press made while the top button (Back) is held is ignored, so a loose wheel that closes both on one press only goes back.
   - Home: in Split, the album art pans smoothly instead of moving in small steps.
 
 - **1.5.6**:
