@@ -454,6 +454,8 @@ static inline int arc_out(int r, int y) {
 #define ANIM_DURATION 0x20
 #define ANIM_X_TO 0x60
 #define SLIDE_EASING 8          /* stock scroll_to easing */
+#define ANIM_EASING 0x38 /* widget_animator_init (0x665eb4) stores easing_get(type) here */
+#define EASE_CUBIC_OUT 5 /* AWTK easing_type_t: starts at 3x the mean speed, then decelerates */
 #define EVT_ANIM_END 0x125
 
 /* Play/Pause hold queue menu (docs/internals.md). AWTK input_device_status lives at
@@ -581,6 +583,16 @@ static inline int arc_out(int r, int y) {
 #define CF_REFLECT_TOP (IPOD ? 48 : 64)
 #define CF_STRIDE 110
 #define CF_TEXT_Y 212 /* the album caption's top, under the frame; the artist follows */
+/* Touch on the covers (coverflow.c, docs/internals.md#coverflow-touch) */
+#define CF_DRAG_PX 90      /* finger travel per album: about the centre cover's own on screen */
+#define CF_SLOP 8          /* px a touch moves before it is a drag, not a tap */
+#define CF_PROJECT_MS 400  /* a flick's reach: the finger's speed carried on for this long */
+#define CF_FLICK 250       /* px/s: a release this fast moves on at least to the next cover */
+#define CF_STILL_MS 60     /* a finger resting this long before it lifts throws nothing */
+#define CF_VMAX 6000       /* px/s, the fastest flick counted: about 27 albums' glide */
+#define CF_GLIDE_MAX 1400  /* ms, the longest glide */
+#define CF_SETTLE_MS 280   /* a release with no flick settles on the nearest cover */
+#define CF_TAP_MS 320      /* a tapped side cover's glide to the centre */
 /* Photos (patch/photos.c, docs/internals.md#photos): under a 48px title, PH_COLS columns of
  * PH_TILE_W x PH_TILE_H tiles from x PH_GRID_X, three whole rows in the 240px below it, each a
  * thumbnail of at most PH_THUMB_W x PH_THUMB_H centred in its tile, so the selection shows round

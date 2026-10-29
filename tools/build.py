@@ -864,6 +864,7 @@ FUNCTIONS = {
  'input_method_request': ('int', 'void *, void *'),
  'widget_animator_pause': ('int', 'void *'),
  'widget_animator_destroy': ('int', 'void *'),
+ 'easing_get': ('void *', 'int'),  # Coverflow's glides set a reused animator's easing
  'canvas_get_clip_rect': ('int', 'void *, void *'),
  'canvas_set_clip_rect': ('int', 'void *, const void *'),
  'canvas_set_fill_color': ('int', 'void *, unsigned'),
