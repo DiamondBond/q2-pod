@@ -2428,6 +2428,22 @@ static void home_fit(unsigned w, unsigned h, int *fw, int *fh) {
  * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
  * library thumbnails are too small for the panel, so each change would decode a full cover. Light
  * Mode's paper behind a transparent cover changes with the next cover. */
+/* [1,2,1]/4 along n opaque texels step apart, in place. home_render's bilinear keeps a whole-pixel
+ * frame's texels and mixes a half-pixel one's 50/50, so the pan's sharpness pulsed as its phase
+ * turned; texels already this soft read almost alike either way (1-2-1 against 1-3-3-1).
+ * ponytail: a constant slight softening of the art, no per-frame cost; a cubic resampler would
+ * keep the sharpness and cost every frame. */
+void home_soften(unsigned *t, int n, int step) { /* test/coverflow.py */
+    unsigned prev = t[0];
+    for (int i = 0; i < n; ++i) {
+        unsigned c = t[i * step], next = i + 1 < n ? t[(i + 1) * step] : c;
+        unsigned rb = ((prev & 0xff00ffu) + 2 * (c & 0xff00ffu) + (next & 0xff00ffu)) >> 2,
+                 g = ((prev & 0xff00u) + 2 * (c & 0xff00u) + (next & 0xff00u)) >> 2;
+        prev = c;
+        t[i * step] = 0xff000000u | (rb & 0xff00ffu) | (g & 0xff00u);
+    }
+}
+
 static int home_tex(const char *url) {
     static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned bitmap[64]; /* bitmap_t */
@@ -2470,6 +2486,8 @@ static int home_tex(const char *url) {
             }
         }
         bitmap_unlock_buffer(bitmap);
+        for (int y = 0; y < th; ++y) home_soften(home.tex + y * tw, tw, 1);
+        for (int x = 0; x < tw; ++x) home_soften(home.tex + x, th, tw);
         home.tw = tw, home.rx = tw - fw, home.ry = th - fh;
         home.u0 = (fw - HOME_PW) / 2, home.v0 = (fh - 290) / 2, home.du = -1;
     }

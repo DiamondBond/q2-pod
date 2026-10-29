@@ -132,7 +132,11 @@ edges never show. The art widget then spans the panel with an empty image, and `
 `coverflow_home_clip`, inside the panel's clip) draws one 188 × 290 frame `home_render` blends from
 the filtered cover at the pan's position in 1/256 px, bilinear. Whole-pixel steps at that speed
 read as a jerk every two thirds of a second, one axis at a time; the blend moves it by fractions
-of a pixel, as the iPod's own rendering does. A frame costs about 2.1 million instructions, five a
+of a pixel, as the iPod's own rendering does. The blend keeps a whole-pixel frame's texels but
+mixes a half-pixel one's 50/50, so on its own the cover's sharpness pulsed with the pan's phase,
+most visibly in lettering; `home_tex` softens the filtered cover once, `[1,2,1]/4` across and
+down (`home_soften`), so every phase reads about alike (1-2-1 against 1-3-3-1), at a constant
+slight softening and no cost per frame. A frame costs about 2.1 million instructions, five a
 second while Home shows. A cover whose zoomed fit passes `DRIFT_TEXELS` (four panels: wider
 than about 2:1, or taller than 5:1), a decode that is not 32-bit, the placeholder and Full stay still and unzoomed,
 drawn by the stock fill. Nothing is stored: the pan's phase counts only time shown, so leaving

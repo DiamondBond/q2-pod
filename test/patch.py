@@ -7374,7 +7374,8 @@ paint(m); assert not m.draws; passed()
 print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (decoding the covers in reach, then the frame), {turn_cost} for a frame a quarter turn on (payload only; stock drawing mocked)')
 
 if variant=='ipod':
-    # Home's Split pan (DRIFT_*): the cover is box filtered once to its fit zoomed DRIFT_ZOOM_PCT, and
+    # Home's Split pan (DRIFT_*): the cover is box filtered once to its fit zoomed DRIFT_ZOOM_PCT, softened
+    # [1,2,1]/4 a side (home_soften, so the sharpness no longer pulses with the phase), and
     # each paint of the art (its own image empty) draws the panel from that at the pan's 1/256 px
     # position, bilinear, so it moves by fractions of a pixel. Each axis is a linear ping-pong of its
     # own period across the zoom's margin, from the unzoomed crop. One timer runs it while Home is on
@@ -7397,6 +7398,12 @@ if variant=='ipod':
                 for sy in range(y0,y1,(y1-y0+3)//4):  # at most 4 x 4 samples
                     for p in px[sy*w+x0:sy*w+x1:(x1-x0+3)//4]: r+=p&255; g+=p>>8&255; b+=p>>16&255; n+=1
                 out.append(0xff000000|r//n|g//n<<8|b//n<<16)
+        def soften(line):  # home_soften: [1,2,1]/4 a channel, the ends their own neighbours
+            return [0xff000000|sum(((p+2*q+n_)//4)<<s for s,p,q,n_ in ((s,a>>s&255,b>>s&255,c_>>s&255) for s in (0,8,16)))
+                    for a,b,c_ in zip([line[0]]+line[:-1],line,line[1:]+[line[-1]])]
+        rows=[soften(out[y*tw:(y+1)*tw]) for y in range(th)]  # across, then down
+        cols=[soften([rows[y][x] for y in range(th)]) for x in range(tw)]
+        out=[cols[x][y] for y in range(th) for x in range(tw)]
         return dict(px=out+[0]*(tw+1),tw=tw,u0=(fw-PW)//2,v0=(fh-290)//2,rx=tw-fw,ry=th-fh)
     def at(r,period,t): t%=2*period; return r*256*((t if t<period else 2*period-t)>>4)//(period>>4)
     def framed(c,t):  # the panel at phase t, as home_render blends it
