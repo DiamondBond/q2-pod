@@ -385,8 +385,11 @@ typedef struct {
     unsigned return_at; /* chord_gate: Return's press while held, else 0 */
     int chord_eat;      /* 1: the held Centre press is dropped; -1: it passes */
     unsigned chord_at;  /* the last Centre event chord_gate saw */
-    void *np_origin;    /* the page Hold Return opened Now Playing over */
-    void *dc_top;       /* the page of the last centre press no list click took, and its time */
+    unsigned return_up; /* chord_gate: a hold's release, else 0 */
+    int return_eat;     /* 1: a ghost Return press is dropped */
+    unsigned return_eat_at;
+    void *np_origin; /* the page Hold Return opened Now Playing over */
+    void *dc_top;    /* the page of the last centre press no list click took, and its time */
     unsigned dc_at;
     unsigned charge_at, last_input, cpu_retry;
     /* the boot logo's poll: last check, card seen mounted, its sync thread, its failure to toast */
@@ -9222,17 +9225,32 @@ static int wake_gate(void *e) {
 /* A loose wheel can close Centre with the top button (Return). A Centre press that starts while
  * Return is held, within CHORD_MS of Return's press, is dropped whole (its repeats and release
  * too), before the wake gate sees it; Return keeps its own. Centre held first passes as before.
- * ponytail: CHORD_MS bounds a Return release that never came (Standby while held). Returns 1 to
+ * Return's hold (Now Playing, Home) can ghost a second press as it lets go: a Return press
+ * starting within RETURN_GHOST_MS of a hold's release is dropped whole too.
+ * ponytail: CHORD_MS bounds a Return release that never came (Standby while held);
+ * RETURN_GHOST_MS is the tuning knob, and only a ghost after the release is caught. Returns 1 to
  * drop the event. */
 #define CHORD_MS 500
+#define RETURN_GHOST_MS 135
 static int chord_gate(void *e) {
     unsigned type = (unsigned)I(e, EVENT_TYPE), key = (unsigned)I(e, EVENT_KEY);
     unsigned now = (unsigned)time_now_ms();
     if (type != EVT_KEY_DOWN && type != EVT_KEY_LONG && type != EVT_KEY_UP) return 0;
     if (key == KEY_RETURN) {
-        if (type == EVT_KEY_UP)
+        /* a repeat follows its press within 258 ms; a later down is a new press */
+        if (type == EVT_KEY_DOWN && !st.return_at &&
+            (!st.return_eat || now - st.return_eat_at > 300))
+            st.return_eat = st.return_up && now - st.return_up < RETURN_GHOST_MS;
+        if (st.return_eat) {
+            st.return_eat_at = now;
+            if (type == EVT_KEY_UP) st.return_eat = st.return_up = 0;
+            return 1;
+        }
+        if (type == EVT_KEY_UP) {
+            st.return_up = /* return_at may run a ms late, its | 1 */
+                st.return_at && now - st.return_at + 1 >= KEY_HOLD_MS ? now | 1 : 0;
             st.return_at = 0;
-        else if (!st.return_at)
+        } else if (!st.return_at)
             st.return_at = now | 1; /* never 0 while held */
         return 0;
     }

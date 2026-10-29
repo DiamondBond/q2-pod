@@ -11504,6 +11504,12 @@ assert wake(DOWN,gap=1000) and wake(DOWN,RET,gap=30) and wake(UP) and wake(UP,RE
 assert wake(DOWN,RET,gap=1000) and wake(DOWN,gap=600) and wake(UP) and wake(UP,RET)
 assert wake(DOWN,RET,gap=1000) and not wake(DOWN,gap=30) and wake(UP,RET) and wake(DOWN,gap=1000)  # its release lost
 assert wake(DOWN,gap=1000) and wake(UP); passed()
+# A Return hold's release can ghost a press: one starting within RETURN_GHOST_MS is dropped whole;
+# later, or after a short press, it passes.
+hold=700
+assert wake(DOWN,RET,gap=1000) and wake(UP,RET,gap=hold) and not wake(DOWN,RET,gap=60) and not wake(UP,RET,gap=30)
+assert wake(DOWN,RET,gap=1000) and wake(UP,RET,gap=hold) and wake(DOWN,RET,gap=200) and wake(UP,RET,gap=30)
+assert wake(DOWN,RET,gap=1000) and wake(UP,RET,gap=100) and wake(DOWN,RET,gap=60) and wake(UP,RET,gap=30); passed()
 # Standby's resume (STANDBY_WAKE, device_standby's awake_screen) stays dark in both modes, so the
 # resuming key acts as dark (#27); a wake press clears stock's resume guard, which would drop its release.
 from build import STANDBY_WAKE
