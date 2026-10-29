@@ -5370,7 +5370,7 @@ if variant=='ipod':
           m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0'); art_image(m.home)
           return geometry()
       zoom=lambda v: v*O['DRIFT_ZOOM_PCT']//100
-      def at(r,period,t): t%=2*period; return r*(t if t<period else 2*period-t)//period
+      def at(r,period,t): t%=2*period; return r*((t if t<period else 2*period-t)>>4)//(period>>4)
       def panned(t,w=290,h=290):  # w x h: the unzoomed fit, its crop where the pan starts
           return [SPLIT+int((PW-w)/2)-at(zoom(w)-w,O['DRIFT_X_MS'],t),int((290-h)/2)-at(zoom(h)-h,O['DRIFT_Y_MS'],t),zoom(w),zoom(h)]
       for (w,h),want in (((300,300),panned(0)),((2*PW,580),panned(0,PW)),((600,400),panned(0,435)),((100,400),panned(0,PW,4*PW))):

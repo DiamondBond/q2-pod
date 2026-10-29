@@ -2147,7 +2147,8 @@ static int home_repaint(const void *unused) {
 /* One axis of the pan (an iPod classic's menu art): 0 to range px and back over 2 x period ms. */
 static int drift_at(int range, unsigned period) {
     unsigned t = home.drift_ms % (2 * period);
-    return (int)((unsigned)range * (t < period ? t : 2 * period - t) / period);
+    /* in 16 ms units, so 32 bits hold the widest cover's range (8192 x 1: 237568 px) */
+    return (int)((unsigned)range * ((t < period ? t : 2 * period - t) >> 4) / (period >> 4));
 }
 
 /* Puts the cover where the pan is. Written in place and only the panel repainted: widget_move
@@ -2203,8 +2204,8 @@ static void home_fit(unsigned w, unsigned h, int drift) {
     home.rx = drift ? fw * DRIFT_ZOOM_PCT / 100 - fw : 0;
     home.ry = drift ? fh * DRIFT_ZOOM_PCT / 100 - fh : 0;
     fw += home.rx, fh += home.ry;
-    widget_move_resize(home.art, x + (pw - fw) / 2, (ph - fh) / 2, fw, fh);
-    if (drift) drift_place();
+    widget_move_resize(home.art, home.x0 - drift_at(home.rx, DRIFT_X_MS),
+                       home.y0 - drift_at(home.ry, DRIFT_Y_MS), fw, fh);
 }
 
 /* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
