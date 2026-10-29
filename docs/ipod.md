@@ -124,6 +124,23 @@ drops what a paint invalidates when the frame ends, so a 0 ms timer then repaint
 otherwise the new art and its fit would reach only the regions repainted later. `g_playcover_finishflag` remains
 stock-owned. Now Playing and Spotify's page keep their black background behind the art.
 
+In Split a cover pans slowly, as an iPod classic's menu art did: `home_fit` zooms it
+`DRIFT_ZOOM_PCT` (115) past the fit, and each axis runs its own eased ping-pong across the overhang
+(`DRIFT_X_MS` 14 s, `DRIFT_Y_MS` 22 s, smoothstep, so it rests at each edge). The placeholder
+and Full stay as above, unzoomed. Nothing is stored: the pan's phase counts only time shown, so
+leaving Home, a new cover or a Theme change resumes it where it was. One `DRIFT_TICK_MS` (40 ms)
+timer runs it, armed from Home's paint only while Home is the top window, the screen is lit and
+the lock screen is off; its next step after any of those changes removes it, and
+`coverflow_home_layout` (Home, Theme, a new Home window) removes it at once. A step is capped
+at `DRIFT_MAX_STEP_MS`, so a stalled loop never jumps. It writes the art's x and y in place and
+invalidates only the panel: `widget_move` would repaint the whole zoomed art, the list's rows
+under it too; a step that moves no pixel invalidates nothing. It pans while paused too.
+Not done: the iPod's random slideshow of library covers and its crossfades (the library's
+thumbnails are too small for a 290 px panel, so each change would decode a full cover), and the
+fill draw scales the cover from its full size on every step; pre-scale it once if a large
+embedded cover proves costly. The phase is a 32-bit count of milliseconds shown, so after 49
+days of pan it wraps once, a single jump.
+
 ## Status bar and clock
 
 `systembar_showface` (`0x52f610`, run by `system_bar_init` and then a 1 s widget

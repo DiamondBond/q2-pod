@@ -41,6 +41,8 @@ extern char shim_lastcover[1024], shim_id3[2716];
 #define g_playcover_type shim_covertype
 extern unsigned char shim_memory[0x800];
 #define g_memory_info shim_memory
+#define g_backlight_status 0 /* dark: Home's cover never pans here */
+#define g_lockscreen_pageflag 0
 int shim_lock(void *), shim_unlock(void *), shim_statfs(const char *, void *);
 """ + ''.join(f'{r} {n}({a});\n' for n in """
 getAllAlbum getMusicByAlbum toolsQueryDbTable album_row toolsThumbSpecCover toolsGetAlbumCover toolsGetExternCover _create_deque deque_init_copy deque_clear
@@ -55,7 +57,7 @@ widget_count_children widget_get_child widget_lookup widget_move_resize widget_g
 canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type tk_strcmp
 timer_add timer_remove navigator_back_to_home navigator_back window_manager_close_window_force navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
-canvas_draw_image slide_menu_set_spacer window_manager
+canvas_draw_image slide_menu_set_spacer window_manager window_manager_get_top_window time_now_ms
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
@@ -166,6 +168,8 @@ unsigned widget_on(void *x, unsigned type, handler f, void *ctx) {
 int widget_destroy_children(void *x) { W(x)->nkids = 0; return 0; }
 static int wm_repaints; /* whole-screen invalidations, from outside a paint */
 void *window_manager(void) { return &wm_repaints; }
+void *window_manager_get_top_window(void *wm) { return 0; }
+unsigned time_now_ms(void) { return 0; }
 int widget_invalidate_force(void *x, void *y) { wm_repaints += x == &wm_repaints; return 0; }
 unsigned widget_count_children(void *x) { return x == &wm_repaints ? 0 : W(x)->nkids; } /* no window stack */
 void *widget_get_child(void *x, unsigned i) { return &w[W(x)->kids[i]]; }
@@ -1312,14 +1316,16 @@ int main(void) {
     assert(!strcmp(art, player));
     /* a paint drops its own invalidations: the whole screen repaints after it */
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
-    /* Square, portrait and landscape covers keep their proportions, just cover the panel and are
-       centred on it; C division leaves an odd overflow's extra pixel on the right or bottom. */
-    static const int covers[][6] = { { 160, 160, 136, 0, 290, 290 }, { 206, 290, 178, 0, 206, 290 },
-                                     { 300, 200, 64, 0, 435, 290 }, { 100, 400, 187, -231, 188, 752 } };
+    /* Square, portrait and landscape covers keep their proportions, just cover the panel, are
+       zoomed DRIFT_ZOOM_PCT and placed where the pan is: at rest here (dark), on the panel's corner. */
+#define ZOOM(v) ((v) * DRIFT_ZOOM_PCT / 100)
+    static const int covers[][4] = { { 160, 160, 290, 290 }, { 206, 290, 206, 290 },
+                                     { 300, 200, 435, 290 }, { 100, 400, 188, 752 } };
     for (unsigned i = 0; i < 4; ++i) {
         art_w = covers[i][0], art_h = covers[i][1];
         *(volatile int *)MCL_POS = 1; coverflow_home_art(win); *(volatile int *)MCL_POS = 0; coverflow_home_art(win);
-        for (int k = 0; k < 4; ++k) assert(geo[k] == covers[i][2 + k]);
+        int want[4] = { HOME_SPLIT_W, 0, ZOOM(covers[i][2]), ZOOM(covers[i][3]) };
+        for (int k = 0; k < 4; ++k) assert(geo[k] == want[k]);
     }
     art_w = art_h = 160;
     /* The art's paint is clipped to the panel on screen (canvas origin at the art, window at y 30)
@@ -1389,13 +1395,13 @@ int main(void) {
     assert(*(int *)(label->raw + W_W) == HOME_SPLIT_W - dot_x - HOME_SPLIT_LABEL_END && W(home_art)->visible);
     coverflow_home_art(win);
     assert(loads == before + 1 && !strcmp(art, player));
-    classic = 1; /* Classic halves the screen: the 160px cover fills 290px from 187 + (188 - 290) / 2 */
+    classic = 1; /* Classic halves the screen: the 160px cover fills 290px, zoomed, from 187 */
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
     assert(*(int *)(label->raw + W_X) == HOME_CLASSIC_TEXT_X &&
            *(int *)(label->raw + W_W) == HOME_SPLIT_W - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END);
     coverflow_home_art(win);
-    static const int classic_geo[4] = { 136, 0, 290, 290 };
+    static const int classic_geo[4] = { HOME_SPLIT_W, 0, ZOOM(290), ZOOM(290) };
     assert(loads == before + 2 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
     home_full = 1;
     coverflow_home_layout();

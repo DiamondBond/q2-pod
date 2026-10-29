@@ -216,6 +216,13 @@ static inline int arc_out(int r, int y) {
  * (Minimal's NP_BAR_MINIMAL line). Minimal's settings icons are grey and list_into
  * MINIMAL_CHEVRON under every accent; its own accent (MINIMAL_ACCENT) fills with MINIMAL_FILL. */
 #define HOME_SPLIT_W 187
+/* Split's cover pans (docs/ipod.md#home): zoomed DRIFT_ZOOM_PCT, each axis an eased ping-pong of
+ * its own period, stepped every DRIFT_TICK_MS by at most DRIFT_MAX_STEP_MS. Tuned by eye. */
+#define DRIFT_ZOOM_PCT 115
+#define DRIFT_X_MS 14000
+#define DRIFT_Y_MS 22000
+#define DRIFT_TICK_MS 40
+#define DRIFT_MAX_STEP_MS 100
 #define HOME_CLASSIC_ROW 369
 #define HOME_TOP 8 /* Minimal's decorative inset; Classic starts below the status bar. */
 #define HOME_CHEVRON_SHIFT 15

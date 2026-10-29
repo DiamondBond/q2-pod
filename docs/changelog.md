@@ -2,6 +2,7 @@
 
 - **1.5.6**:
   - Now Playing: Enlarged Album Art (10s wait) is off by default. The new default applies after a reset or on a new setup; a saved setting is kept.
+  - Home: in Split, the album art drifts slowly across its panel, as on an iPod classic. It moves only while Home is on screen.
   - Bluetooth: gapless changes no longer click. For songs not at 48 kHz, the Q2 dropped about 0.2 ms of audio at every change between songs; it now plays through.
 
 - **1.5.5**:

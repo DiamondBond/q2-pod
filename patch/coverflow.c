@@ -2118,6 +2118,10 @@ const char *now_tag(void *r, int field) {
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
     unsigned key, repaint; /* repaint: the timer of home_repaint */
+    /* drift: home_drift's timer; drift_ms: the pan's phase, ms shown (32-bit: 49 days); rx ry: how
+     * far the zoomed cover overhangs the panel, 0 0 for the placeholder, which stays */
+    unsigned drift, drift_ms, drift_last;
+    int rx, ry;
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
@@ -2140,10 +2144,50 @@ static int home_repaint(const void *unused) {
     return 0; /* RET_REMOVE */
 }
 
+/* One axis of the pan (an iPod classic's menu art): 0 to range px and back over 2 x period ms,
+ * eased (smoothstep, Q10) so it rests at each edge. */
+static int drift_at(int range, unsigned period) {
+    unsigned t = home.drift_ms % (2 * period),
+             f = (t < period ? t : 2 * period - t) * 1024 / period;
+    return (int)((unsigned)range * (f * f * (3072 - 2 * f) >> 20) >> 10);
+}
+
+/* Puts the cover where the pan is. Written in place and only the panel repainted: widget_move
+ * would repaint the whole zoomed art, the list's rows under it too. A still step costs nothing.
+ * ponytail: the fill scales the cover from its full size each step; pre-scale it once to the
+ * zoomed size if a large embedded cover proves costly. */
+static void drift_place(void) {
+    int x = HOME_SPLIT_W - drift_at(home.rx, DRIFT_X_MS), y = -drift_at(home.ry, DRIFT_Y_MS);
+    if (x == I(home.art, W_X) && y == I(home.art, W_Y)) return;
+    I(home.art, W_X) = x;
+    I(home.art, W_Y) = y;
+    int pane[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 }; /* rect_t, in the art's parent */
+    widget_invalidate_force(P(home.art, W_PARENT), pane);
+}
+
+/* The pan runs only while it shows: Home on top, the screen lit, a cover that overhangs (Full and
+ * the placeholder have none, coverflow_home_layout and home_fit). */
+static int drift_live(void) {
+    return (home.rx || home.ry) && g_backlight_status && !g_lockscreen_pageflag &&
+           window_manager_get_top_window(window_manager()) == home.win;
+}
+
+/* The pan's step; once it no longer shows the timer goes, and the next Home paint arms it again
+ * at the same phase. Steps are capped, so a stalled loop never jumps. */
+static int home_drift(const void *unused) {
+    if (!drift_live()) return (int)(home.drift = 0); /* RET_REMOVE */
+    unsigned now = time_now_ms(), step = now - home.drift_last;
+    home.drift_last = now;
+    home.drift_ms += step < DRIFT_MAX_STEP_MS ? step : DRIFT_MAX_STEP_MS;
+    drift_place();
+    return 8; /* RET_REPEAT */
+}
+
 /* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on
  * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
- * panel. */
-static void home_fit(unsigned w, unsigned h) {
+ * panel. A cover (drift) is zoomed DRIFT_ZOOM_PCT past that and placed where the pan is, so a new
+ * one keeps the pan's phase. */
+static void home_fit(unsigned w, unsigned h, int drift) {
     int x = HOME_SPLIT_W, pw = 375 - x, ph = 290, fw = pw, fh = ph;
     if (w && h && w <= 8192 && h <= 8192) {
         if ((unsigned)pw * h > (unsigned)ph * w)
@@ -2151,7 +2195,11 @@ static void home_fit(unsigned w, unsigned h) {
         else
             fw = (int)(((unsigned)ph * w + h - 1) / h);
     }
+    if (drift) fw = fw * DRIFT_ZOOM_PCT / 100, fh = fh * DRIFT_ZOOM_PCT / 100;
+    home.rx = drift ? fw - pw : 0;
+    home.ry = drift ? fh - ph : 0;
     widget_move_resize(home.art, x + (pw - fw) / 2, (ph - fh) / 2, fw, fh);
+    if (drift) drift_place();
 }
 
 /* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
@@ -2162,6 +2210,10 @@ static void home_fit(unsigned w, unsigned h) {
  * shows the new art whole. */
 void coverflow_home_art(void *top) {
     if (!home.art || top != home.win || !widget_get_visible(home.art)) return;
+    if (!home.drift && drift_live()) {
+        home.drift_last = time_now_ms();
+        home.drift = timer_add(home_drift, (void *)0, DRIFT_TICK_MS);
+    }
     unsigned pos, n;
     void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
@@ -2175,10 +2227,11 @@ void coverflow_home_art(void *top) {
     char url[600] = "file://";
     if (r) art_path(url + 7, album, "");
     unsigned size[2] = { 0, 0 };
-    if (!(cover && image_show(home.art, cover, size)) && !(r && image_show(home.art, url, size)) &&
-        !image_show(home.art, HOME_PLACEHOLDER, size))
+    int shown =
+        (cover && image_show(home.art, cover, size)) || (r && image_show(home.art, url, size));
+    if (!shown && !image_show(home.art, HOME_PLACEHOLDER, size))
         image_base_set_image(home.art, HOME_PLACEHOLDER);
-    home_fit(size[0], size[1]);
+    home_fit(size[0], size[1], shown);
     rearm(&home.repaint, home_repaint, 0);
 }
 
@@ -2228,6 +2281,9 @@ static void home_width(void *w, int outer, int inner, int x, int end, int depth)
  * rows, and made insensitive, as hidden rows keep their taps. */
 void coverflow_home_layout(void) {
     int full = ipod_home_full(), classic = ipod_classic();
+    stop_timer(
+        &home.drift); /* the art goes back to the panel; Split's next paint resumes the pan */
+    home.rx = home.ry = 0;
     if (!home.list) return;
     void *rockbox = widget_lookup(home.win, "btn_rockbox", 1);
     if (rockbox) {
