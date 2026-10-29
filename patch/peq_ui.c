@@ -999,7 +999,7 @@ static void e3_switch(int on) {
 /* A slider taken, by Centre or touch; over a playing PEQ preset 3EQ takes over first. */
 static void e3_take(void) {
     if (!ui.draft.bypass) e3_switch(1);
-    e3.adjusting = 1;
+    if (ui.draft.bypass) e3.adjusting = 1; /* not over a PEQ the switch failed to stop */
 }
 
 /* Advanced's Stock presets screen, from Simple; unsaved gains keep Simple (as tab_to). */
