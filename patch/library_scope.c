@@ -69,7 +69,8 @@ static void scope_walk(char *path, unsigned depth) {
     void *dir = opendir(path);
     if (!dir) return;
     for (struct dirent *e; !scope.failed && (e = readdir(dir));) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") ||
+        /* dot folders: ., .., and caches such as .sldp and .coverflow, thousands of files */
+        if (e->d_name[0] == '.' ||
             (e->d_type && e->d_type != 4)) continue;
         int count = scope_snprintf(path + n, PATH_MAX_SCOPE - n, "/%s", e->d_name);
         if (count < 0 || (unsigned)count >= PATH_MAX_SCOPE - n) { scope.failed = 1; break; }
@@ -117,8 +118,9 @@ char *library_scope_query(const char *sql) {
     if (!token) return sql ? strdup(sql) : 0;
     pthread_mutex_lock(&scope_lock);
     scope_read();
-    /* If allocation or bounded traversal failed, don't expose excluded music. */
-    const char *predicate = scope.sql ? scope.sql : "0";
+    /* ponytail: a card too deep or with too many markers to walk, or no memory, ignores the
+     * markers: the whole library shows rather than none of it. */
+    const char *predicate = scope.sql ? scope.sql : "1";
     unsigned prefix = (unsigned)(token - sql), n = strlen(predicate);
     const char *tail = token + sizeof(LIBRARY_SCOPE_TOKEN) - 1;
     char *expanded = calloc(1, prefix + n + strlen(tail) + 1);
@@ -135,7 +137,7 @@ int library_scope_hidden(const char *path) {
     if (!path || strncasecmp(path, CARD_URL, sizeof(CARD_URL) - 1)) return 0;
     pthread_mutex_lock(&scope_lock);
     scope_read();
-    int hidden = !scope.sql;
+    int hidden = 0;
     if (scope.sql)
         for (scope_rule *r = scope.rules; r; r = r->next)
             if (!strncasecmp(path, r->path, r->length)) { hidden = !r->visible; break; }

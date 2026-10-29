@@ -93,15 +93,15 @@ def main():
         # Directory symlinks are not followed outside the card, including loops.
         os.symlink(card, card/'loop', target_is_directory=True)
         refresh(); check({2, 4, 6, 7, 11})
-        # Excessive nesting and rule sets fail closed for browsing and recover on refresh.
+        # Excessive nesting and rule sets fail open (the markers are ignored) and recover on refresh.
         deep = card/'Deep'
         (deep/Path(*(['nested'] * 65))).mkdir(parents=True)
-        refresh(); check(set(range(len(paths))))
+        refresh(); check(set())
         shutil.rmtree(deep)
         refresh(); check({2, 4, 6, 7, 11})
         many = card/'Many'
         for i in range(600): marker('Many/'+str(i)+'x'*128)
-        refresh(); check(set(range(len(paths))))
+        refresh(); check(set())
         shutil.rmtree(many)
         refresh(); check({2, 4, 6, 7, 11})
         assert original == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in original}

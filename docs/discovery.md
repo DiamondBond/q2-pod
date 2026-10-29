@@ -29,8 +29,8 @@ nested exceptions still work. Only regular marker files count, not folders with 
 Unlike Rockbox's scanner exclusion, the Q2 keeps these tracks indexed: only general browsing
 is filtered, so imported and mixed playlists retain their entries and order.
 
-The folder snapshot is cached until the library generation changes. Directory symlinks are
-not followed. Traversal is bounded to 64 nested levels and 1,024-byte paths; the generated
-predicate is bounded to 128 KiB. If these limits or allocation fail, general library views
-show no tracks for that snapshot rather than exposing excluded content; playlists and folder
-playback remain intact. A refresh retries discovery.
+The folder snapshot is cached until the library generation changes. Directory symlinks and
+folders whose names start with a dot (such as `.rockbox` or the art caches) are not searched.
+Traversal is bounded to 64 nested levels and 1,024-byte paths; the generated predicate is
+bounded to 128 KiB. If these limits or allocation fail, the markers are ignored for that
+snapshot and the whole library shows. A refresh retries discovery.
