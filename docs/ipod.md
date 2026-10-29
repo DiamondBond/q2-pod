@@ -113,7 +113,7 @@ Split narrows both menus to `HOME_SPLIT_W` (187, half the screen) and shows the 
 the menus clipped left of it; `default_album_home` without a cover); Full hides the art and
 widens the menus to the screen, their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369)
 in Classic. Minimal's labels keep x 39 and end 33 pixels from the screen edge in Full, `HOME_SPLIT_LABEL_END` (8) before the art in Split, where no corner needs clearing (140 pixels wide). Classic's
-start at `HOME_CLASSIC_TEXT_X` (33) with their existing widths, bold as an iPod's menu: the stock font has no bold face, so `paint_bold` runs each label's own paint (`widget_on_paint_self`) again one pixel to the right. The chevron moves 15 pixels
+start at `HOME_CLASSIC_TEXT_X` (33) with their existing widths. The chevron moves 15 pixels
 right in Split and 10 in Full, staying clear of the rounded glass, and rides the accent's selection bar alone.
 
 The art is the player's cover once `g_lastcover_url` matches the current queue path, else the
