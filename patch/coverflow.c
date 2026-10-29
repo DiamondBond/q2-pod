@@ -1618,8 +1618,9 @@ void coverflow_paint(void *w, void *canvas) {
  * takes the touch and moves the offset itself, so stock's drag and throw never run. A drag follows
  * the finger, CF_DRAG_PX an album; the release glides on at the finger's speed, decelerating,
  * through the wheel's own animator (carousel_glide), to the cover that speed reaches; a tap brings
- * a side cover to the centre or opens the centre one. A touch while the covers move stops them,
- * and the wheel waits while a finger is down (coverflow_held). */
+ * a side cover to the centre or opens the centre one. A touch while the covers move stops them.
+ * The press is the covers' view's; the moves and the release are the page's, so a release off the
+ * covers still ends the touch, and one never seen ends at the next key (coverflow_lost_touch). */
 extern int carousel_glide(void *w, int goal, unsigned ms, int easing);
 #define CF_SAMPLES 8
 #define ABS(x) ((x) < 0 ? -(x) : (x))
@@ -1645,6 +1646,18 @@ static int bound(int off, int stride, int rubber) {
     return edge + (x < 0 ? -a : a);
 }
 
+/* bound's inverse past an end: a touch catching the rubber band (or a wheel bounce) drags on from
+ * where it shows, not from a band stretched again. */
+static int unbound(int off, int stride) {
+    void *s = cf.slide;
+    if (!coverflow_bounded(s)) return off;
+    int i = I(s, SLIDE_INDEX), hi = i * stride, lo = (i + 1 - (int)widget_count_children(s)) * stride;
+    int edge = off > hi ? hi : off < lo ? lo : off, x = off - edge, a = ABS(x), d = 2 * stride / 5;
+    if (!x || a >= d) return off;
+    a = 20 * d * a / (11 * (d - a));
+    return edge + (x < 0 ? -a : a);
+}
+
 /* px/s over the last 100 ms of moves; 0 if the finger rested CF_STILL_MS before lifting. */
 static int velocity(unsigned now) {
     int last = (tc.n - 1) % CF_SAMPLES, first = last;
@@ -1658,9 +1671,16 @@ static int velocity(unsigned now) {
     return v > CF_VMAX ? CF_VMAX : v < -CF_VMAX ? -CF_VMAX : v; /* a burst of queued moves */
 }
 
-static void sample(int x) {
-    tc.sx[tc.n % CF_SAMPLES] = x, tc.st[tc.n % CF_SAMPLES] = time_now_ms();
+static void sample(int x, unsigned t) {
+    tc.sx[tc.n % CF_SAMPLES] = x, tc.st[tc.n % CF_SAMPLES] = t;
     ++tc.n;
+}
+
+/* When the event was posted: moves queued behind a frame are dispatched together, but keep their
+ * own times. 0 (unstamped) takes the dispatch time. */
+static unsigned stamp(void *event) {
+    unsigned t = (unsigned)I(event, EVENT_TIME);
+    return t ? t : time_now_ms();
 }
 
 /* The covers glide on from the release (v px/s, 0 to settle) to a whole cover: where the speed
@@ -1675,8 +1695,8 @@ static void release(int v) {
     if (flick && v < 0 && goal > floor_div(live, stride) * stride) goal = floor_div(live, stride) * stride;
     goal = bound(goal, stride, 0);
     if (goal == live && !live && !P(s, SLIDE_ANIMATOR)) return; /* at rest already */
-    int d = ABS(goal - live), a = ABS(vo);
-    unsigned ms = flick && d && a ? (unsigned)(3000 * d / a) : CF_SETTLE_MS; /* cubic out: 3 d / v */
+    int d = ABS(goal - live), a = ABS(vo), ahead = (goal > live && v > 0) || (goal < live && v < 0);
+    unsigned ms = ahead ? (unsigned)(3000 * d / a) : CF_SETTLE_MS; /* cubic out: 3 d / v */
     carousel_glide(s, goal, ms < CF_SETTLE_MS ? CF_SETTLE_MS : ms > CF_GLIDE_MAX ? CF_GLIDE_MAX : ms,
                    EASE_CUBIC_OUT);
 }
@@ -1701,30 +1721,32 @@ static void tap(int x, int y) {
 
 static int covers_live(void) { return cf.slide && cf.screen == COVERS && !cf.timer; }
 
-/* The touch ends: a drag glides on (thrown unless aborted), a stopped glide settles, a still touch
- * is a tap. Off the covers (a screen change mid-touch) they still settle on a whole cover. */
-static void lift(int aborted) {
+/* The touch ends at now: a drag glides on (thrown unless aborted), a stopped glide settles, a
+ * still touch is a tap. Off the covers (a screen change mid-touch) they still settle on a whole
+ * cover. */
+static void lift(int aborted, unsigned now) {
     if (!tc.down) return;
-    unsigned now = time_now_ms();
     tc.down = 0;
     if (!cf.slide) return;
-    if (tc.drag || tc.caught || !covers_live()) release(tc.drag && !aborted ? velocity(now) : 0);
+    if (tc.drag || tc.caught || !covers_live())
+        release(tc.drag && !aborted && covers_live() ? velocity(now) : 0);
     else if (!aborted) tap(tc.x, tc.y);
 }
 
 static int touch(void *ctx, void *event) {
     int type = I(event, EVENT_TYPE), x = I(event, EVENT_X), y = I(event, EVENT_Y);
     if (type == EVT_POINTER_DOWN) {
-        lift(1); /* a release the input queue dropped */
+        lift(1, 0); /* a release the input queue dropped */
         if (!covers_live()) return 0;
         void *a = P(cf.slide, SLIDE_ANIMATOR);
         if (a) widget_animator_pause(a); /* caught where it is */
-        tc = (typeof(tc)){ .down = 1, .caught = a != 0, .x = x, .y = y, .from = I(cf.slide, SLIDE_OFFSET) };
+        tc = (typeof(tc)){ .down = 1, .caught = a != 0, .x = x, .y = y,
+                           .from = unbound(I(cf.slide, SLIDE_OFFSET), stride_of(cf.slide)) };
         return 0;
     }
     if (!tc.down) return 0;
     if (type == EVT_POINTER_UP_BEFORE || type == EVT_POINTER_ABORT) {
-        lift(type == EVT_POINTER_ABORT);
+        lift(type == EVT_POINTER_ABORT, stamp(event));
         return 0;
     }
     if (type != EVT_POINTER_MOVE_BEFORE || !covers_live()) return 0;
@@ -1732,25 +1754,22 @@ static int touch(void *ctx, void *event) {
     if (!tc.drag) {
         if (ABS(dx) < CF_SLOP && ABS(dy) < CF_SLOP) return 0;
         if (ABS(dy) > ABS(dx)) { /* up or down: stock's (the Quick Settings pull-down) */
-            lift(1);
+            lift(1, 0);
             return 0;
         }
         tc.drag = 1, tc.x = x, dx = 0; /* from here, so the covers don't jump the slop */
     }
-    sample(x);
+    sample(x, stamp(event));
     int stride = stride_of(cf.slide);
     I(cf.slide, SLIDE_OFFSET) = bound(tc.from + dx * stride / CF_DRAG_PX, stride, 1);
     widget_invalidate_force(cf.slide, 0);
     return 0;
 }
 
-/* home_step: no wheel while a finger has the covers, unless its release went unseen. */
-int coverflow_held(void *w) {
-    if (!tc.down || w != cf.slide) return 0;
-    if (window_manager_get_pointer_pressed(window_manager())) return 1;
-    lift(1);
-    return 0;
-}
+/* ringnav, at a key with no finger down: a touch whose release went unseen ends, so the wheel
+ * and Centre act on the cover the covers settle on. */
+void coverflow_lost_touch(void) { lift(1, 0); }
+
 
 static void cover(void *img, unsigned i, int near) {
     char url[600] = "file://";
@@ -1838,9 +1857,7 @@ static void covers(void) {
         widget_on(cf.slide, EVT_VALUE_CHANGED, changed, 0);
         tc.down = 0; /* a touch on the covers these replace */
         changed(0, 0);
-        static const unsigned short kinds[] = { EVT_POINTER_DOWN, EVT_POINTER_MOVE_BEFORE,
-                                                EVT_POINTER_UP_BEFORE, EVT_POINTER_ABORT };
-        for (unsigned k = 0; k < sizeof kinds / sizeof *kinds; ++k) widget_on(cf.covers, kinds[k], touch, 0);
+        widget_on(cf.covers, EVT_POINTER_DOWN, touch, 0); /* the rest: open_page */
     }
     widget_set_visible(cf.covers, 1, 0);
     widget_set_sensitive(cf.covers, 1);
@@ -2191,8 +2208,16 @@ static int closed(void *ctx, void *event) {
     return 0;
 }
 
+/* A Coverflow page: the covers' moves and release are taken here (touch). */
+static void *open_page(void) {
+    void *page = page_open("coverflow_page", closed, keyup);
+    static const unsigned short kinds[] = { EVT_POINTER_MOVE_BEFORE, EVT_POINTER_UP_BEFORE, EVT_POINTER_ABORT };
+    for (unsigned k = 0; page && k < sizeof kinds / sizeof *kinds; ++k) widget_on(page, kinds[k], touch, 0);
+    return page;
+}
+
 static int coverflow_open(void *ctx, void *event) {
-    if (cf.page || !(cf.page = page_open("coverflow_page", closed, keyup))) return 0;
+    if (cf.page || !(cf.page = open_page())) return 0;
     load();
     return 0;
 }
@@ -2202,7 +2227,7 @@ static int coverflow_open(void *ctx, void *event) {
  * ponytail: Return then skips it; stack the state if that is missed. */
 static int scoped_open(void) {
     void *old = cf.page, *under = artist_under(),
-         *page = page_open("coverflow_page", closed, keyup);
+         *page = open_page();
     if (!page) return 0; /* the old page and its state stay */
     if (old) {
         closed(old, 0);

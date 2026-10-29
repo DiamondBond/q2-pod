@@ -656,11 +656,13 @@ static void renderer(void) {
     assert(worst < CF_VIEW_W * CF_VIEW_H / 50);
 }
 
-int coverflow_hit(int, int, int), coverflow_held(void *);
-static int touch_at(int type, int x, int y, unsigned t) {
+int coverflow_hit(int, int, int);
+void coverflow_lost_touch(void);
+static unsigned batch; /* the dispatch time of moves queued together, else 0 */
+static int touch_at(int type, int x, int y, unsigned t) { /* t: when the event was posted */
     int e[16] = {0};
-    e[0] = type, e[EVENT_X / 4] = x, e[EVENT_Y / 4] = y;
-    clock_ms = t;
+    e[0] = type, e[EVENT_TIME / 4] = t, e[EVENT_X / 4] = x, e[EVENT_Y / 4] = y;
+    clock_ms = batch ? batch : t;
     return touch_fn(0, e);
 }
 /* The glide ends as stock completion would: the index takes the offset, which goes back to 0. */
@@ -680,7 +682,7 @@ static const char *album_caption(widget *covers_view) { /* the first label: the 
 }
 
 /* Touch: the hit test agrees with the drawn covers; taps, drags, flicks, a vertical move, a catch
-   and the wheel held while a finger is down. */
+   and a release never seen. */
 static void touches(widget *s, widget *covers_view) {
     const unsigned *ring[7];
     for (int j = 0; j < 7; ++j) ring[j] = flat[j];
@@ -699,7 +701,7 @@ static void touches(widget *s, widget *covers_view) {
     int n = s->nkids, side = CF_CX + CF_X1 * CF_EYE / (CF_EYE + CF_Z1), mid = CF_TOP + 80;
     *(int *)(raw + SLIDE_INDEX) = 3, *(int *)(raw + SLIDE_OFFSET) = 0;
     /* A tap on the right-hand cover glides it to the centre, as the wheel's step; the left-hand one,
-       back; two out, a little longer. A tap on the background does nothing. */
+       back. A tap on the background does nothing. */
     touch_at(EVT_POINTER_DOWN, side, mid, 0); touch_at(EVT_POINTER_UP_BEFORE, side, mid, 80);
     assert(glides == 1 && glide_goal == -CF_STRIDE && glide_easing == SLIDE_EASING && glide_ms == CF_TAP_MS);
     glide_end(s); assert(*(int *)(raw + SLIDE_INDEX) == 4 && !strcmp(album_caption(covers_view), names[4]));
@@ -708,17 +710,15 @@ static void touches(widget *s, widget *covers_view) {
     glide_end(s);
     touch_at(EVT_POINTER_DOWN, 5, 5, 0); touch_at(EVT_POINTER_UP_BEFORE, 5, 5, 80);
     assert(glides == 2 && !timer_fn);
-    /* A drag follows the finger, CF_DRAG_PX an album, from where it passed the slop; the wheel
-       waits meanwhile. A flick right glides on, decelerating, to a cover further left in the list. */
+    /* A drag follows the finger, CF_DRAG_PX an album, from where it passed the slop. A flick right glides on, decelerating, to a cover further left in the list. */
     touch_at(EVT_POINTER_DOWN, 100, 100, 0);
     touch_at(EVT_POINTER_MOVE_BEFORE, 100 + CF_SLOP - 1, 100, 10); assert(offset(s) == 0);
     touch_at(EVT_POINTER_MOVE_BEFORE, 110, 102, 20); assert(offset(s) == 0);
     touch_at(EVT_POINTER_MOVE_BEFORE, 110 + CF_DRAG_PX / 2, 102, 40); assert(offset(s) == CF_STRIDE / 2);
-    assert(coverflow_held(s) && !coverflow_held(covers_view));
     touch_at(EVT_POINTER_MOVE_BEFORE, 110 + CF_DRAG_PX, 102, 60); assert(offset(s) == CF_STRIDE);
     touch_at(EVT_POINTER_UP_BEFORE, 110 + CF_DRAG_PX + 10, 102, 64);
     assert(glides == 3 && glide_easing == EASE_CUBIC_OUT && glide_goal % CF_STRIDE == 0 && glide_goal >= 3 * CF_STRIDE);
-    assert(glide_ms > CF_SETTLE_MS && glide_ms <= CF_GLIDE_MAX && !coverflow_held(s));
+    assert(glide_ms > CF_SETTLE_MS && glide_ms <= CF_GLIDE_MAX);
     int albums = glide_goal / CF_STRIDE;
     glide_end(s); assert(*(int *)(raw + SLIDE_INDEX) == ((3 - albums) % n + n) % n);
     /* A drag that rests before it lifts settles on the nearest cover; a third of the way it goes back. */
@@ -755,14 +755,22 @@ static void touches(widget *s, widget *covers_view) {
     touch_at(EVT_POINTER_UP_BEFORE, CF_CX, mid, 150);
     assert(glides == 8 && glide_goal == 0 && glide_ms == CF_SETTLE_MS && !timer_fn);
     glide_end(s);
-    /* A release that never arrived: the wheel's next tick lets go, and so does the next touch. */
+    /* A release that never arrived: the next key lets go, and so does the next touch. */
     touch_at(EVT_POINTER_DOWN, 200, 100, 0); touch_at(EVT_POINTER_MOVE_BEFORE, 180, 100, 20);
     touch_at(EVT_POINTER_MOVE_BEFORE, 130, 100, 40);
-    pressed = 0; assert(!coverflow_held(s) && glides == 9); pressed = 1;
+    coverflow_lost_touch(); assert(glides == 9);
+    glide_end(s);
+    /* A flick whose moves and release were queued behind a frame, dispatched at once, is timed by
+       when they were posted. */
+    batch = 500;
+    touch_at(EVT_POINTER_DOWN, 200, 100, 0); touch_at(EVT_POINTER_MOVE_BEFORE, 180, 100, 20);
+    touch_at(EVT_POINTER_MOVE_BEFORE, 140, 100, 40); touch_at(EVT_POINTER_UP_BEFORE, 140, 100, 45);
+    batch = 0;
+    assert(glides == 10 && glide_easing == EASE_CUBIC_OUT && glide_goal <= -2 * CF_STRIDE && glide_ms > CF_SETTLE_MS);
     glide_end(s);
     /* The centre cover opens its album. */
     touch_at(EVT_POINTER_DOWN, CF_CX, mid, 0); touch_at(EVT_POINTER_UP_BEFORE, CF_CX, mid, 80);
-    assert(glides == 9 && timer_fn);
+    assert(glides == 10 && timer_fn);
     int album = *(int *)(raw + SLIDE_INDEX);
     run(); assert(!strcmp(title(), names[album]) && !covers_view->visible);
     key(KEY_RETURN); assert(covers_view->visible);

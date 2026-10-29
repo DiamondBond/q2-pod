@@ -167,8 +167,8 @@ extern int stock_keyup_trampoline(void *, void *), stock_touch_trampoline(void *
     stock_stream_trampoline(void *, void *), stock_start_player_trampoline(void),
     stock_standby_trampoline(void), stock_usbmode_trampoline(void *, void *, void *, void *);
 extern void *coverflow_tracks(void *page);
-extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w),
-    coverflow_held(void *w);
+extern int coverflow_jump(void *w, int from, int dir, unsigned *letter), coverflow_bounded(void *w);
+extern void coverflow_lost_touch(void);
 extern void *coverflow_album(void *page), *coverflow_album_tracks(void *r);
 extern int coverflow_goto_album(void *r), coverflow_shows_album(void *r);
 extern unsigned coverflow_scope(void *page);
@@ -811,7 +811,6 @@ int carousel_glide(void *w, int goal, unsigned ms, int easing) {
 }
 
 static void home_step(void *w, int dir, unsigned now, int jump) {
-    if (coverflow_held(w)) return; /* a finger has the covers */
     int n = (int)widget_count_children(w);
     int stride = slide_menu_item_width(w) + I(w, SLIDE_SPACER);
     int fast =
@@ -9744,6 +9743,7 @@ int ringnav(void *ctx, void *event) {
         drop_input();
         return dir && window_manager_is_animating(wm) ? hold_wheel(ctx, event, dir) : STOP;
     }
+    coverflow_lost_touch();
     if (books_key(top, key)) return STOP; /* the reader's pages and caption */
     void *w = surface_under(top, (void *)0, (void *)0, dir != 0);
     if (!is_home(top, w) || w != st.home_surface) st.home_surface = (void *)0;
