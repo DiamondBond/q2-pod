@@ -735,6 +735,45 @@ assert wheel([(50,1),(52+U,1),(52+U,0),(52+U,1),(51+2*U,1)])[0]==[P]  # a lift d
 F=O['WHEEL_QUEUE_FREE']  # a busy UI: a tick that would leave fewer free slots is dropped, not queued
 assert [len(wheel([(10,1),(10+U,1)],used=n)[0]) for n in (20-F-2,20-F-1,20)]==[1,0,0]
 checks+=1
+# Wheel QS (playback.c qs_begin): a touch at one edge, then within QS_GAP_MS one at the opposite edge,
+# streams a finger on the screen to hyn_ts: down at the swipe's start and on across the gap at the
+# gesture's pace (first touch to second, doubled, clamped), on with each sample, at the far end on the
+# lift. A second touch that turns takes it back to the start. Off, or a turn first, writes nothing.
+class QsMachine(PlaybackMachine):
+    def __init__(self,on=1):
+        super().__init__(); self.frames=[]; self.on=on; self.handlers[O['WHEEL_POST']]='wheel_post'
+        for n in ('open@GLIBC_2.0','ioctl@GLIBC_2.0','write@GLIBC_2.0','close@GLIBC_2.0'): self.handlers[syms[n]]='qs:'+n.split('@')[0]
+        self.handlers[ps['ringnav_wheel_qs']]='qs:on'
+        self.byte(syms['g_backlight_status'],1); self.word(syms['g_dropdown_menu_state'],0)
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('qs:'): return super().hook(u,address,size,unused)
+        name=name[3:]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='open': ret=5
+        elif name=='ioctl': u.mem_write(c,b'hyn_ts\0'); ret=7
+        elif name=='on': ret=self.on
+        elif name=='write':
+            ev=struct.unpack(f'<{c//4}i',bytes(u.mem_read(b,c)))
+            f={(e[2]&0xffff,e[2]>>16):e[3] for e in zip(*[iter(ev)]*4)}
+            self.frames.append('lift' if f.get((1,0x14a))==0 else ('down' if (1,0x14a) in f else 'move',319-f[(3,0)]))
+        self.returns(ret,clobber=True)
+def qs(samples,on=1,state=0):
+    m=QsMachine(on); m.word(syms['g_dropdown_menu_state'],state)
+    info,s,loop,q=m.alloc(0x60),m.alloc(20),m.alloc(0x60),m.alloc(8)
+    m.word(info+O['WHEEL_INFO_LOOP'],loop); m.word(loop+O['LOOP_QUEUE'],q); m.u.mem_write(q,struct.pack('<4H',15,15,0,20))
+    for gap,x,pr in samples: m.now+=gap; m.word(s,x); m.word(s+8,pr); m.fn('wheel_sample',s,1,info)
+    return m.frames
+# 10 and 110, opposite edges (x 0 is no touch): 100 ms down to down is a 200 ms swipe, half of it gone
+# when the second touch lands
+swipe=[(1000,10,1),(40,10,0),(60,110,1),(50,110,1),(100,110,1),(10,110,0)]
+assert qs(swipe)==[('down',5),('move',112),('move',166),('move',220),('move',220),'lift'],qs(swipe)
+assert qs(swipe,state=3)==[('down',310),('move',155),('move',78),('move',0),('move',0),'lift'],qs(swipe,state=3)  # closes
+assert qs(swipe,on=0)==[] and qs(swipe,state=1)==[]  # off, or the pull-down sliding
+assert qs([(1000,10,1),(40,10,0),(500,110,1),(10,110,0)])==[]  # past QS_GAP_MS
+assert qs([(1000,10,1),(40,40,1),(10,40,0),(60,110,1),(10,110,0)])==[]  # the first touch turned
+t=qs([(1000,10,1),(40,10,0),(60,110,1),(20,140,1),(10,140,0)])
+assert t==[('down',5),('move',112),('move',5),'lift'],t  # the second turned: back, the pull-down as it was
+checks+=1
 if 'wheel_raw' in ps:  # iPod: while games.c's Vortex sets wheel_raw, nothing ticks and the travel adds up raw
     raw=lambda on: lambda m: m.word(ps['wheel_raw'],on)
     m=PlaybackMachine()

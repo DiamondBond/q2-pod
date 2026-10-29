@@ -144,16 +144,19 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
 /* Quick Settings from the wheel: a swipe straight across it, as on a touchpad. The ring has no
  * middle, so the swipe is a touch at one edge and then, within QS_GAP_MS, one at the opposite edge
  * (lifted over Centre) or a jump there mid-touch. Each touch travels under QS_SLACK units, so no
- * turn counts. The payload writes q2remote's screen swipe (docs/remote.md) to hyn_ts, so stock
- * opens or closes the pull-down and slides it as for a finger. The swipe sleeps on the encoder
- * thread (it posts to the UI's queue, and tslib_thread_run reads hyn_ts), so only the wheel's
- * samples wait out its 150-500 ms; ticks from them post after it.
- * ponytail: either way across toggles it, as the wheel's x has no known top; gate on the first
- * touch's x once a device trace finds the top. */
+ * turn counts. The payload writes a finger on the screen (q2remote's swipe, docs/remote.md) to
+ * hyn_ts, so stock opens or closes the pull-down and slides it as for a finger, streamed with the
+ * gesture: the second touch puts the finger down and, for the gap over Centre the ring cannot
+ * sense, straight at where the gesture's pace puts it; each of the touch's samples moves it on at
+ * that pace, and the lift ends it at the far end. A second touch that turns (QS_SLACK) takes it
+ * back to where it began, the pull-down left as it was. Writes are a few dozen bytes a sample,
+ * on the encoder thread, only during a gesture.
+ * ponytail: the pace is the first touch's down to the second's, doubled (clamped QS_MIN_MS to
+ * QS_MAX_MS), a straight line with no easing; either way across toggles it, as the wheel's x has
+ * no known top; gate on the first touch's x once a device trace finds the top. */
 #define QS_SPAN 70 /* of the wheel's 200 units: a jump this far is the opposite edge */
 #define QS_SLACK 20
 #define QS_GAP_MS 400
-#define QS_STEP_MS 20 /* one sample each, as q2remote's screen swipe */
 #define QS_MIN_MS 150 /* the swipe's duration: the gesture's own, clamped */
 #define QS_MAX_MS 500
 int ringnav_wheel_qs(void); /* navigation.c: Q2POD WHEELQS, the Controls row */
@@ -163,10 +166,35 @@ static unsigned qs_at __attribute__((section(".scratch")));
 static unsigned qs_t0 __attribute__((section(".scratch"))); /* the gesture's first touch down */
 static int qs_left __attribute__((section(".scratch"))),
     qs_travel __attribute__((section(".scratch"))), qs_armed __attribute__((section(".scratch")));
+/* the streamed finger: down (qs_live), from and to on the screen, over qs_ms from qs_t0 */
+static int qs_live __attribute__((section(".scratch"))), qs_from __attribute__((section(".scratch"))),
+    qs_to __attribute__((section(".scratch")));
+static unsigned qs_ms __attribute__((section(".scratch")));
 
-static void qs_swipe(unsigned ms) {
+/* One frame of the finger at screen y (upright, x 187): down first, moved, or lifted. */
+static void qs_write(int y, int down, int lift) {
+    int n = 0, ev[5][4] = { 0 };
+#define EV(type, code, value) ev[n][2] = (type) | (code) << 16, ev[n++][3] = (value)
+    if (lift) {
+        EV(3, 0x18, 0), EV(1, 0x14a, 0);
+    } else { /* the panel's ABS_X is 319 - y */
+        EV(3, 0, 319 - y), EV(3, 1, 187);
+        if (down) EV(3, 0x18, 1), EV(1, 0x14a, 1); /* ABS_PRESSURE, BTN_TOUCH */
+    }
+    EV(0, 0, 0);
+#undef EV
+    write(qs_fd - 1, ev, n * sizeof ev[0]);
+}
+/* The finger where the gesture's pace has it now. */
+static void qs_follow(void) {
+    unsigned t = (unsigned)time_now_ms() - qs_t0;
+    if (t > qs_ms) t = qs_ms;
+    qs_write(qs_from + (qs_to - qs_from) * (int)t / (int)qs_ms, 0, 0);
+}
+/* The second touch: the finger down where the swipe starts, then on across the gap. */
+static void qs_begin(void) {
     int state = *(volatile int *)g_dropdown_menu_state;
-    if (!g_backlight_status || (state && state != 3)) return; /* dark, or sliding */
+    if (!g_backlight_status || (state && state != 3) || !ringnav_wheel_qs()) return;
     char path[32], name[16];
     for (int i = 0; !qs_fd && i < 16; ++i) {
         tk_snprintf(path, sizeof path, "/dev/input/event%d", i);
@@ -179,29 +207,23 @@ static void qs_swipe(unsigned ms) {
             close(fd);
     }
     if (!qs_fd) return;
-    /* Upright x 187, y 5 to 220 opens it and 310 to 0 closes it; the panel's ABS_X is 319 - y. */
-    int from = state ? 310 : 5, to = state ? 0 : 220;
-    int steps = ms / QS_STEP_MS;
-    for (int i = 0; i <= steps + 1; ++i) {
-        int y = from + (to - from) * (i > steps ? steps : i) / steps, n = 0, ev[5][4] = { 0 };
-#define EV(type, code, value) ev[n][2] = (type) | (code) << 16, ev[n++][3] = (value)
-        if (i > steps) { /* lift */
-            EV(3, 0x18, 0), EV(1, 0x14a, 0);
-        } else {
-            EV(3, 0, 319 - y), EV(3, 1, 187);
-            if (!i) EV(3, 0x18, 1), EV(1, 0x14a, 1); /* ABS_PRESSURE, BTN_TOUCH */
-        }
-        EV(0, 0, 0);
-#undef EV
-        write(qs_fd - 1, ev, n * sizeof ev[0]);
-        if (i <= steps) usleep(QS_STEP_MS * 1000);
-    }
+    /* Upright y 5 to 220 opens it and 310 to 0 closes it. */
+    qs_from = state ? 310 : 5, qs_to = state ? 0 : 220;
+    unsigned ms = 2 * ((unsigned)time_now_ms() - qs_t0);
+    qs_ms = ms < QS_MIN_MS ? QS_MIN_MS : ms > QS_MAX_MS ? QS_MAX_MS : ms;
+    qs_write(qs_from, 1, 0);
+    qs_live = 1;
+    qs_follow();
+}
+/* The lift: at the far end for a swipe, back where it began for a turn. */
+static void qs_finish(int swipe) {
+    if (!qs_live) return;
+    qs_write(swipe ? qs_to : qs_from, 0, 0);
+    qs_write(0, 0, 1);
+    qs_live = 0;
 }
 static void qs_end(int x) {
-    /* the swipe takes as long as the finger did, first touch down to now, within the clamp */
-    unsigned ms = (unsigned)time_now_ms() - qs_t0;
-    if (qs_armed && qs_travel < QS_SLACK && ringnav_wheel_qs())
-        qs_swipe(ms < QS_MIN_MS ? QS_MIN_MS : ms > QS_MAX_MS ? QS_MAX_MS : ms);
+    qs_finish(qs_travel < QS_SLACK);
     qs_armed = 0, qs_x = x, qs_left = qs_travel, qs_at = (unsigned)time_now_ms();
 }
 static void qs_start(int x) {
@@ -209,8 +231,11 @@ static void qs_start(int x) {
     if (span > 100) span = 200 - span;
     qs_armed = qs_at && (unsigned)time_now_ms() - qs_at < QS_GAP_MS && qs_left < QS_SLACK &&
                span >= QS_SPAN;
-    if (!qs_armed) qs_t0 = (unsigned)time_now_ms(); /* a first touch; the second keeps it */
     qs_travel = 0;
+    if (qs_armed)
+        qs_begin();
+    else
+        qs_t0 = (unsigned)time_now_ms(); /* a first touch; the second keeps it */
 }
 
 /* struct ts_sample {int x, y; unsigned pressure; struct timeval tv;} */
@@ -244,6 +269,12 @@ void wheel_sample(int *s, int ret, char *info) {
         d = 0;
     }
     qs_travel += d < 0 ? -d : d;
+    if (qs_live) { /* the second touch: on at the pace, or a turn takes it back */
+        if (qs_travel < QS_SLACK)
+            qs_follow();
+        else
+            qs_finish(0);
+    }
     d *= WHEEL_FINE;
     wh_last = s[0];
 #if IPOD
