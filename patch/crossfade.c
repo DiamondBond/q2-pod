@@ -238,7 +238,7 @@ static void refresh(int save) {
     }
 }
 
-static void set_value(int n) {
+static void take(int n) {
     if (xf.ctx == 2) {
         n = n < RS_MIN ? 0 : n > RS_MAX ? RS_MAX : (n + 2) / 5 * 5; /* the nearest five */
         if (n == resume_min()) return;
@@ -259,22 +259,29 @@ static void set_value(int n) {
     refresh(1);
 }
 
+/* n, held: a finger dragging the slider, whose values save at its release. Anything else (the
+ * release, the wheel, +/-) saves, a held value left unsaved too: stock's slider sends no change
+ * for a drag back to its start or an aborted press, so a drag can end unseen. */
+static void set_value(int n, int held) {
+    xf.sliding = held;
+    take(n);
+    if (!held && xf.unsaved) refresh(1);
+}
+
 static int toggle(void *ctx, void *event) {
     if (xf.ctx) return 0;
+    xf.sliding = 0;
     xf.on = !xf.on;
     refresh(1);
     return 0;
 }
 static int step(void *ctx, void *event) {
-    set_value(value() + (int)(long)ctx * steps[xf.ctx]);
+    set_value(value() + (int)(long)ctx * steps[xf.ctx], 0);
     return 0;
 }
 /* A drag's values (ctx 1) show and play at once; the release (ctx 0) saves the last. */
 static int slid(void *ctx, void *event) {
-    if (xf.setting) return 0;
-    xf.sliding = ctx != 0;
-    set_value(widget_get_prop_int(xf.slider, "value", value()));
-    if (!xf.sliding && xf.unsaved) refresh(1);
+    if (!xf.setting) set_value(widget_get_prop_int(xf.slider, "value", value()), ctx != 0);
     return 0;
 }
 static int gone(void *ctx, void *event) {
@@ -355,7 +362,7 @@ int xfade_key(void *top, unsigned key) {
         return press;
     }
     if (key != KEY_NEXT && key != KEY_PREV) return 0;
-    set_value(value() + (key == KEY_NEXT ? 1 : -1) * steps[xf.ctx]);
+    set_value(value() + (key == KEY_NEXT ? 1 : -1) * steps[xf.ctx], 0);
     return 1;
 }
 

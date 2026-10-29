@@ -364,6 +364,10 @@ class Machine:
         elif name=='widget_count_children': ret=len(n['children'])
         elif name=='widget_get_child': ret=n['children'][b] if b<len(n['children']) else 0
         elif name=='widget_set_prop_int': n[self.text(b)]=signed(c); ret=0
+        elif name=='slider_set_value':  # stock dispatches the value change at once (o32: the double in a2:a3)
+            n['value']=int(struct.unpack('<d',struct.pack('<II',c,d))[0]); ret=0
+            for t,f,ctx in list(n.get('handlers',())):
+                if t==O['EVT_VALUE_CHANGED']: self.echoes=getattr(self,'echoes',0)+1; self.nested(f,ctx,self.event,0,0)
         elif name=='widget_set_prop_str': n[self.text(b)]=self.text(c); ret=0
         elif name=='text_selector_count_options': ret=n.get('options',0)
         elif name=='text_selector_set_selected_index': self.word(a+O['SELECTOR_INDEX'],b); ret=0
@@ -11743,6 +11747,14 @@ assert press(m.dec)==[(50,*W)] and press(m.dec)==[] and texts()[-1]=='Wheel Sens
 m.nodes[m.slider]['value']=127; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(130,*W)] and m.nodes[m.vol]['text']=='130%'
 m.nodes[m.slider]['value']=300; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and m.nodes[m.vol]['text']=='200%'
 assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(200,*W)] and press(m.add)==[] and turn()==[]
+# A drag over several values saves once, at the release; one whose release sends nothing (stock: a
+# drag back to its start, an aborted press) is saved by the next step, which saves as ever.
+m.nodes[m.slider]['value']=127; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and m.nodes[m.vol]['text']=='130%'
+m.nodes[m.slider]['value']=163; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and press(m.slider,O['EVT_VALUE_CHANGED'])==[(160,*W)]
+m.nodes[m.slider]['value']=143; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and m.nodes[m.vol]['text']=='140%'
+assert press(m.dec)==[(130,*W)] and turn()==[(140,*W)]
+m.echoes=0; m.nodes[m.slider]['value']=157; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(160,*W)] and m.echoes==1  # its snap to 160 echoes, unsaved
+m.nodes[m.slider]['value']=300; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and press(m.add)==[(200,*W)]
 assert texts()[-1]=='Wheel Sensitivity: 200%' and m.nodes[m.switch]['visible']==0
 assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1; passed()
 # Resume Songs' row opens the same page: no switch, Off below 20, then 20-120 min in fives, live and
@@ -11760,7 +11772,26 @@ m.nodes[m.slider]['value']=63; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(
 m.nodes[m.slider]['value']=300; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and m.nodes[m.vol]['text']=='120 min'
 assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(120,*R)] and turn()==[]
 m.nodes[m.slider]['value']=15; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(0,*R)] and texts()[5]=='Resume Songs: Off'
-assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1; passed()
+assert m.confirm()==11 and [c[0] for c in m.calls].count('navigator_back')==1
+# A page closed mid-drag saves the dragged value once, as it closes.
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
+m.stack=[m.top]; m.nodes[m.wm]=dict(type='window_manager',name='',children=m.stack,visible=1)
+assert click(5)==[]
+m.nodes[m.slider]['value']=53; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and texts()[5]=='Resume Songs: 55 min'
+assert press(m.top,O['EVT_DESTROY'])==[(55,*R)] and texts()[5]=='Resume Songs: 55 min'; passed()
+# Crossfade's row opens it with its switch: Off or XF_MIN..XF_MAX s. A drag saves both keys at its
+# release; the switch, +/- and the wheel save each change.
+m,rows,texts,icons,click=settings_page('audioset','scroll_view_playset',stock_rows=15)
+m.stack=[m.top]; m.nodes[m.wm]=dict(type='window_manager',name='',children=m.stack,visible=1)
+assert click(3)==[] and m.nodes[m.title]['text']=='Crossfade' and m.nodes[m.vol]['text']=='Off'
+X=lambda on,sec: [(on,'Q2POD','XFADE'),(sec,'Q2POD','XFADESEC')]
+m.nodes[m.slider]['value']=7; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and m.nodes[m.vol]['text']=='7 s'
+m.nodes[m.slider]['value']=9; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and press(m.slider,O['EVT_VALUE_CHANGED'])==X(1,9)
+assert texts()[3]=='Crossfade: 9 s' and press(m.switch)==X(0,9) and m.nodes[m.vol]['text']=='Off'
+assert press(m.add)==X(1,1) and turn()==X(1,2)  # up from Off is XF_MIN, 1 s
+m.nodes[m.slider]['value']=0; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and m.nodes[m.vol]['text']=='Off'
+assert press(m.dec)==X(0,2)  # a drag whose release sent nothing: the next step saves it, unchanged or not
+passed()
 # Bluetooth's list (btmenu_rows, rebuilt on every search) gains Resume on connect and Control Device Volume
 # with Bluetooth on, right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon,
 # 78 high. Both off unless Q2POD RESUME / BTVOLLINK is 1 (docs/internals.md#resume-on-connect,
