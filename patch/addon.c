@@ -163,7 +163,7 @@ static void launch(app_t *a) {
  * .play names an .m3u on the card (q2-subsonic's queue), one card path a line: its songs are queued
  * in its order, each waited for until it is there (m3u_songs). */
 #define M3U_MAX (256 << 10) /* a playlist file read this far: about 2,000 card paths */
-#define M3U_BATCH 32        /* songs queued a poll at most, so a long list doesn't stall the UI */
+#define M3U_BATCH 32        /* folders listed a poll at most, so a long list doesn't stall the UI */
 static struct {
     char play[192];    /* the .play file as read last */
     char dir[160];     /* its folder */
@@ -207,10 +207,20 @@ static int stream_newer(const char *dir, const char *last) {
     return found;
 }
 
+/* Whether path has a ".." segment: all of it, or one between slashes or at either end. A name with
+ * an ellipsis ("Hello... (Live).flac") has none. */
+static int dotdot(const char *path) {
+    for (const char *s = path;; ++s) {
+        if (s[0] == '.' && s[1] == '.' && (!s[2] || s[2] == '/')) return 1;
+        if (!(s = strstr(s, "/"))) return 0;
+    }
+}
+
 /* The playlist's songs from entry sm.next on, in its order, a deque the caller destroys: up to the
- * first one not there yet (sm.want), at most M3U_BATCH. An entry off the card, or there but not a
- * song in its folder's listing, is passed over, as is one too long to be a path here. A file longer
- * than M3U_MAX is read that far, its cut last line dropped, so it is never waited for.
+ * first one not there yet (sm.want), its folders' listings M3U_BATCH at most (each song's folder
+ * is listed unless the song before it was in the same one). An entry off the card, or there but
+ * not a song in its folder's listing, is passed over, as is one too long to be a path here. A file
+ * longer than M3U_MAX is read that far, its cut last line dropped, so it is never waited for.
  * ponytail: the file is read whole each time it changes or a waited song lands; fine to M3U_MAX. */
 static void *m3u_songs(void) {
     void *out = _create_deque("stSongInfo"), *songs = 0;
@@ -218,14 +228,14 @@ static void *m3u_songs(void) {
     deque_init(out);
     if (raw && state_read(sm.dir, raw, M3U_MAX) == M3U_MAX - 2) strrchr(raw, '\n')[1] = 0;
     sm.want[0] = 0, sm.more = 0; /* at its end, unless a missing song or a full batch stops it */
-    int entry = 0, pushed = 0;
+    int entry = 0, lists = 0;
     for (line = raw ? raw + 1 : 0; line && *line; line = end) {
         if ((end = strstr(line, "\n"))) *end++ = 0;
         if (tk_str_start_with(line, "\xEF\xBB\xBF")) line += 3; /* a BOM */
         unsigned k = strlen(line);
         if (k && line[k - 1] == '\r') line[--k] = 0;
         if (!k || line[0] == '#' || entry++ < sm.next) continue;
-        if (!tk_str_start_with(line, CARD "/") || strstr(line, "..") || k >= sizeof sm.want) {
+        if (!tk_str_start_with(line, CARD "/") || dotdot(line) || k >= sizeof sm.want) {
             ++sm.next;
             continue;
         }
@@ -236,6 +246,10 @@ static void *m3u_songs(void) {
         char *slash = strrchr(line, '/');
         *slash = 0;
         if (!songs || strcmp(line, dir)) {
+            if (lists++ == M3U_BATCH) { /* this entry first on the next poll */
+                sm.more = 1;
+                break;
+            }
             if (songs) deque_destroy(songs);
             tk_snprintf(dir, sizeof dir, "%s", line);
             songs = app_album_songs(dir);
@@ -246,15 +260,10 @@ static void *m3u_songs(void) {
             const char *p = P(r, REC_PATH);
             if (p && !strcmp(p, line)) {
                 _deque_push_back(out, r);
-                ++pushed;
                 break;
             }
         }
         ++sm.next;
-        if (pushed == M3U_BATCH) {
-            sm.more = 1;
-            break;
-        }
     }
     free(raw);
     if (songs) deque_destroy(songs);
@@ -314,7 +323,7 @@ static void stream_poll(app_t *a) {
         sm.m3u = k > 4 && !strcasecmp(sm.dir + k - 4, ".m3u");
         sm.next = sm.more = 0, sm.first[0] = sm.want[0] = 0;
         /* a playlist on the card, or a hidden folder of it, as the app's own are */
-        sm.state = !strstr(sm.dir, "..") && tk_str_start_with(sm.dir, sm.m3u ? CARD "/" : CARD "/.")
+        sm.state = !dotdot(sm.dir) && tk_str_start_with(sm.dir, sm.m3u ? CARD "/" : CARD "/.")
                        ? S_WAIT
                        : S_DONE;
         stop_timer(&sm.timer);
