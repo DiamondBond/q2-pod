@@ -134,9 +134,14 @@ static int library_query(int content, const char *db, const char *sql, void *row
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
-    if (content == 2) return stock_sorted_query_trampoline(db, sql, row, (int)arg);
-    return content ? stock_content_query_trampoline(db, sql, row, arg, sort)
-                   : stock_dbquery_trampoline(db, sql, row, (int)arg);
+    char *expanded = sql && strstr(sql, LIBRARY_SCOPE_TOKEN) ? library_scope_query(sql) : 0;
+    if (sql && strstr(sql, LIBRARY_SCOPE_TOKEN) && !expanded) return -1;
+    const char *query = expanded ? expanded : sql;
+    int result = content == 2 ? stock_sorted_query_trampoline(db, query, row, (int)arg)
+        : content ? stock_content_query_trampoline(db, query, row, arg, sort)
+                  : stock_dbquery_trampoline(db, query, row, (int)arg);
+    if (expanded) free(expanded);
+    return result;
 }
 int ringnav_library_query(const char *db, const char *sql, void *row, int sort) {
     return library_query(0, db, sql, row, (void *)sort, 0);
@@ -5642,12 +5647,15 @@ static void fav_titles(void *list, int n) {
     if (songs) deque_destroy(songs);
 }
 /* Playlists bypass songtable; filter their displayed copies, never their stored rows. */
-static int music_records(void *list) {
+static int music_records(void *list, int discovery) {
     void *music = _create_deque("stSongInfo");
     deque_init(music);
     for (unsigned i = 0; i < deque_size(list); ++i) {
         void *r = deque_at(list, i);
-        if (I(r, REC_TYPE) != 8 || !spoken(P(r, REC_PATH))) _deque_push_back(music, r);
+        const char *path = P(r, REC_PATH);
+        int hidden = discovery ? library_scope_hidden(path)
+                               : spoken(path);
+        if (I(r, REC_TYPE) != 8 || !hidden) _deque_push_back(music, r);
     }
     deque_clear(list);
     deque_assign(list, music);
@@ -5660,7 +5668,11 @@ int ringnav_localclass(int cls) {
     library_music = 1;
     int n = stock_localclass_trampoline(cls);
     void *list = P(p_deque_showlist, 0), *dir = P(tools_pdeq_directory, 0), *a = album_opened();
-    if (n > 0 && cls == 0xff20) n = music_records(list);
+    if (n > 0 && cls == 0xff20) n = music_records(list, 0);
+    /* These stored lists bypass songtable too. Keep Discovery out of their displayed copies,
+     * without removing favourites/history or changing explicit playlist and folder queues. */
+    if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007))
+        n = music_records(list, 1);
     if (n > 0 && cls == 0xff10 && a) album_only(list, a, 0), n = (int)deque_size(list);
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
     if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007)) /* My Fav, Frequent, Recent */
@@ -6735,11 +6747,15 @@ static struct {
 
 static int era_sql(const char *sql, int (*row)(void *, int, char **, char **)) {
     void *db = 0;
+    /* Era uses SQLite directly rather than the stock library query wrappers. */
+    char *expanded = library_scope_query(sql);
+    if (!expanded) return 0;
     /* Keep a full-library grouping query from competing with the player's song records for RAM. */
     int bad = sqlite3_open("/mnt/data/database.db", &db) ||
               sqlite3_exec(db, "PRAGMA cache_size=64;PRAGMA temp_store=FILE", 0, 0, 0) ||
-              sqlite3_exec(db, sql, row, 0, 0);
+              sqlite3_exec(db, expanded, row, 0, 0);
     if (db) sqlite3_close(db);
+    free(expanded);
     return !bad;
 }
 static int era_decade_row(void *ctx, int n, char **v, char **c) {

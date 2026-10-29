@@ -1438,7 +1438,10 @@ def main():
     def macro(name):
         line = re.search(r'^#define ' + name + r' (.*)$', source, re.M)[1]
         return ''.join(ast.literal_eval(x) for x in re.findall(r'"(?:[^"\\]|\\.)*"', line))
-    sql = macro('MUSIC_ALBUM_SQL') + macro('MUSIC_WHERE') + macro('ALBUM_GROUP')
+    # Marker expansion is executed against real SQLite by test/library_scope.py and the MIPS
+    # wrapper tests. These base predicates also apply when no directories have markers.
+    music_where = macro('MUSIC_WHERE') + '1'
+    sql = macro('MUSIC_ALBUM_SQL') + music_where + macro('ALBUM_GROUP')
     with sqlite3.connect(':memory:') as db:
         db.execute('create table songtable(id,album,songer,fileurl,albumsonger)')
         paths = ['/mnt/mmc/Audiobooks/Book/01.mp3', '/mnt/mmc/aUdIoBoOkS/02.flac',
@@ -1447,7 +1450,7 @@ def main():
                  '/mnt/mmc/Podcasts/Show/episode.mp3', '/mnt/mmc/pOdCaStS/untagged.mp3',
                  '/mnt/mmc/Podcasts Extra/song.mp3', '/mnt/mmc/Music/Podcasts/song.mp3']
         db.executemany('insert into songtable values (?,"Shared","Artist",?,"Artist")', enumerate(paths))
-        assert {r[0] for r in db.execute('select id from songtable where '+macro('MUSIC_WHERE'))} == {3,4,5,8,9}
+        assert {r[0] for r in db.execute('select id from songtable where '+music_where)} == {3,4,5,8,9}
         rows = db.execute(sql).fetchall()
         assert len(rows) == 1 and rows[0][3] in paths[3:]
         db.execute('delete from songtable where id >= 3')
@@ -1458,6 +1461,12 @@ def main():
         assert not db.execute(sql).fetchall()
         db.execute("update songtable set fileurl='/mnt/mmc/PODCASTS/untagged.mp3' where id=10")
         assert not db.execute(sql).fetchall()
+        for path in ('/mnt/mmc/Discovery/weekly/01.flac', '/mnt/mmc/dIsCoVeRy/01.flac'):
+            db.execute('update songtable set fileurl=? where id=10', (path,))
+            assert db.execute(sql).fetchone()[:2] == (-1, 'Unknown Album')
+        for path in ('/mnt/mmc/Discovery Extra/01.flac', '/mnt/mmc/Music/Discovery/01.flac'):
+            db.execute('update songtable set fileurl=? where id=10', (path,))
+            assert db.execute(sql).fetchone()[:2] == (-1, 'Unknown Album')
 
     with tempfile.TemporaryDirectory(prefix='q2-coverflow-check-') as directory:
         tmp = pathlib.Path(directory)

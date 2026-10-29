@@ -99,7 +99,12 @@ class Machine:
                   'strcasestr@GLIBC_2.2',
                   'unlink@GLIBC_2.0','atoi@GLIBC_2.0','memcmp@GLIBC_2.0','access@GLIBC_2.0',
                   'fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0',  # blob_io's sync before rename
-                  'fopen@GLIBC_2.2')  # no /proc/mounts: the boot logo's poll sees no card
+                  'fopen@GLIBC_2.2', 'opendir@GLIBC_2.0', 'readdir@GLIBC_2.0',
+                  'closedir@GLIBC_2.0', 'pthread_mutex_lock@GLIBC_2.0',
+                  'pthread_mutex_unlock@GLIBC_2.0', 'calloc@GLIBC_2.0',
+                  'strdup@GLIBC_2.0')  # no /proc/mounts: the boot logo's poll sees no card
+        self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='scope_free'
+        self.scope_tree={}; self.scope_markers=set(); self.scope_handles={}
         self.present=set()  # paths access finds (the UI loop's Spotify poll asks for its login)
         self.stats={}  # paths stat finds, with their mtime (songs on the card: a card app's)
         self.image_size=(50,50)  # what widget_load_image decodes
@@ -256,9 +261,22 @@ class Machine:
             result=(re.sub(r'%\.\*s','%s',fmt) % tuple(params)).encode(); self.u.mem_write(a,result[:b-1]+b'\0'); ret=len(result)
         elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
         elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
+        elif name=='calloc@GLIBC_2.0': ret=0 if getattr(self,'fail_calloc',False) else self.alloc(a*b)
+        elif name=='strdup@GLIBC_2.0': ret=self.string(self.text(a))
+        elif name=='scope_free': ret=0
+        elif name=='opendir@GLIBC_2.0':
+            path=self.text(a); ret=self.alloc(4) if path in self.scope_tree else 0
+            if ret: self.scope_handles[ret]=list(self.scope_tree[path])
+        elif name=='readdir@GLIBC_2.0':
+            ret=0
+            if self.scope_handles.get(a):
+                n,t=self.scope_handles[a].pop(0); ret=self.alloc(268)
+                self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
+        elif name=='closedir@GLIBC_2.0': self.scope_handles.pop(a,None); ret=0
         elif name=='rockbox_stat':
             assert a==3
-            if self.text(b) in ['/mnt/mmc/'+n for n,t in self.card if t==4] or self.text(b) in self.dirs: self.word(c+20,0o40755); ret=0  # a card folder
+            if self.text(b) in self.scope_markers: self.word(c+20,0o100644); ret=0
+            elif self.text(b) in ['/mnt/mmc/'+n for n,t in self.card if t==4] or self.text(b) in self.dirs: self.word(c+20,0o40755); ret=0  # a card folder
             elif self.text(b) in self.stats: self.word(c+64,self.stats[self.text(b)]); ret=0  # its mtime: info[16]
             elif self.text(b)!='/mnt/mmc/.rockbox/rockbox': ret=-1  # Tidal Downloads' rows: no such files here
             else: self.word(c+20,self.rockbox_mode); ret=0 if self.rockbox_mode else -1
@@ -4209,6 +4227,26 @@ for cls in (0xf00a,0xff20):
         want=[f'Row {i}' for i,path in enumerate(selected) if cls==0xf00a or path in paths[1:2]+paths[4:]]
         assert m.names(m.get(syms['p_deque_showlist']))==want and n==len(want)
         assert [bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]==before
+# Discovery stays playable in explicit playlists but is hidden from stored library views.
+discovery_paths=['/mnt/mmc/Discovery/weekly/song.flac', '/mnt/mmc/dIsCoVeRy/track.flac',
+                 '/mnt/mmc/Discovery Extra/song.flac', '/mnt/mmc/Music/Discovery/song.flac',
+                 '/mnt/mmc/Discovery.flac', '/mnt/mmc/Music/keeper.flac']
+for cls in (0xf00a,0xf008,0xf007,0xff20):
+    for selected in (discovery_paths,discovery_paths[:2]):
+        m=ClassMachine(rows=len(selected))
+        m.scope_tree={'/mnt/mmc':[('Discovery',4)],'/mnt/mmc/Discovery':[]}
+        m.scope_markers={'/mnt/mmc/Discovery/database.ignore'}
+        for i,path in enumerate(selected):
+            m.word(m.row(i)+O['REC_PATH'],m.string(path))
+            m.word(m.row(i)+O['REC_TITLE'],m.string('Tagged'))
+        stored=m.deque(m.items(m.get(syms['p_deque_showlist'])))
+        before=[bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]
+        n=m.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+        want=[f'Row {i}' for i in range(len(selected)) if cls==0xff20 or i>=2]
+        assert n==len(want) and m.names(m.get(syms['p_deque_showlist']))==want
+        assert [bytes(m.u.mem_read(r,0x60)) for r in m.items(stored)]==before
+        assert m.get(payload_syms['library_music'])==0
+passed()
 # A playlist container remains even when its name/path looks like spoken audio.
 m=ClassMachine(rows=1); m.word(m.row(0)+O['REC_TYPE'],4)
 m.word(m.row(0)+O['REC_PATH'],m.string(paths[0]))
@@ -4367,7 +4405,68 @@ for scoped,artist,want in ((0,'The Cure',{7,8}),(0,'',{6}),(1,'The Cure',{7,8}),
 lm.word(payload_syms['library_music'],1); lm.sql=None
 assert lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select * from songtable'+' '*2048),123,1),gap=0)==-1
 assert lm.sql is None
+# Discovery is filtered before grouping, even when its tags collide with a main-library album.
+# The unscoped path retains every row for explicit folder/playlist use; moving a keeper back
+# into Music makes it visible on the next query, without deleting or retagging a database row.
+lm.scope_tree={'/mnt/mmc':[('Discovery',4)],'/mnt/mmc/Discovery':[]}
+lm.scope_markers={'/mnt/mmc/Discovery/database.ignore'}
+lm.word(payload_syms['library_gen'],lm.get(payload_syms['library_gen'])+2)
+lm.db.execute('delete from songtable')
+for i,path in enumerate(discovery_paths):
+    lm.db.execute('insert into songtable(id,album,songer,albumsonger,fileurl) values(?,?,?,?,?)',
+                  (i,'Shared' if i in (0,5) else f'Album {i}','Artist','Artist',path))
+queries=['select id,fileurl from songtable order by id',
+         'select id,album,fileurl from songtable group by album COLLATE NOCASE',
+         "select id,fileurl from songtable where songer='Artist' order by id"]
+for scoped in (1,0,1):
+    lm.word(payload_syms['library_music'],scoped)
+    for query in queries:
+        lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(query),123,1),gap=0)
+        ids={r[0] for r in lm.results}
+        assert ids==({2,3,4,5} if scoped else {0,1,2,3,4} if 'group by' in query else set(range(6))),lm.results
+lm.db.execute("update songtable set fileurl='/mnt/mmc/Music/new-keeper.flac' where id=1")
+lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string(queries[0]),123,1),gap=0)
+assert {r[0] for r in lm.results}=={1,2,3,4,5}
+assert lm.db.execute('select count(*) from songtable').fetchone()[0]==6
 lm.db.close(); passed()
+# The compiled marker walker and SQL wrapper share nearest-marker rules; filenames are literal
+# prefixes (quotes, SQL wildcard characters and UTF-8), and scoped Coverflow SQL expands even
+# outside a normal-library call. A library update refreshes both SQL and stored-list snapshots.
+qm=LibraryQueryMachine()
+qm.db.execute('delete from songtable')
+marker_paths=['Music/a.flac','Singles/a.flac','Singles/Keep/a.flac','Singles Extra/a.flac',
+              'Needledrop/a.flac',"Odd ' %_/a.flac",'日本語/a.flac','Discovery/a.flac']
+qm.db.executemany('insert into songtable values(?,?,?,?,?)',
+    [(i,'Shared' if i in (0,1) else str(i),'Artist','Artist','/mnt/mmc/'+p) for i,p in enumerate(marker_paths)])
+qm.scope_tree={'/mnt/mmc':[('Singles',4),('Needledrop',4),("Odd ' %_",4),('日本語',4)],
+    '/mnt/mmc/Singles':[('Keep',4)],'/mnt/mmc/Singles/Keep':[],
+    '/mnt/mmc/Needledrop':[],"/mnt/mmc/Odd ' %_":[],'/mnt/mmc/日本語':[]}
+qm.scope_markers={p+'/database.ignore' for p in ('/mnt/mmc/Singles','/mnt/mmc/Needledrop',"/mnt/mmc/Odd ' %_",'/mnt/mmc/日本語')}
+qm.scope_markers.add('/mnt/mmc/Singles/Keep/database.unignore')
+def marker_query(sql,scoped=1):
+    qm.word(payload_syms['library_music'],scoped)
+    qm.call(address=HOOKS['toolsQueryDbTable'][0],args=(qm.string('/mnt/data/database.db'),qm.string(sql),123,1),gap=0)
+    return {r[0] for r in qm.results}
+assert marker_query('select id,fileurl from songtable order by id')=={0,2,3,7}
+assert marker_query('select id,fileurl from songtable order by id',0)==set(range(8))
+assert marker_query('select id,fileurl from songtable where /*q2-library-scope*/1 order by id',0)=={0,2,3,7}
+assert marker_query('select id,album from songtable group by album')=={0,2,3,7}
+qm.scope_markers.remove('/mnt/mmc/Singles/database.ignore')
+assert marker_query('select id,fileurl from songtable')=={0,2,3,7}
+qm.word(payload_syms['library_gen'],qm.get(payload_syms['library_gen'])+2)
+assert marker_query('select id,fileurl from songtable')=={0,1,2,3,7}
+assert qm.db.execute('select count(*) from songtable').fetchone()[0]==8
+qm.db.close(); passed()
+for cls in (0xf00a,0xf008,0xf007,0xff20):
+    q=ClassMachine(rows=3)
+    q.scope_tree={'/mnt/mmc':[('Singles',4)],'/mnt/mmc/Singles':[('Keep',4)],'/mnt/mmc/Singles/Keep':[]}
+    q.scope_markers={'/mnt/mmc/Singles/database.ignore','/mnt/mmc/Singles/Keep/database.unignore'}
+    for i,path in enumerate(('Singles/a.flac','Singles/Keep/a.flac','Music/a.flac')):
+        q.word(q.row(i)+O['REC_PATH'],q.string('/mnt/mmc/'+path))
+        q.word(q.row(i)+O['REC_TITLE'],q.string('Tagged'))
+    q.call(address=HOOKS['load_localclass_list'][0],args=(cls,0,0,0),gap=0)
+    assert q.names(q.get(syms['p_deque_showlist']))==(['Row 0','Row 1','Row 2'] if cls==0xff20 else ['Row 1','Row 2'])
+    passed()
 # Their stock art cache names (/mnt/mmc/.sldp/<md5>0.jpg): a shared name adds the album artist,
 # a name alone stays; the album page's big cover follows its row's cover task name.
 for e in m.items(m.get(syms['p_deque_showlist']))[:2]: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
@@ -5786,6 +5885,7 @@ if variant=='ipod':
     sleep_hook=HOOKS['main_loop_sleep_default'][0]
     def lyric_page(page=1,size=9,lines=len(ROWS),config=None):  # stock's rows: no memory for the page's table
         m=scrub_page(); m.mock('calloc@GLIBC_2.0','pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
+        m.fail_calloc=True  # preserve this fixture's allocation-failure path with scope's allocator mock
         m.word(0xa2638c,0x1000010); m.handlers[0x1000010]='free'  # free's GOT slot, as Coverflow's
         m.lyric_size=size; m.handlers[sleep_hook+12]='stock_sleep'; m.config.update(config or {})
         rows=[m.node('label') for _ in range(lines)]
@@ -6131,7 +6231,7 @@ if variant=='ipod':
     assert [seen(i) for i in range(5)]==[0,21,135,22,0]
     assert [{x[3]>>24 for x in m.ink(i)} for i in range(5)]==[set(),{255*21*21//(97*97)},{255},{255*22*22//(SLOT*SLOT)},set()]; passed()
     # With no memory for its table the page keeps stock's rows, their text and layout, and paints nothing over them.
-    m=karaoke(); m.mock('calloc@GLIBC_2.0'); m.show(9)
+    m=karaoke(); m.mock('calloc@GLIBC_2.0'); m.fail_calloc=True; m.show(9)
     assert [m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']]==['One','Two two','Three','Four','Five']
     assert 'children_layout' not in m.nodes[m.lrc]
     assert m.ink(1)==[] and loop(m)==0 and m.ink(1)==[]; passed()
@@ -6621,6 +6721,7 @@ assert menu(m)==('Album',[*COVER_ALBUM,'Add to Playlist']); passed()
 class EraMachine(PlaylistEditMachine):
     def __init__(self,songs=()):
         super().__init__()
+        self.mock('strstr@GLIBC_2.0')
         self.db.execute('create table songtable(id integer primary key,album,songer,albumsonger,fileurl,year)')
         self.db.executemany('insert into songtable(album,songer,albumsonger,fileurl,year) values(?,?,?,?,?)',songs)
     def open_era(self):
@@ -6641,6 +6742,17 @@ into=lambda: [m.nodes[m.nodes[r]['children'][-1]].get('image')=='list_into' for 
 assert into()==[True]*3  # a decade opens its albums
 assert m.decade(1)==['90s','Play All','2 albums','Shuffle','Every song, shuffled','Alpha','A1 \u2022 1990','Beta','Beta Band \u2022 1999']
 assert m.nodes[m.top]['name']=='era_albums_page' and into()==[False,False,True,True]; passed()  # an album opens Coverflow
+# Era's direct SQLite queries respect markers before counting/grouping and nested exceptions.
+for restore in (False,True):
+    m=EraMachine(SONGS+[('Hidden','Artist','Artist','/mnt/mmc/Hidden/a.flac',1970),
+                        ('Restored','Artist','Artist','/mnt/mmc/Hidden/Keep/a.flac',1985)])
+    m.scope_tree={'/mnt/mmc':[('Hidden',4)],'/mnt/mmc/Hidden':[('Keep',4)],'/mnt/mmc/Hidden/Keep':[]}
+    m.scope_markers={'/mnt/mmc/Hidden/database.ignore'}
+    if restore: m.scope_markers.add('/mnt/mmc/Hidden/Keep/database.unignore')
+    assert m.open_era()==['Era','80s','2 albums' if restore else '1 album','90s','2 albums','2000s','1 album']
+    shown=m.decade(0)
+    assert ('Restored' in shown)==restore and 'Hidden' not in shown
+    passed()
 # The full library is counted past stock's old 20,000-song limit, with a bounded SQLite cache.
 m=EraMachine((f'Large {i//10}','Artist','Artist',f'/mnt/mmc/music/large/{i}.flac',2020) for i in range(65000))
 assert m.open_era()==['Era','2020s','6500 albums']
