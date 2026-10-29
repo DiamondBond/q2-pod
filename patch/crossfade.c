@@ -305,7 +305,10 @@ int xfade_open(void *ctx, void *event) {
     widget_set_text_utf8(title, mode == 2 ? "Resume Songs"
                                 : wheel   ? "Wheel Sensitivity"
                                           : "Crossfade");
-    widget_set_visible(xf.view, 1, 0); /* stock shows it only while Boot volume's switch is on */
+    /* Stock shows and enables it only while Boot volume's switch is on: disabled, touch misses the
+     * slider and +/- (#140). */
+    widget_set_visible(xf.view, 1, 0);
+    widget_set_enable(xf.view, 1);
     if (mode) widget_set_visible(xf.sw, 0, 0);
     slider_set_min(xf.slider, mode == 2 ? RS_MIN - 5 : wheel ? 50 : 0);
     slider_set_max(xf.slider, mode == 2 ? RS_MAX : wheel ? 200 : XF_MAX);

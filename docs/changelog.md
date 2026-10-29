@@ -4,6 +4,7 @@
   - Buttons: a Centre press made while the top button (Back) is held is ignored, so a loose wheel that closes both on one press only goes back.
   - Home: in Split, the album art pans smoothly instead of moving in small steps.
   - EQ: Simple has a **Presets** button, between the switch and Reset, which is now a small **R** box. It opens Advanced's presets menu. A preset picked there plays at once in Advanced, and Simple turns off. Moving a Simple slider afterwards turns Simple back on.
+  - Settings: the slider and the minus and plus buttons on Resume Songs, Crossfade and Wheel Sensitivity work by touch again. They only worked with the wheel while Default Volume was off.
 
 - **1.5.6**:
   - Now Playing: Enlarged Album Art (10s wait) is off by default. The new default applies after a reset or on a new setup; a saved setting is kept.

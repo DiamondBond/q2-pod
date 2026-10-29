@@ -3220,8 +3220,9 @@ class QueueMachine(Machine):
         self.slider=self.node('slider','slider_bootvol'); self.vol=self.node('label','label_vol')
         self.dec,self.add=self.node('image','img_dec'),self.node('image','img_add')
         self.title,self.switch=self.node('label','label_title'),self.node('image','img_bootswitch')
-        return self.node('window','bootvol_page',[self.node('view','view_navbar',[self.title,self.switch]),
-                         self.node('view','view_bootvol',[self.slider,self.dec,self.add,self.vol],visible=0)])
+        view=self.node('view','view_bootvol',[self.slider,self.dec,self.add,self.vol],visible=0)
+        self.nodes[view]['enable']=0  # stock hides and disables it while its switch is off
+        return self.node('window','bootvol_page',[self.node('view','view_navbar',[self.title,self.switch]),view])
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('q:'): return super().hook(u,address,size,unused)
@@ -11728,7 +11729,7 @@ m,rows,texts,icons,click=settings_page('display','scroll_view_display',stock_row
 display_page=m.top; m.stack=[m.top]; m.nodes[m.wm]=dict(type='window_manager',name='',children=m.stack,visible=1)
 assert click(-1)==[] and m.top!=display_page and m.nodes[m.top]['name']=='bootvol_page'
 assert m.nodes[m.title]['text']=='Wheel Sensitivity' and m.nodes[m.switch]['visible']==0 and m.nodes[m.vol]['text']=='50%'
-assert m.nodes[named(m,m.top,'view_bootvol')]['visible']==1
+assert m.nodes[named(m,m.top,'view_bootvol')]['visible']==1 and m.nodes[named(m,m.top,'view_bootvol')]['enable']==1  # touch (#140)
 def press(w,kind=O['EVT_CLICK']):
     m.calls=[]; f,ctx=m.handler(w,kind); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
     return [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
