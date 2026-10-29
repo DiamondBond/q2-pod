@@ -1487,15 +1487,21 @@ static void fx_placeholder(void) {
     fx.light = ipod_light();
 #endif
 }
+/* A w x h RGBA8888 bitmap the renderers fill whole, so flagged opaque; 0 when out of memory. */
+static void *opaque_frame(int w, int h) {
+    void *b = bitmap_create_ex(w, h, w * 4, 1 /* RGBA8888 */);
+    if (b) *(unsigned short *)((char *)b + 0xc) |= 1; /* BITMAP_FLAG_OPAQUE */
+    return b;
+}
+
 /* The frame and every texture at once, or neither: the flat covers then stand in. */
 static int fx_open(void) {
-    fx.frame = bitmap_create_ex(CF_VIEW_W, CF_VIEW_H, CF_VIEW_W * 4, 1 /* RGBA8888 */);
+    fx.frame = opaque_frame(CF_VIEW_W, CF_VIEW_H);
     fx.tex = fx.frame ? calloc(CF_RING + 1, CF_TEXELS * 4) : 0;
     if (!fx.tex) {
         fx_close();
         return 0;
     }
-    *(unsigned short *)((char *)fx.frame + 0xc) |= 1; /* BITMAP_FLAG_OPAQUE: every pixel is */
     fx_placeholder();
     return 1;
 }
@@ -2114,14 +2120,18 @@ const char *now_tag(void *r, int field) {
 }
 
 #if IPOD
+#define HOME_PW (375 - HOME_SPLIT_W) /* Split's art panel, 290 high */
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
     unsigned key, repaint; /* repaint: the timer of home_repaint */
-    /* drift: home_drift's timer; drift_ms: the pan's phase, ms shown; rx ry: how far the cover
-     * pans from x0 y0, 0 0 for the placeholder, which stays */
+    /* drift: home_drift's timer; drift_ms: the pan's phase, ms shown */
     unsigned drift, drift_ms, drift_last;
-    int rx, ry, x0, y0;
+    /* home_tex's zoomed cover (tw 0: the still stock image, which never pans) and the panel's
+     * frame, drawn from it at du dv (1/256 px, -1 for none yet) */
+    unsigned *tex;
+    void *frame;
+    int tw, rx, ry, u0, v0, du, dv;
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
@@ -2144,31 +2154,29 @@ static int home_repaint(const void *unused) {
     return 0; /* RET_REMOVE */
 }
 
-/* One axis of the pan (an iPod classic's menu art): 0 to range px and back over 2 x period ms. */
+/* One axis of the pan (an iPod classic's menu art): 0 to range px and back over 2 x period ms, in
+ * 1/256 px. range is a tenth of a cover within DRIFT_TEXELS (under 100 px), so 32 bits hold it. */
 static int drift_at(int range, unsigned period) {
     unsigned t = home.drift_ms % (2 * period);
-    /* in 16 ms units, so 32 bits hold the widest cover's range (8192 x 1: 237568 px) */
-    return (int)((unsigned)range * ((t < period ? t : 2 * period - t) >> 4) / (period >> 4));
+    return (int)((unsigned)range * 256 * ((t < period ? t : 2 * period - t) >> 4) / (period >> 4));
 }
 
-/* Puts the cover where the pan is. Written in place and only the panel repainted: widget_move
- * would repaint the whole zoomed art, the list's rows under it too. A still step costs nothing.
- * ponytail: the fill scales the cover from its full size each step; pre-scale it once to the
- * zoomed size if a large embedded cover proves costly. */
+/* Where the panel's top left is in the zoomed cover, in 1/256 px: the old crop, then the pan. */
+static int pan_u(void) { return home.u0 * 256 + drift_at(home.rx, DRIFT_X_MS); }
+static int pan_v(void) { return home.v0 * 256 + drift_at(home.ry, DRIFT_Y_MS); }
+
+/* A step repaints only the panel, once the pan has moved; coverflow_home_clip draws it. */
 static void drift_place(void) {
-    int x = home.x0 - drift_at(home.rx, DRIFT_X_MS), y = home.y0 - drift_at(home.ry, DRIFT_Y_MS);
-    if (x == I(home.art, W_X) && y == I(home.art, W_Y)) return;
-    I(home.art, W_X) = x;
-    I(home.art, W_Y) = y;
-    static int pane[4] = { HOME_SPLIT_W, 0, 375 - HOME_SPLIT_W, 290 }; /* rect_t, in the parent */
+    if (pan_u() == home.du && pan_v() == home.dv) return;
+    static int pane[4] = { HOME_SPLIT_W, 0, HOME_PW, 290 }; /* rect_t, in the parent */
     widget_invalidate_force(P(home.art, W_PARENT), pane);
 }
 
 /* The pan runs only while it shows: Home on top and not sliding (its snapshot would not move), the
- * screen lit, a cover that overhangs (the placeholder has none; Full never paints the art). */
+ * screen lit, a cover that pans (the placeholder does not; Full never paints the art). */
 static int drift_live(void) {
     void *wm = window_manager();
-    return (home.rx || home.ry) && g_backlight_status && !g_lockscreen_pageflag &&
+    return home.tw && g_backlight_status && !g_lockscreen_pageflag &&
            window_manager_get_top_window(wm) == home.win && !window_manager_is_animating(wm);
 }
 
@@ -2185,27 +2193,103 @@ static int home_drift(const void *unused) {
     return 8; /* RET_REPEAT */
 }
 
-/* Sizes the art to a w x h bitmap's proportions, just covering the panel and centred on
- * it, so the native fill draws it whole and the clip crops it evenly; unknown sizes fill the
- * panel. A cover (drift) is zoomed DRIFT_ZOOM_PCT past that and placed where the pan is, so a new
- * one keeps the pan's phase; it pans across the zoom's margin only, from the old crop, so the
- * cover's edges never show.
- * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
- * library thumbnails are too small for the panel, so each change would decode a full cover. */
-static void home_fit(unsigned w, unsigned h, int drift) {
-    int x = HOME_SPLIT_W, pw = 375 - x, ph = 290, fw = pw, fh = ph;
+/* A w x h image's size just covering the panel at its proportions; unknown sizes fill it. */
+static void home_fit(unsigned w, unsigned h, int *fw, int *fh) {
+    int pw = HOME_PW, ph = 290;
+    *fw = pw, *fh = ph;
     if (w && h && w <= 8192 && h <= 8192) {
         if ((unsigned)pw * h > (unsigned)ph * w)
-            fh = (int)(((unsigned)pw * h + w - 1) / w);
+            *fh = (int)(((unsigned)pw * h + w - 1) / w);
         else
-            fw = (int)(((unsigned)ph * w + h - 1) / h);
+            *fw = (int)(((unsigned)ph * w + h - 1) / h);
     }
-    home.x0 = x + (pw - fw) / 2, home.y0 = (ph - fh) / 2; /* the unzoomed crop */
-    home.rx = drift ? fw * DRIFT_ZOOM_PCT / 100 - fw : 0;
-    home.ry = drift ? fh * DRIFT_ZOOM_PCT / 100 - fh : 0;
-    fw += home.rx, fh += home.ry;
-    widget_move_resize(home.art, home.x0 - drift_at(home.rx, DRIFT_X_MS),
-                       home.y0 - drift_at(home.ry, DRIFT_Y_MS), fw, fh);
+}
+
+/* The cover at url, box filtered once to its fit zoomed DRIFT_ZOOM_PCT (home.tex, tw x th) and
+ * composited over the page as Coverflow's decode does, for the pan to draw from. It pans across
+ * the zoom's margin only (rx ry), from the old crop (u0 v0), so its edges never show. 1 when it
+ * pans, -1 when nothing loads, 0 for a 16-bit decode or a cover too long for DRIFT_TEXELS, which the
+ * stock fill shows still.
+ * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
+ * library thumbnails are too small for the panel, so each change would decode a full cover. Light
+ * Mode's paper behind a transparent cover changes with the next cover. */
+static int home_tex(const char *url) {
+    static const unsigned char at[4][4] = BITMAP_RGBA_AT;
+    unsigned bitmap[64]; /* bitmap_t */
+    if (widget_load_image(home.art, url, bitmap)) return -1;
+    unsigned w = bitmap[0], h = bitmap[1], format = ((unsigned short *)bitmap)[7] - 1u;
+    int fw, fh;
+    home_fit(w, h, &fw, &fh);
+    int tw = fw * DRIFT_ZOOM_PCT / 100, th = fh * DRIFT_ZOOM_PCT / 100;
+    const unsigned char *data = 0;
+    if (!home.frame) home.frame = opaque_frame(HOME_PW, 290);
+    if (home.frame && format < 4 && w && h && w <= 8192 && h <= 8192 && tw <= DRIFT_TEXELS / th) {
+        free(home.tex); /* a row and a texel more: home_render's last neighbours, at weight 0 */
+        home.tex = calloc((unsigned)(th + 1) * (unsigned)tw + 1, 4);
+        data = home.tex ? bitmap_lock_buffer_for_read(bitmap) : 0;
+    }
+    if (data) {
+        const unsigned char *o = at[format];
+        unsigned stride = bitmap_get_line_length(bitmap), paper = ipod_light() ? LIGHT_PAPER : 0;
+        unsigned *out = home.tex;
+        for (int y = 0; y < th; ++y) {
+            unsigned y0 = (unsigned)y * h / (unsigned)th, y1 = (unsigned)(y + 1) * h / (unsigned)th;
+            y1 += y1 == y0;
+            for (int x = 0; x < tw; ++x) {
+                unsigned x0 = (unsigned)x * w / (unsigned)tw,
+                         x1 = (unsigned)(x + 1) * w / (unsigned)tw;
+                x1 += x1 == x0;
+                /* alpha-weighted sums, so only the average divides; at most 4 x 4 samples, so a
+                 * huge embedded cover filters as quickly as a small one */
+                unsigned r = 0, g = 0, b = 0, a = 0, n = 0, xs = (x1 - x0 + 3) / 4 * 4,
+                         ys = (y1 - y0 + 3) / 4;
+                for (unsigned sy = y0; sy < y1; sy += ys)
+                    for (const unsigned char *px = data + sy * stride + x0 * 4,
+                                             *end = data + sy * stride + x1 * 4;
+                         px < end; px += xs, n += 255) {
+                        unsigned k = px[o[3]];
+                        r += px[o[0]] * k, g += px[o[1]] * k, b += px[o[2]] * k, a += k;
+                    }
+                unsigned bg = paper * (n - a);
+                *out++ = 0xff000000u | (r + bg) / n | (g + bg) / n << 8 | (b + bg) / n << 16;
+            }
+        }
+        bitmap_unlock_buffer(bitmap);
+        home.tw = tw, home.rx = tw - fw, home.ry = th - fh;
+        home.u0 = (fw - HOME_PW) / 2, home.v0 = (fh - 290) / 2, home.du = -1;
+    }
+    widget_unload_image(home.art, bitmap);
+    return data != 0;
+}
+
+/* The panel from the zoomed cover at u, v (1/256 px), bilinear, so the pan moves by fractions of
+ * a pixel: in whole pixels its 1.5 a second jerked. Opaque, so red and blue blend in one word. */
+static void home_render(unsigned *d, int pitch, int u, int v) {
+    unsigned fu = (unsigned)u & 255, fv = (unsigned)v & 255, w00 = (256 - fu) * (256 - fv) >> 8,
+             w01 = fu * (256 - fv) >> 8, w10 = (256 - fu) * fv >> 8, w11 = 256 - w00 - w01 - w10;
+    for (int y = 0; y < 290; ++y, d += pitch) {
+        const unsigned *a = home.tex + ((v >> 8) + y) * home.tw + (u >> 8), *b = a + home.tw;
+        for (int x = 0; x < HOME_PW; ++x, ++a, ++b) {
+            unsigned rb = (a[0] & 0xff00ffu) * w00 + (a[1] & 0xff00ffu) * w01 +
+                          (b[0] & 0xff00ffu) * w10 + (b[1] & 0xff00ffu) * w11,
+                     g = (a[0] & 0xff00u) * w00 + (a[1] & 0xff00u) * w01 + (b[0] & 0xff00u) * w10 +
+                         (b[1] & 0xff00u) * w11;
+            d[x] = 0xff000000u | (rb >> 8 & 0xff00ffu) | (g >> 8 & 0xff00u);
+        }
+    }
+}
+
+/* The pan's frame over the art (its image is empty), rendered again only once the pan moved. */
+static void home_paint(void *canvas) {
+    int u = pan_u(), v = pan_v(), r[4] = { 0, 0, HOME_PW, 290 };
+    if (u != home.du || v != home.dv) {
+        unsigned *d = (unsigned *)bitmap_lock_buffer_for_write(home.frame);
+        if (!d) return;
+        home_render(d, (int)(bitmap_get_line_length(home.frame) / 4), u, v);
+        bitmap_unlock_buffer(home.frame);
+        home.du = u, home.dv = v;
+    }
+    canvas_draw_image(canvas, home.frame, r, r);
 }
 
 /* The player's cover, else the Coverflow cache of the track's album (now_tag), else the
@@ -2233,21 +2317,33 @@ void coverflow_home_art(void *top) {
     char url[600] = "file://";
     if (r) art_path(url + 7, album, "");
     unsigned size[2] = { 0, 0 };
-    int shown =
-        (cover && image_show(home.art, cover, size)) || (r && image_show(home.art, url, size));
-    if (!shown && !image_show(home.art, HOME_PLACEHOLDER, size))
-        image_base_set_image(home.art, HOME_PLACEHOLDER);
-    home_fit(size[0], size[1], shown);
+    int fw = HOME_PW, fh = 290;
+    home.tw = 0;
+    const char *src = cover;
+    int pans = cover ? home_tex(cover) : -1;
+    if (pans < 0 && r) pans = home_tex(url), src = url;
+    if (pans > 0) {
+        image_base_set_image(home.art, ""); /* home_paint draws it */
+    } else {
+        /* still, sized to the image's fit and centred, so the native fill draws it whole and the
+         * clip crops it evenly */
+        if (!(pans == 0 && image_show(home.art, src, size)) &&
+            !image_show(home.art, HOME_PLACEHOLDER, size))
+            image_base_set_image(home.art, HOME_PLACEHOLDER);
+        home_fit(size[0], size[1], &fw, &fh);
+    }
+    widget_move_resize(home.art, HOME_SPLIT_W + (HOME_PW - fw) / 2, (290 - fh) / 2, fw, fh);
     rearm(&home.repaint, home_repaint, 0);
 }
 
 /* The art paints only inside its panel and the lists only left of it, so a sliding list
  * never covers the art: ringnav_paint_bg narrows the canvas clip (screen coordinates; the canvas
  * origin is the widget's) before stock draws it, and ringnav_paint puts the old clip back after its
- * children. */
+ * children, the pan's frame painted inside it first. */
 void coverflow_home_clip(void *w, void *canvas, int begin) {
     if (!w || (w != home.art && w != home.list && w != home.sets)) return;
     if (!begin) {
+        if (w == home.art && home.tw) home_paint(canvas);
         if (home.clipped) canvas_set_clip_rect(canvas, home.clip);
         home.clipped = 0;
         return;

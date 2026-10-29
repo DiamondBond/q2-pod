@@ -217,14 +217,16 @@ static inline int arc_out(int r, int y) {
  * MINIMAL_CHEVRON under every accent; its own accent (MINIMAL_ACCENT) fills with MINIMAL_FILL. */
 #define HOME_SPLIT_W 187
 /* Split's cover pans (docs/ipod.md#home): zoomed DRIFT_ZOOM_PCT, each axis a linear ping-pong of
- * its own period across the zoom's margin (about 1.5 px/s on a square cover, as iPod.js's), stepped
- * every DRIFT_TICK_MS by at most DRIFT_MAX_STEP_MS. Tuned by eye; 2 x DRIFT_X_MS x DRIFT_Y_MS must
+ * its own period across the zoom's margin (about 1.5 px/s on a square cover, as iPod.js's), drawn
+ * at sub-pixel positions every DRIFT_TICK_MS, a step at most DRIFT_MAX_STEP_MS. A cover whose zoomed
+ * fit passes DRIFT_TEXELS (four panels) stays still. Tuned by eye; 2 x DRIFT_X_MS x DRIFT_Y_MS must
  * fit in 32 bits. */
 #define DRIFT_ZOOM_PCT 110
 #define DRIFT_X_MS 20000
 #define DRIFT_Y_MS 26000
 #define DRIFT_TICK_MS 100
 #define DRIFT_MAX_STEP_MS 250
+#define DRIFT_TEXELS 218080 /* four panels: 4 x 188 x 290 */
 #define HOME_CLASSIC_ROW 369
 #define HOME_TOP 8 /* Minimal's decorative inset; Classic starts below the status bar. */
 #define HOME_CHEVRON_SHIFT 15

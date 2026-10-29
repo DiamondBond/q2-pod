@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.5.7**:
+  - Home: in Split, the album art pans smoothly instead of moving in small steps.
+
 - **1.5.6**:
   - Now Playing: Enlarged Album Art (10s wait) is off by default. The new default applies after a reset or on a new setup; a saved setting is kept.
   - Home: in Split, the album art drifts slowly across its panel, as on an iPod classic. It moves only while Home is on screen.
