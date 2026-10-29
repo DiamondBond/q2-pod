@@ -532,7 +532,10 @@ lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixe
 turns and as far a turn as a line a tick, instead of changing the volume or scrubbing; a scrub
 under way ends first, as any other end does. While the finger stays on the wheel they stay
 exactly where it put them; let go, they glide to the nearest whole line. On the page, the follow
-to a new line glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
+to a new line glides too. While they follow, the wheel meets a list end's resistance: travel short of
+`LYRIC_PUSH_DETENTS` (2) ticks within `LYRIC_PUSH_MS` of the last only nudges them `BUMP_PX`, held while the
+finger stays and springing back when it lets go, still following, so a stray touch keeps the follow.
+Lyrics moved by the wheel or a finger stay where they are, while the bar and the
 highlight go on, until the page swipes away from them; back on the lyrics page they are on the
 current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod) and [Word-timed lyrics](internals.md#word-timed-lyrics).
 
@@ -614,7 +617,11 @@ drops the stock rows, takes the sub-page's title and builds only its own rows:
 - Appearance: "Theme: Minimal", "Light Mode: Off" ([Light Mode](#light-mode)), "Accent: Graphite"
   and a "Rounded Corners" switch (stock's `switch_on`/`switch_off`, via `list_toggle`) with the System settings Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
   Percent, Icon + Percent, Percent Inside; see [Status bar and clock](#status-bar-and-clock)) with
-  the power manager icon (`system_powermanager`).
+  the power manager icon (`system_powermanager`), then a "Keep Screen On" switch (`IPOD KEEPLIT`, off;
+  `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page and a song
+  playing, it calls `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there;
+  paused, it times out as usual. Enlarged Album Art never opens off the art page: `ringnav_bigcover`
+  closes its window at once when Now Playing's slide view is on another page (#57).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
   Coverflow ends with an All albums card, see
   [internals.md](internals.md#artist-albums-in-coverflow)), "Coverflow Sort: Album" and "Refresh

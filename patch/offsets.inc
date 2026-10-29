@@ -406,6 +406,12 @@ static inline int arc_out(int r, int y) {
 #define BUMP_PX 6
 #define BUMP_MS 120
 #define EDGE_PAUSE_MS 300 /* well above WHEEL_RUN_MS, so a spin never counts as a pause */
+/* Following lyrics resist the wheel as a list's end does (lyric_poll): travel short of
+ * LYRIC_PUSH_DETENTS within LYRIC_PUSH_MS of the last only nudges them BUMP_PX.
+ * ponytail: fixed feel, tune these two if a stray touch still takes over or a deliberate one
+ * feels stuck. */
+#define LYRIC_PUSH_DETENTS 2
+#define LYRIC_PUSH_MS 1000
 #define BAR_VALUE 0x7c /* scroll_bar native value, maintained by list/table scroll callbacks */
 #define KEY_CENTER 218
 #define KEY_PREV 172

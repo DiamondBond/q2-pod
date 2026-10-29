@@ -5812,11 +5812,23 @@ if variant=='ipod':
         return y(m)
     def settle(m,n=60): return [loop(m) for _ in range(n)]
     def follow(m,to): m.call(address=payload_syms['ringnav_lyric_follow'],args=(m.lrc,0,to,10),gap=0,clear=False); return y(m)
+    def hold(m): loop(m,-56); loop(m,56); settle(m)  # LYRIC_PUSH_DETENTS turned there and back: held at the top
     for kw in ({'page':0},{'size':0},{'lines':0}):
         m=lyric_page(**kw); loop(m); assert raw(m)==0 and m.get(payload_syms['wheel_travel'])==0
         assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
-    # Clockwise (x falling) scrolls down: a tick's travel glides one row, never a jump, slowing in.
+    # Following, a lone tick meets a list end's resistance: it nudges them BUMP_PX while the finger
+    # stays, and they spring back on release, still following; slower ticks only nudge again.
     m=lyric_page(); assert loop(m)==0 and raw(m)==1; m.calls=[]
+    loop(m,-28); assert settle(m)[-1]==O['BUMP_PX'] and follow(m,0)==O['BUMP_PX']
+    assert ('reset_poweroptions_timer',1,1,1) in [c[:4] for c in m.calls]  # the screen stays on
+    m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==0; m.word(payload_syms['wheel_held'],1)
+    follow(m,20); assert settle(m)[-1]==20; m.advance(O['LYRIC_PUSH_MS'])
+    loop(m,28); assert settle(m)[-1]==20-O['BUMP_PX'] and follow(m,20)==20-O['BUMP_PX']; passed()
+    # A second tick within LYRIC_PUSH_MS takes over, from the nudge; let go, it snaps and stays.
+    m=lyric_page(); loop(m); loop(m,-28); m.advance(500); loop(m,-28)
+    assert settle(m)[-1]==26; m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==20 and follow(m,0)==20; passed()
+    # Clockwise (x falling) scrolls down: a tick's travel glides one row, never a jump, slowing in.
+    m=lyric_page(); assert loop(m)==0 and raw(m)==1; hold(m); m.calls=[]
     ys=[loop(m,-28)]+settle(m); steps=[b-a for a,b in zip([0]+ys,ys)]
     assert ys[-1]==20 and 0<ys[0]<5 and all(0<=s<=4 for s in steps) and steps[-1]==0,ys
     assert ('reset_poweroptions_timer',1,1,1) in [c[:4] for c in m.calls]  # the screen stays on
@@ -5831,7 +5843,7 @@ if variant=='ipod':
     for _ in range(60): loop(m,12)
     assert settle(m)[-1]==0; passed()
     # Wheel Sensitivity sets the travel per row as per tick: 14 units at 100%.
-    m=lyric_page(config={'WHEELSENSITIVITY':'100'}); loop(m); loop(m,-14); assert settle(m)[-1]==20; passed()
+    m=lyric_page(config={'WHEELSENSITIVITY':'100'}); loop(m); hold(m); loop(m,-14); assert settle(m)[-1]==20; passed()
     # Held: stock's follow leaves them, also after SCRUB_MS, while the bar keeps going.
     m=lyric_page(); loop(m); loop(m,-56); settle(m); assert y(m)==40
     assert follow(m,0)==40; m.advance(O['SCRUB_MS']+1000); assert settle(m)[-1]==40 and follow(m,0)==40
@@ -5871,12 +5883,12 @@ if variant=='ipod':
     m.word(m.lrc+O['SCROLL_Y'],20); loop(m); m.pressed=0; loop(m)
     follow(m,0); assert settle(m)[-1]==0; passed()
     # Let go, the wheel snaps them to the nearest row top, down or up, gliding; held, they stay.
-    m=lyric_page(); loop(m); loop(m,-36); assert settle(m,200)[-1]==26  # tops 0 20 70: 26 is nearer 20
+    m=lyric_page(); loop(m); hold(m); loop(m,-36); assert settle(m,200)[-1]==26  # tops 0 20 70: 26 is nearer 20
     m.word(payload_syms['wheel_held'],0); ys=settle(m); assert ys[-1]==20 and ys[0]>20,ys
     m.word(payload_syms['wheel_held'],1); loop(m,-50); assert settle(m)[-1]==56  # nearer 70
     m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==70 and follow(m,0)==70; passed()  # still held
     # Let go during the glide, it snaps from the glide's target; a still finger let go moves nothing.
-    m=lyric_page(); loop(m); loop(m,-36); m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==20
+    m=lyric_page(); loop(m); hold(m); loop(m,-36); m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==20
     m.word(payload_syms['wheel_held'],1); m.word(m.lrc+O['SCROLL_Y'],30); loop(m); m.word(payload_syms['wheel_held'],0)
     assert settle(m)[-1]==30; passed()  # not the wheel's doing: no snap
     # Another window, the screen off, a finger down or no lyrics hand the wheel back to the ticks,
@@ -5890,7 +5902,7 @@ if variant=='ipod':
         m=lyric_page(); loop(m); assert raw(m)==1
         off(m); loop(m,-28); settle(m); assert raw(m)==0 and y(m)==0,off
         m.word(payload_syms['wheel_travel'],-99&0xffffffff); on(m); loop(m); assert raw(m)==1 and settle(m)[-1]==0,off
-        loop(m,-28); assert settle(m)[-1]==20,off; passed()
+        hold(m); loop(m,-28); assert settle(m)[-1]==20,off; passed()
     # A finger that drags them holds them as the wheel does; the follow waits while it is down. A tap
     # that moves nothing holds nothing.
     m=lyric_page(); loop(m); m.pressed=1; loop(m); m.word(m.lrc+O['SCROLL_Y'],40)
@@ -5914,7 +5926,7 @@ if variant=='ipod':
     step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win] and not m.timers; passed()
     # The scrub's own touch end (np_cancel) keeps the hold; the page's destruction drops it and the
     # wheel's raw travel.
-    m=lyric_page(); loop(m); loop(m,-28); settle(m)
+    m=lyric_page(); loop(m); hold(m); loop(m,-28); settle(m)
     step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
     assert follow(m,0)==20 and not m.starts and not m.timers; passed()
     f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
@@ -6085,10 +6097,11 @@ if variant=='ipod':
     assert settle(m)[-1]==0 and m.get(m.lrc+O['VIEW_CONTENT_H'])==4*SLOT+178; passed()  # the last line can reach the middle
     m.playtime=5; assert settle(m)[-1]==0; m.playtime=9; ys=settle(m); assert ys[-1]==SLOT and 0<ys[0]<SLOT,ys; passed()
     # Off the page it jumps, at stock's timer's pace (LYRIC_FOLLOW_MS); the wheel moves them a line a tick's
-    # worth and holds them, off the follow, until the page swipes away and back.
+    # worth (past a lone tick's nudge) and holds them, off the follow, until the page swipes away and back.
     m.nodes[m.slide]['value']=0; m.playtime=12; assert loop(m)==SLOT and loop(m,ms=250)==2*SLOT
     m.nodes[m.slide]['value']=1; loop(m)
-    loop(m,-28); assert settle(m)[-1]==3*SLOT; m.playtime=30; assert settle(m)[-1]==3*SLOT; passed()
+    loop(m,-28); loop(m,-28); m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==3*SLOT  # two ticks take over
+    m.word(payload_syms['wheel_held'],1); m.playtime=30; assert settle(m)[-1]==3*SLOT; passed()
     m.nodes[m.slide]['value']=0; assert loop(m,ms=250)==4*SLOT; m.nodes[m.slide]['value']=1; assert settle(m)[-1]==4*SLOT; passed()
     # Dark, the page in front follows at that pace too, by the whole second, reading no clock between.
     m.byte(syms['g_backlight_status'],0); m.playtime=20; assert loop(m)==4*SLOT and loop(m,ms=250)==3*SLOT
@@ -7399,7 +7412,7 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==8  # every key, once, on first use
+        assert len(m.config_reads)==9  # every key, once, on first use
         passed()
     # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
     # recycled text, touch hiding, Home siblings, and every accent.
@@ -7450,7 +7463,7 @@ if variant=='ipod':
     passed()
 
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -7746,9 +7759,9 @@ if variant=='ipod':
     assert m.icons_set==['playset_covermode','playset_folderjump','system_display','switch_off','system_display','list_into']
     assert [row_text(r) for r in (shortcut,hold,qs)]==['Shortcut: Rockbox','Hold Return: Recent','Wheel QS']; passed()
     view=display_page(m,1); rows=setting_rows(m,view)
-    kids=m.nodes[view]['children']; light,corners=kids[1],kids[3]
-    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Light Mode, Accent, Corners, Home, Battery
-    assert m.icons_set==['system_display','system_display','system_display','system_display','switch_off','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    kids=m.nodes[view]['children']; light,corners,keep_lit=kids[1],kids[3],kids[6]
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],keep_lit] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Light Mode, Accent, Corners, Home, Battery, Keep Screen On
+    assert m.icons_set==['system_display','system_display','system_display','system_display','switch_off','playset_covermode','system_powermanager','system_display','switch_off'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7756,6 +7769,12 @@ if variant=='ipod':
         assert m.nodes[b]['style']=='s_btn_listitem' and [m.get(b+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
         assert m.nodes[l]['type']=='hscroll_label' and m.nodes[l]['style']=='s_scrlabel_white24l' and m.get(l+O['W_X'])==72
     def texts(): return [m.nodes[l]['text'] for l in labels]
+    # Keep Screen On (IPOD KEEPLIT, #57): a switch, off unless chosen, that only saves.
+    keep_label=m.nodes[m.nodes[keep_lit]['children'][0]]['children'][1]; assert m.nodes[keep_label]['text']=='Keep Screen On'
+    f,ctx=m.handler(m.nodes[keep_lit]['children'][0],O['EVT_CLICK']); m.calls=[]
+    assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not did(m,'image_manager_unload_all')
+    assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','KEEPLIT')]
+    m.call(address=f,args=(ctx,m.event,0,0),gap=0); passed()
     # Artist albums (Q2POD ARTISTCF), the other layout choice, after Home; no key is Coverflow.
     cf_label=m.nodes[m.nodes[cf]['children'][0]]['children'][1]; assert m.nodes[cf_label]['text']=='Artist Albums: Coverflow'
     f,ctx=m.handler(m.nodes[cf]['children'][0],O['EVT_CLICK']); m.calls=[]
@@ -7842,7 +7861,7 @@ if variant=='ipod':
     assert corners_switch()==['switch_on']
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children']
-    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],keep_lit] and m.nodes[rows[0]].get('visible',1)==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # Theme, the first row, keeps the selection, painted.
     m.paint(view); assert m.selected(view)==0; passed()
@@ -7858,7 +7877,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and corners_switch()==['switch_on']
     m.paint(view); assert m.selected(view)==0
     kids=m.nodes[view]['children']
-    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
+    assert kids==[rows[3],light,rows[0],corners,rows[1],rows[2],keep_lit] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.

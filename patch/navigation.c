@@ -446,19 +446,24 @@ typedef struct {
                    */
     /* The lyrics (lyric_poll), of the song lyric_song, their rows built for lyric_rows_song:
      * lyric_raw while their page holds the wheel's raw travel; lyric_held once the wheel or a drag
-     * moved them; lyric_spun once the wheel moved them since it was let go; lyric_touch while a
+     * moved them; lyric_spun once the wheel moved them since it was let go (2: only nudged them,
+     * still following); lyric_touch while a
      * finger is on Now Playing, 1 if it came down on the lyrics, lyric_drag_y the offset then; the
      * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves;
      * lyric_follow_at the last follow. */
     int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
+    int lyric_push, lyric_home; /* travel short of LYRIC_PUSH_DETENTS, and where it nudged from */
+    unsigned lyric_push_at;
     unsigned lyric_at, lyric_follow_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
-        rounded, light, light_day; /* light_day: Auto's answer for now (LIGHT=2) */
-    void *sel_accent;              /* the row on a coloured selection, for Light Mode's ink */
-    int style_depth;               /* nested style hooks (a mutable style's fallback) map nothing */
-    void *setting_label[7];
+        rounded, light, light_day, /* light_day: Auto's answer for now (LIGHT=2) */
+        keep_lit;                  /* Keep Screen On (#57, keep_lit_poll) */
+    unsigned keep_lit_at;
+    void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
+    int style_depth;  /* nested style hooks (a mutable style's fallback) map nothing */
+    void *setting_label[8];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1613,12 +1618,12 @@ static const char *const accent_names[] = {
 };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
- * 4 Shortcut, 5 Corners, 6 Light Mode. */
+ * 4 Shortcut, 5 Corners, 6 Light Mode, 7 Keep Screen On. */
 static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "THEME",
-                                            "SHORTCUT", "ROUNDED", "LIGHT" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3 };
+                                            "SHORTCUT", "ROUNDED", "LIGHT",   "KEEPLIT" };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3, 2 };
 static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
-                                       &st.shortcut, &st.rounded,   &st.light };
+                                       &st.shortcut, &st.rounded,   &st.light,   &st.keep_lit };
 /* The local time now into buf (struct tm: tm_sec @0, tm_min @4, tm_hour @8), or 0 when the clock
  * cannot be read. */
 static const int *clock_now(int *buf) {
@@ -1650,6 +1655,7 @@ static int accent(void) {
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
         st.light = config_value("IPOD", "LIGHT", 3, 0);     /* dark unless chosen; 2 Auto */
+        st.keep_lit = config_value("IPOD", "KEEPLIT", 2, 0);
         int buf[11];
         st.light_day = light_day(clock_now(buf));
         st.settings_read = 1;
@@ -3181,7 +3187,8 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     lyric_pad(lrc);
 #if IPOD
     if (lrc == st.np_lrc) {
-        if (st.lyric_held || lyrics_on(lrc) || window_manager_get_pointer_pressed(window_manager()))
+        if (st.lyric_held || st.lyric_spun == 2 || lyrics_on(lrc) ||
+            window_manager_get_pointer_pressed(window_manager()))
             return 0;
         if (lyrics_shown()) {
             lyric_glide(lrc, y * 16);
@@ -3653,7 +3660,8 @@ static void lyric_init(void) {
 static void lyric_follow(void *lrc, int ms, int front, int shown) {
     int line = lyrics_line(lrc, ms, front), to = lyric_centre(lrc, line > 0 ? line : 0);
     if (to < 0) to = 0;
-    if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return;
+    if (st.lyric_held || st.lyric_spun == 2 || window_manager_get_pointer_pressed(window_manager()))
+        return; /* lyric_spun 2: a finger on the wheel holds the nudge */
     lyric_pad(lrc);
     if (shown) {
         if (to * 16 != st.lyric_to || (!st.lyric_glide && I(lrc, SCROLL_Y) != to))
@@ -3662,6 +3670,18 @@ static void lyric_follow(void *lrc, int ms, int front, int shown) {
         lyric_still(lrc);
         scroll_view_set_offset(lrc, I(lrc, SCROLL_X), to);
     }
+}
+
+/* Keep Screen On (#57): Now Playing lit in front, a song playing, on its lyrics, info or
+ * visualizer page holds the screen on as the lyrics wheel does; paused, it times out as usual. */
+static void keep_lit_poll(void) {
+    unsigned now = (unsigned)time_now_ms();
+    if (!st.np_slide || now - st.keep_lit_at < 1000) return;
+    st.keep_lit_at = now;
+    accent(); /* reads the settings */
+    if (st.keep_lit && g_backlight_status && widget_get_prop_int(st.np_slide, "value", 0) &&
+        window_manager_get_top_window(window_manager()) == st.np_win && mclGetPlayStatus() == 2)
+        reset_poweroptions_timer(1, 1, 1);
 }
 
 static void lyric_poll(void) {
@@ -3690,10 +3710,37 @@ static void lyric_poll(void) {
         wheel_raw = st.lyric_raw = on;
     }
     int travel = on ? __sync_lock_test_and_set(&wheel_travel, 0) : 0;
+    /* Following, the wheel meets the resistance of a list's end: travel short of
+     * LYRIC_PUSH_DETENTS within LYRIC_PUSH_MS only nudges the lyrics BUMP_PX from the follow's
+     * place, and they spring back when it is let go, still following; a stray touch keeps the
+     * follow. More takes over. */
+    if (travel && !st.lyric_held) {
+        unsigned at = (unsigned)time_now_ms();
+        if (!st.lyric_push || at - st.lyric_push_at > LYRIC_PUSH_MS) {
+            lyric_pad(lrc);
+            st.lyric_push = 0;
+            st.lyric_home = st.lyric_glide ? st.lyric_to : I(lrc, SCROLL_Y) * 16;
+        }
+        st.lyric_push_at = at;
+        st.lyric_push += travel;
+        if (st.lyric_push > -LYRIC_PUSH_DETENTS * WHEEL_TICK_UNITS &&
+            st.lyric_push < LYRIC_PUSH_DETENTS * WHEEL_TICK_UNITS) {
+            st.last_input = at;
+            reset_poweroptions_timer(1, 1, 1);
+            /* x rises anticlockwise: back up the lyrics */
+            lyric_glide(lrc, st.lyric_home - (st.lyric_push > 0   ? 1
+                                              : st.lyric_push < 0 ? -1
+                                                                  : 0) *
+                                                 BUMP_PX * 16);
+            st.lyric_spun = 2;
+            travel = 0;
+        }
+    }
     if (travel) {
         st.last_input = time_now_ms();
         reset_poweroptions_timer(1, 1, 1);
         lyric_hold();
+        st.lyric_push = 0;
         lyric_pad(lrc);
         int y = I(lrc, SCROLL_Y),
             from = st.lyric_glide || (st.lyric_to + 8) >> 4 == y ? st.lyric_to : y * 16;
@@ -3703,10 +3750,13 @@ static void lyric_poll(void) {
         st.lyric_spun = 1;
     }
     if (!page)
-        st.lyric_spun = 0;
+        st.lyric_spun = st.lyric_push = 0;
     else if (shown && st.lyric_spun && !wheel_held) {
+        if (st.lyric_spun == 1)
+            lyric_snap(lrc);
+        else /* a nudge springs back; the follow moves them on if the line changed meanwhile */
+            lyric_glide(lrc, st.lyric_home);
         st.lyric_spun = 0;
-        lyric_snap(lrc);
     }
     /* The page in front and usable (lit): the clock and the follow every pass (it narrows on each
      * second's change, lyrics_now). Else the follow, which only jumps, at stock's timer's pace on
@@ -3958,10 +4008,16 @@ static void bc_fit(void *win) {
 
 /* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
  * shows the song name BC_MS, then bc_fade fades it out. Stock's own timer writes the next song's
- * name; ringnav_sleep shows it again when the track changes. */
+ * name; ringnav_sleep shows it again when the track changes. Enlarged Album Art's idle timer opens
+ * it too: off the art page (lyrics, info, visualizer) there is no art to enlarge, so it closes at
+ * once (#57), as crossfade.c's page does from its init. */
 int ringnav_bigcover(void *win, void *ctx) {
     int result = stock_bigcover_trampoline(win, ctx);
     if (!win) return result;
+    if (st.np_slide && widget_get_prop_int(st.np_slide, "value", 0)) {
+        window_close(win);
+        return result;
+    }
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
     st.bc[1] = widget_lookup(win, "view_shade", 1);
     st.bc[2] = win;
@@ -4543,15 +4599,17 @@ static void setting_text(int i) {
                                   theme[st.classic],
                                   (const char *)0,
                                   (const char *)0,
-                                  light[st.light] };
+                                  light[st.light],
+                                  (const char *)0 };
     char shortcut[64];
     if (i == 4) {
         tk_snprintf(shortcut, sizeof shortcut, "Shortcut: %s", ipod_home_shortcut());
         widget_set_text_utf8(st.setting_label[i], shortcut);
         return;
     }
-    if (i == 5) {
-        list_toggle(st.setting_label[i], "Rounded Corners", st.rounded);
+    if (i == 5 || i == 7) {
+        list_toggle(st.setting_label[i], i == 5 ? "Rounded Corners" : "Keep Screen On",
+                    i == 5 ? st.rounded : st.keep_lit);
         return;
     }
     widget_set_text_utf8(st.setting_label[i], names[i]);
@@ -4604,7 +4662,7 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
-    else {
+    else if (i != 7) { /* Keep Screen On only needs its toggle drawn */
         if (i == 3) {
             coverflow_home_layout();
             settings_layout(window_manager());
@@ -4717,14 +4775,14 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
 #if IPOD
-    /* Theme, Light Mode, Accent, Corners, Home, Battery; Shortcut. */
-    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2 }, controls[] = { 4 };
+    /* Theme, Light Mode, Accent, Corners, Home, Battery, Keep Screen On; Shortcut. */
+    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 7 }, controls[] = { 4 };
     static const char *const icons[] = { "system_display",      "playset_covermode",
                                          "system_powermanager", "system_display",
                                          "playset_covermode",   "system_display",
-                                         "system_display" };
+                                         "system_display",      "system_display" };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
-    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 6 : 1; k < n; ++k) {
+    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 7 : 1; k < n; ++k) {
         int i = rows[k];
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
@@ -9136,6 +9194,7 @@ int ringnav_sleep(void *loop) {
     power_poll();
 #if IPOD
     lyric_poll();
+    keep_lit_poll();
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
 #endif
     if (!g_backlight_status) {
