@@ -26,6 +26,9 @@
  * its q2app says goto=1 (addon_goto), and every song an app queues plays with its file's tags
  * (navigation.c card_tags, app_tags).
  *
+ * An app's /tmp/q2-<id>.sleep asks for a sleep timer: playback pauses at a time, or as the track
+ * playing ends (sleep_read, sleep_check).
+ *
  * The card-app features this firmware has are words in /tmp/q2-addon.caps (ADDON_CAPS), written at
  * every Streaming scan. */
 #include "offsets.inc"
@@ -56,7 +59,7 @@
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
 /* This firmware's card-app features, space-separated; a feature adds its word. */
-#define ADDON_CAPS "playlist progress pages library goto"
+#define ADDON_CAPS "playlist progress pages library goto sleep"
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -421,6 +424,98 @@ static void stream_poll(app_t *a) {
     }
 }
 
+/* Sleep timers (q2-podcasts' Sleep Timer): an app's /tmp/q2-<id>.sleep holds "until <time>"
+ * (seconds since the epoch, at most SLEEP_MAX_S away) or "end" (the track playing now ends). Q2 Pod
+ * keeps the timer itself, on its own clock from when it read the file, so it pauses whatever plays
+ * (media_set_playing) once the app has stopped too. "end" pauses when the track leaves its last
+ * SLEEP_END_S seconds for the next one, which then waits at its start, or starts over (repeat one);
+ * another track picked, or a seek back, waits for that one's end instead (stock refills the same
+ * queue, so a new queue looks the same), and playback stopping or another player lets it go. Done
+ * or let go, the file is removed: the app's sign that no timer runs. The app removes it to cancel.
+ * One timer: the latest asked. */
+#define SLEEP_MAX_S (7 * 24 * 3600)
+#define SLEEP_END_S 2
+static struct {
+    unsigned seen[APPS_MAX]; /* each app's .sleep as read last, hashed; 0 none */
+    unsigned due;            /* time_now_ms() to pause at; 0 none */
+    int end, owner;          /* end: pause when the local track ends; owner: the app's slot + 1 */
+    unsigned pos;            /* the track "end" waits on, by its place in the queue */
+    int sec, total;          /* its elapsed and length as last seen, seconds; total 0 unknown */
+} sl __attribute__((section(".scratch")));
+
+static void sleep_path(char *out, unsigned size, int slot) {
+    tk_snprintf(out, size, "/tmp/q2-%s.sleep", ap.a[slot].id);
+}
+
+static void sleep_done(void) {
+    char path[48];
+    if (sl.owner) sleep_path(path, sizeof path, sl.owner - 1), unlink(path);
+    sl.due = 0, sl.end = 0, sl.owner = 0;
+}
+
+/* An app's .sleep, read while it runs: a new request replaces the timer, its removal cancels it. */
+static void sleep_read(app_t *a) {
+    char path[48], raw[48];
+    int slot = (int)(a - ap.a);
+    sleep_path(path, sizeof path, slot);
+    int have = state_read(path, raw, sizeof raw);
+    unsigned h = have ? hash_bytes(FNV_SEED, (const unsigned char *)raw, strlen(raw)) | 1 : 0;
+    if (h == sl.seen[slot]) return;
+    sl.seen[slot] = h;
+    if (!have) { /* the app cancelled its own */
+        if (sl.owner == slot + 1) sl.due = 0, sl.end = 0, sl.owner = 0;
+        return;
+    }
+    sl.due = 0, sl.end = 0, sl.owner = slot + 1;
+    const char *req = raw + 1; /* state_read puts a newline first, for field() */
+    if (tk_str_start_with(req, "end")) {
+        sl.end =
+            media_owner() == 1 && mclGetPlayStatus() != 1; /* the local player, playing or paused */
+        sl.pos = (unsigned)I(MCL_POS, 0), sl.sec = -1, sl.total = 0;
+        if (!sl.end) sleep_done();
+    } else if (tk_str_start_with(req, "until ")) {
+        long long at = 0, now = time((void *)0);
+        const char *c = req + 6;
+        for (; *c >= '0' && *c <= '9' && c < req + 6 + 11; ++c) at = at * 10 + (*c - '0');
+        if (c == req + 6 || at - now > SLEEP_MAX_S) {
+            sleep_done(); /* no time, or none this app could mean: dropped, nothing paused */
+            return;
+        }
+        if (at <= now) {
+            media_set_playing(0), sleep_done();
+            return;
+        }
+        sl.due = time_now_ms() + (unsigned)(at - now) * 1000u;
+    } else
+        sleep_done();
+}
+
+/* Every UI pass: a timer due, or the track "end" waited for over, pauses. */
+static void sleep_check(void) {
+    if (sl.due && (int)(time_now_ms() - sl.due) >= 0) {
+        media_set_playing(0);
+        sleep_done();
+    } else if (sl.end) {
+        if (media_owner() != 1 || mclGetPlayStatus() == 1) {
+            sleep_done(); /* another player, or stopped: nothing to wait for */
+            return;
+        }
+        int sec = -1, total = 0;
+        unsigned pos = (unsigned)I(MCL_POS, 0);
+        player_playtime_and_length(&sec, &total);
+        /* at its end when last seen; a length unknown, any move on counts */
+        int ended = sl.total <= 0 || sl.sec >= sl.total - SLEEP_END_S;
+        if (pos != sl.pos || (sec >= 0 && sec + SLEEP_END_S < sl.sec)) { /* moved on, or back */
+            if (sl.sec >= 0 && ended) {
+                media_set_playing(0), sleep_done();
+                return;
+            }
+            sl.pos = pos; /* another track picked, or a seek back: its end now */
+        }
+        sl.sec = sec, sl.total = total;
+    }
+}
+
 /* ringnav_sleep, every UI loop pass, paced to ADDON_POLL_MS once its row started it: standby and
  * auto power-off held while the app asks (hold=1), as Spotify's poll does while it plays; the
  * screen still turns off. An app that stopped by itself (idle, or from the phone) is let go, and
@@ -443,11 +538,13 @@ static void poll_one(app_t *a) {
     a->hold = number(raw, "hold") == 1;
     if (a->hold) reset_poweroptions_timer(1, 1, 0); /* standby, auto power-off; not the screen's */
     stream_poll(a);
+    sleep_read(a);
     if (access(a->pid, 0) && now - a->launch_at > ADDON_START_MS) a->launched = a->hold = 0;
 }
 
 void addon_poll(void) {
     for (int i = 0; i < ap.n; ++i) poll_one(&ap.a[i]);
+    sleep_check();
     library_poll();
 }
 

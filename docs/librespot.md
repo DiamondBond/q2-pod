@@ -69,6 +69,8 @@ Card apps (`patch/addon.c`) have row kinds of their own besides these. `progress
 
 Card apps also get one level of their own from the firmware: `goto`, `album` or `artist` then a song's path, the first level of the app's page when Go to Album or Go to Artist is used on one of its songs (under its `.<id>/` folder) and its `q2app` holds `goto=1`. The app answers with that album's or artist's own list. Firmware that sends it lists `goto` in `/tmp/q2-addon.caps`.
 
+A card app can also ask for a sleep timer by writing `/tmp/q2-<id>.sleep` (whole, by rename): `until <unix time>` pauses playback at that time, at most a week away, and `end` pauses as the track playing ends (the next one waits at its start). The firmware keeps the timer itself, so it fires after the app has stopped too, and removes the file when it fires or is let go (playback stopping); the app removes the file to cancel. Firmware that does this lists `sleep` in `/tmp/q2-addon.caps`.
+
 Statuses: `ok`; `login` (no saved login: pair from the phone); `offline` (Spotify can't be reached); `premium` (the account isn't Premium); `refused` (Spotify refused the login, 401/403); `unavailable` (the item is gone or can't play here, a stale queue position included); `stale` (search's query hash changed, 412: the add-on needs updating); `throttled` (429: the message says when to retry; until then the backend answers `throttled` without asking Spotify); `unsupported` (unknown op); `bad` (malformed or oversized request); `error` (anything else). A temporary failure never removes the saved login.
 
 Ops (`[cursor]` is optional):
