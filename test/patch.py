@@ -11156,7 +11156,7 @@ m.plays=[]; m.pick(0); assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play
 # Stop Streaming Services, USB storage and Rockbox stop it as the other apps (it writes to the card).
 m.close(); m.files[DZPID]=bytearray(b'7'); m.systems=[]; run(m,'addon_stop')
 assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null || rm -f /tmp/q2-deezer' in m.systems,m.systems; passed()
-# Library update (addon.c library_poll): the app's /tmp/q2-<id>.library, "<seq>" then scan and import lines,
+# Library update (addon_library.c library_poll): the app's /tmp/q2-<id>.library, "<seq>" then scan and import lines,
 # runs stock's Update Local Music (its dialog, which stops the player: not while one plays), then stock's
 # playlist import (which replaces a same-named playlist) for the listed files alone, once no Library list is
 # open under it; each seq once, its result in .library.done.
@@ -11306,6 +11306,17 @@ for seq,cap,closes,want in (('309',40,0,cut),('310',1000,1,cut),('311',10,0,None
     m.files[LIB]=bytearray(f'{seq}\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll()
     assert m.files[DONE]==(f'{seq} '.encode()+want if want else old) and TMP not in m.files,(seq,m.files[DONE],TMP in m.files)
 m.write_cap,m.close_fails=None,0; passed()
+# library_poll runs once each addon_poll pass for every app on the card, launched or not: an app that exits right
+# after its sync (no pid file for ADDON_START_MS: poll_one lets it go and polls it no more) still has its request run.
+def lib_machine():
+    """Deezer's page open, paused, a card in, Mix.m3u in the folder, stock's Playlists load mocked."""
+    m=DeezerMachine(); m.open(); m.files['/tmp/mmc_add']=bytearray(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,3)
+    lc=int(manifest['patch_symbols']['stock_localclass_trampoline'],16); m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: m.returns(0),begin=lc,end=lc)
+    m.files[f'{EXP}/Mix.m3u']=bytearray(b'#EXTM3U\n')
+    return m
+m=lib_machine(); m.poll(11000); assert DZPID not in m.files
+m.files[LIB]=bytearray(f'400\nimport {EXP}/Mix.m3u\n'.encode()); m.poll()
+assert m.files.get(DONE)==b'400 ok\n' and m.imports==[f'{EXP}/Mix.m3u\n'],(m.files.get(DONE),m.imports); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

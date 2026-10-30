@@ -1097,7 +1097,7 @@ FUNCTIONS = {
  # Tidal's list replies (tidal.c tidal_pages): /tmp/tidal_<thread> parsed into stTidalTracks
  'parseTidalPlaylistDetailJson': ('int', 'const char *'), 'parseTidalAlbumDetailJson': ('int', 'const char *'),
  'parseTidalColTracksJson': ('int', 'const char *'),
- # A card app's library update (addon.c library_poll): stock's Import Playlists, and its folder listing
+ # A card app's library update (addon_library.c): stock's Import Playlists, and its folder listing
  'importPlayList': ('int', 'void'), 'toolsGetDirectoryM3u8': ('int', 'const char *, void *'),
  'mclSetSeek': ('int', 'int'),  # the player's seek in file seconds; it plays on from there, or on Play once paused
 }
