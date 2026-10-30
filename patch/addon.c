@@ -586,7 +586,9 @@ static void show(void);
 /* Rows from.. added to the shown list in place of its trailing row, the rest left as they are;
  * ringnav_select gives ringnav the new count, so it keeps the selection and the scroll. A reload's
  * row (l->sel) is selected once its page is there, unless the user moved off the trailing row; once
- * reached or left it is the selection, so no later page moves it. */
+ * reached or left it is the selection, so no later page moves it.
+ * ponytail: the new count makes ringnav drop a spin's speed-up and big letter (load) at each page;
+ * a ringnav call that grows a list in place would keep them while pages arrive. */
 static void append(lv_t *l, int from) {
     if (!pg.view) return; /* the search box over it: show() draws them all when it closes */
     int cur = widget_get_prop_int(pg.view, "_ringnav_index", 0), n = l->n + (pg.f[3][0] != 0);
