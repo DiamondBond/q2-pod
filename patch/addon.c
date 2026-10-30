@@ -284,7 +284,7 @@ static int m3u_ready(void) {
 
 /* A scan running, or its dialog still open (the user's own Update Local Music too). */
 static int scanning(void) {
-    return library_scanning() || navigator_window_is_exist("updatemusic_page");
+    return library_scanning() || navigator_window_is_exist("updatemusic_dialog");
 }
 
 static int stream_start(const void *unused) {

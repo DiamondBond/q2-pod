@@ -11229,12 +11229,12 @@ m.word(O['SCAN_THREAD'],0); m.poll(); m.advance(0); assert len(m.plays)==5 and m
 card_song(X2); m3u(X1,X2); m.word(O['SCAN_THREAD'],1); m.poll()
 assert not listed() and m.names()==['01 - Scan.flac'] and m.files['/tmp/q2-deezer.playing']==f'{X1}\n'.encode(),m.names()
 m.word(O['SCAN_THREAD'],0); m.poll(); assert m.names()==['01 - Scan.flac','02 - Scan.flac'],m.names(); passed()
-# Nor while the scan's dialog (Update Local Music, updatemusic_page) is still open once the scan is done: the
+# Nor while the scan's dialog (Update Local Music, updatemusic_dialog) is still open once the scan is done: the
 # first song would open Now Playing over it, so it waits, an armed start too, and plays once the dialog closes.
-m.word(O['SCAN_THREAD'],1); m.word(O['SCAN_DONE'],1); M3U=STR+'/dialog.m3u'; m3u(X1); m.open_pages={'updatemusic_page'}
+m.word(O['SCAN_THREAD'],1); m.word(O['SCAN_DONE'],1); M3U=STR+'/dialog.m3u'; m3u(X1); m.open_pages={'updatemusic_dialog'}
 m.files['/tmp/q2-deezer.play']=bytearray(f'2850 {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==5 and not listed()
 m.open_pages=set(); m.poll()  # closed: its start armed
-m.open_pages={'updatemusic_page'}; m.advance(0); assert len(m.plays)==5 and not listed()  # opened again first
+m.open_pages={'updatemusic_dialog'}; m.advance(0); assert len(m.plays)==5 and not listed()  # opened again first
 m.open_pages=set(); m.poll(); m.advance(0); assert len(m.plays)==6 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
 # A .play path too long for sm.dir (160 bytes or more) is refused, never cut: a cut path names another (here
 # a folder of songs), which would play instead. One that fits plays.
