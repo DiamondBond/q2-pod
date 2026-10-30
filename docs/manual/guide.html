@@ -364,6 +364,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
     <li>Copy your music to the card over USB-C.</li>
     <li>On the Q2, choose <b>Library → Update Local Music</b>.</li>
   </ol>
+  <p>These folders at the card’s root each add their own <b>Library</b> entry: <code>Podcasts/</code>, <code>Audiobooks/</code>, <code>Photos/</code>, <code>Books/</code> and <code>Videos/</code>; <code>EQ/</code> holds EQ presets to import. Other folder names, such as <code>Images/</code>, aren’t picked up. See <a href="#card">What goes on the microSD card</a> for supported formats.</p>
   <p>Update Local Music adds up to 65,000 songs (stock stopped at 20,000), so with a larger library run it again after updating.</p>
   <p>Settings, play counts, ratings, resume points and book pages are stored on the Q2 itself, not the card, so they stay put when you swap cards.</p>
 
@@ -727,9 +728,9 @@ http://stream.radioparadise.com/mp3-128</pre>
     </tbody>
   </table>
   <ul>
-    <li><b>Photos:</b> <code>.jpg</code>, <code>.jpeg</code> and <code>.png</code> (JPEG up to 6 MB, PNG 1 MB); subfolders are albums.</li>
-    <li><b>Books:</b> <code>.txt</code> and <code>.epub</code> (no DRM); one level of subfolders.</li>
-    <li><b>Videos:</b> <code>.mp4</code>, <code>.m4v</code>, <code>.mkv</code>, <code>.avi</code>, <code>.mov</code> and <code>.mpg</code>; one level of subfolders.</li>
+    <li><b>Photos</b> go in <code>Photos/</code> at the card’s root: <code>.jpg</code>, <code>.jpeg</code> and <code>.png</code> (JPEG up to 6 MB, PNG 1 MB); subfolders are albums. Other formats, such as WebP, are skipped.</li>
+    <li><b>Books</b> go in <code>Books/</code> at the card’s root: <code>.txt</code> and <code>.epub</code> (no DRM); one level of subfolders.</li>
+    <li><b>Videos</b> go in <code>Videos/</code> at the card’s root: <code>.mp4</code>, <code>.m4v</code>, <code>.mkv</code>, <code>.avi</code>, <code>.mov</code> and <code>.mpg</code>; one level of subfolders.</li>
   </ul>
   <p>Video sound plays on the headphone jack, Bluetooth or a USB DAC, and music stops meanwhile. Decoding is done in software, so encodes near the screen’s 375 × 320 play smoothest.</p>
 
