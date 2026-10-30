@@ -83,7 +83,7 @@ Manual: Repeat the [install steps](#install) with the newest release. Your setti
 
 ## Extras
 
-**System settings → App Store** installs, updates and removes Rockbox, its themes, Spotify and the card apps (Deezer, Soulseek, File Browser) over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later), keeping your Rockbox settings and Spotify's login.
+**System settings → App Store** installs, updates and removes Rockbox, its themes, Spotify and the card apps (Deezer, Soulseek, File Browser, Subsonic) over Wi-Fi from their GitHub releases (Q2 Pod 1.4 or later; Subsonic 1.4.3 or later), keeping your Rockbox settings and Spotify's login.
 
 - **Spotify (optional, Premium):** with the Q2 on Wi-Fi, open **System settings → App Store → Spotify** and press the row to install it. Then open **Streaming → Spotify** and, the first time, pick the Q2 in the Spotify app on your phone on the same Wi-Fi. [More](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
 - **Scrobbling:** connect Last.fm or ListenBrainz with the [user guide](https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf).
