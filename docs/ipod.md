@@ -77,7 +77,9 @@ hook resolves the selected row; the color hook maps its title to `#171717` and m
 remain on recycled rows or stale scrolling labels. Selected backgrounds stay transparent over
 the selection. Touch hides wheel selection until wheel/centre input; the native pressed state
 remains visible. Under **Rounded Corners** on a pressed list row (`s_btn_listitem`) is that grey as the
-selection's inset pill instead (`pressed_pill`); other pressed widgets keep stock's box. The same hooks cover settings, streaming, dialogs, PEQ rows and media browser
+selection's inset pill instead (`pressed_pill`), and a pressed tile under half its row's width (the album
+grid's, the playlist page's pair) is the tile's selection card, `TILE_INSET` inside it with `SEL_RADIUS`
+corners (square under Square); other pressed widgets keep stock's box. The same hooks cover settings, streaming, dialogs, PEQ rows and media browser
 chrome. Photos, video, book content, EQ plots and visualizers keep their own drawing.
 
 ## Home

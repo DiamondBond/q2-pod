@@ -857,6 +857,24 @@ k=Machine(); k.config['THEME']='1'; kb=k.node('system_bar','system_bar'); k.word
 k.word(kb+O['W_PARENT'],k.wm); k.word(kb+O['W_W'],375); k.word(kb+O['W_H'],30)
 k.call(address=HOOKS['widget_on_paint_background'][0],args=(kb,k.canvas,0,0))
 assert [b[:5] for b in k.bands]==[(0,0,375,30,color_t(O['BAR_COLOR']))]; passed()  # Classic's black, as Minimal's
+# A pressed grid tile (the album grid's three 110 px buttons in a table_row) greys its selection
+# card inside the tile, rounded under Rounded Corners; the row draws nothing, the tile no stock box.
+for rounded in ('0','1'):
+    t=Machine(); t.config['ROUNDED']=rounded
+    tiles=[t.node('button','button1',style='s_btn_listitem') for _ in range(3)]
+    row=t.node('table_row','table_row',tiles,style='s_tablerow_black'); t.word(row+O['W_W'],365); t.word(row+O['W_H'],160)
+    for x,b in zip((14,132,250),tiles):
+        t.word(b+O['W_PARENT'],row); t.word(b+O['W_X'],x); t.word(b+O['W_W'],110); t.word(b+O['W_H'],160)
+    def stock(w):  # paints w's background; whether stock's box was drawn
+        t.call(address=HOOKS['widget_on_paint_background'][0],args=(w,t.canvas,0,0),gap=0)
+        return any(c[0]=='stock_paint_bg' for c in t.calls)
+    card=(O['TILE_INSET'],)*2+(110-2*O['TILE_INSET'],160-2*O['TILE_INSET'])
+    for b in tiles:
+        t.nodes[b]['state_for_style']='pressed'
+        assert stock(row) and not t.rounded
+        assert not stock(b) and [(r['rect'],r['radius'],r['color']) for r in t.rounded]==[(card,O['SEL_RADIUS']*int(rounded),O['PH_GREY'])]
+        t.nodes[b]['state_for_style']=''
+    passed()
 # The clock: local time as 12-hour h:mm AM/PM, written only when the minute shown changes, from a
 # timer due at the next minute (clock_show). A paint reads no time; the bar's first paint and a new
 # 24-hour setting run the clock on the next pass. The mock's localtime is always at :59, so the

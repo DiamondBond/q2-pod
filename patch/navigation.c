@@ -4226,6 +4226,9 @@ static void *touch_target(void *row) {
     void *b = widget_count_children(row) ? widget_get_child(row, 0) : (void *)0;
     return b && !tk_strcmp(widget_get_type(b), "button") && !I(b, W_Y) ? b : row;
 }
+/* A button under half its row's width is a tile (the album grid's, the playlist page's pair), as
+ * paint_selection tells a tile from a row. */
+static int tile_in(void *b, void *row) { return 2 * I(b, W_W) < I(row, W_W); }
 static int press_repaint(const void *info) {
     st.press_timer = 0;
     void *top = window_manager_get_top_window(window_manager());
@@ -4237,17 +4240,23 @@ static int press_repaint(const void *info) {
  * Library's button leaves x 0-20, 355-375 and the pitch's last 4 px), or under Rounded Corners the
  * inset pill. Drawn as the row's background; the button's own box is skipped (1). The press
  * invalidates the whole surface (ringnav_touch), its release only the button, so the row's edges
- * repaint once after it (press_repaint). */
+ * repaint once after it (press_repaint). A tile's grey is its selection card, inside the tile. */
 static int pressed_pill(void *w, void *canvas) {
     if (!w) return 0;
-    if (!is_row(w)) { /* the row drew it: skip its button's box */
+    if (!is_row(w)) {
         void *row = P(w, W_PARENT);
-        return is_row(row) && touch_target(row) == w && pressed_row(w) &&
-               I(row, W_W) > 2 * SEL_INSET + I(row, W_H);
+        if (!is_row(row) || !pressed_row(w)) return 0;
+        if (!tile_in(w, row)) /* the row drew it: skip its button's box */
+            return touch_target(row) == w && I(row, W_W) > 2 * SEL_INSET + I(row, W_H);
+        rect_t card = { TILE_INSET, TILE_INSET, I(w, W_W) - 2 * TILE_INSET,
+                        I(w, W_H) - 2 * TILE_INSET };
+        fill_box(canvas, &card, PH_GREY, (accent(), st.rounded) ? SEL_RADIUS : 0);
+        return 1;
     }
     void *b = touch_target(w);
-    /* childless: not a row but a page, such as Now Playing's visualizer */
-    if (!pressed_row(b) || !widget_count_children(w) || I(w, W_W) <= 2 * SEL_INSET + I(w, W_H)) {
+    /* childless: not a row but a page, such as Now Playing's visualizer; a tile draws its own */
+    if (!pressed_row(b) || tile_in(b, w) || !widget_count_children(w) ||
+        I(w, W_W) <= 2 * SEL_INSET + I(w, W_H)) {
         if (w == st.press_row) {
             st.press_row = (void *)0;
             rearm(&st.press_timer, press_repaint, 0);
