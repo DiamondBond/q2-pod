@@ -11229,14 +11229,21 @@ m.word(O['SCAN_THREAD'],0); m.poll(); m.advance(0); assert len(m.plays)==5 and m
 card_song(X2); m3u(X1,X2); m.word(O['SCAN_THREAD'],1); m.poll()
 assert not listed() and m.names()==['01 - Scan.flac'] and m.files['/tmp/q2-deezer.playing']==f'{X1}\n'.encode(),m.names()
 m.word(O['SCAN_THREAD'],0); m.poll(); assert m.names()==['01 - Scan.flac','02 - Scan.flac'],m.names(); passed()
+# Nor while the scan's dialog (Update Local Music, updatemusic_page) is still open once the scan is done: the
+# first song would open Now Playing over it, so it waits, an armed start too, and plays once the dialog closes.
+m.word(O['SCAN_THREAD'],1); m.word(O['SCAN_DONE'],1); M3U=STR+'/dialog.m3u'; m3u(X1); m.open_pages={'updatemusic_page'}
+m.files['/tmp/q2-deezer.play']=bytearray(f'2850 {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==5 and not listed()
+m.open_pages=set(); m.poll()  # closed: its start armed
+m.open_pages={'updatemusic_page'}; m.advance(0); assert len(m.plays)==5 and not listed()  # opened again first
+m.open_pages=set(); m.poll(); m.advance(0); assert len(m.plays)==6 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
 # A .play path too long for sm.dir (160 bytes or more) is refused, never cut: a cut path names another (here
 # a folder of songs), which would play instead. One that fits plays.
 CUTDIR=f'{STR}/{"q"*(159-len(STR)-1)}'; assert len(CUTDIR)==159; m.tree[CUTDIR]=[('01 - Wrong.flac',8)]; m.stats[CUTDIR]=1
 card_song(f'{CUTDIR}/01 - Wrong.flac'); m.files['/tmp/q2-deezer.play']=bytearray(f'2900 {CUTDIR}q.m3u\n'.encode())
-m.poll(); m.advance(0); m.poll(); m.advance(0); assert len(m.plays)==5,m.play_names
+m.poll(); m.advance(0); m.poll(); m.advance(0); assert len(m.plays)==6,m.play_names
 M3U=f'{STR}/{"q"*(159-len(STR)-1-4)}.m3u'; assert len(M3U)==159; m3u(X1)
 m.files['/tmp/q2-deezer.play']=bytearray(f'3000 {M3U}\n'.encode()); m.poll(); m.advance(0)
-assert len(m.plays)==6 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
+assert len(m.plays)==7 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'

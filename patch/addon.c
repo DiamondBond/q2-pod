@@ -277,12 +277,17 @@ static int m3u_ready(void) {
     return sm.more || changed(sm.dir) || (sm.want[0] && !access(sm.want, 0));
 }
 
+/* A scan running, or its dialog still open (the user's own Update Local Music too). */
+static int scanning(void) {
+    return library_scanning() || navigator_window_is_exist("updatemusic_page");
+}
+
 static int stream_start(const void *unused) {
     (void)unused;
     sm.timer = 0;
     if (sm.m3u && playback_loads != sm.loads) sm.state = S_DONE; /* the user played a queue since */
     if (sm.state != S_WAIT) return 0;
-    if (library_scanning()) { /* no listing during a scan (stream_poll): looked at again after it */
+    if (scanning()) { /* no listing during a scan, no play over its dialog: looked at again after */
         sm.seen = 0;
         return 0;
     }
@@ -339,8 +344,9 @@ static void stream_poll(app_t *a) {
         stop_timer(&sm.timer);
     }
     /* A song's folder listing (toolsLoadDirectory) refills tools_pdeq_directory, which a library
-     * scan's thread fills too: none while one runs, the scan dialog's own loop included. */
-    int scan = library_scanning();
+     * scan's thread fills too: none while one runs, the scan dialog's own loop included; and
+     * play_folder would open Now Playing over the dialog, so nothing until it closes. */
+    int scan = scanning();
     if (sm.state == S_WAIT) {
         if (sm.m3u && playback_loads != sm.loads)
             sm.state = S_DONE; /* the user played a queue before its first song came */
