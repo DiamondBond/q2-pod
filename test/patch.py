@@ -11245,8 +11245,7 @@ m.files[LIB]=bytearray(f'19\n{three}'.encode()); m.poll(); assert m.files[DONE]=
 m.uncreated={'Gaming Nostalgia'}; m.files[LIB]=bytearray(f'20\n{three}'.encode()); m.poll()
 assert m.files[DONE]==b"20 error Couldn't import Gaming Nostalgia\n",m.files[DONE]; m.uncreated=set(); passed()
 # Its toast (stock's msginfo_dialog, 2 s, which runs a loop of its own that polls again) comes once the result
-# is written and while library_poll is busy, so a nested poll runs nothing: each seq once, ok or error (a
-# re-entered import under each toast froze the Q2, re-importing and never writing .done).
+# is written and while library_poll is busy, so a nested poll runs nothing: each seq once, ok or error.
 snaps=[]; m.on_toast=lambda: snaps.append((bytes(m.files.get(DONE,b'')),m.get(payload_syms['libup']+4)))
 m.files[LIB]=bytearray(f'21\nimport {EXP}/Andreas.m3u\n'.encode()); m.poll(); assert snaps==[(b'21 ok\n',1)],snaps
 m.uncreated={'Andreas'}; m.files[LIB]=bytearray(f'22\nimport {EXP}/Andreas.m3u\n'.encode()); m.poll(); n=len(m.imports)
