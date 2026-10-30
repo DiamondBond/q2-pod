@@ -8,7 +8,7 @@
   - Home: **Display → Appearance → Home** has a third choice, **Carousel**: Shanling's card carousel, with the Pod's cards (Coverflow and your Shortcut among them) in your accent and Theme.
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
   - Card apps: the firmware lists the card-app features it has in `/tmp/q2-addon.caps`, so apps can use new features and fall back on older firmware.
-  - Card apps: an app can ask the Q2 to update the library and import its playlists after a sync. The Q2 waits until nothing is playing (AirPlay and Bluetooth audio included) and no Library list is open, shows the usual Update Local Music progress, and replaces the app's own playlists instead of adding copies, while a playlist of yours with the same name is left alone.
+  - Card apps: an app can ask the Q2 to update the library and import its playlists after a sync. The Q2 waits until nothing is playing (AirPlay and Bluetooth audio included) and you're on Home, Streaming, the app's page, Now Playing or a settings page, shows the usual Update Local Music progress, and replaces the app's own playlists instead of adding copies, while a playlist of yours with the same name is left alone. A playlist name can be up to 63 bytes long.
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.

@@ -1,14 +1,14 @@
 /* Card apps' library update (addon.c's apps): after a sync an app asks for Update Local Music and
  * the import of its own playlists in /tmp/q2-<id>.library, written whole (temp + rename): "<seq>"
  * on its first line (23 bytes at most), then "scan" (Update Local Music), "import <path>" and
- * "add <path>" lines, each path a playlist directly in LIB_DIR, LIB_MAX bytes in all. library_poll,
- * once per addon_poll pass, takes a seq new for its app, any app on the card, running or not. A new
- * seq is checked whole first: any error is its result at once and nothing runs. Then the scan,
- * then stock's Import Playlists (importPlayList, which replaces a playlist of the same name)
- * limited to the files named (addon_m3u_dir), each once library_safe() lets it; an add's file only
- * if no playlist has its name yet. The result, "<seq> ok" or "<seq> error <why>", then "exists
- * <path>" for each add left alone, goes to .library.done. One request at a time; a newer seq waits
- * for it. */
+ * "add <path>" lines, LF or CRLF, each path a playlist directly in LIB_DIR whose name is
+ * LIB_NAME - 1 bytes at most, LIB_MAX bytes in all. library_poll, once per addon_poll pass, takes a
+ * seq new for its app, any app on the card, running or not, from one read of the file. A new seq is
+ * checked whole first: any error is its answer at once and nothing runs. Then the scan, then
+ * stock's Import Playlists (importPlayList, which replaces a playlist of the same name) limited to
+ * the files named (addon_m3u_dir), each once library_safe() lets it; an add's file only if no
+ * playlist has its name yet. The answer, "<seq> ok" or "<seq> error <why>", then "exists <path>"
+ * for each add left alone, goes to .library.done. One request at a time; a newer seq waits. */
 #include "offsets.inc"
 #include "peq.h"
 #include "stock.h"
