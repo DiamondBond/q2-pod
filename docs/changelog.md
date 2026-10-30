@@ -8,6 +8,7 @@
   - Home: **Display → Appearance → Home** has a third choice, **Carousel**: Shanling's card carousel, with the Pod's cards (Coverflow and your Shortcut among them) in your accent and Theme.
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
   - Lyrics: a `.lrc` file saved as UTF-8 loads properly again when it has an emoji, or Korean, accented or curly-quote characters close together near its start. Shanling's check took some of those files for Chinese GB18030 and showed them garbled or cut short.
+  - Performance: Shuffle Songs, and View Queue while Shuffle is on, start faster on a big library: the queue is no longer sorted by album before it's shuffled.
   - Home: in Split, the panning album art is sharper, about twice as crisp as in 1.5.8, and still evenly sharp as it moves.
 
 - **1.5.8**:

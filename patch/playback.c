@@ -458,11 +458,11 @@ static void shuffle(entry *v, unsigned n) {
 }
 static void make_order(entry *v) {
     for (unsigned i = 0; i < s.n; ++i) v[i] = (entry){ i, s.groups[i], 0 };
-    qsort(v, s.n, sizeof *v, compare);
-    if (s.shuffle == 1) {
+    if (s.shuffle == 1) { /* no sort first: the shuffle undoes it, seconds on a big library */
         shuffle(v, s.n);
         return;
     }
+    qsort(v, s.n, sizeof *v, compare);
     if (s.shuffle == 2 || s.shuffle == 4)
         for (unsigned i = 0, j; i < s.n; i = j) {
             for (j = i + 1; j < s.n && v[j].group == v[i].group; ++j) {}
