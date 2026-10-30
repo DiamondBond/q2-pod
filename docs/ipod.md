@@ -459,6 +459,18 @@ white (`NP_TITLE_PX`) over the 18-pixel (`NP_META_PX`) artist, `#CCCCCC` (`NP_AR
 album, `#BBBBBB` (`NP_ALBUM_RGB`); "3 of 12" and both times remain `#AAAAAA`. Spotify uses the same hierarchy in the iPod build; Legacy
 keeps its existing artist color. Long lines scroll, as stock.
 
+The art follows the player's cover on both Now Playing pages (`np_art_poll`, each lit UI pass).
+Stock's 250 ms timer reloads `img_cover` only when it finds one of three one-shot flags set: a
+song change (`g_autochange_flag`), a forced refresh (`g_forcerefresh_flag`) or the cover thread's
+finish (`g_playcover_finishflag`). Enlarged Art's timer (`0x520064`) clears all three while
+`bigcover_page` is open, so a change it took left the page on the last track's art. The payload
+keys the playing track and the player file it can use: `/tmp/coverpic.jpg` (type 1) or
+`/tmp/externpic.jpg` (2, 4), once `g_lastcover_url` is this track's path. When that key changes,
+it reloads the art the way stock does, dropping AWTK's cached bitmap of the name first, since the
+player writes every track's cover to the same file. Otherwise it leaves stock's image, the
+placeholder included. ponytail: one more decode per track change while the page is up, beside
+stock's own reload.
+
 **Theme: Minimal** draws the album in Sudo Music's small capitals (`NP_CAPS_PX`, 15 pixels,
 `NP_ALBUM_RGB`, `SUDO_TRACK` apart, `paint_caps`) over its label's transparent ink; Classic shows
 the label. There is no on-screen transport row: the buttons play, pause and skip.

@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.5.9**:
+  - Now Playing: the album art changes with the song again after you skip back and forth, on both the regular and Centred pages. It could stay on the previous song's cover.
+
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.
   - Now Playing: Enlarged Album Art only appears over the art page. It no longer covers the lyrics, info or visualizer pages ([#57](https://github.com/DiamondBond/q2-pod/issues/57)).

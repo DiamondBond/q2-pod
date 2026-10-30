@@ -443,6 +443,7 @@ typedef struct {
     int vol_drawn;
     unsigned vol_timer;
     unsigned np_hash; /* of the album text, position and queue length shown, 0 to refresh */
+    unsigned np_art;  /* the track and player cover img_cover last took (np_art_poll) */
     int np_left;
     /* Minimal's album marquee: np_off px scrolled of the np_over px the album overflows its label.
      */
@@ -3902,6 +3903,37 @@ static int np_gone(void *win, void *event) {
     return 0;
 }
 
+/* Now Playing's art (either page) follows the player's cover. Stock reloads img_cover only on
+ * one-shot flags its 250 ms timer finds set: a song change, a forced refresh, the cover thread's
+ * finish. Enlarged Art's timer clears all three while it is open (0x520064), so a change it took
+ * left the page on the last track's art. Each lit pass, the playing track and the player's file it
+ * can use (once g_lastcover_url is this track's: 1 embedded, 2 folder image, 4 downloaded) are
+ * compared with the last; a change reloads the art as stock does, the cached bitmap dropped first
+ * (the player writes every track's cover to the same file). Anything else keeps stock's image.
+ * ponytail: one more decode per track change while the page is up, beside stock's own reload. */
+static unsigned np_art(const char **file) {
+    unsigned at, n;
+    void *r = queue_now(&at, &n);
+    const char *path = r ? P(r, REC_PATH) : (void *)0;
+    unsigned char type =
+        path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
+    *file = type == 1                ? "file:///tmp/coverpic.jpg"
+            : type == 2 || type == 4 ? "file:///tmp/externpic.jpg"
+                                     : (void *)0;
+    return *file ? fnv(hash_bytes(FNV_SEED, &type, 1), (const unsigned char *)path) : 0;
+}
+static void np_art_poll(void) {
+    const char *file;
+    if (!st.np_cover || !g_backlight_status) return;
+    unsigned key = np_art(&file);
+    if (key == st.np_art) return;
+    st.np_art = key;
+    if (!file) return;
+    image_manager_unload_bitmap_by_name(image_manager(), file);
+    image_base_set_image(st.np_cover, file);
+    widget_invalidate_force(st.np_cover, (void *)0);
+}
+
 /* playing_page_init: stock builds the page and starts its 250 ms timer, then the iPod labels bind.
  */
 int ringnav_playing(void *win, void *ctx) {
@@ -3922,6 +3954,8 @@ int ringnav_playing(void *win, void *ctx) {
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
     lyric_init();                                    /* the rows stock's init built */
     st.np_hash = 0;
+    const char *file;
+    st.np_art = np_art(&file); /* stock's init loaded it */
     st.np_left = -1;
     np_fill(0);
     np_theme();
@@ -9374,6 +9408,7 @@ int ringnav_sleep(void *loop) {
 #if IPOD
     lyric_poll();
     keep_lit_poll();
+    np_art_poll();
     if (st.bc_drop) { /* once: a destroy before this pass cleared it */
         void *drop = st.bc_drop;
         st.bc_drop = (void *)0;
