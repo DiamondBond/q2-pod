@@ -11,6 +11,8 @@
   - Home: **Carousel**'s cards keep Shanling's own colours again, whatever your Theme, accent or Light Mode.
   - Display: deleting a song, its **Also delete source file** box sits under the question again. Since 1.5.1 the two were drawn over each other.
   - USB DAC: gapless albums play without a gap between songs ([#159](https://github.com/DiamondBond/q2-pod/issues/159)). Shanling's firmware gave a USB DAC a tenth of a second of audio to spare at a song change, against half a second on the headphone jack, so it could run dry and leave up to a second of silence. If the Q2 sets the volume of a USB DAC that has no volume control of its own, a volume change can now take up to half a second to be heard.
+  - Crossfade: a song that fades into one at a different sample rate now fades. The outgoing song's last seconds were dropped there, so in a shuffle across 44.1 and 48 or 96 kHz files most changes had no fade and lost those seconds ([#164](https://github.com/DiamondBond/q2-pod/issues/164)). On the headphone jack the output still switches rate at the change, so a short pause stays before the fade is heard.
+  - Crossfade, Mono Audio and the visualizer: the audio filter they need is put back after the player restarts, instead of only once per boot.
 
 - **1.5.9**:
   - Now Playing: the album art changes with the song again after you skip back and forth, on both the regular and Centred pages. It could stay on the previous song's cover.

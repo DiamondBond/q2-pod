@@ -831,7 +831,7 @@ int ringnav_mode(int mode) {
     /* player_initconfig re-applies the saved mode each time hciplayer connects, after a boot
      * resume too: not a choice, so advanced play stays. The new hciplayer gets MQA's too. */
     int initconfig = __builtin_return_address(0) == (void *)INITCONFIG_MODE_RET;
-    if (initconfig) mqa_sync();
+    if (initconfig) mqa_sync(), peq_chained = 0; /* a new hciplayer has no filter: peq_chain again */
     if (s.restoring || initconfig) return stock_mode_trampoline(mode);
     unshuffle = 0; /* a mode choice outlasts Shuffle Songs */
     /* Stock Shuffle (2) on Shuffle Albums/Folders keeps the groups; any other mode ends them. */

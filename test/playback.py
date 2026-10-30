@@ -668,8 +668,10 @@ for folder in (0,1):
         r.fn('ringnav_load',out,at,0xf001)
         r.word(O['MCL_FD'],9); r.sent=[]
         if mode==3: r.config['MQA']='1'
+        r.word(ps['peq_chained'],1) # the filter was attached under the last hciplayer
         r.call(address=0x513374,args=(0,0,0,0),gap=0) # player_initconfig
         assert '/mnt/data/ringnav-queue' in r.files and r.sequence()==want
+        assert r.get(ps['peq_chained'])==0 # a new hciplayer has no filter: peq_chain attaches again
         # The connected hciplayer gets MQA's mode: off (2) skips its start-of-track probe.
         mqa=lambda: [x[1] for x in r.sent if x[1].startswith(b'{mcl-mqa')]
         assert mqa()==[b'{mcl-mqadecodemode\\0}' if mode==3 else b'{mcl-mqadecodemode\\2}']

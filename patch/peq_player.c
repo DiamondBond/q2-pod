@@ -133,7 +133,8 @@ static void tap(const float *a, unsigned frames, int nch, int rate) {
 /* Crossfade (docs/internals.md#crossfade). Near a track's end the filter holds its last seconds back,
  * putting out half of what comes in until the hold is full, so the decoder runs ahead at twice real
  * time and no gap opens. The next track's filter (a new instance: the player re-adds it at each file)
- * then mixes the held tail under its own start, equal power. The ring outlives both instances. */
+ * then mixes the held tail under its own start, equal power, at its own rate. The ring outlives
+ * both instances. */
 #define XF_FLOATS (6u << 18) /* ponytail: 6 MB; 15 s at 48 kHz stereo, 7.5 s at 96, 3.7 s at 192 */
 #define XF_SLACK (1u << 17)  /* room for one block past the held tail */
 #define XF_LEAD_S 2.0        /* the hold starts this much early, for the length's whole seconds */
@@ -155,7 +156,9 @@ static double decoded(void) {
 #endif
 static struct {
     float *ring;
-    unsigned head, len, total; /* frames held from head; total: held when the mix began */
+    unsigned head, len;           /* frames held from head */
+    unsigned total, left;         /* the mix: its frames at the next track's rate, and those still to go */
+    double pos, step;             /* its read position in the held frames, and held frames per frame out */
     int rate, nch, owner, length; /* the holder's format, instance and length when it began */
     long long last;               /* now_ns of the holder's last block */
     double pts;                   /* its position then */
@@ -206,24 +209,32 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
     int mine = xf.len && xf.owner == s->id,
         restart = mine && xf.pts >= xf.length - XF_SEEK_S && pts >= 0 && pts < XF_SEEK_S;
     if (xf.len && (xf.total || !mine || restart)) {
-        if (now - xf.last > XF_STALE_NS || rate != xf.rate || nch != xf.nch) {
-            xf.len = xf.total = 0; /* ponytail: a new rate or channel count drops the tail */
+        /* Another rate plays the tail through linear interpolation (step held frames an output
+         * frame): a fading tail, so that is enough. ponytail: another channel count drops it. */
+        if (!xf.total) {
+            xf.step = (double)xf.rate / rate, xf.pos = 0;
+            xf.total = xf.left = (unsigned)(xf.len / xf.step);
+        }
+        if (now - xf.last > XF_STALE_NS || nch != xf.nch || !xf.total) {
+            xf.len = xf.total = 0;
         } else {
-            if (!xf.total) xf.total = xf.len;
-            unsigned n = frames < xf.len ? frames : xf.len;
+            unsigned n = frames < xf.left ? frames : xf.left;
             /* The gains turn by a fixed angle a frame: exact at each block's start, rotated after, in
              * double (and cos d as 1 - 2 sin^2 d/2) or a long fade's rounding drifts to 1e-4. */
-            float d = 1.5707963f / xf.total, p = (xf.total - xf.len + 0.5f) * d, h = sinf(d / 2);
+            float d = 1.5707963f / xf.total, p = (xf.total - xf.left + 0.5f) * d, h = sinf(d / 2);
             double in = sinf(p), out = cosf(p), sd = sinf(d), cd = 1 - 2.0 * h * h;
-            float *held = xf.ring + xf.head * nch, *end = xf.ring + cap * nch;
-            for (unsigned i = 0; i < n; ++i, held = held + nch == end ? xf.ring : held + nch) {
-                float fi = (float)in, fo = (float)out;
-                for (int c = 0; c < nch; ++c) a[i * nch + c] = a[i * nch + c] * fi + held[c] * fo;
+            for (unsigned i = 0; i < n; ++i, xf.pos += xf.step) {
+                unsigned at = (unsigned)xf.pos, next = at + 1 < xf.len ? at + 1 : at;
+                float frac = (float)(xf.pos - at), fi = (float)in, fo = (float)out;
+                if ((at += xf.head) >= cap) at -= cap;
+                if ((next += xf.head) >= cap) next -= cap;
+                const float *h0 = xf.ring + at * nch, *h1 = xf.ring + next * nch;
+                for (int c = 0; c < nch; ++c)
+                    a[i * nch + c] = a[i * nch + c] * fi + (h0[c] + (h1[c] - h0[c]) * frac) * fo;
                 double t = in * cd + out * sd;
                 out = out * cd - in * sd, in = t;
             }
-            xf.head = (xf.head + n) % cap;
-            if (!(xf.len -= n)) xf.total = 0;
+            if (!(xf.left -= n)) xf.len = xf.total = 0;
             xf.last = now;
             return frames;
         }

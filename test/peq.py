@@ -1390,13 +1390,41 @@ static void crossfade_check(void) {
     n = 2 * 48000; /* back to 2 s */
     assert(block(&a, buf, 1024, &n, 1, 48000) == 1024 && buf[0] == 2 * 48000);
     a.uninit(&a);
-    /* A tail followed by another rate is dropped: the next track plays alone. */
+    /* A tail followed by another rate plays at that rate, linearly interpolated: 48000 held frames
+     * are 44100 frames out, the ramp 48000/44100 a frame, under the same equal-power gains. */
+    track(&a, 48000);
+    for (n = out = 0; n < 10 * 48000;) {
+        unsigned k = block(&a, buf, 1024, &n, 1, 48000);
+        for (unsigned i = 0; i < k; ++i) assert(buf[2 * i] == (float)out++);
+    }
+    assert(n - out == 48000);
+    a.uninit(&a);
+    track(&b, 44100);
+    for (m = mixed = 0; m < 2 * 44100;) {
+        unsigned start = m, k = block(&b, buf, 1024, &m, 0, 44100);
+        assert(k == 1024);
+        for (unsigned i = 0; i < k; ++i, ++mixed) {
+            if (mixed < 44100) {
+                float p = (mixed + 0.5f) / 44100 * 1.5707963f;
+                assert(fabsf(buf[2 * i + 1] - cosf(p)) < 1e-5f);
+                assert(fabsf(buf[2 * i] - ((start + i) * sinf(p) + (out + mixed * (48000.0f / 44100)) * cosf(p))) < 0.5f);
+            } else
+                assert(buf[2 * i] == (float)(start + i) && buf[2 * i + 1] == 0);
+        }
+    }
+    b.uninit(&b);
+    /* Another channel count drops it: the next track plays alone. */
     track(&a, 48000);
     for (n = 0; n < 10 * 48000;) block(&a, buf, 1024, &n, 1, 48000);
     a.uninit(&a);
-    track(&b, 44100);
-    m = 0;
-    assert(block(&b, buf, 1024, &m, 0, 44100) == 1024 && buf[0] == 0 && buf[1] == 0);
+    memset(&b, 0, sizeof b);
+    assert(peq_open(&b) == 1);
+    af_data mono_in = {0, 0, 48000, 1, 0x1d, 4};
+    assert(negotiate(&b, &mono_in) == 1);
+    for (unsigned i = 0; i < 1024; ++i) buf[i] = 0;
+    peq_pts = 1024.0 / 48000;
+    af_data d1 = {buf, 1024 * 4, 48000, 1, 0x1d, 4};
+    assert(b.play(&b, &d1) == &d1 && d1.len == 1024 * 4 && buf[0] == 0 && buf[1023] == 0);
     b.uninit(&b);
     /* The same instance starting over at the end (a chain kept across the change) is the next track. */
     track(&a, 48000);
