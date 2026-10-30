@@ -12812,9 +12812,14 @@ m.nodes[m.slider]['value']=30; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(
 m.nodes[m.slider]['value']=10; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and repaints() and texts()[-1]=='Night Shift: 4000K'
 m.nodes[m.slider]['value']=0; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and repaints() and texts()[-1]=='Night Shift: 5000K'
 assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(5000,*K)] and turn(O['KEY_PREV'])==[]  # the release saves, once
-assert texts()[-1]=='Night Shift: 5000K' and press(m.switch)==[(0,*N)] and repaints() and m.nodes[m.vol]['text']=='Off'
+# The switch cycles Off, On and Auto; a move in Auto keeps Auto.
+assert texts()[-1]=='Night Shift: 5000K' and press(m.switch)==[(2,*N)] and repaints() and m.nodes[m.vol]['text']=='Auto'
+assert texts()[-1]=='Night Shift: Auto' and m.nodes[m.switch]['image']=='switch_on'
+assert turn()==[(4900,*K)] and texts()[-1]=='Night Shift: Auto' and turn(O['KEY_PREV'])==[(5000,*K)]
+assert press(m.switch)==[(0,*N)] and repaints() and m.nodes[m.vol]['text']=='Off'
 assert texts()[-1]=='Night Shift: Off' and m.nodes[m.switch]['image']=='switch_off'
-assert turn(O['KEY_PREV'])==[(1,*N)] and texts()[-1]=='Night Shift: 5000K' and press(m.switch)==[(0,*N)]  # at an end too
+assert turn(O['KEY_PREV'])==[(1,*N)] and texts()[-1]=='Night Shift: 5000K'  # at an end too
+assert press(m.switch)==[(2,*N)] and press(m.switch)==[(0,*N)]
 assert turn()==[(1,*N),(4900,*K)] and texts()[-1]=='Night Shift: 4900K'; passed()  # a move turns it on
 # The tint (nightshift.c night_end, stock lcd_end_frame calling it): on, as boot read it, the first
 # normal frame's paint gives the screen's lcd night_end, reading no setting. Each frame warms the
