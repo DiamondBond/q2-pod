@@ -9427,9 +9427,9 @@ class BooksMachine(DepthMachine):
         elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
         elif name=='unlink': self.files.pop(self.text(a),None)
         elif name=='memcmp': ret=0 if bytes(u.mem_read(a,c))==bytes(u.mem_read(b,c)) else 1
-        elif name=='strlen': ret=len(self.text(a).encode())
+        elif name=='strlen': ret=len(self.raw(a))  # bytes: a buffer may end inside a UTF-8 character
         elif name=='strstr':
-            i=self.text(a).encode().find(self.text(b).encode()); ret=a+i if i>=0 else 0
+            i=self.raw(a).find(self.raw(b)); ret=a+i if i>=0 else 0
         elif name=='canvas_measure_text': u.reg_write(UC_MIPS_REG_F0,struct.unpack('<I',struct.pack('<f',BOOK_PITCH*c))[0])
         elif name=='mclGetOutputWay': ret=self.way
         elif name=='fork': ret=self.forked
@@ -11291,13 +11291,13 @@ d=m.files[DONE]; m.poll(); assert m.files[DONE] is d
 m.files[LIB]=bytearray(f'{LONG}8\nscan\n'.encode()); m.poll(); assert m.files[DONE]==f'{LONG}8 error Seq too long\n'.encode() and len(m.opened)==n
 m.files[LIB]=bytearray(('8'*23+'\n').encode()); m.poll(); assert m.files[DONE]==('8'*23+' ok\n').encode(),m.files[DONE]
 m.files[LIB]=bytearray(b'305'); m.poll(); assert m.files[DONE]==b'305 ok\n',m.files[DONE]; passed()
-# A request holds up to LIB_MAX (32 KB): 200 imports of 120-byte paths run (about 25 KB, which the old 2 KB of paths
-# refused whole); a longer one is "Request too long", nothing run. A name with an ellipsis is a playlist like any
-# other (only a "/" would leave the folder).
-many=[f'Playlist {i:03} '+'n'*77 for i in range(200)]
+# A request holds up to LIB_MAX (32 KB): 200 imports of the longest names (63 bytes, 93-byte paths) run (about 20 KB,
+# which the old 2 KB of paths refused whole); a longer one is "Request too long", nothing run. A name with an
+# ellipsis is a playlist like any other (only a "/" would leave the folder).
+many=[f'Playlist {i:03} '+'n'*50 for i in range(200)]
 for x in many: m.files[f'{EXP}/{x}.m3u']=bytearray(b'#EXTM3U\n')
 body=''.join(f'import {EXP}/{x}.m3u\n' for x in many); m.files[LIB]=bytearray(f'306\n{body}'.encode()); m.poll()
-assert len(f'{EXP}/{many[0]}.m3u')==120 and len(body)>25000 and m.files[DONE]==b'306 ok\n' and m.imports[-1]==body.replace('import ',''),m.files[DONE]
+assert len(f'{EXP}/{many[0]}.m3u')==93 and len(body)>20000 and m.files[DONE]==b'306 ok\n' and m.imports[-1]==body.replace('import ',''),m.files[DONE]
 k=len(m.imports); m.files[LIB]=bytearray(b'307\n'+b'scan\n'*7000); m.poll(); assert m.files[DONE]==b'307 error Request too long\n' and len(m.imports)==k
 m.files[f'{EXP}/Hello... (Live).m3u']=bytearray(b'#EXTM3U\n'); m.files[LIB]=bytearray(f'308\nimport {EXP}/Hello... (Live).m3u\n'.encode()); m.poll()
 assert m.files[DONE]==b'308 ok\n' and m.imports[-1]==f'{EXP}/Hello... (Live).m3u\n',m.files[DONE]; passed()
@@ -11346,6 +11346,16 @@ assert m.files[DONE]==b'503 ok\n' and len(m.imports)==2,m.files[DONE]; passed()
 # is, never run.
 m.files[LIB]=bytearray(b'\r\nscan\n'); m.poll(); assert m.files[DONE]==b' error Missing seq\n' and not scans(),m.files[DONE]
 d=m.files[DONE]; m.poll(); assert m.files[DONE] is d; passed()
+# A playlist's name (its file's less .m3u) of 64 bytes or more is refused, nothing run: stock's create cuts it into
+# char title[64] and skips its duplicate check, so the cut name never matches the file again and every sync would
+# add a copy. 63 bytes import, as do 21 three-byte characters; 22 don't.
+for x in ('n'*63,'n'*64,'音'*21,'音'*22): m.files[f'{EXP}/{x}.m3u']=bytearray(b'#EXTM3U\n')
+k,n=len(m.imports),len(scans())
+m.files[LIB]=bytearray(f'504\nscan\nimport {EXP}/{"n"*64}.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==f'504 error Name too long: {"n"*64}\n'.encode() and len(scans())==n,m.files[DONE]
+m.files[LIB]=bytearray(f'505\nadd {EXP}/{"音"*22}.m3u\n'.encode()); m.poll(); assert m.files[DONE]==f'505 error Name too long: {"音"*22}\n'.encode()
+m.files[LIB]=bytearray(f'506\nimport {EXP}/{"n"*63}.m3u\nadd {EXP}/{"音"*21}.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==b'506 ok\n' and m.imports[k:]==[f'{EXP}/{"n"*63}.m3u\n{EXP}/{"音"*21}.m3u\n'],(m.files[DONE],m.imports[k:]); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

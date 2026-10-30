@@ -14,12 +14,16 @@
 #include "stock.h"
 
 #define LIB_DIR "/mnt/mmc/_explaylist_data/"
-#define LIB_MAX (32 << 10) /* a request's bytes: over 200 lines of 120-byte paths */
+#define LIB_MAX (32 << 10) /* a request's bytes: over 300 imports of the longest names */
 #define LIB_POLL_MS 500    /* as addon.c's ADDON_POLL_MS */
 /* The answer's bytes: its first line, then an exists line per add left alone, each 3 bytes longer
  * than its request line, which is 36 bytes at least. */
 #define LIB_ANSWER (LIB_MAX + LIB_MAX / 8)
 #define LIB_TMP "/tmp/q2-library.tmp"
+/* A playlist's name, its file's less .m3u, is LIB_NAME - 1 bytes at most: stock's create
+ * (ringnav_playlist_create) cuts a longer one into char title[64] and skips its duplicate check,
+ * so the playlist's name would never match the file's again and each import would add a copy. */
+#define LIB_NAME 64
 
 /* only and busy are first, as test/patch.py reads them. */
 static struct {
@@ -92,12 +96,17 @@ static const char *library_parse(char *s, char *why, unsigned size) {
             tk_snprintf(why, size, "Unknown request: %s", s);
             return why;
         }
-        const char *p = s + (add ? 4 : 7), *name = p + sizeof LIB_DIR - 1;
+        char *p = s + (add ? 4 : 7), *name = p + sizeof LIB_DIR - 1;
         unsigned k = strlen(p);
         /* stock lists that folder alone, by name: no subfolder, a name before .m3u (so never ..) */
         if (!tk_str_start_with(p, LIB_DIR) || strstr(name, "/") || k < sizeof LIB_DIR + 4 ||
             strcasecmp(p + k - 4, ".m3u")) {
             tk_snprintf(why, size, "Not a playlist in /mnt/mmc/_explaylist_data: %s", p);
+            return why;
+        }
+        if (k - (sizeof LIB_DIR - 1) - 4 >= LIB_NAME) {
+            p[k - 4] = 0;
+            tk_snprintf(why, size, "Name too long: %s", name);
             return why;
         }
         if (access(p, 0)) {
@@ -142,9 +151,8 @@ static int library_adds(void) {
 static const char *library_missing(char *why, unsigned size) {
     for (const char *l = libup.list; *l; l += strlen(l) + 1) {
         if (*l != 'i' || playlist_named(l + 1)) continue;
-        unsigned k = strlen(l + 1) - 4;
-        char nm[256];
-        tk_snprintf(nm, k + 1 < sizeof nm ? k + 1 : sizeof nm, "%s", l + 1);
+        char nm[LIB_NAME];
+        tk_snprintf(nm, strlen(l + 1) - 3, "%s", l + 1); /* less .m3u */
         tk_snprintf(why, size, "Couldn't import %s", nm);
         return why;
     }
