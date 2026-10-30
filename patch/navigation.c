@@ -464,11 +464,13 @@ typedef struct {
         rounded, light, light_day, /* light_day: Auto's answer for now (LIGHT=2) */
         keep_lit,                  /* Smart Awake (#57, keep_lit_poll) */
         np_centred,                /* Centred Now Playing (ringnav_ui_load) */
-        keytone_hp;                /* Click With Headphones (ringnav_buzzer) */
+        keytone_hp,                /* Click With Headphones (ringnav_buzzer) */
+        scrub_single;              /* Single Press Scrub (np_key) */
     unsigned keep_lit_at;
-    void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
-    int style_depth;  /* nested style hooks (a mutable style's fallback) map nothing */
-    void *setting_label[10];
+    unsigned keytone_timer; /* Key Tone's click, for Click With Headphones' row (keytone_follow) */
+    void *sel_accent;       /* the row on a coloured selection, for Light Mode's ink */
+    int style_depth;        /* nested style hooks (a mutable style's fallback) map nothing */
+    void *setting_label[11];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
@@ -1615,15 +1617,15 @@ static const char *const accent_names[] = {
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home (0 Split, 1 Full,
  * 2 Carousel), 2 Battery, 3 Theme, 4 Shortcut, 5 Corners, 6 Light Mode, 7 Smart Awake, 8 Centred
- * Now Playing, 9 Click With Headphones. */
-static const char *const setting_keys[] = {
-    "ACCENT",  "HOME",  "BATTERY", "THEME",     "SHORTCUT",
-    "ROUNDED", "LIGHT", "KEEPLIT", "NPCENTRED", "KEYTONEHP"
-};
-static const int setting_counts[] = { ACCENT_N, 3, 4, 2, 7, 2, 3, 2, 2, 2 };
-static int *const setting_values[] = { &st.accent,     &st.home,      &st.battery, &st.classic,
-                                       &st.shortcut,   &st.rounded,   &st.light,   &st.keep_lit,
-                                       &st.np_centred, &st.keytone_hp };
+ * Now Playing, 9 Click With Headphones (System settings, under Key Tone), 10 Single Press Scrub. */
+static const char *const setting_keys[] = { "ACCENT",    "HOME",      "BATTERY",    "THEME",
+                                            "SHORTCUT",  "ROUNDED",   "LIGHT",      "KEEPLIT",
+                                            "NPCENTRED", "KEYTONEHP", "SCRUBSINGLE" };
+static const int setting_counts[] = { ACCENT_N, 3, 4, 2, 7, 2, 3, 2, 2, 2, 2 };
+static int *const setting_values[] = { &st.accent,     &st.home,        &st.battery,
+                                       &st.classic,    &st.shortcut,    &st.rounded,
+                                       &st.light,      &st.keep_lit,    &st.np_centred,
+                                       &st.keytone_hp, &st.scrub_single };
 /* The local time now into buf (struct tm: tm_sec @0, tm_min @4, tm_hour @8), or 0 when the clock
  * cannot be read. */
 static const int *clock_now(int *buf) {
@@ -1665,6 +1667,7 @@ static int accent(void) {
         st.keep_lit = config_value("IPOD", "KEEPLIT", 2, 0);
         st.np_centred = config_value("IPOD", "NPCENTRED", 2, 0);
         st.keytone_hp = config_value("IPOD", "KEYTONEHP", 2, 0);
+        st.scrub_single = config_value("IPOD", "SCRUBSINGLE", 2, 0);
         int buf[11];
         st.light_day = light_day(clock_now(buf));
         st.settings_read = 1;
@@ -2998,10 +3001,21 @@ static const unsigned char playset_order[] = {
 };
 /* Connections, personalisation and daily controls, then device maintenance; About stays last. */
 static const unsigned char sysset_order[] = {
-    1 /* Wireless */,     2 /* Network */,  3 /* Display */,       4 /* Power */,
-    8 /* Buttons lock */, 7 /* Key tone */, 5 /* Date and time */, 0 /* Language */,
-    6 /* In-Vehicle */,   13 /* Boot to */, 12 /* Apps */,         9 /* Update */,
-    10 /* Reset */,       11 /* About */,
+    1 /* Wireless */,
+    2 /* Network */,
+    3 /* Display */,
+    4 /* Power */,
+    8 /* Buttons lock */,
+    7 /* Key tone */,
+    13 /* Click With Headphones */,
+    5 /* Date and time */,
+    0 /* Language */,
+    6 /* In-Vehicle */,
+    14 /* Boot to */,
+    12 /* Apps */,
+    9 /* Update */,
+    10 /* Reset */,
+    11 /* About */,
 };
 
 /* Folder Root (Q2POD FOLDERROOT): the card's top-level folder Home's Folder opens in, "" the card
@@ -3831,8 +3845,9 @@ static void np_cancel(void) {
     if (st.np_win) playing_timer_start(st.np_win);
 }
 
-/* A single centre press, DOUBLE_CLICK_MS on, never while scrubbing: it replays the release to stock
- * on_wm_keyup_fun, which turns the screen off (it reads only the event's key). */
+/* A single centre press, DOUBLE_CLICK_MS on, never while scrubbing (with Single Press Scrub, a
+ * double press): it replays the release to stock on_wm_keyup_fun, which turns the screen off (it
+ * reads only the event's key). */
 static int np_single(const void *info) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     st.np_press = 0;
@@ -3840,28 +3855,47 @@ static int np_single(const void *info) {
     return 0;
 }
 
+/* Scrub starts from the bar's second; the wheel moves the target until scrub_end. */
+static void scrub_start(void) {
+    if (st.scrub || !st.np_slider) return;
+    st.scrub = 1;
+    st.scrub_moved = 0;
+    st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
+    st.scrub_track = np_track();
+    stop_timer(&st.settle_timer);
+    playing_timer_clear(st.np_win);
+    np_fill(1);
+    rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
+}
+
+/* Single Press Scrub (IPOD SCRUBSINGLE)'s single press, DOUBLE_CLICK_MS on: scrub starts. */
+static int np_scrub(const void *info) {
+    st.np_press = 0;
+    if (g_backlight_status) scrub_start();
+    return 0;
+}
+
 /* Centre and, while scrubbing, the wheel on the top Now Playing page. A centre press waits
- * DOUBLE_CLICK_MS: a second one starts scrub, else it turns the screen off as anywhere else; while
+ * DOUBLE_CLICK_MS: a second one starts scrub, else it turns the screen off as anywhere else; with
+ * Single Press Scrub the two swap, so a double press turns the screen off as on the lists. While
  * scrubbing one press ends it at once (center_press). The wheel moves the target SCRUB_STEP
  * seconds times the WHEEL_RAMP_MS ramp, within the track, and only previews it: the seek waits
  * for the scrub to end. Neither the volume nor its dialog sees the wheel. */
 static int np_key(void *top, unsigned key) {
     unsigned now = (unsigned)time_now_ms();
     if (key == KEY_CENTER) {
-        int press = center_press(&st.np_press, &st.np_press_at, np_single, st.scrub);
+        int one = (accent(), st.scrub_single);
+        int press =
+            center_press(&st.np_press, &st.np_press_at, one ? np_scrub : np_single, st.scrub);
+        if (one && !press) /* an overdue single press just started a scrub: this one ends it */
+            press = 2, st.np_press_at = now;
         if (press != 2) return press ? STOP : 0;
-        if (st.scrub) /* one press ends a scrub, a double press starts one */
+        if (st.scrub) /* one press ends a scrub */
             scrub_end();
-        else if (st.np_slider) {
-            st.scrub = 1;
-            st.scrub_moved = 0;
-            st.scrub_to = widget_get_prop_int(st.np_slider, "value", 0);
-            st.scrub_track = np_track();
-            stop_timer(&st.settle_timer);
-            playing_timer_clear(st.np_win);
-            np_fill(1);
-            rearm(&st.scrub_timer, scrub_expire, SCRUB_MS);
-        }
+        else if (one)
+            np_single((void *)0);
+        else
+            scrub_start();
         return STOP;
     }
     if (np_track() != st.scrub_track) { /* a new track: scrub_end drops the last one's target */
@@ -4716,8 +4750,9 @@ static void setting_text(int i) {
         widget_set_text_utf8(st.setting_label[i], shortcut);
         return;
     }
-    static const char *const toggles[] = { "Rounded Corners", 0, "Smart Awake",
-                                           "Centred Now Playing", "Click With Headphones" };
+    static const char *const toggles[] = { "Rounded Corners",       0,
+                                           "Smart Awake",           "Centred Now Playing",
+                                           "Click With Headphones", "Single Press Scrub" };
     if (i == 5 || i >= 7) {
         list_toggle(st.setting_label[i], toggles[i - 5], *setting_values[i]);
         return;
@@ -4790,8 +4825,8 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
-    else if (i < 7) { /* Smart Awake and Click With Headphones only need their toggle drawn,
-                       * Centred Now Playing the next open (ringnav_ui_load) */
+    else if (i < 7) { /* the switches from Smart Awake on only need their toggle drawn, Centred
+                       * Now Playing the next open (ringnav_ui_load) */
         if (i == 3) {
             theme_preset();
             coverflow_home_layout();
@@ -4897,13 +4932,14 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
     /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing; Shortcut, Smart
-     * Awake, Click With Headphones. */
-    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8 }, controls[] = { 4, 7, 9 };
-    static const char *const icons[] = { "system_display",      "playset_covermode",
-                                         "system_powermanager", "system_display",
-                                         "playset_covermode",   "system_display",
-                                         "system_display",      "system_display",
-                                         "playset_covermode",   "system_display" };
+     * Awake, Single Press Scrub. Click With Headphones (9) is System settings' (ringnav_systemset).
+     */
+    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8 }, controls[] = { 4, 7, 10 };
+    static const char *const icons[] = {
+        "system_display",    "playset_covermode", "system_powermanager", "system_display",
+        "playset_covermode", "system_display",    "system_display",      "system_display",
+        "playset_covermode", "system_keytone",    "playset_covermode"
+    };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
     for (int k = 0, n = sub == DISPLAY_APPEARANCE ? sizeof appearance : sizeof controls; k < n;
          ++k) {
@@ -4938,11 +4974,33 @@ static int boot_click(void *label, void *event) {
     boot_text(label);
     return 0;
 }
+/* Click With Headphones (Display's setting 9) sits under Key Tone and shows while it is on. Stock's
+ * Key Tone click handler sets g_keytone_flag; the row follows from the next loop pass. */
+#define KEYTONE_ROW "_keytone_hp"
+static int keytone_follow(const void *info) {
+    st.keytone_timer = 0;
+    void *view = widget_lookup(window_manager(), "scroll_view_sysset", 1);
+    void *row = view ? widget_lookup(view, KEYTONE_ROW, 1) : (void *)0;
+    if (row) widget_set_visible(row, g_keytone_flag != 0, 0), widget_layout(view);
+    return 0;
+}
+static int keytone_click(void *ctx, void *event) {
+    rearm(&st.keytone_timer, keytone_follow, 0);
+    return 0;
+}
 int ringnav_systemset(void *win, void *ctx) {
     int result = stock_systemset_trampoline(win, ctx);
     void *view = win ? widget_lookup(win, "scroll_view_sysset", 1) : (void *)0;
-    if (view)
+    if (view) {
         widget_set_text_utf8(list_row_into(view, "system_update", shelf_open, 0), "App Store");
+        st.setting_label[9] = list_row(view, "system_keytone", setting_click, (void *)9);
+        setting_text(9);
+        void *item = P(P(st.setting_label[9], W_PARENT), W_PARENT),
+             *tone = widget_lookup(view, "7", 1);
+        widget_set_name(item, KEYTONE_ROW);
+        widget_set_visible(item, g_keytone_flag != 0, 0);
+        if (tone) widget_on(tone, EVT_CLICK, keytone_click, 0);
+    }
     if (view && rockbox_available()) {
         char value[16];
         void *f = fopen(BOOT_TARGET, "rb");
@@ -4962,7 +5020,7 @@ int ringnav_systemset(void *win, void *ctx) {
         widget_on(button, EVT_CLICK, boot_click, label);
         boot_text(label);
     }
-    /* Without Rockbox there is no Boot to (13): the order less it. */
+    /* Without Rockbox there is no Boot to (14): the order less it. */
     unsigned char order[sizeof sysset_order];
     unsigned n = 0, rows = view ? widget_count_children(view) : 0;
     for (unsigned i = 0; i < sizeof sysset_order; i++)

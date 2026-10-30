@@ -5901,6 +5901,23 @@ for presses in (1,2):
     if presses==2: assert step(m,O['KEY_CENTER'],gap=100)==11
     step(m,DC+O['SCRUB_MS'],wait=True); assert not m.screens and m.u.mem_read(syms['g_backlight_status'],1)[0]
     ended(m,[105],presses); passed()
+# Single Press Scrub (IPOD SCRUBSINGLE=1) swaps them: a single press starts the scrub DOUBLE_CLICK_MS
+# later, a double press turns the screen off as on the lists. One press still ends a scrub, and a press
+# after an overdue first ends the scrub that first one started instead of reaching stock.
+CONFIG['SCRUBSINGLE']='1'
+m=scrub_page()
+assert m.call(O['KEY_CENTER'])==11; m.advance(DC-1,clear=False); assert not did(m,'playing_timer_clear')
+m.advance(1,clear=False); assert did(m,'playing_timer_clear')==[m.win] and m.nodes[m.slider][FG]==-1 and not m.screens
+keep(m); assert step(m)==11 and m.nodes[m.slider]['value']==105
+assert step(m,O['KEY_CENTER'])==11 and m.seeks==[105]
+step(m,DC+O['SCRUB_MS'],wait=True); assert not m.screens; ended(m,[105]); passed()
+m=scrub_page()
+assert m.call(O['KEY_CENTER'])==11 and m.call(O['KEY_CENTER'],gap=100,clear=False)==11 and m.screens==[0]
+m.advance(DC,clear=False); assert m.screens==[0] and not did(m,'playing_timer_clear') and not m.timers; passed()
+m=scrub_page(); assert m.call(O['KEY_CENTER'])==11; m.now+=DC+1
+assert m.call(O['KEY_CENTER'],gap=0,clear=False)==11 and did(m,'playing_timer_clear')==[m.win] and not m.screens
+keep(m); ended(m,[]); passed()
+del CONFIG['SCRUBSINGLE']
 # Another window on top ends it with the one commit; the page's destruction drops the target and
 # keeps the timer off.
 m=scrub_page(); centre(m); step(m)
@@ -7654,7 +7671,7 @@ for config,preset in (({},0),({**C,'ACCENT':'1'},1),({**C,'ACCENT':'2'},2),({**C
         want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
         assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
     assert style_color(m,grey)[1]==grey
-    assert len(m.config_reads)==11  # every key, once, on first use
+    assert len(m.config_reads)==12  # every key, once, on first use
     passed()
 # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
 # recycled text, touch hiding, Home siblings, and every accent.
@@ -7705,7 +7722,7 @@ for label_name in ('label_del','label_rename'):
 passed()
 
 m=Machine(); style_color(m,red)
-assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0'),('/mnt/data/config.ini','IPOD','NPCENTRED','0'),('/mnt/data/config.ini','IPOD','KEYTONEHP','0')]; passed()
+assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0'),('/mnt/data/config.ini','IPOD','NPCENTRED','0'),('/mnt/data/config.ini','IPOD','KEYTONEHP','0'),('/mnt/data/config.ini','IPOD','SCRUBSINGLE','0')]; passed()
 
 # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
 def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -7995,12 +8012,12 @@ assert len(kids)==7 and [row_text(r) for r in kids[3:]]==['Appearance','Coverflo
 assert m.icons_set==['system_display','list_into','playset_covermode','list_into','playset_folderjump','list_into','display_backlight','list_into']
 f,ctx=m.handler(m.nodes[kids[4]]['children'][0],O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.opened[-1]==('systemset/display_page',None) and m.get(payload_syms['display_sub'])==0; passed()
-# Coverflow: Artist Albums, Coverflow Sort, Refresh Coverflow; Controls: Shortcut, Smart Awake, Click With Headphones,
+# Coverflow: Artist Albums, Coverflow Sort, Refresh Coverflow; Controls: Shortcut, Smart Awake, Single Press Scrub,
 # Hold Return, Wheel QS, Wheel.
 cfv=display_page(m,2); cf,cf_sort,cf_refresh=m.nodes[cfv]['children']
 assert m.icons_set==['playset_covermode','playset_covermode','system_update']
-ctl=display_page(m,3); shortcut,keep_lit,click_hp,hold,qs,wheel=m.nodes[ctl]['children']
-assert m.icons_set==['playset_covermode','system_display','switch_off','system_display','switch_off','playset_folderjump','system_display','switch_off','system_display','list_into']
+ctl=display_page(m,3); shortcut,keep_lit,scrub_one,hold,qs,wheel=m.nodes[ctl]['children']
+assert m.icons_set==['playset_covermode','system_display','switch_off','playset_covermode','switch_off','playset_folderjump','system_display','switch_off','system_display','list_into']
 assert [row_text(r) for r in (shortcut,hold,qs)]==['Shortcut: Rockbox','Hold Return: Recent','Wheel QS']; passed()
 view=display_page(m,1); rows=setting_rows(m,view)
 kids=m.nodes[view]['children']; light,corners,centred=kids[1],kids[3],kids[6]
@@ -8019,11 +8036,11 @@ f,ctx=m.handler(m.nodes[keep_lit]['children'][0],O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not did(m,'image_manager_unload_all')
 assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','KEEPLIT')]
 m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-# Click With Headphones (IPOD KEYTONEHP): a switch, off unless chosen, that only saves.
-hp_label=m.nodes[m.nodes[click_hp]['children'][0]]['children'][1]; assert m.nodes[hp_label]['text']=='Click With Headphones'
-f,ctx=m.handler(m.nodes[click_hp]['children'][0],O['EVT_CLICK']); m.calls=[]
+# Single Press Scrub (IPOD SCRUBSINGLE): a switch, off unless chosen, that only saves.
+one_label=m.nodes[m.nodes[scrub_one]['children'][0]]['children'][1]; assert m.nodes[one_label]['text']=='Single Press Scrub'
+f,ctx=m.handler(m.nodes[scrub_one]['children'][0],O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and not did(m,'image_manager_unload_all')
-assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','KEYTONEHP')]
+assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','SCRUBSINGLE')]
 m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 # Centred Now Playing (IPOD NPCENTRED): a switch that only saves; the next Now Playing opens stock's
 # own page (PLAYING_STOCK) through the window loader, and no other window changes.
@@ -13252,20 +13269,23 @@ def boot_row(value=None,mode=0o100755):
     m.handlers[syms['memcmp@GLIBC_2.0']]='boot_memcmp'
     m.handlers[int(manifest['patch_symbols']['stock_systemset_trampoline'],16)]='stock_systemset'
     m.mock('ferror@GLIBC_2.0','fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','navigator_to_with_context')
-    entries=[m.entry(0) for _ in range(12)]
+    entries=[m.entry(0) for _ in range(12)]; m.nodes[entries[7]]['name']='7'  # Key Tone, by its table id
     view=m.node('scroll_view','scroll_view_sysset',entries.copy())
     m.top=m.node('window','sysset_page',[m.node('list_view','list_view_sysset',[view])])
     assert m.call(address=HOOKS['systemset_sysset_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_systemset',m.top,5)
     kids=m.nodes[view]['children']
+    # Click With Headphones under Key Tone, hidden while Key Tone is off
+    hp=m.nodes[kids[6]]['children'][0]; icon,label=m.nodes[hp]['children'][:2]
+    assert m.nodes[icon]['image']=='system_keytone' and m.nodes[label]['text']=='Click With Headphones' and m.nodes[kids[6]]['visible']==0
     if mode!=0o100755:  # Apps (System Update's icon, netupdate.c's page) before Update; no Boot to
-        assert kids[:9]+kids[10:]==[entries[i] for i in (1,2,3,4,8,7,5,0,6,9,10,11)]
-        apps=m.nodes[kids[9]]['children'][0]; icon,label=m.nodes[apps]['children'][:2]
+        assert kids[:6]+kids[7:10]+kids[11:]==[entries[i] for i in (1,2,3,4,8,7,5,0,6,9,10,11)]
+        apps=m.nodes[kids[10]]['children'][0]; icon,label=m.nodes[apps]['children'][:2]
         assert m.nodes[icon]['image']=='system_update' and m.nodes[label]['text']=='App Store' and m.handler(apps,O['EVT_CLICK'])[0]==payload_syms['shelf_open']
         return m,None,None
-    assert len(kids)==14
-    assert kids[:9]+kids[11:]==[entries[i] for i in (1,2,3,4,8,7,5,0,6,9,10,11)]
-    button=m.nodes[kids[9]]['children'][0]
+    assert len(kids)==15
+    assert kids[:6]+kids[7:10]+kids[12:]==[entries[i] for i in (1,2,3,4,8,7,5,0,6,9,10,11)]
+    button=m.nodes[kids[10]]['children'][0]
     label=m.nodes[button]['children'][1]
     return m,button,label
 def toggle_boot(m,button):
@@ -13295,7 +13315,18 @@ assert m.nodes[label]['text']=='Boot to: Rockbox' and '/mnt/data/boot-target' no
 m,button,label=boot_row(); view=m.nodes[m.top]['children'][0]; view=m.nodes[view]['children'][0]
 m.paint(view)
 for _ in range(9): m.call()
-assert m.confirm()==11 and m.dispatched()[0][1]==button; passed()
+assert m.confirm()==11 and m.dispatched()[0][1]==button; passed()  # past the hidden Click With Headphones
+# Key Tone's click (stock's handler sets g_keytone_flag) shows or hides Click With Headphones from the
+# next loop pass; its own click saves IPOD KEYTONEHP.
+m,_,_=boot_row(); m.nodes[m.wm]={'type':'window_manager','children':[m.top]}
+view=m.nodes[m.nodes[m.top]['children'][0]]['children'][0]; tone,hp=m.nodes[view]['children'][5:7]
+f,ctx=m.handler(tone,O['EVT_CLICK'])
+for on in (1,0):
+    m.byte(syms['g_keytone_flag'],on); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+    m.advance(0); assert m.nodes[hp]['visible']==on and not m.timers
+f,ctx=m.handler(m.nodes[hp]['children'][0],O['EVT_CLICK']); m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0
+assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_config']==[(1,'IPOD','KEYTONEHP')]; passed()
 print('Boot settings: conditional row/order, restart, card removal and failed atomic writes passed.')
 
 from build import AUDIO_EXTENSION_CALLS

@@ -527,7 +527,9 @@ and leaves the screen on (a double press does too), as do Return, a touch and
 3 seconds without a tick, and each gives the wheel back to the volume; Return then stays on the
 page. Ending without having moved the target does not seek. Paused, the track stays paused and
 plays from the target at Play. Outside a scrub a single press turns
-the screen off, as on every other page. The jump is stock's key seek, which can pause the player briefly, but only once, when the
+the screen off, as on every other page. With **Single Press Scrub** (below) the two swap: a single
+press starts scrubbing, `DOUBLE_CLICK_MS` later as a row opens, and a double press turns the screen
+off, as on the lists. The jump is stock's key seek, which can pause the player briefly, but only once, when the
 scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 `patch/offsets.inc`; see [internals.md](internals.md#scrub-ipod).
 
@@ -663,8 +665,9 @@ NPCENTRED`, off; `playset_covermode`): `ringnav_ui_load`, hooked on every window
   paused, it times out as usual. Enlarged Album Art never opens off the art page (#57): while Now Playing's slide view is on
   another page, each `ringnav_sleep` pass holds stock's countdown (`BC_IDLE`) at its full 10 s.
   Before, the window opened and closed a pass later, flashing over the lyrics every 10 s (#153).
-  Then a "Click With Headphones" switch (`IPOD KEYTONEHP`, off): with Key Tone on, the speaker's
-  click keeps sounding while headphones, Bluetooth or a USB DAC are connected ([Key Tone](internals.md#key-tone)).
+  Then a "Single Press Scrub" switch (`IPOD SCRUBSINGLE`, off; `np_key`): on Now Playing a single
+  centre press starts the scrub and a double press turns the screen off (Scrub, above).
+  "Click With Headphones" (`IPOD KEYTONEHP`) is System settings', under Key Tone ([Key Tone](internals.md#key-tone)).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
   Coverflow ends with an All albums card, see
   [internals.md](internals.md#artist-albums-in-coverflow)), "Coverflow Sort: Album" and "Refresh
