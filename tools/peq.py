@@ -47,6 +47,11 @@ MQA_GATE = ((0x42f8b0, 0x34620040, 0x3c0200b1),   # ori $v0, $v1, 0x40    -> lui
 MQA_PROBE = ((0x42eaf4, 0x3c020002, 0x3c020030),  # lui $v0, 0x2           -> lui $v0, 0x30
              (0x42eaf8, 0x38630002, 0x3963000f),  # xori $v1, $v1, 2       -> xori $v1, $t3, 15
              (0x42eafc, 0x00e3100b, 0x00621006))  # movn $v0, $a3, $v1     -> srlv $v0, $v0, $v1
+# ao_alsa's init (0x438988) asks for a 500 ms buffer (0x438a2c) but cuts it to 100 ms on output way 2, a USB
+# DAC: two branch delay slots store 100000 us (address, stock sw word) and become nops, so USB keeps 500 ms.
+# ponytail: where hciplayer scales a USB DAC's volume itself, a change now lags up to 500 ms, not 100 ms.
+USB_BUFFER = ((0x43977c, 0xafc2017c),  # sw $v0, 0x17c($fp)  (hw:2,0)
+              (0x439a60, 0xafc3017c))  # sw $v1, 0x17c($fp)  (hw:1,0)
 LIBC = {
     'memset': ('void *', 'void *, int, unsigned'),
     'memcpy': ('void *', 'void *, const void *, unsigned'),
@@ -232,6 +237,8 @@ def patch_player(raw, out, flac_experiments=()):
         patch_word(data, address, stock, patched, 'Equalizer rate gate')
     for address, stock, patched in (*MQA_GATE, *MQA_PROBE):
         patch_word(data, address, stock, patched, 'MQA side chain')
+    for address, stock in USB_BUFFER:
+        patch_word(data, address, stock, 0, 'USB DAC buffer')
     patch_word(data, SEEK_SLOT, STOCK_SEEK, ps['mp3_seek'], 'Audio demuxer seek slot')
     patch_word(data, RS_OPEN_SLOT, RS_OPEN, ps['rs_open'], 'Resampler open slot')
     patch_word(data, MP3_ALLOC, jal(0xadaf00), jal(ps['mp3_private_alloc']), 'MP3 gapless private state')
