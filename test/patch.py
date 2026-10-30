@@ -3135,13 +3135,15 @@ class QueueMachine(Machine):
     def __init__(self,page='allmusic_page',rows=20,queue=3,pos=0,mode=0,cls=0xf001):
         super().__init__()
         self.deqs={}; self.toasts=[]; self.sent=[]; self.picks=[]; self.airplay=0
+        self.imports=[]; self.import_ret=1; self.m3u_files=[]; self.uncreated=set(); self.on_toast=None
         for n in ('_create_deque','deque_init','deque_init_copy','deque_size','deque_at','_deque_push_back',
                   'deque_assign','deque_clear','deque_destroy','deque_pop_back','send@GLIBC_2.0','window_manager_get_input_device_status',
                   'navigator_to','navigator_to_with_context','window_close','widget_on','widget_destroy_children',
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
                   'getMusicBySonger','getMusicByAlbumArtist','getMusicByComposer','getMusicByGenre',
                   'getMusicByAlbumAndComposer','getMusicByAlbumAndGenre','getMusicByPlayList','checkFavExist','navigator_window_is_exist',
-                  'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0'): self.handlers[syms[n]]='q:'+n
+                  'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0',
+                  'importPlayList','toolsGetDirectoryM3u8'): self.handlers[syms[n]]='q:'+n
         self.favs=set(); self.open_pages=set(); self.opened=[]
         self.handlers.pop(syms['mclLoadPlayList'])
         self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0'); self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
@@ -3209,6 +3211,11 @@ class QueueMachine(Machine):
             elif page=='localmusic/playlist_page': self.opened.append((page,b))
             elif page=='localmusic/playlistsmore_page': self.opened.append((page,b))
             else: self.opened.append((page,self.get(b),self.get(b+4))); self.top=self.node('window',page); self.stack.append(self.top)
+        elif name=='importPlayList':  # Playlists' list reloaded with the files' names, but a create that failed (-1)
+            only=self.text(self.get(payload_syms['libup'])) if self.get(payload_syms['libup']) else None; self.imports.append(only); ret=self.import_ret
+            names=[l.rsplit('/',1)[-1].rsplit('.',1)[0] for l in (only or '').split('\n') if l.startswith('/')]  # addon_m3u_dir's
+            if ret!=-2: self.word(syms['p_deque_playlist'],self.deque([self.song(n) for n in names if n not in self.uncreated]))
+        elif name=='toolsGetDirectoryM3u8': self.deqs[b][1]=[self.copy('stSongInfo',r) for r in self.m3u_files]; ret=len(self.m3u_files)
         elif name=='checkFavExist': ret=self.text(self.get(a+O['REC_NAME'])) in self.favs
         elif name=='navigator_window_is_exist': ret=self.text(a) in self.open_pages
         elif name=='window_close': self.stack.remove(a); self.top=self.stack[-1]
@@ -4951,7 +4958,9 @@ class CoverflowMachine(QueueMachine):
             if self.text(a)=='playing_page':
                 self.play_names=self.names(self.get(b))
                 self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
-            elif self.text(a)=='dialog/msginfo_dialog': self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
+            elif self.text(a)=='dialog/msginfo_dialog':
+                self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
+                if self.on_toast: self.on_toast()  # what a nested poll under the toast's own loop would see
             else: self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
         elif name=='fopen': ret=0  # no saved album: remember() keeps the first
@@ -9370,6 +9379,7 @@ class BooksMachine(DepthMachine):
         self.handlers[payload_syms['child_exit']]='b:exit'
         self.u.hook_add(UC_HOOK_CODE,self.hook,begin=payload_syms['child_exit'],end=payload_syms['child_exit'])
         self.forked=4242; self.waited=0; self.way=0; self.execs=[]; self.sent=[]
+        self.write_cap=None; self.close_fails=0  # a full disk: a file holds write_cap bytes at most; the next close_fails closes of a .tmp fail
         tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
         self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
     def hook(self,u,address,size,unused):
@@ -9398,12 +9408,17 @@ class BooksMachine(DepthMachine):
         elif name in ('fread','fwrite'):
             path,pos=self.handles[d]; f=self.files[path]
             if name=='fread': chunk=bytes(f[pos:pos+b*c]); self.u.mem_write(a,chunk)
-            else: chunk=bytes(u.mem_read(a,b*c)); f[pos:pos+len(chunk)]=chunk
+            else:
+                chunk=bytes(u.mem_read(a,b*c))
+                if self.write_cap is not None: chunk=chunk[:max(0,self.write_cap-pos)]
+                f[pos:pos+len(chunk)]=chunk
             self.handles[d][1]+=len(chunk); ret=len(chunk)//b
         elif name=='fseek':
             h=self.handles[a]; h[1]=signed(b)+(0,h[1],len(self.files[h[0]]))[c]; ret=0
         elif name=='ftell': ret=self.handles[a][1]
-        elif name=='fclose': self.handles.pop(a)
+        elif name=='fclose':
+            path=self.handles.pop(a)[0]
+            if self.close_fails and path.endswith('.tmp'): self.close_fails-=1; ret=-1
         elif name=='access': ret=0 if self.text(a) in self.files or self.text(a) in self.tree else -1
         elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
         elif name=='unlink': self.files.pop(self.text(a),None)
@@ -10812,7 +10827,7 @@ passed()
 CAPS='/tmp/q2-addon.caps'
 m=AppMachine(); stream_rows(m); caps=bytes(m.files[CAPS])
 assert caps.endswith(b'\n') and caps.count(b'\n')==1,caps
-assert set(caps.split())==set(),caps
+assert set(caps.split())=={b'library'},caps
 m.files[CAPS]=bytearray(b'stale\n'); stream_rows(m); assert m.files[CAPS]==caps; passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.
@@ -11116,6 +11131,14 @@ assert len(m.plays)==2 and m.play_names==['01 - Bloodhound [20].flac']; passed()
 # Only a hidden folder of the card is played.
 m.files['/tmp/q2-deezer.play']=bytearray(b'1900 /mnt/mmc/Music\n'); m.tree['/mnt/mmc/Music']=[('a.flac',8)]; m.poll(); m.advance(0)
 assert len(m.plays)==2; passed()
+# While a scan runs (its thread fills tools_pdeq_directory, which a folder's listing refills) nothing is listed
+# or played: a new session waits, as does a first song's start already on its timer; each goes on after it.
+STREAM='/mnt/mmc/.deezer/stream/1950'; m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
+m.files['/tmp/q2-deezer.play']=bytearray(f'1950 {STREAM}\n'.encode()); stream_songs('01 - Crane [30].flac'); m.poll(); m.advance(0)
+assert len(m.plays)==2; m.word(O['SCAN_DONE'],1); m.poll(); m.advance(0); assert len(m.plays)==3
+STREAM='/mnt/mmc/.deezer/stream/1960'; m.files['/tmp/q2-deezer.play']=bytearray(f'1960 {STREAM}\n'.encode()); stream_songs('01 - Gull [31].flac')
+m.poll(); m.word(O['SCAN_DONE'],0); m.advance(0); assert len(m.plays)==3
+m.word(O['SCAN_DONE'],1); m.poll(); m.advance(0); assert len(m.plays)==4 and m.play_names==['01 - Gull [31].flac'],m.play_names; passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'
@@ -11133,6 +11156,156 @@ m.plays=[]; m.pick(0); assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play
 # Stop Streaming Services, USB storage and Rockbox stop it as the other apps (it writes to the card).
 m.close(); m.files[DZPID]=bytearray(b'7'); m.systems=[]; run(m,'addon_stop')
 assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null || rm -f /tmp/q2-deezer' in m.systems,m.systems; passed()
+# Library update (addon.c library_poll): the app's /tmp/q2-<id>.library, "<seq>" then scan and import lines,
+# runs stock's Update Local Music (its dialog, which stops the player: not while one plays), then stock's
+# playlist import (which replaces a same-named playlist) for the listed files alone, once no Library list is
+# open under it; each seq once, its result in .library.done.
+LIB,DONE,EXP='/tmp/q2-deezer.library','/tmp/q2-deezer.library.done','/mnt/mmc/_explaylist_data'
+m=DeezerMachine(); m.open(); m.files[DZPID]=bytearray(b'4242'); m.files['/tmp/mmc_add']=bytearray()
+m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2); m.files[f'{EXP}/Navidrome - Mix.m3u']=bytearray(b'#EXTM3U\n')
+m.loads=[]; m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: (m.loads.append((u.reg_read(REGS[0]),len(m.imports))),m.returns(0)),
+                         begin=(lc:=int(manifest['patch_symbols']['stock_localclass_trampoline'],16)),end=lc)
+m.files[LIB]=bytearray(f'7\nscan\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
+assert not [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'] and DONE not in m.files  # playing: waits
+m.word(0xa3beac,3); m.poll(); assert [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'][-1]==('dialog/updatemusic_dialog',0,0)
+m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0); m.open_pages={'updatemusic_page'}; m.poll(); assert not m.imports
+m.word(O['SCAN_DONE'],1); m.open_pages={'playlist_page'}; m.poll(); assert not m.imports  # its list is reloaded: waits
+m.open_pages=set(); m.poll(); assert m.imports==[f'{EXP}/Navidrome - Mix.m3u\n'] and m.files[DONE]==b'7 ok\n',(m.imports,m.files.get(DONE))
+assert m.loads==[(0xf00b,0)],m.loads  # Playlists' list loaded first: stock's replace looks a name up there alone
+assert m.get(payload_syms['libup'])==0; m.poll(); assert len(m.imports)==1; passed()
+# Import alone: no scan, the player left as it is (paused); it too waits while one plays.
+m.word(0xa3beac,2); n=len(m.opened); m.files[LIB]=bytearray(f'8\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
+assert len(m.imports)==1; m.word(0xa3beac,3); m.poll()
+assert len(m.opened)==n and len(m.imports)==2 and m.files[DONE]==b'8 ok\n' and m.toasts[-1][3]=='Playlists updated',m.toasts[-1:]; passed()
+# Errors, each at once and nothing run: a line it doesn't know, a file outside the folder or not an .m3u, one
+# not there, no card.
+for seq,body,why in (('9','rescan\n','Unknown request: rescan'),('10','import /mnt/mmc/Music/x.m3u\n','Not a playlist in /mnt/mmc/_explaylist_data: /mnt/mmc/Music/x.m3u'),
+                     ('11',f'import {EXP}/../x.m3u\n',f'Not a playlist in /mnt/mmc/_explaylist_data: {EXP}/../x.m3u'),('12',f'import {EXP}/a/b.m3u\n',f'Not a playlist in /mnt/mmc/_explaylist_data: {EXP}/a/b.m3u'),
+                     ('13',f'import {EXP}/Gone.m3u\n',f'Not found: {EXP}/Gone.m3u')):
+    m.files[LIB]=bytearray(f'{seq}\n{body}'.encode()); m.poll(); assert m.files[DONE]==f'{seq} error {why}\n'.encode(),(seq,m.files[DONE]); passed()
+assert len(m.imports)==2; m.import_ret=-2; m.files[LIB]=bytearray(f'14\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==b'14 error No memory card\n'; m.import_ret=1
+m.files.pop('/tmp/mmc_add'); m.files[LIB]=bytearray(b'15\nscan\n'); m.poll(); assert m.files[DONE]==b'15 error No memory card\n'; passed()
+# Neither the import nor the scan starts while a scan runs or its dialog is open (the user's own Update Local
+# Music), so no import races the scan's database writes and no second dialog opens; nor the import under a
+# library page whose list it replaces, Home's Albums shortcut (album_page) as well.
+m.files['/tmp/mmc_add']=bytearray(); m.word(0xa3beac,3); m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
+k,n=len(m.imports),len(m.opened); m.files[LIB]=bytearray(f'16\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll(); assert len(m.imports)==k
+m.word(O['SCAN_DONE'],1); m.open_pages={'updatemusic_page'}; m.poll(); assert len(m.imports)==k  # its OK not pressed yet
+m.open_pages={'album_page'}; m.poll(); assert len(m.imports)==k
+m.open_pages=set(); m.poll(); assert len(m.imports)==k+1 and m.files[DONE]==b'16 ok\n',m.files[DONE]
+m.open_pages={'updatemusic_page'}; m.files[LIB]=bytearray(b'17\nscan\n'); m.poll(); assert len(m.opened)==n
+m.open_pages=set(); m.poll(); assert len(m.opened)==n+1; m.poll(); assert m.files[DONE]==b'17 ok\n'; passed()
+# One check (library_busy) holds the scan and the import alike: a dialog on top (a toast's or a confirm's own
+# loop polls too, and no request starts inside it), a page listing the library (stock's, whose lists the import
+# reloads, and Q2 Pod's own, whose records the scan's database rebuild leaves stale), or something playing from
+# any source other than the local player: the radio, AirPlay, the Bluetooth receiver.
+radio=[0]; rs=payload_syms['radio_status']; top=m.top
+m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: radio[0] and m.returns(2),begin=rs,end=rs)
+def busy(c,on):
+    if c=='dialog': m.top=m.node('dialog','msginfo_dialog') if on else top
+    elif c=='radio': radio[0]=on
+    elif c=='airplay': m.airplay=2 if on else 0
+    elif c=='bt': m.byte(syms['bt__recv_pageflag'],2 if on else 0)
+    else: m.open_pages={c} if on else set()
+seq=100
+for c in ('dialog','album_page','playlist_page','playlistedit_page','coverflow_page','allmusic_page','artistinfo_page','mostplayed_page',
+          'rated_page','longsongs_page','era_page','era_albums_page','radio','airplay','bt',
+          'albuminfo_page','playerjumpinfo_page'):  # an album's songs (Albums', an artist's, Search's); Album info and Go to Album
+    for body in ('scan\n',f'import {EXP}/Navidrome - Mix.m3u\n'):
+        seq+=1; k,n=len(m.imports),len(m.opened); busy(c,1); m.files[LIB]=bytearray(f'{seq}\n{body}'.encode()); m.poll(); m.poll()
+        assert (len(m.imports),len(m.opened))==(k,n) and not m.files[DONE].startswith(f'{seq} '.encode()),(c,body,m.files[DONE])
+        busy(c,0); m.poll(); m.poll()
+        assert m.files[DONE]==f'{seq} ok\n'.encode() and (len(m.imports),len(m.opened))==((k,n+1) if body=='scan\n' else (k+1,n)),(c,body,m.files[DONE])
+passed()
+# A seq alone asks for nothing: ok at once, no import and no toast. A playlist's .M3U in capitals imports.
+k,t=len(m.imports),len(m.toasts); m.files[LIB]=bytearray(b'200\n'); m.poll(); assert m.files[DONE]==b'200 ok\n' and len(m.imports)==k and len(m.toasts)==t
+m.files[f'{EXP}/Upper.M3U']=bytearray(b'#EXTM3U\n'); m.files[LIB]=bytearray(f'201\nimport {EXP}/Upper.M3U\n'.encode()); m.poll()
+assert m.files[DONE]==b'201 ok\n' and m.imports[-1]==f'{EXP}/Upper.M3U\n',(m.files[DONE],m.imports[-1:]); passed()
+# A playlist the import couldn't create (stock stops at a create that fails, a database error or the 100
+# playlists' cap, and returns as if done) is no ok: Playlists' list, reloaded, must hold each file's name.
+m.uncreated={'Navidrome - Mix'}; m.files[LIB]=bytearray(f'18\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==b"18 error Couldn't import Navidrome - Mix\n" and m.toasts[-1][3]=="Couldn't import Navidrome - Mix",(m.files[DONE],m.toasts[-1:])
+m.uncreated=set(); passed()
+# Several files: each one's name checked on its own line (a dot of a later line isn't its own).
+for n in ('Andreas','Gaming Nostalgia','X (Subsonic)'): m.files[f'{EXP}/{n}.m3u']=bytearray(b'#EXTM3U\n')
+three=''.join(f'import {EXP}/{n}.m3u\n' for n in ('Andreas','Gaming Nostalgia','X (Subsonic)'))
+m.files[LIB]=bytearray(f'19\n{three}'.encode()); m.poll(); assert m.files[DONE]==b'19 ok\n',m.files[DONE]
+m.uncreated={'Gaming Nostalgia'}; m.files[LIB]=bytearray(f'20\n{three}'.encode()); m.poll()
+assert m.files[DONE]==b"20 error Couldn't import Gaming Nostalgia\n",m.files[DONE]; m.uncreated=set(); passed()
+# Its toast (stock's msginfo_dialog, 2 s, which runs a loop of its own that polls again) comes once the result
+# is written and while library_poll is busy, so a nested poll runs nothing: each seq once, ok or error (a
+# re-entered import under each toast froze the Q2, re-importing and never writing .done).
+snaps=[]; m.on_toast=lambda: snaps.append((bytes(m.files.get(DONE,b'')),m.get(payload_syms['libup']+4)))
+m.files[LIB]=bytearray(f'21\nimport {EXP}/Andreas.m3u\n'.encode()); m.poll(); assert snaps==[(b'21 ok\n',1)],snaps
+m.uncreated={'Andreas'}; m.files[LIB]=bytearray(f'22\nimport {EXP}/Andreas.m3u\n'.encode()); m.poll(); n=len(m.imports)
+assert snaps[-1]==(b"22 error Couldn't import Andreas\n",1) and m.toasts[-1][1:]==(1,2000,"Couldn't import Andreas"),(snaps,m.toasts[-1])
+m.poll(); m.poll(); assert len(m.imports)==n and len(snaps)==2 and m.get(payload_syms['libup']+4)==0; m.on_toast=None; m.uncreated=set(); passed()
+# The import's listing (stock importPlayList's toolsGetDirectoryM3u8 call, patched to addon_m3u_dir): stock's
+# whole folder, as its own Import Playlists row has it, unless a card app's request is importing: then only
+# the files it named, so the user's own exports there aren't imported over playlists edited since.
+from build import M3U_DIR_CALL
+recs=[m.song(n) for n in ('Navidrome - Mix.m3u','Mine.m3u')]
+for r in recs: m.word(r+O['REC_PATH'],m.string(f'{EXP}/'+m.text(m.get(r+O['REC_NAME']))))
+m.m3u_files=recs; m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: u.reg_write(UC_MIPS_REG_PC,0x1000000),begin=M3U_DIR_CALL+8,end=M3U_DIR_CALL+8)
+def listing(): dq=m.deque([]); m.call(address=M3U_DIR_CALL,args=(m.string(EXP)-0x12e0,dq,0,0),gap=0); return [m.text(m.get(e+O['REC_NAME'])) for e in m.items(dq)]
+assert listing()==['Navidrome - Mix.m3u','Mine.m3u']
+m.word(payload_syms['libup'],m.string(f'{EXP}/Navidrome - Mix.m3u\n')); assert listing()==['Navidrome - Mix.m3u']; m.word(payload_syms['libup'],0); passed()
+# add and import (R35's request lines): import replaces a playlist of the same name (the app's own, imported
+# before); add imports a name no playlist has yet, else leaves that playlist alone (its file isn't listed for
+# stock's import, which never runs when nothing is left, so its rows stay as they are) and reports it, one
+# "exists <path>" line after the result. Playlists' list is the one loaded for the import (mocked: set here).
+def playlists(*names): m.word(syms['p_deque_playlist'],m.deque([m.song(n) for n in names]))
+def imported(): m.word(payload_syms['libup'],m.string(m.imports[-1])); got=listing(); m.word(payload_syms['libup'],0); return got
+recs=[m.song(n) for n in ('Mine.m3u','New.m3u','Mix.m3u')]
+for r in recs: m.word(r+O['REC_PATH'],m.string(f'{EXP}/'+m.text(m.get(r+O['REC_NAME'])))); m.files[m.text(m.get(r+O['REC_PATH']))]=bytearray(b'#EXTM3U\n')
+m.m3u_files=recs
+playlists('Mine'); k=len(m.imports); m.files[LIB]=bytearray(f'300\nadd {EXP}/New.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==b'300 ok\n' and len(m.imports)==k+1 and imported()==['New.m3u'],(m.files[DONE],m.imports[k:]); passed()
+playlists('Mine'); pl=m.get(syms['p_deque_playlist']); k,t=len(m.imports),len(m.toasts)
+m.files[LIB]=bytearray(f'301\nadd {EXP}/Mine.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==f'301 ok\nexists {EXP}/Mine.m3u\n'.encode() and len(m.imports)==k and len(m.toasts)==t,(m.files[DONE],m.imports[k:])
+assert m.get(syms['p_deque_playlist'])==pl and m.names(pl)==['Mine']; passed()
+playlists('Mine'); m.files[LIB]=bytearray(f'302\nimport {EXP}/Mine.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==b'302 ok\n' and imported()==['Mine.m3u'],m.files[DONE]; passed()
+# A mixed request: the scan, then the import's files (an import, an add whose name is new) in one import, the
+# add whose name a playlist has left alone and reported; the toast as for any import.
+playlists('Mine','Mix'); n,k=len(m.opened),len(m.imports)
+m.files[LIB]=bytearray(f'303\nscan\nimport {EXP}/Mix.m3u\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll(); m.poll(); m.poll()
+assert len(m.opened)==n+1 and len(m.imports)==k+1 and imported()==['New.m3u','Mix.m3u'] and m.toasts[-1][3]=='Playlists updated'
+assert m.files[DONE]==f'303 ok\nexists {EXP}/Mine.m3u\n'.encode(),m.files[DONE]; passed()
+# The exists lines follow an error too: a file the import couldn't create.
+playlists('Mine'); m.uncreated={'New'}; m.files[LIB]=bytearray(f'304\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll()
+assert m.files[DONE]==f"304 error Couldn't import New\nexists {EXP}/Mine.m3u\n".encode(),m.files[DONE]; m.uncreated=set(); passed()
+# A seq is 23 bytes at most: a longer one is answered "<seq> error Seq too long" and never run, its answer written
+# once (not every poll), and another long seq gets its own even when they start alike. A seq with no newline after
+# it ends at the file's end: a seq alone, ok.
+LONG='9'*24; n=len(m.opened); m.files[LIB]=bytearray(f'{LONG}\nscan\n'.encode()); m.poll()
+assert m.files[DONE]==f'{LONG} error Seq too long\n'.encode() and len(m.opened)==n,m.files[DONE]
+d=m.files[DONE]; m.poll(); assert m.files[DONE] is d
+m.files[LIB]=bytearray(f'{LONG}8\nscan\n'.encode()); m.poll(); assert m.files[DONE]==f'{LONG}8 error Seq too long\n'.encode() and len(m.opened)==n
+m.files[LIB]=bytearray(('8'*23+'\n').encode()); m.poll(); assert m.files[DONE]==('8'*23+' ok\n').encode(),m.files[DONE]
+m.files[LIB]=bytearray(b'305'); m.poll(); assert m.files[DONE]==b'305 ok\n',m.files[DONE]; passed()
+# A request holds up to LIB_MAX (32 KB): 200 imports of 120-byte paths run (about 25 KB, which the old 2 KB of paths
+# refused whole); a longer one is "Request too long", nothing run. A name with an ellipsis is a playlist like any
+# other (only a "/" would leave the folder).
+many=[f'Playlist {i:03} '+'n'*77 for i in range(200)]
+for x in many: m.files[f'{EXP}/{x}.m3u']=bytearray(b'#EXTM3U\n')
+body=''.join(f'import {EXP}/{x}.m3u\n' for x in many); m.files[LIB]=bytearray(f'306\n{body}'.encode()); m.poll()
+assert len(f'{EXP}/{many[0]}.m3u')==120 and len(body)>25000 and m.files[DONE]==b'306 ok\n' and m.imports[-1]==body.replace('import ',''),m.files[DONE]
+k=len(m.imports); m.files[LIB]=bytearray(b'307\n'+b'scan\n'*7000); m.poll(); assert m.files[DONE]==b'307 error Request too long\n' and len(m.imports)==k
+m.files[f'{EXP}/Hello... (Live).m3u']=bytearray(b'#EXTM3U\n'); m.files[LIB]=bytearray(f'308\nimport {EXP}/Hello... (Live).m3u\n'.encode()); m.poll()
+assert m.files[DONE]==b'308 ok\n' and m.imports[-1]==f'{EXP}/Hello... (Live).m3u\n',m.files[DONE]; passed()
+# A full /tmp (a write that comes up short, or a close that fails, as a buffered write's flush does): the answer
+# is renamed only whole, else its exists lines could be cut off and the app would take a user's same-named playlist
+# for its own. The temp goes and "<seq> error Couldn't write the answer" is published the same way; if that can't
+# be written either, nothing is published (the old answer stays).
+TMP='/tmp/q2-library.tmp'; cut=b"error Couldn't write the answer\n"
+for seq,cap,closes,want in (('309',40,0,cut),('310',1000,1,cut),('311',10,0,None),('312',1000,2,None)):
+    playlists('Mine'); old=bytes(m.files[DONE]); m.write_cap,m.close_fails=cap,closes
+    m.files[LIB]=bytearray(f'{seq}\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll()
+    assert m.files[DONE]==(f'{seq} '.encode()+want if want else old) and TMP not in m.files,(seq,m.files[DONE],TMP in m.files)
+m.write_cap,m.close_fails=None,0; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
