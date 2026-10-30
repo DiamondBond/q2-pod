@@ -1741,6 +1741,16 @@ assert m.nodes[prompt]['style:normal:font_size']==O['CONFIRM_PROMPT_PX']
 assert m.nodes[prompt]['style:normal:text_align_h']=='center' and m.nodes[prompt]['style:normal:text_align_v']=='middle'
 m.paint(d)
 assert not [c for c in m.calls if c[0].startswith('widget_set_prop') and c[1]==prompt]; passed()
+# Delete File's "Also delete source file" keeps its stock place; the prompt centres above it.
+m.nodes[d]['children'].remove(prompt); prompt=m.node('label','prompt'); check=m.node('check_button','msg_delcheckbutton')
+for w,(x,y) in ((prompt,(10,79)),(check,(10,124))):
+    for k,v in zip(('W_X','W_Y','W_W','W_H'),(x,y,355,24)): m.word(w+O[k],v)
+m.nodes[d]['children']+=[prompt,check]
+m.paint(d)
+assert tuple(m.get(prompt+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==(0,0,375,124)
+assert m.nodes[prompt]['style:normal:font_size']==O['CONFIRM_PROMPT_PX']
+assert tuple(m.get(check+O[k]) for k in ('W_X','W_Y','W_W','W_H'))==(10,124,355,24)
+assert not [c for c in m.calls if c[0].startswith('widget_set_prop') and c[1]==check]; passed()
 
 # USB mode's exit asks whether to scan before it leaves the mode: with the cable out, the prompt
 # takes the wheel (iPod: its buttons); with the cable in, input stays stock's.

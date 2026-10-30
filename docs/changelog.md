@@ -9,6 +9,7 @@
   - Display: **Smart Awake** also keeps the screen on over the full-screen album art while a song plays, so with Enlarged Album Art on the art page stays lit too. It already covered the lyrics, full-screen lyrics included.
   - Display: touching an album in a grid, or one of the two buttons at the top of Playlists, shows a grey card shaped like the selection's, rounded under Rounded Corners. It was a square box, and touching the first album in a row greyed the whole row.
   - Home: **Carousel**'s cards keep Shanling's own colours again, whatever your Theme, accent or Light Mode.
+  - Display: deleting a song, its **Also delete source file** box sits under the question again. Since 1.5.1 the two were drawn over each other.
   - USB DAC: gapless albums play without a gap between songs ([#159](https://github.com/DiamondBond/q2-pod/issues/159)). Shanling's firmware gave a USB DAC a tenth of a second of audio to spare at a song change, against half a second on the headphone jack, so it could run dry and leave up to a second of silence. If the Q2 sets the volume of a USB DAC that has no volume control of its own, a volume change can now take up to half a second to be heard.
 
 - **1.5.9**:

@@ -4244,15 +4244,20 @@ static void quick_fill(void *w) {
     slider_fill(w, (unsigned)color);
 }
 /* The confirm pop-up's prompt (stock's own child, "Shut Down?"): CONFIRM_PROMPT_PX, centred in the
- * space above its rows. ponytail: by position, any non-button child above CONFIRM_TOP. */
+ * space above its rows, or above Delete File's "Also delete source file" (stock's check_button
+ * msg_delcheckbutton at y 124, centred 20px), which keeps its stock place and style.
+ * ponytail: by position, any other non-button child above CONFIRM_TOP. */
 static void confirm_prompt(void *w) {
     if (tk_strcmp(widget_get_prop_str(w, "name", ""), "confirminfo_dialog")) return;
+    void *check = widget_lookup(w, "msg_delcheckbutton", 0);
+    int bottom = check ? I(check, W_Y) : CONFIRM_TOP;
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
         void *c = widget_get_child(w, i);
-        if (!tk_strcmp(widget_get_type(c), "button") || I(c, W_Y) + I(c, W_H) > CONFIRM_TOP ||
+        if (c == check || !tk_strcmp(widget_get_type(c), "button") ||
+            I(c, W_Y) + I(c, W_H) > CONFIRM_TOP ||
             (!I(c, W_X) && !I(c, W_Y) && I(c, W_W) == I(w, W_W)))
             continue;
-        widget_move_resize(c, 0, 0, I(w, W_W), CONFIRM_TOP);
+        widget_move_resize(c, 0, 0, I(w, W_W), bottom);
         widget_set_prop_int(c, "style:normal:font_size", CONFIRM_PROMPT_PX);
         widget_set_prop_str(c, "style:normal:text_align_h", "center");
         widget_set_prop_str(c, "style:normal:text_align_v", "middle");
