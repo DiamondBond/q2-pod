@@ -62,7 +62,7 @@
 4. **Update:** open **System settings → System Update → TF card update**. Leave the card in until the Q2 restarts.
 
 > [!TIP]
-> Prefer Shanling's original look? Download `update-legacy.tar` instead, then rename `update-legacy.tar` to `update.tar` before you copy it to the card. It has the same features and fixes, without the iPod UI.
+> Still on the old Legacy build? Network Update can't move you to this one. Install `update.tar` by hand once: copy it to the card root and update, as for a first install.
 
 ## Controls
 

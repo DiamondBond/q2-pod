@@ -286,7 +286,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
     <li>Copy <code>update.tar</code> to the <b>root</b> of the card (not inside a folder), then eject and unplug.</li>
     <li><b>Update:</b> on the Q2, open <b>System settings → System Update → TF card update</b>. Leave the card in until the Q2 restarts, and don’t unplug it while it updates.</li>
   </ol>
-  <div class="note"><p><span class="label">Tip:</span> Prefer Shanling’s original look? Download <code>update-legacy.tar</code> instead, then rename <code>update-legacy.tar</code> to <code>update.tar</code> before you copy it to the card. It has the same features and fixes, without the iPod UI.</p></div>
+  <div class="note"><p><span class="label">Tip:</span> Still on the old Legacy build? Network Update can’t move you to this one. Install <code>update.tar</code> by hand once: copy it to the card’s root and update, as for a first install.</p></div>
 
   </div>
   <div class="sec">
@@ -323,7 +323,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   <h2 id="ui">Finding your way around</h2>
   <img class="shot" src="../../assets/screenshots/home-split.png" alt="Home in the Split layout: Now Playing, Library, Coverflow, Folder, Favorites, Streaming and Settings on the left, the playing album’s cover on the right">
   <ul>
-    <li><b>Home:</b> a list (Now Playing, Library, Coverflow, Folder, a shortcut, Streaming, Settings) beside the playing track’s cover. The shortcut is Rockbox when it’s on the card, otherwise Favorites; <b>System settings → Display → Controls → Shortcut</b> changes it, and <b>Home: Full</b> drops the cover and widens the list. <b>Settings</b> slides in <b>Playback</b> and <b>System</b> in the list’s place, as an iPod’s submenu, with the cover still beside it; Return goes back. Both Home lists wrap immediately at either end. A short Return on Home’s main list selects Now Playing, and another opens it without changing playback; Return there goes back to Home.</li>
+    <li><b>Home:</b> a list (Now Playing, Library, Coverflow, Folder, a shortcut, Streaming, Settings) beside the playing track’s cover. The shortcut is Rockbox when it’s on the card, otherwise Favorites; <b>System settings → Display → Controls → Shortcut</b> changes it, <b>Home: Full</b> drops the cover and widens the list, and <b>Home: Carousel</b> shows Shanling’s home carousel instead of the list: eight cards (Now Playing, Library, Coverflow, Folder, the shortcut, Streaming, Playback and System settings) that follow your theme, accent and Light Mode. The wheel moves through the cards, Centre opens one, and Return works as it does on Shanling’s own Home. <b>Settings</b> slides in <b>Playback</b> and <b>System</b> in the list’s place, as an iPod’s submenu, with the cover still beside it; Return goes back. Both Home lists wrap immediately at either end. A short Return on Home’s main list selects Now Playing, and another opens it without changing playback; Return there goes back to Home.</li>
     <li><b>Folder:</b> opens the SD card directly when no OTG drive is connected. Return at the SD root goes back to Home; inside a folder it goes up one level. With OTG connected when Folder opens, choose SD or OTG first. A folder set in <b>Audio settings → Folder Root</b> opens directly either way; Return climbs from it to the SD root, then to Home, or to the SD/OTG choice with OTG connected.</li>
     <li><b>Lists:</b> four rows per screen with a full-width accent bar; <b>&gt;</b> marks rows that open another list.</li>
     <li><b>Status bar:</b> play state, EQ, time, Bluetooth, Wi-Fi and battery. The Bluetooth codec (AAC, LDAC…) shows briefly on connect.</li>
@@ -427,7 +427,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3 { break-af
   <h2 id="playlists">Playlists and Long Songs</h2>
   <p>In <b>Library → Playlists</b>, use <b>New Playlist</b> to create a local playlist and its <b>More</b> menu to <b>Rename</b>, <b>Delete Playlist</b> or <b>Edit Playlist</b>. The naming dialogs and duplicate-song rules are the same as before.</p>
   <p>While <b>Editing</b>, turn the wheel to select a song. <b>Previous</b> moves it up one place; <b>Next</b> moves it down. Centre or a tap opens <b>Move Up</b>, <b>Move Down</b> and <b>Remove from Playlist</b>; removal asks for confirmation and removes only that entry. <b>Add Songs</b> opens a local song picker for this playlist. Its <b>Search</b> row finds songs by title, artist or album and keeps the search while you add several; each selection adds a song and leaves the picker open; Back returns to editing. Use a playlist row’s three dots, or hold <b>Play/Pause</b> on it and choose <b>More…</b>, to open that playlist’s More menu. <b>Done</b> or Back leaves the editor.</p>
-  <p>Every completed edit saves immediately. There is no undo or Save/Discard step. Changes apply the next time the playlist loads; the current playback queue keeps its order. This editor is available in both editions and edits local playlists only.</p>
+  <p>Every completed edit saves immediately. There is no undo or Save/Discard step. Changes apply the next time the playlist loads; the current playback queue keeps its order. This editor edits local playlists only.</p>
   <p>Playlist import, a stock feature, reads M3U files only from the <code>_explaylist_data</code> folder at the card’s root, the folder playlist export creates. Export a playlist once to create it, or make the folder yourself, then put your <code>.m3u</code> files in it and import.</p>
   <p><b>Library → Era</b> (after Genre) lists each decade that has dated albums, oldest first, with how many albums it holds. A decade opens <b>Play All</b> (its albums by year, each in track order), <b>Shuffle</b> (all their songs, as Shuffle Songs) and its albums, each shown with its artist and year; press Centre on one to see its tracks in Coverflow. An album’s year is its latest track’s, from the <b>Year</b> tag; untagged years leave an album out.</p>
   <p><b>Library → Long Songs</b> (after Hi-Res) lists the songs over 10 minutes, longest first, with their length. The first open measures every song once (“Measuring songs… n/N”); later opens measure only new ones. <b>Cancel</b> keeps what was measured.</p>
@@ -769,7 +769,7 @@ http://stream.radioparadise.com/mp3-128</pre>
       <tr><td>Theme</td><td>Minimal (default) or Classic, the iPod look before 1.0.1</td></tr>
       <tr><td>Accent</td><td>Minimal (Minimal’s off-white, its default), Graphite (Classic’s default), Crimson (stock red), Tidal, Champagne, Cobalt (the iPod’s blue), Tangerine, Plum, Green. Each theme remembers its own; Minimal is not offered in Classic</td></tr>
       <tr><td>Corners</td><td>Square (default): a full-width selection bar, square album grid tiles and pop-up buttons. Rounded: a pill-shaped bar inset from the screen’s edges, rounded tiles and buttons. Kept when you change theme</td></tr>
-      <tr><td>Home</td><td>Split (menu beside the playing album’s cover) or Full (menu only)</td></tr>
+      <tr><td>Home</td><td>Split (menu beside the playing album’s cover), Full (menu only) or Carousel (Shanling’s home carousel)</td></tr>
       <tr><td>Battery</td><td>Icon (default), Percent, Icon + Percent, Percent Inside</td></tr>
       <tr><td>Artist Albums</td><td>Grid (default), Coverflow or List (names only, no artwork) for an artist’s albums</td></tr>
       <tr><td>Shortcut</td><td>What Home’s shortcut row opens: Rockbox (default when it’s on the card, otherwise Favorites), Artists, Albums, Favorites, Rated Albums, Shuffle (Library → Shuffle) or Games</td></tr>
@@ -852,7 +852,7 @@ http://stream.radioparadise.com/mp3-128</pre>
   </div>
   <div class="sec">
   <h2 id="airpods">AirPods controls</h2>
-  <p>AirPods controls work in both the iPod and Legacy builds, with no extra setting needed.</p>
+  <p>AirPods controls work with no extra setting needed.</p>
   <table>
     <thead><tr><th>To</th><th>Do this</th></tr></thead>
     <tbody>

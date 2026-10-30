@@ -4,7 +4,7 @@ Put an empty file named `database.ignore` inside any folder on the microSD card,
 the music library. That folder and its subfolders are hidden from normal music browsing.
 Folder names and locations are unrestricted: `/Singles/database.ignore` and
 `/Needledrop/database.ignore` can keep the two collections separate. Use the exact lowercase
-marker filename and no `.txt` extension. This applies to both iPod and legacy UI builds.
+marker filename and no `.txt` extension.
 
 For an exception, put an empty `database.unignore` in a subfolder. Its files and descendants
 are visible again, unless a deeper folder contains another `database.ignore`. The nearest
