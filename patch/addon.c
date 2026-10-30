@@ -22,6 +22,10 @@
  * has a cursor is followed by its next pages, appended to the same list (page_next), up to
  * ADDON_PAGES.
  *
+ * Go to Album and Go to Artist on a song in an app's folder open the app's own page for them when
+ * its q2app says goto=1 (addon_goto), and every song an app queues plays with its file's tags
+ * (navigation.c card_tags, app_tags).
+ *
  * The card-app features this firmware has are words in /tmp/q2-addon.caps (ADDON_CAPS), written at
  * every Streaming scan. */
 #include "offsets.inc"
@@ -52,7 +56,7 @@
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
 /* This firmware's card-app features, space-separated; a feature adds its word. */
-#define ADDON_CAPS "playlist progress pages library"
+#define ADDON_CAPS "playlist progress pages library goto"
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -318,6 +322,7 @@ static int stream_start(const void *unused) {
             tk_snprintf(sm.last, sizeof sm.last, "%s",
                         (const char *)P(deque_at(songs, n - 1), REC_NAME));
         sm.state = S_PLAY;
+        app_tags(songs);
         play_folder(songs, 0, 0xf001); /* playing_page copies the queue at once */
         sm.loads = playback_loads;     /* its load, which play_folder has done (playback_groups) */
     }
@@ -384,7 +389,7 @@ static void stream_poll(app_t *a) {
     if (!scan && sm.m3u) {
         if (m3u_ready()) {
             void *add = m3u_songs();
-            if (deque_size(add)) playback_queue_insert(q, add, 0);
+            if (deque_size(add)) app_tags(add), playback_queue_insert(q, add, 0);
             deque_destroy(add);
         }
     } else if (!scan && stream_newer(sm.dir, sm.last)) {
@@ -397,6 +402,7 @@ static void stream_poll(app_t *a) {
         if (deque_size(add)) {
             void *r = deque_at(add, deque_size(add) - 1);
             tk_snprintf(sm.last, sizeof sm.last, "%s", (const char *)P(r, REC_NAME));
+            app_tags(add); /* the new ones only */
             playback_queue_insert(q, add, 0);
         }
         deque_destroy(add);
@@ -1013,7 +1019,8 @@ static int keyup(void *ctx, void *event) {
 }
 
 static int closed(void *ctx, void *event) {
-    (void)ctx, (void)event;
+    (void)event;
+    if (ctx != pg.page) return 0; /* a page addon_goto replaced, its state gone already */
     req_cancel();
     stop_timer(&pg.timer);
     stop_timer(&pg.go);
@@ -1025,31 +1032,63 @@ static int closed(void *ctx, void *event) {
     return 0;
 }
 
-/* An app's Streaming row (navigation.c ringnav_stream; ctx: its place by name at the last scan):
- * the app started if it isn't, and its page; gone from the card since, the page says so. */
-int addon_open(void *ctx, void *event) {
-    (void)event;
-    int k = (int)(long)ctx;
-    if (k < 0 || k >= ap.shown || pg.page || !(pg.lv = calloc(ADDON_DEPTH, sizeof *pg.lv)))
-        return 0;
+/* Slot k's page, its first level op (args: "\t" and escaped each) titled title: the app started if
+ * it isn't (its QR code shown at the first answer when qr); gone from the card, the page says so.
+ * 1 when it opened. */
+static int page_at(int k, const char *op, const char *args, const char *title, int qr) {
+    if (pg.page || !(pg.lv = calloc(ADDON_DEPTH, sizeof *pg.lv))) return 0;
     if (!(pg.f = calloc(4 + 6 * ADDON_ROWS * ADDON_PAGES, sizeof *pg.f)) ||
         !(pg.page = page_open("addon_page", closed, keyup)))
         return free(pg.lv), free(pg.f), pg.lv = 0, pg.f = 0, 0;
-    pg.a = ap.order[k];
+    pg.a = k;
     app_t *a = app();
     int missing = access(a->bin, 0);
-    if (!missing && (!a->launched || access(a->pid, 0))) launch(a), pg.code = a->qr;
+    if (!missing && (!a->launched || access(a->pid, 0))) launch(a), pg.code = qr && a->qr;
     pg.depth = 1;
     lv_t *l = top();
-    tk_snprintf(l->op, sizeof l->op, "menu");
-    tk_snprintf(l->title, sizeof l->title, "%s", a->name);
+    tk_snprintf(l->op, sizeof l->op, "%s", op);
+    tk_snprintf(l->args, sizeof l->args, "%s", args);
+    l->base = strlen(l->args);
+    tk_snprintf(l->title, sizeof l->title, "%s", title);
     if (missing) {
         l->state = K_ERROR;
         tk_snprintf(l->note, sizeof l->note, "%s isn't on the card", a->name);
     }
     pg.timer = timer_add(tick, 0, 250);
     show();
+    return 1;
+}
+
+/* An app's Streaming row (navigation.c ringnav_stream; ctx: its place by name at the last scan). */
+int addon_open(void *ctx, void *event) {
+    (void)event;
+    int k = (int)(long)ctx;
+    if (k >= 0 && k < ap.shown) page_at(ap.order[k], "menu", "", ap.a[ap.order[k]].name, 1);
     return 0;
+}
+
+/* Go to Album (album) or Go to Artist on a song in a card app's folder, /mnt/mmc/.<id>/…
+ * (navigation.c qm_goto): when its manifest says goto=1, its page opens at op "goto" ("album" or
+ * "artist", then the song's path), the level the app answers with, titled title; Back leaves it
+ * for the page under it. Its page already open (the song played from it) is closed first, as
+ * Coverflow's scoped page is: one page's state. 1 when it opened. */
+int addon_goto(const char *path, const char *title, int album) {
+    char id[APP_ID], raw[512], file[64], args[sizeof pg.lv->args] = "";
+    const char *p = path && tk_str_start_with(path, CARD "/.") ? path + sizeof CARD "/." - 1 : 0;
+    unsigned k = 0;
+    while (p && p[k] && p[k] != '/' && k < APP_ID - 1) ++k; /* an id fits id with its NUL */
+    if (!p || p[k] != '/') return 0;
+    tk_snprintf(id, k + 1, "%s", p);
+    tk_snprintf(file, sizeof file, CARD "/.%s/q2app", id);
+    if (!valid_id(id) || !state_read(file, raw, sizeof raw) || number(raw, "goto") != 1) return 0;
+    app_t *a = slot(id);
+    if (a && !a->name[0]) addon_scan(); /* not listed by Streaming since boot: its name read */
+    if (!a || !a->present || !put(args, sizeof args, album ? "album" : "artist") ||
+        !put(args, sizeof args, path))
+        return 0;
+    void *old = pg.page;
+    if (old) closed(old, 0), window_manager_close_window_force(window_manager(), old);
+    return page_at((int)(a - ap.a), "goto", args, title && *title ? title : a->name, 0);
 }
 
 /* ringnav_keylong: Play/Pause held on a row with a hold op (a list: all of it downloaded) sends it;
