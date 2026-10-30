@@ -463,11 +463,12 @@ typedef struct {
     int settings_read, accent, minimal_accent, home, battery, home_rockbox, classic, shortcut,
         rounded, light, light_day, /* light_day: Auto's answer for now (LIGHT=2) */
         keep_lit,                  /* Smart Awake (#57, keep_lit_poll) */
-        np_centred;                /* Centred Now Playing (ringnav_ui_load) */
+        np_centred,                /* Centred Now Playing (ringnav_ui_load) */
+        keytone_hp;                /* Click With Headphones (ringnav_buzzer) */
     unsigned keep_lit_at;
     void *sel_accent; /* the row on a coloured selection, for Light Mode's ink */
     int style_depth;  /* nested style hooks (a mutable style's fallback) map nothing */
-    void *setting_label[9];
+    void *setting_label[10];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
@@ -1614,13 +1615,15 @@ static const char *const accent_names[] = {
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home (0 Split, 1 Full,
  * 2 Carousel), 2 Battery, 3 Theme, 4 Shortcut, 5 Corners, 6 Light Mode, 7 Smart Awake, 8 Centred
- * Now Playing. */
-static const char *const setting_keys[] = { "ACCENT",  "HOME",  "BATTERY", "THEME",    "SHORTCUT",
-                                            "ROUNDED", "LIGHT", "KEEPLIT", "NPCENTRED" };
-static const int setting_counts[] = { ACCENT_N, 3, 4, 2, 7, 2, 3, 2, 2 };
-static int *const setting_values[] = { &st.accent,  &st.home,     &st.battery,
-                                       &st.classic, &st.shortcut, &st.rounded,
-                                       &st.light,   &st.keep_lit, &st.np_centred };
+ * Now Playing, 9 Click With Headphones. */
+static const char *const setting_keys[] = {
+    "ACCENT",  "HOME",  "BATTERY", "THEME",     "SHORTCUT",
+    "ROUNDED", "LIGHT", "KEEPLIT", "NPCENTRED", "KEYTONEHP"
+};
+static const int setting_counts[] = { ACCENT_N, 3, 4, 2, 7, 2, 3, 2, 2, 2 };
+static int *const setting_values[] = { &st.accent,     &st.home,      &st.battery, &st.classic,
+                                       &st.shortcut,   &st.rounded,   &st.light,   &st.keep_lit,
+                                       &st.np_centred, &st.keytone_hp };
 /* The local time now into buf (struct tm: tm_sec @0, tm_min @4, tm_hour @8), or 0 when the clock
  * cannot be read. */
 static const int *clock_now(int *buf) {
@@ -1654,6 +1657,7 @@ static int accent(void) {
         st.light = config_value("IPOD", "LIGHT", 3, 0);     /* dark unless chosen; 2 Auto */
         st.keep_lit = config_value("IPOD", "KEEPLIT", 2, 0);
         st.np_centred = config_value("IPOD", "NPCENTRED", 2, 0);
+        st.keytone_hp = config_value("IPOD", "KEYTONEHP", 2, 0);
         int buf[11];
         st.light_day = light_day(clock_now(buf));
         st.settings_read = 1;
@@ -4650,7 +4654,7 @@ static void setting_text(int i) {
         return;
     }
     static const char *const toggles[] = { "Rounded Corners", 0, "Smart Awake",
-                                           "Centred Now Playing" };
+                                           "Centred Now Playing", "Click With Headphones" };
     if (i == 5 || i >= 7) {
         list_toggle(st.setting_label[i], toggles[i - 5], *setting_values[i]);
         return;
@@ -4723,8 +4727,8 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
-    else if (i < 7) { /* Smart Awake only needs its toggle drawn, Centred Now Playing the next
-                       * open (ringnav_ui_load) */
+    else if (i < 7) { /* Smart Awake and Click With Headphones only need their toggle drawn,
+                       * Centred Now Playing the next open (ringnav_ui_load) */
         if (i == 3) {
             theme_preset();
             coverflow_home_layout();
@@ -4828,13 +4832,13 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
     /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing; Shortcut, Smart
-     * Awake. */
-    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8 }, controls[] = { 4, 7 };
+     * Awake, Click With Headphones. */
+    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8 }, controls[] = { 4, 7, 9 };
     static const char *const icons[] = { "system_display",      "playset_covermode",
                                          "system_powermanager", "system_display",
                                          "playset_covermode",   "system_display",
                                          "system_display",      "system_display",
-                                         "playset_covermode" };
+                                         "playset_covermode",   "system_display" };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
     for (int k = 0, n = sub == DISPLAY_APPEARANCE ? sizeof appearance : sizeof controls; k < n;
          ++k) {
@@ -9601,6 +9605,8 @@ int ringnav_wm_paint(void *wm) {
  * (system("cmd_mcu write_str buzzer") when g_keytone_flag is set). Silent while headphones (either
  * jack) or a Bluetooth or USB output listen, since the buzzer is the device's own speaker;
  * hciplayer holds their PCM, so the click has no other way out. Playback alone leaves it clicking.
+ * Click With Headphones (IPOD KEYTONEHP, off) keeps the buzzer clicking there too, as stock does;
+ * Key Tone off is still silent.
  * The command waits out the buzzer and the MCU's park (tools/mcu_pwm_clock.c), so it runs on a
  * worker, not the UI thread; a click while one sounds is dropped, as the buzzer is busy anyway.
  */
@@ -9611,7 +9617,8 @@ static void *tone_worker(void *on) {
     return 0;
 }
 int ringnav_buzzer(int on) {
-    if (g_po_status || g_bal_status || mclGetOutputWay() || !g_keytone_flag || tone_busy) return 0;
+    int listening = g_po_status || g_bal_status || mclGetOutputWay();
+    if ((listening && (accent(), !st.keytone_hp)) || !g_keytone_flag || tone_busy) return 0;
     unsigned long tid;
     tone_busy = 1;
     if (pthread_create(&tid, 0, tone_worker, (void *)(long)on))
