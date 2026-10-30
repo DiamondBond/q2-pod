@@ -2603,8 +2603,10 @@ static void home_width(void *w, int outer, int inner, int x, int end, int depth)
                        depth < 2 ? outer : inner, I(w, W_H));
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i) {
         void *child = widget_get_child(w, i);
-        if (!tk_strcmp(widget_get_type(child), "hscroll_label"))
+        if (!tk_strcmp(widget_get_type(child), "hscroll_label")) {
             widget_move_resize(child, x, I(child, W_Y), inner - x - end, I(child, W_H));
+            bold_label(child, -1); /* Classic's bold; Minimal paints its own (paint_caps) */
+        }
         else
             home_width(child, outer, inner, x, end, depth + 1);
     }

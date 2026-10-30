@@ -425,7 +425,8 @@ typedef struct {
     int pct_digit, pct_sign; /* BATT_PX advances of '0' and '%', measured on the first paint */
     unsigned letter_timer;   /* the fast-scroll letter shows while this runs */
     /* Now Playing's window and payload-filled widgets, and the sources they last showed. */
-    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover;
+    void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover, *np_title;
+    int np_bold;             /* the title's font: 1 bold, 0 stock's, -1 not set yet */
     void *np_slide, *np_lrc; /* the art/lyrics/info pages and the lyric lines' scroll_view */
     /* The full-screen art's song name, its shade and its window, the fade's step and timer
      * (ringnav_bigcover) */
@@ -3497,10 +3498,31 @@ static void clock_text(void *label, int negative, int t) {
     widget_set_text_utf8(label, s);
 }
 
+/* Classic's bold: w's text in Liberation Sans Bold (the build's fonts/bold.ttf) when that font has
+ * every character of it (BOLD_RANGES, from its cmap), else stock's font, which has CJK; Minimal's
+ * always stock's. was is the last answer (-1 none): only a change is written, in every state the
+ * labels style. Returns the answer. */
+int bold_label(void *w, int was) {
+    static const unsigned short ranges[] = BOLD_RANGES;
+    static const char *const font[] = { "style:normal:font_name", "style:focused:font_name",
+                                        "style:disable:font_name" };
+    const unsigned *c = w ? widget_get_text(w) : (void *)0;
+    int bold = !!w && ipod_classic();
+    for (; bold && c && *c; ++c) {
+        unsigned i = 0;
+        while (i < sizeof ranges / sizeof *ranges && (*c < ranges[i] || *c > ranges[i + 1])) i += 2;
+        bold = i < sizeof ranges / sizeof *ranges;
+    }
+    for (unsigned i = 0; w && bold != was && i < sizeof font / sizeof *font; ++i)
+        widget_set_prop_str(w, font[i], bold ? "bold" : "default");
+    return bold;
+}
+
 /* Now Playing's "3 of 12", album and remaining time (slider max less value, stock's seconds, so a
  * drag or scrub previews it). Labels are written only when their source changes. */
 static void np_sync(void *top) {
     if (!top || top != st.np_win) return;
+    st.np_bold = bold_label(st.np_title, st.np_bold); /* the title, as it changes */
     unsigned at, n;
     void *r = queue_now(&at, &n);
     const char *album = now_tag(r, REC_ALBUM);
@@ -3867,7 +3889,7 @@ static int np_gone(void *win, void *event) {
         st.np_win = (void *)0;
         st.np_hash = 0;
         st.np_pos = st.np_album = st.np_remain = st.np_slider = st.np_elapsed = st.np_cover =
-            st.np_slide = st.np_lrc = (void *)0;
+            st.np_slide = st.np_lrc = st.np_title = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         st.np_off = 0;
         stop_timer(&st.np_marquee);
@@ -3890,6 +3912,8 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_remain = widget_lookup(win, "label_ipod_remain", 1);
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_cover = widget_lookup(win, "img_cover", 1);
+    st.np_title = widget_lookup(win, "scrlabel_title", 1);
+    st.np_bold = -1;
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
@@ -5263,7 +5287,8 @@ enum {
     QA_RESUME,
     QA_QUEUE,
     QA_FOLDER,
-    QA_CHAPTERS
+    QA_CHAPTERS,
+    QA_MORE
 };
 #define MCL(a) (*(volatile int *)(a))
 
@@ -5347,6 +5372,14 @@ static unsigned qm_album_id(void *r) {
                    st.art_n == st.qm_rows && st.qm_idx < st.art_n
                ? st.art_ids[st.qm_idx]
                : 0;
+}
+
+/* Now Playing's More… (img_more, on both layouts), while that page is open; else 0. */
+static void *np_more(void) {
+#if IPOD
+    if (st.np_win) return widget_lookup(st.np_win, "img_more", 1);
+#endif
+    return (void *)0;
 }
 
 static void qm_close(void) {
@@ -8208,10 +8241,22 @@ static int qm_run(const void *unused) {
     } else if (r && a == QA_CHAPTERS) {
         chapters_open(r);
     } else if (r && a == QA_QUEUE) {
-        if (playback_option(0)) /* a shuffle's play order is not the list's: ours */
+        /* A shuffle's play order is not the list's: ours (Up Next). A Play Next stock's Shuffle was
+         * holding (ringnav_shuffle) goes first in it, as advanced play has no forced pick. */
+        if (playback_listable()) {
+            void *queue = P(mcl_pdeqplaylist, 0);
+            unsigned at = st.qm_forced - 1;
+            st.qm_forced = 0;
+            if (queue && at < deque_size(queue) &&
+                rec_hash(deque_at(queue, at)) == st.qm_forced_hash)
+                playback_move(at);
             up_next(page_closed, page_keyup);
-        else
+        } else
             navigator_to("playerqueue_page");
+    } else if (a == QA_MORE) {
+        void *more = np_more(); /* clicked as a tap would, so stock's own handler opens it */
+        char click[0x30];
+        if (more) stock_dispatch_trampoline(more, pointer_event_init(click, EVT_CLICK, more, 0, 0));
     } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
         if (!playback_group_skip(a == QA_NEXT_GROUP)) toast("No other group");
     } else if (aid && a == QA_RATE) {
@@ -8403,6 +8448,7 @@ static int qm_open(const void *unused) {
         acts[n++] = QA_REPEAT;
         acts[n++] = QA_GROUP;
         if (!group_first && st.rate_win) acts[n++] = QA_RATE;
+        if (np_more()) acts[n++] = QA_MORE; /* last: Now Playing's own menu */
     }
     static const char *const rows[] = { "Play Next",
                                         "Add to Queue",
@@ -8421,7 +8467,8 @@ static int qm_open(const void *unused) {
                                         "Resume",
                                         "View Queue",
                                         "Go to Folder",
-                                        "Chapters" };
+                                        "Chapters",
+                                        "More…" };
     char rated[32];
     /* stock sortselect row styles */
     for (int i = 0; i < n; ++i) {

@@ -299,6 +299,9 @@ def validate_assets(directory):
     check_bluetooth_drop(directory)
     from build import SCROBBLE_CA
     assert read('rootfs.squashfs', SCROBBLE_CA) == (ROOT/'assets/scrobble-ca.pem').read_bytes()
+    if ipod:  # Classic's bold ships, cut to what BOLD_RANGES lists
+        from build import BOLD_TTF, bold_font
+        assert read('rootfs.squashfs', BOLD_TTF) == bold_font()[0]
     # Curly quotes draw the straight glyphs and ♡ takes ♥'s box and advance; other tables keep their
     # stock bytes (head: its checksum).
     from build import QUOTES

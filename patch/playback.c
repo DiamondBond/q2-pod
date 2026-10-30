@@ -636,6 +636,15 @@ int playback_shuffle(int mode) {
     playback_save();
     return s.active;
 }
+/* View Queue: 1 if a shuffle's play order is up, which Up Next lists rather than stock's queue
+ * order. Stock Shuffle drawing each next at random has none, so it becomes Shuffle Songs here
+ * (playback_shuffle, the mode to restore kept). Advanced play without a shuffle plays in queue
+ * order, as stock's list shows it. ponytail: the new order is fresh, so songs stock's shuffle already
+ * played can come round again; mark those missing from MCL_POOL seen if that matters. */
+int playback_listable(void) {
+    if (s.active) return s.shuffle != 0;
+    return M(MCL_MODE) == 2 && playback_shuffle(playback_unshuffle());
+}
 /* The pending Play Next list: queue indices, the head plays first. */
 static unsigned pend_find(unsigned x) {
     unsigned k = 0;

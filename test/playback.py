@@ -191,6 +191,16 @@ m=PlaybackMachine(); m.handlers.pop(syms['config_playmode'],None); all=m.deque(l
 was=m.fn('playback_unshuffle'); mode(2,1); m.fn('ringnav_load',m.deque([m.song('a'),m.song('b')]),0,0xf001); m.fn('playback_shuffle',was)
 assert m.fn('playback_groups',all,0)==1 and m.mcl('MCL_MODE')==3 and m.fn('playback_option',0)==3; checks+=1
 
+# View Queue's order (playback_listable): stock Shuffle (MCL_MODE 2, no advanced play) becomes Shuffle
+# Songs, keeping no mode to restore; any other stock mode lists stock's queue. Advanced play keeps
+# its own settings: Shuffle off (MCL_MODE still 2) lists in queue order, unchanged.
+for mode_now,listed in ((2,1),(0,0),(3,0)):
+    m=PlaybackMachine(); m.word(O['MCL_MODE'],mode_now)
+    assert m.fn('playback_listable')==listed and m.fn('playback_option',0)==listed; checks+=1
+m=PlaybackMachine(); m.word(O['MCL_MODE'],2); assert m.fn('playback_listable')==1
+assert m.fn('playback_set',0,0)==1 and m.fn('playback_set',1,2)==1
+assert m.fn('playback_listable')==0 and [m.fn('playback_option',k) for k in range(2)]==[0,2]; checks+=1
+
 # Over SAVE_LIMIT (999) tracks nothing is saved, and an older snapshot goes.
 for n,kept in ((999,True),(1000,False)):
     m=PlaybackMachine({'/mnt/data/ringnav-queue':b'old'}); m.budget=100000000; m.install([(f't{i}',f'/L/{i}.flac','L',1,i,0,0) for i in range(n)])

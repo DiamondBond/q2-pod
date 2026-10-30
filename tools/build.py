@@ -645,6 +645,28 @@ def font_quotes(data):
     font.save(out, reorderTables=False)
     return out.getvalue()
 
+# Classic's bold (navigation.c bold_label): Liberation Sans Bold (OFL, assets/fonts), cut to its Latin,
+# Greek, Cyrillic and punctuation. BOLD_RANGES, from the same cmap, lists exactly what it keeps, so a
+# label holding anything else (CJK, say) keeps the stock font.
+BOLD_TTF = 'release/assets/default/raw/fonts/bold.ttf'
+
+def bold_font():
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+    font = TTFont(ROOT/'assets/fonts/LiberationSans-Bold.ttf', recalcTimestamp=False)
+    have = sorted(u for u in font.getBestCmap() if 0x20 <= u < 0x530 or 0x2000 <= u < 0x2200)
+    sub = subset.Subsetter(subset.Options())
+    sub.populate(unicodes=have)
+    sub.subset(font)
+    check(sorted(font.getBestCmap()) == have, 'Bold font subset lost characters')
+    out = io.BytesIO()
+    font.save(out, reorderTables=False)
+    runs = []
+    for u in have:
+        if runs and runs[-1][1] + 1 == u: runs[-1][1] = u
+        else: runs.append([u, u])
+    return out.getvalue(), '#define BOLD_RANGES {' + ','.join(f'0x{u:x}' for r in runs for u in r) + '}'
+
 def relabel(data):
     """A strings/*.bin value replaced: after a u16 0 and a u16 pair count, a u32 offset to each key and
     value, in file order; the offsets past each change move with it."""
@@ -1345,7 +1367,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     symbol_table = run('readelf', '-Ws', demo)
     syms = symbols(demo, symbol_table)
     syms.update(PRIVATE_FUNCTIONS)
-    header = [f'#define RING_STEP {RING_STEP}']
+    bold, bold_ranges = bold_font()
+    header = [f'#define RING_STEP {RING_STEP}', bold_ranges]
     header.append('#define TIMEZONE_NAMES {' + ','.join(json.dumps(zone) for _, zone in TIMEZONES) + '}')
     header.append('#define TIMEZONE_ORDER {' + ','.join(map(str, TIMEZONE_ORDER)) + '}')
     header.append('#define TIMEZONE_CITIES {' + ','.join(json.dumps(label.split(' ', 1)[1]) for label, _ in TIMEZONES) + '}')
@@ -1632,6 +1655,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
                                **({LOGO_LIGHT: (xx+'list_tidal.png', light)} if light else {}),  # the swapped logo.jpg has no stock inode left
+                               **({BOLD_TTF: (FONT, bold)} if ipod else {}),
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')
