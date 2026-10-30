@@ -149,7 +149,9 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
  * gesture: the second touch puts the finger down and, for the gap over Centre the ring cannot
  * sense, straight at where the gesture's pace puts it; each of the touch's samples moves it on at
  * that pace, and the lift ends it at the far end. A second touch that turns (QS_SLACK) takes it
- * back to where it began, the pull-down left as it was. Writes are a few dozen bytes a sample,
+ * back: stock slides the pull-down, on the release, the way the swipe started it
+ * (g_slide_direction, set once as it starts), wherever the finger lifts, so the finger lifts where
+ * it is and ringnav_dispatch turns that release's slide back to how the pull-down was (qs_back). Writes are a few dozen bytes a sample,
  * on the encoder thread, only during a gesture.
  * ponytail: the pace is the first touch's down to the second's, doubled (clamped QS_MIN_MS to
  * QS_MAX_MS), a straight line with no easing; either way across toggles it, as the wheel's x has
@@ -170,6 +172,7 @@ static int qs_left __attribute__((section(".scratch"))),
 static int qs_live __attribute__((section(".scratch"))), qs_from __attribute__((section(".scratch"))),
     qs_to __attribute__((section(".scratch")));
 static unsigned qs_ms __attribute__((section(".scratch")));
+volatile int qs_back __attribute__((section(".scratch")));
 
 /* One frame of the finger at screen y (upright, x 187): down first, moved, or lifted. */
 static void qs_write(int y, int down, int lift) {
@@ -215,10 +218,14 @@ static void qs_begin(void) {
     qs_live = 1;
     qs_follow();
 }
-/* The lift: at the far end for a swipe, back where it began for a turn. */
+/* The lift: at the far end for a swipe; for a turn where the finger is, the slide set back first
+ * (closed from 5, open from 310). */
 static void qs_finish(int swipe) {
     if (!qs_live) return;
-    qs_write(swipe ? qs_to : qs_from, 0, 0);
+    if (swipe)
+        qs_write(qs_to, 0, 0);
+    else
+        qs_back = (qs_from != 5) + 1;
     qs_write(0, 0, 1);
     qs_live = 0;
 }
