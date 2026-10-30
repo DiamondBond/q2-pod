@@ -212,6 +212,12 @@ extern int peq_chained; /* peq_ui.c: peq_stock_eq ran this boot */
 void peq_chain(void);   /* crossfade.c: peq_attach once a boot, while playing */
 int swap_on(void);
 int mono_on(void);      /* crossfade.c: Mono Audio's setting */
+#define NS_WARM 2000    /* nightshift.c: Night Shift's temperatures, K */
+#define NS_COOL 5000
+#define NS_STEP 100
+#define NS_DEFAULT 3400
+int night_on(void), night_kelvin(void);
+void night_set(int on, int kelvin), night_save(void), night_paint(void *canvas);
 int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
 void ringnav_select(void *w, int id, int rows);
 int library_scanning(void); /* coverflow.c: a library scan's thread runs */

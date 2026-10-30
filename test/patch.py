@@ -7968,8 +7968,8 @@ def setting_rows(m,view):  # Accent, Home, Battery, Theme: as ringnav_display's 
 def row_text(r): return m.nodes[m.nodes[m.nodes[r]['children'][0]]['children'][1]]['text']
 m,main,_=display({},sub=0)
 kids=m.nodes[main]['children']
-assert len(kids)==6 and [row_text(r) for r in kids[3:]]==['Appearance','Coverflow','Controls']
-assert m.icons_set==['system_display','list_into','playset_covermode','list_into','playset_folderjump','list_into']
+assert len(kids)==7 and [row_text(r) for r in kids[3:]]==['Appearance','Coverflow','Controls','Night Shift: Off']
+assert m.icons_set==['system_display','list_into','playset_covermode','list_into','playset_folderjump','list_into','display_backlight','list_into']
 f,ctx=m.handler(m.nodes[kids[4]]['children'][0],O['EVT_CLICK']); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.opened[-1]==('systemset/display_page',None) and m.get(payload_syms['display_sub'])==0; passed()
 # Coverflow: Artist Albums, Coverflow Sort, Refresh Coverflow; Controls: Shortcut, Smart Awake, Click With Headphones,
@@ -12637,6 +12637,84 @@ passed()
 # with Bluetooth on, right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon,
 # 78 high. Both off unless Q2POD RESUME / BTVOLLINK is 1 (docs/internals.md#resume-on-connect,
 # #headset-controls-and-volume); off, the Q2's volume is its own gain and the device keeps its own volume.
+# Night Shift (nightshift.c): the main Display page's last row, after Appearance,
+# Coverflow and Controls; Q2POD NIGHTSHIFT and NIGHTK, 3400K unless a hundred in 2000-5000.
+for config,text in (({},'Off'),({'NIGHTSHIFT':'1'},'3400K'),({'NIGHTSHIFT':'1','NIGHTK':'2700'},'2700K'),({'NIGHTSHIFT':'1','NIGHTK':'5000'},'5000K'),
+                    ({'NIGHTSHIFT':'1','NIGHTK':'2750'},'3400K'),({'NIGHTSHIFT':'1','NIGHTK':'6500'},'3400K'),({'NIGHTK':'2000'},'Off')):
+    m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3)
+    label=m.nodes[m.nodes[rows[-1]]['children'][0]]['children'][1]
+    assert texts()[-1]=='Night Shift: '+text and icons[-1]=='display_backlight' and m.nodes[label]['name']=='label_night',config
+    assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-1]==rows[-1],config  # the list's end
+passed()
+# Its row opens the same page with its switch, Off. The switch turns it on and off and saves it; the
+# wheel, +/- and the slider step 100K, warmer to the right, a move turning it on; each change repaints
+# the whole screen at once, a drag's every step too, but a drag saves once, at its release.
+m,rows,texts,icons,click=settings_page('display','scroll_view_display',stock_rows=3)
+m.stack=[m.top]; m.nodes[m.wm]=dict(type='window_manager',name='',children=m.stack,visible=1)
+assert click(-1)==[] and m.nodes[m.top]['name']=='bootvol_page' and m.nodes[m.title]['text']=='Night Shift'
+assert m.nodes[m.switch]['visible']!=0 and m.nodes[m.vol]['text']=='Off'
+N,K=('Q2POD','NIGHTSHIFT'),('Q2POD','NIGHTK')
+def repaints(): return [c[1:3] for c in m.calls if c[0]=='widget_invalidate_force']==[(m.wm,0)]
+assert press(m.switch)==[(1,*N)] and repaints() and m.nodes[m.vol]['text']=='3400K' and texts()[-1]=='Night Shift: 3400K'
+assert m.nodes[m.switch]['image']=='switch_on'
+assert turn()==[(3300,*K)] and repaints() and m.nodes[m.vol]['text']=='3300K'
+assert turn(O['KEY_PREV'])==[(3400,*K)] and press(m.add)==[(3300,*K)] and press(m.dec)==[(3400,*K)]
+m.nodes[m.slider]['value']=30; assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(2000,*K)] and turn()==[] and press(m.add)==[]
+m.nodes[m.slider]['value']=10; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and repaints() and texts()[-1]=='Night Shift: 4000K'
+m.nodes[m.slider]['value']=0; assert press(m.slider,O['EVT_VALUE_CHANGING'])==[] and repaints() and texts()[-1]=='Night Shift: 5000K'
+assert press(m.slider,O['EVT_VALUE_CHANGED'])==[(5000,*K)] and turn(O['KEY_PREV'])==[]  # the release saves, once
+assert texts()[-1]=='Night Shift: 5000K' and press(m.switch)==[(0,*N)] and repaints() and m.nodes[m.vol]['text']=='Off'
+assert texts()[-1]=='Night Shift: Off' and m.nodes[m.switch]['image']=='switch_off'
+assert turn()==[(1,*N),(4900,*K)] and texts()[-1]=='Night Shift: 4900K'; passed()  # a move turns it on
+# The tint (nightshift.c night_end, stock lcd_end_frame calling it): on, as boot read it, the first
+# normal frame's paint gives the screen's lcd night_end, reading no setting. Each frame warms the
+# pixels drawn in its rect (alpha not 0xfe): red kept, green and blue scaled, alpha 0xfe; one
+# already warmed, and any outside the rect, stay. A rotated buffer (rows h pixels) is warmed whole; padded rows, unknown, and an offline draw
+# not at all. Off gives stock's end_frame back.
+def tint_machine(config,w=8,h=4,row=None,mode=0,fmt=3):
+    m=QueueMachine(); m.config.update(config); m.handlers[payload_syms['peq_boot']]='stock_peq_boot'
+    m.call(address=payload_syms['ringnav_bootmode'],args=(3,0,0,0),gap=0)  # config_init's: boot reads the setting
+    fb=m.alloc(4*w*h+64); end=syms['widget_invalidate_force']  # stock's end_frame, as a recorded call
+    for off,v in ((0xb0,w),(0xb4,h),(0x124,4*(row or w)),(0x128,fmt),(0xcc,mode),(0x110,fb),(0x7c,end),
+                  (0xf8,2),(0xfc,1),(0x100,3),(0x104,2)):
+        m.word(m.lcd+off,v)
+    for i in range(w*h): m.word(fb+4*i,0xff000000|i*0x070503)
+    m.word(fb+4*(1*w+3),0xfe123456)  # in the rect, warmed already
+    return m,fb,end
+def tint_frame(m):
+    m.calls=[]; m.call(address=syms['lcd_end_frame'],args=(m.lcd,0,0,0),gap=0)
+    return [c[1] for c in m.calls if c[0]=='widget_invalidate_force']  # stock's end_frame ran, with the lcd
+def warmed(c,k=3400):
+    i=(k-2000)//100; g,b=[137,142,146,151,155,159,163,167,170,174,177,180,184,187,190,193,195,198,201,203,206,208,211,213,215,218,220,222,224,226,228][i],[14,27,39,50,61,70,79,87,95,103,110,117,123,129,135,141,146,151,157,161,166,171,175,179,183,187,191,195,199,202,206][i]
+    return 0xfe000000|c&0xff0000|((c>>8&255)*g+127)//255<<8|((c&255)*b+127)//255
+def pixels(m,fb,n): return [m.get(fb+4*i) for i in range(n)]
+m,fb,end=tint_machine({'NIGHTSHIFT':'1'}); before=pixels(m,fb,32)
+assert ('Q2POD','NIGHTSHIFT') in [r[1:3] for r in m.config_reads]; reads=len(m.config_reads)
+m.call(address=payload_syms['night_paint'],args=(m.canvas,0,0,0),gap=0)
+assert m.get(m.lcd+0x7c)==payload_syms['night_end'] and len(m.config_reads)==reads and tint_frame(m)==[m.lcd]
+inside={y*8+x for y in (1,2) for x in (2,3,4)}-{1*8+3}
+assert pixels(m,fb,32)==[warmed(c) if i in inside else c for i,c in enumerate(before)]
+once=pixels(m,fb,32); assert tint_frame(m)==[m.lcd] and pixels(m,fb,32)==once  # nothing warmed twice
+m.word(fb+4*(2*8+2),0xff808080); assert tint_frame(m)==[m.lcd] and m.get(fb+4*(2*8+2))==warmed(0xff808080)  # drawn again
+m.word(m.lcd+0xcc,4); m.word(fb+4*(2*8+2),0xff808080)
+assert tint_frame(m)==[m.lcd] and m.get(fb+4*(2*8+2))==0xff808080; passed()  # an offline draw stays
+m.calls=[]; m.call(address=payload_syms['night_set'],args=(0,3400,0,0),gap=0)
+assert m.get(m.lcd+0x7c)==end and [c[1:3] for c in m.calls if c[0]=='widget_invalidate_force']==[(m.wm,0)]
+m.word(m.lcd+0xcc,0); m.call(address=payload_syms['night_paint'],args=(m.canvas,0,0,0),gap=0)
+assert m.get(m.lcd+0x7c)==end; passed()  # off: the next paint leaves it
+m,fb,end=tint_machine({'NIGHTSHIFT':'1','NIGHTK':'2000'},row=4); before=pixels(m,fb,32)  # rotated: rows of h
+m.call(address=payload_syms['night_paint'],args=(m.canvas,0,0,0),gap=0)
+assert tint_frame(m)==[m.lcd] and pixels(m,fb,32)==[c if c>>24==0xfe else warmed(c,2000) for c in before]; passed()
+m,fb,end=tint_machine({'NIGHTSHIFT':'1'},row=9); before=pixels(m,fb,32)  # padded rows
+m.call(address=payload_syms['night_paint'],args=(m.canvas,0,0,0),gap=0)
+assert tint_frame(m)==[m.lcd] and pixels(m,fb,32)==before; passed()
+for config,kw in (({},{}),({'NIGHTSHIFT':'1'},{'mode':4}),({'NIGHTSHIFT':'1'},{'fmt':5})):  # off; an offline canvas; not BGRA
+    m,fb,end=tint_machine(config,**kw); m.call(address=payload_syms['night_paint'],args=(m.canvas,0,0,0),gap=0)
+    assert m.get(m.lcd+0x7c)==end,(config,kw)
+passed()
+# Bluetooth's list (btmenu_rows, rebuilt on every search) gains Resume on connect with Bluetooth on,
+# right after its fourth row, Bluetooth Headset Volume Control, as stock's rows: no icon, 78 high.
+# Off unless Q2POD RESUME is 1 (docs/internals.md#resume-on-connect).
 m,rows,texts,icons,click=settings_page('btrows','scroll_view_bluetooth',stock_rows=7)  # 5 rows, 2 devices
 assert len(rows)==2 and icons==[None,None] and texts()==['Resume on Connect','Control Device Volume']
 for k,row in enumerate(rows):
