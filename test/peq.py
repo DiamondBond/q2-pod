@@ -4,6 +4,7 @@ import cmath
 import ctypes as C
 import math
 import pathlib
+import re
 import subprocess
 import tempfile
 import sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first
@@ -2800,6 +2801,9 @@ def shelf_check(tmp, lib):
     assert [a[2] for a in sources('a/q2-x\nb/q2-x\nc/x\n', scratch)] == ['x']  # a repeated id: the first
     assert len(sources(''.join(f'me/q2-a{i}\n' for i in range(20)), scratch)) == 16
     assert [a[2] for a in sources('a/q2\nb/q2-tidal\nc/downpic\nd/q2-tidal2\n', scratch)] == ['tidal2']  # never the firmware's folders
+    own = {m for f in (ROOT/'patch').glob('*.[ch]')
+           for m in re.findall(r'(?:mmc/|CARD "/)\.([a-z0-9-]+)["/]', f.read_text())} - {'rockbox', 'spotify'}
+    assert own and not [x for x in own if sources(f'a/q2-{x}\n', scratch)], own  # every card folder of the firmware's
     C.c_int.in_dll(lib, 'shelf_n').value = len(sources((ROOT/'sources.list').read_text()))
     ids = [a.id.decode() for a in apps[:6]]
     assert ids == ['rockbox', 'themes', 'spotify', 'deezer', 'soulseek', 'filebrowser'], ids
@@ -2850,7 +2854,7 @@ def shelf_check(tmp, lib):
                  '.deezer/queue.json'],
              4: ['.soulseek/config.json', '.soulseek/downloads.json', '.soulseek/shares.cache'],
              5: ['.filebrowser/config.json']}
-    shutil.rmtree(card); card.mkdir(parents=True)
+    shutil.rmtree(card); (card/'Music').mkdir(parents=True); (card/'Music/a.flac').write_bytes(b'song')
     for i, kept in saved.items():
         d = '.' + ids[i]
         for f in kept: (card/f).parent.mkdir(exist_ok=True); (card/f).write_bytes(b'mine')
@@ -2859,9 +2863,11 @@ def shelf_check(tmp, lib):
         assert install(i, z) == 0 and install(i, z) == 0, i
         assert sorted(files(i)) == sorted(f'{d}/{n}' for n in (f'q2-{ids[i]}', 'run', 'q2app', 'README.txt'))
         assert all((card/f).read_bytes() == b'mine' for f in kept), i
-        (card/'Music').mkdir(exist_ok=True); (card/'Music/a.flac').write_bytes(b'song')
+        (card/d/'stream').mkdir(); (card/d/'stream/01.flac').write_bytes(b'song')
+        (card/f'{d}2').mkdir(); (card/f'{d}2/x').write_bytes(b'other')
         lib.shelf_remove(i)
-        assert not (card/d).exists() and (card/'Music/a.flac').exists(), i
+        assert not (card/d).exists() and not (card/f'.q2/apps/{ids[i]}.tag').exists(), i
+        assert (card/'Music/a.flac').exists() and (card/f'{d}2/x').exists(), i
     print("Q2 Shelf: release JSON, unzip listing checks, install, update, failed move, remove and card apps passed.")
 
 

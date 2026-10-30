@@ -47,6 +47,16 @@ static const struct {
     { "q2-librespot", "spotify", ".spotify", "'.spotify/cache/*' .spotify/.cache-size",
       ".spotify/librespot" },
 };
+/* The firmware's own card folders, never a card app's: a remove deletes .<id> whole. */
+static const char *const reserved[] = { "books", "coverflow", "downpic", "photos", "q2", "sldp",
+                                        "tidal" };
+
+/* Whether id is a special[] app's, which a remove never deletes whole. */
+static int special_id(const char *id) {
+    for (unsigned k = 0; k < sizeof special / sizeof *special; ++k)
+        if (!strcmp(special[k].id, id)) return 1;
+    return 0;
+}
 
 /* Whether s's n bytes are all a-z0-9- (kind 0, an id), or A-Z too (1, an owner), or ._ too (2). */
 static int only(const char *s, unsigned n, int kind) {
@@ -97,11 +107,8 @@ int shelf_sources(const char *text, shelf_app *out, int max) {
         }
         if (!*a.id) {
             if (in > 15 || !only(id, in, 0)) continue;
-            char word[18];
-            snprintf(word, sizeof word, " %.*s ", (int)in, id);
-            /* the firmware's own card folders: a remove deletes .<id> whole */
-            if (strstr(" books coverflow downpic photos q2 scrobble scrobbler sldp tidal ", word))
-                continue;
+            for (unsigned k = 0; k < sizeof reserved / sizeof *reserved; ++k)
+                bad |= strlen(reserved[k]) == in && !memcmp(reserved[k], id, in);
             memcpy(a.id, id, in);
             snprintf(a.dir, sizeof a.dir, ".%s", a.id);
             snprintf(a.bin, sizeof a.bin, ".%s/q2-%s", a.id, a.id);
@@ -292,7 +299,9 @@ void shelf_remove(int i) {
     }
     free(list);
     for (int j = 0; j < shelf_n; ++j) free(other[j]);
-    if (!*apps[i].keep) { /* only Q2 Pod's own keep files (shelf_sources); dir is checked */
+    /* dir is shelf_sources' checked ".<id>". ponytail: addon_quit waits AWAY_MS (3 s), so an app
+     * still saving on its TERM past that can write files back; wait on its pid file if one does. */
+    if (!special_id(apps[i].id)) {
         snprintf(path, sizeof path, "rm -rf '" CARD "/%s'", apps[i].dir);
         system(path);
     }
