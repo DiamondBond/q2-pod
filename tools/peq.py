@@ -97,6 +97,7 @@ LIBC = {
     'localtime_r': ('const int *', 'const long *, int *'), 'tzset': ('void', 'void'),
     # Scrobble upload (scrobble.c): demo's libcurl and libcrypto
     'fseek': ('int', 'void *, long, int'), 'ftell': ('long', 'void *'), 'atoi': ('int', 'const char *'),
+    'strtol': ('long', 'const char *, char **, int'),  # addon.c progress_row
     'strstr': ('char *', 'const char *, const char *'),
     'curl_easy_init': ('void *', 'void'), 'curl_easy_setopt': ('int', 'void *, int, ...'),
     'curl_easy_perform': ('int', 'void *'), 'curl_easy_getinfo': ('int', 'void *, int, ...'),

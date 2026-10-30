@@ -32,6 +32,8 @@
 #define ADDON_WAIT_MS 15000  /* a request's deadline, as Spotify's */
 #define ADDON_DEPTH 6
 #define ADDON_ROWS 50
+#define PROGRESS_H 8            /* a progress row's bar: a flat strip under its text */
+#define PROGRESS_TRACK 0x3a3a3a /* its unfilled part, dim against the black row */
 #define REPLY_MAX (64 << 10) /* Q2SPOT/1's limits */
 #define REQ_MAX (8 << 10)
 #define AWAY_MS 3000 /* USB storage waits at most this long for an app to let the card go */
@@ -43,7 +45,7 @@
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
 /* This firmware's card-app features, space-separated; a feature adds its word. */
-#define ADDON_CAPS "playlist"
+#define ADDON_CAPS "playlist progress"
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -582,7 +584,9 @@ static int req_done(void) {
  * opens the level uri (its context the argument), action sends uri with the context and toasts the
  * reply's message, search opens the T9 box (OK opens "search" for the text), remote opens the QR
  * code, local plays from the card (uri: a song, or a folder to list; context "album": in track
- * order), info does nothing; its position, when set, is the op a held Play/Pause sends.
+ * order), info does nothing; its position, when set, is the op a held Play/Pause sends. progress
+ * (progress_row) draws a bar of its position, permille, under its title and subtitle; a press or a
+ * held Play/Pause does nothing.
  * A reply whose message is "refresh" is asked again every ADDON_LIVE_MS while its level is on top,
  * and redrawn only when it changed, its selected row kept. */
 enum { K_LOAD, K_READY, K_ERROR, K_WAIT }; /* K_WAIT: no socket yet, the app starting */
@@ -657,6 +661,21 @@ static void stop_row(int i) {
     page_row_detail(pg.view, i, t, 0, clicked);
 }
 
+/* A progress row: page_row_detail's item re-dressed, its title left and subtitle right on one line
+ * over a bar the caption's width, which addon_paint fills from the left: its _pml prop, permille,
+ * clamped to 0 to 1000 here; strtol saturates what overflows, which atoi leaves undefined. */
+static void progress_row(void *item, long permille) {
+    void *t = widget_get_child(item, 0), *s = widget_get_child(item, 1);
+    int x = I(t, W_X), w = I(t, W_W);
+    widget_move_resize(t, x, 4, w * 3 / 5, 32);
+    widget_use_style(s, "s_scrlabel_white20r"); /* the style drops the detail's size and grey */
+    widget_set_prop_int(s, "style:normal:font_size", 16);
+    widget_set_prop_int(s, "style:normal:text_color", (int)SPOT_GREY);
+    widget_move_resize(s, x + w * 3 / 5, 4, w - w * 3 / 5, 32);
+    void *bar = widget_factory_create_widget(widget_factory(), "view", item, x, 44, w, PROGRESS_H);
+    widget_set_prop_int(bar, "_pml", permille < 0 ? 0 : permille > 1000 ? 1000 : (int)permille);
+}
+
 /* The top level: its rows, or what it waits for. */
 static void show(void) {
     lv_t *l = top();
@@ -680,8 +699,11 @@ static void show(void) {
     } else {
         int more = l->f[3][0] != 0;
         pg.view = page_list(pg.page, pg.page, 0, l->title, n = l->n + more, 64);
-        for (int i = 0; i < l->n; ++i)
-            (opens(l, i) ? page_row_detail_into : page_row_detail)(pg.view, i, cell(l, i, 2), cell(l, i, 3), clicked);
+        for (int i = 0; i < l->n; ++i) {
+            void *item = (opens(l, i) ? page_row_detail_into : page_row_detail)(
+                pg.view, i, cell(l, i, 2), cell(l, i, 3), clicked);
+            if (!strcmp(cell(l, i, 0), "progress")) progress_row(item, strtol(cell(l, i, 5), 0, 10));
+        }
         if (more) page_row_detail(pg.view, l->n, "More…", "", clicked);
     }
     if (n) ringnav_select(pg.view, l->sel < n ? l->sel : n - 1, n);
@@ -946,7 +968,7 @@ int addon_hold(void *w) {
     lv_t *l = pg.page && w == pg.page ? top() : 0;
     int i = l && l->state == K_READY && pg.view ? widget_get_prop_int(pg.view, "_ringnav_index", -1)
                                                 : -1;
-    if (i < 0 || i >= l->n || !cell(l, i, 5)[0]) return 0;
+    if (i < 0 || i >= l->n || !cell(l, i, 5)[0] || !strcmp(cell(l, i, 0), "progress")) return 0;
     action(cell(l, i, 5), cell(l, i, 4));
     return 1;
 }
@@ -1070,9 +1092,25 @@ static void plate(void *canvas, int x, int y, int w, int h, unsigned color, unsi
     }
 }
 
-/* ringnav_paint, every widget after stock painted it: the code, dark modules on the white plate, a
- * row's run of them one rectangle, inside a quiet zone of two modules. */
+/* ringnav_paint, every widget after stock painted it: a progress row's bar, a flat rectangle filled
+ * position/1000 of its width from the left, square, with no knob (the accent's light tone, as
+ * Spotify's bar, over a dim track); and the code, dark modules on the white plate, a row's run of
+ * them one rectangle, inside a quiet zone of two modules. */
 void addon_paint(void *w, void *canvas) {
+    /* the height first: no prop lookup for the page's other widgets */
+    int pml = pg.page && I(w, W_H) == PROGRESS_H && P(canvas, CANVAS_LCD)
+                  ? widget_get_prop_int(w, "_pml", -1)
+                  : -1;
+    if (pml >= 0) {
+        unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+        int bw = I(w, W_W), h = I(w, W_H), x = bw * pml / 1000;
+        canvas_set_fill_color(canvas, rgba(PROGRESS_TRACK, 255));
+        canvas_fill_rect(canvas, 0, 0, bw, h);
+        canvas_set_fill_color(canvas, rgba(accent_tone(2), 255));
+        if (x) canvas_fill_rect(canvas, 0, 0, x, h);
+        stock_canvas_set_fill_color(canvas, fill);
+        return;
+    }
     if (!qp.page || w != qp.qr || !P(canvas, CANVAS_LCD) || qp.size < 21) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     int n = qp.size, m = QR_PX / (n + 4), o = (QR_PX - m * n) / 2, digits = (n + 3) / 4;
