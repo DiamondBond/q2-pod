@@ -1106,3 +1106,34 @@ assert m.sent_speed==0 and m.u.mem_read(syms['g_playspeed_mode'],1)[0]==0
 m.word(O['MCL_POS'],0); m.sent_speed=None; m.fn('playback_track_speed')
 assert m.sent_speed==2 and m.u.mem_read(syms['g_playspeed_mode'],1)[0]==2
 print('Folder speed: persistence, exact parents, reconnect, gapless and failed saves passed')
+
+# Crossfade's policy (crossfade.c xfade_poll, from playback_poll each UI pass): the next change's
+# fade in ms, in the int hciplayer's filter maps (XFADE_FILE), only to another album with Gapless
+# on; while one is set, the filter goes into the chain (peq_chain).
+class XfadeMachine(PlaybackMachine):
+    def __init__(self, on='1'):
+        super().__init__(); self.flag=self.alloc(4); self.attaches=0
+        self.config.update(XFADE=on, XFADESEC='7')
+        for n in ('open','ftruncate','mmap','close'): self.handlers[syms[n+'@GLIBC_2.0']]='xf:'+n
+        self.handlers[ps['peq_attach']]='xf:attach'
+        self.handlers.pop(syms['mclGetPlayStatus']); self.word(0xa3beac,2)  # playing
+        self.word(syms['g_equalizer_flag'],0); self.byte(O['MCL_GAPLESS'],1)
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('xf:'): return super().hook(u,address,size,unused)
+        if name=='xf:open': self.files[self.text(u.reg_read(REGS[0]))]=b''
+        self.attaches+=name=='xf:attach'
+        self.returns(self.flag if name=='xf:mmap' else 3 if name=='xf:open' else 0)
+    def fade(self,pos=None):
+        if pos is not None: self.word(O['MCL_POS'],pos)
+        self.fn('playback_poll'); return self.get(self.flag)
+m=XfadeMachine()
+assert m.fade()==7000 and '/tmp/q2xfade' in m.files  # 'album a' to the untagged /C/ image
+assert m.fade()==7000 and m.attaches==1
+assert m.fade(3)==0 and m.fade(0)==7000  # the image's two CUE tracks; Album A to Album B
+m.byte(O['MCL_GAPLESS'],0); assert m.fade()==0
+m.byte(O['MCL_GAPLESS'],1); assert m.fade()==7000
+m.word(O['MCL_MODE'],1); assert m.fade()==0  # Repeat One: no next file
+m.word(O['MCL_MODE'],0); assert m.fade(6)==0  # the last track
+m=XfadeMachine('0'); assert m.fade()==0 and not m.files and not m.attaches  # off: no file
+print('Crossfade: the next change\'s fade, album and Gapless gates, the shared file and the filter passed')
