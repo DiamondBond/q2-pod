@@ -5556,8 +5556,8 @@ if variant=='ipod':
     assert repaint()==[] and shown()[0]==''; passed()
     # Now Playing's art follows the player's cover each lit pass (np_art_poll), whatever stock's
     # one-shot flags did: the playing track's file once g_lastcover_url is its path, its cached
-    # bitmap dropped first; nothing for the cover init loaded, the same one again, one not yet this
-    # track's, none, or the screen off.
+    # bitmap dropped first, or stock's placeholder for a track with none; nothing for the cover init
+    # loaded, the same one again, one not yet this track's, or the screen off.
     m=QueueMachine(queue=3,pos=1); m.handlers[playing+12]='stock_playing'; m.handlers[sleep_hook+12]='stock_sleep'
     cover=m.node('image','img_cover',image='play_defaultcover'); win=m.node('window','playing_page',[cover])
     m.word(win+O['W_PARENT'],m.wm); m.top=win
@@ -5570,7 +5570,7 @@ if variant=='ipod':
     m.word(O['MCL_POS'],2); cover_is(b'/p/B',0); assert art_pass()==([],'play_defaultcover')
     cover_is(b'/p/C',2); assert art_pass()==(reload,'file:///tmp/externpic.jpg') and art_pass()[0]==[]
     m.word(O['MCL_POS'],1); cover_is(b'/p/B',1); assert art_pass()==(reload,'file:///tmp/coverpic.jpg')
-    m.word(O['MCL_POS'],2); cover_is(b'/p/C',3); assert art_pass()==([],'file:///tmp/coverpic.jpg')
+    m.word(O['MCL_POS'],2); cover_is(b'/p/C',3); assert art_pass()==(reload,'play_defaultcover')
     cover_is(b'/p/C',4); m.byte(syms['g_backlight_status'],0); assert art_pass()[0]==[]
     m.byte(syms['g_backlight_status'],1); assert art_pass()==(reload,'file:///tmp/externpic.jpg'); passed()
     # Minimal (docs/ipod.md#now-playing): the album is drawn in capitals over its transparent label;

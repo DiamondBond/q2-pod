@@ -207,6 +207,7 @@ extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win
 extern int visualizer_live(void), games_live(void);
 extern void *queue_now(unsigned *pos, unsigned *n);
 extern const char *now_tag(void *r, int field);
+extern unsigned char now_cover(void *r, const char **file);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
     scrobble_flag(const char *key);
 extern void scrobble_append(const char *line, unsigned n);
@@ -3907,20 +3908,17 @@ static int np_gone(void *win, void *event) {
  * one-shot flags its 250 ms timer finds set: a song change, a forced refresh, the cover thread's
  * finish. Enlarged Art's timer clears all three while it is open (0x520064), so a change it took
  * left the page on the last track's art. Each lit pass, the playing track and the player's file it
- * can use (once g_lastcover_url is this track's: 1 embedded, 2 folder image, 4 downloaded) are
- * compared with the last; a change reloads the art as stock does, the cached bitmap dropped first
- * (the player writes every track's cover to the same file). Anything else keeps stock's image.
+ * can use (once g_lastcover_url is this track's: 1 embedded, 2 folder image, 4 downloaded, 3 none:
+ * stock's placeholder) are compared with the last; a change reloads the art as stock does, the
+ * cached bitmap dropped first (the player writes every track's cover to the same file). Anything
+ * else (parsing, Tidal) keeps stock's image.
  * ponytail: one more decode per track change while the page is up, beside stock's own reload. */
 static unsigned np_art(const char **file) {
     unsigned at, n;
     void *r = queue_now(&at, &n);
-    const char *path = r ? P(r, REC_PATH) : (void *)0;
-    unsigned char type =
-        path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
-    *file = type == 1                ? "file:///tmp/coverpic.jpg"
-            : type == 2 || type == 4 ? "file:///tmp/externpic.jpg"
-                                     : (void *)0;
-    return *file ? fnv(hash_bytes(FNV_SEED, &type, 1), (const unsigned char *)path) : 0;
+    unsigned char type = now_cover(r, file);
+    if (type == 3) *file = "play_defaultcover"; /* none: stock's placeholder */
+    return *file ? fnv(hash_bytes(FNV_SEED, &type, 1), (const unsigned char *)P(r, REC_PATH)) : 0;
 }
 static void np_art_poll(void) {
     const char *file;
@@ -4031,9 +4029,8 @@ static void bc_fit(void *win) {
     void *img = widget_lookup(win, "img_bigcover", 1), *shade = st.bc[1], *title = st.bc[0];
     const char *name = img ? widget_get_prop_str(img, "image", "") : "";
     unsigned at, n;
-    void *r = queue_now(&at, &n);
-    const char *path = r ? P(r, REC_PATH) : (void *)0;
-    unsigned type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
+    const char *cover;
+    unsigned type = now_cover(queue_now(&at, &n), &cover);
     unsigned box = img ? (unsigned)(I(img, W_W) << 16 | I(img, W_H)) : 0;
     unsigned key = fnv(np_track() ^ type, (const unsigned char *)name);
     if (!img || !shade || !title || (key == st.bc_key && box == st.bc_box)) return;

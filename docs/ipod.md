@@ -464,11 +464,11 @@ Stock's 250 ms timer reloads `img_cover` only when it finds one of three one-sho
 song change (`g_autochange_flag`), a forced refresh (`g_forcerefresh_flag`) or the cover thread's
 finish (`g_playcover_finishflag`). Enlarged Art's timer (`0x520064`) clears all three while
 `bigcover_page` is open, so a change it took left the page on the last track's art. The payload
-keys the playing track and the player file it can use: `/tmp/coverpic.jpg` (type 1) or
-`/tmp/externpic.jpg` (2, 4), once `g_lastcover_url` is this track's path. When that key changes,
-it reloads the art the way stock does, dropping AWTK's cached bitmap of the name first, since the
-player writes every track's cover to the same file. Otherwise it leaves stock's image, the
-placeholder included. ponytail: one more decode per track change while the page is up, beside
+keys the playing track and the cover it can use, once `g_lastcover_url` is this track's path:
+`/tmp/coverpic.jpg` (type 1), `/tmp/externpic.jpg` (2, 4) or stock's placeholder (3, none). When
+that key changes, it reloads the art the way stock does, dropping AWTK's cached bitmap of the name
+first, since the player writes every track's cover to the same file. While the cover is still
+being parsed, and for Tidal, it leaves stock's image. ponytail: one more decode per track change while the page is up, beside
 stock's own reload.
 
 **Theme: Minimal** draws the album in Sudo Music's small capitals (`NP_CAPS_PX`, 15 pixels,

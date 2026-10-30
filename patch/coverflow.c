@@ -2361,6 +2361,15 @@ static const char *const player_covers[] = { 0, "file://" PEQ_ROOT "/tmp/coverpi
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg", 0,
                                              "file://" PEQ_ROOT "/tmp/externpic.jpg" };
 
+/* The player's cover of r: its type once the cover thread has parsed r (g_lastcover_url is its
+ * path), else 0, and *file that type's file, or 0. */
+unsigned char now_cover(void *r, const char **file) {
+    const char *path = r ? P(r, REC_PATH) : (void *)0;
+    unsigned char type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
+    *file = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
+    return type;
+}
+
 /* Repaint every window once the paint that changed the art is over: AWTK drops what a paint
  * invalidates when the frame ends, so the new art would reach only regions repainted later. */
 static int home_repaint(const void *unused) {
@@ -2540,13 +2549,13 @@ void coverflow_home_art(void *top) {
     unsigned pos, n;
     void *r = queue_now(&pos, &n);
     const char *path = r ? P(r, REC_PATH) : (void *)0;
-    unsigned char type = path && !tk_strcmp((const char *)g_lastcover_url, path) ? g_playcover_type : 0;
+    const char *cover;
+    unsigned char type = now_cover(r, &cover);
     unsigned album = tags_key(now_tag(r, REC_ARTIST), now_tag(r, REC_ALBUM));
     unsigned key = hash_bytes(hash_bytes(fnv(FNV_SEED, (const unsigned char *)path), &type, 1),
                               (const unsigned char *)&album, sizeof(album));
     if (key == home.key) return;
     home.key = key;
-    const char *cover = type < sizeof(player_covers) / sizeof(*player_covers) ? player_covers[type] : 0;
     char url[600] = "file://";
     if (r) art_path(url + 7, album, "");
     unsigned size[2] = { 0, 0 };
