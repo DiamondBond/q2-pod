@@ -1138,4 +1138,14 @@ m.byte(O['MCL_GAPLESS'],1); assert m.fade()==7000
 m.word(O['MCL_MODE'],1); assert m.fade()==0  # Repeat One: no next file
 m.word(O['MCL_MODE'],0); assert m.fade(6)==0  # the last track
 m=XfadeMachine('0'); assert m.fade()==0 and not m.files and not m.attaches  # off: no file
-print('Crossfade: the next change\'s fade, album and Gapless gates, the shared file and the filter passed')
+# Shuffle Songs (the reports' mode, #164): the next is the shuffle's successor, not pos + 1, and
+# the fade follows album_cmp of the two records at every automatic change.
+m=XfadeMachine(); assert m.fn('playback_shuffle',2)==1
+rows=m.library_rows; fades=set()
+for _ in range(6):
+    pos,nxt=m.current(),m.fn('playback_successor',1); assert 0<=nxt<len(rows)
+    want=7000 if m.fn('album_cmp',rows[pos],rows[nxt]) else 0
+    assert m.fade()==want,(pos,nxt,m.fade(),want); fades.add(want)
+    assert m.advance_song(1)>=0
+assert fades=={0,7000},fades  # both cases met along the way
+print('Crossfade: the next change\'s fade, album and Gapless gates, the shared file, the filter and Shuffle Songs passed')
