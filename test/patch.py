@@ -11244,6 +11244,12 @@ m.poll(); m.advance(0); m.poll(); m.advance(0); assert len(m.plays)==6,m.play_na
 M3U=f'{STR}/{"q"*(159-len(STR)-1-4)}.m3u'; assert len(M3U)==159; m3u(X1)
 m.files['/tmp/q2-deezer.play']=bytearray(f'3000 {M3U}\n'.encode()); m.poll(); m.advance(0)
 assert len(m.plays)==7 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
+# A song that lands while the listing an earlier entry of its folder took is in hand isn't passed over as no song:
+# its folder is listed again on the next poll, and it joins.
+M3U=STR+'/race.m3u'; R1,R2=f'{STR}/r/01 - Early [40].opus',f'{STR}/r/02 - Late [41].opus'; card_song(R1); r2=card_song(R2,listing=False)
+m3u(R1,R2); m.files['/tmp/q2-deezer.play']=bytearray(f'3100 {M3U}\n'.encode()); m.poll(); m.advance(0)
+assert len(m.plays)==8 and m.play_names==['01 - Early [40].opus'],m.play_names
+m.listings[f'{STR}/r'].append(r2); m.poll(); assert m.names()==['01 - Early [40].opus','02 - Late [41].opus'],m.names(); passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'

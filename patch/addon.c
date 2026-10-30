@@ -219,9 +219,11 @@ static int dotdot(const char *path) {
 /* The playlist's songs from entry sm.next on, in its order, a deque the caller destroys: up to the
  * first one not there yet (sm.want), its folders' listings M3U_BATCH at most (each song's folder
  * is listed unless the song before it was in the same one). An entry off the card, or there but
- * not a song in its folder's listing, is passed over, as is one too long to be a path here. Entries
- * are counted, so the app may rewrite the lines from sm.next on (the one waited for, say). A file
- * longer than M3U_MAX is read that far, its cut last line dropped, so it is never waited for.
+ * not a song in its folder's listing, is passed over, as is one too long to be a path here; one
+ * missing from a listing taken for an earlier entry may have landed since, so the next poll lists
+ * its folder again before it is passed over. Entries are counted, so the app may rewrite the lines
+ * from sm.next on (the one waited for, say). A file longer than M3U_MAX is read that far, its cut
+ * last line dropped, so it is never waited for.
  * ponytail: the file is read whole each time it changes or a waited song lands; fine to M3U_MAX. */
 static void *m3u_songs(void) {
     void *out = _create_deque("stSongInfo"), *songs = 0;
@@ -247,7 +249,8 @@ static void *m3u_songs(void) {
         }
         char *slash = strrchr(line, '/');
         *slash = 0;
-        if (!songs || strcmp(line, dir)) {
+        int fresh = !songs || strcmp(line, dir); /* its folder listed after its access() */
+        if (fresh) {
             if (lists++ == M3U_BATCH) { /* this entry first on the next poll */
                 sm.more = 1;
                 break;
@@ -257,13 +260,15 @@ static void *m3u_songs(void) {
             songs = app_album_songs(dir);
         }
         *slash = '/';
-        for (unsigned i = 0, n = deque_size(songs); i < n; ++i) {
+        int found = 0;
+        for (unsigned i = 0, n = deque_size(songs); !found && i < n; ++i) {
             void *r = deque_at(songs, i);
             const char *p = P(r, REC_PATH);
-            if (p && !strcmp(p, line)) {
-                _deque_push_back(out, r);
-                break;
-            }
+            if ((found = p && !strcmp(p, line))) _deque_push_back(out, r);
+        }
+        if (!found && !fresh) { /* landed since the listing an earlier entry took: listed again */
+            sm.more = 1;
+            break;
         }
         ++sm.next;
     }
