@@ -9,6 +9,7 @@
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
   - Lyrics: a `.lrc` file saved as UTF-8 loads properly again when it has an emoji, or Korean, accented or curly-quote characters close together near its start. Shanling's check took some of those files for Chinese GB18030 and showed them garbled or cut short.
   - Performance: Shuffle Songs, and View Queue while Shuffle is on, start faster on a big library: the queue is no longer sorted by album before it's shuffled.
+  - Performance: on a big card, the Library no longer stalls the first time you open it after a restart. It was searching every folder on the card for `database.ignore` files then. That search now runs during **Update Local Music**, so adding or removing a `database.ignore` or `database.unignore` file takes effect after Update Local Music, not after a restart. If you use these files, run Update Local Music once after updating.
   - Home: in Split, the panning album art is sharper, about twice as crisp as in 1.5.8, and still evenly sharp as it moves.
 
 - **1.5.8**:
