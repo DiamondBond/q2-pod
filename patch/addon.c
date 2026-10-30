@@ -525,8 +525,9 @@ static void stop_row(int i) {
 }
 
 /* A progress row: page_row_detail's item re-dressed, its title left and subtitle right on one line
- * over a bar the caption's width, which addon_paint fills from the left. */
-static void progress_row(void *item, int permille) {
+ * over a bar the caption's width, which addon_paint fills from the left. permille is clamped to
+ * 0 to 1000 here; strtol saturates what overflows, which atoi leaves undefined. */
+static void progress_row(void *item, long permille) {
     void *t = widget_get_child(item, 0), *s = widget_get_child(item, 1);
     int x = I(t, W_X), w = I(t, W_W);
     widget_use_style(t, "s_scrlabel_white20l");
@@ -569,7 +570,7 @@ static void show(void) {
             void *item = (opens(l, i) ? page_row_detail_into : page_row_detail)(
                 pg.view, i, cell(l, i, 2), cell(l, i, 3), clicked);
             if (!strcmp(cell(l, i, 0), "progress") && pg.bars < ADDON_ROWS)
-                progress_row(item, atoi(cell(l, i, 5)));
+                progress_row(item, strtol(cell(l, i, 5), 0, 10));
         }
         if (more) page_row_detail(pg.view, l->n, "More…", "", clicked);
     }

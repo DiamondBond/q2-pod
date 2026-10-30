@@ -92,7 +92,7 @@ class Machine:
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0','tzset@GLIBC_2.0',
                   'strlen@GLIBC_2.0','strncpy@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0',
                   'strcasestr@GLIBC_2.2',
-                  'unlink@GLIBC_2.0','atoi@GLIBC_2.0','memcmp@GLIBC_2.0','access@GLIBC_2.0',
+                  'unlink@GLIBC_2.0','atoi@GLIBC_2.0','strtol@GLIBC_2.0','memcmp@GLIBC_2.0','access@GLIBC_2.0',
                   'fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0',  # blob_io's sync before rename
                   'fopen@GLIBC_2.2', 'opendir@GLIBC_2.0', 'readdir@GLIBC_2.0',
                   'closedir@GLIBC_2.0', 'pthread_mutex_lock@GLIBC_2.0',
@@ -319,7 +319,7 @@ class Machine:
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
         elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
-        elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=int(t[0]) if t else 0
+        elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=max(-2**31,min(2**31-1,int(t[0]))) if t else 0  # saturates, as a 32-bit long's does
         elif name=='strstr@GLIBC_2.0': i=self.text(a).find(self.text(b)); ret=a+i if i>=0 else 0
         elif name=='strcasestr@GLIBC_2.2': i=self.raw(a).lower().find(self.raw(b).lower()); ret=a+i if i>=0 else 0
         elif name=='bitmap_get_line_length': ret=self.get(a+8)
@@ -10887,16 +10887,18 @@ assert m.requests[-1]==('set','sharing') and m.toasts[-1][3]=='Sharing: While ch
 m.answer('ok','refresh','',SMENU); assert m.requests[-1]==('menu',) and m.labels()==SLABELS; passed()
 # A progress row (kind progress, position permille): its title left and subtitle right on one line over a
 # flat 8 px bar the caption's width, square, no knob: a dim track, then the accent's light tone filled
-# position/1000 of it from the left; 1500 draws full, a negative or unparsable one empty; a press
-# does nothing, nor does a held Play/Pause. (A title's % comes escaped, %25, as any Q2SPOT/1 field's.)
-PROG=[('progress','','47%25','112 of 240 songs','','470'),('progress','','Done','','','1500'),('progress','','Queued','','','x'),('progress','','Behind','','','-50')]
+# position/1000 of it from the left; 1500 or a number beyond a long draws full, a negative or unparsable one
+# or one beyond a long's negative empty (strtol saturates, so the clamp is defined); a press does nothing,
+# nor does a held Play/Pause. (A title's % comes escaped, %25, as any Q2SPOT/1 field's.)
+PROG=[('progress','','47%25','112 of 240 songs','','470'),('progress','','Done','','','1500'),('progress','','Queued','','','x'),('progress','','Behind','','','-50'),
+      ('progress','','Huge','','','99999999999999999999'),('progress','','Deep','','','-99999999999999999999')]
 m.pick(2); m.answer('ok','refresh','',PROG); assert m.labels()[:3]==['Downloads','47%','112 of 240 songs'],m.labels()
 def prog_bar(i): return next(v for v in m.nodes if m.nodes[v]['type']=='view' and m.get(v+O['W_PARENT'])==m.rows()[i])
 def prog_paint(i): m.rounded.clear(); m.bands.clear(); m.call(address=HOOKS['widget_on_paint_border'][0],args=(prog_bar(i),m.canvas,0,0)); return [b[:4] for b in m.bands]
 x,w=O['CF_EDGE'],375-2*O['CF_EDGE']
 assert cf_geometry(m,prog_bar(0))==(x,44,w,8),cf_geometry(m,prog_bar(0))
 assert prog_paint(0)==[(0,0,w,8),(0,0,w*470//1000,8)] and not m.rounded and m.bands[0][4]==0xff3a3a3a!=m.bands[1][4],(m.bands,m.rounded)
-assert prog_paint(1)==[(0,0,w,8),(0,0,w,8)] and prog_paint(2)==prog_paint(3)==[(0,0,w,8)] and not m.rounded,(m.bands,m.rounded)
+assert prog_paint(1)==[(0,0,w,8),(0,0,w,8)] and prog_paint(2)==prog_paint(3)==[(0,0,w,8)] and prog_paint(4)==prog_paint(1) and prog_paint(5)==prog_paint(2) and not m.rounded,(m.bands,m.rounded)
 asked=len(m.threads); m.pick(0); assert len(m.threads)==asked
 m.top=m.page; m.status=m.alloc(0x200); m.nodes[m.find('scroll_view')]['_ringnav_index']=0; m.press(80); assert m.hold()!=11 and len(m.threads)==asked
 m.back(); m.answer('ok','refresh','',SMENU); passed()
