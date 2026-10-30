@@ -21,9 +21,9 @@ Checked MIPS prologues redirect into a payload at `0xb00000`, using the final un
 | `set_equalizer_value`                 | `0x4f9230` | Keeps the stock filter and ties the EQ icon to 3EQ or PEQ being on                                           |
 | `home_page_init`                      | `0x523c84` | Binds the Coverflow card (iPod: row), then iPod Home art and layout                                          |
 | `load_localclass_list`                | `0x5088cc` | Drops an empty Unknown row ([Unknown rows](#unknown-rows))                                                   |
-| `scanAllMusicFile`                    | `0x4fc788` | Marks Coverflow's album list stale, before and after stock runs                                              |
+| `scanAllMusicFile`                    | `0x4fc788` | Walks the card for folder markers ([discovery.md](discovery.md)), then as `deleteMusicFromMusicDb`           |
 | `scanSpecFolder`                      | `0x4fc964` | The same                                                                                                     |
-| `deleteMusicFromMusicDb`              | `0x500b5c` | The same                                                                                                     |
+| `deleteMusicFromMusicDb`              | `0x500b5c` | Marks Coverflow's album list stale, before and after stock runs                                              |
 | `main_loop_sleep_default`             | `0x648f00` | Screen off: the UI loop idles longer ([Battery](#battery))                                                   |
 | `systemset_about_page_init`           | `0x4bc80c` | FW. Version shows V1.32 again; adds the CFW. Version row ([building.md](building.md))                        |
 | `systemset_fwupdate_page_init`        | `0x4c339c` | Network Update fetches the latest GitHub release ([Network Update](#network-update))                         |

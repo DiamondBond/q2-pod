@@ -258,6 +258,7 @@ static int stock_write(void) { if (during_write) during_write(); return 0; }
 int stock_scan_all_trampoline(void *a, void *b) { return stock_write(); }
 int stock_scan_folder_trampoline(void *a, void *b) { return stock_write(); }
 int stock_delete_song_trampoline(void *a, void *b) { return stock_write(); }
+void library_scope_scan(void) {} /* the marker walk: test/library_scope.py */
 int coverflow_scan_all(void *, void *);
 static void rescan(void) { coverflow_scan_all(0, 0); } /* the library changed, as only a scan changes it */
 

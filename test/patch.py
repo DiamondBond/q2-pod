@@ -52,6 +52,7 @@ SAVED=[UC_MIPS_REG_S0,UC_MIPS_REG_S1,UC_MIPS_REG_S2,UC_MIPS_REG_S3,
        UC_MIPS_REG_S4,UC_MIPS_REG_S5,UC_MIPS_REG_S6,UC_MIPS_REG_S7,UC_MIPS_REG_FP]
 
 def signed(x): return x if x<0x80000000 else x-0x100000000
+SCOPE_RULES='/mnt/data/q2-library-scope'  # library_scope.c's folder marker rules, written by a library update
 
 class Machine:
     def __init__(self, patched=True):
@@ -97,9 +98,11 @@ class Machine:
                   'fopen@GLIBC_2.2', 'opendir@GLIBC_2.0', 'readdir@GLIBC_2.0',
                   'closedir@GLIBC_2.0', 'pthread_mutex_lock@GLIBC_2.0',
                   'pthread_mutex_unlock@GLIBC_2.0', 'calloc@GLIBC_2.0',
-                  'strdup@GLIBC_2.0')  # no /proc/mounts: the boot logo's poll sees no card
+                  'strdup@GLIBC_2.0',  # no /proc/mounts: the boot logo's poll sees no card
+                  'fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0')
         self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='scope_free'
         self.scope_tree={}; self.scope_markers=set(); self.scope_handles={}
+        self.scope_files={}; self.scope_open={}  # SCOPE_RULES (and its .tmp): path -> bytes; handle -> [path, writing, bytes]
         self.present=set()  # paths access finds (the UI loop's Spotify poll asks for its login)
         self.stats={}  # paths stat finds, with their mtime (songs on the card: a card app's)
         self.image_size=(50,50)  # what widget_load_image decodes
@@ -134,6 +137,9 @@ class Machine:
     def lcd_colors(self): return tuple(self.get(self.lcd+O[off]) for off in ('LCD_FILL_COLOR','LCD_STROKE_COLOR'))
     def mock(self,*names,prefix=''):
         for n in names: self.handlers[syms[n]]=prefix+n
+    def scope_scan(self):
+        """A library update's marker walk over scope_tree and scope_markers, into SCOPE_RULES."""
+        self.call(address=payload_syms['library_scope_scan'],args=(0,0,0,0),gap=0,clear=False)
     def folder(self,path,w=None):
         """Set the browsed folder; with a surface, also scroll it home and repaint."""
         self.u.mem_write(syms['g_folder_path'],path.encode()+b'\0')
@@ -266,6 +272,19 @@ class Machine:
                 n,t=self.scope_handles[a].pop(0); ret=self.alloc(268)
                 self.byte(ret+10,t); self.u.mem_write(ret+11,n.encode()+b'\0')
         elif name=='closedir@GLIBC_2.0': self.scope_handles.pop(a,None); ret=0
+        elif name=='fopen@GLIBC_2.2':  # the marker rules file alone; any other file is missing
+            path,mode=self.text(a),self.text(b); ret=0
+            if path.startswith(SCOPE_RULES) and (mode=='wb' or path in self.scope_files):
+                ret=self.alloc(4); self.scope_open[ret]=[path,mode=='wb',b'']
+        elif name=='fwrite@GLIBC_2.0': self.scope_open[d][2]+=bytes(u.mem_read(a,b*c)); ret=c
+        elif name=='fread@GLIBC_2.0': data=self.scope_files[self.scope_open[d][0]][:b*c]; u.mem_write(a,data); ret=len(data)//b
+        elif name=='fclose@GLIBC_2.2':
+            path,writing,data=self.scope_open.pop(a); ret=0
+            if writing: self.scope_files[path]=data
+        elif name=='rename@GLIBC_2.0':
+            ret=0 if self.text(a) in self.scope_files else -1
+            if not ret: self.scope_files[self.text(b)]=self.scope_files.pop(self.text(a))
+        elif name=='unlink@GLIBC_2.0': self.scope_files.pop(self.text(a),None); ret=0
         elif name=='rockbox_stat':
             assert a==3
             if self.text(b) in self.scope_markers: self.word(c+20,0o100644); ret=0
@@ -3141,7 +3160,7 @@ class QueueMachine(Machine):
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
                   'getMusicBySonger','getMusicByAlbumArtist','getMusicByComposer','getMusicByGenre',
                   'getMusicByAlbumAndComposer','getMusicByAlbumAndGenre','getMusicByPlayList','checkFavExist','navigator_window_is_exist',
-                  'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0'): self.handlers[syms[n]]='q:'+n
+                  'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','qsort@GLIBC_2.0'): self.handlers[syms[n]]='q:'+n
         self.favs=set(); self.open_pages=set(); self.opened=[]
         self.handlers.pop(syms['mclLoadPlayList'])
         self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0'); self.handlers[syms['strcmp@GLIBC_2.0']]='tk_strcmp'
@@ -3221,7 +3240,6 @@ class QueueMachine(Machine):
             self.picks.append(a); last=self.mcl('MCL_LASTPOS'); self.word(O['MCL_LASTPOS'],-1 if not a else self.mcl('MCL_POS'))
             self.word(O['MCL_POS'],last if not a and last!=-1 else len(self.names())-1); ret=1
         elif name=='calloc@GLIBC_2.0': ret=self.alloc(a*b+4)  # the album ratings' table
-        elif name=='fopen@GLIBC_2.2': ret=0  # no ratings file
         elif name=='qsort@GLIBC_2.0': self.qsort(a,b,c,d)  # Albums' sorted lookups, the payload's comparator run nested
         else:  # the album/folder queries fill the staging deque
             self.query=(name,a if name=='getMusicByPlayList' else self.text(a) if a else None,(self.text(b) if b else None) if 'And' in name else None,c)
@@ -4174,7 +4192,7 @@ for cls in (0xf00a,0xf008,0xf007,0xff20):
     for selected in (discovery_paths,discovery_paths[:2]):
         m=ClassMachine(rows=len(selected))
         m.scope_tree={'/mnt/mmc':[('Discovery',4)],'/mnt/mmc/Discovery':[]}
-        m.scope_markers={'/mnt/mmc/Discovery/database.ignore'}
+        m.scope_markers={'/mnt/mmc/Discovery/database.ignore'}; m.scope_scan()
         for i,path in enumerate(selected):
             m.word(m.row(i)+O['REC_PATH'],m.string(path))
             m.word(m.row(i)+O['REC_TITLE'],m.string('Tagged'))
@@ -4349,7 +4367,7 @@ assert lm.sql is None
 # into Music makes it visible on the next query, without deleting or retagging a database row.
 lm.scope_tree={'/mnt/mmc':[('Discovery',4)],'/mnt/mmc/Discovery':[]}
 lm.scope_markers={'/mnt/mmc/Discovery/database.ignore'}
-lm.word(payload_syms['library_gen'],lm.get(payload_syms['library_gen'])+2)
+lm.scope_scan()
 lm.db.execute('delete from songtable')
 for i,path in enumerate(discovery_paths):
     lm.db.execute('insert into songtable(id,album,songer,albumsonger,fileurl) values(?,?,?,?,?)',
@@ -4381,7 +4399,9 @@ qm.scope_tree={'/mnt/mmc':[('Singles',4),('Needledrop',4),("Odd ' %_",4),('日�
     '/mnt/mmc/Singles':[('Keep',4)],'/mnt/mmc/Singles/Keep':[],
     '/mnt/mmc/Needledrop':[],"/mnt/mmc/Odd ' %_":[],'/mnt/mmc/日本語':[]}
 qm.scope_markers={p+'/database.ignore' for p in ('/mnt/mmc/Singles','/mnt/mmc/Needledrop',"/mnt/mmc/Odd ' %_",'/mnt/mmc/日本語')}
-qm.scope_markers.add('/mnt/mmc/Singles/Keep/database.unignore')
+qm.scope_markers.add('/mnt/mmc/Singles/Keep/database.unignore'); qm.scope_scan()
+assert sorted(qm.scope_files[SCOPE_RULES].decode().splitlines())==["0/mnt/mmc/Needledrop","0/mnt/mmc/Odd ' %_",
+    '0/mnt/mmc/Singles','0/mnt/mmc/日本語','1/mnt/mmc/Singles/Keep'] and SCOPE_RULES+'.tmp' not in qm.scope_files
 def marker_query(sql,scoped=1):
     qm.word(payload_syms['library_music'],scoped)
     qm.call(address=HOOKS['toolsQueryDbTable'][0],args=(qm.string('/mnt/data/database.db'),qm.string(sql),123,1),gap=0)
@@ -4392,14 +4412,14 @@ assert marker_query('select id,fileurl from songtable where /*q2-library-scope*/
 assert marker_query('select id,album from songtable group by album')=={0,2,3,7}
 qm.scope_markers.remove('/mnt/mmc/Singles/database.ignore')
 assert marker_query('select id,fileurl from songtable')=={0,2,3,7}
-qm.word(payload_syms['library_gen'],qm.get(payload_syms['library_gen'])+2)
+qm.scope_scan()
 assert marker_query('select id,fileurl from songtable')=={0,1,2,3,7}
 assert qm.db.execute('select count(*) from songtable').fetchone()[0]==8
 qm.db.close(); passed()
 for cls in (0xf00a,0xf008,0xf007,0xff20):
     q=ClassMachine(rows=3)
     q.scope_tree={'/mnt/mmc':[('Singles',4)],'/mnt/mmc/Singles':[('Keep',4)],'/mnt/mmc/Singles/Keep':[]}
-    q.scope_markers={'/mnt/mmc/Singles/database.ignore','/mnt/mmc/Singles/Keep/database.unignore'}
+    q.scope_markers={'/mnt/mmc/Singles/database.ignore','/mnt/mmc/Singles/Keep/database.unignore'}; q.scope_scan()
     for i,path in enumerate(('Singles/a.flac','Singles/Keep/a.flac','Music/a.flac')):
         q.word(q.row(i)+O['REC_PATH'],q.string('/mnt/mmc/'+path))
         q.word(q.row(i)+O['REC_TITLE'],q.string('Tagged'))
@@ -4921,7 +4941,7 @@ class CoverflowMachine(QueueMachine):
         for n in ('window_create','widget_factory_create_widget','image_base_set_image','getAllAlbum','list_view_create',
                   'scroll_view_create','navigator_back_to_home','navigator_to_with_context','access@GLIBC_2.0',
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
-                  'pthread_join@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0','toolsQueryDbTable'): self.handlers[syms[n]]='c:'+n
+                  'pthread_join@GLIBC_2.0','qsort@GLIBC_2.0','toolsQueryDbTable'): self.handlers[syms[n]]='c:'+n
         self.word(0xa2638c,self.FREE); self.handlers[self.FREE]='c:free'
         self.handlers[home_hook[0]+12]='stock_home'
         for n,stub in WRITERS.items(): self.handlers[HOOKS[n][0]+12]=stub  # the writers' stock bodies
@@ -4954,7 +4974,6 @@ class CoverflowMachine(QueueMachine):
             elif self.text(a)=='dialog/msginfo_dialog': self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
             else: self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
-        elif name=='fopen': ret=0  # no saved album: remember() keeps the first
         elif name=='toolsQueryDbTable':
             rows=self.albums if 'fileurl not like' in self.text(b) else []
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in rows]
@@ -4990,8 +5009,12 @@ class CoverflowMachine(QueueMachine):
         view=self.find('scroll_view'); self.paint(view)
         return view
     def rescan(self,writer='scanAllMusicFile'):
-        """A songtable writer runs: its hook, then its (mocked) stock body."""
-        assert self.call(address=HOOKS[writer][0],args=(1,2,0,0),gap=0)==0 and self.calls[0][:3]==(WRITERS[writer],1,2)
+        """A songtable writer runs: its hook, then its (mocked) stock body. A scan walks the folder
+        markers into SCOPE_RULES first, a delete doesn't."""
+        assert self.call(address=HOOKS[writer][0],args=(1,2,0,0),gap=0)==0
+        assert [c[:3] for c in self.calls if c[0].startswith('stock_')]==[(WRITERS[writer],1,2)]
+        walked=[c for c in self.calls if c[0].startswith('fopen') and self.text(c[1])==SCOPE_RULES+'.tmp']
+        assert bool(walked)==(writer!='deleteMusicFromMusicDb')
     def queried(self): return sum(c[0]=='getAllAlbum' for c in self.calls)
     def close(self):
         f,ctx=self.handler(self.page,O['EVT_DESTROY'])
@@ -6795,6 +6818,7 @@ for restore in (False,True):
     m.scope_tree={'/mnt/mmc':[('Hidden',4)],'/mnt/mmc/Hidden':[('Keep',4)],'/mnt/mmc/Hidden/Keep':[]}
     m.scope_markers={'/mnt/mmc/Hidden/database.ignore'}
     if restore: m.scope_markers.add('/mnt/mmc/Hidden/Keep/database.unignore')
+    m.scope_scan()
     assert m.open_era()==['Era','80s','2 albums' if restore else '1 album','90s','2 albums','2000s','1 album']
     shown=m.decade(0)
     assert ('Restored' in shown)==restore and 'Hidden' not in shown

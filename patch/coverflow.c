@@ -8,6 +8,7 @@
 #include "stock.h"
 #endif
 #include "playback.h"
+#include "library_scope.h"
 
 /* On the card, beside stock's own cover cache (/mnt/mmc/.sldp). */
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
@@ -62,7 +63,7 @@ static int pick(void *ctx, void *event);
 
 /* The album list is kept across opens until songtable changes. Only these three stock functions
  * write it; each moves the generation before and after it runs, so a list queried meanwhile is
- * never kept. The scans run on stock's scan thread. */
+ * never kept. The scans run on stock's scan thread, and first walk the card for folder markers. */
 volatile unsigned library_gen __attribute__((section(".scratch"))); /* also Most Played's */
 static int library_write(int (*stock)(void *, void *), void *a, void *b) {
     ++library_gen;
@@ -70,8 +71,14 @@ static int library_write(int (*stock)(void *, void *), void *a, void *b) {
     ++library_gen;
     return result;
 }
-int coverflow_scan_all(void *a, void *b) { return library_write(stock_scan_all_trampoline, a, b); }
-int coverflow_scan_folder(void *a, void *b) { return library_write(stock_scan_folder_trampoline, a, b); }
+int coverflow_scan_all(void *a, void *b) {
+    library_scope_scan();
+    return library_write(stock_scan_all_trampoline, a, b);
+}
+int coverflow_scan_folder(void *a, void *b) {
+    library_scope_scan();
+    return library_write(stock_scan_folder_trampoline, a, b);
+}
 int coverflow_delete_song(void *a, void *b) { return library_write(stock_delete_song_trampoline, a, b); }
 
 /* The queue menu resolves the live track list again after its dialog closes. */

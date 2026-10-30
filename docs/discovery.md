@@ -22,15 +22,19 @@ This feature does not remove tracks from the playing queue, change tags, or dele
 The Era browser and its decade counts also exclude marked tracks, before grouping albums.
 
 Remove the marker and update the library to restore visibility, without moving or retagging
-tracks or changing playlist paths. Marker changes take effect after a library update or
-restart, not immediately while browsing. A marker at the card root applies to the whole card;
-nested exceptions still work. Only regular marker files count, not folders with those names.
+tracks or changing playlist paths. Marker changes take effect after a library update (Update
+Local Music), not while browsing and not on a restart. After updating to this firmware, the
+markers apply once the library is updated. A marker at the card root applies to the whole
+card; nested exceptions still work. Only regular marker files count, not folders with those
+names.
 
 Unlike Rockbox's scanner exclusion, the Q2 keeps these tracks indexed: only general browsing
 is filtered, so imported and mixed playlists retain their entries and order.
 
-The folder snapshot is cached until the library generation changes. Directory symlinks and
-folders whose names start with a dot (such as `.rockbox` or the art caches) are not searched.
-Traversal is bounded to 64 nested levels and 1,024-byte paths; the generated predicate is
-bounded to 128 KiB. If these limits or allocation fail, the markers are ignored for that
-snapshot and the whole library shows. A refresh retries discovery.
+Each library update first searches the card for markers and saves the marked folders to
+`/mnt/data/q2-library-scope`. Browsing reads that list, never the card, and it lasts across
+restarts. Directory symlinks and folders whose names start with a dot (such as `.rockbox` or
+the art caches) are not searched. The search is bounded to 64 nested levels and 1,024-byte
+paths; the generated predicate is bounded to 128 KiB. Past these limits no list is saved, and
+a damaged list, or one there is no memory to read, is ignored. Either way the whole library
+shows until the next library update.
