@@ -3216,7 +3216,7 @@ class QueueMachine(Machine):
                   'navigator_to','navigator_to_with_context','window_close','widget_on','widget_destroy_children',
                   'getMusicByAlbum','getMusicByAlbumAndSonger','getMusicByAlbumAndAlbumSonger','toolsLoadDirectory',
                   'getMusicBySonger','getMusicByAlbumArtist','getMusicByComposer','getMusicByGenre',
-                  'getMusicByAlbumAndComposer','getMusicByAlbumAndGenre','checkFavExist','navigator_window_is_exist',
+                  'getMusicByAlbumAndComposer','getMusicByAlbumAndGenre','getMusicByPlayList','checkFavExist','navigator_window_is_exist',
                   'mcl_shuffle_pick','airplayGetFlag','calloc@GLIBC_2.0','fopen@GLIBC_2.2','qsort@GLIBC_2.0'): self.handlers[syms[n]]='q:'+n
         self.favs=set(); self.open_pages=set(); self.opened=[]
         self.handlers.pop(syms['mclLoadPlayList'])
@@ -3300,7 +3300,7 @@ class QueueMachine(Machine):
         elif name=='fopen@GLIBC_2.2': ret=0  # no ratings file
         elif name=='qsort@GLIBC_2.0': self.qsort(a,b,c,d)  # Albums' sorted lookups, the payload's comparator run nested
         else:  # the album/folder queries fill the staging deque
-            self.query=(name,self.text(a) if a else None,(self.text(b) if b else None) if 'And' in name else None,c)
+            self.query=(name,a if name=='getMusicByPlayList' else self.text(a) if a else None,(self.text(b) if b else None) if 'And' in name else None,c)
             found=self.listings.get(self.text(a),self.found) if name=='toolsLoadDirectory' else self.found
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in found]; ret=3
             if name=='getMusicByAlbum' and a:  # songs of that album name
@@ -5350,18 +5350,33 @@ assert m.db.execute('select id from playlist where id=101').fetchall()==[(101,)]
 m=PlaylistLifecycleMachine(); m.answer=0; before=m.db.execute('select * from playlist').fetchall(); m.delete()
 assert m.db.execute('select * from playlist').fetchall()==before and not m.backs and not m.reload_pending(); passed()
 
-# Holding Play/Pause on a playlist row opens the same More page as its trailing dots.
-# The Add to Playlist picker shares playlist_page's name and keeps stock's hold.
-# Its context is the playlist index from the dots' name: row positions also count Import/Export.
-m=QueueMachine(page='playlist_page',rows=3); m.word(O['PLAYLIST_ADD_MODE'],0)
-for i,e in enumerate(m.nodes[r]['children'][0] for r in m.nodes[m.surface]['children']):
-    if i: dots=m.node('image',f'img_more{i-1}'); m.word(dots+O['W_PARENT'],e); m.nodes[e]['children'].append(dots)
-m.paint(m.surface)
-m.press(7000); assert m.hold()!=11 and not m.opened  # Import: no dots, stock keeps the hold
-m.paint(m.surface); m.call(); m.paint(m.surface)
-m.press(7100); assert m.hold()==11 and m.opened[-1][:2]==('localmusic/playlistsmore_page',0)
-assert m.release()==0  # the locked hold's release never toggles playback
-m.opened=[]; m.word(O['PLAYLIST_ADD_MODE'],1); m.press(7300)
+# Holding Play/Pause on a playlist row opens its menu: Play Next, Add to Queue and Shuffle take its
+# songs (getMusicByPlayList of its cd_num, spoken ones and folders left out as its opened list shows
+# them); More… opens the same More page as its trailing dots. The Add to Playlist picker shares
+# playlist_page's name and keeps stock's hold. The playlist is the index in the dots' name: row
+# positions also count Import/Export.
+def playlist_hold(steps=2):
+    m=QueueMachine(page='playlist_page',rows=3); m.word(O['PLAYLIST_ADD_MODE'],0)
+    for i,e in enumerate(m.nodes[r]['children'][0] for r in m.nodes[m.surface]['children']):
+        if i: dots=m.node('image',f'img_more{i-1}'); m.word(dots+O['W_PARENT'],e); m.nodes[e]['children'].append(dots)
+    lists=[m.song(f'List {i}',4) for i in range(2)]
+    for i,r in enumerate(lists): m.word(r+O['REC_DISC'],7+i)
+    m.word(syms['p_deque_playlist'],m.deque(lists)); m.found.append(m.song('Book.m4b'))
+    m.word(m.surface+O['W_H'],144); m.paint(m.surface)  # every row on screen: the dots stay on their rows
+    for _ in range(steps): m.call(); m.paint(m.surface)
+    return m
+m=playlist_hold(0); m.press(7000); assert m.hold()!=11 and not m.opened  # Import: no dots, stock keeps the hold
+m=playlist_hold(); m.press(7100); assert m.hold()==11 and m.release()==0  # the locked hold's release never toggles playback
+assert m.labels()==['Play Next','Add to Queue','Shuffle','More…'] and m.nodes[m.title]['text']=='List 1'
+m.pick(3); m.advance(0); assert m.opened[-1]==('localmusic/playlistsmore_page',1) and m.names()==['A','B','C']; passed()
+for row,want in ((0,['A','T1','T2','B','C']),(1,['A','B','C','T1','T2'])):
+    m=playlist_hold(); assert m.run(row) is None and m.names()==want and m.query[:2]==('getMusicByPlayList',8)
+    assert not m.playback(); passed()
+m=playlist_hold(1); m.found=[m.song('dir',4)]; assert m.run(0)=='Queue unchanged' and m.names()==['A','B','C']; passed()
+m=playlist_hold(); m.press(7100); assert m.hold()==11 and m.release()==0
+m.word(syms['p_deque_playlist'],m.deque([m.song('Other',4)])); m.pick(3); m.advance(0)
+assert not [o for o in m.opened if o[0]=='localmusic/playlistsmore_page']; passed()  # the list changed: nothing
+m=playlist_hold(1); m.word(O['PLAYLIST_ADD_MODE'],1); m.press(7300)
 m.hold(); assert not [o for o in m.opened if o[0]=='localmusic/playlistsmore_page']; passed()
 for count in (0,1):
     m=PlaylistEditMachine(count); m.open_editor(); before=m.order()

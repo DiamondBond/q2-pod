@@ -5329,9 +5329,18 @@ int compact_now_playing(void) {
 }
 
 /* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
- * on a local song, album, artist/composer/genre or folder row opens the stock sortselect dialog
- * rebuilt as that row's menu. */
-enum { QM_SONG = 1, QM_ALBUM, QM_GROUP, QM_FOLDER, QM_COVERFLOW, QM_COVERALBUM, QM_PLAYING };
+ * on a local song, album, artist/composer/genre, folder or playlist row opens the stock sortselect
+ * dialog rebuilt as that row's menu. */
+enum {
+    QM_SONG = 1,
+    QM_ALBUM,
+    QM_GROUP,
+    QM_FOLDER,
+    QM_COVERFLOW,
+    QM_COVERALBUM,
+    QM_PLAYING,
+    QM_PLAYLIST
+};
 enum {
     QA_NEXT = 1,
     QA_ADD,
@@ -5399,6 +5408,7 @@ unsigned queue_hash(void *q) {
 
 static void *qm_list(void) {
     if (st.qm_kind == QM_PLAYING) return P(mcl_pdeqplaylist, 0);
+    if (st.qm_kind == QM_PLAYLIST) return P(p_deque_playlist, 0);
     return st.qm_kind == QM_COVERFLOW ? page_tracks(window_manager_get_top_window(window_manager()))
                                       : P(p_deque_showlist, 0);
 }
@@ -5485,7 +5495,11 @@ static int class_query(unsigned cls, void *r) {
         id == -2);
 }
 
-static int qm_query(void *r) { return class_query(st.qm_cls, r); }
+/* A playlist's songs, as its row opens them (cd_num, as ple_open). */
+static int qm_query(void *r) {
+    return st.qm_kind == QM_PLAYLIST ? getMusicByPlayList(I(r, REC_DISC))
+                                     : class_query(st.qm_cls, r);
+}
 
 /* An Albums row (load_album_detaillist) or Go to album opens its name's songs, 0xff10 with
  * classinfo +0xd the name and +0x10d the artist: r is kept, a copy, to keep its album alone. */
@@ -5938,6 +5952,7 @@ static void qm_tracks(void *r, void *add) {
         return;
     }
     void *rows = staged_music(qm_query, r, &n);
+    if (st.qm_kind == QM_PLAYLIST) music_records(rows, 0); /* as its opened list (0xff20) */
     for (unsigned i = 0; i < deque_size(rows); ++i) {
         void *t = deque_at(rows, i);
         if (I(t, REC_TYPE) == 8) _deque_push_back(add, t);
@@ -8318,6 +8333,8 @@ static int qm_run(const void *unused) {
             up_next(page_closed, page_keyup);
         } else
             navigator_to("playerqueue_page");
+    } else if (a == QA_MORE && st.qm_kind == QM_PLAYLIST) {
+        if (r) navigator_to_with_context("localmusic/playlistsmore_page", (void *)(long)st.qm_idx);
     } else if (a == QA_MORE) {
         void *more = np_more(); /* clicked as a tap would, so stock's own handler opens it */
         char click[0x30];
@@ -8515,6 +8532,7 @@ static int qm_open(const void *unused) {
         if (!group_first && st.rate_win) acts[n++] = QA_RATE;
         if (np_more()) acts[n++] = QA_MORE; /* last: Now Playing's own menu */
     }
+    if (st.qm_kind == QM_PLAYLIST) acts[n++] = QA_MORE; /* its dots' page */
     static const char *const rows[] = { "Play Next",
                                         "Add to Queue",
                                         "Shuffle",
@@ -8617,16 +8635,21 @@ static int qm_hold(void) {
         return 0;
     int cur = reconcile(&g_menu, !moving(&g_menu));
     if (cur < 0) return 0;
-    /* A playlist row's hold opens the same More page as its trailing dots. The Add to Playlist
-     * picker shares playlist_page's name; its add mode tells the two apart. */
+    /* A playlist row's hold queues its songs; More… opens the page its trailing dots do. The Add
+     * to Playlist picker shares playlist_page's name; its add mode tells the two apart. */
     if (!tk_strcmp(name, "playlist_page") && !I(PLAYLIST_ADD_MODE, 0)) {
         /* The row's index counts Import and Export; its dots' name carries the playlist's. */
-        void *more = more_image(g_menu.at[cur]);
-        if (!key || !more) return 0;
+        void *more = more_image(g_menu.at[cur]), *lists = P(p_deque_playlist, 0);
+        unsigned at = (unsigned)atoi(more ? widget_get_prop_str(more, "name", "") + 8 : "-1");
+        void *r = lists && at < deque_size(lists) ? deque_at(lists, at) : 0;
+        if (!key || !r || !(st.qm_timer = timer_add(qm_open, (void *)0, 0))) return 0;
+        st.qm_kind = QM_PLAYLIST;
+        st.qm_cls = 0xf001; /* its songs load as a song list, as Shuffle's (play_folder) */
+        st.qm_idx = at;
+        st.qm_rows = deque_size(lists);
+        st.qm_hash = rec_hash(r);
         st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
         drop_input();
-        navigator_to_with_context("localmusic/playlistsmore_page",
-                                  (void *)(long)atoi(widget_get_prop_str(more, "name", "") + 8));
         return 1;
     }
     if (!coverflow) list = P(p_deque_showlist, 0);
