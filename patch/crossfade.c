@@ -5,9 +5,9 @@
  * switch, the wheel a ten a tick and Centre back, as on Brightness (navigation.c edit_key). Audio
  * settings' Resume Songs row opens it too (xf.ctx 2): Off and RS_MIN..RS_MAX minutes in fives, the
  * same way, the length a music track needs to keep its place (navigation.c resume_poll). Display's
- * Night Shift row opens it as well (xf.ctx 3): the switch and Centre turn it on and off and the
- * slider runs NS_COOL to NS_WARM, warmer to the right, a NS_STEP a tick (nightshift.c). Mono
- * Audio's and MQA's rows live here too (mono_sync, mqa_sync). */
+ * Night Shift row opens it as well (xf.ctx 3): the switch and Centre cycle Off, On and Auto, as
+ * Light Mode's row does, and the slider runs NS_COOL to NS_WARM, warmer to the right, a NS_STEP a
+ * tick (nightshift.c). Mono Audio's and MQA's rows live here too (mono_sync, mqa_sync). */
 #include "offsets.inc"
 #include "peq.h"
 #include "playback.h"
@@ -101,7 +101,10 @@ void resume_row(void *label) {
 
 static void night_text(void *label) {
     char t[32] = "Night Shift: Off";
-    if (night_on()) tk_snprintf(t, sizeof t, "Night Shift: %dK", night_kelvin());
+    if (night_on() == 2)
+        tk_snprintf(t, sizeof t, "Night Shift: Auto");
+    else if (night_on())
+        tk_snprintf(t, sizeof t, "Night Shift: %dK", night_kelvin());
     widget_set_text_utf8(label, t);
 }
 
@@ -248,7 +251,11 @@ static void refresh(int save) {
     else if (xf.ctx == 2)
         tk_snprintf(t, sizeof t, xf.rs_min ? "%d min" : "Off", xf.rs_min);
     else if (xf.ctx == 3) {
-        tk_snprintf(t, sizeof t, night_on() ? "%dK" : "Off", night_kelvin());
+        tk_snprintf(t, sizeof t,
+                    night_on() == 2 ? "Auto"
+                    : night_on()    ? "%dK"
+                                    : "Off",
+                    night_kelvin());
         image_base_set_image(xf.sw, night_on() ? "switch_on" : "switch_off");
     } else {
         tk_snprintf(t, sizeof t, xf.on ? "%d s" : "Off", xf.seconds);
@@ -263,11 +270,12 @@ static void refresh(int save) {
 }
 
 static void take(int n) {
-    if (xf.ctx == 3) { /* a move turns it on */
+    if (xf.ctx == 3) { /* a move turns it on, Auto kept */
         int top = (NS_COOL - NS_WARM) / NS_STEP;
         n = n < 0 ? 0 : n > top ? top : n;
         if (n == value() && night_on()) return;
-        night_set(1, NS_COOL - n * NS_STEP); /* shown at once, saved as the rest (refresh) */
+        /* shown at once, saved as the rest (refresh) */
+        night_set(night_on() ? night_on() : 1, NS_COOL - n * NS_STEP);
         refresh(1);
         return;
     }
@@ -304,7 +312,7 @@ static int toggle(void *ctx, void *event) {
     if (!switched()) return 0;
     xf.sliding = 0;
     if (xf.ctx == 3) {
-        night_set(!night_on(), night_kelvin());
+        night_set((night_on() + 1) % 3, night_kelvin()); /* Off, On, Auto */
         refresh(1);
         return 0;
     }

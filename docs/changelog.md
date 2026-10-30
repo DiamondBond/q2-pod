@@ -1,7 +1,7 @@
 # Changelog
 
 - **1.6.0**:
-  - Display: **Night Shift**, the last row of **System settings → Display**, makes the screen warmer for use at night, from 5000K to 2000K (3400K at first). The switch or Centre turns it on and off; turn the wheel or drag the slider right for warmer. Videos keep their own colours.
+  - Display: **Night Shift**, the last row of **System settings → Display**, makes the screen warmer for use at night, from 5000K to 2000K (3400K at first). The switch or Centre turns it on, to Auto and off; Auto warms the screen from 19:00 to 7:00, the hours Light Mode's Auto is dark. Turn the wheel or drag the slider right for warmer. Videos keep their own colours.
   - App Store: **Podcasts** subscribes to shows by their feeds, or finds them in Apple's podcast directory, and downloads their episodes over Wi-Fi, which play from where you stopped.
   - Card apps: songs a card app plays show their title, artist and album in Now Playing, read from their tags. They showed the file name and an unknown artist before.
   - Card apps: **Go to Album** and **Go to Artist** on a song from an app that offers them open that album or artist in the app.

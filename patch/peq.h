@@ -216,8 +216,9 @@ int mono_on(void);      /* crossfade.c: Mono Audio's setting */
 #define NS_COOL 5000
 #define NS_STEP 100
 #define NS_DEFAULT 3400
-int night_on(void), night_kelvin(void);
-void night_set(int on, int kelvin), night_save(void), night_paint(void *canvas);
+int night_on(void), night_kelvin(void); /* night_on: 0 Off, 1 On, 2 Auto */
+void night_set(int on, int kelvin), night_save(void), night_paint(void *canvas), night_clock(int dark);
+int clock_night(void); /* navigation.c: Night Shift's Auto hours now */
 int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
 void ringnav_select(void *w, int id, int rows);
 int library_scanning(void); /* coverflow.c: a library scan's thread runs */

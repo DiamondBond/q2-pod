@@ -1,14 +1,16 @@
 /* Night Shift (docs/internals.md#night-shift): Display's row (crossfade.c's page, xf.ctx 3) warms
  * the screen as f.lux does, red kept and green and blue scaled to a colour temperature, Q2POD
- * NIGHTSHIFT (0, 1) and NIGHTK (NS_WARM..NS_COOL in NS_STEPs) in config.ini. While it is on, the
- * screen's lcd end_frame is night_end: before stock shows a frame, the pixels drawn in it, those
- * whose alpha is not NS_DONE, are warmed and given NS_DONE. Stock's fills and blends write alpha
- * 0xff over an opaque pixel (>= 0xf5; fill_bgra8888_rect @0x6cbf24), so a pixel drawn again is
- * warmed once more and one left alone is never warmed twice. ponytail: a fill or image pixel
- * whose own alpha is exactly NS_DONE (stock's clear path and image_copy keep it) stays unwarmed;
- * no payload colour has it. Off puts stock's end_frame back, so nothing runs per frame; the lcd
- * is found again on the next paint after On. The setting is read at boot (playback.c
- * ringnav_bootmode), so a paint reads none. */
+ * NIGHTSHIFT (0 Off, 1 On, 2 Auto) and NIGHTK (NS_WARM..NS_COOL in NS_STEPs) in config.ini. Auto is
+ * on from 19:00 to 7:00 by the clock, the hours Light Mode's Auto is dark (navigation.c
+ * clock_night), and off while the clock cannot be read; clock_show applies it each minute
+ * (night_clock). While it is on, the screen's lcd end_frame is night_end: before stock shows a
+ * frame, the pixels drawn in it, those whose alpha is not NS_DONE, are warmed and given NS_DONE.
+ * Stock's fills and blends write alpha 0xff over an opaque pixel (>= 0xf5; fill_bgra8888_rect
+ * @0x6cbf24), so a pixel drawn again is warmed once more and one left alone is never warmed twice.
+ * ponytail: a fill or image pixel whose own alpha is exactly NS_DONE (stock's clear path and
+ * image_copy keep it) stays unwarmed; no payload colour has it. Off puts stock's end_frame back, so
+ * nothing runs per frame; the lcd is found again on the next paint after On. The setting is read at
+ * boot (playback.c ringnav_bootmode), so a paint reads none. */
 #include "offsets.inc"
 #include "peq.h"
 #include "stock.h"
@@ -27,7 +29,8 @@ _Static_assert(sizeof ns_green == (NS_COOL - NS_WARM) / NS_STEP + 1, "a scale pe
 _Static_assert(sizeof ns_blue == sizeof ns_green, "a blue per green");
 
 static struct {
-    int read, on, kelvin, built; /* built: the kelvin g and b are for */
+    int read, on, kelvin, built; /* on: 0 Off, 1 On, 2 Auto; built: the kelvin g and b are for */
+    int dark;                    /* Auto's hours now (clock_night) */
     int saved_on, saved_kelvin;  /* as config.ini holds them */
     void *lcd;                   /* the screen's, its end_frame night_end; 0 while off */
     int (*end)(void *);          /* stock's end_frame */
@@ -37,13 +40,16 @@ static struct {
 static void settings(void) {
     if (ns.read) return;
     char v[16] = "";
-    ns.on = config_value("Q2POD", "NIGHTSHIFT", 2, 0);
+    ns.on = config_value("Q2POD", "NIGHTSHIFT", 3, 0);
+    ns.dark = clock_night();
     toolsReadConfig("/mnt/data/config.ini", "Q2POD", "NIGHTK", v, "0");
     int k = atoi(v);
     ns.kelvin = k >= NS_WARM && k <= NS_COOL && !(k % NS_STEP) ? k : NS_DEFAULT;
     ns.saved_on = ns.on, ns.saved_kelvin = ns.kelvin;
     ns.read = 1;
 }
+/* Whether the screen is warmed now: On, or Auto in its hours. */
+static int lit(void) { return ns.on == 1 || (ns.on == 2 && ns.dark); }
 int night_on(void) {
     settings();
     return ns.on;
@@ -88,7 +94,7 @@ static int night_end(void *lcd) {
 /* ringnav_paint, each widget: once on, the screen's lcd takes night_end; a normal frame's canvas
  * is the screen's, an offline one draws into a bitmap. Off (or not yet read), a flag test. */
 void night_paint(void *canvas) {
-    if (ns.lcd || !ns.on) return;
+    if (ns.lcd || !lit()) return;
     void *lcd = canvas ? P(canvas, CANVAS_LCD) : 0;
     if (!lcd || I(lcd, LCD_DRAW_MODE) != LCD_DRAW_NORMAL || I(lcd, LCD_FORMAT) != LCD_BGRA8888 ||
         !P(lcd, LCD_END_FRAME))
@@ -103,11 +109,19 @@ void night_paint(void *canvas) {
 void night_set(int on, int kelvin) {
     settings();
     ns.on = on, ns.kelvin = kelvin;
-    if (!on && ns.lcd) {
+    if (!lit() && ns.lcd) {
         P(ns.lcd, LCD_END_FRAME) = (void *)ns.end;
         ns.lcd = 0;
     }
     widget_invalidate_force(window_manager(), 0);
+}
+
+/* clock_show, each minute: Auto's hours, a crossing shown as the page's change is. */
+void night_clock(int dark) {
+    settings();
+    if (dark == ns.dark) return;
+    ns.dark = dark;
+    if (ns.on == 2) night_set(2, ns.kelvin);
 }
 
 /* The page's save (crossfade.c refresh): what night_set showed, into config.ini. */

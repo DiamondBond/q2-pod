@@ -1637,6 +1637,13 @@ static const int *clock_now(int *buf) {
 #define LIGHT_FROM 7
 #define LIGHT_UNTIL 19
 static int light_day(const int *tm) { return tm && tm[2] >= LIGHT_FROM && tm[2] < LIGHT_UNTIL; }
+/* Night Shift's Auto (nightshift.c) is on while Light Mode's would be dark, 19:00 to 7:00, and
+ * off while the clock cannot be read. */
+int clock_night(void) {
+    int buf[11];
+    const int *tm = clock_now(buf);
+    return tm && !light_day(tm);
+}
 static void np_fill(int scrub);
 static void light_apply(const int *tm) {
     if (st.light != 2 || light_day(tm) == st.light_day) return;
@@ -3221,10 +3228,10 @@ static int seek_position(int to) {
 /* The status bar's centred label follows stock's 24-hour setting (18:14 or 6:14 PM), without
  * seconds, or --:-- when the time cannot be read. clock_show reads the time once a minute, from a
  * timer due at the next minute, writes the label when the minute shown changes and applies Auto
- * Light Mode's hour; nothing reads the time in between. It runs at once for a new zone
- * (ringnav_timezone), a time set by hand (time_click) and a wake (ringnav_sleep), and on the pass
- * after the bar first paints or paints with a new 24-hour setting (ringnav_paint_bg). ponytail: a
- * network time sync while lit shows at the next minute. */
+ * Light Mode's and Night Shift's hour; nothing reads the time in between. It runs at once for a new
+ * zone (ringnav_timezone), a time set by hand (time_click) and a wake (ringnav_sleep), and on the
+ * pass after the bar first paints or paints with a new 24-hour setting (ringnav_paint_bg).
+ * ponytail: a network time sync while lit shows at the next minute. */
 static void clock_show(void);
 static int clock_due(const void *info) {
     (void)info;
@@ -3240,6 +3247,7 @@ static void clock_show(void) {
     int full = st.clock_full = g_time24h_flag != 0;
     accent(); /* reads Light Mode */
     light_apply(ok ? tm : (void *)0);
+    night_clock(ok && !light_day(tm));
     st.clock_timer = timer_add(clock_due, (void *)0, ok ? (60u - (unsigned)tm[0]) * 1000u : 60000u);
     unsigned key = ok ? ((unsigned)(tm[2] * 60 + tm[1]) + 1) | (unsigned)full << 11
                       : ~0u; /* 0 before the first */
