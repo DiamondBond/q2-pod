@@ -337,6 +337,7 @@ int addon_m3u_dir(const char *dir, void *dq) {
         const char *p = P(r, REC_PATH);
         if (p && listed(p)) _deque_push_back(kept, r);
     }
+    deque_clear(dq);
     deque_assign(dq, kept);
     deque_destroy(kept);
     return (int)deque_size(dq);
