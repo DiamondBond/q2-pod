@@ -1887,7 +1887,7 @@ static void load(void) {
         n = (int)deque_size(cf.scoped == RATED_ALBUMS ? cf.stock : cf.albums);
     else if (cf.stock)
         n = (int)deque_size(cf.stock);
-    else if (!*(volatile int *)SCAN_THREAD || *(volatile int *)SCAN_DONE) {
+    else if (!library_scanning()) {
         cf.stock = staged(albums, 0, &n);
         if (n > 0) cf.stock = music_albums(split(cf.stock));
         cf.albums_gen = gen;
@@ -2700,3 +2700,7 @@ int coverflow_home(void *win, void *ctx) {
     coverflow_home_layout();
     return result;
 }
+
+/* A library scan is running: its thread has started and not finished. Card apps (addon.c) wait for
+ * it as Coverflow does, since the scan rewrites the records and directory lists they would read. */
+int library_scanning(void) { return *(volatile int *)SCAN_THREAD && !*(volatile int *)SCAN_DONE; }
