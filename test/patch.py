@@ -5377,7 +5377,7 @@ m=playlist_hold(); m.press(7100); assert m.hold()==11 and m.release()==0
 m.word(syms['p_deque_playlist'],m.deque([m.song('Other',4)])); m.pick(3); m.advance(0)
 assert not [o for o in m.opened if o[0]=='localmusic/playlistsmore_page']; passed()  # the list changed: nothing
 m=playlist_hold(1); m.word(O['PLAYLIST_ADD_MODE'],1); m.press(7300)
-m.hold(); assert not [o for o in m.opened if o[0]=='localmusic/playlistsmore_page']; passed()
+assert m.hold()!=11 and not [o for o in m.opened if o[0]=='localmusic/playlistsmore_page']; passed()
 for count in (0,1):
     m=PlaylistEditMachine(count); m.open_editor(); before=m.order()
     m.move(O['KEY_BACK_BTN']); m.move(); assert m.order()==before

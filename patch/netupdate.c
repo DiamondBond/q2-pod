@@ -793,9 +793,12 @@ static void sh_rows(void) {
 }
 
 /* Streaming → Configuration's Erase Spotify Data (navigation.c): with start, Spotify's login and
- * cache erased on this thread, unless a job is running; whether an erase is running. */
+ * cache erased on this thread, unless a job is running (a check stops, as an App Store row's press
+ * stops it, so the next press acts); whether an erase is running. */
 int shelf_erase(int start) {
-    if (start && sh.job)
+    if (start && sh.job == JOB_CHECK)
+        sh.cancel = 1, toast("Stopped checking for updates");
+    else if (start && sh.job)
         toast("Wait for the one in progress");
     else if (start)
         sh_start(JOB_ERASE, -1);
@@ -807,7 +810,7 @@ int shelf_erase(int start) {
  * API requests an hour. */
 int shelf_open(void *ctx, void *event) {
     if (sh.page || !(sh.page = page_open("apps_page", sh_closed, page_keyup))) return 0;
-    if (!sh.job && !shelf_n) {
+    if (sh.job != JOB_CHECK && !shelf_n) { /* an erase can run from Configuration before it opens */
         unsigned n = 0;
         char *list = read_all(SH_LIST, 1u << 16, &n);
         shelf_n = shelf_sources(list, apps, SH_MAX);

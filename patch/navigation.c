@@ -6563,7 +6563,7 @@ static int svc_toggle(int i) {
  * already stopped is left as it is. */
 static int sc_click(void *ctx, void *event) {
     int i = (int)(long)ctx;
-    st.sc_armed = i == 2 && !st.sc_armed;
+    st.sc_armed = i == 2 && !st.sc_armed && !shelf_erase(0); /* erasing: says to wait */
     if (i == 2 && !st.sc_armed) shelf_erase(1);
     sc_text(2);
     if (i > 4) return svc_toggle(i - 5);
@@ -6577,6 +6577,7 @@ static int sc_click(void *ctx, void *event) {
         toast("Streaming stopped");
         return 0;
     }
+    if (i == 1 && shelf_erase(0)) return toast("Wait for the one in progress"), 0; /* it rm -rfs */
     char path[48], tmp[52], s[8];
     int n = tk_snprintf(s, sizeof s, "%uM", 512u << (stream_cache(i) + 1) % 5);
     tk_snprintf(path, sizeof path, "%s/.cache-size", sc_dirs[i]);
@@ -8654,8 +8655,10 @@ static int qm_hold(void) {
     int cur = reconcile(&g_menu, !moving(&g_menu));
     if (cur < 0) return 0;
     /* A playlist row's hold queues its songs; More… opens the page its trailing dots do. The Add
-     * to Playlist picker shares playlist_page's name; its add mode tells the two apart. */
-    if (!tk_strcmp(name, "playlist_page") && !I(PLAYLIST_ADD_MODE, 0)) {
+     * to Playlist picker shares playlist_page's name and keeps stock's hold: its add mode tells
+     * the two apart, as the showlist under it is another page's. */
+    if (!tk_strcmp(name, "playlist_page") && I(PLAYLIST_ADD_MODE, 0)) return 0;
+    if (!tk_strcmp(name, "playlist_page")) {
         /* The row's index counts Import and Export; its dots' name carries the playlist's. */
         void *more = more_image(g_menu.at[cur]), *lists = P(p_deque_playlist, 0);
         unsigned at = (unsigned)atoi(more ? widget_get_prop_str(more, "name", "") + 8 : "-1");
