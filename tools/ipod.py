@@ -527,6 +527,9 @@ def playing_stock(data):
     mode[1] = [375 - fav[1][0] - fav[1][2], *fav[1][1:]]
     mode[2]['draw_type'] = 'center'
     for key in [k for k in mode[2] if k.endswith(('x_offset', 'y_offset'))]: del mode[2][key]
+    # The heart's ink sits high in its bitmap (weighted centre 11 px of 28, the play modes' 13-14), so
+    # it drops 3 px to sit level with the play mode by eye.
+    fav[1] = [fav[1][0], fav[1][1] + 3, *fav[1][2:]]
     # The progress bar is the iPod page's (np_slider), so it takes the accent and Theme, where stock's
     # images drew theirs: its 82 px box's middle, 6 px down.
     bar = named['slider_play']

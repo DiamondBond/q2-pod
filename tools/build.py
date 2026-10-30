@@ -659,6 +659,12 @@ def bold_font():
     sub.populate(unicodes=have)
     sub.subset(font)
     check(sorted(font.getBestCmap()) == have, 'Bold font subset lost characters')
+    # A subset is an OFL Modified Version: it may not carry the Reserved Font Name "Liberation" (its
+    # names, not the copyright and trademark notices, IDs 0 and 7)
+    for rec in font['name'].names:
+        if rec.nameID in (1, 3, 4, 6, 16, 17, 18, 21, 22):
+            rec.string = str(rec).replace('Liberation Sans', 'Q2 Pod Sans').replace('LiberationSans', 'Q2PodSans')
+            check('Liberation' not in str(rec), f'Bold font name {rec.nameID} keeps Liberation')
     out = io.BytesIO()
     font.save(out, reorderTables=False)
     runs = []
@@ -1343,7 +1349,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
-                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, playing_stock)
+                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, PLAYING_PAGE, playing_stock)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
@@ -1648,7 +1654,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
         icons['default_album_home.png'] = ('default_album_big.png', art)
         icons['default_album_flow.png'] = ('default_album_big.png', sized_art(art, 160))
     ui = 'release/assets/default/raw/ui/'
-    pages = {ui+PLAYING_STOCK: (ui+'playing_page.bin', playing_stock(cat(ui+'playing_page.bin')))} if ipod else {}
+    pages = {ui+PLAYING_STOCK: (ui+'playing_page.bin', english_ui(PLAYING_PAGE, playing_stock(cat(ui+'playing_page.bin'))))} if ipod else {}
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()}, **pages,
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),

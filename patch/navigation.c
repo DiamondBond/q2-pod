@@ -3751,13 +3751,15 @@ static void lyric_poll(void) {
         unsigned at = (unsigned)time_now_ms();
         if (!st.lyric_push || at - st.lyric_push_at > LYRIC_PUSH_MS) {
             lyric_pad(lrc);
-            st.lyric_push = 0;
-            st.lyric_home = st.lyric_glide ? st.lyric_to : I(lrc, SCROLL_Y) * 16;
+            st.lyric_push = 0; /* a nudge still held keeps its home: no walking off tick by tick */
+            if (st.lyric_spun != 2)
+                st.lyric_home = st.lyric_glide ? st.lyric_to : I(lrc, SCROLL_Y) * 16;
         }
         st.lyric_push_at = at;
         st.lyric_push += travel;
-        if (st.lyric_push > -LYRIC_PUSH_DETENTS * WHEEL_TICK_UNITS &&
-            st.lyric_push < LYRIC_PUSH_DETENTS * WHEEL_TICK_UNITS) {
+        /* the clicks Wheel Sensitivity makes: fewer raw units each as it rises */
+        int push = LYRIC_PUSH_DETENTS * WHEEL_TICK_UNITS * 50 / wheel_pct();
+        if (st.lyric_push > -push && st.lyric_push < push) {
             st.last_input = at;
             reset_poweroptions_timer(1, 1, 1);
             /* x rises anticlockwise: back up the lyrics */
@@ -5921,7 +5923,8 @@ static void *qm_collect(void *r) {
 static void qm_insert(void *queue, void *add, int next) {
     unsigned at = playback_queue_insert(queue, add, next);
     if (next) {
-        st.qm_forced = MCL(MCL_MODE) == 2 ? at + 1 : 0;
+        /* stock Shuffle's only: advanced Shuffle Songs (also MCL_MODE 2) plays its own order */
+        st.qm_forced = MCL(MCL_MODE) == 2 && !playback_option(0) ? at + 1 : 0;
         st.qm_forced_hash = rec_hash(deque_at(queue, at));
     }
 }
@@ -7329,7 +7332,9 @@ static void scrobble_auto(void) {
         now - sa.check_at < 60000)
         return;
     sa.check_at = now; /* Wi-Fi at most once a minute; the card's settings only on Wi-Fi */
-    if (get_wifisignal() <= 0) return;
+    /* not while a computer has the card. ponytail: one already uploading when the cable goes in
+     * still rewrites the log at its end; join it in ringnav_usbmode if that ever bites. */
+    if (get_wifisignal() <= 0 || navigator_window_is_exist("usbmode_page")) return;
     int started = scrobble_flag("AUTO") ? scrobble_start() : -1;
     if (started > 0)
         sa.running = 1;

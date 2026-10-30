@@ -302,6 +302,11 @@ def validate_assets(directory):
     if ipod:  # Classic's bold ships, cut to what BOLD_RANGES lists
         from build import BOLD_TTF, bold_font
         assert read('rootfs.squashfs', BOLD_TTF) == bold_font()[0]
+        # Centred Now Playing's page is English, as the iPod page is (english_ui)
+        from build import CJK
+        from ipod import PLAYING_STOCK
+        stock_page = decode(read('rootfs.squashfs', 'release/assets/default/raw/ui/' + PLAYING_STOCK))
+        assert not any(CJK.search(n[2].get('text', '')) for n in walk(stock_page))
     # Curly quotes draw the straight glyphs and ♡ takes ♥'s box and advance; other tables keep their
     # stock bytes (head: its checksum).
     from build import QUOTES
