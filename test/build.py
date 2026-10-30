@@ -119,7 +119,7 @@ def validate_assets(directory):
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
-                      patch_asset, patch_code, patch_style, style_props, SLIDE, HOME_CARDS, card_art)
+                      patch_asset, patch_code, patch_style, style_props, SLIDE)
     manifest = json.loads((directory/'manifest.json').read_text())
     stock = (directory/'stock-demo').read_bytes()
     demo = (directory/'demo').read_bytes()
@@ -178,7 +178,7 @@ def validate_assets(directory):
     patched_ui = set(UI_ASSETS)
     assert set(changed) == {ui+p for p in patched_ui | chinese} | {
         'release/assets/default/raw/styles/'+p for p in AUDIT['styles']} | {
-        xx+n for n in [*SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS, *HOME_CARDS]} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C, *WEB}
+        xx+n for n in SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C, *WEB}
     master = (ROOT/'assets/icons/default_album_home.png').read_bytes()
     for name, size in ART_PLACEHOLDERS.items():
         old, new = read('stock.squashfs', xx+name), read('rootfs.squashfs', xx+name)
@@ -194,9 +194,9 @@ def validate_assets(directory):
     flow = read('rootfs.squashfs', xx+'default_album_flow.png')
     assert flow == sized_art(master, 160) and png_header(flow) == (160, 160, 8, 6)
     assert read('rootfs.squashfs', xx+'default_album_home.png') == master
-    # Home: Carousel's cards in the accent's tones, stock's in place, Coverflow's and the Shortcut's added.
+    # Home: Carousel's cards in their own colours, stock's untouched, Coverflow's and the Shortcut's added.
     for name in ICONS:
-        assert read('rootfs.squashfs', xx+name) == card_art((ROOT/'assets/icons'/name).read_bytes()), name
+        assert read('rootfs.squashfs', xx+name) == (ROOT/'assets/icons'/name).read_bytes(), name
     tag_old, tag_new = read('stock.squashfs', TAG_C), read('rootfs.squashfs', TAG_C)
     assert tag_new == patch_m4b_cover(tag_old)
     assert changed[TAG_C] == dict(original_sha256=sha(tag_old), sha256=sha(tag_new))
@@ -370,7 +370,7 @@ def validate_assets(directory):
         off = [sum(a*(i % w if axis else i // w) for i, a in enumerate(alpha))/sum(alpha) - ((w if axis else h)-1)/2 for axis in (1, 0)]
         assert max(map(abs, off)) < 0.5, (rel, off)
     # The carousel's images stay (and its arrows); the Coverflow and Shortcut cards' are added.
-    assert {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS + HOME_CARDS + ['menu_left.png', 'menu_right.png']} <= names
+    assert {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS + ['menu_music.png', 'menu_left.png', 'menu_right.png']} <= names
     # Colours the firmware will paint (inline style props, else the theme entry for the widget's style):
     # no screen may gain a light background or border, or dark text, that stock did not already paint.
     def palette(path):
@@ -468,7 +468,6 @@ def validate_assets(directory):
             elif name in QUIET_ICONS:
                 assert sha(original)==QUIET_ICONS[name] and new==quiet_icon(name,original)
                 assert png_header(new)==(28,28,8,6)
-            elif name in HOME_CARDS: assert new==card_art(original) and png_header(new)==(190,190,8,6)
             else: assert name in SETTINGS_ICONS and new==settings_icon(name,original)
             continue
         short = rel.split('/raw/ui/')[1]

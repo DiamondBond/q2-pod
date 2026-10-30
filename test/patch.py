@@ -7746,7 +7746,7 @@ assert light_image({},'scover_wait0',False)==bytes([0xff]*4)+bytes(4); passed()
 assert light_image({'LIGHT':'1'},'file:///tmp/coverpic.jpg',False)[:4]==bytes([0xff]*4); passed()
 
 # Images: decoded 32-bit theme bitmaps are mapped in place before stock caches them; covers by
-# path or URL, Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
+# path or URL, Home: Carousel's cards, Crimson and other formats are left alone. bitmap_t w @0, h @4, line_length @8, format @0xe.
 def image(config,name,fmt=3):
     m=Machine(); m.config=config; m.handlers[tramp['image']]='stock_image'
     bm=m.alloc(0x60); data=m.alloc(64)
@@ -7760,7 +7760,8 @@ hi=ACCENTS[0][3]; want=bytes([hi&255,hi>>8&255,hi>>16,0x80])+bytes([0x80,0x80,0x
 assert image({},'switch_on')==[want,want]; passed()
 stock=bytes([0x48,0x14,0xff,0x80,0x80,0x80,0x80,0xff])+b'\xee'*4
 for config,name,fmt in (({'ACCENT':'1','THEME':'1'},'switch_on',3),({},'file:///tmp/coverpic.jpg',3),({},'/mnt/mmc/a/cover.jpg',3),
-                        ({},'https://resources.tidal.com/images/a/320x320.jpg',3),({},'switch_on',5)):
+                        ({},'https://resources.tidal.com/images/a/320x320.jpg',3),({},'switch_on',5),
+                        ({},'menu_music',3),({'THEME':'1','ACCENT':'4'},'menu_coverflowdown',3),({'LIGHT':'1'},'menu_folder',3)):  # Home: Carousel's cards
     assert image(config,name,fmt)==[stock,stock],(config,name,fmt); passed()
 
 # Artwork is rounded before caching, including the cached opacity flag. Straight RGB and row

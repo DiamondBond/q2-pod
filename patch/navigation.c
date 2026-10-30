@@ -4473,6 +4473,11 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
                        GLYPH_LIGHT_MAX)
         glyph = CONFIRM_SURFACE;
     while (s && *s && *s != '/' && *s != ':') ++s;
+    /* Home: Carousel's cards keep stock's colours in every Theme, accent and Light Mode; its white
+     * arrows (menu_left, menu_right) still flip in Light Mode, or they vanish on the paper */
+    if (s && !*s && tk_str_start_with(name, "menu_") && tk_strcmp(name, "menu_left") &&
+        tk_strcmp(name, "menu_right"))
+        s = (void *)0;
     /* Minimal: the codec badges (img_flac, img_mp3, ...: red with the name cut out) take the
      * secondary text's grey, legible on the black list and on the selected row's off-white card. */
     if (s && !*s && tk_str_start_with(name, "img_") && tk_strcmp(name, "img_delete") &&

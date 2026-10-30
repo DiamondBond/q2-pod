@@ -729,20 +729,6 @@ def row_icon(data):
                        *PNG_OUT, data=data)
 
 
-# Home: Carousel's cards (stock's six, menu_<card> and pressed menu_<card>down, and Coverflow's and the
-# Shortcut's from assets/icons) in the accent: the art by its lightness, black through stock red to
-# white, so every pixel is the red/neutral blend ringnav_image_add maps to the accent's tones (Crimson
-# keeps stock red). CARD_GAMMA lifts the dark rings round the cards so they still show; tuned by eye.
-HOME_CARDS = [f'menu_{c}{s}.png' for c in ('playing', 'music', 'folder', 'stream', 'playset', 'sysset') for s in ('', 'down')]
-CARD_GAMMA = '1.25'
-
-
-def card_art(data):
-    return imagemagick('png:-', '-colorspace', 'gray', '-gamma', CARD_GAMMA, '-channel', 'RGB',
-                       '(', '-size', '1x3', 'xc:black', f'xc:#{inc("STOCK_RED"):06x}', 'xc:white', '-append', ')',
-                       '-clut', '+channel', *PNG_OUT, data=data)
-
-
 # Each stock placeholder's replacement size: stock's own, but Now Playing's and the full-screen art's at
 # the art they fill (stock's 188 scaled down there on the device, jagged), and the album grids' at
 # album_children's inset cover (110 less TILE_INSET + TILE_CLEARANCE a side), drawn 1:1 by its scale-down.

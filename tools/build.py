@@ -1348,8 +1348,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
-                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, PLAYING_PAGE, playing_stock,
-                      HOME_CARDS, card_art)
+                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, PLAYING_PAGE, playing_stock)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
@@ -1629,11 +1628,11 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
             src.write_bytes(data)
             p = swap_inode(p, path.encode(), src)
     # New inodes, each with its stock image's metadata: Home's Coverflow and Shortcut card icons (menu_music's,
-    # in the accent like stock's cards), the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's
+    # in their own colours like stock's cards), the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's
     # 52px style) or else a copy of the stock image named (not the copies iPod pre-sizes for Settings), and q2video.
     xx = 'release/assets/default/raw/images/xx/'
     icons = {n: ('menu_musicdown.png' if n.endswith('down.png') else 'menu_music.png',
-                 card_art((ROOT/'assets/icons'/n).read_bytes())) for n in ICONS}
+                 (ROOT/'assets/icons'/n).read_bytes()) for n in ICONS}
     drawn = ('podcasts', 'audiobooks', 'books', 'videos')
     icons.update({f'local_{n}.png': (like, (ROOT/'assets/icons'/f'local_{n}.png').read_bytes() if n in drawn
                                      else cat(xx+like)) for n, like in dict(
@@ -1691,15 +1690,15 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
     assets = ['ui/'+rel for rel in patched_ui + sorted(chinese - set(patched_ui))] + ['strings/en_US.bin']
     assets += ['styles/'+rel for rel in AUDIT['styles']]
     # images changed in place, so each keeps its inode metadata: settings icons pre-sized to the rows'
-    # SET_ICON, the art placeholders and Home: Carousel's cards
-    assets += ['images/'+name for name in [*SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS, *HOME_CARDS]]
+    # SET_ICON and the art placeholders
+    assets += ['images/'+name for name in SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS]
     for rel in assets:
         kind, name = rel.split('/', 1)
         path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)
         original = cat(path)
         data = (relabel(original) if kind == 'strings' else
                 patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
-                (sized_art(art, ART_PLACEHOLDERS[name]) if name in ART_PLACEHOLDERS else card_art(original) if name in HOME_CARDS else
+                (sized_art(art, ART_PLACEHOLDERS[name]) if name in ART_PLACEHOLDERS else
                  status_icon(name, original) if name in STATUS_ICONS else quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else
                 patch_asset(name, original) if name in patched_ui else original)
         if kind == 'ui' and name in chinese:
