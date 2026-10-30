@@ -467,11 +467,6 @@ typedef struct {
     unsigned since;   /* when it began loading or waiting, 0 once done */
     unsigned base;     /* args' bytes before a More…'s cursor: the list's own */
     unsigned id, hash; /* id: the fetch whose reply this level takes; hash: its rows' bytes */
-    /* its replies (the top level's), pages of them; ponytail: up to 640 KB on the top level
-     * (REPLY_MAX each), where copying each page's fields out would keep one */
-    char *buf[ADDON_PAGES];
-    int pages, paging; /* paging: a next page in flight (page_next) */
-    char *f[4 + 6 * ADDON_ROWS * ADDON_PAGES];
     char title[128], note[128], op[16], args[400]; /* args: "\t" and escaped each */
 } lv_t;
 
@@ -483,6 +478,11 @@ static struct {
                  QR code to show at the first answer */
     char term[64], aop[16];
     lv_t *lv; /* ADDON_DEPTH of them, calloc'd */
+    /* The shown reply, the top level's (no other keeps one): pages replies, each realloc'd to its
+     * size, their fields in f (calloc'd with lv), every page's rows in turn; paging: a next page in
+     * flight (page_next). */
+    char *buf[ADDON_PAGES], **f;
+    int pages, paging;
     void *bar[ADDON_ROWS]; /* the shown page's progress bars, bars of them, each's pml permille */
     short pml[ADDON_ROWS];
     int bars;
@@ -491,7 +491,7 @@ static struct {
 static void qr_open(const char *state, const char *title);
 static app_t *app(void) { return &ap.a[pg.a]; }
 static lv_t *top(void) { return &pg.lv[pg.depth - 1]; }
-static const char *cell(const lv_t *l, int i, int k) { return l->f[4 + 6 * i + k]; }
+static const char *cell(int i, int k) { return pg.f[4 + 6 * i + k]; }
 
 /* "\t" and s escaped appended to out (size bytes); 0 when it doesn't fit. */
 static int put(char *out, unsigned size, const char *s) {
@@ -501,7 +501,7 @@ static int put(char *out, unsigned size, const char *s) {
 
 static void fetch(lv_t *l) {
     pg.act = 0;
-    l->paging = 0;
+    pg.paging = 0;
     req_send(app()->browse, l->op, l->args);
     l->id = req.id;
 }
@@ -518,8 +518,8 @@ static int clicked(void *ctx, void *event);
 
 /* Whether row i opens a page (go()): a list, the phone remote's QR page or a folder on the card. Its
  * row has a chevron. */
-static int opens(lv_t *l, int i) {
-    const char *kind = cell(l, i, 0), *uri = cell(l, i, 1);
+static int opens(int i) {
+    const char *kind = cell(i, 0), *uri = cell(i, 1);
     return !strcmp(kind, "list") || !strcmp(kind, "remote") ||
            (!strcmp(kind, "local") && *uri && uri[strlen(uri) - 1] == '/');
 }
@@ -552,24 +552,24 @@ static void progress_row(void *item, long permille) {
     pg.pml[pg.bars++] = (short)(permille < 0 ? 0 : permille > 1000 ? 1000 : permille);
 }
 
-/* A level's replies let go, and any page it waits for. */
-static void drop(lv_t *l) {
-    while (l->pages) free(l->buf[--l->pages]);
-    l->paging = 0;
+/* The shown reply let go, and any page it waits for. */
+static void drop(void) {
+    while (pg.pages) free(pg.buf[--pg.pages]);
+    pg.paging = 0;
 }
 
 /* More…'s arguments in a (n bytes): the list's own and the newest cursor, Q2SPOT/1's last; 0 when
  * they don't fit. */
 static int cursor_args(const lv_t *l, char *a, unsigned n) {
     tk_snprintf(a, n, "%.*s", (int)l->base, l->args);
-    return put(a, n, l->f[3]);
+    return put(a, n, pg.f[3]);
 }
 
 /* The level's next page asked for, as More… would, its reply appended by got(). */
 static void page_next(lv_t *l) {
     char a[sizeof l->args] = "";
     pg.act = 0;
-    if ((l->paging = cursor_args(l, a, sizeof a)))
+    if ((pg.paging = cursor_args(l, a, sizeof a)))
         req_send(app()->browse, l->op, a), l->id = req.id;
 }
 
@@ -577,26 +577,28 @@ static void page_next(lv_t *l) {
  * press does nothing), else More…. */
 static void row(lv_t *l, int i) {
     if (i == l->n) {
-        page_row_detail(pg.view, i, l->paging ? "Loading…" : "More…", "", clicked);
+        page_row_detail(pg.view, i, pg.paging ? "Loading…" : "More…", "", clicked);
         return;
     }
-    void *item = (opens(l, i) ? page_row_detail_into : page_row_detail)(pg.view, i, cell(l, i, 2),
-                                                                        cell(l, i, 3), clicked);
-    if (!strcmp(cell(l, i, 0), "progress") && pg.bars < ADDON_ROWS)
-        progress_row(item, strtol(cell(l, i, 5), 0, 10));
+    void *item = (opens(i) ? page_row_detail_into : page_row_detail)(pg.view, i, cell(i, 2),
+                                                                     cell(i, 3), clicked);
+    if (!strcmp(cell(i, 0), "progress") && pg.bars < ADDON_ROWS)
+        progress_row(item, strtol(cell(i, 5), 0, 10));
 }
 
 static void show(void);
 
 /* Rows from.. added to the shown list in place of its trailing row, the rest left as they are;
  * ringnav_select gives ringnav the new count, so it keeps the selection and the scroll. A reload's
- * row (l->sel) is selected once its page is there, unless the user moved off the trailing row. */
+ * row (l->sel) is selected once its page is there, unless the user moved off the trailing row; once
+ * reached or left it is the selection, so no later page moves it. */
 static void append(lv_t *l, int from) {
     if (!pg.view) return; /* the search box over it: show() draws them all when it closes */
-    int cur = widget_get_prop_int(pg.view, "_ringnav_index", 0), n = l->n + (l->f[3][0] != 0);
-    if (cur == from && l->sel > from) cur = l->sel < n - 1 ? l->sel : n - 1;
+    int cur = widget_get_prop_int(pg.view, "_ringnav_index", 0), n = l->n + (pg.f[3][0] != 0);
+    if (cur == from && l->sel > from) cur = l->sel;
+    if (n && cur >= n) cur = n - 1; /* past an empty last page: its last row */
+    if (cur < n - 1 || !pg.paging || l->sel < cur) l->sel = cur; /* unless still on its way */
     if ((from + 1) * 64 <= I(pg.view, W_H)) { /* page_list shrank a short first page: rebuilt */
-        l->sel = cur;
         show();
         return;
     }
@@ -629,7 +631,7 @@ static void show(void) {
                         clicked);
         if (n > 1) stop_row(1);
     } else {
-        pg.view = page_list(pg.page, pg.page, 0, l->title, n = l->n + (l->f[3][0] != 0), 64);
+        pg.view = page_list(pg.page, pg.page, 0, l->title, n = l->n + (pg.f[3][0] != 0), 64);
         for (int i = 0; i < n; ++i) row(l, i);
     }
     if (n) ringnav_select(pg.view, l->sel < n ? l->sel : n - 1, n);
@@ -655,7 +657,7 @@ static void push(const char *op, const char *args, unsigned base, const char *ti
         --pg.depth;
     }
     lv_t *l = top();
-    drop(l);
+    drop();
     l->n = 0, l->state = K_LOAD;
     pg.lv[pg.depth++] = next;
     show();
@@ -665,7 +667,7 @@ static void push(const char *op, const char *args, unsigned base, const char *ti
  * replies under a pushed one would spare it. */
 static void pop(void) {
     req_cancel();
-    drop(top());
+    drop();
     --pg.depth;
     top()->state = K_LOAD;
     show();
@@ -674,7 +676,9 @@ static void pop(void) {
 /* The finished request: an action's toast, or the top level's rows. */
 static void got(void) {
     lv_t *l = top();
-    char id[12], *head[4], *g[4 + 6 * ADDON_ROWS], *reply = req.buf;
+    char id[12], *head[4], *g[4 + 6 * ADDON_ROWS], *reply = req.buf, *fit;
+    /* its own size, before spot_reply points into it: a full list keeps ADDON_PAGES of them */
+    if (req.fail == REQ_OK && (fit = realloc(reply, req.n + 1))) reply = fit;
     /* The reply's bytes past its id, before spot_reply cuts them: the same as shown, nothing
      * redrawn. */
     unsigned skip = 9, hash = 0;
@@ -705,14 +709,14 @@ static void got(void) {
         } else
             keep_sel(), l->state = K_LOAD, show(); /* the level as the action left it */
     } else if (l->id != req.id) {
-    } else if (l->paging) { /* a next page appended, or the list ends at More… (rows kept) */
+    } else if (pg.paging) { /* a next page appended, or the list ends at More… (rows kept) */
         int from = l->n;
-        l->paging = 0;
+        pg.paging = 0;
         if (ok) {
-            l->buf[l->pages++] = reply, reply = 0;
-            memcpy(l->f + 4 + 6 * from, g + 4, 6 * (unsigned)n * sizeof *g);
-            l->f[3] = g[3], l->n += n;
-            if (!strcmp(g[2], "pages") && g[3][0] && l->pages < ADDON_PAGES) page_next(l);
+            pg.buf[pg.pages++] = reply, reply = 0;
+            memcpy(pg.f + 4 + 6 * from, g + 4, 6 * (unsigned)n * sizeof *g);
+            pg.f[3] = g[3], l->n += n;
+            if (!strcmp(g[2], "pages") && g[3][0] && pg.pages < ADDON_PAGES) page_next(l);
         }
         append(l, from);
     } else if (req.fail == REQ_NOSOCK &&
@@ -733,9 +737,9 @@ static void got(void) {
         pg.again = now + ADDON_LIVE_MS;
         if (l->state != K_READY || hash != l->hash) {
             keep_sel();
-            drop(l);
-            l->buf[0] = reply, l->pages = 1, reply = 0;
-            memcpy(l->f, f, sizeof g); /* l->f holds ADDON_PAGES replies' rows, g one's */
+            drop();
+            pg.buf[0] = reply, pg.pages = 1, reply = 0;
+            memcpy(pg.f, f, sizeof g); /* pg.f holds ADDON_PAGES replies' rows, g one's */
             l->n = n;
             l->hash = hash;
             l->state = K_READY;
@@ -802,17 +806,17 @@ static int go(const void *unused) {
         }
     } else if (l->state != K_READY) {
     } else if (i == l->n) { /* More…, as a level of its own; Loading… does nothing */
-        if (!l->paging && cursor_args(l, a, sizeof a)) push(l->op, a, l->base, l->title);
+        if (!pg.paging && cursor_args(l, a, sizeof a)) push(l->op, a, l->base, l->title);
     } else {
-        const char *kind = cell(l, i, 0), *uri = cell(l, i, 1), *ctx = cell(l, i, 4);
+        const char *kind = cell(i, 0), *uri = cell(i, 1), *ctx = cell(i, 4);
         if (!strcmp(kind, "list")) { /* with remote and a local folder, opens()'s pages */
-            if (!ctx[0] || put(a, sizeof a, ctx)) push(uri, a, strlen(a), cell(l, i, 2));
+            if (!ctx[0] || put(a, sizeof a, ctx)) push(uri, a, strlen(a), cell(i, 2));
         } else if (!strcmp(kind, "action"))
             action(uri, ctx);
         else if (!strcmp(kind, "remote"))
             qr_open(app()->state, app()->name);
         else if (!strcmp(kind, "local")) /* a song, or a folder of them, on the card */
-            songs_open(uri, cell(l, i, 2), !strcmp(ctx, "album"));
+            songs_open(uri, cell(i, 2), !strcmp(ctx, "album"));
         else if (!strcmp(kind,
                          "search")) { /* peq_ui.c's T9 edit over the title, its keyboard open */
             keep_sel();
@@ -871,8 +875,9 @@ static int closed(void *ctx, void *event) {
     stop_timer(&pg.timer);
     stop_timer(&pg.go);
     stop_timer(&pg.leave);
-    while (pg.depth) drop(&pg.lv[--pg.depth]);
+    drop();
     free(pg.lv);
+    free(pg.f);
     memset(&pg, 0, sizeof pg);
     return 0;
 }
@@ -884,7 +889,9 @@ int addon_open(void *ctx, void *event) {
     int k = (int)(long)ctx;
     if (k < 0 || k >= ap.shown || pg.page || !(pg.lv = calloc(ADDON_DEPTH, sizeof *pg.lv)))
         return 0;
-    if (!(pg.page = page_open("addon_page", closed, keyup))) return free(pg.lv), pg.lv = 0, 0;
+    if (!(pg.f = calloc(4 + 6 * ADDON_ROWS * ADDON_PAGES, sizeof *pg.f)) ||
+        !(pg.page = page_open("addon_page", closed, keyup)))
+        return free(pg.lv), free(pg.f), pg.lv = 0, pg.f = 0, 0;
     pg.a = ap.order[k];
     app_t *a = app();
     int missing = access(a->bin, 0);
@@ -908,8 +915,8 @@ int addon_hold(void *w) {
     lv_t *l = pg.page && w == pg.page ? top() : 0;
     int i = l && l->state == K_READY && pg.view ? widget_get_prop_int(pg.view, "_ringnav_index", -1)
                                                 : -1;
-    if (i < 0 || i >= l->n || !cell(l, i, 5)[0] || !strcmp(cell(l, i, 0), "progress")) return 0;
-    action(cell(l, i, 5), cell(l, i, 4));
+    if (i < 0 || i >= l->n || !cell(i, 5)[0] || !strcmp(cell(i, 0), "progress")) return 0;
+    action(cell(i, 5), cell(i, 4));
     return 1;
 }
 

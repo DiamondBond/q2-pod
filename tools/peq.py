@@ -55,6 +55,7 @@ LIBC = {
     'strlen': ('unsigned', 'const char *'),
     'fputs': ('int', 'const char *, void *'),
     'calloc': ('void *', 'unsigned, unsigned'),
+    'realloc': ('void *', 'void *, unsigned'),  # addon.c got: a kept reply to its size
     'free': ('void', 'void *'),
     'memmove': ('void *', 'void *, const void *, unsigned'),
     'pow': ('double', 'double, double'), 'cos': ('double', 'double'),

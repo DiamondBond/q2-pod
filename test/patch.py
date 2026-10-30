@@ -96,9 +96,10 @@ class Machine:
                   'fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0',  # blob_io's sync before rename
                   'fopen@GLIBC_2.2', 'opendir@GLIBC_2.0', 'readdir@GLIBC_2.0',
                   'closedir@GLIBC_2.0', 'pthread_mutex_lock@GLIBC_2.0',
-                  'pthread_mutex_unlock@GLIBC_2.0', 'calloc@GLIBC_2.0',
+                  'pthread_mutex_unlock@GLIBC_2.0', 'calloc@GLIBC_2.0', 'realloc@GLIBC_2.0',
                   'strdup@GLIBC_2.0')  # no /proc/mounts: the boot logo's poll sees no card
         self.word(0xa2638c,0x1000010); self.handlers[0x1000010]='scope_free'
+        self.resized=[]  # the bytes each realloc kept
         self.scope_tree={}; self.scope_markers=set(); self.scope_handles={}
         self.present=set()  # paths access finds (the UI loop's Spotify poll asks for its login)
         self.stats={}  # paths stat finds, with their mtime (songs on the card: a card app's)
@@ -255,6 +256,8 @@ class Machine:
         elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
         elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
         elif name=='calloc@GLIBC_2.0': ret=0 if getattr(self,'fail_calloc',False) else self.alloc(a*b)
+        elif name=='realloc@GLIBC_2.0':  # moved, as glibc may, the old block spoilt
+            kept=bytes(self.u.mem_read(a,b)); ret=self.alloc(b); self.u.mem_write(ret,kept); self.u.mem_write(a,b'\xff'*b); self.resized.append(kept)
         elif name=='strdup@GLIBC_2.0': ret=self.string(self.text(a))
         elif name=='scope_free': ret=0
         elif name=='opendir@GLIBC_2.0':
@@ -10957,6 +10960,46 @@ assert len(s.rows())==501 and s.labels()[-2:]==['More…',''] and s.requests[-1]
 s.pick(500); s.answer('ok','pages','c11',arts(10,30)); assert s.requests[-1]==('downloads','c10')
 s.answer('error','Server down','',[]); assert s.requests[-1]==('downloads','c11') and len(s.rows())==31 and s.labels()[-2:]==['More…','']
 t=len(s.threads); s.advance(2000); assert len(s.threads)==t; passed()
+# A page kept holds its own size, its bytes and their NUL: realloc'd before its fields are cut (the mock moves it
+# and spoils the old block), not the request's 64 KB.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.resized.clear(); s.answer('ok','pages','c1',arts(0)); s.answer('ok','pages','',arts(1,3))
+assert [k[:9] for k in s.resized]==[b'Q2SPOT/1\n']*2 and s.resized[0].endswith(b'\tar-49\tplayartist\n\0') and s.resized[1].endswith(b'\tar-52\tplayartist\n\0'),s.resized
+assert s.labels()[1]=='Artist 000' and s.labels()[-2:]==['Artist 052',''],s.labels(); passed()
+# An empty last page (offset paging: 50 rows and a cursor, then none) leaves the selection on the last row, not
+# past the end where the Loading… row was.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',arts(0))
+view=s.find('scroll_view'); s.nodes[view]['_ringnav_index']=50; s.answer('ok','pages','',[])
+assert s.requests[-1]==('downloads','c1') and len(s.rows())==50 and s.labels()[-2:]==['Artist 049','']
+assert s.nodes[view]['_ringnav_index']==49,s.nodes[view]['_ringnav_index']; passed()
+# A reload's row comes back once: a user who moved off the Loading… row meanwhile (to row 10), then onto a later
+# one (row 100), stays there as its page comes, not pulled on toward the old row (120).
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2)
+for k in range(3): s.answer('ok','pages',f'c{k+1}' if k<2 else '',arts(k))
+view=s.find('scroll_view'); s.top=s.page; s.status=s.alloc(0x200); s.nodes[view]['_ringnav_index']=120; s.press(80); assert s.hold()==11
+s.answer('ok','Playing Artist 120','',[]); s.answer('ok','pages','c1',arts(0)); view=s.find('scroll_view'); assert s.nodes[view]['_ringnav_index']==50
+s.nodes[view]['_ringnav_index']=10; s.answer('ok','pages','c2',arts(1)); assert s.nodes[view]['_ringnav_index']==10
+s.nodes[view]['_ringnav_index']=100; s.answer('ok','pages','',arts(2)); assert s.nodes[view]['_ringnav_index']==100,s.nodes[view]['_ringnav_index']; passed()
+# A first page shorter than the screen (page_list sized its view to it) is rebuilt when the next page comes: a new
+# list as tall as the screen allows, the selection kept.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',arts(0,2))
+view=s.find('scroll_view'); h=s.get(view+O['W_H']); s.nodes[view]['_ringnav_index']=1; s.answer('ok','pages','',arts(1))
+new=s.find('scroll_view'); assert new!=view and s.get(new+O['W_H'])>h==3*64 and len(s.rows())==52 and s.nodes[new]['_ringnav_index']==1,(h,s.get(new+O['W_H'])); passed()
+# Pages that come while the search box is open (no list under it) are kept and the next asked for; leaving the box
+# shows them all, the search row still selected.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',[('search','','Search','','','')]+arts(0,49))
+s.pick(0); edit=s.find('edit'); assert edit and not s.find('scroll_view')
+s.answer('ok','pages','c2',arts(1)); assert s.requests[-1]==('downloads','c1') and not s.find('scroll_view')
+s.answer('ok','pages','',arts(2)); assert s.requests[-1]==('downloads','c2') and not s.find('scroll_view')
+f,ctx=s.handler(edit,O['EVT_BLUR']); s.call(address=f,args=(ctx,s.event,0,0),gap=0,count=5_000_000); s.advance(0,clear=False)
+assert not s.find('edit') and len(s.rows())==150 and s.labels()[-2:]==['Artist 149',''] and s.nodes[s.find('scroll_view')]['_ringnav_index']==0; passed()
+# An action sent while a page is on its way takes its place: its reply toasted, the level is asked again from its
+# first page (a new list, not appended to the old one) and paged again, its row selected.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',arts(0))
+view=s.find('scroll_view'); s.top=s.page; s.status=s.alloc(0x200); s.nodes[view]['_ringnav_index']=7; s.press(80); assert s.hold()==11
+s.answer('ok','Playing Artist 007','',[]); assert s.requests[-1]==('playartist','ar-7') and s.toasts[-1][3]=='Playing Artist 007',s.requests[-1]
+s.answer('ok','pages','c1',arts(0)); assert s.requests[-1]==('downloads',) and len(s.rows())==51 and s.labels()[-2:]==['Loading…','']
+s.answer('ok','pages','',arts(1)); view=s.find('scroll_view')
+assert s.requests[-1]==('downloads','c1') and len(s.rows())==100 and s.nodes[view]['_ringnav_index']==7; passed()
 # Back twice to the menu; Phone Remote shows the QR code page from the add-on's status file.
 m.back(); m.answer('ok','refresh','50',[]); m.back(); m.answer('ok','refresh','',SMENU); assert m.labels()==SLABELS
 code=[[(x*7+y*3)%5<2 for x in range(21)] for y in range(21)]
