@@ -266,7 +266,7 @@ static void take(int n) {
     if (xf.ctx == 3) { /* a move turns it on */
         int top = (NS_COOL - NS_WARM) / NS_STEP;
         n = n < 0 ? 0 : n > top ? top : n;
-        if (n == value()) return;
+        if (n == value() && night_on()) return;
         night_set(1, NS_COOL - n * NS_STEP); /* shown at once, saved as the rest (refresh) */
         refresh(1);
         return;

@@ -4,9 +4,11 @@
  * screen's lcd end_frame is night_end: before stock shows a frame, the pixels drawn in it, those
  * whose alpha is not NS_DONE, are warmed and given NS_DONE. Stock's fills and blends write alpha
  * 0xff over an opaque pixel (>= 0xf5; fill_bgra8888_rect @0x6cbf24), so a pixel drawn again is
- * warmed once more and one left alone is never warmed twice. Off puts stock's end_frame back, so
- * nothing runs per frame; the lcd is found again on the next paint after On. The setting is read
- * at boot (playback.c ringnav_bootmode), so a paint reads none. */
+ * warmed once more and one left alone is never warmed twice. ponytail: a fill or image pixel
+ * whose own alpha is exactly NS_DONE (stock's clear path and image_copy keep it) stays unwarmed;
+ * no payload colour has it. Off puts stock's end_frame back, so nothing runs per frame; the lcd
+ * is found again on the next paint after On. The setting is read at boot (playback.c
+ * ringnav_bootmode), so a paint reads none. */
 #include "offsets.inc"
 #include "peq.h"
 #include "stock.h"
@@ -51,12 +53,11 @@ int night_kelvin(void) {
     return ns.kelvin;
 }
 
-/* The frame's new pixels warmed: its rect, when the buffer is laid out as the canvas (a row
- * w pixels), else the whole buffer (the alpha keeps that right). */
+/* The frame's new pixels warmed: its rect, the buffer's rows the canvas's width (stock's 375 x 320
+ * lcd_mem, which the flush thread turns onto /dev/fb0); another layout is left as drawn. */
 static void warm(void *lcd) {
     unsigned *fb = P(lcd, LCD_OFFLINE_FB), w = I(lcd, LCD_W), h = I(lcd, LCD_H);
-    unsigned row = (unsigned)I(lcd, LCD_LINE_LENGTH) / 4, x = 0, y = 0, cols = w * h, rows = 1;
-    if (!fb || (row != w && row != h)) return; /* padded rows: a layout this does not know */
+    if (!fb || (unsigned)I(lcd, LCD_LINE_LENGTH) != 4 * w) return;
     if (ns.built != ns.kelvin) {
         unsigned i = (unsigned)(ns.kelvin - NS_WARM) / NS_STEP;
         for (unsigned v = 0; v < 256; ++v)
@@ -64,27 +65,23 @@ static void warm(void *lcd) {
             ns.b[v] = (unsigned char)((v * ns_blue[i] + 127) / 255);
         ns.built = ns.kelvin;
     }
-    if (row == w) {
-        int rx = I(lcd, LCD_DIRTY), ry = I(lcd, LCD_DIRTY + 4);
-        int rx1 = rx + I(lcd, LCD_DIRTY + 8), ry1 = ry + I(lcd, LCD_DIRTY + 12);
-        rx = rx < 0 ? 0 : rx, ry = ry < 0 ? 0 : ry;
-        rx1 = rx1 > (int)w ? (int)w : rx1, ry1 = ry1 > (int)h ? (int)h : ry1;
-        if (rx1 <= rx || ry1 <= ry) return;
-        x = (unsigned)rx, y = (unsigned)ry;
-        cols = (unsigned)(rx1 - rx), rows = (unsigned)(ry1 - ry);
-    }
-    for (unsigned *line = fb + y * row + x, *last = line + rows * row; line < last; line += row)
-        for (unsigned *p = line, *end = line + cols; p < end; ++p) {
+    int x = I(lcd, LCD_DIRTY), y = I(lcd, LCD_DIRTY + 4);
+    int x1 = x + I(lcd, LCD_DIRTY + 8), y1 = y + I(lcd, LCD_DIRTY + 12);
+    x = x < 0 ? 0 : x, y = y < 0 ? 0 : y;
+    x1 = x1 > (int)w ? (int)w : x1, y1 = y1 > (int)h ? (int)h : y1;
+    if (x1 <= x || y1 <= y) return;
+    for (unsigned *line = fb + y * w + x, *last = fb + y1 * w + x; line < last; line += w)
+        for (unsigned *p = line, *end = line + (x1 - x); p < end; ++p) {
             unsigned c = *p;
             if (c >> 24 != NS_DONE)
                 *p = NS_DONE << 24 | (c & 0xff0000) | ns.g[c >> 8 & 255] << 8 | ns.b[c & 255];
         }
 }
 
-/* The screen's end_frame while on. A canvas_offline draw (a window's snapshot) stays as drawn:
- * shown, it is a new frame's pixels, warmed then. */
+/* The screen's end_frame while on. Window snapshots are drawn on canvas_offline's own lcd, so
+ * they reach this screen as images, warmed when shown. */
 static int night_end(void *lcd) {
-    if (I(lcd, LCD_DRAW_MODE) != LCD_DRAW_OFFLINE) warm(lcd);
+    warm(lcd);
     return ns.end(lcd);
 }
 

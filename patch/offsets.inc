@@ -75,7 +75,6 @@
 #define LCD_H 0xb4
 #define LCD_DRAW_MODE 0xcc   /* lcd_begin_frame @0x6472a8 */
 #define LCD_DRAW_NORMAL 0    /* 1 a window animation's */
-#define LCD_DRAW_OFFLINE 4   /* canvas_offline_begin_draw @0x63a480 */
 #define LCD_DIRTY 0xf8       /* the frame's rect, x y w h; lcd_begin_frame sets it */
 #define LCD_OFFLINE_FB 0x110 /* the buffer drawn into */
 #define LCD_LINE_LENGTH 0x124
