@@ -388,6 +388,19 @@ def plain_slider(props, track, fill, bar):
     return props
 
 
+def np_slider(slider, x, cy, w, h):
+    """Now Playing's progress bar: an h-high plain track centred on row cy in an NP_TOUCH-high slider,
+    the accent's fill and the Theme's height set at runtime (navigation.c np_fill, np_theme)."""
+    slider[1] = [x, cy - NP_TOUCH // 2, w, NP_TOUCH]
+    slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
+    # No thumb: stock skips the dragger only when border_color is clear, else a touch shows its blue.
+    for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
+        slider[2][f'style:{state}:border_color'] = '#00000000'
+    # Stock draws small radii square; the four-pixel line deliberately has square ends.
+    for key in slider[2]:
+        if key.endswith(':round_radius'): slider[2][key] = str(h // 2)  # a capsule, track and fill
+
+
 def playing_page(root):
     named = {n[2].get('name'): n for n in walk(root)}
     check([n[2].get('name') for n in root[3]] == [
@@ -468,16 +481,8 @@ def playing_page(root):
     dots[2].update(anchor_x=f'{375 // 2}px', anchor_y='0px')
     named['image_wait'][1] = [NP_MARGIN + (NP_ART - 54) // 2, NP_TOP + art_y + (NP_ART - 54) // 2, 54, 54]
 
-    slider = named['slider_play']
     x, y, w, h = NP_BAR
-    slider[1] = [x, y + h // 2 - NP_TOUCH // 2, w, NP_TOUCH]
-    slider[2] = plain_slider(slider[2], NP_TRACK, NP_FILL, h)
-    # No thumb: stock skips the dragger only when border_color is clear, else a touch shows its blue.
-    for state in ('normal', 'pressed', 'over', 'disable', 'focused'):
-        slider[2][f'style:{state}:border_color'] = '#00000000'
-    # Stock draws small radii square; the four-pixel line deliberately has square ends.
-    for key in slider[2]:
-        if key.endswith(':round_radius'): slider[2][key] = str(h // 2)  # a capsule, track and fill
+    np_slider(named['slider_play'], x, y + h // 2, w, h)
     for name in ('img_repeata', 'img_repeatb'):
         named[name][1][0] = x
     total = named['label_playlen']
@@ -514,6 +519,19 @@ def playing_stock(data):
           'Unexpected stock cover')
     named['img_cover'][1] = [22, 8, 180, 180]
     named['img_playstate'][1] = [52, 38, 120, 120]
+    # The play mode mirrors the heart: its box, flipped to the right edge, the icon centred in it, not
+    # drawn from the corner 12 px right of the box.
+    fav, mode = named['img_fav'], named['img_playmode']
+    check(fav[1] == [2, 129, 86, 73] and fav[2]['draw_type'] == 'center' and mode[2]['draw_type'] == 'default',
+          'Unexpected stock heart or play mode')
+    mode[1] = [375 - fav[1][0] - fav[1][2], *fav[1][1:]]
+    mode[2]['draw_type'] = 'center'
+    for key in [k for k in mode[2] if k.endswith(('x_offset', 'y_offset'))]: del mode[2][key]
+    # The progress bar is the iPod page's (np_slider), so it takes the accent and Theme, where stock's
+    # images drew theirs: its 82 px box's middle, 6 px down.
+    bar = named['slider_play']
+    check(bar[1] == [50, 208, 290, 82] and bar[2]['style:normal:y_offset'] == '6', 'Unexpected stock progress bar')
+    np_slider(bar, 50, 208 + 82 // 2 + 6, 290, NP_BAR[3])
     return encode(root)
 
 

@@ -4691,6 +4691,24 @@ static void settings_layout(void *w) {
  * drawing on the next paint, and the theme's colors and images once every cached image is dropped
  * and the screen repaints; Home takes its new layout and Streaming label at once (never
  * recreated), and an open Now Playing its progress bar. */
+/* A Theme's preset, applied as it is chosen: Classic is light, Cobalt and square, Minimal dark,
+ * Graphite and rounded; both Split. Light Mode's Auto, the battery and Centred Now Playing are
+ * kept. Only a change is saved. */
+static void setting_put(int *value, int v, const char *key) {
+    if (*value != v) write_int_config(*value = v, "IPOD", key);
+}
+static void theme_preset(void) {
+    int classic = st.classic, buf[11];
+    if (st.light != 2) setting_put(&st.light, classic, "LIGHT");
+    st.light_day = light_day(clock_now(buf));
+    if (classic)
+        setting_put(&st.accent, 4, "ACCENT"); /* Cobalt */
+    else
+        setting_put(&st.minimal_accent, 0, "MINIMAL_ACCENT"); /* Graphite */
+    setting_put(&st.rounded, !classic, "ROUNDED");
+    setting_put(&st.home_full, 0, "HOME");
+}
+
 static int setting_click(void *ctx, void *event) {
     int i = (int)(long)ctx, minimal = !i && !ipod_classic();
     int *value = minimal ? &st.minimal_accent : setting_values[i];
@@ -4720,12 +4738,13 @@ static int setting_click(void *ctx, void *event) {
     else if (i < 7) { /* Smart Awake only needs its toggle drawn, Centred Now Playing the next
                        * open (ringnav_ui_load) */
         if (i == 3) {
+            theme_preset();
             coverflow_home_layout();
             settings_layout(window_manager());
             np_theme();
             keep_selected(st.setting_label[3]);
-            setting_text(0);
-            setting_text(1);
+            for (int k = 0; k < 7; ++k)
+                if (k != 3 && k != 4) setting_text(k); /* the preset's rows */
         }
         np_fill(0);
         image_manager_unload_all(image_manager());
@@ -4831,16 +4850,17 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
 #if IPOD
-    /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing, Smart Awake;
-     * Shortcut. */
-    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8, 7 }, controls[] = { 4 };
+    /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing; Shortcut, Smart
+     * Awake. */
+    static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8 }, controls[] = { 4, 7 };
     static const char *const icons[] = { "system_display",      "playset_covermode",
                                          "system_powermanager", "system_display",
                                          "playset_covermode",   "system_display",
                                          "system_display",      "system_display",
                                          "playset_covermode" };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
-    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 8 : 1; k < n; ++k) {
+    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? sizeof appearance : sizeof controls; k < n;
+         ++k) {
         int i = rows[k];
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);

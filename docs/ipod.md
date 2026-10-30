@@ -113,7 +113,7 @@ Split narrows both menus to `HOME_SPLIT_W` (187, half the screen) and shows the 
 the menus clipped left of it; `default_album_home` without a cover); Full hides the art and
 widens the menus to the screen, their rows to `HOME_FULL_ROW` (375), or `HOME_CLASSIC_ROW` (369)
 in Classic. Minimal's labels keep x 39 and end 33 pixels from the screen edge in Full, `HOME_SPLIT_LABEL_END` (8) before the art in Split, where no corner needs clearing (140 pixels wide). Classic's
-start at `HOME_CLASSIC_TEXT_X` (33) with their existing widths, in Liberation Sans Bold: the build ships it as `fonts/bold.ttf` (`assets/fonts`, OFL), cut to its Latin, Greek, Cyrillic and punctuation, and `bold_label` names it in a label's style while the font has every character of its text (`BOLD_RANGES`, generated from the same cmap), else stock's font, which has CJK. Now Playing's title goes through it too, as its text changes. The chevron moves 15 pixels
+start at `HOME_CLASSIC_TEXT_X` (33) and end `HOME_CLASSIC_LABEL_END` (33) before the row's edge, 10 pixels short of Split's chevron glyph, so the bold "Now Playing" (119 pixels) fits; in Liberation Sans Bold: the build ships it as `fonts/bold.ttf` (`assets/fonts`, OFL), cut to its Latin, Greek, Cyrillic and punctuation, and `bold_label` names it in a label's style while the font has every character of its text (`BOLD_RANGES`, generated from the same cmap), else stock's font, which has CJK. Now Playing's title goes through it too, as its text changes. The chevron moves 15 pixels
 right in Split and 10 in Full, staying clear of the rounded glass, and rides the accent's selection bar alone.
 
 The art is the player's cover once `g_lastcover_url` matches the current queue path, else the
@@ -626,8 +626,11 @@ NPCENTRED`, off; `playset_covermode`): `ringnav_ui_load`, hooked on every window
   (`ui_loader_load_widget_with_parent`), builds the next Now Playing from stock's own page
   (`tools/ipod.py` `PLAYING_STOCK`, `playing_page_stock.bin`, still named `playing_page`), which
   `ringnav_playing` binds by the same widget names; it has no "3 of 12", album line or remaining time,
-  so those stay unbound. Its pages are stock's 225 px column: the lyrics wrap at their rows' width and the
-  visualizer draws at its slide's (`lyrics.c` `ly.w`, `visualizer.c` `PAGE_W`). Then a "Smart Awake" switch (`IPOD KEEPLIT`, off;
+  so those stay unbound. Its art starts 8 px under the status bar, the play mode mirrors the heart
+  (its box flipped to the right edge, centred), and its progress bar is the iPod page's (`np_slider`:
+  plain track, the accent's fill and the Theme's height) where stock's images drew theirs. Its pages are stock's 225 px column: the lyrics wrap at their rows' width and the
+  visualizer draws at its slide's (`lyrics.c` `ly.w`, `visualizer.c` `PAGE_W`). Choosing a Theme loads its preset (`theme_preset`): Classic sets Light Mode on, Cobalt (`ACCENT` 4), square corners and Split, Minimal Light Mode off, Graphite (`MINIMAL_ACCENT` 0), rounded corners and Split; Light Mode's Auto, Battery and Centred Now Playing are kept, and only changed values are saved.
+- Controls, after Shortcut: a "Smart Awake" switch (`IPOD KEEPLIT`, off;
   `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page and a song
   playing, it calls `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there;
   paused, it times out as usual. Enlarged Album Art never opens off the art page: `ringnav_bigcover`

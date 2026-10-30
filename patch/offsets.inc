@@ -232,7 +232,9 @@ static inline int arc_out(int r, int y) {
 #define HOME_CHEVRON_SHIFT 15
 #define HOME_FULL_CHEVRON_SHIFT 10
 #define HOME_CLASSIC_TEXT_X 33
-#define HOME_CLASSIC_LABEL_END (CHEVRON_W - 10)
+/* Labels end 10 px before Split's chevron glyph (x 20 of list_into, HOME_CHEVRON_SHIFT in), 5 px
+ * before Full's, so Liberation Sans Bold's "Now Playing" (119 px) fits Split's row. */
+#define HOME_CLASSIC_LABEL_END 33
 #define NP_BAR_CLASSIC 8
 #define NP_BAR_MINIMAL 4
 #define MINIMAL_FILL 0xeeeeec

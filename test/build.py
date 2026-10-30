@@ -603,6 +603,9 @@ def validate_assets(directory):
             glyph_y = 30 + 6*HOME_ROW + (HOME_ROW - 50) // 2 + 16
             assert 375 - glyph_end >= corner_x(glyph_y, 34 - 16)
             assert inc('HOME_CLASSIC_TEXT_X') >= corner_x(30 + HOME_TOP + 6*HOME_ROW + 9, 20)
+            # Classic's labels stop short of Split's glyph (x 20 to 30 of list_into) and Full's.
+            for row, shift in ((inc('HOME_SPLIT_W'), inc('HOME_CHEVRON_SHIFT')), (inc('HOME_CLASSIC_ROW'), inc('HOME_FULL_CHEVRON_SHIFT'))):
+                assert row - inc('HOME_CLASSIC_LABEL_END') + 5 <= row - inc('CHEVRON_W') + shift + 20
             continue
         if short == STATUS_BAR:  # iPod only: play state left, title between, four icons right
             left, right, *rest = root[3]
