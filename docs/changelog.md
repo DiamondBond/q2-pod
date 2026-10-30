@@ -5,6 +5,8 @@
   - Playlists: holding Play/Pause on a playlist row opens a menu to Play Next, Add to Queue or Shuffle its songs ([#136](https://github.com/DiamondBond/q2-pod/issues/136)). **More…** at its end opens the playlist's More page, which the hold opened before.
   - Streaming: **Erase Spotify Data** moved from the App Store to **Streaming → Configuration**, under Spotify Cache. Press it twice, as before, to delete Spotify's login and cache; Spotify Cache goes back to 2 GB.
   - Now Playing: in Centred Now Playing, tap the lyrics to show them full screen, across the whole width, with the art, title, buttons and progress bar out of the way. Tap again or press Back to return; swiping to another page returns too.
+  - Home: **Display → Appearance → Home** has a third choice, **Carousel**: Shanling's card carousel, with the Pod's cards (Coverflow and your Shortcut among them) in your accent and Theme.
+  - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.
