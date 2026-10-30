@@ -2623,8 +2623,11 @@ int ringnav_music_info(int a, char *info, const char *path) {
  * record, so its title was its file's name and its artist Unknown. As it starts, the playing
  * record and the parsed tags take its file's, read as the library scan reads them
  * (toolsGetMusicInfo): title, artist, album, album artist, track and disc. A record with an album
- * is left, so a song is read once a queue; one without tags keeps its record's. ponytail: Up Next
- * and an app's lists show the songs not yet played by their file names. */
+ * is left, so a card app's song is read once a queue (a card song without an album tag, played from
+ * a list, at each start, as stock reads every folder play's); one without tags keeps its record's,
+ * and a CUE track its sheet's (ringnav_id3_path). ponytail: Up Next and an app's lists show the
+ * songs not yet played by their file names, and an app's list has no Go to rows (Now Playing's
+ * has). */
 static void card_tags(char *id3, const char *path) {
     static const unsigned from[] = { 0x280, 0x100, 0, MUSIC_INFO_ALBUM_ARTIST };
     static const unsigned to[] = { REC_TITLE, REC_ARTIST, REC_ALBUM, REC_ALBUM_ARTIST };
@@ -2632,9 +2635,9 @@ static void card_tags(char *id3, const char *path) {
     void *r = queue_now(&pos, &n);
     const char *album = r ? P(r, REC_ALBUM) : 0;
     char info[0x698] = { 0 };
-    if (I(MCL_TYPE, 0) == 1 || !r || !P(r, REC_PATH) || strcmp(P(r, REC_PATH), path) ||
-        (album && *album) || !tk_str_start_with(path, "/mnt/mmc/") ||
-        toolsGetMusicInfo(0, info, path) != 1)
+    if (I(MCL_TYPE, 0) == 1 || mclGetCueFlag() || !r || !P(r, REC_PATH) ||
+        strcmp(P(r, REC_PATH), path) || (album && *album) ||
+        !tk_str_start_with(path, "/mnt/mmc/") || toolsGetMusicInfo(0, info, path) != 1)
         return;
     for (unsigned k = 0; k < sizeof to / sizeof *to; k++) {
         char *t, **field = (char **)((char *)r + to[k]);

@@ -531,6 +531,7 @@ class Machine:
                 size=a*b; p=self.alloc(size+16); self.allocs[p]=size; ret=p
             else:
                 self.allocs.pop(a,None); ret=0
+        elif name.startswith('one:'): ret=1
         else: ret=0
         self.returns(ret,clobber=True)
     def nested(self,f,*args):
@@ -9872,7 +9873,7 @@ class SpotMachine(BooksMachine):
         if not name.startswith('s:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
         if name=='system': self.systems.append(self.text(a))
-        elif name=='clock_gettime': assert a==1; self.word(b,self.now//1000); self.word(b+4,self.now%1000*1000000)
+        elif name=='clock_gettime': assert a in (1,7); self.word(b,self.now//1000); self.word(b+4,self.now%1000*1000000)
         elif name=='toolsThumbSpecCover':
             self.thumbs.append((self.text(a),self.text(b),c,d)); ret=1 if self.text(a) in self.files else 0
             if ret: self.files[self.text(b)]=bytearray(b'jpeg')
@@ -11279,8 +11280,8 @@ assert not m.systems and m.top!=m.page; passed()
 # playback stopping lets "end" go without pausing.
 class PodMachine(AppMachine):
     app,manifest='podcasts','name=Podcasts\nsearch=Search Podcasts\nqr=0\n'
-    def poll(self,ms=500):  # time() follows the clock
-        self.wms=getattr(self,'wms',0)+ms; self.wall=(86400+self.wms//1000,self.wall[1]); return super().poll(ms)
+    def poll(self,ms=500):  # time() follows the clock, jump on (Wi-Fi setting it); the boot clock is self.now
+        self.wms=getattr(self,'wms',0)+ms; self.wall=(86400+getattr(self,'jump',0)+self.wms//1000,self.wall[1]); return super().poll(ms)
     def hook(self,u,address,size,unused):  # unlink's path read as it is called: a stack buffer
         if self.handlers.get(address)=='unlink@GLIBC_2.0': self.unlinked.append(self.text(u.reg_read(UC_MIPS_REG_A0)))
         return super().hook(u,address,size,unused)
@@ -11299,6 +11300,8 @@ assert not paused(m.poll(61000)) and not unlinked(m); passed()  # cancelled by t
 m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86000\n'); assert paused(m.poll())==1; passed()  # already due
 m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n'); m.poll(); names=m.poll(200000)  # a Standby past it
 assert not paused(names) and unlinked(m)==[SLEEP],(names,unlinked(m)); passed()
+m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n'); m.poll(); m.jump=86400  # Wi-Fi sets the clock a day on
+assert not paused(m.poll()) and not unlinked(m); assert paused(m.poll(61000))==1; passed()  # the time left kept
 # No time, a number too long, or more than a week away (an app's mistake): dropped, nothing paused.
 for bad in (b'until \n',b'until soon\n',b'until 999999999999\n',b'until 9000000\n',b'until 86460s\n'):
     m=pod_sleep(); m.files[SLEEP]=bytearray(bad); names=m.poll()
@@ -11307,9 +11310,11 @@ passed()
 # "end" pauses as the track leaves its last 2 s (each is 225 s here) for the next one, which waits at its
 # start, or starts over (repeat one). Another track picked, or a seek back, waits for that one's end
 # instead: stock refills the same queue for a new one, so a pick looks the same as Next.
-def end_sleep():
+def end_sleep(before=None):  # before: the app's request before "end"
     m=pod_sleep(); m.word(syms['mcl_pdeqplaylist'],m.deque([m.song(n) for n in 'ABC'])); m.word(O['MCL_POS'],0)
-    m.playtime=100; m.files[SLEEP]=bytearray(b'end\n'); assert not paused(m.poll()); return m
+    m.playtime=100
+    if before: m.files[SLEEP]=bytearray(before); m.poll()
+    m.files[SLEEP]=bytearray(b'end\n'); assert not paused(m.poll()); return m
 m=end_sleep(); m.playtime=224; assert not paused(m.poll(5000))
 m.word(O['MCL_POS'],1); m.playtime=0; names=m.poll(); assert paused(names)==1 and unlinked(m)==[SLEEP],names; passed()
 m=end_sleep(); m.playtime=224; assert not paused(m.poll()); m.playtime=0  # repeat one: the same one over
@@ -11327,6 +11332,9 @@ m.word(O['MCL_POS'],1); m.playtime=0; names=m.poll(); assert paused(names)==1 an
 m=end_sleep(); m.play=1; assert not paused(m.poll()) and not unlinked(m)
 m.play=2; m.playtime=224; m.poll(); m.word(O['MCL_POS'],1); m.playtime=0; assert paused(m.poll())==1; passed()
 m=end_sleep(); m.play=1; m.poll(); names=m.poll(3500); assert not paused(names) and unlinked(m)==[SLEEP],names; passed()  # stopped
+# A new request replaces the app's own: a time, then "end", pauses at the end only.
+m=end_sleep(b'until 86460\n'); assert not paused(m.poll(61000)) and not unlinked(m)
+m.playtime=224; m.poll(); m.word(O['MCL_POS'],1); m.playtime=0; assert paused(m.poll())==1; passed()
 
 # Deezer: q2-deezer from the card's .deezer folder. Nothing streams: a press downloads, to Deezer/ on
 # the card, and a song on the card, a local row, plays from it as local music (navigation.c songs_open).
@@ -11377,7 +11385,7 @@ assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['Corporeal - B
 assert [m.text(c[1]) for c in m.calls if c[0]=='toolsLoadDirectory'][-1]==SONGS; passed()
 # The press reads no tags: each song takes its file's as it starts (card_tags, from ringnav_id3_path, after
 # stock copied a library queue's record), the playing record and the parsed tags both, once a queue. A
-# folder play's (stock parses its files) and a song without tags are left.
+# folder play's (stock parses its files), a CUE track's (its sheet's, issue #59) and a song without tags are left.
 assert not reads(),reads()
 q=m.deque([recs[1],recs[0]]); [m.word(r+O['REC_ALBUM'],0) for r in m.items(q)]  # a listing's records
 m.word(syms['mcl_pdeqplaylist'],q); m.word(O['MCL_POS'],0); m.word(O['MCL_TYPE'],0xf001)
@@ -11394,6 +11402,7 @@ m.word(O['MCL_POS'],1); r=m.items(q)[1]; before=tags(r)
 assert parse(f'{SONGS}/{names[0]}')==[f'{SONGS}/{names[0]}'] and tags(r)==before  # no tags: its record's
 m.word(O['MCL_TYPE'],1); assert parse(f'{SONGS}/{names[0]}')==[]  # a folder play
 m.word(O['MCL_TYPE'],0xf001); assert parse(f'{SONGS}/{names[1]}')==[]  # not the playing record's path
+m.mock('mclGetCueFlag',prefix='one:'); assert parse(f'{SONGS}/{names[0]}')==[]; m.mock('mclGetCueFlag')  # a CUE track
 m.music_tags=None; m.handlers[syms['toolsGetMusicInfo']]='toolsGetMusicInfo'; passed()
 # Downloaded Songs (its uri a folder) lists them, newest first, labelled as OpenDeezer names them,
 # and a row plays from it; a song gone from the card says so.
