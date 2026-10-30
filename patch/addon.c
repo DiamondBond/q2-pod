@@ -291,9 +291,12 @@ static int m3u_ready(void) {
     return sm.more || changed(sm.dir) || (sm.want[0] && !access(sm.want, 0));
 }
 
-/* A scan running, or its dialog still open (the user's own Update Local Music too). */
+/* A scan running, or its window still open: the user's own Update Local Music page
+ * (updatemusic_page), whose OK starts one, or its dialog (updatemusic_dialog), which a library
+ * request opens without the page and which stays up after the scan is done. */
 static int scanning(void) {
-    return library_scanning() || navigator_window_is_exist("updatemusic_dialog");
+    return library_scanning() || navigator_window_is_exist("updatemusic_page") ||
+           navigator_window_is_exist("updatemusic_dialog");
 }
 
 static int stream_start(const void *unused) {

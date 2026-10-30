@@ -11391,27 +11391,32 @@ m.word(O['SCAN_THREAD'],1); m.advance(0); assert len(m.plays)==4 and not listed(
 m.word(O['SCAN_THREAD'],0); m.poll(); m.advance(0); assert len(m.plays)==5 and m.play_names==['01 - Scan.flac'],m.play_names
 card_song(X2); m3u(X1,X2); m.word(O['SCAN_THREAD'],1); m.poll()
 assert not listed() and m.names()==['01 - Scan.flac'] and m.files['/tmp/q2-deezer.playing']==f'{X1}\n'.encode(),m.names()
-m.word(O['SCAN_THREAD'],0); m.poll(); assert m.names()==['01 - Scan.flac','02 - Scan.flac'],m.names(); passed()
-# Nor while the scan's dialog (Update Local Music, updatemusic_dialog) is still open once the scan is done: the
-# first song would open Now Playing over it, so it waits, an armed start too, and plays once the dialog closes.
-m.word(O['SCAN_THREAD'],1); m.word(O['SCAN_DONE'],1); M3U=STR+'/dialog.m3u'; m3u(X1); m.open_pages={'updatemusic_dialog'}
-m.files['/tmp/q2-deezer.play']=bytearray(f'2850 {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==5 and not listed()
-m.open_pages=set(); m.poll()  # closed: its start armed
-m.open_pages={'updatemusic_dialog'}; m.advance(0); assert len(m.plays)==5 and not listed()  # opened again first
-m.open_pages=set(); m.poll(); m.advance(0); assert len(m.plays)==6 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
+m.word(O['SCAN_THREAD'],0); m.poll(); assert m.names()==['01 - Scan.flac','02 - Scan.flac'],m.names()
+m.word(O['SCAN_THREAD'],0); m.word(O['SCAN_DONE'],0); passed()
+# Nor while the scan's dialog (Update Local Music, updatemusic_page; a library request's, updatemusic_dialog, opens
+# without the page) is still open once the scan is done: the first song would open Now Playing over it, so it
+# waits, an armed start too, and plays once the dialog closes.
+for seq,win in ((2850,'updatemusic_page'),(2851,'updatemusic_dialog')):
+    n=len(m.plays); m.word(O['SCAN_THREAD'],1); m.word(O['SCAN_DONE'],1); M3U=STR+'/dialog.m3u'; m3u(X1); m.open_pages={win}
+    m.files['/tmp/q2-deezer.play']=bytearray(f'{seq} {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==n and not listed(),win
+    m.open_pages=set(); m.poll()  # closed: its start armed
+    m.open_pages={win}; m.advance(0); assert len(m.plays)==n and not listed(),win  # opened again first
+    m.open_pages=set(); m.poll(); m.advance(0); assert len(m.plays)==n+1 and m.play_names==['01 - Scan.flac'],(win,m.play_names)
+    m.word(O['SCAN_THREAD'],0); m.word(O['SCAN_DONE'],0)
+passed()
 # A .play path too long for sm.dir (160 bytes or more) is refused, never cut: a cut path names another (here
 # a folder of songs), which would play instead. One that fits plays.
 CUTDIR=f'{STR}/{"q"*(159-len(STR)-1)}'; assert len(CUTDIR)==159; m.tree[CUTDIR]=[('01 - Wrong.flac',8)]; m.stats[CUTDIR]=1
 card_song(f'{CUTDIR}/01 - Wrong.flac'); m.files['/tmp/q2-deezer.play']=bytearray(f'2900 {CUTDIR}q.m3u\n'.encode())
-m.poll(); m.advance(0); m.poll(); m.advance(0); assert len(m.plays)==6,m.play_names
+m.poll(); m.advance(0); m.poll(); m.advance(0); assert len(m.plays)==7,m.play_names
 M3U=f'{STR}/{"q"*(159-len(STR)-1-4)}.m3u'; assert len(M3U)==159; m3u(X1)
 m.files['/tmp/q2-deezer.play']=bytearray(f'3000 {M3U}\n'.encode()); m.poll(); m.advance(0)
-assert len(m.plays)==7 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
+assert len(m.plays)==8 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
 # A song that lands while the listing an earlier entry of its folder took is in hand isn't passed over as no song:
 # its folder is listed again on the next poll, and it joins.
 M3U=STR+'/race.m3u'; R1,R2=f'{STR}/r/01 - Early [40].opus',f'{STR}/r/02 - Late [41].opus'; card_song(R1); r2=card_song(R2,listing=False)
 m3u(R1,R2); m.files['/tmp/q2-deezer.play']=bytearray(f'3100 {M3U}\n'.encode()); m.poll(); m.advance(0)
-assert len(m.plays)==8 and m.play_names==['01 - Early [40].opus'],m.play_names
+assert len(m.plays)==9 and m.play_names==['01 - Early [40].opus'],m.play_names
 m.listings[f'{STR}/r'].append(r2); m.poll(); assert m.names()==['01 - Early [40].opus','02 - Late [41].opus'],m.names(); passed()
 # A song playing whose path .playing can't hold (512 bytes or more, added to the queue by hand) leaves it as it was.
 m.word(O['MCL_POS'],0); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{R1}\n'.encode()
