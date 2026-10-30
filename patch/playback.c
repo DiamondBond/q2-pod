@@ -151,8 +151,8 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
  * that pace, and the lift ends it at the far end. A second touch that turns (QS_SLACK) takes it
  * back: stock slides the pull-down, on the release, the way the swipe started it
  * (g_slide_direction, set once as it starts), wherever the finger lifts, so the finger lifts where
- * it is and ringnav_dispatch turns that release's slide back to how the pull-down was (qs_back). Writes are a few dozen bytes a sample,
- * on the encoder thread, only during a gesture.
+ * it is and ringnav_dispatch turns that release's slide back to how the pull-down was (qs_back).
+ * Writes are a few dozen bytes a sample, on the encoder thread, only during a gesture.
  * ponytail: the pace is the first touch's down to the second's, doubled (clamped QS_MIN_MS to
  * QS_MAX_MS), a straight line with no easing; either way across toggles it, as the wheel's x has
  * no known top; gate on the first touch's x once a device trace finds the top. */
@@ -172,7 +172,7 @@ static int qs_left __attribute__((section(".scratch"))),
 static int qs_live __attribute__((section(".scratch"))), qs_from __attribute__((section(".scratch"))),
     qs_to __attribute__((section(".scratch")));
 static unsigned qs_ms __attribute__((section(".scratch")));
-volatile int qs_back __attribute__((section(".scratch")));
+volatile int qs_back __attribute__((section(".scratch"))), qs_down __attribute__((section(".scratch")));
 
 /* One frame of the finger at screen y (upright, x 187): down first, moved, or lifted. */
 static void qs_write(int y, int down, int lift) {
@@ -214,6 +214,7 @@ static void qs_begin(void) {
     qs_from = state ? 310 : 5, qs_to = state ? 0 : 220;
     unsigned ms = 2 * ((unsigned)time_now_ms() - qs_t0);
     qs_ms = ms < QS_MIN_MS ? QS_MIN_MS : ms > QS_MAX_MS ? QS_MAX_MS : ms;
+    qs_back = 0, qs_down = 1;
     qs_write(qs_from, 1, 0);
     qs_live = 1;
     qs_follow();

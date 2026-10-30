@@ -772,20 +772,20 @@ def qs(samples,on=1,state=0):
     info,s,loop,q=m.alloc(0x60),m.alloc(20),m.alloc(0x60),m.alloc(8)
     m.word(info+O['WHEEL_INFO_LOOP'],loop); m.word(loop+O['LOOP_QUEUE'],q); m.u.mem_write(q,struct.pack('<4H',15,15,0,20))
     for gap,x,pr in samples: m.now+=gap; m.word(s,x); m.word(s+8,pr); m.fn('wheel_sample',s,1,info)
-    m.frames.append(('back',m.get(ps['qs_back'])))
+    m.frames.append(('back',m.get(ps['qs_back']))); m.frames.append(('held',m.get(ps['qs_down'])))
     return m.frames
 # 10 and 110, opposite edges (x 0 is no touch): 100 ms down to down is a 200 ms swipe, half of it gone
 # when the second touch lands
 swipe=[(1000,10,1),(40,10,0),(60,110,1),(50,110,1),(100,110,1),(10,110,0)]
-assert qs(swipe)==[('down',5),('move',112),('move',166),('move',220),('move',220),'lift',('back',0)],qs(swipe)
-assert qs(swipe,state=3)==[('down',310),('move',155),('move',78),('move',0),('move',0),'lift',('back',0)],qs(swipe,state=3)  # closes
-assert qs(swipe,on=0)==[('back',0)] and qs(swipe,state=1)==[('back',0)]  # off, or the pull-down sliding
-assert qs([(1000,10,1),(40,10,0),(500,110,1),(10,110,0)])==[('back',0)]  # past QS_GAP_MS
-assert qs([(1000,10,1),(40,40,1),(10,40,0),(60,110,1),(10,110,0)])==[('back',0)]  # the first touch turned
+assert qs(swipe)==[('down',5),('move',112),('move',166),('move',220),('move',220),'lift',('back',0),('held',1)],qs(swipe)
+assert qs(swipe,state=3)==[('down',310),('move',155),('move',78),('move',0),('move',0),'lift',('back',0),('held',1)],qs(swipe,state=3)  # closes
+assert qs(swipe,on=0)==[('back',0),('held',0)] and qs(swipe,state=1)==[('back',0),('held',0)]  # off, or the pull-down sliding
+assert qs([(1000,10,1),(40,10,0),(500,110,1),(10,110,0)])==[('back',0),('held',0)]  # past QS_GAP_MS
+assert qs([(1000,10,1),(40,40,1),(10,40,0),(60,110,1),(10,110,0)])==[('back',0),('held',0)]  # the first touch turned
 t=qs([(1000,10,1),(40,10,0),(60,110,1),(20,140,1),(10,140,0)])
-assert t==[('down',5),('move',112),'lift',('back',1)],t  # the second turned: lifted there, slides back closed
+assert t==[('down',5),('move',112),'lift',('back',1),('held',1)],t  # the second turned: lifted there, slides back closed
 t=qs([(1000,10,1),(40,10,0),(60,110,1),(20,140,1),(10,140,0)],state=3)
-assert t==[('down',310),('move',155),'lift',('back',2)],t  # open: slides back open
+assert t==[('down',310),('move',155),'lift',('back',2),('held',1)],t  # open: slides back open
 checks+=1
 if 'wheel_raw' in ps:  # iPod: while games.c's Vortex sets wheel_raw, nothing ticks and the travel adds up raw
     raw=lambda on: lambda m: m.word(ps['wheel_raw'],on)

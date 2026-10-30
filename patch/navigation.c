@@ -5017,11 +5017,14 @@ int ringnav_dispatch(void *target, void *event) {
         if (target && type == EVT_CLICK && widget_get_prop_int(target, QUICK_HOLD, 0) < 0)
             return STOP;
         /* Wheel QS taken back (playback.c qs_finish): its lift slides the pull-down back to how it
-         * was, ahead of stock's release handler; any touch down drops a stale one. */
-        if (type == EVT_POINTER_DOWN - 1)
+         * was, ahead of stock's release handler; a touch down other than its own finger's (which
+         * may come after the turn) drops a stale one. */
+        if (type == EVT_POINTER_DOWN - 1 && !qs_down)
             qs_back = 0;
-        else if (type == EVT_POINTER_UP_BEFORE - 1 && qs_back)
-            I(g_slide_direction, 0) = qs_back - 1, qs_back = 0;
+        else if (type == EVT_POINTER_UP_BEFORE - 1) {
+            if (qs_back) I(g_slide_direction, 0) = qs_back - 1;
+            qs_back = qs_down = 0;
+        }
         /* Quick Settings' swipe up to close may start on its brightness slider. The slider gets
          * its press only once the touch has moved SLIDE_PX more sideways than up or down, or on a
          * tap's release; a touch that moves up or down first, or while stock slides the pull-down

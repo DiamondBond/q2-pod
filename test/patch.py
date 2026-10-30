@@ -1840,15 +1840,16 @@ assert slider_touch([('down',100,300),('move',103,280)],dialog='backlight_page')
 passed()
 # Wheel QS taken back (playback.c qs_back, the slide plus 1): the release turns the pull-down's slide
 # back (g_slide_direction, which stock set as the swipe started), once; a touch down drops a stale one.
-def qs_release(back,steps):
+def qs_release(back,steps,down=0):
     m=Machine(); dialog=m.node('dialog','statusbar_dialog'); m.top=dialog
-    m.word(payload_syms['qs_back'],back); m.word(syms['g_slide_direction'],7); seen=[]
+    m.word(payload_syms['qs_back'],back); m.word(payload_syms['qs_down'],down); m.word(syms['g_slide_direction'],7); seen=[]
     for typ in steps:
         m.call(187,address=HOOKS['widget_dispatch'][0],args=(dialog,m.event,0,0),event_type=typ,gap=0)
         seen.append(m.get(syms['g_slide_direction'])); m.word(syms['g_slide_direction'],7)
     return seen,m.get(payload_syms['qs_back'])
 assert qs_release(1,[U,U])==([0,7],0) and qs_release(2,[U])==([1],0)  # back closed, back open; once
 assert qs_release(0,[U])==([7],0) and qs_release(1,[D,U])==([7,7],0)  # none, or a real touch since
+assert qs_release(1,[D,U],down=1)==([7,0],0)  # its own finger's touch down, late, keeps it
 passed()
 
 if variant=='ipod':
