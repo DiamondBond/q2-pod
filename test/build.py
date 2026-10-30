@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JPEG checks; optionally pass the stock ZIP to test packaging with a custom logo and quoted paths too."""
 import io, sys; sys.path.insert(0, sys.path[0] + '/../tools')  # tools/ first: test/build.py must import tools/build.py
-from build import jal, j, CAROUSEL, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover, WEB, patch_web, DEFAULT_CONFIG, COVERMODE
+from build import jal, j, ICONS, LABELS, relabel, ROOT, STOCK_EQ, VERSIONS, dev_tag, jpeg_size, FONT, TAG_C, patch_m4b_cover, WEB, patch_web, DEFAULT_CONFIG, COVERMODE
 
 logo = (ROOT/'assets/boot-logo.jpg').read_bytes()
 assert jpeg_size(logo) == (320, 375)
@@ -119,7 +119,7 @@ def validate_assets(directory):
                       QS_LABEL_W, QS_ROW_GAP, QS_PITCH, QS_BAR, QS_TOUCH, QS_EDGE, QS_SUN, HOME_LABEL_END, HOME_LIST_W, HOME_TEXT_X, HOME_TOP, PITCH, ARTIST_PAGE, HOME_PAGE, HOME_ROW, HOME_ROWS, NAVBAR_ONLY, PLAYING_PAGE, SET_ROW, SET_ROWS, SET_TOP, UI_ASSETS,
                       NP_BAR, NP_TOUCH, NP_MARGIN, NP_POS_X, NP_TOP, STATUS_BAR, STATUS_HIDDEN, STATUS_LEFT, STATUS_MARGIN, STATUS_RIGHT, CLOCK_MIN, CLOCK_TEXT, corner_inset, corner_x,
                       STATUS_ICONS, status_icon, QUIET_ICONS, quiet_icon, SET_ICON, SET_STOCK_ICON, SETTINGS_ICONS, SETTINGS_SLIDERS, decode, slider_plain, imagemagick, inc, png_header, settings_icon, walk,
-                      patch_asset, patch_code, patch_style, style_props, SLIDE)
+                      patch_asset, patch_code, patch_style, style_props, SLIDE, HOME_CARDS, card_art)
     manifest = json.loads((directory/'manifest.json').read_text())
     ipod = manifest['variant'] == 'ipod'
     stock = (directory/'stock-demo').read_bytes()
@@ -192,7 +192,7 @@ def validate_assets(directory):
     patched_ui = set(UI_ASSETS if ipod else [ARTIST_PAGE, HOME_PAGE])
     assert set(changed) == {ui+p for p in patched_ui | chinese} | {
         'release/assets/default/raw/styles/'+p for p in (AUDIT['styles'] if ipod else [])} | {
-        xx+n for n in (SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C, *WEB}
+        xx+n for n in ([*SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS, *HOME_CARDS] if ipod else [])} | {'release/assets/default/raw/strings/en_US.bin', FONT, TAG_C, *WEB}
     master = (ROOT/'assets/icons/default_album_home.png').read_bytes()
     for name, size in ART_PLACEHOLDERS.items():
         old, new = read('stock.squashfs', xx+name), read('rootfs.squashfs', xx+name)
@@ -210,6 +210,9 @@ def validate_assets(directory):
         flow = read('rootfs.squashfs', xx+'default_album_flow.png')
         assert flow == sized_art(master, 160) and png_header(flow) == (160, 160, 8, 6)
         assert read('rootfs.squashfs', xx+'default_album_home.png') == master
+        # Home: Carousel's cards in the accent's tones, stock's in place, Coverflow's and the Shortcut's added.
+        for name in ICONS:
+            assert read('rootfs.squashfs', xx+name) == card_art((ROOT/'assets/icons'/name).read_bytes()), name
     tag_old, tag_new = read('stock.squashfs', TAG_C), read('rootfs.squashfs', TAG_C)
     assert tag_new == patch_m4b_cover(tag_old)
     assert changed[TAG_C] == dict(original_sha256=sha(tag_old), sha256=sha(tag_new))
@@ -386,10 +389,8 @@ def validate_assets(directory):
         alpha = imagemagick('png:-', '-alpha', 'extract', '-depth', '8', 'gray:-', data=png)
         off = [sum(a*(i % w if axis else i // w) for i, a in enumerate(alpha))/sum(alpha) - ((w if axis else h)-1)/2 for axis in (1, 0)]
         assert max(map(abs, off)) < 0.5, (rel, off)
-    # iPod drops the carousel images and adds no Coverflow icons; Stock keeps both.
-    icons = {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS}
-    carousel = {'squashfs-root/'+rel for rel in CAROUSEL}
-    assert (carousel & names == (set() if ipod else carousel)) and (icons & names == (set() if ipod else icons))
+    # The carousel's images stay (and its arrows); the Coverflow and Shortcut cards' are added.
+    assert {'squashfs-root/release/assets/default/raw/images/xx/'+n for n in ICONS + HOME_CARDS + ['menu_left.png', 'menu_right.png']} <= names
     # Colours the firmware will paint (inline style props, else the theme entry for the widget's style):
     # no screen may gain a light background or border, or dark text, that stock did not already paint.
     def palette(path):
@@ -487,6 +488,7 @@ def validate_assets(directory):
             elif name in QUIET_ICONS:
                 assert sha(original)==QUIET_ICONS[name] and new==quiet_icon(name,original)
                 assert png_header(new)==(28,28,8,6)
+            elif name in HOME_CARDS: assert new==card_art(original) and png_header(new)==(190,190,8,6)
             else: assert name in SETTINGS_ICONS and new==settings_icon(name,original)
             continue
         short = rel.split('/raw/ui/')[1]
@@ -578,7 +580,7 @@ def validate_assets(directory):
             assert root[3][0][3][1][3][1][2]['text'] == 'Library'  # literal: stock skips label_library
             continue
         if short == HOME_PAGE:  # seven rows with the stock names, beside the art; bytes equal patch_asset above
-            art, (lv, lg, _, [sv]), (sl, sg, sp, [ss]) = root[3]
+            art, (lv, lg, _, [sv]), (sl, sg, sp, [ss]), *carousel = root[3]
             assert lv == 'list_view' and sv[0] == 'scroll_view' and art[2]['name'] == 'img_homeart'
             # The Settings list: stock's Playback and System setting rows (stock binds them; their
             # labels are literal), hidden in the list's place until Home's Settings row slides it in.
@@ -597,7 +599,20 @@ def validate_assets(directory):
                 assert label[2]['only_focus'] == 'true' and label[2]['ellipses'] == 'true'
             assert [r[3][0][2].get('text') for r in sv[3]] == [None, 'Library', 'Coverflow', None, 'Rockbox', None, 'Settings']
             assert lg == [0, HOME_TOP, HOME_LIST_W, 7*HOME_ROW] and HOME_TOP + 7*HOME_ROW <= BOTTOM - HOME_TOP
-            assert b'menu_' not in new and b'slide_menu' not in new
+            # Home: Carousel's: stock's carousel and arrows after the lists, hidden and taking no taps
+            # until chosen (coverflow_home_layout); its cards stock's in their places, Library's label
+            # literal, Coverflow's after it and the Shortcut's after Folder on their own images.
+            stock_root = decode(original)
+            assert [n[2]['name'] for n in carousel] == ['slide_menu', 'img_left', 'img_right']
+            for n, old in zip(carousel, stock_root[3]):
+                assert n[:2] == old[:2] and n[2] == {**old[2], 'visible': 'false', 'sensitive': 'false'}
+            slide = carousel[0]
+            assert [c[2]['name'] for c in slide[3]] == ['btn_'+n for n in ('playing', 'localmusic', 'coverflow', 'folder', 'rockbox', 'stream', 'playset', 'sysset')]
+            assert [c[3][1][2].get('text') for c in slide[3]] == [stock_root[3][0][3][0][3][1][2]['text'], 'Library', 'Coverflow', None, 'Rockbox', None, None, None]
+            for card in slide[3]:
+                image = card[3][0][2]
+                assert {v for k, v in image.items() if k.endswith(':bg_image')} == {'menu_' + image['name'][4:].replace('localmusic', 'music'),
+                                                                                  'menu_' + image['name'][4:].replace('localmusic', 'music') + 'down'}
             dot = inc('HOME_DOT_X'), inc('HOME_DOT')
             assert HOME_TEXT_X == sum(dot) + inc('HOME_DOT_GAP')
             # The dot and the labels clear the bottom row's corner.

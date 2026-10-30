@@ -1159,16 +1159,13 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
 PAYLOAD_WINDOWS = {'playlistedit_page', 'chapters_page', 'coverflow_page', 'photos_page', 'books_page', 'games_page', 'mostplayed_page', 'shuffle_page', 'upnext_page', 'ratings_page', 'era_page', 'era_albums_page', 'rated_page', 'longsongs_page', 'spotify_page',
                    'spotbrowse_page', 'radio_page', 'radionp_page', 'streamconf_page', 'tidal_downloads', 'apps_page',
                    'addon_page', 'app_songs', 'qrcode_page'}
-ICONS = ['menu_coverflow.png', 'menu_coverflowdown.png']
+ICONS = [f'menu_{c}{s}.png' for c in ('coverflow', 'rockbox') for s in ('', 'down')]
 # The stock EQ preset page and the images only it and the stock equalizer page show: the PEQ
 # editor clears that page's widgets on init and never binds the preset button, so none can load.
 STOCK_EQ = ['release/assets/default/raw/ui/playset/preseteq_page.bin'] + [
     f'release/assets/default/raw/images/xx/{n}.png' for n in
     ['eq_bg', 'eq_off', 'eq_sidebg', 'eqbox'] + [f'eq_{p}{s}' for p in
     ('blues', 'classical', 'custon', 'dance', 'jazz', 'metal', 'pop', 'rock', 'scene') for s in ('', '_select')]]
-# iPod: the Home carousel's card and arrow images; only the stock home_page.bin names them.
-CAROUSEL = [f'release/assets/default/raw/images/xx/menu_{n}.png' for n in
-    [*(c + s for c in ('playing', 'music', 'folder', 'stream', 'playset', 'sysset') for s in ('', 'down')), 'left', 'right']]
 # Superseded library versions (the unversioned and soname links already resolve to the newer ones)
 # and on-device debugging tools; nothing in the rootfs names them.
 OBSOLETE = ['usr/lib/libdbus-1.so.3.19.8', *(f'usr/lib/lib{n}-2.0.so.0.5400.3' for n in
@@ -1351,7 +1348,8 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
-                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, PLAYING_PAGE, playing_stock)
+                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, PLAYING_PAGE, playing_stock,
+                      HOME_CARDS, card_art)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
@@ -1630,11 +1628,12 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
             src = out/pathlib.Path(path).name
             src.write_bytes(data)
             p = swap_inode(p, path.encode(), src)
-    # New inodes, each with its stock image's metadata: the Stock build's Coverflow card icons (menu_music's),
-    # the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's 52px style) or else a copy of the stock image named
-    # (not the copies iPod pre-sizes for Settings), and q2video.
+    # New inodes, each with its stock image's metadata: Home's Coverflow and Shortcut card icons (menu_music's,
+    # in the accent like stock's cards), the Local Music and Spotify rows' icons, drawn in assets/icons/ (stock's
+    # 52px style) or else a copy of the stock image named (not the copies iPod pre-sizes for Settings), and q2video.
     xx = 'release/assets/default/raw/images/xx/'
-    icons = {} if ipod else {n: (n.replace('coverflow', 'music'), (ROOT/'assets/icons'/n).read_bytes()) for n in ICONS}
+    icons = {n: ('menu_musicdown.png' if n.endswith('down.png') else 'menu_music.png',
+                 (card_art if ipod else bytes)((ROOT/'assets/icons'/n).read_bytes())) for n in ICONS}
     drawn = ('podcasts', 'audiobooks', 'books', 'videos')
     icons.update({f'local_{n}.png': (like, (ROOT/'assets/icons'/f'local_{n}.png').read_bytes() if n in drawn
                                      else cat(xx+like)) for n, like in dict(
@@ -1675,7 +1674,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
         p = p[:at]+entry+p[at:]
         added.append([path, b'R', *stock.groups()])
     removed = []
-    for path in STOCK_EQ + OBSOLETE + (CAROUSEL if ipod else []):
+    for path in STOCK_EQ + OBSOLETE:
         line = re.search(rb'^'+re.escape(path.encode())+rb' R .+\n', p, re.M)
         check(line is not None, f'Missing stock inode {path}')
         removed.append(line.group().split()[:6])
@@ -1696,13 +1695,14 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
         # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
         assets += ['images/'+name for name in SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS]
         assets += ['images/'+name for name in ART_PLACEHOLDERS]
+        assets += ['images/'+name for name in HOME_CARDS]
     for rel in assets:
         kind, name = rel.split('/', 1)
         path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)
         original = cat(path)
         data = (relabel(original) if kind == 'strings' else
                 patch_style(original, AUDIT['styles'][name]) if kind == 'styles' else
-                (sized_art(art, ART_PLACEHOLDERS[name]) if name in ART_PLACEHOLDERS else
+                (sized_art(art, ART_PLACEHOLDERS[name]) if name in ART_PLACEHOLDERS else card_art(original) if name in HOME_CARDS else
                  status_icon(name, original) if name in STATUS_ICONS else quiet_icon(name, original) if name in QUIET_ICONS else settings_icon(name, original)) if kind == 'images' else
                 patch_asset(name, original, ipod) if name in patched_ui else original)
         if kind == 'ui' and name in chinese:

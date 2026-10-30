@@ -473,7 +473,7 @@ typedef struct {
     unsigned lyric_at, lyric_follow_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
-    int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
+    int settings_read, accent, minimal_accent, home, battery, home_rockbox, classic, shortcut,
         rounded, light, light_day, /* light_day: Auto's answer for now (LIGHT=2) */
         keep_lit,                  /* Smart Awake (#57, keep_lit_poll) */
         np_centred;                /* Centred Now Playing (ringnav_ui_load) */
@@ -1634,14 +1634,15 @@ static const char *const accent_names[] = {
     "Accent: Tangerine", "Accent: Plum",    "Accent: Ivory", "Accent: Green"
 };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
-/* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
- * 4 Shortcut, 5 Corners, 6 Light Mode, 7 Smart Awake, 8 Centred Now Playing. */
+/* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home (0 Split, 1 Full,
+ * 2 Carousel), 2 Battery, 3 Theme, 4 Shortcut, 5 Corners, 6 Light Mode, 7 Smart Awake, 8 Centred
+ * Now Playing. */
 static const char *const setting_keys[] = { "ACCENT",  "HOME",  "BATTERY", "THEME",    "SHORTCUT",
                                             "ROUNDED", "LIGHT", "KEEPLIT", "NPCENTRED" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 3, 2, 2 };
-static int *const setting_values[] = { &st.accent,  &st.home_full, &st.battery,
-                                       &st.classic, &st.shortcut,  &st.rounded,
-                                       &st.light,   &st.keep_lit,  &st.np_centred };
+static const int setting_counts[] = { ACCENT_N, 3, 4, 2, 7, 2, 3, 2, 2 };
+static int *const setting_values[] = { &st.accent,  &st.home,     &st.battery,
+                                       &st.classic, &st.shortcut, &st.rounded,
+                                       &st.light,   &st.keep_lit, &st.np_centred };
 /* The local time now into buf (struct tm: tm_sec @0, tm_min @4, tm_hour @8), or 0 when the clock
  * cannot be read. */
 static const int *clock_now(int *buf) {
@@ -1693,9 +1694,9 @@ int ipod_classic(void) {
     accent();
     return st.classic;
 }
-int ipod_home_full(void) {
+int ipod_home(void) {
     accent();
-    return st.home_full;
+    return st.home;
 }
 int ipod_light(void) {
     accent();
@@ -1943,7 +1944,7 @@ static void paint_chevrons(void *w, void *canvas) {
             canvas_draw_icon(
                 canvas, lit && i == st.sel_row ? white : bitmap,
                 r.x + r.w - CHEVRON_W + (int)bitmap[0] / 2 +
-                    (home ? (ipod_home_full() ? HOME_FULL_CHEVRON_SHIFT : HOME_CHEVRON_SHIFT) : 0),
+                    (home ? (ipod_home() == 1 ? HOME_FULL_CHEVRON_SHIFT : HOME_CHEVRON_SHIFT) : 0),
                 home ? st.sel_y : r.y + r.h / 2); /* bitmap_t width @0 */
     }
     canvas_set_clip_rect(canvas, &old);
@@ -4726,7 +4727,7 @@ int ringnav_image_add(void *manager, const char *name, void *bitmap) {
 }
 
 static void setting_text(int i) {
-    static const char *const home[] = { "Home: Split", "Home: Full" },
+    static const char *const home[] = { "Home: Split", "Home: Full", "Home: Carousel" },
                              *const battery[] = { "Battery: Icon", "Battery: Percent",
                                                   "Battery: Icon + Percent",
                                                   "Battery: Percent Inside" },
@@ -4735,7 +4736,7 @@ static void setting_text(int i) {
                                                 "Light Mode: Auto" };
     accent(); /* reads the settings */
     const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
-                                  home[st.home_full],
+                                  home[st.home],
                                   battery[st.battery],
                                   theme[st.classic],
                                   (const char *)0,
@@ -4794,7 +4795,7 @@ static void theme_preset(void) {
     else
         setting_put(&st.minimal_accent, 0, "MINIMAL_ACCENT"); /* Graphite */
     setting_put(&st.rounded, !classic, "ROUNDED");
-    setting_put(&st.home_full, 0, "HOME");
+    setting_put(&st.home, 0, "HOME");
 }
 
 static int setting_click(void *ctx, void *event) {
@@ -10068,13 +10069,13 @@ int ringnav(void *ctx, void *event) {
     if (key == KEY_RETURN && coverflow_home_back(window_manager_get_top_window(window_manager())))
         return STOP;
     /* Return on Home's main list selects Now Playing (its first row); on that row it opens Now
-     * Playing with the current queue untouched. */
+     * Playing with the current queue untouched. The carousel keeps stock's Return. */
     if (key == KEY_RETURN && usable()) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
         void *w = home_menu(top) && !window_manager_is_animating(wm)
                       ? surface_under(top, (void *)0, (void *)0, 1)
                       : (void *)0;
-        if (w && load(&g_menu, w, 1) && g_menu.n) {
+        if (w && load(&g_menu, w, 1) && g_menu.n && g_menu.kind != 3) {
             st.touch_mode = 0;
             if (widget_get_prop_int(w, SEL, -1) != 0) {
                 select(&g_menu, 0);

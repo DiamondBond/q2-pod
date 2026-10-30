@@ -193,38 +193,45 @@ def artist_tabs(root):
     check(sorted(found) == sorted([*ARTIST_TABS, 'pages']), 'Unexpected artist tabs')
 
 
-# Both variants. Coverflow's Home card: a clone of Local Music at index 2 with its own icon; its image
-# (patch/coverflow.c binds it) is the click target. Stock translates label_* by name and ignores this one, so its text is literal.
-# Local Music's label is literal too, "Library" in every language: stock would set label_localmusic's
-# text to small_local ("Local Songs"), a key only Home uses.
+# Home's carousel: stock's cards, plus clones of Local Music for Coverflow at index 2 (both variants)
+# and, in iPod's Home: Carousel, the Shortcut (rockbox) after Folder, each on its own icons; their
+# images (patch/coverflow.c binds them) are the click targets. Stock translates label_* by name and
+# ignores these, so their text is literal (the Shortcut's is set at runtime). Local Music's label is
+# literal too, "Library" in every language: stock would set label_localmusic's text to small_local
+# ("Local Songs"), a key only Home uses.
 HOME_PAGE = 'home_page.bin'
 LIBRARY = {'name': 'label_library', 'text': 'Library'}
 
 
-def home_card(root):
+def home_card(menu, at, row, text):
+    card = copy.deepcopy(menu[3][1])
+    card[2]['name'] = 'btn_' + row
+    image, label = card[3]
+    check(image[2].get('name') == 'img_localmusic' and label[2].get('name') == 'label_localmusic',
+            'Unexpected Local Music card')
+    image[2]['name'] = 'img_' + row
+    label[2]['name'] = 'label_' + row
+    label[2]['text'] = text
+    for key, value in image[2].items():  # assets/icons/menu_<row>*.png, added to the rootfs by build.py
+        if key.endswith(':bg_image'): image[2][key] = value.replace('menu_music', 'menu_' + row)
+    menu[3].insert(at, card)
+
+
+def home_cards(root, shortcut=False):
     menu = [n for n in root[3] if n[0] == 'slide_menu']
     check(len(menu) == 1, 'Unexpected home carousel')
     cards = [n[2].get('name') for n in menu[0][3]]
     check(cards[:2] == ['btn_playing', 'btn_localmusic'], 'Unexpected home cards')
-    card = copy.deepcopy(menu[0][3][1])
-    card[2]['name'] = 'btn_coverflow'
-    image, label = card[3]
-    check(image[2].get('name') == 'img_localmusic' and label[2].get('name') == 'label_localmusic',
-            'Unexpected Local Music card')
-    image[2]['name'] = 'img_coverflow'
-    label[2]['name'] = 'label_coverflow'
-    label[2]['text'] = 'Coverflow'
-    for key, value in image[2].items():  # assets/icons/menu_coverflow*.png, added to the rootfs by build.py
-        if key.endswith(':bg_image'): image[2][key] = value.replace('menu_music', 'menu_coverflow')
-    menu[0][3].insert(2, card)
+    home_card(menu[0], 2, 'coverflow', 'Coverflow')
+    if shortcut:
+        home_card(menu[0], 4, 'rockbox', 'Rockbox')
     menu[0][3][1][3][1][2].update(LIBRARY)
 
 
 # iPod only. Home becomes a list of the stock cards' names, in stock order with Coverflow third,
 # Rockbox before Streaming and one Settings row for Playback and System settings.
 # home_page_init (0x523c84) looks up no widget: its widget_foreach visitor (0x5239b4) binds img_*
-# clicks and translates label_* by name, and only img_left/img_right, gone here, reach the
-# slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
+# clicks and translates label_* by name, and only img_left/img_right reach the slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
 # tap and is the row's click target for the wheel. The payload binds Coverflow, Rockbox (shown
 # only while the card has it) and Settings, which slides list_view_homeset, hidden until then and
 # holding stock's own Playback and System setting rows (labelled Playback and System), into the list's place.
@@ -267,9 +274,14 @@ def ipod_home(root):
     check([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     check([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
+    home_cards(root, shortcut=True)
+    # Home: Carousel's (coverflow_home_layout): the carousel and its arrows, over the lists, hidden and
+    # taking no taps until chosen.
+    for n in root[3]:
+        n[2].update(visible='false', sensitive='false')
     # An image for the playing track's art, moved to the right panel and fitted by coverflow_home_art.
     root[3] = [['image', [0, 0, 375, 290], {'name': 'img_homeart', 'draw_type': 'fill'}, []],
-               home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'})]
+               home_list('home', HOME_ROWS), home_list('homeset', HOME_SETS, {'visible': 'false'}), *root[3]]
 
 
 def style_props(data):
@@ -725,6 +737,20 @@ def row_icon(data):
                        *PNG_OUT, data=data)
 
 
+# Home: Carousel's cards (stock's six, menu_<card> and pressed menu_<card>down, and Coverflow's and the
+# Shortcut's from assets/icons) in the accent: the art by its lightness, black through stock red to
+# white, so every pixel is the red/neutral blend ringnav_image_add maps to the accent's tones (Crimson
+# keeps stock red). CARD_GAMMA lifts the dark rings round the cards so they still show; tuned by eye.
+HOME_CARDS = [f'menu_{c}{s}.png' for c in ('playing', 'music', 'folder', 'stream', 'playset', 'sysset') for s in ('', 'down')]
+CARD_GAMMA = '1.25'
+
+
+def card_art(data):
+    return imagemagick('png:-', '-colorspace', 'gray', '-gamma', CARD_GAMMA, '-channel', 'RGB',
+                       '(', '-size', '1x3', 'xc:black', f'xc:#{inc("STOCK_RED"):06x}', 'xc:white', '-append', ')',
+                       '-clut', '+channel', *PNG_OUT, data=data)
+
+
 # Each stock placeholder's replacement size: stock's own, but Now Playing's and the full-screen art's at
 # the art they fill (stock's 188 scaled down there on the device, jagged), and the album grids' at
 # album_children's inset cover (110 less TILE_INSET + TILE_CLEARANCE a side), drawn 1:1 by its scale-down.
@@ -806,7 +832,7 @@ def patch_asset(path, data, ipod):
     if path == ARTIST_PAGE:
         artist_tabs(root)
     whole = ({HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page, QUICK_SETTINGS: quick_settings,
-              CONFIRM: confirm_dialog, VOLUME: volume_dialog, BIGCOVER: bigcover_page} if ipod else {HOME_PAGE: home_card})
+              CONFIRM: confirm_dialog, VOLUME: volume_dialog, BIGCOVER: bigcover_page} if ipod else {HOME_PAGE: home_cards})
     if path in whole:
         whole[path](root)
     if path in whole or not ipod:

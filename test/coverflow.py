@@ -198,7 +198,7 @@ void *widget_lookup(void *x, const char *n, int r) {
            !strcmp(n, "list_view_home") ? home_list : 0;
 }
 static int home_full, classic, light;
-int ipod_home_full(void) { return home_full; }
+int ipod_home(void) { return home_full; }
 int ipod_classic(void) { return classic; }
 int bold_label(void *w, int was) { return was; } /* the font only: no geometry */
 int ipod_light(void) { return light; }

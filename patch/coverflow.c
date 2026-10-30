@@ -2339,6 +2339,7 @@ const char *now_tag(void *r, int field) {
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
+    void *carousel[3]; /* Home: Carousel's slide_menu and its img_left, img_right */
     unsigned key, repaint; /* repaint: the timer of home_repaint */
     /* drift: home_drift's timer; drift_ms: the pan's phase, ms shown */
     unsigned drift, drift_ms, drift_last;
@@ -2350,7 +2351,7 @@ static struct {
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
-extern int ipod_home_full(void), ipod_home_rockbox(void), home_shortcut_open(void *, void *);
+extern int ipod_home(void), ipod_home_rockbox(void), home_shortcut_open(void *, void *);
 extern const char *ipod_home_shortcut(void);
 /* Split's menu width; the art fills the rest. */
 
@@ -2624,12 +2625,19 @@ static void home_width(void *w, int outer, int inner, int x, int end, int depth)
     }
 }
 
-/* Stored HOME=0/1 is Split/Full in both themes: Split halves the screen, the art in the right
- * panel; Full hides the art and widens the list, its rows to HOME_FULL_ROW (Minimal) or
- * HOME_CLASSIC_ROW. Hidden Rockbox is restacked last because the native layout includes hidden
- * rows, and made insensitive, as hidden rows keep their taps. */
+/* Shown, or hidden and taking no taps: hidden widgets keep theirs. */
+static void home_show(void *w, int on) {
+    widget_set_visible(w, on, 0);
+    widget_set_sensitive(w, on);
+}
+
+/* Stored HOME=0/1/2 is Split/Full/Carousel in both themes: Split halves the screen, the art in the
+ * right panel; Full hides the art and widens the list, its rows to HOME_FULL_ROW (Minimal) or
+ * HOME_CLASSIC_ROW; Carousel hides the art and shows stock's cards (tools/ipod.py ipod_home) in the
+ * lists' place, and leaving it, the main list. Hidden Rockbox is restacked last because the native
+ * layout includes hidden rows, and made insensitive, as hidden rows keep their taps. */
 void coverflow_home_layout(void) {
-    int full = ipod_home_full(), classic = ipod_classic();
+    int mode = ipod_home(), full = mode == 1, carousel = mode == 2, classic = ipod_classic();
     /* The art goes back to the panel; Split's next paint resumes the pan. */
     stop_timer(&home.drift);
     if (!home.list) return;
@@ -2637,9 +2645,14 @@ void coverflow_home_layout(void) {
     if (rockbox) {
         int shown = ipod_home_rockbox();
         widget_restack(rockbox, shown ? 4 : 6); /* after Folder, else last */
-        widget_set_visible(rockbox, shown, 0);
-        widget_set_sensitive(rockbox, shown); /* hidden, it would still take Streaming's taps */
+        home_show(rockbox, shown); /* hidden, it would still take Streaming's taps */
         widget_set_text_utf8(widget_lookup(home.win, "label_rockbox", 1), ipod_home_shortcut());
+        /* ponytail: the Shortcut card stays when the row hides (Shortcut: Rockbox, no Rockbox on
+         * the card; its tap says so), as the slide_menu lays out hidden cards too; removing it
+         * would mean re-adding it once the card has Rockbox */
+        if (home.carousel[0])
+            widget_set_text_utf8(widget_lookup(home.carousel[0], "label_rockbox", 1),
+                                 ipod_home_shortcut());
     }
     int split = HOME_SPLIT_W, outer = full ? 375 : split,
         inner = !full ? split : classic ? HOME_CLASSIC_ROW : HOME_FULL_ROW,
@@ -2648,7 +2661,12 @@ void coverflow_home_layout(void) {
     home_width(home.list, outer, inner, x, end, 0);
     if (home.sets) home_width(home.sets, outer, inner, x, end, 0);
     widget_move_resize(home.art, split, 0, 375 - split, 290);
-    widget_set_visible(home.art, !full, 0);
+    widget_set_visible(home.art, !mode, 0);
+    if (home.carousel[0] && carousel != widget_get_visible(home.carousel[0])) {
+        for (int i = 0; i < 3; ++i) home_show(home.carousel[i], carousel);
+        home_show(home.list, !carousel);
+        if (home.sets) home_show(home.sets, 0);
+    }
     home.key = ~0u; /* Split shows the current cover again, next frame if laid out mid-paint */
     rearm(&home.repaint, home_repaint, 0);
 }
@@ -2657,11 +2675,9 @@ void coverflow_home_layout(void) {
  * setting rows, which stock binds) slides in from the right over the list's place, the art staying;
  * Return (coverflow_home_back) slides the list back in from the left. Each list keeps its row. */
 static void home_swap(void *from, void *to, int dx) {
-    widget_set_visible(from, 0, 0);
-    widget_set_sensitive(from, 0); /* hidden rows keep their taps: only the shown list takes them */
+    home_show(from, 0); /* only the shown list takes taps */
     widget_move_resize(to, dx, I(to, W_Y), I(to, W_W), I(to, W_H));
-    widget_set_visible(to, 1, 0);
-    widget_set_sensitive(to, 1);
+    home_show(to, 1);
     void *a = widget_animator_prop_create(to, PAGE_SLIDE_MS, 0, SLIDE_EASING, "x");
     if (!a) {
         widget_move_resize(to, 0, I(to, W_Y), I(to, W_W), I(to, W_H));
@@ -2702,6 +2718,11 @@ int coverflow_home(void *win, void *ctx) {
     home.list = list; /* a new Home window's own, so still the asset's width */
     home.sets = widget_lookup(win, "list_view_homeset", 1);
     if (home.sets) widget_set_sensitive(home.sets, 0);
+    static const char *const carousel[] = { "slide_menu", "img_left", "img_right" };
+    for (int i = 0; i < 3; ++i) home.carousel[i] = widget_lookup(win, carousel[i], 1);
+    /* The carousel's own Coverflow and Shortcut cards; the lists' come first in the window. */
+    widget_on(widget_lookup(home.carousel[0], "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
+    widget_on(widget_lookup(home.carousel[0], "img_rockbox", 1), EVT_CLICK, home_shortcut_open, 0);
     coverflow_home_layout();
 #endif
     return result;

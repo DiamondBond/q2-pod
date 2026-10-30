@@ -8068,16 +8068,28 @@ if variant=='ipod':
                 assert x==x0 and width>0 and x+width==row-end and m.get(r+O['W_W'])==row
         assert m.nodes[art]['visible']==(not full)
         assert tuple(signed(m.get(art+O[k])) for k in ('W_X','W_Y','W_W','W_H'))==(split,0,375-split,290)
+    def carousel(on):
+        """Home: Carousel: stock's carousel and arrows in the lists' place, the art hidden; else the
+        main list, the carousel hidden, neither taking taps while hidden."""
+        def shown(name):
+            w=named(m,home,name); n=m.nodes[w]
+            taps=n.get('sensitive',int(n['asset'].get('sensitive')!='false'))
+            assert n['visible']==taps,name
+            return n['visible']
+        assert [shown(n) for n in ('slide_menu','img_left','img_right','list_view_home','list_view_homeset')]==[on]*3+[not on,0]
+        if on: assert not m.nodes[art]['visible']
     shortcut_button=m.nodes[shortcut]['children'][0]
     sf,sc=m.handler(shortcut_button,O['EVT_CLICK'])
     for label in ('Favorites','Shuffle','Rated Albums','Artists','Albums','Games','Rockbox'):
         m.call(address=sf,args=(sc,m.event,0,0),gap=0)
         assert m.nodes[named(m,home,'label_rockbox')]['text']==label
-    home_bounds(False)
+    home_bounds(False); carousel(False)
     writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(1,'HOME')] and texts()[1]=='Home: Full'
-    home_bounds(True)
+    home_bounds(True); carousel(False)
     assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
-    click(1); assert texts()[1]=='Home: Split'; home_bounds(False); passed()
+    writes=click(1); assert [(w[0],m.text(w[2])) for w in writes]==[(2,'HOME')] and texts()[1]=='Home: Carousel'
+    carousel(True); assert not [c for c in m.calls if c[0]=='image_manager_unload_all']; passed()
+    click(1); assert texts()[1]=='Home: Split'; home_bounds(False); carousel(False); passed()
     # Theme: Classic shows its own accent (ACCENT) after Theme, lays Home out with its own text inset
     # and chevron row, and the accent's bar; back to Minimal, all of it reverts to Minimal's accent.
     # Rounded Corners: a switch, off with no key; a click saves it on, and Theme leaves it alone.
@@ -8113,7 +8125,8 @@ if variant=='ipod':
     assert texts()==['Accent: Cobalt','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # Theme, the first row, keeps the selection, painted.
     m.paint(view); assert m.selected(view)==0; passed()
-    click(1); assert texts()[1]=='Home: Full'; home_bounds(True,True); click(1); home_bounds(False,True); passed()
+    click(1); assert texts()[1]=='Home: Full'; home_bounds(True,True); click(1); carousel(True)
+    click(1); home_bounds(False,True); carousel(False); passed()
     # The preset's rows are the user's after it: Light Mode back off (On, Auto, Off) stays off.
     for _ in range(2): m.call(address=f_light,args=(ctx_light,m.event,0,0),gap=0)
     assert m.nodes[light_label]['text']=='Light Mode: Off'
@@ -8815,7 +8828,22 @@ def home_back(full):
     m=long_machine(); view,imgs=home_list(m); m.paint(view)
     long_return(m); m.call(O['KEY_RETURN'],gap=0)
     assert not destinations(m); passed()
+def home_carousel():
+    # Home: Carousel at init: stock's carousel and arrows in the lists' place, the lists and the art
+    # hidden and taking no taps. The carousel's own Coverflow and Shortcut cards open what their rows
+    # do, the Shortcut's labelled as the setting; Return leaves the carousel to stock.
+    CONFIG.update(HOME='2',SHORTCUT='5'); m=ShuffleMachine(); del CONFIG['HOME'],CONFIG['SHORTCUT']; view,imgs=home_list(m)
+    assert m.call(address=home_hook[0],args=(m.top,0,0,0),gap=0)==0
+    for name,on in (('slide_menu',1),('img_left',1),('img_right',1),('list_view_home',0),('list_view_homeset',0)):
+        n=m.nodes[named(m,m.top,name)]; assert n['visible']==n['sensitive']==on,name
+    assert not m.nodes[named(m,m.top,'img_homeart')]['visible']
+    slide=named(m,m.top,'slide_menu')
+    for row in ('coverflow','rockbox'):
+        assert m.handler(named(m,slide,'img_'+row),O['EVT_CLICK'])[0]==m.handler(named(m,m.top,'img_'+row),O['EVT_CLICK'])[0]
+    assert m.nodes[named(m,slide,'label_rockbox')]['text']==m.nodes[named(m,m.top,'label_rockbox')]['text']=='Shuffle'
+    m.calls=[]; m.call(O['KEY_RETURN']); m.call(O['KEY_RETURN']); assert not destinations(m); passed()
 if variant=='ipod':
+    home_carousel()
     for full in (0,1):
         home_settings(full); home_settings(full,1); home_back(full)
 # Most Played opens a black mostplayed_page list (nothing played: "No plays yet", no rows); a second
