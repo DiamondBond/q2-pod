@@ -1,5 +1,10 @@
 # Changelog
 
+- **1.6.0**:
+  - Display: **Smart Awake** also keeps the screen on over the full-screen album art while a song plays, so with Enlarged Album Art on the art page stays lit too. It already covered the lyrics, full-screen lyrics included.
+  - Display: touching an album in a grid, or one of the two buttons at the top of Playlists, shows a grey card shaped like the selection's, rounded under Rounded Corners. It was a square box, and touching the first album in a row greyed the whole row.
+  - Home: **Carousel**'s cards keep Shanling's own colours again, whatever your Theme, accent or Light Mode.
+
 - **1.5.9**:
   - Now Playing: the album art changes with the song again after you skip back and forth, on both the regular and Centred pages. It could stay on the previous song's cover.
   - Playlists: holding Play/Pause on a playlist row opens a menu to Play Next, Add to Queue or Shuffle its songs ([#136](https://github.com/DiamondBond/q2-pod/issues/136)). **More…** at its end opens the playlist's More page, which the hold opened before.
