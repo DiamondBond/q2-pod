@@ -11698,6 +11698,12 @@ assert wake(DOWN,gap=1000); t=centre_hold(); assert t in m.timers
 assert wake(DOWN,FWD,gap=100) and t not in m.timers and wake(UP,gap=50) and wake(UP,FWD)
 assert wake(DOWN,gap=1000); t=centre_hold(); assert wake(DOWN,FWD,gap=600) and t in m.timers
 m.timers.pop(t); assert wake(UP,gap=50) and wake(UP,FWD); passed()
+# A lost release (Standby while held) leaves the guards whole: a press long after its button's last
+# event is a new press, while repeats within 258 ms of each other are still the first press.
+assert wake(DOWN,FWD,gap=1000) and wake(DOWN,FWD,gap=1000) and not wake(DOWN,gap=30) and not wake(UP,gap=50) and wake(UP,FWD)
+assert wake(DOWN,FWD,gap=1000) and wake(DOWN,FWD,gap=258) and wake(DOWN,FWD,gap=258) and wake(DOWN,gap=100) and wake(UP,gap=50) and wake(UP,FWD)
+assert wake(DOWN,gap=1000) and wake(DOWN,gap=1000); t=centre_hold()  # Centre's release lost
+assert wake(DOWN,FWD,gap=100) and t not in m.timers and wake(UP,gap=50) and wake(UP,FWD); passed()
 # Standby's resume (STANDBY_WAKE, device_standby's awake_screen) stays dark in both modes, so the
 # resuming key acts as dark (#27); a wake press clears stock's resume guard, which would drop its release.
 from build import STANDBY_WAKE

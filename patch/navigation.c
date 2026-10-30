@@ -134,8 +134,8 @@ static int library_query(int content, const char *db, const char *sql, void *row
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
+    /* no memory to expand it: the token alone is SQL's 1, the whole library (library_scope.c) */
     char *expanded = sql && strstr(sql, LIBRARY_SCOPE_TOKEN) ? library_scope_query(sql) : 0;
-    if (sql && strstr(sql, LIBRARY_SCOPE_TOKEN) && !expanded) return -1;
     const char *query = expanded ? expanded : sql;
     int result = content == 2 ? stock_sorted_query_trampoline(db, query, row, (int)arg)
                  : content    ? stock_content_query_trampoline(db, query, row, arg, sort)
@@ -392,6 +392,7 @@ typedef struct {
     unsigned chord_at;           /* the last Centre event chord_gate saw */
     unsigned return_up;          /* chord_gate: a hold's release, else 0 */
     unsigned edge_held, edge_at; /* chord_gate: edge buttons held (bits), the last one's press */
+    unsigned edge_seen;          /* chord_gate: an edge button's last press or repeat */
     unsigned centre_at, centre_hold; /* a passing Centre press, and its hold timer */
     int return_eat;                  /* 1: a ghost Return press is dropped */
     unsigned return_eat_at;
@@ -6916,12 +6917,11 @@ static struct {
 static int era_sql(const char *sql, int (*row)(void *, int, char **, char **)) {
     void *db = 0;
     /* Era uses SQLite directly rather than the stock library query wrappers. */
-    char *expanded = library_scope_query(sql);
-    if (!expanded) return 0;
+    char *expanded = library_scope_query(sql); /* none: the whole library, as library_query */
     /* Keep a full-library grouping query from competing with the player's song records for RAM. */
     int bad = sqlite3_open("/mnt/data/database.db", &db) ||
               sqlite3_exec(db, "PRAGMA cache_size=64;PRAGMA temp_store=FILE", 0, 0, 0) ||
-              sqlite3_exec(db, expanded, row, 0, 0);
+              sqlite3_exec(db, expanded ? expanded : sql, row, 0, 0);
     if (db) sqlite3_close(db);
     free(expanded);
     return !bad;
@@ -9483,9 +9483,11 @@ static int chord_gate(void *e) {
                     : key == KEY_BACK_BTN ? 4
                     : key == KEY_FWD_BTN  ? 8
                                           : 0;
+    /* a repeat follows its press within 258 ms; a later down is a new press (a lost release) */
     if (edge && type == EVT_KEY_UP)
         st.edge_held &= ~edge;
-    else if (edge && !(st.edge_held & edge)) {
+    else if (edge &&
+             (!(st.edge_held & edge) || (type == EVT_KEY_DOWN && now - st.edge_seen > 300))) {
         st.edge_held |= edge;
         st.edge_at = now;
         if (st.centre_at && now - st.centre_at < CHORD_MS && st.centre_hold) {
@@ -9493,6 +9495,7 @@ static int chord_gate(void *e) {
             st.centre_hold = 0;
         }
     }
+    if (edge && type != EVT_KEY_UP) st.edge_seen = now;
     if (key == KEY_RETURN) {
         /* a repeat follows its press within 258 ms; a later down is a new press */
         if (type == EVT_KEY_DOWN && !st.return_at &&
@@ -9513,13 +9516,14 @@ static int chord_gate(void *e) {
     }
     if (key != KEY_CENTER) return 0;
     /* a repeat follows its press within 258 ms; a later down is a new press (a lost release) */
-    if (type == EVT_KEY_DOWN && (!st.chord_eat || now - st.chord_at > 300))
-        st.chord_eat = st.edge_held && now - st.edge_at < CHORD_MS ? 1 : -1;
+    int fresh = type == EVT_KEY_DOWN && (!st.chord_eat || now - st.chord_at > 300);
+    if (fresh) st.chord_eat = st.edge_held && now - st.edge_at < CHORD_MS ? 1 : -1;
     st.chord_at = now;
     int eat = st.chord_eat > 0;
     if (type == EVT_KEY_UP) st.chord_eat = st.centre_hold = 0;
     /* a passing press: its time, for an edge press after it; its release ends that */
-    if (!eat) st.centre_at = type == EVT_KEY_UP ? 0 : st.centre_at ? st.centre_at : now | 1;
+    if (!eat)
+        st.centre_at = type == EVT_KEY_UP ? 0 : st.centre_at && !fresh ? st.centre_at : now | 1;
     return eat;
 }
 
