@@ -6087,6 +6087,14 @@ m=LrcMachine(path='/mnt/mmc/a.lrc',files={'/mnt/mmc/a.lrc':lrc},lrc=[(1,'<00:01.
 assert m.load()==1 and m.lines==[(0,'Zero'),(1,'Ab')],m.lines; passed()
 m=LrcMachine(path='/mnt/mmc/a.lrc',files={'/mnt/mmc/a.lrc':b'plain\nwords'},lrc=[(FAR,'plain'),(FAR,'words')])
 assert m.load()==1 and m.lines==[(FAR,'plain'),(FAR,'words')]; passed()
+# Stock's test of whether a .lrc is UTF-8 before it converts it from GB18030 (mclIsUtf8WithoutBOM) is
+# ringnav_lrc_utf8's, over the file: stock's read 6 bytes from the first non-ASCII one and no 4-byte
+# character, so an emoji, or a character starting 4 or 5 bytes on (Korean's one-syllable words), failed it.
+m=LrcMachine(files={'/e':'[00:01.00]Hi 🎵\n'.encode(),'/q':'[00:01.00]Café da’s\n'.encode(),
+                    '/k':'[00:01.00]나 는\n'.encode(),'/a':b'[00:01.00]plain\n',
+                    '/g':'[00:01.00]你好\n'.encode('gb18030'),'/l':'[00:01.00]Café\n'.encode('latin-1')})
+def is_utf8(path): return m.call(address=HOOKS['mclIsUtf8WithoutBOM'][0],args=(m.string(path),0,0,0),gap=0)
+assert [is_utf8(p) for p in ('/e','/q','/k','/a','/g','/l','/none')]==[1,1,1,1,0,0,0]; passed()
 
 # The lyrics page (lyrics.c, iPod). Each load sends its lines, milliseconds
 # and word stamps, to the page; stock's rows (its builder mocked: a label a line, its text and lrc_time

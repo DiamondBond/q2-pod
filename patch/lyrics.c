@@ -162,6 +162,21 @@ void *ringnav_lrc_open(const char *path, const char *mode) {
     return f;
 }
 
+/* Stock's mclIsUtf8WithoutBOM (0x5a959c), which the .lrc loader and the lyrics match page ask
+ * before converting a file from GB18030: it checked only the 6 bytes from the first non-ASCII one
+ * and knew no 4-byte character, so a UTF-8 .lrc with an emoji, or a character crossing those 6
+ * bytes (an accent, then a ’ four letters on), was converted and loaded garbled or cut short.
+ * This checks the first LYRIC_TAG_MAX bytes, as the loader parses them.
+ * ponytail: a character cut at that limit fails it; a .lrc that long has not been seen. */
+int ringnav_lrc_utf8(const char *path) {
+    void *f = fopen(path, "rb");
+    char *s = f ? calloc(1, LYRIC_TAG_MAX + 1) : 0;
+    int ok = s && (fread(s, 1, LYRIC_TAG_MAX, f), utf8_text(s));
+    if (f) fclose(f);
+    free(s);
+    return ok;
+}
+
 int ringnav_lyric(void) {
     free(lrc_file);
     lrc_file = 0;

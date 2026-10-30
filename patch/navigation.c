@@ -2638,7 +2638,7 @@ int ringnav_scan_dir(const char *name, const char *dot) {
 
 /* Whether s is UTF-8: every lead byte with its continuation bytes, nothing overlong, no surrogate,
  * nothing past U+10FFFF. */
-static int utf8_text(const char *s) {
+int utf8_text(const char *s) {
     for (const unsigned char *p = (const unsigned char *)s; *p;) {
         unsigned c = *p++, n = c < 0x80                ? 0
                                : c >= 0xc2 && c < 0xe0 ? 1

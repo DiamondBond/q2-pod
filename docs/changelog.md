@@ -7,6 +7,7 @@
   - Now Playing: in Centred Now Playing, tap the lyrics to show them full screen, across the whole width, with the art, title, buttons and progress bar out of the way. Tap again or press Back to return; swiping to another page returns too.
   - Home: **Display → Appearance → Home** has a third choice, **Carousel**: Shanling's card carousel, with the Pod's cards (Coverflow and your Shortcut among them) in your accent and Theme.
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
+  - Lyrics: a `.lrc` file saved as UTF-8 loads properly again when it has an emoji, or Korean, accented or curly-quote characters close together near its start. Shanling's check took some of those files for Chinese GB18030 and showed them garbled or cut short.
   - Home: in Split, the panning album art is sharper, about twice as crisp as in 1.5.8, and still evenly sharp as it moves.
 
 - **1.5.8**:
