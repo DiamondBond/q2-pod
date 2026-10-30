@@ -3406,6 +3406,9 @@ for state in (3,2):  # paused and playing both expose the same actions
 # A tagged song's menu is titled by its tag, not its file name.
 m=playing_menu(); m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[1]+O['REC_TITLE'],m.string('Bee'))
 m.press(6000); assert m.hold()==11 and m.nodes[m.title]['text']=='Bee'; passed()
+# A song in a hidden folder isn't in the Library: no Go to rows, unless its app's q2app has goto=1 (addon_goes).
+m=playing_menu(); m.word(m.items(m.get(syms['mcl_pdeqplaylist']))[1]+O['REC_PATH'],m.string('/mnt/mmc/.podcasts/Show/B.mp3'))
+m.press(6000); assert m.hold()==11 and m.labels()==SONG_MENU[:2]+['View Queue']+SONG_MENU[2:4]+["Shuffle","Repeat","Group by: Album"],m.labels(); passed()
 # A folder play's untagged record: the player's parsed title once it has parsed that file.
 m=playing_menu(); id3=syms['g_play_id3_info']; m.u.mem_write(id3,b'/p/B\0'); m.u.mem_write(id3+O['ID3_TITLE'],b'Parsed\0')
 m.press(6000); assert m.hold()==11 and m.nodes[m.title]['text']=='Parsed'; passed()
@@ -11276,6 +11279,8 @@ assert not m.systems and m.top!=m.page; passed()
 # playback stopping lets "end" go without pausing.
 class PodMachine(AppMachine):
     app,manifest='podcasts','name=Podcasts\nsearch=Search Podcasts\nqr=0\n'
+    def poll(self,ms=500):  # time() follows the clock
+        self.wms=getattr(self,'wms',0)+ms; self.wall=(86400+self.wms//1000,self.wall[1]); return super().poll(ms)
     def hook(self,u,address,size,unused):  # unlink's path read as it is called: a stack buffer
         if self.handlers.get(address)=='unlink@GLIBC_2.0': self.unlinked.append(self.text(u.reg_read(UC_MIPS_REG_A0)))
         return super().hook(u,address,size,unused)
@@ -11292,8 +11297,10 @@ m.files.pop(SLEEP); assert not paused(m.poll(60000)); passed()
 m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n'); m.poll(); m.files.pop(SLEEP); m.poll()
 assert not paused(m.poll(61000)) and not unlinked(m); passed()  # cancelled by the app
 m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86000\n'); assert paused(m.poll())==1; passed()  # already due
+m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n'); m.poll(); names=m.poll(200000)  # a Standby past it
+assert not paused(names) and unlinked(m)==[SLEEP],(names,unlinked(m)); passed()
 # No time, a number too long, or more than a week away (an app's mistake): dropped, nothing paused.
-for bad in (b'until \n',b'until soon\n',b'until 999999999999\n',b'until 9000000\n'):
+for bad in (b'until \n',b'until soon\n',b'until 999999999999\n',b'until 9000000\n',b'until 86460s\n'):
     m=pod_sleep(); m.files[SLEEP]=bytearray(bad); names=m.poll()
     assert not paused(names) and unlinked(m)==[SLEEP] and not paused(m.poll(600000)),bad
 passed()
@@ -11312,7 +11319,14 @@ assert not paused(names) and not unlinked(m)
 m.playtime=30; assert not paused(m.poll()); m.playtime=5; assert not paused(m.poll())  # a seek back
 m.playtime=223; assert not paused(m.poll()); m.word(O['MCL_POS'],0); m.playtime=0
 names=m.poll(); assert paused(names)==1 and unlinked(m)==[SLEEP],names; passed()  # that one's end
-m=end_sleep(); m.play=1; names=m.poll(); assert not paused(names) and unlinked(m)==[SLEEP],names; passed()  # stopped
+# Ended by itself (mclNextSong's automatic call, auto_nexts) before its stated length's last seconds: a VBR
+# file's length can be overstated.
+m=end_sleep(); m.playtime=200; m.poll(); a=payload_syms['auto_nexts']; m.word(a,m.get(a)+1)
+m.word(O['MCL_POS'],1); m.playtime=0; names=m.poll(); assert paused(names)==1 and unlinked(m)==[SLEEP],names; passed()
+# Stopped a moment (between tracks) keeps it; stopped 3 s lets it go.
+m=end_sleep(); m.play=1; assert not paused(m.poll()) and not unlinked(m)
+m.play=2; m.playtime=224; m.poll(); m.word(O['MCL_POS'],1); m.playtime=0; assert paused(m.poll())==1; passed()
+m=end_sleep(); m.play=1; m.poll(); names=m.poll(3500); assert not paused(names) and unlinked(m)==[SLEEP],names; passed()  # stopped
 
 # Deezer: q2-deezer from the card's .deezer folder. Nothing streams: a press downloads, to Deezer/ on
 # the card, and a song on the card, a local row, plays from it as local music (navigation.c songs_open).
@@ -11357,25 +11371,36 @@ for r,n,t in zip(recs,names,(100,200,300)):
 m.word(recs[2]+O['REC_TYPE'],0)  # a download's .part isn't a song
 m.found=recs; m.plays=[]; m.music_tags={f'{SONGS}/{names[1]}':('Corporeal','Broadcast','Tender Buttons','Broadcast',6,1)}
 m.handlers[syms['toolsGetMusicInfo']]='c:toolsGetMusicInfo'  # the files' tags, as the mock above reads them
+reads=lambda: [c[1] for c in m.calls if c[0]=='toolsGetMusicInfo' and isinstance(c[1],str)]
 m.pick(2)
 assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['Corporeal - Broadcast [6].flac','Valerie - Broadcast [5].flac'],(m.plays,m.play_names)
 assert [m.text(c[1]) for c in m.calls if c[0]=='toolsLoadDirectory'][-1]==SONGS; passed()
-# Each song plays with its file's tags (Now Playing shows a library queue's records as they are); a song
-# without tags keeps its record's.
-assert m.play_tags==[('Corporeal','Broadcast','Tender Buttons','Broadcast',6,1),('','Artist','Album','',0,0)],m.play_tags
-assert [c[1] for c in m.calls if c[0]=='toolsGetMusicInfo' and isinstance(c[1],str)][-2:]==[f'{SONGS}/{names[1]}',f'{SONGS}/{names[0]}']
+# The press reads no tags: each song takes its file's as it starts (card_tags, from ringnav_id3_path, after
+# stock copied a library queue's record), the playing record and the parsed tags both, once a queue. A
+# folder play's (stock parses its files) and a song without tags are left.
+assert not reads(),reads()
+q=m.deque([recs[1],recs[0]]); [m.word(r+O['REC_ALBUM'],0) for r in m.items(q)]  # a listing's records
+m.word(syms['mcl_pdeqplaylist'],q); m.word(O['MCL_POS'],0); m.word(O['MCL_TYPE'],0xf001)
+id3=m.alloc(0xa9c); m.mock('mclGetCueFlag')
+def parse(path):
+    m.calls=[]; m.call(address=payload_syms['ringnav_id3_path'],args=(id3,m.string(path),0,0),gap=0); return reads()
+tags=lambda r: [m.text(m.get(r+O[k])) if m.get(r+O[k]) else '' for k in ('REC_TITLE','REC_ARTIST','REC_ALBUM','REC_ALBUM_ARTIST')]
+r=m.items(q)[0]; song=f'{SONGS}/{names[1]}'
+assert parse(song)==[song] and m.text(id3)==song
+assert [m.text(id3+o) for o in (O['ID3_TITLE'],O['ID3_ARTIST'],O['ID3_ALBUM'],O['ID3_ALBUM']+0x580)]==['Corporeal','Broadcast','Tender Buttons','Broadcast']  # 0x580: the album artist
+assert tags(r)==['Corporeal','Broadcast','Tender Buttons','Broadcast'] and (m.get(r+O['REC_TRACK']),m.get(r+O['REC_DISC']))==(6,1)
+assert parse(song)==[]; passed()  # once: the record has its album
+m.word(O['MCL_POS'],1); r=m.items(q)[1]; before=tags(r)
+assert parse(f'{SONGS}/{names[0]}')==[f'{SONGS}/{names[0]}'] and tags(r)==before  # no tags: its record's
+m.word(O['MCL_TYPE'],1); assert parse(f'{SONGS}/{names[0]}')==[]  # a folder play
+m.word(O['MCL_TYPE'],0xf001); assert parse(f'{SONGS}/{names[1]}')==[]  # not the playing record's path
 m.music_tags=None; m.handlers[syms['toolsGetMusicInfo']]='toolsGetMusicInfo'; passed()
 # Downloaded Songs (its uri a folder) lists them, newest first, labelled as OpenDeezer names them,
 # and a row plays from it; a song gone from the card says so.
 m.back(); m.answer('ok','refresh','',DZMENU); m.plays=[]; m.pick(0); songs=m.top
 assert m.nodes[songs]['name']=='app_songs' and [l for l in m.labels(songs) if l]==['Downloaded Songs','Corporeal - Broadcast','Valerie - Broadcast'],m.labels(songs)
-m.music_tags={f'{SONGS}/{names[1]}':('Corporeal','Broadcast','Tender Buttons','Broadcast',6,1)}; m.handlers[syms['toolsGetMusicInfo']]='c:toolsGetMusicInfo'
-reads=lambda: [c[1] for c in m.calls if c[0]=='toolsGetMusicInfo' and isinstance(c[1],str)]
 m.click(m.nodes[m.find('scroll_view',songs)]['children'][1])
 assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play_names==['Corporeal - Broadcast [6].flac','Valerie - Broadcast [5].flac'],(m.plays,m.play_names)
-assert m.play_tags[0]==('Corporeal','Broadcast','Tender Buttons','Broadcast',6,1) and len(reads())==2,(m.play_tags,reads())  # tagged as it first plays
-m.click(m.nodes[m.find('scroll_view',songs)]['children'][1]); assert len(m.plays)==2 and not reads()  # once a list
-m.music_tags=None; m.handlers[syms['toolsGetMusicInfo']]='toolsGetMusicInfo'
 m.destroy(songs); m.top=m.page; m.found=recs[:1]; m.advance(2000); m.answer('ok','refresh','',DZMENU)
 m.pick(1); m.answer('ok','refresh','',LIKED); n=len(m.toasts); m.pick(2)
 assert m.toasts[n:] and m.toasts[-1][3]=="It isn't on the card any more",m.toasts[n:]; passed()
@@ -11413,21 +11438,14 @@ m.files[DZPID]=bytearray(b'4242')  # running: its loop's pid
 m.plays=[]; m.files['/tmp/q2-deezer.play']=bytearray(f'1700 {STREAM}\n'.encode()); stream_songs('01 - Snow [12].flac.part')
 m.poll(); m.advance(0); assert not m.plays  # nothing whole yet
 recs=stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac.part')
-m.music_tags={f'{STREAM}/01 - Snow [12].flac':('Snow','Angus & Julia Stone','Snow','Angus & Julia Stone',1,1)}
-m.handlers[syms['toolsGetMusicInfo']]='c:toolsGetMusicInfo'
 m.poll(); m.advance(0)
-assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Snow [12].flac'],(m.plays,m.play_names)
-assert m.play_tags==[('Snow','Angus & Julia Stone','Snow','Angus & Julia Stone',1,1)],m.play_tags
-m.music_tags=None; m.handlers[syms['toolsGetMusicInfo']]='toolsGetMusicInfo'; passed()
+assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Snow [12].flac'],(m.plays,m.play_names); passed()
 m.word(syms['mcl_pdeqplaylist'],m.deque(recs)); m.word(O['MCL_POOL'],m.deque([0],'int')); m.word(O['MCL_POS'],0)
 m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{STREAM}/01 - Snow [12].flac\n'.encode() and len(m.plays)==1
 seen=m.stats[STREAM]; stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac'); m.stats[STREAM]=seen
 m.poll(); assert len(m.names())==1  # the folder's mtime unchanged: not scanned
-m.music_tags={}; m.handlers[syms['toolsGetMusicInfo']]='c:toolsGetMusicInfo'
 stream_songs('01 - Snow [12].flac','02 - Oakwood [13].flac','03 - Chateau [14].flac'); m.poll()
 assert m.names()==['01 - Snow [12].flac','02 - Oakwood [13].flac','03 - Chateau [14].flac'] and len(m.plays)==1,m.names()
-assert [c[1] for c in m.calls if c[0]=='toolsGetMusicInfo' and isinstance(c[1],str)]==[f'{STREAM}/02 - Oakwood [13].flac',f'{STREAM}/03 - Chateau [14].flac']  # the new ones' tags only
-m.music_tags=None; m.handlers[syms['toolsGetMusicInfo']]='toolsGetMusicInfo'
 m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{STREAM}/02 - Oakwood [13].flac\n'.encode(); passed()
 # Played on past the first ones, which the app deleted: a later song still joins, after the last queued.
 stream_songs('03 - Chateau [14].flac','04 - Cellar Door [15].flac'); m.poll()

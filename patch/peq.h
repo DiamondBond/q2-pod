@@ -252,8 +252,9 @@ void spot_shut(int fd);
  * first. */
 int songs_open(const char *path, const char *title, int album);
 void *app_album_songs(const char *dir); /* navigation.c: a folder's songs by name, for addon.c */
-void app_tags(void *songs); /* navigation.c: songs from it, tagged (card_tags) */
 int addon_goto(const char *path, const char *title, int album); /* Go to on a card app's song */
+int addon_goes(const char *path); /* addon.c: Go to on path opens a page */
+extern unsigned auto_nexts; /* playback.c ringnav_next: tracks that ended by themselves */
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
 void draw_centred(void *canvas, const unsigned *s, unsigned n, const void *r, unsigned px, unsigned color);

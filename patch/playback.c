@@ -844,7 +844,9 @@ static int list_end(void) {
     return M(MCL_MODE) == 0 && (M(MCL_TYPE) & 0xf000) == 0xf000 && queue() && M(MCL_POS) >= 0 &&
            (unsigned)M(MCL_POS) + 1 == deque_size(queue());
 }
+unsigned auto_nexts __attribute__((section(".scratch"))); /* tracks that ended by themselves */
 int ringnav_next(int automatic) {
+    auto_nexts += automatic != 0;
     if (!s.active) {
         if (list_end()) {
             close_preload();

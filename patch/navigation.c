@@ -331,7 +331,6 @@ typedef struct {
     /* Most Played's page and its tracks: the last ranking plus the songs counted since, kept across
      * opens while the library is at mp_gen (~library_gen once stale). */
     void *mp_page, *mp_list, *td_page, *td_list;
-    int td_tags; /* td_list is a card app's, its tags not read yet (card_tags) */
     unsigned td_timer;
     int td_asking; /* Tidal Downloads shows Clear All Downloads' confirmation */
     unsigned mp_gen;
@@ -2619,6 +2618,34 @@ int ringnav_music_info(int a, char *info, const char *path) {
         flac_album_artist(path, info + MUSIC_INFO_ALBUM_ARTIST);
     return r;
 }
+/* A card app's song (its folder's listing, or an .m3u, reads no tags) in a library queue: stock
+ * parses only a folder play's file (player_get_id3info, MCL_TYPE 1) and copies any other queue's
+ * record, so its title was its file's name and its artist Unknown. As it starts, the playing
+ * record and the parsed tags take its file's, read as the library scan reads them
+ * (toolsGetMusicInfo): title, artist, album, album artist, track and disc. A record with an album
+ * is left, so a song is read once a queue; one without tags keeps its record's. ponytail: Up Next
+ * and an app's lists show the songs not yet played by their file names. */
+static void card_tags(char *id3, const char *path) {
+    static const unsigned from[] = { 0x280, 0x100, 0, MUSIC_INFO_ALBUM_ARTIST };
+    static const unsigned to[] = { REC_TITLE, REC_ARTIST, REC_ALBUM, REC_ALBUM_ARTIST };
+    unsigned pos, n;
+    void *r = queue_now(&pos, &n);
+    const char *album = r ? P(r, REC_ALBUM) : 0;
+    char info[0x698] = { 0 };
+    if (I(MCL_TYPE, 0) == 1 || !r || !P(r, REC_PATH) || strcmp(P(r, REC_PATH), path) ||
+        (album && *album) || !tk_str_start_with(path, "/mnt/mmc/") ||
+        toolsGetMusicInfo(0, info, path) != 1)
+        return;
+    for (unsigned k = 0; k < sizeof to / sizeof *to; k++) {
+        char *t, **field = (char **)((char *)r + to[k]);
+        info[from[k] + 0xff] = 0;
+        if (!info[from[k]] || !(t = strdup(info + from[k]))) continue;
+        free(*field), *field = t;
+        tk_snprintf(id3 + ID3_ALBUM + from[k], 0x100, "%s", t);
+    }
+    if (I(info, 0x684) > 0) I(r, REC_TRACK) = I(info, 0x684);
+    if (I(info, 0x688) > 0) I(r, REC_DISC) = I(info, 0x688);
+}
 /* player_get_id3info's copy of the parsed path (ID3_PATH in tools/build.py), after the tags and
  * before Now Playing's lines. A CUE track's tags are its record's, the stock parser's TITLE and
  * PERFORMER (the track's, else the sheet's); a sheet without them takes the file's (issue #59).
@@ -2635,6 +2662,7 @@ char *ringnav_id3_path(char *id3, const char *path) {
                 toolsTrimLeft(f); /* as stock did to its fields before this copy */
             }
     }
+    card_tags(id3, path);
     /* last: now_tag and marked_empty read a matching path as the tags being complete */
     tk_snprintf(id3, 0x400, "%s", path); /* +0x400: the CUE start */
     return id3;
@@ -6293,35 +6321,9 @@ static int td_named(const void *a, const void *b) {
     const char *x = P(((const td_row *)a)->r, REC_NAME), *y = P(((const td_row *)b)->r, REC_NAME);
     return strcmp(x ? x : "", y ? y : "");
 }
-/* A card app's songs come from its folder's listing (toolsLoadDirectory), which reads no tags, and
- * its queue is a library one (0xf001), whose records Now Playing shows as they are: a song's title
- * was its file's name and its artist Unknown. Each song plays with its file's tags, read as the
- * library scan reads them (toolsGetMusicInfo): title, artist, album, album artist, track and disc.
- * A song without tags keeps its record's. ponytail: one TagLib open a song, on the UI thread, as
- * the folder is queued: a folder of a few hundred songs takes a moment to start. */
-static void card_tags(void *songs) {
-    static const unsigned from[] = { 0x280, 0x100, 0, MUSIC_INFO_ALBUM_ARTIST };
-    static const unsigned to[] = { REC_TITLE, REC_ARTIST, REC_ALBUM, REC_ALBUM_ARTIST };
-    char info[0x698];
-    for (unsigned i = 0, n = deque_size(songs); i < n; i++) {
-        void *r = deque_at(songs, i);
-        memset(info, 0, sizeof info);
-        if (!r || !P(r, REC_PATH) || toolsGetMusicInfo(0, info, P(r, REC_PATH)) != 1) continue;
-        for (unsigned k = 0; k < sizeof to / sizeof *to; k++) {
-            char *t, **field = (char **)((char *)r + to[k]);
-            info[from[k] + 0xff] = 0;
-            if (!info[from[k]] || !(t = strdup(info + from[k]))) continue;
-            free(*field), *field = t;
-        }
-        if (I(info, 0x684) > 0) I(r, REC_TRACK) = I(info, 0x684);
-        if (I(info, 0x688) > 0) I(r, REC_DISC) = I(info, 0x688);
-    }
-}
 static int td_play(void *ctx, void *event) {
     void *t = deque_at(st.td_list, (unsigned)(long)ctx);
-    if (!t || access(P(t, REC_PATH), 0)) return 0;
-    if (st.td_tags) card_tags(st.td_list), st.td_tags = 0; /* once, as the list first plays */
-    play_folder(st.td_list, (int)(long)ctx, 0xf001);
+    if (t && !access(P(t, REC_PATH), 0)) play_folder(st.td_list, (int)(long)ctx, 0xf001);
     return 0;
 }
 /* dir's songs, newest first (or, album, by name), a deque the caller destroys. */
@@ -6345,9 +6347,8 @@ static void *card_songs(const char *dir, int album) {
     return songs;
 }
 /* A card app's stream folder's songs in play order (addon.c stream_poll), a deque the caller
- * destroys; app_tags tags those it queues. */
+ * destroys. */
 void *app_album_songs(const char *dir) { return card_songs(dir, 1); }
-void app_tags(void *songs) { card_tags(songs); }
 
 /* A song's label from its file: Tidal's after its "<id>-<quality> ", a card app's before a
  * trailing " [<id>]" (q2-deezer's, as OpenDeezer names them), either less its extension. */
@@ -6374,7 +6375,6 @@ static int td_clear(void *ctx, void *event) {
 static void *songs_rows(const char *dir, const char *title, int tidal, int album) {
     if (st.td_list) deque_destroy(st.td_list);
     st.td_list = card_songs(dir, album);
-    st.td_tags = !tidal;
     int n = (int)deque_size(st.td_list);
     void *view =
         page_list(st.td_page, st.td_page, 0, n ? title : "No downloads yet", n + (tidal && n), 48);
@@ -6444,10 +6444,9 @@ int songs_open(const char *path, const char *title, int album) {
         const char *p = P(deque_at(songs, i), REC_PATH);
         if (p && !strcmp(p, path)) at = (int)i;
     }
-    if (at >= 0) {
-        card_tags(songs);
+    if (at >= 0)
         play_folder(songs, at, 0xf001); /* playing_page copies the queue at once */
-    } else
+    else
         toast("It isn't on the card any more");
     deque_destroy(songs);
     return 0;
@@ -8514,11 +8513,13 @@ static int qm_open(const void *unused) {
     int album_hearts = aid ? rate_kept(1, aid) : 0;
     if (aid) acts[n++] = album_hearts == 5 ? QA_UNFAV : QA_FAV, acts[n++] = QA_RATE;
     if (st.qm_kind < QM_COVERFLOW || st.qm_kind == QM_PLAYING) acts[n++] = QA_PLAYLIST;
-    if ((st.qm_kind == QM_SONG || st.qm_kind == QM_PLAYING) && album && *album &&
+    /* a card app's song isn't in the Library: Go to only to the app's own page */
+    int hidden = song && !addon_goes(P(r, REC_PATH));
+    if ((st.qm_kind == QM_SONG || st.qm_kind == QM_PLAYING) && album && *album && !hidden &&
         (cls & 0xfff0) != 0xff10 && !navigator_window_is_exist("playerjumpinfo_page") &&
         !coverflow_shows_album(r))
         acts[n++] = QA_ALBUM;
-    if ((song || cls == CLASS_ALBUMS) && artist && *artist &&
+    if ((song || cls == CLASS_ALBUMS) && artist && *artist && !hidden &&
         !navigator_window_is_exist("artistinfo_page"))
         acts[n++] = QA_ARTIST;
     /* ponytail: hidden while a folder_page is open (as Go to's single-instance pages), so a folder

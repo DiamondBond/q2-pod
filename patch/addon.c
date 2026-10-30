@@ -24,7 +24,7 @@
  *
  * Go to Album and Go to Artist on a song in an app's folder open the app's own page for them when
  * its q2app says goto=1 (addon_goto), and every song an app queues plays with its file's tags
- * (navigation.c card_tags, app_tags).
+ * (navigation.c card_tags).
  *
  * An app's /tmp/q2-<id>.sleep asks for a sleep timer: playback pauses at a time, or as the track
  * playing ends (sleep_read, sleep_check).
@@ -325,7 +325,6 @@ static int stream_start(const void *unused) {
             tk_snprintf(sm.last, sizeof sm.last, "%s",
                         (const char *)P(deque_at(songs, n - 1), REC_NAME));
         sm.state = S_PLAY;
-        app_tags(songs);
         play_folder(songs, 0, 0xf001); /* playing_page copies the queue at once */
         sm.loads = playback_loads;     /* its load, which play_folder has done (playback_groups) */
     }
@@ -392,7 +391,7 @@ static void stream_poll(app_t *a) {
     if (!scan && sm.m3u) {
         if (m3u_ready()) {
             void *add = m3u_songs();
-            if (deque_size(add)) app_tags(add), playback_queue_insert(q, add, 0);
+            if (deque_size(add)) playback_queue_insert(q, add, 0);
             deque_destroy(add);
         }
     } else if (!scan && stream_newer(sm.dir, sm.last)) {
@@ -405,7 +404,6 @@ static void stream_poll(app_t *a) {
         if (deque_size(add)) {
             void *r = deque_at(add, deque_size(add) - 1);
             tk_snprintf(sm.last, sizeof sm.last, "%s", (const char *)P(r, REC_NAME));
-            app_tags(add); /* the new ones only */
             playback_queue_insert(q, add, 0);
         }
         deque_destroy(add);
@@ -426,21 +424,25 @@ static void stream_poll(app_t *a) {
 
 /* Sleep timers (q2-podcasts' Sleep Timer): an app's /tmp/q2-<id>.sleep holds "until <time>"
  * (seconds since the epoch, at most SLEEP_MAX_S away) or "end" (the track playing now ends). Q2 Pod
- * keeps the timer itself, on its own clock from when it read the file, so it pauses whatever plays
- * (media_set_playing) once the app has stopped too. "end" pauses when the track leaves its last
- * SLEEP_END_S seconds for the next one, which then waits at its start, or starts over (repeat one);
- * another track picked, or a seek back, waits for that one's end instead (stock refills the same
- * queue, so a new queue looks the same), and playback stopping or another player lets it go. Done
- * or let go, the file is removed: the app's sign that no timer runs. The app removes it to cancel.
- * One timer: the latest asked. */
+ * keeps the timer itself, so it pauses whatever plays (media_set_playing) once the app has stopped
+ * too; a time the Q2 slept through by more than SLEEP_LATE_S is let go. "end" pauses when the track
+ * ends by itself (playback.c auto_nexts) or leaves its last SLEEP_END_S seconds for the next one,
+ * which then waits at its start, or starts over (repeat one); another track picked, or a seek back,
+ * waits for that one's end instead (stock refills the same queue, so a new queue looks the same),
+ * and playback stopped for SLEEP_STOP_MS (not between tracks) or another player lets it go. Done or
+ * let go, the file is removed: the app's sign that no timer runs. The app removes it to cancel, and
+ * a timer whose file is gone when due doesn't pause. One timer: the latest asked, any app's. */
 #define SLEEP_MAX_S (7 * 24 * 3600)
+#define SLEEP_LATE_S 60
 #define SLEEP_END_S 2
+#define SLEEP_STOP_MS 3000
 static struct {
     unsigned seen[APPS_MAX]; /* each app's .sleep as read last, hashed; 0 none */
-    unsigned due;            /* time_now_ms() to pause at; 0 none */
+    long at;                 /* time() to pause at; 0 none */
     int end, owner;          /* end: pause when the local track ends; owner: the app's slot + 1 */
-    unsigned pos;            /* the track "end" waits on, by its place in the queue */
+    unsigned pos, nexts;     /* the track "end" waits on, by its place in the queue; auto_nexts */
     int sec, total;          /* its elapsed and length as last seen, seconds; total 0 unknown */
+    unsigned stopped;        /* time_now_ms() playback was seen stopped since; 0 not stopped */
 } sl __attribute__((section(".scratch")));
 
 static void sleep_path(char *out, unsigned size, int slot) {
@@ -449,8 +451,16 @@ static void sleep_path(char *out, unsigned size, int slot) {
 
 static void sleep_done(void) {
     char path[48];
-    if (sl.owner) sleep_path(path, sizeof path, sl.owner - 1), unlink(path);
-    sl.due = 0, sl.end = 0, sl.owner = 0;
+    if (sl.owner) sleep_path(path, sizeof path, sl.owner - 1), unlink(path), sl.seen[sl.owner - 1] = 0;
+    sl.at = 0, sl.end = 0, sl.owner = 0;
+}
+
+/* Due: pause, unless the app removed its file meanwhile (a cancel it made while not polled). */
+static void sleep_pause(void) {
+    char path[48];
+    sleep_path(path, sizeof path, sl.owner - 1);
+    if (!access(path, 0)) media_set_playing(0);
+    sleep_done();
 }
 
 /* An app's .sleep, read while it runs: a new request replaces the timer, its removal cancels it. */
@@ -463,21 +473,23 @@ static void sleep_read(app_t *a) {
     if (h == sl.seen[slot]) return;
     sl.seen[slot] = h;
     if (!have) { /* the app cancelled its own */
-        if (sl.owner == slot + 1) sl.due = 0, sl.end = 0, sl.owner = 0;
+        if (sl.owner == slot + 1) sl.at = 0, sl.end = 0, sl.owner = 0;
         return;
     }
-    sl.due = 0, sl.end = 0, sl.owner = slot + 1;
+    if (sl.owner != slot + 1) sleep_done(); /* another app's timer gives way, its file removed */
+    sl.owner = slot + 1;
     const char *req = raw + 1; /* state_read puts a newline first, for field() */
     if (tk_str_start_with(req, "end")) {
         sl.end =
             media_owner() == 1 && mclGetPlayStatus() != 1; /* the local player, playing or paused */
-        sl.pos = (unsigned)I(MCL_POS, 0), sl.sec = -1, sl.total = 0;
+        sl.pos = (unsigned)I(MCL_POS, 0), sl.nexts = auto_nexts, sl.sec = -1, sl.total = 0;
+        sl.stopped = 0;
         if (!sl.end) sleep_done();
     } else if (tk_str_start_with(req, "until ")) {
         long long at = 0, now = time((void *)0);
         const char *c = req + 6;
         for (; *c >= '0' && *c <= '9' && c < req + 6 + 11; ++c) at = at * 10 + (*c - '0');
-        if (c == req + 6 || at - now > SLEEP_MAX_S) {
+        if (c == req + 6 || (*c && *c != '\n') || at - now > SLEEP_MAX_S) {
             sleep_done(); /* no time, or none this app could mean: dropped, nothing paused */
             return;
         }
@@ -485,32 +497,43 @@ static void sleep_read(app_t *a) {
             media_set_playing(0), sleep_done();
             return;
         }
-        sl.due = time_now_ms() + (unsigned)(at - now) * 1000u;
+        sl.at = (long)at;
     } else
         sleep_done();
 }
 
 /* Every UI pass: a timer due, or the track "end" waited for over, pauses. */
 static void sleep_check(void) {
-    if (sl.due && (int)(time_now_ms() - sl.due) >= 0) {
-        media_set_playing(0);
-        sleep_done();
+    if (sl.at) {
+        long late = time((void *)0) - sl.at;
+        if (late >= SLEEP_LATE_S)
+            sleep_done(); /* the Q2 slept through it */
+        else if (late >= 0)
+            sleep_pause();
     } else if (sl.end) {
-        if (media_owner() != 1 || mclGetPlayStatus() == 1) {
-            sleep_done(); /* another player, or stopped: nothing to wait for */
+        unsigned now = time_now_ms(), pos = (unsigned)I(MCL_POS, 0);
+        if (mclGetPlayStatus() == 1) { /* stopped, or between tracks for a moment */
+            if (!sl.stopped) sl.stopped = now | 1;
+            if ((int)(now - sl.stopped) >= SLEEP_STOP_MS) sleep_done(); /* | 1: maybe now + 1 */
+            return;
+        }
+        sl.stopped = 0;
+        if (media_owner() != 1) {
+            sleep_done(); /* another player: nothing to wait for */
             return;
         }
         int sec = -1, total = 0;
-        unsigned pos = (unsigned)I(MCL_POS, 0);
         player_playtime_and_length(&sec, &total);
-        /* at its end when last seen; a length unknown, any move on counts */
-        int ended = sl.total <= 0 || sl.sec >= sl.total - SLEEP_END_S;
-        if (pos != sl.pos || (sec >= 0 && sec + SLEEP_END_S < sl.sec)) { /* moved on, or back */
-            if (sl.sec >= 0 && ended) {
-                media_set_playing(0), sleep_done();
+        if (sec < 0) return; /* between tracks: a later pass decides */
+        /* ended by itself, or at its end when last seen; a length unknown, any move on counts */
+        int ended = auto_nexts != sl.nexts ||
+                    (sl.sec >= 0 && (sl.total <= 0 || sl.sec >= sl.total - SLEEP_END_S));
+        if (pos != sl.pos || sec + SLEEP_END_S < sl.sec) { /* moved on, or back */
+            if (ended) {
+                sleep_pause();
                 return;
             }
-            sl.pos = pos; /* another track picked, or a seek back: its end now */
+            sl.pos = pos, sl.nexts = auto_nexts; /* another track picked, or a seek back */
         }
         sl.sec = sec, sl.total = total;
     }
@@ -1169,18 +1192,36 @@ int addon_open(void *ctx, void *event) {
  * "artist", then the song's path), the level the app answers with, titled title; Back leaves it
  * for the page under it. Its page already open (the song played from it) is closed first, as
  * Coverflow's scoped page is: one page's state. 1 when it opened. */
-int addon_goto(const char *path, const char *title, int album) {
-    char id[APP_ID], raw[512], file[64], args[sizeof pg.lv->args] = "";
+/* Whether path is in an app's folder, CARD/.<id>/, and id the app's. */
+static int card_id(const char *path, char *id) {
     const char *p = path && tk_str_start_with(path, CARD "/.") ? path + sizeof CARD "/." - 1 : 0;
     unsigned k = 0;
     while (p && p[k] && p[k] != '/' && k < APP_ID - 1) ++k; /* an id fits id with its NUL */
     if (!p || p[k] != '/') return 0;
     tk_snprintf(id, k + 1, "%s", p);
+    return valid_id(id);
+}
+/* The app whose folder holds path, when its q2app says goto=1; 0 for any other. */
+static app_t *goto_app(const char *path) {
+    char id[APP_ID], raw[512], file[64];
+    if (!card_id(path, id)) return 0;
     tk_snprintf(file, sizeof file, CARD "/.%s/q2app", id);
-    if (!valid_id(id) || !state_read(file, raw, sizeof raw) || number(raw, "goto") != 1) return 0;
+    if (!state_read(file, raw, sizeof raw) || number(raw, "goto") != 1) return 0;
     app_t *a = slot(id);
     if (a && !a->name[0]) addon_scan(); /* not listed by Streaming since boot: its name read */
-    if (!a || !a->present || !put(args, sizeof args, album ? "album" : "artist") ||
+    return a && a->present ? a : 0;
+}
+/* The hold menu's: whether Go to on path opens a page, its app's (goto=1) or, outside an app's
+ * folder, stock's. An app's folder is hidden, so the Library never holds its songs. */
+int addon_goes(const char *path) {
+    char id[APP_ID];
+    return !card_id(path, id) || goto_app(path);
+}
+
+int addon_goto(const char *path, const char *title, int album) {
+    char args[sizeof pg.lv->args] = "";
+    app_t *a = goto_app(path);
+    if (!a || !put(args, sizeof args, album ? "album" : "artist") ||
         !put(args, sizeof args, path))
         return 0;
     void *old = pg.page;
