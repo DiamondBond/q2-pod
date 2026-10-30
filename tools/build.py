@@ -1438,7 +1438,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq', flac_experiments)
-    bluealsa = patch_bluealsa(cat(BLUEALSA))
+    bluealsa = cat(BLUEALSA)  # #156 A/B: stock bluealsa, none of the DROP, silence or AAC patches
     (out/'bluealsa').write_bytes(bluealsa)
     (out/'watchdog').write_bytes(cat(WATCHDOG).replace(*WATCHDOG_SLEEP))
     for address, old, new in ARTIST_ALBUMS:
@@ -1588,7 +1588,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
     (out/'S11logo').write_bytes(s11logo.replace(*LOGO_HOOK))
     bluealsa2 = cat(BLUEALSA2)
     check(bluealsa2.count(BT_KEEPALIVE[0]) == 1, 'Unexpected bluealsa2')
-    (out/'bluealsa2').write_bytes(bluealsa2.replace(*BT_KEEPALIVE))
+    (out/'bluealsa2').write_bytes(bluealsa2)  # #156 A/B: stock launcher, no --keep-alive
     logo_data = logo.read_bytes()
     check(jpeg_size(logo_data) == (320, 375), 'Logo must be 320x375 like the stock splash')
     # Package exactly the validated bytes, even if the input is edited during compression.
