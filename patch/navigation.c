@@ -3635,14 +3635,17 @@ static void lyric_follow(void *lrc, int ms, int front, int shown) {
 }
 
 /* Smart Awake (#57): Now Playing lit in front, a song playing, on its lyrics, info or
- * visualizer page holds the screen on as the lyrics wheel does; paused, it times out as usual. */
+ * visualizer page, or its full-screen art in front, holds the screen on as the lyrics wheel does;
+ * paused, it times out as usual. */
 static void keep_lit_poll(void) {
     unsigned now = (unsigned)time_now_ms();
     if (!st.np_slide || now - st.keep_lit_at < 1000) return;
     st.keep_lit_at = now;
     accent(); /* reads the settings */
-    if (st.keep_lit && g_backlight_status && widget_get_prop_int(st.np_slide, "value", 0) &&
-        window_manager_get_top_window(window_manager()) == st.np_win && mclGetPlayStatus() == 2)
+    void *top = window_manager_get_top_window(window_manager());
+    if (st.keep_lit && g_backlight_status && mclGetPlayStatus() == 2 &&
+        ((top == st.np_win && widget_get_prop_int(st.np_slide, "value", 0)) ||
+         (top && top == st.bc[2])))
         reset_poweroptions_timer(1, 1, 1);
 }
 

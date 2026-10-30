@@ -5938,6 +5938,15 @@ for kw in ({'page':0},{'size':0},{'lines':0}):
 for page,left in ((1,O['BC_IDLE_FULL']),(0,3)):
     m=lyric_page(page=page); m.byte(O['BC_IDLE'],3); loop(m); assert m.u.mem_read(O['BC_IDLE'],1)[0]==left,page
 passed()
+# Smart Awake (#57), a song playing, holds the screen on the lyrics page and over the full-screen
+# art; the art page, or paused, times out as usual.
+def awake(page,art=False,status=2):
+    CONFIG['KEEPLIT']='1'; m=lyric_page(page=page); del CONFIG['KEEPLIT']; m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(PLAY_STATUS,status)
+    if art:
+        bw=m.node('window','bigcover_page'); m.handlers[HOOKS['bigcover_page_init'][0]+12]='stock_bigcover'
+        m.call(address=HOOKS['bigcover_page_init'][0],args=(bw,7,0,0),gap=0); m.top=bw
+    m.advance(1000); m.calls=[]; loop(m); return ('reset_poweroptions_timer',1,1,1) in [c[:4] for c in m.calls]
+assert awake(1) and awake(0,art=True) and not awake(0) and not awake(0,art=True,status=3); passed()
 # Following, a lone tick meets a list end's resistance: it nudges them BUMP_PX while the finger
 # stays, and they spring back on release, still following; slower ticks only nudge again.
 m=lyric_page(); assert loop(m)==0 and raw(m)==1; m.calls=[]

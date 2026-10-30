@@ -656,8 +656,10 @@ NPCENTRED`, off; `playset_covermode`): `ringnav_ui_load`, hooked on every window
   full screen
   ([Word-timed lyrics](internals.md#word-timed-lyrics)). Choosing a Theme loads its preset (`theme_preset`): Classic sets Light Mode on, Cobalt (`ACCENT` 4), square corners and Split, Minimal Light Mode off, Graphite (`MINIMAL_ACCENT` 0), rounded corners and Split; Light Mode's Auto, Battery and Centred Now Playing are kept, and only changed values are saved.
 - Controls, after Shortcut: a "Smart Awake" switch (`IPOD KEEPLIT`, off;
-  `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page and a song
-  playing, it calls `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there;
+  `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page, or its
+  full-screen art (`bigcover_page`) in front, and a song playing, it calls
+  `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there (with Enlarged Album
+  Art on, the art page too, once its countdown opens the full-screen art);
   paused, it times out as usual. Enlarged Album Art never opens off the art page (#57): while Now Playing's slide view is on
   another page, each `ringnav_sleep` pass holds stock's countdown (`BC_IDLE`) at its full 10 s.
   Before, the window opened and closed a pass later, flashing over the lyrics every 10 s (#153).
