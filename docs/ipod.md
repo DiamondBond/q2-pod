@@ -67,7 +67,7 @@ The pinned style edits in `patch/ipod.json` remove list fills and corners and ma
 feedback neutral grey. Playing titles keep the separate playing glyph.
 
 In Minimal, wheel selection under its own accent (**Accent: Ivory**, the default) is off-white (`#EEEEEC`): a card, under **Rounded Corners** on inset
-`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height, less on a row whose cover the round end would cut, such as Search's results: `pill_radius` shrinks them until the cover's corners are inside, checking only the row's own left-hand, non-centred images; grid tiles `SEL_RADIUS`, 6), and under **Rounded Corners** off (the default) a full-width square bar with square tiles,
+`SEL_INSET` (6) pixels from each side of the row, a pill (corners half its height, less on a row whose cover the round end would cut, such as Search's results: `pill_radius` shrinks them until the cover's corners are inside, checking only the row's own visible left-hand, non-centred images, so Folder's hidden multi-select check doesn't square it; grid tiles `SEL_RADIUS`, 6), and under **Rounded Corners** off (the default) a full-width square bar with square tiles,
 drawn with the anti-aliased rounded fill (square without a vgcanvas). Any other accent fills the
 card with its colour and leaves the rows' own (white) ink, as Classic's bar does. Minimal's unselected
 secondary text, stock's `#AAAAAA`, is the quieter `SUDO_MUTED` (`#8C8C8C`) everywhere. **Theme:
@@ -656,8 +656,9 @@ NPCENTRED`, off; `playset_covermode`): `ringnav_ui_load`, hooked on every window
 - Controls, after Shortcut: a "Smart Awake" switch (`IPOD KEEPLIT`, off;
   `keep_lit_poll`): with Now Playing lit in front on its lyrics, info or visualizer page and a song
   playing, it calls `reset_poweroptions_timer(1, 1, 1)` once a second, so the screen stays on there;
-  paused, it times out as usual. Enlarged Album Art never opens off the art page: `ringnav_bigcover`
-  closes its window at once when Now Playing's slide view is on another page (#57).
+  paused, it times out as usual. Enlarged Album Art never opens off the art page (#57): while Now Playing's slide view is on
+  another page, each `ringnav_sleep` pass holds stock's countdown (`BC_IDLE`) at its full 10 s.
+  Before, the window opened and closed a pass later, flashing over the lyrics every 10 s (#153).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
   Coverflow ends with an All albums card, see
   [internals.md](internals.md#artist-albums-in-coverflow)), "Coverflow Sort: Album" and "Refresh

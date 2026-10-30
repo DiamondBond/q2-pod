@@ -887,8 +887,9 @@ static void sudoku_paint(void *canvas, unsigned tone) {
         box(canvas, x0 + k * CELL - 1, y0 - 1, 2, 9 * CELL + 2, 0xaaaaaa);
         box(canvas, x0 - 1, y0 + k * CELL - 1, 9 * CELL + 2, 2, 0xaaaaaa);
     }
+    /* the accent's text tone: Graphite's light tone is the grid's grey */
     frame_rect(canvas, x0 + s->cur % 9 * CELL, y0 + s->cur / 9 * CELL, CELL, CELL,
-               g->picking ? 0xffffff : tone, 0);
+               g->picking ? 0xffffff : accent_tone(3), 0);
     if (g->confirm)
         banner(canvas, tone, "New game?", 0xffffff, "Centre: yes   Return: no", 0xaaaaaa);
     else if (sud_done(s))

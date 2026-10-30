@@ -796,6 +796,12 @@ assert not any(m.get(e+O['W_FOCUS'])&0x80 for e in entries); passed()
 # Corners: Rounded insets it SEL_INSET from each side, a pill.
 k=Machine(); k.config['ROUNDED']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
 assert [(c['rect'],c['radius']) for c in k.rounded]==[((inset,0,240-2*inset,48),24)]
+# A left image the round end would cut shrinks it; hidden (Folder's multi-select check) it doesn't.
+for visible,radius in ((1,2),(0,24)):
+    k=Machine(); k.config['ROUNDED']='1'; kw,es=k.page_list(5,extent=1000)
+    check=k.node('image','img_choice',visible=visible); k.nodes[es[0]]['children']=[check]
+    for o,v in zip(('W_X','W_Y','W_W','W_H'),(8,0,50,48)): k.word(check+O[o],v)
+    k.paint(kw); assert [c['radius'] for c in k.rounded]==[radius],(visible,k.rounded)
 # Theme: Classic draws the accent's bar (its highlight, then Graphite's flat fill) instead, full
 # width; under Corners: Rounded the same inset pill, each band a chord of a 48px circle at either end.
 k=Machine(); k.config['THEME']='1'; kw,_=k.page_list(5,extent=1000); k.paint(kw)
@@ -5909,6 +5915,11 @@ def hold(m): loop(m,-56); loop(m,56); settle(m)  # LYRIC_PUSH_DETENTS turned the
 for kw in ({'page':0},{'size':0},{'lines':0}):
     m=lyric_page(**kw); loop(m); assert raw(m)==0 and m.get(payload_syms['wheel_travel'])==0
     assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
+# Enlarged Album Art (#153): off the art page each pass holds stock's countdown full, so the art never
+# opens there; on the art page it runs.
+for page,left in ((1,O['BC_IDLE_FULL']),(0,3)):
+    m=lyric_page(page=page); m.byte(O['BC_IDLE'],3); loop(m); assert m.u.mem_read(O['BC_IDLE'],1)[0]==left,page
+passed()
 # Following, a lone tick meets a list end's resistance: it nudges them BUMP_PX while the finger
 # stays, and they spring back on release, still following; slower ticks only nudge again.
 m=lyric_page(); assert loop(m)==0 and raw(m)==1; m.calls=[]
@@ -9627,7 +9638,8 @@ key(O['KEY_PLAY']); assert word(G_PAUSED)==0 and len(frames())==1 and m.get(payl
 m.byte(syms['g_backlight_status'],0); m.advance(40); m.byte(syms['g_backlight_status'],1)
 assert word(G_PAUSED)==1 and not frames() and m.get(payload_syms['wheel_raw'])==0
 key(O['KEY_RETURN']); assert word(G_PAUSED)==2; key(O['KEY_NEXT']); paint(); key(O['KEY_CENTER']); m.advance(0)
-assert word(G_SCREEN)==0 and not frames() and m.get(payload_syms['wheel_raw'])==0; passed()
+assert word(G_SCREEN)==0 and not frames() and m.get(payload_syms['wheel_raw'])==0
+assert m.key()==11; passed()  # Return in the chooser after Vortex goes back to the Library
 # Solitaire (piles 0 stock, 1 waste, 2-5 foundations, 6-12 columns; a card suit*13+rank, 64 up): Centre on
 # the stock draws and saves; the wheel walks the piles, Previous/Next jump between the rows; Centre picks a
 # run up and drops it where it fits, turning the card under it; Centre twice sends a card home; Return
@@ -10996,6 +11008,14 @@ s.answer('ok','pages','c2',arts(1)); assert s.requests[-1]==('downloads','c1') a
 assert s.nodes[view]['_ringnav_index']==7 and s.get(view+O['SCROLL_Y'])==y and s.get(view+O['VIEW_CONTENT_H'])==101*64
 s.answer('ok','pages','',arts(2,20)); assert s.requests[-1]==('downloads','c2') and len(s.rows())==120 and s.labels()[-2:]==['Artist 119','']
 t=len(s.threads); s.advance(2000); assert len(s.threads)==t; passed()
+# A page landing while another window is on top leaves ringnav's list state (its load) to that window's list:
+# the rows, count and selection are kept for when the page is on top again.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',arts(0))
+view=s.find('scroll_view'); s.nodes[view]['_ringnav_index']=7; s.word(s.page+O['W_PARENT'],s.wm)
+other=s.node('window','playing_page'); s.word(other+O['W_PARENT'],s.wm); s.top=other
+loads=[]; s.u.hook_add(UC_HOOK_CODE,lambda u,a,n,_: loads.append(a),begin=payload_syms['load'],end=payload_syms['load'])
+s.answer('ok','pages','c2',arts(1)); assert not loads and len(s.rows())==101
+assert s.nodes[view]['_ringnav_count']==101 and s.nodes[view]['_ringnav_index']==7; passed()
 # A press on Loading… stays nothing when its page lands before the press's timer runs (go() then finds a row at
 # its index): the page's tick takes the reply first, the press's timer (if any) held back till after.
 s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',arts(0))

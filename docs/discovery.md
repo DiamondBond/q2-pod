@@ -4,7 +4,8 @@ Put an empty file named `database.ignore` inside any folder on the microSD card,
 the music library. That folder and its subfolders are hidden from normal music browsing.
 Folder names and locations are unrestricted: `/Singles/database.ignore` and
 `/Needledrop/database.ignore` can keep the two collections separate. Use the exact lowercase
-marker filename and no `.txt` extension.
+marker filename and no `.txt` extension. Hidden names work too: `.database.ignore` and
+`.database.unignore` count the same, so other players don't show the markers.
 
 For an exception, put an empty `database.unignore` in a subfolder. Its files and descendants
 are visible again, unless a deeper folder contains another `database.ignore`. The nearest

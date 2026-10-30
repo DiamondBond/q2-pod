@@ -63,14 +63,20 @@ static void scope_add(const char *path, int visible) {
     scope.bytes += n * 2 + 96;
 }
 
+/* A marker file in the folder, as named or hidden with a leading dot (#154). */
+static int marker(char *path, unsigned n, const char *name) {
+    scope_snprintf(path + n, PATH_MAX_SCOPE - n, "/%s", name);
+    int found = mode_is(path, 0100000);
+    scope_snprintf(path + n, PATH_MAX_SCOPE - n, "/.%s", name);
+    found |= mode_is(path, 0100000);
+    path[n] = 0;
+    return found;
+}
+
 static void scope_walk(char *path, unsigned depth) {
     unsigned n = strlen(path);
     if (depth > 64 || n + 258 >= PATH_MAX_SCOPE) { walk.failed = 1; return; }
-    scope_snprintf(path + n, PATH_MAX_SCOPE - n, "/database.ignore");
-    int ignore = mode_is(path, 0100000);
-    scope_snprintf(path + n, PATH_MAX_SCOPE - n, "/database.unignore");
-    int unignore = mode_is(path, 0100000);
-    path[n] = 0;
+    int ignore = marker(path, n, "database.ignore"), unignore = marker(path, n, "database.unignore");
     if (ignore || unignore) {
         const char *card = path + sizeof(PEQ_ROOT) - 1;
         unsigned length = strlen(card);

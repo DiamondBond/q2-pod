@@ -178,6 +178,10 @@ static inline int arc_out(int r, int y) {
 /* iPod: the full-screen art (stock's bigcover_page) shows the song name BC_MS, then it and its shade
  * fade out in BC_STEPS steps, BC_STEP_MS apart. The art takes the cover's shape (bc_fit). */
 #define BC_MS 3000
+/* No symbol: Enlarged Album Art's countdown. Now Playing's timer (0x52bffc) counts it down while a
+ * song plays there and opens bigcover_page at 0, then sets it back to BC_IDLE_FULL (10 s). */
+#define BC_IDLE 0x99f660
+#define BC_IDLE_FULL 40
 #define BC_TITLE_PAD 12 /* the song name's inset from the art's sides */
 /* The screen glass's rounded corners and how far content keeps clear of them (tools/ipod.py). */
 #define GLASS_R 80

@@ -425,7 +425,6 @@ typedef struct {
     /* The full-screen art's song name, its shade and its window, the fade's step and timer
      * (ringnav_bigcover) */
     void *bc[3];
-    void *bc_drop; /* full-screen art opened off the art page, closed on the next pass */
     int bc_step;
     unsigned bc_timer, bc_track, bc_repaint;
     unsigned bc_key, bc_box, bc_shape,
@@ -1311,7 +1310,11 @@ static void reveal(menu_t *m, int id, int immediate) {
 
 /* A payload page's own row: establish its scope and viewport before paint can recall another. */
 void ringnav_select(void *w, int id, int rows) {
-    int loaded = load(&g_menu, w, 0);
+    /* A list under another window (a card app's pages still arriving) keeps the props alone: its
+     * load would take g_menu and the top list's glide and big letter from under the wheel. */
+    void *win = window_of(w);
+    int loaded =
+        (!win || win == window_manager_get_top_window(window_manager())) && load(&g_menu, w, 0);
     prop(w, COUNT, rows);
     prop(w, SEL, id);
     if (loaded) reveal(&g_menu, id, 1);
@@ -1770,8 +1773,9 @@ static int pill_radius(void *row, int h, int inset) {
     int r = h / 2;
     for (unsigned i = 0; row && i < widget_count_children(row); ++i) {
         void *c = widget_get_child(row, i);
-        if (tk_strcmp(widget_get_type(c), "image") ||
-            widget_get_prop_int(c, "draw_type", 0) == IMAGE_DRAW_CENTER) /* icons: discs */
+        /* icons: discs; hidden: Folder's multi-select check, full height at its left */
+        if (tk_strcmp(widget_get_type(c), "image") || !widget_get_visible(c) ||
+            widget_get_prop_int(c, "draw_type", 0) == IMAGE_DRAW_CENTER)
             continue;
         int x = I(c, W_X) - inset, y = I(c, W_Y), ch = I(c, W_H);
         if (I(c, W_W) <= 0 || ch <= 0 || x < 0 || x >= r) continue;
@@ -4057,22 +4061,12 @@ void *ringnav_ui_load(const char *name, void *parent) {
 
 /* bigcover_page_init: stock's full-screen art (a tap on Now Playing's opens it, any tap closes it)
  * shows the song name BC_MS, then bc_fade fades it out. Stock's own timer writes the next song's
- * name; ringnav_sleep shows it again when the track changes. Enlarged Album Art's idle timer opens
- * it too: off the art page (lyrics, info, visualizer) there is no art to enlarge, so the next
- * ringnav_sleep pass closes it (#57), once stock's open has finished with the window.
- * ponytail: it may show for that one pass; stopping stock's idle timer would need its source. */
-static int bc_dropped(void *win, void *event) {
-    if (st.bc_drop == win) st.bc_drop = (void *)0;
-    return 0;
-}
+ * name; ringnav_sleep shows it again when the track changes. Enlarged Album Art's countdown opens
+ * it too; off the art page (lyrics, info, visualizer) there is no art to enlarge, so ringnav_sleep
+ * holds the countdown full there (#57). Closing it after the open flashed it every 10 s (#153). */
 int ringnav_bigcover(void *win, void *ctx) {
     int result = stock_bigcover_trampoline(win, ctx);
     if (!win) return result;
-    if (st.np_slide && widget_get_prop_int(st.np_slide, "value", 0)) {
-        st.bc_drop = win;
-        widget_on(win, EVT_DESTROY, bc_dropped, win);
-        return result;
-    }
     st.bc[0] = widget_lookup(win, "scrlabel_title", 1);
     st.bc[1] = widget_lookup(win, "view_shade", 1);
     st.bc[2] = win;
@@ -9371,11 +9365,8 @@ int ringnav_sleep(void *loop) {
     lyric_poll();
     keep_lit_poll();
     np_art_poll();
-    if (st.bc_drop) { /* once: a destroy before this pass cleared it */
-        void *drop = st.bc_drop;
-        st.bc_drop = (void *)0;
-        window_close(drop);
-    }
+    if (st.np_slide && widget_get_prop_int(st.np_slide, "value", 0)) /* off the art page */
+        *(volatile signed char *)BC_IDLE = BC_IDLE_FULL;
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
     if (!g_backlight_status) {
         st.dark |= 1;

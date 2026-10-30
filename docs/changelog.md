@@ -17,6 +17,11 @@
   - Card apps: a progress row shows a bar in Q2 Pod's style, for an app's sync or download progress.
   - Card apps: an app can ask the Q2 to update the library and import its playlists after a sync. The Q2 waits until nothing is playing (AirPlay and Bluetooth audio included) and you're on Home, Streaming, the app's page, Now Playing or a settings page, shows the usual Update Local Music progress (which stops the player, so with a song paused it also waits for the screen to turn off), and replaces the app's own playlists instead of adding copies, while a playlist of yours with the same name is left alone. A playlist name can be up to 63 bytes long.
   - Card apps: an app can have its long lists load in full, up to 500 rows, instead of stopping at 50 behind More…, so the wheel speeds up and shows the big letter through the whole list, as in the Library. Other apps, and lists that keep updating (such as downloads), still show More….
+  - Now Playing: with Enlarged Album Art on, the lyrics, info and visualizer pages no longer flash dark every 10 seconds ([#153](https://github.com/DiamondBond/q2-pod/issues/153)). The art's countdown now waits while you're off the art page, instead of opening and closing at once.
+  - Display: under Rounded Corners, a selected row in Folder view is rounded like every other list's. Its hidden multi-select checkbox made it square.
+  - Games: in Sudoku, the cursor's frame is visible with the Graphite accent. It used the grid's grey and now uses the accent's brighter tone, under every accent.
+  - Card apps: an app's list that keeps loading while another window is on top no longer disturbs that window's list, such as the big letter during a fast spin.
+  - Library: `.database.ignore` and `.database.unignore`, hidden with a leading dot, work as `database.ignore` and `database.unignore` do, so other players don't list them ([#154](https://github.com/DiamondBond/q2-pod/issues/154)). Run Update Local Music after adding one.
   - App Store: **Subsonic**, a card app for Navidrome and other Subsonic servers, browses, streams and syncs your music to the card. The App Store's list comes from the Q2 Pod repo, so it shows on Q2 Pod 1.4.3 or later without a firmware update.
 
 - **1.5.8**:

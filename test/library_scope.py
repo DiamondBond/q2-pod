@@ -125,6 +125,11 @@ def main():
             boot(); check(set())
         refresh(); check({2, 4, 6, 7, 9, 11})
         discovery.unlink()
+        # Hidden names (#154) work as the plain ones, an unignore's too.
+        hidden = marker('Discovery', '.database.ignore')
+        unhide = marker('Needledrop/Keep/Hide', '.database.unignore')
+        refresh(); check({2, 4, 7, 9, 11})
+        hidden.unlink(); unhide.unlink()
         assert original == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in original}
         print('library_scope: traversal, rules file across reboots, cut or missing rules, inheritance, exceptions,'
               ' refresh, SQL quoting, grouping, playlist retention and unchanged files passed')
