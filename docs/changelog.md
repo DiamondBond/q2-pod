@@ -12,6 +12,8 @@
   - Performance: on a big card, the Library no longer stalls the first time you open it after a restart. It was searching every folder on the card for `database.ignore` files then. That search now runs during **Update Local Music**, so adding or removing a `database.ignore` or `database.unignore` file takes effect after Update Local Music, not after a restart. If you use these files, run Update Local Music once after updating.
   - Home: in Split, the panning album art is sharper, about twice as crisp as in 1.5.8, and still evenly sharp as it moves.
   - Card apps: the firmware lists the card-app features it has in `/tmp/q2-addon.caps`, so apps can use new features and fall back on older firmware.
+  - Card apps: Stream mode can play a playlist file of songs on the card, waiting for each streamed song as it arrives, so an app can mix synced and streamed songs. A queue you start yourself while it waits keeps playing. Streaming now takes every format the Q2 plays, not only FLAC and MP3.
+  - Card apps: when two apps have each streamed (Deezer and Subsonic, say), the one you started last keeps playing. Before, Now Playing could switch between them every half second.
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.

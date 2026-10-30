@@ -16,7 +16,8 @@
  * (hold=1: files moving, a phone using its page) and carries its web page's QR code, address and
  * PIN, which qr_open's page draws. A TERM to the loop's pid asks it to end. An app that plays as
  * well (q2-deezer's Stream mode) names a card folder of songs in /tmp/q2-<id>.play, which
- * stream_poll plays as it fills.
+ * stream_poll plays as it fills, or an .m3u of card paths, which it plays in order, waiting for
+ * each.
  *
  * The card-app features this firmware has are words in /tmp/q2-addon.caps (ADDON_CAPS), written at
  * every Streaming scan. */
@@ -42,7 +43,7 @@
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
 /* This firmware's card-app features, space-separated; a feature adds its word. */
-#define ADDON_CAPS ""
+#define ADDON_CAPS "playlist"
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -50,7 +51,7 @@
 typedef struct {
     char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48], icon[56];
     int qr, present, launched, hold, relaunch, restart;
-    unsigned polled, launch_at, restart_at;
+    unsigned polled, launch_at, restart_at, play; /* play: its .play as read last, hashed */
 } app_t;
 
 static struct {
@@ -155,79 +156,211 @@ static void launch(app_t *a) {
 /* Stream mode (q2-deezer's stream.go): an app's /tmp/q2-<id>.play holds "<seq> <folder>", a hidden
  * card folder it fills with a list's songs, named in play order ("01 - Title [id].flac"), as they
  * download. A new one is played from its first song once one is there (the folder's songs in name
- * order, as a local row's album is: songs_open), Now Playing opening as for a press. While the queue
- * is still that folder's, songs that come later (named after the last one queued) join its end, as Add
- * to Queue adds them (playback_queue_insert); the path of the one playing is left in
- * /tmp/q2-<id>.playing, so the app fetches only a few ahead and deletes the ones long played. */
+ * order, as a local row's album is: songs_open), Now Playing opening as for a press. While the
+ * queue is still that folder's, songs that come later (named after the last one queued) join its
+ * end, as Add to Queue adds them (playback_queue_insert); the path of the one playing is left in
+ * /tmp/q2-<id>.playing, so the app fetches only a few ahead and deletes the ones long played. Or
+ * .play names an .m3u on the card (q2-subsonic's queue), one card path a line: its songs are queued
+ * in its order, each waited for until it is there (m3u_songs). */
+#define M3U_MAX (256 << 10) /* a playlist file read this far: about 2,000 card paths */
+#define M3U_BATCH 32        /* folders listed a poll at most, so a long list doesn't stall the UI */
 static struct {
-    char play[192];    /* the .play file as read last */
+    app_t *app;        /* whose .play it is */
     char dir[160];     /* its folder */
     char last[192];    /* the name of the last of its songs queued */
-    char playing[256]; /* the .playing path written last */
+    char playing[512]; /* the .playing path written last */
     int state;         /* S_WAIT for its first song, S_PLAY its queue playing, S_DONE another queue */
     unsigned timer;    /* the first song's start, on a timer (a window opens) */
     long seen;         /* the folder's mtime at the last scan that came well after it */
+    int m3u;           /* sm.dir is a playlist file */
+    int next;          /* its entries passed so far */
+    int more;          /* a batch filled, so the next poll goes on */
+    char first[512];   /* the session's first song */
+    char want[512];    /* the entry waited for */
+    unsigned loads;    /* playback_loads at its start, then once its queue was loaded */
 } sm __attribute__((section(".scratch")));
 enum { S_WAIT, S_PLAY, S_DONE };
 
-/* An audio file in dir named after last ("": any), not a hidden one or a download's .part. */
-static int stream_newer(const char *dir, const char *last) {
-    /* ponytail: only once the folder changes (o32 stat, st_mtime word 16), not a scan every poll; a
-     * scan in the second of a change is not trusted, as a file could land later in that second. */
+/* Whether path changed since the last look that came well after its change.
+ * ponytail: only once it changes (o32 stat, st_mtime word 16), not a scan every poll; a scan in the
+ * second of a change is not trusted, as a file could land later in that second. */
+static int changed(const char *path) {
     unsigned st[36];
-    if (__xstat(3, dir, st)) return 0;
+    if (__xstat(3, path, st)) return 0;
     if ((long)st[16] == sm.seen) return 0;
     if ((long)st[16] < time((void *)0) - 1) sm.seen = (long)st[16];
+    return 1;
+}
+
+/* A file in dir named after last ("": any), not a hidden one or a download's .part or .tmp; whether
+ * it is a song, stock's listing says (app_album_songs). */
+static int stream_newer(const char *dir, const char *last) {
+    if (!changed(dir)) return 0;
     void *d = opendir(dir);
     int found = 0;
     for (struct dirent *e; d && !found && (e = readdir(d));) {
         const char *n = e->d_name, *dot = strrchr(n, '.');
-        found = n[0] != '.' && dot && (!strcasecmp(dot, ".flac") || !strcasecmp(dot, ".mp3")) &&
+        found = n[0] != '.' && !(dot && (!strcasecmp(dot, ".part") || !strcasecmp(dot, ".tmp"))) &&
                 strcmp(n, last) > 0;
     }
     if (d) closedir(d);
     return found;
 }
 
+/* Whether path has a ".." segment: all of it, or one between slashes or at either end. A name with
+ * an ellipsis ("Hello... (Live).flac") has none. */
+static int dotdot(const char *path) {
+    for (const char *s = path;; ++s) {
+        if (s[0] == '.' && s[1] == '.' && (!s[2] || s[2] == '/')) return 1;
+        if (!(s = strstr(s, "/"))) return 0;
+    }
+}
+
+/* The playlist's songs from entry sm.next on, in its order, a deque the caller destroys: up to the
+ * first one not there yet (sm.want), its folders' listings M3U_BATCH at most (each song's folder
+ * is listed unless the song before it was in the same one). An entry off the card, or there but
+ * not a song in its folder's listing, is passed over, as is one too long to be a path here; one
+ * missing from a listing taken for an earlier entry may have landed since, so the next poll lists
+ * its folder again before it is passed over. Entries are counted, so the app may rewrite the lines
+ * from sm.next on (the one waited for, say). A file longer than M3U_MAX is read that far, its cut
+ * last line dropped, so it is never waited for.
+ * ponytail: the file is read whole each time it changes or a waited song lands; fine to M3U_MAX. */
+static void *m3u_songs(void) {
+    void *out = _create_deque("stSongInfo"), *songs = 0;
+    /* state_read's leading newline and nul, and a byte past M3U_MAX that says the file goes on */
+    char *raw = calloc(1, M3U_MAX + 3), dir[sizeof sm.want] = "", *line, *end;
+    deque_init(out);
+    if (raw && state_read(sm.dir, raw, M3U_MAX + 3) > M3U_MAX) strrchr(raw, '\n')[1] = 0;
+    sm.want[0] = 0, sm.more = 0; /* at its end, unless a missing song or a full batch stops it */
+    int entry = 0, lists = 0;
+    for (line = raw ? raw + 1 : 0; line && *line; line = end) {
+        if ((end = strstr(line, "\n"))) *end++ = 0;
+        if (tk_str_start_with(line, "\xEF\xBB\xBF")) line += 3; /* a BOM */
+        unsigned k = strlen(line);
+        if (k && line[k - 1] == '\r') line[--k] = 0;
+        if (!k || line[0] == '#' || entry++ < sm.next) continue;
+        if (!tk_str_start_with(line, CARD "/") || dotdot(line) || k >= sizeof sm.want) {
+            ++sm.next;
+            continue;
+        }
+        if (access(line, 0)) {
+            tk_snprintf(sm.want, sizeof sm.want, "%s", line);
+            break;
+        }
+        char *slash = strrchr(line, '/');
+        *slash = 0;
+        int fresh = !songs || strcmp(line, dir); /* its folder listed after its access() */
+        if (fresh) {
+            if (lists++ == M3U_BATCH) { /* this entry first on the next poll */
+                sm.more = 1;
+                break;
+            }
+            if (songs) deque_destroy(songs);
+            tk_snprintf(dir, sizeof dir, "%s", line);
+            songs = app_album_songs(dir);
+        }
+        *slash = '/';
+        int found = 0;
+        for (unsigned i = 0, n = deque_size(songs); !found && i < n; ++i) {
+            void *r = deque_at(songs, i);
+            const char *p = P(r, REC_PATH);
+            if ((found = p && !strcmp(p, line))) _deque_push_back(out, r);
+        }
+        if (!found && !fresh) { /* landed since the listing an earlier entry took: listed again */
+            sm.more = 1;
+            break;
+        }
+        ++sm.next;
+    }
+    free(raw);
+    if (songs) deque_destroy(songs);
+    return out;
+}
+
+/* m3u mode's wake: a batch to go on with, the file rewritten, or the song waited for there. */
+static int m3u_ready(void) {
+    return sm.more || changed(sm.dir) || (sm.want[0] && !access(sm.want, 0));
+}
+
+/* A scan running, or its dialog still open (the user's own Update Local Music too). */
+static int scanning(void) {
+    return library_scanning() || navigator_window_is_exist("updatemusic_dialog");
+}
+
 static int stream_start(const void *unused) {
     (void)unused;
     sm.timer = 0;
-    void *songs = app_album_songs(sm.dir);
+    if (sm.m3u && playback_loads != sm.loads) sm.state = S_DONE; /* the user played a queue since */
+    if (sm.state != S_WAIT) return 0;
+    if (scanning()) { /* no listing during a scan, no play over its dialog: looked at again after */
+        sm.seen = 0;
+        return 0;
+    }
+    void *songs = sm.m3u ? m3u_songs() : app_album_songs(sm.dir);
     unsigned n = deque_size(songs);
-    if (n && sm.state == S_WAIT) {
-        tk_snprintf(sm.last, sizeof sm.last, "%s", (const char *)P(deque_at(songs, n - 1), REC_NAME));
+    if (n) {
+        if (sm.m3u)
+            tk_snprintf(sm.first, sizeof sm.first, "%s",
+                        (const char *)P(deque_at(songs, 0), REC_PATH));
+        else
+            tk_snprintf(sm.last, sizeof sm.last, "%s",
+                        (const char *)P(deque_at(songs, n - 1), REC_NAME));
         sm.state = S_PLAY;
         play_folder(songs, 0, 0xf001); /* playing_page copies the queue at once */
+        sm.loads = playback_loads;     /* its load, which play_folder has done (playback_groups) */
     }
     deque_destroy(songs);
     return 0;
 }
 
-/* Whether the queue playing is the session's: its first song in its folder. */
+/* Whether the queue playing is the session's: its first song in its folder; or a playlist's first
+ * song, and no queue loaded since its own (a Library play of the same album is the user's). */
 static void *stream_queue(void) {
     void *q = P(mcl_pdeqplaylist, 0);
     const char *p = q && deque_size(q) ? P(deque_at(q, 0), REC_PATH) : 0;
-    return p && tk_str_start_with(p, sm.dir) && p[strlen(sm.dir)] == '/' ? q : 0;
+    return p && (sm.m3u ? playback_loads == sm.loads && !strcmp(p, sm.first)
+                        : tk_str_start_with(p, sm.dir) && p[strlen(sm.dir)] == '/')
+               ? q
+               : 0;
 }
 
 static void stream_poll(app_t *a) {
-    char path[48], raw[sizeof sm.play];
+    char path[48], raw[192];
     tk_snprintf(path, sizeof path, "/tmp/q2-%s.play", a->id);
     if (!state_read(path, raw, sizeof raw)) return;
-    if (strcmp(raw, sm.play)) { /* a new session */
-        const char *dir = strstr(raw, " ");
-        tk_snprintf(sm.play, sizeof sm.play, "%s", raw);
-        tk_snprintf(sm.dir, sizeof sm.dir, "%s", dir ? dir + 1 : "");
-        for (char *c = sm.dir; *c; ++c)
+    unsigned h = hash_bytes(FNV_SEED, (const unsigned char *)raw, strlen(raw));
+    /* a new session: this app's .play changed. Another app's, left in /tmp while it runs, never
+     * takes the queue back. */
+    if (h != a->play) {
+        char *dir = strstr(raw, " ");
+        a->play = h, sm.app = a;
+        for (char *c = dir; c && *c; ++c)
             if (*c == '\n' || *c == '\r') *c = 0;
+        tk_snprintf(sm.dir, sizeof sm.dir, "%s", dir ? dir + 1 : "");
         sm.last[0] = sm.playing[0] = 0;
         sm.seen = 0;
-        /* a hidden folder of the card, as the app's own are */
-        sm.state = tk_str_start_with(sm.dir, CARD "/.") && !strstr(sm.dir, "..") ? S_WAIT : S_DONE;
+        unsigned k = strlen(sm.dir);
+        sm.m3u = k > 4 && !strcasecmp(sm.dir + k - 4, ".m3u");
+        sm.next = sm.more = 0, sm.first[0] = sm.want[0] = 0;
+        sm.loads = playback_loads;
+        /* a playlist on the card, or a hidden folder of it, as the app's own are; whole in sm.dir,
+         * as a cut path names another */
+        sm.state = dir && !dir[1 + k] && !dotdot(sm.dir) &&
+                           tk_str_start_with(sm.dir, sm.m3u ? CARD "/" : CARD "/.")
+                       ? S_WAIT
+                       : S_DONE;
         stop_timer(&sm.timer);
     }
+    if (sm.app != a) return;
+    /* A song's folder listing (toolsLoadDirectory) refills tools_pdeq_directory, which a library
+     * scan's thread fills too: none while one runs, the scan dialog's own loop included; and
+     * play_folder would open Now Playing over the dialog, so nothing until it closes. */
+    int scan = scanning();
     if (sm.state == S_WAIT) {
-        if (!sm.timer && stream_newer(sm.dir, "")) sm.timer = timer_add(stream_start, 0, 0);
+        if (sm.m3u && playback_loads != sm.loads)
+            sm.state = S_DONE; /* the user played a queue before its first song came */
+        else if (!sm.timer && !scan && (sm.m3u ? m3u_ready() : stream_newer(sm.dir, "")))
+            sm.timer = timer_add(stream_start, 0, 0);
         return;
     }
     void *q = sm.state == S_PLAY ? stream_queue() : 0;
@@ -235,7 +368,13 @@ static void stream_poll(app_t *a) {
         sm.state = S_DONE; /* something else plays now: the session is left */
         return;
     }
-    if (stream_newer(sm.dir, sm.last)) {
+    if (!scan && sm.m3u) {
+        if (m3u_ready()) {
+            void *add = m3u_songs();
+            if (deque_size(add)) playback_queue_insert(q, add, 0);
+            deque_destroy(add);
+        }
+    } else if (!scan && stream_newer(sm.dir, sm.last)) {
         void *songs = app_album_songs(sm.dir), *add = _create_deque("stSongInfo");
         deque_init(add);
         for (unsigned i = 0, n = deque_size(songs); i < n; ++i) {
@@ -252,7 +391,8 @@ static void stream_poll(app_t *a) {
     }
     unsigned pos = (unsigned)I(MCL_POS, 0);
     const char *now = pos < deque_size(q) ? P(deque_at(q, pos), REC_PATH) : 0;
-    if (now && strcmp(now, sm.playing)) {
+    /* a path sm.playing can't hold is no use to the app cut, and tk_snprintf's count would pass line */
+    if (now && strlen(now) < sizeof sm.playing && strcmp(now, sm.playing)) {
         char line[sizeof sm.playing + 1];
         int n = tk_snprintf(line, sizeof line, "%s\n", now);
         tk_snprintf(sm.playing, sizeof sm.playing, "%s", now);

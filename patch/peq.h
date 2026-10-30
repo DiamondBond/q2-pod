@@ -214,6 +214,7 @@ int swap_on(void);
 int mono_on(void);      /* crossfade.c: Mono Audio's setting */
 int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
 void ringnav_select(void *w, int id, int rows);
+int library_scanning(void); /* coverflow.c: a library scan's thread runs */
 int blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write);
 #define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", &(buf), sizeof(buf), write)
 int clip_within(void *canvas, int *old, int *clip, int x, int y, int w, int h);

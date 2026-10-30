@@ -4971,6 +4971,8 @@ class CoverflowMachine(QueueMachine):
             if self.text(a)=='playing_page':
                 self.play_names=self.names(self.get(b))
                 self.plays.append((self.text(a),*[signed(self.get(b+4*i)) for i in range(4)]))
+                # stock_load: loads its queue at once, as stock's playing_page_init does (the real mclLoadPlayList)
+                if getattr(self,'stock_load',0): self.nested(syms['mclLoadPlayList'],self.get(b),self.get(b+4),self.get(b+8),0)
             elif self.text(a)=='dialog/msginfo_dialog': self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
             else: self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
@@ -5379,9 +5381,9 @@ m.top=page; m.move(); assert m.order()==['B','A','C']; passed()
 # A subsequent stock playback load takes the saved order; editing itself left the queue alone.
 m=PlaylistEditMachine(); assert m.mutate()==1; m.open_editor()
 assert m.names()==m.before_queue
-songs=m.get(payload_syms['ple']+8)
+songs=m.get(payload_syms['ple']+8); loads=m.get(payload_syms['playback_loads'])
 m.call(address=syms['mclLoadPlayList'],args=(songs,0,0xff13,0),gap=0)
-assert m.names()==['B','A','C']; passed()
+assert m.names()==['B','A','C'] and m.get(payload_syms['playback_loads'])==loads+1; passed()  # a card app's stream counts loads
 # A Videos folder's listed videos never join a queue (#128): stock loads a copy without them, its start
 # on the same song, or the next after a video; the caller's list stays whole. Videos alone leave an empty queue.
 for names,at,queued,pos in ((('a.mp3','v.mp4','b.flac','w.MKV'),2,['a.mp3','b.flac'],1),
@@ -10848,7 +10850,7 @@ passed()
 CAPS='/tmp/q2-addon.caps'
 m=AppMachine(); stream_rows(m); caps=bytes(m.files[CAPS])
 assert caps.endswith(b'\n') and caps.count(b'\n')==1,caps
-assert set(caps.split())==set(),caps
+assert set(caps.split())=={b'playlist'},caps
 m.files[CAPS]=bytearray(b'stale\n'); stream_rows(m); assert m.files[CAPS]==caps; passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.
@@ -11143,6 +11145,11 @@ m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{S
 # Played on past the first ones, which the app deleted: a later song still joins, after the last queued.
 stream_songs('03 - Chateau [14].flac','04 - Cellar Door [15].flac'); m.poll()
 assert m.names()[-2:]==['03 - Chateau [14].flac','04 - Cellar Door [15].flac'] and len(m.names())==4; passed()
+# A load of the same queue (stock reloads it) leaves a folder's session going: only a queue whose first song
+# is out of its folder ends it, as before playlists came.
+m.call(address=syms['mclLoadPlayList'],args=(m.deque(m.items(m.get(syms['mcl_pdeqplaylist']))),0,0xf001,0),gap=0)
+stream_songs('04 - Cellar Door [15].flac','05 - Lantern [17].flac'); m.poll()
+assert m.names()[-2:]==['04 - Cellar Door [15].flac','05 - Lantern [17].flac'] and len(m.names())==5,m.names(); passed()
 # Another queue: no song joins it, and a new session plays again.
 m.word(syms['mcl_pdeqplaylist'],m.deque([m.song('Valerie - Broadcast [5].flac')])); stream_songs('05 - Snow [16].flac'); m.poll()
 assert m.names()==['Valerie - Broadcast [5].flac'] and len(m.plays)==1
@@ -11152,6 +11159,138 @@ assert len(m.plays)==2 and m.play_names==['01 - Bloodhound [20].flac']; passed()
 # Only a hidden folder of the card is played.
 m.files['/tmp/q2-deezer.play']=bytearray(b'1900 /mnt/mmc/Music\n'); m.tree['/mnt/mmc/Music']=[('a.flac',8)]; m.poll(); m.advance(0)
 assert len(m.plays)==2; passed()
+# Any song stock's listing takes streams, not only .flac and .mp3: a new name wakes the scan (but a .part or
+# .tmp, still being written), and stock's listing (REC_TYPE 8) says what is a song.
+STREAM='/mnt/mmc/.deezer/stream/2000'; m.files['/tmp/q2-deezer.play']=bytearray(f'2000 {STREAM}\n'.encode())
+stream_songs('01 - Valerie [5].m4a.tmp'); m.poll(); m.advance(0); assert len(m.plays)==2
+stream_songs('01 - Valerie [5].m4a'); m.poll(); m.advance(0)
+assert len(m.plays)==3 and m.play_names==['01 - Valerie [5].m4a'],(m.plays,m.play_names); passed()
+# A playlist (q2-subsonic's queue.m3u): .play names an .m3u on the card, its lines songs anywhere on the card
+# (synced ones in their album folders, streamed ones in the app's folder), played in its order. A song not
+# there yet is waited for, and nothing after it is queued before it; # lines, a BOM, CRLF and a path off the
+# card are passed over.
+SYNC,STR='/mnt/mmc/Navidrome/Broadcast/Tender Buttons','/mnt/mmc/.deezer/stream'; M3U=STR+'/queue.m3u'
+def card_song(path,listing=True):
+    d,n=path.rsplit('/',1); r=m.song(n); m.word(r+O['REC_PATH'],m.string(path))
+    m.files[path]=bytearray(); m.stats[path]=1
+    if listing: m.listings.setdefault(d,[]).append(r)
+    return r
+def m3u(*lines): m.files[M3U]=bytearray(('﻿#EXTM3U\r\n'+''.join(l+'\r\n' for l in lines)).encode()); m.stats[M3U]=m.stats.get(M3U,0)+1
+S1,S2,S3,S4=f'{SYNC}/01 - Tears.flac',f'{STR}/02 - Valerie [5].opus',f'{SYNC}/03 - Corporeal.flac',f'{SYNC}/04 - Lunch.flac'
+ra,rc=card_song(S1),card_song(S3); m3u(S1,'#EXTINF:182,Broadcast - Valerie',S2,'/etc/passwd',S3)
+# From here Now Playing loads the queue it opens with at once, through the real mclLoadPlayList (ringnav_load
+# counts it in playback_loads), as stock's playing_page_init does: no queue is written by hand.
+m.stock_load=1; loads=lambda: m.get(payload_syms['playback_loads'])
+m.plays=[]; m.files['/tmp/q2-deezer.play']=bytearray(f'2100 {M3U}\n'.encode()); m.poll(); was=loads(); m.advance(0)
+assert [p[2:4] for p in m.plays]==[(0,0xf001)] and m.play_names==['01 - Tears.flac'],(m.plays,m.play_names)
+assert m.names()==['01 - Tears.flac'] and loads()==was+1,(m.names(),loads(),was)
+m.poll(); assert m.names()==['01 - Tears.flac'] and m.files['/tmp/q2-deezer.playing']==f'{S1}\n'.encode(); passed()
+# The streamed song lands (renamed into place whole): it and the one after it join the queue's end, in order.
+card_song(S2); m.poll(); assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac'],m.names(); passed()
+# The app appends to the file (written aside and renamed): the new line joins; queued ones aren't again.
+card_song(S4); m3u(S1,S2,'/etc/passwd',S3,S4); m.poll()
+assert m.names()==['01 - Tears.flac','02 - Valerie [5].opus','03 - Corporeal.flac','04 - Lunch.flac'],m.names()
+m.word(O['MCL_POS'],1); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{S2}\n'.encode(); passed()
+# A file there that stock's listing doesn't take as a song is passed over, not waited for.
+S5,S6=f'{SYNC}/05 - cover.jpg',f'{SYNC}/06 - Dream.flac'; card_song(S5,listing=False); card_song(S6); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6); m.poll()
+assert m.names()[-1]=='06 - Dream.flac' and len(m.names())==5,m.names(); passed()
+# An entry too long to be a path here (cut, it would be waited for forever) is passed over; a long one that
+# fits (about 400 bytes: an app's Artist/Album/Title folders) plays and is left in .playing.
+LONG,FIT=f'{SYNC}/{"x"*600}.flac',f'{SYNC}/{"y"*120}/{"z"*120}/{"w"*100}.flac'
+card_song(FIT); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6,LONG,FIT); m.poll()
+assert m.names()[-1]==FIT.rsplit('/',1)[1] and len(m.names())==6,m.names()
+m.word(O['MCL_POS'],5); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{FIT}\n'.encode(); passed()
+# A playlist longer than M3U_MAX (256 KB) is read that far and a byte on: its last line whose newline wasn't
+# read is dropped, not taken as a path, even when what was read of it names a song. One of M3U_MAX bytes
+# exactly is whole: its last line plays, newline or not.
+CUT=f'{SYNC}/08 - Cut.flac'; card_song(CUT); m3u(S1,S2,'/etc/passwd',S3,S4,S5,S6,LONG,FIT); body=m.files[M3U]
+def padded(size,tail):  # body, a # line, then CUT's line, the whole size bytes, then tail
+    pad=size-len(body)-2-len(CUT.encode()); return body+b'#'+b'p'*(pad-1)+b'\r\n'+CUT.encode()+tail
+m.files[M3U]=padded((256<<10)+1,b'.part\r\n'); m.stats[M3U]+=1; m.poll(); assert len(m.names())==6,m.names()
+m.files[M3U]=padded(256<<10,b''); m.stats[M3U]+=1; m.poll(); assert m.names()[-1]=='08 - Cut.flac' and len(m.names())==7,m.names(); passed()
+# One missing entry doesn't stall the rest: the app rewrites the lines from the one waited for on (a download
+# that failed, a synced file deleted), dropping or replacing it, and the songs after it play.
+MISS,S8,REPL,S9=f'{STR}/11 - Gone [7].opus',f'{SYNC}/12 - Eight.flac',f'{STR}/13 - Instead [9].opus',f'{SYNC}/14 - Nine.flac'
+card_song(S8); card_song(S9); PASSED=(S1,S2,'/etc/passwd',S3,S4,S5,S6,LONG,FIT,CUT)
+m3u(*PASSED,MISS,S8); m.poll(); assert len(m.names())==7,m.names()  # waits for MISS
+m3u(*PASSED,S8); m.poll(); assert m.names()[-1]=='12 - Eight.flac' and len(m.names())==8,m.names()
+m3u(*PASSED,S8,MISS,S9); m.poll(); assert len(m.names())==8,m.names()
+card_song(REPL); m3u(*PASSED,S8,REPL,S9); m.poll()
+assert m.names()[-3:]==['12 - Eight.flac','13 - Instead [9].opus','14 - Nine.flac'] and len(m.names())==10,m.names(); passed()
+# The user plays that album from the Library (a queue loaded since the session's, its first song the
+# playlist's): it is the user's. Nothing joins it, and .playing no longer follows it.
+m.call(address=syms['mclLoadPlayList'],args=(m.deque([ra,rc]),1,0xf001,0),gap=0)
+m3u(*PASSED,S8,REPL,S9,S4); m.poll()
+assert m.names()==['01 - Tears.flac','03 - Corporeal.flac'] and m.files['/tmp/q2-deezer.playing']==f'{FIT}\n'.encode(); passed()
+# Another queue: the playlist's session is left. An .m3u off the card (or with ..) is never played.
+m.word(syms['mcl_pdeqplaylist'],m.deque([m.song('Other.flac')])); m3u(S1,S2,S3,S4,S6,f'{SYNC}/07.flac'); m.poll(); assert m.names()==['Other.flac']
+m.files['/tmp/q2-deezer.play']=bytearray(b'2200 /tmp/evil.m3u\n'); m.files['/tmp/evil.m3u']=bytearray(f'{S1}\n'.encode()); m.poll(); m.advance(0)
+m.files['/tmp/q2-deezer.play']=bytearray(f'2300 {STR}/../x.m3u\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==1; passed()
+# A playlist named .M3U in capitals plays too. A long one lists M3U_BATCH (32) folders a poll at most (a song's
+# folder, unless the song before it was in the same one), the rest on the polls after, in its order; songs that
+# share a folder cost one listing.
+def listed(): return len([c for c in m.calls if c[0]=='toolsLoadDirectory'])
+M3U=STR+'/Queue.M3U'; many=[f'{SYNC}/x{i:02}/x{i:02} - Song.flac' for i in range(40)]; recs=[card_song(p) for p in many]; m3u(*many)
+m.files['/tmp/q2-deezer.play']=bytearray(f'2400 {M3U}\n'.encode()); m.poll(); m.advance(0)  # advance() clears m.calls first
+assert len(m.plays)==2 and m.play_names==[p.rsplit('/',1)[1] for p in many[:32]] and listed()==32,(m.play_names,listed())
+m.poll(); assert m.names()==[p.rsplit('/',1)[1] for p in many],m.names()
+M3U=STR+'/One album.m3u'; one=[f'{SYNC}/x{i:02} - Track.flac' for i in range(40)]; [card_song(p) for p in one]; m3u(*one)
+m.files['/tmp/q2-deezer.play']=bytearray(f'2450 {M3U}\n'.encode()); m.poll(); m.advance(0)
+assert len(m.plays)==3 and m.play_names==[p.rsplit('/',1)[1] for p in one] and listed()==1,(m.play_names,listed()); passed()
+# Only a real .. segment is off the card: a name with an ellipsis plays, in a session named with one too; a
+# path through .. is passed over, not waited for.
+M3U=STR+'/Hello... queue.m3u'; E=f'{SYNC}... (Live)/01 - Hello... (Live).flac'; card_song(E); m3u(f'{SYNC}/../x.flac',f'{SYNC}/..',E)
+m.files['/tmp/q2-deezer.play']=bytearray(f'2500 {M3U}\n'.encode()); m.poll(); m.advance(0)
+assert len(m.plays)==4 and m.play_names==['01 - Hello... (Live).flac'],m.play_names; passed()
+# A session still waiting for its first song leaves a queue the user starts meanwhile alone: the song that
+# lands after it never replaces it, whether it lands before the next poll or once its start is armed.
+M3U=STR+'/wait.m3u'; W1,W2=f'{STR}/01 - Late [30].opus',f'{STR}/01 - Later [31].opus'; USER=['01 - Tears.flac','03 - Corporeal.flac']
+m3u(W1); m.files['/tmp/q2-deezer.play']=bytearray(f'2600 {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==4
+m.call(address=syms['mclLoadPlayList'],args=(m.deque([ra,rc]),0,0xf001,0),gap=0)  # the user's album
+card_song(W1); m.poll(); m.advance(0); assert len(m.plays)==4 and m.names()==USER,(m.plays[4:],m.names())
+m3u(W2); m.files['/tmp/q2-deezer.play']=bytearray(f'2700 {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==4
+card_song(W2); m.poll()  # its start armed
+m.call(address=syms['mclLoadPlayList'],args=(m.deque([ra,rc]),0,0xf001,0),gap=0); m.advance(0)
+assert len(m.plays)==4 and m.names()==USER,(m.plays[4:],m.names()); passed()
+# While a library scan runs (its thread started, not done: library_scanning), no folder is listed, the scan
+# dialog's own loop included, as a listing refills tools_pdeq_directory, which the scan fills too: a first
+# song waits for its end, a start armed before it began waits too, and later songs join after it; .playing
+# still follows the song playing.
+M3U=STR+'/scan.m3u'; X1,X2=f'{SYNC}/x1/01 - Scan.flac',f'{SYNC}/x2/02 - Scan.flac'; card_song(X1); m3u(X1)
+m.word(O['SCAN_THREAD'],1); m.files['/tmp/q2-deezer.play']=bytearray(f'2800 {M3U}\n'.encode())
+m.poll(); assert not listed(); m.advance(0); assert len(m.plays)==4 and not listed()
+m.word(O['SCAN_THREAD'],0); m.poll()  # done: its start armed
+m.word(O['SCAN_THREAD'],1); m.advance(0); assert len(m.plays)==4 and not listed()  # another began first
+m.word(O['SCAN_THREAD'],0); m.poll(); m.advance(0); assert len(m.plays)==5 and m.play_names==['01 - Scan.flac'],m.play_names
+card_song(X2); m3u(X1,X2); m.word(O['SCAN_THREAD'],1); m.poll()
+assert not listed() and m.names()==['01 - Scan.flac'] and m.files['/tmp/q2-deezer.playing']==f'{X1}\n'.encode(),m.names()
+m.word(O['SCAN_THREAD'],0); m.poll(); assert m.names()==['01 - Scan.flac','02 - Scan.flac'],m.names(); passed()
+# Nor while the scan's dialog (Update Local Music, updatemusic_dialog) is still open once the scan is done: the
+# first song would open Now Playing over it, so it waits, an armed start too, and plays once the dialog closes.
+m.word(O['SCAN_THREAD'],1); m.word(O['SCAN_DONE'],1); M3U=STR+'/dialog.m3u'; m3u(X1); m.open_pages={'updatemusic_dialog'}
+m.files['/tmp/q2-deezer.play']=bytearray(f'2850 {M3U}\n'.encode()); m.poll(); m.advance(0); assert len(m.plays)==5 and not listed()
+m.open_pages=set(); m.poll()  # closed: its start armed
+m.open_pages={'updatemusic_dialog'}; m.advance(0); assert len(m.plays)==5 and not listed()  # opened again first
+m.open_pages=set(); m.poll(); m.advance(0); assert len(m.plays)==6 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
+# A .play path too long for sm.dir (160 bytes or more) is refused, never cut: a cut path names another (here
+# a folder of songs), which would play instead. One that fits plays.
+CUTDIR=f'{STR}/{"q"*(159-len(STR)-1)}'; assert len(CUTDIR)==159; m.tree[CUTDIR]=[('01 - Wrong.flac',8)]; m.stats[CUTDIR]=1
+card_song(f'{CUTDIR}/01 - Wrong.flac'); m.files['/tmp/q2-deezer.play']=bytearray(f'2900 {CUTDIR}q.m3u\n'.encode())
+m.poll(); m.advance(0); m.poll(); m.advance(0); assert len(m.plays)==6,m.play_names
+M3U=f'{STR}/{"q"*(159-len(STR)-1-4)}.m3u'; assert len(M3U)==159; m3u(X1)
+m.files['/tmp/q2-deezer.play']=bytearray(f'3000 {M3U}\n'.encode()); m.poll(); m.advance(0)
+assert len(m.plays)==7 and m.play_names==['01 - Scan.flac'],m.play_names; passed()
+# A song that lands while the listing an earlier entry of its folder took is in hand isn't passed over as no song:
+# its folder is listed again on the next poll, and it joins.
+M3U=STR+'/race.m3u'; R1,R2=f'{STR}/r/01 - Early [40].opus',f'{STR}/r/02 - Late [41].opus'; card_song(R1); r2=card_song(R2,listing=False)
+m3u(R1,R2); m.files['/tmp/q2-deezer.play']=bytearray(f'3100 {M3U}\n'.encode()); m.poll(); m.advance(0)
+assert len(m.plays)==8 and m.play_names==['01 - Early [40].opus'],m.play_names
+m.listings[f'{STR}/r'].append(r2); m.poll(); assert m.names()==['01 - Early [40].opus','02 - Late [41].opus'],m.names(); passed()
+# A song playing whose path .playing can't hold (512 bytes or more, added to the queue by hand) leaves it as it was.
+m.word(O['MCL_POS'],0); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{R1}\n'.encode()
+big=m.song('Big.flac'); m.word(big+O['REC_PATH'],m.string(f'{SYNC}/{"b"*600}.flac'))
+m.word(syms['mcl_pdeqplaylist'],m.deque([*m.items(m.get(syms['mcl_pdeqplaylist'])),big])); m.word(O['MCL_POS'],2); m.poll()
+assert m.files['/tmp/q2-deezer.playing']==f'{R1}\n'.encode(),bytes(m.files['/tmp/q2-deezer.playing'][:40]); passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'
@@ -11169,6 +11308,15 @@ m.plays=[]; m.pick(0); assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play
 # Stop Streaming Services, USB storage and Rockbox stop it as the other apps (it writes to the card).
 m.close(); m.files[DZPID]=bytearray(b'7'); m.systems=[]; run(m,'addon_stop')
 assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null || rm -f /tmp/q2-deezer' in m.systems,m.systems; passed()
+# Two apps running, each .play left in /tmp (q2-deezer's and q2-subsonic's, kept while each runs): only a change
+# to an app's own starts a session, so the newer one plays once and neither takes the queue back at each poll.
+card_app(m,'subsonic','name=Subsonic\n'); m.files['/tmp/q2-subsonic']=bytearray(b'4343'); n=len(m.plays)
+for t in ('Deezer','Subsonic'): m.click(stream_rows(m)[t]); m.page=m.top; m.close()  # started again: polled
+STREAM='/mnt/mmc/.subsonic/stream/1'; m.files['/tmp/q2-subsonic.play']=bytearray(f'2600 {STREAM}'.encode())
+stream_songs('01 - Lunch.flac')
+for _ in range(4): m.poll(); m.advance(0)
+assert len(m.plays)==n+1 and m.play_names==['01 - Lunch.flac'],(len(m.plays),m.play_names)
+assert m.files['/tmp/q2-subsonic.playing']==f'{STREAM}/01 - Lunch.flac\n'.encode(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
