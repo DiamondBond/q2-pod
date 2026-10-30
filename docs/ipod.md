@@ -124,6 +124,8 @@ drops what a paint invalidates when the frame ends, so a 0 ms timer then repaint
 otherwise the new art and its fit would reach only the regions repainted later. `g_playcover_finishflag` remains
 stock-owned. Now Playing and Spotify's page keep their black background behind the art.
 
+The player writes every track's cover to the same `/tmp` file, so before Split loads it `coverflow_home_art` drops AWTK's cached bitmap of that name, as the full-screen art does; otherwise the image manager hands back the last track's cover.
+
 In Split a cover pans slowly, as an iPod classic's menu art did: `home_tex` box filters it once
 (at most 4 × 4 samples a texel) to its fit zoomed `DRIFT_ZOOM_PCT` (110), and each axis runs its
 own linear ping-pong across that margin alone, from the old crop (`DRIFT_X_MS` 20 s, `DRIFT_Y_MS`

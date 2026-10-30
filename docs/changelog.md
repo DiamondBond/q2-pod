@@ -3,6 +3,7 @@
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.
   - Now Playing: Enlarged Album Art only appears over the art page. It no longer covers the lyrics, info or visualizer pages ([#57](https://github.com/DiamondBond/q2-pod/issues/57)).
+  - Home: in Split, the album art follows a song change again. It could stay on the previous song's cover until two more skips.
   - Home: in Split, the panning album art stays evenly sharp. In 1.5.7 it turned soft and sharp again about once a second, most visibly in lettering on the cover.
   - Display: **Appearance → Centred Now Playing**, off by default, uses Shanling's own Now Playing layout: the art large in the middle, with the title and artist centred under it. Lyrics, the visualizer, the heart and ratings work there too; the track count, album line and remaining time are only on the iPod layout. Its progress bar takes your accent and Theme, as the iPod layout's does. It applies the next time Now Playing opens.
   - Classic: the Home menu and the Now Playing title use a bold font, cut from Liberation Sans Bold. A title with characters that font lacks (Chinese, Japanese or Korean, say) stays in the regular font.

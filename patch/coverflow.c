@@ -2553,6 +2553,9 @@ void coverflow_home_art(void *top) {
     int fw = HOME_PW, fh = 290;
     home.tw = 0;
     const char *src = cover;
+    /* the player writes every track's cover to the same file: drop AWTK's cached bitmap of the
+     * last track's, or the new track shows it (Enlarged Art does the same) */
+    if (cover) image_manager_unload_bitmap_by_name(image_manager(), cover);
     int pans = cover ? home_tex(cover) : -1;
     if (pans < 0 && r) pans = home_tex(url), src = url;
     if (pans > 0) {

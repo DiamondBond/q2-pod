@@ -58,7 +58,7 @@ canvas_get_clip_rect canvas_set_clip_rect widget_set_sensitive widget_get_type t
 timer_add timer_remove navigator_back_to_home navigator_back window_manager_close_window_force navigator_to_with_context bitmap_create_ex bitmap_destroy bitmap_unlock_buffer
 bitmap_lock_buffer_for_read bitmap_lock_buffer_for_write bitmap_get_line_length
 canvas_draw_image slide_menu_set_spacer window_manager window_manager_get_top_window window_manager_is_animating time_now_ms
-widget_to_local widget_animator_pause window_manager_get_pointer_pressed
+widget_to_local widget_animator_pause window_manager_get_pointer_pressed image_manager image_manager_unload_bitmap_by_name
 """.split() for r, a in [PROTOTYPES[n]]) + r"""
 void *shim_calloc(size_t, size_t);
 #define calloc shim_calloc
@@ -145,6 +145,9 @@ int widget_load_image(void *x, const char *url, void *b) {
 }
 const unsigned char *bitmap_lock_buffer_for_read(void *b) { ++reads; return *(unsigned char **)((char *)b + 0x14); }
 int widget_unload_image(void *x, void *b) { ++unloads; return 0; }
+static char dropped[600]; /* the last cached bitmap dropped by name */
+void *image_manager(void) { return (void *)8; }
+int image_manager_unload_bitmap_by_name(void *m, const char *name) { snprintf(dropped, sizeof dropped, "%s", name); return 0; }
 void set_hscroll_label_attribute(void *x) { assert(!strcmp(W(x)->type, "hscroll_label")); }
 int slide_menu_set_value(void *x, int value) { *(int *)(W(x)->raw + SLIDE_INDEX) = value; return 0; }
 int widget_set_name(void *x, const char *s) { snprintf(W(x)->type, 32, "%s", s); return 0; }
@@ -1476,6 +1479,8 @@ int main(void) {
     timer_fn = 0;
     coverflow_home_art(win);
     assert(!strcmp(art, player));
+    /* the player reuses the file for each track: its cached bitmap is dropped, not the last track's shown */
+    assert(!strcmp(dropped, player));
     /* a paint drops its own invalidations: the whole screen repaints after it */
     assert(!wm_repaints && timer_fn && (timer_fn(0), wm_repaints == 1));
     /* Square, portrait and landscape still covers keep their proportions, just cover the panel and
