@@ -97,6 +97,11 @@ int shelf_sources(const char *text, shelf_app *out, int max) {
         }
         if (!*a.id) {
             if (in > 15 || !only(id, in, 0)) continue;
+            char word[18];
+            snprintf(word, sizeof word, " %.*s ", (int)in, id);
+            /* the firmware's own card folders: a remove deletes .<id> whole */
+            if (strstr(" books coverflow downpic photos q2 scrobble scrobbler sldp tidal ", word))
+                continue;
             memcpy(a.id, id, in);
             snprintf(a.dir, sizeof a.dir, ".%s", a.id);
             snprintf(a.bin, sizeof a.bin, ".%s/q2-%s", a.id, a.id);
@@ -261,7 +266,8 @@ int shelf_place(int i) {
 }
 
 /* Remove: app i's listed files, but those another app lists too (two fonts are both Rockbox's and
- * the themes'), then the folders that left empty, up to and with its own; then its list and tag. */
+ * the themes'), then the folders that left empty, up to and with its own; then its list and tag.
+ * A card app's folder goes whole, with what the app saved there (a login among it). */
 void shelf_remove(int i) {
     char path[512];
     unsigned n = 0, m[SH_MAX] = { 0 };
@@ -286,6 +292,10 @@ void shelf_remove(int i) {
     }
     free(list);
     for (int j = 0; j < shelf_n; ++j) free(other[j]);
+    if (!*apps[i].keep) { /* only Q2 Pod's own keep files (shelf_sources); dir is checked */
+        snprintf(path, sizeof path, "rm -rf '" CARD "/%s'", apps[i].dir);
+        system(path);
+    }
     app_file(path, sizeof path, i, ".files");
     unlink(path);
     app_file(path, sizeof path, i, ".tag");

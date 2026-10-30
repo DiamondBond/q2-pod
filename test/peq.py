@@ -2799,6 +2799,7 @@ def shelf_check(tmp, lib):
         assert sources(bad, scratch) == [], bad
     assert [a[2] for a in sources('a/q2-x\nb/q2-x\nc/x\n', scratch)] == ['x']  # a repeated id: the first
     assert len(sources(''.join(f'me/q2-a{i}\n' for i in range(20)), scratch)) == 16
+    assert [a[2] for a in sources('a/q2\nb/q2-tidal\nc/downpic\nd/q2-tidal2\n', scratch)] == ['tidal2']  # never the firmware's folders
     C.c_int.in_dll(lib, 'shelf_n').value = len(sources((ROOT/'sources.list').read_text()))
     ids = [a.id.decode() for a in apps[:6]]
     assert ids == ['rockbox', 'themes', 'spotify', 'deezer', 'soulseek', 'filebrowser'], ids
@@ -2843,8 +2844,8 @@ def shelf_check(tmp, lib):
 
     # The card apps (patch/addon.c), zipped as their releases are: the app, its launcher and manifest.
     # What each saved (Deezer's sign-in, settings and queue; Soulseek's settings, transfers and
-    # share index; File Browser's settings), never in a release, survives an install over it, an
-    # update and a remove.
+    # share index; File Browser's settings), never in a release, survives an install over it and an
+    # update; a remove takes the whole folder, and nothing outside it.
     saved = {3: ['.deezer/arl', '.deezer/quality', '.deezer/organize', '.deezer/mode', '.deezer/layout',
                  '.deezer/queue.json'],
              4: ['.soulseek/config.json', '.soulseek/downloads.json', '.soulseek/shares.cache'],
@@ -2858,8 +2859,9 @@ def shelf_check(tmp, lib):
         assert install(i, z) == 0 and install(i, z) == 0, i
         assert sorted(files(i)) == sorted(f'{d}/{n}' for n in (f'q2-{ids[i]}', 'run', 'q2app', 'README.txt'))
         assert all((card/f).read_bytes() == b'mine' for f in kept), i
+        (card/'Music').mkdir(exist_ok=True); (card/'Music/a.flac').write_bytes(b'song')
         lib.shelf_remove(i)
-        assert sorted(str(f.relative_to(card)) for f in (card/d).rglob('*')) == sorted(kept), i
+        assert not (card/d).exists() and (card/'Music/a.flac').exists(), i
     print("Q2 Shelf: release JSON, unzip listing checks, install, update, failed move, remove and card apps passed.")
 
 
