@@ -756,6 +756,8 @@ static void later(int next, int arg) {
 
 static int clicked(void *ctx, void *event) {
     (void)event;
+    /* Loading… does nothing: dropped here, as by go() its page may have put a row at its index */
+    if (pg.paging && (int)(long)ctx == top()->n) return 0;
     later(G_ROW, (int)(long)ctx);
     return 0;
 }

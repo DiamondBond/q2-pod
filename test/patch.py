@@ -10937,6 +10937,15 @@ s.answer('ok','pages','c2',arts(1)); assert s.requests[-1]==('downloads','c1') a
 assert s.nodes[view]['_ringnav_index']==7 and s.get(view+O['SCROLL_Y'])==y and s.get(view+O['VIEW_CONTENT_H'])==101*64
 s.answer('ok','pages','',arts(2,20)); assert s.requests[-1]==('downloads','c2') and len(s.rows())==120 and s.labels()[-2:]==['Artist 119','']
 t=len(s.threads); s.advance(2000); assert len(s.threads)==t; passed()
+# A press on Loading… stays nothing when its page lands before the press's timer runs (go() then finds a row at
+# its index): the page's tick takes the reply first, the press's timer (if any) held back till after.
+s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.answer('ok','pages','c1',arts(0))
+s.nodes[s.find('scroll_view')]['_ringnav_index']=50; before=s.next_timer; f,ctx=s.handler(s.rows()[50],O['EVT_CLICK'])
+assert s.call(address=f,args=(ctx,s.event,0,0),gap=0,count=5_000_000)==0
+for g in [g for g in s.timers if g>=before]: s.timers[g]=(s.now+1000,*s.timers[g][1:])
+s.serve=lambda op,args:('ok','pages','',arts(1)); worker,arg=s.threads[-1]; assert s.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
+t=len(s.threads); s.advance(500); assert len(s.rows())==100; s.advance(1000)
+assert len(s.threads)==t and len(s.rows())==100 and s.labels()[1]=='Artist 000',(len(s.threads)-t,s.labels()[:3]); passed()
 # Play/Pause held on an appended row sends its hold op; the level is asked again from its first page (the action
 # may change it) and the row comes back once its page is there, as after Back from a row's level.
 s.top=s.page; s.status=s.alloc(0x200); s.nodes[view]['_ringnav_index']=70; s.press(80); assert s.hold()==11
