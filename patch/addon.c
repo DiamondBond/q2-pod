@@ -17,7 +17,8 @@
  * PIN, which qr_open's page draws. A TERM to the loop's pid asks it to end. An app that plays as
  * well (q2-deezer's Stream mode) names a card folder of songs in /tmp/q2-<id>.play, which
  * stream_poll plays as it fills, or an .m3u of card paths, which it plays in order, waiting for
- * each.
+ * each. It asks for Update Local Music and its playlists' import in /tmp/q2-<id>.library
+ * (addon_library.c), the result in .library.done.
  *
  * The card-app features this firmware has are words in /tmp/q2-addon.caps (ADDON_CAPS), written at
  * every Streaming scan. */
@@ -45,7 +46,7 @@
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
 /* This firmware's card-app features, space-separated; a feature adds its word. */
-#define ADDON_CAPS "playlist progress"
+#define ADDON_CAPS "playlist progress library"
 
 /* An app found on the card, kept for the life of demo in its slot. present: on the card at the
  * last scan; relaunch: stopped for USB storage, to start again; restart: stopped by Retry (its
@@ -430,6 +431,7 @@ static void poll_one(app_t *a) {
 
 void addon_poll(void) {
     for (int i = 0; i < ap.n; ++i) poll_one(&ap.a[i]);
+    library_poll();
 }
 
 /* An app asked to end through its loop, not its socket, so a frozen one stops too; restart: started
