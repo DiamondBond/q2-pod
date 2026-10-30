@@ -7383,20 +7383,21 @@ assert cf_geometry(m,s)==(0,24,375,160) and all(m.nodes[c].get('image') for c in
 paint(m); assert not m.draws; passed()
 print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (decoding the covers in reach, then the frame), {turn_cost} for a frame a quarter turn on (payload only; stock drawing mocked)')
 
-# Home's Split pan (DRIFT_*): the cover is box filtered once to its fit zoomed DRIFT_ZOOM_PCT, softened
-# [1,2,1]/4 a side (home_soften, so the sharpness no longer pulses with the phase), and
-# each paint of the art (its own image empty) draws the panel from that at the pan's 1/256 px
-# position, bilinear, so it moves by fractions of a pixel. Each axis is a linear ping-pong of its
-# own period across the zoom's margin, from the unzoomed crop. One timer runs it while Home is on
-# top, lit and still; a step repaints only the panel.
+# Home's Split pan (DRIFT_*): the cover is box filtered once to its fit zoomed DRIFT_ZOOM_PCT, sharpened
+# [-1,6,-1]/4 a side (home_sharpen) and bordered by its edges, and each paint of the art (its own
+# image empty) draws the panel from that at the pan's 1/256 px position, cubic B-spline, so it
+# moves by fractions of a pixel at a sharpness that hardly changes with the phase. Each axis is a
+# linear ping-pong of its own period across the zoom's margin, from the unzoomed crop. One timer
+# runs it while Home is on top, lit and still; a step repaints only the panel.
 SPLIT=O['HOME_SPLIT_W']; PW=375-SPLIT; X,Y,TICK=O['DRIFT_X_MS'],O['DRIFT_Y_MS'],O['DRIFT_TICK_MS']
 m=DepthMachine(); pan_counter=m.u.hook_add(UC_HOOK_BLOCK,count_block,begin=BASE,end=SCRATCH-1)  # before any code is cached
+m.budget=80_000_000  # filtering and sharpening a 1914 px cover passes 50 million
 m.open(); m.top=m.home; m.word(m.home+O['W_PARENT'],m.wm); np=m.node('window','playing_page')
 m.byte(syms['g_playcover_type'],1); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')
 def paint_home(): m.call(address=HOOKS['widget_on_paint_background'][0],args=(m.home,m.canvas,0,0),gap=0)
 def drifts(): return [t for t in m.timers.values() if t[1]==payload_syms['home_drift']]
 def invalidated(): return [(c[1],c[2] and tuple(signed(m.get(c[2]+4*i)) for i in range(4))) for c in m.calls if c[0]=='widget_invalidate_force']
-def tex_of(w,h):  # the box filter of the last cover loaded (opaque), and its zoomed size
+def tex_of(w,h):  # the last cover loaded (opaque) as home_tex leaves it, and its zoomed size
     url,=m.pixels; px=struct.unpack(f'<{w*h}I',bytes(m.u.mem_read(m.pixels[url],w*h*4)))
     fw,fh=(PW,-(-PW*h//w)) if PW*h>290*w else (-(-290*w//h),290); tw,th=fw*O['DRIFT_ZOOM_PCT']//100,fh*O['DRIFT_ZOOM_PCT']//100
     out=[]
@@ -7407,23 +7408,26 @@ def tex_of(w,h):  # the box filter of the last cover loaded (opaque), and its zo
             for sy in range(y0,y1,(y1-y0+3)//4):  # at most 4 x 4 samples
                 for p in px[sy*w+x0:sy*w+x1:(x1-x0+3)//4]: r+=p&255; g+=p>>8&255; b+=p>>16&255; n+=1
             out.append(0xff000000|r//n|g//n<<8|b//n<<16)
-    def soften(line):  # home_soften: [1,2,1]/4 a channel, the ends their own neighbours
-        return [0xff000000|sum(((p+2*q+n_)//4)<<s for s,p,q,n_ in ((s,a>>s&255,b>>s&255,c_>>s&255) for s in (0,8,16)))
+    def sharpen(line):  # home_sharpen: [-1,6,-1]/4 a channel, rounded and clamped, the ends their own neighbours
+        return [0xff000000|sum(min(max((6*q-p-n_+2)>>2,0),255)<<s for s,p,q,n_ in ((s,a>>s&255,b>>s&255,c_>>s&255) for s in (0,8,16)))
                 for a,b,c_ in zip([line[0]]+line[:-1],line,line[1:]+[line[-1]])]
-    rows=[soften(out[y*tw:(y+1)*tw]) for y in range(th)]  # across, then down
-    cols=[soften([rows[y][x] for y in range(th)]) for x in range(tw)]
-    out=[cols[x][y] for y in range(th) for x in range(tw)]
-    return dict(px=out+[0]*(tw+1),tw=tw,u0=(fw-PW)//2,v0=(fh-290)//2,rx=tw-fw,ry=th-fh)
+    rows=[sharpen(out[y*tw:(y+1)*tw]) for y in range(th)]  # across, then down
+    cols=[sharpen([rows[y][x] for y in range(th)]) for x in range(tw)]
+    rows=[[c_[y] for c_ in cols[:1]+cols+cols[-1:]*2] for y in range(th)]  # the edges a texel left and above, two right and below
+    rows=rows[:1]+rows+rows[-1:]*2
+    return dict(px=[p for r in rows for p in r],ts=tw+3,u0=(fw-PW)//2,v0=(fh-290)//2,rx=tw-fw,ry=th-fh)
 def at(r,period,t): t%=2*period; return r*256*((t if t<period else 2*period-t)>>4)//(period>>4)
-def framed(c,t):  # the panel at phase t, as home_render blends it
-    u,v=c['u0']*256+at(c['rx'],X,t),c['v0']*256+at(c['ry'],Y,t); tw,px=c['tw'],c['px']
-    fu,fv=u&255,v&255; w00=(256-fu)*(256-fv)>>8; w01=fu*(256-fv)>>8; w10=(256-fu)*fv>>8; w11=256-w00-w01-w10
-    out=[]
-    for y in range(290):
-        i=((v>>8)+y)*tw+(u>>8)
-        for a,b,c_,d in zip(px[i:i+PW],px[i+1:i+PW+1],px[i+tw:i+tw+PW],px[i+tw+1:i+tw+PW+1]):
-            out.append(0xff000000|((a&0xff00ff)*w00+(b&0xff00ff)*w01+(c_&0xff00ff)*w10+(d&0xff00ff)*w11)>>8&0xff00ff
-                       |((a&0xff00)*w00+(b&0xff00)*w01+(c_&0xff00)*w10+(d&0xff00)*w11)>>8&0xff00)
+def bspline(t):  # bspline_w: the cubic B-spline's 4 weights at phase t/256, in 1/256
+    s=256-t; w0=(s**3+196608)//393216; w3=(t**3+196608)//393216; w1=(3*t**3+4*16777216-6*256*t*t+196608)//393216
+    return w0,w1,256-w0-w1-w3,w3
+def tap4(a,b,c_,d,w):  # tap4: 4 texels weighted, rounded
+    return (0xff000000|((a&0xff00ff)*w[0]+(b&0xff00ff)*w[1]+(c_&0xff00ff)*w[2]+(d&0xff00ff)*w[3]+0x800080)>>8&0xff00ff
+            |((a&0xff00)*w[0]+(b&0xff00)*w[1]+(c_&0xff00)*w[2]+(d&0xff00)*w[3]+0x8000)>>8&0xff00)
+def framed(c,t):  # the panel at phase t, as home_render filters it: across each cover row, then down
+    u,v=c['u0']*256+at(c['rx'],X,t),c['v0']*256+at(c['ry'],Y,t); ts,px=c['ts'],c['px']
+    wx,wy=bspline(u&255),bspline(v&255); i=(v>>8)*ts+(u>>8)  # texel -1, -1 from u, v
+    rows=[[tap4(*px[j+x:j+x+4],wx) for x in range(PW)] for j in range(i,i+293*ts,ts)]
+    out=[tap4(*k,wy) for y in range(290) for k in zip(*rows[y:y+4])]
     return struct.pack(f'<{len(out)}I',*out)
 def drawn():
     n=len(m.draws); m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0),gap=0)

@@ -132,15 +132,19 @@ In Split a cover pans slowly, as an iPod classic's menu art did: `home_tex` box 
 own linear ping-pong across that margin alone, from the old crop (`DRIFT_X_MS` 20 s, `DRIFT_Y_MS`
 26 s): about 1.5 pixels a second on a square cover, as iPod.js's recreation moves, and the cover's
 edges never show. The art widget then spans the panel with an empty image, and `home_paint` (from
-`coverflow_home_clip`, inside the panel's clip) draws one 188 × 290 frame `home_render` blends from
-the filtered cover at the pan's position in 1/256 px, bilinear. Whole-pixel steps at that speed
-read as a jerk every two thirds of a second, one axis at a time; the blend moves it by fractions
-of a pixel, as the iPod's own rendering does. The blend keeps a whole-pixel frame's texels but
-mixes a half-pixel one's 50/50, so on its own the cover's sharpness pulsed with the pan's phase,
-most visibly in lettering; `home_tex` softens the filtered cover once, `[1,2,1]/4` across and
-down (`home_soften`), so every phase reads about alike (1-2-1 against 1-3-3-1), at a constant
-slight softening and no cost per frame. A frame costs about 2.1 million instructions, five a
-second while Home shows. A cover whose zoomed fit passes `DRIFT_TEXELS` (four panels: wider
+`coverflow_home_clip`, inside the panel's clip) draws one 188 × 290 frame `home_render` filters from
+the cover at the pan's position in 1/256 px, a cubic B-spline over 4 × 4 texels (each cover row
+across once, then down). Whole-pixel steps at that speed read as a jerk every two thirds of a
+second, one axis at a time; the filter moves it by fractions of a pixel, as the iPod's own
+rendering does. Bilinear would keep a whole-pixel frame's texels but mix a half-pixel one's 50/50,
+so the cover's sharpness would pulse with the pan's phase, most visibly in lettering. The
+B-spline blurs every phase about alike but is soft, so `home_tex` sharpens the filtered cover
+once, `[-1,6,-1]/4` across and down (`home_sharpen`), and keeps it inside a border of its edges (a
+texel left and above, two right and below) for the filter's reads past the panel. The art is about
+twice as sharp as a `[1,2,1]/4` softening with bilinear, and its sharpness changes with the phase by
+about a tenth on a photo and a fifth on lettering. A frame costs about 4.8 million instructions,
+2.3 times the bilinear's, five a second while Home shows; the sharpening adds about 13 million
+once a cover. A cover whose zoomed fit passes `DRIFT_TEXELS` (four panels: wider
 than about 2:1, or taller than 5:1), a decode that is not 32-bit, the placeholder and Full stay still and unzoomed,
 drawn by the stock fill. Nothing is stored: the pan's phase counts only time shown, so leaving
 Home, a new cover or a Theme change resumes it where it was. One `DRIFT_TICK_MS` (200 ms, about 0.3 px a step; a late tick steps at most `DRIFT_MAX_STEP_MS`, 500 ms) timer

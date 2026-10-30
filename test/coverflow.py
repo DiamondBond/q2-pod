@@ -1438,14 +1438,16 @@ int main(void) {
        placeholder; reloaded only when the track or the usable cover changes, and only while Home
        is the painted top window. Both themes split the screen, the art itself in the right panel. */
     extern void coverflow_home_art(void *);
-    /* The pan's texture is softened once, [1,2,1]/4 a side (home_soften), so its sharpness no
-       longer pulses with the pan's sub-pixel phase: a lone texel spreads, flat colour stays. */
-    extern void home_soften(unsigned *, int, int);
-    unsigned line[4] = { 0xff000000u, 0xffffffffu, 0xff000000u, 0xff204080u };
-    home_soften(line, 4, 1);
-    assert(line[0] == 0xff3f3f3fu && line[1] == 0xff7f7f7fu && line[2] == 0xff474f5fu && line[3] == 0xff183060u);
+    /* The pan's texture is sharpened once, [-1,6,-1]/4 a side (home_sharpen), against its cubic
+       B-spline's softness: rounded and clamped a channel, the ends their own neighbours; flat
+       colour stays. */
+    extern void home_sharpen(unsigned *, int, int);
+    unsigned line[5] = { 0xff000000u, 0xffffffffu, 0xff000000u, 0xff515151u, 0xff204080u };
+    home_sharpen(line, 5, 1);
+    assert(line[0] == 0xff000000u && line[1] == 0xffffffffu && line[2] == 0xff000000u &&
+           line[3] == 0xff726a5au && line[4] == 0xff143c8cu);
     unsigned flat[3] = { 0xff123456u, 0xff123456u, 0xff123456u };
-    home_soften(flat, 3, 1); assert(flat[0] == 0xff123456u && flat[2] == 0xff123456u);
+    home_sharpen(flat, 3, 1); assert(flat[0] == 0xff123456u && flat[1] == 0xff123456u && flat[2] == 0xff123456u);
     assert(mmap((void *)(MCL_POS & ~4095), 4096, PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED);
     deque queue = {0};

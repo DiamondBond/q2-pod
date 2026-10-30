@@ -2320,10 +2320,11 @@ static struct {
     /* drift: home_drift's timer; drift_ms: the pan's phase, ms shown */
     unsigned drift, drift_ms, drift_last;
     /* home_tex's zoomed cover (tw 0: the still stock image, which never pans) and the panel's
-     * frame, drawn from it at du dv (1/256 px, -1 for none yet) */
+     * frame, drawn from it at du dv (1/256 px, -1 for none yet); ring: home_render's rows */
     unsigned *tex;
     void *frame;
     int tw, rx, ry, u0, v0, du, dv;
+    unsigned ring[4][HOME_PW];
     int clip[4];  /* the canvas clip while the art paints, restored after */
     int clipped;
 } home __attribute__((section(".scratch")));
@@ -2410,23 +2411,30 @@ static void home_fit(unsigned w, unsigned h, int *fw, int *fh) {
  * composited over the page as Coverflow's decode does, for the pan to draw from. It pans across
  * the zoom's margin only (rx ry), from the old crop (u0 v0), so its edges never show. 1 when it
  * pans, -1 when nothing loads, 0 for a 16-bit decode or a cover too long for DRIFT_TEXELS, which the
- * stock fill shows still.
+ * stock fill shows still. home.tex holds it inside a border of its edges, a texel left and above
+ * and two right and below (tw + 3 texels a row): home_render reads that far past the panel.
  * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
  * library thumbnails are too small for the panel, so each change would decode a full cover. Light
  * Mode's paper behind a transparent cover changes with the next cover. */
-/* [1,2,1]/4 along n opaque texels step apart, in place. home_render's bilinear keeps a whole-pixel
- * frame's texels and mixes a half-pixel one's 50/50, so the pan's sharpness pulsed as its phase
- * turned; texels already this soft read almost alike either way (1-2-1 against 1-3-3-1).
- * ponytail: a constant slight softening of the art, no per-frame cost; a cubic resampler would
- * keep the sharpness and cost every frame. */
-void home_soften(unsigned *t, int n, int step) { /* test/coverflow.py */
+/* [-1,6,-1]/4 along n opaque texels step apart, in place, rounded and clamped a channel; the ends
+ * are their own neighbours. Bilinear kept a whole-pixel frame's texels and mixed a half-pixel
+ * one's 50/50, so the pan's sharpness pulsed as its phase turned. home_render's cubic B-spline
+ * blurs every phase about alike but is soft on its own; this brings the detail back, about twice
+ * the old [1,2,1]/4 and bilinear's, and the pulse stays small (a tenth of the sharpness on a
+ * photo, a fifth on lettering).
+ * ponytail: the frame costs about 2.3x the bilinear's, five a second while Home is lit; an exact
+ * cubic-spline prefilter (an IIR each way) sharpens no more than this does here. */
+void home_sharpen(unsigned *t, int n, int step) { /* test/coverflow.py */
     unsigned prev = t[0];
     for (int i = 0; i < n; ++i) {
-        unsigned c = t[i * step], next = i + 1 < n ? t[(i + 1) * step] : c;
-        unsigned rb = ((prev & 0xff00ffu) + 2 * (c & 0xff00ffu) + (next & 0xff00ffu)) >> 2,
-                 g = ((prev & 0xff00u) + 2 * (c & 0xff00u) + (next & 0xff00u)) >> 2;
+        unsigned c = t[i * step], next = i + 1 < n ? t[(i + 1) * step] : c, o = 0xff000000u;
+        for (int s = 0; s < 24; s += 8) {
+            int v = 6 * (int)(c >> s & 255) - (int)(prev >> s & 255) - (int)(next >> s & 255);
+            v = (v + 2) >> 2;
+            o |= (unsigned)(v < 0 ? 0 : v > 255 ? 255 : v) << s;
+        }
         prev = c;
-        t[i * step] = 0xff000000u | (rb & 0xff00ffu) | (g & 0xff00u);
+        t[i * step] = o;
     }
 }
 
@@ -2441,15 +2449,17 @@ static int home_tex(const char *url) {
     const unsigned char *data = 0;
     if (!home.frame) home.frame = opaque_frame(HOME_PW, 290);
     if (home.frame && format < 4 && w && h && w <= 8192 && h <= 8192 && tw <= DRIFT_TEXELS / th) {
-        free(home.tex); /* a row and a texel more: home_render's last neighbours, at weight 0 */
-        home.tex = calloc((unsigned)(th + 1) * (unsigned)tw + 1, 4);
+        free(home.tex);
+        home.tex = calloc((unsigned)(th + 3) * (unsigned)(tw + 3), 4);
         data = home.tex ? bitmap_lock_buffer_for_read(bitmap) : 0;
     }
     if (data) {
         const unsigned char *o = at[format];
         unsigned stride = bitmap_get_line_length(bitmap), paper = ipod_light() ? LIGHT_PAPER : 0;
-        unsigned *out = home.tex;
+        int ts = tw + 3;                   /* home.tex's row, its border included */
+        unsigned *tex = home.tex + ts + 1; /* texel 0, 0 */
         for (int y = 0; y < th; ++y) {
+            unsigned *out = tex + y * ts;
             unsigned y0 = (unsigned)y * h / (unsigned)th, y1 = (unsigned)(y + 1) * h / (unsigned)th;
             y1 += y1 == y0;
             for (int x = 0; x < tw; ++x) {
@@ -2472,8 +2482,16 @@ static int home_tex(const char *url) {
             }
         }
         bitmap_unlock_buffer(bitmap);
-        for (int y = 0; y < th; ++y) home_soften(home.tex + y * tw, tw, 1);
-        for (int x = 0; x < tw; ++x) home_soften(home.tex + x, th, tw);
+        for (int y = 0; y < th; ++y) home_sharpen(tex + y * ts, tw, 1);
+        for (int x = 0; x < tw; ++x) home_sharpen(tex + x, th, ts);
+        for (int y = 0; y < th; ++y) {
+            unsigned *row = tex + y * ts;
+            row[-1] = row[0], row[tw] = row[tw + 1] = row[tw - 1];
+        }
+        /* then rows -1, th and th + 1, from the edge rows and their border */
+        memcpy(home.tex, home.tex + ts, (unsigned)ts * 4);
+        for (int y = th + 1; y < th + 3; ++y)
+            memcpy(home.tex + y * ts, home.tex + th * ts, (unsigned)ts * 4);
         home.tw = tw, home.rx = tw - fw, home.ry = th - fh;
         home.u0 = (fw - HOME_PW) / 2, home.v0 = (fh - 290) / 2, home.du = -1;
     }
@@ -2481,20 +2499,42 @@ static int home_tex(const char *url) {
     return data != 0;
 }
 
-/* The panel from the zoomed cover at u, v (1/256 px), bilinear, so the pan moves by fractions of
- * a pixel: in whole pixels its 1.5 a second jerked. Opaque, so red and blue blend in one word. */
+/* Cubic B-spline weights at phase t/256, in 1/256: all >= 0, summing to 256. */
+static void bspline_w(unsigned t, unsigned *w) {
+    unsigned s = 256 - t;
+    w[0] = (s * s * s + 196608) / 393216;
+    w[3] = (t * t * t + 196608) / 393216;
+    w[1] = (3 * t * t * t + 4 * 16777216u - 6 * 256 * t * t + 196608) / 393216;
+    w[2] = 256 - w[0] - w[1] - w[3];
+}
+
+/* Four opaque texels weighted w, rounded. Weights >= 0 summing to 256 keep each channel within
+ * its 16 bits, so red and blue blend in one word. */
+HOT unsigned tap4(unsigned a, unsigned b, unsigned c, unsigned e, const unsigned *w) {
+    unsigned rb = (a & 0xff00ffu) * w[0] + (b & 0xff00ffu) * w[1] + (c & 0xff00ffu) * w[2] +
+                  (e & 0xff00ffu) * w[3] + 0x800080u,
+             g = (a & 0xff00u) * w[0] + (b & 0xff00u) * w[1] + (c & 0xff00u) * w[2] +
+                 (e & 0xff00u) * w[3] + 0x8000u;
+    return 0xff000000u | (rb >> 8 & 0xff00ffu) | (g >> 8 & 0xff00u);
+}
+
+/* The panel from the zoomed cover at u, v (1/256 px), so the pan moves by fractions of a pixel:
+ * in whole pixels its 1.5 a second jerked. A separable cubic B-spline over 4 x 4 texels: each
+ * cover row the panel needs is filtered across once into home.ring, and each frame row down from
+ * the ring's last four. */
 static void home_render(unsigned *d, int pitch, int u, int v) {
-    unsigned fu = (unsigned)u & 255, fv = (unsigned)v & 255, w00 = (256 - fu) * (256 - fv) >> 8,
-             w01 = fu * (256 - fv) >> 8, w10 = (256 - fu) * fv >> 8, w11 = 256 - w00 - w01 - w10;
-    for (int y = 0; y < 290; ++y, d += pitch) {
-        const unsigned *a = home.tex + ((v >> 8) + y) * home.tw + (u >> 8), *b = a + home.tw;
-        for (int x = 0; x < HOME_PW; ++x, ++a, ++b) {
-            unsigned rb = (a[0] & 0xff00ffu) * w00 + (a[1] & 0xff00ffu) * w01 +
-                          (b[0] & 0xff00ffu) * w10 + (b[1] & 0xff00ffu) * w11,
-                     g = (a[0] & 0xff00u) * w00 + (a[1] & 0xff00u) * w01 + (b[0] & 0xff00u) * w10 +
-                         (b[1] & 0xff00u) * w11;
-            d[x] = 0xff000000u | (rb >> 8 & 0xff00ffu) | (g >> 8 & 0xff00u);
-        }
+    unsigned wx[4], wy[4];
+    bspline_w((unsigned)u & 255, wx), bspline_w((unsigned)v & 255, wy);
+    int ts = home.tw + 3;
+    const unsigned *s = home.tex + (v >> 8) * ts + (u >> 8); /* texel -1, -1 from u, v */
+    for (int y = -3; y < 290; ++y, s += ts) {
+        unsigned *o = home.ring[(y + 3) & 3];
+        for (int x = 0; x < HOME_PW; ++x) o[x] = tap4(s[x], s[x + 1], s[x + 2], s[x + 3], wx);
+        if (y < 0) continue;
+        const unsigned *r0 = home.ring[y & 3], *r1 = home.ring[(y + 1) & 3],
+                       *r2 = home.ring[(y + 2) & 3], *r3 = home.ring[(y + 3) & 3];
+        for (int x = 0; x < HOME_PW; ++x) d[x] = tap4(r0[x], r1[x], r2[x], r3[x], wy);
+        d += pitch;
     }
 }
 
