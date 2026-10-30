@@ -26,7 +26,7 @@
 
 ## Features
 
-- **iPod UI:** Home, menus, Now Playing, Coverflow and four visualizers, accent colour and Games.
+- **iPod UI:** Home, menus, Now Playing, Coverflow and four visualizers, accent colour, Night Shift and Games.
 - **Wheel navigation:** smooth scrolling, and menus remember your place.
 - **EQ:** Simple's Low, Mid and High sliders, or Advanced's parametric EQ with up to 30 bands and a live curve.
 - **Streaming:** Spotify (Premium): browse your library, search, play and download playlists on the Q2 after a one-time pairing from your phone; AirPlay from your iPhone, and Internet Radio.

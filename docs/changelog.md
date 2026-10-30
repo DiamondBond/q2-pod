@@ -1,6 +1,11 @@
 # Changelog
 
 - **1.6.0**:
+  - Display: **Night Shift**, the last row of **System settings → Display**, makes the screen warmer for use at night, from 5000K to 2000K (3400K at first). The switch or Centre turns it on and off; turn the wheel or drag the slider right for warmer. Videos keep their own colours.
+  - App Store: **Podcasts** subscribes to shows by their feeds, or finds them in Apple's podcast directory, and downloads their episodes over Wi-Fi, which play from where you stopped.
+  - Card apps: songs a card app plays show their title, artist and album in Now Playing, read from their tags. They showed the file name and an unknown artist before.
+  - Card apps: **Go to Album** and **Go to Artist** on a song from an app that offers them open that album or artist in the app.
+  - Card apps: an app can set a sleep timer that pauses playback at a time, or when the song playing ends, even after you leave the app. Podcasts' Sleep Timer uses it.
   - Display: **Smart Awake** also keeps the screen on over the full-screen album art while a song plays, so with Enlarged Album Art on the art page stays lit too. It already covered the lyrics, full-screen lyrics included.
   - Display: touching an album in a grid, or one of the two buttons at the top of Playlists, shows a grey card shaped like the selection's, rounded under Rounded Corners. It was a square box, and touching the first album in a row greyed the whole row.
   - Home: **Carousel**'s cards keep Shanling's own colours again, whatever your Theme, accent or Light Mode.
