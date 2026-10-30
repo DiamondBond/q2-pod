@@ -2414,15 +2414,6 @@ static void home_fit(unsigned w, unsigned h, int *fw, int *fh) {
     }
 }
 
-/* The cover at url, box filtered once to its fit zoomed DRIFT_ZOOM_PCT (home.tex, tw x th) and
- * composited over the page as Coverflow's decode does, for the pan to draw from. It pans across
- * the zoom's margin only (rx ry), from the old crop (u0 v0), so its edges never show. 1 when it
- * pans, -1 when nothing loads, 0 for a 16-bit decode or a cover too long for DRIFT_TEXELS, which the
- * stock fill shows still. home.tex holds it inside a border of its edges, a texel left and above
- * and two right and below (tw + 3 texels a row): home_render reads that far past the panel.
- * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
- * library thumbnails are too small for the panel, so each change would decode a full cover. Light
- * Mode's paper behind a transparent cover changes with the next cover. */
 /* [-1,6,-1]/4 along n opaque texels step apart, in place, rounded and clamped a channel; the ends
  * are their own neighbours. Bilinear kept a whole-pixel frame's texels and mixed a half-pixel
  * one's 50/50, so the pan's sharpness pulsed as its phase turned. home_render's cubic B-spline
@@ -2445,6 +2436,15 @@ void home_sharpen(unsigned *t, int n, int step) { /* test/coverflow.py */
     }
 }
 
+/* The cover at url, box filtered once to its fit zoomed DRIFT_ZOOM_PCT (home.tex, tw x th) and
+ * composited over the page as Coverflow's decode does, for the pan to draw from. It pans across
+ * the zoom's margin only (rx ry), from the old crop (u0 v0), so its edges never show. 1 when it
+ * pans, -1 when nothing loads, 0 for a 16-bit decode or a cover too long for DRIFT_TEXELS, which the
+ * stock fill shows still. home.tex holds it inside a border of its edges, a texel left and above
+ * and two right and below (tw + 3 texels a row): home_render reads that far past the panel.
+ * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
+ * library thumbnails are too small for the panel, so each change would decode a full cover. Light
+ * Mode's paper behind a transparent cover changes with the next cover. */
 static int home_tex(const char *url) {
     static const unsigned char at[4][4] = BITMAP_RGBA_AT;
     unsigned bitmap[64]; /* bitmap_t */
