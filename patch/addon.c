@@ -483,9 +483,6 @@ static struct {
      * flight (page_next). */
     char *buf[ADDON_PAGES], **f;
     int pages, paging;
-    void *bar[ADDON_ROWS]; /* the shown page's progress bars, bars of them, each's pml permille */
-    short pml[ADDON_ROWS];
-    int bars;
 } pg __attribute__((section(".scratch")));
 
 static void qr_open(const char *state, const char *title);
@@ -536,8 +533,8 @@ static void stop_row(int i) {
 }
 
 /* A progress row: page_row_detail's item re-dressed, its title left and subtitle right on one line
- * over a bar the caption's width, which addon_paint fills from the left. permille is clamped to
- * 0 to 1000 here; strtol saturates what overflows, which atoi leaves undefined. */
+ * over a bar the caption's width, which addon_paint fills from the left: its _pml prop, permille,
+ * clamped to 0 to 1000 here; strtol saturates what overflows, which atoi leaves undefined. */
 static void progress_row(void *item, long permille) {
     void *t = widget_get_child(item, 0), *s = widget_get_child(item, 1);
     int x = I(t, W_X), w = I(t, W_W);
@@ -547,9 +544,8 @@ static void progress_row(void *item, long permille) {
     widget_set_prop_int(s, "style:normal:font_size", 16);
     widget_set_prop_int(s, "style:normal:text_color", (int)SPOT_GREY);
     widget_move_resize(s, x + w * 3 / 5, 4, w - w * 3 / 5, 32);
-    pg.bar[pg.bars] =
-        widget_factory_create_widget(widget_factory(), "view", item, x, 44, w, PROGRESS_H);
-    pg.pml[pg.bars++] = (short)(permille < 0 ? 0 : permille > 1000 ? 1000 : permille);
+    void *bar = widget_factory_create_widget(widget_factory(), "view", item, x, 44, w, PROGRESS_H);
+    widget_set_prop_int(bar, "_pml", permille < 0 ? 0 : permille > 1000 ? 1000 : (int)permille);
 }
 
 /* The shown reply let go, and any page it waits for. */
@@ -582,8 +578,7 @@ static void row(lv_t *l, int i) {
     }
     void *item = (opens(i) ? page_row_detail_into : page_row_detail)(pg.view, i, cell(i, 2),
                                                                      cell(i, 3), clicked);
-    if (!strcmp(cell(i, 0), "progress") && pg.bars < ADDON_ROWS)
-        progress_row(item, strtol(cell(i, 5), 0, 10));
+    if (!strcmp(cell(i, 0), "progress")) progress_row(item, strtol(cell(i, 5), 0, 10));
 }
 
 static void show(void);
@@ -608,13 +603,11 @@ static void append(lv_t *l, int from) {
     ringnav_select(pg.view, cur, n);
 }
 
-/* The top level: its rows, or what it waits for. Its bars are forgotten first: page_list destroys
- * the old rows, so addon_paint never compares a gone widget. */
+/* The top level: its rows, or what it waits for. */
 static void show(void) {
     lv_t *l = top();
     int n = 0;
     pg.view = pg.edit = 0;
-    pg.bars = 0;
     if (l->state == K_LOAD && !((req.running || req.done) && !pg.act && req.id == l->id)) fetch(l);
     if (l->state == K_LOAD || l->state == K_WAIT) {
         char t[48];
@@ -820,8 +813,7 @@ static int go(const void *unused) {
         else if (!strcmp(kind,
                          "search")) { /* peq_ui.c's T9 edit over the title, its keyboard open */
             keep_sel();
-            /* the box alone, as Spotify's; the rows' bars gone with them */
-            widget_destroy_children(pg.page), pg.view = 0, pg.bars = 0;
+            widget_destroy_children(pg.page), pg.view = 0; /* the box alone, as Spotify's */
             pg.edit = edit_create(pg.page, "text", 2, 26);
             widget_set_prop_str(pg.edit, "tips", app()->tips);
             widget_on(pg.edit, EVT_VALUE_CHANGED, searched, 0);
@@ -1044,17 +1036,20 @@ static void plate(void *canvas, int x, int y, int w, int h, unsigned color, unsi
  * Spotify's bar, over a dim track); and the code, dark modules on the white plate, a row's run of
  * them one rectangle, inside a quiet zone of two modules. */
 void addon_paint(void *w, void *canvas) {
-    for (int i = 0; pg.page && i < pg.bars; ++i)
-        if (w == pg.bar[i] && P(canvas, CANVAS_LCD)) {
-            unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-            int bw = I(w, W_W), h = I(w, W_H), x = bw * pg.pml[i] / 1000;
-            canvas_set_fill_color(canvas, rgba(PROGRESS_TRACK, 255));
-            canvas_fill_rect(canvas, 0, 0, bw, h);
-            canvas_set_fill_color(canvas, rgba(accent_tone(2), 255));
-            if (x) canvas_fill_rect(canvas, 0, 0, x, h);
-            stock_canvas_set_fill_color(canvas, fill);
-            return;
-        }
+    /* the height first: no prop lookup for the page's other widgets */
+    int pml = pg.page && I(w, W_H) == PROGRESS_H && P(canvas, CANVAS_LCD)
+                  ? widget_get_prop_int(w, "_pml", -1)
+                  : -1;
+    if (pml >= 0) {
+        unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+        int bw = I(w, W_W), h = I(w, W_H), x = bw * pml / 1000;
+        canvas_set_fill_color(canvas, rgba(PROGRESS_TRACK, 255));
+        canvas_fill_rect(canvas, 0, 0, bw, h);
+        canvas_set_fill_color(canvas, rgba(accent_tone(2), 255));
+        if (x) canvas_fill_rect(canvas, 0, 0, x, h);
+        stock_canvas_set_fill_color(canvas, fill);
+        return;
+    }
     if (!qp.page || w != qp.qr || !P(canvas, CANVAS_LCD) || qp.size < 21) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     int n = qp.size, m = QR_PX / (n + 4), o = (QR_PX - m * n) / 2, digits = (n + 3) / 4;
