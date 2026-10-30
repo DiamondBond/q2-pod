@@ -538,7 +538,6 @@ static void stop_row(int i) {
 static void progress_row(void *item, long permille) {
     void *t = widget_get_child(item, 0), *s = widget_get_child(item, 1);
     int x = I(t, W_X), w = I(t, W_W);
-    widget_use_style(t, "s_scrlabel_white20l");
     widget_move_resize(t, x, 4, w * 3 / 5, 32);
     widget_use_style(s, "s_scrlabel_white20r"); /* the style drops the detail's size and grey */
     widget_set_prop_int(s, "style:normal:font_size", 16);
