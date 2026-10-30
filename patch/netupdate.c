@@ -47,6 +47,16 @@ static const struct {
     { "q2-librespot", "spotify", ".spotify", "'.spotify/cache/*' .spotify/.cache-size",
       ".spotify/librespot" },
 };
+/* The firmware's own card folders, never a card app's: a remove deletes .<id> whole. */
+static const char *const reserved[] = { "books", "coverflow", "downpic", "photos", "q2", "sldp",
+                                        "tidal" };
+
+/* Whether id is a special[] app's, which a remove never deletes whole. */
+static int special_id(const char *id) {
+    for (unsigned k = 0; k < sizeof special / sizeof *special; ++k)
+        if (!strcmp(special[k].id, id)) return 1;
+    return 0;
+}
 
 /* Whether s's n bytes are all a-z0-9- (kind 0, an id), or A-Z too (1, an owner), or ._ too (2). */
 static int only(const char *s, unsigned n, int kind) {
@@ -97,6 +107,8 @@ int shelf_sources(const char *text, shelf_app *out, int max) {
         }
         if (!*a.id) {
             if (in > 15 || !only(id, in, 0)) continue;
+            for (unsigned k = 0; k < sizeof reserved / sizeof *reserved; ++k)
+                bad |= strlen(reserved[k]) == in && !memcmp(reserved[k], id, in);
             memcpy(a.id, id, in);
             snprintf(a.dir, sizeof a.dir, ".%s", a.id);
             snprintf(a.bin, sizeof a.bin, ".%s/q2-%s", a.id, a.id);
@@ -261,7 +273,8 @@ int shelf_place(int i) {
 }
 
 /* Remove: app i's listed files, but those another app lists too (two fonts are both Rockbox's and
- * the themes'), then the folders that left empty, up to and with its own; then its list and tag. */
+ * the themes'), then the folders that left empty, up to and with its own; then its list and tag.
+ * A card app's folder goes whole, with what the app saved there (a login among it). */
 void shelf_remove(int i) {
     char path[512];
     unsigned n = 0, m[SH_MAX] = { 0 };
@@ -286,6 +299,12 @@ void shelf_remove(int i) {
     }
     free(list);
     for (int j = 0; j < shelf_n; ++j) free(other[j]);
+    /* dir is shelf_sources' checked ".<id>". ponytail: addon_quit waits AWAY_MS (3 s), so an app
+     * still saving on its TERM past that can write files back; wait on its pid file if one does. */
+    if (!special_id(apps[i].id)) {
+        snprintf(path, sizeof path, "rm -rf '" CARD "/%s'", apps[i].dir);
+        system(path);
+    }
     app_file(path, sizeof path, i, ".files");
     unlink(path);
     app_file(path, sizeof path, i, ".tag");
