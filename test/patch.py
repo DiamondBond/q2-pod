@@ -11261,6 +11261,15 @@ m.plays=[]; m.pick(0); assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play
 # Stop Streaming Services, USB storage and Rockbox stop it as the other apps (it writes to the card).
 m.close(); m.files[DZPID]=bytearray(b'7'); m.systems=[]; run(m,'addon_stop')
 assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null || rm -f /tmp/q2-deezer' in m.systems,m.systems; passed()
+# Two apps running, each .play left in /tmp (q2-deezer's and q2-subsonic's, kept while each runs): only a change
+# to an app's own starts a session, so the newer one plays once and neither takes the queue back at each poll.
+card_app(m,'subsonic','name=Subsonic\n'); m.files['/tmp/q2-subsonic']=bytearray(b'4343'); n=len(m.plays)
+for t in ('Deezer','Subsonic'): m.click(stream_rows(m)[t]); m.page=m.top; m.close()  # started again: polled
+STREAM='/mnt/mmc/.subsonic/stream/1'; m.files['/tmp/q2-subsonic.play']=bytearray(f'2600 {STREAM}'.encode())
+stream_songs('01 - Lunch.flac')
+for _ in range(4): m.poll(); m.advance(0)
+assert len(m.plays)==n+1 and m.play_names==['01 - Lunch.flac'],(len(m.plays),m.play_names)
+assert m.files['/tmp/q2-subsonic.playing']==f'{STREAM}/01 - Lunch.flac\n'.encode(); passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

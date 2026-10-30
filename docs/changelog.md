@@ -9,6 +9,7 @@
   - Downloads: the Legacy edition is discontinued, and a release carries one `update.tar`. If you're on a Legacy build, Network Update can't move you over: install `update.tar` by hand once, as for a first install.
   - Card apps: the firmware lists the card-app features it has in `/tmp/q2-addon.caps`, so apps can use new features and fall back on older firmware.
   - Card apps: Stream mode can play a playlist file of songs on the card, waiting for each streamed song as it arrives, so an app can mix synced and streamed songs. A queue you start yourself while it waits keeps playing. Streaming now takes every format the Q2 plays, not only FLAC and MP3.
+  - Card apps: when two apps have each streamed (Deezer and Subsonic, say), the one you started last keeps playing. Before, Now Playing could switch between them every half second.
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.

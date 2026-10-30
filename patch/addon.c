@@ -51,7 +51,7 @@
 typedef struct {
     char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48], icon[56];
     int qr, present, launched, hold, relaunch, restart;
-    unsigned polled, launch_at, restart_at;
+    unsigned polled, launch_at, restart_at, play; /* play: its .play as read last, hashed */
 } app_t;
 
 static struct {
@@ -165,7 +165,7 @@ static void launch(app_t *a) {
 #define M3U_MAX (256 << 10) /* a playlist file read this far: about 2,000 card paths */
 #define M3U_BATCH 32        /* folders listed a poll at most, so a long list doesn't stall the UI */
 static struct {
-    char play[192];    /* the .play file as read last */
+    app_t *app;        /* whose .play it is */
     char dir[160];     /* its folder */
     char last[192];    /* the name of the last of its songs queued */
     char playing[512]; /* the .playing path written last */
@@ -320,12 +320,15 @@ static void *stream_queue(void) {
 }
 
 static void stream_poll(app_t *a) {
-    char path[48], raw[sizeof sm.play];
+    char path[48], raw[192];
     tk_snprintf(path, sizeof path, "/tmp/q2-%s.play", a->id);
     if (!state_read(path, raw, sizeof raw)) return;
-    if (strcmp(raw, sm.play)) { /* a new session */
+    unsigned h = hash_bytes(FNV_SEED, (const unsigned char *)raw, strlen(raw));
+    /* a new session: this app's .play changed. Another app's, left in /tmp while it runs, never
+     * takes the queue back. */
+    if (h != a->play) {
         char *dir = strstr(raw, " ");
-        tk_snprintf(sm.play, sizeof sm.play, "%s", raw);
+        a->play = h, sm.app = a;
         for (char *c = dir; c && *c; ++c)
             if (*c == '\n' || *c == '\r') *c = 0;
         tk_snprintf(sm.dir, sizeof sm.dir, "%s", dir ? dir + 1 : "");
@@ -343,6 +346,7 @@ static void stream_poll(app_t *a) {
                        : S_DONE;
         stop_timer(&sm.timer);
     }
+    if (sm.app != a) return;
     /* A song's folder listing (toolsLoadDirectory) refills tools_pdeq_directory, which a library
      * scan's thread fills too: none while one runs, the scan dialog's own loop included; and
      * play_folder would open Now Playing over the dialog, so nothing until it closes. */
