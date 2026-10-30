@@ -9382,6 +9382,7 @@ class BooksMachine(DepthMachine):
         self.u.hook_add(UC_HOOK_CODE,self.hook,begin=payload_syms['child_exit'],end=payload_syms['child_exit'])
         self.forked=4242; self.waited=0; self.way=0; self.execs=[]; self.sent=[]
         self.write_cap=None; self.close_fails=0  # a full disk: a file holds write_cap bytes at most; the next close_fails closes of a .tmp fail
+        self.on_fopen=None  # called with each path fopen opens, before it does
         tramp=int(manifest['patch_symbols']['stock_localmusic_trampoline'],16)
         self.handlers[tramp]='stock_localmusic'; self.u.hook_add(UC_HOOK_CODE,self.hook,begin=tramp,end=tramp)
     def hook(self,u,address,size,unused):
@@ -9405,6 +9406,7 @@ class BooksMachine(DepthMachine):
             for i,p in enumerate(sorted(ptrs,key=self.text)): self.word(a+4*i,p)
         elif name=='fopen':
             path,mode=self.text(a),self.text(b)
+            if self.on_fopen: self.on_fopen(path)
             if 'w' in mode: self.files[path]=bytearray()
             if path in self.files: ret=self.alloc(4); self.handles[ret]=[path,0]
         elif name in ('fread','fwrite'):
@@ -11320,6 +11322,30 @@ def lib_machine():
 m=lib_machine(); m.poll(11000); assert DZPID not in m.files
 m.files[LIB]=bytearray(f'400\nimport {EXP}/Mix.m3u\n'.encode()); m.poll()
 assert m.files.get(DONE)==b'400 ok\n' and m.imports==[f'{EXP}/Mix.m3u\n'],(m.files.get(DONE),m.imports); passed()
+# A new seq's request is read whole once, and that read's own first line must be the seq. One replaced between the
+# poll's cheap first-line read and the whole read runs its own lines under its own seq, at the next poll; one gone
+# between them is answered nothing (either was answered "<seq> ok": seq 500 with 501's lines, or with none).
+m=lib_machine(); scans=lambda: [o for o in m.opened if o[0]=='dialog/updatemusic_dialog']
+def second_open(new):
+    opens=[]
+    def hook(path):
+        if path!=LIB: return
+        opens.append(path)
+        if len(opens)==2 and new is None: m.files.pop(LIB)
+        elif len(opens)==2: m.files[LIB]=bytearray(new)
+    m.on_fopen=hook
+second_open(f'501\nimport {EXP}/Mix.m3u\n'.encode()); m.files[LIB]=bytearray(b'500\nscan\n'); m.poll()
+assert DONE not in m.files and not m.imports and not scans(),(m.files.get(DONE),m.imports)
+m.poll(); assert m.files[DONE]==b'501 ok\n' and m.imports==[f'{EXP}/Mix.m3u\n'] and not scans(),(m.files[DONE],m.imports)
+second_open(None); m.files[LIB]=bytearray(b'502\nscan\n'); m.poll(); m.poll()
+assert m.files[DONE]==b'501 ok\n' and not scans(),m.files[DONE]; m.on_fopen=None; passed()
+# CRLF lines are read as LF lines.
+m.files[LIB]=bytearray(f'503\r\nimport {EXP}/Mix.m3u\r\n'.encode()); m.poll()
+assert m.files[DONE]==b'503 ok\n' and len(m.imports)==2,m.files[DONE]; passed()
+# An empty first line has no seq to run under: answered " error Missing seq" (the seq empty) once, as a seq too long
+# is, never run.
+m.files[LIB]=bytearray(b'\r\nscan\n'); m.poll(); assert m.files[DONE]==b' error Missing seq\n' and not scans(),m.files[DONE]
+d=m.files[DONE]; m.poll(); assert m.files[DONE] is d; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

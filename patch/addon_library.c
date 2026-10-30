@@ -64,15 +64,24 @@ static void library_done(const char *why) {
     libup.state = L_IDLE;
 }
 
+/* s's first line ended at its "\n", or a "\r\n"; the next line's start. */
+static char *line_end(char *s) {
+    char *next = strstr(s, "\n");
+    if (next)
+        *next++ = 0;
+    else
+        next = s + strlen(s);
+    unsigned k = strlen(s);
+    if (k && s[k - 1] == '\r') s[k - 1] = 0;
+    return next;
+}
+
 /* The request's lines after its seq, at s in libup.list: scan into libup.scan, each file moved to
  * the list (before its own line: it is shorter) with its op; what is wrong, else 0. */
 static const char *library_parse(char *s, char *why, unsigned size) {
     char *w = libup.list;
     for (char *next; *s; s = next) {
-        if ((next = strstr(s, "\n")))
-            *next++ = 0;
-        else
-            next = s + strlen(s);
+        next = line_end(s);
         if (!*s) continue;
         if (!strcmp(s, "scan")) {
             libup.scan = 1;
@@ -177,32 +186,38 @@ static char *taken(const char *id) {
     return 0;
 }
 
-/* App id's request, if it has a new one: taken, or answered at once. */
+/* A request that never runs, its seq missing or too long, answered why once: written only while
+ * .done doesn't hold that answer. */
+static void library_refuse(const char *seq, const char *why) {
+    char line[96], old[sizeof line];
+    int k = tk_snprintf(line, sizeof line, "%s error %s\n", seq, why);
+    state_read(libup.done, old, sizeof old);
+    if (strcmp(old + 1, line)) blob_io(libup.done, LIB_TMP, line, k, 1);
+}
+
+/* App id's request, if it has a new one: taken, or answered at once. Every poll reads its first
+ * line alone; a new seq there reads the whole file, once, and that read's own first line must be
+ * the seq: a file gone since, or replaced by a newer seq, is looked at again next poll, so no seq
+ * runs another's lines and none is answered without its own. */
 static void library_take(const char *id) {
-    char path[48], head[64], why[600], *seq = head + 1, *end, *last = taken(id);
+    char path[48], head[64], why[600], *seq = head + 1, *last = taken(id);
     tk_snprintf(path, sizeof path, "/tmp/q2-%s.library", id);
-    /* every poll its seq alone: its line, or the whole file when that has no newline */
-    if (!state_read(path, head, sizeof head) || *seq == '\n') return;
-    if ((end = strstr(seq, "\n"))) *end = 0;
-    if (!last || !strcmp(seq, last)) return; /* the one taken last is done already */
+    if (!last || !state_read(path, head, sizeof head)) return;
+    line_end(seq); /* the whole file when it has no newline */
     tk_snprintf(libup.done, sizeof libup.done, "%s.done", path);
-    if (strlen(seq) >= sizeof libup.seq) { /* too long to keep: never run, answered once */
-        char line[sizeof head + 24], old[sizeof line];
-        int k = tk_snprintf(line, sizeof line, "%s error Seq too long\n", seq);
-        state_read(libup.done, old, sizeof old);
-        if (strcmp(old + 1, line)) blob_io(libup.done, LIB_TMP, line, k, 1);
+    if (!*seq || strlen(seq) >= sizeof libup.seq) { /* can't be kept: never run, answered once */
+        library_refuse(seq, *seq ? "Seq too long" : "Missing seq");
         return;
     }
+    if (!strcmp(seq, last)) return; /* the one taken last is done already */
     if (!libup.list && !(libup.list = calloc(1, LIB_MAX + LIB_ANSWER))) return; /* next poll */
+    unsigned n = state_read(path, libup.list, LIB_MAX);
+    char *body = line_end(libup.list + 1);
+    if (!n || strcmp(libup.list + 1, seq)) return;
     tk_snprintf(last, sizeof libup.seq, "%s", seq);
     tk_snprintf(libup.seq, sizeof libup.seq, "%s", seq);
     libup.scan = 0;
-    /* then the whole request, its first line passed over (one rewritten since is a newer seq,
-     * taken next) */
-    unsigned n = state_read(path, libup.list, LIB_MAX);
-    char *body = strstr(libup.list + 1, "\n");
-    body = body ? body + 1 : libup.list + n + 1;
-    libup.list[0] = 0; /* no paths until library_parse moves them there */
+    libup.list[0] = 0; /* no files until library_parse moves them there */
     const char *bad = n >= LIB_MAX - 2            ? "Request too long"
                       : access("/tmp/mmc_add", 0) ? "No memory card"
                                                   : library_parse(body, why, sizeof why);
