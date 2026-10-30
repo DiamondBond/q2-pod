@@ -190,18 +190,9 @@ static int stream_newer(const char *dir, const char *last) {
     return found;
 }
 
-/* A scan running, or the user's own Update Local Music page open, whose OK starts one. */
-static int scanning(void) {
-    return library_scanning() || navigator_window_is_exist("updatemusic_page");
-}
-
 static int stream_start(const void *unused) {
     (void)unused;
     sm.timer = 0;
-    if (scanning()) { /* listing it waits for the scan (stream_poll), which looks again after */
-        sm.seen = 0;
-        return 0;
-    }
     void *songs = app_album_songs(sm.dir);
     unsigned n = deque_size(songs);
     if (n && sm.state == S_WAIT) {
@@ -223,9 +214,7 @@ static void *stream_queue(void) {
 static void stream_poll(app_t *a) {
     char path[48], raw[sizeof sm.play];
     tk_snprintf(path, sizeof path, "/tmp/q2-%s.play", a->id);
-    /* A folder's listing (stock's toolsLoadDirectory) refills tools_pdeq_directory, which a scan's
-     * thread fills too; and play_folder would open Now Playing over the scan's dialog. */
-    if (scanning() || !state_read(path, raw, sizeof raw)) return;
+    if (!state_read(path, raw, sizeof raw)) return;
     if (strcmp(raw, sm.play)) { /* a new session */
         const char *dir = strstr(raw, " ");
         tk_snprintf(sm.play, sizeof sm.play, "%s", raw);

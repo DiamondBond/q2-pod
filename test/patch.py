@@ -11137,14 +11137,6 @@ assert len(m.plays)==2 and m.play_names==['01 - Bloodhound [20].flac']; passed()
 # Only a hidden folder of the card is played.
 m.files['/tmp/q2-deezer.play']=bytearray(b'1900 /mnt/mmc/Music\n'); m.tree['/mnt/mmc/Music']=[('a.flac',8)]; m.poll(); m.advance(0)
 assert len(m.plays)==2; passed()
-# While a scan runs (its thread fills tools_pdeq_directory, which a folder's listing refills) nothing is listed
-# or played: a new session waits, as does a first song's start already on its timer; each goes on after it.
-STREAM='/mnt/mmc/.deezer/stream/1950'; m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
-m.files['/tmp/q2-deezer.play']=bytearray(f'1950 {STREAM}\n'.encode()); stream_songs('01 - Crane [30].flac'); m.poll(); m.advance(0)
-assert len(m.plays)==2; m.word(O['SCAN_DONE'],1); m.poll(); m.advance(0); assert len(m.plays)==3
-STREAM='/mnt/mmc/.deezer/stream/1960'; m.files['/tmp/q2-deezer.play']=bytearray(f'1960 {STREAM}\n'.encode()); stream_songs('01 - Gull [31].flac')
-m.poll(); m.word(O['SCAN_DONE'],0); m.advance(0); assert len(m.plays)==3
-m.word(O['SCAN_DONE'],1); m.poll(); m.advance(0); assert len(m.plays)==4 and m.play_names==['01 - Gull [31].flac'],m.play_names; passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'
@@ -11321,7 +11313,7 @@ for seq,cap,closes,want in (('309',40,0,cut),('310',1000,1,cut),('311',10,0,None
     playlists('Mine'); old=bytes(m.files[DONE]); m.write_cap,m.close_fails=cap,closes
     m.files[LIB]=bytearray(f'{seq}\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll()
     assert m.files[DONE]==(f'{seq} '.encode()+want if want else old) and TMP not in m.files,(seq,m.files[DONE],TMP in m.files)
-m.write_cap,m.close_fails=None,0; passed()
+m.write_cap,m.close_fails=None,0; m.word(O['SCAN_THREAD'],0); m.word(O['SCAN_DONE'],0); passed()  # no scan left running
 # library_poll runs once each addon_poll pass for every app on the card, launched or not: an app that exits right
 # after its sync (no pid file for ADDON_START_MS: poll_one lets it go and polls it no more) still has its request run.
 def lib_machine():
