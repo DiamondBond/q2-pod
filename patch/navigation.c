@@ -349,7 +349,8 @@ typedef struct {
     void *ch_page;
     chapters *ch;
     unsigned ch_timer, ch_track, ch_key;
-    void *sc_page, *sc_row[2]; /* Streaming's Configuration page and its two cache rows */
+    void *sc_page, *sc_row[3]; /* Streaming's Configuration page, its cache rows and Erase's */
+    int sc_armed;              /* Erase Spotify Data pressed once: the next press erases */
 /* Streaming's services (svc): five fixed, and at most APPS_MAX card apps. */
 #define SVC_FIXED 5
 #define SVC_MAX (SVC_FIXED + APPS_MAX)
@@ -6094,7 +6095,7 @@ static int page_closed(void *ctx, void *event) {
             st.ch = 0;
         }
     }
-    if (ctx == st.sc_page) st.sc_page = 0;
+    if (ctx == st.sc_page) st.sc_page = 0, st.sc_armed = 0;
     return 0;
 }
 
@@ -6490,11 +6491,22 @@ int stream_cache(int spotify) {
     return 2;
 }
 
+/* Row i's caption: a cache row's size, or Erase Spotify Data's state. */
 static void sc_text(int i) {
     static const char *const sizes[] = { "512 MB", "1 GB", "2 GB", "4 GB", "8 GB" };
     char s[40];
-    tk_snprintf(s, sizeof s, "%s Cache: %s", i ? "Spotify" : "Tidal", sizes[stream_cache(i)]);
-    widget_set_text_utf8(widget_get_child(st.sc_row[i], 0), s);
+    if (i < 2)
+        tk_snprintf(s, sizeof s, "%s Cache: %s", i ? "Spotify" : "Tidal", sizes[stream_cache(i)]);
+    widget_set_text_utf8(widget_get_child(st.sc_row[i], 0),
+                         i < 2            ? s
+                         : shelf_erase(0) ? "Erasing…"
+                         : st.sc_armed    ? "Press again to erase the login and cache"
+                                          : "Erase Spotify Data");
+}
+
+/* netupdate.c's erase ended: .cache-size went with it, so Spotify's row reads 2 GB again. */
+void stream_erased(void) {
+    if (st.sc_page) sc_text(1), sc_text(2);
 }
 
 /* The services Streaming lists, each shown or hidden by a check row on its Configuration page:
@@ -6544,13 +6556,19 @@ static int svc_toggle(int i) {
 }
 
 /* A cache row steps to the next size and saves it: Tidal's applies at the next download's trim,
- * Spotify's when librespot next starts. Stop Streaming Services ends librespot and its restart
- * loop, a radio station, the card apps (addon.c) and a stock stream (Tidal's) queue, so the keys
- * and the output are local music's again; local music already stopped is left as it is. */
+ * Spotify's when librespot next starts. Erase Spotify Data wants a second press in a row, as the
+ * App Store's Remove: any other row's press or leaving the page drops the first. Stop Streaming
+ * Services ends librespot and its restart loop, a radio station, the card apps (addon.c) and a
+ * stock stream (Tidal's) queue, so the keys and the output are local music's again; local music
+ * already stopped is left as it is. */
 static int sc_click(void *ctx, void *event) {
     int i = (int)(long)ctx;
-    if (i > 3) return svc_toggle(i - 4);
-    if (i == 2) {
+    st.sc_armed = i == 2 && !st.sc_armed;
+    if (i == 2 && !st.sc_armed) shelf_erase(1);
+    sc_text(2);
+    if (i > 4) return svc_toggle(i - 5);
+    if (i == 2) return 0;
+    if (i == 3) {
         unsigned type = (unsigned)MCL(MCL_TYPE);
         spot_stop();
         radio_stop();
@@ -6573,16 +6591,16 @@ static int stream_config(void *ctx, void *event) {
     if (st.sc_page || !(st.sc_page = page_open("streamconf_page", page_closed, page_keyup)))
         return 0;
     int n = SVC_FIXED + st.svc_n;
-    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 4 + n, 48);
-    for (int i = 0; i < 2; ++i)
+    void *view = page_list(st.sc_page, st.sc_page, 0, "Configuration", 5 + n, 48);
+    for (int i = 0; i < 3; ++i)
         st.sc_row[i] = page_row_detail(view, i, "", 0, sc_click), sc_text(i);
-    page_row_detail(view, 2, "Stop Streaming Services", 0, sc_click);
+    page_row_detail(view, 3, "Stop Streaming Services", 0, sc_click);
     /* a gap before the toggles, clear as the rows (the theme's default list_item fills) */
-    widget_use_style(list_item_create(view, 0, 3 * 48, 375, 48), "s_listitem_black");
+    widget_use_style(list_item_create(view, 0, 4 * 48, 375, 48), "s_listitem_black");
     char hide[SVC_HIDE];
     svc_hidden(hide);
     for (int i = 0; i < n; ++i) {
-        st.sc_check[i] = widget_get_child(page_row_detail(view, 4 + i, "", 0, sc_click), 0);
+        st.sc_check[i] = widget_get_child(page_row_detail(view, 5 + i, "", 0, sc_click), 0);
         list_toggle(st.sc_check[i], svc(i, 1), !svc_find(hide, i));
     }
     return 0;

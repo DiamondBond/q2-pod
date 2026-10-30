@@ -321,6 +321,8 @@ int rockbox_available(void);  /* navigation.c: a regular Rockbox binary on the c
 int page_keyup(void *ctx, void *event); /* navigation.c: Return leaves a payload page */
 int shelf_open(void *ctx, void *event); /* netupdate.c: System settings' Apps page */
 const char *shelf_busy(void);           /* netupdate.c: the app folder a job replaces */
+int shelf_erase(int start);             /* netupdate.c: Spotify's erase, started or running */
+void stream_erased(void);               /* navigation.c: Configuration follows a finished erase */
 void album_lyrics_stop(void);           /* onlinematch.c: Download Album Lyrics before USB storage */
 
 /* 2038 (docs/internals.md#2038). glibc 2.28's time() truncates the kernel's 64-bit seconds to 32

@@ -480,8 +480,8 @@ int ringnav_fwupdate(void *win, void *ctx) {
 
 /* The Apps page (System settings): a row per app in sources.list, its state as the row's detail.
  * One job at a time on one thread: the page's opening check (the list, then the latest tags), an
- * install, a remove or Spotify's erase. Leaving the page leaves it running; its progress shows when
- * the page opens again. */
+ * install, a remove or Spotify's erase (Streaming → Configuration's, shelf_erase). Leaving the page
+ * leaves it running; its progress shows when the page opens again. */
 #define SH_JSON "/tmp/q2-shelf.json"
 #define SH_LIST SH_DIR "/sources.list" /* the last list fetched, for the page offline */
 #define SH_LIST_URL "https://raw.githubusercontent.com/DiamondBond/q2-pod/main/sources.list"
@@ -489,16 +489,16 @@ int ringnav_fwupdate(void *win, void *ctx) {
 #define SH_STALE_MS (10 * 60 * 1000ull)
 enum { JOB_CHECK = 1, JOB_INSTALL, JOB_REMOVE, JOB_ERASE };
 enum { ST_INSTALL, ST_UPDATE, ST_INSTALLED };
-enum { ROW_ERASE = SH_MAX, ROW_NONE }; /* map's rows that are no app: Erase, and no list yet */
+enum { ROW_NONE = SH_MAX }; /* map's row that is no app: no list yet */
 
 static struct {
     unsigned long thread;
     volatile int running, cancel, percent, stage, result; /* cancel, percent: progress()'s pair */
-    int job, app, armed, rows, n, map[SH_MAX + 1];        /* map: a row's app or ROW_ */
+    int job, app, armed, rows, n, map[SH_MAX];            /* map: a row's app or ROW_NONE */
     unsigned need;                                        /* SH_SPACE's MB */
     unsigned long long checked;                           /* now_ms of the last whole check */
     shelf_app next[SH_MAX]; /* the check's list (n apps), the page's once the check ends */
-    void *page, *row[SH_MAX + 1];
+    void *page, *row[SH_MAX];
 } sh __attribute__((section(".scratch")));
 
 static int is(int i, const char *id) { return i >= 0 && i < shelf_n && !strcmp(apps[i].id, id); }
@@ -662,10 +662,6 @@ static void sh_text(int r) {
     const char *t = s;
     if (i == ROW_NONE)
         t = sh.job == JOB_CHECK ? "Loading…" : "Connect to Wi-Fi to load the list";
-    else if (i == ROW_ERASE && sh.job == JOB_ERASE)
-        t = "Erasing…";
-    else if (i == ROW_ERASE)
-        t = armed ? "Press again to erase the login and cache" : "Login and cache";
     else if (busy && sh.cancel)
         t = "Cancelling…";
     else if (busy && sh.stage == 1 && sh.percent)
@@ -703,7 +699,8 @@ static int sh_wait(const void *unused) {
     sh.job = 0;
     if (job == JOB_CHECK) /* the rows built again: the list may have changed */
         memcpy(apps, sh.next, sizeof apps), shelf_n = sh.n, sh.rows = -1;
-    if (job != JOB_CHECK && is(i, "spotify")) spot_stop(); /* spotify.c forgets the old one */
+    if (job == JOB_ERASE || (job != JOB_CHECK && is(i, "spotify")))
+        spot_stop(); /* spotify.c forgets the old one */
     sh_rows();
     if (job == JOB_INSTALL && r == SH_SPACE)
         snprintf(s, sizeof s, "Needs %u MB more space", sh.need), toast(s);
@@ -719,14 +716,14 @@ static int sh_wait(const void *unused) {
     else if (job == JOB_REMOVE)
         snprintf(s, sizeof s, "%s removed", apps[i].name), toast(s);
     else if (job == JOB_ERASE)
-        toast("Spotify's login and cache erased");
+        toast("Spotify's login and cache erased"), stream_erased();
     return 0;
 }
 
 static void sh_start(int job, int i) {
-    if (is(i, "spotify") && job != JOB_CHECK)
+    if (job == JOB_ERASE || (is(i, "spotify") && job != JOB_CHECK))
         spot_stop(); /* on this thread: spotify.c's state too */
-    if (job != JOB_CHECK) addon_forget(apps[i].dir);
+    if (job == JOB_INSTALL || job == JOB_REMOVE) addon_forget(apps[i].dir);
     sh.job = job, sh.app = i, sh.cancel = sh.percent = sh.result = 0, sh.running = 1;
     sh.stage = job == JOB_REMOVE ? 4 : 0;
     if (pthread_create(&sh.thread, 0, sh_worker, 0)) {
@@ -736,8 +733,8 @@ static void sh_start(int job, int i) {
         timer_add(sh_wait, (void *)0, 500);
 }
 
-/* Install and Update at once; Installed's Remove, Rockbox's first Install (it becomes the power-on
- * default) and Erase on a second press of the same row. Pressed again, the running install cancels.
+/* Install and Update at once; Installed's Remove and Rockbox's first Install (it becomes the
+ * power-on default) on a second press of the same row. Pressed again, the running install cancels.
  * With no list yet, the one row loads it. */
 static int sh_click(void *ctx, void *event) {
     int r = (int)(long)ctx, i = sh.map[r], armed = sh.armed == r + 1;
@@ -752,12 +749,11 @@ static int sh_click(void *ctx, void *event) {
             sh.cancel = 1; /* not once moving */
         else if (sh.job != JOB_INSTALL || sh.app != i)
             toast("Wait for the one in progress");
-    } else if (i != ROW_NONE && (i == ROW_ERASE || sh_state(i) == ST_INSTALLED)) {
+    } else if (i != ROW_NONE && sh_state(i) == ST_INSTALLED) {
         if (!armed)
             sh.armed = r + 1;
         else
-            sh_start(i == ROW_ERASE ? JOB_ERASE : JOB_REMOVE,
-                     i == ROW_ERASE ? sh_find("spotify") : i);
+            sh_start(JOB_REMOVE, i);
     } else if (get_wifisignal() <= 0)
         toast("Connect to Wi-Fi first");
     else if (i == ROW_NONE)
@@ -777,30 +773,33 @@ static int sh_closed(void *ctx, void *event) {
     return 0;
 }
 
-/* The rows, in the list's order: Rockbox Themes only with Rockbox on the card, Erase after Spotify
- * only with a .spotify folder, one to load the list while there is none; built again when a job
- * ends changes which. */
+/* The rows, in the list's order: Rockbox Themes only with Rockbox on the card, one to load the list
+ * while there is none; built again when a job ends changes which. */
 static void sh_rows(void) {
-    int map[SH_MAX + 1] = { 0 }, n = 0;
-    for (int i = 0; i < shelf_n; ++i) {
-        if (is(i, "themes") && !rockbox_available()) continue;
-        map[n++] = i;
-        if (is(i, "spotify") && file_mode(SPOT_DIR) == 0040000) map[n++] = ROW_ERASE;
-    }
+    int map[SH_MAX] = { 0 }, n = 0;
+    for (int i = 0; i < shelf_n; ++i)
+        if (!is(i, "themes") || rockbox_available()) map[n++] = i;
     if (!n) map[n++] = ROW_NONE;
     if (sh.page && (n != sh.rows || memcmp(map, sh.map, sizeof map))) {
         memcpy(sh.map, map, sizeof map);
         sh.rows = 0;
         void *view = page_list(sh.page, sh.page, 0, "App Store", n, 64);
         for (int r = 0; r < n; ++r)
-            sh.row[r] = page_row_detail(view, r,
-                                        map[r] == ROW_ERASE  ? "Erase Spotify Data"
-                                        : map[r] == ROW_NONE ? "App list"
-                                                             : apps[map[r]].name,
+            sh.row[r] = page_row_detail(view, r, map[r] == ROW_NONE ? "App list" : apps[map[r]].name,
                                         "", sh_click);
         sh.rows = n;
     }
     sh_refresh();
+}
+
+/* Streaming → Configuration's Erase Spotify Data (navigation.c): with start, Spotify's login and
+ * cache erased on this thread, unless a job is running; whether an erase is running. */
+int shelf_erase(int start) {
+    if (start && sh.job)
+        toast("Wait for the one in progress");
+    else if (start)
+        sh_start(JOB_ERASE, -1);
+    return sh.job == JOB_ERASE;
 }
 
 /* System settings' Apps row. The card's last list, until a check fetches the list again: with Wi-Fi
