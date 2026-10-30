@@ -10927,7 +10927,7 @@ passed()
 CAPS='/tmp/q2-addon.caps'
 m=AppMachine(); stream_rows(m); caps=bytes(m.files[CAPS])
 assert caps.endswith(b'\n') and caps.count(b'\n')==1,caps
-assert set(caps.split())=={b'playlist',b'progress',b'pages',b'library'},caps
+assert set(caps.split())=={b'playlist',b'progress',b'pages',b'library',b'sleep'},caps
 m.files[CAPS]=bytearray(b'stale\n'); stream_rows(m); assert m.files[CAPS]==caps; passed()
 # Stock's Baidu Netdisk row (a Chinese cloud drive; list_baidu's icon) is gone from Streaming, destroyed; its
 # TIDAL row stays first.
@@ -11233,6 +11233,50 @@ m.calls=[]; m.pick(3); m.answer('ok','File Browser off','',[])
 assert m.requests[-1]==('stop',) and m.toasts[-1][3]=='File Browser off' and 'navigator_back' in [c[0] for c in m.calls]; m.close()
 # Stop Streaming Services stops it too.
 m.systems=[]; run(m,'addon_stop'); assert m.systems==['kill $(cat /tmp/q2-filebrowser) 2>/dev/null || rm -f /tmp/q2-filebrowser']; passed()
+
+# Sleep timers (q2-podcasts' Sleep Timer, addon.c sleep_read and sleep_check): an app's .sleep holds
+# "until <time>" or "end"; Q2 Pod keeps the timer and pauses whatever plays when it is due, or as the
+# local track ends, then removes the file (the app's sign it is done). The app removing it cancels;
+# playback stopping lets "end" go without pausing.
+class PodMachine(AppMachine):
+    app,manifest='podcasts','name=Podcasts\nsearch=Search Podcasts\nqr=0\n'
+    def hook(self,u,address,size,unused):  # unlink's path read as it is called: a stack buffer
+        if self.handlers.get(address)=='unlink@GLIBC_2.0': self.unlinked.append(self.text(u.reg_read(UC_MIPS_REG_A0)))
+        return super().hook(u,address,size,unused)
+SLEEP='/tmp/q2-podcasts.sleep'
+def pod_sleep():
+    m=PodMachine(); m.unlinked=[]; m.open(); m.answer(*OK,[]); m.mock('player_play_pause','unlink@GLIBC_2.0'); m.play=2
+    return m
+paused=lambda names: names.count('player_play_pause')
+unlinked=lambda m: m.unlinked
+m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n')  # time() is 86400: a minute on
+assert not paused(m.poll()); assert not paused(m.poll(30000))
+names=m.poll(31000); assert paused(names)==1 and unlinked(m)==[SLEEP],(names,unlinked(m))
+m.files.pop(SLEEP); assert not paused(m.poll(60000)); passed()
+m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n'); m.poll(); m.files.pop(SLEEP); m.poll()
+assert not paused(m.poll(61000)) and not unlinked(m); passed()  # cancelled by the app
+m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86000\n'); assert paused(m.poll())==1; passed()  # already due
+# No time, a number too long, or more than a week away (an app's mistake): dropped, nothing paused.
+for bad in (b'until \n',b'until soon\n',b'until 999999999999\n',b'until 9000000\n'):
+    m=pod_sleep(); m.files[SLEEP]=bytearray(bad); names=m.poll()
+    assert not paused(names) and unlinked(m)==[SLEEP] and not paused(m.poll(600000)),bad
+passed()
+# "end" pauses as the track leaves its last 2 s (each is 225 s here) for the next one, which waits at its
+# start, or starts over (repeat one). Another track picked, or a seek back, waits for that one's end
+# instead: stock refills the same queue for a new one, so a pick looks the same as Next.
+def end_sleep():
+    m=pod_sleep(); m.word(syms['mcl_pdeqplaylist'],m.deque([m.song(n) for n in 'ABC'])); m.word(O['MCL_POS'],0)
+    m.playtime=100; m.files[SLEEP]=bytearray(b'end\n'); assert not paused(m.poll()); return m
+m=end_sleep(); m.playtime=224; assert not paused(m.poll(5000))
+m.word(O['MCL_POS'],1); m.playtime=0; names=m.poll(); assert paused(names)==1 and unlinked(m)==[SLEEP],names; passed()
+m=end_sleep(); m.playtime=224; assert not paused(m.poll()); m.playtime=0  # repeat one: the same one over
+names=m.poll(); assert paused(names)==1 and unlinked(m)==[SLEEP],names; passed()
+m=end_sleep(); m.word(O['MCL_POS'],2); m.playtime=0; names=m.poll()  # another picked, mid-way
+assert not paused(names) and not unlinked(m)
+m.playtime=30; assert not paused(m.poll()); m.playtime=5; assert not paused(m.poll())  # a seek back
+m.playtime=223; assert not paused(m.poll()); m.word(O['MCL_POS'],0); m.playtime=0
+names=m.poll(); assert paused(names)==1 and unlinked(m)==[SLEEP],names; passed()  # that one's end
+m=end_sleep(); m.play=1; names=m.poll(); assert not paused(names) and unlinked(m)==[SLEEP],names; passed()  # stopped
 
 # Deezer: q2-deezer from the card's .deezer folder. Nothing streams: a press downloads, to Deezer/ on
 # the card, and a song on the card, a local row, plays from it as local music (navigation.c songs_open).
