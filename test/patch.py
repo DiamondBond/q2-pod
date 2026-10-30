@@ -11167,16 +11167,22 @@ assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null || rm -f /tmp/q2-deezer' in m.sys
 # playlist import (which replaces a same-named playlist) for the listed files alone, once no Library list is
 # open under it; each seq once, its result in .library.done.
 LIB,DONE,EXP='/tmp/q2-deezer.library','/tmp/q2-deezer.library.done','/mnt/mmc/_explaylist_data'
-m=DeezerMachine(); m.open(); m.files[DZPID]=bytearray(b'4242'); m.files['/tmp/mmc_add']=bytearray()
+def windows(m,*names):
+    """The window manager's children: the status bar, Home, Streaming, the app's page, then names (open too)."""
+    bar=m.get(syms['system_bar']) or m.node('system_bar','system_bar'); m.word(syms['system_bar'],bar)
+    home=[m.node('window',n) for n in ('home_page','stream_page')]
+    m.nodes[m.wm]=dict(type='window_manager',name='',children=[bar,*home,m.page,*(m.node('window',n) for n in names)],visible=1)
+    m.open_pages=set(names)
+m=DeezerMachine(); m.open(); windows(m); m.files[DZPID]=bytearray(b'4242'); m.files['/tmp/mmc_add']=bytearray()
 m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,2); m.files[f'{EXP}/Navidrome - Mix.m3u']=bytearray(b'#EXTM3U\n')
 m.loads=[]; m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: (m.loads.append((u.reg_read(REGS[0]),len(m.imports))),m.returns(0)),
                          begin=(lc:=int(manifest['patch_symbols']['stock_localclass_trampoline'],16)),end=lc)
 m.files[LIB]=bytearray(f'7\nscan\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
 assert not [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'] and DONE not in m.files  # playing: waits
 m.word(0xa3beac,3); m.poll(); assert [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'][-1]==('dialog/updatemusic_dialog',0,0)
-m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0); m.open_pages={'updatemusic_page'}; m.poll(); assert not m.imports
-m.word(O['SCAN_DONE'],1); m.open_pages={'playlist_page'}; m.poll(); assert not m.imports  # its list is reloaded: waits
-m.open_pages=set(); m.poll(); assert m.imports==[f'{EXP}/Navidrome - Mix.m3u\n'] and m.files[DONE]==b'7 ok\n',(m.imports,m.files.get(DONE))
+m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0); windows(m,'updatemusic_page'); m.poll(); assert not m.imports
+m.word(O['SCAN_DONE'],1); windows(m,'playlist_page'); m.poll(); assert not m.imports  # its list is reloaded: waits
+windows(m); m.poll(); assert m.imports==[f'{EXP}/Navidrome - Mix.m3u\n'] and m.files[DONE]==b'7 ok\n',(m.imports,m.files.get(DONE))
 assert m.loads==[(0xf00b,0)],m.loads  # Playlists' list loaded first: stock's replace looks a name up there alone
 assert m.get(payload_syms['libup'])==0; m.poll(); assert len(m.imports)==1; passed()
 def scan_starts(page):  # from here on the scan dialog's open starts its thread; a test ends it (SCAN_DONE)
@@ -11200,23 +11206,23 @@ m.files.pop('/tmp/mmc_add'); m.files[LIB]=bytearray(b'15\nscan\n'); m.poll(); as
 # library page whose list it replaces, Home's Albums shortcut (album_page) as well.
 m.files['/tmp/mmc_add']=bytearray(); m.word(0xa3beac,3); m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
 k,n=len(m.imports),len(m.opened); m.files[LIB]=bytearray(f'16\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll(); assert len(m.imports)==k
-m.word(O['SCAN_DONE'],1); m.open_pages={'updatemusic_page'}; m.poll(); assert len(m.imports)==k  # its OK not pressed yet
-m.open_pages={'album_page'}; m.poll(); assert len(m.imports)==k
-m.open_pages=set(); m.poll(); assert len(m.imports)==k+1 and m.files[DONE]==b'16 ok\n',m.files[DONE]
-m.open_pages={'updatemusic_page'}; m.files[LIB]=bytearray(b'17\nscan\n'); m.poll(); assert len(m.opened)==n
-m.open_pages=set(); m.poll(); assert len(m.opened)==n+1; m.word(O['SCAN_DONE'],1); m.poll(); assert m.files[DONE]==b'17 ok\n'; passed()
-# One check (library_busy) holds the scan and the import alike: a dialog on top (a toast's or a confirm's own
-# loop polls too, and no request starts inside it), a page listing the library (stock's, whose lists the import
-# reloads, and Q2 Pod's own, whose records the scan's database rebuild leaves stale), or something playing from
-# any source other than the local player: the radio, AirPlay, the Bluetooth receiver.
-radio=[0]; rs=payload_syms['radio_status']; top=m.top
+m.word(O['SCAN_DONE'],1); windows(m,'updatemusic_page'); m.poll(); assert len(m.imports)==k  # its OK not pressed yet
+windows(m,'album_page'); m.poll(); assert len(m.imports)==k
+windows(m); m.poll(); assert len(m.imports)==k+1 and m.files[DONE]==b'16 ok\n',m.files[DONE]
+windows(m,'updatemusic_page'); m.files[LIB]=bytearray(b'17\nscan\n'); m.poll(); assert len(m.opened)==n
+windows(m); m.poll(); assert len(m.opened)==n+1; m.word(O['SCAN_DONE'],1); m.poll(); assert m.files[DONE]==b'17 ok\n'; passed()
+# One check (library_safe) holds the scan and the import alike: a dialog (a toast's or a confirm's own loop polls
+# too, and no request starts inside it), a page listing the library (stock's, whose lists the import reloads, and
+# Q2 Pod's own, whose records the scan's database rebuild leaves stale), or something playing from any source
+# other than the local player: the radio, AirPlay, the Bluetooth receiver.
+radio=[0]; rs=payload_syms['radio_status']
 m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: radio[0] and m.returns(2),begin=rs,end=rs)
 def busy(c,on):
-    if c=='dialog': m.top=m.node('dialog','msginfo_dialog') if on else top
+    if c=='dialog': windows(m,*['msginfo_dialog']*on)
     elif c=='radio': radio[0]=on
     elif c=='airplay': m.airplay=2 if on else 0
     elif c=='bt': m.byte(syms['bt__recv_pageflag'],2 if on else 0)
-    else: m.open_pages={c} if on else set()
+    else: windows(m,*[c]*on)
 seq=100
 for c in ('dialog','album_page','playlist_page','playlistedit_page','coverflow_page','allmusic_page','artistinfo_page','mostplayed_page',
           'rated_page','longsongs_page','era_page','era_albums_page','radio','airplay','bt',
@@ -11322,7 +11328,7 @@ def lib_machine():
     """Deezer's page open, paused, a card in, Mix.m3u in the folder, stock's Playlists load mocked."""
     m=DeezerMachine(); m.open(); m.files['/tmp/mmc_add']=bytearray(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,3)
     lc=int(manifest['patch_symbols']['stock_localclass_trampoline'],16); m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: m.returns(0),begin=lc,end=lc)
-    m.files[f'{EXP}/Mix.m3u']=bytearray(b'#EXTM3U\n')
+    m.files[f'{EXP}/Mix.m3u']=bytearray(b'#EXTM3U\n'); windows(m)
     return m
 m=lib_machine(); m.poll(11000); assert DZPID not in m.files
 m.files[LIB]=bytearray(f'400\nimport {EXP}/Mix.m3u\n'.encode()); m.poll()
@@ -11369,6 +11375,24 @@ m.poll(); assert m.files[DONE]==b"507 error Couldn't start the scan\n",m.files[D
 m.on_open=lambda page: m.open_pages.add('updatemusic_dialog')  # stays open after the call: seen at once
 m.files[LIB]=bytearray(b'508\nscan\n'); m.poll(); m.poll(); assert m.files[DONE].startswith(b'507 ')
 m.open_pages.discard('updatemusic_dialog'); m.poll(); assert m.files[DONE]==b'508 ok\n',m.files[DONE]; m.on_open=None; passed()
+
+# The scan and the import run only while every open window (the window manager's children, the status bar aside)
+# is one known to hold no library records: Home, Streaming and its Configuration, a card app's page and its QR code,
+# Now Playing, and System and Playback settings' own pages, all together here. Any other holds the request until it
+# closes: a page this list doesn't know (a new one's), the lock screen, the App Store, the Library menu, an app's
+# songs and Up Next among them.
+SAFE=['home_page','stream_page','streamconf_page','addon_page','qrcode_page','playing_page','sysset_page','display_page',
+      'backlight_page','lighttime_page','keylock_page','language_page','datetime_page','autotime_page','manualtime_page',
+      'screensaver_page','standby_page','powermanager_page','sleepshutdown_page','about_page','bluetooth_page',
+      'btquality_page','btadjustvol_page','wifi_page','wifiset_page','netservice_page','playset_page','audiosetting_page',
+      'playmode_page','replaygain_page','filter_page','dsdoutput_page','memplay_page','usbvol_page','maxvol_page',
+      'bootvol_page','balance_page','equalizer_page']
+m=lib_machine(); seq=600
+for page in ('mystery_page','saverscreen_page','apps_page','localmusic_page','app_songs','upnext_page'):
+    seq+=1; windows(m,page); k=len(m.imports); m.files[LIB]=bytearray(f'{seq}\nimport {EXP}/Mix.m3u\n'.encode()); m.poll(); m.poll()
+    assert len(m.imports)==k and not m.files.get(DONE,b'').startswith(f'{seq} '.encode()),(page,m.files.get(DONE))
+    windows(m); m.poll(); assert m.files[DONE]==f'{seq} ok\n'.encode() and len(m.imports)==k+1,(page,m.files[DONE])
+windows(m,*SAFE); m.files[LIB]=bytearray(f'700\nimport {EXP}/Mix.m3u\n'.encode()); m.poll(); assert m.files[DONE]==b'700 ok\n',m.files[DONE]; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.

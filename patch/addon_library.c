@@ -5,7 +5,7 @@
  * once per addon_poll pass, takes a seq new for its app, any app on the card, running or not. A new
  * seq is checked whole first: any error is its result at once and nothing runs. Then the scan,
  * then stock's Import Playlists (importPlayList, which replaces a playlist of the same name)
- * limited to the files named (addon_m3u_dir), each once library_busy() lets it; an add's file only
+ * limited to the files named (addon_m3u_dir), each once library_safe() lets it; an add's file only
  * if no playlist has its name yet. The result, "<seq> ok" or "<seq> error <why>", then "exists
  * <path>" for each add left alone, goes to .library.done. One request at a time; a newer seq waits
  * for it. */
@@ -45,11 +45,6 @@ static struct {
     } taken[APPS_MAX];
 } libup __attribute__((section(".scratch")));
 enum { L_IDLE, L_WAIT, L_SCAN, L_IMPORT };
-
-/* A scan running, or the user's own Update Local Music page open, whose OK starts one. */
-static int scanning(void) {
-    return library_scanning() || navigator_window_is_exist("updatemusic_page");
-}
 
 /* The scan a request opened, seen: its thread running, or its dialog (dialog/updatemusic_dialog,
  * which starts the thread) still open. */
@@ -166,29 +161,40 @@ static const char *library_missing(char *why, unsigned size) {
     return 0;
 }
 
-/* Whether the scan or the import must wait: something plays (media_playing: the player, Spotify,
+/* Whether the scan or the import may run now: nothing plays (media_playing: the player, Spotify,
  * radio, a video; or AirPlay, or the Bluetooth receiver, as ringnav_sleep's quiet check has it;
- * stock's scan dialog stops the player), a scan runs or its dialog is open, a dialog is on top
- * (this poll runs inside its own loop, a toast's too: no request starts there), or a page is open
- * that lists the library: stock's, whose lists the import reloads (p_deque_playlist,
- * p_deque_showlist), and Q2 Pod's own, which keep records read from the database the scan
- * rebuilds. */
-static int library_busy(void) {
-    static const char *const pages[] = {
-        "usbmode_page",      "localclass_page",     "playlist_page",
-        "playlistedit_page", "folder_page",         "allmusic_page",
-        "album_page",        "albuminfo_page",      "coverflow_page",
-        "artistinfo_page",   "playerjumpinfo_page", "mostplayed_page",
-        "rated_page",        "longsongs_page",      "era_page",
-        "era_albums_page"
+ * stock's scan dialog stops the player), no scan runs, and every open window, the window manager's
+ * children less the status bar, is one known to hold no library records: Home, Streaming and its
+ * Configuration, a card app's page and its QR code, Now Playing, and System and Playback settings'
+ * own pages. Any other waits, a dialog's (this poll runs inside its own loop, a toast's too: no
+ * request starts there), a Library page's (the import reloads p_deque_playlist and
+ * p_deque_showlist under it; Q2 Pod's own keep records read from the database the scan rebuilds),
+ * the user's own Update Local Music, and a page this list doesn't know. */
+static int library_safe(void) {
+    static const char *const safe[] = {
+        "home_page",      "stream_page",       "streamconf_page",    "addon_page",
+        "qrcode_page",    "playing_page",      "sysset_page",        "display_page",
+        "backlight_page", "lighttime_page",    "keylock_page",       "language_page",
+        "datetime_page",  "autotime_page",     "manualtime_page",    "screensaver_page",
+        "standby_page",   "powermanager_page", "sleepshutdown_page", "about_page",
+        "bluetooth_page", "btquality_page",    "btadjustvol_page",   "wifi_page",
+        "wifiset_page",   "netservice_page",   "playset_page",       "audiosetting_page",
+        "playmode_page",  "replaygain_page",   "filter_page",        "dsdoutput_page",
+        "memplay_page",   "usbvol_page",       "maxvol_page",        "bootvol_page",
+        "balance_page",   "equalizer_page"
     };
-    void *top = window_manager_get_top_window(window_manager());
     if (media_playing() || airplayGetFlag() == 2 || (signed char)bt__recv_pageflag == 2 ||
-        scanning() || (top && !tk_strcmp(widget_get_type(top), "dialog")))
-        return 1;
-    for (unsigned i = 0; i < sizeof pages / sizeof *pages; ++i)
-        if (navigator_window_is_exist(pages[i])) return 1;
-    return 0;
+        library_scanning())
+        return 0;
+    void *wm = window_manager(), *bar = *(void *const *)system_bar;
+    for (unsigned i = 0, n = widget_count_children(wm); i < n; ++i) {
+        void *w = widget_get_child(wm, i);
+        const char *name = widget_get_prop_str(w, "name", "");
+        unsigned k = 0;
+        while (k < sizeof safe / sizeof *safe && tk_strcmp(name, safe[k])) ++k;
+        if (w != bar && k == sizeof safe / sizeof *safe) return 0;
+    }
+    return 1;
 }
 
 /* The last seq taken from app id. */
@@ -247,7 +253,7 @@ static void library_step(void) {
     const char *id;
     for (int k = 0; libup.state == L_IDLE && (id = addon_id(k)); ++k) library_take(id);
     if (libup.state == L_WAIT) {
-        if (library_busy()) return;
+        if (!library_safe()) return;
         /* first: the dialog runs a loop of its own, whose polls look for the scan (library_poll) */
         libup.state = L_SCAN, libup.seen = 0;
         int ctx[4] = { 0 };
@@ -274,7 +280,7 @@ static void library_step(void) {
         libup.state = L_IMPORT;
     }
     if (libup.state != L_IMPORT) return;
-    if (library_busy()) return;
+    if (!library_safe()) return;
     /* Stock's replace finds a same-named playlist in p_deque_playlist alone (checkPlayListByName),
      * empty until Library → Playlists first loads it; otherwise the create fails on the name
      * (ringnav_playlist_create) and the songs are added to no playlist.
