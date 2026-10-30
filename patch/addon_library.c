@@ -16,16 +16,21 @@
 #define LIB_DIR "/mnt/mmc/_explaylist_data/"
 #define LIB_MAX (32 << 10) /* a request's bytes: over 200 lines of 120-byte paths */
 #define LIB_POLL_MS 500    /* as addon.c's ADDON_POLL_MS */
+/* The answer's bytes: its first line, then an exists line per add left alone, each 3 bytes longer
+ * than its request line, which is 36 bytes at least. */
+#define LIB_ANSWER (LIB_MAX + LIB_MAX / 8)
+#define LIB_TMP "/tmp/q2-library.tmp"
 
 /* only and busy are first, as test/patch.py reads them. */
 static struct {
-    const char *only; /* the import's files, "\n"-ended each, while importPlayList runs; else 0 */
+    const char *only; /* libup.list while importPlayList runs; else 0 */
     int busy;         /* in library_poll: a dialog's own loop (a toast's) polls again */
     char seq[24];     /* the request running */
     char done[48];    /* its .done path */
-    /* LIB_MAX bytes of heap, taken at the first request and kept: the request as read, then its
-     * paths moved to its start, "\n"-ended each. An add's first '/' is '+' until its name is looked
-     * up, then '-' if a playlist has it (left alone: an exists line). */
+    /* LIB_MAX + LIB_ANSWER bytes of heap, taken at the first request and kept: the request as
+     * read, then its files moved to its start, each its op and its name in LIB_DIR, NUL-ended, an
+     * empty one last; the answer after LIB_MAX. op: 'i' imported, 'a' an add not looked up yet,
+     * 'e' an add whose name a playlist has (left alone: an exists line). */
     char *list;
     int state, scan; /* state: L_IDLE, L_WAIT (to scan), L_SCAN (scanning), L_IMPORT */
     unsigned polled; /* library_poll's last pass */
@@ -41,45 +46,26 @@ static int scanning(void) {
     return library_scanning() || navigator_window_is_exist("updatemusic_page");
 }
 
-/* line, then (with exists) "exists <path>" for each add left alone, to libup.done through
- * /tmp/q2-library.tmp. Renamed over only if every write was whole and the close succeeded: a full
- * /tmp must not publish exists lines cut short, or the app would take a user's same-named
- * playlist for its own. Otherwise the temp goes. Whether it was published. */
-static int library_write(const char *line, int exists) {
-    unsigned n = strlen(line);
-    void *f = fopen("/tmp/q2-library.tmp", "wb");
-    int ok;
-    if (!f) return 0;
-    ok = fwrite(line, 1, n, f) == n;
-    for (const char *l = libup.list; ok && exists && *l; l = strstr(l, "\n") + 1)
-        if (*l == '-') {
-            unsigned k = strstr(l, "\n") - l;
-            ok = fwrite("exists /", 1, 8, f) == 8 && fwrite(l + 1, 1, k, f) == k;
-        }
-    if (fclose(f)) ok = 0;
-    if (ok && !rename("/tmp/q2-library.tmp", libup.done)) return 1;
-    unlink("/tmp/q2-library.tmp");
-    return 0;
-}
-
-/* "<seq> ok" (why 0) or "<seq> error <why>", then "exists <path>" for each add left alone, to
- * libup.done (temp + rename); the request ends. If that can't be written whole, "<seq> error
- * Couldn't write the answer" alone; if not even that, nothing (the app keeps waiting). */
+/* "<seq> ok" (why 0) or "<seq> error <why>", then "exists <path>" for each add left alone, built
+ * whole and written to libup.done through LIB_TMP (blob_io: renamed over only once all of it is
+ * written, so a full /tmp never publishes exists lines cut short, or the app would take a user's
+ * same-named playlist for its own); the request ends. If that fails, "<seq> error Couldn't write
+ * the answer" alone; if not even that, nothing (the app keeps waiting). */
 static void library_done(const char *why) {
-    char line[640];
-    if (why)
-        tk_snprintf(line, sizeof line, "%s error %s\n", libup.seq, why);
-    else
-        tk_snprintf(line, sizeof line, "%s ok\n", libup.seq);
-    if (!library_write(line, 1)) {
-        tk_snprintf(line, sizeof line, "%s error Couldn't write the answer\n", libup.seq);
-        library_write(line, 0);
+    char *b = libup.list + LIB_MAX;
+    int n = why ? tk_snprintf(b, LIB_ANSWER, "%s error %s\n", libup.seq, why)
+                : tk_snprintf(b, LIB_ANSWER, "%s ok\n", libup.seq);
+    for (const char *l = libup.list; *l; l += strlen(l) + 1)
+        if (*l == 'e') n += tk_snprintf(b + n, LIB_ANSWER - n, "exists " LIB_DIR "%s\n", l + 1);
+    if (!blob_io(libup.done, LIB_TMP, b, n, 1)) {
+        n = tk_snprintf(b, LIB_ANSWER, "%s error Couldn't write the answer\n", libup.seq);
+        if (!blob_io(libup.done, LIB_TMP, b, n, 1)) unlink(LIB_TMP);
     }
     libup.state = L_IDLE;
 }
 
-/* The request's lines after its seq, at s in libup.list: scan into libup.scan, each path moved to
- * the list (before its own line: it is shorter), an add's marked; what is wrong, else 0. */
+/* The request's lines after its seq, at s in libup.list: scan into libup.scan, each file moved to
+ * the list (before its own line: it is shorter) with its op; what is wrong, else 0. */
 static const char *library_parse(char *s, char *why, unsigned size) {
     char *w = libup.list;
     for (char *next; *s; s = next) {
@@ -109,20 +95,20 @@ static const char *library_parse(char *s, char *why, unsigned size) {
             tk_snprintf(why, size, "Not found: %s", p);
             return why;
         }
-        for (unsigned i = 0; i < k; ++i) w[i] = p[i];
-        if (add) w[0] = '+';
-        w[k] = '\n', w[k + 1] = 0;
+        *w++ = add ? 'a' : 'i';
+        for (k = 0; name[k]; ++k) w[k] = name[k];
+        w[k] = 0, w[k + 1] = 0;
         w += k + 1;
     }
     return 0;
 }
 
-/* Whether Playlists' list (p_deque_playlist) has a listed line's playlist: the name before its
- * own line's .m3u, which every listed name ends in, as stock's listing (toolsGetDirectoryM3u8)
- * cuts the file's name at its last dot. */
+/* Whether Playlists' list (p_deque_playlist) has a listed file's playlist: its name before .m3u,
+ * which every listed name ends in, as stock's listing (toolsGetDirectoryM3u8) cuts the file's name
+ * at its last dot. */
 static int playlist_named(const char *name) {
     void *pl = P(p_deque_playlist, 0);
-    unsigned k = (unsigned)(strstr(name, "\n") - name) - 4;
+    unsigned k = strlen(name) - 4;
     for (unsigned i = 0; pl && i < deque_size(pl); ++i) {
         const char *n = P(deque_at(pl, i), REC_NAME);
         if (n && strlen(n) == k && tk_str_start_with(name, n)) return 1;
@@ -131,12 +117,12 @@ static int playlist_named(const char *name) {
 }
 
 /* Each add's name looked up in Playlists' list, loaded: one a playlist has already is left alone
- * ('-'), the others imported ('/' again); whether any file is left to import. */
+ * ('e'), the others imported ('i'); whether any file is left to import. */
 static int library_adds(void) {
     int any = 0;
-    for (char *l = libup.list; *l; l = strstr(l, "\n") + 1) {
-        if (*l == '+') *l = playlist_named(l + sizeof LIB_DIR - 1) ? '-' : '/';
-        any |= *l == '/';
+    for (char *l = libup.list; *l; l += strlen(l) + 1) {
+        if (*l == 'a') *l = playlist_named(l + 1) ? 'e' : 'i';
+        any |= *l == 'i';
     }
     return any;
 }
@@ -145,12 +131,11 @@ static int library_adds(void) {
  * it), as why; else 0. Stock stops at a create that fails (a database error, the 100 playlists'
  * cap) and returns as if done. */
 static const char *library_missing(char *why, unsigned size) {
-    for (const char *l = libup.list; *l; l = strstr(l, "\n") + 1) {
-        const char *name = l + sizeof LIB_DIR - 1;
-        if (*l != '/' || playlist_named(name)) continue;
-        unsigned k = (unsigned)(strstr(name, "\n") - name) - 4;
+    for (const char *l = libup.list; *l; l += strlen(l) + 1) {
+        if (*l != 'i' || playlist_named(l + 1)) continue;
+        unsigned k = strlen(l + 1) - 4;
         char nm[256];
-        tk_snprintf(nm, k + 1 < sizeof nm ? k + 1 : sizeof nm, "%s", name);
+        tk_snprintf(nm, k + 1 < sizeof nm ? k + 1 : sizeof nm, "%s", l + 1);
         tk_snprintf(why, size, "Couldn't import %s", nm);
         return why;
     }
@@ -205,10 +190,10 @@ static void library_take(const char *id) {
         char line[sizeof head + 24], old[sizeof line];
         int k = tk_snprintf(line, sizeof line, "%s error Seq too long\n", seq);
         state_read(libup.done, old, sizeof old);
-        if (strcmp(old + 1, line)) blob_io(libup.done, "/tmp/q2-library.tmp", line, k, 1);
+        if (strcmp(old + 1, line)) blob_io(libup.done, LIB_TMP, line, k, 1);
         return;
     }
-    if (!libup.list && !(libup.list = calloc(1, LIB_MAX))) return; /* tried again next poll */
+    if (!libup.list && !(libup.list = calloc(1, LIB_MAX + LIB_ANSWER))) return; /* next poll */
     tk_snprintf(last, sizeof libup.seq, "%s", seq);
     tk_snprintf(libup.seq, sizeof libup.seq, "%s", seq);
     libup.scan = 0;
@@ -280,11 +265,11 @@ void library_poll(void) {
     libup.busy = 0;
 }
 
-/* Whether path is one of list's "\n"-ended lines. */
-static int listed(const char *list, const char *path) {
-    unsigned k = strlen(path);
-    for (const char *l = list; *l; l = strstr(l, "\n") + 1)
-        if (tk_str_start_with(l, path) && l[k] == '\n') return 1;
+/* Whether path is one of the files the import imports: in LIB_DIR, its name an 'i' one's. */
+static int listed(const char *path) {
+    if (!tk_str_start_with(path, LIB_DIR)) return 0;
+    for (const char *l = libup.only; *l; l += strlen(l) + 1)
+        if (*l == 'i' && !strcmp(l + 1, path + sizeof LIB_DIR - 1)) return 1;
     return 0;
 }
 
@@ -299,7 +284,7 @@ int addon_m3u_dir(const char *dir, void *dq) {
     for (unsigned i = 0; i < deque_size(dq); ++i) {
         void *r = deque_at(dq, i);
         const char *p = P(r, REC_PATH);
-        if (p && listed(libup.only, p)) _deque_push_back(kept, r);
+        if (p && listed(p)) _deque_push_back(kept, r);
     }
     deque_assign(dq, kept);
     deque_destroy(kept);

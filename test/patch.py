@@ -3212,8 +3212,10 @@ class QueueMachine(Machine):
             elif page=='localmusic/playlistsmore_page': self.opened.append((page,b))
             else: self.opened.append((page,self.get(b),self.get(b+4))); self.top=self.node('window',page); self.stack.append(self.top)
         elif name=='importPlayList':  # Playlists' list reloaded with the files' names, but a create that failed (-1)
-            only=self.text(self.get(payload_syms['libup'])) if self.get(payload_syms['libup']) else None; self.imports.append(only); ret=self.import_ret
-            names=[l.rsplit('/',1)[-1].rsplit('.',1)[0] for l in (only or '').split('\n') if l.startswith('/')]  # addon_m3u_dir's
+            only=self.get(payload_syms['libup']); names=[]  # libup.only: each file's op and name, NUL-ended, an empty one last
+            while only and self.text(only): names+=[self.text(only)[1:]]*(self.text(only)[0]=='i'); only+=len(self.raw(only))+1
+            self.imports.append(''.join(f'/mnt/mmc/_explaylist_data/{n}\n' for n in names) if self.get(payload_syms['libup']) else None)
+            ret=self.import_ret; names=[n.rsplit('.',1)[0] for n in names]  # addon_m3u_dir's
             if ret!=-2: self.word(syms['p_deque_playlist'],self.deque([self.song(n) for n in names if n not in self.uncreated]))
         elif name=='toolsGetDirectoryM3u8': self.deqs[b][1]=[self.copy('stSongInfo',r) for r in self.m3u_files]; ret=len(self.m3u_files)
         elif name=='checkFavExist': ret=self.text(self.get(a+O['REC_NAME'])) in self.favs
@@ -11250,13 +11252,14 @@ for r in recs: m.word(r+O['REC_PATH'],m.string(f'{EXP}/'+m.text(m.get(r+O['REC_N
 m.m3u_files=recs; m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: u.reg_write(UC_MIPS_REG_PC,0x1000000),begin=M3U_DIR_CALL+8,end=M3U_DIR_CALL+8)
 def listing(): dq=m.deque([]); m.call(address=M3U_DIR_CALL,args=(m.string(EXP)-0x12e0,dq,0,0),gap=0); return [m.text(m.get(e+O['REC_NAME'])) for e in m.items(dq)]
 assert listing()==['Navidrome - Mix.m3u','Mine.m3u']
-m.word(payload_syms['libup'],m.string(f'{EXP}/Navidrome - Mix.m3u\n')); assert listing()==['Navidrome - Mix.m3u']; m.word(payload_syms['libup'],0); passed()
+def only(*paths): return m.string(''.join('i'+p.rsplit('/',1)[1]+'\0' for p in paths))  # libup.only, an empty name last
+m.word(payload_syms['libup'],only(f'{EXP}/Navidrome - Mix.m3u')); assert listing()==['Navidrome - Mix.m3u']; m.word(payload_syms['libup'],0); passed()
 # add and import (R35's request lines): import replaces a playlist of the same name (the app's own, imported
 # before); add imports a name no playlist has yet, else leaves that playlist alone (its file isn't listed for
 # stock's import, which never runs when nothing is left, so its rows stay as they are) and reports it, one
 # "exists <path>" line after the result. Playlists' list is the one loaded for the import (mocked: set here).
 def playlists(*names): m.word(syms['p_deque_playlist'],m.deque([m.song(n) for n in names]))
-def imported(): m.word(payload_syms['libup'],m.string(m.imports[-1])); got=listing(); m.word(payload_syms['libup'],0); return got
+def imported(): m.word(payload_syms['libup'],only(*m.imports[-1].split('\n')[:-1])); got=listing(); m.word(payload_syms['libup'],0); return got
 recs=[m.song(n) for n in ('Mine.m3u','New.m3u','Mix.m3u')]
 for r in recs: m.word(r+O['REC_PATH'],m.string(f'{EXP}/'+m.text(m.get(r+O['REC_NAME'])))); m.files[m.text(m.get(r+O['REC_PATH']))]=bytearray(b'#EXTM3U\n')
 m.m3u_files=recs
