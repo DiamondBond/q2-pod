@@ -69,6 +69,18 @@
 #define LCD_FILL_COLOR 0xbc
 #define LCD_STROKE_COLOR 0xc0
 #define LCD_TEXT_COLOR 0xb8     /* lcd_set_text_color @0x6474c4 */
+/* Night Shift (nightshift.c): the screen's lcd_mem, BGRA8888 (lcd_mem create @0x6922c0) */
+#define LCD_END_FRAME 0x7c   /* lcd_end_frame @0x647958 calls it */
+#define LCD_W 0xb0
+#define LCD_H 0xb4
+#define LCD_DRAW_MODE 0xcc   /* lcd_begin_frame @0x6472a8 */
+#define LCD_DRAW_NORMAL 0    /* 1 a window animation's */
+#define LCD_DRAW_OFFLINE 4   /* canvas_offline_begin_draw @0x63a480 */
+#define LCD_DIRTY 0xf8       /* the frame's rect, x y w h; lcd_begin_frame sets it */
+#define LCD_OFFLINE_FB 0x110 /* the buffer drawn into */
+#define LCD_LINE_LENGTH 0x124
+#define LCD_FORMAT 0x128
+#define LCD_BGRA8888 3
 #define CANVAS_ALIGN_V 0x30     /* canvas_set_text_align @0x63419c; middle = 1 */
 #define CANVAS_ALIGN_H 0x34     /* center = 1 */
 #define FILL_RGB 0x2b2b2b /* the stock dark surface, under the letter and volume overlays */

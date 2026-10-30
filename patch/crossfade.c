@@ -4,7 +4,9 @@
  * and off. Display's Wheel sensitivity row opens the same page (xf.ctx 1): 50-200% in tens, no
  * switch, the wheel a ten a tick and Centre back, as on Brightness (navigation.c edit_key). Audio
  * settings' Resume Songs row opens it too (xf.ctx 2): Off and RS_MIN..RS_MAX minutes in fives, the
- * same way, the length a music track needs to keep its place (navigation.c resume_poll). Mono
+ * same way, the length a music track needs to keep its place (navigation.c resume_poll). Display's
+ * Night Shift row opens it as well (xf.ctx 3): the switch and Centre turn it on and off and the
+ * slider runs NS_COOL to NS_WARM, warmer to the right, a NS_STEP a tick (nightshift.c). Mono
  * Audio's and MQA's rows live here too (mono_sync, mqa_sync). */
 #include "offsets.inc"
 #include "peq.h"
@@ -17,13 +19,14 @@
 #define XF_ROW "label_xfade"     /* the Audio settings row's label, found again by name */
 #define WHEEL_ROW "label_wheel"  /* and Display's Wheel sensitivity row's */
 #define RS_ROW "label_resumemin" /* and Audio settings' Resume Songs row's */
+#define NS_ROW "label_night"     /* and Display's Night Shift row's */
 #define RS_MIN 20
 #define RS_MAX 120
 #define RS_DEFAULT 30
 
 static struct {
     int read, on, seconds, done, key[4];
-    int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs */
+    int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs, 3 Night Shift */
     int sliding, unsaved, setting; /* a finger on the slider; a value it moved; refresh's own set */
     int rs_read, rs_min;
     int mono_read, mono, swap_read, swap, mqa_read, mqa;
@@ -94,6 +97,18 @@ static void rs_text(void *label) {
 void resume_row(void *label) {
     widget_set_name(label, RS_ROW);
     rs_text(label);
+}
+
+static void night_text(void *label) {
+    char t[32] = "Night Shift: Off";
+    if (night_on()) tk_snprintf(t, sizeof t, "Night Shift: %dK", night_kelvin());
+    widget_set_text_utf8(label, t);
+}
+
+/* Display's row (navigation.c ringnav_display makes it): the label, named for refresh(). */
+void night_row(void *label) {
+    widget_set_name(label, NS_ROW);
+    night_text(label);
 }
 
 /* An int shared with hciplayer's filter (and q2video): made whole under tmp and renamed, as the
@@ -198,13 +213,17 @@ int mqa_click(void *ctx, void *event) {
     return 0;
 }
 
-/* The slider's value: the sensitivity; Resume's minutes, RS_MIN - 5 for Off; or 0 for Off, else
- * the length. */
+/* The slider's value: the sensitivity; Resume's minutes, RS_MIN - 5 for Off; Night Shift's steps
+ * below NS_COOL, on or off; or 0 for Off, else the length. */
 static int value(void) {
+    if (xf.ctx == 3) return (NS_COOL - night_kelvin()) / NS_STEP;
     if (xf.ctx == 2) return resume_min() ? resume_min() : RS_MIN - 5;
     return xf.ctx ? wheel_pct() : xf.on ? xf.seconds : 0;
 }
-static const int steps[] = { 1, 10, 5 }; /* a tick or +/-, by xf.ctx */
+static const int steps[] = { 1, 10, 5, 1 }; /* a tick or +/-, by xf.ctx */
+
+/* Whether the page has its switch: Crossfade's and Night Shift's. */
+static int switched(void) { return xf.ctx == 0 || xf.ctx == 3; }
 
 /* The page and the row from xf, and the choice saved: during a drag, at its release (slid). */
 static void refresh(int save) {
@@ -212,6 +231,7 @@ static void refresh(int save) {
     if (save) xf.unsaved = 0;
     if (save && xf.ctx == 1) write_int_config(wheel_pct(), "Q2POD", "WHEELSENSITIVITY");
     if (save && xf.ctx == 2) write_int_config(xf.rs_min, "Q2POD", "RESUMEMIN");
+    if (save && xf.ctx == 3) night_save();
     if (save && !xf.ctx) {
         write_int_config(xf.on, "Q2POD", "XFADE");
         write_int_config(xf.seconds, "Q2POD", "XFADESEC");
@@ -220,13 +240,17 @@ static void refresh(int save) {
     if (row) row_text(row);
     if ((row = widget_lookup(window_manager(), WHEEL_ROW, 1))) wheel_text(row);
     if ((row = widget_lookup(window_manager(), RS_ROW, 1))) rs_text(row);
+    if ((row = widget_lookup(window_manager(), NS_ROW, 1))) night_text(row);
     if (!xf.page) return;
     char t[16];
     if (xf.ctx == 1)
         tk_snprintf(t, sizeof t, "%d%%", wheel_pct());
     else if (xf.ctx == 2)
         tk_snprintf(t, sizeof t, xf.rs_min ? "%d min" : "Off", xf.rs_min);
-    else {
+    else if (xf.ctx == 3) {
+        tk_snprintf(t, sizeof t, night_on() ? "%dK" : "Off", night_kelvin());
+        image_base_set_image(xf.sw, night_on() ? "switch_on" : "switch_off");
+    } else {
         tk_snprintf(t, sizeof t, xf.on ? "%d s" : "Off", xf.seconds);
         image_base_set_image(xf.sw, xf.on ? "switch_on" : "switch_off");
     }
@@ -239,6 +263,14 @@ static void refresh(int save) {
 }
 
 static void take(int n) {
+    if (xf.ctx == 3) { /* a move turns it on */
+        int top = (NS_COOL - NS_WARM) / NS_STEP;
+        n = n < 0 ? 0 : n > top ? top : n;
+        if (n == value()) return;
+        night_set(1, NS_COOL - n * NS_STEP); /* shown at once, saved as the rest (refresh) */
+        refresh(1);
+        return;
+    }
     if (xf.ctx == 2) {
         n = n < RS_MIN ? 0 : n > RS_MAX ? RS_MAX : (n + 2) / 5 * 5; /* the nearest five */
         if (n == resume_min()) return;
@@ -269,8 +301,13 @@ static void set_value(int n, int held) {
 }
 
 static int toggle(void *ctx, void *event) {
-    if (xf.ctx) return 0;
+    if (!switched()) return 0;
     xf.sliding = 0;
+    if (xf.ctx == 3) {
+        night_set(!night_on(), night_kelvin());
+        refresh(1);
+        return 0;
+    }
     xf.on = !xf.on;
     refresh(1);
     return 0;
@@ -293,7 +330,7 @@ static int gone(void *ctx, void *event) {
 }
 
 /* The row's click: stock's Boot volume page, its handlers swapped for these; ctx 1 for Wheel
- * sensitivity's row, 2 for Resume Songs'. */
+ * sensitivity's row, 2 for Resume Songs', 3 for Night Shift's. */
 int xfade_open(void *ctx, void *event) {
     int mode = (int)(long)ctx, wheel = mode == 1;
     settings();
@@ -325,16 +362,20 @@ int xfade_open(void *ctx, void *event) {
     widget_on(xf.slider, EVT_VALUE_CHANGING, slid, (void *)1L);
     widget_on(xf.slider, EVT_VALUE_CHANGED, slid, 0);
     widget_on(page, EVT_DESTROY, gone, page);
-    widget_set_text_utf8(title, mode == 2 ? "Resume Songs"
-                                : wheel   ? "Wheel Sensitivity"
-                                          : "Crossfade");
+    widget_set_text_utf8(title, mode == 3   ? "Night Shift"
+                                : mode == 2 ? "Resume Songs"
+                                : wheel     ? "Wheel Sensitivity"
+                                            : "Crossfade");
     /* Stock shows and enables it only while Boot volume's switch is on: disabled, touch misses the
      * slider and +/- (#140). */
     widget_set_visible(xf.view, 1, 0);
     widget_set_enable(xf.view, 1);
-    if (mode) widget_set_visible(xf.sw, 0, 0);
+    if (mode == 1 || mode == 2) widget_set_visible(xf.sw, 0, 0);
     slider_set_min(xf.slider, mode == 2 ? RS_MIN - 5 : wheel ? 50 : 0);
-    slider_set_max(xf.slider, mode == 2 ? RS_MAX : wheel ? 200 : XF_MAX);
+    slider_set_max(xf.slider, mode == 3   ? (NS_COOL - NS_WARM) / NS_STEP
+                              : mode == 2 ? RS_MAX
+                              : wheel     ? 200
+                                          : XF_MAX);
     slider_set_step(xf.slider, steps[mode]);
     xf.ctx = mode;
     xf.page = page;
@@ -356,7 +397,7 @@ int xfade_key(void *top, unsigned key) {
     static const unsigned release[EVENT_KEY / 4 + 1] = { [EVENT_KEY / 4] = KEY_CENTER };
     if (!xf.page || top != xf.page) return 0;
     if (key == KEY_CENTER) {
-        if (xf.ctx) return 0;
+        if (!switched()) return 0;
         int press = center_press(&xf.press, &xf.press_at, single, 0);
         if (press == 2 && g_backlight_status) on_wm_keyup_fun((void *)0, (void *)release);
         return press;

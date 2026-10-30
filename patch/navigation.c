@@ -192,7 +192,7 @@ extern void up_next(int (*closed)(void *, void *), int (*keyup)(void *, void *))
 extern int un_hold(void *top);
 extern void radio_poll(void);
 extern void xfade_row(void *label), wheel_row(void *label), resume_row(void *label),
-    mono_row(void *label), swap_row(void *label), mqa_row(void *label);
+    mono_row(void *label), swap_row(void *label), mqa_row(void *label), night_row(void *label);
 extern int mono_click(void *ctx, void *event), swap_click(void *ctx, void *event),
     mqa_click(void *ctx, void *event);
 extern int xfade_open(void *ctx, void *event), xfade_key(void *top, unsigned key), resume_min(void);
@@ -2249,6 +2249,7 @@ static void paint_into(void *w, void *canvas) {
 int ringnav_paint(void *w, void *canvas) {
     if (st.pull_page && !pull_live()) pull_cancel();
     int result = stock_paint_trampoline(w, canvas);
+    night_paint(canvas);
     coverflow_paint(w, canvas);
     lockscreen_paint(w, canvas);
     if (w == st.cf_letter_surface && st.cf_letter &&
@@ -4821,7 +4822,8 @@ static int display_open(void *ctx, void *event) {
  * stock's page again (display_open) with its stock rows dropped and its own instead: Theme,
  * Accent, Corners, Home and Battery; Artist Albums, Coverflow Sort and Refresh Coverflow; Shortcut
  * (iPod), Hold Return and Wheel Sensitivity, the last opening its slider page (crossfade.c). The
- * value rows show it in the label and have no chevron, since they change in place.
+ * value rows show it in the label and have no chevron, since they change in place. Night Shift
+ * (the brightness icon) ends the main page, opening its slider page (crossfade.c).
  * ponytail: stock's page opened over itself; its own rows' state is never touched on a sub-page. */
 int ringnav_display(void *win, void *ctx) {
     static const char *const titles[] = { 0, "Appearance", "Coverflow", "Controls" },
@@ -4838,6 +4840,7 @@ int ringnav_display(void *win, void *ctx) {
         for (int i = DISPLAY_APPEARANCE; i <= DISPLAY_CONTROLS; ++i)
             widget_set_text_utf8(list_row_into(view, sub_icons[i], display_open, (void *)(long)i),
                                  titles[i]);
+        night_row(list_row_into(view, "display_backlight", xfade_open, (void *)3));
         return result;
     }
     widget_destroy_children(view);
