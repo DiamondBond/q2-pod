@@ -530,7 +530,7 @@ Over Bluetooth hciplayer's ALSA output runs at 48 kHz, so for a file at any othe
 
 ## USB output buffer
 
-hciplayer's ao_alsa init (`0x438988`) asks ALSA for a 500 ms buffer in 16 periods (`0x438a2c`), but on output way 2, a USB DAC, stock cuts it to 100 ms: the delay slots at `0x43977c` and `0x439a60` store 100000 µs over it. With 100 ms in hand, a track change that keeps the player busy longer than that underruns, a gap at a gapless change that the headphone jack's 500 ms rides out (#159). `USB_BUFFER` in `tools/peq.py` turns both stores into nops, so a USB DAC keeps the 500 ms buffer the other outputs get. ponytail: where hciplayer scales a USB DAC's volume itself (`usbaudio_softvol`), a volume change now takes up to 500 ms to be heard, not 100 ms.
+hciplayer's ao_alsa init (`0x438988`) asks ALSA for a 500 ms buffer (`0x438a3c`) in 16 periods (`0x4389a4`), but on output way 2, a USB DAC, stock cuts it to 100 ms: the delay slots at `0x43977c` and `0x439a60` store 100000 µs over it. With 100 ms in hand, a track change that keeps the player busy longer than that underruns, a gap at a gapless change that the headphone jack's 500 ms rides out (#159). `USB_BUFFER` in `tools/peq.py` turns both stores into nops, so a USB DAC keeps the 500 ms buffer the other outputs get (`set_buffer_time_near`: at rates high enough to meet the DAC's own buffer limit, less, still above 100 ms), and the visualizer's `VIS_LATENCY_MS`, set for that buffer, fits USB too. ponytail: where hciplayer scales a USB DAC's volume itself (`usbaudio_softvol`), a volume change now takes up to 500 ms to be heard, not 100 ms.
 
 ## Large MP3s
 
