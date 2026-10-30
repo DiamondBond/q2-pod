@@ -153,7 +153,8 @@ static int library_adds(void) {
 static const char *library_missing(char *why, unsigned size) {
     for (const char *l = libup.list; *l; l += strlen(l) + 1) {
         if (*l != 'i' || playlist_named(l + 1)) continue;
-        tk_snprintf(why, size, "Couldn't import %.*s", (int)strlen(l + 1) - 4, l + 1); /* less .m3u */
+        /* the name less its .m3u */
+        tk_snprintf(why, size, "Couldn't import %.*s", (int)strlen(l + 1) - 4, l + 1);
         return why;
     }
     return 0;

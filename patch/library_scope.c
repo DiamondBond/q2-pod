@@ -17,7 +17,8 @@ static unsigned scope_lock[6] __attribute__((section(".scratch")));
 #define CARD_URL "/mnt/mmc/"
 #define SCOPE_MAX 131072u
 #define PATH_MAX_SCOPE 1024
-#define RULES PEQ_ROOT "/mnt/data/q2-library-scope" /* a line per marker folder: 0 or 1, its path */
+/* a line per marker folder: 0 or 1, then its path */
+#define RULES PEQ_ROOT "/mnt/data/q2-library-scope"
 
 typedef struct scope_rule {
     struct scope_rule *next;

@@ -400,7 +400,8 @@ static void stream_poll(app_t *a) {
     }
     unsigned pos = (unsigned)I(MCL_POS, 0);
     const char *now = pos < deque_size(q) ? P(deque_at(q, pos), REC_PATH) : 0;
-    /* a path sm.playing can't hold is no use to the app cut, and tk_snprintf's count would pass line */
+    /* a path sm.playing can't hold is no use to the app cut, and tk_snprintf's count would pass
+     * line's end */
     if (now && strlen(now) < sizeof sm.playing && strcmp(now, sm.playing)) {
         char line[sizeof sm.playing + 1];
         int n = tk_snprintf(line, sizeof line, "%s\n", now);

@@ -7,8 +7,8 @@
 #ifndef PEQ_HOST
 #include "stock.h"
 #endif
-#include "playback.h"
 #include "library_scope.h"
+#include "playback.h"
 
 /* On the card, beside stock's own cover cache (/mnt/mmc/.sldp). */
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
@@ -2439,9 +2439,9 @@ void home_sharpen(unsigned *t, int n, int step) { /* test/coverflow.py */
 /* The cover at url, box filtered once to its fit zoomed DRIFT_ZOOM_PCT (home.tex, tw x th) and
  * composited over the page as Coverflow's decode does, for the pan to draw from. It pans across
  * the zoom's margin only (rx ry), from the old crop (u0 v0), so its edges never show. 1 when it
- * pans, -1 when nothing loads, 0 for a 16-bit decode or a cover too long for DRIFT_TEXELS, which the
- * stock fill shows still. home.tex holds it inside a border of its edges, a texel left and above
- * and two right and below (tw + 3 texels a row): home_render reads that far past the panel.
+ * pans, -1 when nothing loads, 0 for a 16-bit decode or a cover too long for DRIFT_TEXELS, which
+ * the stock fill shows still. home.tex holds it inside a border of its edges, a texel left and
+ * above and two right and below (tw + 3 texels a row): home_render reads that far past the panel.
  * ponytail: only the playing track's cover, no iPod slideshow of library covers or crossfades;
  * library thumbnails are too small for the panel, so each change would decode a full cover. Light
  * Mode's paper behind a transparent cover changes with the next cover. */
