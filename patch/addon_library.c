@@ -37,6 +37,7 @@ static struct {
      * 'e' an add whose name a playlist has (left alone: an exists line). */
     char *list;
     int state, scan; /* state: L_IDLE, L_WAIT (to scan), L_SCAN (scanning), L_IMPORT */
+    int seen;        /* L_SCAN: its scan seen running (scan_seen) */
     unsigned polled; /* library_poll's last pass */
     /* Each app's last seq taken, by id: as many as addon.c's slots, which it never frees either. */
     struct {
@@ -48,6 +49,12 @@ enum { L_IDLE, L_WAIT, L_SCAN, L_IMPORT };
 /* A scan running, or the user's own Update Local Music page open, whose OK starts one. */
 static int scanning(void) {
     return library_scanning() || navigator_window_is_exist("updatemusic_page");
+}
+
+/* The scan a request opened, seen: its thread running, or its dialog (dialog/updatemusic_dialog,
+ * which starts the thread) still open. */
+static int scan_seen(void) {
+    return library_scanning() || navigator_window_is_exist("updatemusic_dialog");
 }
 
 /* "<seq> ok" (why 0) or "<seq> error <why>", then "exists <path>" for each add left alone, built
@@ -241,15 +248,25 @@ static void library_step(void) {
     for (int k = 0; libup.state == L_IDLE && (id = addon_id(k)); ++k) library_take(id);
     if (libup.state == L_WAIT) {
         if (library_busy()) return;
-        libup.state = L_SCAN; /* first: the dialog may run a loop of its own, which polls again */
+        /* first: the dialog runs a loop of its own, whose polls look for the scan (library_poll) */
+        libup.state = L_SCAN, libup.seen = 0;
         int ctx[4] = { 0 };
         navigator_to_with_context("dialog/updatemusic_dialog", ctx);
+        libup.seen |= scan_seen();
         return;
     }
     if (libup.state == L_SCAN) {
-        /* ponytail: a scan cancelled with the dialog's Back still reports ok (stock keeps no
-         * cancel flag). */
-        if (scanning()) return;
+        /* Over once the scan was seen and is gone; one never seen (its dialog didn't open) is an
+         * error, never an ok without a scan. ponytail: a scan cancelled with the dialog's Back
+         * still reports ok (stock keeps no cancel flag). */
+        if (scan_seen()) {
+            libup.seen = 1;
+            return;
+        }
+        if (!libup.seen) {
+            library_done("Couldn't start the scan");
+            return;
+        }
         if (!libup.list[0]) {
             library_done(0);
             return;
@@ -277,11 +294,15 @@ static void library_step(void) {
 }
 
 /* addon_poll's, once a pass, every LIB_POLL_MS. A stock dialog it opens (Update Local Music, a
- * toast) runs a loop of its own, which polls again: that nested poll does nothing, so no request
- * runs twice. */
+ * toast) runs a loop of its own, which polls again: that nested poll runs nothing, so no request
+ * runs twice; it only notes the scan it sees (the scan dialog's call returns once it is over). */
 void library_poll(void) {
+    if (libup.busy) {
+        if (libup.state == L_SCAN && scan_seen()) libup.seen = 1;
+        return;
+    }
     unsigned now = time_now_ms();
-    if (libup.busy || now - libup.polled < LIB_POLL_MS) return;
+    if (now - libup.polled < LIB_POLL_MS) return;
     libup.polled = now;
     libup.busy = 1;
     library_step();

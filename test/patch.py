@@ -3135,7 +3135,7 @@ class QueueMachine(Machine):
     def __init__(self,page='allmusic_page',rows=20,queue=3,pos=0,mode=0,cls=0xf001):
         super().__init__()
         self.deqs={}; self.toasts=[]; self.sent=[]; self.picks=[]; self.airplay=0
-        self.imports=[]; self.import_ret=1; self.m3u_files=[]; self.uncreated=set(); self.on_toast=None
+        self.imports=[]; self.import_ret=1; self.m3u_files=[]; self.uncreated=set(); self.on_toast=None; self.on_open=None
         for n in ('_create_deque','deque_init','deque_init_copy','deque_size','deque_at','_deque_push_back',
                   'deque_assign','deque_clear','deque_destroy','deque_pop_back','send@GLIBC_2.0','window_manager_get_input_device_status',
                   'navigator_to','navigator_to_with_context','window_close','widget_on','widget_destroy_children',
@@ -4963,7 +4963,9 @@ class CoverflowMachine(QueueMachine):
             elif self.text(a)=='dialog/msginfo_dialog':
                 self.toasts.append((self.text(a),self.get(b),self.get(b+4),self.text(b+8)))
                 if self.on_toast: self.on_toast()  # what a nested poll under the toast's own loop would see
-            else: self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
+            else:
+                self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
+                if self.on_open: self.on_open(self.text(a))
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
         elif name=='fopen': ret=0  # no saved album: remember() keeps the first
         elif name=='toolsQueryDbTable':
@@ -11177,6 +11179,9 @@ m.word(O['SCAN_DONE'],1); m.open_pages={'playlist_page'}; m.poll(); assert not m
 m.open_pages=set(); m.poll(); assert m.imports==[f'{EXP}/Navidrome - Mix.m3u\n'] and m.files[DONE]==b'7 ok\n',(m.imports,m.files.get(DONE))
 assert m.loads==[(0xf00b,0)],m.loads  # Playlists' list loaded first: stock's replace looks a name up there alone
 assert m.get(payload_syms['libup'])==0; m.poll(); assert len(m.imports)==1; passed()
+def scan_starts(page):  # from here on the scan dialog's open starts its thread; a test ends it (SCAN_DONE)
+    if page=='dialog/updatemusic_dialog': m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
+m.on_open=scan_starts
 # Import alone: no scan, the player left as it is (paused); it too waits while one plays.
 m.word(0xa3beac,2); n=len(m.opened); m.files[LIB]=bytearray(f'8\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
 assert len(m.imports)==1; m.word(0xa3beac,3); m.poll()
@@ -11199,7 +11204,7 @@ m.word(O['SCAN_DONE'],1); m.open_pages={'updatemusic_page'}; m.poll(); assert le
 m.open_pages={'album_page'}; m.poll(); assert len(m.imports)==k
 m.open_pages=set(); m.poll(); assert len(m.imports)==k+1 and m.files[DONE]==b'16 ok\n',m.files[DONE]
 m.open_pages={'updatemusic_page'}; m.files[LIB]=bytearray(b'17\nscan\n'); m.poll(); assert len(m.opened)==n
-m.open_pages=set(); m.poll(); assert len(m.opened)==n+1; m.poll(); assert m.files[DONE]==b'17 ok\n'; passed()
+m.open_pages=set(); m.poll(); assert len(m.opened)==n+1; m.word(O['SCAN_DONE'],1); m.poll(); assert m.files[DONE]==b'17 ok\n'; passed()
 # One check (library_busy) holds the scan and the import alike: a dialog on top (a toast's or a confirm's own
 # loop polls too, and no request starts inside it), a page listing the library (stock's, whose lists the import
 # reloads, and Q2 Pod's own, whose records the scan's database rebuild leaves stale), or something playing from
@@ -11219,7 +11224,7 @@ for c in ('dialog','album_page','playlist_page','playlistedit_page','coverflow_p
     for body in ('scan\n',f'import {EXP}/Navidrome - Mix.m3u\n'):
         seq+=1; k,n=len(m.imports),len(m.opened); busy(c,1); m.files[LIB]=bytearray(f'{seq}\n{body}'.encode()); m.poll(); m.poll()
         assert (len(m.imports),len(m.opened))==(k,n) and not m.files[DONE].startswith(f'{seq} '.encode()),(c,body,m.files[DONE])
-        busy(c,0); m.poll(); m.poll()
+        busy(c,0); m.poll(); m.word(O['SCAN_DONE'],1); m.poll()
         assert m.files[DONE]==f'{seq} ok\n'.encode() and (len(m.imports),len(m.opened))==((k,n+1) if body=='scan\n' else (k+1,n)),(c,body,m.files[DONE])
 passed()
 # A seq alone asks for nothing: ok at once, no import and no toast. A playlist's .M3U in capitals imports.
@@ -11276,7 +11281,7 @@ assert m.files[DONE]==b'302 ok\n' and imported()==['Mine.m3u'],m.files[DONE]; pa
 # A mixed request: the scan, then the import's files (an import, an add whose name is new) in one import, the
 # add whose name a playlist has left alone and reported; the toast as for any import.
 playlists('Mine','Mix'); n,k=len(m.opened),len(m.imports)
-m.files[LIB]=bytearray(f'303\nscan\nimport {EXP}/Mix.m3u\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll(); m.poll(); m.poll()
+m.files[LIB]=bytearray(f'303\nscan\nimport {EXP}/Mix.m3u\nadd {EXP}/New.m3u\nadd {EXP}/Mine.m3u\n'.encode()); m.poll(); m.word(O['SCAN_DONE'],1); m.poll(); m.poll()
 assert len(m.opened)==n+1 and len(m.imports)==k+1 and imported()==['New.m3u','Mix.m3u'] and m.toasts[-1][3]=='Playlists updated'
 assert m.files[DONE]==f'303 ok\nexists {EXP}/Mine.m3u\n'.encode(),m.files[DONE]; passed()
 # The exists lines follow an error too: a file the import couldn't create.
@@ -11356,6 +11361,14 @@ assert m.files[DONE]==f'504 error Name too long: {"n"*64}\n'.encode() and len(sc
 m.files[LIB]=bytearray(f'505\nadd {EXP}/{"音"*22}.m3u\n'.encode()); m.poll(); assert m.files[DONE]==f'505 error Name too long: {"音"*22}\n'.encode()
 m.files[LIB]=bytearray(f'506\nimport {EXP}/{"n"*63}.m3u\nadd {EXP}/{"音"*21}.m3u\n'.encode()); m.poll()
 assert m.files[DONE]==b'506 ok\n' and m.imports[k:]==[f'{EXP}/{"n"*63}.m3u\n{EXP}/{"音"*21}.m3u\n'],(m.files[DONE],m.imports[k:]); passed()
+# A scan's request ends only once its scan was seen, its thread running or its dialog open (right after the
+# dialog's call, which returns at once here; on a device the dialog's own loop polls while it runs): a dialog that
+# never opened, no scan seen, is "<seq> error Couldn't start the scan", not an ok without a scan.
+m=lib_machine(); m.files[LIB]=bytearray(b'507\nscan\n'); m.poll(); assert len(scans())==1 and DONE not in m.files
+m.poll(); assert m.files[DONE]==b"507 error Couldn't start the scan\n",m.files[DONE]
+m.on_open=lambda page: m.open_pages.add('updatemusic_dialog')  # stays open after the call: seen at once
+m.files[LIB]=bytearray(b'508\nscan\n'); m.poll(); m.poll(); assert m.files[DONE].startswith(b'507 ')
+m.open_pages.discard('updatemusic_dialog'); m.poll(); assert m.files[DONE]==b'508 ok\n',m.files[DONE]; m.on_open=None; passed()
 
 # About: FW. Version shows the stock firmware's version again, not the updater tag in demo's
 # literal, and a CFW. Version row follows it. Stock's own row builder (0x4bc274) builds Model and FW.
