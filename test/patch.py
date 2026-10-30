@@ -11250,6 +11250,11 @@ M3U=STR+'/race.m3u'; R1,R2=f'{STR}/r/01 - Early [40].opus',f'{STR}/r/02 - Late [
 m3u(R1,R2); m.files['/tmp/q2-deezer.play']=bytearray(f'3100 {M3U}\n'.encode()); m.poll(); m.advance(0)
 assert len(m.plays)==8 and m.play_names==['01 - Early [40].opus'],m.play_names
 m.listings[f'{STR}/r'].append(r2); m.poll(); assert m.names()==['01 - Early [40].opus','02 - Late [41].opus'],m.names(); passed()
+# A song playing whose path .playing can't hold (512 bytes or more, added to the queue by hand) leaves it as it was.
+m.word(O['MCL_POS'],0); m.poll(); assert m.files['/tmp/q2-deezer.playing']==f'{R1}\n'.encode()
+big=m.song('Big.flac'); m.word(big+O['REC_PATH'],m.string(f'{SYNC}/{"b"*600}.flac'))
+m.word(syms['mcl_pdeqplaylist'],m.deque([*m.items(m.get(syms['mcl_pdeqplaylist'])),big])); m.word(O['MCL_POS'],2); m.poll()
+assert m.files['/tmp/q2-deezer.playing']==f'{R1}\n'.encode(),bytes(m.files['/tmp/q2-deezer.playing'][:40]); passed()
 # An album's folder (Organize Files: Artist/Album/07 - Title [id].flac), its row's context "album":
 # its songs listed and played in track order, by name, whatever their dates.
 ALBUM=SONGS+'/Broadcast/Tender Buttons'
