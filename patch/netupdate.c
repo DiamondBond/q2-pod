@@ -730,7 +730,7 @@ static int sh_wait(const void *unused) {
     else if (job == JOB_REMOVE)
         snprintf(s, sizeof s, "%s removed", apps[i].name), toast(s);
     else if (job == JOB_ERASE)
-        toast("Spotify's login and cache erased"), stream_erased();
+        stream_erased(), toast("Spotify's login and cache erased"); /* rows first: toast blocks */
     return 0;
 }
 

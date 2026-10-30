@@ -230,6 +230,14 @@ static void library_take(const char *id) {
         return;
     }
     if (!strcmp(seq, last)) return; /* the one taken last is done already */
+    /* answered before demo restarted (Rockbox from Home): /tmp outlives taken[] */
+    char old[64];
+    unsigned k = strlen(seq);
+    state_read(libup.done, old, sizeof old);
+    if (tk_str_start_with(old + 1, seq) && old[1 + k] == ' ') {
+        tk_snprintf(last, sizeof libup.seq, "%s", seq);
+        return;
+    }
     if (!libup.list && !(libup.list = calloc(1, LIB_MAX + LIB_ANSWER))) return; /* next poll */
     unsigned n = state_read(path, libup.list, LIB_MAX);
     char *body = line_end(libup.list + 1);

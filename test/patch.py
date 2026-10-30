@@ -340,7 +340,7 @@ class Machine:
             value=self.config.get(key,self.config_reads[-1][3])  # stock copies the default when the key is missing
             self.u.mem_write(d,value.encode()+b'\0'); ret=1 if key in self.config else -1
         elif name=='tk_str_end_with': ret=self.text(a).endswith(self.text(b))
-        elif name=='tk_str_start_with': ret=self.text(a).startswith(self.text(b))
+        elif name=='tk_str_start_with': ret=self.raw(a).startswith(self.raw(b))  # bytes, as C: a cut UTF-8 tail is no error
         elif name=='strtol@GLIBC_2.0': t=re.match(r'\s*[-+]?\d+',self.text(a)); ret=max(-2**31,min(2**31-1,int(t[0]))) if t else 0  # saturates, as a 32-bit long's does
         elif name=='strstr@GLIBC_2.0': i=self.text(a).find(self.text(b)); ret=a+i if i>=0 else 0
         elif name=='strcasestr@GLIBC_2.2': i=self.raw(a).lower().find(self.raw(b).lower()); ret=a+i if i>=0 else 0
@@ -11561,6 +11561,10 @@ passed()
 k,t=len(m.imports),len(m.toasts); m.files[LIB]=bytearray(b'200\n'); m.poll(); assert m.files[DONE]==b'200 ok\n' and len(m.imports)==k and len(m.toasts)==t
 m.files[f'{EXP}/Upper.M3U']=bytearray(b'#EXTM3U\n'); m.files[LIB]=bytearray(f'201\nimport {EXP}/Upper.M3U\n'.encode()); m.poll()
 assert m.files[DONE]==b'201 ok\n' and m.imports[-1]==f'{EXP}/Upper.M3U\n',(m.files[DONE],m.imports[-1:]); passed()
+# demo restarted (Rockbox from Home) keeps /tmp but not libup.taken: a seq .done already answers isn't run again.
+tk=payload_syms['libup']+100; assert m.text(tk)=='deezer',m.text(tk)  # taken[0].id, after 100 bytes of libup
+for o in range(0,40*8,4): m.word(tk+o,0)  # taken[APPS_MAX], each id[16] and seq[24]
+k=len(m.imports); m.poll(); assert len(m.imports)==k and m.files[DONE]==b'201 ok\n' and m.text(tk)=='deezer'; passed()
 # A playlist the import couldn't create (stock stops at a create that fails, a database error or the 100
 # playlists' cap, and returns as if done) is no ok: Playlists' list, reloaded, must hold each file's name.
 m.uncreated={'Navidrome - Mix'}; m.files[LIB]=bytearray(f'18\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()

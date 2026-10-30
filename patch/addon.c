@@ -339,7 +339,8 @@ static void *stream_queue(void) {
 static void stream_poll(app_t *a) {
     char path[48], raw[192];
     tk_snprintf(path, sizeof path, "/tmp/q2-%s.play", a->id);
-    if (!state_read(path, raw, sizeof raw)) return;
+    unsigned got = state_read(path, raw, sizeof raw);
+    if (!got) return;
     unsigned h = hash_bytes(FNV_SEED, (const unsigned char *)raw, strlen(raw));
     /* a new session: this app's .play changed. Another app's, left in /tmp while it runs, never
      * takes the queue back. */
@@ -355,9 +356,9 @@ static void stream_poll(app_t *a) {
         sm.m3u = k > 4 && !strcasecmp(sm.dir + k - 4, ".m3u");
         sm.next = sm.more = 0, sm.first[0] = sm.want[0] = 0;
         sm.loads = playback_loads;
-        /* a playlist on the card, or a hidden folder of it, as the app's own are; whole in sm.dir,
-         * as a cut path names another */
-        sm.state = dir && !dir[1 + k] && !dotdot(sm.dir) &&
+        /* a playlist on the card, or a hidden folder of it, as the app's own are; whole in raw and
+         * in sm.dir, as a cut path names another */
+        sm.state = got < sizeof raw - 2 && dir && !dir[1 + k] && !dotdot(sm.dir) &&
                            tk_str_start_with(sm.dir, sm.m3u ? CARD "/" : CARD "/.")
                        ? S_WAIT
                        : S_DONE;
