@@ -16,6 +16,7 @@
   - Card apps: when two apps have each streamed (Deezer and Subsonic, say), the one you started last keeps playing. Before, Now Playing could switch between them every half second.
   - Card apps: a progress row shows a bar in Q2 Pod's style, for an app's sync or download progress.
   - Card apps: an app can ask the Q2 to update the library and import its playlists after a sync. The Q2 waits until nothing is playing (AirPlay and Bluetooth audio included) and you're on Home, Streaming, the app's page, Now Playing or a settings page, shows the usual Update Local Music progress (which stops the player, so with a song paused it also waits for the screen to turn off), and replaces the app's own playlists instead of adding copies, while a playlist of yours with the same name is left alone. A playlist name can be up to 63 bytes long.
+  - Card apps: an app can have its long lists load in full, up to 500 rows, instead of stopping at 50 behind More…, so the wheel speeds up and shows the big letter through the whole list, as in the Library. Other apps, and lists that keep updating (such as downloads), still show More….
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.
