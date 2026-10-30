@@ -11155,9 +11155,9 @@ m.plays=[]; m.pick(0); assert [p[2:4] for p in m.plays]==[(1,0xf001)] and m.play
 m.close(); m.files[DZPID]=bytearray(b'7'); m.systems=[]; run(m,'addon_stop')
 assert 'kill $(cat /tmp/q2-deezer) 2>/dev/null || rm -f /tmp/q2-deezer' in m.systems,m.systems; passed()
 # Library update (addon_library.c library_poll): the app's /tmp/q2-<id>.library, "<seq>" then scan and import lines,
-# runs stock's Update Local Music (its dialog, which stops the player: not while one plays), then stock's
-# playlist import (which replaces a same-named playlist) for the listed files alone, once no Library list is
-# open under it; each seq once, its result in .library.done.
+# runs stock's Update Local Music (its dialog, which stops the player: not while one plays, nor while one is paused
+# with the screen on), then stock's playlist import (which replaces a same-named playlist) for the listed files
+# alone, once no Library list is open under it; each seq once, its result in .library.done.
 LIB,DONE,EXP='/tmp/q2-deezer.library','/tmp/q2-deezer.library.done','/mnt/mmc/_explaylist_data'
 def windows(m,*names):
     """The window manager's children: the status bar, Home, Streaming, the app's page, then names (open too)."""
@@ -11171,7 +11171,10 @@ m.loads=[]; m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: (m.loads.append((u.reg_rea
                          begin=(lc:=int(manifest['patch_symbols']['stock_localclass_trampoline'],16)),end=lc)
 m.files[LIB]=bytearray(f'7\nscan\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
 assert not [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'] and DONE not in m.files  # playing: waits
-m.word(0xa3beac,3); m.poll(); assert [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'][-1]==('dialog/updatemusic_dialog',0,0)
+m.word(0xa3beac,3); m.poll()  # paused, the screen on: waits, so the song keeps its place
+assert not [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'] and DONE not in m.files
+m.byte(syms['g_backlight_status'],0); m.poll(); m.byte(syms['g_backlight_status'],1)  # the screen off: it goes ahead
+assert [o for o in m.opened if o[0]=='dialog/updatemusic_dialog'][-1]==('dialog/updatemusic_dialog',0,0)
 m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0); windows(m,'updatemusic_page'); m.poll(); assert not m.imports
 m.word(O['SCAN_DONE'],1); windows(m,'playlist_page'); m.poll(); assert not m.imports  # its list is reloaded: waits
 windows(m); m.poll(); assert m.imports==[f'{EXP}/Navidrome - Mix.m3u\n'] and m.files[DONE]==b'7 ok\n',(m.imports,m.files.get(DONE))
@@ -11180,7 +11183,8 @@ assert m.get(payload_syms['libup'])==0; m.poll(); assert len(m.imports)==1; pass
 def scan_starts(page):  # from here on the scan dialog's open starts its thread; a test ends it (SCAN_DONE)
     if page=='dialog/updatemusic_dialog': m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
 m.on_open=scan_starts
-# Import alone: no scan, the player left as it is (paused); it too waits while one plays.
+# Import alone: no scan, the player left as it is (paused, the screen on, which holds a scan alone); it too waits
+# while one plays.
 m.word(0xa3beac,2); n=len(m.opened); m.files[LIB]=bytearray(f'8\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll()
 assert len(m.imports)==1; m.word(0xa3beac,3); m.poll()
 assert len(m.opened)==n and len(m.imports)==2 and m.files[DONE]==b'8 ok\n' and m.toasts[-1][3]=='Playlists updated',m.toasts[-1:]; passed()
@@ -11196,7 +11200,7 @@ m.files.pop('/tmp/mmc_add'); m.files[LIB]=bytearray(b'15\nscan\n'); m.poll(); as
 # Neither the import nor the scan starts while a scan runs or its dialog is open (the user's own Update Local
 # Music), so no import races the scan's database writes and no second dialog opens; nor the import under a
 # library page whose list it replaces, Home's Albums shortcut (album_page) as well.
-m.files['/tmp/mmc_add']=bytearray(); m.word(0xa3beac,3); m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)
+m.files['/tmp/mmc_add']=bytearray(); m.word(0xa3beac,1); m.word(O['SCAN_THREAD'],0x1234); m.word(O['SCAN_DONE'],0)  # stopped
 k,n=len(m.imports),len(m.opened); m.files[LIB]=bytearray(f'16\nimport {EXP}/Navidrome - Mix.m3u\n'.encode()); m.poll(); assert len(m.imports)==k
 m.word(O['SCAN_DONE'],1); windows(m,'updatemusic_page'); m.poll(); assert len(m.imports)==k  # its OK not pressed yet
 windows(m,'album_page'); m.poll(); assert len(m.imports)==k
@@ -11317,8 +11321,8 @@ m.write_cap,m.close_fails=None,0; m.word(O['SCAN_THREAD'],0); m.word(O['SCAN_DON
 # library_poll runs once each addon_poll pass for every app on the card, launched or not: an app that exits right
 # after its sync (no pid file for ADDON_START_MS: poll_one lets it go and polls it no more) still has its request run.
 def lib_machine():
-    """Deezer's page open, paused, a card in, Mix.m3u in the folder, stock's Playlists load mocked."""
-    m=DeezerMachine(); m.open(); m.files['/tmp/mmc_add']=bytearray(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,3)
+    """Deezer's page open, stopped, a card in, Mix.m3u in the folder, stock's Playlists load mocked."""
+    m=DeezerMachine(); m.open(); m.files['/tmp/mmc_add']=bytearray(); m.handlers.pop(syms['mclGetPlayStatus'],None); m.word(0xa3beac,1)
     lc=int(manifest['patch_symbols']['stock_localclass_trampoline'],16); m.u.hook_add(UC_HOOK_CODE,lambda u,a,s,x: m.returns(0),begin=lc,end=lc)
     m.files[f'{EXP}/Mix.m3u']=bytearray(b'#EXTM3U\n'); windows(m)
     return m

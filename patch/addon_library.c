@@ -253,7 +253,8 @@ static void library_step(void) {
     const char *id;
     for (int k = 0; libup.state == L_IDLE && (id = addon_id(k)); ++k) library_take(id);
     if (libup.state == L_WAIT) {
-        if (!library_safe()) return;
+        /* the scan's dialog stops the player: a song paused under a lit screen keeps its place */
+        if (!library_safe() || (mclGetPlayStatus() == 3 && g_backlight_status)) return;
         /* first: the dialog runs a loop of its own, whose polls look for the scan (library_poll) */
         libup.state = L_SCAN, libup.seen = 0;
         int ctx[4] = { 0 };
