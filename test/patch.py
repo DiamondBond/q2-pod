@@ -1281,8 +1281,7 @@ passed()
 for flag, value in GATES:
     m = long_machine(); m.page('folder_page'); m.byte(syms[flag], value)
     long_return(m)
-    # Stock itself blocks power-off, guide and test mode; iPod adds the shared restrictions
-    # checked by usable(), so every listed flag blocks in both builds.
+    # Stock itself blocks power-off, guide and test mode; usable()'s shared restrictions block the rest.
     assert not destinations(m), flag
 for light in (0, 1):
     for lock in (0, 1):
@@ -4639,9 +4638,7 @@ assert m.names(m.get(syms['p_deque_showlist']))==['Row 0'] and ('stock_localclas
 # Coverflow (docs/internals.md): the Home card, the runtime coverflow_page over a stock slide_menu,
 # the tracks query and handoff. The art thread itself runs on the host (test/coverflow.py).
 from ipod import HOME_TEXT_X, HOME_LIST_W, HOME_PAGE, HOME_ROW, HOME_ROWS, HOME_TOP, decode
-cards=decode((B/'ui'/HOME_PAGE).read_bytes())[3][1]  # list_view_home
-cards=cards[3][0]  # its scroll_view of rows
-cards=[c[2]['name'] for c in cards[3]]
+cards=[c[2]['name'] for c in decode((B/'ui'/HOME_PAGE).read_bytes())[3][1][3][0][3]]  # list_view_home's scroll_view's rows
 assert len(cards)==7 and cards[2]=='btn_coverflow', cards
 home_hook=HOOKS['home_page_init']
 assert struct.unpack_from('<I',demo,fileoff(demo,home_hook[0]))[0]==j(payload_syms['coverflow_home'])
@@ -6931,10 +6928,9 @@ assert all(n['type']=='hscroll_label' and n['loop']==1 and n['set_hscroll_label_
 # Wheel only: the covers' slide_menu takes no touch.
 m=CoverflowMachine(); m.open()
 assert m.nodes[m.slide].get('sensitive')==0; passed()
-# Text geometry. Both builds: album over artist under the covers' frame (CF_TEXT_Y), the album larger
-# and white, the artist grey, CF_EDGE from the sides and clear of the rounded glass. iPod keeps every
-# other label (the track list's title and rows, whose last visible row is lowest) CF_EDGE in too;
-# Stock keeps its track list layout.
+# Text geometry: album over artist under the covers' frame (CF_TEXT_Y), the album larger and white,
+# the artist grey, CF_EDGE from the sides and clear of the rounded glass, as is every other label
+# (the track list's title and rows, whose last visible row is lowest).
 from ipod import corner_inset
 def cf_geometry(m,w): return tuple(signed(m.get(w+O[k])) for k in ('W_X','W_Y','W_W','W_H'))
 def clear(x,top,w,px):  # a label's text band, in screen rows (the window starts at y 30)
@@ -10130,7 +10126,6 @@ m.forked=4343; m.row(2); np=m.top; assert m.nodes[np]['name']=='radionp_page' an
 m.advance(500); assert m.labels(np)==['Internet Radio','Three','','','Connecting…','']
 # The heart, at local Now Playing's place: Three is no favourite.
 heart=next(w for w in m.nodes[np]['children'] if m.nodes[w].get('image') in ('play_fav','play_unfav'))
-heart_x,heart_y=320,176
 heart_y=O['NP_ART_TOP']+O['SPOT_ART_PX']-50+O['NP_ICON_PAD']
 from ipod import NP_ICONS_END, NP_ICON
 heart_x=NP_ICONS_END-NP_ICON
@@ -11934,7 +11929,7 @@ for config,pct in (({},50),({'WHEELSENSITIVITY':'130'},130),({'WHEELSENSITIVITY'
     assert m.nodes[named(m,m.top,'scroll_view_display')]['children'][-1]==rows[-1],config  # the list's end
 passed()
 # Hold Return (Q2POD HOLDRETURN; compact_now_playing): Controls' row before Wheel QS and Wheel
-# sensitivity in both builds, Recent unless set; Centre or tap toggles and saves it.
+# sensitivity, Recent unless set; Centre or tap toggles and saves it.
 for config,text in (({},'Recent'),({'HOLDRETURN':'1'},'Home')):
     m,rows,texts,icons,click=settings_page('display','scroll_view_display',config,stock_rows=3,sub=3)
     assert texts()[-3]=='Hold Return: '+text and icons[-3]=='playset_folderjump'
@@ -12217,7 +12212,6 @@ class Full(PowerMachine):
 m=Full({'LOWPOWER':'1'}); m.byte(syms['g_backlight_status'],0); m.pass_(1); m.pass_(1)
 assert not any(p==CPU1 for p,_ in m.writes); passed()
 # Now Playing keeps stock's pace only while its visualizer repaints; idle, it idles like any page.
-# stock has no visualizer: np_animating() is 0 there
 class Live(PowerMachine):
     def hook(self,u,address,size,unused):
         if self.handlers.get(address)=='v:live':

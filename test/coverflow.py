@@ -197,8 +197,8 @@ void *widget_lookup(void *x, const char *n, int r) {
     return !x ? 0 : !strcmp(n, "img_coverflow") ? x : !strcmp(n, "img_homeart") ? home_art :
            !strcmp(n, "list_view_home") ? home_list : 0;
 }
-static int home_full, classic, light;
-int ipod_home(void) { return home_full; }
+static int home_mode, classic, light; /* home_mode: HOME, 0 Split, 1 Full, 2 Carousel */
+int ipod_home(void) { return home_mode; }
 int ipod_classic(void) { return classic; }
 int bold_label(void *w, int was) { return was; } /* the font only: no geometry */
 int ipod_light(void) { return light; }
@@ -781,7 +781,7 @@ static void touches(widget *s, widget *covers_view) {
 static void depth(void) {
     renderer();
     /* On the page: the slide_menu spans the frame, one album per CF_STRIDE px, with empty children
-       under the drawn covers; the captions sit under the frame in both builds. */
+       under the drawn covers; the captions sit under the frame. */
     frame_fail = 0;
     open_page();
     widget *s = slide();
@@ -1544,14 +1544,14 @@ int main(void) {
     for (int i = 0; i < 4; ++i) *(int *)(all[i]->raw + W_W) = 375;
     int dot_x = HOME_DOT_X + HOME_DOT + HOME_DOT_GAP;
     *(int *)(label->raw + W_X) = dot_x;
-    home_full = 1;
+    home_mode = 1;
     coverflow_home(win, 0);
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_FULL_ROW));
     assert(*(int *)(label->raw + W_W) == HOME_FULL_ROW - dot_x - HOME_LABEL_END && !W(home_art)->visible);
     before = loads;
     coverflow_home_art(win); /* hidden: nothing loads */
     assert(loads == before);
-    home_full = 0;
+    home_mode = 0;
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == HOME_SPLIT_W);
     assert(*(int *)(label->raw + W_W) == HOME_SPLIT_W - dot_x - HOME_SPLIT_LABEL_END && W(home_art)->visible);
@@ -1565,11 +1565,11 @@ int main(void) {
     coverflow_home_art(win);
     static const int classic_geo[4] = { 136, 0, 290, 290 };
     assert(loads == before + 4 && !strcmp(art, player) && !memcmp(geo, classic_geo, sizeof classic_geo));
-    home_full = 1;
+    home_mode = 1;
     coverflow_home_layout();
     for (int i = 0; i < 4; ++i) assert(*(int *)(all[i]->raw + W_W) == (i < 2 ? 375 : HOME_CLASSIC_ROW));
     assert(*(int *)(label->raw + W_W) == HOME_CLASSIC_ROW - HOME_CLASSIC_TEXT_X - HOME_CLASSIC_LABEL_END && !W(home_art)->visible);
-    classic = 0; home_full = 0;
+    classic = 0; home_mode = 0;
     coverflow_home_layout();
     assert(*(int *)(label->raw + W_X) == dot_x && !memcmp(geo, split, sizeof split) && loads == unloads);
     /* A cover that pans: the art's image is empty and fills the panel, the pan's frame drawn over it. */

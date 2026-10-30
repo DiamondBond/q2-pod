@@ -7687,7 +7687,7 @@ int ringnav_start_player(void) {
 /* systemset_about_page_init: stock's seven rows (0x4bc274), each a s_listitem_black list_item
  * holding a 335x70 s_btn_listitem button, a 166px s_scrlabel_white24l title at x 10 and a 149px
  * s_scrlabel_white20r value at x 176, both focus-only scrolling with ellipses. FW. Version (row 1)
- * reads demo's version literal, which carries the updater tag (tools/build.py VERSIONS), so it
+ * reads demo's version literal, which carries the updater tag (tools/build.py TAG), so it
  * shows the stock firmware's again; a CFW. Version row in the same widgets follows it. Its button
  * has no name, so stock's row click (atoi of the name, 0x4bc774) ignores it. */
 static void about_label(void *button, int x, int w, const char *style, const char *text) {

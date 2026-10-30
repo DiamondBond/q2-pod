@@ -1682,10 +1682,9 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
     check(chinese, 'No Chinese UI text found')
     assets = ['ui/'+rel for rel in patched_ui + sorted(chinese - set(patched_ui))] + ['strings/en_US.bin']
     assets += ['styles/'+rel for rel in AUDIT['styles']]
-    # settings icons pre-sized to the rows' SET_ICON, in place, so each keeps its inode metadata
-    assets += ['images/'+name for name in SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS]
-    assets += ['images/'+name for name in ART_PLACEHOLDERS]
-    assets += ['images/'+name for name in HOME_CARDS]
+    # images changed in place, so each keeps its inode metadata: settings icons pre-sized to the rows'
+    # SET_ICON, the art placeholders and Home: Carousel's cards
+    assets += ['images/'+name for name in [*SETTINGS_ICONS | QUIET_ICONS | STATUS_ICONS | ART_PLACEHOLDERS, *HOME_CARDS]]
     for rel in assets:
         kind, name = rel.split('/', 1)
         path = 'release/assets/default/raw/' + ('images/xx/'+name if kind == 'images' else rel)

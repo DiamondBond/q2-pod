@@ -13,10 +13,8 @@
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
 #define ART_SIZE 160
 #define LAST_ALBUM ART_DIR "/album" /* the centre album's key, so a reboot opens on it */
-#define CF_X CF_EDGE
+#define CF_X CF_EDGE /* the one text column, clear of the rounded glass */
 #define CF_W (375 - 2 * CF_EDGE)
-#define CF_ROW_X CF_X /* one text column throughout */
-#define CF_ROW_W CF_W
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
@@ -1118,11 +1116,11 @@ void *page_row_detail(void *view, int index, const char *caption, const char *de
     int h = detail ? 64 : 48;
     void *item = list_item_create(view, 0, index * h, 375, h);
     widget_use_style(item, "s_listitem_black");
-    void *label = text(item, CF_ROW_X, detail ? 4 : 0, CF_ROW_W, detail ? 32 : 48);
+    void *label = text(item, CF_X, detail ? 4 : 0, CF_W, detail ? 32 : 48);
     widget_use_style(label, "s_scrlabel_white20l");
     widget_set_text_utf8(label, caption);
     if (detail) {
-        label = text(item, CF_ROW_X, 36, CF_ROW_W, 24);
+        label = text(item, CF_X, 36, CF_W, 24);
         widget_use_style(label, "s_scrlabel_white20l");
         widget_set_prop_int(label, "style:normal:text_color", (int)0xffaaaaaau);
         widget_set_prop_int(label, "style:normal:font_size", 16);
@@ -1148,7 +1146,7 @@ void *page_row_detail_into(void *view, int index, const char *caption, const cha
                            int (*click)(void *, void *)) {
     void *item = page_row_detail(view, index, caption, detail, click);
     int h = detail ? 64 : 48;
-    if (detail && !*detail) widget_move_resize(widget_get_child(item, 0), CF_ROW_X, 0, CF_ROW_W, h);
+    if (detail && !*detail) widget_move_resize(widget_get_child(item, 0), CF_X, 0, CF_W, h);
     row_into(item, h);
     return item;
 }

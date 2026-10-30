@@ -217,16 +217,6 @@ def home_card(menu, at, row, text):
     menu[3].insert(at, card)
 
 
-def home_cards(root):
-    menu = [n for n in root[3] if n[0] == 'slide_menu']
-    check(len(menu) == 1, 'Unexpected home carousel')
-    cards = [n[2].get('name') for n in menu[0][3]]
-    check(cards[:2] == ['btn_playing', 'btn_localmusic'], 'Unexpected home cards')
-    home_card(menu[0], 2, 'coverflow', 'Coverflow')
-    home_card(menu[0], 4, 'rockbox', 'Rockbox')
-    menu[0][3][1][3][1][2].update(LIBRARY)
-
-
 # Home becomes a list of the stock cards' names, in stock order with Coverflow third,
 # Rockbox before Streaming and one Settings row for Playback and System settings.
 # home_page_init (0x523c84) looks up no widget: its widget_foreach visitor (0x5239b4) binds img_*
@@ -273,7 +263,10 @@ def ipod_home(root):
     check([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     check([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
-    home_cards(root)
+    menu = root[3][0]
+    home_card(menu, 2, 'coverflow', 'Coverflow')
+    home_card(menu, 4, 'rockbox', 'Rockbox')
+    menu[3][1][3][1][2].update(LIBRARY)
     # Home: Carousel's (coverflow_home_layout): the carousel and its arrows, over the lists, hidden and
     # taking no taps until chosen.
     for n in root[3]:
