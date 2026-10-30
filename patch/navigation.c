@@ -2090,8 +2090,9 @@ static void paint_selection(void *w, void *canvas) {
     if (own && own != top && slides(top)) {
         /* The page under a sliding one, painted into the animator's snapshot: draw the row it
          * holds. Loading, recall and settling read the top page's state, so none of it runs.
-         * A pending untouch is a Return by button, which shows the row of the page behind. */
-        if (!usable() || !load_rows(&g_menu, w)) return;
+         * A pending untouch is a Return by button, which shows the row of the page behind. Home's
+         * carousel shows its selected card, as below. */
+        if (!usable() || !load_rows(&g_menu, w) || g_menu.kind == 3) return;
         i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
         top = own;
         if (st.untouch_timer) shown = 1;

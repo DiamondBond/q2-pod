@@ -8727,6 +8727,13 @@ def home_carousel():
         assert m.handler(named(m,slide,'img_'+row),O['EVT_CLICK'])[0]==m.handler(named(m,m.top,'img_'+row),O['EVT_CLICK'])[0]
     assert m.nodes[named(m,slide,'label_rockbox')]['text']==m.nodes[named(m,m.top,'label_rockbox')]['text']=='Shuffle'
     m.calls=[]; m.call(O['KEY_RETURN']); m.call(O['KEY_RETURN']); assert not destinations(m); passed()
+    # A card centred (its SEL written), then a page sliding over Home: Home's snapshot shows the card
+    # alone, no list selection (dot, bar or chevron) on the carousel.
+    m=Machine(); w=m.page('home_page','slide_menu'); m.word(w+O['SLIDE_INDEX'],1)
+    assert m.confirm()==11 and m.selected(w)==1
+    m.word(w+O['W_PARENT'],m.top); m.word(m.top+O['W_PARENT'],m.wm)
+    m.page_list(3,name='display_page'); m.nodes[m.top]['anim_hint']=HINT
+    m.paint(w,gap=0); assert not m.drawn() and not m.icons; passed()
 home_carousel()
 for full in (0,1):
     home_settings(full); home_settings(full,1); home_back(full)
