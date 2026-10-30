@@ -6325,6 +6325,76 @@ if variant=='ipod':
     # stamp at its end.
     m=karaoke([],tags={'LYRICS':'[00:13.00] <00:13.00>Hi <00:13.50>there <00:14.00>\n[00:15.00]Next\n'}); m.load(); m.show(12)
     at13125(m); assert lit(m)==51*125//500; m.advance(625,clear=False); loop(m,ms=0); assert lit(m)==51+85*250//500; passed()
+    # Centred Now Playing (IPOD NPCENTRED): a tap on its lyrics page, a touch that lifts within TAP_PX (10) of where
+    # it came down, puts the lyrics full screen: stock's column (slide_view_view, 80 in, 225 wide) goes over the
+    # page's other widgets, black and the window's width, its slide_view down to the page dots, and the lines wrap
+    # at the new width (lyrics_fit: 20 characters a row here, 11 in the column), back on the playing line, centred
+    # in the taller view. A tap, Return, the slide_view taking a swipe (its abort), another page or another window
+    # once it is open bring the column back, in its place before the progress bar; not the full-screen art
+    # Enlarged Album Art opened, closing this pass. A swipe or a drag is no tap, no lyrics nothing to show.
+    class CentredMachine(KaraokeMachine):
+        def __init__(self,centred='1'):
+            CONFIG['NPCENTRED']=centred; super().__init__(); del CONFIG['NPCENTRED']; self.restack=True
+            for n in ('widget_layout','widget_index_of'): self.handlers[syms[n]]='c:'+n
+        def hook(self,u,address,size,unused):
+            name=self.handlers.get(address,'')
+            if not name.startswith('c:'): return super().hook(u,address,size,unused)
+            a=u.reg_read(REGS[0]); ret=0
+            if name=='c:widget_layout':  # the column's: the lyrics take its slide's size, 20 px short (tools/ipod.py),
+                assert a==self.col       # and the scroll view's relayout clamps their offset (to the top here)
+                self.word(self.lrc+O['W_W'],self.get(self.slide+O['W_W'])); self.word(self.lrc+O['W_H'],self.get(self.slide+O['W_H'])-20)
+                self.word(self.lrc+O['SCROLL_Y'],0)
+            else: ret=self.nodes[self.win]['children'].index(a)
+            self.returns(ret,clobber=True)
+        def show(self,playtime=0,lrc=None):  # stock's page: the title, the column (its slide_view and dots), the bar
+            self.playtime=playtime; self.lrc=self.node('scroll_view','scroll_lrc'); self.build()
+            self.lyric=self.node('view','view_lyric',[self.node('list_view','view_lrc',[self.lrc])])
+            self.slide=self.node('slide_view','slide_view',[self.lyric],value=1)
+            self.dots=self.node('slide_indicator','slide_indicator1'); self.word(self.dots+O['W_Y'],270)
+            self.col=self.node('view','slide_view_view',[self.slide,self.dots]); self.word(self.slide+O['W_PARENT'],self.col)
+            self.bar=self.node('slider','slider_play')
+            self.win=self.top=self.node('window','playing_page',[self.node('hscroll_label','scrlabel_title'),self.col,self.bar])
+            for w,box in ((self.win,(0,30,375,290)),(self.col,(80,0,225,290)),(self.slide,(0,0,225,198)),(self.lrc,(0,0,225,178))):
+                for k,v in zip(('W_X','W_Y','W_W','W_H'),box): self.word(w+O[k],v)
+            self.word(self.win+O['W_PARENT'],self.wm); self.stack=[self.win]
+            assert self.call(address=playing,args=(self.win,7,0,0),gap=0)==0
+            self.handlers[sleep_hook+12]='stock_sleep'; self.word(payload_syms['wheel_held'],1)
+        def touch(self,kind,x=150,y=100):  # a pointer event on the lyrics page
+            f,ctx=self.handler(self.lyric,O[kind]); ev=self.alloc(0x20)
+            for k,v in (('EVENT_TYPE',O[kind]),('EVENT_X',x),('EVENT_Y',y)): self.word(ev+O[k],v)
+            assert self.call(address=f,args=(ctx,ev,0,0),gap=0,clear=False)==0  # never STOP: the slide_view's grab
+        def tap(self,x=150,y=100,dx=0,dy=0):  # a finger down and up, a UI loop pass with each: no drag of the lines
+            self.touch('EVT_POINTER_DOWN',x,y); self.pressed=1; loop(self)
+            self.touch('EVT_POINTER_UP_BEFORE',x+dx,y+dy); self.pressed=0; loop(self)
+        def full(self):  # the column's place, x and width, its slide_view's size and background, the rows' width
+            return (self.nodes[self.win]['children'].index(self.col),self.get(self.col+O['W_X']),self.get(self.col+O['W_W']),
+                    self.get(self.slide+O['W_W']),self.get(self.slide+O['W_H']),self.nodes[self.col].get('style:normal:bg_color'),
+                    {self.get(r+O['W_W']) for r in self.nodes[self.lrc]['children']})
+    COLUMN,FULL=(1,80,225,225,198,'#00000000',{225}),(3,0,375,375,270,'#000000',{375})  # last: past the visualizer's Halo art too
+    def centred(lines=((5,'x'*15),(9,'Two two'),(12,'Three')),playtime=9,**kw):
+        m=CentredMachine(**kw); m.lines=list(lines); m.show(playtime); return m
+    def centre_of(m,i,view):  # the offset that centres line i's row in a view that high (C's division)
+        r=m.lyric_row(i); return m.get(r+O['W_Y'])+int((m.get(r+O['W_H'])-view)/2)
+    m=centred(); assert m.full()[1:3]==(80,225) and m.get(m.lyric_row(0)+O['W_H'])==2*38+SLOT-38  # two rows in the column
+    assert settle(m)[-1]==centre_of(m,1,178); loop(m,-56); m.word(payload_syms['wheel_held'],0); held=settle(m)[-1]  # the wheel holds them
+    m.tap(dx=8,dy=-8); assert m.full()==FULL,m.full()
+    assert m.get(m.lyric_row(0)+O['W_H'])==SLOT and settle(m)[-1]==centre_of(m,1,250)!=held; passed()  # one row; the playing line
+    m.tap(); assert m.full()==COLUMN and settle(m)[-1]==centre_of(m,1,178); passed()
+    for end in ('return','abort','page','window'):
+        m=centred(); m.tap(); assert m.full()==FULL,end
+        if end=='return': assert m.call(O['KEY_RETURN'],gap=50)==11  # Return stays on the page
+        elif end=='abort': m.touch('EVT_POINTER_ABORT')
+        elif end=='page': m.nodes[m.slide]['value']=2; loop(m)
+        else:
+            m.top=m.node('window','home_page'); m.animating=1; loop(m); assert m.full()==FULL  # still opening
+            m.animating=0; loop(m)
+        assert m.full()==COLUMN,end; passed()
+    m=centred(); m.tap(); m.handlers[big+12]='stock_bigcover'; art=m.node('window','bigcover_page'); m.stack.append(art)
+    assert m.call(address=big,args=(art,7,0,0),gap=0)==0; m.top=art; loop(m); assert m.top==m.win and m.full()==FULL; passed()
+    for dx,dy in ((70,0),(0,40),(11,0)):  # a swipe, a drag of the lines, past TAP_PX: the column untouched
+        m=centred(); m.tap(dx=dx,dy=dy); assert m.full()[:6]==COLUMN[:5]+(None,),(dx,dy,m.full()); passed()
+    m=centred(lines=()); m.tap(); assert m.full()[:6]==COLUMN[:5]+(None,),m.full(); passed()  # no lyrics
+    m=centred(centred='0'); assert not m.nodes[m.lyric].get('handlers'); passed()  # the iPod page's own
 # Download Album Lyrics (onlinematch.c ringnav_playermore): after stock's 8 ⋯ rows (its init mocked), one
 # more in stock's row widgets and 20 px label, under Download Cover & Lyrics (PLAYMORE_ROWS' kind 4), its
 # button unnamed so stock's row click (an atoi of the name) never sees it; only for a playing song on the

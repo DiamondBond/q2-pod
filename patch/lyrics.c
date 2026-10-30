@@ -395,14 +395,20 @@ int lyrics_rows(void *lrc) {
         }
         if (t) t->sum = sum;
     }
+    return lyrics_fit(lrc);
+}
+
+/* The page's rows laid out at lrc's width, again when it changes: the iPod page's span the
+ * screen, the centred (stock) page's its 225 px column, or the screen in full screen (navigation.c
+ * np_full). */
+int lyrics_fit(void *lrc) {
     if (!lyrics_on(lrc)) return 0; /* none, or out of memory: stock's rows stay */
-    /* the iPod page's rows span the screen, the centred (stock) page's its 225 px column */
     if (ly.w != I(lrc, W_W) - 2 * LYRIC_X) {
         ly.w = I(lrc, W_W) - 2 * LYRIC_X;
         for (unsigned i = 0; i < ly.tab->n; ++i) ly.tab->line[i].px = 0;
     }
     void *canvas = widget_get_canvas(lrc);
-    for (unsigned i = 0; i < n; ++i) {
+    for (unsigned i = 0; i < ly.rows; ++i) {
         void *row = widget_get_child(lrc, i);
         ly_line *l = &ly.tab->line[i];
         if (canvas && !l->px) ly_layout(canvas, l);

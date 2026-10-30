@@ -996,6 +996,7 @@ FUNCTIONS = {
  'config_playmode': ('int', 'int, int'),
  'toolsRandnum': ('int', 'int'),
  'widget_restack': ('int', 'void *, unsigned'),
+ 'widget_index_of': ('int', 'void *'),  # Centred Now Playing's column back in its place (navigation.c np_full)
  'toolsThumbSpecCover': ('int', 'const char *, const char *, int, int'),
  'toolsGetAlbumCover': ('int', 'const char *, const char *, int, int'),
  'toolsGetExternCover': ('int', 'const char *, const char *, int, int'),

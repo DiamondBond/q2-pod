@@ -431,6 +431,9 @@ typedef struct {
     void *np_win, *np_pos, *np_album, *np_slider, *np_remain, *np_elapsed, *np_cover, *np_title;
     int np_bold;             /* the title's font: 1 bold, 0 stock's, -1 not set yet */
     void *np_slide, *np_lrc; /* the art/lyrics/info pages and the lyric lines' scroll_view */
+    /* Centred Now Playing's full-screen lyrics (np_full) and where the last touch on them came
+     * down (np_lyric_touch) */
+    int np_full, np_tap_x, np_tap_y;
     /* The full-screen art's song name, its shade and its window, the fade's step and timer
      * (ringnav_bigcover) */
     void *bc[3];
@@ -3721,6 +3724,27 @@ static void keep_lit_poll(void) {
         reset_poweroptions_timer(1, 1, 1);
 }
 
+/* Centred Now Playing's full-screen lyrics (np_lyric_touch): the column (stock's slide_view_view,
+ * tools/ipod.py PLAYING_STOCK) goes over the page's other widgets, black and the window's width,
+ * its slide_view down to the page dots, and the lines wrap at the new width (lyrics_fit), back on
+ * the playing line; off, stock's place again, before the progress bar. */
+#define NP_COLUMN_X 80 /* stock's column: its x and width, and its slide_view's height */
+#define NP_COLUMN_W 225
+#define NP_COLUMN_SLIDE_H 198
+static void np_full(int on) {
+    void *col = P(st.np_slide, W_PARENT), *dots = widget_lookup(col, "slide_indicator1", 1);
+    st.np_full = on;
+    widget_restack(col, on ? widget_count_children(st.np_win) : widget_index_of(st.np_slider));
+    widget_set_prop_str(col, "style:normal:bg_color", on ? "#000000" : "#00000000");
+    widget_move_resize(col, on ? 0 : NP_COLUMN_X, I(col, W_Y), on ? I(st.np_win, W_W) : NP_COLUMN_W,
+                       I(col, W_H));
+    widget_resize(st.np_slide, I(col, W_W), on && dots ? I(dots, W_Y) : NP_COLUMN_SLIDE_H);
+    widget_layout(col);
+    if (lyrics_fit(st.np_lrc)) lyric_pad(st.np_lrc);
+    /* the follow takes them; the offset the layout left is no drag of the touch (lyric_poll) */
+    st.lyric_held = 0, st.lyric_drag_y = I(st.np_lrc, SCROLL_Y);
+}
+
 static void lyric_poll(void) {
     void *lrc = st.np_lrc, *wm = window_manager();
     unsigned song = lrc ? np_track() : st.lyric_song;
@@ -3729,8 +3753,15 @@ static void lyric_poll(void) {
         lyric_top(lrc);
     }
     int page = lrc && st.np_slide && widget_get_prop_int(st.np_slide, "value", 0) == 1;
-    int touch = lrc && window_manager_get_top_window(wm) == st.np_win &&
-                window_manager_get_pointer_pressed(wm);
+    void *top = window_manager_get_top_window(wm);
+    /* Full-screen lyrics end off their page or under another window once it is open; not under
+     * the full-screen art Enlarged Album Art's idle timer opened, which closes this pass
+     * (ringnav_bigcover), or while that closes. ponytail: any other window ends them, a toast or
+     * the volume included; exempt those by name if that annoys. */
+    if (st.np_full &&
+        (!page || (top != st.np_win && top != st.bc_drop && !window_manager_is_animating(wm))))
+        np_full(0);
+    int touch = lrc && top == st.np_win && window_manager_get_pointer_pressed(wm);
     int shown = page && lyrics_shown(),
         on = shown && widget_count_children(lrc) && mclGetLyricSize() > 0;
     if (!page) st.lyric_held = 0;
@@ -3897,7 +3928,7 @@ static int np_gone(void *win, void *event) {
         st.np_pos = st.np_album = st.np_remain = st.np_slider = st.np_elapsed = st.np_cover =
             st.np_slide = st.np_lrc = st.np_title = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
-        st.np_off = 0;
+        st.np_off = st.np_full = 0;
         stop_timer(&st.np_marquee);
         np_cancel();
         lyrics_gone(); /* the next page's rows may take its rows' place */
@@ -3933,9 +3964,30 @@ static void np_art_poll(void) {
     widget_invalidate_force(st.np_cover, (void *)0);
 }
 
+/* Centred Now Playing's lyrics page (ringnav_playing): a touch that lifts within TAP_PX of where it
+ * came down, so neither a swipe nor a drag of the lines, switches them to full screen and back
+ * (np_full), once there are lyrics to show. The slide_view taking the touch for a swipe (its
+ * abort) ends full screen at once, so the pages slide in their column. Returns 0: a STOP would
+ * keep the slide_view's grab (rate_fav_click). */
+#define TAP_PX 10 /* AWTK's drag threshold */
+static int np_lyric_touch(void *ctx, void *event) {
+    int type = I(event, EVENT_TYPE), x = I(event, EVENT_X), y = I(event, EVENT_Y);
+    if (type == EVT_POINTER_DOWN)
+        st.np_tap_x = x, st.np_tap_y = y;
+    else if (type == EVT_POINTER_ABORT) {
+        if (st.np_full) np_full(0);
+    } else if ((unsigned)(x - st.np_tap_x + TAP_PX) <= 2 * TAP_PX &&
+               (unsigned)(y - st.np_tap_y + TAP_PX) <= 2 * TAP_PX &&
+               (st.np_full || lyrics_on(st.np_lrc)))
+        np_full(!st.np_full);
+    return 0;
+}
+
 /* playing_page_init: stock builds the page and starts its 250 ms timer, then the iPod labels bind.
  */
 int ringnav_playing(void *win, void *ctx) {
+    if (st.np_full)
+        np_full(0); /* another Now Playing: the last one's lyrics back in their column */
     int result = stock_playing_trampoline(win, ctx);
     if (!win) return result;
     rate_bind(win);
@@ -3952,6 +4004,11 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
     lyric_init();                                    /* the rows stock's init built */
+    void *lyric = widget_lookup(win, "view_lyric", 1);
+    accent(); /* reads the settings: ringnav_ui_load's page */
+    static const unsigned touch[] = { EVT_POINTER_DOWN, EVT_POINTER_UP_BEFORE, EVT_POINTER_ABORT };
+    for (unsigned i = 0; lyric && st.np_centred && i < sizeof touch / sizeof *touch; ++i)
+        widget_on(lyric, touch[i], np_lyric_touch, (void *)0);
     st.np_hash = 0;
     const char *file;
     st.np_art = np_art(&file); /* stock's init loaded it */
@@ -10004,6 +10061,12 @@ int ringnav(void *ctx, void *event) {
     if (key == KEY_RETURN && st.scrub) { /* ends the scrub without leaving the page */
         np_cancel();
         if (window_manager_get_top_window(window_manager()) == st.np_win) return STOP;
+    }
+    /* Full-screen lyrics: Return goes back to the column first, as a tap does */
+    if (key == KEY_RETURN && st.np_full &&
+        window_manager_get_top_window(window_manager()) == st.np_win) {
+        np_full(0);
+        return STOP;
     }
     /* Home's Settings list goes back to Home's list (coverflow_home_back). */
     if (key == KEY_RETURN && coverflow_home_back(window_manager_get_top_window(window_manager())))

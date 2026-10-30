@@ -513,6 +513,15 @@ def playing_stock(data):
     lrc = named['scroll_lrc'][2]
     check(lrc['self_layout'].startswith('default(x=0,y=0,w=-10,'), 'Unexpected lyrics scroll view')
     lrc['self_layout'] = 'default(x=0,y=0,w=100%,h=100%)'
+    # Full-screen lyrics (navigation.c np_full, NP_COLUMN_*) take the column and its page from stock's place to the
+    # window's width: the lyrics end 20 px above the page's foot there too (178 of 198 px), and "No lyrics" stays
+    # centred.
+    view, msg = named['view_lrc'][2], named['label_lyricmsg']
+    check(named['slide_view_view'][1] == [80, 0, 225, 290] and named['slide_view'][1] == [0, 0, 225, 198] and
+          view['self_layout'] == 'default(x=0,y=0,w=100%,h=178)' and msg[1] == [0, 73, 225, 28] and
+          'self_layout' not in msg[2], 'Unexpected stock lyrics page')
+    view['self_layout'] = 'default(x=0,y=0,w=100%,h=-20)'
+    msg[2]['self_layout'] = 'default(x=0,y=73,w=100%,h=28)'
     # Stock's art meets the status bar: it starts 8 px below it, 8 px smaller so its bottom stays
     # put, with the play-state badge still centred on it.
     check(named['img_cover'][1] == [18, 0, 188, 188] and named['img_playstate'][1] == [52, 34, 120, 120],
