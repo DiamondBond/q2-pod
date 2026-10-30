@@ -4,7 +4,7 @@
   - Now Playing: the album art changes with the song again after you skip back and forth, on both the regular and Centred pages. It could stay on the previous song's cover.
   - Playlists: holding Play/Pause on a playlist row opens a menu to Play Next, Add to Queue or Shuffle its songs ([#136](https://github.com/DiamondBond/q2-pod/issues/136)). **More…** at its end opens the playlist's More page, which the hold opened before.
   - Streaming: **Erase Spotify Data** moved from the App Store to **Streaming → Configuration**, under Spotify Cache. Press it twice, as before, to delete Spotify's login and cache; Spotify Cache goes back to 2 GB.
-  - Now Playing: in Centred Now Playing, tap the lyrics to show them full screen, across the whole width, with the art, title, buttons and progress bar out of the way. Tap again or press Back to return. Swiping to another page, or anything opening over Now Playing, returns too.
+  - Now Playing: in Centred Now Playing, tap the lyrics to show them full screen, across the whole width, with the art, title, buttons and progress bar out of the way. Tap again or press Back to return; swiping to another page returns too.
 
 - **1.5.8**:
   - Now Playing: a long song title or artist waits 1.5 s at its start before it scrolls, as a long album name does, so you can read its beginning.

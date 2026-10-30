@@ -6380,17 +6380,16 @@ if variant=='ipod':
     m.tap(dx=8,dy=-8); assert m.full()==FULL,m.full()
     assert m.get(m.lyric_row(0)+O['W_H'])==SLOT and settle(m)[-1]==centre_of(m,1,250)!=held; passed()  # one row; the playing line
     m.tap(); assert m.full()==COLUMN and settle(m)[-1]==centre_of(m,1,178); passed()
-    for end in ('return','abort','page','window'):
+    for end in ('return','abort','page'):
         m=centred(); m.tap(); assert m.full()==FULL,end
         if end=='return': assert m.call(O['KEY_RETURN'],gap=50)==11  # Return stays on the page
         elif end=='abort': m.touch('EVT_POINTER_ABORT')
-        elif end=='page': m.nodes[m.slide]['value']=2; loop(m)
-        else:
-            m.top=m.node('window','home_page'); m.animating=1; loop(m); assert m.full()==FULL  # still opening
-            m.animating=0; loop(m)
+        else: m.nodes[m.slide]['value']=2; loop(m)
         assert m.full()==COLUMN,end; passed()
-    m=centred(); m.tap(); m.handlers[big+12]='stock_bigcover'; art=m.node('window','bigcover_page'); m.stack.append(art)
-    assert m.call(address=big,args=(art,7,0,0),gap=0)==0; m.top=art; loop(m); assert m.top==m.win and m.full()==FULL; passed()
+    # Another window over the page leaves them full screen; a swipe the slide_view took (its abort)
+    # that comes back to where it began is no tap at the lift.
+    m=centred(); m.tap(); m.top=m.node('window','home_page'); loop(m); m.top=m.win; loop(m); assert m.full()==FULL
+    m.touch('EVT_POINTER_DOWN'); m.touch('EVT_POINTER_ABORT'); m.touch('EVT_POINTER_UP_BEFORE'); assert m.full()==COLUMN; passed()
     for dx,dy in ((70,0),(0,40),(11,0)):  # a swipe, a drag of the lines, past TAP_PX: the column untouched
         m=centred(); m.tap(dx=dx,dy=dy); assert m.full()[:6]==COLUMN[:5]+(None,),(dx,dy,m.full()); passed()
     m=centred(lines=()); m.tap(); assert m.full()[:6]==COLUMN[:5]+(None,),m.full(); passed()  # no lyrics

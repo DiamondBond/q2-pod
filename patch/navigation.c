@@ -3753,15 +3753,9 @@ static void lyric_poll(void) {
         lyric_top(lrc);
     }
     int page = lrc && st.np_slide && widget_get_prop_int(st.np_slide, "value", 0) == 1;
-    void *top = window_manager_get_top_window(wm);
-    /* Full-screen lyrics end off their page or under another window once it is open; not under
-     * the full-screen art Enlarged Album Art's idle timer opened, which closes this pass
-     * (ringnav_bigcover), or while that closes. ponytail: any other window ends them, a toast or
-     * the volume included; exempt those by name if that annoys. */
-    if (st.np_full &&
-        (!page || (top != st.np_win && top != st.bc_drop && !window_manager_is_animating(wm))))
-        np_full(0);
-    int touch = lrc && top == st.np_win && window_manager_get_pointer_pressed(wm);
+    if (st.np_full && !page) np_full(0); /* full-screen lyrics end off their page */
+    int touch = lrc && window_manager_get_top_window(wm) == st.np_win &&
+                window_manager_get_pointer_pressed(wm);
     int shown = page && lyrics_shown(),
         on = shown && widget_count_children(lrc) && mclGetLyricSize() > 0;
     if (!page) st.lyric_held = 0;
@@ -3972,13 +3966,16 @@ static void np_art_poll(void) {
 #define TAP_PX 10 /* AWTK's drag threshold */
 static int np_lyric_touch(void *ctx, void *event) {
     int type = I(event, EVENT_TYPE), x = I(event, EVENT_X), y = I(event, EVENT_Y);
-    if (type == EVT_POINTER_DOWN)
+    int tap = (unsigned)(x - st.np_tap_x + TAP_PX) <= 2 * TAP_PX &&
+              (unsigned)(y - st.np_tap_y + TAP_PX) <= 2 * TAP_PX;
+    if (type == EVT_POINTER_DOWN) {
         st.np_tap_x = x, st.np_tap_y = y;
-    else if (type == EVT_POINTER_ABORT) {
+        return 0;
+    }
+    st.np_tap_x = 1 << 20; /* used or taken for a swipe: a later lift is no tap */
+    if (type == EVT_POINTER_ABORT) {
         if (st.np_full) np_full(0);
-    } else if ((unsigned)(x - st.np_tap_x + TAP_PX) <= 2 * TAP_PX &&
-               (unsigned)(y - st.np_tap_y + TAP_PX) <= 2 * TAP_PX &&
-               (st.np_full || lyrics_on(st.np_lrc)))
+    } else if (tap && (st.np_full || lyrics_on(st.np_lrc)))
         np_full(!st.np_full);
     return 0;
 }
@@ -4005,7 +4002,6 @@ int ringnav_playing(void *win, void *ctx) {
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
     lyric_init();                                    /* the rows stock's init built */
     void *lyric = widget_lookup(win, "view_lyric", 1);
-    accent(); /* reads the settings: ringnav_ui_load's page */
     static const unsigned touch[] = { EVT_POINTER_DOWN, EVT_POINTER_UP_BEFORE, EVT_POINTER_ABORT };
     for (unsigned i = 0; lyric && st.np_centred && i < sizeof touch / sizeof *touch; ++i)
         widget_on(lyric, touch[i], np_lyric_touch, (void *)0);

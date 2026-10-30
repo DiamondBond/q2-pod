@@ -515,7 +515,7 @@ def playing_stock(data):
     lrc['self_layout'] = 'default(x=0,y=0,w=100%,h=100%)'
     # Full-screen lyrics (navigation.c np_full, NP_COLUMN_*) take the column and its page from stock's place to the
     # window's width: the lyrics end 20 px above the page's foot there too (178 of 198 px), and "No lyrics" stays
-    # centred.
+    # centred across (at its stock y, so high in full screen).
     view, msg = named['view_lrc'][2], named['label_lyricmsg']
     check(named['slide_view_view'][1] == [80, 0, 225, 290] and named['slide_view'][1] == [0, 0, 225, 198] and
           view['self_layout'] == 'default(x=0,y=0,w=100%,h=178)' and msg[1] == [0, 73, 225, 28] and
