@@ -13,17 +13,10 @@
 #define ART_DIR PEQ_ROOT "/mnt/mmc/.coverflow"
 #define ART_SIZE 160
 #define LAST_ALBUM ART_DIR "/album" /* the centre album's key, so a reboot opens on it */
-#if IPOD /* iPod insets its text from the rounded glass (offsets.inc CF_*); Stock keeps its layout */
 #define CF_X CF_EDGE
 #define CF_W (375 - 2 * CF_EDGE)
 #define CF_ROW_X CF_X /* one text column throughout */
 #define CF_ROW_W CF_W
-#else
-#define CF_X 8
-#define CF_W 359
-#define CF_ROW_X 12
-#define CF_ROW_W 350
-#endif
 #define MIN_FREE_MB 16 /* no new cache files below this much free space on the card */
 #define ART_NEAR 3 /* real art only this many covers either side, like PictureFlow's cache */
 #define HOME_PLACEHOLDER "default_album_home" /* Classic Home's, at 290px (stock's: 110) */
@@ -1091,10 +1084,10 @@ void *page_title(void *body, const char *caption) {
 }
 
 /* The peq_ui.c page: a title bar (*title, unless 0) over n item_h rows in body, down to the page's
- * bottom (iPod: the last row's selection meets the screen's edge; Legacy: whole rows) or shrunk so
+ * bottom (the last row's selection meets the screen's edge) or shrunk so
  * the list's white background never shows below a short list. Shared with photos.c. */
 void *page_list(void *page, void *body, void **title, const char *caption, int n, int item_h) {
-    int h = widget_get_prop_int(page, "h", 290), rows = IPOD ? h - 48 : (h - 48) / item_h * item_h;
+    int h = widget_get_prop_int(page, "h", 290), rows = h - 48;
     if (n * item_h < rows) rows = n * item_h;
     widget_destroy_children(body);
     widget_set_visible(body, 1, 0);
@@ -1126,11 +1119,11 @@ void *page_row_detail(void *view, int index, const char *caption, const char *de
     void *item = list_item_create(view, 0, index * h, 375, h);
     widget_use_style(item, "s_listitem_black");
     void *label = text(item, CF_ROW_X, detail ? 4 : 0, CF_ROW_W, detail ? 32 : 48);
-    if (IPOD) widget_use_style(label, "s_scrlabel_white20l");
+    widget_use_style(label, "s_scrlabel_white20l");
     widget_set_text_utf8(label, caption);
     if (detail) {
         label = text(item, CF_ROW_X, 36, CF_ROW_W, 24);
-        if (IPOD) widget_use_style(label, "s_scrlabel_white20l");
+        widget_use_style(label, "s_scrlabel_white20l");
         widget_set_prop_int(label, "style:normal:text_color", (int)0xffaaaaaau);
         widget_set_prop_int(label, "style:normal:font_size", 16);
         widget_set_text_utf8(label, detail);
@@ -1358,7 +1351,7 @@ static void column(shelf_t *f, int col, const unsigned *tex, int h, int bright, 
 }
 
 /* The cover t (16.16, signed) turns from the visual position, under what is drawn. */
-static unsigned short cf_inset[ART_SIZE] __attribute__((section(".scratch"))); /* 1/256 texel, symmetric; zero in Legacy */
+static unsigned short cf_inset[ART_SIZE] __attribute__((section(".scratch"))); /* 1/256 texel, symmetric */
 
 static void draw_cover(shelf_t *f, int t, const unsigned *tex) {
     pose_t p;
@@ -1385,16 +1378,12 @@ static int slot(int frac, int k, int i) {
  * texture of the cover j - CF_REACH from the centre, or 0 to leave it out. Nearest first; nearer
  * covers and their reflections overlap farther ones. */
 void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ring[CF_RING]) {
-#if IPOD
     if (!cf_inset[0]) { /* once, including callers which render without opening the page */
         int r = ART_SIZE * NP_ART_RADIUS / 166;
         for (int k = 0; k < r; ++k)
             cf_inset[k] = cf_inset[ART_SIZE - 1 - k] = (unsigned short)(arc_out(r, k) * 16);
     }
-#endif
-#if IPOD
     cf_paper = ipod_light() ? LIGHT_PAPER * 0x010101u : 0;
-#endif
     shelf_t f;
     f.d = d, f.pitch = pitch;
     for (int x = 0; x < CF_VIEW_W; ++x) f.solid_top[x] = f.solid_bottom[x] = 0;
@@ -1406,12 +1395,10 @@ void coverflow_render(unsigned *d, int pitch, int frac, const unsigned *const ri
         }
     for (int y = 0; y < CF_VIEW_H; ++y) { /* over black; a count-down loop, which -Oz keeps tight */
         unsigned *p = d + y * pitch;
-#if IPOD
         if (cf_paper) { /* over Light Mode's paper, as the page's black flips to it */
             for (int x = 0; x < CF_VIEW_W; ++x) put(p + x, cf_paper, 256);
             continue;
         }
-#endif
         int x = CF_VIEW_W;
         do *p++ |= 0xff000000u;
         while (--x);
@@ -1463,11 +1450,7 @@ static int decode(const char *url, unsigned *out, int unload) {
     if (data) {
         const unsigned char *o = at[format];
         unsigned stride = bitmap_get_line_length(bitmap), side = w > h ? w : h, xoff[ART_SIZE];
-#if IPOD
         unsigned paper = ipod_light() ? LIGHT_PAPER : 0;
-#else
-        unsigned paper = 0;
-#endif
         for (unsigned x = 0; x < ART_SIZE; ++x) { /* ~0u: a bar; left of the image wraps to one */
             unsigned sx = x * side / ART_SIZE - (side - w) / 2;
             xoff[x] = sx < w ? sx * 4 : ~0u;
@@ -1504,9 +1487,7 @@ static void fx_placeholder(void) {
     unsigned *placeholder = fx.tex + CF_RING * CF_TEXELS;
     if (!decode(PLACEHOLDER, placeholder, 0)) /* a theme image: the manager keeps it */
         for (int i = 0; i < CF_TEXELS; ++i) placeholder[i] = 0xff3a3a3au;
-#if IPOD
     fx.light = ipod_light();
-#endif
 }
 /* A w x h RGBA8888 bitmap the renderers fill whole, so flagged opaque; 0 when out of memory. */
 static void *opaque_frame(int w, int h) {
@@ -1591,13 +1572,11 @@ void coverflow_paint(void *w, void *canvas) {
         !visual(w, n = (int)widget_count_children(w), &c, &frac))
         return;
     const unsigned *ring[CF_RING];
-#if IPOD
     if (fx.light != ipod_light()) {
         fx_placeholder();
         memset(fx.album, 0, sizeof fx.album); /* decoded art may have transparent corners too */
         fx.drawn = 0;
     }
-#endif
     fx_window(c, n, ring);
     if (coverflow_bounded(w)) /* no wrap: only the artist's real neighbours, never repeats */
         for (int j = 0; j < CF_RING; ++j)
@@ -1847,7 +1826,7 @@ static void covers(void) {
             widget_on(img, EVT_CLICK, pick, (void *)(long)i);
         }
         /* Album over artist under the frame, white and larger, then grey, clear of the rounded
-         * glass (docs/ipod.md#coverflow); the same in both builds. */
+         * glass (docs/ipod.md#coverflow). */
         cf.name = text(cf.covers, CF_EDGE, CF_TEXT_Y, 375 - 2 * CF_EDGE, CF_NAME_H);
         widget_set_prop_int(cf.name, "style:normal:font_size", CF_NAME_PX);
         cf.artist = text(cf.covers, CF_EDGE, CF_TEXT_Y + CF_NAME_H, 375 - 2 * CF_EDGE, CF_ARTIST_H);
@@ -2334,7 +2313,6 @@ const char *now_tag(void *r, int field) {
     return P(r, field);
 }
 
-#if IPOD
 #define HOME_PW (375 - HOME_SPLIT_W) /* Split's art panel, 290 high */
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
@@ -2698,14 +2676,12 @@ int coverflow_home_back(void *top) {
     home_swap(home.sets, home.list, -I(home.list, W_W));
     return 1;
 }
-#endif
 
 /* home_page_init: stock binds the name-matched img_* cards, then the Coverflow card binds here,
  * on its image as stock does, whatever stock returned. */
 int coverflow_home(void *win, void *ctx) {
     int result = stock_home_trampoline(win, ctx);
     widget_on(widget_lookup(win, "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
-#if IPOD
     widget_on(widget_lookup(win, "img_rockbox", 1), EVT_CLICK, home_shortcut_open, 0);
     widget_on(widget_lookup(win, "img_settings", 1), EVT_CLICK, home_settings, 0);
     home.win = win;
@@ -2724,6 +2700,5 @@ int coverflow_home(void *win, void *ctx) {
     widget_on(widget_lookup(home.carousel[0], "img_coverflow", 1), EVT_CLICK, coverflow_open, 0);
     widget_on(widget_lookup(home.carousel[0], "img_rockbox", 1), EVT_CLICK, home_shortcut_open, 0);
     coverflow_home_layout();
-#endif
     return result;
 }

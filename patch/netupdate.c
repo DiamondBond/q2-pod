@@ -297,11 +297,7 @@ void shelf_remove(int i) {
 #include "stock.h"
 
 #define NU_REPO "https://github.com/" Q2POD_REPO "/releases/latest" /* tools/build.py --update-repo */
-#if IPOD /* tools/release.py ASSETS */
 #define NU_ASSET "update.tar"
-#else
-#define NU_ASSET "update-legacy.tar"
-#endif
 #define NU_FILE "/mnt/mmc/update.tar"
 #define NU_CA "/etc/scrobble-ca.pem" /* scrobble.c's; github.com's and its asset host's roots */
 
@@ -707,8 +703,7 @@ static int sh_wait(const void *unused) {
     else if (job == JOB_INSTALL && r)
         toast(said[r]);
     else if (job == JOB_INSTALL && is(i, "rockbox"))
-        toast(IPOD ? "Rockbox is ready. Find it on Home"
-                   : "Rockbox is ready. It starts at power-on");
+        toast("Rockbox is ready. Find it on Home");
     else if (job == JOB_INSTALL && is(i, "themes"))
         toast("Rockbox Themes are ready in Rockbox's Theme Settings");
     else if (job == JOB_INSTALL)

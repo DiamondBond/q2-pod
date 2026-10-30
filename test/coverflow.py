@@ -563,7 +563,7 @@ static void renderer(void) {
     render(0, rest);
     for (int y = 0; y < 160; ++y)
         for (int x = 0; x < 160; ++x)
-            if (!IPOD || (x >= 12 && x < 148) || (y >= 12 && y < 148))
+            if ((x >= 12 && x < 148) || (y >= 12 && y < 148))
                 assert(px(CF_CX - 80 + x, CF_TOP + y) == art[y * 160 + x]);
     assert(px(CF_CX - 81, CF_TOP + 80) != art[80 * 160] && px(CF_CX, CF_TOP - 1) == 0xff000000u);
     /* Each neighbour's visible run on the horizon, sampled in its middle: its colour at its
@@ -585,14 +585,12 @@ static void renderer(void) {
     assert(!memcmp(without, frame, sizeof(frame))); /* the third out is not drawn at rest */
     /* Everything, reflections included, fits the frame with room to spare. */
     for (int x = 0; x < CF_VIEW_W; ++x) assert(!(px(x, 0) & 0xffffff) && !(px(x, CF_VIEW_H - 1) & 0xffffff));
-#if IPOD
     unsigned centre = px(CF_CX, CF_TOP + 80); /* Light Mode: the same covers over paper */
     light = 1;
     render(0, inner);
     assert(px(0, 0) == (0xff000000u | LIGHT_PAPER * 0x010101u) && px(CF_CX, CF_TOP + 80) == centre);
     light = 0;
     render(0, inner);
-#endif
     /* The reflection: CF_REFLECT rows under the cover, from CF_REFLECT_TOP of its brightness down
        to black, never brighter going down; nothing after it. */
     render(0, ring);
@@ -609,13 +607,13 @@ static void renderer(void) {
     const unsigned *alone[7] = { 0, 0, 0, flat[3], 0, 0, 0 };
     render(0, alone);
     assert(px(CF_CX, CF_TOP + 80) == colours[3]);
-    assert(px(CF_CX - 80, CF_TOP) == (IPOD ? 0xff000000u : colours[3]));
-    assert(px(CF_CX - 80, CF_TOP + 160) == (IPOD ? 0xff000000u : px(CF_CX, CF_TOP + 160)));
+    assert(px(CF_CX - 80, CF_TOP) == 0xff000000u);
+    assert(px(CF_CX - 80, CF_TOP + 160) == 0xff000000u);
     for (int frac = -ONE / 2; frac < ONE / 2; frac += ONE / 16 + 77) {
         render(frac, alone);
         for (int x = 0; x < CF_VIEW_W; ++x) {
             if (slot_of(px(x, CF_TOP + 80)) != 3) continue;
-            if (IPOD && x != CF_CX) continue; /* rounded edges leave a gap before their reflection */
+            if (x != CF_CX) continue; /* rounded edges leave a gap before their reflection */
             int body = 256, dipped = 0;
             for (int y = CF_TOP + 80; y < CF_VIEW_H; ++y) {
                 int v = ch(px(x, y), 0);
@@ -840,7 +838,6 @@ static void depth(void) {
     assert(covers_view->visible && !covers_view->numb && *(int *)(raw + SLIDE_INDEX) == 6);
     coverflow_paint(s, canvas);
     touches(s, covers_view);
-#if IPOD
     /* Auto Light Mode refreshes a stationary frame and its composited placeholder in RAM. */
     *(int *)(raw + SLIDE_INDEX) = 3;
     theme_placeholder = 1;
@@ -857,7 +854,6 @@ static void depth(void) {
         assert(locks == before && loads == decoded); /* no work on the next unchanged paint */
     }
     theme_placeholder = 0;
-#endif
     /* Refresh and close release the frame and every texture. */
     close_page();
     assert(frames == 0 && loads == unloads);
@@ -1437,8 +1433,7 @@ int main(void) {
     audiobooks();
     ffmpeg_art();
     player_cover();
-#if IPOD
-    /* iPod Home: the player's cover for its type, once the player has parsed the current track
+    /* Home: the player's cover for its type, once the player has parsed the current track
        (g_lastcover_url is its path), else the track album's Coverflow thumbnail, else the
        placeholder; reloaded only when the track or the usable cover changes, and only while Home
        is the painted top window. Both themes split the screen, the art itself in the right panel. */
@@ -1586,7 +1581,6 @@ int main(void) {
     coverflow_home_clip(home_art, canvas, 0);
     assert(draws == drew + 1);
 
-#endif
     embedded_first();
     return 0;
 }
@@ -1647,17 +1641,16 @@ def main():
         (tmp/'test.c').write_text(TEST)
         (tmp/'ffmpeg').write_text(FFMPEG_STUB)
         (tmp/'ffmpeg').chmod(0o755)
-        for ipod in (0, 1):  # a fresh card each run
-            binary = tmp/f'coverflow_test{ipod}'
-            subprocess.run(['cc', '-m32', '-pthread', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root{ipod}"', f'-DIPOD={ipod}',
-                            f'-DART_FFMPEG="{tmp}/ffmpeg"', '-D_GNU_SOURCE', '-O1', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-Wno-unused-function',
-                            '-I', str(ROOT/'patch'), '-include', str(tmp/'shim.h'), str(ROOT/'patch/coverflow.c'),
-                            str(tmp/'test.c'), '-o', str(binary)], check=True)
-            env = dict(os.environ)
-            if a.captures and ipod:  # capture the iPod reflection intensity
-                (tmp/'frames').mkdir()
-                env['CF_CAPTURES'] = str(tmp/'frames')
-            subprocess.run([str(binary)], check=True, env=env)
+        binary = tmp/'coverflow_test'
+        subprocess.run(['cc', '-m32', '-pthread', '-DPEQ_HOST', f'-DPEQ_ROOT="{tmp}/root"',
+                        f'-DART_FFMPEG="{tmp}/ffmpeg"', '-D_GNU_SOURCE', '-O1', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-Wno-unused-function',
+                        '-I', str(ROOT/'patch'), '-include', str(tmp/'shim.h'), str(ROOT/'patch/coverflow.c'),
+                        str(tmp/'test.c'), '-o', str(binary)], check=True)
+        env = dict(os.environ)
+        if a.captures:  # capture the reflection intensity
+            (tmp/'frames').mkdir()
+            env['CF_CAPTURES'] = str(tmp/'frames')
+        subprocess.run([str(binary)], check=True, env=env)
         if a.captures:
             a.captures.mkdir(parents=True, exist_ok=True)
             from ipod import inc, imagemagick
@@ -1669,7 +1662,7 @@ def main():
           ' depth renderer (exact centre, clipping, symmetry, reflection, continuity),'
           ' its texture window, centre click, small libraries and flat fallback passed;'
           ' Sort by artist, year, recently added, most played and random, kept across opens, passed; an artist\'s albums alone passed;'
-          ' iPod Home art sources, fit, clip, cache and Split/Full layout in both themes passed.')
+          ' Home art sources, fit, clip, cache and Split/Full layout in both themes passed.')
 
 
 if __name__ == '__main__':

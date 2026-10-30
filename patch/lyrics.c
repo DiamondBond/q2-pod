@@ -1,5 +1,5 @@
-/* Lyrics: the loader (stock's .lrc, else the track's tags, with milliseconds and word stamps), in
- * both builds, then iPod Now Playing's lyrics page (docs/ipod.md#lyrics,
+/* Lyrics: the loader (stock's .lrc, else the track's tags, with milliseconds and word stamps),
+ * then Now Playing's lyrics page (docs/ipod.md#lyrics,
  * docs/internals.md#word-timed-lyrics): large lines, the playing one in the middle, lit word by
  * word as it is sung. Stock's rows stay, one blank label a line as high as it, so its scroll view,
  * the wheel and the follow move them as before (navigation.c); each row's line is painted over it
@@ -200,10 +200,8 @@ int ringnav_lyric(void) {
             ret = 1;
         }
     }
-#if IPOD
     /* every load sends its synced lines, or none (the rows hold unsynced ones): never the last's */
     lyrics_publish(l, n > 0 && l[0].time != LRC_FAR ? n : 0, m);
-#endif
     if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
     if (f) taglib_file_free(f);
     free(file);
@@ -212,7 +210,6 @@ int ringnav_lyric(void) {
     return ret;
 }
 
-#if IPOD
 
 /* Every line LYRIC_PX, as large as reads well in the page's width, as many rows as it takes up to
  * LYRIC_ROWS (the rest cut; so many still fit the page), LY_PITCH apart; its row on the page is
@@ -610,4 +607,3 @@ void lyrics_paint(void *row, void *canvas) {
     canvas_set_clip_rect(canvas, base);
     stock_canvas_set_text_color(canvas, text);
 }
-#endif

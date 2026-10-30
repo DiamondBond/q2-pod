@@ -135,11 +135,9 @@ static void wheel_post(char *info, int key) {
     }
 }
 
-#if IPOD
 volatile int wheel_raw __attribute__((section(".scratch")));
 volatile int wheel_travel __attribute__((section(".scratch")));
 volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the wheel */
-#endif
 
 /* Quick Settings from the wheel: a swipe straight across it, as on a touchpad. The ring has no
  * middle, so the swipe is a touch at one edge and then, within QS_GAP_MS, one at the opposite edge
@@ -254,18 +252,14 @@ void wheel_sample(int *s, int ret, char *info) {
         if (wh_anchor) s[0] = wh_anchor;
         wh_anchor = 0;
         if (wh_guard != DARK_OPEN) wh_guard = 0;
-#if IPOD
         wheel_held = 0;
-#endif
         return;
     }
     if (!wh_anchor) {
         wh_anchor = wh_last = s[0];
         wh_acc = 0;
         qs_start(s[0]);
-#if IPOD
         wheel_held = 1;
-#endif
         return;
     }
     int d = s[0] - wh_last, units = wheel_units ? wheel_units : WHEEL_TICK_UNITS * WHEEL_FINE;
@@ -285,14 +279,12 @@ void wheel_sample(int *s, int ret, char *info) {
     }
     d *= WHEEL_FINE;
     wh_last = s[0];
-#if IPOD
     if (wheel_raw) { /* games.c's Vortex reads the travel itself; nothing is queued for a menu */
         __sync_fetch_and_add(&wheel_travel, d / WHEEL_FINE);
         wh_acc = 0;
         s[0] = wh_anchor;
         return;
     }
-#endif
     /* Sensitivity changed mid-turn (its own page takes the wheel): the carry keeps its share of a
      * tick, so it stays under the new travel and fires no burst. */
     if (units != wh_units) {

@@ -305,14 +305,10 @@ int video_start(const char *file, int radio); /* books.c */
 void *edit_create(void *item, const char *input_type, int y, int h);
 const char *output_device(char *vol);         /* books.c */
 void dac_take(void);                          /* books.c */
-#if IPOD
 int ipod_classic(void); /* navigation.c: Theme: Classic */
 int bold_label(void *w, int was); /* navigation.c: Classic's bold font for w's text, or stock's */
 int ipod_light(void);   /* navigation.c: Light Mode */
 #define np_bar_h() (ipod_classic() ? NP_BAR_CLASSIC : NP_BAR_MINIMAL)
-#else
-#define np_bar_h() SPOT_BAR_H
-#endif
 #define SPOT_GREY 0xffaaaaaau
 void radio_search(void);       /* radio.c */
 void toast(const char *text); /* navigation.c */

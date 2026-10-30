@@ -879,7 +879,7 @@ def ui_pass(m):
     m.fn('ringnav_sleep',0x1234)
 assert wheel([dark,ui_pass,(10,1)]+turn(10,D)+[(Y,0),lit,ui_pass,dark,(Y,1)]+turn(Y,U))[0]==[]  # wake without wheel travel re-arms
 checks+=1
-# UI wiring in both variants: stock-style choice menu, selected marker, touch and wheel slider.
+# UI wiring: stock-style choice menu, selected marker, touch and wheel slider.
 m=PlaybackMachine(); m.top=m.node('window','playing_page'); m.stack=[m.top]; m.word(m.top+O['W_PARENT'],m.wm)
 m.press(100); assert m.hold()==11
 assert m.labels()[-3:]==['Shuffle','Repeat','Group by: Album']
@@ -942,7 +942,7 @@ for nxt,pos,wrap,folder in ((1,6,0,'toolsLoadNextDir'),(0,0,6,'toolsLoadPrevDir'
             else: assert folder not in m.seen and ('mclSetPlayPos',wrap) in m.seen, m.seen
             checks+=1
 
-print(f'{checks} advanced playback/wheel MIPS checks passed ({variant})')
+print(f'{checks} advanced playback/wheel MIPS checks passed')
 
 # Elapsed checkpoints are fixed-size, atomic, and tied to both snapshot and position.
 m=PlaybackMachine(); m.options(0,5,0)

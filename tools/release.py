@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from build import ROOT, REPO, VERSION, VERSIONS, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
+from build import ROOT, REPO, VERSION, TAG, ZIP_SHA, DEMO_SHA, build, check, run, sha, source_sha256
 
 # Network Update (patch/netupdate.c) fetches releases/latest/download/<ASSET>, so the name can't
 # carry the version.
@@ -35,12 +35,12 @@ def notes():
 
 def release_body(out, record):
     """The version heading and its bullets plus the SHA-256 block used by previous releases."""
-    return '\n'.join([notes(), '', 'SHA-256:', f'- {ASSET} ({VERSIONS["ipod"]}): `{record["assets"][ASSET]}`']) + '\n'
+    return '\n'.join([notes(), '', 'SHA-256:', f'- {ASSET} ({TAG}): `{record["assets"][ASSET]}`']) + '\n'
 
 
 def validate(directory):
     m = json.loads((directory/'manifest.json').read_text())
-    check(m['variant'] == 'ipod' and m['version'] == VERSIONS['ipod'], 'Wrong build identity')
+    check(m['version'] == TAG, 'Wrong build identity')
     check(m['update_repo'] == REPO, f"Network Update fetches {m['update_repo']}'s releases, not {REPO}'s")
     check(m['input_zip_sha256'] == ZIP_SHA and m['stock_demo_sha256'] == DEMO_SHA, 'Wrong stock identity')
     # test/patch.py (below) checks the sources and the demo, stock-demo and patch.bin hashes.
@@ -50,7 +50,7 @@ def validate(directory):
         check(t.getnames() == ['firmware_v20.info', 'recovery-update', 'recovery-update/xImage',
                                'recovery-update/rootfs.squashfs'], 'Unexpected update members')
         info = t.extractfile('firmware_v20.info').read().decode().splitlines()
-        check(info[:2] == ['Shanling Q2', VERSIONS['ipod']] and len(info) == 4, 'Wrong update identity')
+        check(info[:2] == ['Shanling Q2', TAG] and len(info) == 4, 'Wrong update identity')
         for line, name, key in zip(info[2:], ['recovery-update/xImage', 'recovery-update/rootfs.squashfs'],
                                   ['kernel_sha256', 'rootfs_sha256']):
             data = t.extractfile(name).read()
@@ -71,7 +71,7 @@ def package(stock, out):
     source = source_sha256()
     revision = run('git', '-C', ROOT, 'rev-parse', 'HEAD').strip()
     for suffix in ('', '-repeat'):
-        build(stock, out/('build'+suffix), ROOT/'assets/boot-logo.jpg', ipod=True)
+        build(stock, out/('build'+suffix), ROOT/'assets/boot-logo.jpg')
     # The byte comparison below proves the repeat build; validate the first only.
     validate(out/'build')
     data = (out/'build/update.tar').read_bytes()

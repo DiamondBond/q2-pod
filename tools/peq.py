@@ -127,7 +127,7 @@ LIBC = {
     'write': ('int', 'int, const void *, unsigned'),
 }
 
-def compile_common(out, binary, player=False, ipod=False, flac_experiments=()):
+def compile_common(out, binary, player=False, flac_experiments=()):
     got = {}
     for line in run('readelf', '-AW', binary).splitlines():
         words = line.split()
@@ -184,7 +184,7 @@ def compile_common(out, binary, player=False, ipod=False, flac_experiments=()):
                 'mp3_filter_entry:', 'move $a2, $fp', 'j mp3_filter', 'nop']
     (out/'peq_platform.h').write_text('\n'.join(header)+'\n')
     (out/'peq_imports.S').write_text('\n'.join(asm)+'\n')
-    flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections', f'-DIPOD={int(ipod)}']
+    flags = [*FLAGS, '-fno-math-errno', '-ffunction-sections', '-fdata-sections']
     if player: flags += ['-mnan=2008']
     objects = []
     for name in (['peq.c', 'peq_player.c', 'mp3_gapless.c'] + [f'flac_{n}.c' for n in flac_experiments]) if player else ['peq.c', 'peq_ui.c', 'coverflow.c', 'library_scope.c', 'scrobble.c', 'photos.c', 'books.c', 'games.c', 'visualizer.c', 'playback.c', 'upnext.c', 'spotify.c', 'addon.c', 'radio.c', 'tidal.c', 'netupdate.c', 'onlinematch.c', 'crossfade.c', 'headset.c', 'lockscreen.c', 'chapters.c', 'lyrics.c']:

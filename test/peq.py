@@ -1055,7 +1055,7 @@ def eq3_captures(tmp, out, font):
     (tmp/'shim.h').write_text(SHIM_H)
     (tmp/'shim.c').write_text('#include "peq.h"\n' + SHIM)
     ui = compile_host(tmp, 'peq_ui_ipod.so', ROOT/'patch/peq_ui.c', ROOT/'patch/peq.c', tmp/'shim.c',
-                      '-I', ROOT/'patch', '-include', tmp/'shim.h', '-DIPOD=1')
+                      '-I', ROOT/'patch', '-include', tmp/'shim.h')
     ui.shim_e3_paint.restype = C.POINTER(C.c_uint32 * (290 * 375))
     ui.shim_text.restype = C.c_char_p
     (tmp/'root/mnt/data').mkdir(parents=True)
@@ -1773,7 +1773,7 @@ def player_check(tmp):
 
 def visualizer_check(tmp):
     """The visualizer's analysis (patch/visualizer.c vis_bands): a sine lands in its band at full scale."""
-    lib = compile_host(tmp, 'visualizer.so', ROOT/'patch/visualizer.c', ROOT/'patch/peq.c', '-DIPOD=1', '-I', ROOT/'patch')
+    lib = compile_host(tmp, 'visualizer.so', ROOT/'patch/visualizer.c', ROOT/'patch/peq.c', '-I', ROOT/'patch')
     rate, n, bands = 44100, 1024, 64
     def levels(pcm):
         out = (C.c_float * bands)()
@@ -1831,7 +1831,7 @@ void check_styles(void) {
     }
 }
 """)
-    checked = compile_host(tmp, 'visualizer_checks.so', harness, ROOT/'patch/peq.c', '-DIPOD=1', '-I', ROOT/'patch')
+    checked = compile_host(tmp, 'visualizer_checks.so', harness, ROOT/'patch/peq.c', '-I', ROOT/'patch')
     checked.check_styles()
     print('Visualizer: FFT bands, selected-style work, stereo scope/VU and pause decay passed.')
 

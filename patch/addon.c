@@ -6,9 +6,9 @@
  *   run      its launcher, which copies the app to /tmp and runs it there in a restart loop, so
  *            the card is never kept busy, leaving the loop's pid in /tmp/q2-<id>;
  *   q2-<id>  the app;
- *   icon.png, icon-40.png
- *            its Streaming row's icon, 52 px (Legacy's rows) and 40 px (iPod's, SET_ICON), each
- *            drawn 1:1; without them, the shared stream_app.
+ *   icon-40.png, icon.png
+ *            its Streaming row's icon, 40 px (SET_ICON), drawn 1:1, else 52 px, scaled to fit;
+ *            without them, the shared stream_app.
  * Streaming lists those on the card (navigation.c ringnav_stream). A row starts its app and opens
  * addon_page, a list the app draws over Q2SPOT/1 (docs/librespot.md) on /tmp/q2-<id>.browse.sock:
  * each row's kind says what a press does (a local row plays a song or folder from the card,
@@ -93,10 +93,8 @@ int addon_scan(void) {
         if (!a->tips[0]) tk_snprintf(a->tips, sizeof a->tips, "Search");
         a->qr = number(raw, "qr") == 1;
         a->present = !access(a->bin, 0);
-        /* the edition's size first, the other scaled to fit (navigation.c set_child), else
-         * stream_app */
-        static const char *const icons[2] = { IPOD ? "icon-40.png" : "icon.png",
-                                              IPOD ? "icon.png" : "icon-40.png" };
+        /* the row's size first, the other scaled to fit (navigation.c set_child), else stream_app */
+        static const char *const icons[2] = { "icon-40.png", "icon.png" };
         tk_snprintf(a->icon, sizeof a->icon, "stream_app");
         for (int i = 1; i >= 0; --i) {
             tk_snprintf(path, sizeof path, CARD "/%s/%s", e->d_name, icons[i]);

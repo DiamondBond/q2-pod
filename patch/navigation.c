@@ -15,16 +15,12 @@ extern void stock_timezone_row_trampoline(void *, int);
 static const char *const tz_names[] = TIMEZONE_NAMES;
 #define TZ_COUNT (sizeof tz_names / sizeof *tz_names)
 
-#if IPOD
 static void clock_zone(void);
-#endif
 int ringnav_timezone(void) {
     unsigned n = g_time_zone;
     int result = n < TZ_COUNT ? toolsSetTimeZone(tz_names[n]) : stock_timezone_trampoline();
     tzset(); /* localtime_r does not reload TZ itself */
-#if IPOD
     clock_zone();
-#endif
     return result;
 }
 
@@ -236,7 +232,7 @@ static int ple_key(unsigned key, int phase);
 #define CF_BOUNCE                                                                                  \
     5 /* an artist's last album: a step past kicks it 1/CF_BOUNCE of a stride, springing back */
 #define WHEEL_RUN_MS 140
-#define WHEEL_RAMP_MS 100 /* scrub, the pixel fallback and Stock: one step for this long, then */
+#define WHEEL_RAMP_MS 100 /* scrub and the pixel fallback: one step for this long, then */
 #define WHEEL_MAX_STEP 8  /* one more per this much spin, up to this many */
 #define LIST_FIRST_MS 300 /* iPod row lists: one row per step for this long, */
 #define LIST_RAMP_MS 200  /* then one row more per this much spin */
@@ -244,13 +240,6 @@ static int ple_key(unsigned key, int phase);
 #define SHORT_LIST_MAX 16
 #define MAX_ENTRIES 512
 #define POS_MEM 64
-/* RADIUS, FILL_RGB, FILL_ALPHA, SHADE_ALPHA, OUTLINE_RGB and OUTLINE_ALPHA come from offsets.inc;
- * the colors pack their bytes at compile time (little-endian r,g,b,a). The outline is translucent
- * neutral white, never the playing red, seated on a dark shade of the stock surface so bright
- * album art cannot wash it out. */
-#define FILL_COLOR ((FILL_ALPHA << 24) | FILL_RGB)
-#define SHADE_COLOR ((SHADE_ALPHA << 24) | FILL_RGB)
-#define OUTLINE_COLOR ((OUTLINE_ALPHA << 24) | OUTLINE_RGB)
 #define B(p, o) (*(unsigned char *)((char *)(p) + (o)))
 
 typedef struct {
@@ -410,7 +399,6 @@ typedef struct {
     void *pull_page, *pull_surface;
     int pull_x, pull_y, pull_claimed;
     unsigned pull_scope;
-#if IPOD
     void *sel_w; /* the surface whose selection was last drawn */
     int sel_row, sel_y;
     void *paint_w, *sel_widget; /* paint-local color mapping, never stored on recycled widgets */
@@ -483,7 +471,6 @@ typedef struct {
     void *setting_label[9];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
-#endif
     /* Queue menu: the hold's AWTK press time marks its release; the target is a track/list row
      * checked by count, record and browsing-state hashes; qm_cls is the class its list holds;
      * qm_forced is a shuffle Play next. */
@@ -510,7 +497,7 @@ typedef struct {
     unsigned art_n;
 } scratch_t;
 static scratch_t st __attribute__((section(".scratch")));
-static void rate_bind(void *win); /* ratings: both builds' Now Playing heart */
+static void rate_bind(void *win); /* ratings: Now Playing's heart */
 
 typedef struct {
     int x, y, w, h;
@@ -748,7 +735,6 @@ static int home_menu(void *top) {
     return top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "home_page");
 }
 
-#if IPOD
 /* A list row: a list_item or table_row. */
 static int is_row(void *w) {
     const char *t = w ? widget_get_type(w) : "";
@@ -769,9 +755,6 @@ static int slides(void *win) {
     const char *hint = win ? widget_get_prop_str(win, "anim_hint", (void *)0) : (void *)0;
     return hint && *hint;
 }
-#else
-#define slides(win) 0
-#endif
 
 /* The animator's destination is the intended icon, even before stock commits its index.
  * Keep this widget-owned: touch and page recreation cannot leave a dangling animator here. */
@@ -899,8 +882,6 @@ static int usb_prompt(void) {
 }
 
 static int allowed_top(void *top) {
-    if (!IPOD && top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "confirminfo_dialog"))
-        return usb_prompt();
     return top && context_id(widget_get_prop_str(top, "name", (void *)0)) >= 0;
 }
 
@@ -1500,7 +1481,7 @@ static int pull_event(void *page, void *event) {
     if (release) {
         pull_cancel(); /* clear before stock search can navigate or destroy anything */
         if (ready) {
-            if (!IPOD || !tk_strcmp(widget_get_prop_str(page, "name", ""), "radio_page"))
+            if (!tk_strcmp(widget_get_prop_str(page, "name", ""), "radio_page"))
                 radio_search();
             else
                 stock_search(page, event);
@@ -1532,9 +1513,9 @@ static void pull_begin(void *event) {
     if (!event || I(event, EVENT_Y) < QUICK_EDGE_PX) return;
     void *page = window_manager_get_top_window(window_manager());
     if (!page) return;
-    /* Local Songs' stock search is iPod's; Internet Radio's search is its own, in both. */
+    /* Local Songs' is stock's search; Internet Radio's is its own. */
     const char *name = widget_get_prop_str(page, "name", "");
-    if (tk_strcmp(name, "radio_page") && (!IPOD || tk_strcmp(name, "localmusic_page"))) return;
+    if (tk_strcmp(name, "radio_page") && tk_strcmp(name, "localmusic_page")) return;
     void *w = surface((void *)0, (void *)0);
     if (!w) return;
     prop(w, PULL_SUPPRESS, 0);
@@ -1585,7 +1566,6 @@ int rockbox_available(void) {
 /* 0xRRGGBB to an opaque color_t, whose bytes are r, g, b, a. */
 #define RGBA(c) (0xff000000u | ((c) & 255) << 16 | ((c) & 0xff00) | (c) >> 16)
 
-#if IPOD
 /* Light Mode (docs/ipod.md#light-mode): a neutral colour, its channels within LIGHT_SPREAD, flipped
  * per channel from black to LIGHT_PAPER and white to LIGHT_INK; any other hue, and the alpha byte,
  * as they are. Either byte order (color_t or 0xRRGGBB): the paper and ink are grey. */
@@ -1611,11 +1591,6 @@ static unsigned flip_if(int on, unsigned c) { return on ? flip(c) : c; }
  * the style and image hooks: flipped in Light Mode. A clear colour stays 0: stock tests for it
  * (Now Playing's slider draws no dragger under a #00000000 border). */
 unsigned ui_ink(unsigned c) { return ipod_light() && c >> 24 ? flip(c) : c; }
-#else
-unsigned ui_ink(unsigned c) { return c; }
-#endif
-
-#if IPOD
 
 /* The 0xRRGGBB j/n of the way from one color to another, per channel. Shared with visualizer.c. */
 unsigned mix(unsigned from, unsigned to, int j, int n) {
@@ -1839,7 +1814,6 @@ static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsi
         }
     }
 }
-#endif
 
 /* Narrow the canvas clip to the surface's viewport, keeping the old clip; false when none shows. */
 static int clip_surface(void *canvas, menu_t *m, rect_t *old) {
@@ -1912,7 +1886,6 @@ static void *more_image(void *w) {
     return (void *)0;
 }
 
-#if IPOD
 /* A widget in a DRILL window (contexts.inc). Its own window decides, not the top one, so a window
  * painted during a transition keeps its own rows. */
 static int drill(void *w) {
@@ -2026,9 +1999,7 @@ static void paint_cover(void *w, void *canvas) {
     }
     stock_canvas_set_fill_color(canvas, fill);
 }
-#endif
 
-#if IPOD
 /* Minimal's small capitals (Sudo's): s from x, y (the text's top) in the default font at px,
  * upper-cased (ASCII and Latin-1), SUDO_TRACK px apart, cut off at x + max; returns the whole
  * text's width, a trailing SUDO_TRACK included. The text color is restored, the font is not. */
@@ -2107,23 +2078,14 @@ static void paint_caps(void *w, void *canvas) {
     draw_spaced(canvas, widget_get_text(w), 0, (I(w, W_H) - HOME_CAPS_PX) / 2, HOME_CAPS_PX, color,
                 I(w, W_W));
 }
-#endif
 
-/* Load and settle the painted surface's selection, then draw it: a neutral outline over the rows
- * in Stock, an off-white bar behind them in iPod (a dot on Home), or Classic's full-width accent
- * bar. The outline is one neutral white line seated on a dark shade line: the shade is the stock
- * dark surface at an alpha high enough to hold the white over bright album art, and being the same
- * color as the dark rows it vanishes on the stock theme. The translucent fill keeps the row
- * readable over artwork without borrowing the red "playing" language or the native focus flag.
- * Small rows and degenerate geometry keep the square fallback. */
+/* Load and settle the painted surface's selection, then draw it behind the rows: Minimal's card
+ * (a dot on Home) or Classic's full-width accent bar. */
 static void paint_selection(void *w, void *canvas) {
-#if IPOD
     if (kind(w)) st.sel_w = st.sel_widget = st.sel_accent = (void *)0;
-#endif
     if (!w || !canvas || !kind(w)) return;
     void *top = window_manager_get_top_window(window_manager());
     int i, shown = !st.touch_mode;
-#if IPOD
     void *own = window_of(w);
     if (own && own != top && slides(top)) {
         /* The page under a sliding one, painted into the animator's snapshot: draw the row it
@@ -2133,9 +2095,7 @@ static void paint_selection(void *w, void *canvas) {
         i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
         top = own;
         if (st.untouch_timer) shown = 1;
-    } else
-#endif
-    {
+    } else {
         if (surface((void *)0, (void *)0) != w) return;
         if (!load(&g_menu, w, !window_manager_get_pointer_pressed(window_manager()))) {
             cancel_center();
@@ -2158,7 +2118,6 @@ static void paint_selection(void *w, void *canvas) {
     unsigned fill_color = (unsigned)I(lcd, LCD_FILL_COLOR);
     unsigned stroke_color = (unsigned)I(lcd, LCD_STROKE_COLOR);
     if (!clip_surface(canvas, &g_menu, &old)) return;
-#if IPOD
     /* A list row gets the full surface width; a grid tile keeps its own rect. */
     int tile = 2 * r.w < I(g_menu.w, W_W);
     if (!tile) {
@@ -2202,33 +2161,6 @@ static void paint_selection(void *w, void *canvas) {
     if (g_menu.kind == 4 &&
         r.w < I(g_menu.w, W_W)) /* a pop-up button's tile: framed white on any accent */
         frame_box(canvas, &r, 0xffffffff, SEL_RADIUS);
-#else
-    rect_t outer = { r.x + 1, r.y + 1, r.w - 2, r.h - 2 };
-    rect_t inner = { outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2 };
-    int drawn = 0;
-    /* Two concentric one-pixel rounded strokes, shade outside and white inside, not one
-     * border_width=2 call: the effect then does not depend on how a canvas backend
-     * interprets the width argument. Geometry is checked before the call, and radius 9/8
-     * both stay above the stock "square at <= 2" cutoff. The stock rounded stroke returns
-     * non-zero when its backend cannot draw (for example a canvas without a vgcanvas), and
-     * the safe square fallback then keeps the outline visible. */
-    if (outer.w > 2 * RADIUS && outer.h > 2 * RADIUS) {
-        unsigned fill = FILL_COLOR;
-        canvas_fill_rounded_rect(canvas, &outer, (void *)0, &fill, RADIUS);
-        unsigned shade = SHADE_COLOR;
-        unsigned white = OUTLINE_COLOR;
-        drawn = canvas_stroke_rounded_rect(canvas, &outer, (void *)0, &shade, RADIUS, 1) == 0;
-        if (drawn)
-            drawn =
-                canvas_stroke_rounded_rect(canvas, &inner, (void *)0, &white, RADIUS - 1, 1) == 0;
-    }
-    if (!drawn) {
-        canvas_set_stroke_color(canvas, SHADE_COLOR);
-        canvas_stroke_rect(canvas, outer.x, outer.y, outer.w, outer.h);
-        canvas_set_stroke_color(canvas, OUTLINE_COLOR);
-        canvas_stroke_rect(canvas, inner.x, inner.y, inner.w, inner.h);
-    }
-#endif
     /* Save/restore explicitly: this firmware's canvas_save/restore cover neither clip nor
      * either color, and the global alpha is deliberately never touched. */
     stock_canvas_set_fill_color(canvas, fill_color);
@@ -2238,7 +2170,6 @@ static void paint_selection(void *w, void *canvas) {
 
 static void edit_paint(void *w, void *canvas);
 
-#if IPOD
 /* Minimal's own accent: stock's white radio images (select, unselect: a 26 px ring, a 12 px dot
  * when checked) vanish on the selected row's off-white card, so they are drawn again over it in the
  * card's ink. So does the Wi-Fi, Bluetooth and Tidal rows' navbar_delete, drawn again as
@@ -2304,7 +2235,6 @@ static void paint_into(void *w, void *canvas) {
     canvas_draw_icon(canvas, bitmap, x, y);
     stock_canvas_set_fill_color(canvas, fill);
 }
-#endif
 
 /* Stock paints children first and calls this with the surface's canvas origin restored. */
 int ringnav_paint(void *w, void *canvas) {
@@ -2328,17 +2258,14 @@ int ringnav_paint(void *w, void *canvas) {
     spot_paint(w, canvas);
     addon_paint(w, canvas);
     peq_paint(w, canvas);
-#if IPOD
     visualizer_paint(w, canvas);
     games_paint(w, canvas);
-#endif
     /* Even a page with no navigable pane must end pending input when it is painted. */
     if (st.center_timer || st.home_surface) {
         void *wm = window_manager(), *top = window_manager_get_top_window(wm);
         if (!usable() || window_manager_is_animating(wm) || top != st.center_top) cancel_center();
         if (!carousel_page(top)) st.home_surface = (void *)0;
     }
-#if IPOD
     paint_chevrons(w, canvas);
     paint_radio(w, canvas);
     paint_into(w, canvas);
@@ -2348,9 +2275,6 @@ int ringnav_paint(void *w, void *canvas) {
     paint_caps(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
-#else
-    paint_selection(w, canvas);
-#endif
     return result;
 }
 
@@ -2370,8 +2294,7 @@ static void *list_button(void *view) {
 static void *list_row_core(void *view, const char *icon, int (*click)(void *, void *), void *ctx,
                            int w, int into) {
     /* Match the patched Library constructor's body and art_inset (tools/ipod.py). */
-    int compact =
-        IPOD && !tk_strcmp(widget_get_prop_str(view, "name", ""), "scroll_view_localmusic");
+    int compact = !tk_strcmp(widget_get_prop_str(view, "name", ""), "scroll_view_localmusic");
     int h = compact ? 68 : 70;
     void *button = list_button(view);
     if (compact) widget_resize(button, 335, h);
@@ -3138,20 +3061,16 @@ static void keep_selected(void *target) {
  * height back and clamps the offset; the next follow, tick or glide step pads it again. ponytail:
  * the wheel and a drag stop anywhere, so a row can be cut at the top until the page follows. iPod's
  * lyrics page (lyrics.c) ends with its last line in the middle. */
-#if IPOD
 /* The offset that centres row i of lrc in its view. */
 static int lyric_centre(void *lrc, int i) {
     void *row = widget_get_child(lrc, i);
     return I(row, W_Y) + (I(row, W_H) - I(lrc, W_H)) / 2;
 }
-#endif
 static void lyric_pad(void *lrc) {
-#if IPOD
     if (lyrics_on(lrc)) {
         I(lrc, VIEW_CONTENT_H) = lyric_centre(lrc, widget_count_children(lrc) - 1) + I(lrc, W_H);
         return;
     }
-#endif
     int h = I(lrc, W_H), end = I(lrc, VIEW_CONTENT_H) - h, top = 1 << 30;
     for (int i = widget_count_children(lrc); i-- > 0;) {
         int t = I(widget_get_child(lrc, i), W_Y);
@@ -3160,7 +3079,6 @@ static void lyric_pad(void *lrc) {
     if (end > 0 && top < 1 << 30) I(lrc, VIEW_CONTENT_H) = top + h;
 }
 
-#if IPOD
 static unsigned np_track(void);
 
 /* The lyrics page in front: Now Playing on top, lit, not sliding and untouched, on the lyrics. */
@@ -3196,7 +3114,6 @@ static void lyric_glide(void *lrc, int to) {
     if (!st.lyric_glide) st.lyric_at = (unsigned)time_now_ms();
     st.lyric_glide = 1;
 }
-#endif
 
 /* The Now Playing timer's follow (LYRIC_FOLLOW in tools/build.py): stock scrolls to the row three
  * lines above the current one, which past the end clamps to it. iPod: lyrics the wheel or a finger
@@ -3205,7 +3122,6 @@ static void lyric_glide(void *lrc, int to) {
  * line (lyric_follow). */
 int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     lyric_pad(lrc);
-#if IPOD
     if (lrc == st.np_lrc) {
         if (st.lyric_held || st.lyric_spun == 2 || lyrics_on(lrc) ||
             window_manager_get_pointer_pressed(window_manager()))
@@ -3216,7 +3132,6 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
         }
         st.lyric_glide = 0;
     }
-#endif
     return scroll_view_scroll_to(lrc, x, y, ms);
 }
 
@@ -3229,7 +3144,6 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
 int ringnav_lyric_rows(void *win) {
     void *lrc = widget_lookup(win, "scroll_lrc", 1);
     int y = lrc ? I(lrc, SCROLL_Y) : 0, ret = ((int (*)(void *))0x529f0c)(win);
-#if IPOD
     if (lrc && lrc == st.np_lrc && lyrics_rows(lrc)) lyric_pad(lrc);
     unsigned song = lrc && lrc == st.np_lrc ? np_track() : st.lyric_rows_song;
     if (song != st.lyric_rows_song) {
@@ -3237,7 +3151,6 @@ int ringnav_lyric_rows(void *win) {
         lyric_top(lrc);
         return ret;
     }
-#endif
     if (y) scroll_view_set_offset(lrc, I(lrc, SCROLL_X), y);
     return ret;
 }
@@ -3263,7 +3176,6 @@ static int seek_position(int to) {
     return 0;
 }
 
-#if IPOD
 /* The status bar's centred label follows stock's 24-hour setting (18:14 or 6:14 PM), without
  * seconds, or --:-- when the time cannot be read. clock_show reads the time once a minute, from a
  * timer due at the next minute, writes the label when the minute shown changes and applies Auto
@@ -4275,7 +4187,6 @@ static void album_tile(void *w) {
     if (!tk_strcmp(name, "album_page") || !tk_strcmp(name, "artistinfo_page")) album_children(w, 0);
 }
 
-#if IPOD
 /* Quick Settings' brightness slider fills as Now Playing's bar does (np_fill), set before its
  * paint; QFILL holds the fill it last got, so a new accent or Light Mode reaches it. */
 #define QFILL "_ringnav_fill"
@@ -4322,7 +4233,6 @@ static int press_repaint(const void *info) {
     if (top) widget_invalidate_force(top, (void *)0);
     return 0;
 }
-#endif
 
 /* A touched list row's grey is the selection's shape: the whole row, as Classic's bar (the
  * Library's button leaves x 0-20, 355-375 and the pitch's last 4 px), or under Rounded Corners the
@@ -4330,7 +4240,6 @@ static int press_repaint(const void *info) {
  * invalidates the whole surface (ringnav_touch), its release only the button, so the row's edges
  * repaint once after it (press_repaint). */
 static int pressed_pill(void *w, void *canvas) {
-#if IPOD
     if (!w) return 0;
     if (!is_row(w)) { /* the row drew it: skip its button's box */
         void *row = P(w, W_PARENT);
@@ -4351,9 +4260,6 @@ static int pressed_pill(void *w, void *canvas) {
     rect_t pill = { in, 0, I(w, W_W) - 2 * in, I(w, W_H) };
     fill_box(canvas, &pill, PH_GREY, in ? pill_radius(b, pill.h, SEL_INSET) : 0);
     return b == w; /* a page row's own (clear) background */
-#else
-    return 0;
-#endif
 }
 
 /* Stock paints a widget's background before its children, so the bar sits behind the rows.
@@ -4365,10 +4271,8 @@ static int pressed_pill(void *w, void *canvas) {
  * under another window. */
 int ringnav_paint_bg(void *w, void *canvas) {
     st.paint_w = w;
-#if IPOD
     quick_fill(w);
     confirm_prompt(w);
-#endif
     album_tile(w);
     int result = pressed_pill(w, canvas) ? 0 : stock_paint_bg_trampoline(w, canvas);
     void *wm = window_manager(), *bar = *(void *const *)system_bar;
@@ -4843,16 +4747,6 @@ static int setting_click(void *ctx, void *event) {
     return 0;
 }
 
-#else
-#define np_cancel() ((void)0)
-/* playing_page_init: Stock's page as built, with the heart's rating hold (rate_bind). */
-int ringnav_playing(void *win, void *ctx) {
-    int result = stock_playing_trampoline(win, ctx);
-    if (win) rate_bind(win);
-    return result;
-}
-#endif
-
 /* Now Playing's info page: stock (0x52a508, from its one call, NP_INFO_CALL in tools/build.py)
  * writes "Label:value" lines and the folder alone. Each line gets ": ", a number its unit's space
  * ("35.92 MB", "16-bit", "950 kbps", "44.1 kHz"), the folder its Location label, and an unknown
@@ -4925,7 +4819,7 @@ int ringnav_display(void *win, void *ctx) {
     void *view = win ? widget_lookup(win, "scroll_view_display", 1) : (void *)0;
     if (!view) return result;
     if (!sub) {
-        for (int i = IPOD ? DISPLAY_APPEARANCE : DISPLAY_COVERFLOW; i <= DISPLAY_CONTROLS; ++i)
+        for (int i = DISPLAY_APPEARANCE; i <= DISPLAY_CONTROLS; ++i)
             widget_set_text_utf8(list_row_into(view, sub_icons[i], display_open, (void *)(long)i),
                                  titles[i]);
         return result;
@@ -4938,7 +4832,6 @@ int ringnav_display(void *win, void *ctx) {
         pod_rows(win, "scroll_view_display", POD_CF_SORT, 2, cf_icons + 1);
         return result;
     }
-#if IPOD
     /* Theme, Light Mode, Accent, Corners, Home, Battery, Centred Now Playing; Shortcut, Smart
      * Awake. */
     static const unsigned char appearance[] = { 3, 6, 0, 5, 1, 2, 8 }, controls[] = { 4, 7 };
@@ -4954,7 +4847,6 @@ int ringnav_display(void *win, void *ctx) {
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
     }
-#endif
     if (sub != DISPLAY_CONTROLS) return result;
     pod_rows(win, "scroll_view_display", POD_HOLD_HOME, 1, hold_icon);
     pod_rows(win, "scroll_view_display", POD_WHEEL_QS, 1, wheel_icon);
@@ -5015,7 +4907,6 @@ int ringnav_systemset(void *win, void *ctx) {
     return result;
 }
 
-#if IPOD
 static int untouch(const void *info) {
     st.untouch_timer = 0;
     st.touch_mode = 0;
@@ -5023,7 +4914,6 @@ static int untouch(const void *info) {
     if (top) widget_invalidate_force(top, (void *)0);
     return 0;
 }
-#endif
 
 static void hide_outline(void) {
     if (st.touch_mode && !st.untouch_timer) return; /* already hidden: each touch move comes here */
@@ -5034,7 +4924,6 @@ static void hide_outline(void) {
 }
 
 int ringnav_touch(void *ctx, void *event) {
-#if IPOD
     /* settle_timer while paused on the scrubbed track: a paused seek still waiting for Play. */
     int hold =
         st.settle_timer && st.np_slider && np_track() == st.scrub_track && mclGetPlayStatus() == 3;
@@ -5048,7 +4937,6 @@ int ringnav_touch(void *ctx, void *event) {
     if (hold)
         stop_timer(&st.np_press); /* Swiping pages keeps the paused seek's preview. */
     else
-#endif
         np_cancel(); /* before the slider sees the touch, so a drag seeks the stock way */
     hide_outline();
     int result = stock_touch_trampoline(ctx, event);
@@ -5076,9 +4964,7 @@ static int time_click(void *target, void *event) {
     int ok = page && !tk_strcmp(widget_get_prop_str(page, "name", ""), "manualtime_page") &&
              !tk_strcmp(widget_get_prop_str(target, "name", ""), "btn_enter");
     int result = stock_dispatch_trampoline(target, event);
-#if IPOD
     if (ok && st.clock_timer) clock_show();
-#endif
     if (ok && window_manager_get_top_window(window_manager()) == page) navigator_back();
     return result;
 }
@@ -5182,8 +5068,6 @@ int ringnav_dispatch(void *target, void *event) {
     }
     return stock_dispatch_trampoline(target, event);
 }
-
-#if IPOD
 
 /* Only audited ordinary row constructors install this per-instance layouter. Stock still
  * positions every child, skips hidden controls, and owns clone/destruction and text overflow. */
@@ -5336,9 +5220,8 @@ void ringnav_boot(const char *page, const int *ctx) {
     else if (ctx[2] != 0xff)
         player_start((void *)ctx[0], ctx[1], ctx[2], ctx[3]);
 }
-#endif
 
-/* Called by stock long Return (both builds) and short Return on iPod Home, after their gates.
+/* Called by stock long Return and short Return on Home, after their gates.
  * Elsewhere it opens Now Playing over the page, remembered as np_origin; on Now Playing it goes
  * back to that page while it lies right under it, else Home. With Hold Return: Home it goes Home
  * from any page but Home itself, where it still opens Now Playing.
@@ -5504,9 +5387,7 @@ static unsigned qm_album_id(void *r) {
 
 /* Now Playing's More… (img_more, on both layouts), while that page is open; else 0. */
 static void *np_more(void) {
-#if IPOD
     if (st.np_win) return widget_lookup(st.np_win, "img_more", 1);
-#endif
     return (void *)0;
 }
 
@@ -5746,7 +5627,7 @@ static int artist_cf_open(const void *unused) {
 }
 /* Artist albums: Grid gives the artist page its stock toolbar back, for its multi-select
  * (s_img_mulsel), which iPod hides on the local pages; the tabs move down under it. A toolbar
- * already showing (Legacy, a reload) is left alone. */
+ * already showing (a reload) is left alone. */
 static void artist_bar(void) {
     void *top = window_manager_get_top_window(window_manager()),
          *nav = top ? widget_lookup(top, "view_navbar", 0) : 0,
@@ -5948,15 +5829,15 @@ int ringnav_localclass(int cls) {
     if (n > 0 && cls == CLASS_ALBUMS) n = coverflow_split(list);
     if (n > 0 && (cls == 0xf00a || cls == 0xf008 || cls == 0xf007)) /* My Fav, Frequent, Recent */
         fav_titles(list, n);
-    if (IPOD) /* an untagged song's row reads its file name without the extension (track_name) */
-        for (int i = 0; i < n; ++i) {
-            void *r = deque_at(list, (unsigned)i);
-            char buf[512], **title = (char **)((char *)r + REC_TITLE), *t;
-            if (I(r, REC_TYPE) != 8 || (*title && **title) ||
-                !(t = strdup(track_name(buf, sizeof buf, r) ?: "")))
-                continue;
-            free(*title), *title = t;
-        }
+    /* an untagged song's row reads its file name without the extension (track_name) */
+    for (int i = 0; i < n; ++i) {
+        void *r = deque_at(list, (unsigned)i);
+        char buf[512], **title = (char **)((char *)r + REC_TITLE), *t;
+        if (I(r, REC_TYPE) != 8 || (*title && **title) ||
+            !(t = strdup(track_name(buf, sizeof buf, r) ?: "")))
+            continue;
+        free(*title), *title = t;
+    }
     if (cls < CLASS_ALBUMS || cls > 0xf006) {
         library_music = saved;
         return n;
@@ -6306,7 +6187,6 @@ static int chapter_pick(void *ctx, void *event) {
         st.ch_key = listen_key(r);
         st.rs_pending = 0;
         st.rs_go_key = 0;
-#if IPOD
         st.scrub_track = st.ch_track;
         st.scrub_to = st.ch->rows[i].sec;
         st.scrub = st.scrub_moved = 1;
@@ -6314,9 +6194,6 @@ static int chapter_pick(void *ctx, void *event) {
         if (st.np_slider) widget_set_prop_int(st.np_slider, "value", st.scrub_to);
         if (st.np_elapsed) clock_text(st.np_elapsed, 0, st.scrub_to);
         scrub_end();
-#else
-        seek_position(st.ch->rows[i].sec);
-#endif
     }
     navigator_back();
     return 0;
@@ -6901,7 +6778,7 @@ static int rate_gone(void *win, void *event) {
     return 0;
 }
 
-/* Now Playing's heart (both builds' playing_page_init): stock's click is swapped for one that
+/* Now Playing's heart (playing_page_init): stock's click is swapped for one that
  * tells a hold from a tap, and the badge sits on the heart's top right. */
 static void rate_bind(void *win) {
     void *fav = widget_lookup(win, "img_fav", 1), *emitter = fav ? P(fav, W_EMITTER) : (void *)0;
@@ -7727,9 +7604,7 @@ int ringnav_localmusic(void *win, void *ctx) {
         if (media_find(k + 1, path))
             widget_restack(
                 library_into(view, icons[k], media_click, (void *)(long)(k + 1), MEDIA[k]), n++);
-#if IPOD
     widget_restack(library_into(view, "local_games", games_open, 0, "Games"), n++);
-#endif
     if (scrobble_ready())
         widget_restack(library_row(view, "local_scrobble", upload_scrobbles, 0, "Upload Scrobbles"),
                        n++);
@@ -8278,11 +8153,11 @@ int ringnav_playlistsmore(void *win, void *ctx) {
          * re-translation keeps it (no language has the key, so it reads as given). */
         void *del = widget_lookup(win, "label_del", 1);
         if (del) widget_set_tr_text(del, "Delete Playlist");
-        /* A row like this page's stock Rename and Delete: a 375x72 (Legacy 78) list_item holding
-         * a 335x68 (Legacy 70) s_btn_listitem, its 52px icon at x 10 and its 20px label at x 72.
-         * Edit Playlist follows the Delete row at the same spacing. */
-        int h = IPOD ? 72 : 78, inner = IPOD ? 68 : 70;
-        void *item = list_item_create(win, 0, IPOD ? 154 : 216, 375, h);
+        /* A row like this page's stock Rename and Delete: a 375x72 list_item holding a 335x68
+         * s_btn_listitem, its 52px icon at x 10 and its 20px label at x 72. Edit Playlist follows
+         * the Delete row at the same spacing. */
+        int h = 72, inner = 68;
+        void *item = list_item_create(win, 0, 154, 375, h);
         widget_use_style(item, "s_listitem_black");
         void *button = button_create(item, 20, 0, 335, inner);
         widget_use_style(button, "s_btn_listitem");
@@ -9276,7 +9151,6 @@ static void power_poll(void) {
     logo_poll();
 }
 
-#if IPOD
 /* Home's Rockbox row (docs/boot.md#rockbox-from-home), bound by coverflow_home: a click leaves
  * Q2 Pod for Rockbox. demo cannot start it itself: Rockbox needs the screen, the keys and ALSA. So
  * demo leaves S90play's flag and ends; S90play sees it, runs Rockbox and starts demo again when
@@ -9308,28 +9182,21 @@ int rockbox_open(void *ctx, void *event) {
     system("killall checkappprocess.sh; killall -9 hciplayer; " SPOT_KILL "; sync; kill -9 $PPID");
     return 0;
 }
-#endif
 
-#if IPOD
 /* Now Playing on top. */
 static int now_playing(void) {
     void *top = window_manager_get_top_window(window_manager());
     return top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "playing_page");
 }
-#endif
 
 /* Now Playing's visualizer repainting, its album marquee moving or its lyrics gliding: their 40 and
  * 50 ms timers and the glide's steps would run late on an idle pass. Its progress and the lyrics'
  * follow tick every 250 ms and keep up. A game's 33 ms frame timer too: Vortex's raw wheel posts no
  * input to stamp. */
 static int np_animating(void) {
-#if IPOD
     return games_live() ||
            (now_playing() && (visualizer_live() || st.lyric_glide ||
                               (st.np_marquee && st.np_off > 0 && st.np_off < st.np_over)));
-#else
-    return 0;
-#endif
 }
 
 /* Keep stock VOLUME for wired/USB and boot; Bluetooth saves its own level. */
@@ -9500,7 +9367,6 @@ int ringnav_sleep(void *loop) {
     resume_poll();
     scrobble_auto();
     power_poll();
-#if IPOD
     lyric_poll();
     keep_lit_poll();
     np_art_poll();
@@ -9510,7 +9376,6 @@ int ringnav_sleep(void *loop) {
         window_close(drop);
     }
     if (st.bc[0] && np_track() != st.bc_track) bc_show();
-#endif
     if (!g_backlight_status) {
         st.dark |= 1;
         int quiet = I(g_dacoff_time, 0) < 0 && !media_playing() && !video_on() &&
@@ -9523,9 +9388,7 @@ int ringnav_sleep(void *loop) {
         wheel_guard_reset();
         if (st.dark & 2) st.woke_at = (unsigned)time_now_ms();
         st.dark = 0;
-#if IPOD
         if (st.clock_timer) clock_show(); /* a time set while dark */
-#endif
         widget_invalidate_force(window_manager(), (void *)0);
     } else if (time_now_ms() - st.last_input >= IDLE_MS &&
                !window_manager_is_animating(window_manager()) && !np_animating())
@@ -9777,7 +9640,6 @@ int ringnav_keydown(void *ctx, void *event) {
     if (ple_key(key, 1)) return STOP;
     void *top = window_manager_get_top_window(window_manager());
     if (quick_stuck(top)) return STOP; /* the release closes it (ringnav) */
-#if IPOD
     unsigned char tone = g_keytone_flag;
     void *row = (void *)0;
     entries_t s = { &row, 0, 1, 4096 };
@@ -9789,11 +9651,8 @@ int ringnav_keydown(void *ctx, void *event) {
         if (s.n) st.tone_key = key;
     }
     if (st.tone_key) g_keytone_flag = 0;
-#endif
     int result = stock_keydown_trampoline(ctx, event);
-#if IPOD
     if (st.tone_key) g_keytone_flag = tone;
-#endif
     /* Coverflow moves on release; stop the press before it navigates the focused list below. */
     if (!result && (key == KEY_PREV || key == KEY_NEXT) && top &&
         !tk_strcmp(widget_get_prop_str(top, "name", ""), "coverflow_page"))
@@ -9966,9 +9825,7 @@ static int replay_wheel(const void *info) {
     int dir = st.held > 0 ? 1 : -1;
     unsigned key = dir > 0 ? KEY_NEXT : KEY_PREV;
     st.held_event[EVENT_KEY / 4] = key;
-#if IPOD
     st.tone_key = key; /* clicks on its row change, as a live tick whose press was silenced */
-#endif
     ringnav(st.held_ctx, st.held_event); /* held again: hold_wheel counts it back in */
     st.held -= dir;
     if (st.held) return 8; /* RET_REPEAT */
@@ -10002,11 +9859,9 @@ int ringnav(void *ctx, void *event) {
     }
     unsigned key = (unsigned)I(event, EVENT_KEY);
     if (ple_key(key, 2)) return STOP;
-#if IPOD
     /* This release's press was silenced by ringnav_keydown: a row change below clicks instead. */
     int owned = st.tone_key == key;
     st.tone_key = 0;
-#endif
     if ((key == KEY_PREV || key == KEY_NEXT) &&
         *(volatile signed char *)KEY_LOCKOUT <= 8 - LOCKOUT_KEEP)
         *(volatile unsigned char *)KEY_LOCKOUT = 0;
@@ -10020,11 +9875,8 @@ int ringnav(void *ctx, void *event) {
     if (usable() && field_key(front, key)) return STOP; /* before stock's track skip */
     /* The rating picker's keys, before the page's own (its Return would leave it) */
     if (usable() && rate_key(window_manager_get_top_window(window_manager()), key)) return STOP;
-#if IPOD
     /* A game's keys, before stock's lock filter, media keys and screen-off double Centre */
     if (usable() && games_key(window_manager_get_top_window(window_manager()), key)) return STOP;
-#endif
-#if IPOD
     /* Return or Centre closes quick settings, as its swipe up does (dialog_quit); stock leaves
      * Return to its Home button and Centre to turning the screen off. A held Return's release
      * goes to the stock filter, which consumes its latch (a hold may go Home from here). */
@@ -10037,7 +9889,6 @@ int ringnav(void *ctx, void *event) {
             return STOP;
         }
     }
-#endif
     if (search_key(key)) return STOP;
     int result = usb_prompt() ? 0 : stock_keyup_trampoline(ctx, event);
     if (key == KEY_PLAY && hold_released()) return STOP;
@@ -10054,7 +9905,6 @@ int ringnav(void *ctx, void *event) {
         if (key == KEY_CENTER || !usable()) drop_spin();
         return result;
     }
-#if IPOD
     if (key == KEY_RETURN && st.scrub) { /* ends the scrub without leaving the page */
         np_cancel();
         if (window_manager_get_top_window(window_manager()) == st.np_win) return STOP;
@@ -10093,9 +9943,6 @@ int ringnav(void *ctx, void *event) {
         rearm(&st.untouch_timer, untouch, 0);
         if (!st.untouch_timer) st.touch_mode = 0;
     }
-#else
-    if (key == KEY_RETURN) st.touch_mode = 0; /* Back by button: the page behind shows its row. */
-#endif
     if (key != KEY_CENTER && key != KEY_PREV && key != KEY_NEXT) return result;
     if (key == KEY_CENTER) {
         drop_spin();
@@ -10129,7 +9976,6 @@ int ringnav(void *ctx, void *event) {
         return STOP;
     }
 
-#if IPOD
     if (top != st.np_win || window_manager_is_animating(wm) ||
         window_manager_get_pointer_pressed(wm))
         np_cancel();
@@ -10137,7 +9983,6 @@ int ringnav(void *ctx, void *event) {
         return STOP;
     else if (key == KEY_CENTER || st.scrub)
         return np_key(top, key);
-#endif
     if (!allowed_top(top) && !usb_prompt()) {
         drop_input();
         return result;
@@ -10216,7 +10061,7 @@ int ringnav(void *ctx, void *event) {
         return STOP;
     }
     /* Every accepted tick times the run and takes its place in it, short lists included. */
-    int list = IPOD && g_menu.n; /* iPod row lists: the gentler ramp */
+    int list = g_menu.n; /* row lists: the gentler ramp */
     int step = ramp(top, g_menu.w, g_menu.scope, g_menu.ctx, dir, now,
                     list ? LIST_FIRST_MS : WHEEL_RAMP_MS, list ? LIST_RAMP_MS : WHEEL_RAMP_MS);
     if (g_menu.rows <= SHORT_LIST_MAX) {
@@ -10231,14 +10076,12 @@ int ringnav(void *ctx, void *event) {
             slide_menu_scroll_to_prev(w);
     } else if (g_menu.n) {
         int id = widget_get_prop_int(w, SEL, -1);
-#if IPOD
         if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
-#endif
         int next = clamp_step(id < 0 ? (cur >= 0 ? g_menu.id[cur] : 0) : id, g_menu.rows - 1,
                               id < 0 ? 0 : dir * step);
         if (next == 0 || next == g_menu.rows - 1) drop_wheel();
         if (next == id) {
-            int home = IPOD && home_menu(top) && g_menu.rows >= 2;
+            int home = home_menu(top) && g_menu.rows >= 2;
             if (!(home || ring_list(&g_menu)) || id < 0) {
                 stop_scroll(&g_menu);
                 widget_invalidate_force(w, (void *)0); /* a wheel wake still clears touch hiding */
@@ -10262,9 +10105,7 @@ int ringnav(void *ctx, void *event) {
         select(&g_menu, next);
         /* Stop momentum even when the selected row already fits the viewport. */
         reveal(&g_menu, next, 1);
-#if IPOD
         if (owned && id >= 0) buzzeer_switch(1); /* one click per row change, however far */
-#endif
     } else {
         int top = view_top(&g_menu);
         int next = clamp_step(top, max_top(&g_menu), dir * RING_STEP * step);

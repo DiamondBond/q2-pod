@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory() as tmp:
             raise AssertionError('Packaged uncommitted build inputs')
     assert not out.exists()
     # Fail the repeat build, so the first one succeeds before the failure.
-    def fail_repeat(stock, directory, logo, ipod=False):
+    def fail_repeat(stock, directory, logo):
         if directory.name.endswith('-repeat'):
             raise ValueError('simulated repeat build failure')
         directory.mkdir()
@@ -46,8 +46,7 @@ with tempfile.TemporaryDirectory() as tmp:
         else:
             raise AssertionError('Accepted a failed build')
     assert not (out/'release.json').exists()
-    (out/'build/manifest.json').write_text(json.dumps(dict(
-        variant='ipod', version=release.VERSIONS['ipod'], update_sha256=release.sha(b'pod'))))
+    (out/'build/manifest.json').write_text(json.dumps(dict(version=release.TAG, update_sha256=release.sha(b'pod'))))
     (out/release.ASSET).write_bytes(b'pod')
     assets = {release.ASSET: release.sha(b'pod')}
     (out/release.GUIDE).write_bytes(b'%PDF')
@@ -57,7 +56,7 @@ with tempfile.TemporaryDirectory() as tmp:
     (out/'release-notes.md').write_text(release.release_body(out, record))
     # The heading, then bullets, for this version only.
     body = (out/'release-notes.md').read_text()
-    assert body.startswith(f'**{release.VERSION}**\n- One.\n- iPod: two.\n\nSHA-256:\n- update.tar ({release.VERSIONS["ipod"]}): ')
+    assert body.startswith(f'**{release.VERSION}**\n- One.\n- iPod: two.\n\nSHA-256:\n- update.tar ({release.TAG}): ')
     # A nested entry keeps its bullets as written, one level out, up to the next version.
     changelog = pathlib.Path(tmp)/'docs/changelog.md'
     single = changelog.read_text()

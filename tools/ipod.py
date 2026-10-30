@@ -165,7 +165,7 @@ def encode(root):
     return bytes.fromhex('12122211') + node(root)
 
 
-# Both variants. Stock artist detail tabs carry literal Chinese `text` in every language; the
+# Stock artist detail tabs carry literal Chinese `text` in every language; the
 # stock string table already has these keys. The Albums tab and page start active (see ARTIST_ALBUMS).
 ARTIST_PAGE = 'localmusic/artistinfo_page.bin'
 ARTIST_TABS = {'btn_track': ('单曲', 'local_allsongs'), 'btn_album': ('专辑', 'album')}
@@ -193,8 +193,8 @@ def artist_tabs(root):
     check(sorted(found) == sorted([*ARTIST_TABS, 'pages']), 'Unexpected artist tabs')
 
 
-# Home's carousel: stock's cards, plus clones of Local Music for Coverflow at index 2 (both variants)
-# and, in iPod's Home: Carousel, the Shortcut (rockbox) after Folder, each on its own icons; their
+# Home: Carousel's carousel: stock's cards, plus clones of Local Music for Coverflow at index 2 and
+# the Shortcut (rockbox) after Folder, each on its own icons; their
 # images (patch/coverflow.c binds them) are the click targets. Stock translates label_* by name and
 # ignores these, so their text is literal (the Shortcut's is set at runtime). Local Music's label is
 # literal too, "Library" in every language: stock would set label_localmusic's text to small_local
@@ -217,18 +217,17 @@ def home_card(menu, at, row, text):
     menu[3].insert(at, card)
 
 
-def home_cards(root, shortcut=False):
+def home_cards(root):
     menu = [n for n in root[3] if n[0] == 'slide_menu']
     check(len(menu) == 1, 'Unexpected home carousel')
     cards = [n[2].get('name') for n in menu[0][3]]
     check(cards[:2] == ['btn_playing', 'btn_localmusic'], 'Unexpected home cards')
     home_card(menu[0], 2, 'coverflow', 'Coverflow')
-    if shortcut:
-        home_card(menu[0], 4, 'rockbox', 'Rockbox')
+    home_card(menu[0], 4, 'rockbox', 'Rockbox')
     menu[0][3][1][3][1][2].update(LIBRARY)
 
 
-# iPod only. Home becomes a list of the stock cards' names, in stock order with Coverflow third,
+# Home becomes a list of the stock cards' names, in stock order with Coverflow third,
 # Rockbox before Streaming and one Settings row for Playback and System settings.
 # home_page_init (0x523c84) looks up no widget: its widget_foreach visitor (0x5239b4) binds img_*
 # clicks and translates label_* by name, and only img_left/img_right reach the slide_menu. Each row's transparent image covers the row, on top of its label, so it takes the
@@ -274,7 +273,7 @@ def ipod_home(root):
     check([n[0] for n in root[3]] == ['slide_menu', 'image', 'image'], 'Unexpected home carousel')
     check([n[2]['name'] for n in root[3][0][3]] == ['btn_' + r for r in
             ('playing', 'localmusic', 'folder', 'stream', 'playset', 'sysset')], 'Unexpected home cards')
-    home_cards(root, shortcut=True)
+    home_cards(root)
     # Home: Carousel's (coverflow_home_layout): the carousel and its arrows, over the lists, hidden and
     # taking no taps until chosen.
     for n in root[3]:
@@ -313,7 +312,7 @@ def patch_style(data, audit):
     return bytes(out)
 
 
-# iPod only. systembar_showface (0x52f610) finds every widget by name, recursively from the bar,
+# systembar_showface (0x52f610) finds every widget by name, recursively from the bar,
 # and each second re-shows the volume, EQ, BT, synclink and Wi-Fi widgets and resets their text and
 # images, but never their geometry. So widgets iPod hides move off-screen instead of going invisible.
 # The volume number stays hidden: stock already opens dialog/volume_dialog on every wheel change.
@@ -380,7 +379,7 @@ def status_bar(root):
         'name': 'label_clock', 'style': 's_scrlabel_white20c', 'style:normal:font_size': '16', 'only_focus': 'true'}, []])
 
 
-# iPod only. Stock finds every Now Playing widget by name, recursively, so they can move: title, artist
+# Stock finds every Now Playing widget by name, recursively, so they can move: title, artist
 # and a new album label join the art on the slide_view's first page, so a swipe still swaps all of it for
 # the lyrics or info page. The info page keeps its stock 225px column, centred; the lyrics page is the
 # payload's (patch/lyrics.c). The payload fills the label_ipod_* labels (ringnav_playing); label_playlen,
@@ -510,7 +509,7 @@ def playing_page(root):
     root[3].insert(3, remain)
 
 
-# iPod only. Display's Centred Now Playing (IPOD NPCENTRED) opens stock's own page, its art centred over the
+# Display's Centred Now Playing (IPOD NPCENTRED) opens stock's own page, its art centred over the
 # title and artist, as PLAYING_STOCK (navigation.c ringnav_ui_load); the payload binds it by the same names.
 # It keeps stock's layout; the title and artist hold at their start as the iPod page's do, and the lyrics
 # span their column, as the iPod page's span the screen (patch/lyrics.c wraps at the rows' width).
@@ -559,7 +558,7 @@ def playing_stock(data):
     return encode(root)
 
 
-# iPod only. The full-screen art (a tap on Now Playing's opens it, any tap closes it): stock's art, shade and
+# The full-screen art (a tap on Now Playing's opens it, any tap closes it): stock's art, shade and
 # song name, the art a centred BC_ART square on the window's black (bigcover_page_init only loads its image
 # and sets its draw type, scale_auto as here), the shade and the name on its foot as stock has them on the
 # screen's. paint_cover rounds the playing art after scaling.
@@ -581,7 +580,7 @@ def bigcover_page(root):
     shade[1] = [x, foot, BC_ART, shade[1][3]]
 
 
-# iPod only. Quick settings (the pull-down statusbar_dialog, which covers the whole screen): the eight
+# Quick settings (the pull-down statusbar_dialog, which covers the whole screen): the eight
 # stock 60px controls stay in their four columns, two rows from QS_TOP. Each label gets the same
 # two-line QS_LABEL_H area in the stock 16px style, top-aligned so single- and two-line labels start
 # on one line, QS_LABEL_GAP under its icon and QS_ROW_GAP above the next row. Brightness becomes a
@@ -626,7 +625,7 @@ def quick_settings(root):
     slider[1], slider[2] = track, props
 
 
-# iPod only. The confirm pair (img_cancel, img_enter; 80px tiles around 60px discs) becomes two
+# The confirm pair (img_cancel, img_enter; 80px tiles around 60px discs) becomes two
 # full-width text rows, Cancel and OK (after maks112v/qpod).
 CONFIRM = 'dialog/confirminfo_dialog.bin'
 CONFIRM_TILE = 80
@@ -652,7 +651,7 @@ def confirm_dialog(root):
                          'style:%s:text_color' % state: '#FFFFFF'})
 
 
-# iPod only. The volume dialog loses its highlight="default(alpha=200)", so the window manager
+# The volume dialog loses its highlight="default(alpha=200)", so the window manager
 # creates no highlighter and nothing under it dims; the payload draws the volume into the dialog
 # (navigation.c vol_paint): a band on Now Playing, a panel elsewhere.
 VOLUME = 'dialog/volume_dialog.bin'
@@ -669,13 +668,13 @@ def volume_dialog(root):
         child[2]['visible'] = 'false'
 
 
-# iPod only. Settings and Streaming lose their navbar, as on the local pages, and their lists hold
+# Settings and Streaming lose their navbar, as on the local pages, and their lists hold
 # SET_ROWS complete SET_ROW rows from SET_TOP; ipod_list_layout (patch/navigation.c) lays the native
 # rows out to match. Tidal keeps its navbars: most hold a search button with no hardware equivalent.
 NAVBAR_ONLY = AUDIT['navbar_only']
 SET_ROW, SET_TOP, SET_ROWS, SET_STOCK_ROW = (inc(n) for n in ('SET_ROW', 'SET_TOP', 'SET_ROWS', 'SET_STOCK_ROW'))
 
-# iPod only. The settings rows' stock 52px artwork (SET_STOCK_ICON), pinned by hash in ipod.json,
+# The settings rows' stock 52px artwork (SET_STOCK_ICON), pinned by hash in ipod.json,
 # is pre-sized to SET_ICON at build time so the rows draw it 1:1 instead of scaling it on the device.
 # ImageMagick's Lanczos resize weights colour by alpha, so edges keep their colour and transparency;
 # -strip and the excluded date chunks keep the bytes reproducible. Only native settings code names
@@ -825,17 +824,16 @@ def patch_word(data, address, old, new, purpose, changes=None):
         changes.append(dict(address=hex(address), original=hex(old), patched=hex(new), purpose=purpose))
 
 
-def patch_asset(path, data, ipod):
+def patch_asset(path, data):
     check(sha(data) == UI_ASSETS[path], f'{path}: unaudited UI asset')
     root = decode(data)
     check(encode(root) == data, f'{path}: UI round trip differs')
     if path == ARTIST_PAGE:
         artist_tabs(root)
-    whole = ({HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page, QUICK_SETTINGS: quick_settings,
-              CONFIRM: confirm_dialog, VOLUME: volume_dialog, BIGCOVER: bigcover_page} if ipod else {HOME_PAGE: home_cards})
+    whole = {HOME_PAGE: ipod_home, STATUS_BAR: status_bar, PLAYING_PAGE: playing_page, QUICK_SETTINGS: quick_settings,
+             CONFIRM: confirm_dialog, VOLUME: volume_dialog, BIGCOVER: bigcover_page}
     if path in whole:
         whole[path](root)
-    if path in whole or not ipod:
         return encode(root)
     if path == 'dialog/addplaylist_dialog.bin':
         edit = root[3][0][3][0]

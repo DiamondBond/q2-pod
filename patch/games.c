@@ -8,7 +8,6 @@
 #include "playback.h"
 #include "stock.h"
 #endif
-#if IPOD || defined PEQ_HOST
 
 #ifdef PEQ_HOST /* playback.c's and coverflow.c's on the device */
 unsigned games_seed = 1;
@@ -972,9 +971,7 @@ static void vortex_paint(void *canvas, unsigned tone) {
 /* A grey v (0 to 255) that Light Mode's flip (ui_ink) leaves at v: a card is paper-white in either
  * mode, its black suits black. */
 static unsigned unflipped(unsigned v) {
-#if IPOD
     if (ipod_light()) v = v < LIGHT_INK ? 255 : (LIGHT_PAPER - v) * 255 / (LIGHT_PAPER - LIGHT_INK);
-#endif
     return v * 0x010101u;
 }
 
@@ -1124,5 +1121,4 @@ int games_open(void *ctx, void *event) {
     if (bad) sol_new(&g->sol);
     return 0;
 }
-#endif
 #endif
