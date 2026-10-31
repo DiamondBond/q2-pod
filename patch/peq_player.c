@@ -209,15 +209,19 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
     int mine = xf.len && xf.owner == s->id,
         restart = mine && xf.pts >= xf.length - XF_SEEK_S && pts >= 0 && pts < XF_SEEK_S;
     if (xf.len && (xf.total || !mine || restart)) {
-        /* Another rate plays the tail through linear interpolation (step held frames an output
-         * frame): a fading tail, so that is enough. ponytail: another channel count drops it. */
+        /* The mix begins on the first block after the hold: a tail not followed within XF_STALE_NS
+         * (a stop) is dropped; another rate plays it through linear interpolation (step held frames
+         * an output frame), a fading tail, so that is enough. A pause mid-mix only waits. ponytail:
+         * another channel count drops it, mid-mix too (the ring is read with nch). */
         if (!xf.total) {
-            xf.step = (double)xf.rate / rate, xf.pos = 0;
-            xf.total = xf.left = (unsigned)(xf.len / xf.step);
+            if (now - xf.last <= XF_STALE_NS) {
+                xf.step = (double)xf.rate / rate, xf.pos = 0;
+                xf.total = xf.left = (unsigned)(xf.len / xf.step);
+            }
+            if (!xf.total) xf.len = 0;
         }
-        if (now - xf.last > XF_STALE_NS || nch != xf.nch || !xf.total) {
-            xf.len = xf.total = 0;
-        } else {
+        if (nch != xf.nch) xf.len = xf.total = 0;
+        if (xf.total) {
             unsigned n = frames < xf.left ? frames : xf.left;
             /* The gains turn by a fixed angle a frame: exact at each block's start, rotated after, in
              * double (and cos d as 1 - 2 sin^2 d/2) or a long fade's rounding drifts to 1e-4. */

@@ -30,6 +30,7 @@ imports = {}  # each peq_lib_* stub's GOT word (peq_imports.S) points at a stub 
 for name, hi, lo in re.findall(r'peq_lib_(\w+):\nlui \$gp.*\nori \$gp.*\nlui \$t8, (\d+)\nori \$t8, \$t8, (\d+)', (out/'peq_imports.S').read_text()):
     imports[STUBS + 4*len(imports)] = name
     u.mem_write(int(hi) << 16 | int(lo), struct.pack('<I', STUBS + 4*(len(imports)-1)))
+assert len(imports) > 60, 'no peq_lib_* stubs found in peq_imports.S'
 heap, clock, pts = [HEAP], [10**9], [-1.0]
 
 def w(p, *v): u.mem_write(p, struct.pack('<' + 'I'*len(v), *v))
@@ -162,6 +163,25 @@ mix(48000, held, out, seconds=16, block_frames=333)
 # The next track at another rate: the 48 kHz tail plays over 44100 frames at 44.1 kHz, interpolated.
 out, held = hold(48000, 10, 1000, 0)
 mix(44100, 44100, out, step=48000 / 44100)
+# A tail not followed within 3 s (a stop) is dropped: the next track plays alone.
+out, held = hold(48000, 10, 1000, 0)
+clock[0] += 4 * 10**9
+af = track(48000)
+k, got = block(af, 1024, 0, 0.0, 48000)
+assert k == 1024 and got[0] == (0.0, 0.0) and got[1023] == (1023.0, 0.0)
+uninit(af)
+# Another channel count drops it too.
+out, held = hold(48000, 10, 1000, 0)
+af, data = alloc(48), alloc(24)
+assert call(ps['peq_open'], af) == 1
+w(data, 0, 0, 48000, 1, 0x1d, 4)
+assert call(r(af + 4), af, 0x10000100, data) == 1
+u.mem_write(BUF, struct.pack('<1024f', *[0.0] * 1024))
+pts[0] = 1024 / 48000
+w(DATA, BUF, 1024 * 4, 48000, 1, 0x1d, 4)
+assert call(r(af + 12), af, DATA) == DATA and r(DATA + 4) == 1024 * 4
+assert struct.unpack('<1024f', u.mem_read(BUF, 4096)) == (0.0,) * 1024
+uninit(af)
 # No fade asked: every block whole.
 w(flag, 0), w(LENGTH, 10)
 af = track(48000)
@@ -170,4 +190,4 @@ for n in range(0, 10 * 48000, 1024):
     assert k == 1024 and got[0] == (float(n), 1.0)
 uninit(af)
 print('Player crossfade (MIPS build): the hold window, half-rate emission in order, the equal-power '
-      'mix and whole blocks with no fade passed.')
+      'mix at the same and another rate, the stale and mono drops and whole blocks with no fade passed.')

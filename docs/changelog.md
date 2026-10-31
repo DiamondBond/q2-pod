@@ -15,6 +15,7 @@
   - Settings: **Click With Headphones** moved from Display → Controls to **System settings**, under **Key Tone**, and only shows while Key Tone is on. Your setting is kept.
   - Crossfade: a song that fades into one at a different sample rate now fades. The outgoing song's last seconds were dropped there, so in a shuffle across 44.1 and 48 or 96 kHz files most changes had no fade and lost those seconds ([#164](https://github.com/DiamondBond/q2-pod/issues/164)). On the headphone jack the output still switches rate at the change, so a short pause stays before the fade is heard.
   - Crossfade, Mono Audio and the visualizer: the audio filter they need is put back after the player restarts, instead of only once per boot.
+  - Crossfade: songs fade in Shanling's own Shuffle too, the one Now Playing's mode button and Play Mode give, where no song ever faded ([#164](https://github.com/DiamondBond/q2-pod/issues/164)). The next song is only drawn as the current one ends, so every change fades there, and a short gap can come before the fade as the player starts the new file. Shuffle Songs, from the Library, fades as before, only into another album.
 
 - **1.5.9**:
   - Now Playing: the album art changes with the song again after you skip back and forth, on both the regular and Centred pages. It could stay on the previous song's cover.

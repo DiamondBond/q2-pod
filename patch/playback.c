@@ -831,7 +831,12 @@ int ringnav_mode(int mode) {
     /* player_initconfig re-applies the saved mode each time hciplayer connects, after a boot
      * resume too: not a choice, so advanced play stays. The new hciplayer gets MQA's too. */
     int initconfig = __builtin_return_address(0) == (void *)INITCONFIG_MODE_RET;
-    if (initconfig) mqa_sync(), peq_chained = 0; /* a new hciplayer has no filter: peq_chain again */
+    if (initconfig) {
+        mqa_sync();
+        /* A new hciplayer has no filter: peq_chain attaches again. With the EQ on, player_initconfig's
+         * own set_equalizer_value (0x5133b8, before this call) has put it in already. */
+        if (!g_equalizer_flag) peq_chained = 0;
+    }
     if (s.restoring || initconfig) return stock_mode_trampoline(mode);
     unshuffle = 0; /* a mode choice outlasts Shuffle Songs */
     /* Stock Shuffle (2) on Shuffle Albums/Folders keeps the groups; any other mode ends them. */
@@ -1378,13 +1383,16 @@ int playback_resumed(void *r) {
     return pending && (unsigned)M(MCL_POS) == s.resume_pos &&
            fnv(FNV_SEED, P(r, REC_PATH)) == s.resume_key;
 }
-/* The track gapless preloads after this one, or -1: Crossfade's next (crossfade.c). Stock preloads
- * pos+1 only in order and repeat-all (mclSetPlayMode's modes 0 and 3). */
+/* The track that plays after this one, or -1: Crossfade's next (crossfade.c). Stock preloads pos+1
+ * only in order and repeat-all (mclSetPlayMode's modes 0 and 3); stock Shuffle (2) draws its next
+ * at the change, so it is -2, unknown but another track's. */
 static int playback_next(void) {
     if (s.active) return playback_successor(1);
     unsigned at = (unsigned)M(MCL_POS);
     int mode = M(MCL_MODE);
-    return (mode == 0 || mode == 3) && queue() && at + 1 < deque_size(queue()) ? (int)at + 1 : -1;
+    unsigned n = queue() ? deque_size(queue()) : 0;
+    if (mode == 2) return at < n && n > 1 ? -2 : -1;
+    return (mode == 0 || mode == 3) && at + 1 < n ? (int)at + 1 : -1;
 }
 void playback_poll(void) {
     wheel_pct(); /* the saved sensitivity from the first UI pass */

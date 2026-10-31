@@ -1136,6 +1136,9 @@ assert m.fade(3)==0 and m.fade(0)==7000  # the image's two CUE tracks; Album A t
 m.byte(O['MCL_GAPLESS'],0); assert m.fade()==0
 m.byte(O['MCL_GAPLESS'],1); assert m.fade()==7000
 m.word(O['MCL_MODE'],1); assert m.fade()==0  # Repeat One: no next file
+m.word(O['MCL_MODE'],2); assert m.fade()==7000  # stock Shuffle: the next is drawn at the change, another album's
+m.byte(O['MCL_GAPLESS'],0); assert m.fade()==0; m.byte(O['MCL_GAPLESS'],1)
+m.word(O['MCL_MODE'],0); assert m.fade()==7000
 m.word(O['MCL_MODE'],0); assert m.fade(6)==0  # the last track
 m=XfadeMachine('0'); assert m.fade()==0 and not m.files and not m.attaches  # off: no file
 # Shuffle Songs (the reports' mode, #164): the next is the shuffle's successor, not pos + 1, and

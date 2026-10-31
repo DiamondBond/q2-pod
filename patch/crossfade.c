@@ -25,7 +25,7 @@
 #define RS_DEFAULT 30
 
 static struct {
-    int read, on, seconds, done, key[4];
+    int read, on, seconds, done, key[5];
     int ctx; /* the page's: 0 Crossfade, 1 Wheel sensitivity, 2 Resume Songs, 3 Night Shift */
     int sliding, unsaved, setting; /* a finger on the slider; a value it moved; refresh's own set */
     int rs_read, rs_min;
@@ -417,19 +417,22 @@ int xfade_key(void *top, unsigned key) {
 
 /* playback_poll, each UI pass: the next change's fade into XFADE_FILE, made whole under another
  * name first as the visualizer's tap is. A fade only when Crossfade and stock's Gapless are on and
- * the next track is another album's (album_cmp), so albums stay gapless. */
+ * the next track is another album's (album_cmp), so albums stay gapless; stock Shuffle's next (-2)
+ * is drawn at the change, so it counts as another album's. Its change is a cold start (stock
+ * preloads nothing in Shuffle), which the filter's tail waits out (XF_STALE_NS). */
 void xfade_poll(int next) {
     void *q = P(mcl_pdeqplaylist, 0);
     unsigned pos = (unsigned)I(MCL_POS, 0), n = q ? deque_size(q) : 0;
-    if (!xf.flag && (next < 0 || pos >= n)) return; /* nothing playing on: no config read yet */
+    if (!xf.flag && (next < -1 ? pos >= n : next < 0 || pos >= n)) return; /* nothing playing on: no config read yet */
     settings();
     if (xf.flag && *xf.flag) peq_chain(); /* the fade runs in the filter, once something plays */
     int in = next >= 0 && pos < n && (unsigned)next < n; /* records, not positions: a new queue */
-    int key[4] = { xf.on ? xf.seconds : 0, *(volatile unsigned char *)MCL_GAPLESS,
-                   in ? (int)deque_at(q, pos) : 0, in ? (int)deque_at(q, (unsigned)next) : 0 };
+    int key[5] = { xf.on ? xf.seconds : 0, *(volatile unsigned char *)MCL_GAPLESS,
+                   in ? (int)deque_at(q, pos) : 0, in ? (int)deque_at(q, (unsigned)next) : 0,
+                   next == -2 && pos < n };
     if (xf.done && !memcmp(key, xf.key, sizeof key)) return;
     memcpy(xf.key, key, sizeof key);
-    int ms = key[0] && key[1] && key[2] != key[3] && album_cmp((void *)key[2], (void *)key[3])
+    int ms = key[0] && key[1] && (key[4] || (key[2] != key[3] && album_cmp((void *)key[2], (void *)key[3])))
                  ? key[0] * 1000
                  : 0;
     xf.done = 0; /* until the player is told: a file that cannot be made yet is tried next pass */

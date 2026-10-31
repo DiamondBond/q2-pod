@@ -209,7 +209,7 @@ int album_cmp(void *a, void *b);
 void peq_attach(void); /* peq_ui.c */
 void peq_boot(void); /* clear a previous session's Simple EQ comparison before restoring playback */
 extern int peq_chained; /* peq_ui.c: peq_stock_eq ran this boot */
-void peq_chain(void);   /* crossfade.c: peq_attach once a boot, while playing */
+void peq_chain(void);   /* crossfade.c: peq_attach once a connect (ringnav_mode), while playing */
 int swap_on(void);
 int mono_on(void);      /* crossfade.c: Mono Audio's setting */
 #define NS_WARM 2000    /* nightshift.c: Night Shift's temperatures, K */
