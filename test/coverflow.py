@@ -1625,7 +1625,7 @@ def main():
         assert len(rows) == 1 and rows[0][3] in paths[3:]
         db.execute('delete from songtable where id >= 3')
         assert not db.execute(sql).fetchall()
-        db.execute("insert into songtable values (10,NULL,'Artist','/mnt/mmc/Music/untagged.mp3',NULL)")
+        db.execute("insert into songtable(id,album,songer,fileurl,albumsonger) values (10,NULL,'Artist','/mnt/mmc/Music/untagged.mp3',NULL)")
         assert db.execute(sql).fetchone()[:2] == (-1, 'Unknown Album')
         db.execute("update songtable set fileurl='/mnt/mmc/Audiobooks/untagged.mp3' where id=10")
         assert not db.execute(sql).fetchall()

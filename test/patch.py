@@ -4292,7 +4292,7 @@ class LibraryQueryMachine(Machine):
         super().__init__(); self.mock('strstr@GLIBC_2.0'); self.handlers.pop(syms['toolsQueryDbTable'])
         self.db=sqlite3.connect(':memory:')
         self.db.execute('create table songtable(id,album,songer,albumsonger,fileurl,track,cd_num)')
-        self.db.executemany('insert into songtable values(?,?,?,?,?)',[
+        self.db.executemany('insert into songtable(id,album,songer,albumsonger,fileurl) values(?,?,?,?,?)',[
             (1,'Shared','Shared','Shared','/mnt/mmc/Audiobooks/chapter.mp3'),
             (2,'Shared','Shared','Shared','/mnt/mmc/Music/track.flac'),
             (3,'Book','Narrator','Author','/mnt/mmc/elsewhere/BOOK.M4B'),
@@ -4332,7 +4332,7 @@ assert [r[0] for r in lm.results]==[2] and 'where '+ 'fileurl' in lm.sql
 passed()
 # Podcast paths are case insensitive and bounded by the top-level folder. Shared tags must use
 # the music row for artwork, and untagged episodes must not create Unknown Artist/Album rows.
-lm.db.executemany('insert into songtable values(?,?,?,?,?)',[
+lm.db.executemany('insert into songtable(id,album,songer,albumsonger,fileurl) values(?,?,?,?,?)',[
     (10,'Shared','Shared','Shared','/mnt/mmc/pOdCaStS/Show/episode.mp3'),
     (11,'','','','/mnt/mmc/PODCASTS/untagged.mp3'),
     (12,'Music','Singer','Singer','/mnt/mmc/Podcasts Extra/song.mp3'),
@@ -4391,7 +4391,7 @@ for loader,args in (('all_songs',(1,)),('songs_unsorted',(1,))):
 passed()
 # Album Artist: an album without the tag lists under its artist (stock's albumsonger queries), a
 # tagged one under its album artist; Coverflow's own grouping keeps the tag as it is.
-lm.db.executemany('insert into songtable values(?,?,?,?,?)',[(7,'Disintegration','The Cure','','/mnt/mmc/Music/D/CD1/1.flac'),
+lm.db.executemany('insert into songtable(id,album,songer,albumsonger,fileurl) values(?,?,?,?,?)',[(7,'Disintegration','The Cure','','/mnt/mmc/Music/D/CD1/1.flac'),
                   (8,'Wish','The Cure','The Cure','/mnt/mmc/Music/W/1.flac'),(9,'Guest','The Cure','Other','/mnt/mmc/Music/G/1.flac')])
 lm.word(payload_syms['library_music'],0)
 for query,want in (("select id,album,songer,fileurl,albumsonger from songtable where albumsonger like 'the cure' group by album COLLATE NOCASE",{7,8}),
@@ -4443,7 +4443,7 @@ qm=LibraryQueryMachine()
 qm.db.execute('delete from songtable')
 marker_paths=['Music/a.flac','Singles/a.flac','Singles/Keep/a.flac','Singles Extra/a.flac',
               'Needledrop/a.flac',"Odd ' %_/a.flac",'日本語/a.flac','Discovery/a.flac']
-qm.db.executemany('insert into songtable values(?,?,?,?,?)',
+qm.db.executemany('insert into songtable(id,album,songer,albumsonger,fileurl) values(?,?,?,?,?)',
     [(i,'Shared' if i in (0,1) else str(i),'Artist','Artist','/mnt/mmc/'+p) for i,p in enumerate(marker_paths)])
 qm.scope_tree={'/mnt/mmc':[('Singles',4),('Needledrop',4),("Odd ' %_",4),('日本語',4)],
     '/mnt/mmc/Singles':[('Keep',4)],'/mnt/mmc/Singles/Keep':[],
