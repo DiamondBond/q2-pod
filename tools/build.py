@@ -1438,6 +1438,8 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=True, rotator
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq', flac_experiments)
+    (out/'peq'/'hciplayer').write_bytes(raw_player)  # #156 A/B: stock hciplayer, none of tools/peq.py's patches
+    audio = dict(audio, sha256=sha(raw_player), stock_player=True)
     bluealsa = patch_bluealsa(cat(BLUEALSA))
     (out/'bluealsa').write_bytes(bluealsa)
     (out/'watchdog').write_bytes(cat(WATCHDOG).replace(*WATCHDOG_SLEEP))
