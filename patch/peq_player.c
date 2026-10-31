@@ -138,7 +138,7 @@ static void tap(const float *a, unsigned frames, int nch, int rate) {
 #define XF_FLOATS (6u << 18) /* ponytail: 6 MB; 15 s at 48 kHz stereo, 7.5 s at 96, 3.7 s at 192 */
 #define XF_SLACK (1u << 17)  /* room for one block past the held tail */
 #define XF_LEAD_S 2.0        /* the hold starts this much early, for the length's whole seconds */
-#define XF_STALE_NS 3000000000LL /* a tail not followed this soon (stop, pause) is dropped */
+#define XF_STALE_NS 3000000000LL /* a tail, or a mix, no other track takes on this soon (stop) is dropped */
 #define XF_SEEK_S 1.5        /* a position jump this large while holding is a seek */
 #ifdef PEQ_HOST
 extern double peq_pts;
@@ -159,6 +159,7 @@ static struct {
     unsigned head, len;           /* frames held from head */
     unsigned total, left;         /* the mix: its frames at the next track's rate, and those still to go */
     double pos, step;             /* its read position in the held frames, and held frames per frame out */
+    int out, mixer;               /* the mix's output rate, and the instance that mixed last */
     int rate, nch, owner, length; /* the holder's format, instance and length when it began */
     long long last;               /* now_ns of the holder's last block */
     double pts;                   /* its position then */
@@ -211,11 +212,15 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
     if (xf.len && (xf.total || !mine || restart)) {
         /* The mix begins on the first block after the hold: a tail not followed within XF_STALE_NS
          * (a stop) is dropped; another rate plays it through linear interpolation (step held frames
-         * an output frame), a fading tail, so that is enough. A pause mid-mix only waits. ponytail:
-         * another channel count drops it, mid-mix too (the ring is read with nch). */
-        if (!xf.total) {
+         * an output frame), a fading tail, so that is enough. Mid-mix, its track's pause only waits;
+         * a track at another rate, or one more than XF_STALE_NS on (a stop, then another play),
+         * drops what is left. ponytail: a skip mid-mix to a track at its rate fades the rest under
+         * that one; another channel count drops it, mid-mix too (the ring is read with nch). */
+        if (xf.total && (rate != xf.out || (s->id != xf.mixer && now - xf.last > XF_STALE_NS)))
+            xf.len = xf.total = 0;
+        else if (!xf.total) {
             if (now - xf.last <= XF_STALE_NS) {
-                xf.step = (double)xf.rate / rate, xf.pos = 0;
+                xf.step = (double)xf.rate / rate, xf.pos = 0, xf.out = rate;
                 xf.total = xf.left = (unsigned)(xf.len / xf.step);
             }
             if (!xf.total) xf.len = 0;
@@ -239,7 +244,7 @@ static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, i
                 out = out * cd - in * sd, in = t;
             }
             if (!(xf.left -= n)) xf.len = xf.total = 0;
-            xf.last = now;
+            xf.last = now, xf.mixer = s->id;
             return frames;
         }
     }

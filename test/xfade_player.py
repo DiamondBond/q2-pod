@@ -163,13 +163,41 @@ mix(48000, held, out, seconds=16, block_frames=333)
 # The next track at another rate: the 48 kHz tail plays over 44100 frames at 44.1 kHz, interpolated.
 out, held = hold(48000, 10, 1000, 0)
 mix(44100, 44100, out, step=48000 / 44100)
+def alone(rate):
+    """The next track with nothing under it: its first block whole."""
+    af = track(rate)
+    k, got = block(af, 1024, 0, 0.0, rate)
+    assert k == 1024 and got[0] == (0.0, 0.0) and got[1023] == (1023.0, 0.0), (got[0], got[1023])
+    uninit(af)
 # A tail not followed within 3 s (a stop) is dropped: the next track plays alone.
 out, held = hold(48000, 10, 1000, 0)
 clock[0] += 4 * 10**9
-af = track(48000)
-k, got = block(af, 1024, 0, 0.0, 48000)
-assert k == 1024 and got[0] == (0.0, 0.0) and got[1023] == (1023.0, 0.0)
-uninit(af)
+alone(48000)
+# One followed within 3 s (stock Shuffle's cold start) still mixes.
+out, held = hold(48000, 10, 1000, 0)
+clock[0] += 2 * 10**9
+mix(48000, held, out)
+# Mid-mix, a 48 kHz tail under a 44.1 kHz track: its own track paused past 3 s mixes on where it
+# was, and so does a skip to another track at that rate; a skip to another rate (48 kHz, the
+# tail's own), or a stop and another track 4 s on, drops what is left.
+def mixing(af, m):
+    k, got = block(af, 1024, m, 0.0, 44100)
+    assert k == 1024 and abs(got[0][1] - math.cos((m + 0.5) / 44100 * 1.5707963)) < 1e-4, (m, got[0])
+for then in ('rate', 'stop', 'skip'):
+    hold(48000, 10, 1000, 0)
+    af = track(44100)
+    w(flag, 0)
+    mixing(af, 0)
+    clock[0] += 4 * 10**9  # a pause
+    mixing(af, 1024)
+    uninit(af)
+    if then == 'skip':
+        af = track(44100)
+        mixing(af, 2048)
+        uninit(af)
+    else:
+        clock[0] += 4 * 10**9 * (then == 'stop')
+        alone(44100 if then == 'stop' else 48000)
 # Another channel count drops it too.
 out, held = hold(48000, 10, 1000, 0)
 af, data = alloc(48), alloc(24)
@@ -190,4 +218,5 @@ for n in range(0, 10 * 48000, 1024):
     assert k == 1024 and got[0] == (float(n), 1.0)
 uninit(af)
 print('Player crossfade (MIPS build): the hold window, half-rate emission in order, the equal-power '
-      'mix at the same and another rate, the stale and mono drops and whole blocks with no fade passed.')
+      'mix at the same and another rate, after a cold start, through a pause and a skip, the stale, mid-mix and mono '
+      'drops and whole blocks with no fade passed.')
