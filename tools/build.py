@@ -249,6 +249,8 @@ BT_SILENCE, BT_SILENCE_SAMPLES = 0x450400, 192000
 BT_SILENCE_SITES = ((0x41465c, 0x8e460030, 'j', 'timeout'), (0x414684, 0x00002825, 'j', 'fill'),
                     (0x414688, 0x0c10c2b0, None, 0x00002825), (0x414754, 0x0c105053, 'jal', 'read'),
                     (0x42d09c, 0x0041463c, None, 0x004147a0))
+# LDAC loop: the over-50 ms packet's bnez becomes b, so a stall is caught up (#156); see docs/internals.md#bluetooth-ldac-catch-up.
+BT_LDAC_CATCHUP = (0x41aa24, 0x1440ff7c, None, 0x1000ff7c)
 # platform_init's crash watchdog forks pgrep every 2 s; 10 s is still quick to reboot a dead UI.
 WATCHDOG = 'usr/bin/checkappprocess.sh'
 WATCHDOG_SLEEP = (b'\tsleep 2\n', b'\tsleep 10\n')
@@ -1301,8 +1303,8 @@ def patch_bluealsa(raw):
                      j(BT_DROP_PAYLOAD), 0)
     # Never flush the new track's FIFO from this asynchronously handled signal.
     struct.pack_into('<2I', image, fileoff(raw, BT_DROP_HANDLER), j(reset), 0)
-    for address, old, op, target in BT_SILENCE_SITES:
-        check(struct.unpack_from('<I', raw, fileoff(raw, address))[0] == old, 'Bluetooth silence site mismatch')
+    for address, old, op, target in (*BT_SILENCE_SITES, BT_LDAC_CATCHUP):
+        check(struct.unpack_from('<I', raw, fileoff(raw, address))[0] == old, f'Bluetooth site {address:#x} mismatch')
         new = {'j': j, 'jal': jal}[op](sym[target]) if op else target
         struct.pack_into('<I', image, fileoff(raw, address), new)
     return bytes(image)

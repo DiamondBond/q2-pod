@@ -266,16 +266,19 @@ def validate_assets(directory):
     assert read('rootfs.squashfs', S90PLAY) == expected_start
     assert read('rootfs.squashfs', S11LOGO) == read('stock.squashfs', S11LOGO).replace(*LOGO_HOOK)  # the card's logo, if saved
     assert read('rootfs.squashfs', BLUEALSA2) == read('stock.squashfs', BLUEALSA2).replace(*BT_KEEPALIVE)  # keep-alive 5 s, nice -20
-    # bluealsa: AAC capability, the two DROP jumps, the silence sites, and one appended LOAD payload.
-    from build import BT_DROP, BT_DROP_HANDLER, BT_DROP_PAYLOAD, BT_SILENCE_SITES, patch_bluealsa, segments
+    # bluealsa: AAC capability, the two DROP jumps, the silence sites, LDAC's catch-up, and one appended LOAD payload.
+    from build import BT_DROP, BT_DROP_HANDLER, BT_DROP_PAYLOAD, BT_SILENCE_SITES, BT_LDAC_CATCHUP, patch_bluealsa, segments
     old, new = read('stock.squashfs', BLUEALSA), read('rootfs.squashfs', BLUEALSA)
     header = segments(old)[-1][0]
     allowed = {AAC_44K1, *range(header, header+32)}
-    for address, size in ((BT_DROP, 8), (BT_DROP_HANDLER, 8), *((a, 4) for a, *_ in BT_SILENCE_SITES)):
+    for address, size in ((BT_DROP, 8), (BT_DROP_HANDLER, 8), *((a, 4) for a, *_ in (*BT_SILENCE_SITES, BT_LDAC_CATCHUP))):
         off = fileoff(old, address)
         allowed.update(range(off, off+size))
     assert {i for i in range(len(old)) if old[i] != new[i]} <= allowed
     assert new == patch_bluealsa(old)
+    site, _, _, word = BT_LDAC_CATCHUP  # b 0x41a818: beq $zero, $zero, the stock bnez's offset
+    assert word >> 16 == 0x1000 and (word & 0xffff) == ((0x41a818 - site - 4) >> 2) & 0xffff
+    assert int.from_bytes(new[fileoff(old, site):fileoff(old, site)+4], 'little') == word
     assert segments(new)[-1][1][2] == BT_DROP_PAYLOAD
     assert new[AAC_44K1] == 0 and manifest['bluealsa_sha256'] == sha(new)
     from bluealsa import check as check_bluetooth_drop
