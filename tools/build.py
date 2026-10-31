@@ -226,7 +226,7 @@ BLUEALSA = 'usr/bin/bluealsa'
 # Its launcher: keep the A2DP transport open 5 s after hciplayer closes the PCM between songs, so
 # a track change doesn't restart the stream (true-wireless buds started one ear first).
 BLUEALSA2 = 'usr/bin/bluealsa2'
-BT_KEEPALIVE = (b'bluealsa -c LDAC', b'bluealsa --keep-alive=5 -c LDAC')
+BT_KEEPALIVE = (b'bluealsa -c LDAC', b'nice -n -20 bluealsa --keep-alive=5 -c LDAC')  # keep-alive, and LDAC's encoder ahead of the UI (#156)
 SCROBBLE_CA = 'etc/scrobble-ca.pem'
 AAC_44K1 = 0x317b8
 # DROP is acknowledged before the encoder handles its signal. Flush in the control

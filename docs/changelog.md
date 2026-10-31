@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.6.0**:
+  - Bluetooth: over LDAC, gapless songs play straight through, in every LDAC quality ([#156](https://github.com/DiamondBond/q2-pod/issues/156)). The Q2's LDAC encoder works in 40 ms steps and gave up on a step that ran late, which left the headset short of audio for as long as the step was late: a short silence at a song change, worse in HQ, whenever the screen's work for the new song slowed it. The encoder now runs ahead of the screen, as the player already did.
   - Display: **Night Shift**, the last row of **System settings → Display**, makes the screen warmer for use at night, from 5000K to 2000K (3400K at first). The switch or Centre turns it on, to Auto and off; Auto warms the screen from 19:00 to 7:00, the hours Light Mode's Auto is dark. Turn the wheel or drag the slider right for warmer. Videos keep their own colours.
   - App Store: **Podcasts** subscribes to shows by their feeds, or finds them in Apple's podcast directory, and downloads their episodes over Wi-Fi, which play from where you stopped.
   - Card apps: songs a card app plays show their title, artist and album in Now Playing, read from their tags. They showed the file name and an unknown artist before.
