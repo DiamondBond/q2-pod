@@ -4291,7 +4291,7 @@ class LibraryQueryMachine(Machine):
     def __init__(self):
         super().__init__(); self.mock('strstr@GLIBC_2.0'); self.handlers.pop(syms['toolsQueryDbTable'])
         self.db=sqlite3.connect(':memory:')
-        self.db.execute('create table songtable(id,album,songer,albumsonger,fileurl)')
+        self.db.execute('create table songtable(id,album,songer,albumsonger,fileurl,track,cd_num)')
         self.db.executemany('insert into songtable values(?,?,?,?,?)',[
             (1,'Shared','Shared','Shared','/mnt/mmc/Audiobooks/chapter.mp3'),
             (2,'Shared','Shared','Shared','/mnt/mmc/Music/track.flac'),
@@ -6887,7 +6887,7 @@ class EraMachine(PlaylistEditMachine):
     def __init__(self,songs=()):
         super().__init__()
         self.mock('strstr@GLIBC_2.0')
-        self.db.execute('create table songtable(id integer primary key,album,songer,albumsonger,fileurl,year)')
+        self.db.execute('create table songtable(id integer primary key,album,songer,albumsonger,fileurl,year,track,cd_num)')
         self.db.executemany('insert into songtable(album,songer,albumsonger,fileurl,year) values(?,?,?,?,?)',songs)
     def open_era(self):
         self.call(address=payload_syms['era_menu'],args=(0,self.event,0,0),gap=0); self.page=self.top

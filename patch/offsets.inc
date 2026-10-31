@@ -512,6 +512,11 @@ static inline int arc_out(int r, int y) {
 /* Tags may store a full date (20220510 or 2022-05-10); compare the year before aggregating. */
 #define ALBUM_YEAR "max(case when cast(year as text) glob '[1-9][0-9][0-9][0-9]*' then cast(substr(year,1,4) as integer) else 0 end)"
 /* One row per album, as album_cmp tells them apart (coverflow.c; navigation.c's Era). */
+/* An album group's art track: its lowest disc then track then path, as Coverflow lists it. A bare
+ * fileurl would be whichever row SQLite saw last, so an album whose tracks carry different covers
+ * showed a random one. */
+#define ALBUM_TRACK \
+    "substr(min(substr(10000+ifnull(cd_num,0),2)||substr(10000+ifnull(track,0),2)||fileurl),9)"
 #define ALBUM_GROUP " group by album COLLATE NOCASE," \
     "ifnull(albumsonger,'') COLLATE NOCASE,case ifnull(albumsonger,'') when '' then rtrim(fileurl,replace(fileurl,'/','')) end"
 #define CLASS_ARTIST_ALBUMS 0xff01 /* an artist's albums (load_localclass_list 0xff11) */

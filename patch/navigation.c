@@ -7022,7 +7022,7 @@ static int ratings_menu(void *ctx, void *event) {
 #define ERA_DECADES 32
 #define ERA_ALBUMS                                                                                 \
     "select album,ifnull(nullif(albumsonger,''),songer)," ALBUM_YEAR                               \
-    " as release_year,fileurl from songtable "                                                     \
+    " as release_year," ALBUM_TRACK " from songtable "                                             \
     "where " MUSIC_WHERE " and ifnull(album,'')<>''" ALBUM_GROUP
 typedef struct {
     char *album, *artist, *path;

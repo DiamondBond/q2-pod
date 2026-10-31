@@ -448,10 +448,10 @@ static const unsigned char rated_sorts[] = { SORT_RATING, SORT_ALBUM, SORT_ARTIS
 /* The library's Sort: Year after Artist; saved values are the enum's. */
 static const unsigned char all_sorts[] = { SORT_ALBUM, SORT_ARTIST, SORT_YEAR,
                                            SORT_ADDED, SORT_PLAYED, SORT_RANDOM };
-#define ALBUM_SQL "select id,album,songer,fileurl,albumsonger from songtable" ALBUM_GROUP
+#define ALBUM_SQL "select id,album,songer," ALBUM_TRACK ",albumsonger from songtable" ALBUM_GROUP
 #define MUSIC_ALBUM_SQL "select case when ifnull(album,'')='' then -1 else id end," \
     "case when ifnull(album,'')='' then 'Unknown Album' else album end," \
-    "songer,fileurl,albumsonger from songtable where " \
+    "songer," ALBUM_TRACK ",albumsonger from songtable where " \
     MUSIC_WHERE ALBUM_GROUP
 #define SORT_SQL ALBUM_SQL " order by "
 extern int ringnav_year_old(void);

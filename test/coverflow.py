@@ -1611,15 +1611,15 @@ def main():
     # Marker expansion is executed against real SQLite by test/library_scope.py and the MIPS
     # wrapper tests. These base predicates also apply when no directories have markers.
     music_where = macro('MUSIC_WHERE') + '1'
-    sql = macro('MUSIC_ALBUM_SQL') + music_where + macro('ALBUM_GROUP')
+    sql = macro('MUSIC_ALBUM_SQL').replace(',,', ',' + macro('ALBUM_TRACK') + ',') + music_where + macro('ALBUM_GROUP')
     with sqlite3.connect(':memory:') as db:
-        db.execute('create table songtable(id,album,songer,fileurl,albumsonger)')
+        db.execute('create table songtable(id,album,songer,fileurl,albumsonger,track,cd_num)')
         paths = ['/mnt/mmc/Audiobooks/Book/01.mp3', '/mnt/mmc/aUdIoBoOkS/02.flac',
                  '/mnt/mmc/Music/book.M4B', '/mnt/mmc/Music/song.flac',
                  '/mnt/mmc/Audiobooks Extra/song.mp3', '/mnt/mmc/Music/book.m4b.mp3',
                  '/mnt/mmc/Podcasts/Show/episode.mp3', '/mnt/mmc/pOdCaStS/untagged.mp3',
                  '/mnt/mmc/Podcasts Extra/song.mp3', '/mnt/mmc/Music/Podcasts/song.mp3']
-        db.executemany('insert into songtable values (?,"Shared","Artist",?,"Artist")', enumerate(paths))
+        db.executemany('insert into songtable values (?,"Shared","Artist",?,"Artist",1,1)', enumerate(paths))
         assert {r[0] for r in db.execute('select id from songtable where '+music_where)} == {3,4,5,8,9}
         rows = db.execute(sql).fetchall()
         assert len(rows) == 1 and rows[0][3] in paths[3:]
