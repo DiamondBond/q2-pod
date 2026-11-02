@@ -13668,6 +13668,22 @@ for owner in (1,2,3,4):
     m=HeadsetMachine(owner); m.command(163); m.command(163,gap=1); assert len(m.actions)==1
     m.command(165); assert len(m.actions)==2 and all(a[0]==owner for a in m.actions)
     passed()
+# USB headset remote: Play/Pause presses grouped by event time (1 toggles, 2 next, 3 previous at
+# once), its own next/previous straight through, volume steps with held repeats paced.
+m=HeadsetMachine(); m.byte(syms['g_volume'],20); m.byte(syms['g_maxvolume'],100)
+def usb(code,ms,value=1): m.call(address=payload_syms['headset_usb_key'],args=(code,value,ms,0),gap=0)
+usb(164,0); usb(164,0,0); usb(164,200); usb(164,350); assert m.actions==[(1,'local_prev')],m.actions
+usb(164,1000); usb(164,1200); assert len(m.actions)==1
+usb(164,2000); assert m.actions[-1]==(1,'local_next') and len(m.actions)==2  # a late press starts a new count
+m.fn('headset_poll',gap=300); assert len(m.actions)==2
+m.fn('headset_poll',gap=200); assert m.actions[-1]==(1,'pause')  # one press, after the window
+usb(163,3000); assert m.actions[-1]==(1,'local_next') and len(m.actions)==4
+def vol(): return m.u.mem_read(syms['g_volume'],1)[0]
+usb(115,5000); usb(115,5050,2); assert vol()==24
+usb(115,5200,2); assert vol()==28
+usb(115,5300,0); usb(114,5310); assert vol()==24
+m.byte(syms['g_maxvolume'],26); usb(115,6000); usb(115,6200); assert vol()==26
+passed()
 m=HeadsetMachine(); good=bytes([4,0,4,0,6,0,0,2])
 for packet in (b'',good[:7],good+b'\0',bytes([4,0,4,0,6,0,3,0]),bytes([4,1,4,0,6,0,0,0])):
     p=m.alloc(max(1,len(packet))); m.u.mem_write(p,packet)

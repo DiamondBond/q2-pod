@@ -342,10 +342,86 @@ void headset_command(int code) {
         if (!hs.known || hs.ears) media_set_playing(1);
     }
 }
+/* A USB headset's remote (Apple's USB-C EarPods and most wired USB-C remotes) sends one HID
+ * Play/Pause a press and leaves the count to the host, as phones take it: 1 plays or pauses, 2 is
+ * next, 3 previous. Next and previous keys a remote sends itself go straight through; volume steps
+ * USB_VOLUME_STEP, held at most every USB_REPEAT_MS. Read on the UI loop: the fd never blocks.
+ * Presses are grouped by their event times, so a pass read late (dark, up to 250 ms) still counts.
+ * ponytail: the first USB input node with media keys only; a remote split across nodes loses the
+ * other's keys. */
+#define USB_TAP_MS 400
+#define USB_VOLUME_STEP 4
+#define USB_REPEAT_MS 150
+static struct {
+    int fd; /* + 1, 0 for none */
+    unsigned scanned, taps, tap_ev, tap_at, vol_ev;
+} usb __attribute__((section(".scratch")));
+static int usb_open(void) {
+    char path[32];
+    for (int i = 0; i < 32; ++i) {
+        snprintf(path, sizeof path, "/dev/input/event%d", i);
+        int fd = open(path, 0x80080); /* O_RDONLY | O_NONBLOCK | O_CLOEXEC, MIPS */
+        if (fd < 0) continue;
+        unsigned short id[4] = { 0 };
+        unsigned char keys[32] = { 0 };
+        /* EVIOCGID: BUS_USB; EVIOCGBIT(EV_KEY, 32): Play/Pause or Volume Up */
+        if (ioctl(fd, 0x40084502u, id) >= 0 && id[0] == 3 && ioctl(fd, 0x40204521u, keys) > 0 &&
+            (keys[164 / 8] >> 164 % 8 & 1 || keys[115 / 8] >> 115 % 8 & 1))
+            return fd;
+        close(fd);
+    }
+    return -1;
+}
+static void usb_taps(void) {
+    if (usb.taps) media_key(usb.taps == 1 ? KEY_PLAY : usb.taps == 2 ? KEY_FWD_BTN : KEY_BACK_BTN);
+    usb.taps = 0;
+}
+void headset_usb_key(unsigned code, int value, unsigned ms) {
+    if (code == 115 || code == 114) { /* KEY_VOLUMEUP, KEY_VOLUMEDOWN; a hold repeats */
+        if (value == 2 && ms - usb.vol_ev < USB_REPEAT_MS) return;
+        if (value) volume_step(code == 115 ? USB_VOLUME_STEP : -USB_VOLUME_STEP);
+        usb.vol_ev = ms;
+        return;
+    }
+    if (value != 1) return;
+    if (code == 164 || code == 226) { /* KEY_PLAYPAUSE, KEY_MEDIA */
+        if (usb.taps && ms - usb.tap_ev >= USB_TAP_MS) usb_taps();
+        usb.tap_ev = ms;
+        usb.tap_at = time_now_ms();
+        if (++usb.taps == 3) usb_taps();
+    } else if (code == 163 || code == 165) { /* KEY_NEXTSONG, KEY_PREVIOUSSONG */
+        usb_taps();
+        media_key(code == 163 ? KEY_FWD_BTN : KEY_BACK_BTN);
+    }
+}
+static void usb_poll(unsigned now) {
+    if (usb.taps && now - usb.tap_at >= USB_TAP_MS) usb_taps();
+    if (!usb.fd) {
+        if (mclGetOutputWay() != 2 || now - usb.scanned < 2000) return;
+        usb.scanned = now;
+        usb.fd = usb_open() + 1;
+        if (!usb.fd) return;
+    }
+    struct {
+        unsigned sec, usec;
+        unsigned short type, code;
+        int value;
+    } ev[8];
+    int n = read(usb.fd - 1, ev, sizeof ev);
+    unsigned short id[4];
+    if (n < 0 && ioctl(usb.fd - 1, 0x40084502u, id) < 0) { /* unplugged: ENODEV, not EAGAIN */
+        close(usb.fd - 1);
+        usb.fd = 0;
+    }
+    for (int i = 0; i < n / (int)sizeof ev[0]; ++i)
+        if (ev[i].type == 1)
+            headset_usb_key(ev[i].code, ev[i].value, ev[i].sec * 1000 + ev[i].usec / 1000);
+}
 void headset_poll(void) {
     unsigned now = time_now_ms();
     if (now - hs.checked < 100) return;
     hs.checked = now;
+    usb_poll(now);
     int on = g_bluetoothflag && bt_linkstatus && !bt__recv_pageflag;
     if (on != hs.linked) {
         ++hs.generation;

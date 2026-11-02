@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.6.3**:
+  - USB DAC: the buttons on a USB-C headset, such as Apple's USB-C EarPods, control playback: press once to play or pause, twice for the next song, three times for the previous one, and + and − change the volume ([#176](https://github.com/DiamondBond/q2-pod/issues/176)).
+
 - **1.6.2**:
   - Games: games from the App Store appear in **Library → Games** after Snake and play over the whole screen, by touch and the wheel. **Play/Pause** and **Previous/Next** keep controlling the music, and holding **Return** closes one. A game closes after two minutes untouched, unless **Smart Awake** is on, which keeps it open and the screen lit.
   - System: the three kernel driver changes from 1.5.0 (the rotator's lazy clock, the backlight PWM clock gating with the buzzer MCU parked, and the paused-audio notifier's sleep) are no longer in the firmware. No battery saving was ever measured for them, none of them handles the Q2's Standby suspend and resume, and they are the only Shanling driver files Q2 Pod changed, so a Q2 that goes dark and ignores every button until a 15-second Centre hold is one place simpler to explain. Developers can still build them with `--dev` and their flags.

@@ -9593,6 +9593,21 @@ static void bt_volume_poll(void) {
     }
 }
 
+/* A volume step from the wheel on Now Playing or a USB headset's buttons, within g_maxvolume;
+ * stock's volume dialog, if open, follows it. */
+void volume_step(int delta) {
+    int value = g_volume + delta, limit = g_maxvolume < 100 ? g_maxvolume : 100;
+    if (value < 0) value = 0;
+    if (value > limit) value = limit;
+    if (value == g_volume) return;
+    g_volume = (unsigned char)value;
+    device_set_volume(value, 1);
+    write_int_config(value, "PLAYSET", "VOLUME");
+    void *top = vol_top();
+    void *slider = top ? widget_lookup(top, "slider_vol", 1) : 0;
+    if (slider) widget_set_prop_int(slider, "value", value);
+}
+
 /* main_loop_sleep_default paces the UI loop at 8 ms (125 Hz), screen on or off. With the backlight
  * off it first idles SCREEN_OFF_SLEEP_MS (DARK_IDLE_SLEEP_MS once nothing plays and the DAC is
  * off, unless Wake's second press may be coming); stock then finds its 8 ms gone, sleeps 0 and
@@ -9849,15 +9864,7 @@ int ringnav_input(void *wm, void *e) {
         drop_input();
         st.held = 0; /* Queued list ticks never become volume ticks. */
         reset_poweroptions_timer(1, 1, 1);
-        int value = g_volume + (key == KEY_NEXT ? 1 : -1);
-        if (value < 0) value = 0;
-        if (value > g_maxvolume) value = g_maxvolume;
-        if (value > 100) value = 100;
-        if (value != g_volume) {
-            g_volume = value;
-            device_set_volume(value, 1);
-            write_int_config(value, "PLAYSET", "VOLUME");
-        }
+        volume_step(key == KEY_NEXT ? 1 : -1);
         return 0;
     }
     if ((type != EVT_KEY_DOWN && type != EVT_KEY_UP) || !remote_key(e))
