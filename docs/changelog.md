@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.7.4**:
+  - Network Update: pressing Cancel just as a download finishes, while the card takes its last bytes, now says **Download cancelled** rather than **Can't write to the card**.
   - Now Playing: under **Theme: Classic** the hearts picker has a plain background in Light Mode instead of a gradient.
   - Library: in **Scan Folders**, tapping a folder that has no folders inside ticks it. It used to say **Folder not found**.
   - Scrobbling: a line of the scrobble log with a damaged time no longer stops every upload until it is edited out. It is left out, as other unreadable lines are.
