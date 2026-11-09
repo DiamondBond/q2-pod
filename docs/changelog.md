@@ -10,6 +10,7 @@
   - Library: **Update Local Music** no longer sometimes skips the update without a word and keeps the old library. That could happen when it started while the songs were still being counted, more often the bigger the library.
   - Library: on a large library, opening an album, **Go to Album**, **Recently Added**, deleting songs and **Scan specified folders** are much faster, and Era's **Play All** no longer risks restarting the Q2 on a decade of many albums. They speed up after the next **Update Local Music** or **Scan specified folders**.
   - Cover Flow: when an album's artwork restarted the Q2 while Cover Flow was preparing artwork, the next Cover Flow open adds that album's file to `q2-crash.log` on the card, under **cover flow skipped**.
+  - Streaming: in **Internet Radio**, a favourite whose address is a `file://` path with an `=` in its name is listed. It was taken for a `.pls` entry and left out.
 
 - **1.7.3**:
   - Standby: waking from Standby no longer shows TF card removed and inserted messages.

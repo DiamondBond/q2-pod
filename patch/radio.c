@@ -49,7 +49,8 @@ int playlist(char *buf, unsigned *name, unsigned *url, int max) {
         next = line(s);
         while (*s == ' ' || *s == '\t') ++s;
         char *v = strstr(s, "="), *comma = strstr(s, ",");
-        int file = v && !strncasecmp(s, "File", 4);
+        int file = v && !strncasecmp(s, "File", 4) && v > s + 4; /* FileN=: digits, then the = */
+        for (const char *d = s + 4; file && d < v; ++d) file = *d >= '0' && *d <= '9';
         if (!strncasecmp(s, "#EXTINF:", 8))
             named = comma && comma[1] ? (unsigned)(comma + 1 - buf) + 1 : 0;
         else if (n < max && *s != '#' && !(v && !strncasecmp(s, "Title", 5)) &&
