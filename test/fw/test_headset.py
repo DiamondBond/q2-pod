@@ -1305,8 +1305,6 @@ def test_a_pass_reads_64_reports_the_last_included(fw):
     assert Kernel(fw, packets=[OTHER] * 63 + [EAR]).run().report == 4 | 3
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: a pass that drains 64 reports reads a 65th into its buffer, then leaves '
-                                       'it unparsed: the ear report is lost, not left for the next pass')
 def test_a_65th_report_is_left_for_the_next_pass(fw):
     assert Kernel(fw, packets=[OTHER] * 64 + [EAR]).run().report == 4 | 3
 

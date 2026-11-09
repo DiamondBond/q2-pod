@@ -225,8 +225,9 @@ static void *headset_worker(void *arg) {
             if (n <= 0) close(aap), aap = -1;
             /* Drain the queue: AirPods stream other reports too, and one packet a pass fell
              * behind, delaying ear reports. */
-            for (int i = 0; n > 0 && i < 64 && generation == hs.generation; ++i) {
+            for (int i = 0; n > 0 && generation == hs.generation; ++i) {
                 ringnav_aap_parse(packet, n);
+                if (i == 63) break; /* 64 a pass: a 65th waits for the next select, unread */
                 n = recv(aap, packet, sizeof packet, 0x40);
             }
         }
