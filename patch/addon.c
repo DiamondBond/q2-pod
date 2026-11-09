@@ -1713,9 +1713,10 @@ static int go(const void *unused) {
             action(uri, ctx);
         else if (!strcmp(kind, "remote"))
             qr_open(app()->state, app()->name);
-        else if (!strcmp(kind, "local")) /* a song, or a folder of them, on the card */
-            songs_open(uri, cell(i, 2), !strcmp(ctx, "album"));
-        else if (!strcmp(kind, "search"))
+        else if (!strcmp(kind, "local")) { /* a song, or a folder of them, on the card alone */
+            if (tk_str_start_with(uri, CARD "/") && !dotdot(uri))
+                songs_open(uri, cell(i, 2), !strcmp(ctx, "album"));
+        } else if (!strcmp(kind, "search"))
             search_box();
     }
     return 0;
