@@ -707,12 +707,12 @@ class Net:
 
 
 LATEST = b'https://github.com/owner/repo/releases/latest'
-ASSET = LATEST + b'/download/update.tar'
+DOWNLOAD = b'https://github.com/owner/repo/releases/download/'  # + the tag just checked + /update.tar
 PART = b'/mnt/mmc/update.tar.part'
 
 
 def update(fw, code=302, location=b'https://github.com/owner/repo/releases/tag/' + NEWER, asset=(0, 200, None), card=None):
-    net = Net(fw, {ASSET: asset, LATEST: (0, code, location)})
+    net = Net(fw, {DOWNLOAD: asset, LATEST: (0, code, location)})
     card = card or Card(fw)
     nu = fw.var('netupdate__nu', Nu)
     fw.fn('netupdate__worker', C.c_void_p, C.c_void_p)(None)
@@ -721,7 +721,8 @@ def update(fw, code=302, location=b'https://github.com/owner/repo/releases/tag/'
 
 def test_a_newer_tag_downloads_and_renames_once_whole(fw):
     state, net, card = update(fw)
-    assert state == NU_DONE and net.urls == [LATEST, ASSET]
+    # the asset by the tag just checked, not "latest" resolved a second time
+    assert state == NU_DONE and net.urls == [LATEST, DOWNLOAD + NEWER + b'/update.tar']
     assert card.of('rename') == [(PART, b'/mnt/mmc/update.tar')]
 
 

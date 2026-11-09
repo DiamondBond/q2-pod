@@ -316,6 +316,7 @@ void shelf_remove(int i) {
 #include "stock.h"
 
 #define NU_REPO "https://github.com/" Q2POD_REPO "/releases/latest" /* tools/build.py --update-repo */
+#define NU_DOWNLOAD "https://github.com/" Q2POD_REPO "/releases/download/" /* + the checked tag + "/" NU_ASSET */
 #define NU_ASSET "update.tar"
 #define NU_FILE "/mnt/mmc/update.tar"
 #define NU_CA "/etc/scrobble-ca.pem" /* scrobble.c's; github.com's and its asset host's roots */
@@ -381,7 +382,7 @@ static int fetch(const char *url, void *file, char *tag, unsigned n, long *code,
 }
 
 static void *worker(void *unused) {
-    char tag[64] = "";
+    char tag[64] = "", url[sizeof NU_DOWNLOAD + sizeof tag + sizeof NU_ASSET];
     long code = 0;
     if (fetch(NU_REPO, 0, tag, sizeof tag, &code, &nu.cancel) || code != 302 || !*tag) {
         nu.state = NU_NET;
@@ -393,16 +394,19 @@ static void *worker(void *unused) {
         nu.state = NU_LATEST;
         return 0;
     }
-    /* The old update.tar stays until the new one is whole. ponytail: needs the tar's ~55 MB free
-     * beside it; TLS and curl's length check are the only integrity checks before stock's own MD5s. */
+    /* The asset by the tag just checked, so the bytes flashed are the ones the check approved: a
+     * release published between the two requests waits for the next check. The old update.tar
+     * stays until the new one is whole. ponytail: needs the tar's ~55 MB free beside it; TLS and
+     * curl's length check are the only integrity checks before stock's own MD5s. */
     if (nu.cancel) { /* pressed while checking, or the page was left */
         nu.state = NU_CANCELLED;
         return 0;
     }
+    snprintf(url, sizeof url, NU_DOWNLOAD "%s/" NU_ASSET, tag);
     void *f = fopen(NU_FILE ".part", "wb");
     int err = !f, state = NU_CARD;
     if (f) {
-        err = fetch(NU_REPO "/download/" NU_ASSET, f, 0, 0, &code, &nu.cancel);
+        err = fetch(url, f, 0, 0, &code, &nu.cancel);
         state = nu.cancel ? NU_CANCELLED : err ? (ferror(f) ? NU_CARD : NU_NET) : code != 200 ? NU_MISSING : NU_CARD;
         err = err || code != 200 || fflush(f) || fsync(fileno(f)) || ferror(f);
         err = fclose(f) || err;
