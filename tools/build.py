@@ -259,14 +259,16 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
             mv -f $2.new $2 && sync && rm -f $1
         }}
         # The boot record (docs/boot.md#boot-record): how many boots in a row found a crash log, counted
-        # before the mover takes this one; the last boot's record to the card; then this boot's own, in the
-        # background, so a read that hangs holds nothing up
+        # first; it and the last boot's record go to the card from .last, renamed here, so a log still waiting
+        # for a card is not counted again and the mover's rm can't take one written meanwhile; then this boot's
+        # own, in the background, so a read that hangs holds nothing up
         b=/mnt/data/q2-boot.log
         n=$(cat /mnt/data/q2-restarts 2>/dev/null)
         case $n in ''|*[!0-9]*) n=0;; esac
         if [ -f $c ]; then n=$((n+1)); else n=0; fi
         echo $n > /mnt/data/q2-restarts
-        [ -f $c ] && tocard $c /mnt/mmc/q2-crash.log &
+        [ -f $c ] && mv -f $c $c.last
+        [ -f $c.last ] && tocard $c.last /mnt/mmc/q2-crash.log &
         [ -f $b ] && mv -f $b $b.last
         [ -f $b.last ] && tocard $b.last /mnt/mmc/q2-boot.log &
         (

@@ -114,17 +114,19 @@ def boot_check():
         # an abnormal end of demo leaves its status on /mnt/data, which the next boot copies to a mounted card;
         # 0, 143 and the Rockbox hand-over leave nothing
         crash, copy, mounts = r/'mnt/data/q2-crash.log', r/'mnt/mmc/q2-crash.log', r/'proc/mounts'
+        clast = crash.with_name('q2-crash.log.last')  # claimed for the card at the next boot, and waiting for one
         def logged(status, card, shortcut=0):
-            for f in (crash, copy): f.unlink(missing_ok=True)
+            for f in (crash, clast, copy): f.unlink(missing_ok=True)
             mounts.write_text(f'tmpfs /tmp tmpfs rw 0 0\n/dev/mmcblk0p1 {r}/mnt/mmc vfat rw 0 0\n' if card else '')
             boot(True, False, shortcut=shortcut, status=status)
-            return crash.exists() and crash.read_text(), copy.exists() and copy.read_text()
+            left = crash if crash.exists() else clast  # a crash's own, or the one a state record left, claimed at once
+            return left.exists() and left.read_text(), copy.exists() and copy.read_text()
         out, cp = logged(137, True)
         assert 'demo exit 137' in out and '== dmesg' in out and '== meminfo' in out and '== ps' in out and cp is False  # no card write while dying
         assert not crash.with_name('q2-crash.log.tmp').exists()  # written whole, then renamed
-        mounts.write_text(''); boot(True, False, status=0); assert not copy.exists() and crash.exists()  # no card: kept for a later boot
+        mounts.write_text(''); boot(True, False, status=0); assert not copy.exists() and not crash.exists() and clast.read_text() == out  # no card: waits as .last
         mounts.write_text(f'/dev/mmcblk0p1 {r}/mnt/mmc vfat rw 0 0\n'); boot(True, False, status=0)
-        assert copy.read_text() == out and not crash.exists()  # the next boot with a card moves it there
+        assert copy.read_text() == out and not crash.exists() and not clast.exists()  # the next boot with a card moves it there
         copy.write_text('kept'); boot(True, False, status=0); assert copy.read_text() == 'kept'  # and never brings it back
         # a crash before anyone reads the card keeps the one there as q2-crash.log.1, and that one as .2
         logs = copy, copy.with_name('q2-crash.log.1'), copy.with_name('q2-crash.log.2')
@@ -140,9 +142,9 @@ def boot_check():
         boot(True, False, status=0); assert card() == [fourth, third, second]  # nothing new: nothing moves
         # a full card: the copy fails, so nothing moves and the log stays on /mnt/data for the next boot
         fifth = crashed(140); exe('bin/cp', 'exit 1')
-        boot(True, False, status=0); assert card() == [fourth, third, second] and crash.read_text() == fifth
+        boot(True, False, status=0); assert card() == [fourth, third, second] and clast.read_text() == fifth
         (r/'bin/cp').unlink(); copy.with_name('q2-crash.log.new').unlink(missing_ok=True)
-        boot(True, False, status=0); assert card() == [fifth, fourth, third] and not crash.exists()
+        boot(True, False, status=0); assert card() == [fifth, fourth, third] and not clast.exists()
         for f in logs: f.unlink()
         out, cp = logged(139, False)
         assert 'demo exit 139' in out and cp is False
@@ -202,10 +204,10 @@ def boot_check():
         assert out.endswith(line + '== stall\n' + record) and '== cover flow' not in out and not stall.exists()
         stall.write_text('stale\n'); out, cp = logged(0, False)
         assert out is False and not stall.exists()  # no forced restart: dropped, not reported
-        for f in (crash, copy): f.unlink(missing_ok=True)
+        for f in (crash, clast, copy): f.unlink(missing_ok=True)
         crash.write_text('== demo exit 137\n'); state.write_text(line); boot(True, False, status=0)
-        assert crash.read_text().startswith('== demo exit 137\n== last state\n') and line in crash.read_text() and not state.exists()
-        for f in (crash, copy): f.unlink(missing_ok=True)
+        assert clast.read_text().startswith('== demo exit 137\n== last state\n') and line in clast.read_text() and not state.exists()
+        for f in (crash, clast, copy): f.unlink(missing_ok=True)
         # the wheel's stale-press notes (navigation.c stale_note): a release build leaves them alone, and a --dev one
         # takes them to the card, appended, on their own
         assert 'wheel' not in script
@@ -216,7 +218,7 @@ def boot_check():
         mounts.write_text(f'/dev/mmcblk0p1 {r}/mnt/mmc vfat rw 0 0\n'); wcopy.write_text('== wheel: earlier\n'); boot(True, False, status=0)
         assert wcopy.read_text() == '== wheel: earlier\n== wheel: one\n' and not wheel.exists() and not copy.exists()
         wheel.write_text('== wheel: two\n'); crash.write_text('== demo exit 137\n'); boot(True, False, status=0)
-        assert wcopy.read_text().endswith('== wheel: two\n') and copy.read_text() == '== demo exit 137\n' and not wheel.exists() and not crash.exists()
+        assert wcopy.read_text().endswith('== wheel: two\n') and copy.read_text() == '== demo exit 137\n' and not wheel.exists() and not crash.exists() and not clast.exists()
         wcopy.write_bytes(b'x' * 262144); wheel.write_text('== wheel: three\n'); boot(True, False, status=0)
         assert wcopy.stat().st_size == 262144 and not wheel.exists()  # the card's file stops growing
         wcopy.write_bytes(b'x' * 262143); wheel.write_text('== wheel: four\n'); boot(True, False, status=0)
@@ -228,7 +230,7 @@ def boot_check():
         script = host(BOOT_HOOK[1])
         blog, blast, bcopy, restarts = r/'mnt/data/q2-boot.log', r/'mnt/data/q2-boot.log.last', r/'mnt/mmc/q2-boot.log', r/'mnt/data/q2-restarts'
         blogs = bcopy, bcopy.with_name('q2-boot.log.1'), bcopy.with_name('q2-boot.log.2')
-        for f in (crash, copy, state, blog, blast, restarts, *blogs): f.unlink(missing_ok=True)  # the boots above left theirs
+        for f in (crash, clast, copy, state, blog, blast, restarts, *blogs): f.unlink(missing_ok=True)  # the boots above left theirs
         (r/'proc/cmdline').write_text('console=ttyS3,115200 rmem=8M@0x7800000\n')
         (r/'proc/mtd').write_text('dev:    size   erasesize  name\nmtd0: 00100000 00010000 "boot"\n')
         exe('bin/devmem', 'case $1 in 0x10000008) echo 0x00000002;; 0x10003030) echo 0x00000100;; *) exit 1;; esac')
@@ -267,7 +269,15 @@ def boot_check():
         assert '== restarts in a row\n0\n' in booted('23.00', True) and restarts.read_text() == '0\n'
         state.write_text(line); assert '== restarts in a row\n1\n' in booted('24.00', True) and not state.exists()
         restarts.write_text('bad\n'); booted('25.00', True, status=137); assert '== restarts in a row\n1\n' in booted('26.00', True)
-        for f in (crash, copy, blog, blast, restarts, *blogs, r/'bin/lsmod', r/'bin/dmesg'): f.unlink(missing_ok=True)
+        # without a card the crash log waits as .last and the boots after it count 0 until a new one comes, which
+        # takes its place; the first boot with a card takes that one alone, over a copy a reboot cut short (.new)
+        booted('27.00', False, status=137); waiting = crash.read_text()
+        assert '== restarts in a row\n1\n' in booted('28.00', False) and clast.read_text() == waiting and not crash.exists()
+        assert '== restarts in a row\n0\n' in booted('29.00', False) and clast.read_text() == waiting  # a clean session: not counted again
+        booted('30.00', False, status=137); newer = crash.read_text(); copy.with_name('q2-crash.log.new').write_text('torn')
+        assert '== restarts in a row\n1\n' in booted('31.00', True) and copy.read_text() == newer and waiting not in card()
+        assert not crash.exists() and not clast.exists() and not copy.with_name('q2-crash.log.new').exists()
+        for f in (crash, clast, copy, blog, blast, restarts, *blogs, r/'bin/lsmod', r/'bin/dmesg'): f.unlink(missing_ok=True)
     print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback, Home Rockbox row and Wi-Fi off before Rockbox passed.')
 boot_check()
 
