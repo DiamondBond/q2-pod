@@ -348,6 +348,14 @@ static struct {
 static int web(const char *s) {
     return tk_str_start_with(s, "http://") || tk_str_start_with(s, "https://");
 }
+/* A card path, as a Stream mode playlist's lines must be (addon.c dotdot): under /mnt/mmc/ with no
+ * ".." segment. */
+static int card_path(const char *s) {
+    if (!tk_str_start_with(s, "/mnt/mmc/")) return 0;
+    for (; (s = strstr(s, "/")); ++s)
+        if (s[1] == '.' && s[2] == '.' && (!s[3] || s[3] == '/')) return 0;
+    return 1;
+}
 
 /* Whether path held a Q2URLS/1 queue with a song, now playing. */
 int app_urls_play(const char *path) {
@@ -379,6 +387,8 @@ int app_urls_play(const char *path) {
         unsigned len = strlen(fld[0]);
         for (char *b = fld[0]; *b; ++b) len += (*b == '}') * 4;
         if (!*fld[0] || len >= AU_PATH) continue;
+        /* a server's string reaches stock's player as a web URL or a card path, nothing else */
+        if (!web(fld[0]) && !card_path(fld[0])) continue;
         char id[32];
         tk_snprintf(id, sizeof id, "app:%u:%u", gen, n);
         unsigned rec[0x58 / 4] = { 0 }; /* stSongInfo: _deque_push_back copies it */
@@ -388,7 +398,7 @@ int app_urls_play(const char *path) {
         P(rec, REC_TITLE) = strdup(*fld[1] ? fld[1] : "Unknown");
         if (*fld[2]) P(rec, REC_ARTIST) = strdup(fld[2]);
         if (*fld[3]) P(rec, REC_ALBUM) = strdup(fld[3]);
-        if (*fld[4]) P(rec, REC_COVER) = strdup(fld[4]);
+        if (web(fld[4])) P(rec, REC_COVER) = strdup(fld[4]); /* stock's cover thread curls it */
         I(rec, REC_TYPE) = 8;
         I(rec, 0x38) = 0xf1;
         _deque_push_back(q, rec);
