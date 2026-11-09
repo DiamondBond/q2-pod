@@ -246,17 +246,42 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
             rm -f $m
         }}
         rm -f /mnt/data/q2-cf-trace /mnt/data/q2-stall
-        [ -f $c ] && (
+        # $1 on /mnt/data goes to the card as $2 once a card is mounted (up to 30 s): the card keeps the two
+        # before it as $2.1, then $2.2; they move only once the copy is whole (a full card or a power cut
+        # leaves them, and $1 stays on /mnt/data)
+        tocard() {{
             i=0
             while [ $i -lt 60 ] && ! grep -q ' /mnt/mmc ' /proc/mounts; do usleep 500000; i=$((i+1)); done
-            grep -q ' /mnt/mmc ' /proc/mounts || exit
-            # the card keeps the two before it: q2-crash.log.1, then .2; they move only once the copy is
-            # whole (a full card or a power cut leaves them, and the log stays on /mnt/data)
-            l=/mnt/mmc/q2-crash.log
-            cp $c $l.new && sync || exit
-            [ -f $l.1 ] && mv -f $l.1 $l.2
-            [ -f $l ] && mv -f $l $l.1
-            mv -f $l.new $l && sync && rm -f $c
+            grep -q ' /mnt/mmc ' /proc/mounts || return
+            cp $1 $2.new && sync || return
+            [ -f $2.1 ] && mv -f $2.1 $2.2
+            [ -f $2 ] && mv -f $2 $2.1
+            mv -f $2.new $2 && sync && rm -f $1
+        }}
+        # The boot record (docs/boot.md#boot-record): how many boots in a row found a crash log, counted
+        # before the mover takes this one; the last boot's record to the card; then this boot's own, in the
+        # background, so a read that hangs holds nothing up
+        b=/mnt/data/q2-boot.log
+        n=$(cat /mnt/data/q2-restarts 2>/dev/null)
+        case $n in ''|*[!0-9]*) n=0;; esac
+        if [ -f $c ]; then n=$((n+1)); else n=0; fi
+        echo $n > /mnt/data/q2-restarts
+        [ -f $c ] && tocard $c /mnt/mmc/q2-crash.log &
+        [ -f $b ] && mv -f $b $b.last
+        [ -f $b.last ] && tocard $b.last /mnt/mmc/q2-boot.log &
+        (
+            {{
+                echo "== date"; date
+                echo "== uptime"; cat /proc/uptime
+                echo "== restarts in a row"; echo $n
+                echo "== cmdline"; cat /proc/cmdline
+                # the X2000's reset and wake-up status registers, raw (CPM RSR, RTC HWRSR: docs/boot.md#boot-record)
+                echo "== reset"; echo "RSR $(devmem 0x10000008 2>/dev/null)"; echo "HWRSR $(devmem 0x10003030 2>/dev/null)"
+                echo "== mtd"; cat /proc/mtd
+                echo "== mounts"; cat /proc/mounts
+                echo "== lsmod"; lsmod
+                echo "== dmesg"; dmesg
+            }} > $b.tmp 2>&1; mv -f $b.tmp $b
         ) &
         rb=/mnt/mmc/.rockbox
         rockbox() {{

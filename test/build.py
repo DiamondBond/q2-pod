@@ -43,7 +43,7 @@ def boot_check():
         def host(hook):
             script = hook.decode().replace(' &\n', '\n')
             for old in ('/mnt/', '/tmp/mmc_add', ROCKBOX_FLAG, '/usr/bin/q2boot', '/release/bin/demo', '/proc/mounts', '/tmp/q2-demo.log',
-                        '/tmp/q2-scan-file', '/tmp/q2-scan.log', '/tmp/q2-art-file', '/tmp/q2-art.log'):
+                        '/tmp/q2-scan-file', '/tmp/q2-scan.log', '/tmp/q2-art-file', '/tmp/q2-art.log', '/proc/uptime', '/proc/cmdline', '/proc/mtd'):
                 script = script.replace(old, f'{r}{old}')
             script = script.replace('usleep 200000\n', ':\n').replace('usleep 500000', ':')
         # This script runs under the PC's own sh: the real killall -9 and ifconfig would take down the PC's network,
@@ -222,6 +222,52 @@ def boot_check():
         wcopy.write_bytes(b'x' * 262143); wheel.write_text('== wheel: four\n'); boot(True, False, status=0)
         assert wcopy.read_bytes().endswith(b'== wheel: four\n') and not wheel.exists() and not (r/'mnt/data/q2-wheel.log.m').exists()
         for f in (crash, copy, wheel, wcopy): f.unlink(missing_ok=True)
+        # The boot record (build.py BOOT_HOOK): every boot writes /mnt/data/q2-boot.log, here from stand-ins on PATH and
+        # files under proc/; the next boot moves the one before it to a mounted card as q2-boot.log, rotated as the crash
+        # log is, and counts the boots in a row that found a crash log
+        script = host(BOOT_HOOK[1])
+        blog, blast, bcopy, restarts = r/'mnt/data/q2-boot.log', r/'mnt/data/q2-boot.log.last', r/'mnt/mmc/q2-boot.log', r/'mnt/data/q2-restarts'
+        blogs = bcopy, bcopy.with_name('q2-boot.log.1'), bcopy.with_name('q2-boot.log.2')
+        for f in (crash, copy, state, blog, blast, restarts, *blogs): f.unlink(missing_ok=True)  # the boots above left theirs
+        (r/'proc/cmdline').write_text('console=ttyS3,115200 rmem=8M@0x7800000\n')
+        (r/'proc/mtd').write_text('dev:    size   erasesize  name\nmtd0: 00100000 00010000 "boot"\n')
+        exe('bin/devmem', 'case $1 in 0x10000008) echo 0x00000002;; 0x10003030) echo 0x00000100;; *) exit 1;; esac')
+        exe('bin/lsmod', 'echo "Module Size Used by"; echo "soc_fb 12288 0"')
+        exe('bin/dmesg', 'echo "[    0.000000] Linux version 5.10.21+"; echo "[    2.000000] mmc1: error -110 whilst initialising SDIO card"')
+        def booted(up, card, status=0):
+            (r/'proc/uptime').write_text(f'{up} 20.11\n')
+            mounts.write_text(f'/dev/mmcblk0p1 {r}/mnt/mmc vfat rw 0 0\n' if card else '')
+            boot(True, False, status=status)
+            return blog.read_text()
+        out = booted('12.34', False)
+        assert out.startswith('== date\n') and ('== uptime\n12.34 20.11\n== restarts in a row\n0\n== cmdline\nconsole=ttyS3,115200 rmem=8M@0x7800000\n'
+                                                '== reset\nRSR 0x00000002\nHWRSR 0x00000100\n== mtd\ndev:    size   erasesize  name\nmtd0: 00100000 00010000 "boot"\n'
+                                                '== mounts\n== lsmod\nModule Size Used by\nsoc_fb 12288 0\n== dmesg\n[    0.000000] Linux version 5.10.21+\n') in out
+        assert out.endswith('SDIO card\n') and not blog.with_name('q2-boot.log.tmp').exists() and restarts.read_text() == '0\n'
+        assert not blast.exists() and not bcopy.exists()  # the first boot: nothing before it to move
+        (r/'bin/devmem').unlink(); second = booted('13.00', False)  # no devmem, or no /dev/mem: the values are empty
+        assert '== reset\nRSR \nHWRSR \n' in second and blast.read_text() == out and not bcopy.exists()  # no card: the last one waits
+        third = booted('14.00', False)
+        assert blast.read_text() == second and blog.read_text() == third  # a second boot without a card: the newer waits, the older goes
+        fourth = booted('15.00', True)
+        assert bcopy.read_text() == third and not blast.exists() and blog.read_text() == fourth  # a card: the one before goes to it
+        def on_card(): return [f.exists() and f.read_text() for f in blogs]
+        fifth, sixth = booted('16.00', True), booted('17.00', True)
+        assert on_card() == [fifth, fourth, third] and blog.read_text() == sixth  # two kept before the newest, the oldest dropped
+        exe('bin/cp', 'exit 1'); seventh = booted('18.00', True)  # a full card: nothing moves, the last one stays for a later boot
+        assert on_card() == [fifth, fourth, third] and blast.read_text() == sixth and blog.read_text() == seventh
+        (r/'bin/cp').unlink(); bcopy.with_name('q2-boot.log.new').unlink(missing_ok=True)
+        eighth = booted('19.00', True)
+        assert on_card() == [seventh, fifth, fourth] and not blast.exists() and blog.read_text() == eighth  # the sixth was replaced while it waited
+        # restarts in a row: a boot that finds a crash log (a crash's, or the one a state record leaves) counts, one that
+        # finds none ends the run; a damaged count reads as 0. The crash log comes at the end of a boot, so its boot reads 0.
+        assert '== restarts in a row\n0\n' in booted('20.00', True, status=137) and restarts.read_text() == '0\n'
+        assert '== restarts in a row\n1\n' in booted('21.00', True, status=137) and restarts.read_text() == '1\n'
+        assert '== restarts in a row\n2\n' in booted('22.00', True) and restarts.read_text() == '2\n'
+        assert '== restarts in a row\n0\n' in booted('23.00', True) and restarts.read_text() == '0\n'
+        state.write_text(line); assert '== restarts in a row\n1\n' in booted('24.00', True) and not state.exists()
+        restarts.write_text('bad\n'); booted('25.00', True, status=137); assert '== restarts in a row\n1\n' in booted('26.00', True)
+        for f in (crash, copy, blog, blast, restarts, *blogs, r/'bin/lsmod', r/'bin/dmesg'): f.unlink(missing_ok=True)
     print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback, Home Rockbox row and Wi-Fi off before Rockbox passed.')
 boot_check()
 

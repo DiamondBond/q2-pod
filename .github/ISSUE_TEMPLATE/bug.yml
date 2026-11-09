@@ -20,4 +20,4 @@ body:
   - type: textarea
     attributes:
       label: Crash log
-      description: Attach q2-crash.log from the card's root, if there is one
+      description: Attach q2-crash.log from the card's root, if there is one, and q2-boot.log beside it for a Q2 that restarts by itself or whose Wi-Fi, Bluetooth or card does not come up

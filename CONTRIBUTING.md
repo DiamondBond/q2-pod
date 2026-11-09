@@ -10,6 +10,7 @@ Open an issue with:
 - what you did, what you expected and what happened
 - the output in use (wired, Bluetooth with the codec, or USB), for sound problems
 - `q2-crash.log` from the card's root, if there is one, and `q2-crash.log.1` and `.2` beside it (the two before it)
+- `q2-boot.log` from the card's root, and `.1` and `.2` beside it, for a Q2 that restarts by itself or whose Wi-Fi, Bluetooth or card does not come up: what the system said while it started, the last three times ([boot.md](docs/boot.md#boot-record))
 
 Ideas go in a feature request issue or on Discord. Security problems go through [SECURITY.md](SECURITY.md), not an issue.
 
