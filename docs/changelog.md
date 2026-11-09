@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.7.4**:
+  - System: when the Q2 restarts by itself, `q2-crash.log` now ends with the last messages from the player's helpers, such as the Bluetooth and Wi-Fi start-up's, which used to go to a serial port nobody reads.
   - Display: **Appearance** has a **Status Bar** row. **Theme** (the default) follows your theme; **Minimal**, **Modern** or **Classic** give the bar that theme's look under any theme, so Classic can have a plain black bar. It applies at once, with no restart.
   - Cover Flow: a fast spin flows. The letters come at about one turn a second instead of two and keep a steady pace however hard you spin, while the covers keep moving through them, so slowing down or turning back carries straight on into single albums. Letting go lands on the letter's first album, and lifting your thumb to re-grip no longer drops the letters.
   - Quick Settings: holding Play/Pause there briefly shows **Wheel: Volume** or **Wheel: Brightness**. The wheel keeps working while it shows.
