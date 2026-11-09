@@ -17,7 +17,7 @@
   - Library: on a large library, opening an album, **Go to Album**, **Recently Added**, deleting songs and **Scan specified folders** are much faster, and Era's **Play All** no longer risks restarting the Q2 on a decade of many albums. They speed up after the next **Update Local Music** or **Scan specified folders**.
   - Cover Flow: when an album's artwork restarted the Q2 while Cover Flow was preparing artwork, the next Cover Flow open adds that album's file to `q2-crash.log` on the card, under **cover flow skipped**.
   - Streaming: songs a card app streams show the lyrics the app leaves for them on the lyrics page, synced when timed.
-  - System: every start writes `q2-boot.log` to the card: what the system said while the Q2 started and how many restarts came before it, so a Q2 that keeps restarting, or whose Wi-Fi, Bluetooth or card does not come up, can say why. Attach it to a bug report with `q2-crash.log`.
+  - System: every start writes `q2-boot.log` to the card: what the system said while the Q2 started and how many restarts came before it, so a Q2 that keeps restarting, or whose Wi-Fi, Bluetooth or card does not come up, can say why. Attach it to a bug report with `q2-crash.log`. Both reach the card with the Q2's hardware addresses, network names, keys and private network addresses masked; the Q2 keeps the originals.
   - EQ: on the Advanced tab a long preset name no longer runs into **Presets**. It stays on the right, is cut short with an ellipsis, and scrolls while its row is selected.
   - Streaming: in **Internet Radio**, a favourite whose address is a `file://` path with an `=` in its name is listed. It was taken for a `.pls` entry and left out.
 

@@ -141,9 +141,9 @@ def boot_check():
         assert card() == [fourth, third, second]  # two kept before the newest, the oldest dropped
         boot(True, False, status=0); assert card() == [fourth, third, second]  # nothing new: nothing moves
         # a full card: the copy fails, so nothing moves and the log stays on /mnt/data for the next boot
-        fifth = crashed(140); exe('bin/cp', 'exit 1')
+        fifth = crashed(140); exe('bin/sed', 'exit 1')  # the mover copies through its masking sed
         boot(True, False, status=0); assert card() == [fourth, third, second] and clast.read_text() == fifth
-        (r/'bin/cp').unlink(); copy.with_name('q2-crash.log.new').unlink(missing_ok=True)
+        (r/'bin/sed').unlink(); copy.with_name('q2-crash.log.new').unlink(missing_ok=True)
         boot(True, False, status=0); assert card() == [fifth, fourth, third] and not clast.exists()
         for f in logs: f.unlink()
         out, cp = logged(139, False)
@@ -256,9 +256,9 @@ def boot_check():
         def on_card(): return [f.exists() and f.read_text() for f in blogs]
         fifth, sixth = booted('16.00', True), booted('17.00', True)
         assert on_card() == [fifth, fourth, third] and blog.read_text() == sixth  # two kept before the newest, the oldest dropped
-        exe('bin/cp', 'exit 1'); seventh = booted('18.00', True)  # a full card: nothing moves, the last one stays for a later boot
+        exe('bin/sed', 'exit 1'); seventh = booted('18.00', True)  # a full card: nothing moves, the last one stays for a later boot
         assert on_card() == [fifth, fourth, third] and blast.read_text() == sixth and blog.read_text() == seventh
-        (r/'bin/cp').unlink(); bcopy.with_name('q2-boot.log.new').unlink(missing_ok=True)
+        (r/'bin/sed').unlink(); bcopy.with_name('q2-boot.log.new').unlink(missing_ok=True)
         eighth = booted('19.00', True)
         assert on_card() == [seventh, fifth, fourth] and not blast.exists() and blog.read_text() == eighth  # the sixth was replaced while it waited
         # restarts in a row: a boot that finds a crash log (a crash's, or the one a state record leaves) counts, one that
@@ -280,11 +280,45 @@ def boot_check():
         # a crash log written while the mover copies (reboot_record's comes seconds into a boot): the stand-in cp writes
         # one as the copy happens; the mover removes only what it claimed, and the next boot counts and moves the new one
         booted('32.00', True, status=137); first = crash.read_text()
-        exe('bin/cp', f'case $1 in *q2-crash.log.last) echo "== demo exit 139" > {crash}; echo "written during the copy" >> {crash};; esac; exec /bin/cp "$@"')
+        exe('bin/sed', f'for f; do :; done; case $f in *q2-crash.log.last) echo "== demo exit 139" > {crash}; echo "written during the copy" >> {crash};; esac; exec /bin/sed "$@"')
         booted('33.00', True)
         assert copy.read_text() == first and crash.read_text() == '== demo exit 139\nwritten during the copy\n' and not clast.exists()
-        (r/'bin/cp').unlink()
+        (r/'bin/sed').unlink()
         assert '== restarts in a row\n2\n' in booted('34.00', True) and card()[:2] == ['== demo exit 139\nwritten during the copy\n', first]
+        # the mover masks each copy (build.py MASKED): hardware addresses keep the maker's bytes, labelled names and
+        # secrets, private IPv4 hosts and keys go, and the technical lines around them stay as they are
+        raw = ('[    3.210000] rtl8733bs: MAC Address = 00:e0:4c:12:34:56\n'
+               'rtk_hciattach :BD Address: 00:E0:4C:AB:CD:EF\n'
+               '[BTCoex], halbtc8733b_display_coex_info(): BSSID = 00 1a 2b 3C 4D 5E\n'
+               "SSID=Karan's Home WiFi\n"
+               'ssid = Home (len = 4)\n'
+               '{"ssid":"Karan\'s Home","password":"hunter 2"}\n'
+               "wpa: psk='correct horse', Token=abc.def, ok\n"
+               'GTK 00112233445566778899aabbccddeeff\n'
+               'udhcpc: lease of 192.168.1.42 obtained from 192.168.1.1, lease time 86400\n'
+               'route 10.0.0.1 via 172.16.5.9 not 172.32.1.1 nor 8.8.8.8\n'
+               '[    0.000000] Linux version 5.10.21+ (gcc 7.2.0) #1 PREEMPT Mon Nov 9 10:26:31 UTC 2026\n'
+               'RSR 0x10000008 fw 1.0.0.9 Serial: 8250/16550 driver, 4 ports, token bucket, passwd_visible, upskill\n'
+               'mmc1: error -110 whilst initialising SDIO card\n')
+        hidden = ('[    3.210000] rtl8733bs: MAC Address = 00:e0:4c:xx:xx:xx\n'
+                  'rtk_hciattach :BD Address: 00:E0:4C:xx:xx:xx\n'
+                  '[BTCoex], halbtc8733b_display_coex_info(): BSSID = 00 1a 2b xx xx xx\n'
+                  'SSID=[hidden]\n'
+                  'ssid = [hidden]\n'
+                  '{"ssid":"[hidden]","password":"[hidden]"}\n'
+                  "wpa: psk='[hidden]', Token=[hidden], ok\n"
+                  'GTK [hidden]\n'
+                  'udhcpc: lease of 192.168.x.x obtained from 192.168.x.x, lease time 86400\n'
+                  'route 10.x.x.x via 172.16.x.x not 172.32.1.1 nor 8.8.8.8\n'
+                  '[    0.000000] Linux version 5.10.21+ (gcc 7.2.0) #1 PREEMPT Mon Nov 9 10:26:31 UTC 2026\n'
+                  'RSR 0x10000008 fw 1.0.0.9 Serial: 8250/16550 driver, 4 ports, token bucket, passwd_visible, upskill\n'
+                  'mmc1: error -110 whilst initialising SDIO card\n')
+        crash.write_text(raw); booted('35.00', True)
+        assert copy.read_text() == hidden and not crash.exists() and not clast.exists()
+        exe('bin/dmesg', 'echo "[    2.000000] rtl8733bs: MAC Address = 00:e0:4c:12:34:56"; echo "[    2.100000] ssid = Home (len = 4)"')
+        record = booted('36.00', True); booted('37.00', True)
+        assert '00:e0:4c:12:34:56\n' in record and 'ssid = Home (len = 4)\n' in record  # /mnt/data keeps the original
+        assert bcopy.read_text() == record.replace('00:e0:4c:12:34:56', '00:e0:4c:xx:xx:xx').replace('ssid = Home (len = 4)', 'ssid = [hidden]')
         for f in (crash, clast, copy, blog, blast, restarts, *blogs, r/'bin/lsmod', r/'bin/dmesg'): f.unlink(missing_ok=True)
     print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback, Home Rockbox row and Wi-Fi off before Rockbox passed.')
 boot_check()

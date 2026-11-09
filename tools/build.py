@@ -230,6 +230,23 @@ ROCKBOX_FLAG = '/tmp/q2pod-rockbox'
 # starts udhcpc later too. A second pass 2 s in, called off if Rockbox has already left and demo is starting Wi-Fi
 # again, catches a shell that took longer. ponytail: 300 ms and 2 s are guesses; a shell slower than 2 s still escapes.
 WIFI_OFF = 'killall -9 wifi_connect.sh udhcpc wpa_supplicant 2>/dev/null; ifconfig wlan0 down 2>/dev/null'
+# The mover's mask (docs/boot.md#boot-record), over each record on its way to the card: the last three bytes
+# of a hardware address (the maker's part stays), the value after an ssid, psk, password, passphrase or token
+# label, the host part of a private IPv4 address and a run of 32 or more hex digits (a key). POSIX sed with
+# GNU regex's \b and \|, which stock's BusyBox sed has through glibc; /mnt/data keeps the original.
+MASKED = r'''        masked() {
+            h='[0-9A-Fa-f][0-9A-Fa-f]'
+            l='\b\([Ss][Ss][Ii][Dd]\|[Pp][Ss][Kk]\|[Pp][Aa][Ss][Ss][Ww][A-Za-z]*\|[Pp][Aa][Ss][Ss][Pp][Hh][Rr][Aa][Ss][Ee]\|[Tt][Oo][Kk][Ee][Nn]\)'
+            sed -e "s/\($h:$h:$h\):$h:$h:$h/\1:xx:xx:xx/g" \
+                -e "s/\(BSSID = $h $h $h\) $h $h $h/\1 xx xx xx/g" \
+                -e "s/\($l['\" ]*[=:]*[ ]*\"\)[^\"]*/\1[hidden]/g" \
+                -e "s/\($l['\" ]*[=:]*[ ]*'\)[^']*/\1[hidden]/g" \
+                -e "s/\($l['\" ]*[=:][ ]*\)[^'\" ,][^,]*/\1[hidden]/g" \
+                -e "s/\b10\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\b/10.x.x.x/g" \
+                -e "s/\b192\.168\.[0-9][0-9]*\.[0-9][0-9]*\b/192.168.x.x/g" \
+                -e "s/\b172\.\(1[6-9]\|2[0-9]\|3[01]\)\.[0-9][0-9]*\.[0-9][0-9]*\b/172.\1.x.x/g" \
+                -e "s/[0-9A-Fa-f]\{32,\}/[hidden]/g" "$1"
+        }'''
 BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
         c=/mnt/data/q2-crash.log
         m=/mnt/data/q2-state
@@ -246,18 +263,19 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
             rm -f $m
         }}
         rm -f /mnt/data/q2-cf-trace /mnt/data/q2-stall
-        # $1 on /mnt/data goes to the card as $2 once a card is mounted (up to 30 s): the card keeps the two
-        # before it as $2.1, then $2.2; they move only once the copy is whole (a full card or a power cut
-        # leaves them, and $1 stays on /mnt/data)
+        # $1 on /mnt/data goes to the card as $2 once a card is mounted (up to 30 s), masked (MASKED): the card
+        # keeps the two before it as $2.1, then $2.2; they move only once the copy is whole (a full card or a
+        # power cut leaves them, and $1 stays on /mnt/data)
         tocard() {{
             i=0
             while [ $i -lt 60 ] && ! grep -q ' /mnt/mmc ' /proc/mounts; do usleep 500000; i=$((i+1)); done
             grep -q ' /mnt/mmc ' /proc/mounts || return
-            cp $1 $2.new && sync || return
+            masked $1 > $2.new && sync || return
             [ -f $2.1 ] && mv -f $2.1 $2.2
             [ -f $2 ] && mv -f $2 $2.1
             mv -f $2.new $2 && sync && rm -f $1
         }}
+{MASKED}
         # The boot record (docs/boot.md#boot-record): how many boots in a row found a crash log, counted
         # first; it and the last boot's record go to the card from .last, renamed here, so a log still waiting
         # for a card is not counted again and the mover's rm can't take one written meanwhile; then this boot's
