@@ -272,6 +272,18 @@ int shelf_place(int i) {
     return err ? SH_CARD : SH_OK;
 }
 
+/* Whether a .files line has a ".." segment (addon.c's dotdot): all of it, or one between slashes
+ * or at either end; "Hello... (Live).flac" has none. The list is the firmware's own find output
+ * (shelf_place), so such a line means a list rewritten by hand or by an app, and nothing leaves
+ * the card for it, as shelf_unpacked refuses such a name in the zip. A leading "/" needs no check:
+ * CARD "/" is put before every line. */
+static int dotdot(const char *path) {
+    for (const char *s = path;; ++s) {
+        if (s[0] == '.' && s[1] == '.' && (!s[2] || s[2] == '/')) return 1;
+        if (!(s = strstr(s, "/"))) return 0;
+    }
+}
+
 /* Remove: app i's listed files, but those another app lists too (two fonts are both Rockbox's and
  * the themes'), then the folders that left empty, up to and with its own; then its list and tag.
  * A card app's folder goes whole, with what the app saved there (a login among it). */
@@ -288,6 +300,7 @@ void shelf_remove(int i) {
     app_file(path, sizeof path, i, ".files");
     char *list = lines(path, &n);
     for (const char *p = list; p && p < list + n; p += strlen(p) + 1) {
+        if (dotdot(p)) continue; /* a rewritten list: that line unlinks nothing and climbs nowhere */
         int shared = 0;
         for (int j = 0; j < shelf_n; ++j) shared |= shelf_listed(other[j], m[j], p);
         snprintf(path, sizeof path, CARD "/%s", p);

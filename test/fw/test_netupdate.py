@@ -610,6 +610,20 @@ def test_a_card_app_goes_whole_with_its_list_and_tag(fw):
     assert (b'/mnt/mmc/.q2/apps/foo.files',) in card.of('unlink') and (b'/mnt/mmc/.q2/apps/foo.tag',) in card.of('unlink')
 
 
+def test_a_list_line_with_a_dot_dot_segment_unlinks_nothing_and_climbs_nowhere(fw):
+    """.files is the firmware's own find output, so a ".." segment means a rewritten list: that line is
+    skipped, as shelf_unpacked refuses such a name in the zip, while a name that merely starts with two
+    dots and the list's other lines still go."""
+    apps(fw, b'me/foo')
+    files = {b'/mnt/mmc/.q2/apps/foo.files': b'../../etc/x\n.foo/../../y\n..\n.foo/..a\n.foo/a\n',
+             b'/mnt/mmc/.foo/..a': b'', b'/mnt/mmc/.foo/a': b''}
+    card = Card(fw, files)
+    remove(fw, 0)
+    touched = [c[0] for c in card.of('unlink') + card.of('rmdir')]
+    assert b'/mnt/mmc/.foo/..a' in touched and b'/mnt/mmc/.foo/a' in touched
+    assert not [p for p in touched if b'/../' in p or p.endswith(b'/..')]
+
+
 def test_a_file_two_apps_list_stays_and_q2_pods_own_folder_is_never_deleted_whole(fw):
     apps(fw, b'x/q2-rockbox', b'x/q2-rockbox-themes')
     files = {b'/mnt/mmc/.q2/apps/rockbox.files': b'.rockbox/rockbox\n.rockbox/fonts/a.fnt\n',
