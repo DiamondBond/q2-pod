@@ -277,6 +277,14 @@ def boot_check():
         booted('30.00', False, status=137); newer = crash.read_text(); copy.with_name('q2-crash.log.new').write_text('torn')
         assert '== restarts in a row\n1\n' in booted('31.00', True) and copy.read_text() == newer and waiting not in card()
         assert not crash.exists() and not clast.exists() and not copy.with_name('q2-crash.log.new').exists()
+        # a crash log written while the mover copies (reboot_record's comes seconds into a boot): the stand-in cp writes
+        # one as the copy happens; the mover removes only what it claimed, and the next boot counts and moves the new one
+        booted('32.00', True, status=137); first = crash.read_text()
+        exe('bin/cp', f'case $1 in *q2-crash.log.last) echo "== demo exit 139" > {crash}; echo "written during the copy" >> {crash};; esac; exec /bin/cp "$@"')
+        booted('33.00', True)
+        assert copy.read_text() == first and crash.read_text() == '== demo exit 139\nwritten during the copy\n' and not clast.exists()
+        (r/'bin/cp').unlink()
+        assert '== restarts in a row\n2\n' in booted('34.00', True) and card()[:2] == ['== demo exit 139\nwritten during the copy\n', first]
         for f in (crash, clast, copy, blog, blast, restarts, *blogs, r/'bin/lsmod', r/'bin/dmesg'): f.unlink(missing_ok=True)
     print('Dual boot: Rockbox by default, one-session Q2 Pod, stale choice ignored, card fallback, Home Rockbox row and Wi-Fi off before Rockbox passed.')
 boot_check()
