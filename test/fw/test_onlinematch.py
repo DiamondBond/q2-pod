@@ -814,3 +814,20 @@ def test_a_copy_that_fails_leaves_no_part_file(fw):
         copy = Copy(fw, b'x', **kind)
         assert copy.fn(b'/tmp/t', b'/a/1.lrc') == 0
         assert copy.card.log == [('unlink', b'/a/1.lrc.part')], kind
+
+
+def lyric_save(fw, name, fmt=b'cp -rf %s "/mnt/mmc/.downpic/%s"'):
+    """ringnav_lyric_save with no queue, so the song is never found and stock's command is the answer."""
+    fw.var('fw_ctx_mcl_pdeqplaylist', C.c_uint).value = 0
+    cmd = block(fw, size=0x400)
+    fw.fn('ringnav_lyric_save', C.c_int, C.c_void_p, C.c_uint, C.c_char_p, C.c_char_p, C.c_char_p)(cmd, 0x400, fmt, b'/tmp/oslyric_7', name)
+    return C.string_at(cmd)
+
+
+def test_stocks_command_runs_only_for_a_name_its_quotes_hold(fw):
+    """Inside stock's double quotes the shell still expands ", `, $ and \\: a name with one of them gets ":"
+    (those lyrics are lost), not a command run as root; any other name gets stock's command as before."""
+    assert lyric_save(fw, b'02 Other.lrc') == b'cp -rf /tmp/oslyric_7 "/mnt/mmc/.downpic/02 Other.lrc"'
+    assert lyric_save(fw, "It's (Live) #1 & more; ok.lrc".encode()) == 'cp -rf /tmp/oslyric_7 "/mnt/mmc/.downpic/It\'s (Live) #1 & more; ok.lrc"'.encode()
+    for name in (b'a$(reboot).lrc', b'a`id`.lrc', b'a".lrc', b'a\\.lrc', b'$HOME.lrc'):
+        assert lyric_save(fw, name) == b':', name

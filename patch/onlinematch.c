@@ -399,17 +399,25 @@ static int lrc_copy(const char *tmp, const char *lrc) {
     return 0;
 }
 
+/* Whether name is plain inside double quotes: the shell still expands ", `, $ and \ there. */
+static int quoted_plain(const char *name) {
+    for (; *name; ++name)
+        if (*name == '"' || *name == '`' || *name == '$' || *name == '\\') return 0;
+    return 1;
+}
+
 /* Download Cover & Lyrics' accept (0x524f20) builds cp -rf /tmp/oslyric_N "/mnt/mmc/.downpic/<name>"
  * for system() with snprintf, whose call (LYRIC_SAVE_CALL) jumps here: the lyrics (tmp) go beside the
  * song instead, as <path less extension>.lrc, as Download Album Lyrics saves them, and a .downpic copy
  * that would hide them goes; cmd becomes ":", which system() runs as nothing, and stock reloads the
  * lyrics as before. Stock's command when the song isn't in the queue (or is a CUE track) or the card
- * can't be written. */
+ * can't be written, unless name holds a byte that still expands inside stock's double quotes (", `,
+ * $, \): then ":" too, and those lyrics are lost rather than run as a command, as root. */
 int ringnav_lyric_save(char *cmd, unsigned n, const char *fmt, const char *tmp, const char *name) {
     char lrc[0x200 + 8], shadow[sizeof DOWNPIC + 0x200];
     void *r = lrc_song(name);
     if (!r || !lrc_path(lrc, sizeof lrc, P(r, REC_PATH), ".lrc") || !lrc_copy(tmp, lrc))
-        return snprintf(cmd, n, fmt, tmp, name);
+        return quoted_plain(name) ? snprintf(cmd, n, fmt, tmp, name) : snprintf(cmd, n, ":");
     snprintf(shadow, sizeof shadow, DOWNPIC "%s", name);
     unlink(shadow);
     return snprintf(cmd, n, ":");
