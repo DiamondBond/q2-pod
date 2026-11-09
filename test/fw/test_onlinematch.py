@@ -590,6 +590,15 @@ def test_the_url_names_the_song(fw):
     assert net.urls == [LRCLIB + 'A%20B&artist_name=C']
 
 
+def test_a_transfer_verifies_the_peer_and_its_name_with_the_bundled_roots(fw):
+    """easy() sets SSL_VERIFYPEER and SSL_VERIFYHOST itself, as test_netupdate's download test reads them:
+    libcurl's defaults say the same, but a default is nothing a test can read."""
+    net = Net(fw, {LRCLIB: b'[]'})
+    Written(fw)
+    assert search(fw) == LRC_NONE
+    assert net.opts[64] == 1 and net.opts[81] == 2 and C.string_at(net.opts[10065]) == b'/etc/scrobble-ca.pem'
+
+
 def test_no_title_asks_nothing(fw):
     net = Net(fw)
     assert search(fw, b'') == LRC_NONE and not net.urls

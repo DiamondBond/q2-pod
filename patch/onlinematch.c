@@ -266,8 +266,10 @@ static unsigned got(const char *data, unsigned size, unsigned n, void *ctx) {
     return add;
 }
 
-/* A libcurl handle for url, verified with the bundled CA file (stock's curl_http_request turns
- * checks off), timed to keep stock's worker thread from hanging. */
+/* A libcurl handle for url, verified with the bundled CA file, the peer and name checks set
+ * outright as netupdate.c and scrobble.c set them (libcurl's defaults say the same, but a default
+ * is nothing a test can read; stock's curl_http_request turns them off), timed to keep stock's
+ * worker thread from hanging. */
 static void *easy(const char *url) {
     void *c = curl_easy_init();
     if (!c) return 0;
@@ -277,6 +279,8 @@ static void *easy(const char *url) {
     curl_easy_setopt(c, 78, 10L);         /* CONNECTTIMEOUT */
     curl_easy_setopt(c, 13, 20L);         /* TIMEOUT */
     curl_easy_setopt(c, 10065, OM_CA);    /* CAINFO */
+    curl_easy_setopt(c, 64, 1L);          /* SSL_VERIFYPEER */
+    curl_easy_setopt(c, 81, 2L);          /* SSL_VERIFYHOST */
     curl_easy_setopt(c, 20108, tls_untimed); /* SSL_CTX_FUNCTION: no date checks */
     return c;
 }
