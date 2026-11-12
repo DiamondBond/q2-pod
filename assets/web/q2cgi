@@ -1,0 +1,174 @@
+#!/bin/sh
+# Q2 Pod — safe replacement for the stock Wi-Fi transfer file-manager CGIs (create/delete/
+# list/download/upload). One script installed over all five cgi-bin/*.cgi inodes; it dispatches on
+# SCRIPT_NAME, so it answers both /name and /cgi-bin/name.cgi — no bypass route.
+#
+# Why this is safe: every filesystem operation is done with argv (mkdir/rm/cat and tail|head
+# redirection), never by building a /bin/sh command string from request data. The stock CGIs' bug
+# was system("mkdir \"$path\"") — a shell command built from input. Here shell command injection is
+# structurally impossible, not merely filtered. Path traversal is blocked by validate() (must stay
+# under /mnt/mmc, no ".." component). Runs under the stock busybox ash as root, like the stock CGIs.
+#
+# Shell: the busybox ash the Q2 ships (POSIX plus `local`). No bashisms. Tested with busybox ash.
+
+CARD=/mnt/mmc
+TMP=/tmp
+# thttpd gives a CGI PATH=/usr/local/bin:/usr/ucb:/bin:/usr/bin, so /bin and /usr/bin (busybox and
+# its applet symlinks) are present. `stat` is the one applet the stock rootfs does not symlink
+# (busybox has it built in), so call it through busybox.
+stat() { busybox stat "$@"; }
+
+emit() { printf '%s\r\n' "$1"; }
+crlf() { printf '\r\n'; }
+fail() { emit "Status: $1 $2"; emit 'Content-type: application/json; charset=utf-8'; crlf; printf '{}'; exit 0; }
+
+# URL-decode: '+' -> space, %XX -> byte. Literal backslashes are escaped first so printf %b cannot
+# misread them. Call reject_nul on the raw string first.
+urldecode() {
+  dec=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/+/ /g; s/%\(..\)/\\x\1/g')
+  printf '%b' "$dec"
+}
+# Refuse a NUL, encoded or raw (a raw NUL cannot survive in a shell variable, but be explicit).
+has_nul() { case $1 in *%00*|*%0[0-9A-Fa-f]0*) return 0;; esac; return 1; }
+
+# Validate an ALREADY-DECODED path. Echo it on success; return 1 (no output) on anything unsafe.
+# Shell metacharacters ($ ` " \ & ; etc.) are NOT rejected — they are legal filename bytes, safe
+# because we never hand them to a shell.
+validate() {
+  p=$1
+  [ -n "$p" ] || return 1
+  case $p in *[[:cntrl:]]*) return 1;; esac          # control chars incl. CR/LF (header-injection)
+  case $p in "$CARD"|"$CARD"/*) : ;; *) return 1;; esac
+  case "/$p/" in *"/../"*) return 1;; esac           # no ".." component
+  printf '%s' "$p"
+}
+
+# Pull a urlencoded field's value (first occurrence) from a source string; refuse duplicate fields.
+field() { # name source
+  n=$(printf '%s' "$2" | tr '&' '\n' | grep -c "^$1=")
+  [ "$n" -le 1 ] || return 2                          # duplicate field: ambiguous, refuse
+  printf '%s' "$2" | tr '&' '\n' | sed -n "s/^$1=//p" | head -1
+}
+
+# Decode-and-validate a path from a urlencoded source (GET query or POST body).
+path_from() { # source
+  raw=$(field path "$1") || return 1
+  has_nul "$raw" && return 1
+  validate "$(urldecode "$raw")"
+}
+
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\000-\037'; }
+card_mounted() { grep -q " $CARD " /proc/mounts 2>/dev/null; }
+
+name=${SCRIPT_NAME##*/}; name=${name%.cgi}
+
+case $name in
+  list)
+    dir=$(path_from "$QUERY_STRING") || fail 400 Bad
+    [ -d "$dir" ] || fail 404 NotFound
+    emit 'Content-type: application/json; charset=utf-8'; crlf
+    printf '['
+    first=1
+    for e in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+      [ -e "$e" ] || [ -L "$e" ] || continue
+      [ "$first" = 1 ] || printf ','; first=0
+      jn=$(json_escape "${e##*/}"); jp=$(json_escape "$e")
+      ct=$(stat -c %Z "$e" 2>/dev/null || echo 0)
+      if [ -d "$e" ]; then printf '{"path":"%s","name":"%s","ctime":"%s"}' "$jp" "$jn" "$ct"
+      else sz=$(stat -c %s "$e" 2>/dev/null || echo 0); printf '{"path":"%s","name":"%s","ctime":"%s","size":"%s"}' "$jp" "$jn" "$ct" "$sz"; fi
+    done
+    printf ']'
+    ;;
+
+  download)
+    f=$(path_from "$QUERY_STRING") || fail 400 Bad
+    [ -f "$f" ] || fail 404 NotFound
+    hdrname=$(printf '%s' "${f##*/}" | tr -d '"\000-\037')
+    emit "Content-Disposition:attachment;filename=\"$hdrname\""
+    emit "Content-Length:$(stat -c %s "$f" 2>/dev/null || echo 0)"
+    emit 'Content-Type:application/octet-stream'; crlf
+    cat -- "$f"
+    ;;
+
+  create)
+    BODY=$(cat)
+    d=$(path_from "$BODY") || d=$(path_from "$QUERY_STRING") || fail 400 Bad
+    card_mounted || fail 507 NoCard
+    mkdir -p -- "$d" 2>/dev/null || fail 500 Fail
+    emit 'Content-type: application/json; charset=utf-8'; crlf; printf '{}'
+    ;;
+
+  delete)
+    BODY=$(cat)
+    d=$(path_from "$BODY") || d=$(path_from "$QUERY_STRING") || fail 400 Bad
+    card_mounted || fail 507 NoCard
+    [ "$d" = "$CARD" ] && fail 400 Bad               # never delete the card root itself
+    rm -rf -- "$d" 2>/dev/null || fail 500 Fail
+    emit 'Content-type: application/json; charset=utf-8'; crlf; printf '{}'
+    ;;
+
+  upload)
+    card_mounted || fail 507 NoCard
+    bnd=${CONTENT_TYPE#*boundary=}; bnd=${bnd%%;*}
+    [ -n "$bnd" ] && [ "$bnd" != "$CONTENT_TYPE" ] || fail 400 Bad
+    up=$CARD/.q2upload; mkdir -p "$up" 2>/dev/null     # the card has room; /tmp is small and in RAM
+    body=$up/body.$$
+    trap 'rm -f "$body"' EXIT
+    if [ -n "$CONTENT_LENGTH" ]; then head -c "$CONTENT_LENGTH" > "$body"; else cat > "$body"; fi
+    total=$(busybox stat -c %s "$body" 2>/dev/null || echo 0)
+    bb="--$bnd"
+    # Parse only the TEXT header prefix (everything before the file content is text): the destination
+    # `path` field, the file name, and the byte offset where the file content begins. `tr` makes a
+    # NUL-free copy of the bounded prefix so busybox awk (which stops at a NUL) can read it as one
+    # record (RS="\0"); boundaries are found with index() (a literal match, so a boundary holding a
+    # regex metacharacter is fine). The file content is never read here; the browser sends one file
+    # per request (sequentialUploads).
+    meta=$(head -c 65536 "$body" | tr '\0' '\1' | awk -v bb="$bb" '
+      BEGIN{ RS="\0"; bl=length(bb) }
+      {
+        s=$0; p=1
+        while((i=index(substr(s,p),bb))>0){
+          start=p+i-1+bl                               # 1-based byte just after this boundary
+          nxt=index(substr(s,start),bb)
+          part=(nxt>0)?substr(s,start,nxt-1):substr(s,start)
+          h=index(part,"\r\n\r\n")
+          if(h>0){
+            hdr=substr(part,1,h-1)
+            if(index(hdr,"filename=")>0){
+              fn=hdr; sub(/.*filename="/,"",fn); sub(/".*/,"",fn)
+              print "F", (start-1)+(h+3); print "N", fn    # content start (0-based) in the original
+            } else if(index(hdr,"name=\"path\"")>0){
+              pv=substr(part,h+4); sub(/\r\n.*/,"",pv); print "P", pv
+            }
+          }
+          p=start
+        }
+      }')
+    destdir=$(printf '%s\n' "$meta" | sed -n 's/^P //p' | head -1)
+    fname=$(printf '%s\n' "$meta" | sed -n 's/^N //p' | head -1)
+    cstart=$(printf '%s\n' "$meta" | sed -n 's/^F //p' | head -1)
+    # Content end: the closing "\r\n--bnd" near the file's end, found in a bounded NUL-free suffix.
+    # RS="\0" keeps the whole suffix as one record (it holds a CRLF, which would otherwise split it).
+    slen=$(( ${#bb} + 8 )); [ "$slen" -gt "$total" ] && slen=$total   # known; avoids $()'s newline strip
+    sfx=$(tail -c "$slen" "$body" | tr '\0' '\1')
+    pos=$(printf '%s' "$sfx" | awk -v bb="$bb" 'BEGIN{RS="\0"} {print index($0,bb); exit}')
+    [ "${pos:-0}" -gt 0 ] || fail 400 Bad
+    cend=$(( total - slen + pos - 3 ))                 # the byte before the "\r\n" preceding --bnd
+    # Validate the destination folder (a raw multipart field) and the file name — argv, so a name
+    # holding shell metacharacters is safe; only traversal / a path separator / control chars are refused.
+    dd=$(validate "$destdir") || fail 400 Bad
+    case $fname in ""|*/*|.|..) fail 400 Bad;; esac
+    case $fname in *[[:cntrl:]]*) fail 400 Bad;; esac
+    case "/${dd%/}/$fname/" in *"/../"*) fail 400 Bad;; esac
+    { [ -n "$cstart" ] && [ "$cstart" -ge 0 ] && [ "$cend" -ge "$cstart" ]; } || fail 400 Bad
+    dest=${dd%/}/$fname
+    mkdir -p -- "$dd" 2>/dev/null
+    tail -c +"$((cstart+1))" "$body" | head -c "$((cend-cstart))" > "$dest" 2>/dev/null || fail 500 Fail
+    rm -f "$body"; rmdir "$up" 2>/dev/null; trap - EXIT   # leave no work files in the file list
+    emit 'Content-type: application/json; charset=utf-8'; crlf
+    printf '{"files":[{"name":"%s"}]}' "$(json_escape "$fname")"
+    ;;
+
+  *) fail 404 NotFound ;;
+esac
+exit 0
