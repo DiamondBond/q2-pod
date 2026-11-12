@@ -8,9 +8,9 @@
 # was system("mkdir \"$path\"") — a shell command built from input. Here shell command injection is
 # structurally impossible, not merely filtered. validate() keeps every path under /mnt/mmc and
 # rejects any dot-component (".." traversal, "." self, and hidden files such as .scrobble.ini);
-# confine() then resolves symlinks so a non-FAT card cannot redirect an op off the card, and
-# hidden() refuses a hidden entry asked for by its other name (a FAT 8.3 short name). Runs under
-# the stock busybox ash as root, like the stock CGIs.
+# confine() then resolves symlinks so a non-FAT card cannot redirect an op off the card or to a
+# hidden entry, and hidden() refuses a hidden entry asked for by its other name (a FAT 8.3 short
+# name). Runs under the stock busybox ash as root, like the stock CGIs.
 #
 # Shell: the busybox ash the Q2 ships (POSIX plus `local`). No bashisms. Tested with busybox ash.
 
@@ -96,7 +96,12 @@ confine() { # absolute path already returned by validate()
   done
   rp=$(realpath "$a" 2>/dev/null) || return 1
   case $rp in "$CARD"|"$CARD"/*) ;; *) return 1;; esac
-  ! hidden "$1"
+  hidden "$1" && return 1
+  # A symlink can also lead to a hidden entry elsewhere on the card (Music/peek -> /mnt/mmc/.spotify).
+  # hidden "$1" does not see that: it holds each component against the dot-entries of that
+  # component's own folder. So the place reached, as realpath spells it, gets the same test. With no
+  # symlink on the way (always, on FAT and exFAT) the two spellings are one and the walk is not repeated.
+  [ "$rp" = "$a" ] || ! hidden "$rp"
 }
 
 # validate()'s dot rule reads the name asked for, but the card may know the same entry by a second
@@ -234,7 +239,11 @@ case $name in
     # paragraph mode: records end at a blank line and a record's leading newlines are dropped.)
     # Boundaries are found with index() (a literal match, so a boundary holding a regex
     # metacharacter is fine). The file content is never read here; the browser sends one file per
-    # request (sequentialUploads).
+    # request (sequentialUploads). Each value goes to the shell on a line of its own ("P" the path,
+    # "N" the file name, "F" the content's offset), so a bare LF inside a value would start another
+    # line, which the shell would read as the parser's: sent in the path field, "F -0" passed for the
+    # offset. An LF in a value becomes \001, a control character, which validate() and the file name
+    # check below refuse.
     meta=$(head -c 65536 "$body" | tr '\0\036' '\1\1' | awk -v bb="$bb" '
       BEGIN{ RS="\036"; bl=length(bb) }
       {
@@ -248,10 +257,10 @@ case $name in
           if(h>0){
             hdr=substr(part,1,h-1)
             if(index(hdr,"filename=")>0){
-              fn=hdr; sub(/.*filename="/,"",fn); sub(/".*/,"",fn)
+              fn=hdr; sub(/.*filename="/,"",fn); sub(/".*/,"",fn); gsub(/\n/,"\001",fn)
               print "F", (start-1)+(h+3); print "N", fn    # content start (0-based) in the original
             } else if(index(hdr,"name=\"path\"")>0){
-              pv=substr(part,h+4); sub(/\r\n.*/,"",pv); print "P", pv
+              pv=substr(part,h+4); sub(/\r\n.*/,"",pv); gsub(/\n/,"\001",pv); print "P", pv
             }
           }
           p=start

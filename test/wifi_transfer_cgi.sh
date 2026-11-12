@@ -48,6 +48,8 @@ run() {
 post() { local nm=$1 p=$2; printf 'path=%s' "$p" > /tmp/b.$$; run "$nm" POST '' 'application/x-www-form-urlencoded' /tmp/b.$$; rm -f /tmp/b.$$; }
 status() { printf '%s' "$OUT" | sed -n 's/^Status: \([0-9]*\).*/\1/p' | head -1; }
 body()   { printf '%s' "$OUT" | awk 'b{print} /^\r?$/{b=1}'; }
+refused() { [ "$(status)" = 400 ]; }
+leaks() { printf '%s' "$OUT" | grep -q "$1"; }
 # mp <file> <boundary> <path field> <file name> <content>: a one-file multipart body (printf escapes apply)
 mp() { { printf -- "--$2\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n$3\r\n"
          printf -- "--$2\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"$4\"\r\nContent-Type: application/octet-stream\r\n\r\n$5\r\n--$2--\r\n"; } > "$1"; }
@@ -244,6 +246,63 @@ else
 fi
 rm -rf /tmp/offcard
 
+echo; echo "############ SYMLINK: nor to a hidden entry elsewhere on the card"
+# hidden() holds a component against the dot-entries of its own folder, so a link in ANOTHER folder
+# to a hidden one passed: through it the folder was listed, its files read, a file put in it and
+# its contents deleted. confine() now makes the same test of the place a link leads to.
+rm -rf /mnt/mmc/.spotify /mnt/mmc/Links /mnt/mmc/Plain
+mkdir -p /mnt/mmc/.spotify/cache /mnt/mmc/Links /mnt/mmc/Plain
+printf 'SECRETKEY' > /mnt/mmc/.scrobble.ini; printf 'plain' > /mnt/mmc/Plain/plain.txt
+printf 'LAUNCHER' > /mnt/mmc/.spotify/run; printf 'LOGIN' > /mnt/mmc/.spotify/cache/credentials.json
+ln -s /mnt/mmc/.spotify /mnt/mmc/Links/peek 2>/dev/null       # absolute, to a hidden folder
+ln -s ../.scrobble.ini /mnt/mmc/Links/key.txt 2>/dev/null     # relative, to a hidden file
+ln -s /mnt/mmc/Links/peek /mnt/mmc/Plain/chain 2>/dev/null    # a link to the first link
+ln -s .spotify /mnt/mmc/beside 2>/dev/null                    # in the hidden folder's own folder
+ln -s /mnt/mmc/Plain /mnt/mmc/Links/shortcut 2>/dev/null      # to an ordinary folder
+if [ -L /mnt/mmc/Links/peek ]; then
+  run list GET 'path=/mnt/mmc/Links/peek' '' -
+  { refused && ! leaks cache; } && ok "list through a link to a hidden folder refused" || bad "hidden-link list ($(status))"
+  run download GET 'path=/mnt/mmc/Links/peek/cache/credentials.json' '' -
+  { refused && ! leaks LOGIN; } && ok "download through it refused, no leak" || bad "hidden-link download ($(status))"
+  run download GET 'path=/mnt/mmc/Links/key.txt' '' -
+  { refused && ! leaks SECRETKEY; } && ok "download of a link to a hidden file refused, no leak" || bad "hidden-file link download ($(status))"
+  run list GET 'path=/mnt/mmc/Plain/chain' '' -
+  { refused && ! leaks cache; } && ok "a link to that link refused" || bad "hidden-link chain ($(status))"
+  run create GET 'path=/mnt/mmc/Links/peek/planted' '' -
+  { refused && [ ! -e /mnt/mmc/.spotify/planted ]; } && ok "create through it refused, nothing made" || bad "hidden-link create ($(status))"
+  mp /tmp/mp_hl ----q2hl /mnt/mmc/Links/peek run ATTACKER
+  run upload POST '' 'multipart/form-data; boundary=----q2hl' /tmp/mp_hl
+  { refused && [ "$(cat /mnt/mmc/.spotify/run)" = LAUNCHER ]; } && ok "upload through it refused, the launcher untouched" || bad "hidden-link upload ($(status), run='$(cat /mnt/mmc/.spotify/run)')"
+  post delete '/mnt/mmc/Links/peek/cache'
+  { refused && [ -f /mnt/mmc/.spotify/cache/credentials.json ]; } && ok "delete through it refused, nothing deleted" || bad "hidden-link delete ($(status))"
+  run list GET 'path=/mnt/mmc/beside' '' -
+  { refused && ! leaks cache; } && ok "a link beside the hidden folder refused" || bad "hidden-link beside ($(status))"
+  run download GET 'path=/mnt/mmc/Links/shortcut/plain.txt' '' -
+  [ "$(body)" = plain ] && ok "a link to an ordinary folder on the card still works" || bad "ordinary link ($(status))"
+else
+  echo "  SKIP: this filesystem did not allow creating a symlink: these 9 cases need one"
+fi
+rm -rf /mnt/mmc/Links /mnt/mmc/Plain /mnt/mmc/beside
+
+echo; echo "############ HARD LINK: a hidden file's second name in another folder cannot change the hidden file"
+# A card with hard links (NTFS) can hold a hidden file under an ordinary name in another folder.
+# That name is left to work as the ordinary file its owner made it: the page cannot make such a
+# link, and telling one from any other file would take a walk of the whole card at every request.
+# What has to hold is that the hidden file cannot be changed or removed through it: an upload
+# renames a new file over the name and a delete unlinks the name, and neither touches the file.
+mkdir -p /mnt/mmc/HardLinks; printf 'SECRETKEY' > /mnt/mmc/.scrobble.ini
+if ln /mnt/mmc/.scrobble.ini /mnt/mmc/HardLinks/key.txt 2>/dev/null; then
+  mp /tmp/mp_hd ----q2hd /mnt/mmc/HardLinks key.txt ATTACKER
+  run upload POST '' 'multipart/form-data; boundary=----q2hd' /tmp/mp_hd
+  { [ "$(cat /mnt/mmc/.scrobble.ini)" = SECRETKEY ] && [ "$(cat /mnt/mmc/HardLinks/key.txt)" = ATTACKER ]; } && ok "upload over a hard link to a hidden file replaces the name, the hidden file untouched" || bad "hard-link upload ($(status), .scrobble.ini='$(cat /mnt/mmc/.scrobble.ini 2>/dev/null)')"
+  ln -f /mnt/mmc/.scrobble.ini /mnt/mmc/HardLinks/key.txt
+  post delete '/mnt/mmc/HardLinks/key.txt'
+  { [ ! -e /mnt/mmc/HardLinks/key.txt ] && [ "$(cat /mnt/mmc/.scrobble.ini 2>/dev/null)" = SECRETKEY ]; } && ok "delete of a hard link to a hidden file removes the name, the hidden file stays" || bad "hard-link delete ($(status), .scrobble.ini='$(cat /mnt/mmc/.scrobble.ini 2>/dev/null)')"
+else
+  echo "  SKIP: this filesystem has no hard links: these 2 cases need one"
+fi
+rm -rf /mnt/mmc/HardLinks
+
 echo; echo "############ PRIVACY+: upload must not create a hidden (leading-dot) file nor clobber a dir"
 printf 'OLD' > /mnt/mmc/.scrobble.ini        # known value; the earlier direct-delete was refused so it persists
 B=/tmp/mp_dot; BND=----q2dot
@@ -372,6 +431,36 @@ printf -- "------q2lf\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n/m
 run upload POST '' 'multipart/form-data; boundary=----q2lf' /tmp/mp_lf
 { [ "$(status)" = 400 ] && [ ! -e /mnt/mmc/lf.txt ]; } && ok "a closing boundary after a bare LF is refused, not stored a byte short" || bad "bare-LF closing boundary ($(status), stored '$(cat /mnt/mmc/lf.txt 2>/dev/null)')"
 
+echo; echo "############ MULTIPART VALUES: a bare LF in a value cannot write a line of the parser's output"
+# The parser hands the shell one line per value: "P <path>", "N <file name>", "F <content offset>".
+# A bare LF inside a value started a line of its own, read as the parser's. In the path field,
+# "F -0" passed for the offset and the sender's whole envelope was stored as the file; an offset
+# with a leading zero was checked as decimal and cut as octal; "F" and "N" lines stood in for a file
+# part that was not there. In the file name, a "P" line named the folder. Only the sender's own
+# bytes each time, but not the file that was sent.
+python3 -c "
+bnd = b'----q2fv'
+hp = b'--' + bnd + b'\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n'
+hf = lambda n: b'--' + bnd + b'\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"' + n + b'\"\r\nContent-Type: application/octet-stream\r\n\r\n'
+end = b'--' + bnd + b'--\r\n'
+open('/tmp/fv_offset_minus_zero', 'wb').write(hp + b'/mnt/mmc/fv\nF -0\r\n' + hf(b'a.txt') + b'CONTENT\r\n' + end + b'\r\n')
+open('/tmp/fv_no_file_part', 'wb').write(hp + b'/mnt/mmc/fv\nF %d\nN b.txt' % len(hp) + b'\r\n' + end)
+for k in range(400):                        # pad the path until the content's offset reads differently as octal
+    off = 0
+    for _ in range(8):
+        pre = hp + b'/mnt/mmc/fv' + b'/' * k + b'\nF 0%d\r\n' % off + hf(b'c.txt')
+        if len(pre) == off: break
+        off = len(pre)
+    if len(pre) == off and set(str(off)) <= set('01234567') and int(str(off), 8) != off: break
+else: raise SystemExit('no offset that reads as octal')
+open('/tmp/fv_offset_leading_zero', 'wb').write(pre + b'CONTENT\r\n' + end)
+open('/tmp/fv_path_from_file_name', 'wb').write(hf(b'd.txt\nP /mnt/mmc/fv') + b'CONTENT\r\n' + end)"
+for c in offset_minus_zero no_file_part offset_leading_zero path_from_file_name; do
+  rm -rf /mnt/mmc/fv
+  run upload POST '' 'multipart/form-data; boundary=----q2fv' /tmp/fv_$c
+  { refused && [ ! -e /mnt/mmc/fv ]; } && ok "a line written through a value is refused, nothing stored: $c" || bad "a value wrote a parser line ($c): status $(status), stored: $(ls /mnt/mmc/fv 2>/dev/null | tr '\n' ' ')"
+done
+
 echo; echo "############ FAT 8.3 SHORT NAMES: a hidden entry is refused by its second name too"
 # FAT32 keeps an 8.3 short name beside every long name and the kernel resolves either, so the dot
 # rule alone let .scrobble.ini be read, replaced and deleted as SCROBB~1.INI. q2cgi's hidden()
@@ -391,8 +480,6 @@ if [ "$FS" = vfat ]; then
   if [ -n "$A_INI" ] && [ -n "$A_LOG" ] && [ -n "$A_SPOT" ] && [ -n "$A_PRIV" ] && [ -n "$A_SONG" ]; then
     ok "the kernel resolves short names here ($A_INI, $A_LOG, $A_SPOT, $A_PRIV, $A_SONG)"
   else bad "no short name found for a long-named entry: the cases below prove nothing"; fi
-  refused() { [ "$(status)" = 400 ]; }
-  leaks() { printf '%s' "$OUT" | grep -q "$1"; }
   run download GET "path=/mnt/mmc/$A_INI" '' -
   { refused && ! leaks SECRETKEY; } && ok "download of .scrobble.ini by its short name refused, no leak" || bad "short-name download ($(status))"
   run download GET "path=/mnt/mmc/$(printf '%s' "$A_INI" | tr 'A-Z' 'a-z')" '' -
