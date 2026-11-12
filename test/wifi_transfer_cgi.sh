@@ -3,16 +3,28 @@
 # manager) — under the stock busybox ash with synthetic CGI requests. /mnt/mmc is a tmpfs, so the
 # mount check and the filesystem boundary are real. Needs root (to mount the tmpfs) and busybox;
 # run it in the q2pod-dev container, e.g. `q2dev.ps1 run bash /work/test/wifi_transfer_cgi.sh`.
+# With --fat, /mnt/mmc is a throwaway FAT32 image instead, as a real card is: the whole suite runs
+# on it, and so do the 8.3 short-name cases, which only a FAT filesystem can show (a tmpfs has no
+# second names, so they are skipped there). The loop mount needs a privileged container:
+#   docker run --rm --privileged --network none -v <checkout>:/work:ro q2pod-dev bash /work/test/wifi_transfer_cgi.sh --fat
 # No network. Every payload is benign (markers under /tmp or the card tmpfs; nothing destructive).
 set -u
 CGI="$(cd "$(dirname "$0")/.." && pwd)/assets/web/q2cgi"
 SH="busybox ash"
 command -v busybox >/dev/null || { echo "SKIP: busybox not found (run in the q2pod-dev container)"; exit 0; }
-if ! grep -q ' /mnt/mmc ' /proc/mounts 2>/dev/null; then
+if [ "${1:-}" = --fat ]; then
+  grep -q ' /mnt/mmc ' /proc/mounts 2>/dev/null && { echo "ERROR: --fat mounts its own image, and /mnt/mmc is already a mount"; exit 2; }
+  IMG=$(mktemp /tmp/q2fat.XXXXXX); truncate -s 96M "$IMG"; mkdir -p /mnt/mmc 2>/dev/null
+  { busybox mkdosfs "$IMG" >/dev/null 2>&1 && mount -o loop -t vfat "$IMG" /mnt/mmc 2>/dev/null; } || {  # busybox mkdosfs makes FAT32
+    rm -f "$IMG"; echo "ERROR: cannot make and mount a FAT32 image at /mnt/mmc (--fat needs a privileged container)"; exit 2; }
+  trap 'umount /mnt/mmc 2>/dev/null; rm -f "$IMG"' EXIT
+elif ! grep -q ' /mnt/mmc ' /proc/mounts 2>/dev/null; then
   mkdir -p /mnt/mmc 2>/dev/null
   mount -t tmpfs tmpfs /mnt/mmc 2>/dev/null || { echo "SKIP: cannot mount a tmpfs at /mnt/mmc (need root)"; exit 0; }
   trap 'umount /mnt/mmc 2>/dev/null' EXIT
 fi
+FS=$(awk '$2=="/mnt/mmc"{t=$3} END{print t}' /proc/mounts)
+echo "=== /mnt/mmc is a $FS"
 rm -rf /mnt/mmc/* /mnt/mmc/.[!.]* 2>/dev/null
 # Reproduce the Q2's applet set: a PATH with ONLY the applets the stock rootfs symlinks to busybox
 # (notably NO bare `stat`), so a reliance on a tool the device lacks fails here too.
@@ -36,6 +48,17 @@ run() {
 post() { local nm=$1 p=$2; printf 'path=%s' "$p" > /tmp/b.$$; run "$nm" POST '' 'application/x-www-form-urlencoded' /tmp/b.$$; rm -f /tmp/b.$$; }
 status() { printf '%s' "$OUT" | sed -n 's/^Status: \([0-9]*\).*/\1/p' | head -1; }
 body()   { printf '%s' "$OUT" | awk 'b{print} /^\r?$/{b=1}'; }
+# mp <file> <boundary> <path field> <file name> <content>: a one-file multipart body (printf escapes apply)
+mp() { { printf -- "--$2\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n$3\r\n"
+         printf -- "--$2\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"$4\"\r\nContent-Type: application/octet-stream\r\n\r\n$5\r\n--$2--\r\n"; } > "$1"; }
+# held <name> <method> <query> <body>: as run, but stdin stays open for 8 s after the body, as the
+# client's connection does while it waits for the answer; RC is 124 when the CGI was still reading
+# after 4 s. No body sends no CONTENT_LENGTH, as thttpd does for a GET.
+held() {
+  local cl=(); [ -n "$4" ] && cl=("CONTENT_LENGTH=${#4}")
+  OUT=$(timeout 4 env -i PATH="$DEVPATH" SCRIPT_NAME="/$1" REQUEST_METHOD="$2" QUERY_STRING="$3" \
+        CONTENT_TYPE='application/x-www-form-urlencoded' "${cl[@]}" $SH "$CGI" 2>/dev/null < <(printf '%s' "$4"; sleep 8)); RC=$?
+}
 
 echo "=== busybox ash case [[:cntrl:]] support"; busybox ash -c 'case "$(printf a\\tb)" in *[[:cntrl:]]*) echo yes;; *) echo NO;; esac'
 rm -rf /tmp/pwned* 2>/dev/null
@@ -262,6 +285,151 @@ B=/tmp/mp_q; BND=----q2quoted
   printf -- "--$BND\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"q.txt\"\r\nContent-Type: text/plain\r\n\r\nQBODY\r\n--$BND--\r\n"; } > "$B"
 run upload POST '' "multipart/form-data; boundary=\"$BND\"" "$B"
 [ "$(cat /mnt/mmc/q.txt 2>/dev/null)" = QBODY ] && ok "quoted boundary accepted (RFC-legal)" || bad "quoted boundary ($(status))"
+
+echo; echo "############ REQUEST BODY: exactly CONTENT_LENGTH bytes, never to end-of-file"
+# thttpd gives a CGI the client's socket as stdin unless it already holds part of the body, and the
+# socket stays open until the answer: a CGI that reads to end-of-file never answers.
+held create POST '' 'path=/mnt/mmc/HeldPost'
+{ [ "$RC" != 124 ] && [ -d /mnt/mmc/HeldPost ]; } && ok "POST create answers while the connection stays open" || bad "POST create waited for end-of-file (rc $RC)"
+held create GET 'path=/mnt/mmc/HeldGet' ''
+{ [ "$RC" != 124 ] && [ -d /mnt/mmc/HeldGet ]; } && ok "GET create (no body, no CONTENT_LENGTH) answers while the connection stays open" || bad "GET create waited for end-of-file (rc $RC)"
+held delete POST '' 'path=/mnt/mmc/HeldPost'
+{ [ "$RC" != 124 ] && [ ! -e /mnt/mmc/HeldPost ]; } && ok "POST delete answers while the connection stays open" || bad "POST delete waited for end-of-file (rc $RC)"
+printf 'path=/mnt/mmc/CutHereNOT-THE-BODY' > /tmp/bcut      # CONTENT_LENGTH covers "path=/mnt/mmc/CutHere" only
+OUT=$(env -i PATH="$DEVPATH" SCRIPT_NAME=/create REQUEST_METHOD=POST CONTENT_TYPE='application/x-www-form-urlencoded' CONTENT_LENGTH=21 $SH "$CGI" < /tmp/bcut 2>/dev/null)
+{ [ -d /mnt/mmc/CutHere ] && [ ! -e /mnt/mmc/CutHereNOT-THE-BODY ]; } && ok "bytes past CONTENT_LENGTH are not read as the body" || bad "the body was not cut at CONTENT_LENGTH ($(status))"
+printf 'path=/mnt/mmc/HugeLength' > /tmp/bhuge
+OUT=$(env -i PATH="$DEVPATH" SCRIPT_NAME=/create REQUEST_METHOD=POST CONTENT_TYPE='application/x-www-form-urlencoded' CONTENT_LENGTH=99999999999999999999 $SH "$CGI" < /tmp/bhuge 2>/dev/null)
+[ -d /mnt/mmc/HugeLength ] && ok "a CONTENT_LENGTH too long for the shell to compare is capped at 64 KB, not an error" || bad "huge CONTENT_LENGTH ($(status))"
+
+echo; echo "############ MULTIPART NEWLINES: content is kept to the byte whatever newlines it holds"
+# busybox awk takes RS="\0" as an empty RS (paragraph mode): a record's leading newlines are dropped,
+# so a newline among the content's last two bytes moved the content's end and the file lost bytes.
+NL="nl_last_but_one nl_two_at_end nl_one_at_end nl_at_start nl_only blank_lines_then_binary separator_byte"
+python3 -c "
+import os
+cases = {'nl_last_but_one': b'line one\nX', 'nl_two_at_end': b'ends in a blank line\n\n', 'nl_one_at_end': b'ends in a newline\n',
+         'nl_at_start': b'\n\nstarts with blank lines', 'nl_only': b'\n\n\n',
+         'blank_lines_then_binary': b'a\n\nb\n\n\n' + os.urandom(70000) + b'\n\x00',
+         'separator_byte': b'\x1e\nholds the byte the parser splits records at\x1e\x00\n\x1e'}
+assert sorted(cases) == sorted('$NL'.split())
+for name, content in cases.items():
+    bnd = b'----q2nl'
+    open('/tmp/expect.' + name, 'wb').write(content)
+    open('/tmp/mp_' + name, 'wb').write(
+        b'--' + bnd + b'\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n/mnt/mmc/\r\n--' + bnd
+        + b'\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"' + name.encode() + b'.bin\"\r\n'
+        + b'Content-Type: application/octet-stream\r\n\r\n' + content + b'\r\n--' + bnd + b'--\r\n')"
+for c in $NL; do
+  run upload POST '' 'multipart/form-data; boundary=----q2nl' /tmp/mp_$c
+  cmp -s /mnt/mmc/$c.bin /tmp/expect.$c && ok "upload byte-exact: $c" || bad "upload $c differs ($(stat -c %s /mnt/mmc/$c.bin 2>/dev/null) bytes stored, $(stat -c %s /tmp/expect.$c) sent; status $(status))"
+done
+
+echo; echo "############ BINARY INTEGRITY: the parser neither changes, drops nor adds a byte of the content"
+# The parser reads tr'd copies of the body's first 64 KB and last bytes (NUL and \036 become \1) to
+# find where the content starts and ends; the file is cut from the untouched body. The bytes it
+# treats specially (NUL, \1, tab, LF, CR, \036, space, '-', DEL, 0x80, 0xff) are put where they could
+# move an offset: alone, at the content's start, and as every pair at its end (the end is found from
+# the body's last bytes, which hold the content's last two). Then contents of random bytes.
+MX=/tmp/mx; rm -rf "$MX"; mkdir -p "$MX"
+python3 -c "
+import random
+special = [0x00, 0x01, 0x09, 0x0a, 0x0d, 0x1e, 0x20, 0x2d, 0x7f, 0x80, 0xff]
+bnd = b'----q2mx'
+cases = {'whole_closing_line_inside': b'before\r\n--' + bnd + b'--\r\nafter'}
+for a in special:
+    cases['one_%02x' % a] = bytes([a])
+    cases['start_%02x' % a] = bytes([a, a]) + b'then ordinary text'
+    for b in special:
+        cases['end_%02x_%02x' % (a, b)] = b'ordinary text then' + bytes([a, b])
+rnd = random.Random(20261112)
+for i in range(40):
+    cases['random_%02d' % i] = bytes(rnd.getrandbits(8) for _ in range(rnd.choice([1, 2, 3, 7, 64, 500, 3000])))
+for name, content in cases.items():
+    open('$MX/' + name + '.expect', 'wb').write(content)
+    open('$MX/' + name + '.body', 'wb').write(
+        b'--' + bnd + b'\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n/mnt/mmc/mx\r\n--' + bnd
+        + b'\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"' + name.encode() + b'\"\r\n'
+        + b'Content-Type: application/octet-stream\r\n\r\n' + content + b'\r\n--' + bnd + b'--\r\n')"
+mx() { # <group> <what it is>: every body of the group uploaded and compared with what was sent
+  local n=0 wrong="" f c
+  for f in "$MX/$1"*.body; do
+    c=${f##*/}; c=${c%.body}; n=$((n+1))
+    run upload POST '' 'multipart/form-data; boundary=----q2mx' "$f"
+    cmp -s "/mnt/mmc/mx/$c" "$MX/$c.expect" || wrong="$wrong $c($(status))"
+  done
+  [ -z "$wrong" ] && ok "byte-exact: $2 ($n uploads)" || bad "not byte-exact: $2:$wrong"
+}
+mx one_ "a one-byte file of each special byte"
+mx start_ "content starting with each special byte, twice"
+mx end_ "content ending in every pair of special bytes"
+mx whole_ "content holding a whole closing-boundary line"
+mx random_ "random bytes, 1 to 3000 long"
+# q2cgi checks both offsets against the untouched body before it stores anything, so a body it
+# cannot place exactly is refused. Here the closing boundary follows a bare LF, not CRLF: taking
+# the two bytes before the boundary for a CRLF would store "AB" for "ABC".
+printf -- "------q2lf\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n/mnt/mmc/\r\n------q2lf\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"lf.txt\"\r\n\r\nABC\n------q2lf--\r\n" > /tmp/mp_lf
+run upload POST '' 'multipart/form-data; boundary=----q2lf' /tmp/mp_lf
+{ [ "$(status)" = 400 ] && [ ! -e /mnt/mmc/lf.txt ]; } && ok "a closing boundary after a bare LF is refused, not stored a byte short" || bad "bare-LF closing boundary ($(status), stored '$(cat /mnt/mmc/lf.txt 2>/dev/null)')"
+
+echo; echo "############ FAT 8.3 SHORT NAMES: a hidden entry is refused by its second name too"
+# FAT32 keeps an 8.3 short name beside every long name and the kernel resolves either, so the dot
+# rule alone let .scrobble.ini be read, replaced and deleted as SCROBB~1.INI. q2cgi's hidden()
+# compares files, not names. Only a FAT mount has such names: run with --fat (see the header).
+if [ "$FS" = vfat ]; then
+  rm -rf /mnt/mmc/.scrobble.ini /mnt/mmc/.spotify
+  printf 'SECRETKEY' > /mnt/mmc/.scrobble.ini; printf 'LISTENS' > /mnt/mmc/.scrobbler.log
+  mkdir -p /mnt/mmc/.spotify/cache /mnt/mmc/Albums/.private
+  printf 'LAUNCHER' > /mnt/mmc/.spotify/run; printf 'LOGIN' > /mnt/mmc/.spotify/cache/credentials.json
+  printf 'NOTES' > /mnt/mmc/Albums/.private/notes.txt; printf 'song' > "/mnt/mmc/Albums/A Long Song Name.flac"
+  short() { # <long path> <base> <extension>: the short name the kernel resolves to that entry, by trying the numeric tails
+    local i; for i in 1 2 3 4 5 6 7 8 9; do [ "${1%/*}/$2~$i$3" -ef "$1" ] && { echo "$2~$i$3"; return; }; done
+  }
+  A_INI=$(short /mnt/mmc/.scrobble.ini SCROBB .INI); A_LOG=$(short /mnt/mmc/.scrobbler.log SCROBB .LOG)
+  A_SPOT=$(short /mnt/mmc/.spotify SPOTIF ''); A_PRIV=$(short /mnt/mmc/Albums/.private PRIVAT '')
+  A_SONG=$(short "/mnt/mmc/Albums/A Long Song Name.flac" ALONGS .FLA)
+  if [ -n "$A_INI" ] && [ -n "$A_LOG" ] && [ -n "$A_SPOT" ] && [ -n "$A_PRIV" ] && [ -n "$A_SONG" ]; then
+    ok "the kernel resolves short names here ($A_INI, $A_LOG, $A_SPOT, $A_PRIV, $A_SONG)"
+  else bad "no short name found for a long-named entry: the cases below prove nothing"; fi
+  refused() { [ "$(status)" = 400 ]; }
+  leaks() { printf '%s' "$OUT" | grep -q "$1"; }
+  run download GET "path=/mnt/mmc/$A_INI" '' -
+  { refused && ! leaks SECRETKEY; } && ok "download of .scrobble.ini by its short name refused, no leak" || bad "short-name download ($(status))"
+  run download GET "path=/mnt/mmc/$(printf '%s' "$A_INI" | tr 'A-Z' 'a-z')" '' -
+  { refused && ! leaks SECRETKEY; } && ok "the same in lower case refused" || bad "lower-case short-name download ($(status))"
+  run download GET "path=/mnt/mmc/$A_INI." '' -              # FAT drops a name's trailing dots
+  { refused && ! leaks SECRETKEY; } && ok "the same with a trailing dot refused" || bad "trailing-dot short-name download ($(status))"
+  run list GET "path=/mnt/mmc/$A_SPOT" '' -
+  { refused && ! leaks cache; } && ok "list of .spotify by its short name refused" || bad "short-name list ($(status))"
+  run download GET "path=/mnt/mmc/$A_SPOT/cache/credentials.json" '' -
+  { refused && ! leaks LOGIN; } && ok "download from inside .spotify by its short name refused, no leak" || bad "short-name folder download ($(status))"
+  run download GET "path=/mnt/mmc/Albums/$A_PRIV/notes.txt" '' -
+  { refused && ! leaks NOTES; } && ok "a hidden folder inside a folder refused by its short name" || bad "nested short-name download ($(status))"
+  run create GET "path=/mnt/mmc/$A_SPOT/planted" '' -
+  { refused && [ ! -e /mnt/mmc/.spotify/planted ]; } && ok "create inside .spotify by its short name refused, nothing made" || bad "short-name create ($(status))"
+  post delete "/mnt/mmc/$A_LOG"
+  { refused && [ "$(cat /mnt/mmc/.scrobbler.log)" = LISTENS ]; } && ok "delete of .scrobbler.log by its short name refused" || bad "short-name delete ($(status))"
+  post delete "/mnt/mmc/$A_SPOT"
+  { refused && [ -f /mnt/mmc/.spotify/cache/credentials.json ]; } && ok "delete of .spotify by its short name refused" || bad "short-name folder delete ($(status))"
+  mp /tmp/mp_a1 ----q2a1 "/mnt/mmc/$A_SPOT" run ATTACKER
+  run upload POST '' 'multipart/form-data; boundary=----q2a1' /tmp/mp_a1
+  { refused && [ "$(cat /mnt/mmc/.spotify/run)" = LAUNCHER ]; } && ok "upload into .spotify by its short name refused, its launcher untouched" || bad "short-name upload ($(status), run='$(cat /mnt/mmc/.spotify/run)')"
+  mp /tmp/mp_a2 ----q2a2 /mnt/mmc/ "$A_INI" ATTACKER
+  run upload POST '' 'multipart/form-data; boundary=----q2a2' /tmp/mp_a2
+  { refused && [ "$(cat /mnt/mmc/.scrobble.ini)" = SECRETKEY ]; } && ok "upload of a file named as .scrobble.ini's short name refused, the file untouched" || bad "short-name file upload ($(status), now='$(cat /mnt/mmc/.scrobble.ini)')"
+  # files are compared, not names: ordinary entries keep working by their short name and in another case
+  run download GET "path=/mnt/mmc/Albums/$A_SONG" '' -
+  [ "$(body)" = song ] && ok "an ordinary file still downloads by its own short name" || bad "ordinary short name ($(status))"
+  run download GET 'path=/mnt/mmc/ALBUMS/a long song name.FLAC' '' -
+  [ "$(body)" = song ] && ok "an ordinary file still downloads in another case" || bad "another case ($(status))"
+  run create GET 'path=/mnt/mmc/albums/New+Sub' '' -
+  [ -d "/mnt/mmc/Albums/New Sub" ] && ok "create under another case of a folder lands in that folder" || bad "create under another case ($(status))"
+  mp /tmp/mp_a3 ----q2a3 /mnt/mmc/ALBUMS 'a long song name.flac' newer
+  run upload POST '' 'multipart/form-data; boundary=----q2a3' /tmp/mp_a3
+  [ "$(cat "/mnt/mmc/Albums/A Long Song Name.flac")" = newer ] && ok "upload over an ordinary file in another case replaces it" || bad "upload in another case ($(status))"
+else
+  echo "  SKIP: /mnt/mmc is a $FS, which keeps no short names: run with --fat (see the header) for these 16 cases"
+fi
 
 echo; echo "############ DEVICE APPLET: no dependency on 'stat' (absent on device busybox 1.31.1)"
 grep -qE 'stat -c|busybox stat' "$CGI" && bad "q2cgi invokes the 'stat' applet, which the device busybox lacks" || ok "no 'stat' applet dependency (size via ls -ln, mtime via date -r)"
