@@ -73,7 +73,7 @@ python3 test/peq.py                        # PEQ parser, storage, DSP, EQ page (
 python3 test/peq.py --captures /tmp/eq --font BUILD/default.ttf  # the same, plus the EQ page's Simple tab in both iPod themes as PNGs
 python3 test/coverflow.py                  # Coverflow art cache and depth renderer (host cc -m32, pthreads)
 python3 test/coverflow.py --captures /tmp/cf  # the same, plus the renderer's frames as PNGs
-python3 test/mp3.py                        # native Xing seek bounds, CRC and truncated headers; TXXX encodings
+python3 test/mp3.py                        # native Xing seek bounds, CRC and truncated headers; TXXX encodings; the ID3v2 frame walk
 python3 test/mp3_gapless.py                # gapless parser/PCM and generated LAME/FFmpeg comparisons (cc, lame, ffmpeg, pkg-config, libavcodec/libavutil/libmad development files)
 python3 test/mp3_gapless_player.py BUILD   # the built gapless hooks, then stock's demuxer and libmad under Unicorn on generated files (lame, unsquashfs, readelf)
 python3 test/build.py                      # JPEG headers, dev tags, and the boot scripts (S90play's dual boot and crash log, S11logo's splash) under the host sh; no ZIP or emulator

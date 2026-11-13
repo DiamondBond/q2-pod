@@ -114,6 +114,7 @@ def run(data, entry):
     u.reg_write(UC_MIPS_REG_A0, s); u.reg_write(UC_MIPS_REG_A1, len(data) - 10)
     u.reg_write(UC_MIPS_REG_RA, 0x2000000)
     u.emu_start(entry, 0x2000000, count=5_000_000)
+    assert u.reg_read(UC_MIPS_REG_PC) == 0x2000000, 'the walker never returned'
     return struct.unpack('<iIiI', u.mem_read(PENDING, 16)), fd['at']
 
 none = (UNKNOWN, 0, UNKNOWN, 0)
@@ -127,6 +128,9 @@ cases = [  # name, tag, stock's result, the fix's
     ('2.3 UTF-16, cover art first', tag(3, [frame(3, b'APIC', ART), *rg(3, 1)]), none, WANT),
     ('2.3 Latin-1, gains first', tag(3, rg(3, 0)), WANT, WANT),
     ('no gains', tag(4, [title, frame(4, b'APIC', ART)]), none, none),
+    # 0xfffffff6 and the 10-byte header are 0 in 32 bits: id3_gain's walk read that frame for ever. Past the
+    # 2 KB stock's walker reads, so that one returns.
+    ('2.3, a frame size that wraps, after the art', tag(3, [*rg(3, 0), frame(3, b'APIC', ART), b'PRIV\xff\xff\xff\xf6\0\0']), WANT, WANT),
 ]
 for name, data, stock, fixed in cases:
     data += b'\xff\xfb\x90\0' + bytes(400)

@@ -854,7 +854,7 @@ void id3_gain(void *s, int size) {
             if (!memcmp(h, "TXXX", 4) && n <= sizeof f && read(fd, f, n) == (int)n &&
                 (k = id3_txxx(f, n, t, sizeof t)) > (key = strlen(t)) + 1)
                 AV_DICT_SET(&dict, t, t + key + 1, 0);
-            at += 10 + n;
+            at += 10LL + n; /* 64-bit: a 2.3 size of 0xfffffff6 and the header make 0 in 32, the same frame for ever */
         }
         RG_EXPORT(0, dict);
         AV_DICT_FREE(&dict);
