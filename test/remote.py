@@ -6,9 +6,11 @@ import hashlib
 import io
 import pathlib
 import re
+import secrets
 import shlex
 import signal
 import socket
+import string
 import struct
 import subprocess
 import tempfile
@@ -202,8 +204,14 @@ for bad in (frame[:20], frame[:-1], frame[:5] + struct.pack("<IIII", w + 1, h, s
     except ValueError: pass
     else: raise AssertionError("bad framebuffer accepted")
 
+# The helper started below is a real shell on a loopback port, which any process on this host can reach, so
+# its keys are this run's own: one this file spelled out opened it to another account for as long as it ran.
+ALPHABET = string.ascii_letters + string.digits + "_-"
+def fresh(n=16): return "".join(secrets.choice(ALPHABET) for _ in range(n))
+KEY, KEY2, KEY3 = fresh(), fresh(), fresh()
+
 with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
-    root = pathlib.Path(td); keyfile = root / "key"; keyfile.write_text("0123456789abcdef\n")
+    root = pathlib.Path(td); keyfile = root / "key"; keyfile.write_text(KEY + "\n")
     mounts, cache = root / "mounts", root / "cache"
     # Away, only a mount whose path starts with the card's is left: it isn't the card.
     card = lambda on: mounts.write_text(f"/dev/mmcblk4p1 {root} vfat rw 0 0\n" if on else f"tmpfs {root}-x tmpfs rw 0 0\n")
@@ -293,10 +301,10 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         for _ in range(100):  # a forked child writes it: up to 5 s on a loaded host
             if cache.exists() and cache.read_text(): break
             time.sleep(.05)
-        assert cache.read_text() == "0123456789abcdef\n"
+        assert cache.read_text() == KEY + "\n"
         # A second copy can't have the port and exits; the first still answers.
         assert subprocess.run([exe], timeout=10).returncode == 1
-        os.environ.update(Q2_HOST="127.0.0.1", Q2_KEY="0123456789abcdef")
+        os.environ.update(Q2_HOST="127.0.0.1", Q2_KEY=KEY)
         assert q.shell("cat", b"\x00binary\xff") == b"\x00binary\xff"
         for _ in range(3): assert q.shell("printf repeated") == b"repeated"
         # The CLI transports long/multiline scripts without sharing script text as command stdin.
@@ -357,33 +365,33 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         except PermissionError: raise AssertionError("XPASS: a wrong key with stdin now reads as rejected; make it a plain check")
         except ConnectionError: pass
         else: raise AssertionError("wrong key accepted with stdin")
-        os.environ["Q2_KEY"] = "0123456789abcdef"
-        keyfile.write_text("fedcba9876543210\n")
+        os.environ["Q2_KEY"] = KEY
+        keyfile.write_text(KEY2 + "\n")
         try: q.shell("printf stale")
         except PermissionError: pass
         else: raise AssertionError("rotated key accepted old key")
-        os.environ["Q2_KEY"] = "fedcba9876543210"
+        os.environ["Q2_KEY"] = KEY2
         assert q.shell("printf rotated") == b"rotated"
         for invalid_key in ("short\n", "bad key with spaces\n", "x" * 128):
             keyfile.write_text(invalid_key)
             try: q.shell("printf invalid")
             except PermissionError: pass
             else: raise AssertionError("malformed card key accepted")
-        keyfile.write_text("fedcba9876543210\n")
+        keyfile.write_text(KEY2 + "\n")
         keyfile.unlink()
         try: q.shell("printf removed")
         except PermissionError: pass
         else: raise AssertionError("missing key accepted")
-        keyfile.write_text("fedcba9876543210\n")
+        keyfile.write_text(KEY2 + "\n")
         # Partial and malformed request lines are rejected without running the command; split reads still work.
         with socket.create_connection(("127.0.0.1", port), 2) as s:
-            s.sendall(b"fedcba98")
+            s.sendall(KEY2[:8].encode())
         with socket.create_connection(("127.0.0.1", port), 2) as s:
-            for part in (b"fedcba98", b"76543210\n", b"\n"):
+            for part in (KEY2[:8].encode(), KEY2[8:].encode() + b"\n", b"\n"):
                 s.sendall(part); time.sleep(.01)
             assert s.recv(16) == b"ERR\n"
         with socket.create_connection(("127.0.0.1", port), 2) as s:
-            for part in (b"fedcba98", b"76543210\n", b"true\n"):
+            for part in (KEY2[:8].encode(), KEY2[8:].encode() + b"\n", b"true\n"):
                 s.sendall(part); time.sleep(.01)
             assert s.recv(16).startswith(b"OK\n")
         # The whole key has to match, and the command line hold no NUL or CR and fit q2remote's 4 KB line.
@@ -395,30 +403,32 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
                 with contextlib.suppress(ConnectionResetError):  # what it didn't read resets the connection
                     while part := s.recv(4096): reply += part
             return bytes(reply)
-        marker = root / "ran"; touch = f"touch {marker}".encode()
-        for request in (b"fedcba987654321\n" + touch + b"\n", b"fedcba98765432100\n" + touch + b"\n",
-                        b"fedcba9876543210\n" + touch + b"\0\n", b"fedcba9876543210\n" + touch + b"\r\n",
-                        b"fedcba9876543210\n" + touch + b" #" + b"x" * 5000 + b"\n"):
+        marker = root / "ran"; touch = f"touch {marker}".encode(); k2 = KEY2.encode()
+        for request in (k2[:-1] + b"\n" + touch + b"\n", k2 + b"0\n" + touch + b"\n",
+                        k2 + b"\n" + touch + b"\0\n", k2 + b"\n" + touch + b"\r\n",
+                        k2 + b"\n" + touch + b" #" + b"x" * 5000 + b"\n"):
             assert ask(request) == b"ERR\n" and not marker.exists(), request[:40]
-        assert ask(b"fedcba9876543210\n" + touch + b" #" + b"x" * 4000 + b"\n") == b"OK\n" and marker.exists()
+        assert ask(k2 + b"\n" + touch + b" #" + b"x" * 4000 + b"\n") == b"OK\n" and marker.exists()
         # The card's key: 16-126 characters from A-Z a-z 0-9 _ -, on a line of its own (docs/remote.md). One
         # malformed on the card revokes the copy, as a missing one does.
         def accepted(key): return ask(f"{key}\nprintf in\n".encode()) == b"OK\nin"
-        for text, key in (("azAZ09_-" * 2 + "\n", "azAZ09_-" * 2), ("k" * 126 + "\n", "k" * 126),
-                          ("0123456789abcdef\r\n", "0123456789abcdef")):
+        edges, longest = "azAZ09_-" + fresh(8), fresh(126)  # the alphabet's ends at the least length; the greatest length
+        for text, key in ((edges + "\n", edges), (longest + "\n", longest), (KEY + "\r\n", KEY)):
             keyfile.write_text(text)
             assert accepted(key) and cache.read_text() == key + "\n", text
+        # No key the shell took stands in this file, where another account could read it and reach the port.
+        assert not any(key in pathlib.Path(__file__).read_text() for key in (KEY, KEY2, KEY3, edges, longest))
         keyfile.write_text("k" * 127)
         assert not accepted("k" * 127)
         for key in ("0123456789abcde", *(f"0123456789abcde{c}" for c in "`{@[/:")):
-            keyfile.write_text("fedcba9876543210\n")
-            assert accepted("fedcba9876543210") and cache.exists()
+            keyfile.write_text(KEY2 + "\n")
+            assert accepted(KEY2) and cache.exists()
             keyfile.write_text(key + "\n")
             assert not accepted(key) and not cache.exists(), key
-        keyfile.write_text("fedcba9876543210\n")
+        keyfile.write_text(KEY2 + "\n")
         # Shared over USB storage the card is unmounted: the last key read from it still works, until
         # the card is back without its key.
-        assert q.shell("printf cached") == b"cached" and cache.read_text() == "fedcba9876543210\n"
+        assert q.shell("printf cached") == b"cached" and cache.read_text() == KEY2 + "\n"
         card(False); keyfile.unlink()
         assert q.shell("printf away") == b"away"
         card(True)
@@ -430,18 +440,18 @@ with tempfile.TemporaryDirectory(prefix="q2-remote-") as td:
         except PermissionError: pass
         else: raise AssertionError("revoked cache accepted")
         assert not cache.exists()
-        card(True); keyfile.write_text("fedcba9876543210\n")
+        card(True); keyfile.write_text(KEY2 + "\n")
         # The copy follows the card's key at the first connection that reads it, through a temporary file:
         # one that can't be written, as on a full disk, leaves the last copy whole and the card's key working.
         tmp = pathlib.Path(f"{cache}.tmp")
-        assert q.shell("printf copied") == b"copied" and cache.read_text() == "fedcba9876543210\n"
-        keyfile.write_text("rotated_key-0123\n"); tmp.symlink_to("/dev/full")
-        os.environ["Q2_KEY"] = "rotated_key-0123"
+        assert q.shell("printf copied") == b"copied" and cache.read_text() == KEY2 + "\n"
+        keyfile.write_text(KEY3 + "\n"); tmp.symlink_to("/dev/full")
+        os.environ["Q2_KEY"] = KEY3
         assert q.shell("printf full") == b"full"
-        assert cache.read_text() == "fedcba9876543210\n" and not os.path.lexists(tmp)
-        assert q.shell("printf follows") == b"follows" and cache.read_text() == "rotated_key-0123\n"
+        assert cache.read_text() == KEY2 + "\n" and not os.path.lexists(tmp)
+        assert q.shell("printf follows") == b"follows" and cache.read_text() == KEY3 + "\n"
         with socket.create_connection(("127.0.0.1", port), 2) as s:
-            s.sendall(b"fedcba9876543210\n")
+            s.sendall(k2 + b"\n")
             s.settimeout(12)
             assert s.recv(16) == b""  # 10-second handshake timeout
     finally:
