@@ -48,7 +48,7 @@ enum {
     POD_PL_CF,   /* Display's Playlist View: List or Cover Flow, as Artist View */
     POD_SCAN_DURATIONS,
     POD_CF_POSITION,
-    POD_HIDE_STREAM, /* Appearance's Hide Streaming / Folder on Home (coverflow_home_layout) */
+    POD_HIDE_STREAM, /* Appearance's Hide Streaming / Hide Folder (coverflow_home_layout) */
     POD_HIDE_FOLDER,
     POD_REMIND_DAILY, /* System Update's Update Notifications (netupdate_poll); netupdate.c passes
                          pod_rows 26 */

@@ -120,7 +120,7 @@ def own(key, label, names, sets, default=-1, preset=-1, keep=-1):  # a theme's o
     return {**opt('SETTING_OWN', default, preset, keep), 'key': key, 'label': label, 'names': list(names), 'sets': sets and list(sets)}
 HOMELIB, ROWPREVIEW = (own(k, label, ('Off', 'On'), None, default=1, preset=1) for k, label in (('HOMELIB', 'Library on Home'), ('ROWPREVIEW', 'Row Preview')))
 STATUSBAR = own('STATUSBAR', 'Status Bar', ('Theme', 'Minimal', 'Modern', 'Classic'), None, default=0, preset=0)
-SHOWQ2POD = own('SHOWQ2POD', 'Show Q2 Pod', ('Off', 'On'), None, default=1)
+SHOWQ2POD = own('SHOWQ2POD', 'Show Wordmark', ('Off', 'On'), None, default=1)
 
 
 CLASSIC_THUMB = dict(thumb=1, ticks_turn=36, ticks_album=7, fast_at=23, fast_full=90, top_speed=20, track=30, snap=25, spin=130, far_left=250,
@@ -1071,7 +1071,7 @@ def test_emit_own_options(tmp_path):
     assert inc.count('.accent_slot = &st.own[2],') == 1 and 'classic_light_accent' not in inc
     assert ('const theme_key_t theme_keys[THEME_KEYS] = {\n'
             '    { .key = "STATUSBAR", .label = "Status Bar", .names = (const char *const[]){"Theme", "Minimal", "Modern", "Classic"}, .sets = 0, .n = 4, .def = 0 },\n'
-            '    { .key = "SHOWQ2POD", .label = "Show Q2 Pod", .names = (const char *const[]){"Off", "On"}, .sets = 0, .n = 2, .def = 1 },\n'
+            '    { .key = "SHOWQ2POD", .label = "Show Wordmark", .names = (const char *const[]){"Off", "On"}, .sets = 0, .n = 2, .def = 1 },\n'
             '    { .key = "CLASSIC_LIGHT_ACCENT", .label = 0, .names = 0, .sets = 0, .n = 10, .def = 9 },\n'
             '    { .key = "HOMELIB", .label = "Library on Home", .names = (const char *const[]){"Off", "On"}, .sets = 0, .n = 2, .def = 1 },\n'
             '    { .key = "ROWPREVIEW", .label = "Row Preview", .names = (const char *const[]){"Off", "On"}, .sets = 0, .n = 2, .def = 1 },\n'

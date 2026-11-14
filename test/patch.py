@@ -11991,8 +11991,8 @@ assert [row_text(r) for r in (hold,scrub_one)]==['Hold Return: Recent','Single P
 view=display_page(m,1); rows=setting_rows(m,view)
 kids=m.nodes[view]['children']; status_row,time_title,show_q2,light,corners,shortcut,centred,hide_stream,hide_folder=kids[1],kids[2],kids[3],kids[4],kids[6],kids[8],kids[10],kids[11],kids[12]
 assert row_text(shortcut)=='Shortcut: Rockbox'
-assert kids==[rows[3],status_row,time_title,show_q2,light,rows[0],corners,rows[1],shortcut,rows[2],centred,hide_stream,hide_folder] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Status Bar, Time in Title, Show Q2 Pod, Light Mode, Accent, Corners, Home, Shortcut, Battery, Centred Now Playing, Hide Streaming / Folder on Home
-assert [row_text(r) for r in (show_q2,hide_stream,hide_folder)]==['Show Q2 Pod: On','Hide Streaming on Home','Hide Folder on Home'],[row_text(r) for r in (show_q2,hide_stream,hide_folder)]
+assert kids==[rows[3],status_row,time_title,show_q2,light,rows[0],corners,rows[1],shortcut,rows[2],centred,hide_stream,hide_folder] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Status Bar, Time in Title, Show Wordmark, Light Mode, Accent, Corners, Home, Shortcut, Battery, Centred Now Playing, Hide Streaming / Folder on Home
+assert [row_text(r) for r in (show_q2,hide_stream,hide_folder)]==['Show Wordmark: On','Hide Streaming','Hide Folder'],[row_text(r) for r in (show_q2,hide_stream,hide_folder)]
 assert m.icons_set==['system_display']*3+['switch_on']+['system_display']*4+['switch_off','playset_covermode','playset_covermode','system_powermanager','playset_covermode','switch_off']+['system_display','switch_off']*2,m.icons_set
 assert all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
 buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
@@ -12359,9 +12359,9 @@ def title_value(r):  # (title, value) of a value row, or None
     b=dm.nodes[r]['children'][0]; kids=[dm.nodes[k] for k in dm.nodes[b]['children']]
     v=[k['text'] for k in kids if k['name']=='_setting_value']
     return (kids[1]['text'],v[0]) if v else None
-assert [title_value(r) for r in dm.nodes[dv]['children']]==[('Theme','Classic'),('Status Bar','Theme'),('Time in Title','On'),('Show Q2 Pod','On'),('Light Mode','On'),
+assert [title_value(r) for r in dm.nodes[dv]['children']]==[('Theme','Classic'),('Status Bar','Theme'),('Time in Title','On'),('Show Wordmark','On'),('Light Mode','On'),
                                                            ('Accent','Classic Blue'),('Home','Split'),('Shortcut','Rockbox'),('Battery','Icon'),('Library on Home','On'),('Row Preview','On'),('Row Art','On'),
-                                                           ('Hide Streaming on Home','Off'),('Hide Folder on Home','Off')]
+                                                           ('Hide Streaming','Off'),('Hide Folder','Off')]
 assert not {'switch_on','switch_off'} & set(dm.icons_set); passed()
 # Controls' switches read On/Off as values under Classic.
 dm,dv=classic_light_display(sub=3)
@@ -13009,11 +13009,11 @@ m.paint(view); assert CL_SEL(3) in [b[4] for b in m.bands] and CL_SEL(2) not in 
 # Appearance is Theme, then the theme's options in order: Classic opened fresh with a stored Ivory shows Classic Blue, Modern
 # Graphite; THEME=3 is Minimal.
 m,view,rows=display({'THEME':'1','CLASSIC_LIGHT_ACCENT':'7'})
-assert [row_text(r) for r in m.nodes[view]['children']][:4]==['Theme: Classic','Status Bar: Theme','Time in Title: On','Show Q2 Pod: On']
+assert [row_text(r) for r in m.nodes[view]['children']][:4]==['Theme: Classic','Status Bar: Theme','Time in Title: On','Show Wordmark: On']
 m,view,rows=display({'THEME':'2','ACCENT':'7'})
-assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Modern','Status Bar: Theme','Time in Title','Show Q2 Pod: On','Light Mode: Off','Accent: Graphite','Rounded Corners','Home: Split','Shortcut: Rockbox','Battery: Icon','Centred Now Playing','Hide Streaming on Home','Hide Folder on Home']
+assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Modern','Status Bar: Theme','Time in Title','Show Wordmark: On','Light Mode: Off','Accent: Graphite','Rounded Corners','Home: Split','Shortcut: Rockbox','Battery: Icon','Centred Now Playing','Hide Streaming','Hide Folder']
 m,view,rows=display({'THEME':'3'})
-assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Minimal','Status Bar: Theme','Time in Title','Show Q2 Pod: On','Light Mode: Off','Accent: Ivory','Rounded Corners','Home: Split','Shortcut: Rockbox','Battery: Icon','Centred Now Playing','Hide Streaming on Home','Hide Folder on Home']
+assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Minimal','Status Bar: Theme','Time in Title','Show Wordmark: On','Light Mode: Off','Accent: Ivory','Rounded Corners','Home: Split','Shortcut: Rockbox','Battery: Icon','Centred Now Playing','Hide Streaming','Hide Folder']
 passed()
 # Classic's stops painter: a 52 px selected row is the #94c7de top line, Classic Blue's six stops over the
 # 50 rows below it and the #004184 edge on its last, full width and square, its colours final
@@ -13258,7 +13258,7 @@ for mode,stored,want in ((1,'0',light_row),(2,'1',dark_row)):
 passed()
 # THEME=1: its Appearance is Theme and Classic's own options.
 m,view,rows=display({'THEME':'1'},setup=classic_light)
-assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Classic','Status Bar: Theme','Time in Title: On','Show Q2 Pod: On','Light Mode: On','Accent: Classic Blue','Home: Split','Shortcut: Rockbox','Battery: Icon','Library on Home: On','Row Preview: On','Row Art: On','Hide Streaming on Home: Off','Hide Folder on Home: Off']; passed()
+assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Classic','Status Bar: Theme','Time in Title: On','Show Wordmark: On','Light Mode: On','Accent: Classic Blue','Home: Split','Shortcut: Rockbox','Battery: Icon','Library on Home: On','Row Preview: On','Row Art: On','Hide Streaming: Off','Hide Folder: Off']; passed()
 # Classic's Accent is Classic Blue (its own scheme, after the ACCENTS rows) by default and for a stored value
 # Classic does not offer (Ivory, 7) or cannot read (12). The row cycles the 8 accents in Classic's order,
 # then Classic Blue, each band its own gloss: Classic Blue's stops, the others derived from their tones.
@@ -13277,7 +13277,7 @@ passed()
 # key is read 15th, after CLASSIC_LIGHT_ACCENT, on unless chosen; Centre writes the next value under the theme's
 # key; the stored value picks the set the first system_bar boots: Off classic-light-text, On (or unreadable) classic-light.
 m,view,rows=display({},setup=classic_light); art=m.nodes[view]['children'][11]
-assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Classic','Status Bar: Theme','Time in Title: On','Show Q2 Pod: On','Light Mode: On','Accent: Classic Blue','Home: Split','Shortcut: Rockbox','Battery: Icon','Library on Home: On','Row Preview: On','Row Art: On','Hide Streaming on Home: Off','Hide Folder on Home: Off']
+assert [row_text(r) for r in m.nodes[view]['children']]==['Theme: Classic','Status Bar: Theme','Time in Title: On','Show Wordmark: On','Light Mode: On','Accent: Classic Blue','Home: Split','Shortcut: Rockbox','Battery: Icon','Library on Home: On','Row Preview: On','Row Art: On','Hide Streaming: Off','Hide Folder: Off']
 assert m.config_reads[13:19]==[('/mnt/data/config.ini','IPOD',k,v) for k,v in (('STATUSBAR','0'),('SHOWQ2POD','1'),('CLASSIC_LIGHT_ACCENT','9'),('HOMELIB','1'),('ROWPREVIEW','1'),('ROWART','1'))]
 def art_boot(config):  # the names a fresh Classic's first system_bar loaded, with config stored
     k=Machine(); k.config.update(config); return classic_light_boot(k)
@@ -13376,8 +13376,8 @@ assert writes==[(2,'THEME'),(0,'TIMETITLE'),(4,'ACCENT'),(0,'ROUNDED')],writes
 assert [c[0] for c in m.calls if c[0]=='stock_reboot']==['stock_reboot']
 t=m.call(address=payload_syms['theme'],args=(0,0,0,0),gap=0)&0xffffffff
 assert m.text(m.get(t))=='Classic'
-# Show Q2 Pod, Library on Home and Row Preview are plain choices (no set): on the booted set a click saves Off at once and asks nothing.
-for i,key,label in ((3,'SHOWQ2POD','Show Q2 Pod'),(9,'HOMELIB','Library on Home'),(10,'ROWPREVIEW','Row Preview')):
+# Show Wordmark, Library on Home and Row Preview are plain choices (no set): on the booted set a click saves Off at once and asks nothing.
+for i,key,label in ((3,'SHOWQ2POD','Show Wordmark'),(9,'HOMELIB','Library on Home'),(10,'ROWPREVIEW','Row Preview')):
     m,view,_=display({},cls=RestartMachine,setup=classic_light); classic_light_on(m); m.prompts=[]
     row=m.nodes[view]['children'][i]; f,ctx=m.handler(m.nodes[row]['children'][0],O['EVT_CLICK']); m.calls=[]
     assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0 and m.prompts==[] and row_text(row)==label+': Off'

@@ -3296,8 +3296,8 @@ static void pod_text(int i) {
         { "Playlist View: List", "Playlist View: Cover Flow" },
         { 0 }, /* Scan Song Durations: a switch */
         { 0 }, /* Position Bar: a switch */
-        { 0 }, /* Hide Streaming on Home: a switch */
-        { 0 }, /* Hide Folder on Home: a switch */
+        { 0 }, /* Hide Streaming: a switch */
+        { 0 }, /* Hide Folder: a switch */
         { "Update Notifications: Off", "Update Notifications: On" },
     };
     _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
@@ -3326,8 +3326,8 @@ static void pod_text(int i) {
                          : i == POD_BIG_LIB        ? "Fast Navigation"
                          : i == POD_SCAN_DURATIONS ? "Scan Song Durations"
                          : i == POD_CF_POSITION    ? "Position Bar"
-                         : i == POD_HIDE_STREAM    ? "Hide Streaming on Home"
-                         : i == POD_HIDE_FOLDER    ? "Hide Folder on Home"
+                         : i == POD_HIDE_STREAM    ? "Hide Streaming"
+                         : i == POD_HIDE_FOLDER    ? "Hide Folder"
                                                    : 0;
     if (toggle)
         list_toggle(st.pod_label[i], toggle, v);

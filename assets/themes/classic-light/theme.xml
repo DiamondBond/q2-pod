@@ -131,7 +131,7 @@
   <view name="pages"><element name="own" painter="classic-light" art_final="1"/></view>
   <option key="STATUSBAR" label="Status Bar" default="Theme" preset="Theme"><value label="Theme"/><value label="Minimal"/><value label="Modern"/><value label="Classic"/></option>
   <option setting="time_title" preset="on"/>
-  <option key="SHOWQ2POD" label="Show Q2 Pod" default="On"><value label="Off"/><value label="On"/></option>
+  <option key="SHOWQ2POD" label="Show Wordmark" default="On"><value label="Off"/><value label="On"/></option>
   <!-- Light Mode: On is the look as drawn, Off its dark half, Auto both by the clock -->
   <option setting="light" preset="on" keep="auto"/>
   <option setting="accent" key="CLASSIC_LIGHT_ACCENT" default="classic-blue" preset="classic-blue"/>
