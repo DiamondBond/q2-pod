@@ -695,8 +695,8 @@ static void *nc_worker(void *unused) {
  * (Smart Wi-Fi's radio isn't woken for it), Network Update's header-only request for the latest tag
  * (no API request), a day apart, an hour after one that failed. Once a release, on Home with the
  * screen on; the tag is recorded first, so a toast missed isn't shown again. --dev builds have no
- * tag to compare and check nothing. System Update's Remind Daily Off checks nothing either, and
- * takes back a tag found: its row stops reading "Update to X". */
+ * tag to compare and check nothing. System Update's Update Notifications Off checks nothing either,
+ * and takes back a tag found: its row stops reading "Update to X". */
 void netupdate_poll(void) {
     unsigned now = time_now_ms();
     unsigned long tid;

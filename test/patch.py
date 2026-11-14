@@ -18369,7 +18369,7 @@ tf,online=(m.nodes[r]['children'][0] for r in m.nodes[view]['children'])
 assert m.call(address=HOOKS['systemset_fwupdate_page_init'][0],args=(m.top,5,0,0),gap=0,count=5_000_000)==0
 assert m.calls[0][:3]==('stock_fwupdate',m.top,5) and m.nodes[tf]['name']=='0' and m.nodes[online]['name']=='2'
 remind=m.nodes[m.nodes[view]['children'][-1]]['children'][0]  # the row's button, its label inside
-assert len(m.nodes[view]['children'])==3 and [m.nodes[k].get('text') for k in m.nodes[remind]['children']]==['Remind Daily: On']  # under Network Update, On when config.ini has no key
+assert len(m.nodes[view]['children'])==3 and [m.nodes[k].get('text') for k in m.nodes[remind]['children']]==['Update Notifications: On']  # under Network Update, On when config.ini has no key
 label=m.nodes[online]['children'][0]; assert m.nodes[label]['type']=='hscroll_label'
 def press():
     f,ctx=[(f,c) for t,f,c in m.nodes[online]['handlers'] if t==O['EVT_CLICK']][-1]

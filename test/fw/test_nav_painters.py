@@ -1690,11 +1690,11 @@ def test_system_update_adds_remind_daily_under_network_update_on_by_default(fw):
     assert fw.fn('ringnav_fwupdate', C.c_int, C.c_void_p, C.c_void_p)(win.addr, None) == 3
     assert len(view.children) == 3
     remind = view.children[2]
-    assert ui.text(label_of(remind)) == 'Remind Daily: On' and switch(remind) is None  # a missing key reads On
+    assert ui.text(label_of(remind)) == 'Update Notifications: On' and switch(remind) is None  # a missing key reads On
     click(ui, remind)
-    assert ui.text(label_of(remind)) == 'Remind Daily: Off' and settings.written == [('REMINDDAILY', 0)]
+    assert ui.text(label_of(remind)) == 'Update Notifications: Off' and settings.written == [('REMINDDAILY', 0)]
     click(ui, remind)
-    assert ui.text(label_of(remind)) == 'Remind Daily: On' and settings.written[-1] == ('REMINDDAILY', 1)
+    assert ui.text(label_of(remind)) == 'Update Notifications: On' and settings.written[-1] == ('REMINDDAILY', 1)
 
 
 def test_remind_daily_off_in_config_reads_off(fw):

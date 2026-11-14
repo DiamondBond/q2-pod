@@ -3184,7 +3184,7 @@ static int pod_choices(unsigned i) { return i == POD_ARTIST_CF ? 3 : i == POD_ST
 void pod_settings(void) {
     if (st.pod_read) return;
     for (unsigned i = 0; i < sizeof pod_keys / sizeof *pod_keys; ++i)
-        if (pod_keys[i]) /* Artist albums defaults to Coverflow, Remind Daily to On */
+        if (pod_keys[i]) /* Artist albums defaults to Coverflow, Update Notifications to On */
             *pod_values[i] = config_value("Q2POD", pod_keys[i], pod_choices(i),
                                           i == POD_ARTIST_CF || i == POD_REMIND_DAILY);
     st.pod_read = 1;
@@ -3298,7 +3298,7 @@ static void pod_text(int i) {
         { 0 }, /* Position Bar: a switch */
         { 0 }, /* Hide Streaming on Home: a switch */
         { 0 }, /* Hide Folder on Home: a switch */
-        { "Remind Daily: Off", "Remind Daily: On" },
+        { "Update Notifications: Off", "Update Notifications: On" },
     };
     _Static_assert(sizeof names / sizeof *names == POD_COUNT, "a names entry per row");
     if (i == POD_CF_SORT) {

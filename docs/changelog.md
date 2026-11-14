@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.8.4**:
+  - System Update: **Remind Daily** is now called **Update Notifications**. It does what it did, and stays on or off as you had it.
+
 - **1.8.3**:
   - Now Playing: on the lyrics page, Centre's scrub now takes the wheel, as on the other pages. The first turn used to scroll the lyrics instead and end the scrub. The lyrics take the wheel back once the scrub ends.
   - Home: **Hide Streaming on Home** and **Hide Folder on Home**, at the bottom of **Display → Appearance**, take those rows off Home's list. Both are Off, so Home is unchanged until you turn one on. **Home: Carousel** still shows their cards.

@@ -50,8 +50,8 @@ enum {
     POD_CF_POSITION,
     POD_HIDE_STREAM, /* Appearance's Hide Streaming / Folder on Home (coverflow_home_layout) */
     POD_HIDE_FOLDER,
-    POD_REMIND_DAILY, /* System Update's Remind Daily (netupdate_poll); netupdate.c passes pod_rows
-                         26 */
+    POD_REMIND_DAILY, /* System Update's Update Notifications (netupdate_poll); netupdate.c passes
+                         pod_rows 26 */
     POD_COUNT
 };
 
