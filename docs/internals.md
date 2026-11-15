@@ -264,6 +264,20 @@ CUE sheets went through the same `toolsIconvConvert(field, "utf-8", "gbk")` in t
 
 `test/patch.py` runs the patched `toolsFixId3ErrorCode` on accented Latin-1 fields and on a Chinese one, and `ringnav_cue_text` on UTF-8, Windows-1252, overlong and surrogate input.
 
+## Arabic text
+
+Stock's AWTK, linked into `demo`, is built with FriBidi 1.0.10, and every widget draws its text through it: `widget_draw_text_in_rect` (`0x677758`) passes `widget_get_bidi`'s direction (none set: auto) to `canvas_draw_text_bidi_in_rect` (`0x64cc00`), whose `bidi_log2vis` calls `fribidi_log2vis`. That puts right-to-left runs in visual order and, with FriBidi's default `FRIBIDI_FLAGS_ARABIC` (`fribidi_join_arabic`, `fribidi_shape`, `fribidi_shape_arabic`), replaces each Arabic letter with its joined form's Presentation Forms code point (U+FB50–FDFF, U+FE70–FEFF), lam-alef as one ligature and U+FEFF in place of its second letter, so the string keeps its length. The string is then drawn as any other, one glyph per code point from the face's `cmap` (stb_truetype, no OpenType layout). So shaping needed only glyphs: no face on the Q2 had one Arabic character (stock's `default.ttf`, Arial with a CJK face, 42,853 characters; Q2 Pod's `bold.ttf` and `classic-light.ttf`, Latin cuts), and Arabic tags drew as blanks.
+
+`font_arabic` in `tools/build.py` (after `font_quotes`, both on `default.ttf`) copies Noto Sans Arabic UI Regular's (`assets/fonts`, OFL, no Reserved Font Name; its licence ships beside the fonts) glyphs for U+0600–06FF, U+0750–077F and both Presentation Forms blocks into the stock face, scaled from its 1000-unit em to the stock face's 256, components flattened, as `ar.`-named glyphs after stock's 42,858, which keep their outlines, advances and mappings: a code point the stock face maps keeps its glyph. The UI cut's heights are the ones that fit a Latin line. U+FEFF, U+061C, U+200B–200F and U+2066–2069 map to an empty glyph with no advance (`ZERO_WIDTH`), since unmapped they drew stock's `.notdef`, half an em of blank: a gap in every لا. The face grows by about 260 KB. Text the theme's face lacks already falls to the stock face (`theme_font`, `face_has`), so a mixed title ("Cairokee - السكة شمال") takes Arial's Latin and Noto's Arabic from one face; Hebrew still has no glyphs.
+
+The payload's own text paths draw with `canvas_draw_text` or `canvas_draw_text_in_rect`, which take the string as it is (backwards, unjoined), so `patch/bidi_text.c` gives them the widgets' visual string: `bidi_visual` runs stock's `bidi_init`, `bidi_log2vis` and `bidi_deinit` on a `bidi_t` laid out as `canvas_draw_text_bidi_in_rect` keeps it (0x21c bytes: the visual string's pointer and length first, a 128-character static buffer within), for text with a right-to-left character only (`bidi_rtl`), so every other string draws as before. Its users:
+
+- `draw_in_face` (labels' shadows, `draw_centred`, the dark bar's title) draws such text with `canvas_draw_text_bidi_in_rect` itself, as the label it shadows.
+- `draw_spaced` (Minimal's small capitals: Home's labels, Now Playing's album) draws it whole, in visual order, clipped where its letters would have been cut off: joined letters can't be tracked apart, and Arabic has no capitals.
+- Lyrics (`lyrics_paint`): a right-to-left row is drawn in visual order against the right edge, lit from the right as it is sung. Rows still wrap at the logical string's isolated-form advances, which are mostly wider than the joined ones, and the row's clip cuts one that ends up wider; the lit share is the logical advances', put on the shaped width.
+
+Limits: harakat (Arabic's vowel marks) take no mark positioning, so they sit near but not exactly over their letter; Books (`books.c`) wraps and draws an EPUB's lines left to right, unshaped.
+
 ## English
 
 Q2 Pod runs in English with nothing Chinese left in stock's interface:

@@ -652,6 +652,67 @@ def test_font_quotes_wants_the_stock_glyphs(font, message):
         build.font_quotes(hearts_font(**font))
 
 
+def arabic_source():
+    from fontTools.ttLib import TTFont
+    return TTFont(build.ROOT/'assets/fonts'/build.ARABIC_FONT)
+
+
+def test_font_arabic_maps_what_fribidi_shapes_to():
+    src = hearts_font()
+    before, after = cmaps(src), cmaps(build.font_arabic(src))
+    for p in before:
+        if p == (1, 0):
+            assert after[p] == before[p]  # Mac Roman: not Unicode
+            continue
+        assert {u: g for u, g in after[p].items() if u in before[p]} == before[p]  # its own kept
+        # every letter, each joined form FriBidi shapes to (U+FE80-FEFC, lam-alef's ligatures among
+        # them) and the Persian and Urdu forms (Presentation Forms-A)
+        for u in [*range(0x621, 0x64b), *range(0xfe80, 0xfefd), 0xfb56, 0xfb7a, 0xfb92, 0xfbfc]:
+            assert after[p][u].startswith('ar.'), hex(u)
+
+
+def test_font_arabic_scales_to_the_stock_em():
+    from fontTools.ttLib import TTFont
+    font, source = TTFont(io.BytesIO(build.font_arabic(hearts_font()))), arabic_source()
+    scale = 2048 / source['head'].unitsPerEm
+    for u in (0x627, 0xfefb, 0xfe8e):  # alef; lam-alef; alef's final form
+        name = source.getBestCmap()[u]
+        glyph, theirs = font['glyf']['ar.' + name], source['glyf'][name]
+        theirs.recalcBounds(source['glyf'])
+        assert font['hmtx']['ar.' + name][0] == round(source['hmtx'][name][0] * scale)
+        for mine, ref in ((glyph.xMin, theirs.xMin), (glyph.yMin, theirs.yMin), (glyph.xMax, theirs.xMax),
+                          (glyph.yMax, theirs.yMax)):
+            assert abs(mine - ref * scale) <= 1
+        assert not glyph.isComposite()
+
+
+def test_font_arabic_hides_the_format_characters():
+    from fontTools.ttLib import TTFont
+    font = TTFont(io.BytesIO(build.font_arabic(hearts_font())))
+    cmap = font.getBestCmap()
+    for u in build.ZERO_WIDTH:  # U+FEFF: FriBidi's filler after lam-alef; U+061C: Noto's has an advance
+        assert font['hmtx'][cmap[u]] == (0, 0) and font['glyf'][cmap[u]].numberOfContours == 0, hex(u)
+
+
+def test_font_arabic_keeps_the_rest_of_the_font():
+    from fontTools.ttLib import TTFont
+    src = hearts_font()
+    out = build.font_arabic(src)
+    assert build.font_arabic(src) == out  # reproducible
+    before, after = TTFont(io.BytesIO(src)), TTFont(io.BytesIO(out))
+    assert after['head'].modified == before['head'].modified == 0xb0000000
+    assert sorted(after.reader.tables, key=lambda t: after.reader.tables[t].offset) == list(FONT_ORDER)
+    assert after.getGlyphOrder()[:len(before.getGlyphOrder())] == before.getGlyphOrder()
+    for name in before.getGlyphOrder():
+        assert after['glyf'][name].compile(after['glyf']) == before['glyf'][name].compile(before['glyf'])
+        assert after['hmtx'][name] == before['hmtx'][name]
+
+
+def test_font_arabic_wants_the_presentation_forms():
+    with pytest.raises(ValueError, match='^Arabic font without the presentation forms$'):
+        build.font_arabic(hearts_font(), build.ROOT/'assets/fonts/LiberationSans-Bold.ttf')
+
+
 def strings_bin(pairs):
     """A strings/*.bin: u16 0, u16 pair count, a u32 file offset to each key and value, then the NUL-ended text."""
     texts = [t for pair in pairs for t in pair]
