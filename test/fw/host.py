@@ -63,7 +63,7 @@ def platform_header():
 
 def stock_header(themes):
     lines = [f'extern unsigned char fw_ctx_{name}[{size}];' for name, size in CONTEXT.items()]
-    ranges = [tools_build.bold_font()[1], tools_build.classic_light_font()[1]]
+    ranges = [tools_build.bold_font()[1], tools_build.classic_light_font()[1], tools_build.folder_regular_font()[1]]
     context = {name: f'fw_ctx_{name}' for name in tools_build.CONTEXT_DATA}
     return '\n'.join(lines) + '\n' + tools_build.stock_header(context, ranges, themes, repo='owner/repo')
 
@@ -116,14 +116,19 @@ def compile_one(source, out, extra):
     return obj
 
 
-def build(out, extra=()):
-    """Compile everything into out/fw.so, extra going to cc (test/fw/conftest.py's coverage and sanitizers).
-    Every static gains a global <file>__<name> a test can reach."""
+def headers(out):
+    """The headers SOURCES compile against into out (tools/tidy.sh's too)."""
     out.mkdir(parents=True, exist_ok=True)
     themes = tools_theme.builtins()
     (out/'peq_platform.h').write_text(platform_header())
     (out/'stock.h').write_text(stock_header(themes))
     tools_theme.emit(themes, out)
+
+
+def build(out, extra=()):
+    """Compile everything into out/fw.so, extra going to cc (test/fw/conftest.py's coverage and sanitizers).
+    Every static gains a global <file>__<name> a test can reach."""
+    headers(out)
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
         objects = list(pool.map(lambda s: compile_one(s, out, extra), SOURCES))
     defined, undefined = set(), set()

@@ -155,6 +155,19 @@ mypy test/fw  # its own run: test/unit has a conftest module too
 - **Off on purpose:** `func-returns-value` (the tests' mocks return `list.append`'s `None`) and `var-annotated` (an empty list or dict). A name may take a new type (`allow_redefinition_new`), as in `d = pathlib.Path(d)`.
 - **ctypes `_fields_`** is one list, `[*((k, C.c_int) for k in ...), ('x', C.c_void_p)]`: mypy reads lists added together as a list of `object`, which `Structure` refuses.
 
+## clang-tidy
+
+`tools/tidy.sh` runs [clang-tidy](https://clang.llvm.org/extra/clang-tidy/) 23 with the root `.clang-tidy` over the C that `test/fw` builds (`NAVIGATION` and `UI_SOURCES`), with the Q2's flags, against the headers `test/fw/host.py` writes, so it needs no stock ZIP. `firmware.yml` and `tools/check.sh` run it; it fails on any hit. Name files to check only those.
+
+```sh
+pip install clang-tidy==23.1.4  # or your distribution's clang-tidy 23
+tools/tidy.sh
+tools/tidy.sh patch/navigation.c
+```
+
+- **Checks:** `bugprone-*` and the clang static analyzer, less what the codebase does on purpose (listed in `.clang-tidy`), and caps on a function's lines and cognitive complexity just above today's largest, so none grows past them.
+- **A hit the analyzer can't see past** (a caller's bound, a table sized by its count) gets `/* NOLINTNEXTLINE(check): the invariant */` above it, naming why it can't happen. A hit that can happen gets a fix.
+
 ## Mutation tests
 
 `.github/workflows/tests.yml` runs `test/unit` on every pull request and push to `main`. `.github/workflows/mutation.yml` runs [mutmut](https://github.com/boxed/mutmut) on every function in `tools/`, and on Sundays `test/cmut` over the C ([below](#c)). mutmut breaks a copy of each function in one small way at a time and checks that `test/unit` notices. It uploads every surviving mutant and mutmut's log as `surviving-mutants`.
@@ -189,7 +202,7 @@ CMUT_PYTHON=$pythonLocation test/cmut/sandbox.sh patch/radio.c /tmp/cmut/radio-l
 python3 test/cmut/report.py patch/radio.c /tmp/cmut/radio-left /tmp/cmut/radio-left.jsonl --survivors /tmp/cmut/radio-left.txt
 ```
 
-- **Wired up:** a table in `sandbox.sh` holds each file, its test and what that test reads. `library_scope.c`, `chapters.c` and `mp3_gapless.c` run through their own scripts, which build the file themselves, with the flags the table repeats. `lockscreen.c`, `photos.c`, `headset.c`, `radio.c` and `visualizer.c` run through their own `test/fw/test_<name>.py` alone. Another file `test/fw` builds is one more name in the table's `test/fw` line, and its run takes longer the less of it its tests select: a test file that forks runs all its tests for every mutant, as below, so `navigation.c`'s and `playback.c`'s would.
+- **Wired up:** a table in `sandbox.sh` holds each file, its test and what that test reads. `library_scope.c`, `chapters.c` and `mp3_gapless.c` run through their own scripts, which build the file themselves, with the flags the table repeats. `font_weight.c`, `lockscreen.c`, `photos.c`, `headset.c`, `radio.c` and `visualizer.c` run through their own `test/fw/test_<name>.py` alone. Another file `test/fw` builds is one more name in the table's `test/fw` line, and its run takes longer the less of it its tests select: a test file that forks runs all its tests for every mutant, as below, so `navigation.c`'s and `playback.c`'s would.
 - **`test/fw`'s files:** `test/fw/host.py` builds the library once. A mutant compiles its one file with `host.py`'s flags, its statics renamed as `host.build` renames them, and links with the other objects into a library of its own, which `conftest.py` loads instead of building one when `Q2_FW_LIBRARY` names it. `run.py` stops if that link makes a library unlike `host.build`'s, or the original compiles to other symbols. Each mutant's object waits for its test on the tmpfs while 256 MB of it is left, and is compiled again for its test after that, so a large file's mutants take longer but can't fill it.
 - **Only the tests that reach it:** a test that never runs a mutant's lines sees what the original does. So `run.py` builds the original with gcov's counters and runs each test alone first, and a mutant runs only the tests that ran its lines; a line with no code of its own (a table, a `#define`'s body), a line with a `case` label, as the `switch` jumps there from tests that ran other lines, or a line no test runs, runs them all. Not yet for a test file that forks (`in_fork`): a child's counts used to end with it, unwritten; they now reach the file when the child closes the library, so `run.py` could select for those files too, once measured. pytest stops at the first failure and runs the test that killed the last mutant first, as neighbouring mutants mostly fall to the same test, once the original passes its tests backwards as well as forwards. Each run forks from a process that has already imported pytest and `host.py`, and has seconds of CPU, not of the clock, so a loaded machine can't time out a survivor.
 - **`CMUT_PYTHON`:** the image's own Python can't load `test/fw` (see [Firmware tests](#firmware-tests)), so `sandbox.sh` mounts the folder `CMUT_PYTHON` names, read-only: a position-independent Python 3.12 with `requirements.txt` and `test/unit/requirements.txt` installed, as `actions/setup-python`'s (`$pythonLocation`). The host suites don't need it.

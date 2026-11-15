@@ -445,6 +445,11 @@ STANDBY_WAKE = (0x5024b4, 0x0411ff26, 0x24020001)
 # key is written, and stock's two rows are not offered (navigation.c ringnav_display, ringnav_systemset).
 NAV_SHOWN = (0x504b5c, 0xa0620000, 0xa0600000)
 WHEEL_MODE = (0x504ba4, 0x0003100a, 0x24020001)
+# config_init reads SYSSET LANGUAGE (0 when missing, Simplified Chinese) with atoi into g_language, which awtk_configinit
+# hands switch_language at boot. Q2 Pod is English only (its Language row hidden, only en_US.bin rebuilt), so the atoi
+# call becomes li $v0, 2, en_US's index, whatever an older version saved; the key is never written. ponytail: stock's
+# first-boot guide (no LANGUAGE key: a new unit or a reset) still lists languages, and a pick there lasts until the next boot.
+LANGUAGE_EN = (0x50482c, 0x0320f809, 0x24020002)
 # V1.36's home_page_init binds a key-up of its own on Home (0x534a74: Return opens Now Playing and stops there; its wheel and
 # Centre act only outside Volume Mode). Home's keys are ringnav's and on_wm_keyup_fun's, as they were: the widget_on call goes.
 HOME_KEYUP = (0x534c28, 0x0320f809, 0)
@@ -938,9 +943,8 @@ def play_mark(font):
     for table in font['cmap'].tables:
         if table.isUnicode(): table.cmap[PLAY_MARK] = name
 
-def subset_font(src, family, ranges_macro, notice=None):
-    """src given a play mark (play_mark), then cut to its Latin, Greek, Cyrillic, punctuation and that
-    mark, renamed family (its own name is the font's reserved name under OFL and GUST alike): the font's
+def subset_font(src, family, ranges_macro, notice=None, *, add_play_mark=True, hinting=True):
+    """src cut to its Latin, Greek, Cyrillic and punctuation, with an optional play mark, renamed family (its own name is the font's reserved name under OFL and GUST alike): the font's
     bytes and ranges_macro listing exactly what it keeps. notice, if any, goes in its description (name
     ID 10)."""
     from fontTools import subset
@@ -950,9 +954,11 @@ def subset_font(src, family, ranges_macro, notice=None):
     label = ranges_macro.split('_')[0].title()
     have = sorted(u for u in font.getBestCmap() if 0x20 <= u < 0x530 or 0x1ea0 <= u <= 0x1ef9 or 0x2000 <= u < 0x2200)
     # Vietnamese tone-marked vowels U+1EA0–U+1EF9 live outside the first Latin ranges.
-    play_mark(font)
-    have.append(PLAY_MARK)
+    if add_play_mark:
+        play_mark(font)
+        have.append(PLAY_MARK)
     options = subset.Options()
+    options.hinting = hinting
     if notice: options.name_IDs.append(7)  # the trademark notice, as its licence asks
     sub = subset.Subsetter(options)
     sub.populate(unicodes=have)
@@ -988,6 +994,13 @@ BOLD_TTF = 'release/assets/default/raw/fonts/bold.ttf'
 
 def bold_font():
     return subset_font(ROOT/'assets/fonts/LiberationSans-Bold.ttf', 'Q2 Pod Sans', 'BOLD_RANGES')
+
+# Folder view's regular-weight face for Vietnamese names.
+FOLDER_REGULAR_TTF = 'release/assets/default/raw/fonts/folder-regular.ttf'
+
+def folder_regular_font():
+    return subset_font(ROOT/'assets/fonts/LiberationSans-Regular.ttf', 'Q2 Pod Folder Sans',
+                       'FOLDER_REGULAR_RANGES', add_play_mark=False, hinting=False)
 
 # Classic's font (navigation.c theme_font): TeX Gyre Heros Bold (GUST Font License, assets/fonts), the same cut.
 # The LPPL asks a modified font to say so itself, and where the original is: assets/fonts/README-classic-light.txt
@@ -1610,7 +1623,11 @@ OBSOLETE = ['usr/lib/libdbus-1.so.3.19.8', *(f'usr/lib/lib{n}-2.0.so.0.5400.3' f
 FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-mno-abicalls','-fno-pic','-G0','-ffreestanding','-fno-builtin',
          '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
-         '-Oz','-Wall','-Wextra','-Werror','-Wno-unused-parameter']
+         '-Oz','-Wall','-Wextra','-Werror','-Wno-unused-parameter',
+         # Every payload unit and helper builds clean with these. Left out: -Wcast-align (P() on stock's structs),
+         # -Wsign-conversion, -Wcomma, -Wmissing-prototypes (the hooks are entry points stock's code calls).
+         '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
+         '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
 NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'font_weight.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c']
 
@@ -1852,6 +1869,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
         check(syms.get(name) == address, f'{name}: not at {address:#x} in the stock demo')
     syms.update(PRIVATE_FUNCTIONS)
     bold, bold_ranges = bold_font()
+    folder_regular, folder_regular_ranges = folder_regular_font()
     classic_light, classic_light_ranges = classic_light_font()
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
@@ -1862,7 +1880,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     from theme import builtins, emit, geometry_sets
     themes = builtins()
     (out/'stock.h').write_text(stock_header({name: f'0x{syms[name]:x}u' for name in CONTEXT_DATA},
-                                            [bold_ranges, classic_light_ranges], themes, dev, repo))
+                                            [bold_ranges, classic_light_ranges, folder_regular_ranges], themes, dev, repo))
     set_pages, redirects = {}, {}
     ui = 'release/assets/default/raw/ui/'
     for i, g in enumerate(geometry_sets(themes)[1:], 1):
@@ -1934,6 +1952,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     patch_word(patched, *STANDBY_WAKE, 'Standby resume stays dark')
     patch_word(patched, *NAV_SHOWN, "stock's navigation bar stays shown")
     patch_word(patched, *WHEEL_MODE, "stock's wheel stays in Volume Mode")
+    patch_word(patched, *LANGUAGE_EN, 'every unit boots in English')
     patch_word(patched, *HOME_KEYUP, 'Home binds no key-up of its own')
     patch_word(patched, *NP_CENTRE, "Now Playing leaves Centre to stock's power-key handling")
     patch_word(patched, *KEYLOCK_LIT, 'Buttons lock acts only with the screen off')
@@ -2212,6 +2231,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
                                **({LOGO_LIGHT: (xx+'list_tidal.png', light)} if light else {}),  # the swapped logo.jpg has no stock inode left
                                BOLD_TTF: (FONT, bold),
+                               FOLDER_REGULAR_TTF: (FONT, folder_regular),
                                CLASSIC_LIGHT_TTF: (FONT, classic_light),
                                **{'release/assets/default/raw/fonts/' + n: ('etc/hosts', (ROOT/'assets/fonts'/n).read_bytes()) for n in FONT_NOTICES},
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
