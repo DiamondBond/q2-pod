@@ -639,16 +639,19 @@ void lyrics_paint(void *row, void *canvas) {
              * from the right; the share sung is the logical advances', put on the shaped width. */
             int vw = (int)(canvas_measure_text(canvas, vis, n) + 0.5f) + LYRIC_BOLD,
                 x0 = w - LYRIC_X - vw > LYRIC_X ? w - LYRIC_X - vw : LYRIC_X,
-                sung = lit <= 0 ? 0 : lit >= l->w[r] ? vw : lit * vw / l->w[r],
-                cut = !sung ? w : sung >= vw ? 0 : x0 + vw - sung;
+                sung = lit <= 0         ? 0
+                       : lit >= l->w[r] ? vw
+                                        : lit * vw / l->w[r],
+                cut = !sung        ? w
+                      : sung >= vw ? 0
+                                   : x0 + vw - sung;
             if (cut > 0) ly_ink(canvas, base, vis, n, x0, y, 0, cut, rest);
             if (cut < w) ly_ink(canvas, base, vis, n, x0, y, cut, w, rgba(LYRIC_LIT, alpha));
             continue;
         }
         int cut = lit <= 0 ? LYRIC_X : lit >= l->w[r] ? w : LYRIC_X + lit;
         if (cut < w) ly_ink(canvas, base, s, n, LYRIC_X, y, cut, w, rest);
-        if (cut > LYRIC_X)
-            ly_ink(canvas, base, s, n, LYRIC_X, y, 0, cut, rgba(LYRIC_LIT, alpha));
+        if (cut > LYRIC_X) ly_ink(canvas, base, s, n, LYRIC_X, y, 0, cut, rgba(LYRIC_LIT, alpha));
     }
     canvas_set_clip_rect(canvas, base);
     stock_canvas_set_text_color(canvas, text);

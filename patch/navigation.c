@@ -1659,7 +1659,7 @@ static void draw_in_face(void *canvas, const char *face, const unsigned *s, unsi
     if (bidi_rtl(s, n))
         canvas_draw_text_bidi_in_rect(canvas, s, n, r, (const char *)0, 0);
     else
-    canvas_draw_text_in_rect(canvas, s, n, r);
+        canvas_draw_text_in_rect(canvas, s, n, r);
     I(canvas, CANVAS_ALIGN_V) = align_v;
     I(canvas, CANVAS_ALIGN_H) = align_h;
     stock_canvas_set_text_color(canvas, text);
