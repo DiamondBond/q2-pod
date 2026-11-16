@@ -12,6 +12,8 @@ on:
       - 'patch/arcade_gameplay.inc'
       - 'patch/arcade_draw.inc'
       - 'patch/games.c'
+      - 'tools/peq.py'
+      - 'patch/peq.h'
       - '.github/workflows/arcade.yml'
 jobs:
   native:
@@ -40,3 +42,15 @@ jobs:
           python3 -m pip install --break-system-packages unicorn==2.1.4
       - name: Run actual compiled MIPS arcade rules
         run: python3 test/arcade_mips.py --self-test
+
+  firmware-games:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host firmware test requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm gcc-multilib
+          python3 -m pip install --break-system-packages -r requirements.txt -r test/unit/requirements.txt
+      - name: Run firmware's real game code under mocked host services
+        run: python3 -m pytest test/fw/test_games.py -q
