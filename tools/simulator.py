@@ -776,7 +776,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     status.pack(fill='x')
     controls = ttk.Frame(window, padding=8)
     controls.pack(fill='x')
-    finish = tk.StringVar(value=shell)
+    finishes = tuple(SHELL_FINISHES)
+    finish_index = finishes.index(shell)
     photo: ImageTk.PhotoImage | None = None
     hits: list[tuple[int, int, int, int, int]] = []
     pressed, angle, accumulated, dragged = None, None, 0.0, False
@@ -880,7 +881,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         gain = int(ui.brightness.rstrip('%')) / 100
         if gain < 1:
             frame = Image.blend(Image.new('RGB', SIZE), frame, gain)
-        photo = ImageTk.PhotoImage(device_frame(frame, finish.get()))
+        photo = ImageTk.PhotoImage(device_frame(frame, finishes[finish_index]))
         screen.itemconfigure(picture, image=photo)
         source = ui.firmware.name if ui.firmware else 'Checkout preview'
         if ui.page in ('playing', 'lyrics') and ui.tracks:
@@ -894,12 +895,14 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
 
     for text, command in (('Open firmware', open_firmware), ('Mount SD folder', open_card), ('Open tracks', open_tracks)):
         ttk.Button(controls, text=text, command=command).pack(side='left', padx=(0, 5))
-    appearance = ttk.Frame(window, padding=(8, 0, 8, 8))
-    appearance.pack(fill='x')
-    ttk.Label(appearance, text='Shell color').pack(side='left', padx=(0, 6))
-    selector = ttk.Combobox(appearance, textvariable=finish, values=tuple(SHELL_FINISHES), state='readonly', width=16)
-    selector.pack(side='left')
-    selector.bind('<<ComboboxSelected>>', lambda _: screen.focus_set())
+    def cycle_shell():
+        nonlocal finish_index
+        finish_index = (finish_index + 1) % len(finishes)
+        color_button.configure(text=f'Shell color: {finishes[finish_index]}')
+        screen.focus_set()
+
+    color_button = ttk.Button(window, text=f'Shell color: {shell}', command=cycle_shell, width=30)
+    color_button.pack(pady=(0, 8))
     screen.bind('<ButtonPress-1>', press)
     screen.bind('<B1-Motion>', drag)
     screen.bind('<ButtonRelease-1>', release)

@@ -43,9 +43,9 @@ Library song list, Cover Flow (Album Wall on stock firmware), and Settings.
   `cover.png`, or the package's placeholder.
 - Settings changes the preview's brightness, album sorting, shuffle and repeat. Classic Light,
   Modern and Minimal are available in Display settings with Q2 Pod or in checkout mode.
-- Use **Shell color** below the device to switch between Silver, Black, Orange, and Champagne
-  Gold. Orange is the default. To launch with another finish or capture it with
-  `--with-device`, pass `--shell "Champagne Gold"`.
+- Click **Shell color** at the bottom of the window to cycle through Silver, Black, Orange,
+  and Champagne Gold. The button shows the current finish. Orange is the default.
+  For screenshots, use `--with-device --shell "Champagne Gold"` to choose a finish.
 - A build with `folder-regular.ttf` can use it for Vietnamese file names and the artist line.
 
 ## Test a font build
