@@ -70,14 +70,15 @@ for a headless device screenshot.
 
 ## Launch from existing desktop simulator
 
-On this branch, **Library → Games → Pong / Blocks** plays *inside the existing
-desktop simulator window*, using actual MIPS rules under Unicorn. Pausing the
-host music is automatic when entering a game. The built-in legacy games still
-require the device. MIPS compilation happens when opening a game; editing the
-game's source and relaunching rebuilds the actual game instructions.
+Open **Library → Games** to play **Pong**, **Blocks**, **Snake**, or **Vortex**
+inside the desktop simulator window. All four run their C rules under Unicorn.
+Snake and Vortex use the rules in `patch/games.c`, keep host music playing,
+and track best scores for the current session. Pong and Blocks pause host
+music on entry. The simulator compiles the MIPS rules when opening a game.
 
 The standalone `run-emulator.sh` / `run-emulator.bat` game window is also
-available for focused game debugging without the music UI.
+available for focused game debugging without the music UI. Pass `--game snake`
+or `--game vortex` to open either directly.
 
 ## Music playback and UI
 

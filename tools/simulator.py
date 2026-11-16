@@ -698,6 +698,7 @@ class Simulator:
         self.page, self.cursor = 'home', 0
         self.shell = DEFAULT_SHELL
         self.arcade = None
+        self.game_bests: dict[str, int] = {}
         self.current, self.scroll, self.paused, self.elapsed = 0, 0, True, 0.0
         self.directory, self.album = sd_card, None
         self.folder_cache: dict[Path | None, list[tuple[str, Path | int]]] = {}
@@ -834,13 +835,18 @@ class Simulator:
                 not self.store.checked or time.monotonic() - self.store.checked >= 600):
             self.store.select(self.sd_card, 'check', background=True)
 
+    def close_arcade(self):
+        if self.arcade is not None:
+            self.arcade.machine.close()
+            self.arcade = None
+
     def back(self):
         if self.page == 'arcade' and self.arcade is not None:
             if self.arcade.scene != 'games':
                 self.arcade.back()
-                return
-            self.arcade.machine.close()
-            self.arcade = None
+                if self.arcade.scene != 'games':
+                    return
+            self.close_arcade()
         self.store.armed = ''
         if self.history:
             self.page, self.cursor, self.directory, self.album, self.library_title, self.library_rows = self.history.pop()
@@ -965,7 +971,7 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            if name in ('Pong', 'Blocks'):
+            if name in ('Pong', 'Blocks', 'Snake', 'Vortex'):
                 try:
                     from arcade_emulator import ArcadeWindow, MipsArcade
                     view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window
@@ -973,10 +979,11 @@ class Simulator:
                     view.theme = self.style
                     view.scene, view.selection, view.game = 'games', 0, None
                     view.paused = view.menu = view.quit_selected = False
-                    view.wheel_acc = 0.0  # standalone ArcadeWindow.__init__ is bypassed
+                    view.best_scores = self.game_bests
                     view.start(name.lower())
                     self.arcade = view
-                    self.paused = True  # game takes foreground; stop host music
+                    if name in ('Pong', 'Blocks'):
+                        self.paused = True
                     self.open('arcade')
                 except Exception as exc:  # toolchain, Unicorn, or incompatible MIPS build
                     self.hint = f'Could not open MIPS game: {exc}'
@@ -1122,7 +1129,10 @@ class Simulator:
 
     def enter(self):
         if self.page == 'arcade' and self.arcade is not None:
+            game = self.arcade.game
             self.arcade.center()
+            if game in ('vortex', 'snake') and self.arcade.scene == 'games':
+                self.back()
             return
         if self.page == 'home':
             if self.firmware:
@@ -1181,6 +1191,8 @@ class Simulator:
         if self.page == 'arcade' and self.arcade is not None:
             if button == 'up':
                 self.back()
+            elif button == 'center':
+                self.enter()
             else:
                 self.arcade.button(button)
             return
@@ -1276,6 +1288,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             except ERRORS as exc:
                 messagebox.showerror('Could not open firmware', str(exc), parent=window)
             else:
+                ui.close_arcade()
                 ui.firmware, fonts = package, loaded_fonts
                 ui.page, ui.cursor, ui.history, ui.hint = 'home', 0, [], ''
         screen.focus_set()
@@ -1289,6 +1302,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             except ERRORS as exc:
                 messagebox.showerror('Could not open SD folder', str(exc), parent=window)
             else:
+                ui.close_arcade()
                 ui.replace_tracks(loaded, root)
                 if failures:
                     skipped_tracks(failures)
@@ -1326,8 +1340,11 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             return
         new_angle = wheel_angle(event.x, event.y)
         if ui.page == 'arcade' and ui.arcade is not None:
-            ui.arcade.on_wheel(wheel_delta(angle, new_angle))
-            angle, dragged = new_angle, True
+            accumulated += wheel_delta(angle, new_angle)
+            angle = new_angle
+            if dragged or abs(accumulated) >= math.pi / 45:
+                ui.arcade.on_wheel(accumulated)
+                accumulated, dragged = 0.0, True
             return
         accumulated += wheel_delta(angle, new_angle)
         angle = new_angle
@@ -1362,6 +1379,9 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         source = ui.firmware.name if ui.firmware else 'Checkout preview'
         if ui.page in ('playing', 'lyrics') and ui.tracks:
             detail = ui.hint or f'Artist font: {fonts.artist(ui.tracks[ui.current].artist)[1]} · Click display to switch lyrics'
+        elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('snake', 'vortex'):
+            detail = ('Left/Right to turn' if ui.arcade.game == 'snake' else 'Drag wheel or press Left/Right · Enter to launch')
+            detail += ' · Space to pause · Esc for menu'
         else:
             detail = ui.hint or (f'SD: {ui.sd_card.name} · {len(ui.tracks)} tracks' if ui.sd_card else
                                  'Drag the wheel or use the arrow keys · Enter to select')
@@ -1369,7 +1389,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             detail += f' · {audio.notice}'
         status.configure(text=f'{source} · {detail}')
         ui.scroll += 2
-        window.after(90, refresh)
+        window.after(16 if ui.page == 'arcade' else 90, refresh)
 
     def cycle_shell():
         nonlocal finish_index
@@ -1414,10 +1434,19 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     screen.bind('<ButtonPress-1>', press)
     screen.bind('<B1-Motion>', drag)
     screen.bind('<ButtonRelease-1>', release)
-    for key in ('<Up>', '<Left>', '<Button-4>'):
+    for key in ('<Up>', '<Button-4>'):
         screen.bind(key, lambda _: ui.move(-1))
-    for key in ('<Down>', '<Right>', '<Button-5>'):
+    for key in ('<Down>', '<Button-5>'):
         screen.bind(key, lambda _: ui.move(1))
+
+    def direction(button, step):
+        if ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game == 'snake':
+            ui.button(button)
+        else:
+            ui.move(step)
+
+    screen.bind('<Left>', lambda _: direction('left', -1))
+    screen.bind('<Right>', lambda _: direction('right', 1))
     screen.bind('<MouseWheel>', lambda event: ui.move(-1 if event.delta > 0 else 1))
     screen.bind('<Return>', lambda _: ui.enter())
     screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics', 'arcade') else ui.enter())
@@ -1425,9 +1454,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         screen.bind(key, lambda _: ui.back())
     screen.bind('<Key-l>', lambda _: ui.lyrics_page())
     def close_window():
-        if ui.arcade is not None:
-            ui.arcade.machine.close()
-            ui.arcade = None
+        ui.close_arcade()
         if audio is not None:
             audio.close()
         window.destroy()

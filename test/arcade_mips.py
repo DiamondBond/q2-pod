@@ -60,6 +60,21 @@ class Blocks(C.LittleEndianStructure):
     ]
 
 
+
+class Snake(C.LittleEndianStructure):
+    _fields_ = [
+        ("body", C.c_uint16 * 400), ("tail", C.c_uint16), ("len", C.c_uint16),
+        ("food", C.c_uint16), ("dir", C.c_uint8), ("turned", C.c_uint8),
+        ("state", C.c_uint8), ("next", C.c_int8), ("score", C.c_int32),
+    ]
+
+
+class Vortex(C.LittleEndianStructure):
+    _fields_ = [(name, C.c_int32) for name in "state lives level score pa x y vx vy".split()] + [
+        ("brick", C.c_uint16 * 3), ("pad", C.c_uint16),
+    ]
+
+
 def use_wsl_compiler() -> bool:
     """Windows LLVM distributions often lack the MIPS backend."""
     return sys.platform == "win32" and os.environ.get("Q2_MIPS_COMPILER", "wsl").lower() != "windows"
@@ -80,7 +95,7 @@ def wsl_path(path: pathlib.Path) -> str:
 
 def compiler_commands(obj: pathlib.Path, elf: pathlib.Path, flags: list[str]) -> tuple[list[str], list[str]]:
     """Use native Linux clang, or the installed WSL clang from Windows."""
-    source = ROOT / "patch" / "arcade_core.c"
+    source = ROOT / "test" / "arcade_payload.c"
     if use_wsl_compiler():
         source_arg, obj_arg, elf_arg = (wsl_path(p) for p in (source, obj, elf))
         compile_command = ["wsl.exe", "--exec", "clang", *flags, "-c",
@@ -140,7 +155,8 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
     needed = ["q2_pong_init", "q2_pong_move", "q2_pong_tick",
               "q2_blocks_init", "q2_blocks_move", "q2_blocks_rotate",
               "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell",
-              "q2_blocks_next_cell"]
+              "q2_blocks_next_cell", "q2_snake_seed", "snake_new", "snake_turn",
+              "snake_ms", "snake_step", "vortex_new", "vortex_launch", "vortex_step"]
     for name in needed:
         if name not in found:
             raise RuntimeError(f"MIPS ELF lacks {name}")
@@ -214,6 +230,34 @@ class MipsArcade:
 
     def blocks_preview_cell(self, x: int, y: int) -> int:
         return self.call("q2_blocks_next_cell", STATE + 0x1000, x, y)
+
+    def snake_init(self, seed: int) -> None:
+        self.call("q2_snake_seed", seed)
+        self.call("snake_new", STATE + 0x2000)
+
+    def snake(self) -> Snake:
+        return Snake.from_buffer_copy(bytes(self.uc.mem_read(STATE + 0x2000, C.sizeof(Snake))))
+
+    def snake_turn(self, direction: int) -> None:
+        self.call("snake_turn", STATE + 0x2000, direction)
+
+    def snake_ms(self) -> int:
+        return self.call("snake_ms", STATE + 0x2000)
+
+    def snake_tick(self) -> None:
+        self.call("snake_step", STATE + 0x2000)
+
+    def vortex_init(self) -> None:
+        self.call("vortex_new", STATE + 0x3000)
+
+    def vortex(self) -> Vortex:
+        return Vortex.from_buffer_copy(bytes(self.uc.mem_read(STATE + 0x3000, C.sizeof(Vortex))))
+
+    def vortex_launch(self) -> None:
+        self.call("vortex_launch", STATE + 0x3000)
+
+    def vortex_tick(self, turn: int = 0) -> None:
+        self.call("vortex_step", STATE + 0x3000, turn)
 
     def close(self) -> None:
         self.tmp.cleanup()

@@ -5,6 +5,9 @@ on:
   pull_request:
     paths:
       - 'tools/arcade_emulator.py'
+      - 'tools/arcade_classic.py'
+      - 'test/arcade_payload.c'
+      - 'patch/games.c'
       - 'tools/simulator_audio.py'
       - 'test/arcade_mips.py'
       - 'test/arcade_windows_toolchain.py'

@@ -12,21 +12,26 @@ import sys
 import time
 
 from PIL import Image, ImageDraw, ImageFont
+from arcade_classic import draw_snake, draw_vortex
 from simulator_device import (DEVICE_SIZE, DEFAULT_SHELL, SCREEN_AT, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "test"))
-from arcade_mips import MipsArcade, self_test as mips_self_test
+from arcade_mips import MipsArcade, self_test as mips_self_test  # type: ignore[import-not-found]
 
 SCREEN = (375, 320)
+GAMES = ('pong', 'blocks', 'vortex', 'snake')
+FIRMWARE_GAMES = ('vortex', 'snake')
+OVER = 2
+GAME_FONT = ImageFont.load_default()
 COLORS = ["#30c8e8", "#e8d030", "#ac70d8", "#48bc76",
           "#e85e60", "#5387db", "#ef9b3a"]
 SHAPES = [0x00f0, 0x0660, 0x0270, 0x0360, 0x0630, 0x0710, 0x0740]
 
 
 def draw_label(d, pos, text, color="#e8e8e8", anchor=None):
-    d.text(pos, text, fill=color, anchor=anchor, font=ImageFont.load_default())
+    d.text(pos, text, fill=color, anchor=anchor, font=GAME_FONT)
 
 
 class ArcadeWindow:
@@ -52,9 +57,11 @@ class ArcadeWindow:
         self.menu = False
         self.quit_selected = False
         self.last = time.monotonic()
-        self.grav_ms = 0
-        self.pong_ms = 0
+        self.grav_ms = 0.0
+        self.pong_ms = 0.0
         self.wheel_acc = 0.0
+        self.best_scores = {}
+        self.menu_wheel_acc = 0.0
         self.drag_angle = None
         self.canvas.bind("<ButtonPress-1>", self.mouse_down)
         self.canvas.bind("<B1-Motion>", self.mouse_drag)
@@ -64,7 +71,7 @@ class ArcadeWindow:
         self.canvas.bind("<Button-5>", lambda _: self.scroll(1))
         self.root.bind("<Key>", self.key)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
-        if game in ('pong', 'blocks'):
+        if game in GAMES:
             self.start(game)
         self.update()
 
@@ -76,39 +83,57 @@ class ArcadeWindow:
         self.game = which
         self.scene = "play"
         self.paused = self.menu = False
-        self.pong_ms = self.grav_ms = 0
+        self.pong_ms = self.grav_ms = self.firmware_ms = self.wheel_acc = 0.0
+        self.menu_wheel_acc = 0.0
+        self.new_best = False
+        seed = time.time_ns() & 0xffffffff
         if which == "pong":
             self.machine.pong_init()
+        elif which == "blocks":
+            self.machine.blocks_init(seed)
+        elif which == "snake":
+            self.machine.snake_init(seed)
         else:
-            self.machine.blocks_init(int(time.time()) & 0xffffffff)
+            self.machine.vortex_init()
         self.last = time.monotonic()
 
     def is_over(self):
         if self.game == "pong":
             p = self.machine.pong()
             return max(p.player_score, p.cpu_score) >= 7
-        return bool(self.machine.blocks().game_over)
+        if self.game == "blocks":
+            return bool(self.machine.blocks().game_over)
+        return self.firmware_state().state == OVER
+
+    def firmware_state(self):
+        return self.machine.snake() if self.game == "snake" else self.machine.vortex()
 
     def scroll(self, steps):
         if self.scene == "games":
-            self.selection = (self.selection + (1 if steps > 0 else -1)) % 2
+            self.selection = (self.selection + (1 if steps > 0 else -1)) % len(GAMES)
         elif self.menu:
             self.quit_selected = not self.quit_selected
         elif self.scene == "play" and not self.paused and not self.is_over():
             if self.game == "pong":
                 self.machine.pong_move(steps * 12)
-            else:
+            elif self.game == "blocks":
                 self.machine.blocks_move(1 if steps > 0 else -1)
+            elif self.game == "vortex":
+                self.wheel_acc += steps * 32
 
     def on_wheel(self, rad):
         units = rad * 200 / math.tau
         if self.scene == "play" and self.game == "pong" and not self.paused and not self.menu:
             self.machine.pong_move(int(-units * 2))
             return
-        self.wheel_acc += units
-        while abs(self.wheel_acc) >= 10:
-            step = 1 if self.wheel_acc > 0 else -1
-            self.wheel_acc -= step * 10
+        if self.scene == "play" and self.game in FIRMWARE_GAMES and not self.menu:
+            if self.game == "vortex" and not self.paused:
+                self.wheel_acc += rad * 1024 / math.tau
+            return
+        self.menu_wheel_acc += units
+        while abs(self.menu_wheel_acc) >= 10:
+            step = 1 if self.menu_wheel_acc > 0 else -1
+            self.menu_wheel_acc -= step * 10
             self.scroll(step)
 
     def mouse_down(self, ev):
@@ -144,7 +169,7 @@ class ArcadeWindow:
 
     def center(self):
         if self.scene == "games":
-            self.start(("pong", "blocks")[self.selection])
+            self.start(GAMES[self.selection])
         elif self.menu:
             if self.quit_selected:
                 self.scene = "games"
@@ -161,6 +186,8 @@ class ArcadeWindow:
             self.last = time.monotonic()
         elif self.game == "blocks":
             self.machine.blocks_rotate()
+        elif self.game == "vortex":
+            self.machine.vortex_launch()
 
     def back(self):
         if self.scene == "games":
@@ -168,6 +195,9 @@ class ArcadeWindow:
         if self.menu:
             self.menu = False
             self.paused = False
+        elif self.game in FIRMWARE_GAMES and self.is_over():
+            self.scene = "games"
+            self.game = None
         else:
             self.menu = True
             self.quit_selected = False
@@ -175,8 +205,12 @@ class ArcadeWindow:
     def button(self, name):
         if name == "up":
             self.back()
+        elif name == "center":
+            self.center()
         elif name == "down":
-            if self.scene == "play" and not self.menu:
+            if self.menu:
+                self.menu = self.paused = False
+            elif self.scene == "play" and not self.is_over():
                 self.paused = not self.paused
                 self.last = time.monotonic()
         elif self.menu:
@@ -187,8 +221,12 @@ class ArcadeWindow:
             if self.game == "blocks":
                 if name == "left": self.machine.blocks_tick()
                 else: self.machine.blocks_drop()
-            else:
+            elif self.game == "pong":
                 self.machine.pong_move(-12 if name == "left" else 12)
+            elif self.game == "snake":
+                self.machine.snake_turn(-1 if name == "left" else 1)
+            elif self.game == "vortex":
+                self.scroll(-1 if name == "left" else 1)
 
     def key(self, ev):
         k = ev.keysym
@@ -198,6 +236,8 @@ class ArcadeWindow:
             self.center()
         elif k in ("space", "p"):
             self.button("down")
+        elif k in ("Left", "Right") and self.game == "snake":
+            self.button(k.lower())
         elif k in ("Up", "a", "Left"):
             self.scroll(-1)
         elif k in ("d", "Right"):
@@ -214,7 +254,9 @@ class ArcadeWindow:
     def advance(self, delta_ms):
         if self.scene != "play" or self.paused or self.menu or self.is_over():
             return
-        if self.game == "pong":
+        if self.game in FIRMWARE_GAMES:
+            self.advance_firmware(delta_ms)
+        elif self.game == "pong":
             self.pong_ms += min(delta_ms, 100)
             for _ in range(6):
                 if self.pong_ms < 17: break
@@ -228,6 +270,46 @@ class ArcadeWindow:
                 self.grav_ms %= speed
                 self.machine.blocks_tick()
 
+    def advance_firmware(self, delta_ms):
+        self.firmware_ms += min(delta_ms, 100)
+        if self.game == "snake":
+            for _ in range(2):
+                period = self.machine.snake_ms()
+                if self.firmware_ms < period or self.is_over():
+                    break
+                self.firmware_ms -= period
+                self.machine.snake_tick()
+        else:
+            for _ in range(4):
+                if self.firmware_ms < 1000 / 60 or self.is_over():
+                    break
+                self.firmware_ms -= 1000 / 60
+                turn = math.trunc(self.wheel_acc)
+                self.wheel_acc -= turn
+                self.machine.vortex_tick(turn)
+            if self.firmware_ms >= 1000 / 60:
+                self.firmware_ms = 0
+        score = self.firmware_state().score
+        if self.is_over() and score > self.best_scores.get(self.game, 0):
+            self.best_scores[self.game] = score
+            self.new_best = True
+
+    def render_firmware_game(self):
+        state = self.firmware_state()
+        classic = self.theme == "classic-light"
+        if self.game == "snake":
+            screen = draw_snake(state, classic)
+        else:
+            screen = draw_vortex(state, classic)
+        draw = ImageDraw.Draw(screen)
+        draw_label(draw, (24, 6), f"Score  {state.score}", anchor="lt")
+        draw_label(draw, (351, 6), f"Best  {self.best_scores.get(self.game, 0)}", anchor="rt")
+        if self.game == "vortex":
+            draw_label(draw, (48, 290), f"Level  {state.level + 1}", anchor="lt")
+            if state.state == 0 and not self.paused and not self.menu:
+                draw_label(draw, (187, 160), "Centre", "#e1e8fa", "mm")
+        return screen
+
     def render_screen(self):
         light = self.theme == "classic-light"
         paper, text, bar = ("#f3f3f0", "#161616", "#d8dade") if light else (
@@ -239,15 +321,19 @@ class ArcadeWindow:
         draw_label(d, (363, 16), "GAMES", "#82909d" if light else "#9cabbc", "rm")
         if self.scene == "games":
             draw_label(d, (188, 58), "Games", anchor="mt")
-            for idx, name in enumerate(("Pong", "Blocks")):
-                y = 103 + idx * 55
+            for idx, game in enumerate(GAMES):
+                name = game.title()
+                y = 82 + idx * 48
                 if idx == self.selection:
                     d.rounded_rectangle((20, y, 355, y + 45), radius=7, fill="#6686b3")
                 draw_label(d, (42, y + 23), name, "#ffffff", "lm")
                 draw_label(d, (335, y + 23), ">", "#ffffff", "rm")
             draw_label(d, (188, 277), "Wheel: select  |  Center: open", "#abb5c0", "mt")
             return screen
-        if self.game == "pong":
+        if self.game in FIRMWARE_GAMES:
+            screen = self.render_firmware_game()
+            d = ImageDraw.Draw(screen)
+        elif self.game == "pong":
             p = self.machine.pong()
             draw_label(d, (20, 42), f"You  {p.player_score}", anchor="lt")
             draw_label(d, (355, 42), f"CPU  {p.cpu_score}", anchor="rt")
@@ -300,11 +386,15 @@ class ArcadeWindow:
             draw_label(d, (187, 279), "Center: rotate  |  Right: drop", "#abb5c0", "mt")
         if self.menu or self.paused or self.is_over():
             d.rounded_rectangle((58, 108, 317, 216), 12, fill="#303744", outline="#8394a9")
-            title = "Game Over" if self.is_over() else "Paused"
+            title = "Paused"
+            if self.is_over():
+                title = "New best!" if self.game in FIRMWARE_GAMES and self.new_best else "Game over"
             draw_label(d, (187, 130), title, "#ffffff", "mt")
             if self.menu:
-                draw_label(d, (187, 166), "> Quit" if self.quit_selected else "> Continue",
-                           "#dce8fa", "mt")
+                draw_label(d, (120, 168), ("  " if self.quit_selected else "> ") + "Continue",
+                           "#dce8fa", "mm")
+                draw_label(d, (254, 168), ("> " if self.quit_selected else "  ") + "Quit",
+                           "#dce8fa", "mm")
                 draw_label(d, (187, 194), "Wheel: choose   Center: OK", "#c7ced5", "mt")
             elif self.is_over():
                 draw_label(d, (187, 180), "Center: play again", "#c7ced5", "mt")
@@ -322,7 +412,7 @@ class ArcadeWindow:
         self.canvas.create_image(0, 0, image=self.photo, anchor="nw", tags="screen")
         self.canvas.delete("old")
         self.canvas.itemconfigure("screen", tags="old")
-        self.root.after(33, self.update)
+        self.root.after(16 if self.game == "vortex" else 33, self.update)
 
     def run(self):
         self.root.mainloop()
@@ -336,7 +426,7 @@ def main():
     parser.add_argument("--shell", choices=("Orange", "Silver", "Black", "Champagne Gold"),
                         default=DEFAULT_SHELL)
     parser.add_argument("--snapshot", type=pathlib.Path, help="save Q2 screenshot without a desktop display")
-    parser.add_argument("--game", choices=("pong", "blocks"),
+    parser.add_argument("--game", choices=GAMES,
                         help="open directly into one game")
     args = parser.parse_args()
     if args.self_test:
@@ -353,6 +443,7 @@ def main():
             view.game = None
             view.paused = view.menu = False
             view.quit_selected = False
+            view.best_scores = {}
             if args.game:
                 view.start(args.game)
             device_frame(view.render_screen(), args.shell).save(args.snapshot)

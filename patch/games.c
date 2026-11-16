@@ -4,7 +4,9 @@
  * is on the heap only while the page is open; the scratch holds its pointer. */
 #ifdef PEQ_HOST
 #include "offsets.inc"
+#ifndef Q2_ARCADE_MIPS
 #include "peq.h"
+#endif
 #else
 #include "navigation.h" /* the theme, its scheme and the final-colour rows */
 #endif

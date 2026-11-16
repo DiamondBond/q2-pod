@@ -11,7 +11,7 @@ obj = Path("C:/Temp/arcade.o")
 elf = Path("C:/Temp/arcade.elf")
 with patch.object(arcade_mips, "use_wsl_compiler", return_value=True), \
      patch.object(arcade_mips, "wsl_path", side_effect=(
-         "/mnt/c/Github/q2-pod/patch/arcade_core.c",
+         "/mnt/c/Github/q2-pod/test/arcade_payload.c",
          "/mnt/c/Temp/arcade.o", "/mnt/c/Temp/arcade.elf")):
     compile_cmd, link_cmd = arcade_mips.compiler_commands(obj, elf, ["--target=mipsel-linux-gnu"])
 assert compile_cmd[:3] == ["wsl.exe", "--exec", "clang"]

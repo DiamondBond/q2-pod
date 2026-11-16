@@ -69,4 +69,6 @@ Settings shows the Q2 Pod System and Playback menus and their major subpages. Th
 
 Open **Library** from Home, then scroll to **Artists**, **Albums**, **Songs**, **Genres**, or the other Library categories. The lists use the tags of tracks on the mounted SD folder. **Update Library → Scan music now** picks up changes to that folder. **Playlists → Import** loads `.m3u` files from the folder's `_explaylist_data` directory for the current session.
 
-In Q2 Pod, **Games** is near the bottom of the Library. It lists the four built-in games, then card apps whose `q2app` manifest says `game=1`. Install **Buddy** from the App Store to try this. The game entries are browsable, and running the games requires a Q2. With an official Shanling package loaded, **Local Music** uses the stock categories.
+In Q2 Pod, **Games** is near the bottom of the Library. It lists the built-in games, then card apps whose `q2app` manifest says `game=1`. **Snake**, **Vortex**, **Pong**, and **Blocks** play inside the desktop simulator through [Unicorn MIPS](unicorn-emulator.md). The other game entries can be browsed here and played on the Q2.
+
+For **Snake**, press the wheel's Previous or Next button or use Left/Right to turn. For **Vortex**, drag around the wheel to move the paddle, or use Left/Right, then press Centre or Enter to launch. Space pauses either game and Esc opens Continue/Quit. Best scores for Snake and Vortex last for the current simulator session. With an official Shanling package loaded, **Local Music** uses the stock categories.
