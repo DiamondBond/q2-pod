@@ -17,6 +17,8 @@ for game in ("Pong", "Blocks"):
     assert image.size == (375, 320) and not hits
     ui.advance(0.05)
     ui.move(1)
+    ui.arcade.on_wheel(0.8)  # real pointer drag path, not only discrete menu movement
+    ui.arcade.on_wheel(-0.6)
     ui.toggle()
     assert ui.arcade.paused
     ui.toggle()
