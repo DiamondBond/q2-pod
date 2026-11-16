@@ -8,7 +8,7 @@ from typing import TypeVar
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '4e298cab6c12d86cfc55565645f7e3ae11d3fb44677a93ca13991e7184ecec4e'
 DEMO_SHA = 'e65d638d6e70332b4c3193af8ac2044941ec0157d20e41e40233aac5b0c2c59f'
-VERSION = '1.8.5'  # major.minor.patch, single digits, shown as is (About and release tag)
+VERSION = '1.8.6'  # major.minor.patch, single digits, shown as is (About and release tag)
 BETA = 0  # a pre-release's beta number (1-9), 0 for the release itself
 REPO = 'DiamondBond/q2-pod'  # whose releases Network Update fetches (--update-repo) and release.py publishes
 # The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
@@ -1557,6 +1557,7 @@ GLOBALS = ['tidal_albuminfo_thread_run', 'tidal_collection_thread_run',  # 2: a 
            'g_headset_output',  # the output config_outputchannel sets: 0, 1 the jacks, 2 Bluetooth
            'g_usbmode',  # USB mode: 1 Audio and DAC, else USB Storage (usbmode_page_init)
            'g_usbdet_value',  # 1 while a USB cable is in (USB mode's scan prompt outlives it)
+           'g_last_otgid',  # 1 while check_otg_status powers a USB device (PE22 off, PC20's 5 V out on)
            # Smart Wi-Fi (smart_wifi.c smart_poll): the Wi-Fi switch's state and stock's own gates on
            # toggling it (wifi_initstatus 0, wifi_connectstatus not 1, connecting), Network service's
            # AirPlay and DLNA, SyncLink (2: over Wi-Fi) and its session, Wi-Fi transfer and a pending time sync

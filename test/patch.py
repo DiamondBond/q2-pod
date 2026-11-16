@@ -3809,12 +3809,13 @@ class QueueMachine(Machine):
     def mcl(self,k): return signed(self.get(O[k]))
     def songtable(self,sql,rows,values=False):
         """The rows songs_by_path's or songs_by_id's SQL picks (with values, the statement's own rows), run by SQLite
-        over rows as songtable's (path, CUE start and end, album and album artist), each its index as id, whose order
-        stands for getAllMusic(3)'s time order."""
+        over rows as songtable's (path, CUE start and end, album, album artist, and the artist, track and disc an artist
+        page's album groupings read; no year), each its index as id, whose order stands for getAllMusic(3)'s time order."""
         text=lambda r,k: self.text(self.get(r+O[k])) if self.get(r+O[k]) else None
-        db=sqlite3.connect(':memory:'); db.execute('create table songtable(id,fileurl,time,time_end,time_create,album,albumsonger)')
-        db.executemany('insert into songtable values(?,?,?,?,?,?,?)',[(i,text(r,'REC_PATH'),self.get(r+O['REC_CUE_START']),
-                                                                      self.get(r+O['REC_CUE_END']),-i,text(r,'REC_ALBUM'),text(r,'REC_ALBUM_ARTIST')) for i,r in enumerate(rows)])
+        db=sqlite3.connect(':memory:'); db.execute('create table songtable(id,fileurl,time,time_end,time_create,album,albumsonger,songer,track,cd_num,year)')
+        db.executemany('insert into songtable values(?,?,?,?,?,?,?,?,?,?,null)',[(i,text(r,'REC_PATH'),self.get(r+O['REC_CUE_START']),
+                                                                      self.get(r+O['REC_CUE_END']),-i,text(r,'REC_ALBUM'),text(r,'REC_ALBUM_ARTIST'),
+                                                                      text(r,'REC_ARTIST'),self.get(r+O['REC_TRACK']),self.get(r+O['REC_DISC'])) for i,r in enumerate(rows)])
         return db.execute(sql).fetchall() if values else [rows[i] for i,*_ in db.execute(sql)]
     def dialog(self):
         self.view=self.node('scroll_view','scroll_view',[self.node('list_item') for _ in range(5)])
@@ -6444,6 +6445,8 @@ class CoverflowMachine(QueueMachine):
                   'calloc@GLIBC_2.0','strdup@GLIBC_2.0','mkdir@GLIBC_2.0','statfs@GLIBC_2.0','pthread_create@GLIBC_2.2',
                   'pthread_join@GLIBC_2.0','qsort@GLIBC_2.0','toolsQueryDbTable'): self.handlers[syms[n]]='c:'+n
         self.word(0xa3a270,self.FREE); self.handlers[self.FREE]='c:free'
+        # an artist's groupings' SQL (coverflow.c of_names), straight to stock's query by the payload's jal: no t9
+        self.handlers[int(manifest['patch_symbols']['stock_dbquery_trampoline'],16)]='c:dbquery'
         self.handlers[home_hook[0]+12]='stock_home'
         for n,stub in WRITERS.items(): self.handlers[HOOKS[n][0]+12]=stub  # the writers' stock bodies
         self.albums=[self.song('T0') for _ in range(albums)]
@@ -6456,7 +6459,7 @@ class CoverflowMachine(QueueMachine):
         name=self.handlers.get(address,'')
         if name=='opendir@GLIBC_2.0' and self.cover_files is not False and self.text(u.reg_read(REGS[0]))=='/mnt/mmc/.coverflow': self.scope_tree['/mnt/mmc/.coverflow']=self.art_names()
         if not name.startswith('c:'): return super().hook(u,address,size,unused)
-        assert u.reg_read(UC_MIPS_REG_T9)==address, name
+        assert name=='c:dbquery' or u.reg_read(UC_MIPS_REG_T9)==address, name
         name=name[2:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; sp=u.reg_read(UC_MIPS_REG_SP); ret=0
         self.calls.append((name,a,b,c))
         if name in ('window_create','widget_factory_create_widget','list_view_create','scroll_view_create'):
@@ -6496,7 +6499,7 @@ class CoverflowMachine(QueueMachine):
                 self.opened.append((self.text(a),self.get(b),self.get(b+4))); self.top=self.node('window',self.text(a)); self.stack.append(self.top)
                 if self.on_open: self.on_open(self.text(a))
         elif name=='access': path=self.text(a); ret=0 if (self.cached if '/mnt/mmc/.coverflow/' in path else not self.missing) else -1
-        elif name=='toolsQueryDbTable':
+        elif name in ('toolsQueryDbTable','dbquery'):
             rows=self.albums if 'fileurl not like' in self.text(b) else []
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in rows]
             ret=len(rows)
@@ -10145,9 +10148,18 @@ f,ctx=row(0); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 assert m.plays[-1][2:]==(0,0xf001,2) and m.play_names==['a1','b1','b2']; passed()
 f,ctx=row(3); m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.page=m.top
 assert m.nodes[m.top]['name']=='coverflow_page' and m.texts()[:3]==['Beta','b1','b2']; passed()
-# Two valid paths collide under the old FNV32 membership check: only the dated song belongs.
+# Shuffle plays the decade's songs alone: the records stock's select * fill makes of its one query's rows (the fill
+# stands in here, each row's id naming its record), the library itself never loaded.
+class EraFill(EraMachine):
+    def __init__(self,songs):
+        super().__init__(songs); self.handlers[syms['db_song_row_callback']]='era:fill'
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)!='era:fill': return super().hook(u,address,size,unused)
+        ident=int(self.text(self.get(u.reg_read(REGS[2]))))
+        self.deqs[self.get(syms['tools_pdeq_directory'])][1].append(self.copy('stSongInfo',self.found[ident-1]))
+        self.returns(0,clobber=True)
 paths=('/mnt/mmc/Music/z4dmr4cvs8lw.flac','/mnt/mmc/Music/mhf1gqxzbiuf.flac')
-m=EraMachine([('Old','Artist','Artist',paths[0],1990),('New','Artist','Artist',paths[1],2020)])
+m=EraFill([('Old','Artist','Artist',paths[0],1990),('New','Artist','Artist',paths[1],2020)])
 m.found=[m.song('old'),m.song('new')]
 for ident,(r,path) in enumerate(zip(m.found,paths),1):
     m.word(r+O['REC_ID'],ident); m.word(r+O['REC_PATH'],m.string(path))
@@ -19150,8 +19162,9 @@ for radio,page in (('wifiswitch','systemset/wifi_page'),('btswitch','systemset/b
     assert dispatch(O['EVT_CLICK'])==11 and not any(c[0]=='stock_dispatch' for c in m.calls)
     # A later touch can tap the same icon normally.
     m.top=win; down(); dispatch(O['EVT_POINTER_UP_BEFORE']); assert dispatch(O['EVT_CLICK'])==0; passed()
-    if radio=='playset':  # pulled down over the EQ page: the hold only closes the panel, no second EQ page
-        m,icon,win,down,dispatch=quick_page(); m.open_pages.add('equalizer_page'); down(); m.advance(O['RATE_HOLD_MS'])
+    if radio=='playset':  # pulled down over the EQ page, the top window: the hold only closes the panel, no second EQ page
+        m,icon,win,down,dispatch=quick_page(); m.nodes[m.wm]=dict(type='window_manager',name='',children=[m.node('window','equalizer_page'),win],visible=1)
+        down(); m.advance(O['RATE_HOLD_MS'])
         assert not m.opened and [c[1:3] for c in m.calls if c[0]=='dialog_quit']==[(win,0)]; passed()
     for kind in (O['EVT_POINTER_MOVE_BEFORE'],O['EVT_POINTER_ABORT'],O['EVT_KEY_DOWN_BEFORE']):
         m,icon,win,down,dispatch=quick_page(); down(); dispatch(kind,x=50)
@@ -19199,11 +19212,11 @@ def switch_image(m,row):
     images=[c for c in m.nodes[button]['children'] if m.nodes[c].get('name')=='_setting_switch']
     assert len(images)==1
     return m.nodes[images[0]]['image']
-assert all(switch_image(m,rows[i])=='switch_off' for i in (1,2,3,4))
+assert all(switch_image(m,rows[i])=='switch_off' for i in (1,3,4))  # 2, USB DAC Charging, is a value
 assert len(rows)==7 and icons==['system_powermanager','usb_chargeswitch','usb_chargeswitch','wifiset_wifi','system_carmode','system_powermanager','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
-assert texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox']
+assert texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox']
 assert click(1)==[(1,'Q2POD','CHARGELIMIT')] and texts()[1]==f"Charge Limit ({O['CHARGE_STOP']}%)"
-assert click(1)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox']; passed()
+assert click(1)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox']; passed()
 # In-Vehicle Mode, System's stock row before (0x4d34c0): its byte, its key, and the state byte cleared.
 m.byte(syms['g_carmode_state'],1)
 assert click(4)==[(1,'SYSSET','CARMODE')] and m.u.mem_read(syms['g_carmode'],1)==b'\1' and m.u.mem_read(syms['g_carmode_state'],1)==b'\0' and switch_image(m,rows[4])=='switch_on'
@@ -19598,7 +19611,7 @@ for double in ('0','1'):
     assert not press(DOWN,0) and not press(UP,50) and press(DOWN,O['WAKE_MS']) and press(UP,50),double
 passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','WAKEDOUBLE':'1','VOLGUARD':'1','STANDBYLIMIT':'2'})
-assert texts()==[limits[1],f"Charge Limit ({O['CHARGE_STOP']}%)",'USB DAC Charging','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox']
+assert texts()==[limits[1],f"Charge Limit ({O['CHARGE_STOP']}%)",'USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox']
 m,rows,texts,*_=settings_page('display','scroll_view_display',{'WAKEDOUBLE':'1','VOLGUARD':'1'},stock_rows=3,sub=3)
 assert texts()[6:]==['Wake: Double Press','Volume Guard']
 assert m.get(payload_syms['wheel_guard'])==1; passed()
@@ -20852,7 +20865,7 @@ assert [(c[1],m.text(c[2]),m.text(c[3])) for c in m.calls if c[0]=='write_int_co
 # The row, after Charge Limit: off by default and saved as SMARTWIFI. Turned off while Smart Wi-Fi has
 # the radio off, the user's Wi-Fi comes back, unsaved, and is left alone.
 m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager',cls=SmartMachine,config={'SMARTWIFI':'0'})
-assert texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox'] and icons[3]=='wifiset_wifi'
+assert texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Rockbox'] and icons[3]=='wifiset_wifi'
 assert switch_image(m,rows[3])=='switch_off' and click(3)==[(1,'Q2POD','SMARTWIFI')] and switch_image(m,rows[3])=='switch_on'
 m.pass_(1); m.pass_(SW_IDLE); assert m.flag()==0
 assert click(3)==[(0,'Q2POD','SMARTWIFI')] and switch_image(m,rows[3])=='switch_off'
