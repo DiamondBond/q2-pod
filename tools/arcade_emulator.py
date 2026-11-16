@@ -13,6 +13,7 @@ import time
 
 from PIL import Image, ImageDraw, ImageFont
 from arcade_classic import draw_snake, draw_vortex
+from arcade_puzzles import PUZZLE_GAMES, Puzzle
 from simulator_device import (DEVICE_SIZE, DEFAULT_SHELL, SCREEN_AT, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 
@@ -21,7 +22,7 @@ sys.path.insert(0, str(ROOT / "test"))
 from arcade_mips import MipsArcade, self_test as mips_self_test  # type: ignore[import-not-found]
 
 SCREEN = (375, 320)
-GAMES = ('pong', 'blocks', 'vortex', 'snake')
+GAMES = ('pong', 'blocks', 'vortex', 'snake', *PUZZLE_GAMES)
 FIRMWARE_GAMES = ('vortex', 'snake')
 OVER = 2
 GAME_FONT = ImageFont.load_default()
@@ -87,7 +88,9 @@ class ArcadeWindow:
         self.menu_wheel_acc = 0.0
         self.new_best = False
         seed = time.time_ns() & 0xffffffff
-        if which == "pong":
+        if which in PUZZLE_GAMES:
+            self.puzzle = Puzzle(self.machine, which, seed)
+        elif which == "pong":
             self.machine.pong_init()
         elif which == "blocks":
             self.machine.blocks_init(seed)
@@ -111,6 +114,8 @@ class ArcadeWindow:
     def scroll(self, steps):
         if self.scene == "games":
             self.selection = (self.selection + (1 if steps > 0 else -1)) % len(GAMES)
+        elif self.game in PUZZLE_GAMES:
+            self.puzzle.move(steps)
         elif self.menu:
             self.quit_selected = not self.quit_selected
         elif self.scene == "play" and not self.paused and not self.is_over():
@@ -170,6 +175,8 @@ class ArcadeWindow:
     def center(self):
         if self.scene == "games":
             self.start(GAMES[self.selection])
+        elif self.game in PUZZLE_GAMES:
+            self.puzzle.select(time.time_ns() & 0xffffffff)
         elif self.menu:
             if self.quit_selected:
                 self.scene = "games"
@@ -192,7 +199,10 @@ class ArcadeWindow:
     def back(self):
         if self.scene == "games":
             return
-        if self.menu:
+        if self.game in PUZZLE_GAMES:
+            if self.puzzle.back():
+                self.scene, self.game = "games", None
+        elif self.menu:
             self.menu = False
             self.paused = False
         elif self.game in FIRMWARE_GAMES and self.is_over():
@@ -207,6 +217,11 @@ class ArcadeWindow:
             self.back()
         elif name == "center":
             self.center()
+        elif self.game in PUZZLE_GAMES:
+            if name == "down":
+                self.puzzle.new_game(time.time_ns() & 0xffffffff)
+            elif name in ("left", "right"):
+                self.puzzle.move(-1 if name == "left" else 1, vertical=True)
         elif name == "down":
             if self.menu:
                 self.menu = self.paused = False
@@ -236,6 +251,8 @@ class ArcadeWindow:
             self.center()
         elif k in ("space", "p"):
             self.button("down")
+        elif k in ("Up", "Down") and self.game in PUZZLE_GAMES:
+            self.puzzle.move(-1 if k == "Up" else 1, vertical=True)
         elif k in ("Left", "Right") and self.game == "snake":
             self.button(k.lower())
         elif k in ("Up", "a", "Left"):
@@ -252,7 +269,8 @@ class ArcadeWindow:
             self.start("blocks")
 
     def advance(self, delta_ms):
-        if self.scene != "play" or self.paused or self.menu or self.is_over():
+        if (self.scene != "play" or self.game in PUZZLE_GAMES or self.paused
+                or self.menu or self.is_over()):
             return
         if self.game in FIRMWARE_GAMES:
             self.advance_firmware(delta_ms)
@@ -312,6 +330,8 @@ class ArcadeWindow:
 
     def render_screen(self):
         light = self.theme == "classic-light"
+        if self.scene == "play" and self.game in PUZZLE_GAMES:
+            return self.puzzle.render(light)
         paper, text, bar = ("#f3f3f0", "#161616", "#d8dade") if light else (
             "#10141c", "#e9e9ed", "#222833")
         screen = Image.new("RGB", SCREEN, paper)
@@ -323,12 +343,12 @@ class ArcadeWindow:
             draw_label(d, (188, 58), "Games", anchor="mt")
             for idx, game in enumerate(GAMES):
                 name = game.title()
-                y = 82 + idx * 48
+                y = 73 + idx * 33
                 if idx == self.selection:
-                    d.rounded_rectangle((20, y, 355, y + 45), radius=7, fill="#6686b3")
-                draw_label(d, (42, y + 23), name, "#ffffff", "lm")
-                draw_label(d, (335, y + 23), ">", "#ffffff", "rm")
-            draw_label(d, (188, 277), "Wheel: select  |  Center: open", "#abb5c0", "mt")
+                    d.rounded_rectangle((20, y, 355, y + 30), radius=7, fill="#6686b3")
+                draw_label(d, (42, y + 15), name, "#ffffff", "lm")
+                draw_label(d, (335, y + 15), ">", "#ffffff", "rm")
+            draw_label(d, (188, 282), "Wheel: select  |  Center: open", "#abb5c0", "mt")
             return screen
         if self.game in FIRMWARE_GAMES:
             screen = self.render_firmware_game()

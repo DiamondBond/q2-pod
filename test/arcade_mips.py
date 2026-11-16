@@ -75,6 +75,17 @@ class Vortex(C.LittleEndianStructure):
     ]
 
 
+class Sudoku(C.LittleEndianStructure):
+    _fields_ = [("magic", C.c_uint32), ("cell", C.c_uint8 * 81),
+                ("cur", C.c_uint8), ("pad", C.c_uint8 * 2), ("sum", C.c_uint32)]
+
+
+class Solitaire(C.LittleEndianStructure):
+    _fields_ = [("magic", C.c_uint32), ("card", (C.c_uint8 * 24) * 13),
+                ("len", C.c_uint8 * 13), ("cur", C.c_uint8),
+                ("pad", C.c_uint8 * 2), ("sum", C.c_uint32)]
+
+
 def use_wsl_compiler() -> bool:
     """Windows LLVM distributions often lack the MIPS backend."""
     return sys.platform == "win32" and os.environ.get("Q2_MIPS_COMPILER", "wsl").lower() != "windows"
@@ -156,7 +167,9 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
               "q2_blocks_init", "q2_blocks_move", "q2_blocks_rotate",
               "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell",
               "q2_blocks_next_cell", "q2_snake_seed", "snake_new", "snake_turn",
-              "snake_ms", "snake_step", "vortex_new", "vortex_launch", "vortex_step"]
+              "snake_ms", "snake_step", "vortex_new", "vortex_launch", "vortex_step",
+              "sud_new", "sud_set", "sud_conflict", "sud_done", "sol_new", "sol_draw",
+              "sol_home", "sol_move", "sol_finish", "sol_won"]
     for name in needed:
         if name not in found:
             raise RuntimeError(f"MIPS ELF lacks {name}")
@@ -258,6 +271,25 @@ class MipsArcade:
 
     def vortex_tick(self, turn: int = 0) -> None:
         self.call("vortex_step", STATE + 0x3000, turn)
+
+    def puzzle_init(self, game: str, seed: int) -> None:
+        self.call("q2_snake_seed", seed)
+        if game == "sudoku":
+            self.call("sud_new", STATE + 0x4000)
+        else:
+            self.call("sol_new", STATE + 0x5000)
+
+    def sudoku(self) -> Sudoku:
+        return Sudoku.from_buffer_copy(bytes(self.uc.mem_read(STATE + 0x4000, C.sizeof(Sudoku))))
+
+    def solitaire(self) -> Solitaire:
+        return Solitaire.from_buffer_copy(bytes(self.uc.mem_read(STATE + 0x5000, C.sizeof(Solitaire))))
+
+    def sudoku_action(self, name: str, *args: int) -> int:
+        return self.call(name, STATE + 0x4000, *args)
+
+    def solitaire_action(self, name: str, *args: int) -> int:
+        return self.call(name, STATE + 0x5000, *args)
 
     def close(self) -> None:
         self.tmp.cleanup()

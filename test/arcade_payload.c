@@ -25,4 +25,9 @@ _Static_assert(sizeof(struct snake) == 816 && offsetof(struct snake, score) == 8
 _Static_assert(sizeof(struct vortex) == 44 && offsetof(struct vortex, brick) == 36,
                "Vortex state layout");
 
+_Static_assert(sizeof(struct sudoku) == 92 && offsetof(struct sudoku, cell) == 4,
+               "Sudoku state layout");
+_Static_assert(sizeof(struct solitaire) == 336 && offsetof(struct solitaire, len) == 316,
+               "Solitaire state layout");
+
 void q2_snake_seed(unsigned seed) { games_seed = seed ? seed : 1; }

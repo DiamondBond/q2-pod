@@ -78,3 +78,44 @@ for name in ("Vortex", "Snake"):
     assert ui.page == "library" and ui.library_title == "Games" and ui.arcade is None
 
 print("Snake and Vortex launch, MIPS rules, steering, pause and quit passed")
+
+
+for name in ("Sudoku", "Solitaire"):
+    ui = Simulator("classic-light", [])
+    ui.open_library()
+    ui.select_library(LibraryRow("Games", "games"))
+    ui.select_library(next(row for row in ui.library_rows if row.name == name))
+    assert ui.page == "arcade", ui.hint
+    assert ui.arcade is not None and ui.arcade.game == name.lower()
+    machine, puzzle = ui.arcade.machine, ui.arcade.puzzle
+    assert ui.frame(None)[0].size == (375, 320)
+    if name == "Sudoku":
+        initial = bytes(machine.sudoku().cell)
+        assert any(initial) and 0 in initial
+        ui.move(initial.index(0))
+        ui.enter()
+        assert puzzle.pick == 0
+        ui.move(4)
+        ui.enter()
+        assert machine.sudoku().cell[puzzle.cursor] == 4
+        ui.toggle()
+        assert puzzle.confirm
+        ui.back()
+        assert machine.sudoku().cell[puzzle.cursor] == 4
+    else:
+        assert tuple(machine.solitaire().len) == (24, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7)
+        ui.enter()
+        assert tuple(machine.solitaire().len[:2]) == (23, 1)
+        ui.move(1)
+        ui.enter()
+        assert puzzle.pick == 1
+        ui.back()
+        assert puzzle.pick is None
+        ui.toggle()
+        assert puzzle.confirm
+        ui.enter()
+        assert tuple(machine.solitaire().len[:2]) == (24, 0)
+    ui.back()
+    assert ui.page == "library" and ui.library_title == "Games" and ui.arcade is None
+
+print("Sudoku and Solitaire launch, MIPS moves, new game and return routing passed")

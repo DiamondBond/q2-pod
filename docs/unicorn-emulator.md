@@ -70,11 +70,15 @@ for a headless device screenshot.
 
 ## Launch from existing desktop simulator
 
-Open **Library → Games** to play **Pong**, **Blocks**, **Snake**, or **Vortex**
-inside the desktop simulator window. All four run their C rules under Unicorn.
+Open **Library → Games** to play **Pong**, **Blocks**, **Snake**, **Vortex**, **Sudoku**, or **Solitaire**
+inside the desktop simulator window. All six run their C rules under Unicorn.
 Snake and Vortex use the rules in `patch/games.c`, keep host music playing,
 and track best scores for the current session. Pong and Blocks pause host
 music on entry. The simulator compiles the MIPS rules when opening a game.
+
+In Sudoku and Solitaire, use the wheel or arrows to move and Enter to select.
+Use Space for a new puzzle or deal. Esc cancels a selection or returns to Games.
+The desktop starts a fresh puzzle or deal each time you open either game.
 
 The standalone `run-emulator.sh` / `run-emulator.bat` game window is also
 available for focused game debugging without the music UI. Pass `--game snake`

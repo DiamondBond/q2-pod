@@ -1,11 +1,12 @@
 name: Unicorn MIPS emulator smoke tests
 on:
   push:
-    branches: [unicorn-mips-emulator]
+    branches: [unicorn-mips-emulator, desktop-simulator]
   pull_request:
     paths:
       - 'tools/arcade_emulator.py'
       - 'tools/arcade_classic.py'
+      - 'tools/arcade_puzzles.py'
       - 'test/arcade_payload.c'
       - 'patch/games.c'
       - 'tools/simulator_audio.py'

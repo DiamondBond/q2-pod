@@ -971,7 +971,7 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            if name in ('Pong', 'Blocks', 'Snake', 'Vortex'):
+            if name in ('Pong', 'Blocks', 'Snake', 'Vortex', 'Sudoku', 'Solitaire'):
                 try:
                     from arcade_emulator import ArcadeWindow, MipsArcade
                     view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window
@@ -1379,6 +1379,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         source = ui.firmware.name if ui.firmware else 'Checkout preview'
         if ui.page in ('playing', 'lyrics') and ui.tracks:
             detail = ui.hint or f'Artist font: {fonts.artist(ui.tracks[ui.current].artist)[1]} · Click display to switch lyrics'
+        elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('sudoku', 'solitaire'):
+            detail = 'Wheel or arrows to move · Enter to select · Space for new game · Esc to go back'
         elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('snake', 'vortex'):
             detail = ('Left/Right to turn' if ui.arcade.game == 'snake' else 'Drag wheel or press Left/Right · Enter to launch')
             detail += ' · Space to pause · Esc for menu'
@@ -1434,10 +1436,16 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     screen.bind('<ButtonPress-1>', press)
     screen.bind('<B1-Motion>', drag)
     screen.bind('<ButtonRelease-1>', release)
-    for key in ('<Up>', '<Button-4>'):
-        screen.bind(key, lambda _: ui.move(-1))
-    for key in ('<Down>', '<Button-5>'):
-        screen.bind(key, lambda _: ui.move(1))
+    def vertical(step):
+        if ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('sudoku', 'solitaire'):
+            ui.arcade.puzzle.move(step, vertical=True)
+        else:
+            ui.move(step)
+
+    screen.bind('<Up>', lambda _: vertical(-1))
+    screen.bind('<Down>', lambda _: vertical(1))
+    screen.bind('<Button-4>', lambda _: ui.move(-1))
+    screen.bind('<Button-5>', lambda _: ui.move(1))
 
     def direction(button, step):
         if ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game == 'snake':
