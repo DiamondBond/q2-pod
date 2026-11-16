@@ -5,11 +5,17 @@ Q2 Pod games, with original game code and no downloaded proprietary assets.
 
 ## Current status
 
-Portable game-rule layer only. This branch does **not yet** add Pong or the
-falling-block game to Library > Games, nor modify the firmware payload, nor
-provide a flashable update. The next stage must connect this module to
-`patch/games.c` using Q2 Pod's existing drawing, timer, key, and save APIs.
-Check Q2 Pod build inclusion before linking an additional compilation unit.
+Pong and Blocks now appear in `Library → Games` in this branch's
+`patch/games.c`. Their actual rules live in `patch/arcade_core.c`, compiled
+into the MIPS firmware payload through `tools/peq.py`'s `UI_SOURCES`.
+They share the existing Q2 timer, drawing, wheel sampling, pause/menu and
+save APIs. The framework module remains an independent portable foundation
+pending fuller migration of the legacy games.
+
+**Validation:** Native C and actual MIPS32r2 Unicorn game tests pass in
+GitHub Actions. Full firmware packaging (requiring stock V1.36 ZIP), the
+existing mocked-firmware regression suite, and physical Q2 input/rendering
+tests must also pass before flashing or releasing this branch.
 
 - `patch/arcade_core.h` / `.c`: no dynamic allocation, OS APIs, floating
   point, or third-party dependencies; deterministic integer game state.
@@ -23,21 +29,23 @@ Check Q2 Pod build inclusion before linking an additional compilation unit.
 
 ```sh
 sh test/arcade_core.sh
+sh test/game_framework.sh
+python3 test/arcade_mips.py --self-test
 ```
 
-## Planned Q2 hardware mapping
+## Q2 hardware mapping
 
 | Control | Pong | Blocks |
 | --- | --- | --- |
 | Wheel | Player paddle up/down | Move piece left/right |
-| Centre | Serve / restart | Rotate clockwise |
+| Centre | Restart after game over | Rotate clockwise |
 | Play/Pause | Pause | Pause |
-| Prev / Next | - | Soft / hard drop |
+| Side Prev / Next | Paddle nudge | Soft / hard drop |
 | Return | Game menu | Game menu |
 
 Pong coordinates use an internal 320x240 arena; the renderer will scale this
-to the Games page drawing rect. Game ticks should be driven from the existing
-firmware timer, not direct hardware polling.
+to the Games page drawing rect. Game ticks use the existing firmware timer, not direct hardware polling.
+Blocks saves its best score via the firmware's existing integrity-checked blob store.
 
 ## Future click-wheel game preservation work
 
