@@ -29,7 +29,7 @@ if not exist ".venv-simulator\Scripts\python.exe" (
   if errorlevel 1 goto :failed
 )
 
-".venv-simulator\Scripts\python.exe" -c "import PIL, mutagen, fontTools" >nul 2>nul
+".venv-simulator\Scripts\python.exe" -c "import PIL, mutagen, fontTools, unicorn" >nul 2>nul
 if errorlevel 1 (
   echo Installing simulator Python dependencies...
   ".venv-simulator\Scripts\python.exe" -m pip install -r requirements-simulator.txt
