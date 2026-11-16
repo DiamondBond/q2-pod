@@ -14,12 +14,6 @@ static int arcade_frame(unsigned now) {
             g->acc -= 1000;
             q2_pong_tick(&g->pong);
         }
-        if (g->pong.player_score >= 7 || g->pong.cpu_score >= 7) {
-            g->frame = 0;
-            hold(RUN);
-            widget_invalidate_force(g->page, 0);
-            return 0;
-        }
     } else {
         unsigned steps = g->blocks.level < 13 ? g->blocks.level - 1 : 12;
         unsigned delay = 650u - steps * 45u;
@@ -43,9 +37,7 @@ static int arcade_frame(unsigned now) {
 
 /* The wheel generates discrete KEY_PREV/NEXT for Blocks, raw travel for Pong. */
 static void arcade_new_key(unsigned key) {
-    int over = g->screen == PONG
-        ? g->pong.player_score >= 7 || g->pong.cpu_score >= 7
-        : g->blocks.game_over;
+    int over = g->screen == BLOCKS && g->blocks.game_over;
     if (g->paused == MENU) {
         if (key == KEY_NEXT || key == KEY_PREV ||
             key == KEY_FWD_BTN || key == KEY_BACK_BTN)
@@ -58,8 +50,7 @@ static void arcade_new_key(unsigned key) {
     }
     if (over) {
         if (key == KEY_CENTER) {
-            if (g->screen == PONG) q2_pong_init(&g->pong);
-            else q2_blocks_init(&g->blocks, (unsigned)time_now_ms());
+            q2_blocks_init(&g->blocks, (unsigned)time_now_ms());
             run();
         } else if (key == KEY_RETURN) to(CHOOSER);
         return;
