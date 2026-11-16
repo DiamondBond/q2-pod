@@ -11,7 +11,7 @@ import sys
 import time
 import unicodedata
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -244,7 +244,16 @@ def firmware_image(data):
         return source.convert('RGBA')
 
 
-def status_bar(frame, fonts, title, color, background, paused=None):
+@dataclass(frozen=True)
+class BatteryStatus:
+    percent: int = 61
+    charging: bool = False
+
+
+DEFAULT_BATTERY = BatteryStatus()
+
+
+def status_bar(frame, fonts, title, color, background, paused=None, battery=DEFAULT_BATTERY):
     draw = ImageDraw.Draw(frame)
     draw.rectangle((0, 0, SIZE[0] - 1, 29), fill=background)
     if paused is True:
@@ -257,26 +266,28 @@ def status_bar(frame, fonts, title, color, background, paused=None):
     label(frame, fonts, 'default', time.strftime('%H:%M'), (149, 0, 77, 30), 18, color, align='center')
 
     for radius in (8, 5):
-        draw.arc((273 - radius, 18 - radius, 273 + radius, 18 + radius), 222, 318, fill=color, width=2)
-    draw.ellipse((272, 17, 274, 19), fill=color)
+        draw.arc((263 - radius, 18 - radius, 263 + radius, 18 + radius), 222, 318, fill=color, width=2)
+    draw.ellipse((262, 17, 264, 19), fill=color)
+    if battery.charging:
+        draw.polygon(((279, 7), (273, 16), (278, 16), (276, 23), (283, 13), (278, 13)), fill=color)
     draw.rounded_rectangle((287, 10, 308, 20), 2, outline=color, width=1)
     draw.rectangle((309, 13, 310, 17), fill=color)
-    battery_percent = 61
-    fill_width = round(18 * battery_percent / 100)
-    draw.rectangle((289, 12, 288 + fill_width, 18), fill=color)
-    label(frame, fonts, 'default', f'{battery_percent}%', (314, 0, 39, 30), 16, color)
+    fill_width = round(18 * battery.percent / 100)
+    if fill_width:
+        draw.rectangle((289, 12, 288 + fill_width, 18), fill=color)
+    label(frame, fonts, 'default', f'{battery.percent}%', (314, 0, 39, 30), 16, color)
 
 
-def display_page(fonts, title, light, paused=None):
+def display_page(fonts, title, light, paused=None, battery=DEFAULT_BATTERY):
     paper, ink, muted = ('#f7f7f7', '#171717', '#696969') if light else ('#161722', '#f7f4f4', '#a4a4b3')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#222431', paused)
+    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#222431', paused, battery)
     return frame, draw, ink, muted
 
 
-def render_menu(fonts, title, rows, selected, light, paused=None):
-    frame, draw, ink, muted = display_page(fonts, title, light, paused)
+def render_menu(fonts, title, rows, selected, light, paused=None, battery=DEFAULT_BATTERY):
+    frame, draw, ink, muted = display_page(fonts, title, light, paused, battery)
     hits = []
     if not rows:
         label(frame, fonts, 'default', 'No tracks', (24, 113, 327, 58), 20, muted, align='center')
@@ -301,9 +312,9 @@ def album_image(album, tracks, firmware, side):
     return cover(sample, side, False)[0]
 
 
-def render_albums(fonts, tracks, albums, selected, firmware, light, paused=None):
+def render_albums(fonts, tracks, albums, selected, firmware, light, paused=None, battery=DEFAULT_BATTERY):
     grid = firmware is not None and not firmware.custom
-    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow', light, paused)
+    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow', light, paused, battery)
     if not albums:
         label(frame, fonts, 'default', 'No albums', (24, 112, 327, 62), 22, muted, align='center')
         return frame, []
@@ -350,8 +361,8 @@ def format_time(seconds):
     return f'{minutes}:{seconds:02d}'
 
 
-def render_lyrics(track, fonts, elapsed, position, count, paused=False):
-    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False, paused)
+def render_lyrics(track, fonts, elapsed, position, count, paused=False, battery=DEFAULT_BATTERY):
+    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False, paused, battery)
     label(frame, fonts, 'default', f'{position} of {count}', (26, 44, 115, 23), 16, ink)
     index = bisect.bisect_right(track.lyrics, elapsed, key=lambda line: line[0]) - 1
     if not track.lyrics:
@@ -408,14 +419,14 @@ def packaged_style(firmware, widget, name, default):
     return value
 
 
-def render_browse(firmware, fonts, style, page, selected, tracks, paused=None):
+def render_browse(firmware, fonts, style, page, selected, tracks, paused=None, battery=DEFAULT_BATTERY):
     """Draw the selected Home card or list. Return rows with mouse hit targets."""
     light = firmware.custom and style == 'classic-light'
     paper, ink, muted = ('#f7f7f7', '#171717', '#707070') if light else ('#000000', '#ffffff', '#a0a0a0')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
     title = {'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs'}[page]
-    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#171717', paused)
+    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#171717', paused, battery)
     hits = []
     if page == 'home' and not firmware.custom:
         entry = firmware.home[selected]
@@ -462,7 +473,7 @@ def render_browse(firmware, fonts, style, page, selected, tracks, paused=None):
     return frame, hits
 
 
-def render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed):
+def render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed, battery):
     page = firmware.page
     light = firmware.custom and style == 'classic-light'
     offset = 30  # the AWTK page sits below the system bar
@@ -470,7 +481,7 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
     ink, secondary = ('#171717', '#555555') if light else ('#ffffff', '#cccccc')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    status_bar(frame, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused)
+    status_bar(frame, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused, battery)
 
     def icon(name, box, fit=False, tint=None):
         if name not in firmware.images:
@@ -544,16 +555,17 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
     return frame, face
 
 
-def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, firmware=None, elapsed=0.0):
+def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, firmware=None, elapsed=0.0,
+           battery=DEFAULT_BATTERY):
     if firmware is not None:
-        return render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed)
+        return render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed, battery)
     classic = style == 'classic-light'
     config = theme_config(style)
     paper, ink, secondary = ('#f7f7f7', '#171717', '#555555') if classic else (
         '#141414', '#ffffff', '#aaaaaa')
     image = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(image)
-    status_bar(image, fonts, 'Now Playing', ink, '#e5e5e5' if classic else '#202020', paused)
+    status_bar(image, fonts, 'Now Playing', ink, '#e5e5e5' if classic else '#202020', paused, battery)
     art = ipod.NP_IPOD_ART if classic else ipod.NP_ART
     slide_y = 30 + ipod.NP_TOP
     art_y = 30 + ipod.inc('NP_IPOD_ART_Y') if classic else slide_y + ipod.NP_ART_Y
@@ -592,6 +604,7 @@ class Simulator:
         self.queue = tuple(range(len(tracks)))
         self.albums = albums_for(tracks)
         self.brightness, self.shuffle, self.repeat, self.sort = '100%', 'Off', 'Off', 'Album'
+        self.battery = DEFAULT_BATTERY
         self.hint = ''
 
     @property
@@ -747,18 +760,19 @@ class Simulator:
         background_playback = None if self.paused else False
         if self.page == 'home' and self.firmware:
             frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor,
-                                        self.tracks, background_playback)
+                                        self.tracks, background_playback, self.battery)
             return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
         if self.page == 'coverflow':
             return render_albums(fonts, self.tracks, self.albums, self.cursor, self.firmware,
-                                 self.light, background_playback)
+                                 self.light, background_playback, self.battery)
         if self.page in ('playing', 'lyrics') and self.tracks:
             track = self.tracks[self.current]
             position = self.queue.index(self.current) + 1
             if self.page == 'lyrics':
-                return render_lyrics(track, fonts, self.elapsed, position, len(self.queue), self.paused), []
+                return render_lyrics(track, fonts, self.elapsed, position, len(self.queue),
+                                     self.paused, self.battery), []
             frame, _face = render(track, fonts, self.style, position, len(self.queue),
-                                  self.scroll, self.paused, self.firmware, self.elapsed)
+                                  self.scroll, self.paused, self.firmware, self.elapsed, self.battery)
             return frame, []
         title = {'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs', 'settings': 'Settings',
                  'display': 'Display', 'playset': 'Playback', 'about': 'About'}.get(self.page, 'Now Playing')
@@ -777,7 +791,7 @@ class Simulator:
             rows = []
         else:
             rows = [(name, value or ('›' if key else ''), 'default') for name, value, key in self.menu()]
-        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light, background_playback)
+        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light, background_playback, self.battery)
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
@@ -912,6 +926,35 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     ttk.Button(controls, text='Mount SD folder', command=open_card).pack(side='left', padx=(0, 5))
     color_button = ttk.Button(controls, text=f'Shell color: {shell}', command=cycle_shell, width=25)
     color_button.pack(side='left')
+
+    battery_controls = ttk.Frame(window, padding=(8, 0, 8, 8))
+    battery_controls.pack(fill='x')
+    battery_text = tk.StringVar(value=str(ui.battery.percent))
+    charging = tk.BooleanVar(value=ui.battery.charging)
+
+    def valid_battery(value):
+        return not value or (len(value) <= 3 and value.isascii() and value.isdecimal() and int(value) <= 100)
+
+    def update_battery(*_):
+        if value := battery_text.get():
+            ui.battery = replace(ui.battery, percent=int(value))
+
+    def end_battery_edit(_):
+        battery_text.set(str(ui.battery.percent))
+
+    def toggle_charging():
+        ui.battery = replace(ui.battery, charging=charging.get())
+
+    ttk.Label(battery_controls, text='Battery %').pack(side='left', padx=(0, 6))
+    battery_entry = ttk.Entry(battery_controls, textvariable=battery_text, width=5, validate='key',
+                              validatecommand=(window.register(valid_battery), '%P'))
+    battery_entry.pack(side='left')
+    battery_text.trace_add('write', update_battery)
+    battery_entry.bind('<FocusOut>', end_battery_edit)
+    battery_entry.bind('<Return>', lambda _: screen.focus_set())
+    ttk.Checkbutton(battery_controls, text='Charging', variable=charging, command=toggle_charging).pack(
+        side='left', padx=(12, 0))
+
     screen.bind('<ButtonPress-1>', press)
     screen.bind('<B1-Motion>', drag)
     screen.bind('<ButtonRelease-1>', release)
