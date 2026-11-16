@@ -8,7 +8,7 @@ from typing import TypeVar
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZIP_SHA = '4e298cab6c12d86cfc55565645f7e3ae11d3fb44677a93ca13991e7184ecec4e'
 DEMO_SHA = 'e65d638d6e70332b4c3193af8ac2044941ec0157d20e41e40233aac5b0c2c59f'
-VERSION = '1.8.5'  # major.minor.patch, single digits, shown as is (About and release tag)
+VERSION = '1.8.6'  # major.minor.patch, single digits, shown as is (About and release tag)
 BETA = 0  # a pre-release's beta number (1-9), 0 for the release itself
 REPO = 'DiamondBond/q2-pod'  # whose releases Network Update fetches (--update-repo) and release.py publishes
 # The updater's identity (firmware_v20.info and demo's version literal) must be 5 characters and
@@ -943,8 +943,9 @@ def play_mark(font):
     for table in font['cmap'].tables:
         if table.isUnicode(): table.cmap[PLAY_MARK] = name
 
-def subset_font(src, family, ranges_macro, notice=None, *, add_play_mark=True, hinting=True):
-    """src cut to its Latin, Greek, Cyrillic and punctuation, with an optional play mark, renamed family (its own name is the font's reserved name under OFL and GUST alike): the font's
+def subset_font(src, family, ranges_macro, notice=None):
+    """src given a play mark (play_mark), then cut to its Latin, Greek, Cyrillic, punctuation and that
+    mark, renamed family (its own name is the font's reserved name under OFL and GUST alike): the font's
     bytes and ranges_macro listing exactly what it keeps. notice, if any, goes in its description (name
     ID 10)."""
     from fontTools import subset
@@ -952,13 +953,10 @@ def subset_font(src, family, ranges_macro, notice=None, *, add_play_mark=True, h
     font = TTFont(src, recalcTimestamp=False)
     old = font['name'].getDebugName(1)
     label = ranges_macro.split('_')[0].title()
-    have = sorted(u for u in font.getBestCmap() if 0x20 <= u < 0x530 or 0x1ea0 <= u <= 0x1ef9 or 0x2000 <= u < 0x2200)
-    # Vietnamese tone-marked vowels U+1EA0–U+1EF9 live outside the first Latin ranges.
-    if add_play_mark:
-        play_mark(font)
-        have.append(PLAY_MARK)
+    have = sorted(u for u in font.getBestCmap() if 0x20 <= u < 0x530 or 0x2000 <= u < 0x2200)
+    play_mark(font)
+    have.append(PLAY_MARK)
     options = subset.Options()
-    options.hinting = hinting
     if notice: options.name_IDs.append(7)  # the trademark notice, as its licence asks
     sub = subset.Subsetter(options)
     sub.populate(unicodes=have)
@@ -995,19 +993,12 @@ BOLD_TTF = 'release/assets/default/raw/fonts/bold.ttf'
 def bold_font():
     return subset_font(ROOT/'assets/fonts/LiberationSans-Bold.ttf', 'Q2 Pod Sans', 'BOLD_RANGES')
 
-# Folder view's regular-weight face for Vietnamese names.
-FOLDER_REGULAR_TTF = 'release/assets/default/raw/fonts/folder-regular.ttf'
-
-def folder_regular_font():
-    return subset_font(ROOT/'assets/fonts/LiberationSans-Regular.ttf', 'Q2 Pod Folder Sans',
-                       'FOLDER_REGULAR_RANGES', add_play_mark=False, hinting=False)
-
 # Classic's font (navigation.c theme_font): TeX Gyre Heros Bold (GUST Font License, assets/fonts), the same cut.
 # The LPPL asks a modified font to say so itself, and where the original is: assets/fonts/README-classic-light.txt
 CLASSIC_LIGHT_TTF = 'release/assets/default/raw/fonts/classic-light.ttf'
 # OFL 2 asks each copy to hold its licence, and the subsets' name tables don't: these ship beside the fonts
 FONT_NOTICES = ('LiberationSans-OFL.txt', 'GUST-FONT-LICENSE.txt', 'README-classic-light.txt')
-CLASSIC_LIGHT_NOTICE = ('Modified version of TeX Gyre Heros Bold 2.004: cut to part of its Latin and Greek and its punctuation (including Vietnamese U+1EA0-U+1EF9), its layout features to frac, liga and locl, a play mark added at U+25B6, and renamed. '
+CLASSIC_LIGHT_NOTICE = ('Modified version of TeX Gyre Heros Bold 2.004: cut to part of its Latin and Greek and its punctuation, its layout features to frac, liga and locl, a play mark added at U+25B6, and renamed. '
                'The original: https://www.gust.org.pl/projects/e-foundry/tex-gyre/heros')
 
 def classic_light_font():
@@ -1870,7 +1861,6 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
         check(syms.get(name) == address, f'{name}: not at {address:#x} in the stock demo')
     syms.update(PRIVATE_FUNCTIONS)
     bold, bold_ranges = bold_font()
-    folder_regular, folder_regular_ranges = folder_regular_font()
     classic_light, classic_light_ranges = classic_light_font()
     for name in GLOBALS:
         check(re.search(rf'\b1\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+{name}$',
@@ -1881,7 +1871,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     from theme import builtins, emit, geometry_sets
     themes = builtins()
     (out/'stock.h').write_text(stock_header({name: f'0x{syms[name]:x}u' for name in CONTEXT_DATA},
-                                            [bold_ranges, classic_light_ranges, folder_regular_ranges], themes, dev, repo))
+                                            [bold_ranges, classic_light_ranges], themes, dev, repo))
     set_pages, redirects = {}, {}
     ui = 'release/assets/default/raw/ui/'
     for i, g in enumerate(geometry_sets(themes)[1:], 1):
@@ -2232,7 +2222,6 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
                                **({LOGO_LIGHT: (xx+'list_tidal.png', light)} if light else {}),  # the swapped logo.jpg has no stock inode left
                                BOLD_TTF: (FONT, bold),
-                               FOLDER_REGULAR_TTF: (FONT, folder_regular),
                                CLASSIC_LIGHT_TTF: (FONT, classic_light),
                                **{'release/assets/default/raw/fonts/' + n: ('etc/hosts', (ROOT/'assets/fonts'/n).read_bytes()) for n in FONT_NOTICES},
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
