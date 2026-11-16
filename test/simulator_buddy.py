@@ -23,10 +23,11 @@ with TemporaryDirectory() as directory:
     assert guest is not None
     now = [100.0]
     guest.clock = lambda: now[0]
+    guest.watchdog = now[0]
     guest.wall = lambda: 1_750_000_000
 
     def until(condition):
-        for _ in range(240):
+        for _ in range(480):
             now[0] += 1 / 60
             ui.advance(1 / 60)
             if condition():

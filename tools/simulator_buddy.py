@@ -54,6 +54,7 @@ class Buddy:
         self.frames = self.front = 0
         self.watchdog = self.clock()
         self.stopped = False
+        self.last_syscall = None
         self.image = Image.new("RGB", SCREEN)
 
     def load(self, raw):
@@ -104,12 +105,13 @@ class Buddy:
             self.image = portrait.transpose(Image.Transpose.ROTATE_90)
             self.watchdog = self.clock()
         if not self.stopped and self.clock() - self.watchdog > 6:
-            raise ValueError("Buddy stopped presenting frames")
+            raise ValueError(f"Buddy stopped presenting frames at 0x{self.pc:x} (last syscall {self.last_syscall})")
 
     def interrupt(self, uc, number, _data):
         if number != 17:
             raise ValueError(f"Unsupported Buddy guest interrupt {number}")
         call = uc.reg_read(UC_MIPS_REG_V0)
+        self.last_syscall = call
         a, b, c = (uc.reg_read(reg) for reg in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
         result = self.syscall(call, a, b, c)
         uc.reg_write(UC_MIPS_REG_V0, abs(result))
