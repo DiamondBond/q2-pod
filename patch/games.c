@@ -502,8 +502,10 @@ int snake_step(struct snake *s) {
 #define GAMES_VORTEX "/mnt/data/ringnav-vortex"
 #define GAMES_SOLITAIRE "/mnt/data/ringnav-solitaire"
 #define GAMES_SNAKE "/mnt/data/ringnav-snake"
+#define GAMES_BLOCKS "/mnt/data/ringnav-blocks"
 #define BEST_MAGIC 0x31585456u  /* "VTX1" */
 #define SNAKE_MAGIC 0x314b4e53u /* "SNK1": Snake's best, as Vortex's */
+#define BLOCKS_MAGIC 0x314b4c42u /* "BLK1": falling-block high score */
 /* The paddle's turn for the wheel's, in percent: 100 is a whole turn for a whole turn (200 raw
  * units, wheel_sample). The hardware's calibration knob. */
 #define VORTEX_GAIN 100
@@ -539,6 +541,7 @@ static struct game {
     struct snake sn;
     Q2Pong pong;
     Q2Blocks blocks;
+    struct best blocks_best;
     int rows;    /* the chooser's: its own games, then the card's */
     void *title; /* the caption the bar reads, where the theme's bar holds it */
 } *g __attribute__((section(".scratch")));
@@ -592,6 +595,13 @@ static void game_over(void) {
 }
 
 /* Snake's steps, each its period of the time passed (2 a frame at most); 1 when it ended. */
+static void blocks_record(void) {
+    if (!(g->record = g->blocks.score > g->blocks_best.score)) return;
+    g->blocks_best.score = g->blocks.score;
+    games_seal(&g->blocks_best, sizeof g->blocks_best, BLOCKS_MAGIC);
+    if (!BLOB_IO(GAMES_BLOCKS, g->blocks_best, 1)) toast("Couldn't save");
+}
+
 static int snake_frame(unsigned elapsed) {
     struct snake *s = &g->sn;
     int moved = 0;
@@ -671,6 +681,7 @@ static int show(const void *unused) {
     int from = g->screen;
     hold(RUN);
     g->screen = g->target;
+    g->record = 0;
     g->picking = g->confirm = 0;
     widget_set_visible(g->list, g->screen == CHOOSER, 0);
     widget_set_sensitive(g->list,
@@ -1405,6 +1416,9 @@ int games_open(void *ctx, void *event) {
     if (!BLOB_IO(GAMES_SNAKE, g->sn_best, 0) ||
         !games_ok(&g->sn_best, sizeof g->sn_best, SNAKE_MAGIC))
         g->sn_best.score = 0;
+    if (!BLOB_IO(GAMES_BLOCKS, g->blocks_best, 0) ||
+        !games_ok(&g->blocks_best, sizeof g->blocks_best, BLOCKS_MAGIC))
+        g->blocks_best.score = 0;
     int bad = !BLOB_IO(GAMES_SOLITAIRE, g->sol, 0) ||
               !games_ok(&g->sol, sizeof g->sol, SOL_MAGIC) || g->sol.cur >= PILES;
     for (int p = 0; p < PILES; ++p) {
