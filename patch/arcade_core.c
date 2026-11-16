@@ -174,6 +174,11 @@ int q2_blocks_drop(Q2Blocks *g)
     (void)q2_blocks_tick(g);
     return rows;
 }
+int q2_blocks_next_cell(const Q2Blocks *g, int x, int y)
+{
+    if (x < 0 || x > 3 || y < 0 || y > 3) return 0;
+    return piece_bit(g->next, 0, x, y) ? g->next + 1 : 0;
+}
 int q2_blocks_cell(const Q2Blocks *g, int x, int y)
 {
     if (x < 0 || x >= Q2_BOARD_W || y < 0 || y >= Q2_BOARD_H) return 0;
