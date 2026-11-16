@@ -978,8 +978,9 @@ class Simulator:
                     self.arcade = view
                     self.paused = True  # game takes foreground; stop host music
                     self.open('arcade')
-                except Exception as exc:  # missing toolchain, Unicorn, or unavailable MIPS backend
+                except Exception as exc:  # toolchain, Unicorn, or incompatible MIPS build
                     self.hint = f'Could not open MIPS game: {exc}'
+                    print(f'Q2 MIPS game failed to launch: {exc}', file=sys.stderr)
             else:
                 self.hint = f'{name} requires the Q2 hardware'
         elif route == 'media':
