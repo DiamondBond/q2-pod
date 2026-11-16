@@ -41,10 +41,10 @@ static void blocks_paint(void *canvas, unsigned tone) {
     int px = x0 + Q2_BOARD_W * size + 16, py = y0 + 28;
     text_at(canvas, "Next", px, y0 + 1, 23, 16, rgba(0xffffff, 255), LEFT);
     for (int row = 0; row < 4; ++row)
-        for (int col = 0; col < 4; ++col) {
-            int cell = q2_blocks_next_cell(b, col, row);
+        for (int preview_x = 0; preview_x < 4; ++preview_x) {
+            int cell = q2_blocks_next_cell(b, preview_x, row);
             if (cell)
-                box(canvas, px + col * 10, py + row * 10, 9, 9, colors[cell - 1]);
+                box(canvas, px + preview_x * 10, py + row * 10, 9, 9, colors[cell - 1]);
         }
     hud(canvas, "Best", g->blocks_best.score, 375 - HUD_X, 95, 1,
         rgba(0xffffff, 255), SPOT_GREY);
