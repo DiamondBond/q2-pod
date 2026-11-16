@@ -6,6 +6,7 @@ import bisect
 import io
 import math
 import random
+import subprocess
 import re
 import sys
 import time
@@ -950,7 +951,15 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            self.hint = f'{name} requires the Q2 hardware'
+            if name in ('Pong', 'Blocks'):
+                try:
+                    subprocess.Popen([sys.executable, str(Path(__file__).with_name('arcade_emulator.py')),
+                                      '--game', name.lower()], cwd=Path(__file__).resolve().parent.parent)
+                    self.hint = f'Launching {name} (Unicorn MIPS)'
+                except OSError as exc:
+                    self.hint = f'Could not start MIPS game: {exc}'
+            else:
+                self.hint = f'{name} requires the Q2 hardware'
         elif route == 'media':
             directory = card_media(self.sd_card).get(name)
             if directory is not None and name in ('Podcasts', 'Audiobooks'):
