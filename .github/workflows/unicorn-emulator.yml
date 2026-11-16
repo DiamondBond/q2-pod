@@ -1,7 +1,7 @@
 name: Unicorn MIPS emulator smoke tests
 on:
   push:
-    branches: [unicorn-mips-emulator, desktop-simulator]
+    branches: [unicorn-mips-emulator, desktop-simulator, unicorn-mips-update]
   pull_request:
     paths:
       - 'tools/arcade_emulator.py'
@@ -15,6 +15,8 @@ on:
       - 'test/simulator_audio.py'
       - 'test/arcade_simulator.py'
       - 'tools/simulator.py'
+      - 'tools/simulator_buddy.py'
+      - 'test/simulator_buddy.py'
       - 'tools/simulator_firmware.py'
       - 'test/simulator_now_playing.py'
       - 'patch/arcade_core.*'
@@ -39,6 +41,19 @@ jobs:
         run: python3 test/arcade_mips.py --self-test
       - name: Test games inside desktop simulator navigation
         run: python3 test/arcade_simulator.py
+      - name: Check out Buddy source for the device test
+        if: github.ref_name == 'unicorn-mips-update'
+        uses: actions/checkout@v4
+        with:
+          repository: DiamondBond/q2-fidget
+          ref: 2ae4da715394aae7ee6312b2130ec16cd07ee079
+          path: .buddy-source
+          persist-credentials: false
+      - name: Run the Buddy MIPS card app inside the desktop simulator
+        if: github.ref_name == 'unicorn-mips-update'
+        run: |
+          bash .buddy-source/build.sh
+          python3 test/simulator_buddy.py .buddy-source/dist/.fidget
       - name: Check packaged Now Playing layout selection
         run: python3 test/simulator_now_playing.py
       - name: Render interactive emulator game screens headlessly

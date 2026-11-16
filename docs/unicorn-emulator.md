@@ -101,3 +101,19 @@ frame timer, input routing and drawing adapters. It must be built against a
 Q2 V1.36 stock ZIP and verified on physical Q2 before distribution.
 The emulator branch intentionally avoids mixing its large Python UI changes
 into that firmware PR.
+
+
+## Running Buddy from a mounted SD folder
+
+Mount the SD folder containing `.fidget/q2app` and `.fidget/q2-fidget`.
+The simulator App Store can install Buddy to that folder. Open **Library → Games → Buddy**.
+Click, hold, or drag the ghost, scroll or drag the wheel, press Enter for Centre,
+and use Esc for Buddy's menu. Choose **Quit** there to save and return to Games.
+
+The runner executes Buddy's installed static MIPS32 executable in Unicorn. It
+models the rotated double-buffered framebuffer, the Q2 input datagrams, the
+clock, and Buddy's own card files. State and pet saves go to the mounted
+`.fidget` directory, and the optional `buddy.png` is read from there. Guest
+syscalls use only these emulated devices and explicitly allowed card paths.
+The guest uses Buddy's default popup style. Other card apps, the Q2 Linux
+kernel, and device drivers remain outside this runtime.

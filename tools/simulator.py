@@ -30,7 +30,7 @@ from simulator_audio import FFplayAudio
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
-from simulator_library import (BUILTIN_GAMES, MEDIA_NAMES, LibraryRow, card_games, card_media, imported_playlists,
+from simulator_library import (BUILTIN_GAMES, MEDIA_NAMES, LibraryRow, card_game_entries, card_media, imported_playlists,
                                library_menu)
 from simulator_settings import PAGES, PLAY_MODES, SETTINGS, STOCK_ROWS, THEME_KEYS
 
@@ -704,6 +704,8 @@ class Simulator:
         self.page, self.cursor = 'home', 0
         self.shell = DEFAULT_SHELL
         self.arcade = None
+        self.buddy = None
+        self.buddy_wheel = 0.0
         self.game_bests: dict[str, int] = {}
         self.current, self.scroll, self.paused, self.elapsed = 0, 0, True, 0.0
         self.directory, self.album = sd_card, None
@@ -842,11 +844,17 @@ class Simulator:
             self.store.select(self.sd_card, 'check', background=True)
 
     def close_arcade(self):
+        if self.buddy is not None:
+            self.buddy.close()
+            self.buddy = None
         if self.arcade is not None:
             self.arcade.machine.close()
             self.arcade = None
 
     def back(self):
+        if self.page == 'buddy' and self.buddy is not None:
+            self.buddy_key(170)
+            return
         if self.page == 'arcade' and self.arcade is not None:
             if self.arcade.scene != 'games':
                 self.arcade.back()
@@ -860,7 +868,23 @@ class Simulator:
             self.page, self.cursor = 'home', 0
         self.hint, self.scroll = '', 0
 
+    def buddy_key(self, code):
+        if self.buddy is not None:
+            self.buddy.send(f'k d {code}')
+            self.buddy.send(f'k u {code}')
+
+    def buddy_drag_wheel(self, radians):
+        if self.buddy is not None:
+            self.buddy_wheel -= radians * 200 / math.tau
+            travel = math.trunc(self.buddy_wheel)
+            if travel:
+                self.buddy_wheel -= travel
+                self.buddy.send(f'w {travel}')
+
     def move(self, step):
+        if self.page == 'buddy' and self.buddy is not None:
+            self.buddy.send(f'w {-step * 28}')
+            return
         if self.page == 'arcade' and self.arcade is not None:
             self.arcade.scroll(step)
             return
@@ -904,6 +928,19 @@ class Simulator:
         self.record_play(self.current)
 
     def advance(self, delta):
+        if self.page == 'buddy' and self.buddy is not None:
+            try:
+                self.buddy.frame()
+                if self.buddy.stopped:
+                    code = self.buddy.exit_code
+                    self.close_arcade()
+                    self.back()
+                    if code:
+                        self.hint = f'Buddy exited (code {code})'
+            except (OSError, ValueError) as exc:
+                self.close_arcade()
+                self.back()
+                self.hint = f'Buddy stopped: {exc}'
         if self.page == 'arcade' and self.arcade is not None:
             self.arcade.advance(delta * 1000)
         if self.store.poll() and self.store.message:
@@ -968,8 +1005,20 @@ class Simulator:
     def select_library(self, row):
         name, route, selected = row
         if route == 'games':
-            self.show_library(name, (LibraryRow(game, 'device') for game in
-                                     (*BUILTIN_GAMES, *card_games(self.sd_card))))
+            builtins = [LibraryRow(game, 'device') for game in BUILTIN_GAMES]
+            installed = [LibraryRow(game, 'buddy' if ident == 'fidget' else 'card-game')
+                         for game, ident in card_game_entries(self.sd_card)]
+            self.show_library(name, builtins + installed)
+        elif route == 'buddy' and self.sd_card is not None:
+            try:
+                from simulator_buddy import Buddy
+                self.buddy = Buddy(self.sd_card)
+                self.buddy_wheel = 0.0
+                self.open('buddy')
+            except (ImportError, OSError, ValueError) as exc:
+                self.hint = f'Could not open Buddy: {exc}'
+        elif route == 'card-game':
+            self.hint = f'{name} requires the Q2 hardware'
         elif route == 'track':
             self.play(selected[0], [entry.tracks[0] for entry in self.library_rows if entry.route == 'track'])
         elif route == 'album':
@@ -1134,6 +1183,9 @@ class Simulator:
         self.open('playing')
 
     def enter(self):
+        if self.page == 'buddy' and self.buddy is not None:
+            self.buddy_key(218)
+            return
         if self.page == 'arcade' and self.arcade is not None:
             game = self.arcade.game
             self.arcade.center()
@@ -1194,6 +1246,16 @@ class Simulator:
             self.back()
 
     def button(self, button):
+        if self.page == 'buddy':
+            if button in ('left', 'right'):
+                self.step_track(-1 if button == 'left' else 1)
+            elif button == 'center':
+                self.enter()
+            elif button == 'up':
+                self.back()
+            elif button == 'down':
+                self.toggle()
+            return
         if self.page == 'arcade' and self.arcade is not None:
             if button == 'up':
                 self.back()
@@ -1208,6 +1270,8 @@ class Simulator:
             actions[button]()
 
     def frame(self, fonts):
+        if self.page == 'buddy' and self.buddy is not None:
+            return self.buddy.image, []
         if self.page == 'arcade' and self.arcade is not None:
             return self.arcade.render_screen(), []
         background_playback = None if self.paused else False
@@ -1333,8 +1397,20 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
                 ui.enter()
                 return
 
+    buddy_touch = False
+
+    def touch(kind, event):
+        x = max(0, min(SIZE[0] - 1, event.x - SCREEN_AT[0]))
+        y = max(0, min(SIZE[1] - 1, event.y - SCREEN_AT[1]))
+        if ui.buddy is not None:
+            ui.buddy.send(f't {kind} {x} {y}')
+
     def press(event):
-        nonlocal pressed, angle, accumulated, dragged
+        nonlocal pressed, angle, accumulated, dragged, buddy_touch
+        buddy_touch = (ui.buddy is not None and SCREEN_AT[0] <= event.x < SCREEN_AT[0] + SIZE[0]
+                       and SCREEN_AT[1] <= event.y < SCREEN_AT[1] + SIZE[1])
+        if buddy_touch:
+            touch('d', event)
         screen.focus_set()
         pressed = wheel_button(event.x, event.y)
         angle = wheel_angle(event.x, event.y) if pressed and pressed != 'center' else None
@@ -1342,9 +1418,19 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
 
     def drag(event):
         nonlocal angle, accumulated, dragged
+        if buddy_touch:
+            touch('m', event)
+            return
         if angle is None or math.hypot(event.x - WHEEL[0], event.y - WHEEL[1]) < CENTRE:
             return
         new_angle = wheel_angle(event.x, event.y)
+        if ui.buddy is not None:
+            accumulated += wheel_delta(angle, new_angle)
+            angle = new_angle
+            if dragged or abs(accumulated) >= math.pi / 45:
+                ui.buddy_drag_wheel(accumulated)
+                accumulated, dragged = 0.0, True
+            return
         if ui.page == 'arcade' and ui.arcade is not None:
             accumulated += wheel_delta(angle, new_angle)
             angle = new_angle
@@ -1363,6 +1449,11 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             accumulated -= ticks * detent
 
     def release(event):
+        nonlocal buddy_touch
+        if buddy_touch:
+            touch('u', event)
+            buddy_touch = False
+            return
         if pressed:
             if not dragged and pressed == wheel_button(event.x, event.y):
                 ui.button(pressed)
@@ -1385,6 +1476,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         source = ui.firmware.name if ui.firmware else 'Checkout preview'
         if ui.page in ('playing', 'lyrics') and ui.tracks:
             detail = ui.hint or f'Artist font: {fonts.artist(ui.tracks[ui.current].artist)[1]} · Click display to switch lyrics'
+        elif ui.page == 'buddy':
+            detail = 'Click or drag Buddy · Wheel to spin · Enter to act · Esc opens its menu'
         elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('sudoku', 'solitaire'):
             detail = 'Wheel or arrows to move · Enter to select · Space for new game · Esc to go back'
         elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('snake', 'vortex'):
@@ -1397,7 +1490,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             detail += f' · {audio.notice}'
         status.configure(text=f'{source} · {detail}')
         ui.scroll += 2
-        window.after(16 if ui.page == 'arcade' else 90, refresh)
+        window.after(16 if ui.page in ('arcade', 'buddy') else 90, refresh)
 
     def cycle_shell():
         nonlocal finish_index
@@ -1463,7 +1556,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     screen.bind('<Right>', lambda _: direction('right', 1))
     screen.bind('<MouseWheel>', lambda event: ui.move(-1 if event.delta > 0 else 1))
     screen.bind('<Return>', lambda _: ui.enter())
-    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics', 'arcade') else ui.enter())
+    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics', 'arcade', 'buddy') else ui.enter())
     for key in ('<Escape>', '<BackSpace>'):
         screen.bind(key, lambda _: ui.back())
     screen.bind('<Key-l>', lambda _: ui.lyrics_page())

@@ -48,7 +48,7 @@ def card_media(card: Path | None) -> dict[str, Path]:
     return media
 
 
-def card_games(card: Path | None) -> list[str]:
+def card_game_entries(card: Path | None) -> list[tuple[str, str]]:
     if card is None:
         return []
     try:
@@ -70,8 +70,12 @@ def card_games(card: Path | None) -> list[str]:
         except (OSError, ValueError):
             continue
         if fields.get('game') == '1' and fields.get('hidden') != '1':
-            games.append(fields.get('name') or ident)
-    return sorted(games, key=str.casefold)[:8]
+            games.append((fields.get('name') or ident, ident))
+    return sorted(games, key=lambda game: game[0].casefold())[:8]
+
+
+def card_games(card: Path | None) -> list[str]:
+    return [name for name, _ in card_game_entries(card)]
 
 
 def library_menu(card: Path | None, custom: bool, classic: bool) -> list[LibraryRow]:
