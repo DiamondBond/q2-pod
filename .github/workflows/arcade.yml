@@ -55,5 +55,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lld llvm gcc-multilib
           python3 -m pip install --break-system-packages -r requirements.txt -r test/unit/requirements.txt
+      - name: Compile firmware Games code for MIPS with strict shadow checks
+        run: |
+          PYTHONPATH=test/fw python3 -c 'from pathlib import Path; import host; host.headers(Path("/tmp/q2-arcade-headers"))'
+          clang --target=mipsel-linux-gnu -march=mips32r2 -mabi=32 -mfp64 -mno-abicalls -fno-pic -G0 -ffreestanding -fno-builtin -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -Oz -Wall -Wextra -Werror -Wno-unused-parameter -Wshadow -Wimplicit-int-conversion -Wconditional-uninitialized -Wmissing-variable-declarations -Wvla -Wundef -I /tmp/q2-arcade-headers -I patch -c patch/games.c -o /tmp/q2-arcade-games.o
       - name: Run firmware's real game code under mocked host services
         run: python3 -m pytest test/fw/test_games.py -q
