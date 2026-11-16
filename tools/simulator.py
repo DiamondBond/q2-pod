@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# mypy: disable-error-code="import-not-found,import-untyped"
 """Interactive desktop UI preview for Shanling Q2 and Q2 Pod firmware."""
 import argparse
 import bisect

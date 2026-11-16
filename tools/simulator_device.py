@@ -1,3 +1,4 @@
+# mypy: disable-error-code="import-not-found,import-untyped"
 """Draw the Q2 desktop enclosure and interpret its circular touch wheel."""
 
 import math
