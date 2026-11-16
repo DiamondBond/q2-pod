@@ -15,7 +15,10 @@ static void pong_paint(void *canvas, unsigned tone) {
     box(canvas, bx - 4, by - 4, 8, 8, 0xffffff);
     hud(canvas, "You", p->player_score, HUD_X, 4, 0, rgba(0xffffff, 255), SPOT_GREY);
     hud(canvas, "CPU", p->cpu_score, 375 - HUD_X, 4, 1, rgba(0xffffff, 255), SPOT_GREY);
-    paused_popup(canvas, p->player_score >= 7 || p->cpu_score >= 7);
+    if (p->player_score >= 7 && g->paused != MENU)
+        popup(canvas, "You win!", "Centre: play again", 0, 0);
+    else
+        paused_popup(canvas, p->cpu_score >= 7);
 }
 static void blocks_paint(void *canvas, unsigned tone) {
     const Q2Blocks *b = &g->blocks;
@@ -38,6 +41,16 @@ static void blocks_paint(void *canvas, unsigned tone) {
         }
     hud(canvas, "Score", b->score, HUD_X, 4, 0, rgba(0xffffff, 255), SPOT_GREY);
     hud(canvas, "Level", b->level, 375 - HUD_X, 4, 1, rgba(0xffffff, 255), SPOT_GREY);
+    int px = x0 + Q2_BOARD_W * size + 16, py = y0 + 28;
+    text_at(canvas, "Next", px, y0 + 1, 23, 16, rgba(0xffffff, 255), LEFT);
+    for (int row = 0; row < 4; ++row)
+        for (int col = 0; col < 4; ++col) {
+            int cell = q2_blocks_next_cell(b, col, row);
+            if (cell)
+                box(canvas, px + col * 10, py + row * 10, 9, 9, colors[cell - 1]);
+        }
+    hud(canvas, "Best", g->blocks_best.score, 375 - HUD_X, 95, 1,
+        rgba(0xffffff, 255), SPOT_GREY);
     (void)tone;
     paused_popup(canvas, b->game_over);
 }
