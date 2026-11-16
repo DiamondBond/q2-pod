@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-#include "../../patch/arcade_core.h"
+#include "../patch/arcade_core.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
