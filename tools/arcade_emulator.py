@@ -322,11 +322,29 @@ def main():
     parser.add_argument("--self-test", action="store_true", help="run headless MIPS smoke test")
     parser.add_argument("--shell", choices=("Orange", "Silver", "Black", "Champagne Gold"),
                         default=DEFAULT_SHELL)
+    parser.add_argument("--snapshot", type=pathlib.Path, help="save Q2 screenshot without a desktop display")
     parser.add_argument("--game", choices=("pong", "blocks"),
                         help="open directly into one game")
     args = parser.parse_args()
     if args.self_test:
         mips_self_test()
+        return
+    if args.snapshot:
+        machine = MipsArcade()
+        try:
+            view = object.__new__(ArcadeWindow)
+            view.machine = machine
+            view.scene = "games"
+            view.selection = 0
+            view.game = None
+            view.paused = view.menu = False
+            view.quit_selected = False
+            if args.game:
+                view.start(args.game)
+            device_frame(view.render_screen(), args.shell).save(args.snapshot)
+            print(f"Wrote {args.snapshot} (MIPS Unicorn gameplay state)")
+        finally:
+            machine.close()
         return
     ArcadeWindow(args.shell, args.game).run()
 
