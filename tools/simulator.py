@@ -6,6 +6,7 @@ import bisect
 import io
 import math
 import random
+import subprocess
 import re
 import sys
 import time
@@ -25,6 +26,7 @@ import build
 import ipod
 import theme
 from simulator_apps import AppStore
+from simulator_audio import FFplayAudio
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
@@ -694,6 +696,8 @@ class Simulator:
     def __init__(self, style, tracks, firmware=None, sd_card=None):
         self.style, self.tracks, self.firmware, self.sd_card = style, tracks, firmware, sd_card
         self.page, self.cursor = 'home', 0
+        self.shell = DEFAULT_SHELL
+        self.arcade = None
         self.current, self.scroll, self.paused, self.elapsed = 0, 0, True, 0.0
         self.directory, self.album = sd_card, None
         self.folder_cache: dict[Path | None, list[tuple[str, Path | int]]] = {}
@@ -831,6 +835,12 @@ class Simulator:
             self.store.select(self.sd_card, 'check', background=True)
 
     def back(self):
+        if self.page == 'arcade' and self.arcade is not None:
+            if self.arcade.scene != 'games':
+                self.arcade.back()
+                return
+            self.arcade.machine.close()
+            self.arcade = None
         self.store.armed = ''
         if self.history:
             self.page, self.cursor, self.directory, self.album, self.library_title, self.library_rows = self.history.pop()
@@ -839,6 +849,9 @@ class Simulator:
         self.hint, self.scroll = '', 0
 
     def move(self, step):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.scroll(step)
+            return
         if self.page in ('playing', 'lyrics'):
             self.step_track(step)
         else:
@@ -879,6 +892,8 @@ class Simulator:
         self.record_play(self.current)
 
     def advance(self, delta):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.advance(delta * 1000)
         if self.store.poll() and self.store.message:
             self.hint = self.store.message
         if not self.paused and self.tracks:
@@ -950,7 +965,24 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            self.hint = f'{name} requires the Q2 hardware'
+            if name in ('Pong', 'Blocks'):
+                try:
+                    from arcade_emulator import ArcadeWindow, MipsArcade
+                    view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window
+                    view.machine = MipsArcade()
+                    view.theme = self.style
+                    view.scene, view.selection, view.game = 'games', 0, None
+                    view.paused = view.menu = view.quit_selected = False
+                    view.wheel_acc = 0.0  # standalone ArcadeWindow.__init__ is bypassed
+                    view.start(name.lower())
+                    self.arcade = view
+                    self.paused = True  # game takes foreground; stop host music
+                    self.open('arcade')
+                except Exception as exc:  # toolchain, Unicorn, or incompatible MIPS build
+                    self.hint = f'Could not open MIPS game: {exc}'
+                    print(f'Q2 MIPS game failed to launch: {exc}', file=sys.stderr)
+            else:
+                self.hint = f'{name} requires the Q2 hardware'
         elif route == 'media':
             directory = card_media(self.sd_card).get(name)
             if directory is not None and name in ('Podcasts', 'Audiobooks'):
@@ -1089,6 +1121,9 @@ class Simulator:
         self.open('playing')
 
     def enter(self):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.center()
+            return
         if self.page == 'home':
             if self.firmware:
                 entry = self.firmware.home[self.cursor]
@@ -1130,6 +1165,9 @@ class Simulator:
             self.toggle()
 
     def toggle(self):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.button('down')
+            return
         if self.tracks:
             self.paused = not self.paused
 
@@ -1140,12 +1178,20 @@ class Simulator:
             self.back()
 
     def button(self, button):
+        if self.page == 'arcade' and self.arcade is not None:
+            if button == 'up':
+                self.back()
+            else:
+                self.arcade.button(button)
+            return
         actions = {'up': self.back, 'down': self.toggle, 'center': self.enter,
                    'left': lambda: self.move(-1), 'right': lambda: self.move(1)}
         if button in actions:
             actions[button]()
 
     def frame(self, fonts):
+        if self.page == 'arcade' and self.arcade is not None:
+            return self.arcade.render_screen(), []
         background_playback = None if self.paused else False
         if self.page == 'home' and self.firmware:
             frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor,
@@ -1191,13 +1237,16 @@ class Simulator:
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
-def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None, shell=DEFAULT_SHELL):
+def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None, shell=DEFAULT_SHELL,
+            enable_audio=True, ffplay=None):
     import tkinter as tk
     from tkinter import filedialog, messagebox, simpledialog, ttk
 
     from PIL import ImageTk
 
     ui = Simulator(style, tracks, firmware, sd_card)
+    ui.shell = shell
+    audio = FFplayAudio(ffplay) if enable_audio else None
     window = tk.Tk()
     window.title('Shanling Q2 Simulator')
     ui.search_query = lambda: simpledialog.askstring('Search', 'Search the library', parent=window)
@@ -1276,6 +1325,10 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         if angle is None or math.hypot(event.x - WHEEL[0], event.y - WHEEL[1]) < CENTRE:
             return
         new_angle = wheel_angle(event.x, event.y)
+        if ui.page == 'arcade' and ui.arcade is not None:
+            ui.arcade.on_wheel(wheel_delta(angle, new_angle))
+            angle, dragged = new_angle, True
+            return
         accumulated += wheel_delta(angle, new_angle)
         angle = new_angle
         detent = DETENT * 50 / ui.wheel_sensitivity
@@ -1298,6 +1351,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         now = time.monotonic()
         ui.advance(now - last_tick)
         last_tick = now
+        if audio is not None:
+            audio.sync(ui)
         frame, hits = ui.frame(fonts)
         gain = int(ui.brightness.rstrip('%')) / 100
         if gain < 1:
@@ -1310,6 +1365,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         else:
             detail = ui.hint or (f'SD: {ui.sd_card.name} · {len(ui.tracks)} tracks' if ui.sd_card else
                                  'Drag the wheel or use the arrow keys · Enter to select')
+        if audio is not None and audio.notice:
+            detail += f' · {audio.notice}'
         status.configure(text=f'{source} · {detail}')
         ui.scroll += 2
         window.after(90, refresh)
@@ -1317,6 +1374,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     def cycle_shell():
         nonlocal finish_index
         finish_index = (finish_index + 1) % len(finishes)
+        ui.shell = finishes[finish_index]
         color_button.configure(text=f'Shell color: {finishes[finish_index]}')
         screen.focus_set()
 
@@ -1362,10 +1420,19 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         screen.bind(key, lambda _: ui.move(1))
     screen.bind('<MouseWheel>', lambda event: ui.move(-1 if event.delta > 0 else 1))
     screen.bind('<Return>', lambda _: ui.enter())
-    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics') else ui.enter())
+    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics', 'arcade') else ui.enter())
     for key in ('<Escape>', '<BackSpace>'):
         screen.bind(key, lambda _: ui.back())
     screen.bind('<Key-l>', lambda _: ui.lyrics_page())
+    def close_window():
+        if ui.arcade is not None:
+            ui.arcade.machine.close()
+            ui.arcade = None
+        if audio is not None:
+            audio.close()
+        window.destroy()
+
+    window.protocol('WM_DELETE_WINDOW', close_window)
     window.after_idle(screen.focus_set)
     refresh()
     window.mainloop()
@@ -1381,6 +1448,8 @@ def main():
     parser.add_argument('--unsquashfs', default='unsquashfs', help='squashfs-tools executable (defaults to PATH)')
     parser.add_argument('--sd-card', type=Path, help='directory to mount as the simulated SD card')
     parser.add_argument('--snapshot', type=Path, help='save one PNG and exit without opening a window')
+    parser.add_argument('--no-audio', action='store_true', help='disable ffplay host audio')
+    parser.add_argument('--ffplay', help='path to ffplay executable (from FFmpeg)')
     parser.add_argument('--screen', choices=('home', 'folder', 'library', 'localmusic', 'coverflow', 'playing', 'lyrics', *SETTINGS),
                         default='playing', help='screen to capture with --snapshot')
     parser.add_argument('--with-device', action='store_true', help='include the enclosure and wheel in the screenshot')
@@ -1421,7 +1490,8 @@ def main():
             source = firmware.name if firmware else 'checkout preview'
             print(f'{args.snapshot} ({source}; {detail})')
         else:
-            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root, args.shell)
+            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root, args.shell,
+                    enable_audio=not args.no_audio, ffplay=args.ffplay)
     except ERRORS as exc:
         parser.exit(1, f'{parser.prog}: {exc}\n')
 
