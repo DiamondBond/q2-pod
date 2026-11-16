@@ -8,6 +8,7 @@ on:
       - 'tools/simulator_audio.py'
       - 'test/arcade_mips.py'
       - 'test/simulator_audio.py'
+      - 'test/arcade_simulator.py'
       - 'tools/simulator.py'
       - 'patch/arcade_core.*'
       - '.github/workflows/unicorn-emulator.yml'
@@ -27,6 +28,8 @@ jobs:
         run: python3 test/simulator_audio.py
       - name: Execute actual Q2-target MIPS instructions
         run: python3 test/arcade_mips.py --self-test
+      - name: Test games inside desktop simulator navigation
+        run: python3 test/arcade_simulator.py
       - name: Render interactive emulator game screens headlessly
         run: |
           python3 tools/arcade_emulator.py --snapshot /tmp/q2-pong.png --game pong
