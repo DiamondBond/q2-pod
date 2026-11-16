@@ -7,10 +7,10 @@ The desktop simulator previews the Q2/Q2 Pod UI on a computer. **This is a Pytho
 From the repository root:
 
 ```sh
-./run-simulator.sh
+bash run-simulator.sh
 ```
 
-If the shell script is not executable after downloading the branch, use `bash run-simulator.sh`.
+The launcher is invoked through Bash, so no executable permission change is required.
 
 The first launch creates `.venv-simulator/` and installs only its Python dependencies. Later launches reuse them. Python 3.10+ and Tkinter are required; a graphical desktop/display is required to open the window. On Ubuntu/Debian, install missing system packages using:
 
@@ -34,13 +34,13 @@ For WSL, use the Linux launcher and make sure GUI applications are supported (fo
 
 ## Try it with real content
 
-No firmware or audio files are needed for the default demo: `./run-simulator.sh` opens a checkout preview with sample tracks.
+No firmware or audio files are needed for the default demo: `bash run-simulator.sh` opens a checkout preview with sample tracks.
 
-- **Mount music as an SD card:** `./run-simulator.sh --sd-card "/path/to/music"` or choose **Mount SD folder** in the window. The simulator currently scans MP3 and FLAC files.
-- **Preview a firmware package:** `./run-simulator.sh --firmware "/path/to/update.tar"` or `./run-simulator.sh --firmware "/path/to/stock-firmware.zip"`. You can also click **Open firmware**.
-- **Both together:** `./run-simulator.sh --firmware "/path/to/update.tar" --sd-card "/path/to/music"`.
-- **Save a screenshot without a GUI:** `./run-simulator.sh --snapshot /tmp/q2.png --screen home --with-device`.
-- **All options:** `./run-simulator.sh --help`.
+- **Mount music as an SD card:** `bash run-simulator.sh --sd-card "/path/to/music"` or choose **Mount SD folder** in the window. The simulator currently scans MP3 and FLAC files.
+- **Preview a firmware package:** `bash run-simulator.sh --firmware "/path/to/update.tar"` or `bash run-simulator.sh --firmware "/path/to/stock-firmware.zip"`. You can also click **Open firmware**.
+- **Both together:** `bash run-simulator.sh --firmware "/path/to/update.tar" --sd-card "/path/to/music"`.
+- **Save a screenshot without a GUI:** `bash run-simulator.sh --snapshot /tmp/q2.png --screen home --with-device`.
+- **All options:** `bash run-simulator.sh --help`.
 
 To load a firmware package, install **squashfs-tools** so `unsquashfs` is on PATH (Ubuntu/Debian: `sudo apt install squashfs-tools`; macOS: `brew install squashfs`). A package must contain the expected Q2 update files. The checkout preview does not require `unsquashfs`.
 
