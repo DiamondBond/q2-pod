@@ -31,5 +31,6 @@ int q2_blocks_move(Q2Blocks *g, int dx);
 int q2_blocks_rotate(Q2Blocks *g);
 int q2_blocks_tick(Q2Blocks *g); /* 0 moved, 1 locked, -1 game over */
 int q2_blocks_drop(Q2Blocks *g); /* hard drop, returns rows travelled */
+int q2_blocks_next_cell(const Q2Blocks *g, int x, int y); /* next-piece preview */
 int q2_blocks_cell(const Q2Blocks *g, int x, int y); /* settled or active colour 1..7 */
 #endif
