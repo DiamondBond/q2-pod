@@ -30,7 +30,7 @@ def draw_label(d, pos, text, color="#e8e8e8", anchor=None):
 
 
 class ArcadeWindow:
-    def __init__(self, shell=DEFAULT_SHELL, game=None):
+    def __init__(self, shell=DEFAULT_SHELL, game=None, theme='modern'):
         import tkinter as tk
         from PIL import ImageTk
         self.tk = tk
@@ -44,6 +44,7 @@ class ArcadeWindow:
         self.canvas.pack()
         self.photo = None
         self.shell = shell
+        self.theme = theme
         self.scene = "games"
         self.selection = 0
         self.game = None
@@ -228,11 +229,14 @@ class ArcadeWindow:
                 self.machine.blocks_tick()
 
     def render_screen(self):
-        screen = Image.new("RGB", SCREEN, "#10141c")
+        light = self.theme == "classic-light"
+        paper, text, bar = ("#f3f3f0", "#161616", "#d8dade") if light else (
+            "#10141c", "#e9e9ed", "#222833")
+        screen = Image.new("RGB", SCREEN, paper)
         d = ImageDraw.Draw(screen)
-        d.rectangle((0, 0, 374, 31), fill="#222833")
-        draw_label(d, (14, 16), "Q2 POD", "#efefef", "lm")
-        draw_label(d, (363, 16), "GAMES", "#9cabbc", "rm")
+        d.rectangle((0, 0, 374, 31), fill=bar)
+        draw_label(d, (14, 16), "Q2 POD", text, "lm")
+        draw_label(d, (363, 16), "GAMES", "#82909d" if light else "#9cabbc", "rm")
         if self.scene == "games":
             draw_label(d, (188, 58), "Games", anchor="mt")
             for idx, name in enumerate(("Pong", "Blocks")):
@@ -327,6 +331,8 @@ class ArcadeWindow:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true", help="run headless MIPS smoke test")
+    parser.add_argument("--theme", choices=("classic-light", "modern", "minimal"),
+                        default="modern")
     parser.add_argument("--shell", choices=("Orange", "Silver", "Black", "Champagne Gold"),
                         default=DEFAULT_SHELL)
     parser.add_argument("--snapshot", type=pathlib.Path, help="save Q2 screenshot without a desktop display")
@@ -342,6 +348,7 @@ def main():
             view = object.__new__(ArcadeWindow)
             view.machine = machine
             view.scene = "games"
+            view.theme = args.theme
             view.selection = 0
             view.game = None
             view.paused = view.menu = False
@@ -353,7 +360,7 @@ def main():
         finally:
             machine.close()
         return
-    ArcadeWindow(args.shell, args.game).run()
+    ArcadeWindow(args.shell, args.game, args.theme).run()
 
 
 if __name__ == "__main__":
