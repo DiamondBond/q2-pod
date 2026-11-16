@@ -6,6 +6,7 @@ are NOT emulated. The graphical frontend uses this same backend.
 """
 from __future__ import annotations
 import argparse
+import os
 import ctypes as C
 import pathlib
 import shutil
@@ -23,6 +24,24 @@ STACK = 0x200000
 STATE = 0x300000
 RETURN = 0x400000
 PONG_SIZE = 36
+
+def tool_executable(name: str) -> str:
+    """Find an LLVM tool on PATH or in a standard Windows installation."""
+    found = shutil.which(name)
+    if found:
+        return found
+    if sys.platform == "win32":
+        roots = [
+            pathlib.Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "LLVM" / "bin",
+            pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "LLVM" / "bin",
+        ]
+        for root in roots:
+            candidate = root / (name + ".exe")
+            if candidate.is_file():
+                return str(candidate)
+    if sys.platform == "win32":
+        raise RuntimeError("Missing LLVM tool " + name + ". Install LLVM with winget install LLVM.LLVM, then restart the simulator.")
+    raise RuntimeError("Missing LLVM tool " + name + ". Install clang and lld using your package manager.")
 
 
 class Pong(C.LittleEndianStructure):
@@ -49,9 +68,9 @@ def compile_mips(directory: pathlib.Path) -> pathlib.Path:
              "-fno-pic", "-G0", "-ffreestanding", "-fno-builtin",
              "-fno-stack-protector", "-fno-unwind-tables",
              "-fno-asynchronous-unwind-tables", "-Oz", "-Wall", "-Wextra", "-Werror"]
-    subprocess.run(["clang", *flags, "-c", str(ROOT / "patch/arcade_core.c"),
+    subprocess.run([tool_executable("clang"), *flags, "-c", str(ROOT / "patch/arcade_core.c"),
                     "-o", str(obj)], check=True)
-    subprocess.run(["ld.lld", "-m", "elf32ltsmip", "-static",
+    subprocess.run([tool_executable("ld.lld"), "-m", "elf32ltsmip", "-static",
                     "-Ttext=0x100000", "-e", "q2_pong_init",
                     str(obj), "-o", str(elf)], check=True)
     return elf
@@ -60,7 +79,7 @@ def compile_mips(directory: pathlib.Path) -> pathlib.Path:
 def symbols(elf: pathlib.Path) -> dict[str, int]:
     reader = shutil.which("readelf") or shutil.which("llvm-readelf")
     if reader is None:
-        raise RuntimeError("Install binutils readelf or LLVM llvm-readelf")
+        reader = tool_executable("llvm-readelf")
     output = subprocess.check_output([reader, "-Ws", str(elf)], text=True)
     found = {}
     for line in output.splitlines():
