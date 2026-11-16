@@ -244,17 +244,39 @@ def firmware_image(data):
         return source.convert('RGBA')
 
 
-def display_page(fonts, title, light):
+def status_bar(frame, fonts, title, color, background, paused=None):
+    draw = ImageDraw.Draw(frame)
+    draw.rectangle((0, 0, SIZE[0] - 1, 29), fill=background)
+    if paused is True:
+        draw.rectangle((25, 10, 27, 19), fill=color)
+        draw.rectangle((31, 10, 33, 19), fill=color)
+    elif paused is False:
+        draw.polygon(((25, 10), (25, 20), (34, 15)), fill=color)
+    title_x = 42 if paused is not None else 24
+    label(frame, fonts, 'default', title, (title_x, 0, 146 - title_x, 30), 18, color)
+    label(frame, fonts, 'default', time.strftime('%H:%M'), (149, 0, 77, 30), 18, color, align='center')
+
+    for radius in (8, 5):
+        draw.arc((273 - radius, 18 - radius, 273 + radius, 18 + radius), 222, 318, fill=color, width=2)
+    draw.ellipse((272, 17, 274, 19), fill=color)
+    draw.rounded_rectangle((287, 10, 308, 20), 2, outline=color, width=1)
+    draw.rectangle((309, 13, 310, 17), fill=color)
+    battery_percent = 61
+    fill_width = round(18 * battery_percent / 100)
+    draw.rectangle((289, 12, 288 + fill_width, 18), fill=color)
+    label(frame, fonts, 'default', f'{battery_percent}%', (314, 0, 39, 30), 16, color)
+
+
+def display_page(fonts, title, light, paused=None):
     paper, ink, muted = ('#f7f7f7', '#171717', '#696969') if light else ('#161722', '#f7f4f4', '#a4a4b3')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    draw.rectangle((0, 0, SIZE[0], 29), fill='#e5e5e5' if light else '#222431')
-    label(frame, fonts, 'default', title, (26, 0, 323, 30), 18, ink)
+    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#222431', paused)
     return frame, draw, ink, muted
 
 
-def render_menu(fonts, title, rows, selected, light):
-    frame, draw, ink, muted = display_page(fonts, title, light)
+def render_menu(fonts, title, rows, selected, light, paused=None):
+    frame, draw, ink, muted = display_page(fonts, title, light, paused)
     hits = []
     if not rows:
         label(frame, fonts, 'default', 'No tracks', (24, 113, 327, 58), 20, muted, align='center')
@@ -279,9 +301,9 @@ def album_image(album, tracks, firmware, side):
     return cover(sample, side, False)[0]
 
 
-def render_albums(fonts, tracks, albums, selected, firmware, light):
+def render_albums(fonts, tracks, albums, selected, firmware, light, paused=None):
     grid = firmware is not None and not firmware.custom
-    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow', light)
+    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow', light, paused)
     if not albums:
         label(frame, fonts, 'default', 'No albums', (24, 112, 327, 62), 22, muted, align='center')
         return frame, []
@@ -328,8 +350,8 @@ def format_time(seconds):
     return f'{minutes}:{seconds:02d}'
 
 
-def render_lyrics(track, fonts, elapsed, position, count):
-    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False)
+def render_lyrics(track, fonts, elapsed, position, count, paused=False):
+    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False, paused)
     label(frame, fonts, 'default', f'{position} of {count}', (26, 44, 115, 23), 16, ink)
     index = bisect.bisect_right(track.lyrics, elapsed, key=lambda line: line[0]) - 1
     if not track.lyrics:
@@ -386,15 +408,14 @@ def packaged_style(firmware, widget, name, default):
     return value
 
 
-def render_browse(firmware, fonts, style, page, selected, tracks):
+def render_browse(firmware, fonts, style, page, selected, tracks, paused=None):
     """Draw the selected Home card or list. Return rows with mouse hit targets."""
     light = firmware.custom and style == 'classic-light'
     paper, ink, muted = ('#f7f7f7', '#171717', '#707070') if light else ('#000000', '#ffffff', '#a0a0a0')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    draw.rectangle((0, 0, SIZE[0], 29), fill='#e5e5e5' if light else '#171717')
     title = {'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs'}[page]
-    label(frame, fonts, 'default', title, (14, 0, 180, 30), 18, ink)
+    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#171717', paused)
     hits = []
     if page == 'home' and not firmware.custom:
         entry = firmware.home[selected]
@@ -449,8 +470,7 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
     ink, secondary = ('#171717', '#555555') if light else ('#ffffff', '#cccccc')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    draw.rectangle((0, 0, SIZE[0], offset - 1), fill='#e5e5e5' if light else '#171717')
-    label(frame, fonts, 'default', 'Now Playing', (14, 0, 180, offset), 18, ink)
+    status_bar(frame, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused)
 
     def icon(name, box, fit=False, tint=None):
         if name not in firmware.images:
@@ -533,8 +553,7 @@ def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, fir
         '#141414', '#ffffff', '#aaaaaa')
     image = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(image)
-    draw.rectangle((0, 0, 374, 29), fill='#e5e5e5' if classic else '#202020')
-    label(image, fonts, 'default', 'Now Playing', (14, 0, 180, 30), 18, ink)
+    status_bar(image, fonts, 'Now Playing', ink, '#e5e5e5' if classic else '#202020', paused)
     art = ipod.NP_IPOD_ART if classic else ipod.NP_ART
     slide_y = 30 + ipod.NP_TOP
     art_y = 30 + ipod.inc('NP_IPOD_ART_Y') if classic else slide_y + ipod.NP_ART_Y
@@ -725,16 +744,19 @@ class Simulator:
             actions[button]()
 
     def frame(self, fonts):
+        background_playback = None if self.paused else False
         if self.page == 'home' and self.firmware:
-            frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor, self.tracks)
+            frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor,
+                                        self.tracks, background_playback)
             return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
         if self.page == 'coverflow':
-            return render_albums(fonts, self.tracks, self.albums, self.cursor, self.firmware, self.light)
+            return render_albums(fonts, self.tracks, self.albums, self.cursor, self.firmware,
+                                 self.light, background_playback)
         if self.page in ('playing', 'lyrics') and self.tracks:
             track = self.tracks[self.current]
             position = self.queue.index(self.current) + 1
             if self.page == 'lyrics':
-                return render_lyrics(track, fonts, self.elapsed, position, len(self.queue)), []
+                return render_lyrics(track, fonts, self.elapsed, position, len(self.queue), self.paused), []
             frame, _face = render(track, fonts, self.style, position, len(self.queue),
                                   self.scroll, self.paused, self.firmware, self.elapsed)
             return frame, []
@@ -755,7 +777,7 @@ class Simulator:
             rows = []
         else:
             rows = [(name, value or ('›' if key else ''), 'default') for name, value, key in self.menu()]
-        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light)
+        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light, background_playback)
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
