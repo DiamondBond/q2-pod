@@ -8,7 +8,7 @@ VENV="$ROOT/.venv-simulator"
 if [[ ! -x "$VENV/bin/python" ]]; then
   "$PYTHON" -m venv "$VENV"
 fi
-if ! "$VENV/bin/python" -c 'import PIL, unicorn' >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c 'import PIL, unicorn, elftools' >/dev/null 2>&1; then
   "$VENV/bin/python" -m pip install -r requirements-simulator.txt
 fi
 if [[ "${1:-}" != "--self-test" && "${1:-}" != "--snapshot" ]]; then
