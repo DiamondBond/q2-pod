@@ -27,6 +27,11 @@ static void test_blocks(void)
         for (int x = 0; x < Q2_BOARD_W; ++x)
             blocks += q2_blocks_cell(&g, x, y) != 0;
     assert(blocks > 0);
+    int preview = 0;
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x)
+            preview += q2_blocks_next_cell(&g, x, y) != 0;
+    assert(preview == 4);
     for (int i = 0; i < 100; ++i) q2_blocks_move(&g, -1);
     assert(g.x >= -1); /* some shapes have an empty leftmost column */
     q2_blocks_rotate(&g);
