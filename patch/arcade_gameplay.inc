@@ -44,8 +44,10 @@ static void arcade_new_key(unsigned key) {
             g->choice = !g->choice;
         else if (key == KEY_CENTER && g->choice)
             to(CHOOSER);
-        else if (key == KEY_CENTER || key == KEY_RETURN || key == KEY_PLAY)
+        else if (key == KEY_CENTER || key == KEY_RETURN || key == KEY_PLAY) {
+            if (over) q2_blocks_init(&g->blocks, (unsigned)time_now_ms());
             run();
+        }
         return;
     }
     if (key == KEY_RETURN) { hold(MENU); g->choice = 0; return; }
