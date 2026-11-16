@@ -1,0 +1,4 @@
+# Desktop simulator only; firmware builds and emulator tests use requirements.txt.
+fonttools==4.63.0
+Pillow>=10.0,<13
+mutagen>=1.47,<2
