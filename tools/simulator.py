@@ -22,7 +22,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 import build
 import ipod
 import theme
-from simulator_device import CENTRE, DETENT, DEVICE_SIZE, SCREEN_AT, WHEEL, device_frame, wheel_angle, wheel_button, wheel_delta
+from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
+                              device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
 
 SIZE = (375, 320)
@@ -757,7 +758,7 @@ class Simulator:
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
-def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None):
+def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None, shell=DEFAULT_SHELL):
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
@@ -775,6 +776,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     status.pack(fill='x')
     controls = ttk.Frame(window, padding=8)
     controls.pack(fill='x')
+    finish = tk.StringVar(value=shell)
     photo: ImageTk.PhotoImage | None = None
     hits: list[tuple[int, int, int, int, int]] = []
     pressed, angle, accumulated, dragged = None, None, 0.0, False
@@ -878,7 +880,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         gain = int(ui.brightness.rstrip('%')) / 100
         if gain < 1:
             frame = Image.blend(Image.new('RGB', SIZE), frame, gain)
-        photo = ImageTk.PhotoImage(device_frame(frame))
+        photo = ImageTk.PhotoImage(device_frame(frame, finish.get()))
         screen.itemconfigure(picture, image=photo)
         source = ui.firmware.name if ui.firmware else 'Checkout preview'
         if ui.page in ('playing', 'lyrics') and ui.tracks:
@@ -892,6 +894,12 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
 
     for text, command in (('Open firmware', open_firmware), ('Mount SD folder', open_card), ('Open tracks', open_tracks)):
         ttk.Button(controls, text=text, command=command).pack(side='left', padx=(0, 5))
+    appearance = ttk.Frame(window, padding=(8, 0, 8, 8))
+    appearance.pack(fill='x')
+    ttk.Label(appearance, text='Shell color').pack(side='left', padx=(0, 6))
+    selector = ttk.Combobox(appearance, textvariable=finish, values=tuple(SHELL_FINISHES), state='readonly', width=16)
+    selector.pack(side='left')
+    selector.bind('<<ComboboxSelected>>', lambda _: screen.focus_set())
     screen.bind('<ButtonPress-1>', press)
     screen.bind('<B1-Motion>', drag)
     screen.bind('<ButtonRelease-1>', release)
@@ -923,6 +931,8 @@ def main():
     parser.add_argument('--screen', choices=('home', 'folder', 'localmusic', 'coverflow', 'settings', 'playing', 'lyrics'),
                         default='playing', help='screen to capture with --snapshot')
     parser.add_argument('--with-device', action='store_true', help='include the enclosure and wheel in the screenshot')
+    parser.add_argument('--shell', choices=tuple(SHELL_FINISHES), default=DEFAULT_SHELL,
+                        help='shell color for the window or a screenshot with --with-device')
     args = parser.parse_args()
     if args.firmware and (args.stock_font or args.fonts_dir):
         parser.error('--firmware supplies the fonts itself; use --stock-font and --fonts-dir in checkout preview mode')
@@ -950,12 +960,12 @@ def main():
                 image, _ = preview.frame(fonts)
                 detail = args.screen
             if args.with_device:
-                image = device_frame(image)
+                image = device_frame(image, args.shell)
             image.save(args.snapshot)
             source = firmware.name if firmware else 'checkout preview'
             print(f'{args.snapshot} ({source}; {detail})')
         else:
-            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root)
+            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root, args.shell)
     except ERRORS as exc:
         parser.exit(1, f'{parser.prog}: {exc}\n')
 
