@@ -816,20 +816,6 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         preview = failures[:8] + ([f'… and {len(failures) - 8} more'] if len(failures) > 8 else [])
         messagebox.showwarning('Could not open some tracks', '\n'.join(preview), parent=window)
 
-    def open_tracks():
-        paths = filedialog.askopenfilenames(filetypes=[('Audio', '*.mp3 *.flac'), ('All files', '*')])
-        loaded, failures = [], []
-        for path in paths:
-            try:
-                loaded.append(read_track(path))
-            except ERRORS as exc:
-                failures.append(f'{Path(path).name}: {exc}')
-        if loaded:
-            ui.replace_tracks(loaded)
-        if failures:
-            skipped_tracks(failures)
-        screen.focus_set()
-
     def tap(x, y):
         if not (0 <= x < SIZE[0] and 0 <= y < SIZE[1]):
             return
@@ -894,16 +880,16 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         ui.scroll += 2
         window.after(90, refresh)
 
-    for text, command in (('Open firmware', open_firmware), ('Mount SD folder', open_card), ('Open tracks', open_tracks)):
-        ttk.Button(controls, text=text, command=command).pack(side='left', padx=(0, 5))
     def cycle_shell():
         nonlocal finish_index
         finish_index = (finish_index + 1) % len(finishes)
         color_button.configure(text=f'Shell color: {finishes[finish_index]}')
         screen.focus_set()
 
-    color_button = ttk.Button(window, text=f'Shell color: {shell}', command=cycle_shell, width=30)
-    color_button.pack(pady=(0, 8))
+    ttk.Button(controls, text='Open firmware', command=open_firmware).pack(side='left', padx=(0, 5))
+    ttk.Button(controls, text='Mount SD folder', command=open_card).pack(side='left', padx=(0, 5))
+    color_button = ttk.Button(controls, text=f'Shell color: {shell}', command=cycle_shell, width=25)
+    color_button.pack(side='left')
     screen.bind('<ButtonPress-1>', press)
     screen.bind('<B1-Motion>', drag)
     screen.bind('<ButtonRelease-1>', release)
