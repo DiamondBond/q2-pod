@@ -26,6 +26,7 @@ import build
 import ipod
 import theme
 from simulator_apps import AppStore
+from simulator_audio import FFplayAudio
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
@@ -1200,13 +1201,15 @@ class Simulator:
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
-def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None, shell=DEFAULT_SHELL):
+def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None, shell=DEFAULT_SHELL,
+            enable_audio=True, ffplay=None):
     import tkinter as tk
     from tkinter import filedialog, messagebox, simpledialog, ttk
 
     from PIL import ImageTk
 
     ui = Simulator(style, tracks, firmware, sd_card)
+    audio = FFplayAudio(ffplay) if enable_audio else None
     window = tk.Tk()
     window.title('Shanling Q2 Simulator')
     ui.search_query = lambda: simpledialog.askstring('Search', 'Search the library', parent=window)
@@ -1307,6 +1310,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         now = time.monotonic()
         ui.advance(now - last_tick)
         last_tick = now
+        if audio is not None:
+            audio.sync(ui)
         frame, hits = ui.frame(fonts)
         gain = int(ui.brightness.rstrip('%')) / 100
         if gain < 1:
@@ -1319,6 +1324,8 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         else:
             detail = ui.hint or (f'SD: {ui.sd_card.name} · {len(ui.tracks)} tracks' if ui.sd_card else
                                  'Drag the wheel or use the arrow keys · Enter to select')
+        if audio is not None and audio.notice:
+            detail += f' · {audio.notice}'
         status.configure(text=f'{source} · {detail}')
         ui.scroll += 2
         window.after(90, refresh)
@@ -1375,6 +1382,12 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     for key in ('<Escape>', '<BackSpace>'):
         screen.bind(key, lambda _: ui.back())
     screen.bind('<Key-l>', lambda _: ui.lyrics_page())
+    def close_window():
+        if audio is not None:
+            audio.close()
+        window.destroy()
+
+    window.protocol('WM_DELETE_WINDOW', close_window)
     window.after_idle(screen.focus_set)
     refresh()
     window.mainloop()
@@ -1390,6 +1403,8 @@ def main():
     parser.add_argument('--unsquashfs', default='unsquashfs', help='squashfs-tools executable (defaults to PATH)')
     parser.add_argument('--sd-card', type=Path, help='directory to mount as the simulated SD card')
     parser.add_argument('--snapshot', type=Path, help='save one PNG and exit without opening a window')
+    parser.add_argument('--no-audio', action='store_true', help='disable ffplay host audio')
+    parser.add_argument('--ffplay', help='path to ffplay executable (from FFmpeg)')
     parser.add_argument('--screen', choices=('home', 'folder', 'library', 'localmusic', 'coverflow', 'playing', 'lyrics', *SETTINGS),
                         default='playing', help='screen to capture with --snapshot')
     parser.add_argument('--with-device', action='store_true', help='include the enclosure and wheel in the screenshot')
@@ -1430,7 +1445,8 @@ def main():
             source = firmware.name if firmware else 'checkout preview'
             print(f'{args.snapshot} ({source}; {detail})')
         else:
-            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root, args.shell)
+            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root, args.shell,
+                    enable_audio=not args.no_audio, ffplay=args.ffplay)
     except ERRORS as exc:
         parser.exit(1, f'{parser.prog}: {exc}\n')
 
