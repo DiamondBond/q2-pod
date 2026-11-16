@@ -7,6 +7,7 @@
 #include "peq.h"
 #else
 #include "navigation.h" /* the theme, its scheme and the final-colour rows */
+#include "arcade_core.h"
 #endif
 
 #ifdef PEQ_HOST /* playback.c's and coverflow.c's on the device */
@@ -516,7 +517,7 @@ int snake_step(struct snake *s) {
 #define SN_CELL 11 /* Snake: the board, under the HUD and clear of the glass's corners */
 #define SN_X ((375 - SN_N * SN_CELL) / 2)
 #define SN_Y 36
-enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE };
+enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS };
 /* Vortex, Snake: playing, paused by Play/Pause or the screen, Return's menu */
 enum { RUN, HELD, MENU };
 struct best {
@@ -536,6 +537,8 @@ static struct game {
     int pop_ring, pop_seg, trail[TRAIL][2], record; /* record: the last game set Best */
     struct best sn_best;
     struct snake sn;
+    Q2Pong pong;
+    Q2Blocks blocks;
     int rows;    /* the chooser's: its own games, then the card's */
     void *title; /* the caption the bar reads, where the theme's bar holds it */
 } *g __attribute__((section(".scratch")));
@@ -600,6 +603,8 @@ static int snake_frame(unsigned elapsed) {
     return s->state == OVER;
 }
 
+static int arcade_frame(unsigned now);
+
 /* 60 steps a second, at most 4 a frame; the screen going off or another window on top pauses. */
 static int frame(const void *unused) {
     if (!g_backlight_status || window_manager_get_top_window(window_manager()) != g->page) {
@@ -609,6 +614,7 @@ static int frame(const void *unused) {
         return 0;
     }
     unsigned now = (unsigned)time_now_ms();
+    if (g->screen == PONG || g->screen == BLOCKS) return arcade_frame(now);
     if (g->screen == SNAKE) {
         unsigned elapsed = now - g->at;
         g->at = now;
@@ -654,11 +660,11 @@ static void run(void) {
     g->acc = 0;
     g->carry = 0;
     __sync_lock_test_and_set(&wheel_travel, 0);
-    wheel_raw = g->screen == VORTEX;
+    wheel_raw = g->screen == VORTEX || g->screen == PONG;
     if (!g->frame) g->frame = timer_add(frame, 0, FRAME_MS);
 }
 
-static const char *const game_names[] = { "Games", "Sudoku", "Vortex", "Solitaire", "Snake" };
+static const char *const game_names[] = { "Games", "Sudoku", "Vortex", "Solitaire", "Snake", "Pong", "Blocks" };
 /* The chooser or the game target, from the next loop pass. */
 static int show(const void *unused) {
     g->timer = 0;
@@ -679,6 +685,10 @@ static int show(const void *unused) {
         vortex_new(&g->vx), run();
     else if (g->screen == SNAKE)
         snake_new(&g->sn), run();
+    else if (g->screen == PONG)
+        q2_pong_init(&g->pong), run();
+    else if (g->screen == BLOCKS)
+        q2_blocks_init(&g->blocks, (unsigned)time_now_ms()), run();
     widget_invalidate_force(g->page, 0);
     return 0;
 }
@@ -693,7 +703,7 @@ static int pick_game(void *ctx, void *event) {
     return 0;
 }
 static int pick_card_game(void *ctx, void *event) { /* the card's, over the whole screen */
-    if (g->screen == CHOOSER) addon_game_start((int)(long)ctx - 4);
+    if (g->screen == CHOOSER) addon_game_start((int)(long)ctx - GAMES_BUILTIN);
     return 0;
 }
 
@@ -775,6 +785,8 @@ static void snake_key(unsigned key) {
     if (key == KEY_PREV) snake_turn(&g->sn, -1);
 }
 
+#include "arcade_gameplay.inc"
+
 /* A pile's column on screen: the stock, the waste, a gap and the foundations over the tableau. */
 static const unsigned char col[PILES] = { 0, 1, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6 };
 
@@ -831,6 +843,8 @@ int games_key(void *top, unsigned key) {
         solitaire_key(key);
     else if (g->screen == SNAKE)
         snake_key(key);
+    else if (g->screen == PONG || g->screen == BLOCKS)
+        arcade_new_key(key);
     else
         vortex_key(key);
     /* a moved cursor is kept on leaving; a key the game ignored paints nothing */
@@ -1323,6 +1337,8 @@ static void snake_paint(void *canvas, unsigned tone) {
     paused_popup(canvas, s->state == OVER);
 }
 
+#include "arcade_draw.inc"
+
 /* ringnav_paint: a game's sheet, after stock painted it. */
 void games_paint(void *w, void *canvas) {
     if (!g || w != g->sheet || g->screen == CHOOSER || !P(canvas, CANVAS_LCD)) return;
@@ -1334,6 +1350,10 @@ void games_paint(void *w, void *canvas) {
         solitaire_paint(canvas, tone);
     else if (g->screen == SNAKE)
         snake_paint(canvas, tone);
+    else if (g->screen == PONG)
+        pong_paint(canvas, tone);
+    else if (g->screen == BLOCKS)
+        blocks_paint(canvas, tone);
     else
         vortex_paint(canvas, tone);
     ui_ink_raw(raw);
@@ -1373,8 +1393,10 @@ int games_open(void *ctx, void *event) {
     page_row_into(g->view, 1, "Vortex", pick_game);
     page_row_into(g->view, 2, "Solitaire", pick_game);
     page_row_into(g->view, 3, "Snake", pick_game);
+    page_row_into(g->view, 4, "Pong", pick_game);
+    page_row_into(g->view, 5, "Blocks", pick_game);
     for (int k = 0; k < cards; ++k)
-        page_row_into(g->view, 4 + k, addon_game_name(k), pick_card_game);
+        page_row_into(g->view, GAMES_BUILTIN + k, addon_game_name(k), pick_card_game);
     if (!BLOB_IO(GAMES_SUDOKU, g->sud, 0) || !games_ok(&g->sud, sizeof g->sud, SUD_MAGIC) ||
         g->sud.cur > 80)
         sud_new(&g->sud);
