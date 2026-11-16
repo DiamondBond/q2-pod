@@ -15,10 +15,7 @@ static void pong_paint(void *canvas, unsigned tone) {
     box(canvas, bx - 4, by - 4, 8, 8, 0xffffff);
     hud(canvas, "You", p->player_score, HUD_X, 4, 0, rgba(0xffffff, 255), SPOT_GREY);
     hud(canvas, "CPU", p->cpu_score, 375 - HUD_X, 4, 1, rgba(0xffffff, 255), SPOT_GREY);
-    if (p->player_score >= 7 && g->paused != MENU)
-        popup(canvas, "You win!", "Centre: play again", 0, 0);
-    else
-        paused_popup(canvas, p->cpu_score >= 7);
+    paused_popup(canvas, 0);
 }
 static void blocks_paint(void *canvas, unsigned tone) {
     const Q2Blocks *b = &g->blocks;
