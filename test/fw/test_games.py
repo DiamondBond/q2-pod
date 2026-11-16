@@ -44,6 +44,21 @@ class Snake(C.Structure):
                 ('dir', C.c_ubyte), ('turned', C.c_ubyte), ('state', C.c_ubyte), ('next', C.c_byte), ('score', C.c_int)]
 
 
+class Pong(C.Structure):
+    _fields_ = [*((k, C.c_int) for k in
+                 'ball_x ball_y vel_x vel_y player_y cpu_y'.split()),
+                *((k, C.c_uint) for k in 'player_score cpu_score rallies'.split())]
+
+
+class Blocks(C.Structure):
+    _fields_ = [('board', (C.c_ubyte * 10) * 20),
+                ('piece', C.c_ubyte), ('next', C.c_ubyte), ('rotation', C.c_ubyte),
+                ('bag', C.c_ubyte * 7), ('bag_pos', C.c_ubyte),
+                ('x', C.c_int), ('y', C.c_int), ('rng', C.c_uint),
+                ('score', C.c_uint), ('lines', C.c_uint),
+                ('level', C.c_uint), ('game_over', C.c_int)]
+
+
 class Best(C.Structure):
     _fields_ = [('magic', C.c_uint), ('score', C.c_uint), ('sum', C.c_uint)]
 
@@ -54,7 +69,8 @@ class Game(C.Structure):
                 *((k, C.c_int) for k in 'h screen target picking pick confirm paused choice carry dirty'.split()),
                 ('sud', Sudoku), ('vx', Vortex), ('best', Best), ('sol', Sol), ('save', C.c_uint), ('pop_at', C.c_uint),
                 ('pop_ring', C.c_int), ('pop_seg', C.c_int), ('trail', (C.c_int * 2) * 4), ('record', C.c_int),
-                ('sn_best', Best), ('sn', Snake)]
+                ('sn_best', Best), ('sn', Snake), ('pong', Pong), ('blocks', Blocks),
+                ('blocks_best', Best), ('rows', C.c_int), ('title', C.c_void_p)]
 
 
 def test_structs_are_the_saves_sizes():
@@ -1182,6 +1198,30 @@ def no_held_return():
     libc.mmap(LATCH & ~0xfff, 4096, 3, mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS | 0x100000, -1, 0)  # MAP_FIXED_NOREPLACE
     if C.c_ubyte.from_address(LATCH).value:
         pytest.skip('the latch address is taken in this process')
+
+
+def test_new_builtin_games_open_move_pause_and_restart(fw):
+    p = Page(fw)
+    p.go(PONG)
+    assert p.s.screen == PONG and p.s.pong.ball_x == 160
+    assert p.g.games_live()
+    p.key(PREV)
+    assert p.s.pong.player_y == 82
+    p.key(PLAY)
+    assert p.s.paused == HELD and not p.g.games_live()
+    p.key(PLAY)
+    assert p.s.paused == RUN and p.g.games_live()
+    p.go(BLOCKS)
+    assert p.s.screen == BLOCKS and p.s.blocks.level == 1
+    assert p.s.blocks.next < 7
+    pos = p.s.blocks.x
+    p.key(NEXT)
+    assert p.s.blocks.x == pos + 1
+    p.key(CENTER)
+    assert p.s.blocks.rotation == 1
+    p.key(FWD_BTN)
+    assert p.s.blocks.score > 0
+    p.close()
 
 
 def test_games_live_is_a_frame_timer_running(fw):
