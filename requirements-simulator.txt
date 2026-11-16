@@ -5,3 +5,6 @@ mutagen>=1.47,<2
 
 # Actual MIPS32 CPU instruction emulation for arcade games
 unicorn==2.1.4
+
+# Portable ELF symbol parsing; Windows LLVM does not always ship llvm-readelf
+pyelftools>=0.31,<1
