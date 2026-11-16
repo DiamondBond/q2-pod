@@ -69,7 +69,8 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
             found[parts[7]] = int(parts[1], 16)
     needed = ["q2_pong_init", "q2_pong_move", "q2_pong_tick",
               "q2_blocks_init", "q2_blocks_move", "q2_blocks_rotate",
-              "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell"]
+              "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell",
+              "q2_blocks_next_cell"]
     for name in needed:
         if name not in found:
             raise RuntimeError(f"MIPS ELF lacks {name}")
@@ -141,6 +142,9 @@ class MipsArcade:
     def blocks_cell(self, x: int, y: int) -> int:
         return self.call("q2_blocks_cell", STATE + 0x1000, x, y)
 
+    def blocks_preview_cell(self, x: int, y: int) -> int:
+        return self.call("q2_blocks_next_cell", STATE + 0x1000, x, y)
+
     def close(self) -> None:
         self.tmp.cleanup()
 
@@ -158,6 +162,7 @@ def self_test() -> None:
         g = a.blocks()
         assert g.level == 1 and g.piece < 7 and not g.game_over
         assert sum(a.blocks_cell(x, y) != 0 for y in range(20) for x in range(10)) == 4
+        assert sum(a.blocks_preview_cell(x, y) != 0 for y in range(4) for x in range(4)) == 4
         assert a.blocks_rotate() in (0, 1)
         assert a.blocks_drop() >= 0
         assert a.blocks().score < 1000
