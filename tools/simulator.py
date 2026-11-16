@@ -20,6 +20,7 @@ from mutagen import File, MutagenError
 from mutagen.id3 import APIC
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+import art
 import build
 import ipod
 import theme
@@ -253,7 +254,67 @@ class BatteryStatus:
 DEFAULT_BATTERY = BatteryStatus()
 
 
-def status_bar(frame, fonts, title, color, background, paused=None, battery=DEFAULT_BATTERY):
+@lru_cache(maxsize=1)
+def classic_bolt():
+    return art.images(theme_config('classic-light'))['classic_light_bolt']
+
+
+def draw_battery(frame, draw, battery, color, firmware, classic):
+    """Preview the firmware's Icon + Percent battery treatment."""
+    low = battery.percent < 15 and not battery.charging
+    if firmware is not None and not firmware.custom:
+        asset = 'bar_charge' if battery.charging else 'bar_lowcharge' if low else 'bar_battery'
+        if data := firmware.images.get(asset):
+            icon = firmware_image(data)
+            x, y = 310 - icon.width, (30 - icon.height) // 2
+            frame.paste(icon, (x, y), icon)
+            # Stock leaves the vertical progress bar empty while showing bar_charge.
+            level = (icon.height - 3) * battery.percent // 100
+            if level and not battery.charging:
+                draw.rectangle((x + 1, y + icon.height - 1 - level,
+                                x + icon.width - 2, y + icon.height - 2), fill=color)
+        return color
+
+    offset = ipod.O
+    ink = f"#{offset['BATT_CHARGE_RGB' if battery.charging else 'BATT_LOW_RGB']:06x}" if (
+        battery.charging or low) else color
+    percent = 100 if battery.charging else battery.percent
+    nub_w, nub_h = offset['BATT_NUB_W'], offset['BATT_NUB_H']
+    if classic:
+        config = theme_config('classic-light')
+        inner_w, inner_h = art.BOLT_BOX[2:]
+        w, h = inner_w + 2, inner_h + 2
+        x, y = 311 - w - nub_w, (30 - h) // 2
+        edge = f"#{config['batt_line']:06x}"
+        draw.rounded_rectangle((x, y, x + w - 1, y + h - 1), 2, outline=edge)
+        tip = y + (h - nub_h) // 2
+        draw.rectangle((x + w, tip, x + w + nub_w - 1, tip + nub_h - 1), outline=edge)
+        level = config['batt_low_w'] if low else inner_w * percent // 100
+        empty, filled = (art.gradient(config[key], 0, inner_h - 1) for key in ('batt_empty', 'batt'))
+        for row in range(inner_h):
+            sy = y + 1 + row
+            draw.line((x + 1, sy, x + inner_w, sy), fill=f'#{empty(row):06x}')
+            if level:
+                rgb = config['batt_low'] if low else filled(row)
+                draw.line((x + 1, sy, x + level, sy), fill=f'#{rgb:06x}')
+        if battery.charging:
+            data = firmware.images.get('classic_light_bolt') if firmware else None
+            bolt = firmware_image(data or classic_bolt())
+            frame.paste(bolt, (x + 1, y + 1), bolt)
+    else:
+        w, h = offset['BATT_BODY_W'], offset['BATT_BODY_H']
+        x, y = 311 - w - nub_w, (30 - h) // 2 - offset['BATT_PCT_DY']
+        draw.rounded_rectangle((x, y, x + w - 1, y + h - 1), 2, outline=ink)
+        tip = y + (h - nub_h) // 2
+        draw.rectangle((x + w, tip, x + w + nub_w - 1, tip + nub_h - 1), fill=ink)
+        level = (w - 4) * percent // 100
+        if level:
+            draw.rectangle((x + 2, y + 2, x + 1 + level, y + h - 3), fill=ink)
+    return ink
+
+
+def status_bar(frame, fonts, title, color, background, paused=None, battery=DEFAULT_BATTERY,
+               firmware=None, classic=False):
     draw = ImageDraw.Draw(frame)
     draw.rectangle((0, 0, SIZE[0] - 1, 29), fill=background)
     if paused is True:
@@ -265,29 +326,28 @@ def status_bar(frame, fonts, title, color, background, paused=None, battery=DEFA
     label(frame, fonts, 'default', title, (title_x, 0, 146 - title_x, 30), 18, color)
     label(frame, fonts, 'default', time.strftime('%H:%M'), (149, 0, 77, 30), 18, color, align='center')
 
-    for radius in (8, 5):
-        draw.arc((263 - radius, 18 - radius, 263 + radius, 18 + radius), 222, 318, fill=color, width=2)
-    draw.ellipse((262, 17, 264, 19), fill=color)
-    if battery.charging:
-        draw.polygon(((279, 7), (273, 16), (278, 16), (276, 23), (283, 13), (278, 13)), fill=color)
-    draw.rounded_rectangle((287, 10, 308, 20), 2, outline=color, width=1)
-    draw.rectangle((309, 13, 310, 17), fill=color)
-    fill_width = round(18 * battery.percent / 100)
-    if fill_width:
-        draw.rectangle((289, 12, 288 + fill_width, 18), fill=color)
-    label(frame, fonts, 'default', f'{battery.percent}%', (314, 0, 39, 30), 16, color)
+    if firmware and not firmware.custom and (data := firmware.images.get('bar_wifi4')):
+        wifi = firmware_image(data)
+        frame.paste(wifi, (255, (30 - wifi.height) // 2), wifi)
+    else:
+        for radius in (8, 5):
+            draw.arc((263 - radius, 18 - radius, 263 + radius, 18 + radius), 222, 318, fill=color, width=2)
+        draw.ellipse((262, 17, 264, 19), fill=color)
+    percent_color = draw_battery(frame, draw, battery, color, firmware, classic)
+    label(frame, fonts, 'default', f'{battery.percent}%', (314, 0, 39, 30), 16, percent_color)
 
 
-def display_page(fonts, title, light, paused=None, battery=DEFAULT_BATTERY):
+def display_page(fonts, title, light, paused=None, battery=DEFAULT_BATTERY, firmware=None, classic=None):
     paper, ink, muted = ('#f7f7f7', '#171717', '#696969') if light else ('#161722', '#f7f4f4', '#a4a4b3')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#222431', paused, battery)
+    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#222431', paused, battery,
+               firmware, light if classic is None else classic)
     return frame, draw, ink, muted
 
 
-def render_menu(fonts, title, rows, selected, light, paused=None, battery=DEFAULT_BATTERY):
-    frame, draw, ink, muted = display_page(fonts, title, light, paused, battery)
+def render_menu(fonts, title, rows, selected, light, paused=None, battery=DEFAULT_BATTERY, firmware=None):
+    frame, draw, ink, muted = display_page(fonts, title, light, paused, battery, firmware)
     hits = []
     if not rows:
         label(frame, fonts, 'default', 'No tracks', (24, 113, 327, 58), 20, muted, align='center')
@@ -314,7 +374,8 @@ def album_image(album, tracks, firmware, side):
 
 def render_albums(fonts, tracks, albums, selected, firmware, light, paused=None, battery=DEFAULT_BATTERY):
     grid = firmware is not None and not firmware.custom
-    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow', light, paused, battery)
+    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow',
+                                           light, paused, battery, firmware)
     if not albums:
         label(frame, fonts, 'default', 'No albums', (24, 112, 327, 62), 22, muted, align='center')
         return frame, []
@@ -361,8 +422,9 @@ def format_time(seconds):
     return f'{minutes}:{seconds:02d}'
 
 
-def render_lyrics(track, fonts, elapsed, position, count, paused=False, battery=DEFAULT_BATTERY):
-    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False, paused, battery)
+def render_lyrics(track, fonts, elapsed, position, count, paused=False, battery=DEFAULT_BATTERY,
+                  firmware=None, classic=False):
+    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False, paused, battery, firmware, classic)
     label(frame, fonts, 'default', f'{position} of {count}', (26, 44, 115, 23), 16, ink)
     index = bisect.bisect_right(track.lyrics, elapsed, key=lambda line: line[0]) - 1
     if not track.lyrics:
@@ -426,7 +488,7 @@ def render_browse(firmware, fonts, style, page, selected, tracks, paused=None, b
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
     title = {'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs'}[page]
-    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#171717', paused, battery)
+    status_bar(frame, fonts, title, ink, '#e5e5e5' if light else '#171717', paused, battery, firmware, light)
     hits = []
     if page == 'home' and not firmware.custom:
         entry = firmware.home[selected]
@@ -481,7 +543,7 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
     ink, secondary = ('#171717', '#555555') if light else ('#ffffff', '#cccccc')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    status_bar(frame, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused, battery)
+    status_bar(frame, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused, battery, firmware, light)
 
     def icon(name, box, fit=False, tint=None):
         if name not in firmware.images:
@@ -565,7 +627,8 @@ def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, fir
         '#141414', '#ffffff', '#aaaaaa')
     image = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(image)
-    status_bar(image, fonts, 'Now Playing', ink, '#e5e5e5' if classic else '#202020', paused, battery)
+    status_bar(image, fonts, 'Now Playing', ink, '#e5e5e5' if classic else '#202020', paused, battery,
+               classic=classic)
     art = ipod.NP_IPOD_ART if classic else ipod.NP_ART
     slide_y = 30 + ipod.NP_TOP
     art_y = 30 + ipod.inc('NP_IPOD_ART_Y') if classic else slide_y + ipod.NP_ART_Y
@@ -770,7 +833,7 @@ class Simulator:
             position = self.queue.index(self.current) + 1
             if self.page == 'lyrics':
                 return render_lyrics(track, fonts, self.elapsed, position, len(self.queue),
-                                     self.paused, self.battery), []
+                                     self.paused, self.battery, self.firmware, self.light), []
             frame, _face = render(track, fonts, self.style, position, len(self.queue),
                                   self.scroll, self.paused, self.firmware, self.elapsed, self.battery)
             return frame, []
@@ -791,7 +854,8 @@ class Simulator:
             rows = []
         else:
             rows = [(name, value or ('›' if key else ''), 'default') for name, value, key in self.menu()]
-        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light, background_playback, self.battery)
+        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light, background_playback,
+                                  self.battery, self.firmware)
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
