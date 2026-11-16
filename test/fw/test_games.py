@@ -1248,12 +1248,23 @@ def test_blocks_game_over_can_restart_or_exit(fw):
     assert p.g.frame(None) == 0
     assert p.s.blocks_best.score == 321
     assert not p.g.games_live()
-    p.key(RETURN)
-    assert p.s.paused == MENU
-    p.key(CENTER)  # Continue on game-over restarts the game
+    p.key(CENTER)  # Same centre-to-restart behavior as Snake / Vortex
     assert p.s.blocks.score == 0 and not p.s.blocks.game_over
     assert p.g.games_live()
-    p.key(RETURN, NEXT, CENTER)
+    p.key(RETURN)
+    assert p.s.paused == MENU and not p.g.games_live()
+    p.key(NEXT, CENTER)  # Shared Continue / Quit menu while playing
+    assert p.s.target == CHOOSER
+    p.close()
+
+
+def test_blocks_game_over_return_exits_like_snake(fw):
+    p = Page(fw)
+    p.go(BLOCKS)
+    p.s.blocks.game_over = 1
+    p.now += 33
+    p.g.frame(None)
+    p.key(RETURN)
     assert p.s.target == CHOOSER
     p.close()
 
