@@ -9,6 +9,7 @@
 #include "navigation.h" /* the theme, its scheme and the final-colour rows */
 #include "arcade_core.h"
 #endif
+#include "breakout_core.h"
 
 #ifdef PEQ_HOST /* playback.c's and coverflow.c's on the device */
 unsigned games_seed = 1;
@@ -503,9 +504,11 @@ int snake_step(struct snake *s) {
 #define GAMES_SOLITAIRE "/mnt/data/ringnav-solitaire"
 #define GAMES_SNAKE "/mnt/data/ringnav-snake"
 #define GAMES_BLOCKS "/mnt/data/ringnav-blocks"
+#define GAMES_BREAKOUT "/mnt/data/ringnav-breakout"
 #define BEST_MAGIC 0x31585456u  /* "VTX1" */
 #define SNAKE_MAGIC 0x314b4e53u /* "SNK1": Snake's best, as Vortex's */
 #define BLOCKS_MAGIC 0x314b4c42u /* "BLK1": falling-block high score */
+#define BREAKOUT_MAGIC 0x314f5242u /* "BRO1": breakout high score */
 /* The paddle's turn for the wheel's, in percent: 100 is a whole turn for a whole turn (200 raw
  * units, wheel_sample). The hardware's calibration knob. */
 #define VORTEX_GAIN 100
@@ -519,7 +522,7 @@ int snake_step(struct snake *s) {
 #define SN_CELL 11 /* Snake: the board, under the HUD and clear of the glass's corners */
 #define SN_X ((375 - SN_N * SN_CELL) / 2)
 #define SN_Y 36
-enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS };
+enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS, BREAKOUT };
 /* Vortex, Snake: playing, paused by Play/Pause or the screen, Return's menu */
 enum { RUN, HELD, MENU };
 struct best {
@@ -542,6 +545,8 @@ static struct game {
     Q2Pong pong;
     Q2Blocks blocks;
     struct best blocks_best;
+    Q2Breakout breakout;
+    struct best breakout_best;
     int rows;    /* the chooser's: its own games, then the card's */
     void *title; /* the caption the bar reads, where the theme's bar holds it */
 } *g __attribute__((section(".scratch")));
@@ -602,6 +607,13 @@ static void blocks_record(void) {
     if (!BLOB_IO(GAMES_BLOCKS, g->blocks_best, 1)) toast("Couldn't save");
 }
 
+static void breakout_record(void) {
+    if (!(g->record = g->breakout.score > g->breakout_best.score)) return;
+    g->breakout_best.score = g->breakout.score;
+    games_seal(&g->breakout_best, sizeof g->breakout_best, BREAKOUT_MAGIC);
+    if (!BLOB_IO(GAMES_BREAKOUT, g->breakout_best, 1)) toast("Couldn't save");
+}
+
 static int snake_frame(unsigned elapsed) {
     struct snake *s = &g->sn;
     int moved = 0;
@@ -624,7 +636,7 @@ static int frame(const void *unused) {
         return 0;
     }
     unsigned now = (unsigned)time_now_ms();
-    if (g->screen == PONG || g->screen == BLOCKS) return arcade_frame(now);
+    if (g->screen == PONG || g->screen == BLOCKS || g->screen == BREAKOUT) return arcade_frame(now);
     if (g->screen == SNAKE) {
         unsigned elapsed = now - g->at;
         g->at = now;
@@ -670,11 +682,11 @@ static void run(void) {
     g->acc = 0;
     g->carry = 0;
     __sync_lock_test_and_set(&wheel_travel, 0);
-    wheel_raw = g->screen == VORTEX || g->screen == PONG;
+    wheel_raw = g->screen == VORTEX || g->screen == PONG || g->screen == BREAKOUT;
     if (!g->frame) g->frame = timer_add(frame, 0, FRAME_MS);
 }
 
-static const char *const game_names[] = { "Games", "Sudoku", "Vortex", "Solitaire", "Snake", "Pong", "Blocks" };
+static const char *const game_names[] = { "Games", "Sudoku", "Vortex", "Solitaire", "Snake", "Pong", "Blocks", "Breakout" };
 /* The chooser or the game target, from the next loop pass. */
 static int show(const void *unused) {
     g->timer = 0;
@@ -700,6 +712,8 @@ static int show(const void *unused) {
         q2_pong_init(&g->pong), run();
     else if (g->screen == BLOCKS)
         q2_blocks_init(&g->blocks, (unsigned)time_now_ms()), run();
+    else if (g->screen == BREAKOUT)
+        q2_breakout_init(&g->breakout), run();
     widget_invalidate_force(g->page, 0);
     return 0;
 }
@@ -769,6 +783,8 @@ static int arcade_key(unsigned key, int over) {
             snake_new(&g->sn), run();
         else if (key == KEY_CENTER && g->screen == BLOCKS)
             q2_blocks_init(&g->blocks, (unsigned)time_now_ms()), run();
+        else if (key == KEY_CENTER && g->screen == BREAKOUT)
+            q2_breakout_init(&g->breakout), run();
         else if (key == KEY_CENTER)
             vortex_new(&g->vx), run();
         else if (key == KEY_RETURN)
@@ -856,7 +872,7 @@ int games_key(void *top, unsigned key) {
         solitaire_key(key);
     else if (g->screen == SNAKE)
         snake_key(key);
-    else if (g->screen == PONG || g->screen == BLOCKS)
+    else if (g->screen == PONG || g->screen == BLOCKS || g->screen == BREAKOUT)
         arcade_new_key(key);
     else
         vortex_key(key);
@@ -1365,6 +1381,8 @@ void games_paint(void *w, void *canvas) {
         pong_paint(canvas, tone);
     else if (g->screen == BLOCKS)
         blocks_paint(canvas, tone);
+    else if (g->screen == BREAKOUT)
+        breakout_paint(canvas, tone);
     else
         vortex_paint(canvas, tone);
     ui_ink_raw(raw);
@@ -1406,6 +1424,7 @@ int games_open(void *ctx, void *event) {
     page_row_into(g->view, 3, "Snake", pick_game);
     page_row_into(g->view, 4, "Pong", pick_game);
     page_row_into(g->view, 5, "Blocks", pick_game);
+    page_row_into(g->view, 6, "Breakout", pick_game);
     for (int k = 0; k < cards; ++k)
         page_row_into(g->view, GAMES_BUILTIN + k, addon_game_name(k), pick_card_game);
     if (!BLOB_IO(GAMES_SUDOKU, g->sud, 0) || !games_ok(&g->sud, sizeof g->sud, SUD_MAGIC) ||
@@ -1419,6 +1438,9 @@ int games_open(void *ctx, void *event) {
     if (!BLOB_IO(GAMES_BLOCKS, g->blocks_best, 0) ||
         !games_ok(&g->blocks_best, sizeof g->blocks_best, BLOCKS_MAGIC))
         g->blocks_best.score = 0;
+    if (!BLOB_IO(GAMES_BREAKOUT, g->breakout_best, 0) ||
+        !games_ok(&g->breakout_best, sizeof g->breakout_best, BREAKOUT_MAGIC))
+        g->breakout_best.score = 0;
     int bad = !BLOB_IO(GAMES_SOLITAIRE, g->sol, 0) ||
               !games_ok(&g->sol, sizeof g->sol, SOL_MAGIC) || g->sol.cur >= PILES;
     for (int p = 0; p < PILES; ++p) {
