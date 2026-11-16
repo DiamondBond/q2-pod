@@ -77,15 +77,21 @@ def compile_mips(directory: pathlib.Path) -> pathlib.Path:
 
 
 def symbols(elf: pathlib.Path) -> dict[str, int]:
-    reader = shutil.which("readelf") or shutil.which("llvm-readelf")
-    if reader is None:
-        reader = tool_executable("llvm-readelf")
-    output = subprocess.check_output([reader, "-Ws", str(elf)], text=True)
+    """Read actual MIPS ELF symbol table on Windows, Linux or macOS."""
+    from elftools.elf.elffile import ELFFile
+    from elftools.elf.sections import SymbolTableSection
+
     found = {}
-    for line in output.splitlines():
-        parts = line.split()
-        if len(parts) >= 8 and parts[0].endswith(":") and parts[3] == "FUNC":
-            found[parts[7]] = int(parts[1], 16)
+    with elf.open("rb") as stream:
+        binary = ELFFile(stream)
+        if binary["e_machine"] != "EM_MIPS":
+            raise RuntimeError("Arcade build did not produce a MIPS ELF")
+        for section in binary.iter_sections():
+            if not isinstance(section, SymbolTableSection):
+                continue
+            for symbol in section.iter_symbols():
+                if symbol["st_info"]["type"] == "STT_FUNC":
+                    found[symbol.name] = symbol["st_value"]
     needed = ["q2_pong_init", "q2_pong_move", "q2_pong_tick",
               "q2_blocks_init", "q2_blocks_move", "q2_blocks_rotate",
               "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell",
