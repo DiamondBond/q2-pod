@@ -7,7 +7,7 @@ if not exist ".venv-simulator\Scripts\python.exe" (
   %PYTHON% -m venv ".venv-simulator"
   if errorlevel 1 goto :failed
 )
-".venv-simulator\Scripts\python.exe" -c "import PIL, unicorn" >nul 2>nul
+".venv-simulator\Scripts\python.exe" -c "import PIL, unicorn, elftools" >nul 2>nul
 if errorlevel 1 (
   ".venv-simulator\Scripts\python.exe" -m pip install -r requirements-simulator.txt
   if errorlevel 1 goto :failed
