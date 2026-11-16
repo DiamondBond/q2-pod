@@ -1,6 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "arcade_core.h"
-#include <string.h>
+/* Freestanding MIPS payload: avoid host-only libc headers. */
+static void clear_bytes(void *dest, unsigned n) {
+    unsigned char *p = dest;
+    for (unsigned i = 0; i < n; ++i) p[i] = 0;
+}
+static void copy_bytes(void *dest, const void *src, unsigned n) {
+    unsigned char *d = dest;
+    const unsigned char *p = src;
+    for (unsigned i = 0; i < n; ++i) d[i] = p[i];
+}
 
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -13,7 +22,7 @@ static void pong_serve(Q2Pong *p, int direction)
 }
 void q2_pong_init(Q2Pong *p)
 {
-    memset(p, 0, sizeof *p);
+    clear_bytes(p, sizeof *p);
     p->player_y = p->cpu_y = 96; /* 48-pixel paddle */
     pong_serve(p, -1);
 }
@@ -100,7 +109,7 @@ static void spawn(Q2Blocks *g)
 }
 void q2_blocks_init(Q2Blocks *g, uint32_t seed)
 {
-    memset(g, 0, sizeof *g);
+    clear_bytes(g, sizeof *g);
     g->rng = seed ? seed : 0x12345678u;
     g->bag_pos = 7;
     g->level = 1;
@@ -143,8 +152,8 @@ int q2_blocks_tick(Q2Blocks *g)
             if (!g->board[y][x]) { full = 0; break; }
         if (!full) continue;
         for (int row = y; row > 0; --row)
-            memcpy(g->board[row], g->board[row - 1], Q2_BOARD_W);
-        memset(g->board[0], 0, Q2_BOARD_W);
+            copy_bytes(g->board[row], g->board[row - 1], Q2_BOARD_W);
+        clear_bytes(g->board[0], Q2_BOARD_W);
         ++cleared; ++y; /* examine shifted row again */
     }
     static const unsigned points[] = {0, 100, 300, 500, 800};
