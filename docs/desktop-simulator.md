@@ -53,3 +53,14 @@ Use the simulated wheel with the mouse, scroll using the mouse wheel or arrow ke
 This is a visual/interaction model driven by repository code and firmware assets; it does not execute the MIPS firmware. Playback timing, filesystem browsing, many menus and device behavior are approximations or partial implementations. The charging checkbox supplies a simulated battery state; it does not read actual hardware. The simulator does not need the full firmware-build requirements or a physical Q2.
 
 The venv is local to the checkout. Delete `.venv-simulator/` to reset dependencies.
+
+## Test the Q2 Pod App Store
+
+1. Use a Q2 Pod `update.tar` or start the launcher without a firmware package to use the checkout preview. The official Shanling firmware has no Q2 Pod App Store.
+2. Create a temporary folder and choose **Mount SD folder**. The App Store writes real packages and install records to this folder.
+3. On the virtual Q2, open **Settings → System → App Store**. Choose **Check for Updates** to refresh the catalog, or select an app to download and install its latest ZIP from GitHub. File Browser is a small package to try.
+4. Press Centre again during the download to cancel. To remove an app, select its **Installed** row twice. A first Rockbox install also asks you to press twice, and Rockbox Themes appears with Rockbox installed.
+
+The simulated Wi-Fi switch under **System → Wireless → Wi-Fi** controls whether the App Store can start online operations. Downloads use the computer's internet connection. Successfully installed packages leave Q2-compatible app folders and records in `.q2/apps`. The desktop simulator never launches the downloaded Q2 executables.
+
+Settings shows the Q2 Pod System and Playback menus and their major subpages. Theme, brightness, wheel sensitivity, playback mode, the Folder Root choice, and Cover Flow's Album and Artist sorts affect the preview. Rows that require Q2 hardware or firmware services report that when selected. Firmware updating, radio pairing, and native app execution require the device.

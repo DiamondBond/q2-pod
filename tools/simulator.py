@@ -24,9 +24,11 @@ import art
 import build
 import ipod
 import theme
+from simulator_apps import AppStore
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
+from simulator_settings import PAGES, PLAY_MODES, SETTINGS, STOCK_ROWS, THEME_KEYS
 
 SIZE = (375, 320)
 THEMES = ('classic-light', 'modern', 'minimal')
@@ -249,6 +251,7 @@ def firmware_image(data):
 class BatteryStatus:
     percent: int = 61
     charging: bool = False
+    wifi: bool = True
 
 
 DEFAULT_BATTERY = BatteryStatus()
@@ -326,13 +329,14 @@ def status_bar(frame, fonts, title, color, background, paused=None, battery=DEFA
     label(frame, fonts, 'default', title, (title_x, 0, 146 - title_x, 30), 18, color)
     label(frame, fonts, 'default', time.strftime('%H:%M'), (149, 0, 77, 30), 18, color, align='center')
 
-    if firmware and not firmware.custom and (data := firmware.images.get('bar_wifi4')):
-        wifi = firmware_image(data)
-        frame.paste(wifi, (255, (30 - wifi.height) // 2), wifi)
-    else:
-        for radius in (8, 5):
-            draw.arc((263 - radius, 18 - radius, 263 + radius, 18 + radius), 222, 318, fill=color, width=2)
-        draw.ellipse((262, 17, 264, 19), fill=color)
+    if battery.wifi:
+        if firmware and not firmware.custom and (data := firmware.images.get('bar_wifi4')):
+            wifi = firmware_image(data)
+            frame.paste(wifi, (255, (30 - wifi.height) // 2), wifi)
+        else:
+            for radius in (8, 5):
+                draw.arc((263 - radius, 18 - radius, 263 + radius, 18 + radius), 222, 318, fill=color, width=2)
+            draw.ellipse((262, 17, 264, 19), fill=color)
     percent_color = draw_battery(frame, draw, battery, color, firmware, classic)
     label(frame, fonts, 'default', f'{battery.percent}%', (314, 0, 39, 30), 16, percent_color)
 
@@ -346,20 +350,28 @@ def display_page(fonts, title, light, paused=None, battery=DEFAULT_BATTERY, firm
     return frame, draw, ink, muted
 
 
-def render_menu(fonts, title, rows, selected, light, paused=None, battery=DEFAULT_BATTERY, firmware=None):
+def render_menu(fonts, title, rows, selected, light, paused=None, battery=DEFAULT_BATTERY, firmware=None,
+                app_store=False):
     frame, draw, ink, muted = display_page(fonts, title, light, paused, battery, firmware)
     hits = []
     if not rows:
         label(frame, fonts, 'default', 'No tracks', (24, 113, 327, 58), 20, muted, align='center')
-    start = max(0, selected - 5)
-    for index, (text, value, face) in enumerate(rows[start:start + 6], start):
-        y = 38 + 45 * (index - start)
+    row_step = 64 if app_store else 45
+    visible = (SIZE[1] - 38) // row_step
+    start = max(0, selected - visible + 1)
+    for index, (text, value, face) in enumerate(rows[start:start + visible], start):
+        y = 38 + row_step * (index - start)
+        height = row_step - 4
         if index == selected:
-            draw.rounded_rectangle((12, y, 362, y + 41), 8, '#cfe7fb' if light else '#344565')
-        if value:
-            label(frame, fonts, 'default', value, (220, y, 127, 41), 16, muted, align='right')
-        label(frame, fonts, face, text, (22, y, 200 if value else 323, 41), 21, ink)
-        hits.append((index, y, y + 42))
+            draw.rounded_rectangle((12, y, 362, y + height), 8, '#cfe7fb' if light else '#344565')
+        if app_store and value:
+            label(frame, fonts, face, text, (22, y + 5, 323, 28), 21, ink)
+            label(frame, fonts, 'default', value, (22, y + 32, 323, 23), 15, muted)
+        else:
+            if value:
+                label(frame, fonts, 'default', value, (220, y, 127, height), 16, muted, align='right')
+            label(frame, fonts, face, text, (22, y, 200 if value else 323, height), 21, ink)
+        hits.append((index, y, y + height + 1))
     return frame, hits
 
 
@@ -669,6 +681,13 @@ class Simulator:
         self.brightness, self.shuffle, self.repeat, self.sort = '100%', 'Off', 'Off', 'Album'
         self.battery = DEFAULT_BATTERY
         self.hint = ''
+        self.store = AppStore((Path(__file__).resolve().parent.parent / 'sources.list').read_text(encoding='utf-8'))
+        self.folder_root = None
+        self.wheel_sensitivity = 50
+
+    @property
+    def custom(self):
+        return self.firmware is None or self.firmware.custom
 
     @property
     def light(self):
@@ -678,29 +697,103 @@ class Simulator:
         self.tracks, self.sd_card, self.directory = tracks, root, root
         self.albums, self.album = albums_for(tracks, self.sort), None
         self.folder_cache.clear()
+        self.folder_root = None
         self.queue = tuple(range(len(tracks)))
         self.current, self.cursor, self.scroll, self.elapsed, self.paused = 0, 0, 0, 0.0, True
         self.page = 'folder' if root else 'home'
         self.history = [('home', 0, root, None)] if root else []
 
     def menu(self):
-        if self.page == 'settings':
-            return [('Display', '', 'display'), ('Playback', '', 'playset'), ('About', '', 'about')]
-        if self.page == 'display':
-            rows = [('Brightness', self.brightness, 'brightness'), ('Cover Flow sort', self.sort, 'sort')]
-            if self.firmware is None or self.firmware.custom:
-                rows.insert(0, ('Theme', self.style.replace('-', ' ').title(), 'theme'))
+        rows: list[tuple[str, str, str | None]] = []
+        if self.page == 'store':
+            if not self.custom:
+                return []
+            check = self.store.stage if self.store.item == 'check' else ''
+            rows.append(('Check for Updates', check, 'check'))
+            rows.extend((app.name, self.store.row_status(self.sd_card, app), app.ident)
+                        for app in self.store.visible(self.sd_card))
             return rows
-        if self.page == 'playset':
-            return [('Shuffle', self.shuffle, 'shuffle'), ('Repeat', self.repeat, 'repeat')]
-        return [('Firmware', self.firmware.version if self.firmware else 'Checkout', None),
-                ('Tracks', str(len(self.tracks)), None), ('Albums', str(len(self.albums)), None)]
+        if self.page not in SETTINGS:
+            return []
+
+        names = SETTINGS[self.page][1]
+        if not self.custom:
+            names = STOCK_ROWS.get(self.page, names)
+        links = PAGES.get(self.page, {})
+        if self.page == 'power' and not self.store.has_rockbox(self.sd_card):
+            names = tuple(name for name in names if name != 'Boot to')
+        if self.page == 'controls':
+            names = tuple(name for name in names if name != 'Click With Headphones')
+        if self.page == 'appearance':
+            hidden = ('Rounded Corners', 'Centred Now Playing') if self.style == 'classic-light' else (
+                'Library on Home', 'Row Preview', 'Row Art', 'Show Wordmark')
+            names = tuple(name for name in names if name not in hidden)
+        for name in names:
+            if name in links:
+                rows.append((name, self.setting_value(name), links[name]))
+            else:
+                rows.append((name, self.setting_value(name), None))
+        return rows
+
+    def setting_value(self, name):
+        if self.page == 'theme':
+            return '✓' if self.style == THEME_KEYS[name] else ''
+        if self.page == 'playmode':
+            return '✓' if (self.shuffle, self.repeat) == PLAY_MODES[name] else ''
+        return {
+            'Theme': next((label for label, style in THEME_KEYS.items() if style == self.style), ''),
+            'Brightness': self.brightness,
+            'Sort': self.sort,
+            'Wheel Sensitivity': f'{self.wheel_sensitivity}%',
+            'Folder Root': self.folder_root.name if self.folder_root else 'Card',
+            'Wi-Fi': ('On' if self.battery.wifi else 'Off') if self.page == 'wifi' else '',
+            'Firmware Version': self.firmware.version if self.firmware else 'Checkout',
+            'SD Card': self.sd_card.name if self.sd_card else 'No SD card',
+        }.get(name, '')
+
+    def select_setting(self, name, target):
+        if self.page == 'store':
+            try:
+                self.store.select(self.sd_card, target, online=self.battery.wifi)
+            except (OSError, ValueError) as exc:
+                self.hint = str(exc)
+            else:
+                self.hint = self.store.message
+        elif target:
+            self.open(target)
+        elif self.page == 'theme':
+            self.style = THEME_KEYS[name]
+            self.back()
+        elif self.page == 'playmode':
+            self.shuffle, self.repeat = PLAY_MODES[name]
+            self.back()
+        elif name == 'Brightness':
+            self.cycle('brightness')
+        elif name == 'Sort':
+            self.cycle('sort')
+        elif name == 'Refresh Cover Flow':
+            self.albums = albums_for(self.tracks, self.sort)
+            self.hint = 'Cover Flow refreshed'
+        elif name == 'Wi-Fi' and self.page == 'wifi':
+            self.battery = replace(self.battery, wifi=not self.battery.wifi)
+        elif name == 'Wheel Sensitivity':
+            self.wheel_sensitivity = 10 if self.wheel_sensitivity == 200 else self.wheel_sensitivity + 10
+        elif name == 'Folder Root' and self.sd_card:
+            roots = [None, *[target for _, target in folder_rows(self.tracks, self.sd_card)
+                             if isinstance(target, Path)]]
+            self.folder_root = roots[(roots.index(self.folder_root) + 1) % len(roots)]
+        elif self.page != 'about':
+            self.hint = f'{name} requires the Q2 hardware'
 
     def open(self, page):
         self.history.append((self.page, self.cursor, self.directory, self.album))
         self.page, self.cursor, self.scroll, self.hint = page, 0, 0, ''
+        if page == 'store' and self.battery.wifi and self.sd_card and (
+                not self.store.checked or time.monotonic() - self.store.checked >= 600):
+            self.store.select(self.sd_card, 'check', background=True)
 
     def back(self):
+        self.store.armed = ''
         if self.history:
             self.page, self.cursor, self.directory, self.album = self.history.pop()
         else:
@@ -717,6 +810,7 @@ class Simulator:
             if count:
                 self.cursor = (self.cursor + step) % count
         self.hint, self.scroll = '', 0
+        self.store.armed = ''
 
     def step_track(self, step, automatic=False):
         if not self.queue:
@@ -735,6 +829,8 @@ class Simulator:
         self.elapsed, self.scroll = 0.0, 0
 
     def advance(self, delta):
+        if self.store.poll() and self.store.message:
+            self.hint = self.store.message
         if not self.paused and self.tracks:
             self.elapsed += delta
             duration = self.tracks[self.current].duration
@@ -743,11 +839,8 @@ class Simulator:
                 self.step_track(1, automatic=True)
 
     def cycle(self, key):
-        choices = {'theme': ('style', THEMES), 'brightness': ('brightness', ('100%', '75%', '50%', '25%')),
-                   'sort': ('sort', ('Album', 'Artist')), 'shuffle': ('shuffle', ('Off', 'On')),
-                   'repeat': ('repeat', ('Off', 'All', 'One'))}
-        if key not in choices:
-            return
+        choices = {'brightness': ('brightness', ('100%', '75%', '50%', '25%')),
+                   'sort': ('sort', ('Album', 'Artist'))}
         name, values = choices[key]
         setattr(self, name, values[(values.index(getattr(self, name)) + 1) % len(values)])
         if key == 'sort':
@@ -777,9 +870,9 @@ class Simulator:
                 key, title = HOME_ROUTES[self.cursor]
             if key in ('playing', 'localmusic', 'coverflow', 'folder', 'settings', 'playset'):
                 self.open(key)
-                self.directory = self.sd_card
+                self.directory = (self.folder_root or self.sd_card) if key == 'folder' else self.sd_card
             elif key == 'sysset':
-                self.open('settings')
+                self.open('system')
             else:
                 self.hint = f'{title} requires the device'
         elif self.page == 'coverflow':
@@ -796,10 +889,11 @@ class Simulator:
                     self.directory = target
                 else:
                     self.play(target, [index for _, index in rows if isinstance(index, int)])
-        elif self.page == 'settings':
-            self.open(self.menu()[self.cursor][2])
-        elif self.page in ('display', 'playset'):
-            self.cycle(self.menu()[self.cursor][2])
+        elif self.page in SETTINGS:
+            rows = self.menu()
+            if self.cursor < len(rows):
+                name, _, target = rows[self.cursor]
+                self.select_setting(name, target)
         elif self.page in ('playing', 'lyrics'):
             self.toggle()
 
@@ -837,8 +931,8 @@ class Simulator:
             frame, _face = render(track, fonts, self.style, position, len(self.queue),
                                   self.scroll, self.paused, self.firmware, self.elapsed, self.battery)
             return frame, []
-        title = {'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs', 'settings': 'Settings',
-                 'display': 'Display', 'playset': 'Playback', 'about': 'About'}.get(self.page, 'Now Playing')
+        title = SETTINGS[self.page][0] if self.page in SETTINGS else {
+            'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs'}.get(self.page, 'Now Playing')
         if self.page == 'home':
             rows = [(label, '›', 'default') for _key, label in HOME_ROUTES]
         elif self.page in ('folder', 'localmusic', 'album'):
@@ -853,9 +947,11 @@ class Simulator:
         elif self.page in ('playing', 'lyrics'):
             rows = []
         else:
-            rows = [(name, value or ('›' if key else ''), 'default') for name, value, key in self.menu()]
+            rows = [(name, value or ('›' if key in SETTINGS else ''), 'default')
+                    for name, value, key in self.menu()]
+            self.cursor = min(self.cursor, max(0, len(rows) - 1))
         frame, hits = render_menu(fonts, title, rows, self.cursor, self.light, background_playback,
-                                  self.battery, self.firmware)
+                                  self.battery, self.firmware, self.page == 'store')
         return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
 
 
@@ -945,12 +1041,13 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         new_angle = wheel_angle(event.x, event.y)
         accumulated += wheel_delta(angle, new_angle)
         angle = new_angle
-        if abs(accumulated) >= DETENT / 3:
+        detent = DETENT * 50 / ui.wheel_sensitivity
+        if abs(accumulated) >= detent / 3:
             dragged = True
-        ticks = math.trunc(accumulated / DETENT)
+        ticks = math.trunc(accumulated / detent)
         if ticks:
             ui.move(ticks)
-            accumulated -= ticks * DETENT
+            accumulated -= ticks * detent
 
     def release(event):
         if pressed:
@@ -972,7 +1069,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         screen.itemconfigure(picture, image=photo)
         source = ui.firmware.name if ui.firmware else 'Checkout preview'
         if ui.page in ('playing', 'lyrics') and ui.tracks:
-            detail = f'Artist font: {fonts.artist(ui.tracks[ui.current].artist)[1]} · Click display to switch lyrics'
+            detail = ui.hint or f'Artist font: {fonts.artist(ui.tracks[ui.current].artist)[1]} · Click display to switch lyrics'
         else:
             detail = ui.hint or (f'SD: {ui.sd_card.name} · {len(ui.tracks)} tracks' if ui.sd_card else
                                  'Drag the wheel or use the arrow keys · Enter to select')
@@ -1047,7 +1144,7 @@ def main():
     parser.add_argument('--unsquashfs', default='unsquashfs', help='squashfs-tools executable (defaults to PATH)')
     parser.add_argument('--sd-card', type=Path, help='directory to mount as the simulated SD card')
     parser.add_argument('--snapshot', type=Path, help='save one PNG and exit without opening a window')
-    parser.add_argument('--screen', choices=('home', 'folder', 'localmusic', 'coverflow', 'settings', 'playing', 'lyrics'),
+    parser.add_argument('--screen', choices=('home', 'folder', 'localmusic', 'coverflow', 'playing', 'lyrics', *SETTINGS),
                         default='playing', help='screen to capture with --snapshot')
     parser.add_argument('--with-device', action='store_true', help='include the enclosure and wheel in the screenshot')
     parser.add_argument('--shell', choices=tuple(SHELL_FINISHES), default=DEFAULT_SHELL,
