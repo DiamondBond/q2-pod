@@ -66,5 +66,8 @@ Add `--firmware PATH` to capture a package in a headless run. Use `--screen` to 
 screen and `--with-device` to include the enclosure and wheel. The desktop reads tags with
 Mutagen and draws the packaged assets with Pillow. The status bar shows local time and the
 preview's playback state, with simulated Wi-Fi and battery indicators. Enter a value from 0 to 100
-in **Battery %** and use **Charging** to show or hide the lightning bolt. Playback advances a simulated clock.
+in **Battery %** and use **Charging** to preview the charging state. Shanling stock uses its
+packaged charging icon. Q2 Pod Classic Light uses a bolt inside the battery, while Modern and
+Minimal use the firmware's green battery fill. The preview uses the Icon + Percent battery layout.
+Playback advances a simulated clock.
 Audio output, hardware services and the firmware's AWTK event loop require a separate backend.
