@@ -767,6 +767,8 @@ static int arcade_key(unsigned key, int over) {
     } else if (over) {
         if (key == KEY_CENTER && g->screen == SNAKE)
             snake_new(&g->sn), run();
+        else if (key == KEY_CENTER && g->screen == BLOCKS)
+            q2_blocks_init(&g->blocks, (unsigned)time_now_ms()), run();
         else if (key == KEY_CENTER)
             vortex_new(&g->vx), run();
         else if (key == KEY_RETURN)
