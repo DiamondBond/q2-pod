@@ -30,6 +30,7 @@ static int arcade_frame(unsigned now) {
             q2_blocks_tick(&g->blocks);
         }
         if (g->blocks.game_over) {
+            blocks_record();
             g->frame = 0;
             hold(RUN);
             widget_invalidate_force(g->page, 0);
