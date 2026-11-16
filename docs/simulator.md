@@ -65,5 +65,6 @@ py -3.12 tools/simulator.py "D:/Music/vietnamese-test.mp3" --snapshot now-playin
 Add `--firmware PATH` to capture a package in a headless run. Use `--screen` to choose the
 screen and `--with-device` to include the enclosure and wheel. The desktop reads tags with
 Mutagen and draws the packaged assets with Pillow. The status bar shows local time and the
-preview's playback state, with simulated Wi-Fi and battery indicators. Playback advances a simulated clock.
+preview's playback state, with simulated Wi-Fi and battery indicators. Enter a value from 0 to 100
+in **Battery %** and use **Charging** to show or hide the lightning bolt. Playback advances a simulated clock.
 Audio output, hardware services and the firmware's AWTK event loop require a separate backend.
