@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import ctypes as C
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -57,7 +58,10 @@ def compile_mips(directory: pathlib.Path) -> pathlib.Path:
 
 
 def symbols(elf: pathlib.Path) -> dict[str, int]:
-    output = subprocess.check_output(["readelf", "-Ws", str(elf)], text=True)
+    reader = shutil.which("readelf") or shutil.which("llvm-readelf")
+    if reader is None:
+        raise RuntimeError("Install binutils readelf or LLVM llvm-readelf")
+    output = subprocess.check_output([reader, "-Ws", str(elf)], text=True)
     found = {}
     for line in output.splitlines():
         parts = line.split()
