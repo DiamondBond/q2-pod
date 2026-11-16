@@ -10,7 +10,7 @@ import re
 import sys
 import time
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
@@ -28,6 +28,8 @@ from simulator_apps import AppStore
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
+from simulator_library import (BUILTIN_GAMES, MEDIA_NAMES, LibraryRow, card_games, card_media, imported_playlists,
+                               library_menu)
 from simulator_settings import PAGES, PLAY_MODES, SETTINGS, STOCK_ROWS, THEME_KEYS
 
 SIZE = (375, 320)
@@ -48,6 +50,12 @@ class Track:
     album_artist: str = ''
     duration: float = 0.0
     lyrics: tuple[tuple[float, str], ...] = ()
+    genres: tuple[str, ...] = ()
+    year: int = 0
+    disc: int = 0
+    number: int = 0
+    hi_res: bool = False
+    modified: float = 0
 
 
 def read_lyrics(path):
@@ -101,9 +109,16 @@ def read_track(path):
     title = (tags.get('title') or [path.stem])[0]
     artist = (tags.get('artist') or [''])[0]
     album = (tags.get('album') or [''])[0]
-    album_artist = (tags.get('albumartist') or [artist])[0]
+    album_artist = (tags.get('albumartist') or [''])[0]
+    def number(key, size):
+        value = re.match(rf'[0-9]{{1,{size}}}', (tags.get(key) or [''])[0])
+        return int(value[0]) if value else 0
+
     return Track(title, artist, album, art, path.name, path.resolve(), album_artist,
-                 float(getattr(audio.info, 'length', 0)), read_lyrics(path))
+                 float(getattr(audio.info, 'length', 0)), read_lyrics(path),
+                 tuple(tags.get('genre') or ()), number('date', 4), number('discnumber', 3),
+                 number('tracknumber', 4), int(getattr(audio.info, 'bits_per_sample', 0)) > 16 and
+                 int(getattr(audio.info, 'sample_rate', 0)) > 48000, path.stat().st_mtime)
 
 
 def scan_card(root):
@@ -148,12 +163,16 @@ class Album:
 def albums_for(tracks, sort='Album'):
     grouped = defaultdict(list)
     for i, track in enumerate(tracks):
-        artist = track.album_artist or track.artist
-        name = track.album or (track.path.parent.name if track.path else 'Unknown Album')
-        grouped[name, artist].append(i)
-    albums = [Album(name, artist, tuple(indices),
+        folder = track.path.parent if track.path else None
+        if folder and re.fullmatch(r'(?:cd|disc)[ _-]*\d+', folder.name, re.IGNORECASE):
+            folder = folder.parent
+        name = track.album or (folder.name if folder else 'Unknown Album')
+        key = track.album_artist or folder or track.artist
+        grouped[name, key].append(i)
+    albums = [Album(name, tracks[indices[0]].album_artist or tracks[indices[0]].artist,
+                    tuple(sorted(indices, key=lambda i: (tracks[i].disc, tracks[i].number))),
                     next((i for i in indices if tracks[i].art), indices[0]))
-              for (name, artist), indices in grouped.items()]
+              for (name, _key), indices in grouped.items()]
     return sorted(albums, key=lambda album: tuple(value.casefold() for value in
                   ((album.artist, album.name) if sort == 'Artist' else (album.name, album.artist))))
 
@@ -664,6 +683,9 @@ def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, fir
     return image, face
 
 
+MEDIA_FOLDERS = frozenset(name.casefold() for name in MEDIA_NAMES)
+
+
 HOME_ROUTES = (('playing', 'Now Playing'), ('localmusic', 'Library'), ('coverflow', 'Cover Flow'),
                ('folder', 'Folders'), ('settings', 'Settings'))
 
@@ -676,7 +698,15 @@ class Simulator:
         self.directory, self.album = sd_card, None
         self.folder_cache: dict[Path | None, list[tuple[str, Path | int]]] = {}
         self.history = []
+        self.library_title = 'Library'
+        self.library_rows: list[LibraryRow] = []
+        self.plays: Counter[int] = Counter()
+        self.recent: dict[int, None] = {}
+        self.playlists: dict[str, tuple[int, ...]] = {}
+        self.search_query = None
+        self.artist_group = 'Album Artist'
         self.queue = tuple(range(len(tracks)))
+        self.queue_shuffle = ''
         self.albums = albums_for(tracks)
         self.brightness, self.shuffle, self.repeat, self.sort = '100%', 'Off', 'Off', 'Album'
         self.battery = DEFAULT_BATTERY
@@ -697,11 +727,16 @@ class Simulator:
         self.tracks, self.sd_card, self.directory = tracks, root, root
         self.albums, self.album = albums_for(tracks, self.sort), None
         self.folder_cache.clear()
+        self.plays.clear()
+        self.recent.clear()
+        self.playlists.clear()
+        self.library_rows = []
         self.folder_root = None
         self.queue = tuple(range(len(tracks)))
+        self.queue_shuffle = ''
         self.current, self.cursor, self.scroll, self.elapsed, self.paused = 0, 0, 0, 0.0, True
         self.page = 'folder' if root else 'home'
-        self.history = [('home', 0, root, None)] if root else []
+        self.history = [('home', 0, root, None, 'Library', [])] if root else []
 
     def menu(self):
         rows: list[tuple[str, str, str | None]] = []
@@ -745,6 +780,7 @@ class Simulator:
             'Brightness': self.brightness,
             'Sort': self.sort,
             'Wheel Sensitivity': f'{self.wheel_sensitivity}%',
+            'Artists': self.artist_group,
             'Folder Root': self.folder_root.name if self.folder_root else 'Card',
             'Wi-Fi': ('On' if self.battery.wifi else 'Off') if self.page == 'wifi' else '',
             'Firmware Version': self.firmware.version if self.firmware else 'Checkout',
@@ -776,6 +812,8 @@ class Simulator:
             self.hint = 'Cover Flow refreshed'
         elif name == 'Wi-Fi' and self.page == 'wifi':
             self.battery = replace(self.battery, wifi=not self.battery.wifi)
+        elif name == 'Artists':
+            self.artist_group = 'Artist' if self.artist_group == 'Album Artist' else 'Album Artist'
         elif name == 'Wheel Sensitivity':
             self.wheel_sensitivity = 10 if self.wheel_sensitivity == 200 else self.wheel_sensitivity + 10
         elif name == 'Folder Root' and self.sd_card:
@@ -786,7 +824,7 @@ class Simulator:
             self.hint = f'{name} requires the Q2 hardware'
 
     def open(self, page):
-        self.history.append((self.page, self.cursor, self.directory, self.album))
+        self.history.append((self.page, self.cursor, self.directory, self.album, self.library_title, self.library_rows))
         self.page, self.cursor, self.scroll, self.hint = page, 0, 0, ''
         if page == 'store' and self.battery.wifi and self.sd_card and (
                 not self.store.checked or time.monotonic() - self.store.checked >= 600):
@@ -795,7 +833,7 @@ class Simulator:
     def back(self):
         self.store.armed = ''
         if self.history:
-            self.page, self.cursor, self.directory, self.album = self.history.pop()
+            self.page, self.cursor, self.directory, self.album, self.library_title, self.library_rows = self.history.pop()
         else:
             self.page, self.cursor = 'home', 0
         self.hint, self.scroll = '', 0
@@ -816,6 +854,17 @@ class Simulator:
         if not self.queue:
             return
         position = self.queue.index(self.current)
+        if self.queue_shuffle:
+            if automatic and position == len(self.queue) - 1:
+                if self.queue_shuffle != 'shuffle_songs':
+                    self.paused = True
+                    return
+                self.queue = tuple(random.sample(self.queue, len(self.queue)))
+                position = -1
+            self.current = self.queue[(position + step) % len(self.queue)]
+            self.elapsed, self.scroll = 0.0, 0
+            self.record_play(self.current)
+            return
         if automatic and self.repeat == 'One':
             self.elapsed = 0.0
             return
@@ -827,6 +876,7 @@ class Simulator:
         else:
             self.current = self.queue[(position + step) % len(self.queue)]
         self.elapsed, self.scroll = 0.0, 0
+        self.record_play(self.current)
 
     def advance(self, delta):
         if self.store.poll() and self.store.message:
@@ -846,7 +896,182 @@ class Simulator:
         if key == 'sort':
             self.albums = albums_for(self.tracks, self.sort)
 
+    def show_library(self, title, rows):
+        self.open('library')
+        self.library_title, self.library_rows = title, list(rows)
+
+    def open_library(self):
+        self.show_library('Library' if self.custom else 'Local Music',
+                          library_menu(self.sd_card, self.custom, self.light))
+
+    def in_music_library(self, index):
+        path = self.tracks[index].path
+        if not self.sd_card or not path or not path.is_relative_to(self.sd_card):
+            return True
+        parts = path.relative_to(self.sd_card).parts
+        return (not any(part.startswith('.') for part in parts)
+                and (not self.custom or parts[0].casefold() not in MEDIA_FOLDERS))
+
+    def music_indices(self):
+        return tuple(i for i in range(len(self.tracks)) if self.in_music_library(i))
+
+    def song_library_rows(self, indices):
+        return [LibraryRow(self.tracks[index].title, 'track', (index,)) for index in indices]
+
+    def play_from_library(self, queue):
+        if queue:
+            self.play(queue[0], queue)
+        else:
+            self.hint = 'No tracks'
+
+    def confirm_library_scan(self):
+        if not self.sd_card:
+            self.hint = 'No SD card'
+            return
+        try:
+            tracks, failures = scan_card(self.sd_card)
+        except ERRORS as exc:
+            self.hint = str(exc)
+            return
+        self.replace_tracks(tracks, self.sd_card)
+        self.page, self.history = 'home', []
+        self.open_library()
+        self.hint = f'{len(tracks)} tracks' + (f' · {len(failures)} skipped' if failures else '')
+
+    def select_library(self, row):
+        name, route, selected = row
+        if route == 'games':
+            self.show_library(name, (LibraryRow(game, 'device') for game in
+                                     (*BUILTIN_GAMES, *card_games(self.sd_card))))
+        elif route == 'track':
+            self.play(selected[0], [entry.tracks[0] for entry in self.library_rows if entry.route == 'track'])
+        elif route == 'album':
+            self.play_from_library(selected)
+        elif route == 'group':
+            self.show_library(name, self.song_library_rows(selected))
+        elif route == 'device':
+            self.hint = f'{name} requires the Q2 hardware'
+        elif route == 'media':
+            directory = card_media(self.sd_card).get(name)
+            if directory is not None and name in ('Podcasts', 'Audiobooks'):
+                self.open('folder')
+                self.directory = directory
+            elif directory is not None:
+                extensions = {'Photos': {'.jpg', '.jpeg', '.png'}, 'Books': {'.txt', '.epub'},
+                              'Videos': {'.mp4', '.m4v', '.mkv', '.avi', '.mov', '.mpg'}}
+                self.show_library(name, (LibraryRow(path.stem, 'device') for path in sorted(directory.rglob('*'))
+                                         if path.suffix.casefold() in extensions[name] and path.is_file()))
+        elif route == 'scan':
+            self.show_library(name, (LibraryRow('Scan music now', 'scan_now'),
+                                     LibraryRow('Scan specified folders', 'device')))
+        elif route == 'scan_now':
+            self.confirm_library_scan()
+        else:
+            self.select_music_library(row)
+
+    def select_music_library(self, row):
+        name, route, selected = row
+        indices = sorted(self.music_indices(), key=lambda i: self.tracks[i].title.casefold())
+        if route in ('albums', 'artist', 'decade'):
+            allowed = set(selected) if route == 'artist' else set(indices)
+            rows = []
+            for album in sorted(self.albums, key=lambda value: value.name.casefold()):
+                queue = tuple(i for i in album.tracks if i in allowed)
+                if route == 'decade' and max((self.tracks[i].year for i in queue), default=0) // 10 != selected[0]:
+                    continue
+                if queue:
+                    rows.append(LibraryRow(album.name, 'album', queue))
+            if route == 'artist':
+                rows.insert(0, LibraryRow('Songs', 'group', tuple(i for i in indices if i in allowed)))
+            self.show_library(name, rows)
+            return
+        if route in ('artists', 'genres'):
+            groups = defaultdict(list)
+            for i in indices:
+                track = self.tracks[i]
+                artist = (track.album_artist or track.artist) if self.artist_group == 'Album Artist' else track.artist
+                keys = (artist or 'Unknown Artist',) if route == 'artists' else track.genres
+                for key in dict.fromkeys(keys):
+                    groups[key].append(i)
+            self.show_library(name, (LibraryRow(key, 'artist' if route == 'artists' else 'group', tuple(groups[key]))
+                                     for key in sorted(groups, key=str.casefold)))
+        elif route == 'era':
+            music = set(indices)
+            years = {max((self.tracks[i].year for i in album.tracks if i in music), default=0) // 10
+                     for album in self.albums}
+            self.show_library(name, (LibraryRow(f'{decade * 10}s', 'decade', (decade,))
+                                     for decade in sorted(years - {0})))
+        elif route == 'ratings':
+            self.show_library(name, [LibraryRow(label, 'rated')
+                                     for label in ('Top Rated', 'Loved', 'All Rated', 'Disliked', 'Albums')])
+        elif route == 'playlists':
+            self.show_library(name, [LibraryRow('New Playlist…', 'device'), LibraryRow('Import', 'import'),
+                                     *(LibraryRow(label, 'group', queue) for label, queue in self.playlists.items())])
+        elif route == 'import':
+            paths = {track.path.relative_to(self.sd_card).as_posix().casefold(): i
+                     for i, track in enumerate(self.tracks)
+                     if self.sd_card and track.path and track.path.is_relative_to(self.sd_card)}
+            title = self.library_title
+            self.playlists.update(imported_playlists(self.sd_card, paths))
+            self.back()
+            self.select_music_library(LibraryRow(title, 'playlists'))
+        elif route == 'shuffle':
+            self.show_library(name, (LibraryRow('Shuffle Songs', 'shuffle_songs'),
+                                     LibraryRow('Shuffle Albums', 'shuffle_albums'),
+                                     LibraryRow('Shuffle Folders', 'shuffle_folders')))
+        elif route in ('shuffle_songs', 'shuffle_albums', 'shuffle_folders'):
+            self.shuffle_library(route, indices)
+        else:
+            if route == 'added':
+                indices.sort(key=lambda i: self.tracks[i].modified, reverse=True)
+            elif route == 'recent':
+                indices = list(reversed(self.recent))
+            elif route == 'most':
+                indices = [i for i, _ in self.plays.most_common(100)]
+            elif route == 'long':
+                indices = sorted((i for i in indices if self.tracks[i].duration > 600),
+                                 key=lambda i: -self.tracks[i].duration)
+            elif route == 'hires':
+                indices = [i for i in indices if self.tracks[i].hi_res]
+            elif route == 'rated':
+                indices = []
+            elif route == 'search':
+                if self.search_query is None or not (query := self.search_query()):
+                    return
+                indices = [i for i in indices if query.casefold() in ' '.join((
+                    self.tracks[i].title, self.tracks[i].album, self.tracks[i].artist,
+                    self.tracks[i].album_artist, *self.tracks[i].genres)).casefold()]
+            self.show_library(name, self.song_library_rows(indices))
+
+    def shuffle_library(self, route, indices):
+        if route == 'shuffle_songs':
+            sets = [(i,) for i in indices]
+        elif route == 'shuffle_albums':
+            included = set(indices)
+            sets = [tuple(i for i in album.tracks if i in included) for album in self.albums]
+        else:
+            folders = defaultdict(list)
+            for index in sorted(indices, key=lambda i: str(self.tracks[i].path).casefold()):
+                path = self.tracks[index].path
+                folders[path.parent if path else None].append(index)
+            sets = list(folders.values())
+        random.shuffle(sets)
+        queue = [index for group in sets for index in group]
+        if queue:
+            self.play(queue[0], queue, route)
+        else:
+            self.hint = 'No tracks'
+
+    def record_play(self, index):
+        if not self.in_music_library(index):
+            return
+        self.plays[index] += 1
+        self.recent.pop(index, None)
+        self.recent[index] = None
+
     def rows(self):
+        if self.page == 'library':
+            return self.library_rows
         if self.page == 'folder':
             if self.directory not in self.folder_cache:
                 self.folder_cache[self.directory] = folder_rows(self.tracks, self.directory)
@@ -857,8 +1082,10 @@ class Simulator:
             return [(track.title, i) for i, track in enumerate(self.tracks)]
         return self.menu()
 
-    def play(self, index, queue):
+    def play(self, index, queue, queue_shuffle=''):
+        self.queue_shuffle = queue_shuffle
         self.current, self.queue, self.elapsed, self.paused = index, tuple(queue), 0.0, False
+        self.record_play(index)
         self.open('playing')
 
     def enter(self):
@@ -868,13 +1095,18 @@ class Simulator:
                 key, title = entry.key, entry.label
             else:
                 key, title = HOME_ROUTES[self.cursor]
-            if key in ('playing', 'localmusic', 'coverflow', 'folder', 'settings', 'playset'):
+            if key == 'localmusic':
+                self.open_library()
+            elif key in ('playing', 'coverflow', 'folder', 'settings', 'playset'):
                 self.open(key)
                 self.directory = (self.folder_root or self.sd_card) if key == 'folder' else self.sd_card
             elif key == 'sysset':
                 self.open('system')
             else:
                 self.hint = f'{title} requires the device'
+        elif self.page == 'library':
+            if self.cursor < len(self.library_rows):
+                self.select_library(self.library_rows[self.cursor])
         elif self.page == 'coverflow':
             if self.albums:
                 self.open('album')
@@ -935,6 +1167,10 @@ class Simulator:
             'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs'}.get(self.page, 'Now Playing')
         if self.page == 'home':
             rows = [(label, '›', 'default') for _key, label in HOME_ROUTES]
+        elif self.page == 'library':
+            title = self.library_title
+            rows = [(row.name, '›' if row.route not in ('track', 'album') else '', 'default')
+                    for row in self.library_rows]
         elif self.page in ('folder', 'localmusic', 'album'):
             if self.page == 'folder' and self.directory and self.directory != self.sd_card:
                 title = self.directory.name
@@ -957,13 +1193,14 @@ class Simulator:
 
 def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None, shell=DEFAULT_SHELL):
     import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
+    from tkinter import filedialog, messagebox, simpledialog, ttk
 
     from PIL import ImageTk
 
     ui = Simulator(style, tracks, firmware, sd_card)
     window = tk.Tk()
     window.title('Shanling Q2 Simulator')
+    ui.search_query = lambda: simpledialog.askstring('Search', 'Search the library', parent=window)
     window.configure(background='#242122')
     screen = tk.Canvas(window, width=DEVICE_SIZE[0], height=DEVICE_SIZE[1], highlightthickness=0,
                        background='#242122', takefocus=True)
@@ -1144,7 +1381,7 @@ def main():
     parser.add_argument('--unsquashfs', default='unsquashfs', help='squashfs-tools executable (defaults to PATH)')
     parser.add_argument('--sd-card', type=Path, help='directory to mount as the simulated SD card')
     parser.add_argument('--snapshot', type=Path, help='save one PNG and exit without opening a window')
-    parser.add_argument('--screen', choices=('home', 'folder', 'localmusic', 'coverflow', 'playing', 'lyrics', *SETTINGS),
+    parser.add_argument('--screen', choices=('home', 'folder', 'library', 'localmusic', 'coverflow', 'playing', 'lyrics', *SETTINGS),
                         default='playing', help='screen to capture with --snapshot')
     parser.add_argument('--with-device', action='store_true', help='include the enclosure and wheel in the screenshot')
     parser.add_argument('--shell', choices=tuple(SHELL_FINISHES), default=DEFAULT_SHELL,
@@ -1172,7 +1409,10 @@ def main():
                 detail = f'title font: {face}; artist font: {fonts.artist(tracks[0].artist)[1]}'
             else:
                 preview = Simulator(args.theme, tracks, firmware, root)
-                preview.page = args.screen
+                if args.screen == 'library':
+                    preview.open_library()
+                else:
+                    preview.page = args.screen
                 image, _ = preview.frame(fonts)
                 detail = args.screen
             if args.with_device:

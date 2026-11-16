@@ -64,3 +64,9 @@ The venv is local to the checkout. Delete `.venv-simulator/` to reset dependenci
 The simulated Wi-Fi switch under **System → Wireless → Wi-Fi** controls whether the App Store can start online operations. Downloads use the computer's internet connection. Successfully installed packages leave Q2-compatible app folders and records in `.q2/apps`. The desktop simulator never launches the downloaded Q2 executables.
 
 Settings shows the Q2 Pod System and Playback menus and their major subpages. Theme, brightness, wheel sensitivity, playback mode, the Folder Root choice, and Cover Flow's Album and Artist sorts affect the preview. Rows that require Q2 hardware or firmware services report that when selected. Firmware updating, radio pairing, and native app execution require the device.
+
+## Browse the Library
+
+Open **Library** from Home, then scroll to **Artists**, **Albums**, **Songs**, **Genres**, or the other Library categories. The lists use the tags of tracks on the mounted SD folder. **Update Library → Scan music now** picks up changes to that folder. **Playlists → Import** loads `.m3u` files from the folder's `_explaylist_data` directory for the current session.
+
+In Q2 Pod, **Games** is near the bottom of the Library. It lists the four built-in games, then card apps whose `q2app` manifest says `game=1`. Install **Buddy** from the App Store to try this. The game entries are browsable, and running the games requires a Q2. With an official Shanling package loaded, **Local Music** uses the stock categories.
