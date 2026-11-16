@@ -973,6 +973,7 @@ class Simulator:
                     view.theme = self.style
                     view.scene, view.selection, view.game = 'games', 0, None
                     view.paused = view.menu = view.quit_selected = False
+                    view.wheel_acc = 0.0  # standalone ArcadeWindow.__init__ is bypassed
                     view.start(name.lower())
                     self.arcade = view
                     self.paused = True  # game takes foreground; stop host music
