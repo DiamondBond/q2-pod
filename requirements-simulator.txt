@@ -2,3 +2,6 @@
 fonttools==4.63.0
 Pillow>=10.0,<13
 mutagen>=1.47,<2
+
+# Actual MIPS32 CPU instruction emulation for arcade games
+unicorn==2.1.4
