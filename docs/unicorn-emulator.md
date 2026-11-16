@@ -25,7 +25,7 @@ Branch: `unicorn-mips-emulator`, based on `desktop-simulator`.
 ## Quick start
 
 Requirements: Python 3.10+, Tkinter, LLVM `clang` with MIPS target support,
-`ld.lld`, and `readelf` or `llvm-readelf`. The launcher installs Pillow,
+`ld.lld`, and the Python `pyelftools` package. The launcher installs Pillow,
 Unicorn, Mutagen and fontTools into its isolated Python environment.
 
 Linux / WSL:
@@ -39,10 +39,10 @@ bash run-emulator.sh --self-test
 
 Windows 11: install Python with Tcl/Tk and **LLVM for Windows** (clang/ld.lld
 on PATH). Use the included `run-emulator.bat` after installing LLVM
-`llvm-readelf` or GNU binutils. WSL with WSLg is an alternative.
+Python `pyelftools` (installed by the launcher). WSL with WSLg is an alternative.
 
 macOS: install the Homebrew LLVM toolchain (`brew install llvm`), ensure
-`clang`, `ld.lld`, `llvm-readelf` are on PATH, and use Python with Tkinter.
+`clang`, `ld.lld` are on PATH, and use Python with Tkinter.
 Apple's system clang may not contain the MIPS backend.
 
 ## Controls
