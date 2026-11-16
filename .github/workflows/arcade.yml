@@ -1,0 +1,20 @@
+name: Arcade core tests
+on:
+  push:
+    branches: [builtin-pong-tetris]
+  pull_request:
+    paths:
+      - 'patch/arcade_core.*'
+      - 'test/arcade_core*'
+      - '.github/workflows/arcade.yml'
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run portable arcade tests
+        run: sh test/arcade_core.sh
+      - name: Run undefined/address sanitizer checks
+        run: |
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -pedantic patch/arcade_core.c test/arcade_core_test.c -o /tmp/q2-arcade-ubsan
+          /tmp/q2-arcade-ubsan
