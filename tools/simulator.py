@@ -569,14 +569,19 @@ def render_browse(firmware, fonts, style, page, selected, tracks, paused=None, b
 
 
 def render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed, battery):
-    page = firmware.page
+    config = theme_config(style) if firmware.custom else None
+    geometry = theme.geometry(config) if config else ipod.SET0
+    page = firmware.now_playing(geometry.name)
+    themed = firmware.custom and geometry.name in firmware.playing_layouts
     light = firmware.custom and style == 'classic-light'
-    offset = 30  # the AWTK page sits below the system bar
+    offset = geometry.bar if themed else 30
     paper = '#f7f7f7' if light else packaged_style(firmware, page['playing_page'], 'bg_color', '#000000')
     ink, secondary = ('#171717', '#555555') if light else ('#ffffff', '#cccccc')
     frame = Image.new('RGB', SIZE, paper)
     draw = ImageDraw.Draw(frame)
-    status_bar(frame, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused, battery, firmware, light)
+    bar = Image.new('RGB', (SIZE[0], 30), paper)
+    status_bar(bar, fonts, 'Now Playing', ink, '#e5e5e5' if light else '#171717', paused, battery, firmware, light)
+    frame.paste(bar if offset == 30 else bar.resize((SIZE[0], offset), Image.Resampling.LANCZOS), (0, 0))
 
     def icon(name, box, fit=False, tint=None):
         if name not in firmware.images:
@@ -592,6 +597,8 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
         frame.paste(asset, (x + (w - asset.width) // 2, offset + y + (h - asset.height) // 2), asset)
 
     x, y, w, h = page['img_cover'].box
+    if themed and geometry.np_ipod:
+        h = w  # The remaining cover-widget height is reserved for the firmware's reflection.
     if track.art:
         art, mask = cover(track, min(w, h), not firmware.custom or light)
         frame.paste(art, (x + (w - art.width) // 2, offset + y + (h - art.height) // 2), mask)
@@ -618,8 +625,7 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
     title = page['scrlabel_title']
     size = packaged_style(firmware, title, 'font_size', title.box[3])
     preferred = 'default'
-    if firmware.custom:
-        config = theme_config(style)
+    if config:
         preferred = FACES[config['font[ROLE_NP]']]
         size = config['font_px[ROLE_NP]'] or size
     face, size = fonts.face(preferred, track.title, size)

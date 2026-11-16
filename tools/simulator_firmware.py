@@ -8,7 +8,7 @@ import tarfile
 import tempfile
 import zipfile
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 import ipod
@@ -49,6 +49,12 @@ class Firmware:
     styles: dict[tuple[str, str, str], bytes]
     home: tuple[HomeEntry, ...]
     lists: dict[str, dict[str, Widget]]
+    playing_layouts: dict[str, dict[str, Widget]] = field(default_factory=dict)
+
+    def now_playing(self, geometry):
+        if self.custom and geometry in self.playing_layouts:
+            return self.playing_layouts[geometry]
+        return self.page
 
     @property
     def name(self):
@@ -181,9 +187,16 @@ def load_firmware(path, unsquashfs='unsquashfs'):
 
             fonts = {name: read(f'fonts/{name}.ttf') for name in FONT_FILES
                      if name == 'default' or RAW + f'fonts/{name}.ttf' in files}
-            page = page_widgets(read('ui/playing_page.bin'), 'playing_page',
-                                ('scrlabel_title', 'scrlabel_artist', 'img_cover', 'slider_play'))
+            required = ('scrlabel_title', 'scrlabel_artist', 'img_cover', 'slider_play')
+            page = page_widgets(read('ui/playing_page.bin'), 'playing_page', required)
             custom = (RAW + f'ui/{ipod.PLAYING_STOCK}' in files or 'label_ipod_album' in page)
+            playing_layouts = {}
+            if custom:
+                for key in sorted(files):
+                    match = re.fullmatch(re.escape(RAW) + r'ui/([a-z0-9-]+)_playing_page\.bin', key)
+                    if match:
+                        playing_layouts[match[1]] = page_widgets(
+                            read(key.removeprefix(RAW)), 'playing_page', required)
             home = home_entries(read('ui/home_page.bin'), custom)
             lists = {'folder': page_widgets(read('ui/folder_page.bin'), 'folder_page')}
             library = 'ui/localmusic/allmusic_page.bin'
@@ -197,16 +210,17 @@ def load_firmware(path, unsquashfs='unsquashfs'):
                      'default_album_flow', 'default_album_coverflow', 'default_album_big',
                      'bar_battery', 'bar_charge', 'bar_lowcharge', 'bar_wifi4', 'classic_light_bolt'}
             names.update(entry.image for entry in home)
-            for widget in page.values():
-                for value in (widget.props.get('image'), widget.style_value(styles, 'bg_image'),
-                              widget.style_value(styles, 'fg_image')):
-                    if isinstance(value, bytes):
-                        value = value.rstrip(b'\0').decode('utf-8')
-                    if value:
-                        names.add(value)
+            for layout in (page, *playing_layouts.values()):
+                for widget in layout.values():
+                    for value in (widget.props.get('image'), widget.style_value(styles, 'bg_image'),
+                                  widget.style_value(styles, 'fg_image')):
+                        if isinstance(value, bytes):
+                            value = value.rstrip(b'\0').decode('utf-8')
+                        if value:
+                            names.add(value)
             images = {name: read(f'images/xx/{name}.png') for name in names
                       if re.fullmatch(r'[A-Za-z0-9_-]+', name) and RAW + f'images/xx/{name}.png' in files}
-            return Firmware(version, custom, page, fonts, images, styles, home, lists)
+            return Firmware(version, custom, page, fonts, images, styles, home, lists, playing_layouts)
     except FileNotFoundError as exc:
         if exc.filename == unsquashfs:
             raise ValueError('Install squashfs-tools or pass --unsquashfs with the executable path') from exc
