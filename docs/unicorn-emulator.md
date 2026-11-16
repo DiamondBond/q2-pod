@@ -63,10 +63,14 @@ for a headless device screenshot.
 
 ## Launch from existing desktop simulator
 
-On this branch, **Library → Games → Pong / Blocks** launches the Unicorn game
-window as a separate child process. The built-in legacy games still require
-the device. MIPS compilation happens when a game window starts. A source edit
-and relaunch rebuilds the actual game instructions automatically.
+On this branch, **Library → Games → Pong / Blocks** plays *inside the existing
+desktop simulator window*, using actual MIPS rules under Unicorn. Pausing the
+host music is automatic when entering a game. The built-in legacy games still
+require the device. MIPS compilation happens when opening a game; editing the
+game's source and relaunching rebuilds the actual game instructions.
+
+The standalone `run-emulator.sh` / `run-emulator.bat` game window is also
+available for focused game debugging without the music UI.
 
 ## Music playback and UI
 
