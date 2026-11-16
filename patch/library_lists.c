@@ -178,23 +178,28 @@ static int era_key_row(void *ctx, int n, char **v, char **c) {
 
 /* The counted songs among the music getAllMusic(3) reads, from one pass over songtable on stock's
  * shared connection (rank_query's toolsQueryDbTable): with album_of, each one's listens added to
- * sum[album_of(song)]; without, its id in era_keys (out of memory, the ids so far). A row's record
- * holds what listen_key and album_cmp read, as stock's select * fill sets it (ratings.c's rc_row):
- * the path, CUE start, album and album artist, in ifnull as library_query would take a bare one
- * for the artist's. */
+ * sum[album_of(song)]; without, its id in era_keys. Out of memory for an id, the pass reads on
+ * and keeps no more (oom): a row callback's nonzero would stop sqlite3_exec, and an error closes
+ * stock's shared connection. A row's record holds what listen_key and album_cmp read, as stock's
+ * select * fill sets it (ratings.c's rc_row): the path, CUE start, album and album artist, in
+ * ifnull as library_query would take a bare one for the artist's. */
 static struct {
     const unsigned *keys;
     unsigned n, *sum;
     int (*album_of)(void *);
+    int oom;
 } cs __attribute__((section(".scratch")));
 static int counted_row(void *ctx, int n, char **v, char **c) {
     int rec[REC_CUE_END / 4 + 1] = { 0 };
-    if (n != 5 || !v[1]) return 0;
+    if (cs.oom || n != 5 || !v[1]) return 0;
     P(rec, REC_PATH) = v[1], P(rec, REC_ALBUM) = v[3], P(rec, REC_ALBUM_ARTIST) = v[4];
     I(rec, REC_CUE_START) = v[2] ? atoi(v[2]) : 0;
     unsigned key = listen_key(rec), plays = 0;
     if (!has_key(cs.keys, cs.n, key)) return 0;
-    if (!cs.album_of) return era_key_row(ctx, 1, v, c);
+    if (!cs.album_of) {
+        cs.oom = era_key_row(ctx, 1, v, c);
+        return 0;
+    }
     for (int j = 0; j < PLAYS_SLOTS && !plays; j++)
         if (st.plays[j].key == key) plays = st.plays[j].n;
     int a = plays ? cs.album_of(rec) : -1;
@@ -207,17 +212,19 @@ static int counted_query(void *unused) {
                              "where " MUSIC_WHERE,
                              (void *)counted_row, 0);
 }
-static void counted(int (*album_of)(void *), unsigned *sum) {
+/* 1 when the ids ran out of memory. */
+static int counted(int (*album_of)(void *), unsigned *sum) {
     unsigned keys[PLAYS_SLOTS], n = 0;
     int count;
     plays_load();
     for (int j = 0; j < PLAYS_SLOTS; j++)
         if (st.plays[j].key) keys[n++] = st.plays[j].key;
-    if (!n) return;
+    if (!n) return 0;
     qsort(keys, n, sizeof *keys, key_cmp);
-    cs.keys = keys, cs.n = n, cs.sum = sum, cs.album_of = album_of;
+    cs.keys = keys, cs.n = n, cs.sum = sum, cs.album_of = album_of, cs.oom = 0;
     deque_destroy(staged(counted_query, 0, &count));
     cs.keys = 0;
+    return cs.oom;
 }
 
 /* Coverflow's Most Played order: every counted song's listens added to sum[album_of(song)], the
@@ -252,11 +259,10 @@ static int mp_closed(void *ctx, void *event) {
 }
 
 /* The library's counted songs, the rows getAllMusic(3) gives for them in its order, in a deque of
- * their own; 0 without memory for the fetch's SQL. */
+ * their own; 0 without memory for their ids or the fetch's SQL. */
 static void *mp_library(void) {
     era_keys.n = 0;
-    counted(0, 0);
-    void *out = songs_by_id(era_keys.v, era_keys.n);
+    void *out = counted(0, 0) ? 0 : songs_by_id(era_keys.v, era_keys.n);
     free(era_keys.v);
     era_keys.v = 0, era_keys.n = era_keys.cap = 0;
     return out;

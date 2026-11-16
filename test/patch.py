@@ -13994,7 +13994,7 @@ class ShuffleMachine(CoverflowMachine):
     dbquery=int(manifest['patch_symbols']['stock_dbquery_trampoline'],16)
     def __init__(self):
         super().__init__()
-        self.counts=b''; self.queued=None; self.wifi=-1
+        self.counts=b''; self.queued=None; self.wifi=-1; self.pass_oom=self.failing=0; self.stopped=False
         for n in ('getAllMusic','toolsRandnum','widget_restack','fread@GLIBC_2.0','fclose@GLIBC_2.2','get_wifisignal',
                   'opendir@GLIBC_2.0','readdir@GLIBC_2.0','closedir@GLIBC_2.0','navigator_to'): self.handlers[syms[n]]='s:'+n
         self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0','memcmp@GLIBC_2.0')
@@ -14005,6 +14005,9 @@ class ShuffleMachine(CoverflowMachine):
         if address==syms['navigator_to_with_context'] and self.text(u.reg_read(REGS[0]))=='playing_page':
             self.queued=self.names(self.get(u.reg_read(REGS[1])))
         if address in (syms['toolsQueryDbTable'],self.dbquery) and self.counted(u,address): return
+        if address==syms['calloc@GLIBC_2.0'] and self.failing:  # pass_oom, inside the pass's callbacks
+            self.failing-=1; self.calls.append(('calloc refused',u.reg_read(REGS[0]),u.reg_read(REGS[1])))
+            self.returns(0,clobber=True); return
         if not name.startswith('s:'): return super().hook(u,address,size,unused)
         name=name[2:].split('@')[0]; a,b=u.reg_read(REGS[0]),u.reg_read(REGS[1]); ret=0; self.calls.append((name,a,b))
         if name=='fopen': ret=1 if self.text(a)=='/mnt/data/ringnav-plays' and self.counts else 0
@@ -14025,14 +14028,17 @@ class ShuffleMachine(CoverflowMachine):
     def counted(self,u,address):
         """Most Played's reads over found as songtable's rows: its pass (library_lists.c counted_query, on
         toolsQueryDbTable) hands each row to the payload's own callback, as sqlite3_exec does, and the fetch of those
-        rows by id (path_query, on stock's query) stages the records it picks."""
+        rows by id (path_query, on stock's query) stages the records it picks. pass_oom: how many of the callbacks'
+        own allocations are refused, the first ones; stopped: a callback stopped the pass, an error, which closes
+        stock's shared connection."""
         a,b,c,d=[u.reg_read(r) for r in REGS]; sql=self.text(b)
         if sql.startswith('select id,fileurl,time,'):
-            rows=self.songtable(sql,self.found,values=True)
+            rows=self.songtable(sql,self.found,values=True); self.failing=self.pass_oom
             for row in rows:
                 values=self.alloc(4*len(row)); names=self.alloc(4*len(row))
                 for i,v in enumerate(row): self.word(values+4*i,0 if v is None else self.string(str(v)))
-                if self.nested(c,d,len(row),values,names): break
+                if self.nested(c,d,len(row),values,names): self.stopped=True; break
+            self.failing=0
         elif sql.startswith('select * from songtable not indexed where id in ('):
             rows=self.songtable(sql,self.found)
             self.deqs[self.get(syms['tools_pdeq_directory'])][1]+=[self.copy('stSongInfo',e) for e in rows]
@@ -14757,6 +14763,22 @@ m.page=m.top; assert m.texts()==['Most Played']+[x for p in zip(ranked,details) 
 m.close(); m.calls=[]; m.rescan(); m.calls=[]
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0 and called('toolsQueryDbTable')
 m.page=m.top; assert m.texts()==['Most Played']+[x for p in zip(ranked[:3],details[:3]) for x in p]; passed()
+# Out of memory for the pass's ids, Most Played reads the whole library as before: the pass reads on, its callback
+# never stopping sqlite3_exec (an error closes stock's shared connection), keeps no id once one was refused, though
+# later ones would get memory, and nothing is fetched by id. The next pass, after a rescan, starts afresh.
+m=ShuffleMachine(); m.found=[m.song(f'T{i}') for i in range(130)]; m.word(m.found[1]+O['REC_ARTIST'],0)
+m.counts=b''.join(struct.pack('<2I',*e) for e in slots).ljust(8*O['PLAYS_SLOTS'],b'\0'); m.pass_oom=1; m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0; m.page=m.top
+reads=[m.text(c[2]) for c in m.calls if c[0] in ('toolsQueryDbTable','dbquery')]
+assert ('calloc refused',1024,4) in m.calls and not m.stopped  # era_key_row's first ids; the pass read on
+assert not [c for c in m.calls if c[:3]==('calloc',1024,4)]  # and asked for no ids again
+assert [r[:24] for r in reads]==['select id,fileurl,time,a'] and [c[1] for c in m.calls if c[0]=='getAllMusic']==[3]
+assert m.texts()==['Most Played']+[x for p in zip(ranked,details) for x in p]
+m.close(); m.pass_oom=0; m.calls=[]; m.rescan(); m.calls=[]
+assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=50_000_000)==0; m.page=m.top
+reads=[m.text(c[2]) for c in m.calls if c[0] in ('toolsQueryDbTable','dbquery')]
+assert [r[:24] for r in reads]==['select id,fileurl,time,a','select * from songtable '] and not called('getAllMusic')
+assert m.texts()==['Most Played']+[x for p in zip(ranked,details) for x in p]; passed()
 
 # View Queue on a shuffle (Now Playing's hold menu, Up Next's list): a Play/Pause hold on a row plays its track
 # next, a move, not Play Next's copy, the queue as it was; the rows are taken again with the pick at row 0, the
