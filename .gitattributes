@@ -1,0 +1,2 @@
+# Shell launchers require Unix LF on WSL/macOS/Linux checkouts.
+*.sh text eol=lf
