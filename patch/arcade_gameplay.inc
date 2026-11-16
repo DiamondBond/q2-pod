@@ -37,32 +37,9 @@ static int arcade_frame(unsigned now) {
 
 /* The wheel generates discrete KEY_PREV/NEXT for Blocks, raw travel for Pong. */
 static void arcade_new_key(unsigned key) {
+    /* Share pause, Return, game over, and restart with Snake and Vortex. */
     int over = g->screen == BLOCKS && g->blocks.game_over;
-    if (g->paused == MENU) {
-        if (key == KEY_NEXT || key == KEY_PREV ||
-            key == KEY_FWD_BTN || key == KEY_BACK_BTN)
-            g->choice = !g->choice;
-        else if (key == KEY_CENTER && g->choice)
-            to(CHOOSER);
-        else if (key == KEY_CENTER || key == KEY_RETURN || key == KEY_PLAY) {
-            if (over) q2_blocks_init(&g->blocks, (unsigned)time_now_ms());
-            run();
-        }
-        return;
-    }
-    if (key == KEY_RETURN) { hold(MENU); g->choice = 0; return; }
-    if (over) {
-        if (key == KEY_CENTER) {
-            q2_blocks_init(&g->blocks, (unsigned)time_now_ms());
-            run();
-        }
-        return;
-    }
-    if (g->paused) {
-        if (key == KEY_PLAY || key == KEY_CENTER) run();
-        return;
-    }
-    if (key == KEY_PLAY) { hold(HELD); return; }
+    if (arcade_key(key, over) || g->paused || over) return;
     if (g->screen == PONG) {
         if (key == KEY_PREV || key == KEY_BACK_BTN) q2_pong_move(&g->pong, -14);
         else if (key == KEY_NEXT || key == KEY_FWD_BTN) q2_pong_move(&g->pong, 14);
