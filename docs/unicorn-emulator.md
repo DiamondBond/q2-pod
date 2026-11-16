@@ -37,9 +37,16 @@ bash run-emulator.sh --game blocks
 bash run-emulator.sh --self-test
 ```
 
-Windows 11: install Python with Tcl/Tk and **LLVM for Windows** (clang/ld.lld
-on PATH). Use the included `run-emulator.bat` after installing LLVM
-Python `pyelftools` (installed by the launcher). WSL with WSLg is an alternative.
+Windows 11: install Python with Tcl/Tk and Ubuntu WSL with `clang` and
+`ld.lld` (`wsl --exec clang --version` and `wsl --exec ld.lld --version`
+from PowerShell). The Windows simulator automatically compiles MIPS in WSL,
+then runs Unicorn and Tkinter natively in Windows. No Windows LLVM installation,
+MIPS cross compiler on Windows, or `llvm-readelf.exe` is required.
+Python `pyelftools` is installed by the launcher.
+Run `run-simulator.bat` or `run-emulator.bat --game pong`.
+
+For a custom Windows LLVM toolchain that genuinely supports MIPS, set
+`Q2_MIPS_COMPILER=windows` to disable the WSL compiler route.
 
 macOS: install the Homebrew LLVM toolchain (`brew install llvm`), ensure
 `clang`, `ld.lld` are on PATH, and use Python with Tkinter.
