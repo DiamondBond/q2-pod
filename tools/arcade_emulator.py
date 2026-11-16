@@ -286,6 +286,13 @@ class ArcadeWindow:
                         d.rectangle((x0 + gx * size, y0 + gy * size,
                                      x0 + gx * size + 9, y0 + gy * size + 9),
                                     fill=COLORS[b.piece])
+            draw_label(d, (260, 86), "Next", "#abb5c0", "lt")
+            for row in range(4):
+                for col in range(4):
+                    cell = self.machine.blocks_preview_cell(col, row)
+                    if cell:
+                        x, y = 263 + col * 11, 105 + row * 11
+                        d.rectangle((x, y, x + 9, y + 9), fill=COLORS[cell - 1])
             draw_label(d, (187, 279), "Center: rotate  |  Right: drop", "#abb5c0", "mt")
         if self.menu or self.paused or self.is_over():
             d.rounded_rectangle((58, 108, 317, 216), 12, fill="#303744", outline="#8394a9")
