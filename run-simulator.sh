@@ -21,7 +21,7 @@ if [[ ! -x "$VENV/bin/python" ]]; then
     exit 1
   }
 fi
-if ! "$VENV/bin/python" -c 'import PIL, mutagen, fontTools, unicorn' >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c 'import PIL, mutagen, fontTools, unicorn, elftools' >/dev/null 2>&1; then
   echo "Installing simulator Python dependencies..."
   "$VENV/bin/python" -m pip install -r requirements-simulator.txt
 fi
