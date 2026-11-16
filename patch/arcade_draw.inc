@@ -51,3 +51,36 @@ static void blocks_paint(void *canvas, unsigned tone) {
     (void)tone;
     paused_popup(canvas, b->game_over);
 }
+
+/* Breakout uses the same AWTK canvas primitives and status bar as the older games. */
+static void breakout_paint(void *canvas, unsigned tone) {
+    const Q2Breakout *b = &g->breakout;
+    int h = g->h - 65;
+    if (h < 140) h = 140;
+    box(canvas, 18, 35, 339, h, 0x111722);
+    static const unsigned shades[Q2_BREAKOUT_ROWS] =
+        {0xe85e60, 0xef9b3a, 0xe8d030, 0x48bc76, 0x5387db};
+    for (int row = 0; row < Q2_BREAKOUT_ROWS; ++row)
+        for (int brick_x = 0; brick_x < Q2_BREAKOUT_COLUMNS; ++brick_x) {
+            if (!b->bricks[row][brick_x]) continue;
+            int x = 18 + (16 + brick_x * 39) * 339 / 320;
+            int y = 35 + (27 + row * 16) * (h - 6) / 240;
+            box(canvas, x, y, 36 * 339 / 320, 12 * (h - 6) / 240, shades[row]);
+        }
+    int paddle_x = 18 + b->paddle_x * 339 / 320;
+    int paddle_y = 35 + 220 * (h - 6) / 240;
+    box(canvas, paddle_x, paddle_y, 48 * 339 / 320, 6, tone);
+    int ball_x = 18 + b->ball_x * 339 / 320;
+    int ball_y = 35 + b->ball_y * (h - 6) / 240;
+    box(canvas, ball_x - 4, ball_y - 4, 8, 8, 0xffffff);
+    hud(canvas, "Score", b->score, HUD_X, 4, 0, rgba(0xffffff, 255), SPOT_GREY);
+    hud(canvas, "Best", g->breakout_best.score, 375 - HUD_X, 4, 1,
+        rgba(0xffffff, 255), SPOT_GREY);
+    hud(canvas, "Lives", b->lives, HUD_X, 19, 0, rgba(0xffffff, 255), SPOT_GREY);
+    hud(canvas, "Level", b->level, 375 - HUD_X, 19, 1,
+        rgba(0xffffff, 255), SPOT_GREY);
+    if (b->waiting && g->paused == RUN)
+        text_at(canvas, "Centre: launch", 90, g->h - 37, 195, 20,
+                rgba(0xffffff, 255), CENTER);
+    paused_popup(canvas, b->game_over);
+}
