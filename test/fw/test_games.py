@@ -1224,6 +1224,40 @@ def test_new_builtin_games_open_move_pause_and_restart(fw):
     p.close()
 
 
+def test_pong_continues_past_seven_points_and_quits_through_menu(fw):
+    p = Page(fw)
+    p.go(PONG)
+    p.s.pong.player_score = 99
+    p.s.pong.cpu_score = 101
+    p.now += 33
+    assert p.g.frame(None) == 8  # the match does not stop at 7
+    assert p.g.games_live() and p.s.pong.player_score >= 99
+    p.key(RETURN)
+    assert p.s.paused == MENU and not p.g.games_live()
+    p.key(NEXT, CENTER)  # select Quit from the existing Continue/Quit menu
+    assert p.s.target == CHOOSER
+    p.close()
+
+
+def test_blocks_game_over_can_restart_or_exit(fw):
+    p = Page(fw)
+    p.go(BLOCKS)
+    p.s.blocks.score = 321
+    p.s.blocks.game_over = 1
+    p.now += 33
+    assert p.g.frame(None) == 0
+    assert p.s.blocks_best.score == 321
+    assert not p.g.games_live()
+    p.key(RETURN)
+    assert p.s.paused == MENU
+    p.key(CENTER)  # Continue on game-over restarts the game
+    assert p.s.blocks.score == 0 and not p.s.blocks.game_over
+    assert p.g.games_live()
+    p.key(RETURN, NEXT, CENTER)
+    assert p.s.target == CHOOSER
+    p.close()
+
+
 def test_games_live_is_a_frame_timer_running(fw):
     g = api(fw)
     assert not g.games_live()  # no page
