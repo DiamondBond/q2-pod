@@ -193,7 +193,8 @@ def load_firmware(path, unsquashfs='unsquashfs'):
             if RAW + 'styles/default.bin' in files:
                 styles = {(kind, style, prop): value for kind, style, state, prop, _, value in
                           ipod.style_props(read('styles/default.bin')) if state == 'normal'}
-            names = {'play_plandot', 'play_bigplay', 'play_bigpause', 'play_return'}
+            names = {'play_plandot', 'play_bigplay', 'play_bigpause', 'play_return',
+                     'default_album_flow', 'default_album_coverflow', 'default_album_big'}
             names.update(entry.image for entry in home)
             for widget in page.values():
                 for value in (widget.props.get('image'), widget.style_value(styles, 'bg_image'),

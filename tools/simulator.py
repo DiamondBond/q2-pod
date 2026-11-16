@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Interactive desktop UI preview for Shanling Q2 and Q2 Pod firmware."""
 import argparse
+import bisect
 import io
+import math
+import random
+import re
+import sys
+import time
 import unicodedata
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -15,12 +22,14 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 import build
 import ipod
 import theme
+from simulator_device import CENTRE, DETENT, DEVICE_SIZE, SCREEN_AT, WHEEL, device_frame, wheel_angle, wheel_button, wheel_delta
 from simulator_firmware import load_firmware
 
 SIZE = (375, 320)
 THEMES = ('classic-light', 'modern', 'minimal')
 FACES = ('default', 'bold', 'classic-light')
 ERRORS = (OSError, ValueError, MutagenError, TTLibError)
+TIMESTAMP = re.compile(r'\[(\d+):([0-5]\d)(?:[.:](\d{1,3}))?\]')
 
 
 @dataclass(frozen=True)
@@ -30,11 +39,34 @@ class Track:
     album: str
     art: bytes | None = None
     filename: str = ''
+    path: Path | None = None
+    album_artist: str = ''
+    duration: float = 0.0
+    lyrics: tuple[tuple[float, str], ...] = ()
+
+
+def read_lyrics(path):
+    try:
+        data = path.with_suffix('.lrc').read_bytes()
+        source = data.decode('utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig')
+    except (OSError, UnicodeError):
+        return ()
+    offset = re.search(r'^\[offset:([+-]?\d+)\]', source, re.MULTILINE | re.IGNORECASE)
+    delay = int(offset[1]) / 1000 if offset else 0
+    stamps = []
+    for line in source.splitlines():
+        for match in TIMESTAMP.finditer(line):
+            minutes, seconds, fraction = match.groups()
+            seconds = int(minutes) * 60 + int(seconds) + float('0.' + (fraction or '0'))
+            text = TIMESTAMP.sub('', line).strip()
+            stamps.append((max(0, seconds + delay), unicodedata.normalize('NFC', text)))
+    return tuple(sorted(stamps, key=lambda entry: entry[0]))
 
 
 SAMPLES = (
     Track('Thử ư â ă — Mưa Trên Phố Huế', 'Nguyễn Thị Hương', 'Kỷ Niệm Mùa Thu',
-          filename='1. a\u0309.flac'),
+          filename='1. a\u0309.flac', duration=257,
+          lyrics=((0, 'Thử hiển thị tiếng Việt'), (8, 'Ngày ấy đôi môi đậm đà'), (18, 'Mưa rơi trên phố Huế'))),
     Track('夜の音楽', 'アーティスト', 'アルバム', filename='夜の音楽.flac'),
     Track('Lo que la música me enseñó', 'Artista', 'Álbum', filename='Álbum.mp3'),
 )
@@ -52,10 +84,73 @@ def read_track(path):
     pictures = getattr(raw, 'pictures', ())
     art = pictures[0].data if pictures else next(
         (getattr(tag, 'data', None) for tag in (raw.tags or {}).values() if isinstance(tag, APIC)), None)
+    if art is None:
+        for name in ('cover.jpg', 'folder.jpg', 'cover.png'):
+            candidate = path.with_name(name)
+            try:
+                if candidate.stat().st_size <= 12 * 1024 * 1024:
+                    art = candidate.read_bytes()
+                    break
+            except OSError:
+                continue
     title = (tags.get('title') or [path.stem])[0]
     artist = (tags.get('artist') or [''])[0]
     album = (tags.get('album') or [''])[0]
-    return Track(title, artist, album, art, path.name)
+    album_artist = (tags.get('albumartist') or [artist])[0]
+    return Track(title, artist, album, art, path.name, path.resolve(), album_artist,
+                 float(getattr(audio.info, 'length', 0)), read_lyrics(path))
+
+
+def scan_card(root):
+    if not root.is_dir():
+        raise ValueError(f'Choose an existing SD card folder: {root}')
+    tracks, failures = [], []
+    for path in sorted(root.rglob('*'), key=lambda item: str(item.relative_to(root)).casefold()):
+        if path.suffix.lower() not in ('.mp3', '.flac') or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            tracks.append(read_track(path))
+        except ERRORS as exc:
+            failures.append(f'{path.relative_to(root)}: {exc}')
+    return tracks, failures
+
+
+def folder_rows(tracks, directory):
+    if directory is None:
+        return [(track.filename or track.title, i) for i, track in enumerate(tracks)]
+    folders: set[Path] = set()
+    songs = []
+    for index, track in enumerate(tracks):
+        if track.path is None or not track.path.is_relative_to(directory):
+            continue
+        relative = track.path.relative_to(directory)
+        if len(relative.parts) == 1:
+            songs.append((relative.name, index))
+        else:
+            folders.add(directory / relative.parts[0])
+    return ([(path.name, path) for path in sorted(folders, key=lambda path: path.name.casefold())] +
+            sorted(songs, key=lambda song: song[0].casefold()))
+
+
+@dataclass(frozen=True)
+class Album:
+    name: str
+    artist: str
+    tracks: tuple[int, ...]
+    cover: int
+
+
+def albums_for(tracks, sort='Album'):
+    grouped = defaultdict(list)
+    for i, track in enumerate(tracks):
+        artist = track.album_artist or track.artist
+        name = track.album or (track.path.parent.name if track.path else 'Unknown Album')
+        grouped[name, artist].append(i)
+    albums = [Album(name, artist, tuple(indices),
+                    next((i for i in indices if tracks[i].art), indices[0]))
+              for (name, artist), indices in grouped.items()]
+    return sorted(albums, key=lambda album: tuple(value.casefold() for value in
+                  ((album.artist, album.name) if sort == 'Artist' else (album.name, album.artist))))
 
 
 class Fonts:
@@ -147,6 +242,128 @@ def firmware_image(data):
         return source.convert('RGBA')
 
 
+def display_page(fonts, title, light):
+    paper, ink, muted = ('#f7f7f7', '#171717', '#696969') if light else ('#161722', '#f7f4f4', '#a4a4b3')
+    frame = Image.new('RGB', SIZE, paper)
+    draw = ImageDraw.Draw(frame)
+    draw.rectangle((0, 0, SIZE[0], 29), fill='#e5e5e5' if light else '#222431')
+    label(frame, fonts, 'default', title, (26, 0, 323, 30), 18, ink)
+    return frame, draw, ink, muted
+
+
+def render_menu(fonts, title, rows, selected, light):
+    frame, draw, ink, muted = display_page(fonts, title, light)
+    hits = []
+    if not rows:
+        label(frame, fonts, 'default', 'No tracks', (24, 113, 327, 58), 20, muted, align='center')
+    start = max(0, selected - 5)
+    for index, (text, value, face) in enumerate(rows[start:start + 6], start):
+        y = 38 + 45 * (index - start)
+        if index == selected:
+            draw.rounded_rectangle((12, y, 362, y + 41), 8, '#cfe7fb' if light else '#344565')
+        if value:
+            label(frame, fonts, 'default', value, (220, y, 127, 41), 16, muted, align='right')
+        label(frame, fonts, face, text, (22, y, 200 if value else 323, 41), 21, ink)
+        hits.append((index, y, y + 42))
+    return frame, hits
+
+
+def album_image(album, tracks, firmware, side):
+    sample = tracks[album.cover]
+    if not sample.art and firmware:
+        for name in ('default_album_flow', 'default_album_coverflow', 'default_album_big'):
+            if name in firmware.images:
+                return ImageOps.fit(firmware_image(firmware.images[name]), (side, side)).convert('RGB')
+    return cover(sample, side, False)[0]
+
+
+def render_albums(fonts, tracks, albums, selected, firmware, light):
+    grid = firmware is not None and not firmware.custom
+    frame, draw, ink, muted = display_page(fonts, 'Album Wall' if grid else 'Cover Flow', light)
+    if not albums:
+        label(frame, fonts, 'default', 'No albums', (24, 112, 327, 62), 22, muted, align='center')
+        return frame, []
+    hits = []
+    if grid:
+        start = (selected // 9) * 9
+        for index, album in enumerate(albums[start:start + 9], start):
+            col, row = (index - start) % 3, (index - start) // 3
+            x, y = 55 + col * 91, 38 + row * 89
+            frame.paste(album_image(album, tracks, firmware, 77), (x, y))
+            if index == selected:
+                draw.rounded_rectangle((x - 3, y - 3, x + 79, y + 79), 4, outline='#82bcff', width=3)
+            hits.append((index, x, y, x + 77, y + 77))
+        return frame, hits
+    for distance in (3, 2, 1, 0):
+        for step in (-distance, distance) if distance else (0,):
+            index = selected + step
+            if not 0 <= index < len(albums):
+                continue
+            side = 162 if not step else 114 - distance * 9
+            art = album_image(albums[index], tracks, firmware, side)
+            x = round((375 - side) / 2 + step * 61)
+            y = 58 if not step else 88 + distance * 5
+            if step:
+                art = art.resize((round(side * .72), side))
+                art = Image.blend(art, Image.new('RGB', art.size), min(.12 * distance, .55))
+            frame.paste(art, (x, y))
+            if not step:
+                reflection = ImageOps.flip(art).crop((0, 0, side, 25))
+                alpha = Image.new('L', reflection.size)
+                shade = ImageDraw.Draw(alpha)
+                for row in range(reflection.height):
+                    shade.line((0, row, side, row), fill=94 - row * 3)
+                frame.paste(reflection, (x, y + side + 2), alpha)
+            hits.append((index, x, y, x + art.width, y + art.height))
+    album = albums[selected]
+    label(frame, fonts, 'default', album.name, (22, 248, 331, 30), 24, ink, align='center')
+    label(frame, fonts, 'default', album.artist, (22, 279, 331, 24), 17, muted, align='center')
+    return frame, hits[::-1]  # frontmost cover wins
+
+
+def format_time(seconds):
+    minutes, seconds = divmod(int(max(0, seconds)), 60)
+    return f'{minutes}:{seconds:02d}'
+
+
+def render_lyrics(track, fonts, elapsed, position, count):
+    frame, draw, ink, muted = display_page(fonts, 'Lyrics', False)
+    label(frame, fonts, 'default', f'{position} of {count}', (26, 44, 115, 23), 16, ink)
+    index = bisect.bisect_right(track.lyrics, elapsed, key=lambda line: line[0]) - 1
+    if not track.lyrics:
+        label(frame, fonts, 'default', 'No synced lyrics', (26, 121, 323, 52), 23, muted, align='center')
+    else:
+        current = max(0, index)
+        for at, y in ((current - 1, 87), (current, 144), (current + 1, 220)):
+            if not 0 <= at < len(track.lyrics):
+                continue
+            text, face = fonts.artist(track.lyrics[at][1])
+            if face == 'default' and fonts.supports('bold', text):
+                face = 'bold'
+            size = 30 if at == current else 23
+            font = fonts.font(face, size)
+            lines = ['']
+            for word in text.split():
+                candidate = f'{lines[-1]} {word}'.strip()
+                if lines[-1] and font.getlength(candidate) > 316:
+                    lines.append(word)
+                else:
+                    lines[-1] = candidate
+            for row, line in enumerate(lines[:2]):
+                label(frame, fonts, face, line, (26, y + row * 30, 323, 32), size,
+                      ink if at == current else '#55576a')
+    for i in range(4):
+        x = 166 + i * 14
+        draw.ellipse((x, 261, x + 7, 268), fill=ink if i == 1 else '#777a8b')
+    progress = min(1, elapsed / track.duration) if track.duration > 0 else 0
+    draw.rounded_rectangle((26, 280, 349, 285), 3, '#565968')
+    draw.rounded_rectangle((26, 279, 26 + max(6, round(323 * progress)), 286), 3, '#ff416e')
+    label(frame, fonts, 'default', format_time(elapsed), (26, 290, 95, 23), 15, muted)
+    label(frame, fonts, 'default', '-' + format_time(track.duration - elapsed),
+          (255, 290, 94, 23), 15, muted, align='right')
+    return frame
+
+
 def packaged_style(firmware, widget, name, default):
     value = widget.style_value(firmware.styles, name)
     if value is None:
@@ -222,7 +439,7 @@ def render_browse(firmware, fonts, style, page, selected, tracks):
     return frame, hits
 
 
-def render_firmware(track, fonts, firmware, style, position, count, scroll, paused):
+def render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed):
     page = firmware.page
     light = firmware.custom and style == 'classic-light'
     offset = 30  # the AWTK page sits below the system bar
@@ -283,8 +500,11 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
     text('scrlabel_artist', artist, artist_face, shift=scroll)
     text('label_ipod_album', track.album, shift=scroll)
     text('label_ipod_pos', f'{position} of {count}')
-    text('label_playtime', '00:00')
-    text('label_ipod_remain' if 'label_ipod_remain' in page else 'label_playlen', '00:00')
+    text('label_playtime', format_time(elapsed))
+    if 'label_ipod_remain' in page:
+        text('label_ipod_remain', '-' + format_time(track.duration - elapsed))
+    else:
+        text('label_playlen', format_time(track.duration))
 
     slider = page['slider_play']
     track_image = packaged_style(firmware, slider, 'bg_image', '')
@@ -294,12 +514,17 @@ def render_firmware(track, fonts, firmware, style, position, count, scroll, paus
         x, y, w, h = slider.box
         y += offset + h // 2
         draw.rounded_rectangle((x, y - 3, x + w - 1, y + 3), 3, fill='#777777')
+    if track.duration > 0 and elapsed > 0:
+        x, y, w, h = slider.box
+        y += offset + h // 2 + int(packaged_style(firmware, slider, 'y_offset', 0))
+        end = x + max(4, min(w - 1, round(w * elapsed / track.duration)))
+        draw.rounded_rectangle((x, y - 3, end, y + 3), 3, fill='#258ed8' if light else '#ff416e')
     return frame, face
 
 
-def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, firmware=None):
+def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, firmware=None, elapsed=0.0):
     if firmware is not None:
-        return render_firmware(track, fonts, firmware, style, position, count, scroll, paused)
+        return render_firmware(track, fonts, firmware, style, position, count, scroll, paused, elapsed)
     classic = style == 'classic-light'
     config = theme_config(style)
     paper, ink, secondary = ('#f7f7f7', '#171717', '#555555') if classic else (
@@ -331,158 +556,355 @@ def render(track, fonts, style, position=1, count=1, scroll=0, paused=False, fir
     return image, face
 
 
-def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs'):
+HOME_ROUTES = (('playing', 'Now Playing'), ('localmusic', 'Library'), ('coverflow', 'Cover Flow'),
+               ('folder', 'Folders'), ('settings', 'Settings'))
+
+
+class Simulator:
+    def __init__(self, style, tracks, firmware=None, sd_card=None):
+        self.style, self.tracks, self.firmware, self.sd_card = style, tracks, firmware, sd_card
+        self.page, self.cursor = 'home', 0
+        self.current, self.scroll, self.paused, self.elapsed = 0, 0, True, 0.0
+        self.directory, self.album = sd_card, None
+        self.folder_cache: dict[Path | None, list[tuple[str, Path | int]]] = {}
+        self.history = []
+        self.queue = tuple(range(len(tracks)))
+        self.albums = albums_for(tracks)
+        self.brightness, self.shuffle, self.repeat, self.sort = '100%', 'Off', 'Off', 'Album'
+        self.hint = ''
+
+    @property
+    def light(self):
+        return (self.firmware is None or self.firmware.custom) and self.style == 'classic-light'
+
+    def replace_tracks(self, tracks, root=None):
+        self.tracks, self.sd_card, self.directory = tracks, root, root
+        self.albums, self.album = albums_for(tracks, self.sort), None
+        self.folder_cache.clear()
+        self.queue = tuple(range(len(tracks)))
+        self.current, self.cursor, self.scroll, self.elapsed, self.paused = 0, 0, 0, 0.0, True
+        self.page = 'folder' if root else 'home'
+        self.history = [('home', 0, root, None)] if root else []
+
+    def menu(self):
+        if self.page == 'settings':
+            return [('Display', '', 'display'), ('Playback', '', 'playset'), ('About', '', 'about')]
+        if self.page == 'display':
+            rows = [('Brightness', self.brightness, 'brightness'), ('Cover Flow sort', self.sort, 'sort')]
+            if self.firmware is None or self.firmware.custom:
+                rows.insert(0, ('Theme', self.style.replace('-', ' ').title(), 'theme'))
+            return rows
+        if self.page == 'playset':
+            return [('Shuffle', self.shuffle, 'shuffle'), ('Repeat', self.repeat, 'repeat')]
+        return [('Firmware', self.firmware.version if self.firmware else 'Checkout', None),
+                ('Tracks', str(len(self.tracks)), None), ('Albums', str(len(self.albums)), None)]
+
+    def open(self, page):
+        self.history.append((self.page, self.cursor, self.directory, self.album))
+        self.page, self.cursor, self.scroll, self.hint = page, 0, 0, ''
+
+    def back(self):
+        if self.history:
+            self.page, self.cursor, self.directory, self.album = self.history.pop()
+        else:
+            self.page, self.cursor = 'home', 0
+        self.hint, self.scroll = '', 0
+
+    def move(self, step):
+        if self.page in ('playing', 'lyrics'):
+            self.step_track(step)
+        else:
+            count = (len(self.albums) if self.page == 'coverflow' else
+                     len(self.firmware.home if self.firmware else HOME_ROUTES) if self.page == 'home' else
+                     len(self.rows()))
+            if count:
+                self.cursor = (self.cursor + step) % count
+        self.hint, self.scroll = '', 0
+
+    def step_track(self, step, automatic=False):
+        if not self.queue:
+            return
+        position = self.queue.index(self.current)
+        if automatic and self.repeat == 'One':
+            self.elapsed = 0.0
+            return
+        if self.shuffle == 'On' and len(self.queue) > 1:
+            self.current = random.choice([index for index in self.queue if index != self.current])
+        elif automatic and position == len(self.queue) - 1 and self.repeat == 'Off':
+            self.paused = True
+            return
+        else:
+            self.current = self.queue[(position + step) % len(self.queue)]
+        self.elapsed, self.scroll = 0.0, 0
+
+    def advance(self, delta):
+        if not self.paused and self.tracks:
+            self.elapsed += delta
+            duration = self.tracks[self.current].duration
+            if duration > 0 and self.elapsed >= duration:
+                self.elapsed = duration
+                self.step_track(1, automatic=True)
+
+    def cycle(self, key):
+        choices = {'theme': ('style', THEMES), 'brightness': ('brightness', ('100%', '75%', '50%', '25%')),
+                   'sort': ('sort', ('Album', 'Artist')), 'shuffle': ('shuffle', ('Off', 'On')),
+                   'repeat': ('repeat', ('Off', 'All', 'One'))}
+        if key not in choices:
+            return
+        name, values = choices[key]
+        setattr(self, name, values[(values.index(getattr(self, name)) + 1) % len(values)])
+        if key == 'sort':
+            self.albums = albums_for(self.tracks, self.sort)
+
+    def rows(self):
+        if self.page == 'folder':
+            if self.directory not in self.folder_cache:
+                self.folder_cache[self.directory] = folder_rows(self.tracks, self.directory)
+            return self.folder_cache[self.directory]
+        if self.page == 'album' and self.album is not None:
+            return [(self.tracks[index].title, index) for index in self.album.tracks]
+        if self.page == 'localmusic':
+            return [(track.title, i) for i, track in enumerate(self.tracks)]
+        return self.menu()
+
+    def play(self, index, queue):
+        self.current, self.queue, self.elapsed, self.paused = index, tuple(queue), 0.0, False
+        self.open('playing')
+
+    def enter(self):
+        if self.page == 'home':
+            if self.firmware:
+                entry = self.firmware.home[self.cursor]
+                key, title = entry.key, entry.label
+            else:
+                key, title = HOME_ROUTES[self.cursor]
+            if key in ('playing', 'localmusic', 'coverflow', 'folder', 'settings', 'playset'):
+                self.open(key)
+                self.directory = self.sd_card
+            elif key == 'sysset':
+                self.open('settings')
+            else:
+                self.hint = f'{title} requires the device'
+        elif self.page == 'coverflow':
+            if self.albums:
+                self.open('album')
+                # open resets the cursor; history retains the selected cover.
+                self.album = self.albums[self.history[-1][1]]
+        elif self.page in ('folder', 'localmusic', 'album'):
+            rows = self.rows()
+            if rows:
+                target = rows[self.cursor][1]
+                if isinstance(target, Path):
+                    self.open('folder')
+                    self.directory = target
+                else:
+                    self.play(target, [index for _, index in rows if isinstance(index, int)])
+        elif self.page == 'settings':
+            self.open(self.menu()[self.cursor][2])
+        elif self.page in ('display', 'playset'):
+            self.cycle(self.menu()[self.cursor][2])
+        elif self.page in ('playing', 'lyrics'):
+            self.toggle()
+
+    def toggle(self):
+        if self.tracks:
+            self.paused = not self.paused
+
+    def lyrics_page(self):
+        if self.page == 'playing':
+            self.open('lyrics')
+        elif self.page == 'lyrics':
+            self.back()
+
+    def button(self, button):
+        actions = {'up': self.back, 'down': self.toggle, 'center': self.enter,
+                   'left': lambda: self.move(-1), 'right': lambda: self.move(1)}
+        if button in actions:
+            actions[button]()
+
+    def frame(self, fonts):
+        if self.page == 'home' and self.firmware:
+            frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor, self.tracks)
+            return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
+        if self.page == 'coverflow':
+            return render_albums(fonts, self.tracks, self.albums, self.cursor, self.firmware, self.light)
+        if self.page in ('playing', 'lyrics') and self.tracks:
+            track = self.tracks[self.current]
+            position = self.queue.index(self.current) + 1
+            if self.page == 'lyrics':
+                return render_lyrics(track, fonts, self.elapsed, position, len(self.queue)), []
+            frame, _face = render(track, fonts, self.style, position, len(self.queue),
+                                  self.scroll, self.paused, self.firmware, self.elapsed)
+            return frame, []
+        title = {'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs', 'settings': 'Settings',
+                 'display': 'Display', 'playset': 'Playback', 'about': 'About'}.get(self.page, 'Now Playing')
+        if self.page == 'home':
+            rows = [(label, '›', 'default') for _key, label in HOME_ROUTES]
+        elif self.page in ('folder', 'localmusic', 'album'):
+            if self.page == 'folder' and self.directory and self.directory != self.sd_card:
+                title = self.directory.name
+            if self.page == 'album' and self.album is not None:
+                title = self.album.name
+            rows = []
+            for name, target in self.rows():
+                name, face = fonts.artist(name) if self.page == 'folder' else (name, 'default')
+                rows.append((name, '›' if isinstance(target, Path) else '', face))
+        elif self.page in ('playing', 'lyrics'):
+            rows = []
+        else:
+            rows = [(name, value or ('›' if key else ''), 'default') for name, value, key in self.menu()]
+        frame, hits = render_menu(fonts, title, rows, self.cursor, self.light)
+        return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
+
+
+def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_card=None):
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
     from PIL import ImageTk
 
+    ui = Simulator(style, tracks, firmware, sd_card)
     window = tk.Tk()
-    window.title('Q2 Pod Simulator')
-    current, scroll, paused = 0, 0, False
-    page = 'home' if firmware else 'playing'
-    home_index, row_index, return_page = 0, 0, 'home'
-    hits: list[tuple[int, int, int]] = []
-    hint = ''
-    photo: ImageTk.PhotoImage | None = None
-    selected = tk.StringVar(value=style)
-    screen = ttk.Label(window)
+    window.title('Shanling Q2 Simulator')
+    window.configure(background='#242122')
+    screen = tk.Canvas(window, width=DEVICE_SIZE[0], height=DEVICE_SIZE[1], highlightthickness=0,
+                       background='#242122', takefocus=True)
     screen.pack()
+    picture = screen.create_image(0, 0, anchor='nw')
+    status = ttk.Label(window, wraplength=395, padding=(9, 4, 9, 4))
+    status.pack(fill='x')
     controls = ttk.Frame(window, padding=8)
     controls.pack(fill='x')
-    status = ttk.Label(window, padding=(8, 0, 8, 8), wraplength=355)
-    status.pack()
+    photo: ImageTk.PhotoImage | None = None
+    hits: list[tuple[int, int, int, int, int]] = []
+    pressed, angle, accumulated, dragged = None, None, 0.0, False
+    last_tick = time.monotonic()
 
     def open_firmware():
-        nonlocal firmware, fonts, scroll, page, home_index, row_index, return_page, hint
+        nonlocal fonts
         path = filedialog.askopenfilename(filetypes=[('Q2 firmware', '*.zip *.tar'), ('All files', '*')])
-        if not path:
-            return
-        try:
-            package = load_firmware(Path(path), unsquashfs)
-            package_fonts = Fonts(firmware=package)
-            render(tracks[current], package_fonts, selected.get(), firmware=package)
-        except ERRORS as exc:
-            messagebox.showerror('Could not open firmware', str(exc), parent=window)
-            return
-        firmware, fonts, scroll = package, package_fonts, 0
-        page, home_index, row_index, return_page, hint = 'home', 0, 0, 'home', ''
-        themes.configure(state='readonly' if firmware.custom else 'disabled')
-        screen.focus_set()
-
-    def move(step):
-        nonlocal current, scroll, home_index, row_index, hint
-        if page == 'home' and firmware:
-            home_index = (home_index + step) % len(firmware.home)
-        elif page in ('folder', 'localmusic'):
-            row_index = (row_index + step) % len(tracks)
-        else:
-            current = (current + step) % len(tracks)
-        scroll = 0
-        hint = ''
-
-    def toggle():
-        nonlocal paused
-        paused = not paused
-
-    def enter():
-        nonlocal page, current, row_index, return_page, scroll, hint
-        screen.focus_set()
-        if page == 'home' and firmware:
-            entry = firmware.home[home_index]
-            if entry.key in ('folder', 'localmusic', 'playing'):
-                page, row_index, return_page = entry.key, current, 'home'
+        if path:
+            try:
+                package = load_firmware(Path(path), unsquashfs)
+                loaded_fonts = Fonts(firmware=package)
+            except ERRORS as exc:
+                messagebox.showerror('Could not open firmware', str(exc), parent=window)
             else:
-                hint = f'{entry.label} is outside this simulator preview'
-        elif page in ('folder', 'localmusic'):
-            return_page, page, current, scroll = page, 'playing', row_index, 0
-        else:
-            toggle()
-
-    def back():
-        nonlocal page, hint
-        if firmware:
-            page = return_page if page == 'playing' else 'home'
-            hint = ''
+                ui.firmware, fonts = package, loaded_fonts
+                ui.page, ui.cursor, ui.history, ui.hint = 'home', 0, [], ''
         screen.focus_set()
 
-    def tap(event):
-        nonlocal home_index, row_index
+    def open_card():
+        path = filedialog.askdirectory(mustexist=True, initialdir=ui.sd_card or Path.cwd())
+        if path:
+            root = Path(path).resolve()
+            try:
+                loaded, failures = scan_card(root)
+            except ERRORS as exc:
+                messagebox.showerror('Could not open SD folder', str(exc), parent=window)
+            else:
+                ui.replace_tracks(loaded, root)
+                if failures:
+                    skipped_tracks(failures)
         screen.focus_set()
-        if page == 'playing':
-            return
-        if page == 'home' and firmware and not firmware.custom:
-            if event.x < 60 or event.x > SIZE[0] - 60:
-                move(-1 if event.x < 60 else 1)
-                return
-        for index, y, end in hits:
-            if y <= event.y < end:
-                if page == 'home':
-                    home_index = index
-                else:
-                    row_index = index
-                enter()
-                return
+
+    def skipped_tracks(failures):
+        preview = failures[:8] + ([f'… and {len(failures) - 8} more'] if len(failures) > 8 else [])
+        messagebox.showwarning('Could not open some tracks', '\n'.join(preview), parent=window)
 
     def open_tracks():
-        nonlocal tracks, current, scroll, row_index
         paths = filedialog.askopenfilenames(filetypes=[('Audio', '*.mp3 *.flac'), ('All files', '*')])
-        if not paths:
-            return
         loaded, failures = [], []
         for path in paths:
             try:
                 loaded.append(read_track(path))
-            except (OSError, ValueError, MutagenError) as exc:
+            except ERRORS as exc:
                 failures.append(f'{Path(path).name}: {exc}')
         if loaded:
-            tracks, current, scroll, row_index = loaded, 0, 0, 0
+            ui.replace_tracks(loaded)
         if failures:
-            messagebox.showwarning('Could not open tracks', '\n'.join(failures), parent=window)
+            skipped_tracks(failures)
         screen.focus_set()
 
-    def refresh():
-        nonlocal photo, scroll, hits
-        source = firmware.name if firmware is not None else 'Checkout preview'
-        if firmware and page != 'playing':
-            index = home_index if page == 'home' else row_index
-            frame, hits = render_browse(firmware, fonts, selected.get(), page, index, tracks)
-            detail = hint or 'Wheel or arrows to move · Enter to select · Esc to go back'
-        else:
-            frame, face = render(tracks[current], fonts, selected.get(), current + 1,
-                                 len(tracks), scroll, paused, firmware)
-            fallback = '' if 'default' in fonts.data else ' · Stock font unavailable, preview uses bundled bold'
-            artist_face = f' · Artist font: {fonts.artist(tracks[current].artist)[1]}' if firmware else ''
-            detail = f'Title font: {face}{artist_face}{fallback}'
-        photo = ImageTk.PhotoImage(frame)
-        screen.configure(image=photo)
-        status.configure(text=f'{source} · {detail}')
-        scroll += 2
-        window.after(100, refresh)
+    def tap(x, y):
+        if not (0 <= x < SIZE[0] and 0 <= y < SIZE[1]):
+            return
+        if ui.page in ('playing', 'lyrics'):
+            ui.lyrics_page()
+            return
+        if ui.page == 'home' and ui.firmware and not ui.firmware.custom and (x < 60 or x > SIZE[0] - 60):
+            ui.move(-1 if x < 60 else 1)
+            return
+        for index, left, top, right, bottom in hits:
+            if left <= x < right and top <= y < bottom:
+                ui.cursor = index
+                ui.enter()
+                return
 
-    ttk.Button(controls, text='Open tracks', command=open_tracks).pack(side='left')
-    for text, callback in (('‹', lambda: move(-1)), ('›', lambda: move(1)),
-                           ('Select', enter)):
-        ttk.Button(controls, text=text, width=7 if text == 'Select' else 3,
-                   command=callback).pack(side='left', padx=(4, 0))
-    themes = ttk.Combobox(controls, textvariable=selected, values=THEMES, width=12,
-                          state='readonly' if firmware is None or firmware.custom else 'disabled')
-    themes.pack(side='right')
-    themes.bind('<<ComboboxSelected>>', lambda _: screen.focus_set())
-    device = ttk.Frame(window, padding=(8, 0, 8, 8))
-    device.pack(fill='x')
-    ttk.Button(device, text='Open firmware', command=open_firmware).pack(side='left')
-    ttk.Button(device, text='Back', command=back).pack(side='right')
+    def press(event):
+        nonlocal pressed, angle, accumulated, dragged
+        screen.focus_set()
+        pressed = wheel_button(event.x, event.y)
+        angle = wheel_angle(event.x, event.y) if pressed and pressed != 'center' else None
+        accumulated, dragged = 0.0, False
+
+    def drag(event):
+        nonlocal angle, accumulated, dragged
+        if angle is None or math.hypot(event.x - WHEEL[0], event.y - WHEEL[1]) < CENTRE:
+            return
+        new_angle = wheel_angle(event.x, event.y)
+        accumulated += wheel_delta(angle, new_angle)
+        angle = new_angle
+        if abs(accumulated) >= DETENT / 3:
+            dragged = True
+        ticks = math.trunc(accumulated / DETENT)
+        if ticks:
+            ui.move(ticks)
+            accumulated -= ticks * DETENT
+
+    def release(event):
+        if pressed:
+            if not dragged and pressed == wheel_button(event.x, event.y):
+                ui.button(pressed)
+        else:
+            tap(event.x - SCREEN_AT[0], event.y - SCREEN_AT[1])
+
+    def refresh():
+        nonlocal photo, hits, last_tick
+        now = time.monotonic()
+        ui.advance(now - last_tick)
+        last_tick = now
+        frame, hits = ui.frame(fonts)
+        gain = int(ui.brightness.rstrip('%')) / 100
+        if gain < 1:
+            frame = Image.blend(Image.new('RGB', SIZE), frame, gain)
+        photo = ImageTk.PhotoImage(device_frame(frame))
+        screen.itemconfigure(picture, image=photo)
+        source = ui.firmware.name if ui.firmware else 'Checkout preview'
+        if ui.page in ('playing', 'lyrics') and ui.tracks:
+            detail = f'Artist font: {fonts.artist(ui.tracks[ui.current].artist)[1]} · Click display to switch lyrics'
+        else:
+            detail = ui.hint or (f'SD: {ui.sd_card.name} · {len(ui.tracks)} tracks' if ui.sd_card else
+                                 'Drag the wheel or use the arrow keys · Enter to select')
+        status.configure(text=f'{source} · {detail}')
+        ui.scroll += 2
+        window.after(90, refresh)
+
+    for text, command in (('Open firmware', open_firmware), ('Mount SD folder', open_card), ('Open tracks', open_tracks)):
+        ttk.Button(controls, text=text, command=command).pack(side='left', padx=(0, 5))
+    screen.bind('<ButtonPress-1>', press)
+    screen.bind('<B1-Motion>', drag)
+    screen.bind('<ButtonRelease-1>', release)
     for key in ('<Up>', '<Left>', '<Button-4>'):
-        screen.bind(key, lambda _: move(-1))
+        screen.bind(key, lambda _: ui.move(-1))
     for key in ('<Down>', '<Right>', '<Button-5>'):
-        screen.bind(key, lambda _: move(1))
-    screen.bind('<MouseWheel>', lambda event: move(-1 if event.delta > 0 else 1))
-    screen.bind('<space>', lambda _: enter())
-    screen.bind('<Return>', lambda _: enter())
-    screen.bind('<Escape>', lambda _: back())
-    screen.bind('<BackSpace>', lambda _: back())
-    screen.bind('<Button-1>', tap)
+        screen.bind(key, lambda _: ui.move(1))
+    screen.bind('<MouseWheel>', lambda event: ui.move(-1 if event.delta > 0 else 1))
+    screen.bind('<Return>', lambda _: ui.enter())
+    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics') else ui.enter())
+    for key in ('<Escape>', '<BackSpace>'):
+        screen.bind(key, lambda _: ui.back())
+    screen.bind('<Key-l>', lambda _: ui.lyrics_page())
     window.after_idle(screen.focus_set)
     refresh()
     window.mainloop()
@@ -496,30 +918,44 @@ def main():
     parser.add_argument('--fonts-dir', type=Path, help='directory holding packaged bold.ttf and classic-light.ttf')
     parser.add_argument('--firmware', type=Path, help='official Q2 firmware ZIP or an update.tar')
     parser.add_argument('--unsquashfs', default='unsquashfs', help='squashfs-tools executable (defaults to PATH)')
+    parser.add_argument('--sd-card', type=Path, help='directory to mount as the simulated SD card')
     parser.add_argument('--snapshot', type=Path, help='save one PNG and exit without opening a window')
-    parser.add_argument('--screen', choices=('home', 'folder', 'localmusic', 'playing'), default='playing',
-                        help='screen to capture with --snapshot (browse screens require --firmware)')
+    parser.add_argument('--screen', choices=('home', 'folder', 'localmusic', 'coverflow', 'settings', 'playing', 'lyrics'),
+                        default='playing', help='screen to capture with --snapshot')
+    parser.add_argument('--with-device', action='store_true', help='include the enclosure and wheel in the screenshot')
     args = parser.parse_args()
     if args.firmware and (args.stock_font or args.fonts_dir):
         parser.error('--firmware supplies the fonts itself; use --stock-font and --fonts-dir in checkout preview mode')
-    if args.screen != 'playing' and not (args.snapshot and args.firmware):
-        parser.error('--screen requires --snapshot and --firmware')
+    if (args.screen != 'playing' or args.with_device) and not args.snapshot:
+        parser.error('--screen and --with-device require --snapshot')
+    if args.sd_card and args.tracks:
+        parser.error('choose an SD card folder or individual tracks')
     try:
         firmware = load_firmware(args.firmware, args.unsquashfs) if args.firmware else None
         fonts = Fonts(args.stock_font, args.fonts_dir, firmware)
-        tracks = [read_track(path) for path in args.tracks] or list(SAMPLES)
+        root = args.sd_card.resolve() if args.sd_card else None
+        if root is not None:
+            tracks, failures = scan_card(root)
+            for failure in failures:
+                print(f'Skipped track: {failure}', file=sys.stderr)
+        else:
+            tracks = [read_track(path) for path in args.tracks] or list(SAMPLES)
         if args.snapshot:
-            if args.screen == 'playing':
+            if args.screen == 'playing' and tracks:
                 image, face = render(tracks[0], fonts, args.theme, count=len(tracks), firmware=firmware)
                 detail = f'title font: {face}; artist font: {fonts.artist(tracks[0].artist)[1]}'
             else:
-                image, _ = render_browse(firmware, fonts, args.theme, args.screen, 0, tracks)
+                preview = Simulator(args.theme, tracks, firmware, root)
+                preview.page = args.screen
+                image, _ = preview.frame(fonts)
                 detail = args.screen
+            if args.with_device:
+                image = device_frame(image)
             image.save(args.snapshot)
             source = firmware.name if firmware else 'checkout preview'
             print(f'{args.snapshot} ({source}; {detail})')
         else:
-            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs)
+            desktop(fonts, args.theme, tracks, firmware, args.unsquashfs, root)
     except ERRORS as exc:
         parser.exit(1, f'{parser.prog}: {exc}\n')
 
