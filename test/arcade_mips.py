@@ -60,6 +60,41 @@ class Blocks(C.LittleEndianStructure):
     ]
 
 
+def use_wsl_compiler() -> bool:
+    """Windows LLVM distributions often lack the MIPS backend."""
+    return sys.platform == "win32" and os.environ.get("Q2_MIPS_COMPILER", "wsl").lower() != "windows"
+
+
+def wsl_path(path: pathlib.Path) -> str:
+    """Convert a Windows path to a mounted Linux path without shell interpolation."""
+    try:
+        return subprocess.check_output(
+            ["wsl.exe", "--exec", "wslpath", "-a", str(path.resolve())],
+            text=True, stderr=subprocess.PIPE).strip()
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(
+            "Windows MIPS compilation requires Ubuntu WSL with clang/lld. "
+            "Check: wsl --exec clang --version; wsl --exec ld.lld --version"
+        ) from exc
+
+
+def compiler_commands(obj: pathlib.Path, elf: pathlib.Path, flags: list[str]) -> tuple[list[str], list[str]]:
+    """Use native Linux clang, or the installed WSL clang from Windows."""
+    source = ROOT / "patch" / "arcade_core.c"
+    if use_wsl_compiler():
+        source_arg, obj_arg, elf_arg = (wsl_path(p) for p in (source, obj, elf))
+        compile_command = ["wsl.exe", "--exec", "clang", *flags, "-c",
+                           source_arg, "-o", obj_arg]
+        link_command = ["wsl.exe", "--exec", "ld.lld", "-m", "elf32ltsmip",
+                        "-static", "-Ttext=0x100000", "-e", "q2_pong_init",
+                        obj_arg, "-o", elf_arg]
+    else:
+        compile_command = [tool_executable("clang"), *flags, "-c", str(source), "-o", str(obj)]
+        link_command = [tool_executable("ld.lld"), "-m", "elf32ltsmip",
+                        "-static", "-Ttext=0x100000", "-e", "q2_pong_init",
+                        str(obj), "-o", str(elf)]
+    return compile_command, link_command
+
 def compile_mips(directory: pathlib.Path) -> pathlib.Path:
     obj = directory / "arcade.o"
     elf = directory / "arcade.elf"
@@ -68,11 +103,21 @@ def compile_mips(directory: pathlib.Path) -> pathlib.Path:
              "-fno-pic", "-G0", "-ffreestanding", "-fno-builtin",
              "-fno-stack-protector", "-fno-unwind-tables",
              "-fno-asynchronous-unwind-tables", "-Oz", "-Wall", "-Wextra", "-Werror"]
-    subprocess.run([tool_executable("clang"), *flags, "-c", str(ROOT / "patch/arcade_core.c"),
-                    "-o", str(obj)], check=True)
-    subprocess.run([tool_executable("ld.lld"), "-m", "elf32ltsmip", "-static",
-                    "-Ttext=0x100000", "-e", "q2_pong_init",
-                    str(obj), "-o", str(elf)], check=True)
+    compile_command, link_command = compiler_commands(obj, elf, flags)
+    try:
+        subprocess.run(compile_command, check=True)
+        subprocess.run(link_command, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        if use_wsl_compiler():
+            raise RuntimeError(
+                "MIPS compilation in WSL failed. Install clang and lld in Ubuntu: "
+                "sudo apt install clang lld. Then run "
+                "'wsl --exec clang --version' in Windows PowerShell."
+            ) from exc
+        raise RuntimeError(
+            "Local LLVM could not compile MIPS32r2. On Windows, remove "
+            "Q2_MIPS_COMPILER=windows to use the Ubuntu WSL toolchain."
+        ) from exc
     return elf
 
 
