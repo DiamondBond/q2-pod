@@ -3,7 +3,7 @@
 Run a 375×320 interactive Q2 UI simulator on a computer. Open Shanling's official Q2
 firmware ZIP, the stock `update.tar` inside it, or a Q2 Pod `update.tar` from `tools/build.py`.
 Use **Open firmware** to switch packages while keeping the same tracks. Use **Mount SD folder**
-to browse a local music directory, or **Open tracks** to load individual MP3 and FLAC files.
+to browse a local music directory and populate the Library with its MP3 and FLAC files.
 
 ## Windows
 
@@ -43,7 +43,7 @@ Library song list, Cover Flow (Album Wall on stock firmware), and Settings.
   `cover.png`, or the package's placeholder.
 - Settings changes the preview's brightness, album sorting, shuffle and repeat. Classic Light,
   Modern and Minimal are available in Display settings with Q2 Pod or in checkout mode.
-- Click **Shell color** at the bottom of the window to cycle through Silver, Black, Orange,
+- Click **Shell color** alongside **Open firmware** and **Mount SD folder** to cycle through Silver, Black, Orange,
   and Champagne Gold. The button shows the current finish. Orange is the default.
   For screenshots, use `--with-device --shell "Champagne Gold"` to choose a finish.
 - A build with `folder-regular.ttf` can use it for Vietnamese file names and the artist line.
