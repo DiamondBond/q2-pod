@@ -30,7 +30,7 @@ def draw_label(d, pos, text, color="#e8e8e8", anchor=None):
 
 
 class ArcadeWindow:
-    def __init__(self, shell=DEFAULT_SHELL):
+    def __init__(self, shell=DEFAULT_SHELL, game=None):
         import tkinter as tk
         from PIL import ImageTk
         self.tk = tk
@@ -63,6 +63,8 @@ class ArcadeWindow:
         self.canvas.bind("<Button-5>", lambda _: self.scroll(1))
         self.root.bind("<Key>", self.key)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        if game in ('pong', 'blocks'):
+            self.start(game)
         self.update()
 
     def close(self):
@@ -320,11 +322,13 @@ def main():
     parser.add_argument("--self-test", action="store_true", help="run headless MIPS smoke test")
     parser.add_argument("--shell", choices=("Orange", "Silver", "Black", "Champagne Gold"),
                         default=DEFAULT_SHELL)
+    parser.add_argument("--game", choices=("pong", "blocks"),
+                        help="open directly into one game")
     args = parser.parse_args()
     if args.self_test:
         mips_self_test()
         return
-    ArcadeWindow(args.shell).run()
+    ArcadeWindow(args.shell, args.game).run()
 
 
 if __name__ == "__main__":
