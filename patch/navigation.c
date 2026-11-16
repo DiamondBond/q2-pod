@@ -189,9 +189,19 @@ static int library_query(int content, const char *db, const char *sql, void *row
     }
     const char *from = library_music && sql ? strstr(sql, " from songtable") : 0;
     if (from) { /* library_first: the Unknown row's check, which one song answers */
-        int n = tk_snprintf(filtered, sizeof filtered,
-                            "%.*s from (select * from songtable where %s)%s%s", (int)(from - sql),
-                            sql, MUSIC_WHERE, from + 15, library_first ? " limit 1" : "");
+        const char *rest = from + 15;
+        /* Stock's check is a bare where: a flattened subquery's where comes ahead of stock's, and
+         * SQLite tests the terms in order, so the music filter's three LIKEs, dearer a row than the
+         * tag test, go after it, not before it. ponytail: the speed-up needs stock's where (Album
+         * Artist's after its rewrite) to be one term with no space (the five NULL queries are,
+         * internals.md Unknown rows); any other shape is wrapped as before. With every song tagged
+         * this still reads the whole table, which only an index the tag's ="" can use would end. */
+        int n =
+            library_first && strstr(rest, " where ") == rest && !strstr(rest + 7, " ")
+                ? tk_snprintf(filtered, sizeof filtered, "%s and (%s) limit 1", sql, MUSIC_WHERE)
+                : tk_snprintf(filtered, sizeof filtered,
+                              "%.*s from (select * from songtable where %s)%s%s", (int)(from - sql),
+                              sql, MUSIC_WHERE, rest, library_first ? " limit 1" : "");
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
@@ -4441,21 +4451,15 @@ void label_font(void *w, int bold) {
     for (unsigned i = 0; i < sizeof font / sizeof *font; ++i)
         widget_set_prop_str(w, font[i], bold ? "bold" : "default");
 }
-/* A regular Vietnamese fallback. Cached row fonts have two bits for the face. */
-enum { FONT_FOLDER_REGULAR = 3 };
 static const unsigned short bold_ranges[] = BOLD_RANGES,
-                            classic_light_ranges[] = CLASSIC_LIGHT_RANGES,
-                            folder_regular_ranges[] = FOLDER_REGULAR_RANGES;
+                            classic_light_ranges[] = CLASSIC_LIGHT_RANGES;
 
 /* 1 iff every character of c (n < 0: up to the NUL; NULL has none) is in face's cmap. */
 static int face_has(int face, const unsigned *c, int n) {
-    const unsigned short *r = face == FONT_FOLDER_REGULAR  ? folder_regular_ranges
-                              : face == FONT_CLASSIC_LIGHT ? classic_light_ranges
-                                                           : bold_ranges;
-    unsigned k =
-        face == FONT_FOLDER_REGULAR  ? sizeof folder_regular_ranges / sizeof *folder_regular_ranges
-        : face == FONT_CLASSIC_LIGHT ? sizeof classic_light_ranges / sizeof *classic_light_ranges
-                                     : sizeof bold_ranges / sizeof *bold_ranges;
+    const unsigned short *r = face == FONT_CLASSIC_LIGHT ? classic_light_ranges : bold_ranges;
+    unsigned k = face == FONT_CLASSIC_LIGHT
+                     ? sizeof classic_light_ranges / sizeof *classic_light_ranges
+                     : sizeof bold_ranges / sizeof *bold_ranges;
     if (face == FONT_DEFAULT) return 1;
     if (!c) return 0;
     for (; n < 0 ? *c : n; ++c, --n) {
@@ -4473,21 +4477,13 @@ static int face_has(int face, const unsigned *c, int n) {
  * style, only when the answer (face | px << 2) differs from was; returns it. A code-built row
  * passes FONT_ROW: the answer lives in its own "_font" prop with the role above it (row_faces reads
  * it), and a role the theme leaves to the style writes nothing. */
-static const char *const font_faces[] = { "default", "bold", "classic-light",
-                                          "folder-regular" }; /* [FONT_*] */
+static const char *const font_faces[] = { "default", "bold", "classic-light" }; /* [FONT_*] */
 /* bold.ttf or stock's default.ttf standing in for classic-light.ttf: that much of the px gives the
  * same capitals, their cap heights' ratio (test_ipod; stock's face, cap 183 of 299, comes to 83
  * too), so a CJK name sits a little over the capitals beside it, not a third. Only the fallback
  * takes it: Classic's bold stays at its px. */
 #define FACE_FALLBACK_PCT 83
 static int fallback_px(int px) { return (px * FACE_FALLBACK_PCT + 50) / 100; }
-/* Folder view binds the display name separately from the file's actual path. */
-extern const unsigned *normalize_vietnamese_label(void *label, const unsigned *text);
-static int folder_name_label(void *label) {
-    return label && !tk_strcmp(widget_get_prop_str(label, "name", ""), "scrlabel_name") &&
-           !tk_strcmp(widget_get_prop_str(window_of(label), "name", ""), "folder_page");
-}
-
 int theme_font(void *w, int role, int was) {
     static const char *const names[] = { "style:normal:font_name", "style:focused:font_name",
                                          "style:disable:font_name" },
@@ -4495,31 +4491,18 @@ int theme_font(void *w, int role, int was) {
                                                 "style:disable:font_size" };
     const theme_t *T = theme();
     int face = w ? T->font[role] : FONT_DEFAULT, px = T->font_px[role], row = was == FONT_ROW;
-    int folder = row && folder_name_label(w), artist = w && w == st.np_artist;
-    if (artist) face = FONT_DEFAULT, px = 0; /* keep the artist label's own size and weight */
     int wanted_bold = face != FONT_DEFAULT;
     if (row) {
-        if (!face && !px && !folder) {
+        if (!face && !px) {
             font_weight_mark(w, 0);
             return 0;
         }
         was = widget_get_prop_int(w, "_font", -1);
     }
-    const unsigned *text = face || folder || artist ? widget_get_text(w) : (void *)0,
-                   none[1] = { 0 };
-    if (folder || artist) {
-        text = normalize_vietnamese_label(w, text);
-        for (const unsigned *c = text; !face && c && *c; ++c) {
-            if ((*c >= 0x1ea0 && *c <= 0x1ef9) || *c == 0x102 || *c == 0x103 || *c == 0x110 ||
-                *c == 0x111 || *c == 0x1a0 || *c == 0x1a1 || *c == 0x1af || *c == 0x1b0)
-                face = FONT_FOLDER_REGULAR;
-        }
-    }
+    const unsigned *text = face ? widget_get_text(w) : (void *)0, none[1] = { 0 };
     if (face && !text) text = none; /* no text yet: keeps the face, as bold_label did */
     int fell = face == FONT_CLASSIC_LIGHT && !face_has(FONT_CLASSIC_LIGHT, text, -1);
     if (fell) face = FONT_BOLD, px = fallback_px(px); /* Cyrillic: still bold */
-    if (face == FONT_FOLDER_REGULAR && !face_has(face, text, -1))
-        face = artist ? FONT_DEFAULT : FONT_BOLD;
     if (face == FONT_BOLD && !face_has(FONT_BOLD, text, -1)) face = FONT_DEFAULT; /* CJK */
     /* Keep weight separately from face/size: a cached answer or a reused row can change its
      * bold intent even when its fallback face and size stay the same. */
@@ -4538,10 +4521,7 @@ int theme_font(void *w, int role, int was) {
 /* Each label under w that theme_font gave a face finds it again for its text, in its own role. */
 static void row_faces(void *w) {
     int kept = widget_get_prop_int(w, "_font", -1);
-    if (kept >= 0)
-        theme_font(w, kept >> 16, FONT_ROW);
-    else if (folder_name_label(w))
-        theme_font(w, ROLE_TITLE, FONT_ROW);
+    if (kept >= 0) theme_font(w, kept >> 16, FONT_ROW);
     for (unsigned i = 0, n = widget_count_children(w); i < n; ++i)
         row_faces(widget_get_child(w, i));
 }
@@ -4980,7 +4960,7 @@ static int np_gone(void *win, void *event) {
         st.np_win = (void *)0;
         st.np_hash = 0;
         st.np_pos = st.np_album = st.np_remain = st.np_slider = st.np_elapsed = st.np_cover =
-            st.np_slide = st.np_lrc = st.np_title = st.np_artist = (void *)0;
+            st.np_slide = st.np_lrc = st.np_title = (void *)0;
         st.scrub_moved = 0; /* the page is going: no seek */
         st.np_off = st.np_full = st.lyric_held = 0;
         stop_timer(&st.np_marquee);
@@ -5135,8 +5115,6 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_elapsed = widget_lookup(win, "label_playtime", 1);
     st.np_cover = widget_lookup(win, "img_cover", 1);
     st.np_title = widget_lookup(win, "scrlabel_title", 1);
-    st.np_artist = widget_lookup(win, "scrlabel_artist", 1);
-    st.np_artist_face = FONT_DEFAULT;
     st.np_bold = -1;
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
