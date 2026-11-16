@@ -697,6 +697,7 @@ class Simulator:
         self.style, self.tracks, self.firmware, self.sd_card = style, tracks, firmware, sd_card
         self.page, self.cursor = 'home', 0
         self.shell = DEFAULT_SHELL
+        self.arcade = None
         self.current, self.scroll, self.paused, self.elapsed = 0, 0, True, 0.0
         self.directory, self.album = sd_card, None
         self.folder_cache: dict[Path | None, list[tuple[str, Path | int]]] = {}
@@ -834,6 +835,12 @@ class Simulator:
             self.store.select(self.sd_card, 'check', background=True)
 
     def back(self):
+        if self.page == 'arcade' and self.arcade is not None:
+            if self.arcade.scene != 'games':
+                self.arcade.back()
+                return
+            self.arcade.machine.close()
+            self.arcade = None
         self.store.armed = ''
         if self.history:
             self.page, self.cursor, self.directory, self.album, self.library_title, self.library_rows = self.history.pop()
@@ -842,6 +849,9 @@ class Simulator:
         self.hint, self.scroll = '', 0
 
     def move(self, step):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.scroll(step)
+            return
         if self.page in ('playing', 'lyrics'):
             self.step_track(step)
         else:
@@ -882,6 +892,8 @@ class Simulator:
         self.record_play(self.current)
 
     def advance(self, delta):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.advance(delta * 1000)
         if self.store.poll() and self.store.message:
             self.hint = self.store.message
         if not self.paused and self.tracks:
@@ -955,12 +967,18 @@ class Simulator:
         elif route == 'device':
             if name in ('Pong', 'Blocks'):
                 try:
-                    subprocess.Popen([sys.executable, str(Path(__file__).with_name('arcade_emulator.py')),
-                                      '--game', name.lower(), '--theme', self.style,
-                                      '--shell', self.shell], cwd=Path(__file__).resolve().parent.parent)
-                    self.hint = f'Launching {name} (Unicorn MIPS)'
-                except OSError as exc:
-                    self.hint = f'Could not start MIPS game: {exc}'
+                    from arcade_emulator import ArcadeWindow, MipsArcade
+                    view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window
+                    view.machine = MipsArcade()
+                    view.theme = self.style
+                    view.scene, view.selection, view.game = 'games', 0, None
+                    view.paused = view.menu = view.quit_selected = False
+                    view.start(name.lower())
+                    self.arcade = view
+                    self.paused = True  # game takes foreground; stop host music
+                    self.open('arcade')
+                except Exception as exc:  # missing toolchain, Unicorn, or unavailable MIPS backend
+                    self.hint = f'Could not open MIPS game: {exc}'
             else:
                 self.hint = f'{name} requires the Q2 hardware'
         elif route == 'media':
@@ -1101,6 +1119,9 @@ class Simulator:
         self.open('playing')
 
     def enter(self):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.center()
+            return
         if self.page == 'home':
             if self.firmware:
                 entry = self.firmware.home[self.cursor]
@@ -1142,6 +1163,9 @@ class Simulator:
             self.toggle()
 
     def toggle(self):
+        if self.page == 'arcade' and self.arcade is not None:
+            self.arcade.button('down')
+            return
         if self.tracks:
             self.paused = not self.paused
 
@@ -1152,12 +1176,20 @@ class Simulator:
             self.back()
 
     def button(self, button):
+        if self.page == 'arcade' and self.arcade is not None:
+            if button == 'up':
+                self.back()
+            else:
+                self.arcade.button(button)
+            return
         actions = {'up': self.back, 'down': self.toggle, 'center': self.enter,
                    'left': lambda: self.move(-1), 'right': lambda: self.move(1)}
         if button in actions:
             actions[button]()
 
     def frame(self, fonts):
+        if self.page == 'arcade' and self.arcade is not None:
+            return self.arcade.render_screen(), []
         background_playback = None if self.paused else False
         if self.page == 'home' and self.firmware:
             frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor,
@@ -1291,6 +1323,10 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         if angle is None or math.hypot(event.x - WHEEL[0], event.y - WHEEL[1]) < CENTRE:
             return
         new_angle = wheel_angle(event.x, event.y)
+        if ui.page == 'arcade' and ui.arcade is not None:
+            ui.arcade.on_wheel(wheel_delta(angle, new_angle))
+            angle, dragged = new_angle, True
+            return
         accumulated += wheel_delta(angle, new_angle)
         angle = new_angle
         detent = DETENT * 50 / ui.wheel_sensitivity
@@ -1382,11 +1418,14 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
         screen.bind(key, lambda _: ui.move(1))
     screen.bind('<MouseWheel>', lambda event: ui.move(-1 if event.delta > 0 else 1))
     screen.bind('<Return>', lambda _: ui.enter())
-    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics') else ui.enter())
+    screen.bind('<space>', lambda _: ui.toggle() if ui.page in ('playing', 'lyrics', 'arcade') else ui.enter())
     for key in ('<Escape>', '<BackSpace>'):
         screen.bind(key, lambda _: ui.back())
     screen.bind('<Key-l>', lambda _: ui.lyrics_page())
     def close_window():
+        if ui.arcade is not None:
+            ui.arcade.machine.close()
+            ui.arcade = None
         if audio is not None:
             audio.close()
         window.destroy()
