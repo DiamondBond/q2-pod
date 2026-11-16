@@ -696,6 +696,7 @@ class Simulator:
     def __init__(self, style, tracks, firmware=None, sd_card=None):
         self.style, self.tracks, self.firmware, self.sd_card = style, tracks, firmware, sd_card
         self.page, self.cursor = 'home', 0
+        self.shell = DEFAULT_SHELL
         self.current, self.scroll, self.paused, self.elapsed = 0, 0, True, 0.0
         self.directory, self.album = sd_card, None
         self.folder_cache: dict[Path | None, list[tuple[str, Path | int]]] = {}
@@ -955,7 +956,8 @@ class Simulator:
             if name in ('Pong', 'Blocks'):
                 try:
                     subprocess.Popen([sys.executable, str(Path(__file__).with_name('arcade_emulator.py')),
-                                      '--game', name.lower()], cwd=Path(__file__).resolve().parent.parent)
+                                      '--game', name.lower(), '--theme', self.style,
+                                      '--shell', self.shell], cwd=Path(__file__).resolve().parent.parent)
                     self.hint = f'Launching {name} (Unicorn MIPS)'
                 except OSError as exc:
                     self.hint = f'Could not start MIPS game: {exc}'
@@ -1209,6 +1211,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     from PIL import ImageTk
 
     ui = Simulator(style, tracks, firmware, sd_card)
+    ui.shell = shell
     audio = FFplayAudio(ffplay) if enable_audio else None
     window = tk.Tk()
     window.title('Shanling Q2 Simulator')
@@ -1333,6 +1336,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
     def cycle_shell():
         nonlocal finish_index
         finish_index = (finish_index + 1) % len(finishes)
+        ui.shell = finishes[finish_index]
         color_button.configure(text=f'Shell color: {finishes[finish_index]}')
         screen.focus_set()
 
