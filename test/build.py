@@ -499,7 +499,16 @@ def validate_assets(directory):
     assert new['hmtx'][empty] == new['hmtx'][full] == (old['hmtx'][full][0] + 32, g[full].xMin)
     assert abs(g[empty].xMin - g[full].xMin) <= 1 and abs(g[empty].xMax - g[full].xMax) <= 1
     assert abs(g[empty].yMin - g[full].yMin) <= 1 and abs(g[empty].yMax - g[full].yMax) <= 1
-    assert all(new.reader[t] == old.reader[t] for t in old.reader.keys() if t not in ('cmap', 'head', 'glyf', 'loca', 'hmtx'))
+    # Arabic (build.py font_arabic): the presentation forms FriBidi shapes to, in glyphs after stock's, which
+    # keep their outlines and advances; hhea, maxp and post only count and name the added glyphs.
+    from build import ZERO_WIDTH
+    cmap, stock = new.getBestCmap(), old.getGlyphOrder()
+    assert all(cmap[u].startswith('ar.') for u in (0x627, 0x644, *range(0xfe80, 0xfefd)))
+    assert all(new['hmtx'][cmap[u]] == (0, 0) for u in ZERO_WIDTH)
+    assert new.getGlyphOrder()[:len(stock)] == stock and new['maxp'].numGlyphs > len(stock)
+    assert all(new['hmtx'][n] == old['hmtx'][n] for n in stock if n not in (empty, full))
+    assert all(new.reader[t] == old.reader[t] for t in old.reader.keys()
+               if t not in ('cmap', 'head', 'glyf', 'loca', 'hmtx', 'hhea', 'maxp', 'post'))
     # The crash watchdog only sleeps longer; check_mem_thd returns on entry, so it never drops caches.
     old, new = read('stock.squashfs', WATCHDOG), read('rootfs.squashfs', WATCHDOG)
     assert new == old.replace(*WATCHDOG_SLEEP) and new != old

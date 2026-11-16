@@ -914,6 +914,57 @@ def font_quotes(data):
     font.save(out, reorderTables=False)
     return out.getvalue()
 
+# Arabic in tags (docs/internals.md#arabic-text). Stock's AWTK already sends every widget's text through
+# FriBidi (widget_draw_text_in_rect, 0x284d68 in libawtk.so, to canvas_draw_text_bidi_in_rect, bidi_log2vis
+# and fribidi_log2vis), which puts right-to-left runs in visual order and shapes Arabic letters into their
+# Presentation Forms (U+FB50-FDFF, U+FE70-FEFF): each joined form is a code point of its own, so a face
+# needs no OpenType layout, only those code points in its cmap. No font on the Q2 has a single Arabic
+# glyph, so the stock face takes Noto Sans Arabic UI's (OFL, assets/fonts), scaled to its em. The stock
+# face, as theme_font's fallback for text the theme faces lack, has the Latin a mixed title needs too.
+ARABIC_FONT = 'NotoSansArabicUI-Regular.ttf'
+ARABIC_RANGES = ((0x0600, 0x06ff), (0x0750, 0x077f), (0xfb50, 0xfdff), (0xfe70, 0xfeff))
+# Invisible format characters: FriBidi's filler for the second letter of a lam-alef ligature (U+FEFF),
+# the Arabic letter mark and the other bidi and joining controls. Unmapped, each would draw stock's
+# .notdef, half an em of blank (a gap inside every لا).
+ZERO_WIDTH = (0xfeff, 0x061c, *range(0x200b, 0x2010), *range(0x2066, 0x206a))
+
+def font_arabic(data, src=None):
+    """Glyphs only where the stock face has none: a code point it maps keeps its own glyph."""
+    from fontTools.pens.recordingPen import DecomposingRecordingPen
+    from fontTools.pens.transformPen import TransformPen
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+    from fontTools.ttLib import TTFont
+    font = TTFont(io.BytesIO(data), recalcTimestamp=False)
+    arabic = TTFont(src or ROOT/'assets/fonts'/ARABIC_FONT)
+    glyf, hmtx, have = font['glyf'], font['hmtx'], font.getBestCmap()
+    scale = font['head'].unitsPerEm / arabic['head'].unitsPerEm
+    glyphs, add = arabic.getGlyphSet(), {}
+    for u, name in sorted(arabic.getBestCmap().items()):
+        if u in have or not any(a <= u <= b for a, b in ARABIC_RANGES):
+            continue
+        if name not in add.values():  # one glyph for the code points that share it
+            outline = DecomposingRecordingPen(glyphs)  # components flattened: the copy stands alone
+            glyphs[name].draw(outline)
+            pen = TTGlyphPen(None)
+            outline.replay(TransformPen(pen, (scale, 0, 0, scale, 0, 0)))
+            glyf['ar.' + name] = glyph = pen.glyph()
+            glyph.recalcBounds(glyf)
+            hmtx['ar.' + name] = (round(arabic['hmtx'][name][0] * scale), glyph.xMin if glyph.numberOfContours else 0)
+        add[u] = name
+    check(all(u in add for u in range(0xfe80, 0xfefd)), 'Arabic font without the presentation forms')
+    glyf['ar.zero'], hmtx['ar.zero'] = TTGlyphPen(None).glyph(), (0, 0)
+    mapped = {u: 'ar.' + n for u, n in add.items()} | {u: 'ar.zero' for u in ZERO_WIDTH if u not in have}
+    for table in font['cmap'].tables:
+        if table.isUnicode():
+            table.cmap.update(mapped)
+    check(len(font.getGlyphOrder()) < 0x10000, 'Font has too many glyphs')
+    out = io.BytesIO()
+    font.save(out, reorderTables=False)
+    return out.getvalue()
+
+def default_font(data):
+    return font_arabic(font_quotes(data))
+
 PLAY_MARK = 0x25b6
 
 def play_mark(font):
@@ -997,7 +1048,7 @@ def bold_font():
 # The LPPL asks a modified font to say so itself, and where the original is: assets/fonts/README-classic-light.txt
 CLASSIC_LIGHT_TTF = 'release/assets/default/raw/fonts/classic-light.ttf'
 # OFL 2 asks each copy to hold its licence, and the subsets' name tables don't: these ship beside the fonts
-FONT_NOTICES = ('LiberationSans-OFL.txt', 'GUST-FONT-LICENSE.txt', 'README-classic-light.txt')
+FONT_NOTICES = ('LiberationSans-OFL.txt', 'GUST-FONT-LICENSE.txt', 'README-classic-light.txt', 'NotoSansArabic-OFL.txt')
 CLASSIC_LIGHT_NOTICE = ('Modified version of TeX Gyre Heros Bold 2.004: cut to part of its Latin and Greek and its punctuation, its layout features to frac, liga and locl, a play mark added at U+25B6, and renamed. '
                'The original: https://www.gust.org.pl/projects/e-foundry/tex-gyre/heros')
 
@@ -1270,6 +1321,12 @@ FUNCTIONS = {
  'canvas_draw_text_in_rect': ('int', 'void *, const unsigned *, unsigned, const void *'),
  'canvas_draw_text': ('int', 'void *, const unsigned *, unsigned, int, int'),  # Books (books.c)
  'canvas_measure_text': ('float', 'void *, const unsigned *, unsigned'),
+ # AWTK's bidi, as its widgets draw text (bidi_text.c, navigation.c draw_in_face)
+ 'canvas_draw_text_bidi_in_rect': ('int', 'void *, const unsigned *, unsigned, const void *, const char *, int'),
+ 'bidi_type_from_name': ('int', 'const char *'),
+ 'bidi_init': ('void *', 'void *, int, int, int'),
+ 'bidi_log2vis': ('int', 'void *, const unsigned *, unsigned'),
+ 'bidi_deinit': ('int', 'void *'),
  'canvas_fill_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned'),
  'canvas_stroke_rounded_rect': ('int', 'void *, const void *, const void *, const void *, unsigned, unsigned'),
  # The PEQ curve (peq_ui.c) and the visualizer (visualizer.c): AWTK's software nanovg, float_t float, color_t by value
@@ -1621,7 +1678,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'font_weight.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'font_weight.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'bidi_text.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""
@@ -2242,7 +2299,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
         line = need(re.search(rb'^'+re.escape(path.encode())+rb' R .+\n', p, re.M), f'Missing stock inode {path}')
         removed.append(line.group().split()[:6])
         p = p[:line.start()]+p[line.end():]
-    for path, fix, name in ((TAG_C, patch_m4b_cover, 'libtag_c.so.2.0.1'), (FONT, font_quotes, 'default.ttf'),
+    for path, fix, name in ((TAG_C, patch_m4b_cover, 'libtag_c.so.2.0.1'), (FONT, default_font, 'default.ttf'),
                             *((p, lambda d, p=p: patch_web(p, d), p.rsplit('/', 1)[-1]) for p in WEB)):
         original = cat(path)
         data = fix(original)
