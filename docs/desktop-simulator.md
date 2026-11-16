@@ -20,15 +20,15 @@ sudo apt install python3 python3-venv python3-tk
 
 On macOS, use a Python distribution with Tkinter included. If the launcher cannot find that Python, set `PYTHON=/path/to/python3`.
 
-## Windows (PowerShell)
+## Windows 11 (double-click or Command Prompt)
 
-Install Python 3.10+ with Tcl/Tk support enabled, open PowerShell in the repository root and run:
+Install Python 3.10+ from [python.org](https://www.python.org/downloads/) with **Tcl/Tk** enabled. Double-click `run-simulator.bat` in the repository folder. It creates its own virtual environment, installs dependencies, and opens the simulator. Alternatively, in Command Prompt or PowerShell opened at the repository root:
 
-```powershell
-py -3 -m venv .venv-simulator
-.\.venv-simulator\Scripts\python.exe -m pip install -r requirements-simulator.txt
-.\.venv-simulator\Scripts\python.exe tools\simulator.py
+```cmd
+.\run-simulator.bat
 ```
+
+You can pass CLI options as arguments, for example `run-simulator.bat --sd-card "C:\\Music"`. If Windows opens the Microsoft Store instead of Python, install Python from python.org and ensure the Python launcher or Python executable is available on PATH.
 
 For WSL, use the Linux launcher and make sure GUI applications are supported (for example WSLg).
 
