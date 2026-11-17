@@ -67,6 +67,6 @@ jobs:
           clang --target=mipsel-linux-gnu -march=mips32r2 -mabi=32 -mfp64 -mno-abicalls -fno-pic -G0 -ffreestanding -fno-builtin -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -Oz -Wall -Wextra -Werror -Wno-unused-parameter -Wshadow -Wimplicit-int-conversion -Wconditional-uninitialized -Wmissing-variable-declarations -Wvla -Wundef -I /tmp/q2-arcade-headers -I patch -c patch/games.c -o /tmp/q2-arcade-games.o
       - name: Validate TagLib M4B assembler on MIPS LLVM
         run: |
-          python3 -c 'import sys, struct; sys.path.insert(0, "tools"); from build import assemble; blob, _ = assemble("m4b_cover", 0x30000, "-DBASE=0x30000"); assert blob[44:48] == b"m4b\\0" and (struct.unpack_from("<I", blob, 16)[0] & 0xffff) == 0xd84c'
+          python3 -c 'import sys, struct; sys.path.insert(0, "tools"); from build import assemble; blob, _ = assemble("m4b_cover", 0x30000, "-DBASE=0x30000"); assert blob[44:48] == bytes((109, 52, 98, 0)) and (struct.unpack_from("<I", blob, 16)[0] & 0xffff) == 0xd84c'
       - name: Run firmware's real game code under mocked host services
         run: python3 -m pytest test/fw/test_games.py -q
