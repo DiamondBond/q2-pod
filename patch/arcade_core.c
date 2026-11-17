@@ -122,10 +122,10 @@ int q2_blocks_move(Q2Blocks *g, int dx)
     g->x += dx;
     return 1;
 }
-int q2_blocks_rotate(Q2Blocks *g)
+int q2_blocks_rotate_dir(Q2Blocks *g, int direction)
 {
-    if (g->game_over) return 0;
-    unsigned rot = (g->rotation + 1) % 4;
+    if (g->game_over || !direction) return 0;
+    unsigned rot = (g->rotation + (direction > 0 ? 1u : 3u)) % 4;
     const int kicks[] = {0, -1, 1, -2, 2};
     for (unsigned i = 0; i < sizeof kicks / sizeof kicks[0]; ++i)
         if (can_place(g, g->x + kicks[i], g->y, rot)) {
@@ -134,6 +134,7 @@ int q2_blocks_rotate(Q2Blocks *g)
         }
     return 0;
 }
+int q2_blocks_rotate(Q2Blocks *g) { return q2_blocks_rotate_dir(g, 1); }
 int q2_blocks_tick(Q2Blocks *g)
 {
     if (g->game_over) return -1;
