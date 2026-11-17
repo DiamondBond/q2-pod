@@ -1222,12 +1222,31 @@ def test_new_builtin_games_open_move_pause_and_restart(fw):
     assert p.s.screen == BLOCKS and p.s.blocks.level == 1
     assert p.s.blocks.next < 7
     pos = p.s.blocks.x
-    p.key(NEXT)
-    assert p.s.blocks.x == pos + 1
-    p.key(CENTER)
-    assert p.s.blocks.rotation == 1
     p.key(FWD_BTN)
+    assert p.s.blocks.x == pos + 1
+    p.key(BACK_BTN)
+    assert p.s.blocks.x == pos
+    # Wheel travel is negative for clockwise turns on the physical Q2.
+    travel = fw.var('wheel_travel', C.c_int)
+    travel.value = -20
+    p.now += 33
+    assert p.g.frame(None) == 8
+    assert p.s.blocks.rotation == 1
+    travel.value = 20
+    p.now += 33
+    assert p.g.frame(None) == 8
+    assert p.s.blocks.rotation == 0
+    # Down (the bottom Play/Pause button) soft drops without pausing.
+    before_y = p.s.blocks.y
+    p.key(PLAY)
+    assert p.s.blocks.y > before_y and p.s.paused == RUN
+    assert p.g.games_live()
+    p.key(CENTER)
     assert p.s.blocks.score > 0
+    p.key(RETURN)
+    assert p.s.paused == MENU and not p.g.games_live()
+    p.key(RETURN)
+    assert p.s.paused == RUN and p.g.games_live()
     p.close()
 
 
