@@ -863,7 +863,7 @@ static int dac_word(int pressed) { /* odd: a press's stamp; even: start_mute's m
 }
 static int dac_told(void) { return dac_word(1); }
 static void dac_preroll(void *pcm, int kept);
-static int dac_owed; /* a resume released the DAC with a seek pending, whose reset writes */
+static int dac_owed; /* a resume released the DAC with a seek pending: the next write pays it */
 /* The end of init (0x438a70), past stock's checks of the way and the fd: the ioctl is stock's own.
  * A mark still unread is a natural start ao_init's branch didn't take (DSD at either end, no PCM
  * open, the arm dropped): demo skipped its mute and sleep for it, so this is what stands in for
@@ -880,10 +880,9 @@ int dac_ioctl(int fd, unsigned request, void *arg) {
     return r;
 }
 /* seek (0x42b1c4), a start offset's or an mcl-seek's: demo stamps a user's, not A-B Repeat's loop.
- * A Play that found this seek pending owes it the silence, stamp or none. */
+ */
 void dac_unmute(int value) {
-    int wait = !OUTPUT_WAY && DAC_FD > 0 && (dac_told() | dac_owed);
-    dac_owed = 0;
+    int wait = !OUTPUT_WAY && DAC_FD > 0 && dac_told();
     DAC_HELPER(value);
     if (wait) dac_preroll(ALSA_PCM, 1);
 }
@@ -938,6 +937,13 @@ static struct {
  * PCM's handle: a reopen's snd_pcm_t can land on the old one's address.) A write is at most the
  * ring (get_space), and the cap is never less. */
 long ao_write(void *pcm, const char *data, unsigned long frames) {
+    /* A resume with a seek pending released the DAC and wrote nothing; the seek's reset came next,
+     * and seek()'s own site passes with the flag clear. So the first write since is the PCM's
+     * first, and its silence goes ahead of it here. */
+    if (dac_owed) {
+        if (!OUTPUT_WAY) dac_preroll(pcm, 1); /* which clears it first */
+        dac_owed = 0;
+    }
     /* Every write on the jacks and USB looks, not only a kept PCM's first: a stream that stalls
      * mid-song (Wi-Fi gone for 20 s) runs the PCM dry the same way, and the music that comes back
      * was written behind hw_ptr and lost until appl_ptr caught up, heard as jumps ahead. Forwarded,
@@ -1047,6 +1053,7 @@ static void dac_preroll(void *pcm, int kept) {
     static char zero[8192] __attribute__((aligned(8)));
     unsigned frame = AO_BYTES, w = (AO_FORMAT >> 3 & 3) + 1, step = frame ? sizeof zero / frame : 0;
     unsigned left = (unsigned)AO_RATE * DAC_RELEASE_MS / 1000;
+    dac_owed = 0; /* any silence pays a resume's debt; ao_write's check can't recurse */
     if (!pcm || !step || dsd()) {
         usleep(DAC_RELEASE_MS * 1000);
         return;
@@ -1069,10 +1076,10 @@ static void dac_preroll(void *pcm, int kept) {
  * the PCM is dropped and prepared under the mute, released, given its silence, and only then are
  * the held frames written. ps_ring doesn't hold that silence, so what it holds stops matching the
  * PCM's timeline before them: ps.fill keeps only the frames written again. With a seek pending
- * nothing is written, as its reset comes next and no old frame should sound; the seek writes the
- * silence (dac_owed). Anything but a paused PCM whose ring is all held (a pause that failed,
- * Bluetooth, USB; hw_ptr past appl_ptr reads as more than is held) is stock's, with the sleep: its
- * frames are already in the ring.
+ * nothing is written, as its reset comes next and no old frame should sound; the first write after
+ * it gets the silence (dac_owed, in ao_write). Anything but a paused PCM whose ring is all held (a
+ * pause that failed, Bluetooth, USB; hw_ptr past appl_ptr reads as more than is held) is stock's,
+ * with the sleep: its frames are already in the ring.
  *
  * ponytail: a second pause while that silence still plays finds more unplayed than is held, so its
  * Play is stock's (the ring's jump). Holding the silence in ps_ring would mean moving the held

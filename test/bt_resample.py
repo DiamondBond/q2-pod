@@ -923,7 +923,7 @@ def go():
     return [*dac_log], rc, r(FLAG)
 PCM_H = 0x1000
 OPENED = ['drop', 'prepare', UNMUTE, 'silence']  # dropped and prepared under the mute, released, then silence, then the frames
-FILL = ps['ps.1'] + 4  # ps.fill, bytes
+FILL = ps['ps.1']  # ps.fill, bytes: the compiler splits ps into ps.0 to ps.4
 
 # The tunables, from the source, so tuning one doesn't fail these.
 source = (pathlib.Path(__file__).resolve().parents[1]/'patch'/'peq_player.c').read_text()
@@ -1034,21 +1034,29 @@ data = play(0, 40000, 4, 8)
 pause_at(8000, 32000, 100)
 assert go()[0] == [*OPENED[:3], 'wait'] and dev.got == data[-(8000 + went_back(99, 176400)) * 8:]  # zeros aren't DSD's silence: a sleep
 w(ctx + 0x2c, 0)
-# A seek while paused: no old frame sounds; its reset writes next. Prepared, not paused, and the silence is the seek's to
-# write after its reset, stamp or none.
+# A seek while paused: no old frame sounds; its reset writes next. Prepared, not paused. seek()'s own site passes with
+# the flag clear, so the first write after the reset takes the silence ahead of it, stamp or none, and only that one.
 setup(44100, S16F, 4, 22048)
 play(0, 40000, 2, 4)
 pause_at(12000, 28000, 280)
 w(SEEK, 1)
 log, rc, flag = go()
-assert log == OPENED[:3] and dev.got == b'' and rc == 0 and r(ps['dac_owed']) == 1, (log, rc)
-w(SEEK, 0), w(PCM, PCM_H); press[0] = None
-dac_log.clear(); dev.got, dev.lead = b'', 0
-call(ps['dac_unmute'], 0)
-assert dac_log == ['silence'] and dev.lead == 44100 * 130 // 1000 and r(ps['dac_owed']) == 0, (dac_log, dev.lead)
-dac_log.clear(); dev.got, dev.lead = b'', 0
-call(ps['dac_unmute'], 0)
-assert dac_log == [], dac_log  # owed once
+owed = lambda: u.mem_read(ps['dac_owed'], 1)[0]  # a byte: the compiler stores only 0 or 1
+assert log == OPENED[:3] and dev.got == b'' and rc == 0 and owed() == 1, (log, rc)
+w(SEEK, 0); dac_log.clear()
+play(50000, 4096, 2, 4)  # its writes reach the PCM untouched
+assert dac_log == ['silence'] and dev.lead == 44100 * 130 // 1000 and owed() == 0, (dac_log, dev.lead)
+dac_log.clear(); dev.lead = 0
+play(54096, 4096, 2, 4)
+assert dac_log == [] and dev.lead == 0, dac_log  # owed once
+# Another way before that write: nothing to pay there, and nothing left owed.
+setup(44100, S16F, 4, 22048)
+play(0, 40000, 2, 4)
+pause_at(12000, 28000, 280); w(SEEK, 1)
+go(); w(SEEK, 0), w(WAY, 2); dac_log.clear()
+play(50000, 4096, 2, 4)
+assert dac_log == [] and dev.lead == 0 and owed() == 0, dac_log
+w(WAY, 0)
 # Stock's route: not paused (a pause that failed, a PCM the drain reopened); status failing.
 setup(44100, S16F, 4, 22048)
 play(0, 40000, 2, 4)

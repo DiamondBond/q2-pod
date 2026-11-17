@@ -470,8 +470,11 @@ def main():
         pair(player, sources48, 'Opus', 'a.opus', 'b.opus', 0, 0)
         pair(player, sources, 'Vorbis', 'a.ogg', 'b.ogg', 0, 0)
         print('Preloads stay separate')
-        pair(player, sources, 'M4A into FLAC', 'a.m4a', 'b.flac', 0, 0)
-        pair(player, sources, 'FLAC into M4A', 'a.flac', 'b.m4a', 0, 0)
+        # Another format reopens the jack's PCM, and the release writes DAC_RELEASE_MS of silence ahead of B
+        # (peq_player.c dac_preroll), the time it used to sleep with nothing written.
+        release = 44100 * 130 // 1000
+        pair(player, sources, 'M4A into FLAC', 'a.m4a', 'b.flac', 0, release)
+        pair(player, sources, 'FLAC into M4A', 'a.flac', 'b.m4a', 0, release)
         pair(player, sources, 'trimmed into junk', 'a_tag.m4a', 'b_junk_total.m4a', 0, 0, PADDING)
         pair(player, sources, 'junk into trimmed', 'a_junk_total.m4a', 'b_tag.m4a', 0, PADDING)
         print('Numbers that are nonsense')
