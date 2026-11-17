@@ -1,6 +1,7 @@
 """Run an installed Q2 card game against a small, isolated Linux device model."""
 import io
 import os
+import re
 import struct
 import time
 from collections import deque
@@ -19,8 +20,6 @@ from unicorn.mips_const import (
 from mips_elf import load_elf
 from simulator_apps import card_path
 
-INPUT = b"/tmp/q2-fidget.input.sock"
-APP = b"/mnt/mmc/.fidget/"
 FB, STACK = 0x20000000, 0x70000000
 PANEL_W, PANEL_H = 320, 375
 PAGE_BYTES = PANEL_W * PANEL_H * 4
@@ -28,12 +27,19 @@ SCREEN = (375, 320)
 FILES = {"state": 2, "pet": 65536, "pet.new": 65536, "buddy.png": 3 << 20}
 
 
-class Buddy:
-    """The guest sees an emulated framebuffer, input queue and four card files."""
+class CardGame:
+    """Run a static Q2 framebuffer game using the card-game input protocol."""
 
-    def __init__(self, card, clock=time.monotonic, wall=time.time):
+    def __init__(self, card, ident, clock=time.monotonic, wall=time.time):
+        if not re.fullmatch(r"[a-z0-9-]{1,15}", ident):
+            raise ValueError("Invalid Q2 card game ID")
         self.card, self.clock, self.wall = card, clock, wall
-        binary = card_path(card, ".fidget/q2-fidget")
+        self.directory = f".{ident}/"
+        self.app = f"/mnt/mmc/{self.directory}".encode("ascii")
+        self.input_socket = f"/tmp/q2-{ident}.input.sock".encode("ascii")
+        self.writable = FILES if ident == "fidget" else {}
+        executable = f"q2-{ident}"
+        binary = card_path(card, self.directory + executable)
         with binary.open("rb") as source:
             raw = source.read((2 << 20) + 1)
         self.uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_LITTLE_ENDIAN)
@@ -43,7 +49,7 @@ class Buddy:
         self.uc.mem_map(FB, (2 * PAGE_BYTES + 4095) & ~4095)
         self.uc.mem_map(STACK, 0x100000)
         sp = STACK + 0xff000
-        argv = APP + b"q2-fidget\0"
+        argv = self.app + executable.encode("ascii") + b"\0"
         self.uc.mem_write(sp, struct.pack("<4I", 1, sp + 16, 0, 0) + argv)
         self.uc.reg_write(UC_MIPS_REG_SP, sp)
         self.uc.hook_add(UC_HOOK_INTR, self.interrupt)
@@ -59,29 +65,29 @@ class Buddy:
 
     def load(self, raw):
         if len(raw) > 2 << 20:
-            raise ValueError("Buddy executable is too large")
+            raise ValueError("Q2 game executable is too large")
         try:
             elf = ELFFile(io.BytesIO(raw))
             if (elf.elfclass, elf.little_endian, elf["e_machine"], elf["e_type"]) != (32, True, "EM_MIPS", "ET_EXEC"):
-                raise ValueError("Buddy needs a static little-endian MIPS32 executable")
+                raise ValueError("Q2 game needs a static little-endian MIPS32 executable")
             entry = int(elf["e_entry"])
             segments = list(elf.iter_segments())
             if any(seg["p_type"] in ("PT_INTERP", "PT_DYNAMIC") for seg in segments):
-                raise ValueError("Buddy needs a static executable")
+                raise ValueError("Q2 game needs a static executable")
             loads = [seg for seg in segments if seg["p_type"] == "PT_LOAD"]
             if not loads or sum(seg["p_memsz"] for seg in loads) > 32 << 20:
-                raise ValueError("Invalid Buddy executable segment sizes")
+                raise ValueError("Invalid Q2 game executable segment sizes")
             if any(not (4096 <= seg["p_vaddr"] < seg["p_vaddr"] + seg["p_memsz"] <= FB)
                    or not (0 <= seg["p_filesz"] <= seg["p_memsz"])
                    or seg["p_offset"] + seg["p_filesz"] > len(raw) for seg in loads):
-                raise ValueError("Invalid Buddy executable segment")
+                raise ValueError("Invalid Q2 game executable segment")
             if not any(seg["p_flags"] & 1 and seg["p_vaddr"] <= entry < seg["p_vaddr"] + seg["p_filesz"]
                        for seg in loads):
-                raise ValueError("Invalid Buddy entry point")
+                raise ValueError("Invalid Q2 game entry point")
             load_elf(self.uc, raw)
             return entry
         except (AssertionError, ELFError, struct.error, UcError) as exc:
-            raise ValueError(f"Could not load Buddy executable: {exc}") from exc
+            raise ValueError(f"Could not load Q2 game executable: {exc}") from exc
 
     def send(self, message):
         self.messages.append(message.encode("ascii"))
@@ -97,7 +103,7 @@ class Buddy:
         try:
             self.uc.emu_start(self.pc, 0, timeout=100000, count=12_000_000)
         except UcError as exc:
-            raise ValueError(f"Buddy guest CPU stopped at 0x{self.uc.reg_read(UC_MIPS_REG_PC):x}: {exc}") from exc
+            raise ValueError(f"Q2 game guest CPU stopped at 0x{self.uc.reg_read(UC_MIPS_REG_PC):x}: {exc}") from exc
         self.pc = self.uc.reg_read(UC_MIPS_REG_PC)
         if self.frames != previous:
             raw = self.uc.mem_read(FB + self.front * PANEL_W * 4, PAGE_BYTES)
@@ -105,11 +111,11 @@ class Buddy:
             self.image = portrait.transpose(Image.Transpose.ROTATE_90)
             self.watchdog = self.clock()
         if not self.stopped and self.clock() - self.watchdog > 6:
-            raise ValueError(f"Buddy stopped presenting frames at 0x{self.pc:x} (last syscall {self.last_syscall})")
+            raise ValueError(f"Q2 game stopped presenting frames at 0x{self.pc:x} (last syscall {self.last_syscall})")
 
     def interrupt(self, uc, number, _data):
         if number != 17:
-            raise ValueError(f"Unsupported Buddy guest interrupt {number}")
+            raise ValueError(f"Unsupported Q2 game guest interrupt {number}")
         call = uc.reg_read(UC_MIPS_REG_V0)
         self.last_syscall = call
         a, b, c = (uc.reg_read(reg) for reg in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
@@ -124,27 +130,30 @@ class Buddy:
             if byte == 0:
                 return bytes(value)
             value.append(byte)
-        raise ValueError("Buddy guest string is too long")
+        raise ValueError("Q2 game guest string is too long")
 
     def card_file(self, name):
-        return card_path(self.card, ".fidget/" + name)
+        return card_path(self.card, self.directory + name)
 
     def open_file(self, path, flags):
         if path == b"/dev/fb0":
             return 3
-        if not path.startswith(APP):
+        if not path.startswith(self.app):
             return -2
-        name = path[len(APP):].decode("ascii", errors="replace")
-        if name not in FILES:
+        name = path[len(self.app):].decode("ascii", errors="replace")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name) or name in (".", ".."):
             return -2
         writing = bool(flags & 1)
-        if flags & 2 or writing and (name == "buddy.png" or flags & 0x300 != 0x300):
+        if flags & 2 or writing and (name not in self.writable or name == "buddy.png" or flags & 0x300 != 0x300):
             return -13
         try:
             contents = io.BytesIO()
             if not writing:
-                with self.card_file(name).open("rb") as source:
-                    contents = io.BytesIO(source.read(FILES[name]))
+                path = self.card_file(name)
+                if not path.is_file():
+                    return -2
+                with path.open("rb") as source:
+                    contents = io.BytesIO(source.read(self.writable.get(name, 3 << 20)))
             if len(self.handles) >= 16:
                 return -24
             fd = self.fd
@@ -209,11 +218,11 @@ class Buddy:
                 return -9
             name, writing, stream = self.handles[a]
             if number == 4003 and not writing:
-                data = stream.read(min(c, FILES[name]))
+                data = stream.read(min(c, 3 << 20))
                 if data:
                     self.uc.mem_write(b, data)
                 return len(data)
-            if number == 4004 and writing and c <= FILES[name] - stream.tell():
+            if number == 4004 and writing and c <= self.writable[name] - stream.tell():
                 return stream.write(bytes(self.uc.mem_read(b, c))) if c else 0
             return -13
         if number == 4054 and a == 3:
@@ -223,9 +232,9 @@ class Buddy:
         if number == 4183:
             return 4 if (a, b, c) == (1, 1, 0) else -22
         if number == 4169:
-            return 0 if a == 4 and self.guest_string(b + 2) == INPUT else -22
+            return 0 if a == 4 and self.guest_string(b + 2) == self.input_socket else -22
         if number == 4010:
-            return 0 if self.guest_string(a) == INPUT else -13
+            return 0 if self.guest_string(a) == self.input_socket else -13
         if number == 4175:
             if a != 4:
                 return -9
@@ -246,7 +255,7 @@ class Buddy:
             self.uc.mem_write(b, struct.pack("<II", seconds & 0xffffffff, int((now - seconds) * 1e9)))
             return 0
         if number == 4038:
-            if (self.guest_string(a), self.guest_string(b)) != (APP + b"pet.new", APP + b"pet"):
+            if (self.guest_string(a), self.guest_string(b)) != (self.app + b"pet.new", self.app + b"pet") or "pet" not in self.writable:
                 return -13
             try:
                 os.replace(self.card_file("pet.new"), self.card_file("pet"))
@@ -260,4 +269,4 @@ class Buddy:
             self.exit_code = a
             self.uc.emu_stop()
             return 0
-        raise ValueError(f"Buddy uses an unsupported MIPS syscall ({number})")
+        raise ValueError(f"Q2 game uses an unsupported MIPS syscall ({number})")

@@ -790,7 +790,7 @@ class Simulator:
         return [LibraryRow(name, 'device') for name in names]
 
     def game_rows(self):
-        installed = (LibraryRow(name, 'buddy' if ident == 'fidget' else 'card-game')
+        installed = (LibraryRow(name, f'card-game:{ident}')
                      for name, ident in card_game_entries(self.sd_card))
         return [*self.builtin_game_rows(), *installed]
 
@@ -1005,11 +1005,11 @@ class Simulator:
                     self.close_arcade()
                     self.back()
                     if code:
-                        self.hint = f'Buddy exited (code {code})'
+                        self.hint = f'Q2 game exited (code {code})'
             except (OSError, ValueError) as exc:
                 self.close_arcade()
                 self.back()
-                self.hint = f'Buddy stopped: {exc}'
+                self.hint = f'Q2 game stopped: {exc}'
         if self.page == 'arcade' and self.arcade is not None:
             self.arcade.advance(delta * 1000)
         if self.store.poll():
@@ -1080,15 +1080,15 @@ class Simulator:
         name, route, selected = row
         if route == 'games':
             self.show_library(name, self.game_rows())
-        elif route == 'buddy' and self.sd_card is not None:
+        elif route.startswith('card-game:') and self.sd_card is not None:
             try:
-                from simulator_buddy import Buddy
-                self.buddy = Buddy(self.sd_card)
+                from simulator_buddy import CardGame
+                self.buddy = CardGame(self.sd_card, route.removeprefix('card-game:'))
                 self.buddy_wheel = 0.0
                 self.open('buddy')
             except (ImportError, OSError, ValueError) as exc:
-                self.hint = f'Could not open Buddy: {exc}'
-        elif route in ('card-game', 'card-app'):
+                self.hint = f'Could not open {name}: {exc}'
+        elif route == 'card-app':
             self.hint = f'{name} requires the Q2 hardware'
         elif route == 'track':
             self.play(selected[0], [entry.tracks[0] for entry in self.library_rows if entry.route == 'track'])
