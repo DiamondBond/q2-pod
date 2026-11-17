@@ -63,9 +63,9 @@ static void breakout_paint(void *canvas, unsigned tone) {
     for (int row = 0; row < Q2_BREAKOUT_ROWS; ++row)
         for (int brick_x = 0; brick_x < Q2_BREAKOUT_COLUMNS; ++brick_x) {
             if (!b->bricks[row][brick_x]) continue;
-            int x = 18 + (16 + brick_x * 39) * 339 / 320;
+            int x = 18 + (16 + brick_x * 36) * 339 / 320;
             int y = 35 + (27 + row * 16) * (h - 6) / 240;
-            box(canvas, x, y, 36 * 339 / 320, 12 * (h - 6) / 240, shades[row]);
+            box(canvas, x, y, 33 * 339 / 320, 12 * (h - 6) / 240, shades[row]);
         }
     int paddle_x = 18 + b->paddle_x * 339 / 320;
     int paddle_y = 35 + 220 * (h - 6) / 240;
