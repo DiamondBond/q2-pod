@@ -22,6 +22,7 @@ from unicorn import Uc, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 STACK = 0x200000
 STATE = 0x300000
+BREAKOUT_STATE = STATE + 0x6000
 RETURN = 0x400000
 PONG_SIZE = 36
 
@@ -59,6 +60,16 @@ class Blocks(C.LittleEndianStructure):
         ("level", C.c_uint32), ("game_over", C.c_int32),
     ]
 
+
+class Breakout(C.LittleEndianStructure):
+    _fields_ = [
+        ("bricks", (C.c_uint8 * 8) * 5),
+        ("ball_x", C.c_int32), ("ball_y", C.c_int32),
+        ("dx", C.c_int32), ("dy", C.c_int32), ("paddle_x", C.c_int32),
+        ("score", C.c_uint32), ("level", C.c_uint32),
+        ("lives", C.c_uint32), ("remaining", C.c_uint32),
+        ("waiting", C.c_int32), ("game_over", C.c_int32),
+    ]
 
 
 class Snake(C.LittleEndianStructure):
@@ -166,7 +177,8 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
     needed = ["q2_pong_init", "q2_pong_move", "q2_pong_tick",
               "q2_blocks_init", "q2_blocks_move", "q2_blocks_rotate",
               "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell",
-              "q2_blocks_next_cell", "q2_snake_seed", "snake_new", "snake_turn",
+              "q2_blocks_next_cell", "q2_breakout_init", "q2_breakout_move",
+              "q2_breakout_launch", "q2_breakout_tick", "q2_snake_seed", "snake_new", "snake_turn",
               "snake_ms", "snake_step", "vortex_new", "vortex_launch", "vortex_step",
               "sud_new", "sud_set", "sud_conflict", "sud_done", "sol_new", "sol_draw",
               "sol_home", "sol_move", "sol_finish", "sol_won"]
@@ -243,6 +255,22 @@ class MipsArcade:
 
     def blocks_preview_cell(self, x: int, y: int) -> int:
         return self.call("q2_blocks_next_cell", STATE + 0x1000, x, y)
+
+    def breakout_init(self) -> None:
+        self.call("q2_breakout_init", BREAKOUT_STATE)
+
+    def breakout_move(self, distance: int) -> None:
+        self.call("q2_breakout_move", BREAKOUT_STATE, distance)
+
+    def breakout_launch(self) -> None:
+        self.call("q2_breakout_launch", BREAKOUT_STATE)
+
+    def breakout_tick(self) -> None:
+        self.call("q2_breakout_tick", BREAKOUT_STATE)
+
+    def breakout(self) -> Breakout:
+        return Breakout.from_buffer_copy(
+            bytes(self.uc.mem_read(BREAKOUT_STATE, C.sizeof(Breakout))))
 
     def snake_init(self, seed: int) -> None:
         self.call("q2_snake_seed", seed)

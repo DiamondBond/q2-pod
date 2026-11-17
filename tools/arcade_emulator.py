@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "test"))
 from arcade_mips import MipsArcade, self_test as mips_self_test  # type: ignore[import-not-found]
 
 SCREEN = (375, 320)
-GAMES = ('pong', 'blocks', 'vortex', 'snake', *PUZZLE_GAMES)
+GAMES = ('pong', 'blocks', 'vortex', 'snake', *PUZZLE_GAMES, 'breakout')
 FIRMWARE_GAMES = ('vortex', 'snake')
 OVER = 2
 GAME_FONT = ImageFont.load_default()
@@ -94,6 +94,8 @@ class ArcadeWindow:
             self.machine.pong_init()
         elif which == "blocks":
             self.machine.blocks_init(seed)
+        elif which == "breakout":
+            self.machine.breakout_init()
         elif which == "snake":
             self.machine.snake_init(seed)
         else:
@@ -106,6 +108,8 @@ class ArcadeWindow:
             return max(p.player_score, p.cpu_score) >= 7
         if self.game == "blocks":
             return bool(self.machine.blocks().game_over)
+        if self.game == "breakout":
+            return bool(self.machine.breakout().game_over)
         return self.firmware_state().state == OVER
 
     def firmware_state(self):
@@ -123,6 +127,8 @@ class ArcadeWindow:
                 self.machine.pong_move(steps * 12)
             elif self.game == "blocks":
                 self.machine.blocks_move(1 if steps > 0 else -1)
+            elif self.game == "breakout":
+                self.machine.breakout_move(steps * 14)
             elif self.game == "vortex":
                 self.wheel_acc += steps * 32
 
@@ -130,6 +136,13 @@ class ArcadeWindow:
         units = rad * 200 / math.tau
         if self.scene == "play" and self.game == "pong" and not self.paused and not self.menu:
             self.machine.pong_move(int(-units * 2))
+            return
+        if self.scene == "play" and self.game == "breakout" and not self.paused and not self.menu:
+            self.wheel_acc += units * 2
+            travel = math.trunc(self.wheel_acc)
+            if travel:
+                self.wheel_acc -= travel
+                self.machine.breakout_move(travel)
             return
         if self.scene == "play" and self.game in FIRMWARE_GAMES and not self.menu:
             if self.game == "vortex" and not self.paused:
@@ -195,6 +208,8 @@ class ArcadeWindow:
             self.machine.blocks_rotate()
         elif self.game == "vortex":
             self.machine.vortex_launch()
+        elif self.game == "breakout":
+            self.machine.breakout_launch()
 
     def back(self):
         if self.scene == "games":
@@ -240,7 +255,7 @@ class ArcadeWindow:
                 self.machine.pong_move(-12 if name == "left" else 12)
             elif self.game == "snake":
                 self.machine.snake_turn(-1 if name == "left" else 1)
-            elif self.game == "vortex":
+            elif self.game in ("vortex", "breakout"):
                 self.scroll(-1 if name == "left" else 1)
 
     def key(self, ev):
@@ -280,6 +295,11 @@ class ArcadeWindow:
                 if self.pong_ms < 17: break
                 self.pong_ms -= 17
                 self.machine.pong_tick()
+        elif self.game == "breakout":
+            self.firmware_ms += min(delta_ms, 100) * 60
+            while self.firmware_ms >= 1000:
+                self.firmware_ms -= 1000
+                self.machine.breakout_tick()
         else:
             b = self.machine.blocks()
             speed = max(85, 650 - min(b.level - 1, 12) * 45)
@@ -343,9 +363,9 @@ class ArcadeWindow:
             draw_label(d, (188, 58), "Games", anchor="mt")
             for idx, game in enumerate(GAMES):
                 name = game.title()
-                y = 73 + idx * 33
+                y = 68 + idx * 29
                 if idx == self.selection:
-                    d.rounded_rectangle((20, y, 355, y + 30), radius=7, fill="#6686b3")
+                    d.rounded_rectangle((20, y, 355, y + 27), radius=7, fill="#6686b3")
                 draw_label(d, (42, y + 15), name, "#ffffff", "lm")
                 draw_label(d, (335, y + 15), ">", "#ffffff", "rm")
             draw_label(d, (188, 282), "Wheel: select  |  Center: open", "#abb5c0", "mt")
@@ -365,6 +385,8 @@ class ArcadeWindow:
             d.rectangle((341, sy(p.cpu_y), 349, sy(p.cpu_y + 48)), fill="#eeeeee")
             bx, by = 18 + p.ball_x * 339 // 320, sy(p.ball_y)
             d.ellipse((bx - 4, by - 4, bx + 4, by + 4), fill="#ffffff")
+        elif self.game == "breakout":
+            self.draw_breakout(d, text)
         else:
             b = self.machine.blocks()
             draw_label(d, (20, 42), f"Score {b.score}", anchor="lt")
@@ -421,6 +443,24 @@ class ArcadeWindow:
             else:
                 draw_label(d, (187, 180), "Play/Pause: resume", "#c7ced5", "mt")
         return screen
+
+    def draw_breakout(self, draw, text):
+        state = self.machine.breakout()
+        left, top = 27, 58
+        draw_label(draw, (left, 44), f"Score {state.score}", text, "lm")
+        draw_label(draw, (347, 44), f"Level {state.level}   Lives {state.lives}", text, "rm")
+        draw.rectangle((left, top, left + 319, top + 239), fill="#111722", outline="#526074")
+        for row, bricks in enumerate(state.bricks):
+            for column, brick in enumerate(bricks):
+                if brick:
+                    x, y = left + 16 + column * 36, top + 27 + row * 16
+                    draw.rectangle((x, y, x + 32, y + 12), fill=COLORS[brick - 1])
+        paddle = left + state.paddle_x
+        draw.rectangle((paddle, top + 220, paddle + 47, top + 225), fill="#5fd7b1")
+        x, y = left + state.ball_x, top + state.ball_y
+        draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill="#ffffff")
+        if state.waiting:
+            draw_label(draw, (187, 214), "Center: launch", "#e8e8e8", "mm")
 
     def update(self):
         now = time.monotonic()

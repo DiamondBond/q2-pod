@@ -1097,7 +1097,7 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            if name in BUILTIN_GAMES:
+            if name in (*BUILTIN_GAMES, 'Breakout'):
                 try:
                     from arcade_emulator import ArcadeWindow, MipsArcade
                     view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window
@@ -1260,7 +1260,7 @@ class Simulator:
         if self.page == 'arcade' and self.arcade is not None:
             game = self.arcade.game
             self.arcade.center()
-            if game in ('vortex', 'snake') and self.arcade.scene == 'games':
+            if game in ('vortex', 'snake', 'breakout') and self.arcade.scene == 'games':
                 self.back()
             return
         if self.page == 'home':
@@ -1553,7 +1553,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             detail = 'Click or drag Buddy · Wheel to spin · Enter to act · Esc opens its menu'
         elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('sudoku', 'solitaire'):
             detail = 'Wheel or arrows to move · Enter to select · Space for new game · Esc to go back'
-        elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('snake', 'vortex'):
+        elif ui.page == 'arcade' and ui.arcade is not None and ui.arcade.game in ('snake', 'vortex', 'breakout'):
             detail = ('Left/Right to turn' if ui.arcade.game == 'snake' else 'Drag wheel or press Left/Right · Enter to launch')
             detail += ' · Space to pause · Esc for menu'
         else:

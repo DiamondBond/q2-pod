@@ -143,7 +143,7 @@ def check_mounted_apps():
         assert all(row.name != "Buddy" for row in ui.library_rows)
         ui.mount_card([], root)
         assert ui.library_title == "Games"
-        assert LibraryRow("Buddy", "buddy") in ui.library_rows
+        assert LibraryRow("Buddy", "card-game:fidget") in ui.library_rows
         assert all(row.name != "File Browser" for row in ui.library_rows)
         ui.back()
         ui.back()
@@ -170,7 +170,7 @@ def check_mounted_apps():
         # Starting the simulator with the same card needs no App Store record.
         restarted = Simulator("modern", [], sd_card=root)
         assert ("rockbox", "Rockbox") in restarted.home_items()
-        assert LibraryRow("Buddy", "buddy") in restarted.game_rows()
+        assert LibraryRow("Buddy", "card-game:fidget") in restarted.game_rows()
 
         rockbox.unlink()
         restarted.store.events.put(("done", "Rockbox removed"))
@@ -180,3 +180,40 @@ def check_mounted_apps():
 
 check_mounted_apps()
 print("Mounted Buddy, streaming apps and the Rockbox Home shortcut verified")
+
+
+def check_breakout():
+    from types import SimpleNamespace
+    from simulator_firmware import BUILTIN_GAMES
+
+    firmware = SimpleNamespace(custom=True, builtin_games=(*BUILTIN_GAMES, "Breakout"))
+    ui = Simulator("modern", [], firmware)
+    ui.show_library("Games", ui.game_rows())
+    ui.cursor = next(i for i, row in enumerate(ui.library_rows) if row.name == "Breakout")
+    try:
+        ui.enter()
+        assert ui.page == "arcade", ui.hint
+        game = ui.arcade
+        initial = game.machine.breakout()
+        assert initial.remaining == 40 and initial.lives == 3 and initial.waiting
+        ui.move(1)
+        assert game.machine.breakout().paddle_x == initial.paddle_x + 14
+        ui.enter()
+        assert not game.machine.breakout().waiting
+        ui.advance(.05)
+        assert game.machine.breakout().ball_y < initial.ball_y
+        assert game.render_screen().size == (375, 320)
+        ui.toggle()
+        assert game.paused
+        ui.toggle()
+        ui.back()
+        assert game.menu
+        ui.move(1)
+        ui.enter()
+        assert ui.page == "library" and ui.arcade is None
+    finally:
+        ui.close_arcade()
+
+
+check_breakout()
+print("Breakout launches from Games and runs MIPS paddle, serve, frame, pause and exit")

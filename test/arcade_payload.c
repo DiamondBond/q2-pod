@@ -17,6 +17,7 @@ void *memcpy(void *dest, const void *src, size_t size) {
 #define PEQ_HOST
 #define Q2_ARCADE_MIPS
 #include "../patch/arcade_core.c"
+#include "breakout_core.c"
 #include "../patch/games.c"
 
 /* These layouts are read by ctypes in arcade_mips.py. */
@@ -31,3 +32,6 @@ _Static_assert(sizeof(struct solitaire) == 336 && offsetof(struct solitaire, len
                "Solitaire state layout");
 
 void q2_snake_seed(unsigned seed) { games_seed = seed ? seed : 1; }
+
+_Static_assert(sizeof(Q2Breakout) == 84 && offsetof(Q2Breakout, paddle_x) == 56,
+               "Breakout state layout");
