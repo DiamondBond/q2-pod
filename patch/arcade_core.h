@@ -28,7 +28,8 @@ typedef struct {
 } Q2Blocks;
 void q2_blocks_init(Q2Blocks *g, uint32_t seed);
 int q2_blocks_move(Q2Blocks *g, int dx);
-int q2_blocks_rotate(Q2Blocks *g);
+int q2_blocks_rotate(Q2Blocks *g); /* clockwise, retained for existing callers */
+int q2_blocks_rotate_dir(Q2Blocks *g, int direction); /* +1 clockwise, -1 counterclockwise */
 int q2_blocks_tick(Q2Blocks *g); /* 0 moved, 1 locked, -1 game over */
 int q2_blocks_drop(Q2Blocks *g); /* hard drop, returns rows travelled */
 int q2_blocks_next_cell(const Q2Blocks *g, int x, int y); /* next-piece preview */
