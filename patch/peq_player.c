@@ -833,7 +833,7 @@ static void ao_cut(void) { /* a press during ao_init's drain, on the command thr
  * rapid double Next can spend its word on the first init, so the last track keeps the old cut. A-B
  * Repeat, Resume Songs' jump, a phone's seek, Spotify's aplay and q2video keep the cut. */
 /* clang-format off */
-#define DAC_RELEASE_MS 130 /* derived, not measured: the mute line's 90-100 ms and the ramp at top volume */
+#define DAC_RELEASE_MS 400 /* #402 diagnostic: 130 on main; does a longer wait end the start fade? */
 #define DAC_PRESS_MS 5000  /* demo's mute, its sleep and a slow card's open, from the press to init's end */
 /* clang-format on */
 #define DAC_FD (*(volatile int *)0xb22524u)
