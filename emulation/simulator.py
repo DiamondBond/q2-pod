@@ -1686,7 +1686,6 @@ def main():
                 print(f'{args.snapshot} (ABI v1 game: {game.name})')
             else:
                 from universal_game import main as run_generic
-                import sys
                 old_args = sys.argv
                 try:
                     sys.argv = [old_args[0], '--elf', str(args.game_elf)]
@@ -1694,7 +1693,7 @@ def main():
                 finally:
                     sys.argv = old_args
         except Exception as exc:
-            parser.exit(1, f'{parser.prog}: generic game failed: {exc}\\n')
+            parser.exit(1, f'{parser.prog}: generic game failed: {exc}\n')
         return
     if args.firmware and (args.stock_font or args.fonts_dir):
         parser.error('--firmware supplies the fonts itself; use --stock-font and --fonts-dir in checkout preview mode')
