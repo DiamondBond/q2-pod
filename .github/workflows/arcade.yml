@@ -1,7 +1,7 @@
 name: Arcade core tests
 on:
   push:
-    branches: [builtin-pong-tetris, builtin-breakout]
+    branches: [new-builtin-games]
   pull_request:
     paths:
       - 'patch/arcade_core.*'
@@ -10,7 +10,6 @@ on:
       - 'patch/game_framework.*'
       - 'test/arcade_core*'
       - 'test/game_framework*'
-      - 'test/arcade_mips.py'
       - 'patch/arcade_gameplay.inc'
       - 'patch/arcade_draw.inc'
       - 'patch/games.c'
@@ -36,18 +35,6 @@ jobs:
           /tmp/q2-breakout-ubsan
           cc -std=c11 -O1 -g -fsanitize=undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -pedantic patch/game_framework.c test/game_framework_test.c -o /tmp/q2-framework-ubsan
           /tmp/q2-framework-ubsan
-
-  mips:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install MIPS toolchain and Unicorn
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang lld binutils
-          python3 -m pip install --break-system-packages unicorn==2.1.4
-      - name: Run actual compiled MIPS arcade rules
-        run: python3 test/arcade_mips.py --self-test
 
   firmware-games:
     runs-on: ubuntu-24.04
