@@ -479,7 +479,7 @@ void tidal_all(int press, char *out, unsigned size), tidal_poll(void), tidal_all
 #define APPS_MAX 8 /* card apps on the card at once */
 int addon_scan(void), addon_open(void *ctx, void *event), addon_hold(void *top);
 int addon_games_last(void); /* the card's games as the last addon_scan found them */
-#define GAMES_BUILTIN 8     /* Sudoku, Vortex, Solitaire, Snake, Pong, Blocks, Breakout, 2048 */
+#define GAMES_BUILTIN 7     /* Sudoku, Vortex, Solitaire, Snake, Pong, Blocks, Breakout */
 const char *addon_name(int a), *addon_id(int a), *addon_icon(int a);
 int card_path(const char *path); /* on the card, no ".." segment: what an app or server may name */
 int addon_is_icon(const char *name); /* a card app's Streaming icon, by its file:// name */

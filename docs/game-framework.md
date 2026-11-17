@@ -10,14 +10,15 @@ from Q2-specific firmware hooks. It provides a small foundation for adding
 games without duplicating pause/resume, update scheduling and normalized
 input handling across implementations.
 
-The eight menu entries on `new-builtin-games` are Sudoku, Vortex, Solitaire,
-Snake, Pong, Blocks, Breakout and 2048. The first four preserve their existing
+The seven menu entries on `new-builtin-games` are Sudoku, Vortex, Solitaire,
+Snake, Pong, Blocks and Breakout. The first four preserve their existing
 implementations; Pong, Blocks and Breakout are integrated through portable
 game cores and firmware-specific adapters.
 
-**Current status:** 2048 uses the `Q2GameRunner` input, pause/restart and
-paint hooks. Its board advances on moves, so it needs no frame timer. The
-other games use the existing firmware timer and control path.
+**Current status:** `patch/game_framework.c` is implemented and tested, but
+the built-in games are **not yet migrated to its `Q2GameRunner` callback
+runner**. The existing firmware timer and control path currently drives the
+games. Do not describe the runner as already responsible for all seven games.
 
 ## Reusable interface
 
@@ -48,7 +49,6 @@ allocation. Hardware and UI services are supplied by adapters.
 - `patch/games.c`: menu selection, existing game code and dispatch.
 - `patch/arcade_core.c`: Pong and Blocks gameplay rules.
 - `patch/breakout_core.c`: Breakout gameplay rules.
-- `patch/tile2048.c`: 2048 gameplay rules, wired through the runner.
 - `patch/arcade_gameplay.inc`: wheel sampling, hardware keys and timer ticks.
 - `patch/arcade_draw.inc`: AWTK canvas painting.
 - Existing `timer_add`, `BLOB_IO`, integrity checks, and UI popups are
@@ -67,7 +67,6 @@ stock touch gestures.
 sh test/game_framework.sh
 sh test/arcade_core.sh
 sh test/breakout_core.sh
-sh test/tile2048.sh
 ```
 
 See [the canonical built-in games guide](builtin-games.md#testing) for
@@ -76,7 +75,7 @@ Emulation tooling and emulator-specific tests belong to `desktop-simulator`.
 
 ## Remaining migration work
 
-1. Extend the firmware adapter as timed games move to the runner.
+1. Add a firmware adapter for the `Q2GameRunner` callbacks.
 2. Migrate the new games incrementally without changing control semantics.
 3. Preserve pause, Return-hold/Home and power-management behavior.
 4. Keep older game save formats and controls intact during migration.

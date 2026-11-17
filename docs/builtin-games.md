@@ -1,15 +1,15 @@
 # Built-in games and reusable game framework
 
-This guide is the single overview of the **eight built-in games** on the
+This guide is the single overview of the **seven built-in games** on the
 `new-builtin-games` development branch, their controls, implementation, and
-testing. All eight are registered under **Library → Games** in
+testing. All seven are registered under **Library → Games** in
 `patch/games.c`. They are part of the firmware; separate app downloads are
 not needed. Downloadable card apps (such as Buddy and Groovebox) are a
 different feature and are not counted as built-in games.
 
 > **Development status:** Source integration does not mean the firmware
 > package has been successfully installed or validated on a physical Q2.
-> Build from this branch, confirm the eight menu entries, and validate on
+> Build from this branch, confirm the seven menu entries, and validate on
 > hardware before treating this work as release-ready.
 
 ## Complete built-in game list
@@ -23,7 +23,6 @@ different feature and are not counted as built-in games.
 | 5 | **Pong** | New | Player paddle versus CPU; ball bounce, serves and scoring |
 | 6 | **Blocks** (Tetris-style) | New | 10×20 field, seven tetrominoes, 7-bag selection, line clearing, levels and persistent best score |
 | 7 | **Breakout** | New | 8×5 brick grid, paddle and ball, three lives, level progression and persistent best score |
-| 8 | **2048** | New | 4×4 sliding puzzle with a saved board and best score |
 
 The existing four games remain in the Games menu with their established
 controls. New games extend the menu rather than replacing the older games.
@@ -51,16 +50,6 @@ controls. New games extend the menu rather than replacing the older games.
 | Down (physical Play/Pause) | Pause/resume | Soft drop faster (up to three rows per press) | Pause/resume |
 | Return / Back | Game menu | Pause and open Continue/Quit menu | Game menu |
 
-**2048:** Turn the wheel to select a direction and press Centre to slide.
-The side Previous and Next buttons slide left and right directly.
-Play/Pause pauses or resumes. Return opens the pause menu, where **Game options**
-offers New game and Quit. Reach 2048 and press Centre to keep playing. A full
-board with no available merge ends the round.
-
-The rules are based on [Gabriele Cirulli’s 2048](https://github.com/gabrielecirulli/2048)
-and the [Q2 card port](https://github.com/lampsonlnguyen/q2-2048), with the
-compact exponent representation used by [Maurits van der Schee’s 2048.c](https://github.com/mevdschee/2048.c).
-
 Legacy games keep their existing controls. On-device control responsiveness,
 screen rendering, and pause/exit interaction still need hardware verification.
 
@@ -81,11 +70,10 @@ input, timing or menu behavior.
 | `patch/game_framework.h` / `.c` | Reusable portable runner: normalized input events, game lifecycle, fixed-step timing and callbacks |
 | `patch/arcade_core.h` / `.c` | Portable Pong and Blocks rules |
 | `patch/breakout_core.h` / `.c` | Portable Breakout rules |
-| `patch/tile2048.h` / `.c` | Portable 2048 rules |
 | `patch/arcade_gameplay.inc` | Firmware-specific wheel/button input and game timing |
 | `patch/arcade_draw.inc` | Rendering through the existing AWTK canvas |
 | `patch/games.c` | Game selection, existing games, dispatch, UI interactions and persistence |
-| `patch/peq.h` | `GAMES_BUILTIN` count (8) |
+| `patch/peq.h` | `GAMES_BUILTIN` count (7) |
 | `tools/peq.py` | Registers sources for the firmware MIPS payload |
 
 ### Framework interface
@@ -110,7 +98,6 @@ the `desktop-simulator` branch.
 
 **Current integration boundary:** The framework is an implemented and
 independently tested **foundation**, not yet a runner adopted by every game.
-2048 uses the runner for input, lifecycle and drawing, with updates driven by button events.
 Pong, Blocks and Breakout currently use portable rules with adapters calling
 the firmware's existing timers, drawing, wheel input, pause/return and save
 services. Sudoku, Vortex, Solitaire and Snake remain on their existing
@@ -141,7 +128,6 @@ introducing a new storage format:
 - Solitaire: game state
 - Vortex and Snake: best scores
 - Blocks and Breakout: best scores
-- 2048: board, score, best score and keep-playing state
 
 Pong does not currently have a persistent high-score entry.
 
@@ -152,7 +138,6 @@ From the repository root:
 ```sh
 sh test/arcade_core.sh
 sh test/breakout_core.sh
-sh test/tile2048.sh
 sh test/game_framework.sh
 ```
 
@@ -163,7 +148,7 @@ Emulation-specific tests are maintained on the `desktop-simulator` branch.
 
 **Before release or flashing:** validate a complete firmware package built
 from the intended branch and the stock firmware archive; then exercise all
-eight games on a real Q2, including navigation, controls, rendering,
+seven games on a real Q2, including navigation, controls, rendering,
 pause/resume, restart, persistence and performance. Passing host tests alone does not establish hardware compatibility.
 
 ## Future work

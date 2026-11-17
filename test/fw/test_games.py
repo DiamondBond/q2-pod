@@ -1988,7 +1988,7 @@ def test_leaving_a_game_saves_and_returns_to_its_row(fw):
     fw.mock('widget_set_prop_int', lambda w, k, v, *_: props.update({C.string_at(k): v}))
     p.go(CHOOSER)
     assert s.screen == CHOOSER and SOLITAIRE_FILE in p.card.files
-    assert props[b'_ringnav_index'] == SOLITAIRE - 1 and props[b'_ringnav_count'] == 8
+    assert props[b'_ringnav_index'] == SOLITAIRE - 1 and props[b'_ringnav_count'] == 7
 
 
 def test_a_screen_left_with_keyup_in_the_chooser_goes_back(fw):
@@ -2043,15 +2043,15 @@ def test_the_chooser_lists_its_games_then_the_card_s_by_name_and_each_row_opens_
     texts = []
     fw.mock('widget_set_text_utf8', lambda w, s, *_: texts.append(C.string_at(s).decode()))
     p = Page(fw, files)
-    assert texts[-10:] == ['Sudoku', 'Vortex', 'Solitaire', 'Snake', 'Pong', 'Blocks', 'Breakout', '2048', 'Blocks', 'Zork']  # Tunes isn't a game
+    assert texts[-9:] == ['Sudoku', 'Vortex', 'Solitaire', 'Snake', 'Pong', 'Blocks', 'Breakout', 'Blocks', 'Zork']  # Tunes isn't a game
     rows = handlers(fw, EVT_CLICK)
-    assert len(rows) == 10
+    assert len(rows) == 9
     fw.mock('fw_fork', lambda *_: 4242)
     toasts, tried = heard(fw), []
     fw.mock('fw_access', lambda path, *_: tried.append(C.string_at(path)) or len(tried) == 1)  # Blocks' isn't there
-    press(rows[8])  # Blocks, the card's first by name
+    press(rows[7])  # Blocks, the card's first by name
     assert tried == [b'/mnt/mmc/.blocks/q2-blocks'] and not fw.fn('addon_game_on', C.c_int)() and len(toasts) == 1
-    press(rows[9])  # Zork, its second, over the whole screen
+    press(rows[8])  # Zork, its second, over the whole screen
     assert fw.fn('addon_game_on', C.c_int)() == 4242 and tried[-1] == b'/mnt/mmc/.zork/q2-zork'
     assert p.s.screen == CHOOSER and not p.timers
     for row, game in zip(rows, (SUDOKU, VORTEX, SOLITAIRE, SNAKE)):
@@ -2079,7 +2079,7 @@ def test_a_game_on_screen_takes_no_tap_for_the_chooser_hidden_under_it(fw):
     assert not fw.fn('addon_game_on', C.c_int)()
     p.go(CHOOSER)
     assert sensitive == {chooser: 1}
-    press(rows[8])
+    press(rows[7])
     assert fw.fn('addon_game_on', C.c_int)() == 4242
 
 
@@ -2928,21 +2928,3 @@ def test_the_bar_names_the_game_where_the_theme_s_bar_holds_the_page_s_caption(f
     p.go(SOLITAIRE)
     p.go(CHOOSER)
     assert said == names
-
-def test_2048_uses_the_builtin_page_and_saves_moves(fw):
-    p = Page(fw)
-    press(handlers(fw, EVT_CLICK)[7])
-    run(p.timers[-1][0])
-    assert p.s.screen == 8 and not p.g.games_live()
-    p.key(NEXT, CENTER, NEXT, CENTER, NEXT, CENTER, NEXT, CENTER)
-    p.close()
-    path = '/mnt/data/ringnav-2048'
-    saved = p.card.files[path]
-    assert len(saved) == 44 and saved[:4] == b'2041'
-    p = Page(fw, {path: saved})
-    press(handlers(fw, EVT_CLICK)[7])
-    run(p.timers[-1][0])
-    p.key(RETURN, NEXT, CENTER, NEXT, CENTER)
-    run(p.timers[-1][0])
-    assert p.s.screen == CHOOSER and p.card.files[path] == saved
-    p.close()
