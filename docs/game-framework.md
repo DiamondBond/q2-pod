@@ -66,11 +66,11 @@ stock touch gestures.
 sh test/game_framework.sh
 sh test/arcade_core.sh
 sh test/breakout_core.sh
-python3 test/arcade_mips.py --self-test
 ```
 
 See [the canonical built-in games guide](builtin-games.md#testing) for
-integration testing and physical-hardware validation requirements.
+firmware integration and physical-hardware validation requirements.
+Emulation tooling and emulator-specific tests belong to `desktop-simulator`.
 
 ## Remaining migration work
 
