@@ -1,4 +1,9 @@
-"""Load ELF segments into the simulator and firmware test harnesses."""
+"""Map a MIPS ELF into Unicorn for desktop emulation."""
+
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "tools"))
 
 from build import segments
 

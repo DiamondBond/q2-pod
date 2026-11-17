@@ -8,8 +8,8 @@ Branch: `unicorn-mips-emulator`, based on `desktop-simulator`.
   `patch/arcade_core.c` using the Q2 firmware's target architecture and
   executed in Unicorn. The host does not reimplement the Pong or Blocks rules.
 - The existing desktop simulator's **Q2 chassis graphic and click-wheel
-  geometry** (`tools/simulator_device.py`).
-- MIPS test from `test/arcade_mips.py`, usable without stock firmware.
+  geometry** (`emulation/simulator_device.py`).
+- MIPS test from `emulation/arcade_mips.py`, usable without stock firmware.
 
 ## What's simulated
 
@@ -31,10 +31,10 @@ Unicorn, Mutagen and fontTools into its isolated Python environment.
 Linux / WSL:
 ```sh
 sudo apt install clang lld binutils python3-venv python3-tk
-bash run-emulator.sh
-bash run-emulator.sh --game pong
-bash run-emulator.sh --game blocks
-bash run-emulator.sh --self-test
+bash emulation/run-emulator.sh
+bash emulation/run-emulator.sh --game pong
+bash emulation/run-emulator.sh --game blocks
+bash emulation/run-emulator.sh --self-test
 ```
 
 Windows 11: install Python with Tcl/Tk and Ubuntu WSL with `clang` and
@@ -43,7 +43,7 @@ from PowerShell). The Windows simulator automatically compiles MIPS in WSL,
 then runs Unicorn and Tkinter natively in Windows. No Windows LLVM installation,
 MIPS cross compiler on Windows, or `llvm-readelf.exe` is required.
 Python `pyelftools` is installed by the launcher.
-Run `run-simulator.bat` or `run-emulator.bat --game pong`.
+Run `emulation\run-simulator.bat` or `emulation\run-emulator.bat --game pong`.
 
 For a custom Windows LLVM toolchain that genuinely supports MIPS, set
 `Q2_MIPS_COMPILER=windows` to disable the WSL compiler route.
@@ -65,7 +65,7 @@ Apple's system clang may not contain the MIPS backend.
 | Pause/resume | Space/P | Play/Pause |
 | Return/menu | Escape/Backspace | Return |
 
-Use `python3 tools/arcade_emulator.py --snapshot out.png --game blocks`
+Use `python3 emulation/arcade_emulator.py --snapshot out.png --game blocks`
 for a headless device screenshot.
 
 ## Launch from existing desktop simulator
@@ -80,13 +80,13 @@ In Sudoku and Solitaire, use the wheel or arrows to move and Enter to select.
 Use Space for a new puzzle or deal. Esc cancels a selection or returns to Games.
 The desktop starts a fresh puzzle or deal each time you open either game.
 
-The standalone `run-emulator.sh` / `run-emulator.bat` game window is also
+The standalone `emulation/run-emulator.sh` / `emulation\run-emulator.bat` game window is also
 available for focused game debugging without the music UI. Pass `--game snake`
 or `--game vortex` to open either directly.
 
 ## Music playback and UI
 
-`bash run-simulator.sh --sd-card /path/to/Music` now uses host `ffplay` from
+`bash emulation/run-simulator.sh --sd-card /path/to/Music` now uses host `ffplay` from
 FFmpeg to play local MP3/FLAC tracks while the existing simulator keeps its
 Now Playing and lyrics UI clock. Install FFmpeg including `ffplay`. Disable
 host playback with `--no-audio`, or pass `--ffplay /path/to/ffplay`.

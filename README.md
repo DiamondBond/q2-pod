@@ -94,10 +94,10 @@
 To preview the Q2 interface without a physical device or firmware package, run this on **Linux/macOS**:
 
 ```sh
-bash run-simulator.sh
+bash emulation/run-simulator.sh
 ```
 
-**Windows 11:** double-click `run-simulator.bat` (after installing Python 3 with Tcl/Tk) or run it from a terminal. Both launchers set up a local Python environment and install simulator-only dependencies. Requirements, firmware loading, SD-folder mounting, controls, and limitations are in [the simulator quick-start guide](docs/desktop-simulator.md). This is a Python UI simulator, not a firmware emulator.
+**Windows 11:** double-click `emulation/run-simulator.bat` (after installing Python 3 with Tcl/Tk) or run it from a terminal. Both launchers set up a local Python environment and install simulator-only dependencies. Requirements, firmware loading, SD-folder mounting, controls, and limitations are in [the simulator quick-start guide](emulation/docs/desktop-simulator.md). This is a Python UI simulator, not a firmware emulator.
 
 ## Install
 

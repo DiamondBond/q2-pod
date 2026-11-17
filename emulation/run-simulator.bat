@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 where py >nul 2>nul
 if not errorlevel 1 (
@@ -23,19 +23,19 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist ".venv-simulator\Scripts\python.exe" (
+if not exist "emulation\.venv-simulator\Scripts\python.exe" (
   echo Creating simulator virtual environment...
-  %PYTHON% -m venv ".venv-simulator"
+  %PYTHON% -m venv "emulation\.venv-simulator"
   if errorlevel 1 goto :failed
 )
 
-".venv-simulator\Scripts\python.exe" -c "import PIL, mutagen, fontTools, unicorn, elftools" >nul 2>nul
+"emulation\.venv-simulator\Scripts\python.exe" -c "import PIL, mutagen, fontTools, unicorn, elftools" >nul 2>nul
 if errorlevel 1 (
   echo Installing simulator Python dependencies...
-  ".venv-simulator\Scripts\python.exe" -m pip install -r requirements-simulator.txt
+  "emulation\.venv-simulator\Scripts\python.exe" -m pip install -r emulation\requirements-simulator.txt
   if errorlevel 1 goto :failed
 )
-".venv-simulator\Scripts\python.exe" tools\simulator.py %*
+"emulation\.venv-simulator\Scripts\python.exe" emulation\simulator.py %*
 if errorlevel 1 goto :failed
 exit /b 0
 

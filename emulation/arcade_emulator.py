@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import math
 import pathlib
-import sys
 import time
 
 from PIL import Image, ImageDraw, ImageFont
@@ -17,8 +16,6 @@ from arcade_puzzles import PUZZLE_GAMES, Puzzle
 from simulator_device import (DEVICE_SIZE, DEFAULT_SHELL, SCREEN_AT, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "test"))
 from arcade_mips import MipsArcade, self_test as mips_self_test  # type: ignore[import-not-found]
 
 SCREEN = (375, 320)

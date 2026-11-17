@@ -21,6 +21,8 @@ from mutagen import File, MutagenError
 from mutagen.id3 import APIC
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+sys.path.append(str(Path(__file__).resolve().parents[1] / "tools"))
+
 import art
 import build
 import ipod

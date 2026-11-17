@@ -10,8 +10,8 @@ to browse a local music directory and populate the Library with its MP3 and FLAC
 From PowerShell in the Q2 Pod checkout, using Python 3.12 with Tk support:
 
 ```powershell
-py -3.12 -m pip install -r tools/requirements-simulator.txt
-py -3.12 tools/simulator.py
+py -3.12 -m pip install -r emulation/requirements-simulator.txt
+py -3.12 emulation/simulator.py
 ```
 
 On Linux or macOS, substitute `python3` for `py -3.12`. Some Linux distributions package Tk
@@ -23,9 +23,9 @@ simulator from Ubuntu/WSL with WSLg for the desktop window, or pass the path to 
 ## Compare the official and generated firmware
 
 ```sh
-python3 tools/simulator.py --firmware 'Q2 Firmware V1.36.zip'
-python3 tools/simulator.py --firmware /tmp/q2-build/update.tar
-python3 tools/simulator.py --firmware /tmp/q2-build/update.tar --sd-card sim-sd
+python3 emulation/simulator.py --firmware 'Q2 Firmware V1.36.zip'
+python3 emulation/simulator.py --firmware /tmp/q2-build/update.tar
+python3 emulation/simulator.py --firmware /tmp/q2-build/update.tar --sd-card sim-sd
 ```
 
 The loaded package supplies the compiled AWTK screen layouts, default styles, artwork and
@@ -59,7 +59,7 @@ substitute (the bundled bold face) wherever the device would use the stock face.
 Save a screenshot without opening a window:
 
 ```powershell
-py -3.12 tools/simulator.py "D:/Music/vietnamese-test.mp3" --snapshot now-playing.png
+py -3.12 emulation/simulator.py "D:/Music/vietnamese-test.mp3" --snapshot now-playing.png
 ```
 
 Add `--firmware PATH` to capture a package in a headless run. Use `--screen` to choose the

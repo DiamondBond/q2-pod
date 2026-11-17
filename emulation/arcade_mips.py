@@ -19,7 +19,7 @@ from unicorn.mips_const import (
 )
 from unicorn import Uc, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+EMULATION = pathlib.Path(__file__).resolve().parent
 STACK = 0x200000
 STATE = 0x300000
 BREAKOUT_STATE = STATE + 0x6000
@@ -117,7 +117,7 @@ def wsl_path(path: pathlib.Path) -> str:
 
 def compiler_commands(obj: pathlib.Path, elf: pathlib.Path, flags: list[str]) -> tuple[list[str], list[str]]:
     """Use native Linux clang, or the installed WSL clang from Windows."""
-    source = ROOT / "test" / "arcade_payload.c"
+    source = EMULATION / "arcade_payload.c"
     if use_wsl_compiler():
         source_arg, obj_arg, elf_arg = (wsl_path(p) for p in (source, obj, elf))
         compile_command = ["wsl.exe", "--exec", "clang", *flags, "-c",
@@ -190,7 +190,6 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
 
 def load_elf(uc: Uc, elf: pathlib.Path) -> None:
     # Reuse Q2 Pod's audited ELF LOAD mapping helper, not a homegrown decoder.
-    sys.path.insert(0, str(ROOT / "tools"))
     from mips_elf import load_elf as load_segments
     load_segments(uc, elf.read_bytes())
 

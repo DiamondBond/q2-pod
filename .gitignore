@@ -22,6 +22,3 @@ graphify-out/
 .claude/skills/
 .codex/skills/
 .agents/skills/
-
-# Local desktop simulator virtual environment
-.venv-simulator/

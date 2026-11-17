@@ -3,6 +3,7 @@
 import re
 import shutil
 import struct
+import sys
 import subprocess
 import tarfile
 import tempfile
@@ -10,6 +11,8 @@ import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "tools"))
 
 import ipod
 

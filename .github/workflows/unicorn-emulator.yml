@@ -4,25 +4,10 @@ on:
     branches: [unicorn-mips-emulator, desktop-simulator, unicorn-mips-update]
   pull_request:
     paths:
-      - 'tools/arcade_emulator.py'
-      - 'tools/arcade_classic.py'
-      - 'tools/arcade_puzzles.py'
-      - 'test/arcade_payload.c'
+      - 'emulation/**'
       - 'patch/games.c'
-      - 'tools/simulator_audio.py'
-      - 'test/arcade_mips.py'
-      - 'test/arcade_windows_toolchain.py'
-      - 'test/simulator_audio.py'
-      - 'test/arcade_simulator.py'
-      - 'tools/simulator.py'
-      - 'tools/simulator_buddy.py'
-      - 'tools/mips_elf.py'
-      - 'tools/simulator_apps.py'
-      - 'test/unit/test_simulator_apps.py'
-      - 'test/simulator_buddy.py'
-      - 'tools/simulator_firmware.py'
-      - 'test/simulator_now_playing.py'
       - 'patch/arcade_core.*'
+      - 'patch/breakout_core.*'
       - '.github/workflows/unicorn-emulator.yml'
 jobs:
   mips-and-render:
@@ -33,19 +18,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang lld binutils python3-tk
-          python3 -m pip install --break-system-packages -r requirements-simulator.txt pytest
+          python3 -m pip install --break-system-packages -r emulation/requirements-simulator.txt pytest
       - name: Check Python syntax
-        run: python3 -m py_compile tools/arcade_emulator.py tools/simulator.py tools/simulator_audio.py test/arcade_mips.py
+        run: python3 -m py_compile emulation/arcade_emulator.py emulation/simulator.py emulation/simulator_audio.py emulation/arcade_mips.py
       - name: Check App Store downloads and rate limiting
-        run: PYTHONPATH=tools python3 -m pytest --noconftest -q test/unit/test_simulator_apps.py
+        run: PYTHONPATH=emulation python3 -m pytest --noconftest -q emulation/tests/test_simulator_apps.py emulation/tests/test_simulator_library.py
       - name: Check FFmpeg host playback integration
-        run: python3 test/simulator_audio.py
+        run: python3 emulation/tests/simulator_audio.py
       - name: Verify Windows WSL compiler routing
-        run: python3 test/arcade_windows_toolchain.py
+        run: python3 emulation/tests/arcade_windows_toolchain.py
       - name: Execute actual Q2-target MIPS instructions
-        run: python3 test/arcade_mips.py --self-test
+        run: python3 emulation/arcade_mips.py --self-test
       - name: Test games inside desktop simulator navigation
-        run: python3 test/arcade_simulator.py
+        run: python3 emulation/tests/arcade_simulator.py
       - name: Check out Buddy source for the device test
         if: github.ref_name == 'unicorn-mips-update' || github.ref_name == 'desktop-simulator'
         uses: actions/checkout@v4
@@ -58,14 +43,14 @@ jobs:
         if: github.ref_name == 'unicorn-mips-update' || github.ref_name == 'desktop-simulator'
         run: |
           bash .buddy-source/build.sh
-          python3 test/simulator_buddy.py .buddy-source/dist/.fidget
+          python3 emulation/tests/simulator_buddy.py .buddy-source/dist/.fidget
       - name: Check packaged Now Playing layout selection
-        run: python3 test/simulator_now_playing.py
+        run: python3 emulation/tests/simulator_now_playing.py
       - name: Render interactive emulator game screens headlessly
         run: |
-          python3 tools/arcade_emulator.py --snapshot /tmp/q2-pong.png --game pong
-          python3 tools/arcade_emulator.py --snapshot /tmp/q2-blocks.png --game blocks
-          python3 tools/simulator.py --snapshot /tmp/q2-lyrics.png --screen lyrics --with-device
+          python3 emulation/arcade_emulator.py --snapshot /tmp/q2-pong.png --game pong
+          python3 emulation/arcade_emulator.py --snapshot /tmp/q2-blocks.png --game blocks
+          python3 emulation/simulator.py --snapshot /tmp/q2-lyrics.png --screen lyrics --with-device
           python3 -c 'from PIL import Image; import sys; assert all(Image.open(p).size == (435, 664) for p in sys.argv[1:])' /tmp/q2-pong.png /tmp/q2-blocks.png /tmp/q2-lyrics.png
       - uses: actions/upload-artifact@v4
         with:

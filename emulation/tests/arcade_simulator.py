@@ -2,7 +2,7 @@
 """Check Unicorn games inside the desktop simulator model (headless, no Tk)."""
 from pathlib import Path
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from simulator import Simulator
 from simulator_library import LibraryRow
 

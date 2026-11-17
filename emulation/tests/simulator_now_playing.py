@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import simulator
 import simulator_firmware as sf
 
