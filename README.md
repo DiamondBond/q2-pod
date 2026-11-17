@@ -19,7 +19,7 @@
 <table>
   <tr valign="top">
     <td width="200"><b>Interface</b></td>
-    <td>Home in a Split, Full or Carousel layout. Menus, Now Playing (regular or Centred), Cover Flow you can swipe, four visualizers and Games. Quick Settings with a swipe down from the top of the screen.</td>
+    <td>Home in a Split, Full or Carousel layout. Menus, Now Playing (regular or Centred), Cover Flow you can swipe, four visualizers and seven built-in games (Sudoku, Vortex, Solitaire, Snake, Pong, Blocks and Breakout). Quick Settings with a swipe down from the top of the screen.</td>
   </tr>
   <tr valign="top">
     <td><b>Display</b></td>
@@ -111,6 +111,10 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
 
 - **Over Wi-Fi:** **System settings → System Update → Network update**.
 - **By hand:** repeat the [install steps](#install) with the newest release.
+
+## Built-in Games
+
+This development branch includes **seven built-in games** in **Library → Games**: Sudoku, Vortex, Solitaire, Snake, Pong, Blocks and Breakout. The first four are existing games; Pong, Blocks and Breakout are new. See the [built-in games guide](docs/builtin-games.md) for controls, framework design, testing and hardware-validation status. Downloadable card apps listed below are separate from these built-in games.
 
 ## Apps
 
@@ -229,6 +233,7 @@ Copy your music to the card over USB-C, then run **Library → Update Library �
 - **For users:** [User guide][guide] · [Setup](docs/setup.md) · [Changelog](docs/changelog.md) · [Accessibility](ACCESSIBILITY.md)
 - **Library folder markers:** [Hide folders while keeping playlists](docs/discovery.md)
 - **Hardware:** [Specs and internals](docs/hardware.md) · [Replacing the battery](docs/battery.md) · [Teardown photo](docs/teardown.jpg)
+- **Built-in games:** [All seven games, controls and framework](docs/builtin-games.md) · [Framework developer notes](docs/game-framework.md)
 - **For developers:** [Building](docs/building.md) · [Releasing](docs/releasing.md) · [Internals](docs/internals.md) · [Remote control (dev builds)](docs/remote.md) · [Contributing](CONTRIBUTING.md)
 
 <details>
