@@ -682,7 +682,7 @@ static void run(void) {
     g->acc = 0;
     g->carry = 0;
     __sync_lock_test_and_set(&wheel_travel, 0);
-    wheel_raw = g->screen == VORTEX || g->screen == PONG || g->screen == BREAKOUT;
+    wheel_raw = g->screen == VORTEX || g->screen == PONG || g->screen == BLOCKS || g->screen == BREAKOUT;
     if (!g->frame) g->frame = timer_add(frame, 0, FRAME_MS);
 }
 
@@ -793,9 +793,11 @@ static int arcade_key(unsigned key, int over) {
         hold(MENU), g->choice = 0;
     else if (g->paused && (key == KEY_PLAY || key == KEY_CENTER))
         run();
-    else if (key == KEY_PLAY)
+    else if (key == KEY_PLAY) {
+        /* Blocks uses the physical Down button for soft drop, not pause. */
+        if (g->screen == BLOCKS) return 0;
         hold(HELD);
-    else
+    } else
         return 0;
     return 1;
 }
