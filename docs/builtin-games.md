@@ -43,12 +43,12 @@ controls. New games extend the menu rather than replacing the older games.
 
 | Input | Pong | Blocks | Breakout |
 | --- | --- | --- | --- |
-| Click wheel | Move paddle up/down | Move piece left/right | Move paddle left/right |
-| Centre | No game-specific action | Rotate clockwise; restart after game over | Launch docked ball; restart after game over |
-| Previous / Next | Nudge paddle | Move piece | Nudge paddle |
-| Side Previous / Next | Nudge paddle | Soft / hard drop | Nudge paddle |
-| Play/Pause | Pause/resume | Pause/resume | Pause/resume |
-| Return | Game menu | Game menu | Game menu |
+| Click wheel | Move paddle up/down | Rotate piece counterclockwise / clockwise | Move paddle left/right |
+| Centre | No game-specific action | Hard drop; restart after game over | Launch docked ball; restart after game over |
+| Previous / Next wheel ticks | Nudge paddle | Wheel rotation is handled through raw travel | Nudge paddle |
+| Side Previous / Next (Left / Right) | Nudge paddle | Move piece left / right | Nudge paddle |
+| Down (physical Play/Pause) | Pause/resume | Soft drop faster (up to three rows per press) | Pause/resume |
+| Return / Back | Game menu | Pause and open Continue/Quit menu | Game menu |
 
 Legacy games keep their existing controls. On-device control responsiveness,
 screen rendering, and pause/exit interaction still need hardware verification.
