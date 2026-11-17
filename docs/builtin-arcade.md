@@ -1,12 +1,12 @@
 # Built-in arcade games: development branch
 
-Pong and a lightweight falling-block game are being developed as **built-in**
+Pong, Blocks, and Breakout are developed as **built-in**
 Q2 Pod games, with original game code and no downloaded proprietary assets.
 
 ## Current status
 
-Pong and Blocks now appear in `Library → Games` in this branch's
-`patch/games.c`. Their actual rules live in `patch/arcade_core.c`, compiled
+Pong, Blocks, and Breakout now appear in `Library → Games` in this branch's
+`patch/games.c`. Their actual rules live in `patch/arcade_core.c` and `patch/breakout_core.c`, compiled
 into the MIPS firmware payload through `tools/peq.py`'s `UI_SOURCES`.
 They share the existing Q2 timer, drawing, wheel sampling, pause/menu and
 save APIs. The framework module remains an independent portable foundation
@@ -22,26 +22,29 @@ tests must also pass before flashing or releasing this branch.
 - Pong: paddle movement, CPU paddle, wall/paddle bounce, scoring and serve.
 - Blocks: 10x20 field, seven shapes, deterministic 7-bag, rotation with
   simple horizontal kicks, gravity, hard drop, line clearing and scoring.
-- `test/arcade_core_test.c`: host test of rules and termination.
+- Breakout: eight columns by five rows of bricks, a movable paddle, three lives,
+  points by brick row, endless level progression and a persistent best score.
+  The centre button launches the docked ball.\n- `test/arcade_core_test.c`: host test of rules and termination.
 - `test/arcade_core.sh`: compile and execute tests with a host C compiler.
 
 ## Test
 
 ```sh
 sh test/arcade_core.sh
+sh test/breakout_core.sh
 sh test/game_framework.sh
 python3 test/arcade_mips.py --self-test
 ```
 
 ## Q2 hardware mapping
 
-| Control | Pong | Blocks |
-| --- | --- | --- |
-| Wheel | Player paddle up/down | Move piece left/right |
-| Centre | Restart after game over | Rotate clockwise |
-| Play/Pause | Pause | Pause |
-| Side Prev / Next | Paddle nudge | Soft / hard drop |
-| Return | Game menu | Game menu |
+| Control | Pong | Blocks | Breakout |
+| --- | --- | --- | --- |
+| Wheel | Player paddle up/down | Move piece left/right | Move paddle left/right |
+| Centre | — | Rotate clockwise | Launch ball, or restart after game over |
+| Play/Pause | Pause | Pause | Pause |
+| Side Prev / Next | Paddle nudge | Soft / hard drop | Paddle nudge |
+| Return | Game menu | Game menu | Game menu |
 
 Pong coordinates use an internal 320x240 arena; the renderer will scale this
 to the Games page drawing rect. Game ticks use the existing firmware timer, not direct hardware polling.
