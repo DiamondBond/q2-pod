@@ -15,11 +15,13 @@ from pathlib import Path, PurePosixPath
 sys.path.append(str(Path(__file__).resolve().parents[1] / "tools"))
 
 import ipod
+from game_catalog import LEGACY_NAMES, manifest_names
 
 RAW = 'release/assets/default/raw/'
 ROOTFS = 'recovery-update/rootfs.squashfs'
 DEMO = 'release/bin/demo'
-BUILTIN_GAMES = ('Sudoku', 'Vortex', 'Solitaire', 'Snake', 'Pong', 'Blocks')
+BUILTIN_GAMES = LEGACY_NAMES
+GAME_MANIFEST = 'release/assets/default/raw/q2pod-games.json'
 FONT_FILES = ('default', 'bold', 'classic-light', 'folder-regular')
 
 
@@ -57,6 +59,7 @@ class Firmware:
     playing_layouts: dict[str, dict[str, Widget]] = field(default_factory=dict)
 
     builtin_games: tuple[str, ...] = BUILTIN_GAMES
+    game_manifest_found: bool = False
 
     def now_playing(self, geometry):
         if self.custom and geometry in self.playing_layouts:
@@ -236,10 +239,15 @@ def load_firmware(path, unsquashfs='unsquashfs'):
             images = {name: read(f'images/xx/{name}.png') for name in names
                       if re.fullmatch(r'[A-Za-z0-9_-]+', name) and RAW + f'images/xx/{name}.png' in files}
             games = ()
+            manifest_found = False
             if custom:
-                demo = run('-cat', '-no-wildcards', str(rootfs), DEMO) if DEMO in files else b''
-                games = firmware_builtin_games(demo)
-            return Firmware(version, custom, page, fonts, images, styles, home, lists, playing_layouts, games)
+                if GAME_MANIFEST in files:
+                    manifest_found = True
+                    games = manifest_names(run('-cat', '-no-wildcards', str(rootfs), GAME_MANIFEST))
+                else:
+                    demo = run('-cat', '-no-wildcards', str(rootfs), DEMO) if DEMO in files else b''
+                    games = firmware_builtin_games(demo)
+            return Firmware(version, custom, page, fonts, images, styles, home, lists, playing_layouts, games, manifest_found)
     except FileNotFoundError as exc:
         if exc.filename == unsquashfs:
             raise ValueError('Install squashfs-tools or pass --unsquashfs with the executable path') from exc
