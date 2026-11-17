@@ -93,10 +93,22 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
 
 
 def load_elf(uc: Uc, elf: pathlib.Path) -> None:
-    # Reuse Q2 Pod's audited ELF LOAD mapping helper, not a homegrown decoder.
+    # Reuse the firmware tool's checked ELF segment parsing on newer q2-pod.
     sys.path.insert(0, str(ROOT / "tools"))
-    from build import load_elf as load_segments
-    load_segments(uc, elf.read_bytes())
+    from build import segments
+    data = elf.read_bytes()
+    loads = [(offset, vaddr, size, memory)
+             for _, (kind, offset, vaddr, _, size, memory, _, _) in segments(data)
+             if kind == 1 and memory]
+    if not loads:
+        raise RuntimeError("Compiled MIPS ELF has no loadable segments")
+    start = min(vaddr for _, vaddr, _, _ in loads) & ~0xfff
+    end = (max(vaddr + memory for _, vaddr, _, memory in loads) + 0xfff) & ~0xfff
+    if end <= start or end - start > 16 * 1024 * 1024:
+        raise RuntimeError("Unexpected MIPS ELF memory footprint")
+    uc.mem_map(start, end - start)
+    for offset, vaddr, size, _ in loads:
+        uc.mem_write(vaddr, data[offset:offset + size])
 
 
 class MipsArcade:
