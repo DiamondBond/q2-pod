@@ -20,9 +20,7 @@ m4b_cover:
     nop                       /* delay slot */
     lw    $25, -0x7e90($28)   /* strcasecmp's GOT slot */
     move  $4, $16             /* the extension */
-    /* The m4b string is 44 bytes after m4b_cover.
-     * 0x30000 + 44 - 0x327e0 = -0x27b4. */
-    addiu $5, $28, -0x27b4  /* gp-relative pointer to "m4b" */
+    addiu $5, $28, %lo(m4b - GP) /* "m4b"; the linker fills it in, as clang 18 takes no later label here */
     jalr  $25                 /* strcasecmp(ext, "m4b") */
     nop                       /* delay slot */
     beqz  $2, mp4             /* M4B: the MP4 extractor */
