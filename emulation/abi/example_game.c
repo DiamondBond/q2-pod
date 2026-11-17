@@ -1,5 +1,17 @@
 /* A sample independent game that runs in the generic MIPS emulator. */
 #include "q2_game_abi.h"
+/* Freestanding guest: compiler may emit these for struct assignments. */
+void *memset(void *dst, int value, unsigned long count) {
+    unsigned char *p = dst;
+    for (unsigned long i = 0; i < count; ++i) p[i] = (unsigned char)value;
+    return dst;
+}
+void *memcpy(void *dst, const void *src, unsigned long count) {
+    unsigned char *p = dst;
+    const unsigned char *q = src;
+    for (unsigned long i = 0; i < count; ++i) p[i] = q[i];
+    return dst;
+}
 static int x = 180;
 static int y = 155;
 static int paused;
