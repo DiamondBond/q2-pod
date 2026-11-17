@@ -1660,6 +1660,7 @@ def main():
     parser.add_argument('--stock-font', type=Path, help='extracted Shanling default.ttf')
     parser.add_argument('--fonts-dir', type=Path, help='directory holding packaged bold.ttf and classic-light.ttf')
     parser.add_argument('--firmware', type=Path, help='official Q2 firmware ZIP or an update.tar')
+    parser.add_argument('--game-elf', type=Path, help='run an ABI v1 MIPS game in the generic game runner (not a firmware image)')
     parser.add_argument('--unsquashfs', default='unsquashfs', help='squashfs-tools executable (defaults to PATH)')
     parser.add_argument('--sd-card', type=Path, help='directory to mount as the simulated SD card')
     parser.add_argument('--snapshot', type=Path, help='save one PNG and exit without opening a window')
@@ -1671,6 +1672,30 @@ def main():
     parser.add_argument('--shell', choices=tuple(SHELL_FINISHES), default=DEFAULT_SHELL,
                         help='shell color for the window or a screenshot with --with-device')
     args = parser.parse_args()
+    if args.game_elf:
+        if args.firmware or args.sd_card or args.tracks:
+            parser.error('--game-elf is a standalone ABI game; do not combine with firmware or music')
+        from universal_game import UniversalGame
+        try:
+            game = UniversalGame(args.game_elf)
+            if args.snapshot:
+                image = game.image()
+                if args.with_device:
+                    image = device_frame(image, args.shell)
+                image.save(args.snapshot)
+                print(f'{args.snapshot} (ABI v1 game: {game.name})')
+            else:
+                from universal_game import main as run_generic
+                import sys
+                old_args = sys.argv
+                try:
+                    sys.argv = [old_args[0], '--elf', str(args.game_elf)]
+                    run_generic()
+                finally:
+                    sys.argv = old_args
+        except Exception as exc:
+            parser.exit(1, f'{parser.prog}: generic game failed: {exc}\\n')
+        return
     if args.firmware and (args.stock_font or args.fonts_dir):
         parser.error('--firmware supplies the fonts itself; use --stock-font and --fonts-dir in checkout preview mode')
     if (args.screen != 'playing' or args.with_device) and not args.snapshot:
