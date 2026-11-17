@@ -95,7 +95,9 @@ def libc(u, address, size, _):
     elif n == 'snd_pcm_prepare': dac_log.append('prepare'); dev.appl = dev.hw = 0; result = 0
     elif n == 'snd_pcm_writei':
         frames = a(2)
-        if not dev.got and not any(u.mem_read(a(1), frames * r(0xb22530))):  # dac_preroll's silence
+        fmt = r(0xafb1a0 + 8); width = (fmt >> 3 & 3) + 1  # AO_DATA's format; its silence: an unsigned one's is its midpoint
+        quiet = (1 << width * 8 - 1 if fmt & 2 else 0).to_bytes(width, 'little' if fmt & 1 else 'big')
+        if not dev.got and bytes(u.mem_read(a(1), frames * r(0xb22530))) == quiet * (frames * r(0xb22530) // width):  # dac_preroll's
             if not dev.lead: dac_log.append('silence')
             dev.lead += frames; dev.appl += frames; result = frames
         elif dev.errors: result = dev.errors.pop(0)
@@ -1116,7 +1118,7 @@ for name, f, frame, width in (('float', 0x1d, 8, 4), ('S24', 0x11, 6, 3), ('S24 
         chunk = data[at:at + 4096 * frame]
         u.mem_write(buf, chunk), call(ps['ao_write'], PCM_H, buf, len(chunk) // frame)
     pause_at(1000, 28000, None)
-    assert go()[0] == OPENED and len(dev.got) == 1000 * frame, name
+    assert go()[0] == OPENED and len(dev.got) == 1000 * frame and dev.lead == 44100 * 130 // 1000, name
     held = data[-1000 * frame:]
     assert dev.got[fade * frame:] == held[fade * frame:], name
     for c in range(nch):
