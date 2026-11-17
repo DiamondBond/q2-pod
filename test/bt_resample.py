@@ -82,7 +82,7 @@ def libc(u, address, size, _):
     elif n == 'read': assert a(0) in (7, 8) and a(2) == 4; w(a(1), press[0] if a(0) == 7 else dev.mute); result = 4
     elif n == 'close': assert a(0) in (7, 8); result = 0
     elif n == 'ioctl': dac_log.append(('ioctl', a(0), a(1), r(a(2)))); result = 0
-    elif n == 'usleep': dac_log.append('wait'); assert 100000 <= a(0) <= 200000, 'the mute line, without a long wait'; result = 0
+    elif n == 'usleep': dac_log.append('wait'); assert 100000 <= a(0) <= 200000 or a(0) == 400000, 'the mute line, or #402 diagnostic press wait'; result = 0
     elif n == 'snd_pcm_pause': dac_log.append(('pause', a(1))); result = pause_rc[0]
     elif n == 'snd_pcm_state': result = 2  # not suspended
     elif n == 'snd_pcm_status_sizeof': result = 1024  # stock's get_space, from ao_init

@@ -833,7 +833,8 @@ static void ao_cut(void) { /* a press during ao_init's drain, on the command thr
  * rapid double Next can spend its word on the first init, so the last track keeps the old cut. A-B
  * Repeat, Resume Songs' jump, a phone's seek, Spotify's aplay and q2video keep the cut. */
 /* clang-format off */
-#define DAC_RELEASE_MS 400 /* #402 diagnostic: 130 on main; does a longer wait end the start fade? */
+#define DAC_RELEASE_MS 130 /* derived, not measured: the mute line's 90-100 ms and the ramp at top volume */
+#define DAC_PRESS_WAIT_MS 400 /* #402 diagnostic: a press's and a Play's wait; natural changes keep 130 */
 #define DAC_PRESS_MS 5000  /* demo's mute, its sleep and a slow card's open, from the press to init's end */
 /* clang-format on */
 #define DAC_FD (*(volatile int *)0xb22524u)
@@ -872,7 +873,10 @@ static int dac_told(void) { return dac_word(1); }
  * start with an offset that reopens keeps the cut, as it has since start_mute. */
 int dac_ioctl(int fd, unsigned request, void *arg) {
     int r = ioctl(fd, request, arg);
-    if (dac_told() || dac_word(0) || ao_wait) usleep(DAC_RELEASE_MS * 1000);
+    if (dac_told())
+        usleep(DAC_PRESS_WAIT_MS * 1000);
+    else if (dac_word(0) || ao_wait)
+        usleep(DAC_RELEASE_MS * 1000);
     return r;
 }
 /* seek (0x42b1c4), a start offset's or an mcl-seek's: demo stamps a user's, not A-B Repeat's loop.
@@ -880,7 +884,7 @@ int dac_ioctl(int fd, unsigned request, void *arg) {
 void dac_unmute(int value) {
     int wait = !OUTPUT_WAY && DAC_FD > 0 && dac_told();
     DAC_HELPER(value);
-    if (wait) usleep(DAC_RELEASE_MS * 1000);
+    if (wait) usleep(DAC_PRESS_WAIT_MS * 1000);
 }
 /* An unpause on the headphone DAC (docs/internals.md#unpause). soc_aic.ko restarts the DMA at the
  * ring's base on PAUSE_RELEASE and the pointer jumps to the next wrap, so what the ring held past
@@ -1055,7 +1059,7 @@ int dac_resume(void *pcm) {
     if (redo) PCM_DROP(pcm), PCM_PREPARE(pcm);
     if (DAC_MUTED == 1) {
         DAC_HELPER(0);
-        if (!OUTPUT_WAY && DAC_FD > 0) usleep(DAC_RELEASE_MS * 1000);
+        if (!OUTPUT_WAY && DAC_FD > 0) usleep(DAC_PRESS_WAIT_MS * 1000);
     }
     if (!redo) return PCM_PAUSE(pcm, 0);
     if (n) ps_write(pcm, n);
