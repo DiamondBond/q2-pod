@@ -48,6 +48,10 @@ To load a firmware package, install **squashfs-tools** so `unsquashfs` is on PAT
 
 Use the simulated wheel with the mouse, scroll using the mouse wheel or arrow keys, press Enter to select, Escape/Backspace to return, and Space to select or toggle playback. The GUI has controls to change shell color, battery percentage and charging state. Clicking the display on Now Playing switches to lyrics.
 
+## Firmware game compatibility
+
+The simulator supports a versioned firmware game manifest for data-driven menu discovery. New titles can be listed without modifying Python, but arbitrary firmware game binaries **cannot yet be executed**. The built-in game preview still compiles the game rules from the current source checkout, rather than running the game binary inside the opened firmware. See [Game discovery and runtime compatibility](game-compatibility.md) for the format, contributor guidance and limits.
+
 ## Limitations
 
 This is a visual/interaction model driven by repository code and firmware assets; it does not execute the MIPS firmware. Playback timing, filesystem browsing, many menus and device behavior are approximations or partial implementations. The charging checkbox supplies a simulated battery state; it does not read actual hardware. The simulator does not need the full firmware-build requirements or a physical Q2.
