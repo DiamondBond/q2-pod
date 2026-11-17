@@ -16,6 +16,7 @@ on:
       - 'test/arcade_simulator.py'
       - 'tools/simulator.py'
       - 'tools/simulator_buddy.py'
+      - 'tools/mips_elf.py'
       - 'tools/simulator_apps.py'
       - 'test/unit/test_simulator_apps.py'
       - 'test/simulator_buddy.py'
@@ -46,7 +47,7 @@ jobs:
       - name: Test games inside desktop simulator navigation
         run: python3 test/arcade_simulator.py
       - name: Check out Buddy source for the device test
-        if: github.ref_name == 'unicorn-mips-update'
+        if: github.ref_name == 'unicorn-mips-update' || github.ref_name == 'desktop-simulator'
         uses: actions/checkout@v4
         with:
           repository: DiamondBond/q2-fidget
@@ -54,7 +55,7 @@ jobs:
           path: .buddy-source
           persist-credentials: false
       - name: Run the Buddy MIPS card app inside the desktop simulator
-        if: github.ref_name == 'unicorn-mips-update'
+        if: github.ref_name == 'unicorn-mips-update' || github.ref_name == 'desktop-simulator'
         run: |
           bash .buddy-source/build.sh
           python3 test/simulator_buddy.py .buddy-source/dist/.fidget

@@ -179,7 +179,7 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
 def load_elf(uc: Uc, elf: pathlib.Path) -> None:
     # Reuse Q2 Pod's audited ELF LOAD mapping helper, not a homegrown decoder.
     sys.path.insert(0, str(ROOT / "tools"))
-    from build import load_elf as load_segments
+    from mips_elf import load_elf as load_segments
     load_segments(uc, elf.read_bytes())
 
 

@@ -16,7 +16,7 @@ from unicorn.mips_const import (
     UC_MIPS_REG_CP0_STATUS, UC_MIPS_REG_PC, UC_MIPS_REG_SP, UC_MIPS_REG_V0,
 )
 
-import build
+from mips_elf import load_elf
 from simulator_apps import card_path
 
 INPUT = b"/tmp/q2-fidget.input.sock"
@@ -78,9 +78,9 @@ class Buddy:
             if not any(seg["p_flags"] & 1 and seg["p_vaddr"] <= entry < seg["p_vaddr"] + seg["p_filesz"]
                        for seg in loads):
                 raise ValueError("Invalid Buddy entry point")
-            build.load_elf(self.uc, raw)
+            load_elf(self.uc, raw)
             return entry
-        except (ELFError, struct.error, UcError) as exc:
+        except (AssertionError, ELFError, struct.error, UcError) as exc:
             raise ValueError(f"Could not load Buddy executable: {exc}") from exc
 
     def send(self, message):
