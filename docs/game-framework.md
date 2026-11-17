@@ -54,8 +54,9 @@ allocation. Hardware and UI services are supplied by adapters.
 - Existing `timer_add`, `BLOB_IO`, integrity checks, and UI popups are
   reused in the firmware layer.
 
-Raw wheel travel is used for analog-style paddle movement, while discrete
-previous/next keys support Blocks movement. The framework's touch actions
+Raw wheel travel is used for analog-style paddle movement, while the raw wheel rotates Blocks and the physical side Previous/Next
+buttons move the piece. Blocks uses physical Down (Play/Pause) for accelerated
+soft drop, Centre for hard drop, and Return/Back for the Continue/Quit menu. The framework's touch actions
 are prepared for a future adapter, but touch is not presently dispatched
 into the built-in game logic; it must not interfere with the chooser or
 stock touch gestures.
