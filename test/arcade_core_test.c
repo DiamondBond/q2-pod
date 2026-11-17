@@ -34,7 +34,13 @@ static void test_blocks(void)
     assert(preview == 4);
     for (int i = 0; i < 100; ++i) q2_blocks_move(&g, -1);
     assert(g.x >= -1); /* some shapes have an empty leftmost column */
-    q2_blocks_rotate(&g);
+    /* Opposite wheel directions must undo each other's rotation. */
+    unsigned first = g.rotation;
+    assert(q2_blocks_rotate_dir(&g, 1));
+    assert(g.rotation == (first + 1) % 4);
+    assert(q2_blocks_rotate_dir(&g, -1));
+    assert(g.rotation == first);
+    assert(q2_blocks_rotate_dir(&g, 0) == 0);
     assert(q2_blocks_drop(&g) >= 0);
     assert(g.score <= 1000); /* first hard drop, no arbitrary score spike */
     for (int i = 0; i < 100 && !g.game_over; ++i) q2_blocks_drop(&g);
