@@ -44,6 +44,10 @@ No firmware or audio files are needed for the default demo: `bash emulation/run-
 
 To load a firmware package, install **squashfs-tools** so `unsquashfs` is on PATH (Ubuntu/Debian: `sudo apt install squashfs-tools`; macOS: `brew install squashfs`). A package must contain the expected Q2 update files. The checkout preview does not require `unsquashfs`.
 
+## Run a generic game ELF
+
+For independently compiled MIPS games implementing the experimental `q2g_*` game ABI, use `python3 emulation/simulator.py --game-elf /path/to/game.elf` or `--snapshot /tmp/game.png` to render a frame. This runs the guest game through the same generic input and draw-command interface without game-name-specific Python code. It is **not** a way to run arbitrary firmware executables. See [the game ABI and compatibility guide](game-compatibility.md) for the header, build example and remaining limitations.
+
 ## Controls
 
 Use the simulated wheel with the mouse, scroll using the mouse wheel or arrow keys, press Enter to select, Escape/Backspace to return, and Space to select or toggle playback. The GUI has controls to change shell color, battery percentage and charging state. Clicking the display on Now Playing switches to lyrics.
