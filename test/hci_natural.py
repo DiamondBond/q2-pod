@@ -311,8 +311,10 @@ def eq_enable_no_stream():
     check(p.frames() > 0, f'EQ enable, no stream: a song then plays, {p.frames()} frames')
 
 
-def next_whole(name):
-    """A next file's first samples aren't lost to the preload: the same as it opened directly."""
+def next_whole(name, release=0):
+    """A next file's first samples aren't lost to the preload: the same as it opened directly. release: a frame's bytes
+    in the next file's format when that's another than a.flac's, which reopens the jack's PCM: the release writes
+    DAC_RELEASE_MS of silence ahead of it (peq_player.c dac_preroll), the time it used to sleep."""
     p = Player()
     p.song(name)
     p.settled(SECONDS + 12)
@@ -324,6 +326,9 @@ def next_whole(name):
     p.until(lambda: p.frames() > N + RATE, SECONDS + 2)
     p.settled(SECONDS + 14)
     got = bytes(p.pcm[N * 4:])
+    z = RATE * 130 // 1000 * release
+    check(not any(got[:z]), f'{name}: the release\'s silence first')
+    got = got[z:]
     check(len(got) == len(cold) and got == cold, f'{name}: next {len(got)} bytes, directly {len(cold)}')
 
 
@@ -785,7 +790,7 @@ if __name__ == '__main__':
     metadata_cut()
     music_info_no_stream()
     eq_enable_no_stream()
-    next_whole('x.wma')
+    next_whole('x.wma', 8)  # float stereo
     next_whole('bigmeta.flac')
     xfade_bad_next()
     stop_in_failed_open()
