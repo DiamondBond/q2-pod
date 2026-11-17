@@ -32,6 +32,7 @@ from simulator_audio import FFplayAudio
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import BUILTIN_GAMES, load_firmware
+from game_catalog import checkout_can_preview
 from simulator_library import (MEDIA_NAMES, LibraryRow, card_app_entries, card_game_entries, card_media, imported_playlists,
                                library_menu)
 from simulator_settings import PAGES, PLAY_MODES, SETTINGS, STOCK_ROWS, THEME_KEYS
@@ -1099,7 +1100,7 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            if name in (*BUILTIN_GAMES, 'Breakout'):
+            if checkout_can_preview(name):
                 try:
                     from arcade_emulator import ArcadeWindow, MipsArcade
                     view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window
@@ -1110,6 +1111,9 @@ class Simulator:
                     view.best_scores = self.game_bests
                     view.start(name.lower())
                     self.arcade = view
+                    if self.firmware is not None:
+                        self.hint = ('Game preview uses checkout-built MIPS code, NOT '
+                                     'the game binary inside the selected firmware.')
                     if name in ('Pong', 'Blocks'):
                         self.paused = True
                     self.open('arcade')
@@ -1117,7 +1121,9 @@ class Simulator:
                     self.hint = f'Could not open MIPS game: {exc}'
                     print(f'Q2 MIPS game failed to launch: {exc}', file=sys.stderr)
             else:
-                self.hint = f'{name} requires the Q2 hardware'
+                self.hint = (f'{name} is listed in the firmware but has no '
+                             'compatible desktop game runtime. The Q2 hardware '
+                             'may be required.')
         elif route == 'media':
             directory = card_media(self.sd_card).get(name)
             if directory is not None and name in ('Podcasts', 'Audiobooks'):
