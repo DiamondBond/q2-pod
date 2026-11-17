@@ -81,6 +81,6 @@ static void breakout_paint(void *canvas, unsigned tone) {
         rgba(0xffffff, 255), SPOT_GREY);
     if (b->waiting && g->paused == RUN)
         text_at(canvas, "Centre: launch", 90, g->h - 37, 195, 20,
-                rgba(0xffffff, 255), CENTER);
+                rgba(0xffffff, 255), MID);
     paused_popup(canvas, b->game_over);
 }
