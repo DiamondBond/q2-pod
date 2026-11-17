@@ -14,7 +14,7 @@ from conftest import O
 SEED = 2166136261
 SUD, BEST, SOL, SNK = 0x31445553, 0x31585456, 0x314c4f53, 0x314b4e53
 CENTER, PREV, NEXT, PLAY, RETURN, BACK_BTN, FWD_BTN = 218, 172, 173, 171, 170, 222, 223
-CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS = range(7)
+CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS, BREAKOUT = range(8)
 AIM, RUNNING, OVER = range(3)
 RUN, HELD, MENU = range(3)
 UP = 64
@@ -59,6 +59,13 @@ class Blocks(C.Structure):
                 ('level', C.c_uint), ('game_over', C.c_int)]
 
 
+class Breakout(C.Structure):
+    _fields_ = [('bricks', (C.c_ubyte * 8) * 5),
+                *((k, C.c_int) for k in 'ball_x ball_y dx dy paddle_x'.split()),
+                *((k, C.c_uint) for k in 'score level lives remaining'.split()),
+                ('waiting', C.c_int), ('game_over', C.c_int)]
+
+
 class Best(C.Structure):
     _fields_ = [('magic', C.c_uint), ('score', C.c_uint), ('sum', C.c_uint)]
 
@@ -70,7 +77,7 @@ class Game(C.Structure):
                 ('sud', Sudoku), ('vx', Vortex), ('best', Best), ('sol', Sol), ('save', C.c_uint), ('pop_at', C.c_uint),
                 ('pop_ring', C.c_int), ('pop_seg', C.c_int), ('trail', (C.c_int * 2) * 4), ('record', C.c_int),
                 ('sn_best', Best), ('sn', Snake), ('pong', Pong), ('blocks', Blocks),
-                ('blocks_best', Best), ('rows', C.c_int), ('title', C.c_void_p)]
+                ('blocks_best', Best), ('breakout', Breakout), ('breakout_best', Best), ('rows', C.c_int), ('title', C.c_void_p)]
 
 
 def test_structs_are_the_saves_sizes():
@@ -1266,6 +1273,46 @@ def test_blocks_game_over_return_exits_like_snake(fw):
     p.g.frame(None)
     p.key(RETURN)
     assert p.s.target == CHOOSER
+    p.close()
+
+
+def test_breakout_is_a_builtin_with_same_controls_and_exit(fw):
+    p = Page(fw)
+    p.go(BREAKOUT)
+    assert p.s.screen == BREAKOUT and p.g.games_live()
+    assert p.s.breakout.remaining == 40
+    assert p.s.breakout.lives == 3 and p.s.breakout.waiting
+    old_x = p.s.breakout.paddle_x
+    p.key(NEXT)
+    assert p.s.breakout.paddle_x == old_x + 14
+    p.key(CENTER)
+    assert not p.s.breakout.waiting
+    p.now += 33
+    assert p.g.frame(None) == 8
+    p.key(PLAY)
+    assert p.s.paused == HELD and not p.g.games_live()
+    p.key(PLAY)
+    assert p.s.paused == RUN and p.g.games_live()
+    p.key(RETURN)
+    assert p.s.paused == MENU and not p.g.games_live()
+    p.key(NEXT, CENTER)
+    assert p.s.target == CHOOSER
+    p.close()
+
+
+def test_breakout_game_over_persists_best_and_restarts(fw):
+    p = Page(fw)
+    p.go(BREAKOUT)
+    p.s.breakout.score = 550
+    p.s.breakout.lives = 0
+    p.s.breakout.game_over = 1
+    p.now += 33
+    assert p.g.frame(None) == 0
+    assert p.s.breakout_best.score == 550
+    assert not p.g.games_live()
+    p.key(CENTER)
+    assert p.s.breakout.score == 0 and p.s.breakout.lives == 3
+    assert not p.s.breakout.game_over and p.g.games_live()
     p.close()
 
 
