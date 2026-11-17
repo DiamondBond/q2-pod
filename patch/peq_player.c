@@ -873,8 +873,8 @@ static int dac_told(void) { return dac_word(1); }
  * start with an offset that reopens keeps the cut, as it has since start_mute. */
 int dac_ioctl(int fd, unsigned request, void *arg) {
     int r = ioctl(fd, request, arg);
-    if (dac_told())
-        usleep(DAC_PRESS_WAIT_MS * 1000);
+    if (dac_told()) /* a press; a stamp left unspent at a natural reopen keeps 130 */
+        usleep((ao_wait ? DAC_RELEASE_MS : DAC_PRESS_WAIT_MS) * 1000);
     else if (dac_word(0) || ao_wait)
         usleep(DAC_RELEASE_MS * 1000);
     return r;

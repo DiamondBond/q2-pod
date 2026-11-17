@@ -198,6 +198,9 @@ class Player:
     def mark(self):
         """demo's start_mute: it left its mute off for this start."""
         (self.e.tmp/'tmp_q2press').write_bytes(struct.pack('<I', (self.e.clock // 10**6 & 0xffffffff) & ~1))
+    def press(self):
+        """demo's press stamp, left unspent (a refused Next, a seek while paused)."""
+        (self.e.tmp/'tmp_q2press').write_bytes(struct.pack('<I', (self.e.clock // 10**6 & 0xffffffff) | 1))
     def cold(self, first, second, marked=True):
         self.song(first)
         assert self.until(self.ended, 8), first
@@ -610,7 +613,7 @@ for way in 1, 2:
 print('A DSD file\'s end on Bluetooth and USB: not taken as natural, and the next file reopens.')
 # The jack's natural start, demo's mute and sleep skipped: the line lets go, then DAC_RELEASE_MS, then frames, once.
 # The routes ao_init's branch doesn't take read the mark at init's end. Time from the release to hw_ptr's start.
-def released(first, second, marked=True, preload=False):
+def released(first, second, marked=True, preload=False, keep=1, press=False):
     p = Player()
     ends, freed = [], []
     p.e.watch_fn(ps['ao_uninit'], lambda e: ends.append(e.clock))
@@ -619,11 +622,12 @@ def released(first, second, marked=True, preload=False):
     if preload:
         p.run(0.2)
         p.gapless(second)
+        if press: p.press()
     assert p.until(lambda: ends, 8), first
     if not preload:
         p.run(0.02)
         if marked: p.mark()
-        p.song(second)
+        p.song(second, keep)
     p.run(1)
     return (p.e.pcm.hw_at - freed[-1]) // 10**6, len(freed), len(p.e.streams)
 for first, second in (('a44.flac', 'z.dsf'), ('z.dsf', 'y.dsf'), ('z.dsf', 'b44.flac'), ('a44.flac', 'b48.flac')):
@@ -633,6 +637,12 @@ for first, second in (('a44.flac', 'z.dsf'), ('z.dsf', 'y.dsf'), ('z.dsf', 'b44.
 wait, opens, pcms = released('a44.flac', 'z.dsf', marked=False)
 assert wait == 0 and pcms == 2, (wait, pcms)
 wait, opens, pcms = released('a44.flac', 'b48.flac', preload=True)
+assert wait == 130 and pcms == 2, (wait, pcms)
+# diag/402: presses wait 400, natural reopens keep 130: Gapless off at the same format, and a preloaded
+# change at another rate with a press's stamp left unspent.
+wait, opens, pcms = released('a44.flac', 'b44.flac', keep=0)
+assert wait == 130 and opens == 2 and pcms == 2, (wait, opens, pcms)
+wait, opens, pcms = released('a44.flac', 'b48.flac', preload=True, press=True)
 assert wait == 130 and pcms == 2, (wait, pcms)
 # The same format stays open: nothing to release, no wait, and a preload the same.
 for preload in (False, True):
