@@ -29,6 +29,12 @@ jobs:
         run: python3 emulation/tests/simulator_audio.py
       - name: Verify Windows WSL compiler routing
         run: python3 emulation/tests/arcade_windows_toolchain.py
+      - name: Compile and exercise generic game ABI (no per-game Python adapter)
+        run: |
+          clang --target=mipsel-linux-gnu -march=mips32r2 -mabi=32 -mfp64 -mno-abicalls -fno-pic -G0 -ffreestanding -fno-builtin -Oz -c emulation/abi/example_game.c -o /tmp/q2-generic-game.o
+          ld.lld -m elf32ltsmip -static -Ttext=0x100000 -e q2g_version /tmp/q2-generic-game.o -o /tmp/q2-generic-game.elf
+          python3 emulation/universal_game.py --elf /tmp/q2-generic-game.elf --self-test
+          python3 emulation/universal_game.py --elf /tmp/q2-generic-game.elf --snapshot /tmp/q2-generic-game.png
       - name: Execute actual Q2-target MIPS instructions
         run: python3 emulation/arcade_mips.py --self-test
       - name: Test games inside desktop simulator navigation
