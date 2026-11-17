@@ -41,8 +41,20 @@ class Blocks(C.LittleEndianStructure):
     ]
 
 
+class Breakout(C.LittleEndianStructure):
+    _fields_ = [
+        ("bricks", (C.c_uint8 * 8) * 5),
+        ("ball_x", C.c_int32), ("ball_y", C.c_int32),
+        ("dx", C.c_int32), ("dy", C.c_int32), ("paddle_x", C.c_int32),
+        ("score", C.c_uint32), ("level", C.c_uint32),
+        ("lives", C.c_uint32), ("remaining", C.c_uint32),
+        ("waiting", C.c_int32), ("game_over", C.c_int32),
+    ]
+
+
 def compile_mips(directory: pathlib.Path) -> pathlib.Path:
     obj = directory / "arcade.o"
+    breakout_obj = directory / "breakout.o"
     elf = directory / "arcade.elf"
     flags = ["--target=mipsel-linux-gnu", "-march=mips32r2", "-mabi=32",
              "-mfp64", "-mnan=2008", "-mabs=2008", "-mno-abicalls",
@@ -51,9 +63,11 @@ def compile_mips(directory: pathlib.Path) -> pathlib.Path:
              "-fno-asynchronous-unwind-tables", "-Oz", "-Wall", "-Wextra", "-Werror"]
     subprocess.run(["clang", *flags, "-c", str(ROOT / "patch/arcade_core.c"),
                     "-o", str(obj)], check=True)
+    subprocess.run(["clang", *flags, "-c", str(ROOT / "patch/breakout_core.c"),
+                    "-o", str(breakout_obj)], check=True)
     subprocess.run(["ld.lld", "-m", "elf32ltsmip", "-static",
                     "-Ttext=0x100000", "-e", "q2_pong_init",
-                    str(obj), "-o", str(elf)], check=True)
+                    str(obj), str(breakout_obj), "-o", str(elf)], check=True)
     return elf
 
 
@@ -70,7 +84,8 @@ def symbols(elf: pathlib.Path) -> dict[str, int]:
     needed = ["q2_pong_init", "q2_pong_move", "q2_pong_tick",
               "q2_blocks_init", "q2_blocks_move", "q2_blocks_rotate",
               "q2_blocks_tick", "q2_blocks_drop", "q2_blocks_cell",
-              "q2_blocks_next_cell"]
+              "q2_blocks_next_cell", "q2_breakout_init",
+              "q2_breakout_move", "q2_breakout_launch", "q2_breakout_tick"]
     for name in needed:
         if name not in found:
             raise RuntimeError(f"MIPS ELF lacks {name}")
@@ -98,6 +113,7 @@ class MipsArcade:
         self.uc.reg_write(UC_MIPS_REG_SP, STACK + 0xfff0)
         self.pong_init()
         self.blocks_init(42)
+        self.breakout_init()
 
     def call(self, name: str, *args: int) -> int:
         self.uc.reg_write(UC_MIPS_REG_SP, STACK + 0xfff0)
@@ -145,6 +161,22 @@ class MipsArcade:
     def blocks_preview_cell(self, x: int, y: int) -> int:
         return self.call("q2_blocks_next_cell", STATE + 0x1000, x, y)
 
+    def breakout_init(self) -> None:
+        self.call("q2_breakout_init", STATE + 0x2000)
+
+    def breakout_move(self, distance: int) -> None:
+        self.call("q2_breakout_move", STATE + 0x2000, distance)
+
+    def breakout_launch(self) -> None:
+        self.call("q2_breakout_launch", STATE + 0x2000)
+
+    def breakout_tick(self) -> None:
+        self.call("q2_breakout_tick", STATE + 0x2000)
+
+    def breakout(self) -> Breakout:
+        return Breakout.from_buffer_copy(
+            bytes(self.uc.mem_read(STATE + 0x2000, C.sizeof(Breakout))))
+
     def close(self) -> None:
         self.tmp.cleanup()
 
@@ -166,7 +198,16 @@ def self_test() -> None:
         assert a.blocks_rotate() in (0, 1)
         assert a.blocks_drop() >= 0
         assert a.blocks().score < 1000
-        print("MIPS Unicorn arcade: Pong + Blocks smoke tests passed")
+        b = a.breakout()
+        assert b.remaining == 40 and b.lives == 3 and b.waiting
+        a.breakout_move(-1000)
+        assert a.breakout().paddle_x == 0
+        a.breakout_launch()
+        assert not a.breakout().waiting
+        for _ in range(100):
+            a.breakout_tick()
+        assert a.breakout().score >= 0
+        print("MIPS Unicorn arcade: Pong + Blocks + Breakout smoke tests passed")
     finally:
         a.close()
 
