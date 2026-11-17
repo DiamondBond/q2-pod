@@ -368,7 +368,7 @@ class AppStore:
 
     def has_rockbox(self, card):
         try:
-            return any(app.ident == 'rockbox' and installed_tag(card, app) for app in self.apps)
+            return card is not None and card_path(card, SPECIAL['q2-rockbox'][2]).is_file()
         except (OSError, ValueError):
             return False
 

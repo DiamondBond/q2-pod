@@ -30,7 +30,7 @@ from simulator_audio import FFplayAudio
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
 from simulator_firmware import load_firmware
-from simulator_library import (BUILTIN_GAMES, MEDIA_NAMES, LibraryRow, card_game_entries, card_media, imported_playlists,
+from simulator_library import (BUILTIN_GAMES, MEDIA_NAMES, LibraryRow, card_app_entries, card_game_entries, card_media, imported_playlists,
                                library_menu)
 from simulator_settings import PAGES, PLAY_MODES, SETTINGS, STOCK_ROWS, THEME_KEYS
 
@@ -514,7 +514,8 @@ def packaged_style(firmware, widget, name, default):
     return value
 
 
-def render_browse(firmware, fonts, style, page, selected, tracks, paused=None, battery=DEFAULT_BATTERY):
+def render_browse(firmware, fonts, style, page, selected, tracks, paused=None, battery=DEFAULT_BATTERY,
+                  home_entries=None):
     """Draw the selected Home card or list. Return rows with mouse hit targets."""
     light = firmware.custom and style == 'classic-light'
     paper, ink, muted = ('#f7f7f7', '#171717', '#707070') if light else ('#000000', '#ffffff', '#a0a0a0')
@@ -537,8 +538,12 @@ def render_browse(firmware, fonts, style, page, selected, tracks, paused=None, b
         return frame, hits
 
     if page == 'home':
-        rows = [(entry.label, 'default', entry.image, entry.row.box[1] + 30, entry.row.box[3])
-                for entry in firmware.home]
+        top = firmware.home[0].row.box[1] + 30
+        rows = []
+        for entry in home_entries if home_entries is not None else firmware.home:
+            height = entry.row.box[3]
+            rows.append((entry.label, 'default', entry.image, top, height))
+            top += height
     else:
         page_widgets = firmware.lists.get(page, firmware.lists['folder'])
         table = next((widget for widget in page_widgets.values() if widget.kind == 'table_view'), None)
@@ -695,7 +700,8 @@ MEDIA_FOLDERS = frozenset(name.casefold() for name in MEDIA_NAMES)
 
 
 HOME_ROUTES = (('playing', 'Now Playing'), ('localmusic', 'Library'), ('coverflow', 'Cover Flow'),
-               ('folder', 'Folders'), ('settings', 'Settings'))
+               ('folder', 'Folders'), ('stream', 'Streaming'), ('settings', 'Settings'))
+GAME_ROWS = tuple(LibraryRow(name, 'device') for name in BUILTIN_GAMES)
 
 
 class Simulator:
@@ -725,6 +731,7 @@ class Simulator:
         self.battery = DEFAULT_BATTERY
         self.hint = ''
         self.store = AppStore((Path(__file__).resolve().parent.parent / 'sources.list').read_text(encoding='utf-8'))
+        self.rockbox_installed = self.store.has_rockbox(sd_card)
         self.folder_root = None
         self.wheel_sensitivity = 50
 
@@ -736,8 +743,47 @@ class Simulator:
     def light(self):
         return (self.firmware is None or self.firmware.custom) and self.style == 'classic-light'
 
+    def firmware_home(self):
+        entries = self.firmware.home
+        if not self.firmware.custom:
+            return entries
+        if not self.rockbox_installed:
+            return tuple(entry for entry in entries if entry.key != 'rockbox')
+        if not any(entry.key == 'rockbox' for entry in entries):
+            index = next((i for i, entry in enumerate(entries) if entry.key == 'stream'), len(entries) - 1)
+            shortcut = replace(entries[index], key='rockbox', label='Rockbox', image='')
+            return (*entries[:index], shortcut, *entries[index:])
+        return entries
+
+    def home_items(self):
+        if self.firmware:
+            return tuple((entry.key, entry.label) for entry in self.firmware_home())
+        if self.rockbox_installed:
+            return (*HOME_ROUTES[:4], ('rockbox', 'Rockbox'), *HOME_ROUTES[4:])
+        return HOME_ROUTES
+
+    def viewing_games(self):
+        return self.page == 'library' and self.library_title == 'Games' and tuple(
+            self.library_rows[:len(GAME_ROWS)]) == GAME_ROWS
+
+    def game_rows(self):
+        installed = (LibraryRow(name, 'buddy' if ident == 'fidget' else 'card-game')
+                     for name, ident in card_game_entries(self.sd_card))
+        return [*GAME_ROWS, *installed]
+
+    def mount_card(self, tracks, root):
+        games_open = self.viewing_games()
+        self.close_arcade()
+        self.replace_tracks(tracks, root)
+        if games_open and self.custom:
+            self.page, self.history = 'home', []
+            self.open_library()
+            self.cursor = next(i for i, row in enumerate(self.library_rows) if row.route == 'games')
+            self.show_library('Games', self.game_rows())
+
     def replace_tracks(self, tracks, root=None):
         self.tracks, self.sd_card, self.directory = tracks, root, root
+        self.rockbox_installed = self.store.has_rockbox(root)
         self.albums, self.album = albums_for(tracks, self.sort), None
         self.folder_cache.clear()
         self.plays.clear()
@@ -892,7 +938,7 @@ class Simulator:
             self.step_track(step)
         else:
             count = (len(self.albums) if self.page == 'coverflow' else
-                     len(self.firmware.home if self.firmware else HOME_ROUTES) if self.page == 'home' else
+                     len(self.home_items()) if self.page == 'home' else
                      len(self.rows()))
             if count:
                 self.cursor = (self.cursor + step) % count
@@ -943,8 +989,15 @@ class Simulator:
                 self.hint = f'Buddy stopped: {exc}'
         if self.page == 'arcade' and self.arcade is not None:
             self.arcade.advance(delta * 1000)
-        if self.store.poll() and self.store.message:
-            self.hint = self.store.message
+        if self.store.poll():
+            self.rockbox_installed = self.store.has_rockbox(self.sd_card)
+            if self.page == 'home':
+                self.cursor = min(self.cursor, len(self.home_items()) - 1)
+            elif self.viewing_games():
+                self.library_rows = self.game_rows()
+                self.cursor = min(self.cursor, len(self.library_rows) - 1)
+            if self.store.message:
+                self.hint = self.store.message
         if not self.paused and self.tracks:
             self.elapsed += delta
             duration = self.tracks[self.current].duration
@@ -1005,10 +1058,7 @@ class Simulator:
     def select_library(self, row):
         name, route, selected = row
         if route == 'games':
-            builtins = [LibraryRow(game, 'device') for game in BUILTIN_GAMES]
-            installed = [LibraryRow(game, 'buddy' if ident == 'fidget' else 'card-game')
-                         for game, ident in card_game_entries(self.sd_card)]
-            self.show_library(name, builtins + installed)
+            self.show_library(name, self.game_rows())
         elif route == 'buddy' and self.sd_card is not None:
             try:
                 from simulator_buddy import Buddy
@@ -1017,7 +1067,7 @@ class Simulator:
                 self.open('buddy')
             except (ImportError, OSError, ValueError) as exc:
                 self.hint = f'Could not open Buddy: {exc}'
-        elif route == 'card-game':
+        elif route in ('card-game', 'card-app'):
             self.hint = f'{name} requires the Q2 hardware'
         elif route == 'track':
             self.play(selected[0], [entry.tracks[0] for entry in self.library_rows if entry.route == 'track'])
@@ -1193,13 +1243,16 @@ class Simulator:
                 self.back()
             return
         if self.page == 'home':
-            if self.firmware:
-                entry = self.firmware.home[self.cursor]
-                key, title = entry.key, entry.label
-            else:
-                key, title = HOME_ROUTES[self.cursor]
+            key, title = self.home_items()[self.cursor]
             if key == 'localmusic':
                 self.open_library()
+            elif key == 'stream' and self.custom:
+                rows = (LibraryRow(name, 'card-app') for name, _ in card_app_entries(self.sd_card, games=False))
+                self.show_library(title, rows)
+                if not self.library_rows:
+                    self.hint = 'No installed streaming apps'
+            elif key == 'rockbox':
+                self.hint = 'Rockbox is installed on the SD card. Start it on the Q2.'
             elif key in ('playing', 'coverflow', 'folder', 'settings', 'playset'):
                 self.open(key)
                 self.directory = (self.folder_root or self.sd_card) if key == 'folder' else self.sd_card
@@ -1277,7 +1330,7 @@ class Simulator:
         background_playback = None if self.paused else False
         if self.page == 'home' and self.firmware:
             frame, hits = render_browse(self.firmware, fonts, self.style, self.page, self.cursor,
-                                        self.tracks, background_playback, self.battery)
+                                        self.tracks, background_playback, self.battery, self.firmware_home())
             return frame, [(i, 0, y, SIZE[0], end) for i, y, end in hits]
         if self.page == 'coverflow':
             return render_albums(fonts, self.tracks, self.albums, self.cursor, self.firmware,
@@ -1294,7 +1347,7 @@ class Simulator:
         title = SETTINGS[self.page][0] if self.page in SETTINGS else {
             'home': 'Home', 'folder': 'Folders', 'localmusic': 'Songs'}.get(self.page, 'Now Playing')
         if self.page == 'home':
-            rows = [(label, '›', 'default') for _key, label in HOME_ROUTES]
+            rows = [(label, '›', 'default') for _key, label in self.home_items()]
         elif self.page == 'library':
             title = self.library_title
             rows = [(row.name, '›' if row.route not in ('track', 'album') else '', 'default')
@@ -1372,8 +1425,7 @@ def desktop(fonts, style, tracks, firmware=None, unsquashfs='unsquashfs', sd_car
             except ERRORS as exc:
                 messagebox.showerror('Could not open SD folder', str(exc), parent=window)
             else:
-                ui.close_arcade()
-                ui.replace_tracks(loaded, root)
+                ui.mount_card(loaded, root)
                 if failures:
                     skipped_tracks(failures)
         screen.focus_set()

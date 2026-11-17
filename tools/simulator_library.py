@@ -48,14 +48,14 @@ def card_media(card: Path | None) -> dict[str, Path]:
     return media
 
 
-def card_game_entries(card: Path | None) -> list[tuple[str, str]]:
+def card_app_entries(card: Path | None, *, games: bool) -> list[tuple[str, str]]:
     if card is None:
         return []
     try:
         directories = sorted(card.iterdir())
     except OSError:
         return []
-    games = []
+    apps = []
     for entry in directories:
         if not entry.name.startswith('.') or not re.fullmatch(r'[a-z0-9-]{1,15}', ident := entry.name[1:]):
             continue
@@ -69,9 +69,13 @@ def card_game_entries(card: Path | None) -> list[tuple[str, str]]:
                               if '=' in line)
         except (OSError, ValueError):
             continue
-        if fields.get('game') == '1' and fields.get('hidden') != '1':
-            games.append((fields.get('name') or ident, ident))
-    return sorted(games, key=lambda game: game[0].casefold())[:8]
+        if (fields.get('game') == '1') == games and fields.get('hidden') != '1':
+            apps.append((fields.get('name') or ident, ident))
+    return sorted(apps, key=lambda app: app[0].casefold())[:8]
+
+
+def card_game_entries(card: Path | None) -> list[tuple[str, str]]:
+    return card_app_entries(card, games=True)
 
 
 def card_games(card: Path | None) -> list[str]:

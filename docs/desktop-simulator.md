@@ -61,15 +61,15 @@ The venv is local to the checkout. Delete `.venv-simulator/` to reset dependenci
 3. On the virtual Q2, open **Settings → System → App Store**. Choose **Check for Updates** to refresh the catalog, or select an app to download and install its latest ZIP from GitHub. File Browser is a small package to try.
 4. Press Centre again during the download to cancel. To remove an app, select its **Installed** row twice. A first Rockbox install also asks you to press twice, and Rockbox Themes appears with Rockbox installed.
 
-The simulated Wi-Fi switch under **System → Wireless → Wi-Fi** controls whether the App Store can start online operations. Downloads use the computer's internet connection. Successfully installed packages leave Q2-compatible app folders and records in `.q2/apps`. The desktop simulator never launches the downloaded Q2 executables.
+The simulated Wi-Fi switch under **System → Wireless → Wi-Fi** controls whether the App Store can start online operations. Downloads use the computer's internet connection. Successfully installed packages leave Q2-compatible app folders and records in `.q2/apps`. You can reuse the same mounted SD folder on each launch. Installed apps are detected from its files, including apps installed on the Q2 or extracted manually.
 
-Settings shows the Q2 Pod System and Playback menus and their major subpages. Theme, brightness, wheel sensitivity, playback mode, the Folder Root choice, and Cover Flow's Album and Artist sorts affect the preview. Rows that require Q2 hardware or firmware services report that when selected. Firmware updating, radio pairing, and native app execution require the device.
+Settings shows the Q2 Pod System and Playback menus and their major subpages. Theme, brightness, wheel sensitivity, playback mode, the Folder Root choice, and Cover Flow's Album and Artist sorts affect the preview. Rows that require Q2 hardware or firmware services report that when selected. Firmware updating, radio pairing, and starting Rockbox require the device.
 
 ## Browse the Library
 
 Open **Library** from Home, then scroll to **Artists**, **Albums**, **Songs**, **Genres**, or the other Library categories. The lists use the tags of tracks on the mounted SD folder. **Update Library → Scan music now** picks up changes to that folder. **Playlists → Import** loads `.m3u` files from the folder's `_explaylist_data` directory for the current session.
 
-In Q2 Pod, **Games** is near the bottom of the Library. It lists the built-in games, then card apps whose `q2app` manifest says `game=1`. **Snake**, **Vortex**, **Pong**, **Blocks**, **Sudoku**, and **Solitaire** play inside the desktop simulator through [Unicorn MIPS](unicorn-emulator.md). The other game entries can be browsed here and played on the Q2.
+In Q2 Pod, **Games** is near the bottom of the Library. It lists the built-in games, then card apps whose `q2app` manifest says `game=1`. **Snake**, **Vortex**, **Pong**, **Blocks**, **Sudoku**, and **Solitaire** play inside the desktop simulator through [Unicorn MIPS](unicorn-emulator.md). Buddy also runs in the simulator when installed on the card. Other listed card games require the Q2. Installed non-game card apps with a q2app manifest appear under **Streaming** and require the Q2 to run. Rockbox appears on **Home** when the mounted card contains `.rockbox/rockbox`.
 
 For **Snake**, press the wheel's Previous or Next button or use Left/Right to turn. For **Vortex**, drag around the wheel to move the paddle, or use Left/Right, then press Centre or Enter to launch. Space pauses either game and Esc opens Continue/Quit. Best scores for Snake and Vortex last for the current simulator session. 
 

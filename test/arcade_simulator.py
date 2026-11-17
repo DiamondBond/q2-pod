@@ -119,3 +119,60 @@ for name in ("Sudoku", "Solitaire"):
     assert ui.page == "library" and ui.library_title == "Games" and ui.arcade is None
 
 print("Sudoku and Solitaire launch, MIPS moves, new game and return routing passed")
+
+
+def check_mounted_apps():
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory() as folder:
+        root = Path(folder)
+        app = root / ".fidget"
+        app.mkdir()
+        (app / "q2app").write_text("name=Buddy\ngame=1\n", encoding="utf-8")
+        (app / "q2-fidget").touch()
+        app = root / ".filebrowser"
+        app.mkdir()
+        (app / "q2app").write_text("name=File Browser\n", encoding="utf-8")
+        (app / "q2-filebrowser").touch()
+        rockbox = root / ".rockbox" / "rockbox"
+        rockbox.parent.mkdir()
+
+        ui = Simulator("modern", [])
+        ui.open_library()
+        ui.select_library(LibraryRow("Games", "games"))
+        assert all(row.name != "Buddy" for row in ui.library_rows)
+        ui.mount_card([], root)
+        assert ui.library_title == "Games"
+        assert LibraryRow("Buddy", "buddy") in ui.library_rows
+        assert all(row.name != "File Browser" for row in ui.library_rows)
+        ui.back()
+        ui.back()
+
+        assert ("rockbox", "Rockbox") not in ui.home_items()
+        rockbox.touch()
+        ui.store.events.put(("done", "Rockbox installed"))
+        ui.advance(0)
+        assert ("rockbox", "Rockbox") in ui.home_items()
+        assert ui.store.has_rockbox(root)
+        ui.cursor = ui.home_items().index(("rockbox", "Rockbox"))
+        ui.enter()
+        assert "Start it on the Q2" in ui.hint
+
+        ui.cursor = ui.home_items().index(("stream", "Streaming"))
+        ui.enter()
+        assert ui.library_title == "Streaming"
+        assert ui.library_rows == [LibraryRow("File Browser", "card-app")]
+
+        # Starting the simulator with the same card needs no App Store record.
+        restarted = Simulator("modern", [], sd_card=root)
+        assert ("rockbox", "Rockbox") in restarted.home_items()
+        assert LibraryRow("Buddy", "buddy") in restarted.game_rows()
+
+        rockbox.unlink()
+        restarted.store.events.put(("done", "Rockbox removed"))
+        restarted.advance(0)
+        assert ("rockbox", "Rockbox") not in restarted.home_items()
+
+
+check_mounted_apps()
+print("Mounted Buddy, streaming apps and the Rockbox Home shortcut verified")
