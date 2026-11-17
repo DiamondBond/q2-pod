@@ -92,9 +92,9 @@ fixed-step timing accumulator and touch-active state. The core runner bounds
 catch-up work to four steps per call. It does not depend on AWTK, OS APIs,
 heap allocation or floating-point operations.
 
-This makes rules easier to test on a desktop and under MIPS emulation, and
-makes future reuse by a desktop simulator possible without duplicating game
-rules.
+This makes rules easier to test independently of the Q2 hardware without
+duplicating game rules. Desktop emulation tooling is maintained separately on
+the `desktop-simulator` branch.
 
 **Current integration boundary:** The framework is an implemented and
 independently tested **foundation**, not yet a runner adopted by every game.
@@ -112,8 +112,8 @@ callbacks after demonstrating compatibility.
 3. Implement the AWTK drawing and Q2 input/timer adapter.
 4. Register the game in `patch/games.c`, update `GAMES_BUILTIN` and
    firmware source registration as necessary.
-5. Add native tests, MIPS tests and firmware integration checks before
-   testing on hardware.
+5. Add native tests, firmware cross-compilation checks and integration tests
+   before testing on hardware.
 
 The design favors compact, integer-based rules, static state and bounded
 per-frame work because the Q2 has limited hardware resources. No proprietary
@@ -139,26 +139,24 @@ From the repository root:
 sh test/arcade_core.sh
 sh test/breakout_core.sh
 sh test/game_framework.sh
-python3 test/arcade_mips.py --self-test
 ```
 
 Automated coverage includes native C rules, the framework's lifecycle,
-undefined-behavior sanitizer checks, compiled MIPS32r2 rules executed through
-Unicorn, and mocked firmware integration tests. The arcade GitHub Actions
-workflow also checks compilation of the Games code for MIPS.
+undefined-behavior sanitizer checks and mocked firmware integration tests.
+The arcade GitHub Actions workflow also cross-compiles the Games code for MIPS.
+Emulation-specific tests are maintained on the `desktop-simulator` branch.
 
 **Before release or flashing:** validate a complete firmware package built
 from the intended branch and the stock firmware archive; then exercise all
 seven games on a real Q2, including navigation, controls, rendering,
-pause/resume, restart, persistence and performance. Passing portable or
-emulated tests alone does not establish hardware compatibility.
+pause/resume, restart, persistence and performance. Passing host tests alone does not establish hardware compatibility.
 
 ## Future work
 
 - Gradually migrate legacy games and newer adapters to the common callback
   runner while preserving behavior and saved data.
 - Simplify `patch/games.c` by moving more game-specific code into modules.
-- Reuse portable rules inside the desktop simulator.
+- Keep desktop emulator development and tests on the `desktop-simulator` branch.
 - Add game templates, further titles and hardware regression coverage.
 
 ## Related material
