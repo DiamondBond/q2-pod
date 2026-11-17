@@ -2090,7 +2090,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     s90play = s90play.replace(*BOOT_HOOK)
     check(s90play.count(LOG_HOOK[0]) == 1, 'Unexpected demo loop')
     check(s90play.count(WHEEL_LOG_HOOK[0]) == 1, 'Unexpected card path')
-    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK) if dev else s90play)
+    (out/'S90play').write_bytes(s90play.replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK) if dev else s90play)  # diag/402: no q2remote in a tester's build
     (out/'config.ini').write_bytes(default_config(cat(DEFAULT_CONFIG)))
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')
@@ -2155,7 +2155,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
                                BOLD_TTF: (FONT, bold),
                                CLASSIC_LIGHT_TTF: (FONT, classic_light),
                                **{'release/assets/default/raw/fonts/' + n: ('etc/hosts', (ROOT/'assets/fonts'/n).read_bytes()) for n in FONT_NOTICES},
-                               **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
+                               }.items():
         stock = need(inode(p, like.encode()), f'Missing stock inode for {path}')
         name = path.rsplit('/', 1)[-1]
         if path not in (HELPER, BOOT, REMOTE): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
@@ -2243,7 +2243,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
-        version=version, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        version=version, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
               {'imagemagick': imagemagick('-version', data=b'').decode().splitlines()[0]})

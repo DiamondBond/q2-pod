@@ -441,14 +441,12 @@ def validate_assets(directory):
     boot = read('rootfs.squashfs', BOOT)
     assert sha(boot) == manifest['q2boot_sha256'] and boot[:4] == b'\x7fELF' and boot[36:40] == helper[36:40]
     expected_start = read('stock.squashfs', S90PLAY).replace(*BOOT_HOOK)
-    if manifest['dev']:
-        remote = read('rootfs.squashfs', REMOTE)
-        assert sha(remote) == manifest['q2remote_sha256'] and remote[:4] == b'\x7fELF'
-        assert remote[36:40] == helper[36:40]
-        expected_start = expected_start.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK)
+    if manifest['dev']:  # diag/402: a tester's dev build, without q2remote
+        expected_start = expected_start.replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK)
         assert b'q2-wheel.log' in demo
     else:
         assert b'q2-wheel.log' not in demo and b'q2-wheel.log' not in expected_start  # a test build's diagnostic
+    if True:  # diag/402: no build from this branch carries q2remote
         assert 'q2remote_sha256' not in manifest
         assert not (directory/'q2remote').exists()
         absent = subprocess.run(['unsquashfs', '-cat', str(directory/'rootfs.squashfs'), REMOTE],
