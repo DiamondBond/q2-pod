@@ -8,6 +8,8 @@
 #else
 #include "navigation.h" /* the theme, its scheme and the final-colour rows */
 #include "arcade_core.h"
+#include "game_framework.h"
+#include "tile2048.h"
 #endif
 #include "breakout_core.h"
 
@@ -504,6 +506,8 @@ int snake_step(struct snake *s) {
 #define GAMES_SOLITAIRE "/mnt/data/ringnav-solitaire"
 #define GAMES_SNAKE "/mnt/data/ringnav-snake"
 #define GAMES_BLOCKS "/mnt/data/ringnav-blocks"
+#define GAMES_2048 "/mnt/data/ringnav-2048"
+#define TILE2048_MAGIC 0x31343032u
 #define GAMES_BREAKOUT "/mnt/data/ringnav-breakout"
 #define BEST_MAGIC 0x31585456u  /* "VTX1" */
 #define SNAKE_MAGIC 0x314b4e53u /* "SNK1": Snake's best, as Vortex's */
@@ -522,17 +526,18 @@ int snake_step(struct snake *s) {
 #define SN_CELL 11 /* Snake: the board, under the HUD and clear of the glass's corners */
 #define SN_X ((375 - SN_N * SN_CELL) / 2)
 #define SN_Y 36
-enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS, BREAKOUT };
+enum { CHOOSER, SUDOKU, VORTEX, SOLITAIRE, SNAKE, PONG, BLOCKS, BREAKOUT, TILE2048 };
 /* Vortex, Snake: playing, paused by Play/Pause or the screen, Return's menu */
 enum { RUN, HELD, MENU };
 struct best {
     unsigned magic, score, sum;
 };
+struct tile2048_save { unsigned magic; Q22048 game; unsigned sum; };
 static struct game {
     void *page, *list, *view, *sheet;
     unsigned timer, frame, at, acc; /* frame: Vortex's timer, at its last run, acc 1/60000 s due */
     int h, screen, target, picking, pick, confirm, paused, choice, carry;
-    int dirty; /* unsaved: 1 Sudoku, 2 Solitaire */
+    int dirty; /* unsaved: 1 Sudoku, 2 Solitaire, 4 2048 */
     struct sudoku sud;
     struct vortex vx;
     struct best best;
@@ -549,6 +554,10 @@ static struct game {
     struct best breakout_best;
     int rows;    /* the chooser's: its own games, then the card's */
     void *title; /* the caption the bar reads, where the theme's bar holds it */
+    struct tile2048_save tile2048;
+    Q2GameRunner tile_runner;
+    Q22048Direction tile_direction;
+    int tile_menu;
 } *g __attribute__((section(".scratch")));
 
 static int sud_started(const struct sudoku *s) {
@@ -565,6 +574,10 @@ static void flush(int loud) {
         games_seal(&g->sud, sizeof g->sud, SUD_MAGIC), ok &= BLOB_IO(GAMES_SUDOKU, g->sud, 1);
     if (g->dirty & 2)
         games_seal(&g->sol, sizeof g->sol, SOL_MAGIC), ok &= BLOB_IO(GAMES_SOLITAIRE, g->sol, 1);
+    if (g->dirty & 4) {
+        games_seal(&g->tile2048, sizeof g->tile2048, TILE2048_MAGIC);
+        ok &= BLOB_IO(GAMES_2048, g->tile2048, 1);
+    }
     g->dirty = 0;
     if (!ok && loud) toast("Couldn't save");
 }
@@ -686,7 +699,9 @@ static void run(void) {
     if (!g->frame) g->frame = timer_add(frame, 0, FRAME_MS);
 }
 
-static const char *const game_names[] = { "Games", "Sudoku", "Vortex", "Solitaire", "Snake", "Pong", "Blocks", "Breakout" };
+static const Q2GameHooks tile2048_hooks;
+
+static const char *const game_names[] = { "Games", "Sudoku", "Vortex", "Solitaire", "Snake", "Pong", "Blocks", "Breakout", "2048" };
 /* The chooser or the game target, from the next loop pass. */
 static int show(const void *unused) {
     g->timer = 0;
@@ -714,6 +729,18 @@ static int show(const void *unused) {
         q2_blocks_init(&g->blocks, (unsigned)time_now_ms()), run();
     else if (g->screen == BREAKOUT)
         q2_breakout_init(&g->breakout), run();
+    else if (g->screen == TILE2048) {
+        if (!g->tile_runner.hooks) {
+            q2_game_init(&g->tile_runner, &tile2048_hooks, g, 0);
+            struct tile2048_save saved;
+            if (BLOB_IO(GAMES_2048, saved, 0) &&
+                games_ok(&saved, sizeof saved, TILE2048_MAGIC) && q2_2048_valid(&saved.game))
+                g->tile2048 = saved;
+        }
+        g->tile_menu = 0;
+        q2_game_resume(&g->tile_runner);
+        if (!q2_2048_can_move(&g->tile2048.game)) q2_game_over(&g->tile_runner);
+    }
     widget_invalidate_force(g->page, 0);
     return 0;
 }
@@ -817,6 +844,7 @@ static void snake_key(unsigned key) {
 }
 
 #include "arcade_gameplay.inc"
+#include "tile2048_gameplay.inc"
 
 /* A pile's column on screen: the stock, the waste, a gap and the foundations over the tableau. */
 static const unsigned char col[PILES] = { 0, 1, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6 };
@@ -876,6 +904,8 @@ int games_key(void *top, unsigned key) {
         snake_key(key);
     else if (g->screen == PONG || g->screen == BLOCKS || g->screen == BREAKOUT)
         arcade_new_key(key);
+    else if (g->screen == TILE2048)
+        tile2048_key(key);
     else
         vortex_key(key);
     /* a moved cursor is kept on leaving; a key the game ignored paints nothing */
@@ -1367,6 +1397,7 @@ static void snake_paint(void *canvas, unsigned tone) {
 }
 
 #include "arcade_draw.inc"
+#include "tile2048_draw.inc"
 
 /* ringnav_paint: a game's sheet, after stock painted it. */
 void games_paint(void *w, void *canvas) {
@@ -1385,6 +1416,8 @@ void games_paint(void *w, void *canvas) {
         blocks_paint(canvas, tone);
     else if (g->screen == BREAKOUT)
         breakout_paint(canvas, tone);
+    else if (g->screen == TILE2048)
+        q2_game_paint(&g->tile_runner, canvas);
     else
         vortex_paint(canvas, tone);
     ui_ink_raw(raw);
@@ -1420,13 +1453,8 @@ int games_open(void *ctx, void *event) {
     g->rows = GAMES_BUILTIN + cards;
     g->view = page_list(page, g->list, 0, "Games", g->rows, 48);
     g->title = theme()->page_title_h ? (void *)0 : widget_lookup(g->list, PAGE_TITLE, 1);
-    page_row_into(g->view, 0, "Sudoku", pick_game);
-    page_row_into(g->view, 1, "Vortex", pick_game);
-    page_row_into(g->view, 2, "Solitaire", pick_game);
-    page_row_into(g->view, 3, "Snake", pick_game);
-    page_row_into(g->view, 4, "Pong", pick_game);
-    page_row_into(g->view, 5, "Blocks", pick_game);
-    page_row_into(g->view, 6, "Breakout", pick_game);
+    for (int k = 0; k < GAMES_BUILTIN; ++k)
+        page_row_into(g->view, k, game_names[k + 1], pick_game);
     for (int k = 0; k < cards; ++k)
         page_row_into(g->view, GAMES_BUILTIN + k, addon_game_name(k), pick_card_game);
     if (!BLOB_IO(GAMES_SUDOKU, g->sud, 0) || !games_ok(&g->sud, sizeof g->sud, SUD_MAGIC) ||

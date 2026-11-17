@@ -1,14 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "game_framework.h"
-#include <string.h>
 void q2_game_init(Q2GameRunner *r, const Q2GameHooks *hooks, void *context,
                   unsigned step_ms)
 {
-    memset(r, 0, sizeof *r);
-    r->hooks = hooks;
-    r->context = context;
-    r->step_ms = step_ms ? step_ms : 16;
-    r->status = Q2_GAME_RUNNING;
+    *r = (Q2GameRunner){ .hooks = hooks, .context = context,
+                          .step_ms = step_ms ? step_ms : 16, .status = Q2_GAME_RUNNING };
     if (hooks && hooks->reset) hooks->reset(context);
 }
 void q2_game_pause(Q2GameRunner *r)

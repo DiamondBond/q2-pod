@@ -7,6 +7,8 @@ on:
       - 'patch/arcade_core.*'
       - 'patch/breakout_core.*'
       - 'test/breakout_core*'
+      - 'patch/tile2048*'
+      - 'test/tile2048*'
       - 'patch/game_framework.*'
       - 'test/arcade_core*'
       - 'test/game_framework*'
@@ -25,6 +27,8 @@ jobs:
         run: sh test/arcade_core.sh
       - name: Run Breakout game core tests
         run: sh test/breakout_core.sh
+      - name: Run 2048 game core tests
+        run: sh test/tile2048.sh
       - name: Run game framework tests
         run: sh test/game_framework.sh
       - name: Run undefined behavior sanitizer checks
