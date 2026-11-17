@@ -16,6 +16,8 @@ on:
       - 'test/arcade_simulator.py'
       - 'tools/simulator.py'
       - 'tools/simulator_buddy.py'
+      - 'tools/simulator_apps.py'
+      - 'test/unit/test_simulator_apps.py'
       - 'test/simulator_buddy.py'
       - 'tools/simulator_firmware.py'
       - 'test/simulator_now_playing.py'
@@ -30,9 +32,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang lld binutils python3-tk
-          python3 -m pip install --break-system-packages -r requirements-simulator.txt
+          python3 -m pip install --break-system-packages -r requirements-simulator.txt pytest
       - name: Check Python syntax
         run: python3 -m py_compile tools/arcade_emulator.py tools/simulator.py tools/simulator_audio.py test/arcade_mips.py
+      - name: Check App Store downloads and rate limiting
+        run: PYTHONPATH=tools python3 -m pytest --noconftest -q test/unit/test_simulator_apps.py
       - name: Check FFmpeg host playback integration
         run: python3 test/simulator_audio.py
       - name: Verify Windows WSL compiler routing

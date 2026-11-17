@@ -22,6 +22,7 @@ from urllib.request import Request, urlopen
 CATALOG_URL = 'https://raw.githubusercontent.com/DiamondBond/q2-pod/main/sources.list'
 CAP = 1 << 30
 HEADROOM = 64 << 20
+RELEASE_CACHE_SECONDS = 300
 SPECIAL = {
     'q2-rockbox': ('rockbox', '.rockbox', '.rockbox/rockbox', ('.rockbox/config.cfg',)),
     'q2-rockbox-themes': ('themes', '.rockbox', '', ('.rockbox/config.cfg',)),
@@ -89,6 +90,29 @@ def fetch_catalog():
     return apps
 
 
+class GitHubRateLimit(RuntimeError):
+    def __init__(self, retry_at):
+        self.retry_at = retry_at
+        super().__init__(f'GitHub API rate limit reached. Try again after {time.strftime("%H:%M", time.localtime(retry_at))}.')
+
+
+def rate_limit_deadline(error):
+    if error.code not in (403, 429):
+        return None
+    headers = error.headers or {}
+    retry = str(headers.get('Retry-After', ''))
+    reset = str(headers.get('X-RateLimit-Reset', ''))
+    exhausted = headers.get('X-RateLimit-Remaining') == '0'
+    if error.code == 403 and not (exhausted or retry or 'rate limit' in str(error.reason).casefold()):
+        return None
+    now = time.time()
+    if retry.isascii() and retry.isdigit() and len(retry) <= 9:
+        return now + max(1, int(retry))
+    if exhausted and reset.isascii() and reset.isdigit() and len(reset) <= 12 and int(reset) > now:
+        return float(reset)
+    return now + 60
+
+
 def latest_release(app):
     try:
         with open_url(f'https://api.github.com/repos/{app.repo}/releases/latest') as response:
@@ -96,6 +120,8 @@ def latest_release(app):
     except HTTPError as exc:
         if exc.code == 404:
             return None
+        if (retry_at := rate_limit_deadline(exc)) is not None:
+            raise GitHubRateLimit(retry_at) from exc
         raise
     if len(raw) > 2 << 20:
         raise ValueError('Release metadata is too large')
@@ -303,6 +329,8 @@ class AppStore:
         self.stage = ''
         self.message = ''
         self.checked = 0.0
+        self.retry_at = 0.0
+        self.release_cache: dict[str, tuple[float, Release | None]] = {}
         self.cancel = threading.Event()
         self.events: SimpleQueue = SimpleQueue()
 
@@ -324,6 +352,19 @@ class AppStore:
             else:
                 self.job, self.item, self.stage, self.message = '', '', '', value
                 finished = True
+
+    def get_release(self, app):
+        if (cached := self.release_cache.get(app.repo)) and time.monotonic() < cached[0]:
+            return cached[1]
+        if time.time() < self.retry_at:
+            raise GitHubRateLimit(self.retry_at)
+        try:
+            result = latest_release(app)
+        except GitHubRateLimit as exc:
+            self.retry_at = exc.retry_at
+            raise
+        self.release_cache[app.repo] = time.monotonic() + RELEASE_CACHE_SECONDS, result
+        return result
 
     def has_rockbox(self, card):
         try:
@@ -404,7 +445,8 @@ class AppStore:
                     releases = {}
                     for current in apps:
                         check_cancel(cancel)
-                        if not current.dropped and (found := latest_release(current)):
+                        # An uninstalled app has no installed version to check.
+                        if not current.dropped and installed_tag(card, current) and (found := self.get_release(current)):
                             releases[current.ident] = found
                     check_cancel(cancel)
                     events.put(('catalog', (apps, releases, time.monotonic())))
@@ -420,7 +462,7 @@ class AppStore:
                     if app.repo not in {current.repo for current in fetch_catalog() if not current.dropped}:
                         raise ValueError('App is no longer listed')
                     check_cancel(cancel)
-                    release = latest_release(app)
+                    release = self.get_release(app)
                     if release is None:
                         raise ValueError('No installable release')
 
