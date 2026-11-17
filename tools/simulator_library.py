@@ -26,7 +26,6 @@ POD_LIBRARY = tuple(LibraryRow(name, route) for name, route in (
     ('Most Played', 'most'), ('Hi-Res', 'hires'), ('Long Songs', 'long'),
 ))
 MEDIA_NAMES = ('Podcasts', 'Audiobooks', 'Photos', 'Books', 'Videos')
-BUILTIN_GAMES = ('Sudoku', 'Vortex', 'Solitaire', 'Snake', 'Pong', 'Blocks')
 
 
 def card_media(card: Path | None) -> dict[str, Path]:

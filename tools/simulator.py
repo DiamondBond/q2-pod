@@ -29,8 +29,8 @@ from simulator_apps import AppStore
 from simulator_audio import FFplayAudio
 from simulator_device import (CENTRE, DEFAULT_SHELL, DETENT, DEVICE_SIZE, SCREEN_AT, SHELL_FINISHES, WHEEL,
                               device_frame, wheel_angle, wheel_button, wheel_delta)
-from simulator_firmware import load_firmware
-from simulator_library import (BUILTIN_GAMES, MEDIA_NAMES, LibraryRow, card_app_entries, card_game_entries, card_media, imported_playlists,
+from simulator_firmware import BUILTIN_GAMES, load_firmware
+from simulator_library import (MEDIA_NAMES, LibraryRow, card_app_entries, card_game_entries, card_media, imported_playlists,
                                library_menu)
 from simulator_settings import PAGES, PLAY_MODES, SETTINGS, STOCK_ROWS, THEME_KEYS
 
@@ -701,7 +701,6 @@ MEDIA_FOLDERS = frozenset(name.casefold() for name in MEDIA_NAMES)
 
 HOME_ROUTES = (('playing', 'Now Playing'), ('localmusic', 'Library'), ('coverflow', 'Cover Flow'),
                ('folder', 'Folders'), ('stream', 'Streaming'), ('settings', 'Settings'))
-GAME_ROWS = tuple(LibraryRow(name, 'device') for name in BUILTIN_GAMES)
 
 
 class Simulator:
@@ -782,13 +781,18 @@ class Simulator:
                 self.history[index] = (entry[0], relocate(entry[1]), *entry[2:])
 
     def viewing_games(self):
-        return self.page == 'library' and self.library_title == 'Games' and tuple(
-            self.library_rows[:len(GAME_ROWS)]) == GAME_ROWS
+        builtins = self.builtin_game_rows()
+        return (self.page == 'library' and self.library_title == 'Games'
+                and self.library_rows[:len(builtins)] == builtins)
+
+    def builtin_game_rows(self):
+        names = self.firmware.builtin_games if self.firmware else BUILTIN_GAMES
+        return [LibraryRow(name, 'device') for name in names]
 
     def game_rows(self):
         installed = (LibraryRow(name, 'buddy' if ident == 'fidget' else 'card-game')
                      for name, ident in card_game_entries(self.sd_card))
-        return [*GAME_ROWS, *installed]
+        return [*self.builtin_game_rows(), *installed]
 
     def mount_card(self, tracks, root):
         games_open = self.viewing_games()
@@ -1093,7 +1097,7 @@ class Simulator:
         elif route == 'group':
             self.show_library(name, self.song_library_rows(selected))
         elif route == 'device':
-            if name in ('Pong', 'Blocks', 'Snake', 'Vortex', 'Sudoku', 'Solitaire'):
+            if name in BUILTIN_GAMES:
                 try:
                     from arcade_emulator import ArcadeWindow, MipsArcade
                     view = object.__new__(ArcadeWindow)  # reuse the actual MIPS runner; no second Tk window

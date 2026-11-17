@@ -15,6 +15,8 @@ import ipod
 
 RAW = 'release/assets/default/raw/'
 ROOTFS = 'recovery-update/rootfs.squashfs'
+DEMO = 'release/bin/demo'
+BUILTIN_GAMES = ('Sudoku', 'Vortex', 'Solitaire', 'Snake', 'Pong', 'Blocks')
 FONT_FILES = ('default', 'bold', 'classic-light', 'folder-regular')
 
 
@@ -50,6 +52,8 @@ class Firmware:
     home: tuple[HomeEntry, ...]
     lists: dict[str, dict[str, Widget]]
     playing_layouts: dict[str, dict[str, Widget]] = field(default_factory=dict)
+
+    builtin_games: tuple[str, ...] = BUILTIN_GAMES
 
     def now_playing(self, geometry):
         if self.custom and geometry in self.playing_layouts:
@@ -165,6 +169,14 @@ def home_entries(data, custom):
     return tuple(entries)
 
 
+def firmware_builtin_games(demo):
+    # Existing Q2 Pod packages keep the chooser in the compiled payload.
+    # Require both the menu label and the save path to identify newer games.
+    if b'Breakout\0' in demo and b'/mnt/data/ringnav-breakout\0' in demo:
+        return (*BUILTIN_GAMES, 'Breakout')
+    return BUILTIN_GAMES
+
+
 def load_firmware(path, unsquashfs='unsquashfs'):
     """Materialize just the filesystem image, then read named assets without extracting a tree."""
     try:
@@ -220,7 +232,11 @@ def load_firmware(path, unsquashfs='unsquashfs'):
                             names.add(value)
             images = {name: read(f'images/xx/{name}.png') for name in names
                       if re.fullmatch(r'[A-Za-z0-9_-]+', name) and RAW + f'images/xx/{name}.png' in files}
-            return Firmware(version, custom, page, fonts, images, styles, home, lists, playing_layouts)
+            games = ()
+            if custom:
+                demo = run('-cat', '-no-wildcards', str(rootfs), DEMO) if DEMO in files else b''
+                games = firmware_builtin_games(demo)
+            return Firmware(version, custom, page, fonts, images, styles, home, lists, playing_layouts, games)
     except FileNotFoundError as exc:
         if exc.filename == unsquashfs:
             raise ValueError('Install squashfs-tools or pass --unsquashfs with the executable path') from exc
