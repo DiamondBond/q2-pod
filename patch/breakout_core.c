@@ -7,7 +7,7 @@
 #define PADDLE_Y 220
 #define BRICK_X 16
 #define BRICK_Y 27
-#define BRICK_W 36
+#define BRICK_W 33
 #define BRICK_H 13
 #define BRICK_GAP 3
 
