@@ -149,9 +149,13 @@ def check_mounted_apps():
         ui.back()
 
         assert ("rockbox", "Rockbox") not in ui.home_items()
+        ui.cursor = ui.home_items().index(("settings", "Settings"))
+        ui.enter()
         rockbox.touch()
         ui.store.events.put(("done", "Rockbox installed"))
         ui.advance(0)
+        ui.back()
+        assert ui.home_items()[ui.cursor] == ("settings", "Settings")
         assert ("rockbox", "Rockbox") in ui.home_items()
         assert ui.store.has_rockbox(root)
         ui.cursor = ui.home_items().index(("rockbox", "Rockbox"))

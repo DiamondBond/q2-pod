@@ -762,6 +762,25 @@ class Simulator:
             return (*HOME_ROUTES[:4], ('rockbox', 'Rockbox'), *HOME_ROUTES[4:])
         return HOME_ROUTES
 
+    def refresh_rockbox(self):
+        installed = self.store.has_rockbox(self.sd_card)
+        if installed == self.rockbox_installed:
+            return
+        before = self.home_items()
+        self.rockbox_installed = installed
+        after = self.home_items()
+
+        def relocate(cursor):
+            if cursor < len(before) and before[cursor] in after:
+                return after.index(before[cursor])
+            return min(cursor, len(after) - 1)
+
+        if self.page == 'home':
+            self.cursor = relocate(self.cursor)
+        for index, entry in enumerate(self.history):
+            if entry[0] == 'home':
+                self.history[index] = (entry[0], relocate(entry[1]), *entry[2:])
+
     def viewing_games(self):
         return self.page == 'library' and self.library_title == 'Games' and tuple(
             self.library_rows[:len(GAME_ROWS)]) == GAME_ROWS
@@ -990,10 +1009,8 @@ class Simulator:
         if self.page == 'arcade' and self.arcade is not None:
             self.arcade.advance(delta * 1000)
         if self.store.poll():
-            self.rockbox_installed = self.store.has_rockbox(self.sd_card)
-            if self.page == 'home':
-                self.cursor = min(self.cursor, len(self.home_items()) - 1)
-            elif self.viewing_games():
+            self.refresh_rockbox()
+            if self.viewing_games():
                 self.library_rows = self.game_rows()
                 self.cursor = min(self.cursor, len(self.library_rows) - 1)
             if self.store.message:
