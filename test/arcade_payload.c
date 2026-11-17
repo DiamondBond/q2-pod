@@ -17,7 +17,7 @@ void *memcpy(void *dest, const void *src, size_t size) {
 #define PEQ_HOST
 #define Q2_ARCADE_MIPS
 #include "../patch/arcade_core.c"
-#include "breakout_core.c"
+#include "../patch/breakout_core.c"
 #include "../patch/games.c"
 
 /* These layouts are read by ctypes in arcade_mips.py. */
