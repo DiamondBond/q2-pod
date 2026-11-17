@@ -20,7 +20,9 @@ m4b_cover:
     nop                       /* delay slot */
     lw    $25, -0x7e90($28)   /* strcasecmp's GOT slot */
     move  $4, $16             /* the extension */
-    /* m4b is 11 instructions (44 bytes) after m4b_cover. Clang integrated\n     * assembler cannot resolve label differences inside addiu immediates.\n     * BASE=0x30000, GP=0x327e0: 0x30000 + 44 - 0x327e0 = -0x27b4. */\n    addiu $5, $28, -0x27b4  /* gp-relative pointer to "m4b" */
+    /* The m4b string is 44 bytes after m4b_cover.
+     * 0x30000 + 44 - 0x327e0 = -0x27b4. */
+    addiu $5, $28, -0x27b4  /* gp-relative pointer to "m4b" */
     jalr  $25                 /* strcasecmp(ext, "m4b") */
     nop                       /* delay slot */
     beqz  $2, mp4             /* M4B: the MP4 extractor */
