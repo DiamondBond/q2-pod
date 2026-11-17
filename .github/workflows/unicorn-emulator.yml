@@ -20,7 +20,9 @@ jobs:
           sudo apt-get install -y clang lld binutils python3-tk
           python3 -m pip install --break-system-packages -r emulation/requirements-simulator.txt pytest
       - name: Check Python syntax
-        run: python3 -m py_compile emulation/arcade_emulator.py emulation/simulator.py emulation/simulator_audio.py emulation/arcade_mips.py
+        run: python3 -m py_compile emulation/arcade_emulator.py emulation/simulator.py emulation/simulator_audio.py emulation/arcade_mips.py emulation/game_catalog.py emulation/simulator_firmware.py
+      - name: Validate versioned game manifest discovery
+        run: python3 -m unittest discover -s emulation/tests -p 'test_game_catalog.py' -v
       - name: Check App Store downloads and rate limiting
         run: PYTHONPATH=emulation python3 -m pytest --noconftest -q emulation/tests/test_simulator_apps.py emulation/tests/test_simulator_library.py
       - name: Check FFmpeg host playback integration
