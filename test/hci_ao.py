@@ -198,6 +198,9 @@ class Player:
     def mark(self):
         """demo's start_mute: it left its mute off for this start."""
         (self.e.tmp/'tmp_q2press').write_bytes(struct.pack('<I', (self.e.clock // 10**6 & 0xffffffff) & ~1))
+    def press(self):
+        """demo's press stamp, left unspent (a refused Next, a seek while paused)."""
+        (self.e.tmp/'tmp_q2press').write_bytes(struct.pack('<I', (self.e.clock // 10**6 & 0xffffffff) | 1))
     def cold(self, first, second, marked=True):
         self.song(first)
         assert self.until(self.ended, 8), first
@@ -256,7 +259,7 @@ def pause_resume(p, after, age_ms=330):
     return held
 
 
-TRIM_MS = -29  # peq_player.c PS_TRIM_MS
+TRIM_MS, RELEASE_MS = -29, 130  # peq_player.c PS_TRIM_MS, DAC_RELEASE_MS
 
 
 def replayed_right(p, held, reference):
@@ -280,6 +283,9 @@ def replayed_right(p, held, reference):
     back = (age + TRIM_MS) * pcm.rate // 1000
     n = left + min(back, since - left)
     after, fade = written(pcm.chunks), pcm.rate // 1000 * 4
+    z = pcm.rate * RELEASE_MS // 1000 * size  # the release's silence goes first, so the DAC's ramp runs on it
+    assert not any(after[:z]), 'silence first'
+    after = after[z:]
     assert after[fade * size:n * size] == all_written[-n * size:][fade * size:], ('replay', n, left, back, since)
     if reference is not None:
         whole = all_written + after[n * size:]
@@ -609,8 +615,13 @@ for way in 1, 2:
     assert len(p.e.streams) == 2, (way, len(p.e.streams))
 print('A DSD file\'s end on Bluetooth and USB: not taken as natural, and the next file reopens.')
 # The jack's natural start, demo's mute and sleep skipped: the line lets go, then DAC_RELEASE_MS, then frames, once.
-# The routes ao_init's branch doesn't take read the mark at init's end. Time from the release to hw_ptr's start.
-def released(first, second, marked=True, preload=False):
+# The routes ao_init's branch doesn't take read the mark at init's end. Time from the release to the first frame heard:
+# hw_ptr's start, plus the silence ahead of the music (dac_preroll's; DSD sleeps instead, zeros not being its silence).
+def lead_ms(pcm):
+    data, size = written(pcm.chunks), pcm.bytes()
+    first = next((i for i in range(0, len(data), size) if any(data[i:i + size])), len(data))
+    return first // size * 1000 / pcm.rate
+def released(first, second, marked=True, preload=False, keep=1, press=False):
     p = Player()
     ends, freed = [], []
     p.e.watch_fn(ps['ao_uninit'], lambda e: ends.append(e.clock))
@@ -619,31 +630,43 @@ def released(first, second, marked=True, preload=False):
     if preload:
         p.run(0.2)
         p.gapless(second)
+        if press: p.press()
     assert p.until(lambda: ends, 8), first
     if not preload:
         p.run(0.02)
         if marked: p.mark()
-        p.song(second)
+        p.song(second, keep)
     p.run(1)
-    return (p.e.pcm.hw_at - freed[-1]) // 10**6, len(freed), len(p.e.streams)
+    pcm = p.e.pcm
+    # The wait counts from the release to the first frame heard; lead: how much of it is silence written (a sleep: 0).
+    lead = lead_ms(pcm)
+    return int((pcm.hw_at - freed[-1]) / 10**6 + lead), len(freed), len(p.e.streams), int(lead)
 for first, second in (('a44.flac', 'z.dsf'), ('z.dsf', 'y.dsf'), ('z.dsf', 'b44.flac'), ('a44.flac', 'b48.flac')):
-    wait, opens, pcms = released(first, second)
+    wait, opens, pcms, lead = released(first, second)
     assert wait == 130 and opens == 2 and pcms == 2, (first, second, wait, opens, pcms)
+    assert lead == (0 if second.endswith('.dsf') else 130), (first, second, lead)  # DSD sleeps: zeros aren't its silence
 # No mark: demo muted and slept as stock, so stock's timing. A preloaded change at another format waits once, the same.
-wait, opens, pcms = released('a44.flac', 'z.dsf', marked=False)
+wait, opens, pcms, lead = released('a44.flac', 'z.dsf', marked=False)
 assert wait == 0 and pcms == 2, (wait, pcms)
-wait, opens, pcms = released('a44.flac', 'b48.flac', preload=True)
-assert wait == 130 and pcms == 2, (wait, pcms)
+wait, opens, pcms, lead = released('a44.flac', 'b48.flac', preload=True)
+assert wait == 130 and lead == 130 and pcms == 2, (wait, lead, pcms)
+# Gapless off at the same format reopens and waits the same; so does a preloaded change at another rate with a press's
+# stamp left unspent.
+wait, opens, pcms, lead = released('a44.flac', 'b44.flac', keep=0)
+assert wait == 130 and lead == 130 and opens == 2 and pcms == 2, (wait, lead, opens, pcms)
+wait, opens, pcms, lead = released('a44.flac', 'b48.flac', preload=True, press=True)
+assert wait == 130 and lead == 130 and pcms == 2, (wait, lead, pcms)
 # The same format stays open: nothing to release, no wait, and a preload the same.
 for preload in (False, True):
-    wait, opens, pcms = released('a44.flac', 'b44.flac', preload=preload)
+    wait, opens, pcms, lead = released('a44.flac', 'b44.flac', preload=preload)
     assert opens == 1 and pcms == 1, (preload, opens, pcms)
 # A natural end out of DSD waits with no mark: a preload, where demo has no mute, and a cold one. The flag also reads 1 at
 # a PCM track's end into a preloaded DSD one, so that waits too. Into DSD with no preload and no mark, and PCM to PCM, as before.
 for first, second, preload in (('z.dsf', 'b44.flac', True), ('z.dsf', 'y.dsf', True), ('z.dsf', 'b44.flac', False), ('a44.flac', 'z.dsf', True)):
-    wait, opens, pcms = released(first, second, marked=False, preload=preload)
+    wait, opens, pcms, lead = released(first, second, marked=False, preload=preload)
     assert wait == 130 and opens == 2 and pcms == 2, (first, second, preload, wait, opens, pcms)
-wait, opens, pcms = released('a44.flac', 'b48.flac', marked=False)
+    assert lead == (0 if second.endswith('.dsf') else 130), (first, second, preload, lead)
+wait, opens, pcms, lead = released('a44.flac', 'b48.flac', marked=False)
 assert wait == 0 and pcms == 2, (wait, pcms)
 # ao_uninit's own word, as stock's uninit starts: a natural end out of DSD sets it; the same end cut by a press, and PCM's end, don't.
 def uninit_word(first, second, pressed):

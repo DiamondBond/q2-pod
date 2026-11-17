@@ -1,5 +1,7 @@
 # Changelog
 
+- **1.8.8**:
+  - Sound: on the 3.5 mm and balanced outputs, a song starts at full volume ([#402](https://github.com/DiamondBond/q2-pod/issues/402)) when you pick it, skip, go back, scrub, press Play after Pause, or reach the next song with **Gapless** off. Its first tenth of a second still faded in: the DAC brings its level up only once sound reaches it, so the Q2 now plays it the eighth of a second it used to wait as silence. Songs start no later than before.
 - **1.8.7**:
   - Edit Playlist: **Add Songs** opens at once the second time and later in one edit, on a big library. It read and sorted the whole library again each time.
   - Library: **Shuffle Songs**, and **Play Next** or **Add to Queue** while it plays, work faster on a big library.

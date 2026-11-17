@@ -816,16 +816,18 @@ static void ao_cut(void) { /* a press during ao_init's drain, on the command thr
 }
 
 /* The wired outputs' cut start (docs/internals.md#wired-start). ioctl DAC_MUTE 0 returns with the
- * driver's mute line still held for 90-100 ms, and after a pause or seek the volume is still
- * ramping, so what played at once was cut, heard as a swift fade-up. Each place stock releases on
- * output way 0 with the DAC open now releases, waits, then lets audio flow: the PCM is prepared or
- * paused, so nothing runs out and the clock stands still, and no frame is written, so DSD stays
- * bit-exact. Stock unmutes once per mute: the flag (0xb12514, 1 after hciplayer's mute) gates every
- * site and each clears it, so one action waits once.
+ * driver's mute line still held for 90-100 ms, and the DAC then brings the level up over the first
+ * ~0.1 s of frames, heard as a swift fade-up: a sleep with the PCM prepared faded as much at 400 ms
+ * as at 130 (#402), so it runs on frames, not time. After a pause that's the soft ramp from 0xff;
+ * a skip's or seek's mute(1) leaves the volume, so there it's something else the DAC does once
+ * clocked, not identified. Each place stock releases on output way 0 with the DAC open now
+ * releases, then writes DAC_RELEASE_MS of silence ahead of the audio (dac_preroll), so the line
+ * lets go and the rise ends on it. Stock unmutes once per mute: the flag (0xb12514, 1 after
+ * hciplayer's mute) gates every site and each clears it, so one action waits once.
  *
  * Init and seek wait only when demo's PRESS_FILE holds a fresh stamp, so a track change nobody
- * pressed for has no sleep, Crossfade's and Gapless's above all; a resume always waits, only ever a
- * press or a phone's.
+ * pressed for has no silence, Crossfade's and Gapless's above all; a resume always waits, only ever
+ * a press or a phone's.
  *
  * ponytail: a wired manual start comes about 130 ms later. A stamp left unspent under 5 s (a
  * refused Next, a press that opened paused, a seek while paused, a press and a track under 5 s)
@@ -860,6 +862,8 @@ static int dac_word(int pressed) { /* odd: a press's stamp; even: start_mute's m
     return 1;
 }
 static int dac_told(void) { return dac_word(1); }
+static void dac_preroll(void *pcm, int kept);
+static int dac_owed; /* a resume released the DAC with a seek pending: the next write pays it */
 /* The end of init (0x438a70), past stock's checks of the way and the fd: the ioctl is stock's own.
  * A mark still unread is a natural start ao_init's branch didn't take (DSD at either end, no PCM
  * open, the arm dropped): demo skipped its mute and sleep for it, so this is what stands in for
@@ -872,7 +876,7 @@ static int dac_told(void) { return dac_word(1); }
  * start with an offset that reopens keeps the cut, as it has since start_mute. */
 int dac_ioctl(int fd, unsigned request, void *arg) {
     int r = ioctl(fd, request, arg);
-    if (dac_told() || dac_word(0) || ao_wait) usleep(DAC_RELEASE_MS * 1000);
+    if (dac_told() || dac_word(0) || ao_wait) dac_preroll(ALSA_PCM, 1);
     return r;
 }
 /* seek (0x42b1c4), a start offset's or an mcl-seek's: demo stamps a user's, not A-B Repeat's loop.
@@ -880,7 +884,7 @@ int dac_ioctl(int fd, unsigned request, void *arg) {
 void dac_unmute(int value) {
     int wait = !OUTPUT_WAY && DAC_FD > 0 && dac_told();
     DAC_HELPER(value);
-    if (wait) usleep(DAC_RELEASE_MS * 1000);
+    if (wait) dac_preroll(ALSA_PCM, 1);
 }
 /* An unpause on the headphone DAC (docs/internals.md#unpause). soc_aic.ko restarts the DMA at the
  * ring's base on PAUSE_RELEASE and the pointer jumps to the next wrap, so what the ring held past
@@ -933,6 +937,13 @@ static struct {
  * PCM's handle: a reopen's snd_pcm_t can land on the old one's address.) A write is at most the
  * ring (get_space), and the cap is never less. */
 long ao_write(void *pcm, const char *data, unsigned long frames) {
+    /* A resume with a seek pending released the DAC and wrote nothing; the seek's reset came next,
+     * and seek()'s own site passes with the flag clear. So the first write since is the PCM's
+     * first, and its silence goes ahead of it here. */
+    if (dac_owed) {
+        if (!OUTPUT_WAY) dac_preroll(pcm, 1); /* which clears it first */
+        dac_owed = 0;
+    }
     /* Every write on the jacks and USB looks, not only a kept PCM's first: a stream that stalls
      * mid-song (Wi-Fi gone for 20 s) runs the PCM dry the same way, and the music that comes back
      * was written behind hw_ptr and lost until appl_ptr caught up, heard as jumps ahead. Forwarded,
@@ -1033,12 +1044,46 @@ static void ps_write(void *pcm, unsigned n) {
     }
 }
 
+/* DAC_RELEASE_MS of the format's silence into a prepared PCM, ahead of anything else: it starts the
+ * PCM (one period is its start threshold), so the ramp runs and the line lets go on it, and the
+ * audio comes after at the time a sleep gave it. Outside play, so the clock doesn't count it. kept:
+ * through ao_write, so ps_ring holds it as the PCM does; else the caller squares ps. A sleep where
+ * zeros aren't silence (DSD) or there's no PCM. */
+static void dac_preroll(void *pcm, int kept) {
+    static char zero[8192] __attribute__((aligned(8)));
+    unsigned frame = AO_BYTES, w = (AO_FORMAT >> 3 & 3) + 1, step = frame ? sizeof zero / frame : 0;
+    unsigned left = (unsigned)AO_RATE * DAC_RELEASE_MS / 1000;
+    dac_owed = 0; /* any silence pays a resume's debt; ao_write's check can't recurse */
+    if (!pcm || !step || dsd()) {
+        usleep(DAC_RELEASE_MS * 1000);
+        return;
+    }
+    memset(zero, 0, sizeof zero);
+    if (AO_FORMAT & 2) /* unsigned: silence is the midpoint */
+        for (unsigned b = 0; b + w <= sizeof zero; b += w)
+            ps_scale((unsigned char *)zero + b, w, AO_FORMAT, 0);
+    while (left) {
+        unsigned m = left < step ? left : step;
+        long r = kept ? ao_write(pcm, zero, m) : PCM_WRITEI(pcm, zero, m);
+        if (r == -4 || !r) continue; /* EINTR, as stock's play loop */
+        if (r < 0) return;           /* the audio's own write recovers as stock's does */
+        left -= (unsigned)r;
+    }
+}
+
 /* Resume (0x4380dc) calls snd_pcm_pause(pcm, 0) before its unmute (0x438238): that one goes first
  * now, and with the flag clear, stock's check after the call (0x438104) passes it over. On way 0
- * the PCM is dropped and prepared under the mute, the release waited for, and only then is anything
- * written; with a seek pending nothing is, as its reset comes next and no old frame should sound.
- * Anything but a paused PCM whose ring is all held (a pause that failed, Bluetooth, USB; hw_ptr
- * past appl_ptr reads as more than is held) is stock's. */
+ * the PCM is dropped and prepared under the mute, released, given its silence, and only then are
+ * the held frames written. ps_ring doesn't hold that silence, so what it holds stops matching the
+ * PCM's timeline before them: ps.fill keeps only the frames written again. With a seek pending
+ * nothing is written, as its reset comes next and no old frame should sound; the first write after
+ * it gets the silence (dac_owed, in ao_write). Anything but a paused PCM whose ring is all held (a
+ * pause that failed, Bluetooth, USB; hw_ptr past appl_ptr reads as more than is held) is stock's,
+ * with the sleep: its frames are already in the ring.
+ *
+ * ponytail: a second pause while that silence still plays finds more unplayed than is held, so its
+ * Play is stock's (the ring's jump). Holding the silence in ps_ring would mean moving the held
+ * frames up by its length. */
 int dac_resume(void *pcm) {
     pcm_status st;
     int redo = 0;
@@ -1055,10 +1100,18 @@ int dac_resume(void *pcm) {
     if (redo) PCM_DROP(pcm), PCM_PREPARE(pcm);
     if (DAC_MUTED == 1) {
         DAC_HELPER(0);
-        if (!OUTPUT_WAY && DAC_FD > 0) usleep(DAC_RELEASE_MS * 1000);
+        if (!OUTPUT_WAY && DAC_FD > 0) {
+            if (!redo)
+                usleep(DAC_RELEASE_MS * 1000);
+            else if (SEEK_PENDING)
+                dac_owed = 1;
+            else
+                dac_preroll(pcm, 0);
+        }
     }
     if (!redo) return PCM_PAUSE(pcm, 0);
     if (n) ps_write(pcm, n);
+    ps.fill = n * ps.frame;
     return 0;
 }
 #endif

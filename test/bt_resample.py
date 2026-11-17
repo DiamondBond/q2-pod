@@ -6,7 +6,7 @@ A tone split across two files comes out of two instances exactly as one instance
 at AAC/SBC's 48 kHz and LDAC's 96 kHz. Stock's (and a skip mid-track, a rate change or a pause)
 start the second from a fresh resampler, which loses the first's tail.
 Then a USB DAC's and Bluetooth's init across a change (ao_init): a repeated request asks for what it negotiated.
-Then the wired outputs' start (dac_*): at stock's own unmute sites a press waits, once, before audio flows.
+Then the wired outputs' start (dac_*): at stock's own unmute sites a press writes silence, once, before audio flows.
 Then the old track's end (ao_uninit, ao_init): a natural change that reopens drains, mutes, reopens, unmutes and waits;
 one demo left unmuted at the same format keeps the PCM open; a skip stays mute-first.
 Last an unpause (ao_write, dac_resume): the frames go back into a prepared PCM from where the fade began. The DMA
@@ -36,6 +36,7 @@ for name in ('open', 'dlsym'):
 class dev:  # what the stubs below see of the PCM (mute: MUTE_FILE's word, None for no file)
     state, trigger, appl, hw, status_rc, mute, most, calls, got, errors = 2, 0, 0, 0, 0, None, 1 << 30, 0, b'', []
     before = None  # the log at the first frame written since pause_at
+    lead = 0  # frames of dac_preroll's silence ahead of them, logged once as 'silence' and kept out of got
     avail = 0
 heap, clock, freed, dac_log, pause_rc, press = [HEAP], [10**9], set(), [], [0], [None]  # press: PRESS_FILE's word
 real = {}  # imports the stock-init sections answer, by name
@@ -94,7 +95,12 @@ def libc(u, address, size, _):
     elif n == 'snd_pcm_prepare': dac_log.append('prepare'); dev.appl = dev.hw = 0; result = 0
     elif n == 'snd_pcm_writei':
         frames = a(2)
-        if dev.errors: result = dev.errors.pop(0)
+        fmt = r(0xafb1a0 + 8); width = (fmt >> 3 & 3) + 1  # AO_DATA's format; its silence: an unsigned one's is its midpoint
+        quiet = (1 << width * 8 - 1 if fmt & 2 else 0).to_bytes(width, 'little' if fmt & 1 else 'big')
+        if not dev.got and bytes(u.mem_read(a(1), frames * r(0xb22530))) == quiet * (frames * r(0xb22530) // width):  # dac_preroll's
+            if not dev.lead: dac_log.append('silence')
+            dev.lead += frames; dev.appl += frames; result = frames
+        elif dev.errors: result = dev.errors.pop(0)
         else:
             frames = min(frames, dev.most)
             dev.got += bytes(u.mem_read(a(1), frames * r(0xb22530))); dev.appl += frames; result = frames
@@ -228,10 +234,11 @@ ctx, frame = alloc(0x100), alloc(0x400)
 w(MPCTX, ctx), w(frame + 0x180, 0xb20000), w(CAN_PAUSE, 1), w(PCM, 0x1000)
 def state(way=0, flag=1, fd=5, paused=False, offset=0.0):
     w(WAY, way), w(FLAG, flag), w(FD, fd), w(ctx + 4, 2 if paused else 1)
+    w(AO_DATA, 44100), w(AO_DATA + 8, 0x9), w(0xb22530, 4), w(PCM, 0x1000)  # 44.1 kHz S16: the silence's length and format
     u.mem_write(OFFSET, struct.pack('<d', offset))
 def site(start, until, **regs):
     """What stock's code from start to until does, and the flag it leaves."""
-    dac_log.clear()
+    dac_log.clear(); dev.got, dev.lead = b'', 0
     for reg, value in regs.items(): u.reg_write(globals()['UC_MIPS_REG_' + reg], value)
     u.reg_write(UC_MIPS_REG_SP, STACK), u.reg_write(UC_MIPS_REG_RA, DONE)
     u.emu_start(start, until, count=100_000)
@@ -240,18 +247,19 @@ def init_end(): return site(0x438638, 0x438654, S4=0xb10000, FP=frame)
 def seek(): return site(0x42b134, 0x42b188, V0=0xb10000, S0=ctx, S1=0xb10000, S2=0xb10000)
 def resume(): return site(0x4380ac, DONE)
 def wrapper(name, *args):
-    dac_log.clear(), call(ps[name], *args)
+    dac_log.clear(); dev.got, dev.lead = b'', 0
+    call(ps[name], *args)
     return [*dac_log], r(FLAG)
-RELEASED, AS_STOCK = ([UNMUTE, 'wait'], 0), ([UNMUTE], 0)
+RELEASED, AS_STOCK = ([UNMUTE, 'silence'], 0), ([UNMUTE], 0)  # the release, then DAC_RELEASE_MS of silence ahead of the audio
 def stamped(age=1):
     """A word in PRESS_FILE, age ms old by the clock, which moves on so no word comes twice."""
     clock[0] += 10**10
     press[0] = (clock[0] // 10**6 - age) & 0xffffffff | 1
 
-# The end of init waits after its unmute only for a fresh press; with no mute, or with the unmute left to seek or
-# resume, it does nothing.
+# The end of init writes its silence after the unmute only for a fresh press; with no mute, or with the unmute left to
+# seek or resume, it does nothing.
 state(); stamped()
-assert init_end() == RELEASED
+assert init_end() == RELEASED and dev.lead == 44100 * 130 // 1000, dev.lead
 state(flag=0); stamped()
 assert init_end() == ([], 0)
 state(paused=True); stamped()
@@ -299,8 +307,8 @@ assert seek() == AS_STOCK
 # While paused, seek's own check passes it over, as the end of init's does.
 state(paused=True); stamped()
 assert seek() == ([], 1)
-# Resume releases, waits, then lets audio flow, and stock's own unmute after the call passes; only ever a user's,
-# so the file has no say.
+# Resume of a PCM that isn't paused (stock's snd_pcm_pause, its frames already in the ring) releases, sleeps, then lets
+# audio flow, and stock's own unmute after the call passes; only ever a user's, so the file has no say.
 for word in (None, 0):
     state(); press[0] = word
     assert resume() == ([UNMUTE, 'wait', ('pause', 0)], 0), word
@@ -323,7 +331,7 @@ for way in (1, 2):
     assert wrapper('dac_unmute', 0) == ([], 1), way
 state(way=2); stamped()
 assert seek() == ([], 1)
-print('Wired start: a press waits once before audio flows; a natural change, Bluetooth, USB and a clear flag don\'t wait.')
+print('Wired start: a press writes silence once before audio flows; a natural change, Bluetooth, USB and a clear flag don\'t.')
 
 # Stock's own init from here on, with libasound answering as `plug:bluealsa` does: bluealsa's ioplug offers one
 # rate (snd_pcm_ioplug_set_param_minmax(HW_RATE, sampling, sampling)) and resampling is off, so set_rate_near
@@ -471,6 +479,7 @@ assert struct.unpack_from('<I', raw, fileoff(raw, AO_UNINIT_SLOT))[0] == ps['ao_
 EBADFD, PLAY_FLAG, PRELOADED, INITED, TAIL_MS = -77, 0xb11e34, 0xb11df8, 0xb11e8c, 500
 DRAIN, CLOSE, OPEN, MUTE, UNMUTE, WAIT = 'snd_pcm_drain', 'snd_pcm_close', 'snd_pcm_open', ('dac', 1), ('dac', 0), 'wait'
 DROP = 'snd_pcm_drop'
+PREROLL = 'silence'  # dac_preroll's: the release's DAC_RELEASE_MS of zeros, ahead of the new track's frames
 # libasound is modelled: the first drain takes the buffer's rest and leaves SETUP, a later one gets -EBADFD. during[0],
 # if set, is a command landing on the other thread while the drain blocks, run for real on this machine; a drop then
 # ends the drain, as the kernel's does.
@@ -499,10 +508,14 @@ def pcm_open():
     running[0] = True
 def dac_call():
     if a(1) == 0xc0044d1f: alsa.append(('dac', r(a(2))))
+def writei():  # the only writes here are the release's, all silence, once a reopen
+    assert not any(u.mem_read(a(1), a(2) * r(0xb22530))), 'only the silence is written here'
+    if not alsa or alsa[-1] != (PREROLL,): alsa.append((PREROLL,))
+    return a(2)
 BUFFER, avail = 22048, [0]  # frames; what snd_pcm_status_get_avail answers, BUFFER or more being dry
-real.update({DRAIN: drain, DROP: drop, OPEN: pcm_open, 'ioctl': dac_call, 'usleep': lambda: alsa.append((WAIT,)),
+real.update({DRAIN: drain, DROP: drop, OPEN: pcm_open, 'ioctl': dac_call, 'usleep': lambda: alsa.append((WAIT,)), 'snd_pcm_writei': writei,
              'snd_pcm_hw_params_get_buffer_size': lambda: w(a(1), BUFFER), 'snd_pcm_status_get_avail': lambda: avail[0]})
-def order(): return [c if c[0] == 'dac' else c[0] for c in alsa if c[0] in (DRAIN, DROP, CLOSE, OPEN, 'dac', WAIT)]
+def order(): return [c if c[0] == 'dac' else c[0] for c in alsa if c[0] in (DRAIN, DROP, CLOSE, OPEN, 'dac', WAIT, PREROLL)]
 w(ctx + 0x74, 0), w(ctx + 4, 1), w(MPCTX, ctx), w(OFFSET, 0), w(OFFSET + 4, 0)
 def end(eof, inited=2):
     """A file's end: uninit_player as the main loop calls it (0x421864)."""
@@ -521,7 +534,7 @@ def file_end_section(): site(0x422504, 0x422514, S0=0xb10000)  # 0x4226f4: with 
 press[0] = None  # nobody pressed: PRESS_FILE's wait stays out of everything below
 JACK = [MUTE, DRAIN, CLOSE, OPEN, UNMUTE]  # stock's order: the old audio's end goes unheard
 UNCLASSED = [DRAIN, *JACK]  # demo may have muted, so stock's timing after the drain
-HEARD = [*UNCLASSED, WAIT]  # the old track to its end, stock's mute around the close and open, the line, then frames
+HEARD = [*UNCLASSED, PREROLL]  # the old track to its end, stock's mute around the close and open, the line's silence, then frames
 # Natural change, way 0: rate, bit depth or channels, on a preload (the triple kept): heard, then stock's reopen.
 for change_to in ({'rate': 48000}, {'fmt': 0x19}, {'channels': 1}):
     begin(0)
@@ -754,7 +767,7 @@ for rate in (44100, 192000):
         elif word == 'none': press[0] = None
         elif word == 'used': ask(rate); begin(0, rate); w(PRELOADED, 0); file_end_section(); end(1)
         got = nxt(rate)
-        if word == 'press': assert got[:2] == [DRAIN, MUTE] and WAIT in got, got  # a press's stamp waits, as ever
+        if word == 'press': assert got[:2] == [DRAIN, MUTE] and PREROLL in got, got  # a press's stamp waits, as ever
         else: assert got == UNCLASSED, (rate, word, got)
     press[0] = None
 # A preload doesn't read the word: a mark is for the cold start it was left for.
@@ -770,7 +783,7 @@ assert got == SILENCED, got
 w(NEXT, 0)
 # A skip after the mark, no stamp over it: stock's order, and the mark, unread, waits once at init's end. Then it's spent.
 cold(44100); pressed(NEXT); w(NEXT, 0)
-got = nxt(); assert got == [*JACK, WAIT], got
+got = nxt(); assert got == [*JACK, PREROLL], got
 got = nxt(); assert got == [], got
 # Bluetooth and USB: demo's mute is way 0's only (0x5bf8b8 tests its output way), so no mark is looked for and the same
 # format stays open with any word or none. A press's stamp, too: it hears the buffer's rest first (the limit in
@@ -843,15 +856,15 @@ for t in TRIPLE: w(t, 0xffffffff)
 got = nxt(); assert got == JACK, got
 # DSD keeps its mute, at the end of a DSD track and at the start of one. The end's reopen waits for the line, a press's cut doesn't.
 begin(0); w(DSD_FILE, 1); end(1); w(DSD_FILE, 0)
-assert nxt(48000) == [*JACK, WAIT]
+assert nxt(48000) == [*JACK, PREROLL]  # into PCM: its own silence
 begin(0); w(DSD_FILE, 1); w(NEXT, 1); end(1); w(DSD_FILE, 0); w(NEXT, 0)
 assert nxt(48000) == JACK
 begin(0); end(1); w(DSD_FILE, 1)
 assert nxt(48000) == JACK
 # A mark at a DSD end is spent by that wait: the reopen after it has none to read.
 begin(0); w(DSD_FILE, 1); end(1); w(DSD_FILE, 0); marked()
-assert nxt(48000) == [*JACK, WAIT]
-got = nxt(44100); assert WAIT not in got, got
+assert nxt(48000) == [*JACK, PREROLL]
+got = nxt(44100); assert PREROLL not in got and WAIT not in got, got
 press[0] = None
 # The drain's error: nothing changes, stock's own drain and reopen follow.
 begin(0); end(1); drain_rc[0] = -5
@@ -871,7 +884,7 @@ for way, want in ((0, [DRAIN, CLOSE]), (2, [CLOSE])):
     begin(way)
     alsa.clear(); call(0x43af54)
     assert order() == want, way
-print('Old track\'s end: a natural change that reopens is heard to its end, then mutes around the close and open and waits for the line; one at the same format that demo left unmuted stays open; dry reopens; a press during it silences; a skip, a stop, DSD and a preloaded same-format change call as stock.')
+print('Old track\'s end: a natural change that reopens is heard to its end, then mutes around the close and open and plays silence for the line; one at the same format that demo left unmuted stays open; dry reopens; a press during it silences; a skip, a stop, DSD and a preloaded same-format change call as stock.')
 
 real.clear()  # the stubs above answer from here on
 UNMUTE = ('ioctl', 5, 0xc0044d1f, 0)  # the real ioctl again, not the section above's marker
@@ -905,13 +918,14 @@ def pause_at(left, hw, age, now=500000):
     """Paused with left frames unplayed and hw played; the stamp age ms before the pause's trigger."""
     dev.state, dev.appl, dev.hw, dev.trigger = PAUSED, hw + left, hw, now
     dev.mute = None if age is None else (now - age) | 1
-    dev.got, dev.calls, dev.before = b'', 0, None
+    dev.got, dev.calls, dev.before, dev.lead = b'', 0, None, 0
 def go():
     dac_log.clear()
     rc = call(ps['dac_resume'], PCM_H)
     return [*dac_log], rc, r(FLAG)
 PCM_H = 0x1000
-OPENED = ['drop', 'prepare', UNMUTE, 'wait']
+OPENED = ['drop', 'prepare', UNMUTE, 'silence']  # dropped and prepared under the mute, released, then silence, then the frames
+FILL = ps['ps.1']  # ps.fill, bytes: the compiler splits ps into ps.0 to ps.4
 
 # The tunables, from the source, so tuning one doesn't fail these.
 source = (pathlib.Path(__file__).resolve().parents[1]/'patch'/'peq_player.c').read_text()
@@ -924,15 +938,20 @@ setup(44100, S16F, 4, 22048)
 data = play(0, 40000, 2, 4)
 pause_at(12000, 28000, 280)  # the stamp is odd, so 279 ms
 log, rc, flag = go()
-assert log == OPENED and rc == 0 and flag == 0 and dev.before == OPENED, (log, rc, flag, dev.before)  # no frame before the wait is over
+assert log == OPENED and rc == 0 and flag == 0 and dev.before == OPENED, (log, rc, flag, dev.before)  # no frame before the silence
+assert dev.lead == 44100 * 130 // 1000, dev.lead
 back, fade = went_back(279, 44100), faded(44100)
 want = data[(40000 - 12000 - back) * 4:]
 assert len(dev.got) == len(want) and dev.got[fade * 4:] == want[fade * 4:]
+assert r(FILL) == len(want), r(FILL)  # ps_ring doesn't hold the silence: only what was written again lines up with the PCM
 for i in (0, 1, fade // 2, fade - 1):
     l = struct.unpack_from('<h', dev.got, i * 4)[0]
     o = struct.unpack_from('<h', want, i * 4)[0]
     assert abs(l - int(o * i / fade)) <= 1, (i, l, o)
 assert not any(dev.got[:4])
+# A second pause while that silence still plays: more is unplayed than is held, so its Play is stock's.
+pause_at(dev.lead - 100 + len(want) // 4, 100, 280); w(FLAG, 1)
+assert go()[0] == [UNMUTE, 'wait', ('pause', 0)] and dev.got == b''
 # A stale stamp, none, or one from the future (the clock wrapped): no further back than the pause.
 for age in (1001, 5000, -50, None):
     setup(44100, S16F, 4, 22048)
@@ -1015,16 +1034,31 @@ u.mem_write(name, b'dsdiff\0')
 w(codec + 0x3e0, name), w(sh + 4, codec), w(ctx + 0x2c, sh)
 data = play(0, 40000, 4, 8)
 pause_at(8000, 32000, 100)
-assert go()[0] == OPENED and dev.got == data[-(8000 + went_back(99, 176400)) * 8:]
+assert go()[0] == [*OPENED[:3], 'wait'] and dev.got == data[-(8000 + went_back(99, 176400)) * 8:]  # zeros aren't DSD's silence: a sleep
 w(ctx + 0x2c, 0)
-# A seek while paused: no old frame sounds; its reset writes next. Prepared, not paused.
+# A seek while paused: no old frame sounds; its reset writes next. Prepared, not paused. seek()'s own site passes with
+# the flag clear, so the first write after the reset takes the silence ahead of it, stamp or none, and only that one.
 setup(44100, S16F, 4, 22048)
 play(0, 40000, 2, 4)
 pause_at(12000, 28000, 280)
 w(SEEK, 1)
 log, rc, flag = go()
-assert log == OPENED and dev.got == b'' and rc == 0
-w(SEEK, 0)
+owed = lambda: u.mem_read(ps['dac_owed'], 1)[0]  # a byte: the compiler stores only 0 or 1
+assert log == OPENED[:3] and dev.got == b'' and rc == 0 and owed() == 1, (log, rc)
+w(SEEK, 0); dac_log.clear()
+play(50000, 4096, 2, 4)  # its writes reach the PCM untouched
+assert dac_log == ['silence'] and dev.lead == 44100 * 130 // 1000 and owed() == 0, (dac_log, dev.lead)
+dac_log.clear(); dev.lead = 0
+play(54096, 4096, 2, 4)
+assert dac_log == [] and dev.lead == 0, dac_log  # owed once
+# Another way before that write: nothing to pay there, and nothing left owed.
+setup(44100, S16F, 4, 22048)
+play(0, 40000, 2, 4)
+pause_at(12000, 28000, 280); w(SEEK, 1)
+go(); w(SEEK, 0), w(WAY, 2); dac_log.clear()
+play(50000, 4096, 2, 4)
+assert dac_log == [] and dev.lead == 0 and owed() == 0, dac_log
+w(WAY, 0)
 # Stock's route: not paused (a pause that failed, a PCM the drain reopened); status failing.
 setup(44100, S16F, 4, 22048)
 play(0, 40000, 2, 4)
@@ -1084,7 +1118,7 @@ for name, f, frame, width in (('float', 0x1d, 8, 4), ('S24', 0x11, 6, 3), ('S24 
         chunk = data[at:at + 4096 * frame]
         u.mem_write(buf, chunk), call(ps['ao_write'], PCM_H, buf, len(chunk) // frame)
     pause_at(1000, 28000, None)
-    assert go()[0] == OPENED and len(dev.got) == 1000 * frame, name
+    assert go()[0] == OPENED and len(dev.got) == 1000 * frame and dev.lead == 44100 * 130 // 1000, name
     held = data[-1000 * frame:]
     assert dev.got[fade * frame:] == held[fade * frame:], name
     for c in range(nch):
@@ -1142,4 +1176,4 @@ assert go()[0] == [UNMUTE, 'wait', ('pause', 0)] and dev.got == b''
 w(FLAG, 1), pause_at(600, 60000, 280)
 assert go()[0] == OPENED and len(dev.got) == 1000 * 4 and dev.got[faded(44100) * 4:] == new[faded(44100) * 4:]
 real.clear()
-print('Unpause: a resume writes the frames again from the fade\'s second step, under its wait; a seek, a failed pause, Bluetooth and USB as they were.')
+print('Unpause: a resume writes silence, then the frames again from the fade\'s second step; a seek gets its silence after its reset; a failed pause, Bluetooth and USB as they were.')
