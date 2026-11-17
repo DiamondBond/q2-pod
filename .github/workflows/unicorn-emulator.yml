@@ -35,6 +35,7 @@ jobs:
           ld.lld -m elf32ltsmip -static -Ttext=0x100000 -e q2g_version /tmp/q2-generic-game.o -o /tmp/q2-generic-game.elf
           python3 emulation/universal_game.py --elf /tmp/q2-generic-game.elf --self-test
           python3 emulation/universal_game.py --elf /tmp/q2-generic-game.elf --snapshot /tmp/q2-generic-game.png
+          python3 emulation/simulator.py --game-elf /tmp/q2-generic-game.elf --snapshot /tmp/q2-generic-simulator.png
       - name: Execute actual Q2-target MIPS instructions
         run: python3 emulation/arcade_mips.py --self-test
       - name: Test games inside desktop simulator navigation
