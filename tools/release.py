@@ -70,7 +70,7 @@ def suites(directory):
                                 ('coverflow',), ('mp3',), ('mp3_gapless',),
                                 ('mp3_gapless_player', directory), ('player_seam', directory), ('bt_resample', directory),
                                 ('xfade_player', directory), ('hci_natural', directory),
-                                ('hci_ao', directory), ('hci_wait', directory),
+                                ('hci_ao', directory), ('hci_wait', directory), ('btincoming', directory),
                                 ('remote',))]
     failed = [f'test/{test}.py' for test, suite in runs if suite.wait()]
     check(not failed, f'Failed: {", ".join(failed)}')

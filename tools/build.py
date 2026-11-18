@@ -1979,6 +1979,9 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     from peq import patch_player
     raw_player = cat('usr/bin/hciplayer')
     audio = patch_player(raw_player, out/'peq', flac_experiments)
+    from bluetoothd import PATH as BLUETOOTHD, STOCK_SHA256 as BT_DAEMON_STOCK, POLICY as BT_GRACE_POLICY, OFFSET as BT_GRACE_OFFSET, OLD as BT_GRACE_OLD, NEW as BT_GRACE_NEW, patch_daemon
+    bluetoothd = patch_daemon(cat(BLUETOOTHD))
+    (out/'bluetoothd').write_bytes(bluetoothd)
     bluealsa = patch_bluealsa(cat(BLUEALSA))
     (out/'bluealsa').write_bytes(bluealsa)
     (out/'watchdog').write_bytes(cat(WATCHDOG).replace(*WATCHDOG_SLEEP))
@@ -2201,7 +2204,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     light = logo_data == (ROOT/'assets/boot-logo.jpg').read_bytes() and (ROOT/'assets/boot-logo-light.jpg').read_bytes()
     check(not light or jpeg_size(light) == (320, 375), 'Light logo must be 320x375 like the stock splash')
     for path, src in ((b'release/bin/demo', out/'demo'), (b'usr/bin/hciplayer', out/'peq/hciplayer'),
-                      (BLUEALSA.encode(), out/'bluealsa'), (WATCHDOG.encode(), out/'watchdog'),
+                      (BLUEALSA.encode(), out/'bluealsa'), (BLUETOOTHD.encode(), out/'bluetoothd'), (WATCHDOG.encode(), out/'watchdog'),
                       (S90PLAY.encode(), out/'S90play'), (S11LOGO.encode(), out/'S11logo'),
                       (BLUEALSA2.encode(), out/'bluealsa2'), (DEFAULT_CONFIG.encode(), out/'config.ini'),
                       (LOGO.encode(), logo)):
@@ -2337,6 +2340,9 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
+        bluetoothd_incoming_grace=dict(policy=BT_GRACE_POLICY, path=BLUETOOTHD,
+            original_sha256=BT_DAEMON_STOCK, sha256=sha(bluetoothd), offset=hex(BT_GRACE_OFFSET),
+            old_word=hex(BT_GRACE_OLD), new_word=hex(BT_GRACE_NEW), seconds=1),
         version=version, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |

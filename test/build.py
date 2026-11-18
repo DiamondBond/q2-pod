@@ -455,6 +455,10 @@ def validate_assets(directory):
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         assert absent.returncode != 0, 'release rootfs contains q2remote'
     assert read('rootfs.squashfs', S90PLAY) == expected_start
+    from bluetoothd import PATH as DAEMON, patch_daemon
+    daemon = read('rootfs.squashfs', DAEMON)
+    assert daemon == patch_daemon(read('stock.squashfs', DAEMON))
+    assert sha(daemon) == manifest['bluetoothd_incoming_grace']['sha256']
     assert read('rootfs.squashfs', S11LOGO) == read('stock.squashfs', S11LOGO).replace(*LOGO_HOOK)  # the card's logo, if saved
     assert read('rootfs.squashfs', BLUEALSA2) == read('stock.squashfs', BLUEALSA2).replace(*BT_KEEPALIVE)  # keep-alive 5 s
     # bluealsa: AAC capability, the two DROP jumps, the silence sites, and one appended LOAD payload.

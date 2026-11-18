@@ -1,5 +1,9 @@
 # Firmware internals
 
+## Incoming Bluetooth startup
+
+See [bt-incoming.md](bt-incoming.md) for the guarded one-second initial AVDTP grace, affected paths and validation limits.
+
 How the scroll-wheel payload hooks the stock Shanling Q2 firmware. For the user-facing behavior it produces, see the [README](../README.md); build and release steps are in [building.md](building.md) and [releasing.md](releasing.md).
 
 `release/bin/demo`, `usr/bin/hciplayer` (the PEQ filter, one branch, [Large MP3s](#large-mp3s), two calls, [MP3 ReplayGain](#mp3-replaygain)), `usr/bin/bluealsa` (AAC capability and Bluetooth DROP handling), its launcher `usr/bin/bluealsa2` ([keep-alive](#bluetooth-keep-alive)), `usr/bin/checkappprocess.sh` (one sleep, [Battery](#battery)), the boot logo, `home_page.bin` (the Coverflow and Shortcut cards; the Home lists) and the artist page inside `rootfs.squashfs` change, and the stock EQ preset page and the images only the stock EQ pages show (`STOCK_EQ` in `tools/build.py`) are removed. The build also changes the other audited assets in `patch/ipod.json`: local browsing, settings and streaming pages, the equalizer page, the status bar, Now Playing and the theme (`styles/default.bin`). It adds the Coverflow and Rockbox card icons for the carousel. The build adds `usr/bin/q2video` ([Videos](#videos)), the new Local Music icons and Streaming's Spotify icon. The kernel is byte-identical, and the builder checks every other inode's name, type, mtime, mode, uid and gid against stock.
