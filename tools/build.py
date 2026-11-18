@@ -78,6 +78,7 @@ HOOKS = {
     'mclSetBtVol': (0x5bf3dc, 'ringnav_btvol', 'btvol'),
     'mclSetOutputWay': (0x5bd544, 'ringnav_output', 'output'),
     'write_int_config': (0x4fe67c, 'ringnav_write_config', 'write_config'),
+    'toolsWriteConfig': (0x5d0284, 'ringnav_config_store', 'config_store'),
     'main_loop_sleep_default': (0x65c470, 'ringnav_sleep', 'sleep'),
     'systemset_about_page_init': (0x4c1390, 'ringnav_about', 'about'),
     # Network Update (patch/netupdate.c): the latest GitHub release to the card's update.tar
@@ -1698,7 +1699,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'clock.c', 'queue_menu.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'clock.c', 'queue_menu.c', 'config_store.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""

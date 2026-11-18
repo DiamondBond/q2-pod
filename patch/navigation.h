@@ -11,6 +11,10 @@
 #include "xiph.h"
 #undef select /* navigation.c's UI selection helper; headset.c uses libc select */
 
+/* config_store.c: atomic internal preferences. */
+int ringnav_config_store(const char *, const char *, const char *, const char *);
+int stock_config_store_trampoline(const char *, const char *, const char *, const char *);
+
 #define STOP 11
 #define MAX_ENTRIES 512
 #define POS_MEM 64
