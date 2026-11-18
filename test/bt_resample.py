@@ -77,6 +77,7 @@ def libc(u, address, size, _):
     elif n == '__divdi3':
         x, y = (v - (1 << 64) if v >> 63 else v for v in (a(0) | a(1) << 32, a(2) | a(3) << 32))
         result = abs(x) // abs(y) * (1 if (x < 0) == (y < 0) else -1); v1 = result >> 32
+    elif n == 'open' and cstr(a(0)) == b'/mnt/mmc/q2-402.log': result = -1  # the #402 diag's log: no card here, so the gate as it is
     elif n == 'open':
         assert cstr(a(0)) in (b'/tmp/q2press', b'/tmp/q2mute') and not a(1)
         result = (-1 if press[0] is None else 7) if cstr(a(0)) == b'/tmp/q2press' else (-1 if dev.mute is None else 8)

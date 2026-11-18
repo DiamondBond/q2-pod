@@ -144,8 +144,23 @@ static int press_word(void) {
     if (!xf.press_file) xf.press_file = shared_int(PRESS_FILE ".tmp", PRESS_FILE);
     return xf.press_file != 0;
 }
+/* #402 diag, this test build only: what a press on the jacks decided, on the card beside the
+ * player's lines (peq_player.c T402_FILE), after the stamp so the stamp is no later. Not a natural
+ * start's and not on Bluetooth or USB: those do no card I/O here. */
+static void t402(const char *what, int ok) {
+    char line[96];
+    void *f = fopen(PEQ_ROOT "/mnt/mmc/q2-402.log", "ab");
+    if (!f) return;
+    int n =
+        tk_snprintf(line, sizeof line, "\n%u demo %s type=%x natural=%d ok=%d", (unsigned)now_ms(),
+                    what, *(volatile unsigned *)MCL_TYPE, press_natural, ok);
+    if (n > 0) fwrite(line, 1, (unsigned)n < sizeof line ? (unsigned)n : sizeof line - 1, f);
+    fclose(f);
+}
 void press_stamp(void) {
-    if (!press_natural && press_word()) *xf.press_file = (int)now_ms() | 1; /* odd: never 0 */
+    int ok = !press_natural && press_word();
+    if (ok) *xf.press_file = (int)now_ms() | 1; /* odd: never 0 */
+    if (!press_natural && !mclGetOutputWay()) t402("press", ok);
 }
 /* mclStartPlayer's wired mute and sleep on a start from the idle player (0x5bf8c4, 0x5bf8dc). A
  * natural start skips both, so the old track is heard to its end, and leaves an even mark for

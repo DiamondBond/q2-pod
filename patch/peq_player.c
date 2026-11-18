@@ -864,6 +864,20 @@ static int dac_word(int pressed) { /* odd: a press's stamp; even: start_mute's m
 static int dac_told(void) { return dac_word(1); }
 static void dac_preroll(void *pcm, int kept);
 static int dac_owed; /* a resume released the DAC with a seek pending: the next write pays it */
+/* #402 diag, this test build only. With the card there to take the log, every wired unmute at init
+ * and seek() gets its silence, stamp or none: the reporter's unit kept the cut at exactly the sites
+ * a stamp gates, and lost it at the one that has none (resume). What each unmute found and did goes
+ * to the card (T402_FILE), a line each, so the answer doesn't rest on ears alone. The lines wait in
+ * memory and reach the card only when the next site is entered or in the pause loop, both a
+ * press's or a reopen's: never between a release and its first frames, never at a track's end (the
+ * idle loop, which a cold natural change passes through), and never on Bluetooth or USB. All on
+ * the main thread. No card, or not the jacks: the gate as it is and no line, which is what the
+ * suites run. */
+#define T402_FILE PEQ_ROOT "/mnt/mmc/q2-402.log"
+static void t402_site(const char *site), t402_n(const char *key, int v);
+static void t402_pcm(const char *tag, void *pcm), t402_flush(void);
+static int t402_first, t402_roll; /* the next write is the first since a site; dac_preroll's own */
+static int t402_on;               /* the last site was on the jacks and the card took the log */
 /* The end of init (0x438a70), past stock's checks of the way and the fd: the ioctl is stock's own.
  * A mark still unread is a natural start ao_init's branch didn't take (DSD at either end, no PCM
  * open, the arm dropped): demo skipped its mute and sleep for it, so this is what stands in for
@@ -875,16 +889,24 @@ static int dac_owed; /* a resume released the DAC with a seek pending: the next 
  * ponytail: a start offset passes this site and dac_unmute reads only a press's, so a natural
  * start with an offset that reopens keeps the cut, as it has since start_mute. */
 int dac_ioctl(int fd, unsigned request, void *arg) {
+    t402_site("init");
     int r = ioctl(fd, request, arg);
-    if (dac_told() || dac_word(0) || ao_wait) dac_preroll(ALSA_PCM, 1);
+    int press = dac_told(), mark = dac_word(0);
+    t402_n(" told=", press | mark << 1 | ao_wait << 2); /* what the gate would have said */
+    if (t402_on || press || mark || ao_wait) dac_preroll(ALSA_PCM, 1);
+    t402_pcm("post", ALSA_PCM);
     return r;
 }
 /* seek (0x42b1c4), a start offset's or an mcl-seek's: demo stamps a user's, not A-B Repeat's loop.
  */
 void dac_unmute(int value) {
-    int wait = !OUTPUT_WAY && DAC_FD > 0 && dac_told();
+    int wired = !OUTPUT_WAY && DAC_FD > 0;
+    t402_site("seek");
+    int told = wired && dac_told();
+    t402_n(" told=", told);
     DAC_HELPER(value);
-    if (wait) dac_preroll(ALSA_PCM, 1);
+    if (told || (wired && t402_on)) dac_preroll(ALSA_PCM, 1);
+    t402_pcm("post", ALSA_PCM);
 }
 /* An unpause on the headphone DAC (docs/internals.md#unpause). soc_aic.ko restarts the DMA at the
  * ring's base on PAUSE_RELEASE and the pointer jumps to the next wrap, so what the ring held past
@@ -919,6 +941,58 @@ typedef struct {
 } pcm_status;
 _Static_assert(sizeof(pcm_status) == 0x6c, "snd_pcm_status_t ABI");
 static char ps_ring[PS_BYTES] __attribute__((aligned(8)));
+static char t402_buf[4096];
+static unsigned t402_len;
+static void t402_s(const char *s) {
+    while (t402_on && *s && t402_len < sizeof t402_buf) t402_buf[t402_len++] = *s++;
+}
+static void t402_n(const char *key, int v) {
+    char d[12];
+    int i = 0;
+    unsigned u = v < 0 ? 0u - (unsigned)v : (unsigned)v;
+    if (!t402_on) return;
+    t402_s(key);
+    if (v < 0) t402_s("-");
+    do d[i++] = (char)('0' + u % 10);
+    while (u /= 10);
+    while (i && t402_len < sizeof t402_buf) t402_buf[t402_len++] = d[--i];
+}
+static void t402_pcm(const char *tag, void *pcm) { /* a line: the time, and where the PCM is */
+    pcm_status st;
+    if (!t402_on) return;
+    t402_n("\n", (int)now_ms());
+    t402_s(" "), t402_s(tag);
+    if (!pcm || PCM_STATUS(pcm, &st) < 0) return;
+    t402_n(" st=", st.state), t402_n(" appl=", (int)st.appl), t402_n(" hw=", (int)st.hw);
+}
+static void t402_flush(void) {
+    if (OUTPUT_WAY) t402_len = 0; /* the output changed since the site: no card I/O off the jacks */
+    if (!t402_len) return;
+    int fd = open(T402_FILE, 0x109, 0644); /* O_WRONLY | O_APPEND | O_CREAT (MIPS) */
+    if (fd >= 0) write(fd, t402_buf, t402_len), close(fd);
+    t402_len = 0;
+}
+/* Before the release: the stamp unread, the PCM as found. The open is also the switch. */
+static void t402_site(const char *site) {
+    int word = -1, fd;
+    t402_on = 0;
+    if (OUTPUT_WAY || (fd = open(T402_FILE, 0x109, 0644)) < 0) { /* as t402_flush's */
+        t402_len = 0;
+        return;
+    }
+    if (t402_len) write(fd, t402_buf, t402_len);
+    close(fd);
+    t402_len = 0;
+    t402_on = 1;
+    fd = open(PRESS_FILE, 0); /* -1: no file */
+    if (fd >= 0) word = 0, read(fd, &word, sizeof word), close(fd);
+    t402_pcm(site, ALSA_PCM);
+    t402_n(" way=", OUTPUT_WAY), t402_n(" fd=", DAC_FD), t402_n(" muted=", DAC_MUTED);
+    t402_n(" word=", word);
+    t402_n(" age=", word > 0 ? (int)((unsigned)now_ms() - (unsigned)word) : -1);
+    t402_n(" rate=", AO_RATE), t402_n(" fmt=", AO_FORMAT), t402_n(" bytes=", (int)AO_BYTES);
+    t402_first = 1;
+}
 static struct {
     unsigned at, fill, cap, frame;
     int rate;
@@ -941,8 +1015,12 @@ long ao_write(void *pcm, const char *data, unsigned long frames) {
      * and seek()'s own site passes with the flag clear. So the first write since is the PCM's
      * first, and its silence goes ahead of it here. */
     if (dac_owed) {
-        if (!OUTPUT_WAY) dac_preroll(pcm, 1); /* which clears it first */
+        if (!OUTPUT_WAY) dac_preroll(pcm, 1), t402_pcm("owed", pcm); /* which clears it first */
         dac_owed = 0;
+    }
+    if (t402_first && !t402_roll) {
+        t402_first = 0;
+        if (!OUTPUT_WAY) t402_pcm("first", pcm), t402_n(" n=", (int)frames);
     }
     /* Every write on the jacks and USB looks, not only a kept PCM's first: a stream that stalls
      * mid-song (Wi-Fi gone for 20 s) runs the PCM dry the same way, and the music that comes back
@@ -1062,13 +1140,16 @@ static void dac_preroll(void *pcm, int kept) {
     if (AO_FORMAT & 2) /* unsigned: silence is the midpoint */
         for (unsigned b = 0; b + w <= sizeof zero; b += w)
             ps_scale((unsigned char *)zero + b, w, AO_FORMAT, 0);
+    t402_roll = 1;
     while (left) {
         unsigned m = left < step ? left : step;
         long r = kept ? ao_write(pcm, zero, m) : PCM_WRITEI(pcm, zero, m);
         if (r == -4 || !r) continue; /* EINTR, as stock's play loop */
-        if (r < 0) return;           /* the audio's own write recovers as stock's does */
+        if (r < 0) break;            /* the audio's own write recovers as stock's does */
         left -= (unsigned)r;
     }
+    t402_roll = 0;
+    if (left) t402_n(" short=", (int)left);
 }
 
 /* Resume (0x4380dc) calls snd_pcm_pause(pcm, 0) before its unmute (0x438238): that one goes first
@@ -1088,6 +1169,7 @@ int dac_resume(void *pcm) {
     pcm_status st;
     int redo = 0;
     unsigned n = 0;
+    t402_site("play");
     if (!OUTPUT_WAY && pcm && PCM_STATUS(pcm, &st) >= 0 && st.state == PCM_PAUSED) {
         unsigned left = st.appl - st.hw;
         if (SEEK_PENDING)
@@ -1098,6 +1180,7 @@ int dac_resume(void *pcm) {
         }
     }
     if (redo) PCM_DROP(pcm), PCM_PREPARE(pcm);
+    t402_n(" redo=", redo), t402_n(" seek=", SEEK_PENDING), t402_n(" back=", (int)n);
     if (DAC_MUTED == 1) {
         DAC_HELPER(0);
         if (!OUTPUT_WAY && DAC_FD > 0) {
@@ -1112,6 +1195,7 @@ int dac_resume(void *pcm) {
     if (!redo) return PCM_PAUSE(pcm, 0);
     if (n) ps_write(pcm, n);
     ps.fill = n * ps.frame;
+    t402_pcm("post", pcm);
     return 0;
 }
 #endif
@@ -1382,6 +1466,7 @@ static volatile int cmd_gen;
 static int cmd_seen;
 int hci_pause_wait(unsigned us) {
     (void)us;
+    t402_flush();
     int g = __atomic_load_n(&cmd_gen, __ATOMIC_ACQUIRE);
     if (g == cmd_seen) {
         hci_futex(&cmd_gen, 128, g, wait_s); /* FUTEX_WAIT_PRIVATE while unchanged */
