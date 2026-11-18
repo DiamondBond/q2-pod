@@ -11,6 +11,8 @@
 ## Requirements
 
 - clang, lld and llvm-objcopy
+- libdbus-1-dev and pkg-config (headers for the Bluetooth metadata helper; target libraries come from the stock ZIP)
+
 - squashfs-tools 4.6 or later (tested with 4.6.1 and 4.7.5)
 - ImageMagick 6 or 7 for the iPod UI's settings icons (`convert` or `magick`; tested with 6.9.12)
 - The test dependencies: `pip install -r requirements.txt`
@@ -21,6 +23,8 @@
 ```
 
 ## Build
+
+The Bluetooth publisher's host tests (`test/mpris.py`, `test/btregistration.py`, `test/btclock.py`) also need dbus-daemon and the distribution Python's dbus/gi modules (`dbus`, `python3-dbus`, `python3-gi` on Ubuntu). Run them with `/usr/bin/python3` when a separate Python installation cannot import those modules.
 
 ```sh
 python3 tools/build.py 'Q2 Firmware V1.36.zip' --out /tmp/q2-build                 # release build

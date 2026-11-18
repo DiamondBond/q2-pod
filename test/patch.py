@@ -12727,3 +12727,57 @@ m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.page=m.top; m.view=m.find('scr
 m.choose(0); assert m.showlabels()[0]=='Search' and m.nodes[m.nodes[m.page]['children'][0]]['text']=='Add Songs'
 assert any(c[0]=='hscroll_label_set_only_focus' for c in m.calls); passed()
 print(f'{q2emu.checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')
+
+# patch/btmeta.c: the now-playing record for q2mpris. Bluetooth off: nothing read, no thread. On: one
+# worker thread, the record from g_play_id3_info (the file name when the title is empty) and the play
+# time, in RAM only (no open/write on the UI thread); a second pass with the same state makes no new
+# record; a changed title or play status does; a position jump (a seek) does with the same key.
+m=Machine(); m.call(address=payload_syms['btmeta_poll'],args=(0,0,0,0),gap=0)
+assert not any(c[0] in ('pthread_create@GLIBC_2.2','mclGetPlayStatus','open@GLIBC_2.0') for c in m.calls)
+class MetaMachine(Machine):
+    def __init__(self):
+        super().__init__(); self.absolute_ms=9000123; self.clock_error=0; self.status=2; self.sec=10; self.total=240
+        self.mock('clock_gettime@GLIBC_2.2')
+        self.handlers[syms['mclGetPlayStatus']]='bm:status'; self.handlers[syms['mclGetPlayTime']]='bm:time'
+        self.handlers[syms['mclGetPlayPos']]='bm:pos'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name.startswith('clock_gettime'):
+            assert u.reg_read(REGS[0])==1
+            if not self.clock_error:
+                self.word(u.reg_read(REGS[1]),self.absolute_ms//1000); self.word(u.reg_read(REGS[1])+4,(self.absolute_ms%1000)*1000000)
+            self.returns(self.clock_error); return
+        if name=='bm:status': self.returns(self.status); return
+        if name=='bm:pos': self.returns(-1); return
+        if name=='bm:time':
+            self.word(u.reg_read(REGS[0]),self.sec); self.word(u.reg_read(REGS[1]),self.total); self.returns(0); return
+        return super().hook(u,address,size,unused)
+    def poll(self,gap=300): return self.call(address=payload_syms['btmeta_poll'],args=(0,0,0,0),gap=gap)
+    def record(self): return self.text(payload_syms['bm_record'])
+m=MetaMachine(); m.byte(syms['g_bluetoothflag'],1)
+m.u.mem_write(0xa5520c+0x684,b'Song One\0'); m.u.mem_write(0xa5520c+0x504,b'Band\0'); m.u.mem_write(0xa5520c+0x404,b'LP\0')
+m.poll(); names=[c[0] for c in m.calls]
+assert names.count('pthread_create@GLIBC_2.2')==1 and 'open@GLIBC_2.0' not in names and 'fopen@GLIBC_2.2' not in names
+rec=m.record(); assert rec.startswith('v=1\nstatus=Playing\ntitle=Song One\nartist=Band\nalbum=LP\n') and 'duration=240000\n' in rec and 'position=10000\ngen=1\n' in rec,rec
+m.sec=11; m.poll(); assert 'gen=1\n' in m.record() and not any(c[0]=='pthread_create@GLIBC_2.2' for c in m.calls)  # a second on, as expected: no new record
+m.sec=90; m.poll(); assert 'position=90000\ngen=2\n' in m.record()  # a seek
+m.status=3; m.poll(); assert 'status=Paused\n' in m.record() and 'gen=3\n' in m.record()
+m.u.mem_write(0xa5520c+0x684,b'\0'); m.poll(); rec=m.record()
+assert 'title=\n' in rec and 'gen=4\n' in rec,rec[:200]  # an empty title: the file name, as stock sends it (none here: an empty queue)
+# A cut falls on a UTF-8 boundary (198 'A' then a three-byte euro: the euro is dropped whole), and
+# the longest fields still give a whole record with its generation and position lines.
+m.u.mem_write(0xa5520c+0x684,b'A'*198+'\u20ac'.encode()+b'\0'); m.poll(); rec=m.record()
+assert 'title='+'A'*198+'\nartist=' in rec and '\xe2' not in rec and 'gen=5\n' in rec,rec[:40]
+for off,n in ((0x684,199),(0x504,199),(0x404,199),(0x604,127)): m.u.mem_write(0xa5520c+off,b'Z'*n+b'\0')
+m.poll(); rec=m.record(); assert rec.endswith('position=90000\ngen=6\n') and len(rec)>800,(len(rec),rec[-60:])  # 18+205+207+206+134 bytes of fields, then the numbers
+passed()
+
+# The wire clock differs from toolkit-relative time; wrap and clock failure do not invent stamps.
+m=MetaMachine(); m.byte(syms['g_bluetoothflag'],1); m.poll()
+assert 'now=9000123\n' in m.record(),m.record()
+m.absolute_ms=(1<<32)+1234; m.sec=99; m.poll()
+assert 'now=1234\n' in m.record(),m.record()
+was=m.record(); m.clock_error=-1; m.sec=150; m.poll(); assert m.record()==was
+m.clock_error=0; m.poll(); assert 'position=150000\n' in m.record()
+passed()
+print(f'Bluetooth metadata producer and distinct-origin/wrap/failure clock cases passed; {q2emu.checks} total MIPS scenarios.')

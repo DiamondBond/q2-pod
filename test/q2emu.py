@@ -164,6 +164,7 @@ class Machine:
             self.handlers[payload_syms['press_stamp']]='stock_press_stamp'
             self.handlers[payload_syms['mute_stamp']]='stock_mute_stamp'
         for name in FUNCTIONS: self.handlers[syms[name]]=name
+        self.handlers.pop(syms['mclGetPlayPos'],None)  # execute the real stock leaf unless a producer case mocks it
         # canvas_get_vgcanvas runs stock, down to the mocked lcd_get_vgcanvas, as the rounded wrappers need
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done','canvas_get_vgcanvas',
                      'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun','table_client_get_virtual_h',
@@ -176,6 +177,7 @@ class Machine:
             for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('pthread_create@GLIBC_2.2','pthread_detach@GLIBC_2.0','pthread_self@GLIBC_2.0')  # pthread_self: playback_poll's UI thread
+        self.mock('clock_gettime@GLIBC_2.2')  # producer timestamp; derived clock fixtures can override
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0','snprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0','tzset@GLIBC_2.0',
                   'strlen@GLIBC_2.0','strncpy@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0','strncmp@GLIBC_2.0',
@@ -548,6 +550,9 @@ class Machine:
         elif name=='pointer_event_init':
             self.word(a,b); self.word(a+0x10,c); self.word(a+O['EVENT_X'],d); self.word(a+O['EVENT_Y'],self.get(u.reg_read(UC_MIPS_REG_SP)+16)); ret=a
         elif name=='time_now_ms': ret=self.now & 0xffffffff
+        elif name=='clock_gettime@GLIBC_2.2':
+            assert a==1
+            self.word(b,self.now//1000); self.word(b+4,self.now%1000*1000000); ret=0
         elif name=='timer_add':
             ret=0 if self.timer_fail else self.next_timer
             if ret:

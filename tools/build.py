@@ -234,6 +234,20 @@ HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.
 # ends the loop, so the watchdog reboots as stock's would. Wi-Fi is off while Rockbox runs (WIFI_OFF).
 BOOT = 'usr/bin/q2boot'
 REMOTE = 'usr/bin/q2remote'
+# q2mpris (patch/mpris.c, docs/bt-meta.md): the now-playing record, published to bluetoothd as a media player over
+# D-Bus, so the car's AVRCP metadata requests are answered. Linked against the rootfs's libdbus; the headers are the
+# build host's libdbus-1-dev with patch/dbus-arch-deps.h (the Q2's int64 and version values) placed ahead of them.
+MPRIS = 'usr/bin/q2mpris'
+MPRIS_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libdbus-1.so.3.19.15']
+MPRIS_START = (b'        while :; do\n            /release/bin/demo',
+               b'''        # Private bounded RAM transport; no files inside it unless tmpfs mounts.
+        mkdir -p /tmp/q2-bt
+        if mount -t tmpfs -o size=64k,nr_inodes=16,mode=0700 q2-bt /tmp/q2-bt; then
+            : >/tmp/q2-bt/ready
+            (while :; do /usr/bin/q2mpris >/dev/null 2>&1; sleep 5; done) &
+        fi
+        while :; do
+            /release/bin/demo''')
 S90PLAY = 'etc/init.d/S90play'
 ROCKBOX_FLAG = '/tmp/q2pod-rockbox'
 # Rockbox can't use Wi-Fi and the radio costs battery, so rockbox() below stops it. Nothing is saved or restored
@@ -1536,6 +1550,7 @@ FUNCTIONS = {
  'btrecvA2dpFunc': ('int', 'int, void *, void *'),
  'mclGetCueFlag': ('int', 'void'),  # the playing record has a CUE start or end
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
+ 'mclGetPlayPos': ('int', 'void'),  # playing-record index; btmeta.c also uses it in the native host harness
  'player_stop': ('int', 'void'),
  'player_save_start': ('int', 'int'),  # pause: mclStartPlayer at the saved seek, then paused if set
  'mclGetSavePlayStatus': ('int', 'void'),  # player_save_stop's mclGetPlayStatus, unless that was 1
@@ -1698,7 +1713,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'clock.c', 'queue_menu.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'clock.c', 'queue_menu.c', 'btmeta.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""
@@ -1730,7 +1745,13 @@ def check_layout(payload, ps):
     check(ps['__scratch_start'] == SCRATCH, 'Scratch state moved')
     check(ps['__scratch_end'] <= SCRATCH + 0x20000, 'Scratch state exceeds its 128 KB')
 
-def compile_helper(out, cat, src, name, rels):
+def dbus_cflags(out):
+    """The host's libdbus-1-dev headers (pkg-config), behind the Q2's own dbus-arch-deps.h."""
+    (out/'dbus').mkdir(exist_ok=True)
+    (out/'dbus/dbus-arch-deps.h').write_bytes((ROOT/'patch/dbus-arch-deps.h').read_bytes())
+    return [f'-I{out}', *run('pkg-config', '--cflags', 'dbus-1').split()]
+
+def compile_helper(out, cat, src, name, rels, cflags=()):
     """Link patch/{src}.c and start.c as name against the stock rootfs's libraries rels."""
     libs = []
     for rel in rels:
@@ -1739,7 +1760,7 @@ def compile_helper(out, cat, src, name, rels):
     objs = [out/f'{s}.o' for s in (src, 'start')]
     for o in objs:
         run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008',
-            '-mabicalls', '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
+            '-mabicalls', *(cflags if o.stem == src else ()), '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
     run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
         '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',
         *objs, *libs, '-o', out/name)
@@ -2184,7 +2205,9 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     s90play = s90play.replace(*BOOT_HOOK)
     check(s90play.count(LOG_HOOK[0]) == 1, 'Unexpected demo loop')
     check(s90play.count(WHEEL_LOG_HOOK[0]) == 1, 'Unexpected card path')
-    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK) if dev else s90play)
+    if dev: s90play = s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK)
+    check(s90play.count(MPRIS_START[0]) == 1, 'Unexpected helper startup insertion')
+    (out/'S90play').write_bytes(s90play.replace(*MPRIS_START))
     (out/'config.ini').write_bytes(default_config(cat(DEFAULT_CONFIG)))
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')
@@ -2249,10 +2272,11 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
                                BOLD_TTF: (FONT, bold),
                                CLASSIC_LIGHT_TTF: (FONT, classic_light),
                                **{'release/assets/default/raw/fonts/' + n: ('etc/hosts', (ROOT/'assets/fonts'/n).read_bytes()) for n in FONT_NOTICES},
+                               MPRIS: (HELPER_LIKE, compile_helper(out, cat, 'mpris', 'q2mpris', MPRIS_LIBS, dbus_cflags(out))),
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = need(inode(p, like.encode()), f'Missing stock inode for {path}')
         name = path.rsplit('/', 1)[-1]
-        if path not in (HELPER, BOOT, REMOTE): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
+        if path not in (HELPER, BOOT, REMOTE, MPRIS): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
         if inode(p, path.encode()):  # stock has a file of that name (V1.36's own menu_coverflow*.png): ours takes its inode
             changed_assets[path] = dict(original_sha256=sha(cat(path)), sha256=sha(data))
             p = swap_inode(p, path.encode(), out/name)
@@ -2337,6 +2361,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
+        q2mpris_sha256=sha((out/'q2mpris').read_bytes()),
         version=version, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
         tools={t:run(t,'--version').splitlines()[0] for t in ['clang','ld.lld','llvm-objcopy']} |
