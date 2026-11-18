@@ -24,9 +24,15 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.12'
-      - run: >-
-          sudo apt-get update && sudo apt-get install -y gcc-multilib clang lld llvm unzip ffmpeg lame
-          libavcodec-dev libavutil-dev libmad0-dev libssl-dev pkg-config busybox-static
+      # The downloads first, each try cut at 3 minutes and made again: the step takes about 40 seconds, and on
+      # 2026-11-18 it took 17 to 20 minutes in six runs, the job's whole limit. The install then reads apt's cache, so
+      # no cut can land in the middle of one.
+      - name: apt packages
+        run: |
+          packages='gcc-multilib clang lld llvm unzip ffmpeg lame libavcodec-dev libavutil-dev libmad0-dev libssl-dev pkg-config busybox-static'
+          fetch() { sudo timeout -k 10 180 sh -c "apt-get update && apt-get install -y --download-only $packages"; }
+          fetch || fetch || fetch
+          sudo apt-get install -y $packages
       - run: pip install -r requirements.txt -r test/unit/requirements.txt gcovr==8.4
       - run: mkdir -p "$RUNNER_TEMP/c-coverage" && echo "Q2_COV=$RUNNER_TEMP/c-coverage" >> "$GITHUB_ENV"
       - name: Firmware tests  # test/unit runs in tests.yml
