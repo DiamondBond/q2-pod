@@ -872,8 +872,22 @@ static int dac_owed; /* a resume released the DAC with a seek pending: the next 
  * press's or a reopen's: never between a release and its first frames, never at a track's end (the
  * idle loop, which a cold natural change passes through), and never on Bluetooth or USB. All on
  * the main thread. No card, or not the jacks: the gate as it is and no line, which is what the
- * suites run. */
+ * suites run.
+ *
+ * Build 4. The log showed the stamp arriving and 130 ms of silence going in ahead of the audio at
+ * every start, the PCM running, and the start still lost; the only fresh starts heard whole were
+ * three paused in their first 60 ms, whose Play wrote that silence again behind its own: 260 ms.
+ * So with the log on, init's silence is T402_INIT_MS and each seek() takes the next of t402_sweep,
+ * logged as roll= (i= its place), to find how much running PCM the output needs. A resume keeps
+ * DAC_RELEASE_MS, the control. Each line also goes to the kernel's log (t402_k), and the pause
+ * loop's flush copies the codec driver's own lines from there to the card beside ours (t402_klog):
+ * when it muted, unmuted, let the line go and set a volume or a rate, on the kernel's clock. */
 #define T402_FILE PEQ_ROOT "/mnt/mmc/q2-402.log"
+#define T402_INIT_MS 400
+/* Not in order, so there's no pattern to expect. */
+static const unsigned short t402_sweep[] = { 250, 130, 330, 170, 290, 210 };
+static unsigned t402_seeks;
+static unsigned roll_ms = DAC_RELEASE_MS; /* dac_preroll's length: a diag site's own, then back */
 static void t402_site(const char *site), t402_n(const char *key, int v);
 static void t402_pcm(const char *tag, void *pcm), t402_flush(void);
 static int t402_first, t402_roll; /* the next write is the first since a site; dac_preroll's own */
@@ -893,7 +907,10 @@ int dac_ioctl(int fd, unsigned request, void *arg) {
     int r = ioctl(fd, request, arg);
     int press = dac_told(), mark = dac_word(0);
     t402_n(" told=", press | mark << 1 | ao_wait << 2); /* what the gate would have said */
+    if (t402_on) roll_ms = T402_INIT_MS;
+    t402_n(" roll=", (int)roll_ms);
     if (t402_on || press || mark || ao_wait) dac_preroll(ALSA_PCM, 1);
+    roll_ms = DAC_RELEASE_MS;
     t402_pcm("post", ALSA_PCM);
     return r;
 }
@@ -904,8 +921,15 @@ void dac_unmute(int value) {
     t402_site("seek");
     int told = wired && dac_told();
     t402_n(" told=", told);
+    if (wired && t402_on) {
+        unsigned i = t402_seeks++ % (sizeof t402_sweep / sizeof *t402_sweep);
+        roll_ms = t402_sweep[i];
+        t402_n(" i=", (int)i);
+    }
+    t402_n(" roll=", (int)roll_ms);
     DAC_HELPER(value);
     if (told || (wired && t402_on)) dac_preroll(ALSA_PCM, 1);
+    roll_ms = DAC_RELEASE_MS;
     t402_pcm("post", ALSA_PCM);
 }
 /* An unpause on the headphone DAC (docs/internals.md#unpause). soc_aic.ko restarts the DMA at the
@@ -957,19 +981,78 @@ static void t402_n(const char *key, int v) {
     while (u /= 10);
     while (i && t402_len < sizeof t402_buf) t402_buf[t402_len++] = d[--i];
 }
+/* The same line into the kernel's log, which stamps it on the clock the codec driver's lines have,
+ * so the two interleave exactly. */
+static void t402_k(const char *text, unsigned n) {
+    char line[100] = "q2-402 ";
+    int fd = open(PEQ_ROOT "/dev/kmsg", 1); /* O_WRONLY */
+    if (fd < 0) return;
+    if (n > sizeof line - 8) n = sizeof line - 8;
+    memcpy(line + 7, text, n);
+    line[7 + n] = '\n';
+    write(fd, line, 8 + n), close(fd);
+}
 static void t402_pcm(const char *tag, void *pcm) { /* a line: the time, and where the PCM is */
     pcm_status st;
+    unsigned at = t402_len;
     if (!t402_on) return;
     t402_n("\n", (int)now_ms());
     t402_s(" "), t402_s(tag);
-    if (!pcm || PCM_STATUS(pcm, &st) < 0) return;
-    t402_n(" st=", st.state), t402_n(" appl=", (int)st.appl), t402_n(" hw=", (int)st.hw);
+    if (pcm && PCM_STATUS(pcm, &st) >= 0)
+        t402_n(" st=", st.state), t402_n(" appl=", (int)st.appl), t402_n(" hw=", (int)st.hw);
+    if (t402_len > at + 1) t402_k(t402_buf + at + 1, t402_len - at - 1); /* past its newline */
+}
+/* syslog(SYSLOG_ACTION_READ_ALL): the newest len bytes of the kernel's log, whole lines, read and
+ * not cleared. -1 on an error, which o32 flags in $a3 with the errno in $v0. */
+extern int hci_klog(int type, char *buf, int len);
+__asm__(".set push\n.set noreorder\n.globl hci_klog\nhci_klog:\nli $v0, 4103\nsyscall\n"
+        "beqz $a3, 1f\nnop\nli $v0, -1\n1:\njr $ra\nnop\n.set pop\n");
+static int t402_has(const char *p, const char *e, const char *w) { /* w within [p, e) */
+    for (; p < e; ++p) {
+        const char *a = p, *b = w;
+        while (a < e && *b && *a == *b) ++a, ++b;
+        if (!*b) return 1;
+    }
+    return 0;
+}
+/* Our own lines and the codec driver's (its mutes, the delayed work that lets the line go, each
+ * volume and rate), by its printks' own punctuation, and nothing else of the kernel's log: the
+ * file is posted to a public issue, and a bare "dac" or "rate[" also passes a Wi-Fi driver's line
+ * with a network's name in it. Lines from over a second before the newest one last written are
+ * skipped, so a pause adds what is new and at most two seconds again; with no "[seconds" after the
+ * level a line always passes. Kept lines move to the front of the buffer, one write. */
+static void t402_klog(int fd) {
+    static char k[65536];
+    static unsigned seen;
+    static const char *const want[] = { "q2-402 ", "==mute[",   "mute_status[", "==dac==",
+                                        "==rate[", "dac_pwr==", "cs43131_",     "==dsd[" };
+    int n = hci_klog(3, k, sizeof k);
+    unsigned newest = seen;
+    char *out = k;
+    for (char *p = k, *e; n > 0 && p < k + n; p = e + 1) {
+        unsigned s = seen, hit = 0;
+        const char *t = p;
+        for (e = p; e < k + n && *e != '\n'; ++e) {}
+        if (e == k + n) break; /* no newline: not a whole line */
+        for (unsigned i = 0; i < sizeof want / sizeof *want; ++i) hit |= t402_has(p, e, want[i]);
+        if (t < e && *t == '<') /* "<6>[  123.456789] text" */
+            while (t < e && *t++ != '>') {}
+        if (t < e && *t == '[') {
+            for (++t; t < e && *t == ' '; ++t) {}
+            for (s = 0; t < e && *t >= '0' && *t <= '9'; ++t) s = s * 10 + (unsigned)(*t - '0');
+        }
+        if (!hit || s + 1 < seen) continue;
+        if (s > newest) newest = s;
+        for (const char *q = p; q <= e;) *out++ = *q++; /* out never passes q */
+    }
+    seen = newest;
+    if (out > k) write(fd, "\n", 1), write(fd, k, (unsigned)(out - k));
 }
 static void t402_flush(void) {
     if (OUTPUT_WAY) t402_len = 0; /* the output changed since the site: no card I/O off the jacks */
     if (!t402_len) return;
     int fd = open(T402_FILE, 0x109, 0644); /* O_WRONLY | O_APPEND | O_CREAT (MIPS) */
-    if (fd >= 0) write(fd, t402_buf, t402_len), close(fd);
+    if (fd >= 0) write(fd, t402_buf, t402_len), t402_klog(fd), close(fd);
     t402_len = 0;
 }
 /* Before the release: the stamp unread, the PCM as found. The open is also the switch. */
@@ -1130,10 +1213,10 @@ static void ps_write(void *pcm, unsigned n) {
 static void dac_preroll(void *pcm, int kept) {
     static char zero[8192] __attribute__((aligned(8)));
     unsigned frame = AO_BYTES, w = (AO_FORMAT >> 3 & 3) + 1, step = frame ? sizeof zero / frame : 0;
-    unsigned left = (unsigned)AO_RATE * DAC_RELEASE_MS / 1000;
+    unsigned left = (unsigned)AO_RATE * roll_ms / 1000;
     dac_owed = 0; /* any silence pays a resume's debt; ao_write's check can't recurse */
     if (!pcm || !step || dsd()) {
-        usleep(DAC_RELEASE_MS * 1000);
+        usleep(roll_ms * 1000);
         return;
     }
     memset(zero, 0, sizeof zero);
