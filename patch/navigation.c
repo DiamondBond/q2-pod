@@ -2262,6 +2262,58 @@ static void confirm_labels(void *w, void *canvas) {
                      RGBA(flip_if(light, k == lit ? over : plain)));
     }
 }
+/* Classic's Now Playing marks: More, the play mode and the heart are stock's images, which stay its
+ * state and take its touch but go unseen (opacity 0), and are drawn after their parent's children
+ * in the flat pages' glyphs (tools/art.py np_*, and the rating panel's hearts), the half's. An
+ * image with no glyph of its own is drawn as it is. */
+#define NP_MARKS 4
+static void *np_mark[NP_MARKS];
+static unsigned np_marked; /* how many: with none a paint looks no further */
+static int np_mark_gone(void *w, void *event) {
+    (void)event;
+    for (unsigned i = 0; i < NP_MARKS; ++i)
+        if (np_mark[i] == w) np_mark[i] = (void *)0, --np_marked;
+    return 0;
+}
+void np_mark_add(void *image) {
+    unsigned at = NP_MARKS;
+    if (!image || !classic_pages()) return;
+    for (unsigned i = NP_MARKS; i--;) {
+        if (np_mark[i] == image) return;
+        if (!np_mark[i]) at = i;
+    }
+    if (at == NP_MARKS) return; /* no room: it stays stock's, seen */
+    np_mark[at] = image, ++np_marked;
+    widget_set_opacity(image, 0);
+    widget_on(image, EVT_DESTROY, np_mark_gone, image);
+}
+void np_marks(void *w, void *canvas) {
+    static const char *const glyphs[][2] = {
+        { "play_more", "np_more" },    { "play_moredown", "np_more_q" },
+        { "play_fav", "heart_on" },    { "play_unfav", "heart_off" },
+        { "play_order", "np_order" },  { "play_random", "np_shuffle" },
+        { "play_cycle", "np_repeat" }, { "play_cycle1", "np_repeat1" },
+    };
+    if (!np_marked || !w || !P(canvas, CANVAS_LCD)) return;
+    for (unsigned i = 0; i < NP_MARKS; ++i) {
+        void *m = np_mark[i];
+        if (!m || P(m, W_PARENT) != w || !widget_get_visible(m)) continue;
+        const char *image = widget_get_prop_str(m, "image", "");
+        char name[40];
+        unsigned bitmap[64]; /* bitmap_t: width @0, height @4 */
+        for (unsigned k = 0; k < sizeof glyphs / sizeof *glyphs; ++k)
+            if (!tk_strcmp(image, glyphs[k][0])) {
+                tk_snprintf(name, sizeof name, "classic_light_%s_%s", glyphs[k][1],
+                            ipod_light() ? "l" : "d");
+                image = name;
+                break;
+            }
+        if (!*image || widget_load_image(m, image, bitmap)) continue;
+        int bw = (int)bitmap[0], bh = (int)bitmap[1], src[4] = { 0, 0, bw, bh },
+            dst[4] = { I(m, W_X) + (I(m, W_W) - bw) / 2, I(m, W_Y) + (I(m, W_H) - bh) / 2, bw, bh };
+        canvas_draw_image(canvas, bitmap, src, dst);
+    }
+}
 /* The hold menu's card under Classic: the navbar its header, the list its rows, then HOLD_FOOT rows
  * of paper, the height of its corners, so the last row's band stays inside them. over: 0 before the
  * dialog's children (the card, and a line under its header), 1 after them (a hairline round the
@@ -2747,6 +2799,7 @@ int ringnav_paint(void *w, void *canvas) {
     search_over(w, canvas);
     if (w && st.np_lrc && P(w, W_PARENT) == st.np_lrc) lyrics_paint(w, canvas);
     paint_caps(w, canvas);
+    np_marks(w, canvas);
     hold_paint(w, canvas, 1);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
@@ -4265,6 +4318,7 @@ int stream_ipod(void *art, void *const text[4], void *elapsed, void *remain, voi
     }
     widget_move_resize(bar, NP_IPOD_BAR_X, NP_IPOD_BAR_Y, bw, NP_BAR_IPOD + SCRUB_REFLECT_ROWS);
     if (heart) widget_move_resize(heart, NP_IPOD_FAV_X, NP_IPOD_FAV_Y, 50, 50); /* local NP's */
+    np_mark_add(heart);
     return 1;
 }
 
@@ -4306,6 +4360,9 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_left = -1;
     np_fill(0);
     np_theme();
+    static const char *const marks[] = { "img_more", "img_playmode", "img_fav" };
+    for (unsigned i = 0; i < sizeof marks / sizeof *marks; ++i)
+        np_mark_add(widget_lookup(win, marks[i], 1));
     widget_on(win, EVT_DESTROY, np_gone, win);
     int sec = -1, total = 0;
     player_playtime_and_length(&sec, &total);

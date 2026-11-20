@@ -327,6 +327,10 @@ def pane_glyph(name, size):
 # without one) with round ends; dots, filled discs (x, y, r); faint, lines at QS_FAINT of the ink.
 QS_WEIGHT, QS_FAINT, QS_DIM, QS_BOX = 2.6, .3, .45, 54
 BARS = ('M-7.5 9V4', 'M0 9V-2.5', 'M7.5 9V-9')
+# Now Playing's play modes: two arrows to the right; a loop of two, turning
+NP_HEADS = ('M8.5 -10.2 13.5 -6 8.5 -1.8Z', 'M8.5 1.8 13.5 6 8.5 10.2Z')
+NP_LOOP = ('M-11 -1V-2.5A3.5 3.5 0 0 1 -7.5 -6H9', 'M11 1V2.5A3.5 3.5 0 0 1 7.5 6H-9')
+NP_TURNS = ('M8.5 -10.2 13.5 -6 8.5 -1.8Z', 'M-8.5 1.8 -13.5 6 -8.5 10.2Z')
 QS_GLYPHS: dict[str, dict] = {
     'wifi': dict(line=('M-11.6 -4.3a18 18 0 0 1 23.2 0', 'M-6.4 1.4a10 10 0 0 1 12.8 0'), dots=((0, 8.4, 2.5),), w=2.9),
     'bt': dict(line=('M-5.6 -5.8 5.6 5.8 0 11.4V-11.4L5.6 -5.8-5.6 5.8',), w=2.3),
@@ -344,6 +348,12 @@ QS_GLYPHS: dict[str, dict] = {
     'sun': dict(dots=((0, 0, 4.2),), w=2,
                 line=tuple(f'M{7.2 * math.cos(a * math.pi / 4):.2f} {7.2 * math.sin(a * math.pi / 4):.2f}L{10 * math.cos(a * math.pi / 4):.2f} {10 * math.sin(a * math.pi / 4):.2f}' for a in range(8))),
     'note': dict(fill=(pane_glyph('note', 28),)),  # Home's note
+    # Now Playing's marks (navigation.c np_marks): More, and the play modes: in order, shuffled, repeating, repeating one
+    'more': dict(dots=((-9, 0, 2.6), (0, 0, 2.6), (9, 0, 2.6))),
+    'order': dict(line=('M-12 -6H9', 'M-12 6H9'), fill=NP_HEADS, w=2.3),
+    'shuffle': dict(line=('M-12 -6H-7L5 6H9', 'M-12 6H-7L5 -6H9'), fill=NP_HEADS, w=2.3),
+    'repeat': dict(line=NP_LOOP, fill=NP_TURNS, w=2.3),
+    'repeat1': dict(line=NP_LOOP, fill=(*NP_TURNS, 'M-0.3 -3.4H1.5V3.4H-0.5V-1.3L-2 -0.7V-2.4Z'), w=2.3),
 }
 QS_INK = {'': 0xffffff, '_l': 0x1c1c1e}
 # Stock's name: glyph, on, the glyph's opacity (disabled: dimmed).
@@ -363,6 +373,9 @@ QS_QUIET = {'_ql': 0x6e6e73, '_qd': 0x98989d}
 # The message screens' mark (classic_pages.c msg_paint): a glyph at MSG_SCALE on a MSG_BOX px square, in the half's ink.
 MSG_BOX, MSG_SCALE = 84, 2.8
 MSG_INK = {'l': 0x1c1c1e, 'd': 0xffffff}
+# Now Playing's marks: a glyph on an NP_BOX px square in the half's ink; More, pressed, in its quiet grey.
+NP_BOX, NP_MARKS = 32, ('more', 'order', 'shuffle', 'repeat', 'repeat1')
+NP_QUIET = {'l': 0x6e6e73, 'd': 0x98989d}
 # Set Time's face (clock.c time_paint): a flat disc in the half's resting grey, its numerals quiet. The hands are the payload's.
 CLOCK_PX = 110
 CLOCK_FACE = {'l': (0xe9e9ec, 0x6e6e73), 'd': (0x2c2c2e, 0x98989d)}
@@ -600,6 +613,8 @@ def images(t):
     if t['painter[PAINT_PAGES]']:
         out |= {f'{prefix}_msg_{name}_{half}': qs_mark(name, 1, rgb, MSG_BOX, MSG_SCALE) for name in ('usb', 'note') for half, rgb in MSG_INK.items()}
         out |= {f'{prefix}_{name}': shadow(*a) for name, a in SHADOWS.items()}
+        out |= {f'{prefix}_np_{name}_{half}': qs_mark(name, 1, rgb, NP_BOX) for name in NP_MARKS for half, rgb in MSG_INK.items()}
+        out |= {f'{prefix}_np_more_q_{half}': qs_mark('more', 1, rgb, NP_BOX) for half, rgb in NP_QUIET.items()}
         for name, (glyph, lit, opacity) in QS_BUTTONS.items():
             out |= {f'{prefix}_drop_{name}{k}': qs_mark(glyph, opacity, rgb) for k, rgb in QS_INK.items()}
         for name, (px, k) in QS_SUNS.items():

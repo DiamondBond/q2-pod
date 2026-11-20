@@ -2286,6 +2286,79 @@ def test_classics_stream_page_takes_the_local_pages_places(fw, ui, st):
     assert ui.prop(elapsed, b'style:normal:font_name') == b'classic-light'
 
 
+# Classic's Now Playing marks (np_mark_add, np_marks): stock's More, play mode and heart unseen, drawn in the theme's glyphs.
+MARKS = {b'play_more': b'np_more', b'play_moredown': b'np_more_q', b'play_fav': b'heart_on', b'play_unfav': b'heart_off',
+         b'play_order': b'np_order', b'play_random': b'np_shuffle', b'play_cycle': b'np_repeat', b'play_cycle1': b'np_repeat1'}
+
+
+def marks(fw, ui, mcl, st, t, light=0, images=(b'play_more', b'play_random', b'play_unfav')):
+    """Now Playing with stock's three images in a row of buttons, opened: the page, the row, the images, what set their opacity."""
+    theme(fw, st, t, light)
+    opacity = {}
+    fw.mock('widget_set_opacity', lambda w, v, *_: opacity.__setitem__(w, v))
+    now = Now(fw, ui, mcl, st, opened=False)
+    row = ui.widget(now.win, 'view_buttons', 0, 0, 375, 44)
+    icons = [ui.widget(row, name, x, 0, 50, 44) for name, x in (('img_more', 309), ('img_playmode', 247), ('img_fav', 191))]
+    for w, image in zip(icons, images):
+        ui.set_str(w, b'image', image)
+    assert now.open() == 41
+    return now, row, icons, opacity
+
+
+def marked(fw, row):
+    canvas = Canvas(fw)
+    fw.fn('np_marks', None, C.c_void_p, C.c_void_p)(row, canvas.p)
+    return canvas.images
+
+
+@pytest.mark.parametrize('light', [0, 1])
+def test_classic_draws_now_playing_s_marks_itself_over_their_row(fw, ui, mcl, st, light):
+    now, row, icons, opacity = marks(fw, ui, mcl, st, CLASSIC, light)
+    assert [opacity.get(w) for w in icons] == [0, 0, 0]  # unseen: stock's images stay its state and take its touch
+    half = b'_l' if light else b'_d'
+    assert marked(fw, row) == [(b'classic_light_' + name + half, (x + 19, 16, 12, 12))  # the half's, centred in the image's box
+                               for name, x in ((b'np_more', 309), (b'np_shuffle', 247), (b'heart_off', 191))]
+    assert marked(fw, now.win) == []  # by their own parent's paint alone
+
+
+@pytest.mark.parametrize('image', MARKS)
+def test_each_of_stock_s_images_has_its_glyph(fw, ui, mcl, st, image):
+    now, row, icons, _ = marks(fw, ui, mcl, st, CLASSIC, images=(image, b'', b'play_plan'))
+    assert [name for name, _ in marked(fw, row)] == [b'classic_light_' + MARKS[image] + b'_d', b'play_plan']  # none: nothing; unknown: as it is
+
+
+def test_a_mark_hidden_or_gone_is_not_drawn(fw, ui, mcl, st):
+    now, row, icons, _ = marks(fw, ui, mcl, st, CLASSIC)
+    ui.shown[icons[0]] = 0
+    assert [name for name, _ in marked(fw, row)] == [b'classic_light_np_shuffle_d', b'classic_light_heart_off_d']
+    ui.emit(icons[1], O['EVT_DESTROY'])
+    assert [name for name, _ in marked(fw, row)] == [b'classic_light_heart_off_d']
+    ui.emit(icons[2], O['EVT_DESTROY'])
+    ui.emit(icons[0], O['EVT_DESTROY'])
+    assert marked(fw, row) == []
+
+
+def test_another_theme_keeps_stock_s_marks(fw, ui, mcl, st):
+    now, row, icons, opacity = marks(fw, ui, mcl, st, MINIMAL)
+    assert not set(icons) & set(opacity) and marked(fw, row) == []
+
+
+def test_classic_s_stream_page_s_heart_is_a_mark_too(fw, ui, st):
+    theme(fw, st, CLASSIC)
+    opacity = {}
+    fw.mock('widget_set_opacity', lambda w, v, *_: opacity.__setitem__(w, v))
+    page = ui.widget(ui.wm, 'radionp_page', 0, 0, 375, 320, kind='window')
+    art, heart = ui.widget(page, 'art', 0, 0, 166, 166), ui.widget(page, 'heart', 0, 0, 50, 50)
+    ui.set_str(heart, b'image', b'play_fav')
+    texts = (C.c_void_p * 4)(*[ui.widget(page, f't{i}') for i in range(4)])
+    ipod = fw.fn('stream_ipod', C.c_int, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p)
+    assert ipod(art, C.addressof(texts), None, None, None, heart) == 1 and opacity[heart] == 0
+    x, y = O['NP_IPOD_FAV_X'], O['NP_IPOD_FAV_Y']
+    assert marked(fw, page) == [(b'classic_light_heart_on_d', (x + 19, y + 19, 12, 12))]
+    ui.emit(heart, O['EVT_DESTROY'])
+    assert marked(fw, page) == []
+
+
 def test_another_theme_keeps_the_stream_pages_own_layout(fw, ui, st):
     theme(fw, st, MINIMAL)
     ok, art, *_ = stream(fw, ui)
