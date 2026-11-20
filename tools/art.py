@@ -357,13 +357,11 @@ def rounded_path(x, y, w, h, r):
 def rounded(w, h, x, y, bw, bh, r):
     """A rounded box's coverage of a w x h image, 0 to 1 per pixel."""
     return [min(c, 1) for c in coverage(path(rounded_path(x, y, bw, bh, r)), (0, 0, w, h))]
-# eight joined teeth round a hole: the sun has eight loose rays
-COG = 'M' + 'L'.join(f'{r * math.sin(math.radians(a + t)):.2f} {-r * math.cos(math.radians(a + t)):.2f}' for a in range(0, 360, 45) for r, t in ((9.7, -13.5), (13, -7.5), (13, 7.5), (9.7, 13.5))) + 'Z' + circle(0, 0, 4.5)
-def note_glyph():
-    """Home's pane note, the same drawing, 28 high about 0, 0."""
-    polys = path(PANE_ICONS['note'])
+def pane_glyph(name, size):
+    """One of Home's pane icons, the same drawing, its larger side size px, about 0, 0."""
+    polys = path(PANE_ICONS[name])
     xs, ys = [x for poly in polys for x, _ in poly], [y for poly in polys for _, y in poly]
-    cx, cy, k = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, 28 / (max(ys) - min(ys))
+    cx, cy, k = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, size / max(max(xs) - min(xs), max(ys) - min(ys))
     return ''.join('M' + 'L'.join(f'{(x - cx) * k:.2f} {(y - cy) * k:.2f}' for x, y in poly) + 'Z' for poly in polys)
 # A glyph about 0, 0: fill, shapes, a shape's later subpaths its holes; line, open paths stroked w wide (QS_WEIGHT
 # without one) with round ends; dots, filled discs (x, y, r); faint, lines at QS_FAINT of the ink.
@@ -379,13 +377,13 @@ QS_GLYPHS: dict[str, dict] = {
     'usb': dict(fill=('M0 -13.6 -3.9 -7.6H3.9Z', rounded_path(4.3, -10.4, 4.6, 4.6, .8)),
                 line=('M0 10V-8.4', 'M0 6 -6.6 1.2V-3.2', 'M0 2.4 6.6 -2.4V-6'), dots=((-6.6, -4.4, 2.5), (0, 10.4, 3)), w=2.3),
     'sl': dict(line=('M-8 -11V11', 'M0 -11V11', 'M8 -11V11'), dots=((-8, 4, 3.5), (0, -4.5, 3.5), (8, 5.5, 3.5)), w=2.3),
-    'gear': dict(fill=(COG,)),
+    'gear': dict(fill=(pane_glyph('gear', 27),)),  # Home's Settings gear
     # gain, three bars: all of them high, the first alone low; the output, headphones, its label saying which
     'gain': dict(line=BARS, w=3.6), 'gain_low': dict(line=BARS[:1], faint=BARS[1:], w=3.6),
     'phones': dict(fill=(rounded_path(-11.2, 1.5, 5.4, 9.5, 2.2), rounded_path(5.8, 1.5, 5.4, 9.5, 2.2)), line=('M-9 3.5v-3a9 9 0 0 1 18 0v3',), w=2.4),
     'sun': dict(dots=((0, 0, 4.2),), w=2,
                 line=tuple(f'M{7.2 * math.cos(a * math.pi / 4):.2f} {7.2 * math.sin(a * math.pi / 4):.2f}L{10 * math.cos(a * math.pi / 4):.2f} {10 * math.sin(a * math.pi / 4):.2f}' for a in range(8))),
-    'note': dict(fill=(note_glyph(),)),
+    'note': dict(fill=(pane_glyph('note', 28),)),  # Home's note
 }
 QS_INK = {'': 0xffffff, '_l': 0x1c1c1e}
 # Stock's name: glyph, on, the glyph's opacity (disabled: dimmed).

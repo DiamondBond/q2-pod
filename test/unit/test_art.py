@@ -402,6 +402,17 @@ def test_holed_joins_a_shapes_subpaths_so_the_later_ones_are_holes():
     assert art.coverage([art.holed('M0 0H8V8H0Z')], (0, 0, 8, 8)) == [1] * 64  # one subpath: itself
 
 
+def test_a_pane_glyph_is_homes_own_drawing_at_another_size():
+    for name, size in (('gear', 27), ('note', 28)):
+        polys, home = art.path(art.pane_glyph(name, size)), art.path(art.PANE_ICONS[name])
+        xs, ys = [x for poly in polys for x, _ in poly], [y for poly in polys for _, y in poly]
+        assert abs(max(max(xs) - min(xs), max(ys) - min(ys)) - size) < .02  # its larger side
+        assert abs(min(xs) + max(xs)) < .02 and abs(min(ys) + max(ys)) < .02  # about 0, 0
+        assert [len(poly) for poly in polys] == [len(poly) for poly in home]  # every subpath, its hole too
+    # the System button's gear is Home's Settings gear, and the message screen's note Home's note
+    assert art.QS_GLYPHS['gear']['fill'] == (art.pane_glyph('gear', 27),) and art.QS_GLYPHS['note']['fill'] == (art.pane_glyph('note', 28),)
+
+
 def test_outlines_a_space_is_an_advance_with_no_polygon():
     font = art.classic_light_font()
     glyphs, cmap, k = font.getGlyphSet(), font.getBestCmap(), 20 / font['head'].unitsPerEm
