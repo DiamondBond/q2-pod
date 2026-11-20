@@ -468,25 +468,6 @@ def hint_shadow():
     return png(w, h, inked(w, h, [(blurred([min(v, 1) for v in coverage(marks, (0, 0, w, h))], w, h, HINT_SIGMA), HINT_A, 0)]))
 
 
-# The confirm tray's soft shadow on the page (0, 2, blur 6, #00000077): the box where the payload draws it, the
-# tray's rounded box, and the blur's standard deviation, half its radius.
-TRAY_SHADOW_BOX = (30, 248, 315, 68)
-TRAY = 'M47 254H328A9 9 0 0 1 337 263V297A9 9 0 0 1 328 306H47A9 9 0 0 1 38 297V263A9 9 0 0 1 47 254Z'
-TRAY_SHADOW = (2, 3, 0x77)  # rows down, standard deviation, alpha
-
-
-def tray_shadow():
-    """The shadow's RGBA bytes: black, its alpha the tray's coverage blurred across and then down."""
-    w, h = TRAY_SHADOW_BOX[2:]
-    down, sd, alpha = TRAY_SHADOW
-    held = coverage([[(x, y + down) for x, y in poly] for poly in path(TRAY)], TRAY_SHADOW_BOX)
-    reach = 3 * sd
-    kernel = [math.exp(-(k * k) / (2 * sd * sd)) for k in range(-reach, reach + 1)]
-    total = sum(kernel)
-    at = lambda v, x, y: v[y * w + x] if 0 <= x < w and 0 <= y < h else 0
-    across = [sum(c * at(held, x + k - reach, y) for k, c in enumerate(kernel)) / total for y in range(h) for x in range(w)]
-    soft = [sum(c * at(across, x, y + k - reach) for k, c in enumerate(kernel)) / total for y in range(h) for x in range(w)]
-    return b''.join(bytes((0, 0, 0, round(v * alpha))) for v in soft)
 # The info screen's dark face, on a -50..50 box at CLOCK_DARK_PX: its numerals in the theme's own outlines. The hands are the payload's (clock.c paint_clock).
 CLOCK_DARK_PX = 96
 def outlines(text, size, cx, baseline):
@@ -732,8 +713,6 @@ def images(t):
         for w in CELL_WIDTHS:
             out |= {f'{prefix}_cell_{w}': cell(w, False), f'{prefix}_cell_lit_{w}': cell(w, True)}
         out |= {f'{prefix}_tile': tile(), f'{prefix}_clock_chrome': clock_chrome(), f'{prefix}_clock_shadow': clock_shadow(), f'{prefix}_hint_shadow': hint_shadow()}
-    if t['painter[PAINT_CONFIRM]']:
-        out[f'{prefix}_confirm_shadow'] = png(*TRAY_SHADOW_BOX[2:], tray_shadow())
     if t['station_stops']:  # Internet Radio's Now Playing art, as large as the slanted art (navigation.c stream_ipod)
         px = inc('NP_IPOD_ART')
         out[f'{prefix}_station'] = png(px, px, station(t['station_stops'], t['station_mast'], t['station_band_a'], t['station_shadow_a'], px))

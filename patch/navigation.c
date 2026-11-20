@@ -1423,9 +1423,9 @@ static int pill_radius(void *row, int h, int inset) {
 /* A vertical gradient in one-pixel bands, then a one-pixel top highlight; equal ends give a solid
  * fill. r.h is at least 2. A pill (radius, at most r.h / 2) insets the bands at either end to that
  * radius's circle; 0 is square. Plain fills keep this off the stock gradient_t ABI, which is not
- * audited. */
-static void gradient(void *canvas, rect_t r, unsigned top, unsigned bottom, unsigned hi,
-                     int radius) {
+ * audited. A function of its own, so what its rows cost doesn't move with its callers' code. */
+__attribute__((noinline)) static void gradient(void *canvas, rect_t r, unsigned top,
+                                               unsigned bottom, unsigned hi, int radius) {
     for (int j = 0; j < r.h; ++j) {
         int out = 0, D = 2 * radius, d = 2 * j + 1 - r.h;
         d = (d < 0 ? -d : d) - (r.h - D); /* half pixels past the end circle's centre */
@@ -2098,21 +2098,8 @@ void row_below(void *canvas, const rect_t *r, int R, unsigned c) {
     rect_t down = { r->x, r->y + 1, r->w, r->h };
     round_row(canvas, &down, R, r->h - 1, c);
 }
-/* Form A's track, its 30 rows on the light half */
-static const unsigned confirm_light[30] = { 0x7389a5, 0x7b90a9, 0x8094ac, 0x8598af, 0x8a9cb2,
-                                            0x8fa0b5, 0x94a4b9, 0x98a8bc, 0x9dacbf, 0xa2b0c1,
-                                            0xa5b2c3, 0xa8b5c5, 0xaab7c7, 0xadb9c9, 0xb0bccb,
-                                            0xb3becd, 0xb5c0ce, 0xb7c1cf, 0xb8c2d0, 0xb9c3d1,
-                                            0xbbc4d2, 0xbcc5d3, 0xbec7d4, 0xbfc8d4, 0xbfc8d4,
-                                            0xc0c8d5, 0xc0c8d5, 0xbfc8d5, 0xbfc7d4, 0xbec7d4 };
-const stops_t confirm_dark = { 4, { 0, 30, 85, 100 }, { 0x14171c, 0x1d2127, 0x2a2f36, 0x191c21 } },
-              confirm_tray = { 8,
-                               { 0, 8, 20, 34, 44, 49, 92, 100 },
-                               { 0x6a707a, 0x565c66, 0x464b54, 0x343840, 0x22252c, 0x121419,
-                                 0x111216, 0x1b1f26 } },
-              confirm_well = { 5,
-                               { 0, 25, 70, 90, 100 },
-                               { 0x07090d, 0x0e1015, 0x15181e, 0x1c1f26, 0x0b0d12 } };
+/* Search's tabs' track in the dark half (classic_pages.c search_tabs_paint). */
+const stops_t confirm_dark = { 4, { 0, 30, 85, 100 }, { 0x14171c, 0x1d2127, 0x2a2f36, 0x191c21 } };
 unsigned wide_len(const unsigned *s) {
     unsigned n = 0;
     while (s && s[n]) ++n;
@@ -2149,8 +2136,8 @@ static void *confirm_wrap(void *w, void *line, void *canvas) {
 }
 /* The confirm's first paint, before its background: its background clear, the prompt placed or (the
  * tray: the selected row says what it's for) hidden, msg_delcheckbutton left where it is, the
- * buttons moved onto their cells, each max(76, text + 36) wide. Stock binds them by name. Their ink
- * goes: confirm_labels draws it over its shadow. Once: the cells' height says it is done. Stock's
+ * buttons moved onto their cells, each max(76, text + 36) wide, 8 apart. Stock binds them by name.
+ * Their ink goes: confirm_labels draws it. Once: the cells' height says it is done. Stock's
  * asset holds the two buttons, and dialog_confirminfo_dialog_init adds only hscroll_labels, the
  * prompt's lines, and msg_delcheckbutton, so whatever else is here is a line. */
 static void confirm_dress(void *w, void *canvas, int form) {
@@ -2159,7 +2146,7 @@ static void confirm_dress(void *w, void *canvas, int form) {
                                          "style:pressed:bg_color" };
     void *cell[2] = { widget_lookup(w, "img_cancel", 0), widget_lookup(w, "img_enter", 0) },
          *check = widget_lookup(w, "msg_delcheckbutton", 0);
-    if (!cell[0] || !cell[1] || I(cell[0], W_H) == 30) return;
+    if (!cell[0] || !cell[1] || I(cell[0], W_H) == CONFIRM_CELL_H) return;
     widget_set_prop_int(w, "style:normal:bg_color", 0);
     if (form == FORM_TRAY) widget_set_text_utf8(cell[1], st.confirm_verb);
     int line = 0, width[2];
@@ -2187,9 +2174,9 @@ static void confirm_dress(void *w, void *canvas, int form) {
         for (unsigned j = 0; j < sizeof clear / sizeof *clear; ++j)
             widget_set_prop_int(cell[k], clear[j], 0);
     }
-    int x = (375 - width[0] - width[1]) / 2, y = form == FORM_TRAY ? 265 : 258;
-    widget_move_resize(cell[0], x, y, width[0], 30);
-    widget_move_resize(cell[1], x + width[0], y, width[1], 30);
+    int x = (375 - width[0] - width[1] - 8) / 2, y = form == FORM_TRAY ? 258 : 250;
+    widget_move_resize(cell[0], x, y, width[0], CONFIRM_CELL_H);
+    widget_move_resize(cell[1], x + width[0] + 8, y, width[1], CONFIRM_CELL_H);
 }
 /* Classic's tick for a checked row, 13 x 8 from x, y: dy, x, w of each 1 px line. */
 static void paint_tick(void *canvas, int x, int y) {
@@ -2219,42 +2206,30 @@ static void confirm_check(void *w, void *canvas) {
     if (widget_get_prop_int(check, "value", 0)) paint_tick(canvas, x + 4, y + 6);
     stock_canvas_set_fill_color(canvas, fill);
 }
-/* Under the selection: Form A's paper, or the tray with its shadow, then the track. */
+/* Under the selection: Form A's paper, or the tray, which is the toast's box in either half, then
+ * each cell at rest: the pages' grey, a lighter one on the tray's dark box. */
+#define CONFIRM_TRAY_REST 0x48484a
 static void confirm_track(void *w, void *canvas, int form) {
-    void *lcd = P(canvas, CANVAS_LCD), *cancel = widget_lookup(w, "img_cancel", 0),
-         *enter = widget_lookup(w, "img_enter", 0);
-    if (!lcd || !cancel || !enter) return;
+    void *lcd = P(canvas, CANVAS_LCD),
+         *cell[2] = { widget_lookup(w, "img_cancel", 0), widget_lookup(w, "img_enter", 0) };
+    if (!lcd || !cell[0] || !cell[1]) return;
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
-    rect_t t = { I(cancel, W_X), I(cancel, W_Y), I(cancel, W_W) + I(enter, W_W), I(cancel, W_H) };
     int light = ipod_light();
+    unsigned grey = form == FORM_TRAY ? CONFIRM_TRAY_REST : flat_rest[light];
+    stops_t rest = { 2, { 0, 100 }, { grey, grey } };
     if (form == FORM_TRAY) {
-        rect_t ring = { 37, 253, 301, 54 }, tray = { 38, 254, 299, 52 };
-        paint_art(w, canvas, "classic_light_confirm_shadow", 30, 248);
-        round_ring(canvas, &ring, 10, 0x66000000u);
-        paint_round_rows(canvas, &tray, &confirm_tray, 9);
-        paint_round_rows(canvas, &t, &confirm_well, 6);
-        inset_top(canvas, &t, 6, 0xdd);
+        rect_t tray = { 38, 248, 299, 56 };
+        fill_box(canvas, &tray, flip_if(light, TOAST_RGBA), 12);
     } else {
         bar_rect(canvas, RGBA(scheme()->paper), 0, BAR_ROWS, 375, 320 - BAR_ROWS);
         void *bar = *(void *const *)system_bar; /* over Quick Settings nothing else draws it */
         if (bar) widget_paint(bar, canvas);
         st.paint_w = w;
-        if (light) {
-            /* an inset shadow from the right (-3, 0, blur 3, spread -2) */
-            static const unsigned char right[] = { 0x02, 0x06, 0x0e, 0x18 };
-            for (int i = 0; i < t.h; ++i) {
-                int n = round_inset(6, i, t.h);
-                round_row(canvas, &t, 6, i, 0xff000000u | confirm_light[i]);
-                for (int c = 0; c < 4; ++c)
-                    scrub_row(canvas, (unsigned)right[c] << 24, t.x + t.w - n - 4 + c, t.y + i, 1);
-            }
-        } else {
-            paint_round_rows(canvas, &t, &confirm_dark, 6);
-            inset_top(canvas, &t, 6, 0xaa);
-        }
     }
-    round_ring(canvas, &t, 6, form == FORM_TRAY || !light ? 0x88000000u : 0x1a000000u);
-    row_below(canvas, &t, 6, form == FORM_PAGE && light ? 0xb0ffffffu : 0x29ffffffu);
+    for (int k = 0; k < 2; ++k) {
+        rect_t r = { I(cell[k], W_X), I(cell[k], W_Y), I(cell[k], W_W), I(cell[k], W_H) };
+        paint_round_rows(canvas, &r, &rest, 18);
+    }
     stock_canvas_set_fill_color(canvas, fill);
 }
 /* The lit cell, in the scheme's selection: its light top row and dark foot row, rounded at the
@@ -2265,52 +2240,26 @@ void lit_rows(void *canvas, const rect_t *c, int ends) {
     round_row_ends(canvas, c, 6, 0, 0x73ffffffu, ends);
     round_row_ends(canvas, c, 6, c->h - 1, 0x59000000u, ends);
 }
-/* The pale form's lit cell, 30 rows: an inset light right edge, what its shape leaves a pixel left
- * of itself, and, with a cell to its right, a 4 px shade over that one, fading down the rows. Kept
- * a function of its own with one caller: test/patch.py calls it. */
-__attribute__((noinline)) static void pale_lit(void *canvas, const rect_t *c, int more) {
-    static const unsigned char fade[30] = { 255, 255, 255, 255, 255, 242, 230, 217, 204, 191,
-                                            178, 166, 153, 140, 127, 115, 102, 92,  83,  73,
-                                            63,  53,  44,  34,  24,  15,  5,   0,   0,   0 },
-                               part[4] = { 7, 5, 3, 1 };
-    const unsigned char *cover = cover_of(6);
-    int right = c->x + c->w - 1;
-    lit_rows(canvas, c, ROUND_LEFT | ROUND_RIGHT);
-    for (int i = 0; i < c->h; ++i) {
-        int row = corner_row(c, 6, i);
-        if (row < 0) scrub_row(canvas, 0x4dffffffu, right, c->y + i, 1);
-        for (int n = 0; row >= 0 && n < 6; ++n) {
-            unsigned a = (unsigned)(cover[row * 6 + n] - (n ? cover[row * 6 + n - 1] : 0));
-            if (a) scrub_row(canvas, (a * 0x4d / 255) << 24 | 0xffffffu, right - n, c->y + i, 1);
-        }
-        for (int k = 0; more && k < 4; ++k) { /* 0x36 at the cell, 0 four pixels on */
-            unsigned a = i < (int)sizeof fade ? 0x36u * part[k] / 8 * fade[i] / 255 : 0;
-            if (a) scrub_row(canvas, a << 24, right + 1 + k, c->y + i, 1);
-        }
-    }
+/* The cell that holds, flat in what is on. Kept a function of its own with one caller:
+ * test/patch.py calls it, and paint_selection's rows cost what they did without it. */
+__attribute__((noinline)) static void confirm_lit(void *canvas, const rect_t *c) {
+    unsigned on = quick_on();
+    stops_t lit = { 2, { 0, 100 }, { on, on } };
+    paint_round_rows(canvas, c, &lit, 18);
 }
-/* The tray's lit cell: an outer ring. */
-static void tray_lit(void *canvas, const rect_t *c) {
-    rect_t ring = { c->x - 1, c->y - 1, c->w + 2, c->h + 2 };
-    round_ring(canvas, &ring, 7, 0x77000000u);
-    lit_rows(canvas, c, ROUND_LEFT | ROUND_RIGHT);
-}
-/* Over the selection: each cell's text over its shadow a row up. White, but for the dark half's
- * unlit cell. */
+/* Over the selection: each cell's text. On the cell that holds, white, or the ink on a bright
+ * accent; on the other the half's ink, or white on the tray's dark box. */
 static void confirm_labels(void *w, void *canvas) {
     void *cell[2] = { widget_lookup(w, "img_cancel", 0), widget_lookup(w, "img_enter", 0) };
     int light = ipod_light(), lit = st.sel_w == w ? st.sel_row : -1;
     if (!cell[0] || !cell[1] || !P(canvas, CANVAS_LCD)) return;
+    unsigned over = bright_tone(quick_on()) ? flat_ink[1] : 0xffffff,
+             plain = confirm_form(w) == FORM_TRAY ? 0xffffff : flat_ink[light];
     for (int k = 0; k < 2; ++k) {
         const unsigned *s = widget_get_text(cell[k]);
-        unsigned n = wide_len(s);
-        rect_t r = { I(cell[k], W_X), I(cell[k], W_Y), I(cell[k], W_W), I(cell[k], W_H) },
-               up = { r.x, r.y - 1, r.w, r.h };
-        draw_centred(canvas, s, n, &up, CONFIRM_CELL_PX, flip_if(light, 0x4d000000u));
-        draw_centred(canvas, s, n, &r, CONFIRM_CELL_PX,
-                     RGBA(light                                      ? flip(0xffffff)
-                          : k == lit || confirm_form(w) == FORM_TRAY ? 0xffffff
-                                                                     : 0xcfd6dc));
+        rect_t r = { I(cell[k], W_X), I(cell[k], W_Y), I(cell[k], W_W), I(cell[k], W_H) };
+        draw_centred(canvas, s, wide_len(s), &r, CONFIRM_CELL_PX,
+                     RGBA(flip_if(light, k == lit ? over : plain)));
     }
 }
 /* The hold menu's panel, Cover Flow's flip panel (coverflow_panel_paint): the navbar its header,
@@ -2422,10 +2371,7 @@ static void paint_selection(void *w, void *canvas) {
     if (form) { /* the cell itself, not nudged */
         void *e = g_menu.at[i];
         rect_t cell = { I(e, W_X), I(e, W_Y), I(e, W_W), I(e, W_H) };
-        if (form == FORM_TRAY)
-            tray_lit(canvas, &cell);
-        else
-            pale_lit(canvas, &cell, !i);
+        confirm_lit(canvas, &cell);
         st.sel_w = w;
         st.sel_row = i;
         st.sel_y = cell.y + cell.h / 2;

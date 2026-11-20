@@ -460,8 +460,8 @@ void search_tabs_paint(void *group, void *canvas) {
 
 /* Classic's flat pages (the slider pages, the message screens), final colours, [0] dark, [1] light:
  * the page, a control at rest, the ink and a quiet line's. */
-static const unsigned flat_page[2] = { 0x000000, 0xffffff }, flat_rest[2] = { 0x2c2c2e, 0xe9e9ec },
-                      flat_ink[2] = { 0xffffff, 0x1c1c1e }, flat_quiet[2] = { 0x98989d, 0x6e6e73 };
+const unsigned flat_page[2] = { 0x000000, 0xffffff }, flat_rest[2] = { 0x2c2c2e, 0xe9e9ec },
+               flat_ink[2] = { 0xffffff, 0x1c1c1e }, flat_quiet[2] = { 0x98989d, 0x6e6e73 };
 /* Classic's slider pages, one shape over stock's four windows: under Classic's own bar, the half's
  * paper, a bar as Quick Settings' with the page's marks in its ends, and the caption. */
 /* Off and On, the two halves of one pill at rest: the one that holds is in what is on, its word

@@ -326,7 +326,8 @@ enum { SLIDER_LIGHT, SLIDER_MAX, SLIDER_BALANCE, SLIDER_BOOT }; /* st.slider_kin
 #define ROUND_RIGHT 2
 #define ROUND_LEFT 1
 #define STYLE_KEY 48
-#define CONFIRM_CELL_PX 23
+#define CONFIRM_CELL_PX 21
+#define CONFIRM_CELL_H 36
 #define MCL(a) (*(volatile int *)(a))
 int clamp_step(int offset, int maximum, int delta);
 unsigned put_num(unsigned *s, unsigned v);
@@ -366,7 +367,9 @@ unsigned wide_len(const unsigned *s);
 void *window_of(void *w);
 void cf_veil(void *win, int on);              /* win unseen (1) or seen again under Coverflow */
 int music_records(void *list, int discovery); /* list's songs less spoken (0) or hidden (1) ones */
-extern const stops_t confirm_dark, confirm_tray, confirm_well;
+extern const stops_t confirm_dark;
+/* Classic's flat pages (classic_pages.c), final, [0] dark, [1] light */
+extern const unsigned flat_page[2], flat_rest[2], flat_ink[2], flat_quiet[2];
 int search_key(unsigned key);
 int geom(int group);
 int load_rows(menu_t *m, void *w);

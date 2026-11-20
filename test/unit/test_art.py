@@ -54,7 +54,7 @@ def test_classic_draws_its_images_and_the_others_none():
         assert set(art.images({**themes[0], **half})) == {'minimal_vol_lo', 'minimal_vol_hi'}
     full = art.images(themes[1])
     assert {k: v for k, v in full.items() if '_icon_' not in k} == classic()  # what the other tests draw
-    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'confirm_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
+    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
 
 
 # The approved rendered rows, within 1 per channel: the fill down column 272 of the pause bars
@@ -113,16 +113,6 @@ def test_the_volume_s_and_slider_pages_speakers():
             w, h, at = pixels(got[f'classic_light_spk_{n}_{half}'])
             assert at(5, 7) == (*rgb, 255) and {at(x, y)[:3] for x in range(w) for y in range(h) if at(x, y)[3]} == {rgb}  # the cone; no other colour
             assert any(at(x, y)[3] for x in range(11, w) for y in range(h)) == (n == 'loud')  # only loud has arcs
-
-
-def test_the_confirm_shadow_falls_soft_and_black_under_the_tray():
-    got = classic()['classic_light_confirm_shadow']
-    w, h, at = pixels(got)
-    assert (w, h) == (315, 68) and all(at(x, y)[:3] == (0, 0, 0) for x in (0, 157, 314) for y in (0, 34, 67))
-    # the tray at 8, 6 in the image; its shadow two rows down, at most the alpha, gone by the image's edge
-    assert at(157, 34)[3] == 0x77 and at(157, 67)[3] < 8 and at(0, 34)[3] < 8 and at(157, 0)[3] < 3
-    assert at(157, 6)[3] < at(157, 8)[3] < at(157, 10)[3] and at(157, 60)[3] > at(157, 64)[3]
-    assert len(got) < 8192
 
 
 def test_the_message_marks_are_the_glyphs_enlarged_in_the_halfs_ink():
@@ -406,8 +396,6 @@ def test_every_literal_corner_radius_is_in_the_table():
     radii = literal('paint_round_rows|round_row|row_below|inset_top|round_ring')
     assert radii and radii <= set(art.CORNERS)
     assert {r - 1 for r in literal('round_ring')} <= set(art.CORNERS)  # a ring reads its radius less one too
-    lit = {int(r) for r in re.findall(r'cover_of\((\d+)\)', source)}
-    assert lit and lit <= set(art.CORNERS)  # pale_lit's
 
 
 def test_the_round_corners_cover_their_arcs():

@@ -1039,7 +1039,7 @@ def test_a_confirm_lays_its_buttons_side_by_side_centred_under_its_prompt(fw, st
     confirm = Confirm(fw, classic(fw, st))
     confirm.paint()
     (x0, y0, w0, h0), (x1, y1, w1, h1) = confirm.cancel.box, confirm.enter.box
-    assert (y0, h0) == (y1, h1) and x0 + w0 == x1  # one track, the cells abutting
+    assert (y0, h0) == (y1, h1) and x0 + w0 < x1 <= x0 + w0 + 12  # side by side, a gap between
     assert abs((x0 + x1 + w1) - 375) <= 1 and y0 + h0 <= 320  # centred, on the screen
     assert w0 > 6 * 10 and w1 > 2 * 10  # each wider than its text
     lx, ly, lw, lh = confirm.lines[0].box
@@ -1084,43 +1084,42 @@ def test_a_long_prompt_with_nowhere_to_break_keeps_its_marquee(fw, st):
 
 
 @pytest.mark.parametrize('light', [0, 1])
-def test_the_page_form_lays_paper_under_the_bar_and_the_track_under_the_cells(fw, st, layout, light):
+def test_the_page_form_lays_paper_under_the_bar_and_each_cell_its_own_pill(fw, st, layout, light):
     confirm = Confirm(fw, classic(fw, st, light))
     S = Scheme(fw, layout)
     canvas = confirm.paint()
     bar = SETS[CLASSIC_SET].bar
     assert ((0, bar, 375, 320 - bar), rgba(S.paper)) in canvas.rects
     x0, y0, w0, h0 = confirm.cancel.box
-    track = [x for x in range(375) if canvas.px.get((x, y0 + h0 // 2)) != rgba(S.paper)]
-    assert (min(track), max(track) + 1) == (x0, x0 + w0 + confirm.enter.box[2])  # the track spans both cells
+    x1, _, w1, _ = confirm.enter.box
+    drawn = [x for x in range(375) if canvas.px.get((x, y0 + h0 // 2)) != rgba(S.paper)]
+    assert (min(drawn), max(drawn) + 1) == (x0, x1 + w1) and x0 + w0 not in drawn  # both cells, the paper between them
+    assert canvas.px[x0 + 1, y0] == rgba(S.paper)  # a pill: its corner is the paper's
     assert canvas.restored()
 
 
 @pytest.mark.parametrize('light', [0, 1])
-def test_the_pop_up_opens_on_cancel_and_the_wheel_lights_the_other(fw, st, layout, light):
+def test_the_pop_up_opens_on_cancel_and_the_wheel_holds_the_other(fw, st, layout, light):
+    """The held cell is flat in what is on, Classic Blue's blue; the other the half's grey."""
     confirm = Confirm(fw, classic(fw, st, light))
-    S = Scheme(fw, layout)
     canvas = confirm.paint()
-    mid = lambda cell: canvas.px[cell.box[0] + cell.box[2] // 2, cell.box[1] + 15]
+    mid = lambda cell: canvas.px[cell.box[0] + cell.box[2] // 2, cell.box[1] + cell.box[3] // 2]
+    edge = lambda cell: canvas.px[cell.box[0] + cell.box[2] // 2, cell.box[1] + 2]
     assert confirm.win.props['_ringnav_index'] == 0
-    assert mid(confirm.cancel) == rgba(S.sel_row(15, 30)) != mid(confirm.enter)
-    texts = {t: c for t, r, c in canvas.texts if r[1] == confirm.cancel.box[1]}
-    assert texts['Cancel'] != texts['OK'] or light  # dark: the unlit cell's text is dimmer
+    assert mid(confirm.cancel) == edge(confirm.cancel) == rgba(0x207cde) != mid(confirm.enter)  # flat: one colour top to middle
     confirm.win.props['_ringnav_index'] = 1
     confirm.paint()
-    assert mid(confirm.enter) == rgba(S.sel_row(15, 30)) != mid(confirm.cancel)
+    assert mid(confirm.enter) == rgba(0x207cde) != mid(confirm.cancel)
 
 
-def test_the_cells_texts_sit_over_their_shadows_a_row_up(fw, st):
-    confirm = Confirm(fw, classic(fw, st))
+@pytest.mark.parametrize('light', [0, 1])
+def test_the_cells_texts_are_white_on_the_held_cell_and_the_ink_on_the_other(fw, st, light):
+    confirm = Confirm(fw, classic(fw, st, light))
     canvas = confirm.paint()
-    for cell, text in ((confirm.cancel, 'Cancel'), (confirm.enter, 'OK')):
-        drawn = [(r, c) for t, r, c in canvas.texts if t == text]
-        (shadow, shade), (box, ink) = drawn
-        assert box == cell.box and shadow == (box[0], box[1] - 1, box[2], box[3])
-        assert shade >> 24 < 0xff and shade & 0xffffff == 0  # black, part transparent
-    inks = {t: c for t, r, c in canvas.texts[1::2]}
-    assert inks['Cancel'] == rgba(0xffffff) != inks['OK']  # the dark half's unlit cell is dimmer
+    drawn = {t: (r, c) for t, r, c in canvas.texts}
+    assert len(canvas.texts) == 2  # no shadows
+    assert drawn['Cancel'][0] == confirm.cancel.box and drawn['OK'][0] == confirm.enter.box
+    assert drawn['Cancel'][1] == rgba(0xffffff) and (drawn['OK'][1] == rgba(0xffffff)) == (not light)  # the dark half's ink is white too
 
 
 def test_delete_files_check_is_drawn_where_the_icon_goes(fw, st, layout):
@@ -1154,10 +1153,9 @@ def test_a_row_actions_question_is_the_tray_its_cell_the_verb(fw, st):
 
     def open_dialog(name, prompt, *_):
         confirm = Confirm(fw, ui, ['Delete "Song"?'])
-        confirm.canvas.art['classic_light_confirm_shadow'] = (315, 70)
         canvas = confirm.paint()
-        seen['tray'] = (ui.text(confirm.enter), confirm.lines[0].visible, list(canvas.images),
-                        [confirm.cancel.box, confirm.enter.box], {t: c for t, r, c in canvas.texts[1::2]})
+        seen['tray'] = (ui.text(confirm.enter), confirm.lines[0].visible, list(canvas.images), list(canvas.boxes),
+                        [confirm.cancel.box, confirm.enter.box], {t: c for t, r, c in canvas.texts})
         over = Confirm(fw, ui, ['Shut down?'])  # a prompt stock opens over it stays a question
         over.paint()
         seen['over'] = (ui.text(over.enter), over.lines[0].visible, over.lines[0].box, over.enter.box)
@@ -1166,12 +1164,12 @@ def test_a_row_actions_question_is_the_tray_its_cell_the_verb(fw, st):
     fw.mock('navigator_to_with_context', open_dialog)
     verb = C.create_string_buffer(b'Delete')
     assert fw.fn('playlists__confirm_over', C.c_int, C.c_void_p, C.c_char_p)(None, verb) == 1
-    text, shown, images, cells, inks = seen['tray']
-    assert text == 'Delete' and not shown  # the cell says what it's for; no question
-    (ix, iy, iw, ih), = images  # the tray's shadow at its art's size, centred, the cells on it
-    assert (iw, ih) == (315, 70) and 2 * ix + iw == 375
-    assert all(ix <= x and x + w <= ix + iw and iy <= y and y + h <= iy + ih for x, y, w, h in cells)
-    assert inks['Cancel'] == inks['Delete']  # lit or not, both cells' text alike
+    text, shown, images, boxes, cells, inks = seen['tray']
+    assert text == 'Delete' and not shown and images == []  # the cell says what it's for; no question, no shadow image
+    ((bx, by, bw, bh), _, radius), = boxes  # the tray: one rounded box, centred, the cells in it
+    assert radius == 12 and 2 * bx + bw == 375
+    assert all(bx <= x and x + w <= bx + bw and by <= y and y + h <= by + bh for x, y, w, h in cells)
+    assert inks['Cancel'] == inks['Delete'] == rgba(0xffffff)  # held or not, both cells' text white on the dark box
     text, shown, (lx, ly, lw, lh), (_, y, _, _) = seen['over']
     assert text == 'OK' and shown and ly + lh <= y  # its prompt asked, the cells under it
     after = Confirm(fw, ui, ['Shut down?'])  # the row action answered: the next confirm is a question

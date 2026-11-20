@@ -3031,9 +3031,8 @@ for theme_ in '0':
     assert q.nodes[named(q,wn,'view_navbar')]['visible']==1 and named(q,wn,'switch_hit')==0 and named(q,wn,'caption')==0 and wbox(q,q.slider)[:2]==(0,0) and q.nodes[q.vol]['visible']==1
 passed()
 
-# Classic's confirm control, in final colours. Form A, the page: its paper under the bar, the prompt, a track at 258.
+# Classic's confirm control, in final colours. Form A, the page: its paper under the bar, the prompt, two flat buttons at 250, 8 apart, the one that holds in what is on.
 CL_FONT='classic-light'
-CONFIRM_LIGHT=[0x7389a5,0x7b90a9,0x8094ac,0x8598af,0x8a9cb2,0x8fa0b5,0x94a4b9,0x98a8bc,0x9dacbf,0xa2b0c1,0xa5b2c3,0xa8b5c5,0xaab7c7,0xadb9c9,0xb0bccb,0xb3becd,0xb5c0ce,0xb7c1cf,0xb8c2d0,0xb9c3d1,0xbbc4d2,0xbcc5d3,0xbec7d4,0xbfc8d4,0xbfc8d4,0xc0c8d5,0xc0c8d5,0xbfc8d5,0xbfc7d4,0xbec7d4]
 def cl_cells(m,d):  # the asset's two rows, as stock binds them; the mock's text is as wide as the look's
     m.char_px=52.6/6; m.image_size=(315,68)
     cells=[m.entry(d,O['CONFIRM_TOP']+i*48) for i in range(2)]
@@ -3048,39 +3047,37 @@ def cl_confirm(light='1',check=False):
     if check: box_=m.node('check_button','msg_delcheckbutton'); place(m,box_,10,124,355,24); m.nodes[d]['children'].append(box_); kids.append(box_)
     parents(m,d); return (m,d,*cells,*kids)
 def texts(m): return [(l['text'],l['rect'],l['color']) for l in m.letters]
+def cl_buttons(m,bands,held,cancel=(101,250,89,36),enter=(198,250,76,36)):  # both cells at rest, then the one that holds over its own: (the rest's colours, the lit's, what follows)
+    a,rest=round_box(bands,*cancel,18); b,rest=round_box(rest,*enter,18); lit,rest=round_box(rest,*(enter if held else cancel),18)
+    return set(a)|set(b),set(lit),rest
+def cl_page(m):  # a painted page's bands after its paper
+    i=next(k for k,b in enumerate(m.bands) if b[:4]==(0,26,375,294)); return m.bands[i+1:]
+white,ink=color_t(0xffffff),color_t(0x1c1c1e)
 cm,d,cancel,enter,prompt=cl_confirm(); cm.paint(d)
 assert wbox(cm,prompt)==(24,61,327,30) and (cm.nodes[prompt]['style:normal:font_name'],cm.nodes[prompt]['style:normal:font_size'])==(CL_FONT,28)
 assert cm.nodes[d]['style:normal:bg_color']==0 and (0,26,375,1,color_t(0xffffff)) not in [b[:5] for b in cm.bands] and (0,26,375,294,color_t(0xffffff)) in [b[:5] for b in cm.bands]
-rows=opaque(cm,258); trackrows,litrows=rows[:30],rows[30:60]; litw=max(b[2] for b in litrows)
-assert [b[4] for b in trackrows]==[color_t(c) for c in CONFIRM_LIGHT] and trackrows[0][1]==258 and trackrows[0][4]==color_t(0x7389a5) and trackrows[15][:4]==(105,273,165,1)
-assert litrows[0][:2]==(105+corner_in(6),258) and litw==89 and litrows[0][4]==color_t(0x08a6e7) and wbox(cm,cancel)==(105,258,89,30) and wbox(cm,enter)==(194,258,76,30)
-assert (0xb0ffffff in [b[4] for b in cm.bands if b[1]==288]) and all(c in [b[4] for b in cm.bands] for c in (0x1a000000,0x73ffffff,0x59000000,0x4dffffff)) and 0x44000000 not in [b[4] for b in cm.bands]
-white=color_t(0xffffff); assert texts(cm)==[('Cancel',(105,257,89,30),0x4d000000),('Cancel',(105,258,89,30),white),('OK',(194,257,76,30),0x4d000000),('OK',(194,258,76,30),white)] and {l['font'] for l in cm.letters}=={(CL_FONT,23)}
-assert cm.nodes[cancel]['style:normal:text_color']==0 and cm.nodes[cancel]['text']=='Cancel' and not cm.image_draws and cm.lcd_colors()==LCD_COLORS
+assert wbox(cm,cancel)==(101,250,89,36) and wbox(cm,enter)==(198,250,76,36)
+rest,lit,more=cl_buttons(cm,cl_page(cm),0); assert rest=={color_t(0xe9e9ec)} and lit=={color_t(0x207cde)} and not more  # Cancel holds, Classic Blue's blue
+assert texts(cm)==[('Cancel',(101,250,89,36),white),('OK',(198,250,76,36),ink)] and {l['font'] for l in cm.letters}=={(CL_FONT,21)}
+assert cm.nodes[cancel]['style:normal:text_color']==0 and cm.nodes[cancel]['text']=='Cancel' and not cm.image_draws and not cm.rounded and cm.lcd_colors()==LCD_COLORS
 cm.calls=[]; cm.paint(d); assert not [c for c in cm.calls if c[0].startswith('widget_set_prop') and c[1] in (prompt,cancel,enter,d)] and not [c for c in cm.calls if c[0]=='widget_move_resize']; passed()
-# ... the lit cell's right edge, inset; its 4 px shade beyond it, strongest at the top, gone by the foot. Under both, the track's corner pixels at their coverage, and the overlays' too.
-assert [fill_at(cm,193,273)[-1]]==[0x4dffffff] and [fill_at(cm,194+c,258+2)[-1]>>24 for c in range(4)]==[47,33,20,6] and not fill_at(cm,194,258+29) and all(fill_at(cm,194,258+i)[-1]>>24>fill_at(cm,194,258+20)[-1]>>24 for i in (0,16))
-cover6=corner_cover(6); first=max(n for n in range(6) if 0<cover6[n]<255)
-assert cover6[first]<<24|color_t(0x7389a5)&0xffffff in fill_at(cm,105+first,258) and cover6[first]<<24|color_t(0x7389a5)&0xffffff in fill_at(cm,269-first,258)
-assert cover6[first]*0x1a//255<<24 in fill_at(cm,105+first,258) and cover6[first]*0x73//255<<24|0xffffff in fill_at(cm,105+first,258) and cover6[first]*0x59//255<<24 in fill_at(cm,105+first,287)
-assert cover6[first]*0xb0//255<<24|0xffffff in fill_at(cm,105+first,288); passed()
-# ... the wheel moves the lit cell to OK; Centre reaches stock's img_enter.
+# ... flat: no ring, shade or light row. Every band is opaque but a round corner's own pixels.
+assert all(b[4]>>24==0xff or b[2:4]==(1,1) for b in cm.bands) and {b[4]&0xffffff for b in cm.bands}=={c&0xffffff for c in (white,color_t(0xe9e9ec),color_t(0x207cde))}; passed()
+# ... the wheel moves the held cell to OK; Centre reaches stock's img_enter.
 assert cm.call()==11 and cm.selected(d)==1 and not cm.moved(); cm.paint(d)
-assert opaque(cm,258)[30+15][:3]==(194,273,76) and opaque(cm,258)[30][:2]==(194+corner_in(6),258) and [t[2] for t in texts(cm)][1::2]==[white,white]
-assert not [b for b in cm.bands if b[0]>=270 and b[3]==1 and 258<=b[1]<288 and b[4]>>24<0x40]  # nothing to its right to shade
+rest,lit,more=cl_buttons(cm,cl_page(cm),1); assert lit=={color_t(0x207cde)} and not more and [t[2] for t in texts(cm)]==[ink,white]
 assert cm.confirm()==11 and cm.clicks==[enter]; passed()
-# ... dark half: the track's own stops, Cancel lit in the same blue; its text white, the other cell's #cfd6dc.
-dm,d0,_,_,_=cl_confirm('0'); dm.paint(d0); rows=opaque(dm,258)
-assert [rows[i][4] for i in (0,29)]==[color_t(0x14171c),color_t(0x191c21)] and rows[30][4]==color_t(0x08a6e7) and rows[30+15][2]==89
-assert (0,26,375,294,color_t(0)) in [b[:5] for b in dm.bands] and 0x29ffffff in [b[4] for b in dm.bands if b[1]==288] and 0x88000000 in [b[4] for b in dm.bands]
-assert [t[2] for t in texts(dm)][1::2]==[white,color_t(0xcfd6dc)] and [fill_at(dm,193,273)[-1]]==[0x4dffffff] and fill_at(dm,194,260)[-1]>>24==47 and 0x44000000 not in [b[4] for b in dm.bands]; passed()
+# ... dark half: black paper, the cells the dark half's grey, Cancel held in the same blue; both texts white.
+dm,d0,_,_,_=cl_confirm('0'); dm.paint(d0)
+rest,lit,more=cl_buttons(dm,cl_page(dm),0)
+assert (0,26,375,294,color_t(0)) in [b[:5] for b in dm.bands] and rest=={color_t(0x2c2c2e)} and lit=={color_t(0x207cde)} and not more and [t[2] for t in texts(dm)]==[white,white]; passed()
 # ... with msg_delcheckbutton: Form A, and the checkbox's rect unchanged.
-km,dk,_,kenter,kp,kc=cl_confirm(check=True); km.paint(dk); assert wbox(km,kc)==(10,124,355,24) and wbox(km,kp)==(24,61,327,30) and opaque(km,258)[0][4]==color_t(0x7389a5) and km.nodes[kenter]['text']=='OK' and km.nodes[kc]['visible']==1; passed()
+km,dk,_,kenter,kp,kc=cl_confirm(check=True); km.paint(dk); assert wbox(km,kc)==(10,124,355,24) and wbox(km,kp)==(24,61,327,30) and wbox(km,kenter)==(198,250,76,36) and km.nodes[kenter]['text']=='OK' and km.nodes[kc]['visible']==1; passed()
 # ... the checkbox itself: stock's rings are emptied, so its box goes where the ring's 26 px slot does, centred with the 10 px spacer and text; a tick when checked. No theme but Classic.
-for half,ink in (('1',0),('0',0xffffff)):
+for half,ink_ in (('1',0),('0',0xffffff)):
     km,dk,_,_,_,kc=cl_confirm(half,check=True); km.nodes[kc]['text']='Also delete source file'; km.paint(dk); x=10+(355-36-203)//2+3; y=124+12-10  # 203: the emulator's measure of the text
-    tick=lambda: [b for b in km.bands if b[:4]==(x+4+11,y+6,2,1) and b[4]==color_t(ink)]
-    box_rows=[b for b in km.bands if b[4]&0xffffff==color_t(ink)&0xffffff and x<=b[0]<x+20 and y<=b[1]<y+20]; assert {b[1] for b in box_rows}==set(range(y,y+20)) and not tick()
+    tick=lambda: [b for b in km.bands if b[:4]==(x+4+11,y+6,2,1) and b[4]==color_t(ink_)]
+    box_rows=[b for b in km.bands if b[4]&0xffffff==color_t(ink_)&0xffffff and x<=b[0]<x+20 and y<=b[1]<y+20]; assert {b[1] for b in box_rows}==set(range(y,y+20)) and not tick()
     km.nodes[kc]['value']=1; km.paint(dk); assert tick()
 passed()
 # ... a theme only runs on its own set, so a failed boot reads as Minimal: no paper on this dialog, at the set's bar or inside it.
@@ -3096,38 +3093,36 @@ rest=[c for c in fa.nodes[fd]['children'] if fa.nodes[c].get('type')=='hscroll_l
 assert fa.nodes[fp]['text']=='Line Out sets max volume,' and len(rest)==1 and fa.nodes[rest[0]]['text']=='continue?',(fa.nodes[fp]['text'],rest)
 assert wbox(fa,fp)==(24,61,327,30) and wbox(fa,rest[0])==(24,91,327,30) and fa.nodes[rest[0]]['style:normal:font_name']=='classic-light' and fa.nodes[rest[0]]['style:normal:font_size']==28; passed()
 fb,fbd,*_,fbp=cl_confirm(); fb.paint(fbd); assert fb.nodes[fbp]['text']=='Shut Down?' and len(fb.nodes[fbd]['children'])==3; passed()
-# Form B: a row action's confirm, the flag set at its call: the tray at 254, its shadow image, the track in it; the second cell says Delete, Centre on it is stock's OK.
+# Form B: a row action's confirm, the flag set at its call: the toast's box at 248 over the page, its two cells in it; the second cell says Delete, Centre on it is stock's OK.
 class TrayMachine(PlaylistLifecycleMachine):
-    budget=200000  # the tray's paint, its rows and corners a pixel at a time: about 105k instructions
+    budget=200000  # the tray's paint, its cells' rows and corners a pixel at a time
     def hook(self,u,address,size,unused):
         if self.handlers.get(address,'')=='c:navigator_to_with_context' and self.text(u.reg_read(REGS[0]))=='dialog/confirminfo_dialog':
             page=self.top; d=self.tray=self.node('dialog','confirminfo_dialog'); self.word(d+O['W_PARENT'],self.wm); place(self,d,0,0,375,320); self.top=d
             cells=cl_cells(self,d); prompt=self.tray_prompt=self.node('hscroll_label','',text='Delete Playlist?'); place(self,prompt,10,79,355,24)
             self.nodes[d]['children']=[*cells,prompt]; parents(self,d); bare(self)
             self.nested(HOOKS['widget_on_paint_background'][0],d,self.canvas,0,0)
-            self.tray_seen=(list(self.bands),list(self.image_draws),list(self.letters)); self.tray_bar=[c for c in self.calls if c[0]=='widget_paint']
+            self.tray_seen=(list(self.bands),list(self.image_draws),list(self.letters)); self.tray_box=list(self.rounded); self.tray_bar=[c for c in self.calls if c[0]=='widget_paint']
             # ... stock's own prompt over it while the call runs (a held power key) stays a question.
             q2=self.node('dialog','confirminfo_dialog'); self.word(q2+O['W_PARENT'],self.wm); place(self,q2,0,0,375,320); self.top=q2; c2=cl_cells(self,q2); self.nodes[q2]['children']=c2; parents(self,q2)
             self.nested(HOOKS['widget_on_paint_background'][0],q2,self.canvas,0,0); self.second=(wbox(self,c2[0])[1],self.nodes[c2[1]]['text']); self.top=page
             self.returns(self.answer); return
         super().hook(u,address,size,unused)
-# Form B in the dark half: both cells white, lit or not, as the light half and the look; Form A's unlit cell above stays #cfd6dc.
+# Form B in the dark half: both cells' text white on the dark box, held or not, as the light half's.
 CONFIG['LIGHT']='0'; tb=classic_light_new(TrayMachine); del CONFIG['LIGHT']; classic_light_boot(tb); tb.config['LIGHT']='0'; tb.answer=0; assert tb.delete()==0
-assert [l['color'] for l in tb.tray_seen[2]][1::2]==[color_t(0xffffff)]*2,[hex(l['color']) for l in tb.tray_seen[2]]; passed()
+assert [l['color'] for l in tb.tray_seen[2]]==[color_t(0xffffff)]*2 and [r['color'] for r in tb.tray_box]==[0xee2b2b2b],[hex(l['color']) for l in tb.tray_seen[2]]; passed()
 tm=classic_light_new(TrayMachine); classic_light_boot(tm); tm.mock('widget_paint'); tm.word(syms['system_bar'],tm.node('window','system_bar')); tm.answer=0; assert tm.delete()==0
 assert tm.tray_bar==[]  # the tray sits over the page and its bar
-bands,draws,letters=tm.tray_seen; trayrows=[b for b in bands if b[4] in (color_t(0x6a707a),color_t(0x565c66)) or 254<=b[1]<306 and b[2]>=287 and b[4]>>24==0xff]
-assert draws[0][1]==(30,248,315,68) and trayrows[0][1]==254 and min(b[0] for b in trayrows)==38 and max(b[2] for b in trayrows)==299 and trayrows[0][4]==color_t(0x6a707a)
-assert tm.nodes[tm.tray]['style:normal:bg_color']==0 and tm.nodes[tm.tray_prompt]['visible']==0 and 0x66000000 in [b[4] for b in bands]
+bands,draws,letters=tm.tray_seen
+assert not draws and [(r['rect'],r['radius'],r['color']) for r in tm.tray_box if r['kind']=='fill']==[((38,248,299,56),12,0xee2b2b2b)]  # the toast's box, the same in both halves
+assert tm.nodes[tm.tray]['style:normal:bg_color']==0 and tm.nodes[tm.tray_prompt]['visible']==0
 [tcancel,tenter]=tm.nodes[tm.tray]['children'][:2]
-assert tm.nodes[tenter]['text']=='Delete' and wbox(tm,tcancel)[1]==wbox(tm,tenter)[1]==265 and wbox(tm,tcancel)[:1]==((375-wbox(tm,tcancel)[2]-wbox(tm,tenter)[2])//2,)
-well=[b for b in bands if b[4]>>24==0xff and 265<=b[1]<295 and b[2]<299 and b[0]>38]
-assert tm.second==(258,'OK')
-cover9=corner_cover(9); first=next(n for n in range(9) if 0<cover9[n]<255); assert (38+first,254,1,1,cover9[first]<<24|color_t(0x6a707a)&0xffffff) in [b[:5] for b in bands]  # the tray's corner, and over the track its inset's
-assert any(b[1]==265 and b[3]==1 and b[2]==1 and b[4]&0xffffff==0 and 0<b[4]>>24<0xce for b in bands)
-assert well[0][1]==265 and well[0][4]==color_t(0x07090d) and [l['text'] for l in letters][1::2]==['Cancel','Delete'] and letters[1]['color']==color_t(0xffffff)
+assert tm.nodes[tenter]['text']=='Delete' and wbox(tm,tcancel)[1]==wbox(tm,tenter)[1]==258 and wbox(tm,tcancel)[0]==(375-wbox(tm,tcancel)[2]-wbox(tm,tenter)[2]-8)//2 and wbox(tm,tenter)[0]==sum(wbox(tm,tcancel)[::2])+8
+rest,lit,more=cl_buttons(tm,bands,0,wbox(tm,tcancel),wbox(tm,tenter)); assert rest=={color_t(0x48484a)} and lit=={color_t(0x207cde)} and not more  # a lighter grey at rest on the dark box; Cancel holds
+assert 38<wbox(tm,tcancel)[0] and sum(wbox(tm,tenter)[::2])<38+299 and tm.second==(250,'OK')
+assert [l['text'] for l in letters]==['Cancel','Delete'] and {l['color'] for l in letters}=={color_t(0xffffff)}
 # ... and the flag ends with the call: the next prompt, a question, is the page.
-tm.top=dq=tm.node('dialog','confirminfo_dialog'); tm.word(dq+O['W_PARENT'],tm.wm); place(tm,dq,0,0,375,320); ce=cl_cells(tm,dq); tm.nodes[dq]['children']=ce; parents(tm,dq); tm.paint(dq); assert wbox(tm,ce[0])[1]==258 and tm.nodes[ce[1]]['text']=='OK'; passed()
+tm.top=dq=tm.node('dialog','confirminfo_dialog'); tm.word(dq+O['W_PARENT'],tm.wm); place(tm,dq,0,0,375,320); ce=cl_cells(tm,dq); tm.nodes[dq]['children']=ce; parents(tm,dq); tm.paint(dq); assert wbox(tm,ce[0])[1]==250 and tm.nodes[ce[1]]['text']=='OK'; passed()
 # Hold menu under Classic: Cover Flow's flip panel, centred under the bar and clear of the glass: a 44-row header holding the title, then
 # the theme's 32 px rows, six at most; opaque, with no dim. Its title loops as Now Playing's, with every label's holds.
 def hold_cl(light='1'):
@@ -3186,9 +3181,9 @@ for light,grey in (('1',0xffcccccc),('0',0xff333333)):
     pm=Machine(); pm.config['LIGHT']=light; classic_light_boot(pm); row=pm.node('list_item'); pm.word(row+O['W_W'],375); pm.word(row+O['W_H'],28); b=pm.node('button','',style='s_btn_listitem',state_for_style='pressed'); pm.nodes[row]['children']=[b]; pm.word(b+O['W_PARENT'],row); pm.word(b+O['W_W'],375); pm.word(b+O['W_H'],28)
     bg(pm,row); assert [(r['rect'],r['radius'],r['color']) for r in pm.rounded if r['kind']=='fill']==[((0,0,375,28),0,grey)]
 passed()
-# Nothing crosses the glass, read from what was painted: tray, its track, Form A's track, the toast, the hold menu's panel and its ring at its tallest.
+# Nothing crosses the glass, read from what was painted: the tray's box and its cells, Form A's cells, the toast, the hold menu's panel and its ring at its tallest.
 t,td,_=toast_cl('1'); bg(t,td)
-for x,y,w,h in (span(trayrows),span(well),span(trackrows),[r['rect'] for r in t.rounded if r['kind']=='fill'][0],(39,54,296,238)):
+for x,y,w,h in (tm.tray_box[0]['rect'],wbox(tm,tcancel),wbox(tm,tenter),wbox(cm,cancel),wbox(cm,enter),[r['rect'] for r in t.rounded if r['kind']=='fill'][0],(39,54,296,238)):
     assert corner_inset(y)<=x and corner_inset(y+h-1)<=x and x+w<=375-max(corner_inset(y),corner_inset(y+h-1)),(x,y,w,h)
 passed()
 # Minimal: confirm rows, QM_ROW 66, the toast and the press as today, no images.
@@ -12142,10 +12137,10 @@ for R in (14,5,0):  # 14 has no table; 5 has, 4 hasn't
     for y in range(41,69): assert len(rows[y])==2 and rows[y][0][0]<=rows[y][1][0] and rows[y][0][0]-20==20+60-1-rows[y][1][0],(R,y)  # its sides, mirrored
     assert rows[55][0][0]==20 and rows[55][1][0]==79 and (R in (0,5) or rows[42][0][0]>20)  # 5's arc is in by row 2 less than a pixel
 passed()
-# The pale form's lit cell keeps its fade's 30 rows: a taller cell has no shade past them.
+# The confirm's held cell is flat at any size: a taller one has no shade past it either.
 lk,_=lock_cl(); r=lk.alloc(16)
 for i,v in enumerate((20,40,60,44)): lk.word(r+4*i,v)
-blank(lk); lk.call(address=payload_syms['pale_lit'],args=(lk.canvas,r,1,0),gap=0); assert all(fill_at(lk,80,y) for y in (42,46)) and not [b for b in lk.bands if b[0]>=80 and b[1]>=40+27]; passed()
+blank(lk); lk.call(address=payload_syms['confirm_lit'],args=(lk.canvas,r,0,0),gap=0); assert not round_box(lk.bands,20,40,60,44,18)[1] and not [b for b in lk.bands if b[0]>=80]; passed()
 # ... a picture: no page image; a chosen picture the same; the trays still paint, and nothing of its own on the bar's rows.
 for pic in ('q2pod:aurora','/mnt/mmc/lockscreenimage/a.jpg'):
     lk,w=lock_cl(picture=pic); draws=lock_paint(lk,w); assert [d[1][:2] for d in draws][-1]==(29,54) and not [b for b in lk.bands if b[:4]==(0,26,375,294)] and [lk.text(c[2]) for c in lk.calls if c[0]=='widget_load_image']==['classic_light_hint_shadow','classic_light_clock_dark']
