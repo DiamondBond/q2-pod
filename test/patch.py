@@ -2607,19 +2607,18 @@ for light,track in (('1',classic['light']['np_track']),('0',classic['np_track'])
 QS_ICONS=('img_wifiswitch','img_btswitch','img_lock','img_gain','img_usbmode','img_po','img_playset','img_sysset')
 QS_IMAGES=('drop_wifi','drop_bt','drop_keylock','drop_lowgain','drop_usbdac','drop_po','drop_playset','drop_sysset')
 QS_LABELS=(('label_wifi','WiFi'),('label_bt','BT'),('label_lock','Off'),('label_gain','Low'),('label_usbmode','USB'),('label_outputway','Output Options'),('label_playset','Play'),('label_sysset','Set'))
-QS_GROUND={'1':0x63717b,'0':0x1c1c1c}  # Home's pane
-QS_TILE={(0,'1'):(0xe9ebee,0xd3d6dc,0x9ba2aa),(0,'0'):(0x333333,0x333333,0x333333),(1,'1'):(0x207cde,0x207cde,0x125cb0),(1,'0'):(0x207cde,0x207cde,0x207cde)}  # (on, half): fill's top, its foot, the border
+QS_GROUND={'1':0xf2f2f7,'0':0x000000}; QS_CARD={'1':0xffffff,'0':0x1c1c1e}; QS_REST={'1':0xe9e9ec,'0':0x3a3a3c}; QS_QUIET={'1':0x6e6e73,'0':0x98989d}; QS_ON=0x207cde  # the page, its two cards, a button at rest, a label; Classic Blue's on
 def qs_new(light='1',theme='1',**config):
     SETUP[:]=[lambda k:(k.config.update(THEME=theme,LIGHT=light,**config),k)]
     try: q=LoadQueue()
     finally: SETUP.clear()
-    q.mock('dialog_quit','widget_dispatch_event_to_target_recursive'); q.image_size=(60,60)
-    q.budget=900000  # the page paints eight tiles, each a border box and its fill in it, row by row, each row's corners a pixel at a time
+    q.mock('dialog_quit','widget_dispatch_event_to_target_recursive'); q.image_size=(54,54)
+    q.budget=900000  # the page paints two cards and eight discs row by row, each row's corners a pixel at a time
     q.handlers[int(manifest['patch_symbols']['stock_quicksettings_trampoline'],16)]='stock_quicksettings'
     q.btns=[q.node('image',n,image=i) for n,i in zip(QS_ICONS,QS_IMAGES)]
     q.labels=[q.node('label',n,text=t) for n,t in QS_LABELS]
     q.menu=q.node('view','view_menu',[*q.btns,*q.labels]); place(q,q.menu,0,20,375,224)
-    for i,w in enumerate(q.btns): place(q,w,QS_X[i%4]+3,118*(i//4),60,60); q.byte(w+0x34,255)  # the page says each icon's x, whatever stock's is
+    for i,w in enumerate(q.btns): place(q,w,(30,115,199,283)[i%4],118*(i//4),60,60); q.byte(w+0x34,255)  # stock's places: the page says each icon's
     for i,w in enumerate(q.labels): place(q,w,(30,115,199,283)[i%4]-10,118*(i//4)+66,80,40)  # stock's columns
     q.slider=q.node('slider','slider_backlight',min=1,max=10,value=4); place(q,q.slider,68,0,239,48)
     q.suns=[q.node('image','image0'),q.node('image','image1')]
@@ -2629,17 +2628,22 @@ def qs_new(light='1',theme='1',**config):
     q.call(address=HOOKS['dialog_statusbar_dialog_init'][0],args=(q.win,0,0,0),gap=0)
     return q
 def qs_paint(q): bare(q); bg(q,q.win); return qs_arts(q)
-def qs_scrub(q):
+def qs_scrub(q):  # the slider's paint, in the window's coordinates
     bare(q); bg(q,q.slider); q.call(address=HOOKS['widget_on_paint_border'][0],args=(q.slider,q.canvas,0,0),gap=0)
-    return [(n,(x+68,y+256)) for n,(x,y) in qs_arts(q)],[(b[0]+68,b[1]+256,*b[2:]) for b in q.bands]
-# The page's 320 rows, Home's pane in the half, eight tiles at their places, the one on (USB) blue, each glyph in its ink
-# over it; stock's images hidden and still tappable; final colours.
+    dx,dy=wbox(q,q.slider)[0],wbox(q,q.view)[1]
+    return [(n,(x+dx,y+dy)) for n,(x,y) in qs_arts(q)],[(b[0]+dx,b[1]+dy,*b[2:]) for b in q.bands]
+def qs_page(q,light):  # the ground, one fill, and the two cards on it; the bands after them
+    assert q.bands[0][:5]==(0,0,375,320,color_t(QS_GROUND[light])); rest=q.bands[1:]
+    for box in ((18,20,339,196),(18,226,339,62)):
+        card,rest=round_box(rest,*box,26); assert set(card)=={color_t(QS_CARD[light])}
+    return rest
+# The page: its ground in the half, the buttons' card and the bar's, eight discs at their places, the one on (USB) blue, each
+# glyph in its ink over it; stock's images hidden and still tappable; final colours.
 for light in '01':
-    q=qs_new(light); arts=qs_paint(q); rows=q.bands[:320]
-    assert [r[:4] for r in rows]==[(0,y,375,1) for y in range(320)] and {r[4] for r in rows}=={color_t(QS_GROUND[light])}
-    assert qs_tiles(q,q.bands[320:])==[qs_want(QS_TILE[i==4,light]) for i in range(8)]
+    q=qs_new(light); arts=qs_paint(q)
+    assert qs_tiles(q,qs_page(q,light))==[color_t(QS_ON if i==4 else QS_REST[light]) for i in range(8)]
     assert arts==[('classic_light_'+n+qs_ink(i==4,light),QS_AT[i]) for i,n in enumerate(QS_IMAGES)]
-    assert wbox(q,q.menu)==(0,0,375,244) and [wbox(q,w) for w in q.btns]==[(*a,60,60) for a in QS_AT]
+    assert wbox(q,q.menu)==(0,0,375,226) and [wbox(q,w) for w in q.btns]==[(*a,54,54) for a in QS_AT]
     assert all(q.u.mem_read(w+0x34,1)[0]==0 and q.nodes[w].get('visible',1) for w in q.btns)
     assert qs_event(q,q.btns[0],O['EVT_CLICK'])==0 and any(c[0]=='stock_dispatch' for c in q.calls)
     assert q.lcd_colors()==LCD_COLORS; passed()
@@ -2647,65 +2651,68 @@ for light in '01':
 q=qs_new()
 LIT={'wifiopen','btopen','keylockopen','highgain','lo','usbaudio','usbdac'}
 for n in ('wifi','wifiopen','bt','btopen','keylock','keylockopen','lowgain','lowgaindisable','highgain','highgaindisable','lo','po','sa','usbstorage','usbaudio','usbdac','playset','sysset'):
-    q.nodes[q.btns[0]]['image']='drop_'+n; assert qs_paint(q)[0]==('classic_light_drop_'+n+qs_ink(n in LIT,'1'),(31,20))
-    assert qs_tiles(q,q.bands[320:])[0]==qs_want(QS_TILE[n in LIT,'1']),n; passed()
-# Another accent: on is its red tone, flat, as Minimal's lit discs; the light half's border a quarter darker. Graphite's silver
-# takes the dark glyph (_l) in the dark half and flips dark, under white, in the light one; a hue keeps white.
+    q.nodes[q.btns[0]]['image']='drop_'+n; assert qs_paint(q)[0]==('classic_light_drop_'+n+qs_ink(n in LIT,'1'),QS_AT[0])
+    assert qs_tiles(q,qs_page(q,'1'))[0]==color_t(QS_ON if n in LIT else QS_REST['1']),n; passed()
+# Another accent: on is its red tone, flat, as Minimal's lit discs. Graphite's silver takes the dark glyph (_l) in the dark
+# half and flips dark, under white, in the light one; a hue keeps white.
 for preset,light,want,glyph in (('0','0',0xd8d8d8,'_l'),('0','1',0x272727,''),('3','0',ACCENTS[3][3],''),('3','1',ACCENTS[3][3],'')):
     q=qs_new(light,CLASSIC_LIGHT_ACCENT=preset); q.nodes[q.btns[0]]['image']='drop_wifiopen'  # 0: Graphite's row
-    arts=qs_paint(q); assert arts[0]==('classic_light_drop_wifiopen'+glyph,(31,20))
-    assert qs_tiles(q,q.bands[320:])[0]==qs_want((want,want,qs_quarter(want) if light=='1' else want)),(preset,light); passed()
-# Pressed: every button's fill and border darken a sixth under the finger, until the release; its hold is as today.
+    arts=qs_paint(q); assert arts[0]==('classic_light_drop_wifiopen'+glyph,QS_AT[0])
+    assert qs_tiles(q,qs_page(q,light))[0]==color_t(want),(preset,light); passed()
+# Pressed: every button darkens a sixth under the finger, until the release; its hold is as today.
 for i,w in enumerate(q.btns):
     q=qs_new(); w=q.btns[i]; q.calls=[]; qs_down(q,w)
     assert ('widget_invalidate_force',w) in [c[:2] for c in q.calls]
-    arts=qs_paint(q); tiles=qs_tiles(q,q.bands[320:]); want=[QS_TILE[j==4,'1'] for j in range(8)]
-    assert tiles==[qs_want(map(qs_dark,c) if j==i else c) for j,c in enumerate(want)] and arts==[('classic_light_'+n+qs_ink(j==4,'1'),QS_AT[j]) for j,n in enumerate(QS_IMAGES)]
+    arts=qs_paint(q); tiles=qs_tiles(q,qs_page(q,'1')); want=[QS_ON if j==4 else QS_REST['1'] for j in range(8)]
+    assert tiles==[color_t(qs_dark(c) if j==i else c) for j,c in enumerate(want)] and arts==[('classic_light_'+n+qs_ink(j==4,'1'),QS_AT[j]) for j,n in enumerate(QS_IMAGES)]
     q.calls=[]; qs_event(q,w,O['EVT_POINTER_UP_BEFORE']); assert ('widget_invalidate_force',w) in [c[:2] for c in q.calls]
-    assert qs_tiles(q,(qs_paint(q),q.bands)[1][320:])==[qs_want(c) for c in want] and bool(q.timers)==False; passed()
-q=qs_new(); qs_down(q,q.btns[0]); qs_event(q,q.btns[0],O['EVT_POINTER_ABORT']); qs_paint(q); assert qs_tiles(q,q.bands[320:])[0]==qs_want(QS_TILE[0,'1']); passed()
+    qs_paint(q); assert qs_tiles(q,qs_page(q,'1'))==[color_t(c) for c in want] and bool(q.timers)==False; passed()
+q=qs_new(); qs_down(q,q.btns[0]); qs_event(q,q.btns[0],O['EVT_POINTER_ABORT']); qs_paint(q); assert qs_tiles(q,qs_page(q,'1'))[0]==color_t(QS_REST['1']); passed()
 q=qs_new(); qs_down(q,q.btns[2]); assert not q.timers; q.advance(O['RATE_HOLD_MS']); assert not q.opened; passed()  # Lock has no hold
 q=qs_new(); qs_down(q,q.btns[0]); q.advance(O['RATE_HOLD_MS'])
 assert q.opened==[('systemset/wifi_page',None)] and [c[1:3] for c in q.calls if c[0]=='dialog_quit']==[(q.win,0)]
 # ... the window gone, a late release touches nothing of it.
 f,ctx=q.handler(q.win,O['EVT_WINDOW_CLOSE']); q.call(address=f,args=(ctx,q.event,0,0),event_type=O['EVT_WINDOW_CLOSE'],gap=0)
 q.calls=[]; qs_event(q,q.btns[0],O['EVT_POINTER_UP_BEFORE']); assert not [c for c in q.calls if c[0]=='widget_invalidate_force']; passed()
-# A label's box holds its font and its lines: 18 for 17, Output Options' in 32. Its own ink is clear: the page draws each line 14 rows apart, white in either half, no shadow.
+# A label's box holds its font and its lines: 16 for 14, Output Options' in 30. Its own ink is clear: the page draws each line 14 rows apart, quiet in the half, in the system's face, no shadow.
 for light in '10':
     q=qs_new(light); qs_paint(q)
-    assert [wbox(q,w) for w in q.labels]==[(a[0]-10,a[1]+64,80,32 if n=='label_outputway' else 18) for a,(n,t) in zip(QS_AT,QS_LABELS)]
-    assert all(q.nodes[w]['style:normal:font_size']==17 and q.nodes[w]['style:normal:font_name']=='classic-light' and q.nodes[w]['style:normal:text_color']==0 and q.nodes[w]['style:normal:text_align_h']=='center' for w in q.labels)
-    want=[d for a,(n,t) in zip(QS_AT,QS_LABELS) for d in qs_lines(a,t,('Output','Options') if n=='label_outputway' else None)]
-    assert [(l['text'],l['rect'],l['color']) for l in q.letters]==want and {l['font'] for l in q.letters}=={('classic-light',17)} and all(l['rect'][3]>l['font'][1] for l in q.letters)
+    assert [wbox(q,w) for w in q.labels]==[(a[0]-16,a[1]+57,86,30 if n=='label_outputway' else 16) for a,(n,t) in zip(QS_AT,QS_LABELS)]
+    assert all(q.nodes[w]['style:normal:font_size']==14 and q.nodes[w]['style:normal:font_name']=='default' and q.nodes[w]['style:normal:text_color']==0 and q.nodes[w]['style:normal:text_align_h']=='center' for w in q.labels)
+    want=[d for a,(n,t) in zip(QS_AT,QS_LABELS) for d in qs_lines(a,t,color_t(QS_QUIET[light]),('Output','Options') if n=='label_outputway' else None)]
+    assert [(l['text'],l['rect'],l['color']) for l in q.letters]==want and {l['font'] for l in q.letters}=={('default',14)} and all(l['rect'][3]>l['font'][1] for l in q.letters)
     assert canvas_state(q)[:1]==(LCD_COLORS,); passed()
-# ... a repaint doesn't restyle the labels; a text that stops wrapping gets the one-line box; one the face hasn't takes the fallback's, and back.
+# ... a repaint doesn't restyle the labels; a text that stops wrapping gets the one-line box; any script's text is in the system's face, which has them all.
 q=qs_new(); qs_paint(q); q.calls=[]; bg(q,q.win); assert not [c for c in q.calls if c[0] in ('widget_move_resize','widget_set_prop_str')]
-q.nodes[q.labels[5]]['text']='LO'; qs_paint(q); assert wbox(q,q.labels[5])==(105,202,80,18) and [l['text'] for l in q.letters][5]=='LO'; passed()
-q.nodes[q.labels[5]]['text']='Выход'; qs_paint(q); assert q.nodes[q.labels[5]]['style:normal:font_name']=='bold' and q.letters[5]['font'][0]=='bold' and q.letters[5]['rect'][3]>q.letters[5]['font'][1]
-q.nodes[q.labels[5]]['text']='LO'; qs_paint(q); assert q.nodes[q.labels[5]]['style:normal:font_name']=='classic-light' and q.nodes[q.labels[5]]['style:normal:font_size']==17; passed()
-# ... a word too long for the box breaks where it stops fitting.
+q.nodes[q.labels[5]]['text']='LO'; qs_paint(q); assert wbox(q,q.labels[5])==(102,179,86,16) and [l['text'] for l in q.letters][5]=='LO'; passed()
+q.nodes[q.labels[5]]['text']='Выход'; qs_paint(q); assert q.nodes[q.labels[5]]['style:normal:font_name']=='default' and q.letters[5]['font']==('default',14) and q.letters[5]['text']=='Выход'; passed()
+# ... a word too long for the box breaks where it stops fitting; a line past the copy's room is cut there.
 q.nodes[q.labels[5]]['text']='Outputoptions'; qs_paint(q); assert [l['text'] for l in q.letters][5:7]==['Outputop','tions']; passed()
-# Brightness: stock's bar clear, its suns hidden; the track at 275, 11 rows; 4 of 1..10 filled to 79; the knob centred on the fill's end; the wheel moves it, and repaints all the knob reaches.
+q.char_px=1.0; q.nodes[q.labels[5]]['text']='x'*40; qs_paint(q); assert [l['text'] for l in q.letters][5]=='x'*31; q.char_px=10.0
+# Brightness: stock's bar clear, its suns hidden, the slider on the bar's box; the bar 36 rows at 239 in the button's rest; its fill its round end and 3 of the 9 steps of the rest (4 of 1..10: 127 px), blue; the small sun on the fill, the large one quiet past it; the wheel moves it, and repaints the view.
 q=qs_new(); arts,bands=qs_scrub(q)
 assert all(q.nodes[q.slider][f'style:{s}:{c}_color']==0 for s in ('normal','pressed','over','focused') for c in ('fg','bg')) and [q.nodes[w]['visible'] for w in q.suns]==[0,0]
-assert arts==[('classic_light_sun_small',(35,272)),('classic_light_sun_big',(321,269)),('classic_light_drop_track',(68,275)),('classic_light_drop_knob',(68+79-11-3,269-3))]
-track,rest=round_box(bands,68,275,239,11,6); assert (track[0],track[10])==(color_t(0x0a0a0a),color_t(0x3a3c40))
-fill,_=round_box(rest,68,275,79,11,6); assert (fill[0],fill[10])==(color_t(0x8cc4f8),color_t(0x165fc0)) and q.lcd_colors()==LCD_COLORS; passed()
-# ... another accent fills flat in its light tone, as Minimal's fill; Classic Blue keeps the stops above.
-for preset,light in (('3','0'),('3','1'),('0','0')):
-    q=qs_new(light,CLASSIC_LIGHT_ACCENT=preset); arts,bands=qs_scrub(q); fill,_=round_box(round_box(bands,68,275,239,11,6)[1],68,275,79,11,6)
-    assert set(fill)=={color_t(ACCENTS[int(preset)][2])},(preset,light); passed()
-assert q.call()==11 and q.nodes[q.slider]['value']==5; arts,bands=qs_scrub(q); assert arts[-1][1]==(68+106-14,266); round_box(round_box(bands,68,275,239,11,6)[1],68,275,106,11,6); passed()
+assert wbox(q,q.view)==(0,233,375,48) and wbox(q,q.slider)==(33,0,309,48)
+assert arts==[('classic_light_drop_dim',(39,245)),('classic_light_drop_bright_ql',(309,242))]
+track,rest=round_box(bands,33,239,309,36,18); assert set(track)=={color_t(QS_REST['1'])}
+fill,rest=round_box(rest,33,239,127,36,18); assert set(fill)=={color_t(QS_ON)} and not rest and q.lcd_colors()==LCD_COLORS; passed()
+# ... another accent fills in its red tone, as its buttons do; a bright one (Graphite's silver, in the dark half) takes the dark sun; the large sun's quiet is the half's.
+for preset,light,want,dim,bright in (('3','0',ACCENTS[3][3],'','_qd'),('3','1',ACCENTS[3][3],'','_ql'),('0','0',0xd8d8d8,'_l','_qd')):
+    q=qs_new(light,CLASSIC_LIGHT_ACCENT=preset); arts,bands=qs_scrub(q); track,rest=round_box(bands,33,239,309,36,18); fill,_=round_box(rest,33,239,127,36,18)
+    assert set(track)=={color_t(QS_REST[light])} and set(fill)=={color_t(want)} and [a[0] for a in arts]==['classic_light_drop_dim'+dim,'classic_light_drop_bright'+bright],(preset,light); passed()
+assert q.call()==11 and q.nodes[q.slider]['value']==5; arts,bands=qs_scrub(q); round_box(round_box(bands,33,239,309,36,18)[1],33,239,157,36,18); passed()
 for kind in (O['EVT_VALUE_CHANGING'],O['EVT_VALUE_CHANGED']):
     f,ctx=q.handler(q.slider,kind); q.calls=[]; q.call(address=f,args=(ctx,q.event,0,0),event_type=kind,gap=0); assert ('widget_invalidate_force',q.view) in [c[:2] for c in q.calls]; passed()
-# Nothing crosses the glass: buttons, labels, suns, knob at both ends.
+# Nothing crosses the glass: buttons, labels, the bar.
 def clear_glass(x,y,w,h):
     R=O['GLASS_R']; return all(not (cx<R or cx>375-R) or not (cy<R or cy>320-R) or (cx-(R if cx<R else 375-R))**2+(cy-(R if cy<R else 320-R))**2<=R*R for cx in (x,x+w) for cy in (y,y+h))
-q=qs_new(); qs_paint(q); assert all(clear_glass(*wbox(q,w)) for w in q.btns+q.labels)
-assert clear_glass(35,272,16,16) and clear_glass(321,269,22,22); passed()
-for value,end,part in ((1,54,0),(10,293,239)):
+q=qs_new(); qs_paint(q); assert all(clear_glass(*wbox(q,w)) for w in q.btns+q.labels) and clear_glass(33,239,309,36); passed()
+# ... the fill is never less than its round end; at the top it is the whole bar, and the large sun turns white on it.
+for value,part,bright in ((1,36,'_ql'),(10,309,'')):
     q=qs_new(); q.nodes[q.slider]['value']=value; arts,bands=qs_scrub(q)
-    _,rest=round_box(bands,68,275,239,11,6); assert arts[-1][1]==(end,266) and clear_glass(end+3,269,23,23) and (round_box(rest,68,275,part,11,6)[1]==[] if part else not rest); passed()
+    _,rest=round_box(bands,33,239,309,36,18); _,rest=round_box(rest,33,239,part,36,18); assert not rest and arts[1]==('classic_light_drop_bright'+bright,(309,242)); passed()
+# ... a slider with no range shows the round end alone.
+q=qs_new(); q.nodes[q.slider]['max']=1; arts,bands=qs_scrub(q); assert not round_box(round_box(bands,33,239,309,36,18)[1],33,239,36,36,18)[1]
 # The letter under Classic: final colours in both halves, the theme's font, 60 px; canvas state restored.
 for light in '01':
     for virtual in (False,True):
@@ -3224,40 +3231,36 @@ def usb_page(mode,theme_='1',light='1',y=26,machine=None):
 # Update Library's dialog under Classic: the page, the icon and no bar of its own (it paints the real one, below); stock's picture and labels hidden, btn_no moved.
 for light in '10':
     um,uwin,uanim,umsg,uscan,ubtn=msg_dialog(light=light); bare(um); bg(um,uwin); uhead,uline=named(um,uwin,'msg_heading'),named(um,uwin,'msg_line')
-    assert page_fill(um,26,0x63717b if light=='1' else 0x1c1c1c) and not [b for b in um.bands if b[1]<26]  # nothing of its own on the bar's rows
+    assert page_fill(um,26,0xffffff if light=='1' else 0) and not [b for b in um.bands if b[1]<26]  # nothing of its own on the bar's rows
     assert [um.nodes[w]['visible'] for w in (uanim,umsg,uscan)]==[0,0,0] and named(um,uwin,'btn_no')==ubtn and um.nodes[ubtn]['visible']==1
-    assert [um.text(c[2]) for c in um.calls if c[0]=='widget_load_image']==['classic_light_orb_note'] and um.image_draws[0][1][:2]==(129,38)
-    assert wbox(um,ubtn)==(127,248,121,34) and wbox(um,uhead)==(16,159,343,32) and um.nodes[uhead]['text']=='Updating Library' and wbox(um,uline)==(16,188,343,20)
-    assert um.nodes[uhead]['style:normal:font_size']==29 and um.nodes[uhead]['style:normal:font_name']=='classic-light' and um.nodes[uline]['style:normal:font_size']==18 and um.nodes[uline]['style:normal:font_name']=='default'
-    white=color_t(0 if light=='1' else 0xffffff)  # Light Mode's style hook flips it back
-    assert um.nodes[uhead]['style:normal:text_color']&0xffffffff==white and um.nodes[uline]['style:normal:text_color']&0xffffffff==white and um.nodes[uhead]['style:normal:text_align_h']=='center'
+    assert [um.text(c[2]) for c in um.calls if c[0]=='widget_load_image']==['classic_light_msg_note_'+'dl'[light=='1']] and um.image_draws[0][1][:2]==(145,46)
+    assert wbox(um,ubtn)==(127,248,121,36) and wbox(um,uhead)==(16,146,343,32) and um.nodes[uhead]['text']=='Updating Library' and wbox(um,uline)==(16,180,343,22)
+    assert um.nodes[uhead]['style:normal:font_size']==27 and um.nodes[uhead]['style:normal:font_name']=='classic-light' and um.nodes[uline]['style:normal:font_size']==17 and um.nodes[uline]['style:normal:font_name']=='default'
+    ink,quiet=(color_t(c^0xffffff if light=='1' else c) for c in ((0x1c1c1e,0x6e6e73) if light=='1' else (0xffffff,0x98989d)))  # the half's, final: Light Mode's style hook flips them back
+    assert um.nodes[uhead]['style:normal:text_color']&0xffffffff==ink and um.nodes[uline]['style:normal:text_color']&0xffffffff==quiet and um.nodes[uhead]['style:normal:text_align_h']=='center'
     for state in ('normal','pressed','over','disable','focused'):
-        assert um.nodes[ubtn][f'style:{state}:bg_color']==0 and um.nodes[ubtn][f'style:{state}:font_size']==23 and um.nodes[ubtn][f'style:{state}:font_name']=='classic-light' and um.nodes[ubtn][f'style:{state}:text_color']&0xffffffff==white
-    assert [(t['text'],t['rect'],t['font'][1]) for t in um.letters]==[('Updating Library',(16,160,343,32),29),('0 of 704 songs',(16,189,343,20),18)]
-    cancel,rest=round_box([b for b in um.bands if 248<=b[1]<283],127,248,121,34,7)
-    assert cancel[0]==color_t(0x232c33) and cancel[33]==color_t(0x333c43)
-    assert [b[:5] for b in rest if b[1]==282 and b[2]>1]==[(127+corner_in(7),282,121-2*corner_in(7),1,0x26000000|0xffffff)] and um.lcd_colors()==LCD_COLORS; passed()
+        assert um.nodes[ubtn][f'style:{state}:bg_color']==0 and um.nodes[ubtn][f'style:{state}:font_size']==21 and um.nodes[ubtn][f'style:{state}:font_name']=='classic-light' and um.nodes[ubtn][f'style:{state}:text_color']&0xffffffff==ink
+    rest=color_t(0xe9e9ec if light=='1' else 0x2c2c2e)
+    assert not um.letters and msg_bar(um)==(rest,0,None)  # the labels are widgets, with no shadow; the bar at rest, none of it filled yet
+    cancel,left=round_box([b for b in um.bands if 248<=b[1]],127,248,121,36,18); assert set(cancel)=={rest} and not left and um.lcd_colors()==LCD_COLORS; passed()
 # ... it covers the status bar, so it paints the real one after its page, as Search does, and the bar names it; any theme's look and battery are the bar's own.
 ur,urwin,*_=msg_dialog(); ur.mock('widget_paint'); urtitle=ur.node('hscroll_label','label_title'); urbar=ur.node('window','system_bar',[urtitle]); ur.word(urbar+O['W_PARENT'],ur.wm); ur.word(syms['system_bar'],urbar)
 bare(ur); bg(ur,urwin); assert [c[1:3] for c in ur.calls if c[0]=='widget_paint']==[(urbar,ur.canvas)] and ur.nodes[urtitle]['text']=='Update Library' and not [b for b in ur.bands if b[1]<26]; passed()
-# ... its count: "312 of 704 songs", the bar 229*312//704 wide; past the total, stock's text and no bar; a tap on Cancel reaches stock's handler.
+# ... its count: "312 of 704 songs", the bar 200*312//704 wide, blue; past the total, stock's text and no bar; a tap on Cancel reaches stock's handler.
 assert um.sqls[-1]=='select count(*) from songtable' and sum('select count' in s for s in um.sqls)==1  # read once, on open, with no rows in memory
-um.nodes[umsg]['text']='Updating No.312'; bare(um); bg(um,uwin); track,fillrows=msg_track(um),msg_fill(um)
-assert um.nodes[uline]['text']=='312 of 704 songs' and [b[1] for b in track]==list(range(218,232)) and [b[4]>>24 for b in track]==[0x87,0x5c,0x4d,0x3d,0x3d]+[0x3b]*7+[0x54,0x54] and {b[4]&0xffffff for b in track}=={0}
-tinset=[b[0]-72 for b in track]; assert [b[2] for b in track]==[229-2*n for n in tinset] and tinset[0]>0==tinset[7] and tinset==tinset[::-1]
-assert [b[1] for b in fillrows]==list(range(218,232)) and fillrows[7][2]==101 and fillrows[0][:3]==(72+tinset[0],218,101-tinset[0]) and fillrows[0][4]==color_t(0xf7ffff) and fillrows[13][4]==color_t(0xbdc1c4)
-assert [b[:5] for b in um.bands if b[1]==232]==[(79,232,215,1,0x14000000|0xffffff)]; passed()
+um.nodes[umsg]['text']='Updating No.312'; bare(um); bg(um,uwin)
+assert um.nodes[uline]['text']=='312 of 704 songs' and msg_bar(um)==(color_t(0x2c2c2e),88,color_t(0x207cde)); passed()
 um.calls=[]; um.advance(200); assert not [c for c in um.calls if c[0]=='widget_invalidate_force']; passed()  # no change, no repaint
 um.nodes[umsg]['text']='Updating No.313'; um.calls=[]; um.advance(200); assert um.nodes[uline]['text']=='313 of 704 songs' and [c[1] for c in um.calls if c[0]=='widget_invalidate_force']==[uwin]; passed()  # stock's hidden label repaints nothing: the poll does
-for text,want in (('Updating No.704',226),('Library Updated,703 Updated',226),('Updating No.1',0),('Updating No.10',3)):  # 99% until it closes; a sliver's rows stay inside the track
-    um.nodes[umsg]['text']=text; bare(um); bg(um,uwin); rows=msg_fill(um); assert max([b[0]+b[2]-72 for b in rows],default=0)==want and all(b[2]>0 for b in rows),text
+for text,want in (('Updating No.704',198),('Library Updated,703 Updated',198),('Updating No.1',0),('Updating No.10',4),('Updating No.20',5)):  # 99% until it closes; none before its first pixel, then never less than its round ends
+    um.nodes[umsg]['text']=text; bare(um); bg(um,uwin); assert msg_bar(um)[1]==want,text
 passed()
-um.nodes[umsg]['text']='Updating No.705'; bare(um); bg(um,uwin); assert um.nodes[uline]['text']=='Updating No.705' and not msg_track(um) and not msg_fill(um) and [b for b in um.bands if b[1]==232]==[] and (127+corner_in(7),248) in [b[:2] for b in um.bands]; passed()
+um.nodes[umsg]['text']='Updating No.705'; bare(um); bg(um,uwin); assert um.nodes[uline]['text']=='Updating No.705' and msg_bar(um) is None and (127+corner_in(18),248) in [b[:2] for b in um.bands]; passed()
 um.clicks=[]; assert um.click(ubtn)==0 and um.clicks==[ubtn]; passed()
 # ... the text it's read from is any language's; a first scan or a folder's has no total: stock's text, no bar.
-um.nodes[umsg]['text']='正在更新第312首'; bare(um); bg(um,uwin); assert um.nodes[uline]['text']=='312 of 704 songs' and msg_fill(um); passed()
+um.nodes[umsg]['text']='正在更新第312首'; bare(um); bg(um,uwin); assert um.nodes[uline]['text']=='312 of 704 songs' and msg_bar(um)[1]==88; passed()
 for kw in (dict(songs=0),dict(whole=0)):
-    f,fwin,_,fmsg,_,_=msg_dialog(text='Updating No.12',**kw); bare(f); bg(f,fwin); assert f.nodes[named(f,fwin,'msg_line')]['text']=='Updating No.12' and not msg_track(f) and not msg_fill(f); passed()
+    f,fwin,_,fmsg,_,_=msg_dialog(text='Updating No.12',**kw); bare(f); bg(f,fwin); assert f.nodes[named(f,fwin,'msg_line')]['text']=='Updating No.12' and msg_bar(f) is None; passed()
 # ... stock's button text is translated; the screen is English.
 b2,b2win,_,_,_,b2btn=msg_dialog(); b2.nodes[b2btn]['text']='取消'; bare(b2); bg(b2,b2win); assert b2.nodes[b2btn]['text']=='Cancel'; passed()
 # ... with stock's label still empty, a later paint leaves the button alone: it writes only a text that differs.
@@ -3266,32 +3269,32 @@ bare(b3); bg(b3,b3win); assert not [c for c in b3.calls if c[0]=='widget_set_tex
 # ... the total is a worker's, as Home's counts are: the load opens no connection on the UI thread. Until the answer, stock's text and no bar; then the poll puts up the count.
 q,qwin,_,qmsg,_,_=msg_dialog(text='Updating No.312',counted=False)
 assert not q.sqls and not [c for c in q.calls if c[0] in ('sqlite3_open','pthread_join')] and len(q.threads)==1 and [c for c in q.calls if c[0]=='pthread_detach@GLIBC_2.0']
-bare(q); bg(q,qwin); qline=named(q,qwin,'msg_line'); assert q.nodes[qline]['text']=='Updating No.312' and not msg_track(q) and not msg_fill(q) and not q.sqls
+bare(q); bg(q,qwin); qline=named(q,qwin,'msg_line'); assert q.nodes[qline]['text']=='Updating No.312' and msg_bar(q) is None and not q.sqls
 q.counted(); assert q.sqls[-1]=='select count(*) from songtable'; q.calls=[]; q.advance(200); assert q.nodes[qline]['text']=='312 of 704 songs' and [c[1] for c in q.calls if c[0]=='widget_invalidate_force']==[qwin]; passed()
 # ... the dialog closed first: nothing waits on the worker. A new dialog with it still running shares its answer; with it done, drops the old answer and asks again.
 q,qwin,*_=msg_dialog(counted=False); msg_close(q,qwin); q2win,_,q2msg,_,_=msg_win(q,'Updating No.3'); assert len(q.threads)==1
 q.counted(); bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='3 of 704 songs'; msg_close(q,q2win)
 q,qwin,*_=msg_dialog(counted=False); q.songs=9; q.counted(); msg_close(q,qwin); q.songs=704; q2win,_,q2msg,_,_=msg_win(q,'Updating No.3'); assert len(q.threads)==1
-bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='Updating No.3' and not msg_fill(q); q.counted(); bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='3 of 704 songs'; passed()
+bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='Updating No.3' and msg_bar(q) is None; q.counted(); bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='3 of 704 songs'; passed()
 # ... the worker done before pthread_create has returned: its answer stands, and the next dialog asks again.
 q=MsgMachine(); q.config.update(THEME='1',LIGHT='1'); q.byte(O['SCAN_WHOLE'],1); q.thread_first=True; qwin,*_=msg_win(q,'Updating No.312'); assert [c for c in q.calls if c[0]=='pthread_detach@GLIBC_2.0']
-bare(q); bg(q,qwin); assert q.nodes[named(q,qwin,'msg_line')]['text']=='312 of 704 songs' and msg_fill(q); msg_close(q,qwin)
+bare(q); bg(q,qwin); assert q.nodes[named(q,qwin,'msg_line')]['text']=='312 of 704 songs' and msg_bar(q)[1]==88; msg_close(q,qwin)
 q.songs=9; q.calls=[]; q2win,*_=msg_win(q,'Updating No.3'); assert [c for c in q.calls if c[0]=='pthread_create']; bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='3 of 9 songs'; passed()
 # ... no thread to be had, or the database busy: stock's text and no bar; the next dialog asks again.
-q=MsgMachine(); q.config.update(THEME='1',LIGHT='1'); q.byte(O['SCAN_WHOLE'],1); q.thread_fails=True; qwin,*_=msg_win(q,'Updating No.3'); bare(q); bg(q,qwin); assert q.nodes[named(q,qwin,'msg_line')]['text']=='Updating No.3' and not msg_fill(q) and not q.sqls
+q=MsgMachine(); q.config.update(THEME='1',LIGHT='1'); q.byte(O['SCAN_WHOLE'],1); q.thread_fails=True; qwin,*_=msg_win(q,'Updating No.3'); bare(q); bg(q,qwin); assert q.nodes[named(q,qwin,'msg_line')]['text']=='Updating No.3' and msg_bar(q) is None and not q.sqls
 msg_close(q,qwin); q.thread_fails=False; q2win,*_=msg_win(q,'Updating No.3'); q.counted(); bare(q); bg(q,q2win); assert q.nodes[named(q,q2win,'msg_line')]['text']=='3 of 704 songs'
-q,qwin,_,qmsg,_,_=msg_dialog(text='Updating No.3',counted=False); q.busy=True; q.counted(); bare(q); bg(q,qwin); assert q.nodes[named(q,qwin,'msg_line')]['text']=='Updating No.3' and not msg_track(q) and not msg_fill(q); passed()
+q,qwin,_,qmsg,_,_=msg_dialog(text='Updating No.3',counted=False); q.busy=True; q.counted(); bare(q); bg(q,qwin); assert q.nodes[named(q,qwin,'msg_line')]['text']=='Updating No.3' and msg_bar(q) is None; passed()
 # ... it goes with the window: no poll, nothing painted.
 f,ctx=next((f,c) for t,f,c in um.nodes[uwin]['handlers'] if t==O['EVT_DESTROY']); um.call(address=f,args=(ctx,um.event,0,0),gap=0)
 assert not [t for t in um.timers.values() if t[1]==payload_syms['msg_poll']] and um.nodes[uwin]['visible']==1; bare(um); bg(um,uwin); assert not um.image_draws and not um.letters; passed()
-# USB Storage's page: Connected, and the line; USB Audio and DAC have no line; a box holds its font.
-for mode,line in ((0,'Eject before disconnecting'),(2,'Eject before disconnecting'),(1,'')):
-    ub,bwin,bret,bimg,binfo,bcharge,bdac=usb_page(mode); bare(ub); bg(ub,bwin); bhead,bline=named(ub,bwin,'msg_heading'),named(ub,bwin,'msg_line')
-    assert ub.nodes[bhead]['text']=='Connected' and ub.nodes[bline].get('text','')==line and wbox(ub,bhead)==(16,228-26,343,32) and wbox(ub,bline)==(16,255-26,343,20)
-    assert page_fill(ub) and ub.image_draws[0][1][:2]==(122,67-26) and [ub.text(c[2]) for c in ub.calls if c[0]=='widget_load_image']==['classic_light_orb_usb']
+# USB Storage's page: the half's paper, the mark in its ink, Connected, and the line; USB Audio and DAC have no line; a box holds its font.
+for mode,line,light in ((0,'Eject before disconnecting','1'),(2,'Eject before disconnecting','0'),(1,'','1')):
+    ub,bwin,bret,bimg,binfo,bcharge,bdac=usb_page(mode,light=light); bare(ub); bg(ub,bwin); bhead,bline=named(ub,bwin,'msg_heading'),named(ub,bwin,'msg_line')
+    assert ub.nodes[bhead]['text']=='Connected' and ub.nodes[bline].get('text','')==line and wbox(ub,bhead)==(16,182-26,343,32) and wbox(ub,bline)==(16,216-26,343,22)
+    assert page_fill(ub,0,0xffffff if light=='1' else 0) and ub.image_draws[0][1][:2]==(145,82-26) and [ub.text(c[2]) for c in ub.calls if c[0]=='widget_load_image']==['classic_light_msg_usb_'+'dl'[light=='1']]
     assert [ub.nodes[w]['visible'] for w in (bimg,binfo,bret,bcharge,bdac)]==[0,0,1,1,1] and wbox(ub,bret)==(20,0,80,60) and wbox(ub,bcharge)==(247,0,50,50) and wbox(ub,bdac)==(305,0,50,50)
-    assert not [b for b in ub.bands if b[2]==375 and b[4]==color_t(0x1c1c1c)] and not msg_track(ub) and not ub.timers  # the real bar's above it; no count
-    assert [(t['text'],t['rect']) for t in ub.letters]==[('Connected',(16,229-26,343,32))]+([(line,(16,256-26,343,20))] if line else []) and ub.lcd_colors()==LCD_COLORS; passed()
+    assert len(ub.bands)==1 and not ub.timers  # the page alone: the real bar's above it; no count
+    assert not ub.letters and ub.lcd_colors()==LCD_COLORS; passed()
 # ... under the real bar it has Classic's own bar, with no title (no wordmark) and no clock; a window that covers the bar
 # paints the real one too, and no rows of its own.
 db,dbar,dright,dtitle,dclock,dbt,dwifi,dpct,dslot,dst,dwin,dhome=bar_setup()
@@ -3299,31 +3302,31 @@ uw=db.node('window','usbmode_page'); db.word(uw+O['W_PARENT'],db.wm); place(db,u
 for _ in range(2): bg(db,uw); bg(db,dbar)
 db.advance(61000)  # the clock's minute writes no clock over USB's page
 assert db.nodes[dtitle].get('text','')=='' and db.nodes[dclock].get('text','')==''; db.bands=[]; bg(db,dbar); assert [b for b in db.bands if b[2]==375][0][4]==color_t(0xffffff); passed()
-db.word(uw+O['W_Y'],0); db.letters=[]; bg(db,uw); assert db.letters and not [t for t in db.letters if t['rect'][1]<26]; passed()  # a window over the bar paints no title there
+db.word(uw+O['W_Y'],0); db.letters=[]; bg(db,uw); assert not [t for t in db.letters if t['rect'][1]<26]; passed()  # a window over the bar paints no title there
 uc,cwin,*_=usb_page(0,y=0); uc.mock('widget_paint'); ucbar=uc.node('window','system_bar'); uc.word(ucbar+O['W_PARENT'],uc.wm); uc.word(syms['system_bar'],ucbar); bare(uc); bg(uc,cwin)
-assert page_fill(uc,26) and uc.image_draws[0][1][:2]==(122,67) and not [b for b in uc.bands if b[1]<26] and [c[1] for c in uc.calls if c[0]=='widget_paint']==[ucbar] and uc.letters[0]['text']=='Connected' and wbox(uc,named(uc,cwin,'msg_heading'))==(16,228,343,32); passed()
+assert page_fill(uc,26,0xffffff) and uc.image_draws[0][1][:2]==(145,82) and not [b for b in uc.bands if b[1]<26] and [c[1] for c in uc.calls if c[0]=='widget_paint']==[ucbar] and not uc.letters and wbox(uc,named(uc,cwin,'msg_heading'))==(16,182,343,32); passed()
 # ... a cable opening it over the scan's dialog: each paints its own, and the dialog's end leaves the page.
 sd,swin,_,smsg,_,_=msg_dialog(); ub2=sd.node('window','usbmode_page'); sd.word(ub2+O['W_PARENT'],sd.wm); place(sd,ub2,0,26,375,294); ui_loaded(sd,'usbmode_page',ub2)
-bare(sd); bg(sd,ub2); assert page_fill(sd) and sd.image_draws[0][1][:2]==(122,41) and not msg_track(sd)
-bare(sd); bg(sd,swin); assert page_fill(sd,26) and sd.image_draws[0][1][:2]==(129,38)
+bare(sd); bg(sd,ub2); assert page_fill(sd,0,0xffffff) and sd.image_draws[0][1][:2]==(145,56) and msg_bar(sd) is None
+bare(sd); bg(sd,swin); assert page_fill(sd,26,0xffffff) and sd.image_draws[0][1][:2]==(145,46)
 f,ctx=next((f,c) for t,f,c in sd.nodes[swin]['handlers'] if t==O['EVT_DESTROY']); sd.call(address=f,args=(ctx,sd.event,0,0),gap=0)
-assert not [t for t in sd.timers.values() if t[1]==payload_syms['msg_poll']]; bare(sd); bg(sd,ub2); assert sd.image_draws[0][1][:2]==(122,41); passed()
-# Auto Light Mode's turn with a page open: every label's stored ink follows the half, which the style hook hands back white.
-for ink_day,ink_night in ((color_t(0),color_t(0xffffff)),):
-    ub,bwin,*_=usb_page(0,light='2'); bare(ub); bg(ub,bwin); uinks=lambda: {ub.nodes[named(ub,bwin,n)]['style:normal:text_color']&0xffffffff for n in ('msg_heading','msg_line')}
-    assert uinks()=={ink_day}; half_turn(ub,19); assert uinks()=={ink_night}; half_turn(ub,7); assert uinks()=={ink_day}; half_turn(ub,8); assert uinks()=={ink_day}
-    um2,u2win,*_,u2btn=msg_dialog(light='2'); binks=lambda: {um2.nodes[u2btn][f'style:{s}:text_color']&0xffffffff for s in ('normal','pressed','over','disable','focused')}
-    bg(um2,u2win); assert binks()=={ink_day}; half_turn(um2,19); assert binks()=={ink_night}
+assert not [t for t in sd.timers.values() if t[1]==payload_syms['msg_poll']]; bare(sd); bg(sd,ub2); assert sd.image_draws[0][1][:2]==(145,56); passed()
+# Auto Light Mode's turn with a page open: at its next paint every label's stored ink is the new half's, which the style hook hands back final.
+def msg_inks(light): return tuple(color_t(c^0xffffff if light else c) for c in ((0x1c1c1e,0x6e6e73) if light else (0xffffff,0x98989d)))  # the heading's (and Cancel's), the line's
+ub,bwin,*_=usb_page(0,light='2'); uinks=lambda: (bg(ub,bwin),tuple(ub.nodes[named(ub,bwin,n)]['style:normal:text_color']&0xffffffff for n in ('msg_heading','msg_line')))[1]
+assert uinks()==msg_inks(1); half_turn(ub,19); assert uinks()==msg_inks(0); half_turn(ub,7); assert uinks()==msg_inks(1); half_turn(ub,8); assert uinks()==msg_inks(1)
+um2,u2win,*_,u2btn=msg_dialog(light='2'); binks=lambda: (bg(um2,u2win),{um2.nodes[u2btn][f'style:{s}:text_color']&0xffffffff for s in ('normal','pressed','over','disable','focused')})[1]
+assert binks()=={msg_inks(1)[0]}; half_turn(um2,19); assert binks()=={msg_inks(0)[0]}
 passed()
 # ... the hold menu's title.
 ha,had,_=hold_cl('2'); assert hold_inks(ha,had)==hold_inks(*hold_cl('1')[:2]); half_turn(ha,19); assert hold_inks(ha,had)==hold_inks(*hold_cl('0')[:2]); passed()
 # Nothing here crosses the glass, and Minimal keeps stock's dialogs: no images, no moved widgets, stock's labels shown.
-for x,y,w,h in ((127,248,121,35),(16,159,343,32),(16,188,343,20),(72,218,229,15),(129,38,116,116),(122,67,130,130),(16,228,343,32),(16,255,343,20)):
+for x,y,w,h in ((127,248,121,36),(16,146,343,32),(16,180,343,22),(88,222,200,4),(145,46,84,84),(145,82,84,84),(16,182,343,32),(16,216,343,22)):
     assert corner_inset(y)<=x and corner_inset(y+h-1)<=x and x+w<=375-max(corner_inset(y),corner_inset(y+h-1)),(x,y,w,h)
-for h,px in ((32,29),(20,18),(34,23),(25,22)): assert h>px
+for h,px in ((32,27),(22,17),(36,21),(25,22)): assert h>px
 df=TTFont(B/'default.ttf',lazy=True); ds=lambda px: px/(df['hhea'].ascent-df['hhea'].descent)
 ink=lambda t,px: sum(df['hmtx'][df.getBestCmap()[ord(c)]][0] for c in t)*ds(px)
-assert ink('Eject before disconnecting',18)<=375-2*corner_inset(275) and ink('65000 of 65000 songs',18)<=343; passed()
+assert ink('Eject before disconnecting',17)<=343 and ink('65000 of 65000 songs',17)<=343; passed()
 for theme_ in '0':
     m,win,anim,msg,scan,btn=msg_dialog(theme_=theme_); bare(m); m.paint(win); kids=len(m.nodes[win]['children'])
     assert not m.image_draws and wbox(m,btn)==(44,266,287,40) and m.nodes[anim]['visible'] and m.nodes[msg]['visible'] and kids==4 and not m.sqls and not m.timers and 'style:normal:bg_color' not in m.nodes[btn] and not m.letters

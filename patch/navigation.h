@@ -441,6 +441,7 @@ int np_lyric_touch(void *ctx, void *event);
 int quick_dispatch(void *target, void *event);
 void quick_fill(void *w);
 void quick_page(void *win, void *canvas);
+unsigned quick_on(void); /* what is on under Classic, final: its buttons' and bars' fill */
 void quick_scrub(void *w, void *canvas);
 void quick_poll(void);
 int quick_volume(void);

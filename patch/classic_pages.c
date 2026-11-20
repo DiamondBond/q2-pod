@@ -522,19 +522,16 @@ void slider_scrub(void *w, void *canvas) {
 }
 
 /* Classic's message screens, over stock's two windows: Update Library's dialog
- * (full-screen, so it paints the status bar itself, paint_bar) and USB mode's page. Screen rows;
- * each window's own origin is read when it paints. Only the painter reads these tables. */
-#define MSG_BAR_X 72
-#define MSG_BAR_Y 218
-#define MSG_BAR_W 229
-#define MSG_BAR_H 14
-static const stops_t msg_fill = { 12,
-                                  { 0, 8, 16, 25, 33, 42, 50, 58, 67, 75, 83, 100 },
-                                  { 0xf7ffff, 0xfcfdff, 0xf4f4f4, 0xedebec, 0xeae8e9, 0xe2e1df,
-                                    0xd5d4d2, 0xcbcac8, 0xc8c7c5, 0xc0c0c0, 0xbebfc1, 0xbdc1c4 } },
-                     msg_cancel = { 3, { 0, 30, 100 }, { 0x232c33, 0x3a434a, 0x333c43 } };
-static const unsigned char msg_track[MSG_BAR_H] = { 0x87, 0x5c, 0x4d, 0x3d, 0x3d, 0x3b, 0x3b,
-                                                    0x3b, 0x3b, 0x3b, 0x3b, 0x3b, 0x54, 0x54 };
+ * (full-screen, so it paints the status bar itself, paint_bar) and USB mode's page: the half's
+ * paper, a mark in its ink over a heading and a quiet line, and for the scan a thin bar and Cancel.
+ * Screen rows; each window's own origin is read when it paints. Final colours, [0] dark, [1] light:
+ * the page, Cancel's box and the bar at rest, the mark's and the heading's ink, the line's. */
+#define MSG_BAR_X 88
+#define MSG_BAR_Y 222
+#define MSG_BAR_W 200
+#define MSG_BAR_H 4
+static const unsigned msg_page[2] = { 0x000000, 0xffffff }, msg_rest[2] = { 0x2c2c2e, 0xe9e9ec },
+                      msg_ink[2] = { 0xffffff, 0x1c1c1e }, msg_quiet[2] = { 0x98989d, 0x6e6e73 };
 static int msg_gone(void *win, void *event) {
     if (win == st.usb_win) st.usb_win = (void *)0;
     if (win == st.msg_win) {
@@ -579,7 +576,7 @@ static int msg_sync(void) {
 /* Stock's hidden label repaints nothing, so this does, at the rate stock writes it. */
 static int msg_poll(const void *info) {
     (void)info;
-    if (msg_sync()) widget_invalidate_force(st.msg_win, &(rect_t){ 16, 188, 343, 45 });
+    if (msg_sync()) widget_invalidate_force(st.msg_win, &(rect_t){ 16, 180, 343, 46 });
     return 8; /* RET_REPEAT */
 }
 int library_count(const char *sql);
@@ -591,9 +588,11 @@ static void *msg_count(void *unused) {
     return 0;
 }
 int msg_counting(void) { return cp.msg_counting == 1; } /* coverflow.c's library_counting */
-#define MSG_HEAD_PX 29
+#define MSG_HEAD_PX 27
 #define MSG_HEAD_H 32 /* holds the font */
-#define MSG_LINE_PX 18
+#define MSG_LINE_PX 17
+#define MSG_LINE_H 22
+#define MSG_BTN_PX 21
 /* Stock's window as it loads, before its init. Every look-up stock makes by name still finds its
  * widget, and btn_no keeps its binding. A cable can open USB's page over the scan's dialog, so each
  * has its own st. */
@@ -613,20 +612,20 @@ void msg_open(void *win) {
     widget_set_name(c, "msg_heading");
     widget_set_text_utf8(c, scan ? "Updating Library" : "Connected");
     slider_label(c, 16, 0, 343, MSG_HEAD_H, MSG_HEAD_PX, "classic-light");
-    c = text(win, 16, 0, 343, 20);
+    c = text(win, 16, 0, 343, MSG_LINE_H);
     widget_set_name(c, "msg_line");
-    slider_label(c, 16, 0, 343, 20, MSG_LINE_PX, "default");
+    slider_label(c, 16, 0, 343, MSG_LINE_H, MSG_LINE_PX, "default");
     if (!scan) {
         st.usb_win = win;
         if (g_usbmode != 1) widget_set_text_utf8(c, "Eject before disconnecting");
         return;
     }
     st.msg_win = win, cp.msg_src = src, cp.msg_btn = btn, cp.msg_line = c;
-    widget_move_resize(btn, 127, 248, 121, 34);
+    widget_move_resize(btn, 127, 248, 121, 36);
     for (unsigned i = 0; i < sizeof state / sizeof *state; ++i) {
         widget_set_prop_int(btn, style_key(key, state[i], "bg_color"), 0);
         widget_set_prop_str(btn, style_key(key, state[i], "font_name"), "classic-light");
-        widget_set_prop_int(btn, style_key(key, state[i], "font_size"), CONFIRM_CELL_PX);
+        widget_set_prop_int(btn, style_key(key, state[i], "font_size"), MSG_BTN_PX);
     }
     text_ink(btn, 0xffffffffu, INK_BUTTON);
     cp.msg_seen[0] = 0, cp.msg_part = -1, cp.msg_total = 0;
@@ -640,38 +639,42 @@ void msg_open(void *win) {
     }
     cp.msg_timer = timer_add(msg_poll, (void *)0, 200);
 }
-/* Under the window's children. */
+/* w's text in a final colour, when it isn't: the half can change under an open page. */
+static void msg_text(void *w, unsigned rgb, int n) {
+    unsigned color = 0xff000000u | rgb;
+    if ((unsigned)widget_get_prop_int(w, "_final", 0) != color) text_ink(w, color, n);
+}
+/* Under the window's children: the page, the mark 100 rows over the heading, and the line. */
 void msg_paint(void *w, void *canvas) {
     void *lcd = P(canvas, CANVAS_LCD);
     if (!lcd) return;
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
-    int scan = w == st.msg_win, dy = I(w, W_Y), head = scan ? 159 : 228, line = scan ? 188 : 255;
+    int scan = w == st.msg_win, dy = I(w, W_Y), top = scan ? 46 : 82, light = ipod_light();
     void *heading = widget_lookup(w, "msg_heading", 1), *below = widget_lookup(w, "msg_line", 1);
+    char name[32];
     if (scan) msg_sync();
-    bar_place(heading, 16, head, 343, MSG_HEAD_H);
-    bar_place(below, 16, line, 343, 20);
-    paint_page(w, canvas, 26 - dy);
+    bar_place(heading, 16, top + 100, 343, MSG_HEAD_H);
+    bar_place(below, 16, top + 134, 343, MSG_LINE_H);
+    msg_text(heading, msg_ink[light], INK_LABEL);
+    msg_text(below, msg_quiet[light], INK_LABEL);
+    bar_rect(canvas, RGBA(msg_page[light]), 0, 26 - dy, 375, 294);
     if (dy < 26) paint_bar(w, canvas); /* over the bar: bar_title_of has the scan's title */
-    paint_art(w, canvas, scan ? "classic_light_orb_note" : "classic_light_orb_usb",
-              scan ? 129 : 122, (scan ? 38 : 67) - dy);
-    text_shadow(canvas, "classic-light", widget_get_text(heading),
-                &(rect_t){ 16, head + 1 - dy, 343, MSG_HEAD_H }, MSG_HEAD_PX, 0x59);
-    text_shadow(canvas, "default", widget_get_text(below), &(rect_t){ 16, line + 1 - dy, 343, 20 },
-                MSG_LINE_PX, 0x59);
+    tk_snprintf(name, sizeof name, "classic_light_msg_%s_%s", scan ? "note" : "usb",
+                light ? "l" : "d");
+    paint_art(w, canvas, name, 145, top - dy);
     if (scan) {
-        rect_t cancel = { 127, 248, 121, 34 };
-        /* the track's corners clip the fill, whose moving end is square */
-        for (int i = 0; cp.msg_part >= 0 && i < MSG_BAR_H; ++i) {
-            int n = round_inset(7, i, MSG_BAR_H), x = MSG_BAR_X + n, y = MSG_BAR_Y + i,
-                end = MSG_BAR_X + MSG_BAR_W - n, to = MSG_BAR_X + cp.msg_part;
-            scrub_row(canvas, (unsigned)msg_track[i] << 24, x, y, end - x);
-            if (to > end) to = end;
-            if (to > x) bar_rect(canvas, RGBA(stops_row(&msg_fill, i, MSG_BAR_H)), x, y, to - x, 1);
+        unsigned on = quick_on();
+        rect_t cancel = { 127, 248, 121, 36 }, bar = { MSG_BAR_X, MSG_BAR_Y, MSG_BAR_W, MSG_BAR_H };
+        stops_t rest = { 2, { 0, 100 }, { msg_rest[light], msg_rest[light] } },
+                lit = { 2, { 0, 100 }, { on, on } };
+        msg_text(cp.msg_btn, msg_ink[light], INK_BUTTON);
+        if (cp.msg_part >= 0) {
+            paint_round_rows(canvas, &bar, &rest, 2);
+            /* the least it shows is its own round ends */
+            bar.w = cp.msg_part && cp.msg_part < MSG_BAR_H ? MSG_BAR_H : cp.msg_part;
+            if (bar.w) paint_round_rows(canvas, &bar, &lit, 2);
         }
-        if (cp.msg_part >= 0)
-            scrub_row(canvas, 0x14ffffffu, MSG_BAR_X + 7, MSG_BAR_Y + MSG_BAR_H, MSG_BAR_W - 14);
-        paint_round_rows(canvas, &cancel, &msg_cancel, 7);
-        row_below(canvas, &cancel, 7, 0x26ffffffu);
+        paint_round_rows(canvas, &cancel, &rest, 18);
     }
     stock_canvas_set_fill_color(canvas, fill);
 }

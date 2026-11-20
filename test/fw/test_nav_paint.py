@@ -1294,7 +1294,7 @@ def test_another_slider_is_left(fw, world):
                                          ('Low Gain', ['Low Gain']), ('Equalisers', ['Equalise', 'rs']),
                                          ('Sys Settings', ['Sys', 'Settings'])])
 def test_a_quick_label_wraps_at_the_last_space_that_fits(fw, world, text, lines):
-    """10 px a character here, 80 px a line: a word too long for one breaks where the line is full."""
+    """10 px a character here, 86 px a line: a word too long for one breaks where the line is full."""
     theme(fw, CLASSIC, LIGHT='1')
     win = world.window('statusbar_dialog', 'dialog')
     label = world.add(win, 'label_wifi', 'label', text=text)
@@ -1308,7 +1308,8 @@ def test_a_quick_label_wraps_at_the_last_space_that_fits(fw, world, text, lines)
     assert all(10 * len(t) <= r[2] for t, r, *_ in canvas.texts)  # each line fits the column
     assert all(0 < b[1] - a[1] < a[3] for a, b in zip(boxes, boxes[1:]))  # each under the last, tighter than a box
     assert box[1] + box[3] == boxes[-1][1] + boxes[-1][3]  # stock's box round all its lines, for its repaint
-    assert {c for _, _, c, _ in canvas.texts} == {0xffffffff}  # white in the light half too: final
+    assert {c for _, _, c, _ in canvas.texts} == {rgba(0x6e6e73)}  # the light half's quiet ink, final
+    assert {f for *_, f in canvas.texts} == {(None, 14)}  # the system's face, which has every script
     assert world[label].props['style:normal:text_color'] == 0  # its own ink clear
     sets = len(fw.calls('widget_set_prop_int'))
     fw.fn('quick_settings__quick_label', None, C.c_void_p, C.c_void_p, C.c_int, C.c_int)(canvas.p, label, x, y)
@@ -1338,7 +1339,7 @@ def quick_page(fw, world, images, light='0', pressed=None, **config):
     win = world.window('statusbar_dialog', 'dialog')
     icons = {}
     for i, (name, image) in enumerate(images.items()):
-        icons[name] = world.add(win, name, 'image', box=(30 + 80 * (i % 4), 40 + 100 * (i // 4), 60, 60), image=image)
+        icons[name] = world.add(win, name, 'image', box=(30 + 80 * (i % 4), 40 + 100 * (i // 4), 54, 54), image=image)
         world.add(win, LABELS[name], 'label', box=(0, 0, 80, 18), text='Label')
     if pressed:
         fw.var('quick_settings__quick', Quick).pressed = icons[pressed]
@@ -1347,13 +1348,10 @@ def quick_page(fw, world, images, light='0', pressed=None, **config):
     return win, icons, canvas
 
 
-def tile(canvas, icon_box, row=30):
-    """A quick button's tile, over its icon's box, on one of its rows past the corners: its face's colour (a pixel
-    inside its ring) and its ring's (the row under the face)."""
+def face(canvas, icon_box, row=27):
+    """A quick button's disc, over its icon's box, on one of its rows: its colour there, the row's widest fill."""
     x, y, w, _ = icon_box
-    face = [c for fx, fy, fw_, h, c in canvas.fills if (fx, fy, fw_, h) == (x + 1, y + row, w - 2, 1)]
-    ring = [c for fx, fy, fw_, h, c in canvas.fills if (fx, fy, fw_, h) == (x, y + row, w, 1)]
-    return face[0], ring[0]
+    return max((fw_, c) for fx, fy, fw_, h, c in canvas.fills if (fy, h) == (y + row, 1) and x <= fx and fx + fw_ <= x + w)[1]
 
 
 def blue(color):
@@ -1361,47 +1359,64 @@ def blue(color):
     return b > max(r, g)
 
 
-def test_quick_buttons_on_are_the_accent_s_and_off_the_bar_s_dark(fw, world, stock_h, scheme):
-    on, off = stock_h['QS_LIT'][0], 'drop_wifi'
-    assert off not in stock_h['QS_LIT']
-    _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': on, 'img_btswitch': off})
-    (lit, lit_ring), (plain, plain_ring) = tile(canvas, world.at(icons['img_wifiswitch'])), tile(canvas, world.at(icons['img_btswitch']))
-    assert lit == lit_ring and blue(lit)  # Classic Blue's blue, flat with no ring
-    assert plain == plain_ring == rgba(scheme('bar_line')) != lit  # the dark bar's hairline
-    assert canvas.art(f'classic_light_{on}') == [world.at(icons['img_wifiswitch'])[:2] + (20, 10)]  # white on
-    assert canvas.art(f'classic_light_{off}_d') == [world.at(icons['img_btswitch'])[:2] + (20, 10)]  # dark off
+def grey(color):
+    r, g, b = channels(rgb_of(color))
+    return max(r, g, b) - min(r, g, b) <= 4
+
+
+@pytest.mark.parametrize('light', ['0', '1'])
+def test_the_quick_page_is_a_ground_under_two_cards(fw, world, light):
+    win, _, canvas = quick_page(fw, world, {}, light=light)
+    ground = canvas.fills[0]
+    assert ground[:2] == (0, 0) and ground[2:4] == world.at(win)[2:]  # the whole window, one fill
+    wide = max(f[2] for f in canvas.fills[1:])
+    rows = [f for f in canvas.fills[1:] if f[2] == wide]  # the cards' rows between their corners
+    ys = [f[1] for f in rows]
+    assert len([b for a, b in zip(ys, ys[1:]) if b - a > 1]) == 1  # two runs of rows: two cards, one under the other
+    assert len({(f[0], f[2], f[4]) for f in rows}) == 1 and luma(rgb_of(rows[0][4])) > luma(rgb_of(ground[4]))  # alike, lighter than the ground
     assert canvas.fill == 0xff123456
 
 
-def test_a_light_off_button_is_silver_lighter_at_the_top_in_a_darker_ring(fw, world):
+def test_quick_buttons_on_are_the_accent_s_and_at_rest_a_grey(fw, world, stock_h):
+    on, off = stock_h['QS_LIT'][0], 'drop_wifi'
+    assert off not in stock_h['QS_LIT']
+    _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': on, 'img_btswitch': off})
+    lit, plain = face(canvas, world.at(icons['img_wifiswitch'])), face(canvas, world.at(icons['img_btswitch']))
+    assert blue(lit) and grey(plain) and luma(rgb_of(plain)) < 0x60  # Classic Blue's blue; a dark grey at rest
+    assert canvas.art(f'classic_light_{on}') == [world.at(icons['img_wifiswitch'])[:2] + (20, 10)]  # white on
+    assert canvas.art(f'classic_light_{off}') == [world.at(icons['img_btswitch'])[:2] + (20, 10)]  # and at rest, in the dark half
+    assert canvas.fill == 0xff123456
+
+
+def test_a_light_button_at_rest_is_a_flat_light_grey_under_a_dark_glyph(fw, world):
     _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': 'drop_wifi'}, light='1')
     box = world.at(icons['img_wifiswitch'])
-    (top, ring), (foot, _) = tile(canvas, box, row=12), tile(canvas, box, row=47)
-    assert luma(rgb_of(top)) > luma(rgb_of(foot)) > luma(rgb_of(ring))
-    assert canvas.art('classic_light_drop_wifi_l')  # the glyph dark on silver
+    shades = {face(canvas, box, row) for row in (5, 27, 48)}
+    assert len(shades) == 1 and grey(*shades) and luma(rgb_of(*shades)) > 0xc0  # no gradient, no ring
+    assert canvas.art('classic_light_drop_wifi_l') and not canvas.art('classic_light_drop_wifi')
 
 
-def test_a_light_on_button_s_ring_is_a_shade_darker(fw, world, stock_h):
+@pytest.mark.parametrize('light', ['0', '1'])
+def test_an_on_button_is_one_flat_blue_in_either_half(fw, world, stock_h, light):
     on = stock_h['QS_LIT'][0]
-    _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': on}, light='1')
-    face, ring = tile(canvas, world.at(icons['img_wifiswitch']))
-    assert blue(face) and blue(ring) and luma(rgb_of(ring)) < luma(rgb_of(face))
+    _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': on}, light=light)
+    box = world.at(icons['img_wifiswitch'])
+    assert {rgb_of(face(canvas, box, row)) for row in (5, 27, 48)} == {0x207cde} and canvas.art(f'classic_light_{on}')
 
 
 @pytest.mark.parametrize('accent, ink', [(GRAPHITE, '_l'), (TIDAL, '')])
 def test_another_accent_s_on_button_takes_its_red_tone_and_a_glyph_that_shows(fw, world, stock_h, accent, ink):
     on = stock_h['QS_LIT'][0]
     _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': on}, CLASSIC_LIGHT_ACCENT=str(accent))
-    assert tile(canvas, world.at(icons['img_wifiswitch'])) == (rgba(ACCENTS[accent][RED]),) * 2
+    assert face(canvas, world.at(icons['img_wifiswitch'])) == rgba(ACCENTS[accent][RED])
     assert canvas.art(f'classic_light_{on}{ink}')
 
 
 @pytest.mark.parametrize('image', ['drop_wifi', 'drop_wifiopen'])
 def test_a_pressed_quick_button_is_a_sixth_darker(fw, world, image):
     _, icons, canvas = quick_page(fw, world, {'img_wifiswitch': image, 'img_btswitch': image}, pressed='img_wifiswitch')
-    pressed, shown = tile(canvas, world.at(icons['img_wifiswitch'])), tile(canvas, world.at(icons['img_btswitch']))
-    for a, b in zip(pressed, shown):
-        assert channels(rgb_of(a)) == tuple(v * 5 // 6 for v in channels(rgb_of(b)))
+    pressed, shown = face(canvas, world.at(icons['img_wifiswitch'])), face(canvas, world.at(icons['img_btswitch']))
+    assert channels(rgb_of(pressed)) == tuple(v * 5 // 6 for v in channels(rgb_of(shown)))
 
 
 def test_each_quick_button_has_its_label_under_it(fw, world):
@@ -1436,49 +1451,57 @@ def quick_scrub(fw, world, value, **config):
 
 
 def hued(f):
-    """A fill in a hue: the scrub's fill, over its grey track."""
+    """A fill in a hue: the scrub's fill, over its grey bar."""
     r, _, b = channels(rgb_of(f[4]))
     return b - r > 0x30
 
 
-def track_of(canvas):
-    """The scrub's grey track: its x, its width (its corners' soft pixels included) and its rows."""
-    grey = [f for f in canvas.fills if not hued(f)]
-    x = min(f[0] for f in grey)
-    return x, max(f[0] + f[2] for f in grey) - x, {f[1] for f in grey}
+def bar_of(canvas):
+    """The scrub's bar at rest, grey: its x, its width (its round ends' soft pixels included) and its rows."""
+    rest = [f for f in canvas.fills if not hued(f)]
+    x = min(f[0] for f in rest)
+    return x, max(f[0] + f[2] for f in rest) - x, {f[1] for f in rest}
 
 
-def test_the_brightness_knob_travels_the_track_with_the_value(fw, world):
-    """It moves with the fill's end: from empty to full the track's width, and a value's share of it."""
+def test_the_brightness_fill_grows_with_the_value_from_its_round_end(fw, world):
+    """Never less than the bar's own height, its round end; from there the value's share of the rest."""
     theme(fw, CLASSIC)
     _, _, slider = quick_window(world)
-    knobs, tracks = {}, set()
+    ends, bars = {}, set()
     for value in (0, 25, 50, 100):
         canvas = scrub(fw, world, slider, value)
-        x, w, rows = track_of(canvas)
-        tracks.add((x, w, min(rows)))
-        (knob,) = canvas.art('classic_light_drop_knob')
-        knobs[value] = knob[0]
-        (image,) = canvas.art('classic_light_drop_track')
-        assert image[:2] == (x, min(rows))  # its image over the track
-    (_, w, _), = tracks  # the track stays
-    assert {v: knobs[v] - knobs[0] for v in knobs} == {v: w * v // 100 for v in knobs}
+        x, w, rows = bar_of(canvas)
+        bars.add((x, w, min(rows), len(rows)))
+        ends[value] = max(f[0] + f[2] for f in canvas.fills if hued(f)) - x
+    (_, w, _, h), = bars  # the bar stays
+    assert ends == {v: h + (w - h) * v // 100 for v in ends}
 
 
-@pytest.mark.parametrize('value', [5, 6, 50, 100])
-def test_the_brightness_fill_shows_from_where_the_knob_no_longer_covers_it(fw, world, value):
+@pytest.mark.parametrize('value', [0, 6, 50, 100])
+def test_the_brightness_fill_keeps_to_the_bar(fw, world, value):
     canvas = quick_scrub(fw, world, value)
-    x, w, rows = track_of(canvas)
-    part = w * value // 100
+    x, w, rows = bar_of(canvas)
     fills = [f for f in canvas.fills if hued(f)]
-    assert bool(fills) == (part >= 12)  # under 12 px the knob covers it
-    assert all(x <= fx and fx + fw_ <= x + part for fx, _, fw_, _, _ in fills)  # from the track's start to the value's share
-    assert {y for _, y, *_ in fills} == (rows if fills else set())  # on the track's rows
+    assert fills and all(x <= fx and fx + fw_ <= x + w for fx, _, fw_, _, _ in fills)  # there at any value, inside the bar
+    assert {y for _, y, *_ in fills} == rows  # on every one of its rows
 
 
-def test_the_brightness_fill_is_another_accent_s_light_tone(fw, world):
+def test_the_brightness_fill_is_another_accent_s_red_tone_as_its_buttons(fw, world):
     canvas = quick_scrub(fw, world, 100, CLASSIC_LIGHT_ACCENT=str(TIDAL))
-    assert {rgb_of(f[4]) for f in canvas.fills if hued(f)} == {ACCENTS[TIDAL][LIGHT]}
+    assert {rgb_of(f[4]) for f in canvas.fills if hued(f)} == {ACCENTS[TIDAL][RED]}
+
+
+@pytest.mark.parametrize('value, light, accent, small, large', [(50, '1', None, '', '_ql'), (50, '0', None, '', '_qd'), (100, '1', None, '', ''),
+                                                                (50, '0', GRAPHITE, '_l', '_qd'), (100, '0', GRAPHITE, '_l', '_l')])
+def test_the_bar_s_suns_take_the_ink_that_shows(fw, world, value, light, accent, small, large):
+    """The small one is on the fill: white, or dark on a bright one. The large one is quiet in the half until the
+    fill reaches it, then the small one's ink."""
+    config = {'LIGHT': light, **({} if accent is None else {'CLASSIC_LIGHT_ACCENT': str(accent)})}
+    canvas = quick_scrub(fw, world, value, **config)
+    assert [n for n, _ in canvas.arts] == ['classic_light_drop_dim' + small, 'classic_light_drop_bright' + large]
+    x, w, rows = bar_of(canvas)
+    (_, dim), (_, bright) = canvas.arts
+    assert x < dim[0] < bright[0] < x + w and min(rows) < dim[1] and min(rows) <= bright[1] <= max(rows)  # in the bar, the small one first
 
 
 def test_the_brightness_track_is_classic_s_alone(fw, world):
@@ -2840,14 +2863,19 @@ def msg_paint(fw, win, y=0, world=None):
 
 
 def scan_bar(fills):
-    """The scan's bar among fills, if it has its track (the translucent black rows): the track's x, end and rows,
-    and its fill's end (the opaque rows', the furthest) and rows."""
-    track = [f for f in fills if not f[4] & 0xffffff and 0 < f[4] >> 24 < 255]
-    if not track:
+    """The scan's bar among fills, if it is there (its rows at rest, a grey): its x, end and rows, and its fill's end
+    (the accent's rows', the furthest; -1 with none) and rows."""
+    rest = [f for f in fills if not hued(f)]
+    if not rest:
         return None
-    lit = [f for f in fills if f[4] >> 24 == 255]
-    return (min(f[0] for f in track), max(f[0] + f[2] for f in track), {f[1] for f in track},
+    lit = [f for f in fills if hued(f)]
+    return (min(f[0] for f in rest), max(f[0] + f[2] for f in rest), {f[1] for f in rest},
             max((f[0] + f[2] for f in lit), default=-1), {f[1] for f in lit})
+
+
+def msg_mark(canvas, name):
+    """Where a message page drew its mark, in either half's ink."""
+    return [dst for n, dst in canvas.arts if n and n.startswith(f'classic_light_msg_{name}_')]
 
 
 def counted(fw, world, st, whole, text, songs=704):
@@ -2915,9 +2943,8 @@ def test_the_scan_s_bar_fills_to_its_part(fw, world, st, whole):
     assert world.at(heading)[1] < world.at(line)[1] and world.at(line)[1] + world.at(line)[3] <= min(rows)
     assert {'352', '704'} <= set(re.findall(r'\d+', world[line].text))  # the line carries both numbers
     canvas = msg_paint(fw, win)
-    texts = [t for t, *_ in canvas.texts]
-    assert texts == [world[heading].text, world[line].text]  # their shadows; the bar's title is the real bar's
-    assert canvas.art('classic_light_orb_note') and canvas.fill == 0xff123456
+    assert canvas.texts == []  # the labels are widgets of their own, with no shadow; the bar's title is the real bar's
+    assert msg_mark(canvas, 'note') and canvas.fill == 0xff123456
 
 
 @pytest.mark.parametrize('light', ['0', '1'])
@@ -2947,15 +2974,15 @@ def test_a_message_window_under_the_bar_draws_no_bar_of_its_own(fw, world, st, w
     assert [t for t, *_ in full.texts] == [t for t, *_ in canvas.texts]
     assert ('widget_paint', bar) in full.arts and ('widget_paint', bar) not in canvas.arts
     assert canvas.fills[0][:4] == (0, 0, w, h)  # the page from its own top
-    (orb,), (was,) = canvas.art('classic_light_orb_note'), full.art('classic_light_orb_note')
-    assert orb[1] + dy == was[1]  # the screen's place, in the window's rows
+    (mark,), (was,) = msg_mark(canvas, 'note'), msg_mark(full, 'note')
+    assert mark[1] + dy == was[1]  # the screen's place, in the window's rows
 
 
 USB_LUN = '/sys/kernel/config/usb_gadget/storage_demo/functions/mass_storage.msg/lun.0/file'
 
 
-def usb_page(fw, world, st, number=CLASSIC, mode=0):
-    theme(fw, number)
+def usb_page(fw, world, st, number=CLASSIC, mode=0, **config):
+    theme(fw, number, **config)
     fw.var('g_usbmode', C.c_ubyte).value = mode
     win = world.window('usbmode_page')
     world.add(win, 'img_usbmode', 'image')
@@ -2971,12 +2998,40 @@ def test_classic_s_usb_page_says_connected_and_to_eject(fw, world, st):
     assert heading and line and heading != line
     assert world[named(world, win, 'scrlabel_info')].visible == 0 and st('usb_win', C.c_void_p).value == win
     canvas = msg_paint(fw, win)
-    assert [t for t, *_ in canvas.texts] == [heading, line]
+    assert canvas.texts == []  # widgets of their own, with no shadow
     below = world.at(named(world, win, 'msg_line'))[1]
-    assert [f for f in canvas.fills if f[1] >= below] == [] and canvas.art('classic_light_orb_usb')
+    assert [f for f in canvas.fills if f[1] >= below] == [] and msg_mark(canvas, 'usb')
     for gone in world.on(win, EVT_DESTROY):
         gone()
     assert st('usb_win', C.c_void_p).value is None
+
+
+def msg_final(world, win, name):
+    return world[named(world, win, name)].props['_final'] & 0xffffffff
+
+
+@pytest.mark.parametrize('light, ink, quiet', [('0', 0xffffff, 0x98989d), ('1', 0x1c1c1e, 0x6e6e73)])
+def test_a_message_page_is_the_half_s_paper_under_its_ink(fw, world, st, light, ink, quiet):
+    win = usb_page(fw, world, st, LIGHT=light)
+    canvas = msg_paint(fw, win)
+    assert rgb_of(canvas.fills[0][4]) == (0xffffff if light == '1' else 0)  # the page: white, or black
+    assert canvas.art(f'classic_light_msg_usb_{"l" if light == "1" else "d"}')  # the mark in the half's ink
+    assert (msg_final(world, win, 'msg_heading'), msg_final(world, win, 'msg_line')) == (0xff000000 | ink, 0xff000000 | quiet)
+
+
+def test_a_message_page_s_ink_follows_the_half_while_it_is_open(fw, world, st):
+    """Light Mode: Auto changes the half at 07:00 and 19:00, under a page that can stay up for hours."""
+    win = usb_page(fw, world, st, LIGHT='1')
+    seen = []
+    for light in (1, 0, 1):
+        msg_paint(fw, win)  # the first reads the setting
+        st('light').value = light
+        msg_paint(fw, win)
+        seen.append(msg_final(world, win, 'msg_heading'))
+    assert seen[0] == seen[2] != seen[1]
+    inks = len(fw.calls('widget_set_prop_int'))
+    msg_paint(fw, win)
+    assert len(fw.calls('widget_set_prop_int')) == inks  # the same half: nothing written
 
 
 def test_usb_audio_mode_has_nothing_to_eject(fw, world, st):

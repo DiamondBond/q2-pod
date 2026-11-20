@@ -1,6 +1,6 @@
 /* Quick Settings, stock's pull-down: its holds (Wi-Fi's, Bluetooth's and the EQ's settings), the
  * key lock's button, the wheel's choice of brightness or volume, a stuck pull-down's release, and
- * Classic's page, buttons and brightness slider. */
+ * Classic's page, buttons and brightness bar. */
 #include "navigation.h"
 extern int stock_quicksettings_trampoline(void *, void *);
 
@@ -90,26 +90,34 @@ static const char *const quick_icons[] = { "img_wifiswitch", "img_btswitch", "im
                                                    "label_lock",    "label_gain",
                                                    "label_usbmode", "label_outputway",
                                                    "label_playset", "label_sysset" };
-/* The knob reaches past the slider, whose own repaint would leave it behind. */
+/* The bar's ends reach past what the slider repaints of itself. */
 static int quick_moved(void *view, void *event) {
     widget_invalidate_force(view, (void *)0);
     return 0;
 }
+/* The brightness bar, in the window: its box, which the slider takes, its own 48 rows about it. */
+#define QS_BAR_X 33
+#define QS_BAR_Y 239
+#define QS_BAR_W 309
+#define QS_BAR_H 36
 static void quick_open(void *win) {
     void *c = widget_lookup(win, "view_menu", 1);
-    if (c) widget_move_resize(c, 0, 0, I(c, W_W), I(c, W_Y) + I(c, W_H));
-    static const short column[] = { 31, 115, 199, 283 }; /* 24 apart */
+    if (c) widget_move_resize(c, 0, 0, I(c, W_W), 226); /* the buttons' card and the gap under it */
+    static const short column[] = { 33, 118, 203, 288 }; /* 31 apart, 15 in from the card's sides */
     for (unsigned i = 0; i < sizeof quick_icons / sizeof *quick_icons; ++i) {
         if (!(c = widget_lookup(win, quick_icons[i], 1))) continue;
-        widget_move_resize(c, column[i % 4], i < 4 ? 20 : 138, 60, 60);
+        widget_move_resize(c, column[i % 4], i < 4 ? 34 : 122, 54, 54);
         widget_set_opacity(c, 0);
         if (!widget_get_prop_int(c, QUICK_HOLD, 0)) widget_on(c, EVT_POINTER_DOWN, quick_down, c);
     }
     if ((c = widget_lookup(win, "image0", 1))) widget_set_visible(c, 0, 0);
     if ((c = widget_lookup(win, "image1", 1))) widget_set_visible(c, 0, 0);
     if ((c = widget_lookup(win, "slider_backlight", 1))) {
-        widget_on(c, EVT_VALUE_CHANGING, quick_moved, P(c, W_PARENT));
-        widget_on(c, EVT_VALUE_CHANGED, quick_moved, P(c, W_PARENT));
+        void *view = P(c, W_PARENT);
+        widget_move_resize(view, 0, QS_BAR_Y + QS_BAR_H / 2 - 24, I(view, W_W), 48);
+        widget_move_resize(c, QS_BAR_X, 0, QS_BAR_W, 48);
+        widget_on(c, EVT_VALUE_CHANGING, quick_moved, view);
+        widget_on(c, EVT_VALUE_CHANGED, quick_moved, view);
     }
 }
 int ringnav_quick_settings(void *win, void *ctx) {
@@ -156,114 +164,110 @@ void quick_fill(void *w) {
             widget_set_prop_int(w, track[i], 0);
     }
 }
-#define QS_TEXT_W 80
-#define QS_TEXT_PX 17
-#define QS_TEXT_LINE 14 /* a line's pitch, tighter than a label's font and its 2 px spacer */
-#define QS_TEXT_BOX 18  /* each line's box, holding the font */
-/* One line of a label, white in x, y's box. */
-static void quick_line(void *canvas, const unsigned *s, unsigned n, int x, int y) {
-    rect_t r = { x, y, QS_TEXT_W, QS_TEXT_BOX };
-    draw_centred(canvas, s, n, &r, QS_TEXT_PX, 0xffffffffu);
+#define QS_TEXT_W 86
+#define QS_TEXT_PX 14
+#define QS_TEXT_LINE 14 /* a line's pitch */
+#define QS_TEXT_BOX 16  /* each line's box, holding the font */
+/* Quick Settings under Classic, flat, in final colours, [0] dark, [1] light: the ground, the two
+ * cards on it, a button at rest and a label. */
+static const unsigned qs_ground[2] = { 0x000000, 0xf2f2f7 }, qs_card[2] = { 0x1c1c1e, 0xffffff },
+                      qs_rest[2] = { 0x3a3a3c, 0xe9e9ec }, qs_quiet[2] = { 0x98989d, 0x6e6e73 };
+/* What is on, final: Classic Blue's own blue (the theme's labelled scheme), or another accent's red
+ * tone, as Minimal's lit discs take it. */
+unsigned quick_on(void) {
+    return theme()->schemes[accent()].label ? 0x207cde
+                                            : flip_if(ipod_light(), accent_tone(TONE_RED));
 }
-/* A label under its icon, x, y its first line's box. The page draws its lines: stock's label keeps
- * the text and, for its repaint, a box round them, with its own ink clear. */
+/* One line of a label, the first n of s, quiet in x, y's box, in the system's face. */
+static void quick_line(void *canvas, const unsigned *s, unsigned n, int x, int y) {
+    unsigned line[32];
+    rect_t r = { x, y, QS_TEXT_W, QS_TEXT_BOX };
+    if (n > sizeof line / sizeof *line - 1) n = sizeof line / sizeof *line - 1;
+    for (unsigned i = 0; i < n; ++i) line[i] = s[i];
+    line[n] = 0;
+    final_text(canvas, (void *)0, line, &r, QS_TEXT_PX, 0xff000000u | qs_quiet[ipod_light()]);
+}
+/* A label under its button, x, y its first line's box. The page draws its lines: stock's label
+ * keeps the text and, for its repaint, a box round them, with its own ink clear. */
 static void quick_label(void *canvas, void *label, int x, int y) {
     const unsigned *s = widget_get_text(label);
-    unsigned n = wide_len(s), cut = 0, k = 1, raw = st.raw_ink;
+    unsigned n = wide_len(s), cut = 0, k = 1;
     if (!n) return;
-    int px = QS_TEXT_PX;
-    const char *face = theme_face(s, (int)n, &px);
-    canvas_set_font(canvas, face, px);
+    canvas_set_font(canvas, (void *)0, QS_TEXT_PX);
     int wrap = canvas_measure_text(canvas, s, n) > QS_TEXT_W, h = QS_TEXT_BOX + wrap * QS_TEXT_LINE;
-    /* a face is one of theme_face's literals: the payload's .rodata fits the low 24 bits */
-    int key = h << 24 | (int)(long)face;
-    if (widget_get_prop_int(label, "_ringnav_box", 0) != key) {
-        widget_set_prop_int(label, "_ringnav_box", key);
-        slider_label(label, x, y, QS_TEXT_W, h, px, face ? face : "default");
+    if (widget_get_prop_int(label, "_ringnav_box", 0) != h) {
+        widget_set_prop_int(label, "_ringnav_box", h);
+        slider_label(label, x, y, QS_TEXT_W, h, QS_TEXT_PX, "default");
         widget_set_prop_int(label, "style:normal:text_color", 0);
     }
     for (; wrap && k < n && canvas_measure_text(canvas, s, k) <= QS_TEXT_W; ++k)
         if (s[k] == ' ') cut = k;
     if (!wrap) cut = n;
     if (!cut) cut = k > 1 ? k - 1 : 1;
-    st.raw_ink = 1;
     quick_line(canvas, s, cut, x, y);
     if (wrap) {
         unsigned skip = cut + (s[cut] == ' ');
         quick_line(canvas, s + skip, n - skip, x, y + QS_TEXT_LINE);
     }
-    st.raw_ink = raw;
 }
-/* Quick Settings' buttons under Classic, in final colours, on Home's pane in the half: each a 60 px
- * tile, corners of 12, a 1 px border round a fill: off in light a 2-stop vertical silver, lighter
- * at the top, in dark a flat #333333 (the dark bar's hairline) with no ring; on (QS_LIT,
- * tools/art.py) flat, Classic Blue's blue, or another accent's red tone as Minimal's lit discs
- * take it, its border a quarter darker in light.
- * [on][light]: the fill's top and foot, the border. */
-static const unsigned qs_tile[2][2][3] = {
-    { { 0x333333, 0x333333, 0x333333 }, { 0xe9ebee, 0xd3d6dc, 0x9ba2aa } },
-    { { 0x207cde, 0x207cde, 0x207cde }, { 0x207cde, 0x207cde, 0x125cb0 } },
-};
-/* The page, in its window's coordinates: the ground, then each button by the image stock last gave
- * its icon, a sixth darker while pressed, its glyph in the tile's ink (white on, _l on a bright
- * accent or off in light, _d off in dark); and its label. */
+/* The page, in its window's coordinates: the ground and its two cards, then each button by the
+ * image stock last gave its icon: a 54 px disc, at rest or on (QS_LIT, tools/art.py), a sixth
+ * darker while pressed, its glyph in the disc's ink (white, or _l at rest in the light half and on
+ * a bright accent), and its label. */
 void quick_page(void *win, void *canvas) {
     int light = ipod_light();
-    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-    paint_stops(canvas, 0, 0, I(win, W_W), I(win, W_H), &theme()->home_pane[light]);
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), on = quick_on();
+    rect_t buttons = { 18, 20, 339, 196 }, bar = { 18, 226, 339, 62 };
+    stops_t card = { 2, { 0, 100 }, { qs_card[light], qs_card[light] } };
+    bar_rect(canvas, RGBA(qs_ground[light]), 0, 0, I(win, W_W), I(win, W_H));
+    paint_round_rows(canvas, &buttons, &card, 26);
+    paint_round_rows(canvas, &bar, &card, 26);
     for (unsigned i = 0; i < sizeof quick_icons / sizeof *quick_icons; ++i) {
         void *icon = widget_lookup(win, quick_icons[i], 1);
         void *label = widget_lookup(win, quick_labels[i], 1);
         if (!icon) continue;
         char name[40];
         const char *image = widget_get_prop_str(icon, "image", "");
-        int on = named_in(QS_LIT, image);
-        unsigned c[3] = { qs_tile[on][light][0], qs_tile[on][light][1], qs_tile[on][light][2] };
-        if (on && !theme()->schemes[accent()].label) { /* labelled: the theme's own, Classic Blue */
-            c[0] = c[1] = flip_if(light, accent_tone(TONE_RED));
-            c[2] = light ? mix(c[0], 0, 1, 4) : c[0];
-        }
-        const char *ink = on ? bright_tone(c[0]) ? "_l" : "" : light ? "_l" : "_d";
-        for (int k = 0; k < 3; ++k)
-            if (icon == quick.pressed) c[k] = mix(c[k], 0, 1, 6);
-        rect_t r = { I(icon, W_X), I(icon, W_Y), 60, 60 }, in = { r.x + 1, r.y + 1, 58, 58 };
-        stops_t line = { 2, { 0, 100 }, { c[2], c[2] } }, face = { 2, { 0, 100 }, { c[0], c[1] } };
-        paint_round_rows(canvas, &r, &line, 12);
-        paint_round_rows(canvas, &in, &face, 11);
+        int lit = named_in(QS_LIT, image);
+        unsigned c = lit ? on : qs_rest[light];
+        const char *ink = (lit ? bright_tone(c) : light) ? "_l" : "";
+        if (icon == quick.pressed) c = mix(c, 0, 1, 6);
+        rect_t r = { I(icon, W_X), I(icon, W_Y), 54, 54 };
+        stops_t face = { 2, { 0, 100 }, { c, c } };
+        paint_round_rows(canvas, &r, &face, 27);
         tk_snprintf(name, sizeof name, "classic_light_%s%s", image, ink);
         paint_art(win, canvas, name, r.x, r.y);
-        if (label) quick_label(canvas, label, r.x - 10, r.y + 64);
+        if (label) quick_label(canvas, label, r.x - (QS_TEXT_W - 54) / 2, r.y + 57);
     }
     stock_canvas_set_fill_color(canvas, fill);
 }
-/* ringnav_paint, after stock's slider, whose bar quick_fill cleared: the suns, the track, the fill
- * (Classic Blue's own stops, another accent's light tone flat, as Minimal's fill) and the knob, in
- * the window's coordinates less the slider's. */
+/* ringnav_paint, after stock's slider, whose bar quick_fill cleared: the bar at rest, its fill in
+ * what is on, never less than its own round end, and the suns in it, the small one on the fill and
+ * the large one quiet until the fill reaches it; in the window's coordinates less the slider's. */
 void quick_scrub(void *w, void *canvas) {
-    static const stops_t track = { 2, { 0, 100 }, { 0x0a0a0a, 0x3a3c40 } };
-    static const stops_t blue = { 3, { 0, 50, 100 }, { 0x8cc4f8, 0x2f85df, 0x165fc0 } };
     if (!classic_pages() || !quick_slider(w) || !P(canvas, CANVAS_LCD)) return;
-    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), on = quick_on();
     void *view = P(w, W_PARENT);
-    int ox = -I(view, W_X) - I(w, W_X), oy = -I(view, W_Y) - I(w, W_Y);
+    int ox = -I(view, W_X) - I(w, W_X), oy = -I(view, W_Y) - I(w, W_Y), light = ipod_light();
     int min = widget_get_prop_int(w, "min", 0), max = widget_get_prop_int(w, "max", 100);
-    int part =
-        max > min
-            ? 239 * clamp_step(0, max - min, widget_get_prop_int(w, "value", 0) - min) / (max - min)
-            : 0;
-    rect_t r = { 68 + ox, 275 + oy, 239, 11 };
-    paint_art(w, canvas, "classic_light_sun_small", 35 + ox, 272 + oy);
-    paint_art(w, canvas, "classic_light_sun_big", 321 + ox, 269 + oy);
-    paint_round_rows(canvas, &r, &track, 6);
-    paint_art(w, canvas, "classic_light_drop_track", r.x, r.y);
+    int part = QS_BAR_H;
+    if (max > min)
+        part += (QS_BAR_W - QS_BAR_H) *
+                clamp_step(0, max - min, widget_get_prop_int(w, "value", 0) - min) / (max - min);
+    rect_t r = { QS_BAR_X + ox, QS_BAR_Y + oy, QS_BAR_W, QS_BAR_H };
+    stops_t rest = { 2, { 0, 100 }, { qs_rest[light], qs_rest[light] } },
+            lit = { 2, { 0, 100 }, { on, on } };
+    int dark = bright_tone(on), reached = part > QS_BAR_W - QS_BAR_H / 2;
+    paint_round_rows(canvas, &r, &rest, 18);
     r.w = part;
-    stops_t lit = blue;
-    if (!theme()->schemes[accent()].label) { /* labelled: the theme's own, Classic Blue */
-        unsigned c = flip_if(ipod_light(), accent_tone(TONE_LIGHT));
-        lit = (stops_t){ 2, { 0, 100 }, { c, c } };
-    }
-    if (part >= 12) paint_round_rows(canvas, &r, &lit, 6); /* under that the knob covers it */
-    paint_art(w, canvas, "classic_light_drop_knob", r.x + part - 11 - 3, 269 - 3 + oy);
+    paint_round_rows(canvas, &r, &lit, 18);
+    paint_art(w, canvas, dark ? "classic_light_drop_dim_l" : "classic_light_drop_dim", r.x + 6,
+              r.y + 6);
+    paint_art(w, canvas,
+              reached ? dark ? "classic_light_drop_bright_l" : "classic_light_drop_bright"
+              : light ? "classic_light_drop_bright_ql"
+                      : "classic_light_drop_bright_qd",
+              r.x + QS_BAR_W - 33, r.y + 3);
     stock_canvas_set_fill_color(canvas, fill);
 }
 

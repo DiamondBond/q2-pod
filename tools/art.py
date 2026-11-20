@@ -345,53 +345,66 @@ BLACK, WHITE = 0, 255
 def classic_light_font():
     """The theme face's source, opened once a build."""
     return TTFont(CLASSIC_LIGHT_FONT_SRC, lazy=True)
-# Quick Settings' page under Classic: quick_settings.c quick_page paints each 60 px button (qs_tile), and these are the glyphs
-# over it in the tile's ink: QS_INK, white on (_l on a bright accent, Graphite's silver), _l and _d off in the light and dark half. Own drawings; stock's image names (the demo's own
-# strings) decide which button, and QS_LIT (stock.h, qs_lit) which are on.
+# Classic's glyphs, one family: solid shapes and lines with round ends, each thing drawn once. Quick Settings' page
+# (quick_settings.c quick_page) paints each 54 px round button, and its glyph over it in the button's ink: QS_INK, white,
+# or _l, dark, off in the light half and on a bright accent (Graphite's silver). Own drawings; stock's image names (the
+# demo's own strings) decide which button, and QS_LIT (stock.h, qs_lit) which are on.
 def circle(cx, cy, r):
     return f'M{cx - r} {cy}A{r} {r} 0 1 1 {cx + r} {cy}A{r} {r} 0 1 1 {cx - r} {cy}Z'
-COG = 'M' + 'L'.join(f'{r * math.sin(math.radians(a + t)):.2f} {-r * math.cos(math.radians(a + t)):.2f}' for a in range(0, 360, 60) for r, t in ((9.5, -18), (13.5, -10.2), (13.5, 10.2), (9.5, 18))) + 'Z'  # six joined teeth: the sliders' sun has eight loose rays
-# A glyph on a -30..30 box, centre at 0: (stroke's width, open paths, closed paths), filled discs (x, y, r), segments 3 wide.
-QS_GLYPHS = {
-    'wifi': ((3, ('M-14 -3a20 20 0 0 1 28 0', 'M-8 3a11 11 0 0 1 16 0'), ()), ((0, 9, 2.8),), ()),
-    'bt': ((2.6, ('M-7 -7 7 6 0 12V-12L7 -6-7 7',), ()), (), ()),
-    'lock': ((2.4, ('M-5 -3v-4a5 5 0 0 1 10 0v4',), ('M-7 -3H7A2 2 0 0 1 9 -1V9A2 2 0 0 1 7 11H-7A2 2 0 0 1 -9 9V-1A2 2 0 0 1 -7 -3Z',)), (), ()),
-    # stock's three USB modes, each its own: storage a stick, DAC a USB-C port, audio the trident
-    'stick': ((2.4, (), ('M-4 -14H4V-8H-4Z', 'M-7 -8H7V10A2 2 0 0 1 5 12H-5A2 2 0 0 1 -7 10Z')), (), ()),
-    'usbc': ((2.4, (), ('M-7 -8A7 7 0 0 1 7 -8V8A7 7 0 0 1 -7 8Z',)), (), (((0, -7), (0, 7)),)),
-    'usb': ((2.4, ('M0 12V-10', 'M0 6l-7-6V-5', 'M0 2l7-6V-8'), ('M0 -13l-4 5h8Z',)), (), ()),
-    'sl': ((2.4, ('M-8 -12V12', 'M0 -12V12', 'M8 -12V12'), ()), ((-8, 3, 3.6), (0, -4, 3.6), (8, 5, 3.6)), ()),
-    'gear': ((2.4, (), (COG, circle(0, 0, 3.6))), (), ()),
-}
-QS_FONT_PX, QS_LINE, QS_DIM = 15, 17, .45
-QS_INK = {'': 0xffffff, '_l': 0x262626, '_d': 0xe4e6e9}
-# Stock's name: glyph or text lines, on, the glyph's opacity (disabled: dimmed).
-QS_BUTTONS = {
-    'wifi': ('wifi', 0, 1), 'wifiopen': ('wifi', 1, 1), 'bt': ('bt', 0, 1), 'btopen': ('bt', 1, 1),
-    'keylock': ('lock', 0, 1), 'keylockopen': ('lock', 1, 1),
-    'lowgain': (('Low', 'Gain'), 0, 1), 'lowgaindisable': (('Low', 'Gain'), 0, QS_DIM),
-    'highgain': (('High', 'Gain'), 1, 1), 'highgaindisable': (('High', 'Gain'), 0, QS_DIM),
-    'lo': (('LO',), 1, 1), 'po': (('PO',), 0, 1), 'sa': (('SA',), 0, 1),
-    'usbstorage': ('stick', 0, 1), 'usbaudio': ('usb', 1, 1), 'usbdac': ('usbc', 1, 1),
-    'playset': ('sl', 0, 1), 'sysset': ('gear', 0, 1),
-}
 def rounded_path(x, y, w, h, r):
     return (f'M{x + r} {y}H{x + w - r}A{r} {r} 0 0 1 {x + w} {y + r}V{y + h - r}A{r} {r} 0 0 1 {x + w - r} {y + h}'
             f'H{x + r}A{r} {r} 0 0 1 {x} {y + h - r}V{y + r}A{r} {r} 0 0 1 {x + r} {y}Z')
 def rounded(w, h, x, y, bw, bh, r):
     """A rounded box's coverage of a w x h image, 0 to 1 per pixel."""
     return [min(c, 1) for c in coverage(path(rounded_path(x, y, bw, bh, r)), (0, 0, w, h))]
-# The message screens' round icon, an original drawing on a -50..50 box: the circle's rows, an inner ring, its glyph, a soft shadow.
-ORB_STOPS = ((2, 0xfff7c2), (14.6, 0xffe8a6), (21, 0xffdb8b), (25, 0xfed072), (30, 0xf7c155), (35.4, 0xfaaa2d), (40.6, 0xf09310),
-             (45.8, 0xe48600), (51, 0xdc8001), (72, 0xda8100), (81, 0xe98001), (94, 0xeb951a), (98, 0xdc9f42))
-ORB_R, ORB_RING_R, ORB_RING_W, ORB_RING, ORB_RING_A = 49.5, 48.6, 1.1, 0xffe2a0, .55
-ORB_INK = 0x160b00
-ORB_PAD, ORB_DROP, ORB_SIGMA, ORB_SHADOW_A = 8, 2, 4, 0x66  # px past the box for the shadow, its drop and blur on the screen
-ORB_NOTE = 'M-15 -19 20 -26V14A9 7 0 1 1 13 7V-13L-8 -9V21A9 7 0 1 1 -15 14Z'
-ORB_USB = ('M0 28V-20', 'M0 14 -18 0V-10', 'M0 6 18 -8V-18')  # stroked 5 wide, under its heads
-ORB_USB_HEADS = 'M0 -32 -8 -20H8Z'
-ORB_USB_SQUARE = 'M13 -24H23V-15H13Z'
-ORB_USB_DISCS = ((-18, -13, 5), (0, 29, 6))
+# eight joined teeth round a hole: the sun has eight loose rays
+COG = 'M' + 'L'.join(f'{r * math.sin(math.radians(a + t)):.2f} {-r * math.cos(math.radians(a + t)):.2f}' for a in range(0, 360, 45) for r, t in ((9.7, -13.5), (13, -7.5), (13, 7.5), (9.7, 13.5))) + 'Z' + circle(0, 0, 4.5)
+def note_glyph():
+    """Home's pane note, the same drawing, 28 high about 0, 0."""
+    polys = path(PANE_ICONS['note'])
+    xs, ys = [x for poly in polys for x, _ in poly], [y for poly in polys for _, y in poly]
+    cx, cy, k = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, 28 / (max(ys) - min(ys))
+    return ''.join('M' + 'L'.join(f'{(x - cx) * k:.2f} {(y - cy) * k:.2f}' for x, y in poly) + 'Z' for poly in polys)
+# A glyph about 0, 0: fill, shapes, a shape's later subpaths its holes; line, open paths stroked w wide (QS_WEIGHT
+# without one) with round ends; dots, filled discs (x, y, r); faint, lines at QS_FAINT of the ink.
+QS_WEIGHT, QS_FAINT, QS_DIM, QS_BOX = 2.6, .3, .45, 54
+BARS = ('M-7.5 9V4', 'M0 9V-2.5', 'M7.5 9V-9')
+QS_GLYPHS: dict[str, dict] = {
+    'wifi': dict(line=('M-11.6 -4.3a18 18 0 0 1 23.2 0', 'M-6.4 1.4a10 10 0 0 1 12.8 0'), dots=((0, 8.4, 2.5),), w=2.9),
+    'bt': dict(line=('M-5.6 -5.8 5.6 5.8 0 11.4V-11.4L5.6 -5.8-5.6 5.8',), w=2.3),
+    'lock': dict(fill=(rounded_path(-8.5, -1.5, 17, 13, 3.4),), line=('M-5 -2v-4.2a5 5 0 0 1 10 0v4.2',)),
+    # stock's three USB modes, each its own: storage a stick, DAC a USB-C port, audio the trident
+    'stick': dict(fill=(rounded_path(-6.5, -4.5, 13, 16.5, 3.2), rounded_path(-4, -12, 8, 6, 1.4))),
+    'usbc': dict(fill=(rounded_path(-12, -5.5, 24, 11, 5.5) + rounded_path(-6.5, -1.4, 13, 2.8, 1.4),)),
+    'usb': dict(fill=('M0 -13.6 -3.9 -7.6H3.9Z', rounded_path(4.3, -10.4, 4.6, 4.6, .8)),
+                line=('M0 10V-8.4', 'M0 6 -6.6 1.2V-3.2', 'M0 2.4 6.6 -2.4V-6'), dots=((-6.6, -4.4, 2.5), (0, 10.4, 3)), w=2.3),
+    'sl': dict(line=('M-8 -11V11', 'M0 -11V11', 'M8 -11V11'), dots=((-8, 4, 3.5), (0, -4.5, 3.5), (8, 5.5, 3.5)), w=2.3),
+    'gear': dict(fill=(COG,)),
+    # gain, three bars: all of them high, the first alone low; the output, headphones, its label saying which
+    'gain': dict(line=BARS, w=3.6), 'gain_low': dict(line=BARS[:1], faint=BARS[1:], w=3.6),
+    'phones': dict(fill=(rounded_path(-11.2, 1.5, 5.4, 9.5, 2.2), rounded_path(5.8, 1.5, 5.4, 9.5, 2.2)), line=('M-9 3.5v-3a9 9 0 0 1 18 0v3',), w=2.4),
+    'sun': dict(dots=((0, 0, 4.2),), w=2,
+                line=tuple(f'M{7.2 * math.cos(a * math.pi / 4):.2f} {7.2 * math.sin(a * math.pi / 4):.2f}L{10 * math.cos(a * math.pi / 4):.2f} {10 * math.sin(a * math.pi / 4):.2f}' for a in range(8))),
+    'note': dict(fill=(note_glyph(),)),
+}
+QS_INK = {'': 0xffffff, '_l': 0x1c1c1e}
+# Stock's name: glyph, on, the glyph's opacity (disabled: dimmed).
+QS_BUTTONS = {
+    'wifi': ('wifi', 0, 1), 'wifiopen': ('wifi', 1, 1), 'bt': ('bt', 0, 1), 'btopen': ('bt', 1, 1),
+    'keylock': ('lock', 0, 1), 'keylockopen': ('lock', 1, 1),
+    'lowgain': ('gain_low', 0, 1), 'lowgaindisable': ('gain_low', 0, QS_DIM),
+    'highgain': ('gain', 1, 1), 'highgaindisable': ('gain', 0, QS_DIM),
+    'lo': ('phones', 1, 1), 'po': ('phones', 0, 1), 'sa': ('phones', 0, 1),
+    'usbstorage': ('stick', 0, 1), 'usbaudio': ('usb', 1, 1), 'usbdac': ('usbc', 1, 1),
+    'playset': ('sl', 0, 1), 'sysset': ('gear', 0, 1),
+}
+# The brightness bar's suns (quick_scrub): the small one on the fill and the large one past it, name: px, scale; the
+# large one's quiet inks, on the bar's rest in the light and dark half.
+QS_SUNS = {'dim': (24, .62), 'bright': (30, .95)}
+QS_QUIET = {'_ql': 0x6e6e73, '_qd': 0x98989d}
+# The message screens' mark (classic_pages.c msg_paint): a glyph at MSG_SCALE on a MSG_BOX px square, in the half's ink.
+MSG_BOX, MSG_SCALE = 84, 2.8
+MSG_INK = {'l': 0x1c1c1e, 'd': 0xffffff}
 # Set Time and Set Date. A box's soft shadow as CSS's box-shadow draws it, clear under the box. Each image reaches past
 # its box by its PAD; navigation.c's TIME_*_PAD say the same.
 TRAY_H, TRAY_R, TRAY_PAD, TRAY_WIDTHS = 48, 7, 7, (108, 165, 164)
@@ -457,111 +470,27 @@ def lit_edge():
     inner = lambda dy: [b * (1 - c) for b, c in zip(box, rounded(w, h, 1, 1 + dy, 50, 26, 6))]
     return png(w, h, inked(w, h, [(inner(1), 0x73, WHITE), (inner(-1), 0x59, BLACK),
                                   (outside(rounded(w, h, 0, 0, w, h, 7), box), 0x77, BLACK)]))
-def over(top, under):
-    """RGBA bytes of straight-alpha top source-over under."""
-    out = bytearray()
-    for i in range(0, len(top), 4):
-        a, d = top[i + 3] / 255, under[i + 3] / 255
-        e = a + d * (1 - a)
-        out += bytes(round((top[i + k] * a + under[i + k] * d * (1 - a)) / e) if e else 0 for k in range(3)) + bytes((round(e * 255),))
-    return bytes(out)
-def butt_stroke(poly, width, closed=False):
-    """An SVG default stroke's polygons: butt caps, mitre joins under its limit of 4, else bevelled."""
-    r, out = width / 2, []
-    pts = [p for i, p in enumerate(poly) if not i or math.dist(p, poly[i - 1]) > 1e-6]
-    if closed:
-        pts += [pts[0]] if math.dist(pts[-1], pts[0]) > 1e-6 else []
-    def normal(a, b):
-        n = math.hypot(b[0] - a[0], b[1] - a[1])
-        return (b[1] - a[1]) / n * r, (a[0] - b[0]) / n * r
-    for a, b in zip(pts, pts[1:]):
-        nx, ny = normal(a, b)
-        out.append([(a[0] + nx, a[1] + ny), (b[0] + nx, b[1] + ny), (b[0] - nx, b[1] - ny), (a[0] - nx, a[1] - ny)])
-    for a, b, c in zip(pts, pts[1:], pts[2:] + (pts[1:2] if closed else [])):
-        (ax, ay), (bx, by) = normal(a, b), normal(b, c)
-        cross = ax * by - ay * bx
-        if abs(cross) < 1e-9:
-            continue
-        s = 1 if cross > 0 else -1  # the outer side
-        ax, ay, bx, by = ax * s, ay * s, bx * s, by * s
-        mx, my = ax + bx, ay + by
-        scale = 2 * r * r / (mx * mx + my * my)  # 2 * scale is the squared mitre ratio
-        tip = [(b[0] + mx * scale, b[1] + my * scale)] if 2 * scale <= 16 else []
-        out.append([b, (b[0] + ax, b[1] + ay), *tip, (b[0] + bx, b[1] + by)])
-    return out
-def qs_text(lines):
-    """Text lines' outlines from the theme's face, centred on the button, QS_LINE apart. One polygon a glyph: its contours
-    joined, each edge between them walked twice, so that coverage's even-odd keeps the counters."""
-    from fontTools.pens.basePen import BasePen
-    font = classic_light_font()
-    glyphs, cmap, k = font.getGlyphSet(), font.getBestCmap(), QS_FONT_PX / font['head'].unitsPerEm
-    hhea = font['hhea']
-    out = []
-    class Flat(BasePen):
-        def __init__(self, x, y):
-            super().__init__(glyphs)
-            self.x, self.y, self.polys = x, y, []
-        def at(self, p):
-            return self.x + p[0] * k, self.y - p[1] * k
-        def _moveTo(self, p):
-            self.polys.append([self.at(p)])
-        def _lineTo(self, p):
-            self.polys[-1].append(self.at(p))
-        def _curveToOne(self, a, b, c):
-            p0, ctrl = self.polys[-1][-1], [self.at(q) for q in (a, b, c)]
-            for t in (i / 12 for i in range(1, 13)):
-                u = 1 - t
-                self.polys[-1].append(tuple(u**3 * p0[n] + 3 * u * u * t * ctrl[0][n] + 3 * u * t * t * ctrl[1][n] + t**3 * ctrl[2][n] for n in (0, 1)))
-    for i, line in enumerate(lines):
-        width = sum(glyphs[cmap[ord(c)]].width for c in line) * k
-        # the line box's baseline, as CSS centres the face's ascent and descent in it
-        y = 30 - len(lines) * QS_LINE / 2 + i * QS_LINE + (QS_LINE + (hhea.ascent + hhea.descent) * k) / 2
-        x = 30 - width / 2
-        for c in line:
-            pen = Flat(x, y)
-            glyphs[cmap[ord(c)]].draw(pen)
-            out.append([p for contour in pen.polys for p in (*contour, contour[0])] + [pen.polys[0][0]])
-            x += glyphs[cmap[ord(c)]].width * k
-    return out
-def qs_glyph(glyph, ink):
-    """A glyph's layers for compose on the button's 60 x 60 box, in ink."""
-    paint = lambda x, y: (ink, 1)
-    if isinstance(glyph, tuple):  # text
-        return [(qs_text(glyph), paint)]
-    (width, opened, closed), discs, segments = QS_GLYPHS[glyph]
-    moved = lambda poly: [(x + 30, y + 30) for x, y in poly]
-    polys = [q for d in opened for poly in path(d) for q in butt_stroke(moved(poly), width)]
-    polys += [q for d in closed for poly in path(d) for q in butt_stroke(moved(poly), width, closed=True)]
-    polys += [q for a, b in segments for q in butt_stroke(moved([a, b]), 3)]
-    polys += [poly for x, y, r in discs for poly in map(moved, path(circle(x, y, r)))]
-    return [(polys, paint)]
+def holed(d):
+    """d's subpaths as one even-odd polygon: each joined from the first's start and back, those seams crossed twice."""
+    subs = path(d)
+    return [q for poly in subs for q in (*poly, poly[0], subs[0][0])]
+def qs_glyph(glyph, ink, size=QS_BOX, k=1):
+    """A glyph's layers for compose on a size px square, its 0, 0 the centre, k times its drawing, in ink."""
+    g = QS_GLYPHS[glyph]
+    at = lambda poly: [(size / 2 + x * k, size / 2 + y * k) for x, y in poly]
+    lines = lambda ds: stroke([at(poly) for d in ds for poly in path(d)], g.get('w', QS_WEIGHT) * k, closed=False)
+    polys = [at(holed(d)) for d in g.get('fill', ())] + lines(g.get('line', ()))
+    polys += [at(poly) for x, y, r in g.get('dots', ()) for poly in path(circle(x, y, r))]
+    return [(polys, lambda x, y: (ink, 1)), (lines(g.get('faint', ())), lambda x, y: (ink, QS_FAINT))]
 @functools.lru_cache(maxsize=None)
-def qs_mark(glyph, opacity, ink):
-    """One button's glyph, RGBA bytes on clear, at opacity."""
-    mark = bytearray(compose((0, 0, 60, 60), qs_glyph(glyph, ink)))
+def qs_mark(glyph, opacity, ink, size=QS_BOX, k=1):
+    """One glyph, a PNG on clear, at opacity."""
+    mark = bytearray(compose((0, 0, size, size), qs_glyph(glyph, ink, size, k)))
     mark[3::4] = bytes(round(a * opacity) for a in mark[3::4])
-    return png(60, 60, bytes(mark))
+    return png(size, size, bytes(mark))
 def qs_lit():
     """QS_LIT: the names whose button is on, NUL-separated, for navigation.c."""
     return ''.join(f'drop_{n}\\0' for n, (_, lit, _) in QS_BUTTONS.items() if lit)
-@functools.lru_cache(maxsize=None)
-def qs_track():
-    """The brightness track's edges over its 239 x 11, R 6 rows: inset 0 1px 2px black, and the row under it, white at 0x22."""
-    w, h, r, p = 239, 11, 6, 4
-    W, H = w + 2 * p, h + 2 * p
-    soft = blurred([1 - c for c in rounded(W, H, p, p + 1, w, h, r)], W, H, 1)
-    soft = [soft[(y + p) * W + x + p] if y < h else 0 for y in range(h + 1) for x in range(w)]
-    box = rounded(w, h + 1, 0, 0, w, h, r)
-    return png(w, h + 1, inked(w, h + 1, [([b * s for b, s in zip(box, soft)], 255, 0), (outside(rounded(w, h + 1, 0, 1, w, h, r), box), 0x22, 255)]))
-@functools.lru_cache(maxsize=None)
-def qs_knob():
-    """The 23 px knob at (3, 3) of 29: its ramp over box-shadow 0 1px 3px #000c."""
-    w = 29
-    disc = rounded(w, w, 3, 3, 23, 23, 11.5)
-    soft = blurred(rounded(w, w, 3, 4, 23, 23, 11.5), w, w, 1.5)
-    ramp = gradient(((0, 0xffffff), (50, 0xd9dbde), (100, 0xb8bbc0)), 3, 26)
-    top = compose((0, 0, w, w), [(path(circle(14.5, 14.5, 11.5)), lambda x, y: (ramp(y), 1))])
-    return png(w, w, over(top, inked(w, w, [(outside(soft, disc), 0xcc, 0)])))
 # The lock screen's hint: the soft shadow (0 1px 2px #00000080) of stock's three marks, drawn at 21 x 7, HINT_PAD past them all round.
 HINT_MARK = 'M1.5 1.5L8.2 8L1.5 14.5'
 HINT_MARKS, HINT_PAD, HINT_DROP, HINT_SIGMA, HINT_A = (0, 10.5, 21), 4, 1, 1, 0x80
@@ -590,27 +519,6 @@ def tray_shadow():
     across = [sum(c * at(held, x + k - reach, y) for k, c in enumerate(kernel)) / total for y in range(h) for x in range(w)]
     soft = [sum(c * at(across, x, y + k - reach) for k, c in enumerate(kernel)) / total for y in range(h) for x in range(w)]
     return b''.join(bytes((0, 0, 0, round(v * alpha))) for v in soft)
-@functools.cache
-def orb(side, usb):
-    """The icon's RGBA bytes: side px for its box, ORB_PAD more all round, the circle centred."""
-    size, k = side + 2 * ORB_PAD, side / 100
-    c = size / 2
-    placed = lambda polys: [[(c + x * k, c + y * k) for x, y in poly] for poly in polys]
-    disc = lambda x, y, r: placed([[(x + r * math.cos(a * math.pi / 64), y + r * math.sin(a * math.pi / 64)) for a in range(128)]])
-    box = (0, 0, size, size)
-    if usb:
-        ink = [q for d in ORB_USB for q in stroke(placed(path(d)), 5 * k, closed=False)] + placed(path(ORB_USB_HEADS)) + placed(path(ORB_USB_SQUARE))
-        ink += [q for a in ORB_USB_DISCS for q in disc(*a)]
-    else:
-        ink = placed(path(ORB_NOTE))
-    shape = disc(0, 0, ORB_R)
-    held = coverage([[(x, y + ORB_DROP) for x, y in poly] for poly in shape], box)
-    shadow = blurred([min(v, 1) for v in held], size, size, ORB_SIGMA)
-    fill = gradient(((0, ORB_STOPS[0][1]), *ORB_STOPS, (100, ORB_STOPS[-1][1])), c - ORB_R * k, c + ORB_R * k)
-    return compose(box, [([[(0, 0), (size, 0), (size, size), (0, size)]], lambda x, y: (0, shadow[int(y) * size + int(x)] * ORB_SHADOW_A / 255)),
-                         (shape, lambda x, y: (fill(y), 1)),
-                         (stroke(disc(0, 0, ORB_RING_R), ORB_RING_W * k), lambda x, y: (ORB_RING, ORB_RING_A)),
-                         (ink, lambda x, y: (ORB_INK, 1))])
 # The info screen's dark face, on a -50..50 box at CLOCK_DARK_PX: its numerals in the theme's own outlines. The hands are the payload's (clock.c paint_clock).
 CLOCK_DARK_PX = 96
 def outlines(text, size, cx, baseline):
@@ -707,7 +615,7 @@ def band_rim():
 
 # A coverage table per radius of the round boxes the painter draws a row at a time (navigation.c paint_round_rows): their
 # corners' pixels take the row's colour at this alpha, so they stay the scheme's.
-CORNERS = (2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+CORNERS = (2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 18, 26, 27)
 def corner_cover(r):
     """A radius r corner's coverage out of 255, r rows of r pixels, the outermost first."""
     n = 16
@@ -852,12 +760,13 @@ def images(t):
             out |= {f'{prefix}_spk_quiet_{half}': speaker(False, rgb), f'{prefix}_spk_loud_{half}': speaker(True, rgb)}
     if t['painter[PAINT_PAGES]']:
         out |= {f'{prefix}_sun_{name}': sun(*a) for name, a in SUNS.items()}
-        out |= {f'{prefix}_orb_note': png(116, 116, orb(100, False)), f'{prefix}_orb_usb': png(130, 130, orb(114, True))}
+        out |= {f'{prefix}_msg_{name}_{half}': qs_mark(name, 1, rgb, MSG_BOX, MSG_SCALE) for name in ('usb', 'note') for half, rgb in MSG_INK.items()}
         out |= {f'{prefix}_{name}': shadow(*a) for name, a in SHADOWS.items()}
         out |= {f'{prefix}_track_inset': track_inset(), f'{prefix}_lit_edge': lit_edge()}
         for name, (glyph, lit, opacity) in QS_BUTTONS.items():
-            out |= {f'{prefix}_drop_{name}{k}': qs_mark(glyph, opacity, QS_INK[k]) for k in (['', '_l'] if lit else ['_l', '_d'])}
-        out |= {f'{prefix}_drop_track': qs_track(), f'{prefix}_drop_knob': qs_knob()}
+            out |= {f'{prefix}_drop_{name}{k}': qs_mark(glyph, opacity, rgb) for k, rgb in QS_INK.items()}
+        for name, (px, k) in QS_SUNS.items():
+            out |= {f'{prefix}_drop_{name}{ink}': qs_mark('sun', 1, rgb, px, k) for ink, rgb in (QS_INK if name == 'dim' else QS_INK | QS_QUIET).items()}
         out[f'{prefix}_clock_dark'] = png(CLOCK_DARK_PX, CLOCK_DARK_PX, clock_dark())
         out |= {f'{prefix}_{name}': kb_glyph(name) for name in KB_GLYPHS}
         out[f'{prefix}_field'] = png(FIELD_W, FIELD_H, field())

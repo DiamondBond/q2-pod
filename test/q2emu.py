@@ -2446,7 +2446,7 @@ def parents(m,w):
     for c in m.nodes[w]['children']: m.word(c+O['W_PARENT'],w); parents(m,c)
 
 def dirty(m,win): return [c[2] and tuple(signed(m.get(c[2]+4*i)) for i in range(4)) for c in m.calls if c[0]=='widget_invalidate_force' and c[1]==win]  # each invalidate's rect
-def page_fill(m,y=0,rgb=0x63717b): return m.bands[0][:5]==(0,y,375,294,color_t(rgb))  # the page: one flat fill first, the half's Home pane colour
+def page_fill(m,y=0,rgb=0x63717b): return m.bands[0][:5]==(0,y,375,294,color_t(rgb))  # the page: one flat fill first, the half's Home pane colour, or the colour named
 def art_at(m): return list(zip([m.text(c[2]) for c in m.calls if c[0]=='widget_load_image'],[d[1][:2] for d in m.image_draws]))
 
 from art import corner_cover
@@ -2474,10 +2474,10 @@ def vol_closed(q):
     q.nodes[q.wm]['children']=[q.win]; q.top=q.win; q.calls=[]; q.advance(O['VOL_POLL_MS'])
     assert not q.timers and [q.nodes[w]['visible'] for w in (q.elapsed,q.remain)]==[1,1]
 
-QS_X=(31,115,199,283)
+QS_X=(33,118,203,288)
 
-def qs_ink(on,light): return '' if on else '_l' if light=='1' else '_d'
-QS_AT=[(QS_X[i%4],(20,138)[i//4]) for i in range(8)]
+def qs_ink(on,light): return '' if on or light=='0' else '_l'  # white, but at rest in the light half
+QS_AT=[(QS_X[i%4],(34,122)[i//4]) for i in range(8)]
 
 def qs_arts(q): return list(zip(q.image_loads,[d[1][:2] for d in q.image_draws]))
 
@@ -2488,20 +2488,15 @@ def qs_event(q,w,kind):
     q.word(q.event+O['EVENT_X'],30); q.word(q.event+O['EVENT_Y'],40)
     return q.call(key=30,address=HOOKS['widget_dispatch'][0],args=(w,q.event,0,0),event_type=kind,gap=0)
 
-def qs_tiles(q,rows,i=None):  # each tile's (top, foot, border), from the bands after the ground: a flat R 12 box, a 58 px R 11 fill in it
+def qs_tiles(q,rows):  # each button's colour, from the bands after the ground and its cards: a flat 54 px disc
     out=[]
     for x,y in QS_AT:
-        line,rows=round_box(rows,x,y,60,60,12); face,rows=round_box(rows,x+1,y+1,58,58,11); assert len(set(line))==1
-        assert all(min(a>>k&255,b>>k&255)<=c>>k&255<=max(a>>k&255,b>>k&255) for c in face for k in (0,8,16) for a,b in [(face[0],face[-1])])  # one ramp
-        out.append((face[0],face[-1],line[0]))
+        face,rows=round_box(rows,x,y,54,54,27); assert len(set(face))==1; out.append(face[0])
     return out
-def qs_want(c): return tuple(map(color_t,c))
-
-def qs_quarter(c): return sum(((c>>k&255)*3//4)<<k for k in (0,8,16))
 
 def qs_dark(c): return sum(((c>>k&255)*5//6)<<k for k in (0,8,16))
 
-def qs_lines(a,t,lines=None): return [(l,(a[0]-10,a[1]+64+14*i,80,18),0xffffffff) for i,l in enumerate(lines or (t,))]
+def qs_lines(a,t,color,lines=None): return [(l,(a[0]-16,a[1]+57+14*i,86,16),color) for i,l in enumerate(lines or (t,))]
 
 def tm_hand(tm_run,deg):
     a=math.radians(deg); ux,uy=math.sin(a),-math.cos(a); cx,cy=101,128; along=[]; side=[]
@@ -2563,8 +2558,14 @@ class MsgMachine(LoadPlain):
 def msg_close(m,win):
     f,ctx=next((f,c) for t,f,c in m.nodes[win]['handlers'] if t==O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
 
-def msg_track(m): return [b for b in m.bands if 72<=b[0] and b[0]+b[2]<=301 and 218<=b[1]<232 and b[3]==1 and b[4]>>24!=0xff]
-def msg_fill(m): return [b for b in m.bands if 72<=b[0] and 218<=b[1]<232 and b[3]==1 and b[4]>>24==0xff]
+def msg_bar(m):  # the scan's bar: None with none, else its colour at rest, how far its fill reaches (0: no fill) and the fill's colour
+    rows=[b for b in m.bands if 222<=b[1]<226]
+    if not rows: return None
+    rest,more=round_box(rows,88,222,200,4,2); assert len(set(rest))==1
+    if not more: return rest[0],0,None
+    w=max(b[0]+b[2] for b in more)-88; lit={b[4] for b in more if b[4]>>24==0xff}  # its rows between its corners' pixels, which a 4 px fill's first and last rows lack
+    assert len(lit)==1 and {b[4]&0xffffff for b in more}=={c&0xffffff for c in lit} and all(88<=b[0] for b in more)
+    return rest[0],w,lit.pop()
 
 def half_turn(m,hour): m.clock=(hour,0); m.call(address=payload_syms['clock_due'],args=(0,0,0,0),gap=0)
 

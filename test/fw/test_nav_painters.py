@@ -2271,7 +2271,7 @@ def test_classics_page_lays_its_icons_on_a_grid_that_paints_nothing(fw, st):
     assert len({b - a for a, b in zip(xs, xs[1:])}) == 1 and xs[1] - xs[0] > w  # evenly apart
     assert abs(xs[0] + xs[-1] + w - 375) <= 1  # centred
     mx, my, mw, mh = quick.menu.box
-    assert (mx, my, mw, mh) == (0, 0, quick.menu_was[2], quick.menu_was[1] + quick.menu_was[3])  # top to its old bottom
+    assert (mx, my, mw) == (0, 0, quick.menu_was[2])  # from the window's top, as wide as it was
     assert all(b[0] >= 0 and b[0] + b[2] <= mw and b[1] >= 0 and b[1] + b[3] <= mh for b in boxes)  # all on it
     assert [c[1][1] for c in fw.calls('widget_set_opacity')] == [0] * 8
     assert not quick.win.child('image0').visible and not quick.win.child('image1').visible
@@ -2280,8 +2280,11 @@ def test_classics_page_lays_its_icons_on_a_grid_that_paints_nothing(fw, st):
     assert all(len(quick.ui.handled(quick.icons[n], down)) == 1 for n in Quick.ICONS)
     moved = quick.fn('quick_moved')
     assert quick.ui.handled(quick.slider, moved) == [quick.slider.parent.addr] * 2
-    C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)(moved)(quick.slider.parent.addr, None)  # the knob reaches past it
+    C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)(moved)(quick.slider.parent.addr, None)  # the bar's ends reach past it
     assert fw.calls('widget_invalidate_force')[-1][1][0] == quick.slider.parent.addr
+    # the slider on the bar's box: the icons' span, its own 48 rows, in a view under the icons
+    view = quick.slider.parent.box
+    assert quick.slider.box == (xs[0], 0, xs[-1] + w - xs[0], 48) and view[3] == 48 and view[1] >= my + mh
 
 
 def test_classics_pressed_icon_repaints_under_the_finger_and_after(fw, st):

@@ -42,7 +42,7 @@ def pixels(data):
 
 # Stock's quick settings images, every drop_ name its demo sets (strings demo | grep '^drop_').
 QS_LIT = {'wifiopen', 'btopen', 'keylockopen', 'highgain', 'lo', 'usbaudio', 'usbdac'}
-QS_INKS = lambda n: ('', '_l') if n in QS_LIT else ('_l', '_d')  # on: white, or dark on a bright accent; off: the light and the dark half's
+QS_INKS = ('', '_l')  # white; dark, at rest in the light half and on a bright accent
 QS_NAMES = ('wifi', 'wifiopen', 'bt', 'btopen', 'keylock', 'keylockopen', 'lowgain', 'lowgaindisable', 'highgain', 'highgaindisable', 'lo', 'po', 'sa', 'usbstorage', 'usbaudio', 'usbdac', 'playset', 'sysset')
 
 
@@ -54,7 +54,7 @@ def test_classic_draws_its_images_and_the_others_none():
         assert set(art.images({**themes[0], **half})) == {'minimal_vol_lo', 'minimal_vol_hi'}
     full = art.images(themes[1])
     assert {k: v for k, v in full.items() if '_icon_' not in k} == classic()  # what the other tests draw
-    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS(n)), 'drop_track', 'drop_knob', 'sun_small', 'sun_big', 'orb_note', 'orb_usb', 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'band_shadow', 'panel_shadow', 'rate_shadow', 'tray_shadow', 'confirm_shadow', 'track_inset', 'lit_edge', 'band_top', 'band_foot', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
+    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', 'sun_small', 'sun_big', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'band_shadow', 'panel_shadow', 'rate_shadow', 'tray_shadow', 'confirm_shadow', 'track_inset', 'lit_edge', 'band_top', 'band_foot', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
 
 
 # The approved rendered rows, within 1 per channel: the fill down column 272 of the pause bars
@@ -101,7 +101,7 @@ def test_the_bolt_and_the_plug_fill_the_batterys_inside():
 
 def test_the_volume_and_slider_page_images():
     got = classic()
-    size = {'spk_quiet': (12, 14), 'spk_loud': (22, 14), 'sun_small': (16, 16), 'sun_big': (22, 22), 'orb_note': (116, 116), 'orb_usb': (130, 130)}
+    size = {'spk_quiet': (12, 14), 'spk_loud': (22, 14), 'sun_small': (16, 16), 'sun_big': (22, 22)}
     for name, wh in size.items():
         for n in ([f'{name}_{h}' for h in 'ldw'] if name.startswith('spk') else [name]):
             w, h, at = pixels(got[f'classic_light_{n}'])
@@ -133,21 +133,20 @@ def test_the_confirm_shadow_falls_soft_and_black_under_the_tray():
     assert len(got) < 8192
 
 
-def test_the_round_icons_are_centred_opaque_circles_in_their_shadow():
+def test_the_message_marks_are_the_glyphs_enlarged_in_the_halfs_ink():
     got = classic()
-    for name, side, r in (('orb_note', 116, 49.5), ('orb_usb', 130, 49.5 * 1.14)):
-        w, h, at = pixels(got[f'classic_light_{name}'])
-        assert (w, h) == (side, side)
-        assert at(w // 2, h // 2)[3] == 255
-        assert [at(x, y)[3] for x in (0, w - 1) for y in (0, h - 1)] == [0, 0, 0, 0]
-        assert at(w // 2, round(side / 2 - r + 3))[3] == 255 and at(w // 2, round(side / 2 + r - 3))[3] == 255  # the rim, inside its radius
-        below = at(w // 2, round(side / 2 + r + 2))  # the shadow: black, translucent, a drop below the circle stronger than above
-        above = at(w // 2, round(side / 2 - r - 3))
-        assert below[:3] == (0, 0, 0) and above[3] < below[3] <= 0x66
-    note, usb = pixels(got['classic_light_orb_note'])[2], pixels(got['classic_light_orb_usb'])[2]
-    assert note(58 + 16, 58 - 10)[:3] == (0x16, 0x0b, 0x00)  # the note's right stem
-    assert usb(65, 65)[:3] == (0x16, 0x0b, 0x00) and usb(65, 65 + 33)[:3] == (0x16, 0x0b, 0x00)  # the trident's stem, its foot
-    assert note(58, 58 + 44)[:3] != (0x16, 0x0b, 0x00) and note(58, 58 + 44)[0] > 0xc0  # the circle's lower rows, in its colours
+    for half, rgb in (('l', (0x1c, 0x1c, 0x1e)), ('d', (255, 255, 255))):
+        for name in ('usb', 'note'):
+            w, h, at = pixels(got[f'classic_light_msg_{name}_{half}'])
+            assert (w, h) == (84, 84) and [at(x, y)[3] for x in (0, 83) for y in (0, 83)] == [0, 0, 0, 0]
+            assert {at(x, y)[:3] for x in range(84) for y in range(84) if at(x, y)[3]} == {rgb}  # one ink, flat
+    usb, note = pixels(got['classic_light_msg_usb_d'])[2], pixels(got['classic_light_msg_note_d'])[2]
+    assert usb(42, 42)[3] == 255 and usb(42, 71)[3] == 255 and usb(38, 42)[3] < 64  # the trident's stem, 6.4 px wide, and its foot
+    assert note(42, 42)[3] == 0 and note(20, 70)[3] == 255 and note(62, 62)[3] == 255 and note(42, 12)[3] == 255  # between the stems; each head; the beam
+    # the button's own drawing, MSG_SCALE times about the centre: each of its solid pixels is solid here
+    w, h, small = pixels(got['classic_light_drop_usbaudio'])
+    solid = [(x, y) for x in range(w) for y in range(h) if small(x, y)[3] == 255]
+    assert len(solid) > 100 and all(usb(int(42 + (x + .5 - 27) * art.MSG_SCALE), int(42 + (y + .5 - 27) * art.MSG_SCALE))[3] == 255 for x, y in solid)
 
 
 def test_the_soft_shadows_are_their_boxes_blurred():
@@ -193,45 +192,58 @@ def test_the_switch_edges():
 
 
 def test_quick_settings_glyphs_are_flat_marks_on_clear():
-    # navigation.c paints each button; its art is the glyph alone in the tile's ink: white on, #262626 / #e4e6e9 off
+    # quick_settings.c paints each 54 px button; its art is the glyph alone in the button's ink: white, or #1c1c1e
     got = classic()
-    inks = {'': (255, 255, 255), '_l': (0x26, 0x26, 0x26), '_d': (0xe4, 0xe6, 0xe9)}
+    inks = {'': (255, 255, 255), '_l': (0x1c, 0x1c, 0x1e)}
     for n in QS_NAMES:
-        for k in QS_INKS(n):
+        for k in QS_INKS:
             w, h, at = pixels(got[f'classic_light_drop_{n}{k}'])
-            assert (w, h) == (60, 60)
-            assert all(at(x, y)[3] == 0 for x in range(60) for y in (0, 59)) and all(at(x, y)[3] == 0 for x in (0, 59) for y in range(60)), n
-            assert {at(x, y)[:3] for x in range(60) for y in range(60) if at(x, y)[3]} == {inks[k]}, n  # one ink, flat
+            assert (w, h) == (54, 54)
+            drawn = [(x, y) for x in range(54) for y in range(54) if at(x, y)[3]]
+            assert {at(x, y)[:3] for x, y in drawn} == {inks[k]}, n  # one ink, flat
+            assert max(math.hypot(x - 26.5, y - 26.5) for x, y in drawn) < 17, n  # well inside the button's 27
 
 
 def test_quick_settings_glyphs_dim_only_when_disabled():
     got = classic()
-    mark = lambda n: got[f'classic_light_drop_{n}{QS_INKS(n)[0]}']
-    alpha = lambda n: max(pixels(mark(n))[2](x, y)[3] for x in range(60) for y in range(60))
+    mark = lambda n: got[f'classic_light_drop_{n}']
+    at = lambda n: pixels(mark(n))[2]
+    alpha = lambda n: max(at(n)(x, y)[3] for x in range(54) for y in range(54))
     assert {n for n in QS_NAMES if alpha(n) < 255} == {'lowgaindisable', 'highgaindisable'}
     assert alpha('highgaindisable') == round(255 * art.QS_DIM)
-    assert all(mark(a) != mark(b) for a, b in (('lo', 'sa'), ('po', 'sa'), ('lowgain', 'highgaindisable')))
-    # stock's three USB modes, three marks: storage off, as stock's grey disc
-    assert len({got[f'classic_light_drop_{n}_l'] for n in ('usbstorage', 'usbaudio', 'usbdac')}) == 3 and 'usbstorage' not in QS_LIT  # one ink, three marks
-    # the text keeps its counter: the O of PO is clear in its middle
-    w, h, at = pixels(mark('po'))
-    row = [at(x, 30)[3] for x in range(30, 45)]
-    assert max(row) == 255 and min(row[row.index(max(row)):]) < 90
+    # gain's three bars, 3.6 wide: all solid when high; low keeps the first and leaves the others faint
+    assert [at('highgain')(x, 33)[3] for x in (19, 26, 34)] == [255, 255, 255]
+    assert [at('lowgain')(x, 33)[3] for x in (19, 26, 34)] == [255, round(255 * art.QS_FAINT), round(255 * art.QS_FAINT)]
+    assert at('highgain')(23, 33)[3] == 0 and at('highgain')(26, 20)[3] == 0  # clear between them, and above the middle one
+    # the output is one mark, its label saying which; stock's three USB modes are three: storage off, as stock's grey disc
+    assert mark('lo') == mark('po') == mark('sa') and mark('lowgain') != mark('highgaindisable')
+    assert len({mark(n) for n in ('usbstorage', 'usbaudio', 'usbdac')}) == 3 and 'usbstorage' not in QS_LIT
+    # a shape keeps its holes: the port's slot and the gear's middle are clear, the shape round them solid
+    assert (at('usbdac')(27, 27)[3], at('usbdac')(27, 23)[3], at('sysset')(27, 27)[3], at('sysset')(27, 20)[3]) == (0, 255, 0, 255)
+    # a line's ends are round: Wi-Fi's outer arc ends in half a disc, not a square cut
+    w, h, wifi = pixels(mark('wifi'))
+    left = min(x for x in range(54) for y in range(54) if wifi(x, y)[3] >= 128)
+    assert sum(wifi(left, y)[3] >= 128 for y in range(54)) < sum(wifi(left + 1, y)[3] >= 128 for y in range(54))
 
 
 def test_quick_settings_lit_names_are_the_on_buttons():
     assert art.qs_lit() == ''.join(f'drop_{n}\\0' for n in art.QS_BUTTONS if n in QS_LIT) and set(art.QS_BUTTONS) == set(QS_NAMES)
 
 
-def test_quick_settings_track_and_knob():
+def test_the_brightness_bars_suns():
+    # quick_scrub's: the small one on the fill, the large one past it, quiet on the bar at rest in each half
     got = classic()
-    w, h, at = pixels(got['classic_light_drop_track'])
-    assert (w, h) == (239, 12)
-    assert at(120, 0)[3] > at(120, 5)[3] and at(120, 0)[:3] == (0, 0, 0)  # the inset darkens from the top
-    assert at(120, 11) == (255, 255, 255, 0x22) and at(0, 0)[3] == 0
-    w, h, at = pixels(got['classic_light_drop_knob'])
-    assert (w, h) == (29, 29) and min(at(14, 3)[:3]) >= 0xfb and at(14, 14)[3] == 255 and at(0, 0)[3] < 16
-    assert abs(at(14, 14)[0] - 0xd9) <= 1 and at(14, 26)[:3] == (0, 0, 0) and at(14, 25)[0] < 0xc0  # the ramp's middle; the shadow's row below the disc
+    inks = {'': (255, 255, 255), '_l': (0x1c, 0x1c, 0x1e), '_ql': (0x6e, 0x6e, 0x73), '_qd': (0x98, 0x98, 0x9d)}
+    for name, px, keys, side in (('dim', 24, ('', '_l'), 14), ('bright', 30, tuple(inks), 20)):
+        for k in keys:
+            w, h, at = pixels(got[f'classic_light_drop_{name}{k}'])
+            assert (w, h) == (px, px) and at(px // 2, px // 2)[3] == 255
+            assert {at(x, y)[:3] for x in range(w) for y in range(h) if at(x, y)[3]} == {inks[k]}
+            inked = [(x, y) for x in range(w) for y in range(h) if at(x, y)[3] >= 64]  # the ink's bounding box, a quarter's alpha or more
+            assert max(p[0] for p in inked) - min(p[0] for p in inked) + 1 == side and max(p[1] for p in inked) - min(p[1] for p in inked) + 1 == side, name
+    row = [pixels(got['classic_light_drop_bright'])[2](x, 15)[3] for x in range(30)]
+    assert row[9] < 16 and row[10] == 0 and row[12] == 255 and row[6] == 255  # a ray stands clear of the disc
+    assert set(got) >= {f'classic_light_drop_bright{k}' for k in inks} and 'classic_light_drop_dim_ql' not in got
 
 
 def test_the_dark_clock_face():
@@ -383,12 +395,11 @@ def test_gradient_holds_the_first_stops_colour_before_it():
     assert g(10) == g(50) == 0x204060
 
 
-@pytest.mark.parametrize('poly', [[(1, 2), (5, 2), (9, 2)], [(1, 2), (9, 2), (5, 2)]])
-def test_butt_stroke_joins_nothing_where_the_line_goes_straight_on_or_back(poly):
-    # no corner there; doubled back, the two sides' normals cancel and a mitre has no direction
-    parts = art.butt_stroke(poly, 2)
-    assert len(parts) == 2  # the segments alone
-    assert art.coverage(parts, (0, 0, 10, 4)) == art.coverage([[(1, 1), (9, 1), (9, 3), (1, 3)]], (0, 0, 10, 4))
+def test_holed_joins_a_shapes_subpaths_so_the_later_ones_are_holes():
+    ring = art.holed('M0 0H8V8H0ZM2 2H6V6H2Z')
+    cov = art.coverage([ring], (0, 0, 8, 8))
+    assert cov[0] == 1 and cov[3 * 8 + 3] == 0 and cov[7 * 8 + 7] == 1 and sum(cov) == 64 - 16
+    assert art.coverage([art.holed('M0 0H8V8H0Z')], (0, 0, 8, 8)) == [1] * 64  # one subpath: itself
 
 
 def test_outlines_a_space_is_an_advance_with_no_polygon():
